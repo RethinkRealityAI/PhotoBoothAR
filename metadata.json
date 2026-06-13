@@ -1,0 +1,11 @@
+{
+  "name": "Hope Gala AR Filter Booth",
+  "description": "AR face tracking photo booth and live photo wall for the SCAGO Hope Gala 2026.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
