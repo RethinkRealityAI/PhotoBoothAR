@@ -7,7 +7,7 @@
  */
 import { motion } from 'motion/react';
 import { Camera } from 'lucide-react';
-import { HopeGalaWordmark } from '../ui/Logo';
+import { Wordmark } from '../ui/EventLogo';
 
 /** Small ornate gold corner flourish. */
 function Corner({ className }: { className: string }) {
@@ -73,7 +73,7 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
               animate={{ y: 0, opacity: 1, scale: 1 }}
               transition={{ delay: 0.25, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
             >
-              <HopeGalaWordmark size="lg" />
+              <Wordmark size="lg" />
             </motion.div>
 
             <motion.p
@@ -88,7 +88,7 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
             <motion.button
               onClick={onStart}
               whileTap={{ scale: 0.96 }}
-              className="mt-9 flex items-center gap-3 px-9 py-4 bg-foil text-noir-900 rounded-full font-label uppercase tracking-luxe text-[11px] font-bold glow-gold animate-pulse-glow"
+              className="mt-9 flex items-center gap-3 px-9 py-4 bg-foil text-noir-900 rounded-full font-label uppercase tracking-luxe text-[11px] font-bold glow-accent animate-pulse-glow"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.8, duration: 0.6 }}

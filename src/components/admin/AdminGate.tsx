@@ -8,8 +8,8 @@
  */
 import { useState, ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { HopeGalaMark } from '../ui/Logo';
-import GalaBackground from '../ui/GalaBackground';
+import { Mark } from '../ui/EventLogo';
+import EventBackground from '../ui/EventBackground';
 import { Lock, LayoutGrid, Wand2, Boxes, Image as ImageIcon, ShieldCheck, Trophy, Settings, FolderOpen } from 'lucide-react';
 
 const KEY = 'hopegala.admin';
@@ -24,7 +24,7 @@ export default function AdminGate({ children }: { children: ReactNode }) {
   if (!ok) {
     return (
       <div className="absolute inset-0 flex items-center justify-center p-6">
-        <GalaBackground density={28} />
+        <EventBackground density={28} />
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -37,10 +37,10 @@ export default function AdminGate({ children }: { children: ReactNode }) {
           }}
           className="relative z-10 glass-strong rounded-3xl border border-gold-400/20 p-10 w-full max-w-sm text-center animate-rise-in"
         >
-          <div className="w-14 h-14 mx-auto mb-6 rounded-full bg-foil glow-gold flex items-center justify-center">
+          <div className="w-14 h-14 mx-auto mb-6 rounded-full bg-foil glow-accent flex items-center justify-center">
             <Lock className="w-6 h-6 text-noir-900" />
           </div>
-          <h1 className="font-serif italic text-3xl mb-1 gold-foil-static">Studio Access</h1>
+          <h1 className="font-serif italic text-3xl mb-1 text-foil-static">Studio Access</h1>
           <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/50 mb-8">Hope Gala AR Studio</p>
           <input
             type="password"
@@ -56,7 +56,7 @@ export default function AdminGate({ children }: { children: ReactNode }) {
             }`}
           />
           {err && <p className="text-red-300/80 text-xs mt-3">Incorrect passcode</p>}
-          <button className="mt-6 w-full py-3.5 bg-foil text-noir-900 font-bold uppercase tracking-luxe text-[11px] rounded-xl glow-gold hover:scale-[1.02] transition-transform">
+          <button className="mt-6 w-full py-3.5 bg-foil text-noir-900 font-bold uppercase tracking-luxe text-[11px] rounded-xl glow-accent hover:scale-[1.02] transition-transform">
             Enter Studio
           </button>
         </form>
@@ -79,7 +79,7 @@ export default function AdminGate({ children }: { children: ReactNode }) {
     <div className="absolute inset-0 flex flex-col">
       <nav className="h-16 shrink-0 flex items-center gap-3 px-4 glass-strong border-b border-gold-400/15 z-50">
         <div className="shrink-0">
-          <HopeGalaMark />
+          <Mark />
         </div>
         {/* Scrollable tab strip — icons only on mobile, icon+label on md+ */}
         <div className="flex-1 overflow-x-auto hide-scrollbar">

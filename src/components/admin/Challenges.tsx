@@ -10,7 +10,7 @@ import {
   Plus, Pencil, Trash2, Check, X, RefreshCw,
   ChevronUp, ChevronDown, ToggleLeft, ToggleRight
 } from 'lucide-react';
-import GalaBackground from '../ui/GalaBackground';
+import EventBackground from '../ui/EventBackground';
 import {
   fetchChallenges,
   createChallenge,
@@ -107,7 +107,7 @@ function EditForm({ initial, onSave, onCancel, saving }: EditFormProps) {
         <button
           type="submit"
           disabled={saving || !title.trim()}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-foil text-noir-900 font-bold text-[11px] font-label uppercase tracking-widest rounded-xl glow-gold hover:scale-[1.02] transition-transform disabled:opacity-40"
+          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-foil text-noir-900 font-bold text-[11px] font-label uppercase tracking-widest rounded-xl glow-accent hover:scale-[1.02] transition-transform disabled:opacity-40"
         >
           <Check className="w-3.5 h-3.5" />
           {saving ? 'Saving…' : 'Save'}
@@ -342,14 +342,14 @@ export default function Challenges() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto hide-scrollbar">
-      <GalaBackground density={24} />
+      <EventBackground density={24} />
       <div className="relative z-10 p-6 md:p-8 flex flex-col gap-6 max-w-2xl mx-auto">
 
         {/* Header */}
         <header className="flex items-center justify-between animate-rise-in">
           <div>
             <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
-            <h1 className="font-serif italic text-3xl gold-foil-static">Challenges</h1>
+            <h1 className="font-serif italic text-3xl text-foil-static">Challenges</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
               {loading ? 'Loading…' : `${challenges.length} challenges · ${active} active`}
             </p>
@@ -365,7 +365,7 @@ export default function Challenges() {
             <button
               onClick={() => setEditingId((v) => (v === 'new' ? null : 'new'))}
               disabled={editingId === 'new'}
-              className="flex items-center gap-2 px-4 py-2 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-gold hover:scale-[1.02] transition-transform disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent hover:scale-[1.02] transition-transform disabled:opacity-50"
             >
               <Plus className="w-4 h-4" /> Add
             </button>
@@ -391,13 +391,13 @@ export default function Challenges() {
           </div>
         ) : challenges.length === 0 ? (
           <div className="glass rounded-2xl border border-gold-400/10 p-16 text-center">
-            <p className="font-serif italic text-2xl gold-foil-static mb-2">No challenges yet</p>
+            <p className="font-serif italic text-2xl text-foil-static mb-2">No challenges yet</p>
             <p className="font-sans text-sm text-champagne/40 mb-6">
               Add engagement challenges guests can complete at the booth.
             </p>
             <button
               onClick={() => setEditingId('new')}
-              className="px-6 py-3 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-gold"
+              className="px-6 py-3 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent"
             >
               Add First Challenge
             </button>

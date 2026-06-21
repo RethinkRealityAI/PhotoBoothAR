@@ -7,7 +7,7 @@
  */
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Eye, EyeOff, Trash2, RefreshCw, Check, X, Wifi, Play } from 'lucide-react';
-import GalaBackground from '../ui/GalaBackground';
+import EventBackground from '../ui/EventBackground';
 import { fetchPosts, setPostHidden, deletePost, subscribeToPosts } from '../../lib/db';
 import type { Post } from '../../types';
 
@@ -227,14 +227,14 @@ export default function Moderation() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto hide-scrollbar">
-      <GalaBackground density={24} />
+      <EventBackground density={24} />
       <div className="relative z-10 p-6 md:p-8 flex flex-col gap-6">
 
         {/* Header */}
         <header className="flex items-center justify-between animate-rise-in">
           <div>
             <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
-            <h1 className="font-serif italic text-3xl gold-foil-static">Wall Moderation</h1>
+            <h1 className="font-serif italic text-3xl text-foil-static">Wall Moderation</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
               Controls what guests see on the projected photo wall.
             </p>
@@ -304,7 +304,7 @@ export default function Moderation() {
           </div>
         ) : posts.length === 0 ? (
           <div className="glass rounded-2xl border border-gold-400/10 p-16 text-center">
-            <p className="font-serif italic text-2xl gold-foil-static mb-2">No posts yet</p>
+            <p className="font-serif italic text-2xl text-foil-static mb-2">No posts yet</p>
             <p className="font-sans text-sm text-champagne/40">
               Guest photos will appear here in real-time as they are submitted at the booth.
             </p>

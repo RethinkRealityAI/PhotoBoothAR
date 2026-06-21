@@ -12,7 +12,8 @@ import {
   Wifi, RefreshCw, Sparkles, Globe, User, Rows3, Timer, Gauge,
   Megaphone, Save, Plus, Trash2, Wand2,
 } from 'lucide-react';
-import GalaBackground from '../ui/GalaBackground';
+import EventBackground from '../ui/EventBackground';
+import { activeEvent } from '../../events/active';
 import {
   getWallSettings, setWallSettings as dbSetWallSettings, subscribeToSettings,
   getLandingContent, setLandingContent, DEFAULT_LANDING,
@@ -50,7 +51,7 @@ function ToggleRow({ icon, label, helper, checked, onChange, busy }: ToggleRowPr
         disabled={busy}
         onClick={() => onChange(!checked)}
         className={`relative shrink-0 w-12 h-6 rounded-full transition-colors duration-200 disabled:opacity-40 ${
-          checked ? 'bg-gold-400 glow-gold' : 'bg-noir-700'
+          checked ? 'bg-gold-400 glow-accent' : 'bg-noir-700'
         }`}
       >
         <span
@@ -303,14 +304,14 @@ export default function Settings() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto hide-scrollbar">
-      <GalaBackground density={28} />
+      <EventBackground density={28} />
       <div className="relative z-10 p-6 md:p-10 flex flex-col gap-8 max-w-2xl mx-auto">
 
         {/* Header */}
         <header className="flex items-center justify-between animate-rise-in">
           <div>
             <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
-            <h1 className="font-serif italic text-3xl gold-foil-static">Event Settings</h1>
+            <h1 className="font-serif italic text-3xl text-foil-static">Event Settings</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
               Live wall feature controls — changes apply immediately.
             </p>
@@ -512,7 +513,7 @@ export default function Settings() {
             <button
               onClick={saveLanding}
               disabled={landingSaving}
-              className="w-full bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl py-3 glow-gold flex items-center justify-center gap-2 hover:brightness-110 transition-all disabled:opacity-50"
+              className="w-full bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl py-3 glow-accent flex items-center justify-center gap-2 hover:brightness-110 transition-all disabled:opacity-50"
             >
               {landingSaved ? <><Check className="w-4 h-4" /> Saved</> : landingSaving ? 'Saving…' : <><Save className="w-4 h-4" /> Save Join Page</>}
             </button>
@@ -547,7 +548,7 @@ export default function Settings() {
           <div className="space-y-2 font-sans text-sm text-champagne/70">
             <div className="flex items-center gap-3">
               <Sparkles className="w-4 h-4 text-gold-400 shrink-0" />
-              <span><strong className="text-ivory">SCAGO Hope Gala &amp; Awards 2026</strong></span>
+              <span><strong className="text-ivory">{activeEvent.copy.fullName}</strong></span>
             </div>
             <div className="flex items-center gap-3">
               <Globe className="w-4 h-4 text-gold-400 shrink-0" />

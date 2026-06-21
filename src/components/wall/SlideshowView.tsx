@@ -17,7 +17,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Post } from '../../types';
-import { HopeGalaWordmark } from '../ui/Logo';
+import { Wordmark } from '../ui/EventLogo';
 
 interface Props {
   posts: Post[];
@@ -134,7 +134,7 @@ export default function SlideshowView({
     return (
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="text-center animate-rise-in">
-          <p className="font-serif italic text-5xl gold-foil-static mb-4">
+          <p className="font-serif italic text-5xl text-foil-static mb-4">
             Be the first to capture a moment…
           </p>
         </div>
@@ -235,7 +235,7 @@ export default function SlideshowView({
           doesn't double-up with the Wall's own top-left wordmark. */}
       {projectionMode && (
         <div className="absolute top-6 left-8 z-20" style={{ opacity: 0.65 }}>
-          <HopeGalaWordmark size="sm" />
+          <Wordmark size="sm" />
         </div>
       )}
 
@@ -251,7 +251,7 @@ export default function SlideshowView({
               }}
               className={`rounded-full transition-all duration-300 ${
                 i === currentIndex
-                  ? 'w-6 h-2 bg-foil glow-gold'
+                  ? 'w-6 h-2 bg-foil glow-accent'
                   : 'w-2 h-2 bg-champagne/30 hover:bg-champagne/60'
               }`}
             />
@@ -276,7 +276,7 @@ export default function SlideshowView({
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -10 }}
                 transition={{ duration: 0.2 }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 z-20 glass rounded-full w-12 h-12 flex items-center justify-center hover:glow-gold transition-all"
+                className="absolute left-4 top-1/2 -translate-y-1/2 z-20 glass rounded-full w-12 h-12 flex items-center justify-center hover:glow-accent transition-all"
                 style={{ border: '1px solid rgba(212,175,55,0.3)' }}
               >
                 <span className="text-ivory text-xl">‹</span>
@@ -288,7 +288,7 @@ export default function SlideshowView({
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
                 transition={{ duration: 0.2 }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 z-20 glass rounded-full w-12 h-12 flex items-center justify-center hover:glow-gold transition-all"
+                className="absolute right-4 top-1/2 -translate-y-1/2 z-20 glass rounded-full w-12 h-12 flex items-center justify-center hover:glow-accent transition-all"
                 style={{ border: '1px solid rgba(212,175,55,0.3)' }}
               >
                 <span className="text-ivory text-xl">›</span>

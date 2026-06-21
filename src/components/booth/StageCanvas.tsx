@@ -22,6 +22,7 @@ import {
 import { ShaderRunner, defaultParams } from '../../lib/shaders';
 import { drawScagoMark } from '../../lib/scagoMark';
 import { Transform2D } from '../../types';
+import { activeEvent } from '../../events/active';
 
 export interface StageCanvasHandle {
   canvas: HTMLCanvasElement | null;
@@ -73,7 +74,7 @@ function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
 
-  const title = 'Hope Gala & Awards';
+  const title = activeEvent.copy.eventName;
   const titleSize = Math.round(w * 0.040);
   const eyebrowSize = Math.round(w * 0.020);
   ctx.font = `italic 600 ${titleSize}px Georgia, "Times New Roman", serif`;
@@ -100,7 +101,7 @@ function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.fillStyle = '#E9D9B8';
   ctx.globalAlpha = 0.9;
   ctx.font = `${eyebrowSize}px Georgia, serif`;
-  drawTracked(ctx, 'SCAGO · 2026', textX + 2, baseY - titleSize * 0.5, eyebrowSize * 0.18);
+  drawTracked(ctx, activeEvent.copy.eyebrow, textX + 2, baseY - titleSize * 0.5, eyebrowSize * 0.18);
 
   const textGrad = ctx.createLinearGradient(textX, 0, textX + titleW, 0);
   textGrad.addColorStop(0, '#E8C766');

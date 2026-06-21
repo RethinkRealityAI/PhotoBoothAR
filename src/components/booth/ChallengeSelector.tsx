@@ -126,7 +126,7 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
               {needName ? (
                 /* ── Name step (required before entering challenge mode) ── */
                 <div className="text-center">
-                  <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-foil glow-gold flex items-center justify-center">
+                  <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-foil glow-accent flex items-center justify-center">
                     <Trophy className="w-6 h-6 text-noir-900" />
                   </div>
                   <h3 className="font-serif text-2xl text-ivory mb-1">Enter the Challenges</h3>
@@ -149,7 +149,7 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
                     <button
                       onClick={confirmName}
                       disabled={nameInput.trim().length < 2}
-                      className="flex-1 bg-foil glow-gold text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 hover:brightness-110 transition-all active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+                      className="flex-1 bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 hover:brightness-110 transition-all active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
                     >
                       Continue
                     </button>
@@ -182,7 +182,7 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
                   {allDone ? (
                     <div className="py-8 text-center">
                       <div className="text-5xl mb-3">🏆</div>
-                      <p className="font-serif italic text-xl gold-foil-static mb-1">All challenges complete!</p>
+                      <p className="font-serif italic text-xl text-foil-static mb-1">All challenges complete!</p>
                       <p className="font-sans text-xs text-champagne/50">Check the live wall leaderboard to see if you made the top three.</p>
                     </div>
                   ) : (

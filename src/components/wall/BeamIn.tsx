@@ -209,7 +209,7 @@ export default function BeamIn({ guestName, onDone }: Props) {
         <span className="ml-2.5 font-serif italic text-ivory text-lg">
           {guestName ? (
             <>
-              <span className="gold-foil-static">{guestName}</span>
+              <span className="text-foil-static">{guestName}</span>
               <span className="text-ivory/80"> just shared a moment</span>
             </>
           ) : (

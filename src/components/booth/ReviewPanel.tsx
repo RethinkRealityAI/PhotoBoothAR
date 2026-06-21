@@ -9,6 +9,7 @@ import { Download, Share2, RefreshCw, Send } from 'lucide-react';
 import { GalleryIcon, MediaStackIcon } from '../ui/MediaIcons';
 import { getGuestName } from '../../lib/session';
 import { Challenge } from '../../types';
+import { activeEvent } from '../../events/active';
 
 interface Props {
   dataUrl: string;             // JPEG data-url for image; object URL for video
@@ -34,7 +35,7 @@ export default function ReviewPanel({
   const nameMissing = nameRequired && guestName.trim().length < 2;
 
   const ext = mediaType === 'video' ? 'webm' : 'jpg';
-  const filename = `HopeGala2026-${Date.now()}.${ext}`;
+  const filename = `${activeEvent.copy.filePrefix}-${Date.now()}.${ext}`;
 
   function handleDownload() {
     const a = document.createElement('a');
@@ -49,7 +50,7 @@ export default function ReviewPanel({
       const res = await fetch(dataUrl);
       const blob = await res.blob();
       const file = new File([blob], filename, { type: blob.type });
-      await navigator.share({ files: [file], title: 'SCAGO Hope Gala & Awards 2026' });
+      await navigator.share({ files: [file], title: activeEvent.copy.shareTitle });
     } catch { /* cancelled */ }
   }
 
@@ -153,7 +154,7 @@ export default function ReviewPanel({
             onClick={() => { if (nameMissing) return; setConfirming(true); }}
             disabled={sending || nameMissing}
             title={nameMissing ? 'Enter your name to send a challenge photo' : undefined}
-            className="flex-1 bg-foil glow-gold text-noir-900 font-label uppercase tracking-luxe text-xs rounded-xl px-5 py-3.5 flex items-center justify-center gap-2.5 hover:brightness-110 transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
+            className="flex-1 bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-xs rounded-xl px-5 py-3.5 flex items-center justify-center gap-2.5 hover:brightness-110 transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
           >
             <Send className="w-4 h-4" />
             Send to Wall
@@ -209,7 +210,7 @@ export default function ReviewPanel({
               transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-foil glow-gold flex items-center justify-center">
+              <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-foil glow-accent flex items-center justify-center">
                 <Send className="w-6 h-6 text-noir-900" />
               </div>
               <h3 className="font-serif text-2xl text-ivory mb-1.5">Send to the wall?</h3>
@@ -227,7 +228,7 @@ export default function ReviewPanel({
                 <button
                   onClick={() => { if (sending || submitted) return; setSubmitted(true); onSend(guestName.trim(), message.trim()); }}
                   disabled={sending || submitted}
-                  className="flex-1 bg-foil glow-gold text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 flex items-center justify-center gap-2 hover:brightness-110 transition-all active:scale-95 disabled:opacity-60 disabled:pointer-events-none"
+                  className="flex-1 bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 flex items-center justify-center gap-2 hover:brightness-110 transition-all active:scale-95 disabled:opacity-60 disabled:pointer-events-none"
                 >
                   {sending || submitted ? 'Sending…' : 'Yes, send'}
                 </button>

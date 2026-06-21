@@ -21,7 +21,7 @@ import {
   SlidersHorizontal, Eye, EyeOff, ChevronUp,
 } from 'lucide-react';
 
-import GalaBackground from './ui/GalaBackground';
+import EventBackground from './ui/EventBackground';
 import ScagoMark from './ui/ScagoMark';
 import { GalleryIcon, MediaStackIcon } from './ui/MediaIcons';
 
@@ -380,7 +380,7 @@ export default function Booth() {
   // ── Render ─────────────────────────────────────────────────────────────
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-noir-900 select-none">
-      <GalaBackground density={44} sparkle={0.7} />
+      <EventBackground density={44} sparkle={0.7} />
 
       {/* ── Welcome gate ──────────────────────────────────────────────── */}
       <AnimatePresence>
@@ -548,7 +548,7 @@ export default function Booth() {
                   {/* Center: shutter / record / stop */}
                   <div className="relative flex items-center justify-center">
                     {mediaMode === 'photo' ? (
-                      <motion.button onClick={handleShutterPress} whileTap={{ scale: 0.88 }} className="relative w-[72px] h-[72px] rounded-full bg-foil glow-gold animate-pulse-glow flex items-center justify-center focus:outline-none" aria-label="Take photo">
+                      <motion.button onClick={handleShutterPress} whileTap={{ scale: 0.88 }} className="relative w-[72px] h-[72px] rounded-full bg-foil glow-accent animate-pulse-glow flex items-center justify-center focus:outline-none" aria-label="Take photo">
                         <div className="absolute inset-2 rounded-full border-2 border-ivory/60" />
                         <div className="w-5 h-5 rounded-full bg-ivory/80" />
                       </motion.button>
@@ -592,7 +592,7 @@ export default function Booth() {
           {phase === 'camera' && ready && uiHidden && (
             <div className="absolute bottom-0 left-0 right-0 z-20 pb-safe-bottom flex flex-col items-center gap-3 pb-7 pointer-events-none">
               {mediaMode === 'photo' ? (
-                <motion.button onClick={handleShutterPress} whileTap={{ scale: 0.88 }} className="pointer-events-auto relative w-[72px] h-[72px] rounded-full bg-foil glow-gold animate-pulse-glow flex items-center justify-center" aria-label="Take photo">
+                <motion.button onClick={handleShutterPress} whileTap={{ scale: 0.88 }} className="pointer-events-auto relative w-[72px] h-[72px] rounded-full bg-foil glow-accent animate-pulse-glow flex items-center justify-center" aria-label="Take photo">
                   <div className="absolute inset-2 rounded-full border-2 border-ivory/60" />
                   <div className="w-5 h-5 rounded-full bg-ivory/80" />
                 </motion.button>

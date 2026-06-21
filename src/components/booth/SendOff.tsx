@@ -21,6 +21,7 @@ import confetti from 'canvas-confetti';
 import { LayoutGrid, Film } from 'lucide-react';
 import { ShaderRunner, defaultParams } from '../../lib/shaders';
 import ScagoMark from '../ui/ScagoMark';
+import { activeEvent } from '../../events/active';
 
 interface Props {
   dataUrl: string;
@@ -314,7 +315,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
                   style={{ perspective: '900px', transformStyle: 'preserve-3d' }}
                   className="h-full w-full"
                 >
-                  <div className="glass-strong flex h-full w-full items-center justify-center rounded-2xl border border-gold-400/25 glow-gold">
+                  <div className="glass-strong flex h-full w-full items-center justify-center rounded-2xl border border-gold-400/25 glow-accent">
                     <Film className="h-9 w-9 text-gold-300/70" />
                   </div>
                 </motion.div>
@@ -377,7 +378,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
               transition={{ delay: 0.1, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
               className="relative flex h-28 w-28 items-center justify-center"
             >
-              <div className="absolute inset-0 rounded-full bg-foil opacity-90 glow-gold animate-pulse-glow" />
+              <div className="absolute inset-0 rounded-full bg-foil opacity-90 glow-accent animate-pulse-glow" />
               <div className="absolute inset-[3px] rounded-full bg-noir-900/90" />
               <ScagoMark size={66} variant="gold" animated title="SCAGO" className="relative" />
             </motion.div>
@@ -388,7 +389,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
                 initial={{ opacity: 0, y: 14, letterSpacing: '0.4em' }}
                 animate={{ opacity: 1, y: 0, letterSpacing: '0em' }}
                 transition={{ delay: 0.35, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-                className="font-serif text-4xl gold-foil"
+                className="font-serif text-4xl text-foil"
               >
                 Sent!
               </motion.h2>
@@ -399,7 +400,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
                 className="mx-auto max-w-xs font-sans text-sm leading-relaxed text-champagne/70"
               >
                 Your {isVideo ? 'video' : 'photo'} is on its way to the live wall.
-                Thank you for being part of the Hope Gala!
+                {activeEvent.copy.thankYou}
               </motion.p>
             </div>
 
@@ -411,7 +412,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
             >
               <button
                 onClick={onTakeAnother}
-                className="rounded-xl bg-foil px-6 py-4 font-label text-xs uppercase tracking-luxe text-noir-900 glow-gold transition-all hover:brightness-110 active:scale-95"
+                className="rounded-xl bg-foil px-6 py-4 font-label text-xs uppercase tracking-luxe text-noir-900 glow-accent transition-all hover:brightness-110 active:scale-95"
               >
                 Take Another
               </button>
@@ -439,7 +440,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
               className="flex flex-col items-center gap-0.5"
             >
               <p className="font-label text-[10px] uppercase tracking-luxe text-gold-300/60">SCAGO</p>
-              <p className="font-label text-[9px] uppercase tracking-luxe text-champagne/30">Hope Gala &amp; Awards 2026</p>
+              <p className="font-label text-[9px] uppercase tracking-luxe text-champagne/30">{activeEvent.copy.fullName}</p>
             </motion.div>
           </motion.div>
         )}

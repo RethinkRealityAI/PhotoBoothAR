@@ -238,7 +238,7 @@ export default function PropertiesPanel({
         <button
           onClick={onSave}
           disabled={saving}
-          className="w-full bg-foil glow-gold text-noir-900 font-label text-xs uppercase
+          className="w-full bg-foil glow-accent text-noir-900 font-label text-xs uppercase
                      tracking-luxe rounded-xl py-2.5 transition-opacity disabled:opacity-50"
         >
           {saving ? 'Saving…' : 'Save Experience'}

@@ -3,6 +3,7 @@
  */
 import { Camera, RefreshCw, AlertTriangle } from 'lucide-react';
 import type { CameraError as CameraErrorType } from './useCameraStream';
+import { activeEvent } from '../../events/active';
 
 interface Props {
   error: CameraErrorType;
@@ -42,14 +43,14 @@ export default function CameraErrorScreen({ error, onRetry }: Props) {
         {/* Retry button */}
         <button
           onClick={onRetry}
-          className="bg-foil glow-gold text-noir-900 font-label uppercase tracking-luxe text-xs px-8 py-3.5 rounded-xl flex items-center gap-2.5 hover:brightness-110 transition-all active:scale-95"
+          className="bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-xs px-8 py-3.5 rounded-xl flex items-center gap-2.5 hover:brightness-110 transition-all active:scale-95"
         >
           <RefreshCw className="w-4 h-4" />
           Try Again
         </button>
 
         <p className="font-label text-[9px] uppercase tracking-luxe text-champagne/40">
-          SCAGO Hope Gala &amp; Awards 2026
+          {activeEvent.copy.fullName}
         </p>
       </div>
     </div>

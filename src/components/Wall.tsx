@@ -23,8 +23,8 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useStore } from '../store';
 import { subscribeToPosts, subscribeToSettings } from '../lib/db';
 import { Post } from '../types';
-import GalaBackground from './ui/GalaBackground';
-import { HopeGalaWordmark } from './ui/Logo';
+import EventBackground from './ui/EventBackground';
+import { Wordmark } from './ui/EventLogo';
 import BeamIn from './wall/BeamIn';
 import MosaicGrid from './wall/MosaicGrid';
 import MarqueeGrid from './wall/MarqueeGrid';
@@ -196,7 +196,7 @@ export default function Wall() {
       onMouseMove={handleMouseMove}
     >
       {/* Background — always rendered */}
-      <GalaBackground density={projectionMode ? 90 : 70} />
+      <EventBackground density={projectionMode ? 90 : 70} />
 
       {/* ── Gallery: Marquee (scrolling rows) or Mosaic (masonry grid) ── */}
       {mode === 'mosaic' && (
@@ -254,7 +254,7 @@ export default function Wall() {
           >
             {/* Left: wordmark */}
             <div className="flex items-center gap-4">
-              <HopeGalaWordmark size="sm" />
+              <Wordmark size="sm" />
             </div>
 
             {/* Centre: photo counter */}
@@ -262,7 +262,7 @@ export default function Wall() {
               <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/50">
                 Moments shared
               </span>
-              <span className="font-serif italic text-3xl gold-foil-static leading-tight">
+              <span className="font-serif italic text-3xl text-foil-static leading-tight">
                 {posts.length}
               </span>
             </div>
@@ -280,7 +280,7 @@ export default function Wall() {
                     onClick={() => setMode(tab.id)}
                     className={`px-4 py-2 font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
                       mode === tab.id
-                        ? 'bg-foil text-noir-900 glow-gold'
+                        ? 'bg-foil text-noir-900 glow-accent'
                         : 'text-champagne/60 hover:text-champagne'
                     }`}
                   >
@@ -292,7 +292,7 @@ export default function Wall() {
               {/* Projection mode toggle */}
               <button
                 onClick={() => setProjectionMode((p) => !p)}
-                className="glass px-4 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:glow-gold transition-all"
+                className="glass px-4 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:glow-accent transition-all"
                 style={{ border: '1px solid rgba(212,175,55,0.2)' }}
                 title="Projection mode (hides all chrome)"
               >

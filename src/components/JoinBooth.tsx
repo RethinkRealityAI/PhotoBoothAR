@@ -15,7 +15,7 @@ import { motion } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
 import { getLandingContent, subscribeToLanding, DEFAULT_LANDING } from '../lib/db';
 import { LandingContent } from '../types';
-import GalaBackground from './ui/GalaBackground';
+import EventBackground from './ui/EventBackground';
 import ScagoMark from './ui/ScagoMark';
 
 export default function JoinBooth() {
@@ -40,7 +40,7 @@ export default function JoinBooth() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto hide-scrollbar bg-noir-900">
-      <GalaBackground density={36} />
+      <EventBackground density={36} />
 
       <div className="relative z-10 min-h-full flex items-center justify-center px-6 py-8">
         <div className="w-full max-w-6xl flex flex-col lg:flex-row items-center justify-center gap-10 lg:gap-16">
@@ -101,7 +101,7 @@ export default function JoinBooth() {
             <p className="mt-3 font-label uppercase tracking-luxe text-[10px] sm:text-xs text-champagne/70">
               {content.eyebrow}
             </p>
-            <h1 className="mt-1.5 font-serif font-semibold gold-foil text-4xl sm:text-5xl leading-[1.05]">
+            <h1 className="mt-1.5 font-serif font-semibold text-foil text-4xl sm:text-5xl leading-[1.05]">
               {content.title}
             </h1>
             {content.subtitle && (

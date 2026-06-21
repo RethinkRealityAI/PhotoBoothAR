@@ -79,7 +79,7 @@ export default function AnchorPanel({
             </>
           ) : assetUrl ? (
             <>
-              <div className="w-10 h-10 rounded-full bg-foil glow-gold flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full bg-foil glow-accent flex items-center justify-center">
                 <span className="font-serif italic text-noir-900 text-sm">3D</span>
               </div>
               <span className="font-label text-[10px] tracking-luxe text-ivory/70 uppercase text-center break-all line-clamp-2">

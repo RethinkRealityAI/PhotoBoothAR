@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, ChevronRight } from 'lucide-react';
 import ScagoMark from '../ui/ScagoMark';
 import { Art } from './OnboardingArt';
+import { activeEvent } from '../../events/active';
 
 interface Step {
   eyebrow: string;
@@ -108,7 +109,7 @@ export default function Onboarding({ onDismiss }: Props) {
               SCAGO
             </span>
             <span className="font-serif italic text-base text-ivory mt-0.5">
-              Hope Gala &amp; Awards
+              {activeEvent.copy.eventName}
             </span>
           </div>
         </div>
@@ -166,7 +167,7 @@ export default function Onboarding({ onDismiss }: Props) {
         <div className="mt-7 flex flex-col gap-3">
           <button
             onClick={advance}
-            className="w-full bg-foil glow-gold text-noir-900 font-label uppercase tracking-luxe text-xs rounded-xl px-6 py-4 flex items-center justify-center gap-2.5 hover:brightness-110 transition-all active:scale-95"
+            className="w-full bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-xs rounded-xl px-6 py-4 flex items-center justify-center gap-2.5 hover:brightness-110 transition-all active:scale-95"
           >
             {isLast ? (
               <>
@@ -195,7 +196,7 @@ export default function Onboarding({ onDismiss }: Props) {
         <div className="mt-5 flex items-center justify-center gap-2 opacity-40">
           <ScagoMark size={14} variant="gold" animated className="shrink-0" title="SCAGO" />
           <p className="text-center font-label text-[8px] uppercase tracking-luxe text-champagne/60 leading-tight">
-            SCAGO · Hope Gala &amp; Awards 2026
+            {activeEvent.copy.fullName}
           </p>
         </div>
       </motion.div>

@@ -61,8 +61,8 @@ import {
   Loader,
 } from 'lucide-react';
 
-import { HopeGalaMark } from '../ui/Logo';
-import GalaBackground from '../ui/GalaBackground';
+import { Mark } from '../ui/EventLogo';
+import EventBackground from '../ui/EventBackground';
 
 import { getExperience, createExperience, updateExperience, uploadAsset } from '../../lib/db';
 import { AnchorConfig, HeadAnchor } from '../../types';
@@ -267,7 +267,7 @@ export default function Creator3D() {
   if (loadingEdit) {
     return (
       <div className="absolute inset-0 flex items-center justify-center bg-noir-900 face-grid">
-        <GalaBackground density={20} />
+        <EventBackground density={20} />
         <div className="relative z-10 flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-2 border-gold-400 border-t-transparent rounded-full animate-spin" />
           <span className="font-label text-xs text-gold-400 tracking-luxe uppercase">Loading experience…</span>
@@ -282,7 +282,7 @@ export default function Creator3D() {
 
   return (
     <div className="absolute inset-0 flex flex-col bg-noir-900 overflow-hidden">
-      <GalaBackground density={24} />
+      <EventBackground density={24} />
 
       {/* ── TOP BAR ── */}
       <header className="relative z-20 shrink-0 flex items-center gap-3 px-4 py-2.5
@@ -298,7 +298,7 @@ export default function Creator3D() {
           Library
         </button>
 
-        <HopeGalaMark />
+        <Mark />
 
         {/* title */}
         <div className="flex flex-col leading-none ml-1">
@@ -326,7 +326,7 @@ export default function Creator3D() {
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-label text-[10px]',
                 'uppercase tracking-luxe transition-all',
                 previewMode === mode
-                  ? 'bg-foil text-noir-900 glow-gold'
+                  ? 'bg-foil text-noir-900 glow-accent'
                   : 'text-ivory/50 hover:text-ivory/80',
               ].join(' ')}
             >
@@ -363,7 +363,7 @@ export default function Creator3D() {
           disabled={saving || (!assetUrl && !proceduralId)}
           title={!assetUrl && !proceduralId ? 'Upload a model or pick a preset first' : 'Save experience'}
           className="flex items-center gap-1.5 px-4 py-1.5 bg-foil text-noir-900 rounded-xl
-                     font-label text-[10px] uppercase tracking-luxe glow-gold
+                     font-label text-[10px] uppercase tracking-luxe glow-accent
                      hover:scale-[1.02] transition-transform disabled:opacity-40 shrink-0"
         >
           {saving ? <Loader size={13} className="animate-spin" /> : <Save size={13} />}

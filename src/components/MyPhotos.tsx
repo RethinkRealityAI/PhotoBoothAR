@@ -26,8 +26,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { getSavedPhotos } from '../lib/session';
 import { fetchMyPosts } from '../lib/db';
 import { SavedPhoto, Post, MediaType } from '../types';
-import GalaBackground from './ui/GalaBackground';
-import { HopeGalaWordmark } from './ui/Logo';
+import { activeEvent } from '../events/active';
+import EventBackground from './ui/EventBackground';
+import { Wordmark } from './ui/EventLogo';
 import {
   CameraIcon,
   PhotoIcon,
@@ -80,7 +81,7 @@ async function downloadMedia(media: GalaMedia): Promise<void> {
   if (isVideo) {
     ext = media.image_url.includes('.mp4') ? 'mp4' : 'webm';
   }
-  const filename = `HopeGala_${media.id.slice(0, 8)}.${ext}`;
+  const filename = `${activeEvent.copy.filePrefix}_${media.id.slice(0, 8)}.${ext}`;
   try {
     const resp = await fetch(media.image_url, { mode: 'cors' });
     if (!resp.ok) throw new Error('fetch failed');
@@ -149,8 +150,8 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
     setSharing(true);
     try {
       await navigator.share({
-        title: 'My Hope Gala Moment',
-        text: media.message ?? 'My moment from the SCAGO Hope Gala & Awards 2026.',
+        title: activeEvent.copy.shareTitle,
+        text: media.message ?? activeEvent.copy.shareText,
         url: media.image_url,
       });
     } catch {
@@ -206,7 +207,7 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
         <button
           onClick={handleDownload}
           disabled={downloading}
-          className="flex-1 inline-flex items-center justify-center gap-1.5 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[10px] py-2 rounded-xl glow-gold transition-all disabled:opacity-60"
+          className="flex-1 inline-flex items-center justify-center gap-1.5 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[10px] py-2 rounded-xl glow-accent transition-all disabled:opacity-60"
           style={{ border: 'none' }}
           aria-label={isVideo ? 'Save video' : 'Save photo'}
         >
@@ -277,8 +278,8 @@ function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void })
     if (!canShare) return;
     try {
       await navigator.share({
-        title: 'My Hope Gala Moment',
-        text: media.message ?? 'My moment from the SCAGO Hope Gala & Awards 2026.',
+        title: activeEvent.copy.shareTitle,
+        text: media.message ?? activeEvent.copy.shareText,
         url: media.image_url,
       });
     } catch {
@@ -337,7 +338,7 @@ function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void })
           <button
             onClick={handleDownload}
             disabled={downloading}
-            className="flex-1 inline-flex items-center justify-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] py-3 rounded-xl glow-gold transition-all disabled:opacity-60"
+            className="flex-1 inline-flex items-center justify-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] py-3 rounded-xl glow-accent transition-all disabled:opacity-60"
             aria-label={isVideo ? 'Download video' : 'Download photo'}
           >
             {downloading ? (
@@ -439,11 +440,11 @@ export default function MyPhotos() {
   // ----------------------------------------------------------------
   return (
     <div className="absolute inset-0 overflow-y-auto hide-scrollbar bg-noir-900">
-      <GalaBackground density={28} />
+      <EventBackground density={28} />
 
       {/* Header — SCAGO emblem + wordmark crown the page (SCAGO always above) */}
       <div className="relative z-10 flex flex-col items-center pt-10 pb-6 px-4 text-center">
-        <HopeGalaWordmark size="md" />
+        <Wordmark size="md" />
 
         {/* Page label: this is the guest's personal media collection */}
         <p className="mt-6 font-label uppercase tracking-luxe text-[10px] text-gold-300/70">
@@ -475,7 +476,7 @@ export default function MyPhotos() {
           <button
             onClick={handleDownloadAll}
             disabled={downloadingAll}
-            className="mt-5 inline-flex items-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-7 py-3 rounded-xl glow-gold transition-all disabled:opacity-60"
+            className="mt-5 inline-flex items-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-7 py-3 rounded-xl glow-accent transition-all disabled:opacity-60"
           >
             {downloadingAll ? (
               <>
@@ -517,7 +518,7 @@ export default function MyPhotos() {
             >
               <CameraIcon size={40} className="text-gold-300" strokeWidth={1.4} />
             </div>
-            <p className="font-serif italic text-2xl gold-foil-static mb-3">
+            <p className="font-serif italic text-2xl text-foil-static mb-3">
               No media yet
             </p>
             <p className="font-sans text-champagne/60 text-sm mb-8 leading-relaxed max-w-xs">
@@ -525,7 +526,7 @@ export default function MyPhotos() {
             </p>
             <a
               href="/"
-              className="inline-flex items-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-8 py-3 rounded-xl glow-gold"
+              className="inline-flex items-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-8 py-3 rounded-xl glow-accent"
             >
               <CameraIcon size={15} strokeWidth={1.8} />
               Go to the Booth

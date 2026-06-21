@@ -108,7 +108,7 @@ export default function MosaicGrid({ posts, freshIds }: Props) {
     return (
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="text-center animate-rise-in">
-          <p className="font-serif italic text-4xl gold-foil-static mb-4">
+          <p className="font-serif italic text-4xl text-foil-static mb-4">
             Be the first to capture a moment…
           </p>
           <p className="font-label uppercase tracking-luxe text-champagne/50 text-xs">

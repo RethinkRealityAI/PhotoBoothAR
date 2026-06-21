@@ -14,7 +14,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Crown } from 'lucide-react';
 import { useStore } from '../../store';
 import { LeaderboardEntry } from '../../types';
-import { HopeGalaWordmark } from '../ui/Logo';
+import { Wordmark } from '../ui/EventLogo';
+import { activeEvent } from '../../events/active';
 
 const REFRESH_INTERVAL = 15_000;
 
@@ -24,7 +25,7 @@ const RANK_STYLES: Record<number, { ring: string; glow: string; nameClass: strin
   0: {
     ring: '2px solid rgba(212,175,55,0.90)',
     glow: '0 0 24px rgba(212,175,55,0.55)',
-    nameClass: 'gold-foil-static font-serif italic text-xl',
+    nameClass: 'text-foil-static font-serif italic text-xl',
     bg: 'rgba(212,175,55,0.10)',
   },
   1: {
@@ -96,7 +97,7 @@ function EntryRow({ entry, rank, delay }: { entry: LeaderboardEntry; rank: numbe
         <p
           className={
             isWinner && rank === 0
-              ? 'gold-foil-static font-label text-xl tracking-wide'
+              ? 'text-foil-static font-label text-xl tracking-wide'
               : 'font-label text-champagne/80 text-lg'
           }
         >
@@ -149,12 +150,12 @@ export default function LeaderboardView() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       >
-        <HopeGalaWordmark size="md" />
+        <Wordmark size="md" />
         <div className="mt-5 flex flex-col items-center gap-1">
           <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/50">
-            SCAGO Hope Gala &amp; Awards 2026
+            {activeEvent.copy.fullName}
           </p>
-          <h2 className="font-serif italic text-4xl gold-foil-static">
+          <h2 className="font-serif italic text-4xl text-foil-static">
             Leaderboard
           </h2>
           <div

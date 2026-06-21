@@ -10,7 +10,7 @@ import { useEffect, useState, useCallback, useRef, ChangeEvent } from 'react';
 import {
   RefreshCw, Upload, Copy, Check, Trash2, X, Image as ImageIcon, Box, FileQuestion,
 } from 'lucide-react';
-import GalaBackground from '../ui/GalaBackground';
+import EventBackground from '../ui/EventBackground';
 import { listAssets, uploadAsset, deleteAsset, type StoredAsset } from '../../lib/db';
 
 function isImage(a: StoredAsset): boolean {
@@ -125,14 +125,14 @@ export default function Assets() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto hide-scrollbar">
-      <GalaBackground density={26} />
+      <EventBackground density={26} />
       <div className="relative z-10 p-6 md:p-8 flex flex-col gap-8">
 
         {/* Header */}
         <header className="flex items-center justify-between gap-3 animate-rise-in flex-wrap">
           <div>
             <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
-            <h1 className="font-serif italic text-3xl gold-foil-static">Assets Library</h1>
+            <h1 className="font-serif italic text-3xl text-foil-static">Assets Library</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
               {loading ? 'Loading…' : `${visible.length} asset${visible.length === 1 ? '' : 's'}${thumbCount > 0 ? ` · ${thumbCount} thumbnail${thumbCount === 1 ? '' : 's'} hidden` : ''}`}
             </p>
@@ -150,7 +150,7 @@ export default function Assets() {
             <button
               onClick={() => inputRef.current?.click()}
               disabled={uploading}
-              className="flex items-center gap-2 px-4 py-2 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-gold hover:scale-[1.02] transition-transform disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent hover:scale-[1.02] transition-transform disabled:opacity-50"
             >
               {uploading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
               {uploading ? 'Uploading…' : 'Upload'}
@@ -178,13 +178,13 @@ export default function Assets() {
             <div className="w-16 h-16 rounded-full bg-gold-400/10 border border-gold-400/25 flex items-center justify-center">
               <ImageIcon className="w-7 h-7 text-gold-400/60" />
             </div>
-            <p className="font-serif italic text-2xl gold-foil-static">No assets yet</p>
+            <p className="font-serif italic text-2xl text-foil-static">No assets yet</p>
             <p className="font-sans text-sm text-champagne/40 max-w-sm">
               Upload borders, stickers or 3D models here — or they'll appear automatically when you upload one inside an experience.
             </p>
             <button
               onClick={() => inputRef.current?.click()}
-              className="px-6 py-3 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-gold"
+              className="px-6 py-3 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent"
             >
               Upload your first asset
             </button>

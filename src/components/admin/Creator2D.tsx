@@ -44,7 +44,7 @@ import {
   Save, ArrowLeft, Upload, Wand2, Loader, RotateCcw,
   Eye, EyeOff, Star, StarOff, X, Sparkles, Image as ImageIcon, LayoutTemplate,
 } from 'lucide-react';
-import GalaBackground from '../ui/GalaBackground';
+import EventBackground from '../ui/EventBackground';
 import { FILTER_SHADERS, SHADER_MAP, defaultParams, ShaderRunner } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { getExperience, createExperience, updateExperience, uploadAsset } from '../../lib/db';
@@ -645,7 +645,7 @@ export default function Creator2D() {
   if (loadingEdit) {
     return (
       <div className="absolute inset-0 flex items-center justify-center bg-noir-900">
-        <GalaBackground density={24} />
+        <EventBackground density={24} />
         <div className="relative z-10 flex flex-col items-center gap-3">
           <Loader className="w-8 h-8 text-gold-400 animate-spin" />
           <p className="font-sans text-sm text-champagne/50">Loading experience…</p>
@@ -660,7 +660,7 @@ export default function Creator2D() {
 
   return (
     <div className="absolute inset-0 flex flex-col bg-noir-900 overflow-hidden">
-      <GalaBackground density={20} />
+      <EventBackground density={20} />
 
       {/* ── TOP BAR ── */}
       <div className="relative z-20 shrink-0 h-14 flex items-center justify-between px-4 glass-strong border-b border-gold-400/15">
@@ -712,7 +712,7 @@ export default function Creator2D() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-2 px-5 py-2 bg-foil text-noir-900 font-bold text-[10px] font-label uppercase tracking-widest rounded-xl glow-gold hover:scale-[1.02] transition-transform disabled:opacity-50"
+            className="flex items-center gap-2 px-5 py-2 bg-foil text-noir-900 font-bold text-[10px] font-label uppercase tracking-widest rounded-xl glow-accent hover:scale-[1.02] transition-transform disabled:opacity-50"
           >
             {saving ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
             {saving ? 'Saving…' : editId ? 'Update' : 'Save'}

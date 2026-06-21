@@ -13,7 +13,7 @@ import {
   ArrowUp, ArrowDown, Sparkles, Box
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import GalaBackground from '../ui/GalaBackground';
+import EventBackground from '../ui/EventBackground';
 import {
   fetchExperiences, createExperience, updateExperience, deleteExperience,
   getPresetOverrides, setPresetOverrides,
@@ -98,7 +98,7 @@ function QRModal({ exp, onClose }: { exp: Experience; onClose: () => void }) {
         className="glass-strong rounded-3xl border border-gold-400/20 p-8 w-full max-w-xs text-center animate-rise-in flex flex-col items-center gap-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="font-serif italic text-xl gold-foil-static">{exp.name}</p>
+        <p className="font-serif italic text-xl text-foil-static">{exp.name}</p>
         <div className="rounded-xl p-3 bg-ivory/95 shadow-lg">
           <QRCodeSVG value={url} size={160} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
         </div>
@@ -421,14 +421,14 @@ export default function Library() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto hide-scrollbar">
-      <GalaBackground density={28} />
+      <EventBackground density={28} />
       <div className="relative z-10 p-6 md:p-8 flex flex-col gap-8">
 
         {/* Header */}
         <header className="flex items-center justify-between animate-rise-in">
           <div>
             <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
-            <h1 className="font-serif italic text-3xl gold-foil-static">Experiences Library</h1>
+            <h1 className="font-serif italic text-3xl text-foil-static">Experiences Library</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
               {loading ? 'Loading…' : `${dbExps.length} custom · ${published} published · ${presets.length} built-in presets`}
             </p>
@@ -443,7 +443,7 @@ export default function Library() {
             </button>
             <button
               onClick={() => navigate('/admin/creator')}
-              className="flex items-center gap-2 px-4 py-2 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-gold hover:scale-[1.02] transition-transform"
+              className="flex items-center gap-2 px-4 py-2 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent hover:scale-[1.02] transition-transform"
             >
               <Plus className="w-4 h-4" /> New
             </button>
@@ -463,11 +463,11 @@ export default function Library() {
             </div>
           ) : dbExps.length === 0 ? (
             <div className="glass rounded-2xl border border-gold-400/10 p-12 text-center">
-              <p className="font-serif italic text-2xl gold-foil-static mb-2">No experiences yet</p>
+              <p className="font-serif italic text-2xl text-foil-static mb-2">No experiences yet</p>
               <p className="font-sans text-sm text-champagne/40 mb-6">Create your first 2D, border, or shader experience below.</p>
               <button
                 onClick={() => navigate('/admin/creator')}
-                className="px-6 py-3 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-gold"
+                className="px-6 py-3 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent"
               >
                 Create First Experience
               </button>

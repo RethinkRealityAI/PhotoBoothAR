@@ -36,7 +36,7 @@ export default function Countdown({ from = 3, onComplete }: Props) {
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.4, opacity: 0 }}
             transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-            className="font-serif text-9xl font-bold gold-foil drop-shadow-2xl"
+            className="font-serif text-9xl font-bold text-foil drop-shadow-2xl"
             style={{ textShadow: '0 0 60px rgba(212,175,55,0.8)' }}
           >
             {count}

@@ -13,8 +13,8 @@ import {
   ExternalLink, Copy, Check, Printer, RefreshCw,
   Sparkles, Globe, Trophy, Settings, Video
 } from 'lucide-react';
-import GalaBackground from '../ui/GalaBackground';
-import { HopeGalaWordmark } from '../ui/Logo';
+import EventBackground from '../ui/EventBackground';
+import { Wordmark } from '../ui/EventLogo';
 import { fetchExperiences, fetchPosts } from '../../lib/db';
 
 interface Stats {
@@ -130,7 +130,7 @@ function ActionCard({ icon, title, description, onClick, accent, external }: Act
       onClick={onClick}
       className={`group w-full text-left rounded-2xl border p-5 transition-all duration-200 hover:scale-[1.02] ${
         accent
-          ? 'bg-foil border-gold-400/40 glow-gold text-noir-900'
+          ? 'bg-foil border-gold-400/40 glow-accent text-noir-900'
           : 'glass border-gold-400/15 hover:border-gold-400/35 hover:bg-gold-400/8'
       }`}
     >
@@ -163,12 +163,12 @@ export default function Dashboard() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto hide-scrollbar">
-      <GalaBackground density={36} />
+      <EventBackground density={36} />
       <div className="relative z-10 min-h-full p-6 md:p-10 flex flex-col gap-8">
 
         {/* Event header */}
         <header className="flex flex-col items-center text-center gap-4 pt-4 animate-rise-in">
-          <HopeGalaWordmark size="lg" />
+          <Wordmark size="lg" />
           <div className="flex flex-col items-center gap-1.5">
             <p className="font-label uppercase tracking-luxe text-[11px] text-gold-300">
               AR Photo Booth Studio
@@ -194,7 +194,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
             {statItems.map((s) => (
               <div key={s.label} className="glass-strong rounded-2xl border border-gold-400/15 p-4 text-center">
-                <p className="font-serif text-3xl font-semibold gold-foil-static leading-none mb-1">
+                <p className="font-serif text-3xl font-semibold text-foil-static leading-none mb-1">
                   {loading ? <span className="animate-pulse">·</span> : s.value}
                 </p>
                 <p className="font-label uppercase tracking-luxe text-[9px] text-gold-400/70 mb-0.5">{s.label}</p>
