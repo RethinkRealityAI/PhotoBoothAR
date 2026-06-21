@@ -9,6 +9,7 @@
  * call these helpers rather than touching the Supabase client directly.
  */
 import { supabase, POSTS_BUCKET, ASSETS_BUCKET, publicUrl } from './supabase';
+import { EVENT_ID } from '../events/eventId';
 import {
   Experience,
   ExperienceDraft,
@@ -27,7 +28,7 @@ import { getSessionId } from './session';
 /* ------------------------------------------------------------------ */
 
 export async function fetchExperiences(opts?: { publishedOnly?: boolean }): Promise<Experience[]> {
-  let q = supabase.from('experiences').select('*').order('sort_order').order('created_at');
+  let q = supabase.from('experiences').select('*').eq('event_id', EVENT_ID).order('sort_order').order('created_at');
   if (opts?.publishedOnly) q = q.eq('is_published', true);
   const { data, error } = await q;
   if (error) {
@@ -38,7 +39,7 @@ export async function fetchExperiences(opts?: { publishedOnly?: boolean }): Prom
 }
 
 export async function getExperience(id: string): Promise<Experience | null> {
-  const { data, error } = await supabase.from('experiences').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await supabase.from('experiences').select('*').eq('id', id).eq('event_id', EVENT_ID).maybeSingle();
   if (error) {
     console.error('[db] getExperience', error);
     return null;
@@ -56,6 +57,7 @@ export async function createExperience(draft: ExperienceDraft): Promise<Experien
     is_published: draft.is_published ?? true,
     featured: draft.featured ?? true,
     sort_order: draft.sort_order ?? 0,
+    event_id: EVENT_ID,
   };
   const { data, error } = await supabase.from('experiences').insert(row).select().single();
   if (error) {
@@ -66,7 +68,7 @@ export async function createExperience(draft: ExperienceDraft): Promise<Experien
 }
 
 export async function updateExperience(id: string, patch: ExperienceDraft): Promise<Experience | null> {
-  const { data, error } = await supabase.from('experiences').update(patch).eq('id', id).select().single();
+  const { data, error } = await supabase.from('experiences').update(patch).eq('id', id).eq('event_id', EVENT_ID).select().single();
   if (error) {
     console.error('[db] updateExperience', error);
     return null;
@@ -75,7 +77,7 @@ export async function updateExperience(id: string, patch: ExperienceDraft): Prom
 }
 
 export async function deleteExperience(id: string): Promise<boolean> {
-  const { error } = await supabase.from('experiences').delete().eq('id', id);
+  const { error } = await supabase.from('experiences').delete().eq('id', id).eq('event_id', EVENT_ID);
   if (error) {
     console.error('[db] deleteExperience', error);
     return false;
@@ -88,7 +90,7 @@ export async function deleteExperience(id: string): Promise<boolean> {
 /* ------------------------------------------------------------------ */
 
 export async function fetchPosts(opts?: { includeHidden?: boolean; limit?: number }): Promise<Post[]> {
-  let q = supabase.from('posts').select('*').order('created_at', { ascending: false });
+  let q = supabase.from('posts').select('*').eq('event_id', EVENT_ID).order('created_at', { ascending: false });
   if (!opts?.includeHidden) q = q.eq('hidden', false).eq('approved', true);
   if (opts?.limit) q = q.limit(opts.limit);
   const { data, error } = await q;
@@ -105,6 +107,7 @@ export async function fetchMyPosts(): Promise<Post[]> {
     .from('posts')
     .select('*')
     .eq('session_id', sid)
+    .eq('event_id', EVENT_ID)
     .order('created_at', { ascending: false });
   if (error) {
     console.error('[db] fetchMyPosts', error);
@@ -114,7 +117,7 @@ export async function fetchMyPosts(): Promise<Post[]> {
 }
 
 export async function setPostHidden(id: string, hidden: boolean): Promise<boolean> {
-  const { error } = await supabase.from('posts').update({ hidden }).eq('id', id);
+  const { error } = await supabase.from('posts').update({ hidden }).eq('id', id).eq('event_id', EVENT_ID);
   if (error) {
     console.error('[db] setPostHidden', error);
     return false;
@@ -123,7 +126,7 @@ export async function setPostHidden(id: string, hidden: boolean): Promise<boolea
 }
 
 export async function deletePost(id: string): Promise<boolean> {
-  const { error } = await supabase.from('posts').delete().eq('id', id);
+  const { error } = await supabase.from('posts').delete().eq('id', id).eq('event_id', EVENT_ID);
   if (error) {
     console.error('[db] deletePost', error);
     return false;
@@ -142,10 +145,10 @@ export function subscribeToPosts(handlers: {
 }): () => void {
   const channel = supabase
     .channel('posts-stream')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, (payload) => {
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `event_id=eq.${EVENT_ID}` }, (payload) => {
       handlers.onInsert?.(payload.new as Post);
     })
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'posts' }, (payload) => {
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'posts', filter: `event_id=eq.${EVENT_ID}` }, (payload) => {
       handlers.onUpdate?.(payload.new as Post);
     })
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'posts' }, (payload) => {
@@ -275,6 +278,7 @@ export async function submitPost(input: SubmitPostInput): Promise<Post | null> {
       session_id: getSessionId(),
       width: input.width ?? null,
       height: input.height ?? null,
+      event_id: EVENT_ID,
     })
     .select()
     .single();
@@ -290,7 +294,7 @@ export async function submitPost(input: SubmitPostInput): Promise<Post | null> {
 /* ------------------------------------------------------------------ */
 
 export async function fetchChallenges(opts?: { activeOnly?: boolean }): Promise<Challenge[]> {
-  let q = supabase.from('challenges').select('*').order('sort_order').order('created_at');
+  let q = supabase.from('challenges').select('*').eq('event_id', EVENT_ID).order('sort_order').order('created_at');
   if (opts?.activeOnly) q = q.eq('active', true);
   const { data, error } = await q;
   if (error) {
@@ -308,6 +312,7 @@ export async function createChallenge(c: Partial<Challenge>): Promise<Challenge 
     points: c.points ?? 10,
     sort_order: c.sort_order ?? 0,
     active: c.active ?? true,
+    event_id: EVENT_ID,
   };
   const { data, error } = await supabase.from('challenges').insert(row).select().single();
   if (error) {
@@ -318,7 +323,7 @@ export async function createChallenge(c: Partial<Challenge>): Promise<Challenge 
 }
 
 export async function updateChallenge(id: string, patch: Partial<Challenge>): Promise<boolean> {
-  const { error } = await supabase.from('challenges').update(patch).eq('id', id);
+  const { error } = await supabase.from('challenges').update(patch).eq('id', id).eq('event_id', EVENT_ID);
   if (error) {
     console.error('[db] updateChallenge', error);
     return false;
@@ -327,7 +332,7 @@ export async function updateChallenge(id: string, patch: Partial<Challenge>): Pr
 }
 
 export async function deleteChallenge(id: string): Promise<boolean> {
-  const { error } = await supabase.from('challenges').delete().eq('id', id);
+  const { error } = await supabase.from('challenges').delete().eq('id', id).eq('event_id', EVENT_ID);
   if (error) {
     console.error('[db] deleteChallenge', error);
     return false;
@@ -350,7 +355,7 @@ const DEFAULT_WALL_SETTINGS: WallSettings = {
 };
 
 export async function getWallSettings(): Promise<WallSettings> {
-  const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'wall').maybeSingle();
+  const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'wall').eq('event_id', EVENT_ID).maybeSingle();
   if (error || !data) return DEFAULT_WALL_SETTINGS;
   return { ...DEFAULT_WALL_SETTINGS, ...(data.value as Partial<WallSettings>) };
 }
@@ -360,7 +365,7 @@ export async function setWallSettings(patch: Partial<WallSettings>): Promise<Wal
   const value = { ...current, ...patch };
   const { error } = await supabase
     .from('app_settings')
-    .upsert({ key: 'wall', value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    .upsert({ key: 'wall', value, updated_at: new Date().toISOString(), event_id: EVENT_ID }, { onConflict: 'event_id,key' });
   if (error) console.error('[db] setWallSettings', error);
   return value;
 }
@@ -370,10 +375,11 @@ export function subscribeToSettings(onChange: (s: WallSettings) => void): () => 
     .channel('app-settings-stream')
     .on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'app_settings', filter: 'key=eq.wall' },
+      { event: '*', schema: 'public', table: 'app_settings', filter: `event_id=eq.${EVENT_ID}` },
       (payload) => {
-        const value = (payload.new as { value?: Partial<WallSettings> })?.value;
-        if (value) onChange({ ...DEFAULT_WALL_SETTINGS, ...value });
+        const row = payload.new as { key?: string; value?: Partial<WallSettings> };
+        if (row.key !== 'wall') return;
+        if (row.value) onChange({ ...DEFAULT_WALL_SETTINGS, ...row.value });
       },
     )
     .subscribe();
@@ -387,7 +393,7 @@ export function subscribeToSettings(onChange: (s: WallSettings) => void): () => 
 /* ------------------------------------------------------------------ */
 
 async function getSetting<T>(key: string, fallback: T): Promise<T> {
-  const { data, error } = await supabase.from('app_settings').select('value').eq('key', key).maybeSingle();
+  const { data, error } = await supabase.from('app_settings').select('value').eq('key', key).eq('event_id', EVENT_ID).maybeSingle();
   if (error || !data) return fallback;
   return { ...fallback, ...(data.value as Partial<T>) };
 }
@@ -395,7 +401,7 @@ async function getSetting<T>(key: string, fallback: T): Promise<T> {
 async function setSetting<T extends object>(key: string, value: T): Promise<T> {
   const { error } = await supabase
     .from('app_settings')
-    .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    .upsert({ key, value, updated_at: new Date().toISOString(), event_id: EVENT_ID }, { onConflict: 'event_id,key' });
   if (error) console.error('[db] setSetting', key, error);
   return value;
 }
@@ -432,10 +438,11 @@ export function subscribeToLanding(onChange: (c: LandingContent) => void): () =>
     .channel('landing-stream')
     .on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'app_settings', filter: 'key=eq.landing' },
+      { event: '*', schema: 'public', table: 'app_settings', filter: `event_id=eq.${EVENT_ID}` },
       (payload) => {
-        const value = (payload.new as { value?: Partial<LandingContent> })?.value;
-        if (value) onChange({ ...DEFAULT_LANDING, ...value });
+        const row = payload.new as { key?: string; value?: Partial<LandingContent> };
+        if (row.key !== 'landing') return;
+        if (row.value) onChange({ ...DEFAULT_LANDING, ...row.value });
       },
     )
     .subscribe();
@@ -474,7 +481,8 @@ export async function fetchLeaderboard(limit = 20): Promise<LeaderboardEntry[]> 
     supabase
       .from('posts')
       .select('session_id, guest_name, challenge_id, created_at')
-      .eq('hidden', false),
+      .eq('hidden', false)
+      .eq('event_id', EVENT_ID),
     fetchChallenges({ activeOnly: true }),
   ]);
   if (error || !posts) {
