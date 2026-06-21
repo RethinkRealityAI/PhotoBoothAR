@@ -180,6 +180,72 @@ const crownSticker = svg(`
   </g>
 `);
 
+/* ---- Festival / Jenna & Jake neon frames ------------------------- */
+
+const jjNeonFrame = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920">
+  <defs>
+    <filter id="neon-glow-outer" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="neon-glow-inner" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- Outer magenta tube border -->
+  <rect x="24" y="24" width="1032" height="1872" rx="36" ry="36" fill="none" stroke="#FF2D9B" stroke-width="16" filter="url(#neon-glow-outer)" opacity="0.95"/>
+  <!-- Inner cyan tube border -->
+  <rect x="50" y="50" width="980" height="1820" rx="22" ry="22" fill="none" stroke="#19E3FF" stroke-width="8" filter="url(#neon-glow-inner)" opacity="0.90"/>
+</svg>`;
+
+const jjLowerThird = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920">
+  <defs>
+    <linearGradient id="holo-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FF2D9B"/>
+      <stop offset="50%" stop-color="#19E3FF"/>
+      <stop offset="100%" stop-color="#7A2BFF"/>
+    </linearGradient>
+    <filter id="text-glow">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- Bottom band background -->
+  <rect x="0" y="1680" width="1080" height="180" fill="#0B0220" opacity="0.82"/>
+  <!-- Top edge accent line -->
+  <line x1="0" y1="1682" x2="1080" y2="1682" stroke="#FF2D9B" stroke-width="3" opacity="0.9"/>
+  <!-- Holographic text shadow -->
+  <text x="540" y="1800" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="90" font-weight="900" letter-spacing="8" fill="url(#holo-grad)" filter="url(#text-glow)" opacity="0.6">JENNA &amp; JAKE</text>
+  <!-- Holographic text main -->
+  <text x="540" y="1800" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="90" font-weight="900" letter-spacing="8" fill="url(#holo-grad)">JENNA &amp; JAKE</text>
+</svg>`;
+
+const jjEqualizer = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920">
+  <defs>
+    <filter id="eq-glow">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- EQ bars — 14 bars, varying heights, alternating magenta/cyan/lime -->
+  <g filter="url(#eq-glow)" opacity="0.95">
+    <rect x="40"  y="1760" width="62" height="120" rx="6" fill="#FF2D9B"/>
+    <rect x="120" y="1720" width="62" height="160" rx="6" fill="#19E3FF"/>
+    <rect x="200" y="1790" width="62" height="90"  rx="6" fill="#C6FF1A"/>
+    <rect x="280" y="1700" width="62" height="180" rx="6" fill="#FF2D9B"/>
+    <rect x="360" y="1750" width="62" height="130" rx="6" fill="#19E3FF"/>
+    <rect x="440" y="1730" width="62" height="150" rx="6" fill="#C6FF1A"/>
+    <rect x="520" y="1770" width="62" height="110" rx="6" fill="#FF2D9B"/>
+    <rect x="600" y="1710" width="62" height="170" rx="6" fill="#19E3FF"/>
+    <rect x="680" y="1755" width="62" height="125" rx="6" fill="#C6FF1A"/>
+    <rect x="760" y="1740" width="62" height="140" rx="6" fill="#FF2D9B"/>
+    <rect x="840" y="1775" width="62" height="105" rx="6" fill="#19E3FF"/>
+    <rect x="920" y="1715" width="62" height="165" rx="6" fill="#C6FF1A"/>
+    <rect x="978" y="1745" width="62" height="135" rx="6" fill="#FF2D9B"/>
+  </g>
+</svg>`;
+
 export const BUILTIN_BORDERS: BuiltinBorder[] = [
   { id: 'frame-classic', name: 'Classic Gold', kind: 'border', svg: classicFrame },
   { id: 'frame-hexagon', name: 'Hexagon (Invitation)', kind: 'border', svg: hexFrame },
@@ -189,6 +255,9 @@ export const BUILTIN_BORDERS: BuiltinBorder[] = [
   { id: 'sticker-hopegala-top', name: 'Gala Header', kind: '2d_filter', svg: hopeGalaTop },
   { id: 'sticker-crown', name: 'Golden Crown', kind: '2d_filter', svg: crownSticker },
   { id: 'overlay-confetti', name: 'Gold Confetti', kind: '2d_filter', svg: confettiBottom },
+  { id: 'jj-neon-frame', name: 'JJ Neon Frame', kind: 'border', svg: jjNeonFrame },
+  { id: 'jj-lower-third', name: 'JJ Lower Third', kind: 'border', svg: jjLowerThird },
+  { id: 'jj-equalizer', name: 'JJ Equalizer', kind: 'border', svg: jjEqualizer },
 ];
 
 export const BORDER_MAP: Record<string, BuiltinBorder> = Object.fromEntries(

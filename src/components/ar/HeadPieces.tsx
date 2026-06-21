@@ -200,6 +200,79 @@ function HopeHalo() {
 }
 
 /* ---------------------------------------------------------------- */
+/* Neon Shades (festival sunglasses, anchored at noseBridge)        */
+/* ---------------------------------------------------------------- */
+function NeonShades() {
+  // Local units × HEAD_PIECE_UNIT (1.9) ≈ centimetres.
+  // Lens centres at x=±1.4 → ±2.66 cm apart (eye spacing).
+  // Lenses: 2.2 wide × 1.3 tall × 0.2 deep; bridge bar; temple arms.
+  return (
+    <group>
+      {/* Left lens */}
+      <mesh position={[-1.4, 0, 0]}>
+        <boxGeometry args={[2.2, 1.3, 0.2]} />
+        <meshStandardMaterial
+          color="#0B0220"
+          emissive="#FF2D9B"
+          emissiveIntensity={1.2}
+          metalness={0.6}
+          roughness={0.2}
+          toneMapped={false}
+        />
+      </mesh>
+      {/* Right lens */}
+      <mesh position={[1.4, 0, 0]}>
+        <boxGeometry args={[2.2, 1.3, 0.2]} />
+        <meshStandardMaterial
+          color="#0B0220"
+          emissive="#FF2D9B"
+          emissiveIntensity={1.2}
+          metalness={0.6}
+          roughness={0.2}
+          toneMapped={false}
+        />
+      </mesh>
+      {/* Bridge bar connecting the two lenses */}
+      <mesh position={[0, 0, 0]}>
+        <boxGeometry args={[0.6, 0.22, 0.18]} />
+        <meshStandardMaterial
+          color="#0B0220"
+          emissive="#19E3FF"
+          emissiveIntensity={1.4}
+          metalness={0.7}
+          roughness={0.15}
+          toneMapped={false}
+        />
+      </mesh>
+      {/* Left temple arm */}
+      <mesh position={[-2.6, 0, -0.5]} rotation={[0, Math.PI / 10, 0]}>
+        <boxGeometry args={[0.9, 0.18, 0.12]} />
+        <meshStandardMaterial
+          color="#0B0220"
+          emissive="#19E3FF"
+          emissiveIntensity={1.1}
+          metalness={0.7}
+          roughness={0.15}
+          toneMapped={false}
+        />
+      </mesh>
+      {/* Right temple arm */}
+      <mesh position={[2.6, 0, -0.5]} rotation={[0, -Math.PI / 10, 0]}>
+        <boxGeometry args={[0.9, 0.18, 0.12]} />
+        <meshStandardMaterial
+          color="#0B0220"
+          emissive="#19E3FF"
+          emissiveIntensity={1.1}
+          metalness={0.7}
+          roughness={0.15}
+          toneMapped={false}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+/* ---------------------------------------------------------------- */
 /* Registry                                                          */
 /* ---------------------------------------------------------------- */
 const COMPONENTS: Record<string, () => ReactNode> = {
@@ -207,6 +280,7 @@ const COMPONENTS: Record<string, () => ReactNode> = {
   'queen-tiara': QueenTiara,
   'cheek-stars': CheekStars,
   'hope-halo': HopeHalo,
+  'neon-shades': NeonShades,
 };
 
 /** True when a procedural head piece exists for this id. */

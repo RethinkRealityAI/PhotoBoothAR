@@ -416,6 +416,90 @@ void main(){
   },
 
   {
+    id: 'neon-pulse',
+    name: 'Neon Pulse',
+    description: 'Magenta/cyan laser scanlines + chromatic bloom pulsing to the beat.',
+    animated: true,
+    fragment: compose(`
+void main(){
+  vec2 uv = vUv;
+  float ca = 0.004 * uIntensity;
+  vec3 col = vec3(
+    texture2D(uTexture, uv + vec2(ca, 0.0)).r,
+    texture2D(uTexture, uv).g,
+    texture2D(uTexture, uv - vec2(ca, 0.0)).b);
+  float beat = 0.6 + 0.4 * sin(uTime * 3.0);
+  float lines = smoothstep(0.92, 1.0, sin((uv.y + uTime * 0.15) * 130.0));
+  vec3 neon = mix(vec3(1.0, 0.18, 0.61), vec3(0.10, 0.89, 1.0), uv.y);
+  vec3 glow = neon * lines * beat * uIntensity;
+  gl_FragColor = vec4(screenBlend(col, glow), 1.0);
+}`),
+    params: [{ key: 'uIntensity', label: 'Intensity', min: 0, max: 1.5, step: 0.05, default: 0.8 }],
+  },
+
+  {
+    id: 'holo-bloom',
+    name: 'Holo Bloom',
+    description: 'Iridescent oil-slick sheen cycles over highlights with time.',
+    animated: true,
+    fragment: compose(`
+void main(){
+  vec4 base = texture2D(uTexture, vUv);
+  float lum = luma(base.rgb);
+  float hue = vUv.x * 0.6 + vUv.y * 0.4 + uTime * 0.18;
+  vec3 irid = 0.5 + 0.5 * cos(6.2831 * (vec3(0.0, 0.33, 0.67) + hue));
+  float mask = smoothstep(0.45, 0.85, lum);
+  vec3 sheen = irid * mask * uBloom;
+  gl_FragColor = vec4(screenBlend(base.rgb, sheen), base.a);
+}`),
+    params: [{ key: 'uBloom', label: 'Bloom', min: 0, max: 1.5, step: 0.05, default: 0.7 }],
+  },
+
+  {
+    id: 'laser-sparkle',
+    name: 'Laser Sparkle',
+    description: 'Festival glitter in magenta, cyan and lime — twinkles over the frame.',
+    animated: true,
+    fragment: compose(`
+float sparklePoint(vec2 uv, vec2 center, float size, float phase){
+  float d = length(uv - center);
+  float core = smoothstep(size, 0.0, d);
+  float angle = atan(uv.y - center.y, uv.x - center.x);
+  float cross4 = pow(abs(sin(angle * 2.0)), 8.0);
+  float star = smoothstep(size * 3.0, 0.0, d) * cross4;
+  return (core + star * 0.4) * (0.6 + 0.4 * sin(phase));
+}
+void main(){
+  vec4 base = texture2D(uTexture, vUv);
+  vec2 aspect = vec2(uResolution.x / uResolution.y, 1.0);
+  vec2 uv = vUv * aspect;
+  vec3 magenta = vec3(1.0, 0.176, 0.608);
+  vec3 cyan    = vec3(0.098, 0.890, 1.0);
+  vec3 lime    = vec3(0.776, 1.0, 0.102);
+  vec3 sparkles = vec3(0.0);
+  for (int i = 0; i < 28; i++) {
+    float fi = float(i);
+    vec2 cell = vec2(mod(fi, 7.0), floor(fi / 7.0)) / vec2(7.0, 4.0);
+    vec2 jitter = vec2(hash21(cell + 0.1), hash21(cell + 0.7));
+    vec2 center = (cell + jitter * 0.9) * aspect;
+    center.x = mod(center.x, aspect.x);
+    float sz = 0.004 + hash21(cell + 1.3) * 0.008;
+    float speed = 0.8 + hash21(cell + 2.1) * 2.0;
+    float phase = uTime * speed + hash21(cell + 3.7) * 6.28318;
+    float drift = hash21(cell + 4.2) * 6.28318;
+    vec2 pos = center + vec2(cos(drift + uTime * 0.3), sin(drift * 1.3 + uTime * 0.2)) * 0.02;
+    float sp = sparklePoint(uv, pos, sz, phase);
+    float t = fract(fi * 0.137);
+    vec3 col = t < 0.33 ? mix(magenta, cyan, t * 3.0) : t < 0.66 ? mix(cyan, lime, (t - 0.33) * 3.0) : mix(lime, magenta, (t - 0.66) * 3.0);
+    sparkles += sp * col;
+  }
+  vec3 result = base.rgb + sparkles * uSparkle * 1.4;
+  gl_FragColor = vec4(result, base.a);
+}`),
+    params: [{ key: 'uSparkle', label: 'Sparkle', min: 0, max: 1.5, step: 0.05, default: 0.9 }],
+  },
+
+  {
     id: 'golden-disintegration',
     name: 'Golden Disintegration',
     description: 'Magical dissolve into gold dust — used for the send-off.',

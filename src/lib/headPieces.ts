@@ -34,6 +34,7 @@ export const HEAD_PIECES: HeadPieceDef[] = [
   { id: 'queen-tiara', name: "Queen's Tiara", anchor: 'forehead', config: cfg('forehead', [0, 0.4, 0], 1) },
   { id: 'cheek-stars', name: 'Cheek Sparkles', anchor: 'noseBridge', config: cfg('noseBridge', [0, 0, 0], 1) },
   { id: 'hope-halo', name: 'Halo of Hope', anchor: 'crown', config: cfg('crown', [0, 3.4, -1.0], 1) },
+  { id: 'neon-shades', name: 'Neon Shades', anchor: 'noseBridge', config: cfg('noseBridge', [0, 1.4, 1.2], 1) },
 ];
 
 export const HEAD_PIECE_MAP: Record<string, HeadPieceDef> = Object.fromEntries(
