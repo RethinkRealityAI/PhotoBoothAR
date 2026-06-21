@@ -7,5 +7,11 @@ const REGISTRY: Record<string, EventConfig> = {
 };
 
 export function getEventConfig(slug: string): EventConfig {
-  return REGISTRY[slug] ?? REGISTRY[DEFAULT_EVENT_ID];
+  const cfg = REGISTRY[slug] ?? REGISTRY[DEFAULT_EVENT_ID];
+  if (!cfg) {
+    throw new Error(
+      `[events] No config for "${slug}" and default "${DEFAULT_EVENT_ID}" is not registered.`,
+    );
+  }
+  return cfg;
 }

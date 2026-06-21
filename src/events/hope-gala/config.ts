@@ -1,6 +1,11 @@
 import type { EventConfig } from '../types';
 
-const noop: any = () => null;
+// Temporary no-op components — replaced with the real Hope Gala Logo/Background
+// in a later unit. Typed per-slot so the placeholders are still type-checked.
+const noop = () => null;
+const Wordmark: EventConfig['Wordmark'] = noop;
+const Mark: EventConfig['Mark'] = noop;
+const Background: EventConfig['Background'] = noop;
 
 export const hopeGala: EventConfig = {
   id: 'hope-gala',
@@ -22,9 +27,9 @@ export const hopeGala: EventConfig = {
   },
   fontHref:
     'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=Pinyon+Script&family=Jost:wght@300;400;500;600&display=swap',
-  Wordmark: noop,
-  Mark: noop,
-  Background: noop,
+  Wordmark,
+  Mark,
+  Background,
   landingRoute: '/booth',
   arContent: {},
 };
