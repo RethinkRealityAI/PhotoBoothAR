@@ -440,7 +440,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
               className="flex flex-col items-center gap-0.5"
             >
               <p className="font-label text-[10px] uppercase tracking-luxe text-gold-300/60">SCAGO</p>
-              <p className="font-label text-[9px] uppercase tracking-luxe text-champagne/30">{activeEvent.copy.fullName}</p>
+              <p className="font-label text-[9px] uppercase tracking-luxe text-champagne/30">{activeEvent.copy.eventName} 2026</p>
             </motion.div>
           </motion.div>
         )}

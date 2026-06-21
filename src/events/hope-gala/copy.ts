@@ -20,5 +20,6 @@ export const hopeGalaCopy: EventCopy = {
   ],
   filePrefix: 'HopeGala2026',
   shareTitle: 'SCAGO Hope Gala & Awards 2026',
+  momentTitle: 'My Hope Gala Moment',
   shareText: 'My moment from the SCAGO Hope Gala & Awards 2026.',
 };

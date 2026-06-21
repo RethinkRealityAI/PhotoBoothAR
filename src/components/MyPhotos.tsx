@@ -150,7 +150,7 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
     setSharing(true);
     try {
       await navigator.share({
-        title: activeEvent.copy.shareTitle,
+        title: activeEvent.copy.momentTitle,
         text: media.message ?? activeEvent.copy.shareText,
         url: media.image_url,
       });
@@ -278,7 +278,7 @@ function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void })
     if (!canShare) return;
     try {
       await navigator.share({
-        title: activeEvent.copy.shareTitle,
+        title: activeEvent.copy.momentTitle,
         text: media.message ?? activeEvent.copy.shareText,
         url: media.image_url,
       });
