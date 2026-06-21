@@ -1,9 +1,11 @@
 import type { EventConfig } from './types';
 import { DEFAULT_EVENT_ID } from './eventId';
 import { hopeGala } from './hope-gala/config';
+import { jennaJake } from './jenna-jake/config';
 
 const REGISTRY: Record<string, EventConfig> = {
   [hopeGala.id]: hopeGala,
+  [jennaJake.id]: jennaJake,
 };
 
 export function getEventConfig(slug: string): EventConfig {

@@ -1,0 +1,97 @@
+/**
+ * Jenna & Jake — EDM festival theme ("Holographic Heart").
+ * Electric magenta / cyan / violet / lime on midnight.
+ *
+ * Scoped to :root[data-event='jenna-jake'] so it only applies on the festival
+ * build. It overrides BOTH the semantic tokens AND the underlying gold/noir/
+ * champagne scale tokens that the reused UI references — so structural
+ * components recolor to the festival palette without per-component edits.
+ */
+
+:root[data-event='jenna-jake'] {
+  /* Semantic tokens */
+  --color-brand-bg:      #0B0220;
+  --color-brand-surface: #16093A;
+  --color-brand-fg:      #F4ECFF;
+  --color-brand-muted:   #B79CFF;
+  --color-accent:        #FF2D9B; /* electric magenta */
+  --color-accent-2:      #19E3FF; /* cyan */
+  --color-accent-3:      #7A2BFF; /* violet */
+
+  /* Gold scale remap → festival magenta→violet ramp (lightest 50 → darkest 700).
+     Used by text-gold-*, bg-gold-*, borders, glows across reused components. */
+  --color-gold-50:  #FCE6FF;
+  --color-gold-100: #FFB8EE;
+  --color-gold-200: #FF7FDA;
+  --color-gold-300: #FF52C2;
+  --color-gold-400: #FF2D9B; /* primary */
+  --color-gold-500: #D52CCB;
+  --color-gold-600: #7A2BFF;
+  --color-gold-700: #4A1A99;
+
+  /* Warm neutrals → festival lavenders / midnights */
+  --color-ivory:     #F4ECFF;
+  --color-cream:     #E9DCFF;
+  --color-champagne: #C9B3FF;
+  --color-noir-900:  #0B0220;
+  --color-noir-800:  #120630;
+  --color-noir-700:  #16093A;
+  --color-noir-600:  #20104F;
+  --color-rose:      #FF6FD6;
+
+  /* Legacy brand aliases */
+  --color-brand-gold:   #FF2D9B;
+  --color-brand-orange: #19E3FF;
+  --color-brand-text:   #F4ECFF;
+
+  /* Festival type: bold geometric display + fun script (reused components
+     reference --font-serif / --font-script, so they follow automatically). */
+  --font-serif:  "Sora", ui-sans-serif, system-ui, sans-serif;
+  --font-script: "Pacifico", cursive;
+
+  color-scheme: dark;
+}
+
+/* Holographic "foil" sweep replaces the metallic gold one. */
+:root[data-event='jenna-jake'] .text-foil {
+  background: linear-gradient(100deg, #FF2D9B 0%, #19E3FF 28%, #C6FF1A 50%, #19E3FF 72%, #7A2BFF 100%);
+  background-size: 220% auto;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  animation: foil-shimmer 4s linear infinite;
+}
+:root[data-event='jenna-jake'] .text-foil-static,
+:root[data-event='jenna-jake'] .gold-foil-static {
+  background: linear-gradient(120deg, #FF2D9B, #19E3FF 50%, #7A2BFF);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+/* Legacy .gold-foil (any unmigrated spots) also goes holographic. */
+:root[data-event='jenna-jake'] .gold-foil {
+  background: linear-gradient(100deg, #FF2D9B 0%, #19E3FF 28%, #C6FF1A 50%, #19E3FF 72%, #7A2BFF 100%);
+  background-size: 220% auto;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  animation: foil-shimmer 4s linear infinite;
+}
+
+/* Button / surface fills: holographic gradient instead of gold foil. */
+:root[data-event='jenna-jake'] .bg-foil {
+  background-image: linear-gradient(120deg, #7A2BFF, #FF2D9B 38%, #19E3FF 62%, #C6FF1A);
+}
+
+/* Glass panels: violet-tinted with a magenta edge. */
+:root[data-event='jenna-jake'] .glass {
+  background: rgba(34, 12, 64, 0.42);
+  border: 1px solid rgba(255, 45, 155, 0.20);
+}
+:root[data-event='jenna-jake'] .glass-strong {
+  background: rgba(18, 6, 40, 0.66);
+  border: 1px solid rgba(25, 227, 255, 0.20);
+}
+
+/* Glows go neon. */
+:root[data-event='jenna-jake'] .glow-accent,
+:root[data-event='jenna-jake'] .glow-gold {
+  box-shadow: 0 0 50px -6px rgba(255, 45, 155, 0.55), 0 0 90px -10px rgba(25, 227, 255, 0.40);
+}

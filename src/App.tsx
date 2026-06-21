@@ -19,14 +19,15 @@ import Creator3D from './components/admin/Creator3D';
 import Moderation from './components/admin/Moderation';
 import Settings from './components/admin/Settings';
 import Challenges from './components/admin/Challenges';
+import { activeEvent } from './events/active';
 
 export default function App() {
   return (
     <Router>
       <div className="min-h-screen h-screen w-screen bg-noir-900 text-ivory font-sans overflow-hidden select-none">
         <Routes>
-          {/* Guest experience */}
-          <Route path="/" element={<Booth />} />
+          {/* Guest experience — "/" lands on the active event's chosen route */}
+          <Route path="/" element={<Navigate to={activeEvent.landingRoute} replace />} />
           <Route path="/booth" element={<Booth />} />
           <Route path="/experience/:id" element={<Booth />} />
           <Route path="/wall" element={<Wall />} />
