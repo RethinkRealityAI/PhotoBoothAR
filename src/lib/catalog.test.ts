@@ -1,19 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { FILTER_SHADERS } from './shaders';
-import { BUILTIN_BORDERS } from './borders';
-import { HEAD_PIECES } from './headPieces';
 import { builtinShaderExperiences, builtinBorderExperiences, builtinHeadPieceExperiences, pick } from './catalog';
 
-// With the active event = hope-gala (arContent {} = include all), counts are unchanged.
-describe('builtin catalog (hope-gala = all)', () => {
-  it('includes every built-in shader', () => {
-    expect(builtinShaderExperiences().length).toBe(FILTER_SHADERS.length);
+// Active event = hope-gala, pinned to its own built-ins (8 shaders / 8 borders /
+// 4 head-pieces). These counts must stay fixed even when other events add AR
+// effects to the shared registries.
+describe('builtin catalog (hope-gala pinned)', () => {
+  it('includes Hope Gala\'s 8 pinned shaders', () => {
+    expect(builtinShaderExperiences().length).toBe(8);
   });
-  it('includes every built-in border', () => {
-    expect(builtinBorderExperiences().length).toBe(BUILTIN_BORDERS.length);
+  it('includes Hope Gala\'s 8 pinned borders', () => {
+    expect(builtinBorderExperiences().length).toBe(8);
   });
-  it('includes every built-in head-piece', () => {
-    expect(builtinHeadPieceExperiences().length).toBe(HEAD_PIECES.length);
+  it('includes Hope Gala\'s 4 pinned head-pieces', () => {
+    expect(builtinHeadPieceExperiences().length).toBe(4);
   });
 });
 

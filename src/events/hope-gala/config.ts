@@ -12,5 +12,29 @@ export const hopeGala: EventConfig = {
   Mark: HopeGalaMark,
   Background: GalaBackground,
   landingRoute: '/booth',
-  arContent: {},
+  // Pinned to Hope Gala's own built-ins so AR effects added for other events
+  // (in the shared registries) never leak into this catalog.
+  arContent: {
+    shaderIds: [
+      'champagne-sparkle',
+      'golden-hour-bloom',
+      'prismatic-holo',
+      'aureate-god-rays',
+      'velvet-film',
+      'crystalline-kaleidoscope',
+      'celestial-lens-flare',
+      'aurora-lumina',
+    ],
+    borderIds: [
+      'frame-classic',
+      'frame-hexagon',
+      'frame-deco',
+      'frame-minimal',
+      'sticker-hopegala',
+      'sticker-hopegala-top',
+      'sticker-crown',
+      'overlay-confetti',
+    ],
+    headPieceIds: ['royal-crown', 'queen-tiara', 'cheek-stars', 'hope-halo'],
+  },
 };
