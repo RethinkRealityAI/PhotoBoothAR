@@ -1,15 +1,191 @@
-export interface Post {
-  id: string;
-  type: 'image' | 'video';
-  url: string;
-  createdAt: number;
-  message?: string;
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Shared domain types for the Hope Gala AR Photo Booth.
+ */
+
+/** Categories of AR experience that can be authored in the studio. */
+export type ExperienceKind =
+  | '2d_filter'      // free-floating PNG/SVG sticker overlay
+  | 'border'         // full-frame decorative border/frame
+  | 'shader'         // GLSL camera/photo color treatment
+  | '3d_attachment'  // GLB model anchored to a head landmark
+  | 'composite';     // multiple layers combined
+
+/** Named head landmarks a 3D asset can be anchored to (MediaPipe FaceLandmarker indices). */
+export type HeadAnchor =
+  | 'crown'
+  | 'forehead'
+  | 'noseBridge'
+  | 'noseTip'
+  | 'leftEye'
+  | 'rightEye'
+  | 'leftEar'
+  | 'rightEar'
+  | 'leftCheek'
+  | 'rightCheek'
+  | 'mouth'
+  | 'chin';
+
+/** 2D placement of a sticker/border in the booth frame. Percentages are relative to frame size. */
+export interface Transform2D {
+  scale: number;      // multiplier, 1 = natural fit
+  x: number;          // horizontal offset, percent of frame width (-100..100)
+  y: number;          // vertical offset, percent of frame height (-100..100)
+  rotation: number;   // degrees
 }
 
-export interface ARAsset {
+export interface ShaderConfig {
+  shaderId: string;             // id from the shader registry
+  params?: Record<string, number>;
+}
+
+/** 3D asset anchored to a head landmark. */
+export interface AnchorConfig {
+  anchor: HeadAnchor;
+  offset: { x: number; y: number; z: number };   // local offset from anchor (head units)
+  rotation: { x: number; y: number; z: number }; // radians
+  scale: number;
+}
+
+/** A single composable layer of a composite experience. */
+export interface ExperienceLayer {
   id: string;
-  type: '3d' | '2d_filter';
+  kind: Exclude<ExperienceKind, 'composite'>;
+  asset_url?: string | null;
+  transform?: Transform2D;
+  shader?: ShaderConfig;
+  anchor?: AnchorConfig;
+  opacity?: number;
+  blendMode?: string;
+}
+
+export interface ExperienceConfig {
+  transform?: Transform2D;        // for 2d_filter / border
+  opacity?: number;
+  blendMode?: string;
+  shader?: ShaderConfig;          // for shader kind
+  anchor?: AnchorConfig;          // for 3d_attachment kind
+  layers?: ExperienceLayer[];     // for composite kind
+  /** Built-in procedural head-piece id (e.g. 'royal-crown') instead of a GLB asset_url. */
+  procedural?: string;
+  /** A shader applied to the whole frame when this experience is active. */
+  ambientShader?: ShaderConfig;
+}
+
+export interface Experience {
+  id: string;
+  created_at: string;
+  updated_at: string;
   name: string;
-  url: string;
-  config?: any;
+  kind: ExperienceKind;
+  asset_url: string | null;
+  thumbnail_url: string | null;
+  config: ExperienceConfig;
+  is_published: boolean;
+  featured: boolean;
+  sort_order: number;
+}
+
+/** Draft shape used when creating/editing an experience before persistence. */
+export type ExperienceDraft = Partial<
+  Pick<
+    Experience,
+    'name' | 'kind' | 'asset_url' | 'thumbnail_url' | 'config' | 'is_published' | 'featured' | 'sort_order'
+  >
+> & { id?: string };
+
+export type MediaType = 'image' | 'video';
+
+export interface Post {
+  id: string;
+  created_at: string;
+  image_url: string;
+  media_type: MediaType;
+  duration_ms: number | null;
+  message: string | null;
+  guest_name: string | null;
+  experience_id: string | null;
+  challenge_id: string | null;
+  session_id: string | null;
+  approved: boolean;
+  hidden: boolean;
+  width: number | null;
+  height: number | null;
+}
+
+/** A gala engagement challenge guests can complete in the booth. */
+export interface Challenge {
+  id: string;
+  created_at: string;
+  title: string;
+  description: string | null;
+  emoji: string;
+  points: number;
+  sort_order: number;
+  active: boolean;
+}
+
+/** Wall/feature settings, synced live from app_settings (key='wall'). */
+export interface WallSettings {
+  showQR: boolean;
+  showLeaderboard: boolean;
+  showChallenges: boolean;
+  /** Gallery mode: false = masonry grid, true = animated scrolling rows (marquee). */
+  galleryScroll: boolean;
+  /** Marquee scroll speed multiplier (0.25 slow … 3 fast). */
+  galleryScrollSpeed: number;
+  /** Seconds each slide is shown in Slideshow mode. */
+  slideshowInterval: number;
+  /** Experience id pre-selected when the booth opens (catalog id, or null for none). */
+  defaultExperienceId: string | null;
+}
+
+/** A single step shown on the "Join the Photo Booth" landing page. */
+export interface LandingStep {
+  title: string;
+  body: string;
+}
+
+/** Admin-editable content for the /join landing page (app_settings key='landing'). */
+export interface LandingContent {
+  eyebrow: string;        // small label above the title (e.g. "SCAGO · 2026")
+  title: string;          // big heading
+  subtitle: string;       // one-line tagline under the title
+  intro: string;          // short blurb paragraph
+  steps: LandingStep[];   // the numbered how-it-works steps
+  ctaLabel: string;       // button / call-to-action label
+  url: string;            // URL encoded in the QR (blank = current site origin)
+  footer: string;         // small footer note
+}
+
+/** Admin overrides for the built-in (code) presets (app_settings key='presets'). */
+export interface PresetOverrides {
+  /** Built-in experience ids hidden from the booth. */
+  hidden: string[];
+  /** Built-in experience ids in the desired display order. */
+  order: string[];
+}
+
+/** Aggregated leaderboard entry (derived from posts). */
+export interface LeaderboardEntry {
+  sessionId: string;
+  name: string;
+  photos: number;
+  challengesCompleted: number;
+  points: number;
+  /** True when this guest has completed every active challenge. */
+  completedAll?: boolean;
+  /** Ms epoch when they completed their final required challenge (finishers only). */
+  finishTime?: number;
+}
+
+/** Locally-cached record so a guest can re-download their photos later from any view. */
+export interface SavedPhoto {
+  id: string;
+  image_url: string;
+  media_type?: MediaType;
+  message?: string;
+  createdAt: number;
 }

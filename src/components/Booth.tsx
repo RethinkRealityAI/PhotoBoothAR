@@ -1,434 +1,688 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+/**
+ * Hope Gala 2026 — Guest Photo Booth (Round 2)
+ *
+ * Architecture:
+ *   • Single composited StageCanvas (preview + capture + record)
+ *   • Collapsible PickerDrawer (effects + frames + 3D — combinable)
+ *   • Front/back camera flip (only shown when hasMultipleCameras)
+ *   • Photo / Video mode toggle (record up to 30s via StreamRecorder)
+ *   • Timer selector: Off / 3s / 5s / 10s
+ *   • First-launch Onboarding modal
+ *   • Challenge selector (optional, tags post via challengeId)
+ *   • Golden-disintegration send-off animation
+ */
+import {
+  useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo,
+} from 'react';
 import { useParams } from 'react-router-dom';
-import * as THREE from 'three';
-import { GLTFLoader } from 'three-stdlib';
-import { initializeFaceLandmarker, getFaceLandmarker } from '../lib/faceTracking';
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  SwitchCamera, Clock, Video, Camera as CameraIcon,
+  SlidersHorizontal, Eye, EyeOff, ChevronUp,
+} from 'lucide-react';
+
+import GalaBackground from './ui/GalaBackground';
+import ScagoMark from './ui/ScagoMark';
+import { GalleryIcon, MediaStackIcon } from './ui/MediaIcons';
+
+// Booth sub-components
+import { useCameraStream } from './booth/useCameraStream';
+import Welcome from './booth/Welcome';
+import CameraErrorScreen from './booth/CameraError';
+import StageCanvas, { StageCanvasHandle } from './booth/StageCanvas';
+import Overlay3D from './booth/Overlay3D';
+import PickerDrawer from './booth/PickerDrawer';
+import FilterOrbs from './booth/FilterOrbs';
+import Countdown from './booth/Countdown';
+import ReviewPanel from './booth/ReviewPanel';
+import SendOff from './booth/SendOff';
+import Onboarding, { useOnboarding } from './booth/Onboarding';
+import ChallengeSelector from './booth/ChallengeSelector';
+
+// Foundation APIs
 import { useStore } from '../store';
-import { Share2, Disc3, Layers } from 'lucide-react';
-import confetti from 'canvas-confetti';
-import { ARAsset } from '../types';
+import { buildCatalog } from '../lib/catalog';
+import { initializeFaceLandmarker } from '../lib/faceTracking';
+import { submitPost } from '../lib/db';
+import { savePhoto, addCompletedChallenge, setGuestName } from '../lib/session';
+import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
+import { dataUrlToBlob } from './booth/capture';
+import type { Transform2D, Experience, AnchorConfig, Challenge } from '../types';
 
-// 3D Scene mapping head transform
-function FaceAsset({ assetId, config }: { assetId?: string, config?: any }) {
-  const groupRef = useRef<THREE.Group>(null);
-  const { camera } = useThree();
-  const [scene, setScene] = useState<any>(null);
-  const assets = useStore(state => state.assets);
-  const assetUrl = useMemo(() => assets.find(a => a.id === assetId)?.url, [assets, assetId]);
+// ─────────────────────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (assetUrl) {
-      const loader = new GLTFLoader();
-      loader.load(assetUrl, (gltf) => {
-        setScene(gltf.scene);
-      });
-    } else {
-      setScene(null);
-    }
-  }, [assetUrl]);
+type BoothPhase =
+  | 'camera'
+  | 'countdown'
+  | 'flash'
+  | 'review'
+  | 'sending'
+  | 'success';
 
-  useFrame(() => {
-    const faceLandmarker = getFaceLandmarker();
-    const video = document.getElementById('webcam-video') as HTMLVideoElement;
-    if (!faceLandmarker || !video || !groupRef.current) return;
+type MediaMode = 'photo' | 'video';
+type TimerOption = 0 | 3 | 5 | 10;
 
-    if (video.readyState >= 2) {
-      const results = faceLandmarker.detectForVideo(video, performance.now());
-      if (results.facialTransformationMatrixes && results.facialTransformationMatrixes.length > 0) {
-        const matrixArray = results.facialTransformationMatrixes[0].data;
-        const matrix = new THREE.Matrix4().fromArray(matrixArray);
-        
-        const position = new THREE.Vector3();
-        const quaternion = new THREE.Quaternion();
-        const scale = new THREE.Vector3();
-        matrix.decompose(position, quaternion, scale);
+const TIMER_OPTIONS: TimerOption[] = [0, 3, 5, 10];
+const VIDEO_MAX_MS = 30_000;
+const DEFAULT_TRANSFORM: Transform2D = { scale: 1, x: 0, y: 0, rotation: 0 };
 
-        groupRef.current.position.copy(position);
-        groupRef.current.quaternion.copy(quaternion);
-        groupRef.current.position.z -= 10; 
-        
-        groupRef.current.visible = true;
-      } else {
-        groupRef.current.visible = false;
-      }
-    }
-  });
-
-  if (!assetId) return null;
-
-  const s = config?.scale ?? 1;
-  const cx = config?.x ?? 0;
-  const cy = config?.y ?? 0;
-  const cz = config?.z ?? 0;
-  const rx = config?.rotX ?? 0;
-  const ry = config?.rotY ?? 0;
-  const rz = config?.rotZ ?? 0;
-
-  return (
-    <group ref={groupRef} visible={false}>
-      {/* Apply local changes for the specific asset */}
-      <group position={[cx, cy, cz]} rotation={[rx, ry, rz]} scale={[s, s, s]}>
-        {scene ? (
-          <primitive object={scene} />
-        ) : (
-          <group position={[0, cy, 0]}>
-            <mesh position={[4, 5, 5]} rotation={[0, 0, 0]}>
-              <torusGeometry args={[3, 0.5, 16, 100]} />
-              <meshStandardMaterial color="#F27D26" />
-            </mesh>
-            <mesh position={[-4, 5, 5]} rotation={[0, 0, 0]}>
-              <torusGeometry args={[3, 0.5, 16, 100]} />
-              <meshStandardMaterial color="#F27D26" />
-            </mesh>
-            <mesh position={[0, 5, 5]}>
-              <cylinderGeometry args={[0.5, 0.5, 2, 8]} />
-              <meshStandardMaterial color="#D4AF37" />
-              <lineSegments rotation={[0, 0, Math.PI / 2]} />
-            </mesh>
-          </group>
-        )}
-      </group>
-    </group>
-  );
-}
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function Booth() {
-  const { id } = useParams<{ id: string }>(); // Extract experience ID
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const compositeCanvasRef = useRef<HTMLCanvasElement>(null);
-  const filterImgRef = useRef<HTMLImageElement>(null);
-  const [isInitializing, setIsInitializing] = useState(true);
-  const [previewMedia, setPreviewMedia] = useState<{url: string, type: 'image'|'video'} | null>(null);
-  const [message, setMessage] = useState('');
-  
-  const { assets, fetchAssets, currentFilter, setCurrentFilter } = useStore();
+  const { id: routeExperienceId } = useParams<{ id?: string }>();
+
+  // ── Store ─────────────────────────────────────────────────────────────
+  const {
+    experiences, experiencesLoaded, fetchExperiences,
+    presetOverrides, fetchPresetOverrides,
+    wallSettings, fetchWallSettings,
+  } = useStore();
 
   useEffect(() => {
-    const init = async () => {
-      await fetchAssets();
-    };
-    init();
-  }, [fetchAssets]);
+    fetchExperiences(true);
+    fetchPresetOverrides();
+    fetchWallSettings();
+  }, [fetchExperiences, fetchPresetOverrides, fetchWallSettings]);
 
+  // Face tracking init
   useEffect(() => {
-    if (assets.length > 0 && id) {
-      const filter = assets.find(a => a.id === id);
-      if (filter) {
-        setCurrentFilter(filter);
+    initializeFaceLandmarker().catch((e) =>
+      console.warn('[Booth] face landmarker init failed', e),
+    );
+  }, []);
+
+  // ── Onboarding ────────────────────────────────────────────────────────
+  const { showOnboarding, dismiss: dismissOnboarding } = useOnboarding();
+  const [onboardingVisible, setOnboardingVisible] = useState(showOnboarding);
+
+  // ── Camera ────────────────────────────────────────────────────────────
+  const [started, setStarted] = useState(false);
+  const [mediaMode, setMediaMode] = useState<MediaMode>('photo');
+
+  // Audio only needed in video mode; restart stream when mode changes to add audio
+  const {
+    videoRef, stream, ready, error, retry,
+    facingMode, flipCamera, canFlip,
+  } = useCameraStream(started, mediaMode === 'video');
+
+  const feedContainerRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<StageCanvasHandle>(null);
+
+  // Wire stream → video element
+  useLayoutEffect(() => {
+    streamRef.current = stream;
+    if (stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream, videoRef]);
+
+  // ── Picker state ──────────────────────────────────────────────────────
+  const [effectId, setEffectId] = useState<string>('none');
+  const [sparkles, setSparkles] = useState(false);
+  const [frameExp, setFrameExp] = useState<Experience | null>(null);
+  const [attachExp, setAttachExp] = useState<Experience | null>(null);
+  const [overlayTransform, setOverlayTransform] = useState<Transform2D>(DEFAULT_TRANSFORM);
+
+  // ── Timer ─────────────────────────────────────────────────────────────
+  const [timerSec, setTimerSec] = useState<TimerOption>(0);
+  const [timerPickerOpen, setTimerPickerOpen] = useState(false);
+
+  // ── UI chrome ─────────────────────────────────────────────────────────
+  const [uiHidden, setUiHidden] = useState(false);   // collapse panel to see the full frame
+  const [moreOpen, setMoreOpen] = useState(false);   // full "More filters & settings" sheet
+
+  // ── Challenge ─────────────────────────────────────────────────────────
+  const [selectedChallenge, setSelectedChallenge] = useState<Challenge | null>(null);
+
+  // Clear any selected challenge if the admin turns Challenges mode off.
+  useEffect(() => {
+    if (!wallSettings.showChallenges && selectedChallenge) setSelectedChallenge(null);
+  }, [wallSettings.showChallenges, selectedChallenge]);
+
+  // ── Phase & capture ───────────────────────────────────────────────────
+  const [phase, setPhase] = useState<BoothPhase>('camera');
+  const [capturedDataUrl, setCapturedDataUrl] = useState<string | null>(null);
+  const [capturedBlobRef, setCapturedBlobRef] = useState<Blob | null>(null);
+  const [capturedDurationMs, setCapturedDurationMs] = useState<number | undefined>();
+  const capturedMediaTypeRef = useRef<'image' | 'video'>('image');
+
+  // ── Recording ─────────────────────────────────────────────────────────
+  const recorderRef = useRef<StreamRecorder | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recordingMs, setRecordingMs] = useState(0);
+  const recordVideoUrlRef = useRef<string | null>(null);
+  const recordStartRef = useRef(0);          // wall-clock start of recording (true duration)
+  const streamRef = useRef<MediaStream | null>(null); // always-current stream (survives camera flip)
+
+  // ── Build catalog ─────────────────────────────────────────────────────
+  const catalog = useMemo(
+    () => buildCatalog(experiencesLoaded ? experiences : [], presetOverrides),
+    [experiences, experiencesLoaded, presetOverrides],
+  );
+
+  // Pre-select from route param
+  useEffect(() => {
+    if (!routeExperienceId || !experiencesLoaded) return;
+    const exp = catalog.find((e) => e.id === routeExperienceId);
+    if (exp) {
+      if (exp.kind === 'shader') {
+        setEffectId(exp.config?.shader?.shaderId ?? 'none');
+      } else if (exp.kind === 'border' || exp.kind === '2d_filter') {
+        setFrameExp(exp);
+        setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
+      } else if (exp.kind === '3d_attachment') {
+        setAttachExp(exp);
       }
     }
-  }, [id, assets, setCurrentFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeExperienceId, experiencesLoaded]);
 
+  // Auto-apply the admin's default filter when the booth opens (once).
+  // A specific /experience/:id link always takes precedence.
+  const appliedDefaultRef = useRef(false);
   useEffect(() => {
-    let stream: MediaStream | null = null;
-    
-    async function setupCamera() {
-      try {
-        await initializeFaceLandmarker();
-        stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, 
-          audio: true 
-        });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-        setIsInitializing(false);
-      } catch (e) {
-        console.error("Camera setup failed", e);
+    if (appliedDefaultRef.current) return;
+    if (routeExperienceId) { appliedDefaultRef.current = true; return; }
+    if (!experiencesLoaded) return;
+    const id = wallSettings.defaultExperienceId;
+    if (!id) return;
+    const exp = catalog.find((e) => e.id === id);
+    if (!exp) return;
+    if (exp.kind === 'shader') {
+      setEffectId(exp.config?.shader?.shaderId ?? 'none');
+    } else if (exp.kind === 'border' || exp.kind === '2d_filter') {
+      setFrameExp(exp);
+      setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
+    } else if (exp.kind === '3d_attachment') {
+      setAttachExp(exp);
+    }
+    appliedDefaultRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [experiencesLoaded, wallSettings.defaultExperienceId, catalog, routeExperienceId]);
+
+  // Reset transform when frame changes
+  const handleSelectFrame = useCallback((exp: Experience | null) => {
+    setFrameExp(exp);
+    setOverlayTransform(exp?.config?.transform ?? DEFAULT_TRANSFORM);
+  }, []);
+
+  // ── Derived flags ─────────────────────────────────────────────────────
+  const isFront = facingMode === 'user';
+  const is2DOverlay = frameExp !== null && !!frameExp.asset_url &&
+    (frameExp.kind === 'border' || frameExp.kind === '2d_filter');
+  const is3D = attachExp !== null && attachExp.kind === '3d_attachment' &&
+    (!!attachExp.asset_url || !!attachExp.config?.procedural);
+  const anchorConfig: AnchorConfig | null =
+    is3D && attachExp?.config?.anchor ? (attachExp.config.anchor as AnchorConfig) : null;
+
+  // ── Shutter / countdown ───────────────────────────────────────────────
+  const handleShutterPress = useCallback(() => {
+    if (phase !== 'camera') return;
+    if (mediaMode === 'video' && recording) return; // handled by stop button
+    if (timerSec > 0) {
+      setPhase('countdown');
+    } else {
+      // Fire immediately
+      if (mediaMode === 'video') {
+        startRecording();
+      } else {
+        capturePhoto();
       }
     }
-    
-    setupCamera();
+  }, [phase, mediaMode, recording, timerSec]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const handleCountdownComplete = useCallback(() => {
+    if (mediaMode === 'video') {
+      startRecording();
+    } else {
+      capturePhoto();
+    }
+  }, [mediaMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Photo capture ─────────────────────────────────────────────────────
+  async function capturePhoto() {
+    setPhase('flash');
+    const stage = stageRef.current;
+    if (!stage) { setPhase('camera'); return; }
+    try {
+      const dataUrl = await stage.capturePhoto();
+      setCapturedDataUrl(dataUrl);
+      capturedMediaTypeRef.current = 'image';
+      setCapturedDurationMs(undefined);
+      setTimeout(() => setPhase('review'), 180);
+    } catch (e) {
+      console.error('[Booth] capture failed', e);
+      setPhase('camera');
+    }
+  }
+
+  // ── Video recording ───────────────────────────────────────────────────
+  function startRecording() {
+    if (!recordingSupported()) { alert('Video recording is not supported in this browser.'); return; }
+    const canvas = stageRef.current?.canvas;
+    if (!canvas) return;
+
+    setPhase('camera');
+    setRecording(true);
+    setRecordingMs(0);
+    recordStartRef.current = performance.now();
+
+    const recStream = buildRecordStream(canvas, streamRef.current ?? undefined, 30);
+    const rec = new StreamRecorder({
+      maxMs: VIDEO_MAX_MS,
+      onTick: (ms) => setRecordingMs(ms),
+      onMaxReached: () => stopRecording(rec),
+    });
+    recorderRef.current = rec;
+    rec.start(recStream);
+  }
+
+  async function stopRecording(recOverride?: StreamRecorder) {
+    const rec = recOverride ?? recorderRef.current;
+    if (!rec) return;
+    const blob = await rec.stop();
+    rec.dispose();
+    recorderRef.current = null;
+
+    const url = URL.createObjectURL(blob);
+    recordVideoUrlRef.current = url;
+    setCapturedDataUrl(url);
+    setCapturedBlobRef(blob);
+    setCapturedDurationMs(Math.max(0, Math.round(performance.now() - recordStartRef.current)));
+    capturedMediaTypeRef.current = 'video';
+    setRecording(false);
+    setRecordingMs(0);
+    setPhase('review');
+  }
+
+  // Cleanup recorder on unmount
+  useEffect(() => {
     return () => {
-      if (stream) stream.getTracks().forEach(t => t.stop());
+      recorderRef.current?.dispose();
+      if (recordVideoUrlRef.current) URL.revokeObjectURL(recordVideoUrlRef.current);
     };
   }, []);
 
-  const capturePhoto = () => {
-    if (!videoRef.current || !compositeCanvasRef.current) return;
-    
-    const video = videoRef.current;
-    const compositeCanvas = compositeCanvasRef.current;
-    const ctx = compositeCanvas.getContext('2d');
-    if (!ctx) return;
+  // ── Send to wall ──────────────────────────────────────────────────────
+  const handleSend = useCallback(
+    async (guestName: string, message: string) => {
+      if (!capturedDataUrl) return;
+      setPhase('sending');
 
-    compositeCanvas.width = 1080;
-    compositeCanvas.height = 1920;
+      const isVideo = capturedMediaTypeRef.current === 'video';
+      const blob = isVideo
+        ? (capturedBlobRef ?? dataUrlToBlob(capturedDataUrl))
+        : dataUrlToBlob(capturedDataUrl);
 
-    const targetAspect = 9 / 16;
-    const videoAspect = video.videoWidth / video.videoHeight;
-    
-    let sx = 0, sy = 0, sw = video.videoWidth, sh = video.videoHeight;
+      const expId = attachExp?.id ?? frameExp?.id ?? (effectId !== 'none' ? `builtin:shader:${effectId}` : undefined);
 
-    if (videoAspect > targetAspect) {
-      sw = video.videoHeight * targetAspect;
-      sx = (video.videoWidth - sw) / 2;
-    } else {
-      sh = video.videoWidth / targetAspect;
-      sy = (video.videoHeight - sh) / 2;
-    }
-
-    // Draw video (mirrored)
-    ctx.translate(compositeCanvas.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, compositeCanvas.width, compositeCanvas.height);
-    ctx.setTransform(1, 0, 0, 1, 0, 0); // reset transform
-
-    // Draw Three.js overlay
-    const threeCanvas = document.querySelector('#three-canvas canvas') as HTMLCanvasElement;
-    if (threeCanvas && currentFilter?.type === '3d') {
-      ctx.drawImage(threeCanvas, 0, 0, compositeCanvas.width, compositeCanvas.height);
-    }
-    
-    // Draw 2D Filter image if available
-    if (filterImgRef.current && currentFilter?.type === '2d_filter') {
-      const cfg = currentFilter.config || {};
-      const scale = cfg.scale ?? 1;
-      const xPercent = cfg.x ?? 0;
-      const yPercent = cfg.y ?? 0;
-      
-      const w = compositeCanvas.width;
-      const h = compositeCanvas.height;
-      const img = filterImgRef.current;
-      
-      const imgAspect = img.width / img.height || 1;
-      const canvasAspect = w / h;
-      let drawW = w;
-      let drawH = h;
-      if (imgAspect > canvasAspect) {
-         drawW = w;
-         drawH = w / imgAspect;
-      } else {
-         drawH = h;
-         drawW = h * imgAspect;
-      }
-
-      ctx.save();
-      ctx.translate(w / 2, h / 2);
-      ctx.translate(w * (xPercent / 100), h * (yPercent / 100));
-      ctx.scale(scale, scale);
-      ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
-      ctx.restore();
-    }
-
-    const dataUrl = compositeCanvas.toDataURL('image/jpeg', 0.9);
-    setPreviewMedia({ url: dataUrl, type: 'image' });
-  };
-
-  const uploadToWall = async () => {
-    if (!previewMedia) return;
-    
-    try {
-      const blob = await fetch(previewMedia.url).then(r => r.blob());
-      const formData = new FormData();
-      formData.append('media', blob, previewMedia.type === 'video' ? 'video.webm' : 'photo.jpg');
-      formData.append('type', previewMedia.type);
-      if (message.trim()) {
-        formData.append('message', message.trim());
-      }
-
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
+      const post = await submitPost({
+        blob,
+        mediaType: isVideo ? 'video' : 'image',
+        durationMs: capturedDurationMs,
+        message: message || undefined,
+        guestName: guestName || undefined,
+        experienceId: expId ?? null,
+        challengeId: selectedChallenge?.id ?? null,
+        width: 1080,
+        height: 1920,
       });
-      
-      if (res.ok) {
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 },
-          colors: ['#F27D26', '#D4AF37', '#ffffff'] // brand colors
+
+      if (post) {
+        savePhoto({
+          id: post.id,
+          image_url: post.image_url,
+          media_type: isVideo ? 'video' : 'image',
+          message: message || undefined,
+          createdAt: Date.now(),
         });
-        setPreviewMedia(null);
-        setMessage('');
+        // Remember the name (so challenge mode doesn't re-ask) + mark the
+        // challenge complete so it drops off this guest's list.
+        if (guestName) setGuestName(guestName);
+        if (selectedChallenge) {
+          addCompletedChallenge(selectedChallenge.id);
+          setSelectedChallenge(null); // done — don't re-tag the next shot
+        }
       }
-    } catch (e) {
-      console.error(e);
+
+      setPhase('success');
+    },
+    [capturedDataUrl, capturedBlobRef, capturedDurationMs, attachExp, frameExp, effectId, selectedChallenge],
+  );
+
+  const handleRetake = useCallback(() => {
+    // Revoke video object URL if present
+    if (recordVideoUrlRef.current) {
+      URL.revokeObjectURL(recordVideoUrlRef.current);
+      recordVideoUrlRef.current = null;
     }
-  };
+    setMoreOpen(false);
+    setCapturedDataUrl(null);
+    setCapturedBlobRef(null);
+    setPhase('camera');
+  }, []);
 
-  const isStandalone = !!id;
+  const handleTakeAnother = useCallback(() => {
+    setMoreOpen(false);
+    if (recordVideoUrlRef.current) {
+      URL.revokeObjectURL(recordVideoUrlRef.current);
+      recordVideoUrlRef.current = null;
+    }
+    setCapturedDataUrl(null);
+    setCapturedBlobRef(null);
+    setPhase('camera');
+  }, []);
 
+  // ── Recording progress ring ───────────────────────────────────────────
+  const recordProgress = Math.min(recordingMs / VIDEO_MAX_MS, 1);
+  const ringCircumference = 2 * Math.PI * 28; // r=28 for a 60px button
+
+  // ── Render ─────────────────────────────────────────────────────────────
   return (
-    <div className={`absolute inset-0 flex flex-col items-center justify-between p-4 pb-0 face-grid w-full overflow-hidden`}>
-      {/* Background Glow Blobs for wider screens */}
-      <div className="absolute top-0 left-0 w-[80vw] h-[80vw] max-w-[800px] max-h-[800px] bg-brand-orange/30 blur-[150px] rounded-full pointer-events-none -translate-x-1/2 -translate-y-1/2 z-0" />
-      <div className="absolute bottom-0 right-0 w-[80vw] h-[80vw] max-w-[800px] max-h-[800px] bg-brand-gold/30 blur-[150px] rounded-full pointer-events-none translate-x-1/4 translate-y-1/4 z-0" />
+    <div className="absolute inset-0 flex flex-col overflow-hidden bg-noir-900 select-none">
+      <GalaBackground density={44} sparkle={0.7} />
 
-      {isInitializing && (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-brand-bg glass">
-          <Disc3 className="w-12 h-12 text-brand-orange animate-spin mb-4" />
-          <p className="text-[11px] uppercase tracking-[0.2em] opacity-60">Initializing Optics...</p>
-        </div>
-      )}
-
-      {/* Main capture view */}
-      <div className={`relative z-10 w-full max-w-sm aspect-[9/16] mx-auto mt-4 ${isStandalone ? 'mb-8' : 'mb-24'} bg-black rounded-3xl overflow-hidden glass border border-white/10 glow-gold shrink-0 ${previewMedia ? 'hidden' : 'block'}`}>
-        {/* Video feed (mirrored) */}
-        <video 
-          id="webcam-video"
-          ref={videoRef} 
-          className="absolute inset-0 w-full h-full object-cover scale-x-[-1]" 
-          autoPlay 
-          playsInline 
-          muted 
-        />
-        
-        {/* ThreeJS Overlay */}
-        <div className="absolute inset-0 pointer-events-none">
-          <Canvas 
-            id="three-canvas" 
-            camera={{ position: [0, 0, 50], fov: 45 }} 
-            gl={{ alpha: true, preserveDrawingBuffer: true }}
-          >
-            <ambientLight intensity={1} />
-            <directionalLight position={[10, 10, 10]} intensity={2} />
-            <FaceAsset 
-              assetId={currentFilter?.type === '3d' ? currentFilter.id : undefined} 
-              config={currentFilter?.config}
-            />
-          </Canvas>
-        </div>
-        
-        {/* 2D Filter Overlay */}
-        {currentFilter?.type === '2d_filter' && (
-          <div className="absolute inset-0 w-full h-full pointer-events-none" style={{
-            transform: `scale(${currentFilter.config?.scale ?? 1}) translate(${currentFilter.config?.x ?? 0}%, ${currentFilter.config?.y ?? 0}%)`,
-            transformOrigin: 'center'
-          }}>
-            <img 
-              ref={filterImgRef}
-              src={currentFilter.url} 
-              className="w-full h-full object-contain pointer-events-none" 
-              alt="Filter overlay"
-              crossOrigin="anonymous"
-            />
-          </div>
+      {/* ── Welcome gate ──────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {!started && !error && (
+          <Welcome key="welcome" onStart={() => setStarted(true)} />
         )}
+      </AnimatePresence>
 
-        {/* Temporary Composite Canvas (hidden) */}
-        <canvas ref={compositeCanvasRef} className="hidden" />
+      {/* ── First-launch onboarding ────────────────────────────────────── */}
+      <AnimatePresence>
+        {started && onboardingVisible && (
+          <Onboarding
+            key="onboarding"
+            onDismiss={() => {
+              dismissOnboarding();
+              setOnboardingVisible(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
 
-        {/* Capture Controls */}
-        <div className="absolute bottom-8 left-0 right-0 flex justify-center items-center gap-6 z-20">
-          <button 
-            onClick={capturePhoto}
-            className="w-20 h-20 bg-white/20 hover:bg-white/40 transition-colors backdrop-blur-md rounded-full border-[6px] border-white flex items-center justify-center group"
-          >
-            <div className="w-14 h-14 bg-white rounded-full group-active:scale-90 transition-transform"></div>
-          </button>
-        </div>
-      </div>
+      {/* ── Error screen ──────────────────────────────────────────────── */}
+      {error && <CameraErrorScreen error={error} onRetry={retry} />}
 
-      {/* Asset Selection Drawer - Only visible if NOT standalone experience */}
-      {!previewMedia && !isStandalone && (
-        <div className="fixed bottom-0 left-0 right-0 h-24 glass flex items-center overflow-x-auto hide-scrollbar px-6 gap-4 z-40 bg-brand-bg/80">
-          <button 
-            onClick={() => setCurrentFilter(null)}
-            className={`flex-shrink-0 w-16 h-16 rounded-full flex flex-col items-center justify-center gap-1 border-2 transition-colors ${!currentFilter ? 'border-brand-orange bg-brand-orange/10' : 'border-white/10 hover:border-white/30 bg-black/40'}`}
-          >
-            <Layers className={`w-6 h-6 ${!currentFilter ? 'text-brand-orange' : 'opacity-40'}`} />
-            <span className="text-[9px] uppercase font-bold tracking-widest opacity-70">None</span>
-          </button>
-          
-          {assets.map((asset) => (
-            <button
-              key={asset.id}
-              onClick={() => setCurrentFilter(asset)}
-              className={`flex-shrink-0 w-16 h-16 rounded-full overflow-hidden border-2 transition-colors relative flex items-center justify-center ${currentFilter?.id === asset.id ? 'border-brand-orange shadow-lg shadow-brand-orange/20 glow-orange' : 'border-white/10 hover:border-white/30 bg-black/40'}`}
-            >
-              {asset.type === '2d_filter' && asset.url ? (
-                <img src={asset.url} className="w-full h-full object-cover opacity-70" alt={asset.name} />
-              ) : (
-                <div className="text-[9px] uppercase font-bold text-center leading-tight p-1 text-brand-gold">3D Asset</div>
-              )}
-            </button>
-          ))}
+      {/* ── Camera starting ───────────────────────────────────────────── */}
+      {started && !error && !ready && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4 animate-rise-in">
+            <div className="w-12 h-12 rounded-full border border-gold-400/30 animate-pulse-glow" />
+            <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/40">
+              Starting camera…
+            </p>
+          </div>
         </div>
       )}
 
-      {/* Preview View */}
-      {previewMedia && (
-        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center p-4 sm:p-6 hide-scrollbar overflow-hidden face-grid bg-black/90 backdrop-blur-2xl">
-          <div className="flex-1 min-h-0 w-full max-w-sm max-h-[50vh] relative rounded-3xl overflow-hidden glass border border-white/10 glow-orange shrink-0 mt-4 sm:mt-8 bg-black/50 mx-auto">
-             {previewMedia.type === 'video' ? (
-                <video src={previewMedia.url} autoPlay loop muted playsInline className="w-full h-full object-contain" />
-             ) : (
-                <img src={previewMedia.url} className="w-full h-full object-contain" />
-             )}
-          </div>
-          
-          <div className="w-full max-w-sm mt-6 flex flex-col gap-3 shrink-0 mb-4 sm:mb-8 z-10">
-            <div className="glass p-4 rounded-xl border border-white/10 bg-black/40">
-              <textarea
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="Write a message for the live wall..."
-                className="w-full bg-transparent text-white border-none outline-none resize-none placeholder-white/40 text-sm font-medium"
-                rows={2}
-                maxLength={100}
+      {/* ── Camera stage + chrome (flex column; the FULL 9:16 frame shows) ── */}
+      {!error && (
+        <div className="relative z-0 flex-1 flex flex-col min-h-0">
+
+          {/* Header */}
+          {phase === 'camera' && ready && (
+            <div className="relative z-20 flex items-center justify-between gap-2 px-4 pt-safe-top pt-3 pb-2 shrink-0">
+              <ScagoMark size={34} variant="gold" animated className="shrink-0 drop-shadow-[0_0_10px_rgba(212,175,55,0.35)]" title="SCAGO Hope Gala & Awards" />
+              <div className="flex items-center gap-1.5">
+                {wallSettings.showChallenges && (
+                  <ChallengeSelector selectedChallenge={selectedChallenge} onSelect={setSelectedChallenge} />
+                )}
+                {recording ? (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full glass border border-red-500/40">
+                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    <span className="font-label text-[9px] uppercase tracking-wide text-red-400">{Math.floor(recordingMs / 1000)}s</span>
+                  </div>
+                ) : (
+                  <>
+                    <a href="/wall" title="Live Photo Wall" aria-label="Live Photo Wall" className="w-9 h-9 glass rounded-full flex items-center justify-center text-champagne/60 hover:text-gold-300 transition-colors active:scale-90">
+                      <GalleryIcon size={16} />
+                    </a>
+                    <a href="/me" title="My Media" aria-label="My Media" className="w-9 h-9 glass rounded-full flex items-center justify-center text-champagne/60 hover:text-gold-300 transition-colors active:scale-90">
+                      <MediaStackIcon size={16} />
+                    </a>
+                  </>
+                )}
+                <button
+                  onClick={() => setUiHidden((h) => !h)}
+                  title={uiHidden ? 'Show controls' : 'Hide controls — see the full frame'}
+                  className="w-9 h-9 glass rounded-full flex items-center justify-center text-champagne/60 hover:text-ivory border border-transparent hover:border-gold-400/30 transition-all active:scale-90"
+                  aria-label="Toggle controls"
+                >
+                  {uiHidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Stage — the full 9:16 capture frame, centred & letterboxed so the whole frame/border is visible */}
+          <div className="flex-1 relative min-h-0 flex items-center justify-center px-2 pb-1">
+            <div className="relative h-full aspect-[9/16] max-w-full rounded-[1.4rem] overflow-hidden ring-1 ring-gold-700/25 shadow-[0_10px_50px_rgba(0,0,0,0.6)] bg-noir-900">
+              <video
+                id="booth-video"
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none"
+                style={{ transform: isFront ? 'scaleX(-1)' : 'none' }}
+              />
+              {ready && (
+                <StageCanvas
+                  ref={stageRef}
+                  videoRef={videoRef}
+                  effectId={effectId}
+                  sparkles={sparkles}
+                  mirror={isFront}
+                  overlayUrl={is2DOverlay ? frameExp!.asset_url : null}
+                  overlayTransform={overlayTransform}
+                  overlayOpacity={frameExp?.config?.opacity}
+                  threeCanvasId={is3D ? 'booth-3d-layer' : null}
+                  active={true}
+                />
+              )}
+              <div ref={feedContainerRef} className="absolute inset-0">
+                {is3D && anchorConfig && (
+                  <Overlay3D
+                    assetUrl={attachExp!.asset_url}
+                    proceduralId={attachExp!.config?.procedural}
+                    anchor={anchorConfig}
+                    videoId="booth-video"
+                    mirror={isFront}
+                  />
+                )}
+              </div>
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{ background: 'radial-gradient(120% 90% at 50% 38%, transparent 58%, rgba(0,0,0,0.4) 100%)' }}
               />
             </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <button 
-                onClick={() => {
-                  setPreviewMedia(null);
-                  setMessage('');
-                }}
-                className="py-4 px-6 glass rounded-xl text-[10px] uppercase tracking-widest font-bold text-white hover:bg-white/10 transition-colors border border-white/10"
-              >
-                Retake
-              </button>
-              <button 
-                onClick={() => {
-                  const link = document.createElement('a');
-                  link.href = previewMedia.url;
-                  link.download = `HOPE_GALA_${Date.now()}.${previewMedia.type === 'video' ? 'webm' : 'jpg'}`;
-                  link.click();
-                }}
-                className="py-4 px-6 glass rounded-xl text-[10px] uppercase tracking-widest font-bold text-white hover:bg-white/10 transition-colors border border-white/10"
-              >
-                Download
+          </div>
+
+          {/* Controls (camera phase, panel shown) */}
+          {phase === 'camera' && ready && !uiHidden && (
+            <div className="relative z-20 shrink-0 pb-safe-bottom">
+              <div className="glass-strong rounded-t-3xl pt-2.5 pb-5">
+                <FilterOrbs
+                  catalog={catalog}
+                  effectId={effectId}
+                  sparkles={sparkles}
+                  frameId={frameExp?.id ?? null}
+                  attachmentId={attachExp?.id ?? null}
+                  onSelectEffect={setEffectId}
+                  onToggleSparkles={setSparkles}
+                  onSelectFrame={handleSelectFrame}
+                  onSelectAttachment={setAttachExp}
+                />
+
+                <div className="flex items-center justify-between px-6 pt-2">
+                  {/* Left: mode + timer */}
+                  <div className="flex flex-col items-center gap-2 w-[88px]">
+                    <div className="flex items-center gap-1 glass rounded-full p-1">
+                      <button onClick={() => { if (!recording) setMediaMode('photo'); }} disabled={recording} aria-label="Photo mode" className={`flex items-center justify-center px-2.5 py-1.5 rounded-full transition-all ${mediaMode === 'photo' ? 'bg-foil text-noir-900' : 'text-champagne/50 hover:text-ivory'}`}>
+                        <CameraIcon className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => { if (!recording) setMediaMode('video'); }} disabled={recording} aria-label="Video mode" className={`flex items-center justify-center px-2.5 py-1.5 rounded-full transition-all ${mediaMode === 'video' ? 'bg-foil text-noir-900' : 'text-champagne/50 hover:text-ivory'}`}>
+                        <Video className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    {mediaMode === 'photo' && !recording && (
+                      <div className="relative">
+                        <button onClick={() => setTimerPickerOpen((o) => !o)} className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-label uppercase tracking-wide transition-all glass border ${timerSec > 0 ? 'border-gold-400/40 text-gold-300' : 'border-transparent text-champagne/40 hover:text-champagne/70'}`}>
+                          <Clock className="w-3 h-3" />{timerSec === 0 ? 'Timer' : `${timerSec}s`}
+                        </button>
+                        <AnimatePresence>
+                          {timerPickerOpen && (
+                            <motion.div initial={{ opacity: 0, y: 6, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.95 }} transition={{ duration: 0.15 }} className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 glass-strong rounded-xl p-2 flex gap-1.5 z-30 shadow-xl">
+                              {TIMER_OPTIONS.map((t) => (
+                                <button key={t} onClick={() => { setTimerSec(t); setTimerPickerOpen(false); }} className={`w-10 h-8 rounded-lg font-label text-[10px] uppercase tracking-wide transition-all ${timerSec === t ? 'bg-foil text-noir-900' : 'text-champagne/60 hover:text-ivory hover:glass'}`}>{t === 0 ? 'Off' : `${t}s`}</button>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Center: shutter / record / stop */}
+                  <div className="relative flex items-center justify-center">
+                    {mediaMode === 'photo' ? (
+                      <motion.button onClick={handleShutterPress} whileTap={{ scale: 0.88 }} className="relative w-[72px] h-[72px] rounded-full bg-foil glow-gold animate-pulse-glow flex items-center justify-center focus:outline-none" aria-label="Take photo">
+                        <div className="absolute inset-2 rounded-full border-2 border-ivory/60" />
+                        <div className="w-5 h-5 rounded-full bg-ivory/80" />
+                      </motion.button>
+                    ) : recording ? (
+                      <div className="relative">
+                        <svg className="absolute inset-0 -rotate-90" width="72" height="72" viewBox="0 0 72 72">
+                          <circle cx="36" cy="36" r="28" fill="none" stroke="rgba(212,175,55,0.2)" strokeWidth="3" />
+                          <circle cx="36" cy="36" r="28" fill="none" stroke="#D4AF37" strokeWidth="3" strokeLinecap="round" strokeDasharray={ringCircumference} strokeDashoffset={ringCircumference * (1 - recordProgress)} style={{ transition: 'stroke-dashoffset 0.1s linear' }} />
+                        </svg>
+                        <button onClick={() => stopRecording()} className="relative w-[72px] h-[72px] rounded-full flex items-center justify-center focus:outline-none" aria-label="Stop recording">
+                          <div className="w-8 h-8 rounded-lg bg-red-500 glow-soft" />
+                        </button>
+                      </div>
+                    ) : (
+                      <motion.button onClick={handleShutterPress} whileTap={{ scale: 0.88 }} className="relative w-[72px] h-[72px] rounded-full border-4 border-red-500 flex items-center justify-center focus:outline-none" style={{ background: 'rgba(239,68,68,0.15)' }} aria-label="Start recording">
+                        <div className="w-6 h-6 rounded-full bg-red-500" />
+                      </motion.button>
+                    )}
+                    {mediaMode === 'video' && recording && (
+                      <div className="absolute -bottom-5 font-label text-[8px] uppercase tracking-wide text-champagne/50">{Math.ceil((VIDEO_MAX_MS - recordingMs) / 1000)}s left</div>
+                    )}
+                  </div>
+
+                  {/* Right: flip + more */}
+                  <div className="flex flex-col items-center gap-2 w-[88px]">
+                    {canFlip ? (
+                      <button onClick={() => { if (!recording) flipCamera(); }} disabled={recording} title="Switch camera (front / back)" className="w-11 h-11 glass rounded-full flex items-center justify-center text-champagne/70 hover:text-ivory hover:border-gold-400/30 border border-transparent transition-all active:scale-90 disabled:opacity-30" aria-label="Switch camera">
+                        <SwitchCamera className="w-5 h-5" />
+                      </button>
+                    ) : <div className="w-11 h-11" />}
+                    <button onClick={() => setMoreOpen(true)} className="flex items-center gap-1 px-2.5 py-1 rounded-full glass text-[9px] font-label uppercase tracking-wide text-champagne/50 hover:text-gold-300 transition-colors">
+                      <SlidersHorizontal className="w-3 h-3" /> All Filters
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Floating shutter when chrome is hidden (full-frame preview) */}
+          {phase === 'camera' && ready && uiHidden && (
+            <div className="absolute bottom-0 left-0 right-0 z-20 pb-safe-bottom flex flex-col items-center gap-3 pb-7 pointer-events-none">
+              {mediaMode === 'photo' ? (
+                <motion.button onClick={handleShutterPress} whileTap={{ scale: 0.88 }} className="pointer-events-auto relative w-[72px] h-[72px] rounded-full bg-foil glow-gold animate-pulse-glow flex items-center justify-center" aria-label="Take photo">
+                  <div className="absolute inset-2 rounded-full border-2 border-ivory/60" />
+                  <div className="w-5 h-5 rounded-full bg-ivory/80" />
+                </motion.button>
+              ) : recording ? (
+                <button onClick={() => stopRecording()} className="pointer-events-auto w-[72px] h-[72px] rounded-full flex items-center justify-center glass" aria-label="Stop recording">
+                  <div className="w-8 h-8 rounded-lg bg-red-500 glow-soft" />
+                </button>
+              ) : (
+                <motion.button onClick={handleShutterPress} whileTap={{ scale: 0.88 }} className="pointer-events-auto relative w-[72px] h-[72px] rounded-full border-4 border-red-500 flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.15)' }} aria-label="Start recording">
+                  <div className="w-6 h-6 rounded-full bg-red-500" />
+                </motion.button>
+              )}
+              <button onClick={() => setUiHidden(false)} className="pointer-events-auto flex items-center gap-1 px-3 py-1 rounded-full glass text-[9px] font-label uppercase tracking-wide text-champagne/50 hover:text-gold-300 transition-colors">
+                <ChevronUp className="w-3 h-3" /> Controls
               </button>
             </div>
+          )}
+        </div>
+      )}
 
-            {navigator.share && (
-              <button
-                 onClick={async () => {
-                   try {
-                     const response = await fetch(previewMedia.url);
-                     const blob = await response.blob();
-                     const file = new File([blob], `hope_gala_2026_${Date.now()}.${previewMedia.type === 'video' ? 'webm' : 'jpg'}`, { type: blob.type });
-                     await navigator.share({
-                       title: 'Hope Gala 2026',
-                       text: message || 'Check out my photo from the Hope Gala 2026!',
-                       files: [file]
-                     });
-                   } catch (err) {
-                     console.log('Error sharing', err);
-                   }
-                 }}
-                 className="w-full py-4 bg-brand-orange/20 text-brand-orange hover:bg-brand-orange/30 rounded-xl text-[10px] uppercase tracking-widest font-bold transition-colors flex items-center justify-center gap-2 border border-brand-orange/50"
-              >
-                <Share2 className="w-4 h-4" /> Share
-              </button>
-            )}
+      {/* ── White flash ───────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {phase === 'flash' && (
+          <motion.div
+            key="flash"
+            className="absolute inset-0 z-50 bg-white"
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.35 }}
+          />
+        )}
+      </AnimatePresence>
 
-            <button 
-              onClick={uploadToWall}
-              className="w-full py-5 bg-gradient-to-r from-brand-orange to-brand-gold text-black rounded-xl text-[10px] uppercase tracking-[0.2em] font-bold glow-orange hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
-            >
-              <Share2 className="w-5 h-5" />
-              Send to Live Wall
-            </button>
+      {/* ── Countdown ─────────────────────────────────────────────────── */}
+      {phase === 'countdown' && (
+        <Countdown from={timerSec || 3} onComplete={handleCountdownComplete} />
+      )}
+
+      {/* ── More filters & settings sheet ─────────────────────────────── */}
+      {moreOpen && phase === 'camera' && (
+        <div
+          className="absolute inset-0 z-30 bg-noir-900/55 backdrop-blur-sm"
+          onClick={() => setMoreOpen(false)}
+        />
+      )}
+      {phase === 'camera' && ready && (
+        <div className="absolute bottom-0 left-0 right-0 z-40 pb-safe-bottom pointer-events-none">
+          <div className="pointer-events-auto">
+            <PickerDrawer
+              catalog={catalog}
+              effectId={effectId}
+              sparkles={sparkles}
+              frameId={frameExp?.id ?? null}
+              attachmentId={attachExp?.id ?? null}
+              onSelectEffect={setEffectId}
+              onToggleSparkles={setSparkles}
+              onSelectFrame={handleSelectFrame}
+              onSelectAttachment={setAttachExp}
+              open={moreOpen}
+              onOpenChange={setMoreOpen}
+              hideBar
+            />
           </div>
         </div>
+      )}
+
+      {/* ── Review panel ──────────────────────────────────────────────── */}
+      {phase === 'review' && capturedDataUrl && (
+        <ReviewPanel
+          dataUrl={capturedDataUrl}
+          mediaType={capturedMediaTypeRef.current}
+          durationMs={capturedDurationMs}
+          onRetake={handleRetake}
+          onSend={handleSend}
+          sending={false}
+          selectedChallenge={selectedChallenge}
+        />
+      )}
+
+      {/* ── Send-off + success ────────────────────────────────────────── */}
+      {(phase === 'sending' || phase === 'success') && capturedDataUrl && (
+        <SendOff
+          dataUrl={capturedDataUrl}
+          mediaType={capturedMediaTypeRef.current}
+          uploading={phase === 'sending'}
+          success={phase === 'success'}
+          onTakeAnother={handleTakeAnother}
+        />
       )}
     </div>
   );
 }
-
-

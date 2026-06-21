@@ -1,0 +1,16 @@
+# Netlify config — Hope Gala AR Photo Booth (Vite SPA)
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Client-side routing: serve index.html for all paths
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Camera/AR needs HTTPS (Netlify provides it). Allow camera in this origin.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Permissions-Policy = "camera=(self), microphone=(self)"

@@ -1,151 +1,388 @@
-import { useEffect, useState, useRef } from 'react';
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Wall — the projected live photo wall for the Hope Gala 2026.
+ *
+ * Four modes:
+ *   Gallery    — responsive masonry grid, newest first, gentle entrance.
+ *   Slideshow  — full-bleed single post, Ken-Burns drift (images), auto-advance 6 s.
+ *   Leaderboard — gorgeous gold gala leaderboard (shown only when wallSettings.showLeaderboard).
+ *   Projection — kiosk/projector mode: hides ALL chrome; shows only content + dust.
+ *
+ * Settings (live via subscribeToSettings):
+ *   showQR          — hides/shows the two bottom QR panels instantly.
+ *   showLeaderboard — enables the Leaderboard tab in the mode picker.
+ *   showChallenges  — shows/hides the challenges ticker strip.
+ *
+ * Realtime: subscribeToPosts; fallback poll every ~20 s.
+ * Beam-in: fires <BeamIn/> overlay on every onInsert event.
+ */
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useStore } from '../store';
-import { motion, AnimatePresence } from 'motion/react';
-import confetti from 'canvas-confetti';
-import { Play, Grid } from 'lucide-react';
+import { subscribeToPosts, subscribeToSettings } from '../lib/db';
+import { Post } from '../types';
+import GalaBackground from './ui/GalaBackground';
+import { HopeGalaWordmark } from './ui/Logo';
+import BeamIn from './wall/BeamIn';
+import MosaicGrid from './wall/MosaicGrid';
+import MarqueeGrid from './wall/MarqueeGrid';
+import SlideshowView from './wall/SlideshowView';
+import LeaderboardView from './wall/LeaderboardView';
+import WallQRCodes from './wall/WallQRCodes';
+import ChallengesTicker from './wall/ChallengesTicker';
+
+type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard';
 
 export default function Wall() {
-  const { posts, fetchPosts } = useStore();
-  const [mode, setMode] = useState<'grid' | 'slideshow'>('grid');
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const prevPostsLength = useRef(posts.length);
+  const {
+    posts,
+    postsLoaded,
+    fetchPosts,
+    prependPost,
+    removePost,
+    updatePost,
+    wallSettings,
+    fetchWallSettings,
+    setWallSettings,
+  } = useStore();
+
+  // View state
+  const [mode, setMode] = useState<ViewMode>('mosaic');
+  const [projectionMode, setProjectionMode] = useState(false);
+  const [slideshowIndex, setSlideshowIndex] = useState(0);
+
+  // Controls auto-hide (projection mode hides the toggle bar after 4 s idle)
+  const [showChrome, setShowChrome] = useState(true);
+  const chromeDimTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Beam-in queue: each entry = { id, guestName }
+  const [beamQueue, setBeamQueue] = useState<{ id: string; guestName: string | null }[]>([]);
+  // Fresh IDs for golden glow ring in mosaic
+  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
+  const freshTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // Fallback poll interval ref
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ----------------------------------------------------------------
+  // Initial data load
+  // ----------------------------------------------------------------
+  useEffect(() => {
+    if (!postsLoaded) fetchPosts();
+  }, [postsLoaded, fetchPosts]);
 
   useEffect(() => {
-    fetchPosts();
-    const interval = setInterval(fetchPosts, 5000);
-    return () => clearInterval(interval);
+    fetchWallSettings();
+  }, [fetchWallSettings]);
+
+  // ----------------------------------------------------------------
+  // Live settings subscription
+  // ----------------------------------------------------------------
+  useEffect(() => {
+    const unsub = subscribeToSettings((s) => {
+      setWallSettings(s);
+    });
+    return unsub;
+  }, [setWallSettings]);
+
+  // If leaderboard mode is disabled by admin while viewing it, fall back to mosaic
+  useEffect(() => {
+    if (mode === 'leaderboard' && !wallSettings.showLeaderboard) {
+      setMode('mosaic');
+    }
+  }, [wallSettings.showLeaderboard, mode]);
+
+  // ----------------------------------------------------------------
+  // Realtime subscription
+  // ----------------------------------------------------------------
+  const handleInsert = useCallback(
+    (post: Post) => {
+      prependPost(post);
+      setBeamQueue((q) => [...q, { id: post.id, guestName: post.guest_name }]);
+      // Mark fresh for 5 s
+      setFreshIds((s) => new Set(s).add(post.id));
+      const timer = setTimeout(() => {
+        setFreshIds((s) => {
+          const next = new Set(s);
+          next.delete(post.id);
+          return next;
+        });
+        freshTimers.current.delete(post.id);
+      }, 5000);
+      freshTimers.current.set(post.id, timer);
+      setSlideshowIndex(0);
+    },
+    [prependPost],
+  );
+
+  useEffect(() => {
+    const unsubscribe = subscribeToPosts({
+      onInsert: handleInsert,
+      onUpdate: updatePost,
+      onDelete: removePost,
+    });
+    return unsubscribe;
+  }, [handleInsert, updatePost, removePost]);
+
+  // Clean up fresh-id timers on unmount
+  useEffect(() => {
+    return () => {
+      freshTimers.current.forEach((t) => clearTimeout(t));
+    };
+  }, []);
+
+  // ----------------------------------------------------------------
+  // Fallback poll every ~20 s
+  // ----------------------------------------------------------------
+  useEffect(() => {
+    pollRef.current = setInterval(() => {
+      fetchPosts();
+    }, 20_000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
   }, [fetchPosts]);
 
-  useEffect(() => {
-    if (posts.length > prevPostsLength.current) {
-      // Stream animation (confetti for now)
-      confetti({
-        particleCount: 50,
-        angle: 60,
-        spread: 55,
-        origin: { x: 0 },
-        colors: ['#F27D26', '#D4AF37', '#ffffff']
-      });
-      confetti({
-        particleCount: 50,
-        angle: 120,
-        spread: 55,
-        origin: { x: 1 },
-        colors: ['#F27D26', '#D4AF37', '#ffffff']
-      });
-      prevPostsLength.current = posts.length;
+  // ----------------------------------------------------------------
+  // Projection mode: dim chrome after 4 s of no mouse movement
+  // ----------------------------------------------------------------
+  const handleMouseMove = useCallback(() => {
+    setShowChrome(true);
+    if (chromeDimTimer.current) clearTimeout(chromeDimTimer.current);
+    if (projectionMode) {
+      chromeDimTimer.current = setTimeout(() => setShowChrome(false), 4000);
     }
-  }, [posts.length]);
+  }, [projectionMode]);
 
   useEffect(() => {
-    if (mode === 'slideshow' && posts.length > 0) {
-      const timer = setInterval(() => {
-        setCurrentIndex((prev) => (prev + 1) % posts.length);
-      }, 5000); // 5 seconds per slide
-      return () => clearInterval(timer);
+    if (projectionMode) {
+      chromeDimTimer.current = setTimeout(() => setShowChrome(false), 4000);
+    } else {
+      setShowChrome(true);
+      if (chromeDimTimer.current) clearTimeout(chromeDimTimer.current);
     }
-  }, [mode, posts.length]);
+    return () => {
+      if (chromeDimTimer.current) clearTimeout(chromeDimTimer.current);
+    };
+  }, [projectionMode]);
 
+  // ----------------------------------------------------------------
+  // Beam queue: pop one at a time
+  // ----------------------------------------------------------------
+  const activeBeam = beamQueue[0] ?? null;
+  const dismissBeam = useCallback(() => {
+    setBeamQueue((q) => q.slice(1));
+  }, []);
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+
+  // Available mode tabs (leaderboard gated by setting)
+  const modeTabs: { id: ViewMode; label: string }[] = [
+    { id: 'mosaic', label: 'Gallery' },
+    { id: 'slideshow', label: 'Slideshow' },
+    ...(wallSettings.showLeaderboard
+      ? [{ id: 'leaderboard' as ViewMode, label: 'Leaderboard' }]
+      : []),
+  ];
+
+  // ----------------------------------------------------------------
+  // Render
+  // ----------------------------------------------------------------
   return (
-    <div className="absolute inset-0 overflow-y-auto w-full h-full p-6 sm:p-10 hide-scrollbar face-grid relative">
-      {/* Background Glow Blobs for wider screens */}
-      <div className="fixed top-0 left-0 w-[80vw] h-[80vw] max-w-[800px] max-h-[800px] bg-brand-orange/30 blur-[150px] rounded-full pointer-events-none -translate-x-1/2 -translate-y-1/2 z-0" />
-      <div className="fixed bottom-0 right-0 w-[80vw] h-[80vw] max-w-[800px] max-h-[800px] bg-brand-gold/30 blur-[150px] rounded-full pointer-events-none translate-x-1/4 translate-y-1/4 z-0" />
+    <div
+      className="absolute inset-0 flex flex-col overflow-hidden bg-noir-900"
+      onMouseMove={handleMouseMove}
+    >
+      {/* Background — always rendered */}
+      <GalaBackground density={projectionMode ? 90 : 70} />
 
-      <div className="max-w-7xl mx-auto flex flex-col h-full relative z-10">
-        {mode === 'grid' && (
-          <div className="mb-10 text-center glass py-12 rounded-3xl border border-white/10 glow-gold relative shrink-0">
-            <div className="absolute top-6 right-6 flex items-center gap-4">
-               <button onClick={() => setMode('slideshow')} className="p-3 bg-white/5 hover:bg-white/10 rounded-full border border-white/10 transition-colors text-white">
-                 <Play className="w-5 h-5 ml-1" />
-               </button>
+      {/* ── Gallery: Marquee (scrolling rows) or Mosaic (masonry grid) ── */}
+      {mode === 'mosaic' && (
+        <div className="absolute inset-0 pt-[72px]">
+          {wallSettings.galleryScroll ? (
+            <MarqueeGrid
+              posts={posts}
+              scrollSpeed={wallSettings.galleryScrollSpeed ?? 1}
+            />
+          ) : (
+            <MosaicGrid posts={posts} freshIds={freshIds} />
+          )}
+        </div>
+      )}
+
+      {/* ── Slideshow ── */}
+      {mode === 'slideshow' && (
+        <div className="absolute inset-0">
+          <SlideshowView
+            posts={posts}
+            projectionMode={projectionMode}
+            currentIndex={slideshowIndex}
+            onIndexChange={setSlideshowIndex}
+            slideshowInterval={wallSettings.slideshowInterval ?? 6}
+          />
+        </div>
+      )}
+
+      {/* ── Leaderboard ── */}
+      {mode === 'leaderboard' && (
+        <div className="absolute inset-0 pt-[72px]">
+          <LeaderboardView />
+        </div>
+      )}
+
+      {/* ── Challenges ticker — floats above footer, gated by setting ── */}
+      {!projectionMode && wallSettings.showChallenges && (
+        <ChallengesTicker bottomOffset={96} />
+      )}
+
+      {/* ── Chrome header ── hidden in projection mode ── */}
+      <AnimatePresence>
+        {!projectionMode && (
+          <motion.header
+            key="header"
+            initial={{ opacity: 0, y: -16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -16 }}
+            transition={{ duration: 0.35 }}
+            className="relative z-30 flex items-center justify-between px-6 py-3 shrink-0"
+            style={{
+              background:
+                'linear-gradient(to bottom, rgba(10,7,3,0.88) 0%, rgba(10,7,3,0) 100%)',
+            }}
+          >
+            {/* Left: wordmark */}
+            <div className="flex items-center gap-4">
+              <HopeGalaWordmark size="sm" />
             </div>
-            <h1 className="text-4xl sm:text-6xl font-serif italic tracking-wide text-white mb-4 drop-shadow-xl text-transparent">
-              Live Photo Wall
-            </h1>
-            <p className="text-[11px] uppercase tracking-[0.2em] opacity-50">
-              Capturing the spirit of the SCAGO Hope Gala 2026.
-            </p>
-          </div>
-        )}
 
-        {posts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-white/40 text-[11px] uppercase tracking-[0.2em] flex-1">
-            <p>No posts yet! Be the first to take a photo at the Booth.</p>
-          </div>
-        ) : mode === 'slideshow' ? (
-          <div className="flex-1 relative flex items-center justify-center overflow-hidden min-h-[600px] bg-black/40 rounded-3xl border border-white/10 glass">
-             <div className="absolute top-6 right-6 z-50">
-               <button onClick={() => setMode('grid')} className="px-6 py-3 bg-white/5 hover:bg-white/10 rounded-full border border-white/10 transition-colors text-white text-[10px] uppercase tracking-widest font-bold flex items-center gap-2">
-                 <Grid className="w-4 h-4" /> View Grid
-               </button>
-             </div>
-             <AnimatePresence mode="wait">
-                <motion.div
-                  key={currentIndex}
-                  initial={{ opacity: 0, scale: 0.95, filter: 'blur(10px)' }}
-                  animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-                  exit={{ opacity: 0, scale: 1.05, filter: 'blur(10px)' }}
-                  transition={{ duration: 0.8, ease: "easeInOut" }}
-                  className="w-full h-full max-w-4xl max-h-[80vh] flex flex-col relative items-center justify-center p-8 group"
-                >
-                  {posts[currentIndex].type === 'video' ? (
-                    <video 
-                      src={posts[currentIndex].url} 
-                      autoPlay loop muted playsInline
-                      className="max-w-full max-h-full object-contain rounded-2xl drop-shadow-2xl border border-white/10"
-                    />
-                  ) : (
-                    <img 
-                      src={posts[currentIndex].url} 
-                      className="max-w-full max-h-full object-contain rounded-2xl drop-shadow-2xl border border-white/10"
-                      loading="lazy"
-                    />
-                  )}
-                  {posts[currentIndex].message && (
-                    <div className="absolute bottom-16 inset-x-0 mx-auto w-max max-w-xl text-center glass px-8 py-6 rounded-2xl border border-white/10 glow-orange">
-                       <p className="font-serif italic text-2xl text-white">{posts[currentIndex].message}</p>
-                    </div>
-                  )}
-                </motion.div>
-             </AnimatePresence>
-          </div>
-        ) : (
-          <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 gap-6 space-y-6 pb-20">
-            {posts.map((post, i) => (
-              <motion.div
-                key={post.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="w-full break-inside-avoid relative group rounded-2xl overflow-hidden glass border border-white/10"
+            {/* Centre: photo counter */}
+            <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center">
+              <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/50">
+                Moments shared
+              </span>
+              <span className="font-serif italic text-3xl gold-foil-static leading-tight">
+                {posts.length}
+              </span>
+            </div>
+
+            {/* Right: view controls */}
+            <div className="flex items-center gap-3">
+              {/* Mode tabs */}
+              <div
+                className="glass flex rounded-xl overflow-hidden"
+                style={{ border: '1px solid rgba(212,175,55,0.2)' }}
               >
-                {post.type === 'video' ? (
-                  <video 
-                    src={post.url} autoPlay loop muted playsInline
-                    className="w-full h-auto object-cover opacity-90"
-                  />
-                ) : (
-                  <img 
-                    src={post.url} alt="Hope Gala entry" 
-                    className="w-full h-auto object-cover opacity-90" loading="lazy"
-                  />
-                )}
-                
-                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-6">
-                  {post.message && (
-                    <p className="font-serif italic text-lg text-white mb-2 line-clamp-3 leading-snug">"{post.message}"</p>
-                  )}
-                  <span className="font-mono text-[9px] uppercase tracking-widest text-brand-gold">
-                    {new Date(post.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
-              </motion.div>
-            ))}
-          </div>
+                {modeTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setMode(tab.id)}
+                    className={`px-4 py-2 font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
+                      mode === tab.id
+                        ? 'bg-foil text-noir-900 glow-gold'
+                        : 'text-champagne/60 hover:text-champagne'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Projection mode toggle */}
+              <button
+                onClick={() => setProjectionMode((p) => !p)}
+                className="glass px-4 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:glow-gold transition-all"
+                style={{ border: '1px solid rgba(212,175,55,0.2)' }}
+                title="Projection mode (hides all chrome)"
+              >
+                ⊡ Project
+              </button>
+            </div>
+          </motion.header>
         )}
-      </div>
+      </AnimatePresence>
+
+      {/* ── Footer: QR codes + slideshow info — hidden in projection mode ── */}
+      <AnimatePresence>
+        {!projectionMode && (
+          <motion.footer
+            key="footer"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            transition={{ duration: 0.35 }}
+            className="relative z-30 shrink-0 flex items-end justify-between px-8 pb-6 pt-2 mt-auto"
+            style={{
+              background:
+                'linear-gradient(to top, rgba(10,7,3,0.92) 0%, rgba(10,7,3,0) 100%)',
+            }}
+          >
+            {/* Left spacer */}
+            <div className="flex-1" />
+
+            {/* QR codes centred — gated by wallSettings.showQR */}
+            <div className="flex-1 flex justify-center">
+              <AnimatePresence>
+                {wallSettings.showQR && (
+                  <motion.div
+                    key="qr"
+                    initial={{ opacity: 0, scale: 0.92, y: 8 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.92, y: 8 }}
+                    transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    <WallQRCodes origin={origin} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Right: slideshow counter */}
+            <div className="flex-1 flex justify-end">
+              {mode === 'slideshow' && posts.length > 0 && (
+                <div className="text-right">
+                  <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40">
+                    Photo
+                  </p>
+                  <p className="font-serif italic text-ivory/70 text-lg">
+                    {slideshowIndex + 1} / {posts.length}
+                  </p>
+                </div>
+              )}
+            </div>
+          </motion.footer>
+        )}
+      </AnimatePresence>
+
+      {/* ── Projection-mode: tiny exit button that fades in on mouse move ── */}
+      <AnimatePresence>
+        {projectionMode && showChrome && (
+          <motion.button
+            key="exit-projection"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            onClick={() => setProjectionMode(false)}
+            className="absolute top-4 right-4 z-50 glass rounded-xl px-3 py-2 font-label uppercase tracking-luxe text-[9px] text-champagne/60 hover:text-champagne transition-colors"
+            style={{ border: '1px solid rgba(212,175,55,0.15)' }}
+          >
+            Exit Projection
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* ── Beam-in animation overlay ── */}
+      <AnimatePresence>
+        {activeBeam && (
+          <BeamIn
+            key={activeBeam.id}
+            guestName={activeBeam.guestName}
+            onDone={dismissBeam}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
-

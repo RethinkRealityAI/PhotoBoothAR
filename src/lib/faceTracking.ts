@@ -17,7 +17,8 @@ export async function initializeFaceLandmarker() {
         modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
         delegate: 'GPU'
       },
-      outputFaceBlendshapes: true,
+      // Blendshapes are unused for asset attachment — skipping them saves work.
+      outputFaceBlendshapes: false,
       outputFacialTransformationMatrixes: true,
       runningMode,
       numFaces: 1
