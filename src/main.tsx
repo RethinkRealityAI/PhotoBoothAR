@@ -13,6 +13,7 @@ if (activeEvent.fontHref) {
   document.head.appendChild(link);
 }
 document.documentElement.dataset.event = activeEvent.id;
+document.title = `${activeEvent.copy.fullName} · Photo Booth`;
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
