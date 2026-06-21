@@ -1,30 +1,199 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Cormorant+Garamond:ital,wght@0,300;1,300&display=swap');
+/**
+ * Hope Gala 2026 — design system.
+ * Elegant black-tie palette: champagne gold + ivory on warm near-black,
+ * gold-foil gradients, glass, bokeh dust. Matches the gala invitation.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=Pinyon+Script&family=Jost:wght@300;400;500;600&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --color-brand-orange: #F27D26;
-  --color-brand-gold: #D4AF37;
-  --color-brand-bg: #050505;
-  --color-brand-text: #E0D8D0;
-  
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Cormorant Garamond", ui-serif, Georgia, serif;
+  /* Champagne gold scale */
+  --color-gold-50:  #FBF3D9;
+  --color-gold-100: #F6E6B3;
+  --color-gold-200: #EFD584;
+  --color-gold-300: #E8C766;
+  --color-gold-400: #D4AF37;  /* primary metallic gold */
+  --color-gold-500: #C29A2E;
+  --color-gold-600: #A67C1F;
+  --color-gold-700: #7E5C14;
+
+  /* Ivory / cream */
+  --color-ivory:    #F7F1E3;
+  --color-cream:    #EFE6D2;
+  --color-champagne:#E9D9B8;
+
+  /* Warm near-black backgrounds */
+  --color-noir-900: #0A0806;
+  --color-noir-800: #100C08;
+  --color-noir-700: #1A130C;
+  --color-noir-600: #271C12;
+
+  /* Semantic brand tokens (kept as aliases so legacy classes still resolve) */
+  --color-brand-bg:    #0A0806;
+  --color-brand-text:  #F7F1E3;
+  --color-brand-gold:  #D4AF37;
+  --color-brand-orange:#E8C766;
+  --color-rose:        #E7B6A0; /* soft rose-gold accent */
+
+  /* Semantic theme tokens — events override these in their theme.css */
+  --color-brand-surface: var(--color-noir-700);
+  --color-brand-fg:      var(--color-ivory);
+  --color-brand-muted:   var(--color-champagne);
+  --color-accent:        var(--color-gold-400);
+  --color-accent-2:      var(--color-gold-200);
+  --color-accent-3:      var(--color-gold-600);
+
+  --font-sans:    "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif:   "Cormorant Garamond", ui-serif, Georgia, serif;
+  --font-script:  "Pinyon Script", cursive;
+  --font-label:   "Jost", "Inter", sans-serif;
 }
 
+:root {
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-noir-900);
+  color: var(--color-ivory);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ----------------------------------------------------------------- */
+/* Utilities                                                          */
+/* ----------------------------------------------------------------- */
 @layer utilities {
+  /* Frosted glass, warm gold-tinted */
   .glass {
-    background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(40, 30, 18, 0.35);
+    backdrop-filter: blur(20px) saturate(120%);
+    -webkit-backdrop-filter: blur(20px) saturate(120%);
+    border: 1px solid rgba(212, 175, 55, 0.14);
   }
-  .glow-orange {
-    box-shadow: 0 0 20px rgba(242, 125, 38, 0.2);
+  .glass-strong {
+    background: rgba(20, 15, 9, 0.62);
+    backdrop-filter: blur(28px) saturate(125%);
+    -webkit-backdrop-filter: blur(28px) saturate(125%);
+    border: 1px solid rgba(212, 175, 55, 0.18);
   }
-  .glow-gold {
-    box-shadow: 0 0 30px rgba(212, 175, 55, 0.15);
+
+  /* Gold-foil text: shimmering metallic gradient clipped to glyphs */
+  .gold-foil {
+    background: linear-gradient(100deg, #B8860B 0%, #E8C766 22%, #FBF3D9 38%, #E8C766 52%, #D4AF37 72%, #A67C1F 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: foil-shimmer 6s linear infinite;
   }
+  .gold-foil-static {
+    background: linear-gradient(120deg, #B8860B, #E8C766 40%, #FBF3D9 50%, #D4AF37 70%, #A67C1F);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+
+  /* Gold surface (foil gradient as a fill, e.g. for buttons) */
+  .bg-foil {
+    background-image: linear-gradient(120deg, #A67C1F, #D4AF37 35%, #F0DC9A 50%, #D4AF37 65%, #A67C1F);
+  }
+
+  .glow-gold   { box-shadow: 0 0 40px -8px rgba(212, 175, 55, 0.45); }
+  .glow-soft   { box-shadow: 0 0 60px -12px rgba(232, 199, 102, 0.30); }
+  .glow-orange { box-shadow: 0 0 40px -8px rgba(212, 175, 55, 0.45); } /* legacy alias */
+
+  .text-shadow-lux { text-shadow: 0 2px 24px rgba(0,0,0,0.5); }
+
+  .ring-gold { box-shadow: 0 0 0 1px rgba(212,175,55,0.5), 0 0 0 4px rgba(212,175,55,0.10); }
+
+  /* Subtle dotted grid kept for continuity with legacy markup */
   .face-grid {
-    background-image: radial-gradient(rgba(255,255,255,0.1) 1px, transparent 1px);
-    background-size: 20px 20px;
+    background-image: radial-gradient(rgba(212,175,55,0.06) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+
+  /* Warm bokeh + vignette gala backdrop */
+  .gala-bg {
+    background:
+      radial-gradient(120% 80% at 50% -10%, rgba(212,175,55,0.16), transparent 60%),
+      radial-gradient(90% 60% at 10% 110%, rgba(184,134,11,0.14), transparent 60%),
+      radial-gradient(90% 60% at 95% 100%, rgba(232,199,102,0.10), transparent 55%),
+      var(--color-noir-900);
+  }
+  .vignette::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(120% 90% at 50% 40%, transparent 55%, rgba(0,0,0,0.55) 100%);
+  }
+
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
+  .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  .tracking-luxe { letter-spacing: 0.28em; }
+
+  /* Semantic decorative utilities (event-themable) */
+  .text-foil {
+    background: linear-gradient(100deg, var(--color-accent-3) 0%, var(--color-accent-2) 22%, var(--color-brand-fg) 38%, var(--color-accent-2) 52%, var(--color-accent) 72%, var(--color-accent-3) 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    animation: foil-shimmer 6s linear infinite;
+  }
+  .text-foil-static {
+    background: linear-gradient(120deg, var(--color-accent-3), var(--color-accent-2) 40%, var(--color-brand-fg) 50%, var(--color-accent) 70%, var(--color-accent-3));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+  }
+  .text-accent { color: var(--color-accent); }
+  .glow-accent { box-shadow: 0 0 40px -8px color-mix(in srgb, var(--color-accent) 45%, transparent); }
+  .app-bg {
+    background:
+      radial-gradient(120% 80% at 50% -10%, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 60%),
+      radial-gradient(90% 60% at 10% 110%, color-mix(in srgb, var(--color-accent-3) 14%, transparent), transparent 60%),
+      var(--color-brand-bg);
   }
 }
+
+/* ----------------------------------------------------------------- */
+/* Keyframes                                                         */
+/* ----------------------------------------------------------------- */
+@keyframes foil-shimmer {
+  to { background-position: 200% center; }
+}
+@keyframes float-dust {
+  0%   { transform: translateY(0) translateX(0); opacity: 0; }
+  10%  { opacity: 0.95; }
+  90%  { opacity: 0.75; }
+  100% { transform: translateY(-120vh) translateX(var(--drift, 20px)); opacity: 0; }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 30px -10px rgba(212,175,55,0.4); }
+  50%      { box-shadow: 0 0 55px -6px rgba(232,199,102,0.65); }
+}
+@keyframes slow-spin { to { transform: rotate(360deg); } }
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.5); }
+  50%      { opacity: var(--tw-peak, 0.9); transform: scale(1); }
+}
+
+.animate-rise-in { animation: rise-in 0.7s cubic-bezier(0.16,1,0.3,1) both; }
+.animate-pulse-glow { animation: pulse-glow 3.2s ease-in-out infinite; }
+
+/* Range inputs styled gold */
+input[type="range"] { accent-color: var(--color-gold-400); }
+
+/* Selection */
+::selection { background: rgba(212,175,55,0.35); color: #fff; }

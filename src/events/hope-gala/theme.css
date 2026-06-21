@@ -1,0 +1,13 @@
+/* src/events/hope-gala/theme.css — Hope Gala semantic-token values.
+   Scoped to the active-event data attribute so multiple imported event
+   themes don't collide. Values equal the index.css gold defaults, so this
+   is visually a no-op for Hope Gala. */
+:root[data-event='hope-gala'] {
+  --color-brand-bg:      #0A0806;
+  --color-brand-surface: #1A130C;
+  --color-brand-fg:      #F7F1E3;
+  --color-brand-muted:   #E9D9B8;
+  --color-accent:        #D4AF37;
+  --color-accent-2:      #EFD584;
+  --color-accent-3:      #A67C1F;
+}
