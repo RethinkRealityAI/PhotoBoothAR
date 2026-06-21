@@ -11,8 +11,16 @@ import { Experience, PresetOverrides } from '../types';
 import { FILTER_SHADERS, defaultParams } from './shaders';
 import { BUILTIN_BORDERS, toDataUrl } from './borders';
 import { HEAD_PIECES } from './headPieces';
+import { activeEvent } from '../events/active';
 
 const NOW = '2026-01-01T00:00:00Z';
+
+/** Filter a list of {id} items by an allow-list. Empty/undefined list = include all. */
+export function pick<T extends { id: string }>(all: T[], ids?: string[]): T[] {
+  if (!ids || ids.length === 0) return all;
+  const set = new Set(ids);
+  return all.filter((x) => set.has(x.id));
+}
 
 function base(id: string, name: string, sort: number): Pick<Experience, 'id' | 'name' | 'created_at' | 'updated_at' | 'is_published' | 'featured' | 'sort_order' | 'thumbnail_url'> {
   return { id, name, created_at: NOW, updated_at: NOW, is_published: true, featured: true, sort_order: sort, thumbnail_url: null };
@@ -20,7 +28,7 @@ function base(id: string, name: string, sort: number): Pick<Experience, 'id' | '
 
 /** Featured cool effects shown as combinable filters (excludes 'none' + special). */
 export function builtinShaderExperiences(): Experience[] {
-  return FILTER_SHADERS.map((s, i) => ({
+  return pick(FILTER_SHADERS, activeEvent.arContent.shaderIds).map((s, i) => ({
     ...base(`builtin:shader:${s.id}`, s.name, 100 + i),
     kind: 'shader',
     asset_url: null,
@@ -29,7 +37,7 @@ export function builtinShaderExperiences(): Experience[] {
 }
 
 export function builtinBorderExperiences(): Experience[] {
-  return BUILTIN_BORDERS.map((b, i) => ({
+  return pick(BUILTIN_BORDERS, activeEvent.arContent.borderIds).map((b, i) => ({
     ...base(`builtin:border:${b.id}`, b.name, 200 + i),
     kind: b.kind,
     asset_url: toDataUrl(b.svg),
@@ -39,7 +47,7 @@ export function builtinBorderExperiences(): Experience[] {
 
 /** Built-in procedural 3D head pieces (crown, tiara, cheek gems) as experiences. */
 export function builtinHeadPieceExperiences(): Experience[] {
-  return HEAD_PIECES.map((p, i) => ({
+  return pick(HEAD_PIECES, activeEvent.arContent.headPieceIds).map((p, i) => ({
     ...base(`builtin:3d:${p.id}`, p.name, 50 + i),
     kind: '3d_attachment',
     asset_url: null,
