@@ -47,10 +47,10 @@ function Orb({ seed, color }: { seed: number; color: string }) {
       <MeshDistortMaterial
         color={color}
         emissive={color}
-        emissiveIntensity={1.25}
+        emissiveIntensity={0.7}
         distort={0.42}
-        speed={1.8}
-        roughness={0.25}
+        speed={1.6}
+        roughness={0.3}
         metalness={0.1}
         toneMapped={false}
       />
@@ -61,7 +61,7 @@ function Orb({ seed, color }: { seed: number; color: string }) {
 export default function FestivalBackground({ density = 6, className = '' }: { density?: number; className?: string }) {
   const orbs = useMemo(
     () =>
-      Array.from({ length: Math.max(1, Math.min(density, 8)) }, (_, i) => ({
+      Array.from({ length: Math.max(1, Math.min(density, 5)) }, (_, i) => ({
         seed: i * 1.6180339 + 1,
         color: ORB_COLORS[i % ORB_COLORS.length],
       })),
@@ -74,7 +74,7 @@ export default function FestivalBackground({ density = 6, className = '' }: { de
       aria-hidden
       style={{ background: 'radial-gradient(130% 100% at 50% 0%, #1B0A45 0%, #0B0220 62%)' }}
     >
-      <div className="absolute inset-0" style={{ filter: 'blur(36px) saturate(150%)' }}>
+      <div className="absolute inset-0" style={{ filter: 'blur(48px) saturate(110%)', opacity: 0.7 }}>
         <Canvas
           camera={{ position: [0, 0, 6], fov: 58 }}
           gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }}

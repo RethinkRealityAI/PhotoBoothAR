@@ -88,7 +88,7 @@ function PlayBadge() {
         width: 26,
         height: 26,
         background: 'rgba(10,7,3,0.72)',
-        border: '1px solid rgba(212,175,55,0.4)',
+        border: '1px solid rgba(var(--accent-rgb),0.4)',
         backdropFilter: 'blur(4px)',
       }}
     >
@@ -109,8 +109,8 @@ function PostCard({ post }: CardProps) {
         width: CARD_W,
         height: CARD_H,
         marginRight: CARD_GAP,
-        border: '1.5px solid rgba(212,175,55,0.28)',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.55), 0 0 12px rgba(212,175,55,0.06)',
+        border: '1.5px solid rgba(var(--accent-rgb),0.28)',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.55), 0 0 12px rgba(var(--accent-rgb),0.06)',
         background: '#0a0703',
       }}
     >

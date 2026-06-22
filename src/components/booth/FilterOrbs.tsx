@@ -62,7 +62,7 @@ function Orb({
         className={[
           'relative w-[50px] h-[50px] rounded-full overflow-hidden flex items-center justify-center transition-all duration-200',
           active
-            ? 'ring-2 ring-gold-400 ring-offset-2 ring-offset-noir-900 scale-105 shadow-[0_0_16px_rgba(212,175,55,0.45)]'
+            ? 'ring-2 ring-gold-400 ring-offset-2 ring-offset-noir-900 scale-105 shadow-[0_0_16px_rgba(var(--accent-rgb),0.45)]'
             : ring === 'gold'
               ? 'ring-1 ring-gold-700/30 opacity-85 group-hover:opacity-100 group-active:scale-95'
               : 'ring-1 ring-white/10 opacity-80 group-hover:opacity-100',

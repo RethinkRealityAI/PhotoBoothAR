@@ -41,9 +41,9 @@ function TickerSlide({ challenge }: { challenge: Challenge }) {
       <span
         className="font-label uppercase tracking-luxe text-[9px] shrink-0 px-2 py-0.5 rounded-full"
         style={{
-          background: 'rgba(212,175,55,0.12)',
-          border: '1px solid rgba(212,175,55,0.22)',
-          color: 'rgba(212,175,55,0.8)',
+          background: 'rgba(var(--accent-rgb),0.12)',
+          border: '1px solid rgba(var(--accent-rgb),0.22)',
+          color: 'rgba(var(--accent-rgb),0.8)',
         }}
       >
         +{challenge.points} pts
@@ -86,8 +86,8 @@ export default function ChallengesTicker({ bottomOffset = 0 }: Props) {
       <div
         className="glass flex items-center gap-2 px-5 py-2.5 rounded-full overflow-hidden"
         style={{
-          border: '1px solid rgba(212,175,55,0.18)',
-          boxShadow: '0 0 16px rgba(212,175,55,0.08)',
+          border: '1px solid rgba(var(--accent-rgb),0.18)',
+          boxShadow: '0 0 16px rgba(var(--accent-rgb),0.08)',
           minWidth: 280,
           maxWidth: '90vw',
           justifyContent: 'center',
@@ -108,8 +108,8 @@ export default function ChallengesTicker({ bottomOffset = 0 }: Props) {
                   height: 4,
                   background:
                     i === index % active.length
-                      ? 'rgba(212,175,55,0.75)'
-                      : 'rgba(212,175,55,0.25)',
+                      ? 'rgba(var(--accent-rgb),0.75)'
+                      : 'rgba(var(--accent-rgb),0.25)',
                 }}
               />
             ))}

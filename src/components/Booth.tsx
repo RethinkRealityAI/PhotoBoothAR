@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 
 import EventBackground from './ui/EventBackground';
-import ScagoMark from './ui/ScagoMark';
+import { Emblem } from './ui/EventLogo';
 import { GalleryIcon, MediaStackIcon } from './ui/MediaIcons';
 
 // Booth sub-components
@@ -424,7 +424,7 @@ export default function Booth() {
           {/* Header */}
           {phase === 'camera' && ready && (
             <div className="relative z-20 flex items-center justify-between gap-2 px-4 pt-safe-top pt-3 pb-2 shrink-0">
-              <ScagoMark size={34} variant="gold" animated className="shrink-0 drop-shadow-[0_0_10px_rgba(212,175,55,0.35)]" title="SCAGO Hope Gala & Awards" />
+              <Emblem size={34} className="shrink-0 drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.35)]" />
               <div className="flex items-center gap-1.5">
                 {wallSettings.showChallenges && (
                   <ChallengeSelector selectedChallenge={selectedChallenge} onSelect={setSelectedChallenge} />
@@ -555,7 +555,7 @@ export default function Booth() {
                     ) : recording ? (
                       <div className="relative">
                         <svg className="absolute inset-0 -rotate-90" width="72" height="72" viewBox="0 0 72 72">
-                          <circle cx="36" cy="36" r="28" fill="none" stroke="rgba(212,175,55,0.2)" strokeWidth="3" />
+                          <circle cx="36" cy="36" r="28" fill="none" stroke="rgba(var(--accent-rgb),0.2)" strokeWidth="3" />
                           <circle cx="36" cy="36" r="28" fill="none" stroke="#D4AF37" strokeWidth="3" strokeLinecap="round" strokeDasharray={ringCircumference} strokeDashoffset={ringCircumference * (1 - recordProgress)} style={{ transition: 'stroke-dashoffset 0.1s linear' }} />
                         </svg>
                         <button onClick={() => stopRecording()} className="relative w-[72px] h-[72px] rounded-full flex items-center justify-center focus:outline-none" aria-label="Stop recording">

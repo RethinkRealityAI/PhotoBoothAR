@@ -174,7 +174,7 @@ function ArtFlip3D({ size, className }: ArtProps) {
             rx="9"
             stroke={GOLD}
             strokeWidth="2"
-            fill="rgba(212,175,55,0.05)"
+            fill="rgba(var(--accent-rgb),0.05)"
           />
           <rect x="-16" y="-25" width="32" height="44" rx="4" stroke={CHAMP} strokeWidth="1" opacity="0.55" />
           {/* camera lens on the back */}
@@ -234,7 +234,7 @@ function ArtPhotoVideo({ size, className }: ArtProps) {
           stroke={GOLD}
           strokeWidth="2"
           strokeLinejoin="round"
-          fill="rgba(212,175,55,0.05)"
+          fill="rgba(var(--accent-rgb),0.05)"
         />
         {/* lens */}
         <circle cx="0" cy="14" r="14" stroke={CHAMP} strokeWidth="1.6" />
@@ -259,7 +259,7 @@ function ArtPhotoVideo({ size, className }: ArtProps) {
             dur="9s"
             repeatCount="indefinite"
           />
-          <circle cx="0" cy="0" r="22" stroke={GOLD} strokeWidth="2" fill="rgba(212,175,55,0.04)" />
+          <circle cx="0" cy="0" r="22" stroke={GOLD} strokeWidth="2" fill="rgba(var(--accent-rgb),0.04)" />
           <circle cx="0" cy="0" r="5" stroke={GOLD_HI} strokeWidth="1.6" />
           {[0, 60, 120, 180, 240, 300].map((a) => {
             const rad = (a * Math.PI) / 180;
@@ -310,7 +310,7 @@ function ArtSendShine({ size, className }: ArtProps) {
         <rect x="98" y="22" width="28" height="22" rx="2" stroke={GOLD_LO} strokeWidth="1.4" />
       </g>
       {/* hero frame that just lit up */}
-      <rect x="64" y="18" width="32" height="28" rx="2" stroke={GOLD} strokeWidth="2" fill="rgba(212,175,55,0.06)">
+      <rect x="64" y="18" width="32" height="28" rx="2" stroke={GOLD} strokeWidth="2" fill="rgba(var(--accent-rgb),0.06)">
         <animate attributeName="opacity" values="0.5;1;0.5" dur="2.8s" repeatCount="indefinite" />
       </rect>
       <path d="M68 40 l7 -8 5 5 4 -5 4 8 z" fill={GOLD_HI} opacity="0.8" />
@@ -386,14 +386,14 @@ function ArtChallenge({ size, className }: ArtProps) {
           stroke={GOLD}
           strokeWidth="2"
           strokeLinejoin="round"
-          fill="rgba(212,175,55,0.08)"
+          fill="rgba(var(--accent-rgb),0.08)"
         />
         {/* handles */}
         <path d="M-18 38 q-12 2 -12 -10 q0 -8 8 -8" stroke={GOLD} strokeWidth="2" fill="none" />
         <path d="M18 38 q12 2 12 -10 q0 -8 -8 -8" stroke={GOLD} strokeWidth="2" fill="none" />
         {/* stem + base */}
-        <path d="M-5 60 h10 v8 h-10 z" stroke={GOLD} strokeWidth="2" fill="rgba(212,175,55,0.08)" />
-        <path d="M-13 70 h26 l-3 8 h-20 z" stroke={GOLD} strokeWidth="2" strokeLinejoin="round" fill="rgba(212,175,55,0.08)" />
+        <path d="M-5 60 h10 v8 h-10 z" stroke={GOLD} strokeWidth="2" fill="rgba(var(--accent-rgb),0.08)" />
+        <path d="M-13 70 h26 l-3 8 h-20 z" stroke={GOLD} strokeWidth="2" strokeLinejoin="round" fill="rgba(var(--accent-rgb),0.08)" />
         {/* star on the cup */}
         <path
           d="M0 40 l3 6 6.5 1 -4.5 4.5 1 6.5 -6 -3 -6 3 1 -6.5 -4.5 -4.5 6.5 -1 z"
@@ -405,9 +405,9 @@ function ArtChallenge({ size, className }: ArtProps) {
 
       {/* leaderboard podium bars rising under the trophy */}
       <g transform="translate(80 132)">
-        <rect x="-34" y="-12" width="18" height="12" rx="1.5" stroke={GOLD_LO} strokeWidth="1.6" fill="rgba(212,175,55,0.05)" />
-        <rect x="-9" y="-22" width="18" height="22" rx="1.5" stroke={GOLD} strokeWidth="2" fill="rgba(212,175,55,0.1)" />
-        <rect x="16" y="-16" width="18" height="16" rx="1.5" stroke={GOLD_LO} strokeWidth="1.6" fill="rgba(212,175,55,0.05)" />
+        <rect x="-34" y="-12" width="18" height="12" rx="1.5" stroke={GOLD_LO} strokeWidth="1.6" fill="rgba(var(--accent-rgb),0.05)" />
+        <rect x="-9" y="-22" width="18" height="22" rx="1.5" stroke={GOLD} strokeWidth="2" fill="rgba(var(--accent-rgb),0.1)" />
+        <rect x="16" y="-16" width="18" height="16" rx="1.5" stroke={GOLD_LO} strokeWidth="1.6" fill="rgba(var(--accent-rgb),0.05)" />
         {/* #1 marker */}
         <text x="0" y="-8" textAnchor="middle" fontSize="10" fontWeight="700" fill={GOLD_HI} fontFamily="serif">
           1

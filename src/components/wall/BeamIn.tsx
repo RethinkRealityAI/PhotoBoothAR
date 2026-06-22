@@ -62,9 +62,9 @@ export default function BeamIn({ guestName, onDone }: Props) {
           width: 4,
           transformOrigin: 'top center',
           background:
-            'linear-gradient(to bottom, #FFFAEF 0%, #FBF3D9 8%, #E8C766 30%, #D4AF37 60%, rgba(212,175,55,0) 100%)',
+            'linear-gradient(to bottom, #FFFAEF 0%, #FBF3D9 8%, #E8C766 30%, #D4AF37 60%, rgba(var(--accent-rgb),0) 100%)',
           boxShadow:
-            '0 0 22px 10px rgba(251,243,217,0.9), 0 0 60px 28px rgba(232,199,102,0.6), 0 0 120px 55px rgba(212,175,55,0.35), 0 0 220px 90px rgba(212,175,55,0.12)',
+            '0 0 22px 10px rgba(251,243,217,0.9), 0 0 60px 28px rgba(232,199,102,0.6), 0 0 120px 55px rgba(var(--accent-rgb),0.35), 0 0 220px 90px rgba(var(--accent-rgb),0.12)',
           filter: 'blur(0.5px)',
         }}
       />
@@ -83,7 +83,7 @@ export default function BeamIn({ guestName, onDone }: Props) {
           width: 28,
           transformOrigin: 'top center',
           background:
-            'linear-gradient(to bottom, rgba(251,243,217,0.45) 0%, rgba(232,199,102,0.25) 40%, rgba(212,175,55,0) 100%)',
+            'linear-gradient(to bottom, rgba(251,243,217,0.45) 0%, rgba(232,199,102,0.25) 40%, rgba(var(--accent-rgb),0) 100%)',
           filter: 'blur(8px)',
         }}
       />
@@ -101,7 +101,7 @@ export default function BeamIn({ guestName, onDone }: Props) {
         style={{
           height: '45vh',
           background:
-            'radial-gradient(ellipse 55% 100% at 50% 100%, rgba(232,199,102,0.55) 0%, rgba(212,175,55,0.25) 35%, rgba(212,175,55,0) 80%)',
+            'radial-gradient(ellipse 55% 100% at 50% 100%, rgba(232,199,102,0.55) 0%, rgba(var(--accent-rgb),0.25) 35%, rgba(var(--accent-rgb),0) 80%)',
           filter: 'blur(2px)',
           transformOrigin: 'bottom center',
         }}
@@ -116,7 +116,7 @@ export default function BeamIn({ guestName, onDone }: Props) {
         style={{
           height: '28vh',
           background:
-            'radial-gradient(ellipse 40% 100% at 50% 0%, rgba(251,243,217,0.65) 0%, rgba(232,199,102,0.3) 40%, rgba(212,175,55,0) 80%)',
+            'radial-gradient(ellipse 40% 100% at 50% 0%, rgba(251,243,217,0.65) 0%, rgba(232,199,102,0.3) 40%, rgba(var(--accent-rgb),0) 80%)',
           filter: 'blur(4px)',
         }}
       />
@@ -131,9 +131,9 @@ export default function BeamIn({ guestName, onDone }: Props) {
           width: 200,
           height: 200,
           border: '2px solid rgba(232,199,102,0.5)',
-          boxShadow: '0 0 0 1px rgba(251,243,217,0.2), 0 0 60px 20px rgba(212,175,55,0.25)',
+          boxShadow: '0 0 0 1px rgba(251,243,217,0.2), 0 0 60px 20px rgba(var(--accent-rgb),0.25)',
           background:
-            'radial-gradient(circle, rgba(251,243,217,0.22) 0%, rgba(212,175,55,0) 65%)',
+            'radial-gradient(circle, rgba(251,243,217,0.22) 0%, rgba(var(--accent-rgb),0) 65%)',
         }}
       />
 
@@ -200,8 +200,8 @@ export default function BeamIn({ guestName, onDone }: Props) {
         exit={{ y: -12, opacity: 0, scale: 0.95 }}
         transition={{ delay: 0.25, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
         style={{
-          border: '1px solid rgba(212,175,55,0.40)',
-          boxShadow: '0 0 32px rgba(212,175,55,0.30), 0 8px 24px rgba(0,0,0,0.5)',
+          border: '1px solid rgba(var(--accent-rgb),0.40)',
+          boxShadow: '0 0 32px rgba(var(--accent-rgb),0.30), 0 8px 24px rgba(0,0,0,0.5)',
           whiteSpace: 'nowrap',
         }}
       >

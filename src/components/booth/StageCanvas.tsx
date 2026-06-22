@@ -65,10 +65,17 @@ function coverFit(
   ctx.drawImage(src, sx, sy, sw, sh, 0, 0, destW, destH);
 }
 
-/** SCAGO-branded signature watermark: gold emblem + "Hope Gala & Awards 2026". */
+/** Event signature watermark: event-coloured emblem (gala only) + event name. */
 function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
   const baseY = h - 58;
   const markSize = Math.round(w * 0.075);
+  const hex = activeEvent.accentHexes;
+  const c0 = hex[0];
+  const c1 = hex[1] ?? c0;
+  const c2 = hex[2] ?? c0;
+  const c3 = hex[3] ?? c0;
+  // The SCAGO crescent emblem is gala-specific; other events show text only.
+  const showEmblem = activeEvent.id === 'hope-gala';
 
   ctx.save();
   ctx.textAlign = 'left';
@@ -82,31 +89,33 @@ function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
 
   // centre the [emblem + gap + text] lockup as a group
   const gap = w * 0.022;
-  const groupW = markSize + gap + titleW;
+  const groupW = showEmblem ? markSize + gap + titleW : titleW;
   const startX = (w - groupW) / 2;
 
-  // emblem
-  const grad = ctx.createLinearGradient(startX, baseY - markSize / 2, startX + markSize, baseY + markSize / 2);
-  grad.addColorStop(0, '#B8860B');
-  grad.addColorStop(0.5, '#FBF3D9');
-  grad.addColorStop(1, '#9A6F1C');
+  if (showEmblem) {
+    const grad = ctx.createLinearGradient(startX, baseY - markSize / 2, startX + markSize, baseY + markSize / 2);
+    grad.addColorStop(0, c3);
+    grad.addColorStop(0.5, c2);
+    grad.addColorStop(1, c0);
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = 12;
+    drawScagoMark(ctx, startX + markSize / 2, baseY, markSize, { fill: grad, alpha: 0.97 });
+  }
+
+  // text block — event eyebrow ABOVE the event name
+  const textX = showEmblem ? startX + markSize + gap : startX;
+
   ctx.shadowColor = 'rgba(0,0,0,0.55)';
-  ctx.shadowBlur = 12;
-  drawScagoMark(ctx, startX + markSize / 2, baseY, markSize, { fill: grad, alpha: 0.97 });
-
-  // text block — SCAGO eyebrow ABOVE the Hope Gala & Awards title
-  const textX = startX + markSize + gap;
-
   ctx.shadowBlur = 6;
-  ctx.fillStyle = '#E9D9B8';
+  ctx.fillStyle = c1;
   ctx.globalAlpha = 0.9;
   ctx.font = `${eyebrowSize}px Georgia, serif`;
   drawTracked(ctx, activeEvent.copy.eyebrow, textX + 2, baseY - titleSize * 0.5, eyebrowSize * 0.18);
 
   const textGrad = ctx.createLinearGradient(textX, 0, textX + titleW, 0);
-  textGrad.addColorStop(0, '#E8C766');
-  textGrad.addColorStop(0.5, '#FBF3D9');
-  textGrad.addColorStop(1, '#C99A2E');
+  textGrad.addColorStop(0, c1);
+  textGrad.addColorStop(0.5, c2);
+  textGrad.addColorStop(1, c0);
   ctx.fillStyle = textGrad;
   ctx.globalAlpha = 0.97;
   ctx.shadowBlur = 12;

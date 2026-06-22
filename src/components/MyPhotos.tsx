@@ -112,7 +112,7 @@ function PlayBadge({ size = 'sm' }: { size?: 'sm' | 'md' }) {
         width: dim,
         height: dim,
         background: 'rgba(10,7,3,0.72)',
-        border: '1px solid rgba(212,175,55,0.4)',
+        border: '1px solid rgba(var(--accent-rgb),0.4)',
         backdropFilter: 'blur(4px)',
       }}
     >
@@ -169,7 +169,7 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
       onClick={() => onView(media)}
       style={{
         boxShadow: '0 4px 28px rgba(0,0,0,0.55)',
-        border: '1px solid rgba(212,175,55,0.12)',
+        border: '1px solid rgba(var(--accent-rgb),0.12)',
       }}
     >
       {isVideo ? (
@@ -226,7 +226,7 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
             onClick={handleShare}
             disabled={sharing}
             className="glass inline-flex items-center justify-center text-gold-300 py-2 px-3 rounded-xl transition-all disabled:opacity-60"
-            style={{ border: '1px solid rgba(212,175,55,0.22)' }}
+            style={{ border: '1px solid rgba(var(--accent-rgb),0.22)' }}
             aria-label="Share"
           >
             {sharing ? (
@@ -241,7 +241,7 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
       {/* Media-type chip (top-left) */}
       <div
         className="absolute top-2 left-2 flex items-center justify-center rounded-full glass-strong text-gold-300"
-        style={{ width: 26, height: 26, border: '1px solid rgba(212,175,55,0.3)' }}
+        style={{ width: 26, height: 26, border: '1px solid rgba(var(--accent-rgb),0.3)' }}
         aria-hidden
       >
         {isVideo ? <VideoIcon size={13} /> : <PhotoIcon size={13} />}
@@ -251,7 +251,7 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
       <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
         <div
           className="flex items-center justify-center rounded-full glass-strong text-gold-300"
-          style={{ width: 44, height: 44, border: '1px solid rgba(212,175,55,0.35)' }}
+          style={{ width: 44, height: 44, border: '1px solid rgba(var(--accent-rgb),0.35)' }}
         >
           <ExpandIcon size={20} />
         </div>
@@ -306,7 +306,7 @@ function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void })
         onClick={(e) => e.stopPropagation()}
       >
         {isVideo ? (
-          <div className="relative rounded-2xl overflow-hidden" style={{ boxShadow: '0 0 60px rgba(212,175,55,0.18)' }}>
+          <div className="relative rounded-2xl overflow-hidden" style={{ boxShadow: '0 0 60px rgba(var(--accent-rgb),0.18)' }}>
             <video
               src={media.image_url}
               autoPlay
@@ -324,7 +324,7 @@ function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void })
             src={media.image_url}
             alt="Your gala moment"
             className="w-full rounded-2xl"
-            style={{ boxShadow: '0 0 60px rgba(212,175,55,0.18)' }}
+            style={{ boxShadow: '0 0 60px rgba(var(--accent-rgb),0.18)' }}
           />
         )}
 
@@ -357,7 +357,7 @@ function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void })
             <button
               onClick={handleShare}
               className="glass inline-flex items-center justify-center gap-2 text-gold-300 font-label uppercase tracking-luxe text-[11px] py-3 px-5 rounded-xl transition-all"
-              style={{ border: '1px solid rgba(212,175,55,0.22)' }}
+              style={{ border: '1px solid rgba(var(--accent-rgb),0.22)' }}
               aria-label="Share"
             >
               <ShareIcon size={15} />
@@ -369,7 +369,7 @@ function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void })
         <button
           onClick={onClose}
           className="absolute -top-3 -right-3 glass-strong w-9 h-9 rounded-full flex items-center justify-center text-champagne/80 hover:text-ivory transition-colors"
-          style={{ border: '1px solid rgba(212,175,55,0.3)' }}
+          style={{ border: '1px solid rgba(var(--accent-rgb),0.3)' }}
           aria-label="Close"
         >
           <CloseIcon size={16} />
@@ -453,7 +453,7 @@ export default function MyPhotos() {
         <p className="mt-2 font-serif italic text-2xl text-ivory/85">Your gala moments</p>
         <span
           className="mt-3 h-px w-16 block"
-          style={{ background: 'linear-gradient(to right, transparent, rgba(212,175,55,0.6), transparent)' }}
+          style={{ background: 'linear-gradient(to right, transparent, rgba(var(--accent-rgb),0.6), transparent)' }}
           aria-hidden
         />
 
@@ -514,7 +514,7 @@ export default function MyPhotos() {
           >
             <div
               className="relative w-24 h-24 rounded-full glass-strong flex items-center justify-center mb-6 glow-soft"
-              style={{ border: '1px solid rgba(212,175,55,0.28)' }}
+              style={{ border: '1px solid rgba(var(--accent-rgb),0.28)' }}
             >
               <CameraIcon size={40} className="text-gold-300" strokeWidth={1.4} />
             </div>

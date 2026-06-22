@@ -18,7 +18,7 @@ export function HopeGalaWordmark({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' | 
 
   return (
     <div className="flex flex-col items-center text-center leading-none select-none">
-      <ScagoMark size={scale.mark} variant="gold" animated className="mb-4 drop-shadow-[0_0_24px_rgba(212,175,55,0.35)]" title="SCAGO" />
+      <ScagoMark size={scale.mark} variant="gold" animated className="mb-4 drop-shadow-[0_0_24px_rgba(var(--accent-rgb),0.35)]" title="SCAGO" />
       <span className={`font-label uppercase tracking-luxe text-champagne/70 ${scale.eyebrow} mb-2`}>
         SCAGO · 2026
       </span>
@@ -28,6 +28,11 @@ export function HopeGalaWordmark({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' | 
       <span className={`font-script gold-foil-static -mt-1 ${scale.script}`}>&amp; Awards</span>
     </div>
   );
+}
+
+/** Bare SCAGO emblem (no text) for small brand marks. */
+export function HopeGalaEmblem({ size = 34, className }: { size?: number; className?: string }) {
+  return <ScagoMark size={size} variant="gold" animated className={className} title="SCAGO" />;
 }
 
 /** Compact mark for nav bars. SCAGO sits ABOVE the Hope Gala wordmark. */

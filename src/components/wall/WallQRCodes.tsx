@@ -14,8 +14,8 @@ function QRPanel({ url, label }: { url: string; label: string }) {
     <div
       className="glass flex flex-col items-center gap-3 px-5 py-5 rounded-2xl"
       style={{
-        border: '1px solid rgba(212,175,55,0.28)',
-        boxShadow: '0 0 24px rgba(212,175,55,0.10)',
+        border: '1px solid rgba(var(--accent-rgb),0.28)',
+        boxShadow: '0 0 24px rgba(var(--accent-rgb),0.10)',
       }}
     >
       <div

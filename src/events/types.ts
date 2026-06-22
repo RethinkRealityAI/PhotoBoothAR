@@ -13,6 +13,13 @@ export interface EventStep {
   body: string;
 }
 
+/** A first-launch onboarding card. */
+export interface OnboardingStep {
+  eyebrow: string;
+  title: string;
+  body: string;
+}
+
 /** All human-readable strings that differ per event. */
 export interface EventCopy {
   eyebrow: string;
@@ -21,6 +28,8 @@ export interface EventCopy {
   fullName: string;
   thankYou: string;
   steps: EventStep[];
+  /** First-launch onboarding cards (booth). */
+  onboardingSteps: OnboardingStep[];
   filePrefix: string;
   shareTitle: string;
   /** Personalized share-sheet title, e.g. "My Hope Gala Moment". */
@@ -43,8 +52,13 @@ export interface EventConfig {
   fontHref: string;
   Wordmark: ComponentType<{ size?: 'sm' | 'md' | 'lg' | 'xl' }>;
   Mark: ComponentType;
+  /** Bare event emblem icon (no text) — used wherever a small brand mark appears. */
+  Emblem: ComponentType<{ size?: number; className?: string }>;
   Background: ComponentType<{ density?: number; className?: string; sparkle?: number }>;
   /** Path the "/" route redirects to, e.g. '/booth' or '/wall'. */
   landingRoute: string;
   arContent: EventARContent;
+  /** Event palette as hex strings — for canvas/JS color needs (confetti, the
+   *  captured-photo watermark) that can't read CSS variables. Brightest first. */
+  accentHexes: string[];
 }

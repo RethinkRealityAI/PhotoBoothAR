@@ -8,7 +8,7 @@
  */
 
 /** The heart-and-sunglasses emblem. Holographic neon gradient + glow. */
-function HeartGlasses({ size = 96 }: { size?: number }) {
+function HeartGlasses({ size = 96, className }: { size?: number; className?: string }) {
   return (
     <svg
       width={size}
@@ -17,6 +17,7 @@ function HeartGlasses({ size = 96 }: { size?: number }) {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden
+      className={className}
       style={{ filter: 'drop-shadow(0 0 14px rgba(255,45,155,0.55)) drop-shadow(0 0 26px rgba(25,227,255,0.35))' }}
     >
       <defs>
@@ -73,6 +74,11 @@ export function JennaJakeWordmark({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' |
       </span>
     </div>
   );
+}
+
+/** Bare heart-and-sunglasses emblem (no text) for small brand marks. */
+export function JennaJakeEmblem({ size = 34, className }: { size?: number; className?: string }) {
+  return <HeartGlasses size={size} className={className} />;
 }
 
 /** Compact mark for nav bars: emblem + names. */

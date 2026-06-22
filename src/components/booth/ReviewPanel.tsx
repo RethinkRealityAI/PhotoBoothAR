@@ -68,14 +68,14 @@ export default function ReviewPanel({
             muted
             playsInline
             className="max-h-full max-w-full object-contain rounded-2xl shadow-2xl"
-            style={{ border: '1px solid rgba(212,175,55,0.2)' }}
+            style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
           />
         ) : (
           <img
             src={dataUrl}
             alt="Your captured photo"
             className="max-h-full max-w-full object-contain rounded-2xl shadow-2xl glow-soft"
-            style={{ border: '1px solid rgba(212,175,55,0.2)' }}
+            style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
           />
         )}
         {mediaType === 'video' && durationSec > 0 && (

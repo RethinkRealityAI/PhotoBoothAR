@@ -59,14 +59,14 @@ export default function JoinBooth() {
               className="relative rounded-3xl p-4 sm:p-5"
               style={{
                 background: '#faf6ef',
-                border: '2px solid rgba(212,175,55,0.6)',
-                boxShadow: '0 0 0 6px rgba(212,175,55,0.12), 0 28px 70px -18px rgba(0,0,0,0.7)',
+                border: '2px solid rgba(var(--accent-rgb),0.6)',
+                boxShadow: '0 0 0 6px rgba(var(--accent-rgb),0.12), 0 28px 70px -18px rgba(0,0,0,0.7)',
               }}
               animate={{
                 boxShadow: [
-                  '0 0 0 6px rgba(212,175,55,0.12), 0 28px 70px -18px rgba(0,0,0,0.7)',
+                  '0 0 0 6px rgba(var(--accent-rgb),0.12), 0 28px 70px -18px rgba(0,0,0,0.7)',
                   '0 0 0 7px rgba(232,199,102,0.26), 0 28px 80px -12px rgba(0,0,0,0.7)',
-                  '0 0 0 6px rgba(212,175,55,0.12), 0 28px 70px -18px rgba(0,0,0,0.7)',
+                  '0 0 0 6px rgba(var(--accent-rgb),0.12), 0 28px 70px -18px rgba(0,0,0,0.7)',
                 ],
               }}
               transition={{ duration: 3.4, ease: 'easeInOut', repeat: Infinity }}
@@ -97,7 +97,7 @@ export default function JoinBooth() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1], delay: 0.1 }}
           >
-            <ScagoMark size={56} variant="gold" animated className="drop-shadow-[0_0_22px_rgba(212,175,55,0.4)]" title="SCAGO" />
+            <ScagoMark size={56} variant="gold" animated className="drop-shadow-[0_0_22px_rgba(var(--accent-rgb),0.4)]" title="SCAGO" />
             <p className="mt-3 font-label uppercase tracking-luxe text-[10px] sm:text-xs text-champagne/70">
               {content.eyebrow}
             </p>

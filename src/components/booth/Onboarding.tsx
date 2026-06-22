@@ -6,45 +6,12 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ChevronRight } from 'lucide-react';
-import ScagoMark from '../ui/ScagoMark';
 import { Art } from './OnboardingArt';
 import { activeEvent } from '../../events/active';
+import { Emblem } from '../ui/EventLogo';
 
-interface Step {
-  eyebrow: string;
-  title: string;
-  body: string;
-}
-
-const STEPS: Step[] = [
-  {
-    eyebrow: 'Step One',
-    title: 'Choose Your Look',
-    body: 'Pick a dazzling Effect — gold sparkles, shimmering aurora, soft lens flares — then layer it with a curated Frame. They were designed to pair beautifully together.',
-  },
-  {
-    eyebrow: 'Step Two',
-    title: 'Flip & Adorn',
-    body: 'Tap to flip between front and back cameras. Then crown yourself with a 3D accessory — tracked live to your head by our face AI as you move.',
-  },
-  {
-    eyebrow: 'Step Three',
-    title: 'Photo or Video',
-    body: 'Press the shutter for a single luminous frame, or switch to Video to capture up to 30 seconds of magic — sound, motion and your chosen effects, all in one.',
-  },
-  {
-    eyebrow: 'Step Four',
-    title: 'Send & Shine',
-    body: 'Set a hands-free timer (3s, 5s or 10s) for the perfect pose, then beam your portrait straight to the live Gala Wall for everyone to admire.',
-  },
-  {
-    eyebrow: 'Step Five',
-    title: 'Take the Challenge',
-    body: 'Accept a live Challenge — a photo with two family physicians, with an award winner, or a playful one with SCAGO President & CEO Mrs. Lanre Tunji-Ajayi. Climb the Leaderboard and a special prize awaits the night’s champion.',
-  },
-];
-
-const ONBOARDED_KEY = 'hopegala.onboarded';
+const STEPS = activeEvent.copy.onboardingSteps;
+const ONBOARDED_KEY = `${activeEvent.id}.onboarded`;
 
 export function useOnboarding(): { showOnboarding: boolean; dismiss: () => void } {
   const [showOnboarding] = useState(() => {
@@ -101,17 +68,12 @@ export default function Onboarding({ onDismiss }: Props) {
         {/* hairline foil accent along the top edge */}
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-foil opacity-60" />
 
-        {/* Brand header: SCAGO ABOVE Hope Gala & Awards, paired with the emblem */}
+        {/* Brand header: event emblem + event name */}
         <div className="flex items-center gap-2.5 mb-5 pr-10">
-          <ScagoMark size={34} variant="gold" animated className="shrink-0" title="SCAGO" />
-          <div className="flex flex-col leading-none">
-            <span className="font-label uppercase tracking-luxe text-[9px] text-gold-300">
-              SCAGO
-            </span>
-            <span className="font-serif italic text-base text-ivory mt-0.5">
-              {activeEvent.copy.eventName}
-            </span>
-          </div>
+          <Emblem size={34} className="shrink-0" />
+          <span className="font-serif italic text-lg text-ivory leading-none">
+            {activeEvent.copy.eventName}
+          </span>
         </div>
 
         {/* Skip */}
@@ -148,7 +110,7 @@ export default function Onboarding({ onDismiss }: Props) {
             {/* Bespoke gold line-art illustration */}
             <div className="relative flex items-center justify-center w-40 h-40">
               <div className="absolute inset-6 rounded-full bg-foil opacity-[0.07] blur-2xl" />
-              <StepArt size={148} className="relative drop-shadow-[0_0_20px_rgba(212,175,55,0.25)]" />
+              <StepArt size={148} className="relative" />
             </div>
 
             <div className="space-y-2">
@@ -171,7 +133,7 @@ export default function Onboarding({ onDismiss }: Props) {
           >
             {isLast ? (
               <>
-                <ScagoMark size={20} variant="mono" className="shrink-0" title="SCAGO" />
+                <Emblem size={20} className="shrink-0" />
                 <span>Begin the Experience</span>
               </>
             ) : (
@@ -192,9 +154,9 @@ export default function Onboarding({ onDismiss }: Props) {
           )}
         </div>
 
-        {/* Footer: SCAGO above Hope Gala & Awards, paired with the emblem */}
+        {/* Footer: event emblem + full name */}
         <div className="mt-5 flex items-center justify-center gap-2 opacity-40">
-          <ScagoMark size={14} variant="gold" animated className="shrink-0" title="SCAGO" />
+          <Emblem size={14} className="shrink-0" />
           <p className="text-center font-label text-[8px] uppercase tracking-luxe text-champagne/60 leading-tight">
             {activeEvent.copy.fullName}
           </p>

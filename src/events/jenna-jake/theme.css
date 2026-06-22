@@ -17,6 +17,7 @@
   --color-accent:        #FF2D9B; /* electric magenta */
   --color-accent-2:      #19E3FF; /* cyan */
   --color-accent-3:      #7A2BFF; /* violet */
+  --accent-rgb:          255, 45, 155;
 
   /* Gold scale remap → festival magenta→violet ramp (lightest 50 → darkest 700).
      Used by text-gold-*, bg-gold-*, borders, glows across reused components. */

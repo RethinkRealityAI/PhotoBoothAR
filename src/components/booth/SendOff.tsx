@@ -20,7 +20,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { LayoutGrid, Film } from 'lucide-react';
 import { ShaderRunner, defaultParams } from '../../lib/shaders';
-import ScagoMark from '../ui/ScagoMark';
+import { Emblem } from '../ui/EventLogo';
 import { activeEvent } from '../../events/active';
 
 interface Props {
@@ -31,8 +31,9 @@ interface Props {
   onTakeAnother: () => void;
 }
 
-const GOLD_COLORS = ['#D4AF37', '#E8C766', '#FBF3D9'];
-const GOLD_DEEP = ['#B8860B', '#D4AF37', '#E8C766', '#FBF3D9'];
+// Celebration colors come from the active event (canvas-confetti needs hex).
+const GOLD_COLORS = activeEvent.accentHexes.slice(0, 3);
+const GOLD_DEEP = activeEvent.accentHexes;
 const DISSOLVE_MS = 2800;
 
 /** Smooth in-out curve — slow start, accelerates through the middle, eases out. */
@@ -70,7 +71,7 @@ function GoldBeam({ play }: { play: boolean }) {
         className="absolute bottom-0 h-[60vh] w-24 origin-bottom"
         style={{
           background:
-            'linear-gradient(to top, rgba(251,243,217,0.0), rgba(212,175,55,0.55) 12%, rgba(232,199,102,0.28) 55%, rgba(212,175,55,0))',
+            'linear-gradient(to top, rgba(251,243,217,0.0), rgba(var(--accent-rgb),0.55) 12%, rgba(var(--accent-rgb),0.28) 55%, rgba(var(--accent-rgb),0))',
           filter: 'blur(8px)',
           maskImage: 'linear-gradient(to top, transparent, #000 14%, #000 70%, transparent)',
           WebkitMaskImage: 'linear-gradient(to top, transparent, #000 14%, #000 70%, transparent)',
@@ -97,8 +98,8 @@ function GoldBeam({ play }: { play: boolean }) {
               left: `${s.x}%`,
               width: s.size,
               height: s.size,
-              background: 'radial-gradient(circle, #FBF3D9 0%, #E8C766 45%, rgba(212,175,55,0) 75%)',
-              boxShadow: '0 0 6px rgba(232,199,102,0.8)',
+              background: 'radial-gradient(circle, #FBF3D9 0%, rgba(var(--accent-rgb),0.85) 45%, rgba(var(--accent-rgb),0) 75%)',
+              boxShadow: '0 0 6px rgba(var(--accent-rgb),0.8)',
             }}
             initial={{ y: 0, x: 0, opacity: 0, scale: 0.4 }}
             animate={{ y: ['-2vh', '-58vh'], x: [0, s.drift], opacity: [0, 1, 1, 0], scale: [0.4, 1, 0.6] }}
@@ -141,8 +142,8 @@ function GoldMotes({ play }: { play: boolean }) {
             bottom: '38%',
             width: m.size,
             height: m.size,
-            background: 'radial-gradient(circle, #FBF3D9 0%, #E8C766 50%, rgba(212,175,55,0) 78%)',
-            boxShadow: '0 0 8px rgba(232,199,102,0.6)',
+            background: 'radial-gradient(circle, #FBF3D9 0%, rgba(var(--accent-rgb),0.85) 50%, rgba(var(--accent-rgb),0) 78%)',
+            boxShadow: '0 0 8px rgba(var(--accent-rgb),0.6)',
           }}
           initial={{ y: 0, opacity: 0, scale: 0.5 }}
           animate={{ y: [0, -260], x: [0, m.drift], opacity: [0, 0.9, 0], scale: [0.5, 1, 0.7] }}
@@ -288,7 +289,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
               aria-hidden
               className="pointer-events-none absolute left-1/2 top-1/2 h-[120vmin] w-[120vmin] -translate-x-1/2 -translate-y-[58%] rounded-full"
               style={{
-                background: 'radial-gradient(circle, rgba(232,199,102,0.30) 0%, rgba(212,175,55,0.12) 30%, transparent 62%)',
+                background: 'radial-gradient(circle, rgba(var(--accent-rgb),0.30) 0%, rgba(var(--accent-rgb),0.12) 30%, transparent 62%)',
                 opacity: bloomOpacity,
               }}
             />
@@ -327,7 +328,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
                       src={dataUrl}
                       alt=""
                       className="w-full rounded-2xl shadow-2xl"
-                      style={{ border: '1px solid rgba(212,175,55,0.3)' }}
+                      style={{ border: '1px solid rgba(var(--accent-rgb),0.3)' }}
                     />
                   )}
                   <canvas
@@ -380,7 +381,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
             >
               <div className="absolute inset-0 rounded-full bg-foil opacity-90 glow-accent animate-pulse-glow" />
               <div className="absolute inset-[3px] rounded-full bg-noir-900/90" />
-              <ScagoMark size={66} variant="gold" animated title="SCAGO" className="relative" />
+              <Emblem size={66} className="relative" />
             </motion.div>
 
             <div className="space-y-3">

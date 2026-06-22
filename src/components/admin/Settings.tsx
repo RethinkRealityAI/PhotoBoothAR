@@ -103,7 +103,7 @@ function SliderRow({ icon, label, helper, value, min, max, step, displayValue, o
           onChange={(e) => onChange(parseFloat(e.target.value))}
           className="w-full h-1.5 rounded-full appearance-none cursor-pointer disabled:opacity-40"
           style={{
-            background: `linear-gradient(to right, #D4AF37 0%, #D4AF37 ${((value - min) / (max - min)) * 100}%, rgba(212,175,55,0.15) ${((value - min) / (max - min)) * 100}%, rgba(212,175,55,0.15) 100%)`,
+            background: `linear-gradient(to right, #D4AF37 0%, #D4AF37 ${((value - min) / (max - min)) * 100}%, rgba(var(--accent-rgb),0.15) ${((value - min) / (max - min)) * 100}%, rgba(var(--accent-rgb),0.15) 100%)`,
             accentColor: '#D4AF37',
           }}
         />

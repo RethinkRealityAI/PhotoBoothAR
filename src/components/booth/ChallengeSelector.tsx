@@ -160,7 +160,7 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
                 <>
                   <div className="flex items-start justify-between mb-1">
                     <div>
-                      <h3 className="font-serif text-xl text-ivory">Gala Challenges</h3>
+                      <h3 className="font-serif text-xl text-ivory">Challenges</h3>
                       <p className="font-sans text-xs text-champagne/50 mt-0.5">
                         {doneCount} of {active.length} complete · be one of the first 3 to finish them all
                       </p>

@@ -27,7 +27,7 @@ function PlayBadge() {
         width: 28,
         height: 28,
         background: 'rgba(10,7,3,0.72)',
-        border: '1px solid rgba(212,175,55,0.4)',
+        border: '1px solid rgba(var(--accent-rgb),0.4)',
         backdropFilter: 'blur(4px)',
       }}
     >
@@ -48,7 +48,7 @@ function PostCard({ post, isFresh }: { post: Post; isFresh: boolean }) {
       className="relative overflow-hidden rounded-xl"
       style={{
         boxShadow: isFresh
-          ? '0 0 0 2px #D4AF37, 0 0 32px 8px rgba(212,175,55,0.33)'
+          ? '0 0 0 2px #D4AF37, 0 0 32px 8px rgba(var(--accent-rgb),0.33)'
           : '0 4px 24px rgba(0,0,0,0.45)',
         transition: 'box-shadow 0.6s ease',
       }}

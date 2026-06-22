@@ -51,6 +51,9 @@
 
 :root {
   color-scheme: dark;
+  /* Accent as a raw "r, g, b" triplet for inline rgba(var(--accent-rgb), a)
+     usages. Events override this in their theme.css. Default = gala gold. */
+  --accent-rgb: 212, 175, 55;
 }
 
 html, body, #root {

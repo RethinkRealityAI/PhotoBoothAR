@@ -13,3 +13,8 @@ export function Mark() {
   const C = activeEvent.Mark;
   return <C />;
 }
+
+export function Emblem(props: { size?: number; className?: string }) {
+  const C = activeEvent.Emblem;
+  return <C {...props} />;
+}

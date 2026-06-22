@@ -45,7 +45,7 @@ function PlayBadge() {
       className="absolute top-3 right-4 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full"
       style={{
         background: 'rgba(10,7,3,0.65)',
-        border: '1px solid rgba(212,175,55,0.3)',
+        border: '1px solid rgba(var(--accent-rgb),0.3)',
         backdropFilter: 'blur(6px)',
       }}
     >
@@ -210,9 +210,9 @@ export default function SlideshowView({
               <div
                 className="glass px-8 py-4 rounded-2xl max-w-2xl text-center"
                 style={{
-                  border: '1px solid rgba(212,175,55,0.25)',
+                  border: '1px solid rgba(var(--accent-rgb),0.25)',
                   boxShadow:
-                    '0 8px 40px rgba(0,0,0,0.5), 0 0 24px rgba(212,175,55,0.12)',
+                    '0 8px 40px rgba(0,0,0,0.5), 0 0 24px rgba(var(--accent-rgb),0.12)',
                 }}
               >
                 {post.guest_name && (
@@ -277,7 +277,7 @@ export default function SlideshowView({
                 exit={{ opacity: 0, x: -10 }}
                 transition={{ duration: 0.2 }}
                 className="absolute left-4 top-1/2 -translate-y-1/2 z-20 glass rounded-full w-12 h-12 flex items-center justify-center hover:glow-accent transition-all"
-                style={{ border: '1px solid rgba(212,175,55,0.3)' }}
+                style={{ border: '1px solid rgba(var(--accent-rgb),0.3)' }}
               >
                 <span className="text-ivory text-xl">‹</span>
               </motion.button>
@@ -289,7 +289,7 @@ export default function SlideshowView({
                 exit={{ opacity: 0, x: 10 }}
                 transition={{ duration: 0.2 }}
                 className="absolute right-4 top-1/2 -translate-y-1/2 z-20 glass rounded-full w-12 h-12 flex items-center justify-center hover:glow-accent transition-all"
-                style={{ border: '1px solid rgba(212,175,55,0.3)' }}
+                style={{ border: '1px solid rgba(var(--accent-rgb),0.3)' }}
               >
                 <span className="text-ivory text-xl">›</span>
               </motion.button>

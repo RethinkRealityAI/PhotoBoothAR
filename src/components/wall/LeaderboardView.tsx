@@ -23,10 +23,10 @@ const CROWN_COLOR = ['#F5C842', '#D6D6D6', '#CD8A4B']; // gold · silver · bron
 
 const RANK_STYLES: Record<number, { ring: string; glow: string; nameClass: string; bg: string }> = {
   0: {
-    ring: '2px solid rgba(212,175,55,0.90)',
-    glow: '0 0 24px rgba(212,175,55,0.55)',
+    ring: '2px solid rgba(var(--accent-rgb),0.90)',
+    glow: '0 0 24px rgba(var(--accent-rgb),0.55)',
     nameClass: 'text-foil-static font-serif italic text-xl',
-    bg: 'rgba(212,175,55,0.10)',
+    bg: 'rgba(var(--accent-rgb),0.10)',
   },
   1: {
     ring: '2px solid rgba(192,192,192,0.55)',
@@ -70,7 +70,7 @@ function EntryRow({ entry, rank, delay }: { entry: LeaderboardEntry; rank: numbe
       transition={{ duration: 0.5, delay, ease: [0.22, 1, 0.36, 1] }}
       style={{
         background: style ? style.bg : 'rgba(255,255,255,0.02)',
-        border: style ? style.ring : '1px solid rgba(212,175,55,0.08)',
+        border: style ? style.ring : '1px solid rgba(var(--accent-rgb),0.08)',
         boxShadow: style ? style.glow : 'none',
       }}
     >
@@ -162,7 +162,7 @@ export default function LeaderboardView() {
             className="mt-2 h-px w-32"
             style={{
               background:
-                'linear-gradient(to right, transparent, rgba(212,175,55,0.55), transparent)',
+                'linear-gradient(to right, transparent, rgba(var(--accent-rgb),0.55), transparent)',
             }}
           />
           <p className="mt-2 font-label uppercase tracking-luxe text-[9px] text-gold-300/70 flex items-center gap-1.5">
@@ -175,9 +175,9 @@ export default function LeaderboardView() {
       <div
         className="w-full max-w-3xl glass-strong rounded-3xl overflow-hidden"
         style={{
-          border: '1px solid rgba(212,175,55,0.20)',
+          border: '1px solid rgba(var(--accent-rgb),0.20)',
           boxShadow:
-            '0 0 60px rgba(212,175,55,0.08), 0 32px 64px rgba(0,0,0,0.55)',
+            '0 0 60px rgba(var(--accent-rgb),0.08), 0 32px 64px rgba(0,0,0,0.55)',
         }}
       >
         {/* Column headers */}

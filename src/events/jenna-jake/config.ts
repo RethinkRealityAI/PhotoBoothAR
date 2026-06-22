@@ -7,7 +7,7 @@
 import type { EventConfig } from '../types';
 import { jennaJakeCopy } from './copy';
 import { jennaJakeAR } from './arContent';
-import { JennaJakeWordmark, JennaJakeMark } from './Logo';
+import { JennaJakeWordmark, JennaJakeMark, JennaJakeEmblem } from './Logo';
 import FestivalBackground from './Background';
 
 export const jennaJake: EventConfig = {
@@ -17,7 +17,9 @@ export const jennaJake: EventConfig = {
     'https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Pacifico&family=Inter:wght@300;400;500;600;700&family=Jost:wght@300;400;500;600&display=swap',
   Wordmark: JennaJakeWordmark,
   Mark: JennaJakeMark,
+  Emblem: JennaJakeEmblem,
   Background: FestivalBackground,
   landingRoute: '/wall',
   arContent: jennaJakeAR,
+  accentHexes: ['#FF2D9B', '#19E3FF', '#C6FF1A', '#7A2BFF'],
 };
