@@ -10,6 +10,7 @@ import { GalleryIcon, MediaStackIcon } from '../ui/MediaIcons';
 import { getGuestName } from '../../lib/session';
 import { Challenge } from '../../types';
 import { activeEvent } from '../../events/active';
+import { useStore } from '../../store';
 
 interface Props {
   dataUrl: string;             // JPEG data-url for image; object URL for video
@@ -25,6 +26,7 @@ export default function ReviewPanel({
   dataUrl, mediaType = 'image', durationMs,
   onRetake, onSend, sending, selectedChallenge,
 }: Props) {
+  const copy = useStore((s) => s.copy);
   const [guestName, setGuestName] = useState(() => getGuestName());
   const [message, setMessage] = useState('');
   const [confirming, setConfirming] = useState(false);
@@ -50,7 +52,7 @@ export default function ReviewPanel({
       const res = await fetch(dataUrl);
       const blob = await res.blob();
       const file = new File([blob], filename, { type: blob.type });
-      await navigator.share({ files: [file], title: activeEvent.copy.shareTitle });
+      await navigator.share({ files: [file], title: copy.shareTitle });
     } catch { /* cancelled */ }
   }
 

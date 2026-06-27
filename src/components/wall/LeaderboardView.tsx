@@ -15,7 +15,6 @@ import { Crown } from 'lucide-react';
 import { useStore } from '../../store';
 import { LeaderboardEntry } from '../../types';
 import { Wordmark } from '../ui/EventLogo';
-import { activeEvent } from '../../events/active';
 
 const REFRESH_INTERVAL = 15_000;
 
@@ -128,7 +127,7 @@ function EntryRow({ entry, rank, delay }: { entry: LeaderboardEntry; rank: numbe
 }
 
 export default function LeaderboardView() {
-  const { leaderboard, fetchLeaderboard } = useStore();
+  const { leaderboard, fetchLeaderboard, copy } = useStore();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -153,7 +152,7 @@ export default function LeaderboardView() {
         <Wordmark size="md" />
         <div className="mt-5 flex flex-col items-center gap-1">
           <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/50">
-            {activeEvent.copy.fullName}
+            {copy.fullName}
           </p>
           <h2 className="font-serif italic text-4xl text-foil-static">
             Leaderboard

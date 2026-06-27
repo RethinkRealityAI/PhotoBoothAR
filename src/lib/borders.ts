@@ -246,6 +246,51 @@ const jjEqualizer = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1
   </g>
 </svg>`;
 
+/* ---- Detola & Wuyi wedding frames (gold on transparent, no event-locked text) ---- */
+
+const dwClassicFrame = svg(`
+  <rect x="46" y="46" width="988" height="1828" rx="28" fill="none" stroke="url(#gold)" stroke-width="9"/>
+  <rect x="70" y="70" width="940" height="1780" rx="20" fill="none" stroke="url(#gold)" stroke-width="2.5"/>
+  ${CORNER(70, 70, 1, 1)}
+  ${CORNER(1010, 70, -1, 1)}
+  ${CORNER(70, 1850, 1, -1)}
+  ${CORNER(1010, 1850, -1, -1)}
+`);
+
+const dwMonogramFrame = svg(`
+  <rect x="46" y="46" width="988" height="1828" rx="28" fill="none" stroke="url(#gold)" stroke-width="8"/>
+  <rect x="68" y="68" width="944" height="1784" rx="20" fill="none" stroke="url(#gold)" stroke-width="2"/>
+  ${CORNER(70, 70, 1, 1)}
+  ${CORNER(1010, 70, -1, 1)}
+  ${FLEUR(540, 152, 0.7)}
+  <g text-anchor="middle" font-family="Georgia, 'Times New Roman', serif">
+    <text x="540" y="1740" font-size="66" font-weight="700" letter-spacing="6" fill="url(#gold)" stroke="#2A2208" stroke-width="1.2" filter="url(#soft)">DETOLA &amp; WUYI</text>
+    <text x="540" y="1740" font-size="66" font-weight="700" letter-spacing="6" fill="url(#gold)">DETOLA &amp; WUYI</text>
+    <text x="540" y="1806" font-family="Arial, Helvetica, sans-serif" font-size="30" letter-spacing="14" fill="#E9D9B8">27 · 06 · 2026</text>
+  </g>
+`);
+
+const dwBanner = svg(`
+  ${FLEUR(540, 1492, 0.72)}
+  <g text-anchor="middle" font-family="Georgia, 'Times New Roman', serif">
+    <text x="540" y="1656" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" letter-spacing="18" fill="#E9D9B8" opacity="0.95">THE WEDDING OF</text>
+    <text x="540" y="1764" font-size="74" font-weight="700" letter-spacing="6" fill="url(#gold)" stroke="#2A2208" stroke-width="1.5" filter="url(#soft)">DETOLA &amp; WUYI</text>
+    <text x="540" y="1764" font-size="74" font-weight="700" letter-spacing="6" fill="url(#gold)">DETOLA &amp; WUYI</text>
+    <text x="540" y="1836" font-style="italic" font-size="54" fill="url(#gold)">27 June 2026</text>
+  </g>
+  ${FLEUR(258, 1726, 0.58)}
+  ${FLEUR(822, 1726, 0.58)}
+`);
+
+const dwCorners = svg(`
+  ${CORNER(70, 70, 1, 1)}
+  ${CORNER(1010, 70, -1, 1)}
+  ${CORNER(70, 1850, 1, -1)}
+  ${CORNER(1010, 1850, -1, -1)}
+  ${FLEUR(540, 112, 0.58)}
+  ${FLEUR(540, 1808, 0.58)}
+`);
+
 export const BUILTIN_BORDERS: BuiltinBorder[] = [
   { id: 'frame-classic', name: 'Classic Gold', kind: 'border', svg: classicFrame },
   { id: 'frame-hexagon', name: 'Hexagon (Invitation)', kind: 'border', svg: hexFrame },
@@ -258,6 +303,10 @@ export const BUILTIN_BORDERS: BuiltinBorder[] = [
   { id: 'jj-neon-frame', name: 'JJ Neon Frame', kind: 'border', svg: jjNeonFrame },
   { id: 'jj-lower-third', name: 'JJ Lower Third', kind: 'border', svg: jjLowerThird },
   { id: 'jj-equalizer', name: 'JJ Equalizer', kind: 'border', svg: jjEqualizer },
+  { id: 'dw-frame-monogram', name: 'Detola & Wuyi Frame', kind: 'border', svg: dwMonogramFrame },
+  { id: 'dw-banner', name: 'Detola & Wuyi Banner', kind: '2d_filter', svg: dwBanner },
+  { id: 'dw-frame-classic', name: 'Gold Border', kind: 'border', svg: dwClassicFrame },
+  { id: 'dw-corners', name: 'Gold Corners', kind: '2d_filter', svg: dwCorners },
 ];
 
 export const BORDER_MAP: Record<string, BuiltinBorder> = Object.fromEntries(

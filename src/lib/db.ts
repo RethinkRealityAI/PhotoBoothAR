@@ -10,6 +10,7 @@
  */
 import { supabase, POSTS_BUCKET, ASSETS_BUCKET, publicUrl } from './supabase';
 import { EVENT_ID } from '../events/eventId';
+import { activeEvent } from '../events/active';
 import {
   Experience,
   ExperienceDraft,
@@ -19,6 +20,7 @@ import {
   LeaderboardEntry,
   LandingContent,
   PresetOverrides,
+  BrandingOverrides,
   MediaType,
 } from '../types';
 import { getSessionId } from './session';
@@ -407,19 +409,21 @@ async function setSetting<T extends object>(key: string, value: T): Promise<T> {
 }
 
 export const DEFAULT_LANDING: LandingContent = {
-  eyebrow: 'SCAGO Hope Gala & Awards 2026',
+  eyebrow: activeEvent.copy.fullName,
   title: 'Join the Photo Booth',
-  subtitle: 'Scan to capture your AR moment',
+  subtitle: activeEvent.copy.tagline,
   intro: '',
-  steps: [
-    { title: 'Scan QR', body: '' },
-    { title: 'Select a Filter', body: '' },
-    { title: 'Snap Photo', body: '' },
-    { title: 'Share', body: '' },
-  ],
+  steps: activeEvent.copy.steps.length
+    ? activeEvent.copy.steps.map((s) => ({ title: s.title, body: s.body }))
+    : [
+        { title: 'Scan QR', body: '' },
+        { title: 'Select a Filter', body: '' },
+        { title: 'Snap Photo', body: '' },
+        { title: 'Share', body: '' },
+      ],
   ctaLabel: 'Open the Booth',
   url: '',
-  footer: 'SCAGO Hope Gala & Awards 2026',
+  footer: activeEvent.copy.fullName,
 };
 
 export async function getLandingContent(): Promise<LandingContent> {
@@ -443,6 +447,38 @@ export function subscribeToLanding(onChange: (c: LandingContent) => void): () =>
         const row = payload.new as { key?: string; value?: Partial<LandingContent> };
         if (row.key !== 'landing') return;
         if (row.value) onChange({ ...DEFAULT_LANDING, ...row.value });
+      },
+    )
+    .subscribe();
+  return () => { supabase.removeChannel(channel); };
+}
+
+/* ------------------------------------------------------------------ */
+/* Branding overrides (admin-editable event identity, key='branding')   */
+/* ------------------------------------------------------------------ */
+
+/** No overrides by default — the coded EventConfig supplies every value. */
+export const DEFAULT_BRANDING: BrandingOverrides = {};
+
+export async function getBranding(): Promise<BrandingOverrides> {
+  return getSetting<BrandingOverrides>('branding', DEFAULT_BRANDING);
+}
+
+export async function setBranding(patch: BrandingOverrides): Promise<BrandingOverrides> {
+  const current = await getBranding();
+  return setSetting('branding', { ...current, ...patch });
+}
+
+export function subscribeToBranding(onChange: (b: BrandingOverrides) => void): () => void {
+  const channel = supabase
+    .channel('branding-stream')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'app_settings', filter: `event_id=eq.${EVENT_ID}` },
+      (payload) => {
+        const row = payload.new as { key?: string; value?: BrandingOverrides };
+        if (row.key !== 'branding') return;
+        if (row.value) onChange(row.value);
       },
     )
     .subscribe();

@@ -2,8 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Shared domain types for the Hope Gala AR Photo Booth.
+ * Shared domain types for the AR Photo Booth.
  */
+import type { OnboardingStep } from './events/types';
 
 /** Categories of AR experience that can be authored in the studio. */
 export type ExperienceKind =
@@ -158,6 +159,39 @@ export interface LandingContent {
   ctaLabel: string;       // button / call-to-action label
   url: string;            // URL encoded in the QR (blank = current site origin)
   footer: string;         // small footer note
+}
+
+/** Per-event theme color overrides (hex strings), editable from the admin. */
+export interface BrandingColors {
+  accent?: string;       // primary accent (gold)
+  accent2?: string;      // lighter accent
+  accent3?: string;      // darker accent
+  brandBg?: string;      // page background
+  brandSurface?: string; // panels / cards
+  brandFg?: string;      // foreground text
+  brandMuted?: string;   // secondary text
+}
+
+/**
+ * Admin-editable per-event identity overrides (app_settings key='branding').
+ * Every field is optional; an unset/blank field falls back to the event's coded
+ * EventConfig, so an un-edited event looks exactly as shipped.
+ */
+export interface BrandingOverrides {
+  eventName?: string;
+  eyebrow?: string;
+  tagline?: string;
+  fullName?: string;
+  thankYou?: string;
+  shareTitle?: string;
+  momentTitle?: string;
+  shareText?: string;
+  /** First-launch onboarding cards; replaces the coded steps when non-empty. */
+  onboardingSteps?: OnboardingStep[];
+  /** Theme color overrides applied as CSS variables at runtime. */
+  colors?: BrandingColors;
+  /** Public URL of an uploaded logo image; when set, replaces the coded logo. */
+  logoUrl?: string | null;
 }
 
 /** Admin overrides for the built-in (code) presets (app_settings key='presets'). */

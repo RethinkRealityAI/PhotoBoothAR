@@ -1,0 +1,62 @@
+/**
+ * Detola & Wuyi — black & green wedding theme with gold accents.
+ *
+ * Scoped to :root[data-event='detola-wuyi']. Overrides BOTH the semantic tokens
+ * AND the underlying gold/noir/champagne scale tokens the reused UI references,
+ * so structural components recolor (deep green surfaces, gold accents) without
+ * per-component edits. The accent stays gold, so the metallic foil/glows are
+ * reused as-is.
+ */
+
+:root[data-event='detola-wuyi'] {
+  /* Semantic tokens */
+  --color-brand-bg:      #070B08; /* near-black green */
+  --color-brand-surface: #0F1A13; /* deep forest panel */
+  --color-brand-fg:      #EFF5EE; /* soft ivory-green */
+  --color-brand-muted:   #AFCDB9; /* muted sage */
+  --color-accent:        #D4AF37; /* gold */
+  --color-accent-2:      #EACB6E; /* light gold */
+  --color-accent-3:      #A87C1F; /* deep gold */
+  --accent-rgb:          212, 175, 55;
+
+  /* Gold scale — kept gold (the accent), tuned warm for borders/glows/text. */
+  --color-gold-50:  #FBF3D9;
+  --color-gold-100: #F3E4AE;
+  --color-gold-200: #E8CE7C;
+  --color-gold-300: #DCBB55;
+  --color-gold-400: #D4AF37; /* primary */
+  --color-gold-500: #BD962B;
+  --color-gold-600: #A87C1F;
+  --color-gold-700: #7E5C14;
+
+  /* Warm neutrals → deep greens (back surfaces, borders, backgrounds). */
+  --color-ivory:     #EFF5EE;
+  --color-cream:     #DCE9DD;
+  --color-champagne: #BFD7C6;
+  --color-noir-900:  #070B08;
+  --color-noir-800:  #0C140F;
+  --color-noir-700:  #122019;
+  --color-noir-600:  #1B2E22;
+  --color-rose:      #C9A24A;
+
+  /* Legacy brand aliases */
+  --color-brand-gold:   #D4AF37;
+  --color-brand-orange: #2E5B40;
+  --color-brand-text:   #EFF5EE;
+
+  /* Elegant wedding type (already the app defaults; set explicitly for safety). */
+  --font-serif:  "Cormorant Garamond", Georgia, serif;
+  --font-script: "Pinyon Script", cursive;
+
+  color-scheme: dark;
+}
+
+/* Glass panels: green-tinted with a gold edge. */
+:root[data-event='detola-wuyi'] .glass {
+  background: rgba(15, 26, 19, 0.42);
+  border: 1px solid rgba(212, 175, 55, 0.18);
+}
+:root[data-event='detola-wuyi'] .glass-strong {
+  background: rgba(8, 14, 10, 0.66);
+  border: 1px solid rgba(212, 175, 55, 0.22);
+}
