@@ -75,8 +75,9 @@ export default function ReviewPanel({
 
   return (
     <div className="absolute inset-0 z-40 flex flex-col items-center justify-end bg-noir-900/90 backdrop-blur-sm">
-      {/* Preview */}
-      <div className="flex-1 w-full relative flex items-center justify-center p-4 pt-8">
+      {/* Preview — min-h-0 lets the tall 9:16 capture shrink to fit the space
+          left above the controls instead of overflowing off the top. */}
+      <div className="flex-1 min-h-0 w-full relative flex items-center justify-center px-4 py-3">
         {mediaType === 'video' ? (
           <video
             src={dataUrl}
