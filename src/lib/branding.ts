@@ -54,6 +54,13 @@ const COLOR_VAR_MAP: Record<keyof BrandingColors, string[]> = {
   brandMuted: ['--color-brand-muted', '--color-champagne'],
 };
 
+/** Every CSS variable brandingCssVars can emit — used to clear stale inline
+ *  overrides before re-applying, so resets/reverts fully restore the theme. */
+export const MANAGED_CSS_VARS: string[] = [
+  ...new Set(Object.values(COLOR_VAR_MAP).flat()),
+  '--accent-rgb',
+];
+
 /** "#D4AF37" → "212, 175, 55" (for rgba() usage). null if not a 6-digit hex. */
 export function hexToRgbTriplet(hex: string): string | null {
   const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());

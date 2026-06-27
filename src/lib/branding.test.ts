@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeCopy, brandingCssVars, hexToRgbTriplet } from './branding';
+import { mergeCopy, brandingCssVars, hexToRgbTriplet, MANAGED_CSS_VARS } from './branding';
 import type { EventCopy } from '../events/types';
 
 const base: EventCopy = {
@@ -79,5 +79,14 @@ describe('brandingCssVars', () => {
 
   it('ignores blank color values', () => {
     expect(brandingCssVars({ colors: { accent: '  ' } })).toEqual({});
+  });
+
+  it('only emits vars that are in MANAGED_CSS_VARS (so resets fully clear them)', () => {
+    const all = brandingCssVars({
+      colors: { accent: '#111111', accent2: '#222222', accent3: '#333333', brandBg: '#444444', brandSurface: '#555555', brandFg: '#666666', brandMuted: '#777777' },
+    });
+    for (const key of Object.keys(all)) {
+      expect(MANAGED_CSS_VARS).toContain(key);
+    }
   });
 });

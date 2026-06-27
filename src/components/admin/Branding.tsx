@@ -118,7 +118,11 @@ export default function Branding() {
 
   // Apply the draft live whenever it changes (preview across the studio).
   const overrides = useMemo(() => draftToOverrides(draft), [draft]);
-  useEffect(() => { applyBranding(overrides); setSaved(false); }, [overrides, applyBranding]);
+  useEffect(() => {
+    applyBranding(overrides);
+    setSaved(false);
+    committedRef.current = false; // unsaved edits should revert if we leave
+  }, [overrides, applyBranding]);
 
   const patch = (p: Partial<Draft>) => setDraft((d) => ({ ...d, ...p }));
   const patchColor = (key: keyof BrandingColors, v: string) =>

@@ -9,12 +9,15 @@ import { Experience, Post, Challenge, WallSettings, LeaderboardEntry, PresetOver
 import * as db from './lib/db';
 import { activeEvent } from './events/active';
 import type { EventCopy } from './events/types';
-import { mergeCopy, brandingCssVars } from './lib/branding';
+import { mergeCopy, brandingCssVars, MANAGED_CSS_VARS } from './lib/branding';
 
-/** Apply theme-color overrides to :root (no-op outside the browser). */
+/** Apply theme-color overrides to :root (no-op outside the browser). Clears any
+ *  previously-applied inline overrides first so a reset/revert (fewer or no
+ *  colors) fully restores the values from the event's theme.css. */
 function applyBrandingVars(b: BrandingOverrides) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
+  for (const v of MANAGED_CSS_VARS) root.style.removeProperty(v);
   const vars = brandingCssVars(b);
   for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
 }
@@ -124,14 +127,11 @@ export const useStore = create<AppState>((set, get) => ({
   brandingLoaded: false,
   applyBranding: (branding) => {
     applyBrandingVars(branding);
-    if (typeof document !== 'undefined' && branding.fullName?.trim()) {
-      document.title = `${branding.fullName} · Photo Booth`;
+    const copy = mergeCopy(activeEvent.copy, branding);
+    if (typeof document !== 'undefined') {
+      document.title = `${copy.fullName} · Photo Booth`;
     }
-    set({
-      branding,
-      copy: mergeCopy(activeEvent.copy, branding),
-      logoUrl: branding.logoUrl ?? null,
-    });
+    set({ branding, copy, logoUrl: branding.logoUrl ?? null });
   },
   fetchBranding: async () => {
     const branding = await db.getBranding();
