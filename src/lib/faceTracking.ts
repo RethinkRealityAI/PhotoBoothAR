@@ -30,14 +30,18 @@ export async function initializeFaceLandmarker() {
   if (faceLandmarker) return faceLandmarker;
   if (initPromise) return initPromise;
 
+  // IMPORTANT: use the CPU delegate. The booth runs alongside React-Three-Fiber
+  // and the shader runner, which each hold their own WebGL context. MediaPipe's
+  // GPU delegate competes for / loses that shared context, which made live
+  // tracking work for ~1s and then stop (the asset would detach from the face).
+  // The CPU delegate (XNNPACK) is plenty fast for single-face landmarks and is
+  // rock-solid next to other WebGL canvases.
   initPromise = (async () => {
     try {
-      faceLandmarker = await create('GPU');
-    } catch (gpuErr) {
-      // Some devices/browsers can't create a GPU delegate — fall back to CPU so
-      // tracking still works rather than failing silently.
-      console.warn('[faceTracking] GPU delegate failed, retrying on CPU', gpuErr);
       faceLandmarker = await create('CPU');
+    } catch (cpuErr) {
+      console.warn('[faceTracking] CPU delegate failed, trying GPU', cpuErr);
+      faceLandmarker = await create('GPU');
     }
     return faceLandmarker;
   })();

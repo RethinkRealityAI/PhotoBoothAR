@@ -135,10 +135,14 @@ export function updateHeadPose(
   mirror: boolean,
 ): boolean {
   const fl = getFaceLandmarker();
-  if (!fl || !video || video.readyState < 2) return false;
-
   const now = performance.now();
-  detectIfDue(fl, video, now);
+
+  // Only run detection on a ready frame, but DON'T hard-hide when the frame is
+  // briefly unavailable (e.g. the video stalls for a moment on resume) — the
+  // hold window below decides visibility so the asset doesn't blink.
+  if (fl && video && video.readyState >= 2) {
+    detectIfDue(fl, video, now);
+  }
 
   // Never seen a face, or lost it for longer than the hold window → hide + reset
   // so the next acquisition snaps in cleanly rather than gliding from a stale pose.
