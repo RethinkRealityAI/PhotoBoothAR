@@ -24,6 +24,7 @@ import {
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
 import { GalleryIcon, MediaStackIcon } from './ui/MediaIcons';
+import ShareButton from './ui/ShareButton';
 
 // Booth sub-components
 import { useCameraStream } from './booth/useCameraStream';
@@ -41,6 +42,7 @@ import ChallengeSelector from './booth/ChallengeSelector';
 
 // Foundation APIs
 import { useStore } from '../store';
+import { activeEvent } from '../events/active';
 import { buildCatalog } from '../lib/catalog';
 import { initializeFaceLandmarker } from '../lib/faceTracking';
 import { submitPost } from '../lib/db';
@@ -184,7 +186,7 @@ export default function Booth() {
     if (appliedDefaultRef.current) return;
     if (routeExperienceId) { appliedDefaultRef.current = true; return; }
     if (!experiencesLoaded) return;
-    const id = wallSettings.defaultExperienceId;
+    const id = wallSettings.defaultExperienceId ?? activeEvent.defaultExperienceId;
     if (!id) return;
     const exp = catalog.find((e) => e.id === id);
     if (!exp) return;
@@ -425,7 +427,7 @@ export default function Booth() {
           {phase === 'camera' && ready && (
             <div className="relative z-20 flex items-center justify-between gap-2 px-4 pt-safe-top pt-3 pb-2 shrink-0">
               <Emblem size={34} className="shrink-0 drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.35)]" />
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
                 {wallSettings.showChallenges && (
                   <ChallengeSelector selectedChallenge={selectedChallenge} onSelect={setSelectedChallenge} />
                 )}
@@ -436,21 +438,29 @@ export default function Booth() {
                   </div>
                 ) : (
                   <>
-                    <a href="/wall" title="Live Photo Wall" aria-label="Live Photo Wall" className="w-9 h-9 glass rounded-full flex items-center justify-center text-champagne/60 hover:text-gold-300 transition-colors active:scale-90">
-                      <GalleryIcon size={16} />
+                    <a href="/wall" title="Live Photo Wall" aria-label="Live Photo Wall" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
+                      <GalleryIcon size={15} />
+                      <span className="font-label text-[9px] uppercase tracking-wide">Wall</span>
                     </a>
-                    <a href="/me" title="My Media" aria-label="My Media" className="w-9 h-9 glass rounded-full flex items-center justify-center text-champagne/60 hover:text-gold-300 transition-colors active:scale-90">
-                      <MediaStackIcon size={16} />
+                    <a href="/me" title="My Media" aria-label="My Media" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
+                      <MediaStackIcon size={15} />
+                      <span className="font-label text-[9px] uppercase tracking-wide">Photos</span>
                     </a>
+                    <ShareButton
+                      label="Share"
+                      iconSize={15}
+                      className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95 font-label text-[9px] uppercase tracking-wide"
+                    />
                   </>
                 )}
                 <button
                   onClick={() => setUiHidden((h) => !h)}
                   title={uiHidden ? 'Show controls' : 'Hide controls — see the full frame'}
-                  className="w-9 h-9 glass rounded-full flex items-center justify-center text-champagne/60 hover:text-ivory border border-transparent hover:border-gold-400/30 transition-all active:scale-90"
+                  className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/60 hover:text-ivory border border-transparent hover:border-gold-400/30 transition-all active:scale-95"
                   aria-label="Toggle controls"
                 >
                   {uiHidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  <span className="font-label text-[9px] uppercase tracking-wide">{uiHidden ? 'Show' : 'Hide'}</span>
                 </button>
               </div>
             </div>
