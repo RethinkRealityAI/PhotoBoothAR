@@ -20,11 +20,13 @@
  */
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import { QrCode, Camera } from 'lucide-react';
 import { useStore } from '../store';
-import { subscribeToPosts, subscribeToSettings } from '../lib/db';
+import { subscribeToPosts, subscribeToSettings, setWallSettings as dbSetWallSettings } from '../lib/db';
 import { Post } from '../types';
 import EventBackground from './ui/EventBackground';
 import { Wordmark } from './ui/EventLogo';
+import ShareButton from './ui/ShareButton';
 import BeamIn from './wall/BeamIn';
 import MosaicGrid from './wall/MosaicGrid';
 import MarqueeGrid from './wall/MarqueeGrid';
@@ -48,8 +50,8 @@ export default function Wall() {
     setWallSettings,
   } = useStore();
 
-  // View state
-  const [mode, setMode] = useState<ViewMode>('mosaic');
+  // View state — default to Slideshow (one photo at a time, no duplicates).
+  const [mode, setMode] = useState<ViewMode>('slideshow');
   const [projectionMode, setProjectionMode] = useState(false);
   const [slideshowIndex, setSlideshowIndex] = useState(0);
 
@@ -178,6 +180,13 @@ export default function Wall() {
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
+  // Toggle the QR codes from the wall itself (persists + live-syncs to all screens).
+  const toggleQR = useCallback(() => {
+    const next = !wallSettings.showQR;
+    setWallSettings({ ...wallSettings, showQR: next }); // optimistic
+    dbSetWallSettings({ showQR: next }).catch(() => {});
+  }, [wallSettings, setWallSettings]);
+
   // Available mode tabs (leaderboard gated by setting)
   const modeTabs: { id: ViewMode; label: string }[] = [
     { id: 'mosaic', label: 'Gallery' },
@@ -288,6 +297,33 @@ export default function Wall() {
                   </button>
                 ))}
               </div>
+
+              {/* Open the booth */}
+              <a
+                href="/booth"
+                className="glass flex items-center gap-1.5 px-4 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:glow-accent transition-all"
+                style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
+                title="Open the photo booth"
+              >
+                <Camera className="w-3.5 h-3.5" /> Booth
+              </a>
+
+              {/* Share the booth link */}
+              <ShareButton
+                label="Share"
+                iconSize={14}
+                className="glass flex items-center gap-1.5 px-4 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:glow-accent transition-all"
+              />
+
+              {/* QR codes on/off */}
+              <button
+                onClick={toggleQR}
+                className={`glass flex items-center gap-1.5 px-4 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] transition-all ${wallSettings.showQR ? 'text-gold-200' : 'text-champagne/50'}`}
+                style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
+                title={wallSettings.showQR ? 'Hide QR codes' : 'Show QR codes'}
+              >
+                <QrCode className="w-3.5 h-3.5" /> {wallSettings.showQR ? 'QR On' : 'QR Off'}
+              </button>
 
               {/* Projection mode toggle */}
               <button

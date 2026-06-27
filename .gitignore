@@ -9,3 +9,6 @@ coverage/
 
 # Local Netlify folder
 .netlify
+
+# MediaPipe wasm copied from node_modules at build (kept in lockstep with the JS)
+public/mediapipe/

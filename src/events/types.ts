@@ -61,4 +61,7 @@ export interface EventConfig {
   /** Event palette as hex strings — for canvas/JS color needs (confetti, the
    *  captured-photo watermark) that can't read CSS variables. Brightest first. */
   accentHexes: string[];
+  /** Catalog id auto-applied when the booth opens if the admin hasn't set one
+   *  (e.g. a signature frame). Admin's wallSettings.defaultExperienceId wins. */
+  defaultExperienceId?: string;
 }

@@ -22,4 +22,6 @@ export const detolaWuyi: EventConfig = {
   landingRoute: '/booth',
   accentHexes: ['#D4AF37', '#E8C766', '#FBF3D9', '#1E4A34'],
   arContent: detolaWuyiAR,
+  // Open the booth with the signature gold "Detola & Wuyi" frame already applied.
+  defaultExperienceId: 'builtin:border:dw-frame-monogram',
 };

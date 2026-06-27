@@ -46,6 +46,7 @@ import {
 } from 'lucide-react';
 import EventBackground from '../ui/EventBackground';
 import { FILTER_SHADERS, SHADER_MAP, defaultParams, ShaderRunner } from '../../lib/shaders';
+import { getCameraStream, stopStream } from '../../lib/camera';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { getExperience, createExperience, updateExperience, uploadAsset } from '../../lib/db';
 import type { ExperienceKind, Transform2D, ExperienceConfig } from '../../types';
@@ -433,20 +434,36 @@ export default function Creator2D() {
   /* ---- Camera init ---- */
   useEffect(() => {
     let active = true;
-    navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: 'user', width: 1280, height: 720 }, audio: false })
+
+    // Create the shader runner independently of the camera. (It was previously
+    // created inside the getUserMedia promise, so a WebGL failure landed in
+    // .catch and showed a bogus "Camera unavailable" error.)
+    try {
+      runnerRef.current = new ShaderRunner(1080, 1920);
+    } catch (e) {
+      console.warn('[Creator2D] shader runner init failed', e);
+    }
+
+    getCameraStream({ facingMode: 'user' })
       .then((stream) => {
-        if (!active) { stream.getTracks().forEach((t) => t.stop()); return; }
+        if (!active) { stopStream(stream); return; }
         streamRef.current = stream;
-        if (videoRef.current) videoRef.current.srcObject = stream;
-        runnerRef.current = new ShaderRunner(1080, 1920);
+        const v = videoRef.current;
+        if (v) {
+          v.srcObject = stream;
+          // Explicit play() — autoplay alone is unreliable when srcObject is set
+          // after the element mounts (the live preview would stay blank).
+          v.onloadedmetadata = () => v.play().catch(() => {});
+          v.play().catch(() => {});
+        }
       })
       .catch((err) => {
-        if (active) setCamError(`Camera unavailable: ${err.message}`);
+        if (active) setCamError(`Camera unavailable: ${(err as Error)?.message ?? err}`);
       });
+
     return () => {
       active = false;
-      streamRef.current?.getTracks().forEach((t) => t.stop());
+      stopStream(streamRef.current);
       cancelAnimationFrame(rafRef.current);
       runnerRef.current?.dispose();
     };

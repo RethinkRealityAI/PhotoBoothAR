@@ -36,21 +36,36 @@ export default function ReviewPanel({
   const nameRequired = !!selectedChallenge;
   const nameMissing = nameRequired && guestName.trim().length < 2;
 
-  const ext = mediaType === 'video' ? 'webm' : 'jpg';
-  const filename = `${activeEvent.copy.filePrefix}-${Date.now()}.${ext}`;
+  // Resolve the real container from the blob so the saved file's extension
+  // matches its bytes (recordings may be .webm or .mp4 depending on the browser;
+  // a hardcoded extension produces files players treat as corrupt).
+  const extFromMime = (type: string): string => {
+    if (/mp4/.test(type)) return 'mp4';
+    if (/webm/.test(type)) return 'webm';
+    if (/png/.test(type)) return 'png';
+    return mediaType === 'video' ? 'webm' : 'jpg';
+  };
 
-  function handleDownload() {
+  async function resolveFile(): Promise<{ blob: Blob; filename: string }> {
+    const blob = await (await fetch(dataUrl)).blob();
+    const ext = mediaType === 'video' ? extFromMime(blob.type) : 'jpg';
+    return { blob, filename: `${activeEvent.copy.filePrefix}-${Date.now()}.${ext}` };
+  }
+
+  async function handleDownload() {
+    const { blob, filename } = await resolveFile();
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = dataUrl;
+    a.href = url;
     a.download = filename;
     a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
   }
 
   async function handleShare() {
     if (!navigator.share) { handleDownload(); return; }
     try {
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
+      const { blob, filename } = await resolveFile();
       const file = new File([blob], filename, { type: blob.type });
       await navigator.share({ files: [file], title: copy.shareTitle });
     } catch { /* cancelled */ }
@@ -60,8 +75,9 @@ export default function ReviewPanel({
 
   return (
     <div className="absolute inset-0 z-40 flex flex-col items-center justify-end bg-noir-900/90 backdrop-blur-sm">
-      {/* Preview */}
-      <div className="flex-1 w-full relative flex items-center justify-center p-4 pt-8">
+      {/* Preview — min-h-0 lets the tall 9:16 capture shrink to fit the space
+          left above the controls instead of overflowing off the top. */}
+      <div className="flex-1 min-h-0 w-full relative flex items-center justify-center px-4 py-3">
         {mediaType === 'video' ? (
           <video
             src={dataUrl}
