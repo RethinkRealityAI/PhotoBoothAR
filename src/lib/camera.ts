@@ -33,34 +33,49 @@ export async function getCameraStream(opts: CameraOptions = {}): Promise<MediaSt
     ? [undefined as unknown as MediaTrackConstraints['facingMode']]
     : [{ exact: facingMode }, { ideal: facingMode }];
 
+  // Acquire VIDEO on its own (audio:false). Bundling audio into this request
+  // means a mic permission/hardware hiccup throws away the whole stream and the
+  // recording silently ends up without sound; keeping them separate makes the
+  // video robust and lets us add audio independently below.
+  let stream: MediaStream | null = null;
   let lastErr: unknown;
-  for (const facing of facingVariants) {
+  outer: for (const facing of facingVariants) {
     for (const tier of tiers) {
       const video: MediaTrackConstraints = deviceId
         ? { deviceId: { exact: deviceId }, ...tier }
         : { facingMode: facing, ...tier };
       try {
-        return await navigator.mediaDevices.getUserMedia({ video, audio: withAudio });
+        stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+        break outer;
       } catch (e) {
         lastErr = e;
-        // If audio is the blocker, retry this tier without audio before stepping down.
-        if (withAudio) {
-          try {
-            return await navigator.mediaDevices.getUserMedia({ video, audio: false });
-          } catch (e2) {
-            lastErr = e2;
-          }
-        }
       }
     }
   }
   // Last resort — let the browser pick anything.
-  try {
-    return await navigator.mediaDevices.getUserMedia({ video: true, audio: withAudio });
-  } catch (e) {
-    lastErr = e;
+  if (!stream) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    } catch (e) {
+      throw e ?? lastErr;
+    }
   }
-  throw lastErr;
+
+  // Add a microphone track when requested. Failure here is non-fatal — the guest
+  // simply records without sound rather than losing the camera entirely.
+  if (withAudio) {
+    try {
+      const mic = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      const track = mic.getAudioTracks()[0];
+      if (track) stream.addTrack(track);
+    } catch (e) {
+      console.warn('[camera] microphone unavailable — recording without audio', e);
+    }
+  }
+
+  return stream;
 }
 
 export async function listVideoInputs(): Promise<MediaDeviceInfo[]> {

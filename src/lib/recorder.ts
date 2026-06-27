@@ -7,15 +7,23 @@
  * optional audio track) to a single Blob, with a hard max-duration cap.
  */
 
-/** Pick the best-supported recording container/codec for this browser. */
+/**
+ * Pick the best-supported recording container/codec for this browser.
+ *
+ * WebM is preferred over MP4: with timeslice recording the Blob is assembled by
+ * concatenating chunks, which is valid for WebM but produces a corrupt file for
+ * fragmented MP4 in several browsers (a cause of "videos won't play"). Every
+ * preferred option also pairs Opus audio so recordings keep sound. MP4/H.264 is
+ * kept last as the Safari fallback (Safari's MediaRecorder only emits MP4).
+ */
 export function pickVideoMimeType(): string {
   const candidates = [
-    'video/mp4;codecs=h264,aac',
-    'video/mp4',
     'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp8,opus',
-    'video/webm;codecs=vp9',
+    'video/webm;codecs=h264,opus',
     'video/webm',
+    'video/mp4;codecs=h264,aac', // Safari
+    'video/mp4',
   ];
   if (typeof MediaRecorder === 'undefined') return '';
   for (const t of candidates) {
@@ -98,6 +106,8 @@ export class StreamRecorder {
         resolve(new Blob(this.chunks, { type: this.blobType() }));
       };
       try {
+        // Flush any buffered media so very short clips still produce a valid file.
+        if (this.rec.state === 'recording') this.rec.requestData();
         this.rec.stop();
       } catch {
         this.cleanupTimers();

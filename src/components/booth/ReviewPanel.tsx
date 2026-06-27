@@ -36,21 +36,36 @@ export default function ReviewPanel({
   const nameRequired = !!selectedChallenge;
   const nameMissing = nameRequired && guestName.trim().length < 2;
 
-  const ext = mediaType === 'video' ? 'webm' : 'jpg';
-  const filename = `${activeEvent.copy.filePrefix}-${Date.now()}.${ext}`;
+  // Resolve the real container from the blob so the saved file's extension
+  // matches its bytes (recordings may be .webm or .mp4 depending on the browser;
+  // a hardcoded extension produces files players treat as corrupt).
+  const extFromMime = (type: string): string => {
+    if (/mp4/.test(type)) return 'mp4';
+    if (/webm/.test(type)) return 'webm';
+    if (/png/.test(type)) return 'png';
+    return mediaType === 'video' ? 'webm' : 'jpg';
+  };
 
-  function handleDownload() {
+  async function resolveFile(): Promise<{ blob: Blob; filename: string }> {
+    const blob = await (await fetch(dataUrl)).blob();
+    const ext = mediaType === 'video' ? extFromMime(blob.type) : 'jpg';
+    return { blob, filename: `${activeEvent.copy.filePrefix}-${Date.now()}.${ext}` };
+  }
+
+  async function handleDownload() {
+    const { blob, filename } = await resolveFile();
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = dataUrl;
+    a.href = url;
     a.download = filename;
     a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
   }
 
   async function handleShare() {
     if (!navigator.share) { handleDownload(); return; }
     try {
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
+      const { blob, filename } = await resolveFile();
       const file = new File([blob], filename, { type: blob.type });
       await navigator.share({ files: [file], title: copy.shareTitle });
     } catch { /* cancelled */ }
