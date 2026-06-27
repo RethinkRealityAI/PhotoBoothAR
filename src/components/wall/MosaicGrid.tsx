@@ -16,6 +16,8 @@ interface Props {
   posts: Post[];
   /** IDs that just beam-in and should get a special glow ring briefly */
   freshIds?: Set<string>;
+  /** Tap a card to open it (download/share). */
+  onSelect?: (post: Post) => void;
 }
 
 /** Small play-glyph badge shown on video thumbnails */
@@ -38,14 +40,15 @@ function PlayBadge() {
   );
 }
 
-function PostCard({ post, isFresh }: { post: Post; isFresh: boolean }) {
+function PostCard({ post, isFresh, onSelect }: { post: Post; isFresh: boolean; onSelect?: (p: Post) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const isVideo = post.media_type === 'video';
   const ar = post.width && post.height ? `${post.width}/${post.height}` : '9/16';
 
   return (
     <div
-      className="relative overflow-hidden rounded-xl"
+      className={`relative overflow-hidden rounded-xl ${onSelect ? 'cursor-pointer' : ''}`}
+      onClick={onSelect ? () => onSelect(post) : undefined}
       style={{
         boxShadow: isFresh
           ? '0 0 0 2px #D4AF37, 0 0 32px 8px rgba(var(--accent-rgb),0.33)'
@@ -103,7 +106,7 @@ function PostCard({ post, isFresh }: { post: Post; isFresh: boolean }) {
   );
 }
 
-export default function MosaicGrid({ posts, freshIds }: Props) {
+export default function MosaicGrid({ posts, freshIds, onSelect }: Props) {
   if (posts.length === 0) {
     return (
       <div className="absolute inset-0 flex items-center justify-center">
@@ -148,7 +151,7 @@ export default function MosaicGrid({ posts, freshIds }: Props) {
               ease: [0.22, 1, 0.36, 1],
             }}
           >
-            <PostCard post={post} isFresh={isFresh} />
+            <PostCard post={post} isFresh={isFresh} onSelect={onSelect} />
           </motion.div>
         );
       })}

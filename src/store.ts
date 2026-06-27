@@ -100,7 +100,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({ challenges, challengesLoaded: true });
   },
 
-  wallSettings: { showQR: true, showLeaderboard: true, showChallenges: true, galleryScroll: true, galleryScrollSpeed: 1, slideshowInterval: 6, defaultExperienceId: null },
+  wallSettings: { showQR: false, showLeaderboard: true, showChallenges: true, galleryScroll: false, galleryScrollSpeed: 1, slideshowInterval: 6, defaultExperienceId: null },
   fetchWallSettings: async () => {
     const wallSettings = await db.getWallSettings();
     set({ wallSettings });
