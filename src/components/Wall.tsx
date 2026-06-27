@@ -34,6 +34,7 @@ import SlideshowView from './wall/SlideshowView';
 import LeaderboardView from './wall/LeaderboardView';
 import WallQRCodes from './wall/WallQRCodes';
 import ChallengesTicker from './wall/ChallengesTicker';
+import WallLightbox from './wall/WallLightbox';
 
 type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard';
 
@@ -50,9 +51,10 @@ export default function Wall() {
     setWallSettings,
   } = useStore();
 
-  // View state — default to Slideshow (one photo at a time, no duplicates).
-  const [mode, setMode] = useState<ViewMode>('slideshow');
+  // View state — default to Gallery (static masonry grid: clickable, no duplicates).
+  const [mode, setMode] = useState<ViewMode>('mosaic');
   const [projectionMode, setProjectionMode] = useState(false);
+  const [lightboxPost, setLightboxPost] = useState<Post | null>(null);
   const [slideshowIndex, setSlideshowIndex] = useState(0);
 
   // Controls auto-hide (projection mode hides the toggle bar after 4 s idle)
@@ -214,9 +216,10 @@ export default function Wall() {
             <MarqueeGrid
               posts={posts}
               scrollSpeed={wallSettings.galleryScrollSpeed ?? 1}
+              onSelect={setLightboxPost}
             />
           ) : (
-            <MosaicGrid posts={posts} freshIds={freshIds} />
+            <MosaicGrid posts={posts} freshIds={freshIds} onSelect={setLightboxPost} />
           )}
         </div>
       )}
@@ -255,54 +258,47 @@ export default function Wall() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.35 }}
-            className="relative z-30 flex items-center justify-between px-6 py-3 shrink-0"
+            className="relative z-30 flex items-center justify-between gap-4 px-6 py-3 shrink-0"
             style={{
               background:
                 'linear-gradient(to bottom, rgba(10,7,3,0.88) 0%, rgba(10,7,3,0) 100%)',
             }}
           >
-            {/* Left: wordmark */}
-            <div className="flex items-center gap-4">
+            {/* Left: wordmark + inline counter */}
+            <div className="flex items-center gap-4 flex-1 min-w-0">
               <Wordmark size="sm" />
-            </div>
-
-            {/* Centre: photo counter */}
-            <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center">
-              <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/50">
-                Moments shared
-              </span>
-              <span className="font-serif italic text-3xl text-foil-static leading-tight">
-                {posts.length}
-              </span>
-            </div>
-
-            {/* Right: view controls */}
-            <div className="flex items-center gap-3">
-              {/* Mode tabs */}
-              <div
-                className="glass flex rounded-xl overflow-hidden"
-                style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
-              >
-                {modeTabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setMode(tab.id)}
-                    className={`px-4 py-2 font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
-                      mode === tab.id
-                        ? 'bg-foil text-noir-900 glow-accent'
-                        : 'text-champagne/60 hover:text-champagne'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+              <div className="hidden sm:flex items-baseline gap-1.5 shrink-0">
+                <span className="font-serif italic text-2xl text-foil-static leading-none">{posts.length}</span>
+                <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/45">moments</span>
               </div>
+            </div>
 
-              {/* Open the booth */}
+            {/* Centre: mode tabs (truly centred, never overlapped) */}
+            <div
+              className="glass flex rounded-xl overflow-hidden shrink-0"
+              style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
+            >
+              {modeTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setMode(tab.id)}
+                  className={`px-4 py-2 font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
+                    mode === tab.id
+                      ? 'bg-foil text-noir-900 glow-accent'
+                      : 'text-champagne/60 hover:text-champagne'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Right: actions */}
+            <div className="flex-1 flex items-center justify-end gap-2">
+              {/* Open the booth — primary, high-contrast so it's clearly the way in */}
               <a
                 href="/booth"
-                className="glass flex items-center gap-1.5 px-4 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:glow-accent transition-all"
-                style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-foil text-noir-900 glow-accent font-label uppercase tracking-luxe text-[10px] hover:brightness-110 transition-all active:scale-95"
                 title="Open the photo booth"
               >
                 <Camera className="w-3.5 h-3.5" /> Booth
@@ -312,23 +308,23 @@ export default function Wall() {
               <ShareButton
                 label="Share"
                 iconSize={14}
-                className="glass flex items-center gap-1.5 px-4 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:glow-accent transition-all"
+                className="glass flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
               />
 
               {/* QR codes on/off */}
               <button
                 onClick={toggleQR}
-                className={`glass flex items-center gap-1.5 px-4 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] transition-all ${wallSettings.showQR ? 'text-gold-200' : 'text-champagne/50'}`}
+                className={`glass flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] transition-all ${wallSettings.showQR ? 'text-gold-200' : 'text-champagne/55 hover:text-champagne'}`}
                 style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
                 title={wallSettings.showQR ? 'Hide QR codes' : 'Show QR codes'}
               >
-                <QrCode className="w-3.5 h-3.5" /> {wallSettings.showQR ? 'QR On' : 'QR Off'}
+                <QrCode className="w-3.5 h-3.5" /> QR {wallSettings.showQR ? 'On' : 'Off'}
               </button>
 
               {/* Projection mode toggle */}
               <button
                 onClick={() => setProjectionMode((p) => !p)}
-                className="glass px-4 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:glow-accent transition-all"
+                className="glass px-3.5 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
                 style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
                 title="Projection mode (hides all chrome)"
               >
@@ -417,6 +413,13 @@ export default function Wall() {
             guestName={activeBeam.guestName}
             onDone={dismissBeam}
           />
+        )}
+      </AnimatePresence>
+
+      {/* ── Tap-a-photo lightbox: view + download/share from the wall ── */}
+      <AnimatePresence>
+        {lightboxPost && (
+          <WallLightbox key={lightboxPost.id} post={lightboxPost} onClose={() => setLightboxPost(null)} />
         )}
       </AnimatePresence>
     </div>

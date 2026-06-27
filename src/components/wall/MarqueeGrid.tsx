@@ -78,6 +78,7 @@ function buildLoopItems(items: Post[], minWidth: number): { items: Post[]; halfL
 
 interface CardProps {
   post: Post;
+  onSelect?: (post: Post) => void;
 }
 
 function PlayBadge() {
@@ -99,12 +100,13 @@ function PlayBadge() {
   );
 }
 
-function PostCard({ post }: CardProps) {
+function PostCard({ post, onSelect }: CardProps) {
   const isVideo = post.media_type === 'video';
 
   return (
     <div
-      className="relative overflow-hidden rounded-xl shrink-0"
+      className={`relative overflow-hidden rounded-xl shrink-0 ${onSelect ? 'cursor-pointer' : ''}`}
+      onClick={onSelect ? () => onSelect(post) : undefined}
       style={{
         width: CARD_W,
         height: CARD_H,
@@ -175,9 +177,10 @@ interface RowProps {
   direction: 1 | -1;
   /** px per second scroll rate (already multiplied by speed factor). */
   pxPerSec: number;
+  onSelect?: (post: Post) => void;
 }
 
-function MarqueeRow({ items, halfLen, direction, pxPerSec }: RowProps) {
+function MarqueeRow({ items, halfLen, direction, pxPerSec, onSelect }: RowProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   // We store offset as a plain mutable ref to avoid React re-renders on each frame.
   const offsetRef = useRef(0);
@@ -231,7 +234,7 @@ function MarqueeRow({ items, halfLen, direction, pxPerSec }: RowProps) {
         }}
       >
         {items.map((post, i) => (
-          <PostCard key={`${post.id}-${i}`} post={post} />
+          <PostCard key={`${post.id}-${i}`} post={post} onSelect={onSelect} />
         ))}
       </div>
     </div>
@@ -246,9 +249,10 @@ interface MarqueeGridProps {
   posts: Post[];
   /** Speed multiplier from WallSettings (0.25 slow … 3 fast). */
   scrollSpeed: number;
+  onSelect?: (post: Post) => void;
 }
 
-export default function MarqueeGrid({ posts, scrollSpeed }: MarqueeGridProps) {
+export default function MarqueeGrid({ posts, scrollSpeed, onSelect }: MarqueeGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Compute effective px/s — honour reduced motion with a ~30% cap
@@ -307,6 +311,7 @@ export default function MarqueeGrid({ posts, scrollSpeed }: MarqueeGridProps) {
             halfLen={rd.halfLen}
             direction={direction as 1 | -1}
             pxPerSec={effectivePxPerSec}
+            onSelect={onSelect}
           />
         );
       })}
