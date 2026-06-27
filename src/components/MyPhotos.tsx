@@ -27,6 +27,7 @@ import { getSavedPhotos } from '../lib/session';
 import { fetchMyPosts } from '../lib/db';
 import { SavedPhoto, Post, MediaType } from '../types';
 import { activeEvent } from '../events/active';
+import { useStore } from '../store';
 import EventBackground from './ui/EventBackground';
 import { Wordmark } from './ui/EventLogo';
 import {
@@ -150,8 +151,8 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
     setSharing(true);
     try {
       await navigator.share({
-        title: activeEvent.copy.momentTitle,
-        text: media.message ?? activeEvent.copy.shareText,
+        title: useStore.getState().copy.momentTitle,
+        text: media.message ?? useStore.getState().copy.shareText,
         url: media.image_url,
       });
     } catch {
@@ -278,8 +279,8 @@ function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void })
     if (!canShare) return;
     try {
       await navigator.share({
-        title: activeEvent.copy.momentTitle,
-        text: media.message ?? activeEvent.copy.shareText,
+        title: useStore.getState().copy.momentTitle,
+        text: media.message ?? useStore.getState().copy.shareText,
         url: media.image_url,
       });
     } catch {

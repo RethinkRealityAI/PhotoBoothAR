@@ -10,12 +10,14 @@ import { useState, ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { Mark } from '../ui/EventLogo';
 import EventBackground from '../ui/EventBackground';
-import { Lock, LayoutGrid, Wand2, Boxes, Image as ImageIcon, ShieldCheck, Trophy, Settings, FolderOpen } from 'lucide-react';
+import { Lock, LayoutGrid, Wand2, Boxes, Image as ImageIcon, ShieldCheck, Trophy, Settings, FolderOpen, Palette } from 'lucide-react';
+import { useStore } from '../../store';
 
 const KEY = 'hopegala.admin';
 
 export default function AdminGate({ children }: { children: ReactNode }) {
   const passcode = (import.meta.env.VITE_ADMIN_PASSCODE as string) || 'hopegala2026';
+  const eventName = useStore((s) => s.copy.eventName);
   const [ok, setOk] = useState(() => sessionStorage.getItem(KEY) === '1');
   const [val, setVal] = useState('');
   const [err, setErr] = useState(false);
@@ -41,7 +43,7 @@ export default function AdminGate({ children }: { children: ReactNode }) {
             <Lock className="w-6 h-6 text-noir-900" />
           </div>
           <h1 className="font-serif italic text-3xl mb-1 text-foil-static">Studio Access</h1>
-          <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/50 mb-8">Hope Gala AR Studio</p>
+          <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/50 mb-8">{eventName} · AR Studio</p>
           <input
             type="password"
             autoFocus
@@ -72,6 +74,7 @@ export default function AdminGate({ children }: { children: ReactNode }) {
     { to: '/admin/creator3d', label: '3D Anchors', icon: Boxes, end: false },
     { to: '/admin/moderation', label: 'Wall', icon: ShieldCheck, end: false },
     { to: '/admin/challenges', label: 'Challenges', icon: Trophy, end: false },
+    { to: '/admin/branding', label: 'Branding', icon: Palette, end: false },
     { to: '/admin/settings', label: 'Settings', icon: Settings, end: false },
   ];
 

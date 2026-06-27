@@ -9,8 +9,8 @@ import { X, ChevronRight } from 'lucide-react';
 import { Art } from './OnboardingArt';
 import { activeEvent } from '../../events/active';
 import { Emblem } from '../ui/EventLogo';
+import { useStore } from '../../store';
 
-const STEPS = activeEvent.copy.onboardingSteps;
 const ONBOARDED_KEY = `${activeEvent.id}.onboarded`;
 
 export function useOnboarding(): { showOnboarding: boolean; dismiss: () => void } {
@@ -30,10 +30,12 @@ interface Props {
 }
 
 export default function Onboarding({ onDismiss }: Props) {
+  const copy = useStore((s) => s.copy);
+  const STEPS = copy.onboardingSteps;
   const [step, setStep] = useState(0);
   const isLast = step === STEPS.length - 1;
-  const current = STEPS[step];
-  const StepArt = Art[step];
+  const current = STEPS[Math.min(step, STEPS.length - 1)];
+  const StepArt = Art[Math.min(step, Art.length - 1)];
 
   function advance() {
     if (isLast) { onDismiss(); return; }
@@ -72,7 +74,7 @@ export default function Onboarding({ onDismiss }: Props) {
         <div className="flex items-center gap-2.5 mb-5 pr-10">
           <Emblem size={34} className="shrink-0" />
           <span className="font-serif italic text-lg text-ivory leading-none">
-            {activeEvent.copy.eventName}
+            {copy.eventName}
           </span>
         </div>
 
@@ -158,7 +160,7 @@ export default function Onboarding({ onDismiss }: Props) {
         <div className="mt-5 flex items-center justify-center gap-2 opacity-40">
           <Emblem size={14} className="shrink-0" />
           <p className="text-center font-label text-[8px] uppercase tracking-luxe text-champagne/60 leading-tight">
-            {activeEvent.copy.fullName}
+            {copy.fullName}
           </p>
         </div>
       </motion.div>

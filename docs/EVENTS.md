@@ -15,7 +15,10 @@ Push to `main` → every event's Netlify site rebuilds with the change. No forki
   `:root[data-event='<slug>'] { --color-brand-bg: …; --color-accent: …; … }`.
   To recolor the bulk of the UI, also override the underlying scale tokens this
   event reuses (`--color-gold-*`, `--color-champagne`, `--color-noir-*`, etc.).
-- `Logo.tsx` — the event's `Wordmark({size})` and `Mark()` components.
+- `Logo.tsx` — the event's `Wordmark({size})`, `Mark()` and `Emblem()` components.
+  These can be SVG (see `hope-gala`/`jenna-jake`) or render an imported image —
+  e.g. `detola-wuyi` bundles a transparent PNG crest (`dw-crest.png`/`dw-emblem.png`)
+  and renders it in an `<img>`.
 - `Background.tsx` — the event's ambient background (`pointer-events-none`,
   `absolute inset-0`, accepts `{ density?, className? }`).
 - `arContent.ts` (optional) — `EventARContent` listing the built-in shader /
@@ -58,3 +61,21 @@ already-public wall images.
 **To harden a high-stakes event:** point that event's Netlify env at its own
 separate Supabase project. No code changes are needed — backend selection is
 already env-driven.
+
+## 5. Editing identity without a deploy (admin Branding)
+
+Everything in the event's `copy.ts`, its theme colours, and its logo are
+**runtime-overridable** from the studio at `/admin/branding`, stored in
+`app_settings` (key `branding`) per `event_id`:
+
+- **Names & copy** — event name, eyebrow, tagline, full name, thank-you, share
+  text/titles, and the onboarding steps.
+- **Theme colours** — the 7 semantic tokens (accent ×3, background, surface,
+  text, muted); each also drives the underlying gold/noir scale tokens, so a
+  single picker recolours the whole UI.
+- **Logo** — upload a transparent PNG/SVG to replace the coded lockup everywhere.
+
+The coded `EventConfig` is always the default; overrides merge on top
+(`src/lib/branding.ts`) and apply live (`store.applyBranding`, realtime-synced).
+So the `config.ts`/`copy.ts`/`theme.css` you ship is the *starting point* — the
+organiser can fine-tune it on the night without a redeploy.

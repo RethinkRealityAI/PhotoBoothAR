@@ -13,7 +13,6 @@ import {
   Megaphone, Save, Plus, Trash2, Wand2,
 } from 'lucide-react';
 import EventBackground from '../ui/EventBackground';
-import { activeEvent } from '../../events/active';
 import {
   getWallSettings, setWallSettings as dbSetWallSettings, subscribeToSettings,
   getLandingContent, setLandingContent, DEFAULT_LANDING,
@@ -21,6 +20,7 @@ import {
 import { buildCatalog } from '../../lib/catalog';
 import { useStore } from '../../store';
 import type { WallSettings, LandingContent } from '../../types';
+import { inputCls, TextField, TextArea } from './fields';
 
 /* ------------------------------------------------------------------ */
 /* Gala-styled toggle row                                               */
@@ -117,31 +117,6 @@ function SliderRow({ icon, label, helper, value, min, max, step, displayValue, o
 }
 
 /* ------------------------------------------------------------------ */
-/* Text inputs (landing editor)                                          */
-/* ------------------------------------------------------------------ */
-
-const inputCls =
-  'w-full bg-noir-800/70 border border-gold-700/25 rounded-lg px-3 py-2 font-sans text-sm text-ivory/90 placeholder-champagne/25 outline-none focus:border-gold-400/55 transition-colors';
-
-function TextField({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <label className="block">
-      <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/45 block mb-1">{label}</span>
-      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className={inputCls} />
-    </label>
-  );
-}
-
-function TextArea({ label, value, onChange, placeholder, rows = 3 }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; rows?: number }) {
-  return (
-    <label className="block">
-      <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/45 block mb-1">{label}</span>
-      <textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={rows} className={`${inputCls} resize-none`} />
-    </label>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /* Copy button                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -195,6 +170,7 @@ export default function Settings() {
   const fetchExperiences = useStore((s) => s.fetchExperiences);
   const presetOverrides = useStore((s) => s.presetOverrides);
   const fetchPresetOverrides = useStore((s) => s.fetchPresetOverrides);
+  const copy = useStore((s) => s.copy);
 
   useEffect(() => { fetchExperiences(true); fetchPresetOverrides(); }, [fetchExperiences, fetchPresetOverrides]);
 
@@ -548,16 +524,16 @@ export default function Settings() {
           <div className="space-y-2 font-sans text-sm text-champagne/70">
             <div className="flex items-center gap-3">
               <Sparkles className="w-4 h-4 text-gold-400 shrink-0" />
-              <span><strong className="text-ivory">{activeEvent.copy.fullName}</strong></span>
+              <span><strong className="text-ivory">{copy.fullName}</strong></span>
             </div>
             <div className="flex items-center gap-3">
-              <Globe className="w-4 h-4 text-gold-400 shrink-0" />
-              <span>Saturday, June 13, 2026</span>
+              <Megaphone className="w-4 h-4 text-gold-400 shrink-0" />
+              <span>{copy.eyebrow}</span>
             </div>
-            <div className="flex items-center gap-3">
-              <Globe className="w-4 h-4 text-gold-400 shrink-0" />
-              <span>Renaissance by the Creek, Mississauga</span>
-            </div>
+            <p className="font-sans text-[11px] text-champagne/40 pt-1">
+              Edit the event name, onboarding and theme on the{' '}
+              <a href="/admin/branding" className="text-gold-300 hover:text-gold-200 underline">Branding</a> page.
+            </p>
           </div>
         </section>
 

@@ -5,8 +5,19 @@
  * Global app state (zustand) backed by the Supabase data layer.
  */
 import { create } from 'zustand';
-import { Experience, Post, Challenge, WallSettings, LeaderboardEntry, PresetOverrides } from './types';
+import { Experience, Post, Challenge, WallSettings, LeaderboardEntry, PresetOverrides, BrandingOverrides } from './types';
 import * as db from './lib/db';
+import { activeEvent } from './events/active';
+import type { EventCopy } from './events/types';
+import { mergeCopy, brandingCssVars } from './lib/branding';
+
+/** Apply theme-color overrides to :root (no-op outside the browser). */
+function applyBrandingVars(b: BrandingOverrides) {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  const vars = brandingCssVars(b);
+  for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+}
 
 interface AppState {
   // Experiences
@@ -44,6 +55,14 @@ interface AppState {
   presetOverrides: PresetOverrides;
   fetchPresetOverrides: () => Promise<void>;
   setPresetOverrides: (o: PresetOverrides) => void;
+
+  // Branding (admin-editable event identity: copy, onboarding, colors, logo)
+  copy: EventCopy;
+  logoUrl: string | null;
+  branding: BrandingOverrides;
+  brandingLoaded: boolean;
+  fetchBranding: () => Promise<void>;
+  applyBranding: (b: BrandingOverrides) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -97,4 +116,26 @@ export const useStore = create<AppState>((set, get) => ({
     set({ presetOverrides });
   },
   setPresetOverrides: (presetOverrides) => set({ presetOverrides }),
+
+  // Branding — initialised from the coded event config, overridable from admin.
+  copy: activeEvent.copy,
+  logoUrl: null,
+  branding: {},
+  brandingLoaded: false,
+  applyBranding: (branding) => {
+    applyBrandingVars(branding);
+    if (typeof document !== 'undefined' && branding.fullName?.trim()) {
+      document.title = `${branding.fullName} · Photo Booth`;
+    }
+    set({
+      branding,
+      copy: mergeCopy(activeEvent.copy, branding),
+      logoUrl: branding.logoUrl ?? null,
+    });
+  },
+  fetchBranding: async () => {
+    const branding = await db.getBranding();
+    get().applyBranding(branding);
+    set({ brandingLoaded: true });
+  },
 }));

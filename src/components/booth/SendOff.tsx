@@ -22,6 +22,7 @@ import { LayoutGrid, Film } from 'lucide-react';
 import { ShaderRunner, defaultParams } from '../../lib/shaders';
 import { Emblem } from '../ui/EventLogo';
 import { activeEvent } from '../../events/active';
+import { useStore } from '../../store';
 
 interface Props {
   dataUrl: string;
@@ -155,6 +156,7 @@ function GoldMotes({ play }: { play: boolean }) {
 }
 
 export default function SendOff({ dataUrl, mediaType = 'image', uploading, success, onTakeAnother }: Props) {
+  const copy = useStore((s) => s.copy);
   const dissolveCanvasRef = useRef<HTMLCanvasElement>(null);
   const dissolveRunnerRef = useRef<ShaderRunner | null>(null);
   const rafRef = useRef<number>(0);
@@ -401,7 +403,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
                 className="mx-auto max-w-xs font-sans text-sm leading-relaxed text-champagne/70"
               >
                 Your {isVideo ? 'video' : 'photo'} is on its way to the live wall.
-                {activeEvent.copy.thankYou}
+                {copy.thankYou}
               </motion.p>
             </div>
 
@@ -440,8 +442,8 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
               transition={{ delay: 0.9, duration: 0.6 }}
               className="flex flex-col items-center gap-0.5"
             >
-              <p className="font-label text-[10px] uppercase tracking-luxe text-gold-300/60">SCAGO</p>
-              <p className="font-label text-[9px] uppercase tracking-luxe text-champagne/30">{activeEvent.copy.eventName} 2026</p>
+              <p className="font-label text-[10px] uppercase tracking-luxe text-gold-300/60">{copy.eyebrow}</p>
+              <p className="font-label text-[9px] uppercase tracking-luxe text-champagne/30">{copy.eventName}</p>
             </motion.div>
           </motion.div>
         )}

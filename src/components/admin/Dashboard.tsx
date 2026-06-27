@@ -11,11 +11,12 @@ import { QRCodeSVG } from 'qrcode.react';
 import {
   LayoutGrid, Wand2, Boxes, ShieldCheck, Image as ImageIcon,
   ExternalLink, Copy, Check, Printer, RefreshCw,
-  Sparkles, Globe, Trophy, Settings, Video
+  Sparkles, Globe, Trophy, Settings, Video, Palette
 } from 'lucide-react';
 import EventBackground from '../ui/EventBackground';
 import { Wordmark } from '../ui/EventLogo';
 import { fetchExperiences, fetchPosts } from '../../lib/db';
+import { useStore } from '../../store';
 
 interface Stats {
   published: number;
@@ -151,6 +152,7 @@ function ActionCard({ icon, title, description, onClick, accent, external }: Act
 export default function Dashboard() {
   const navigate = useNavigate();
   const { stats, loading, reload } = useStats();
+  const copy = useStore((s) => s.copy);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
   const statItems = [
@@ -174,7 +176,7 @@ export default function Dashboard() {
               AR Photo Booth Studio
             </p>
             <p className="font-sans text-sm text-champagne/55">
-              Saturday, June 13, 2026 · Renaissance by the Creek, Mississauga
+              {copy.fullName}
             </p>
           </div>
         </header>
@@ -250,8 +252,14 @@ export default function Dashboard() {
             <ActionCard
               icon={<Trophy className="w-5 h-5 text-gold-300" />}
               title="Challenges"
-              description="Manage gala engagement challenges guests complete at the booth."
+              description="Manage engagement challenges guests complete at the booth."
               onClick={() => navigate('/admin/challenges')}
+            />
+            <ActionCard
+              icon={<Palette className="w-5 h-5 text-gold-300" />}
+              title="Branding & Identity"
+              description="Edit names, onboarding, theme colours and the logo — no redeploy."
+              onClick={() => navigate('/admin/branding')}
             />
             <ActionCard
               icon={<Settings className="w-5 h-5 text-gold-300" />}

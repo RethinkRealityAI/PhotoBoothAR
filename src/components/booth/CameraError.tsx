@@ -3,7 +3,7 @@
  */
 import { Camera, RefreshCw, AlertTriangle } from 'lucide-react';
 import type { CameraError as CameraErrorType } from './useCameraStream';
-import { activeEvent } from '../../events/active';
+import { useStore } from '../../store';
 
 interface Props {
   error: CameraErrorType;
@@ -11,6 +11,7 @@ interface Props {
 }
 
 export default function CameraErrorScreen({ error, onRetry }: Props) {
+  const copy = useStore((s) => s.copy);
   const isPermission = error === 'NotAllowedError';
   const isNotFound = error === 'NotFoundError';
 
@@ -50,7 +51,7 @@ export default function CameraErrorScreen({ error, onRetry }: Props) {
         </button>
 
         <p className="font-label text-[9px] uppercase tracking-luxe text-champagne/40">
-          {activeEvent.copy.fullName}
+          {copy.fullName}
         </p>
       </div>
     </div>

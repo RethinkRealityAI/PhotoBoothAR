@@ -23,6 +23,7 @@ import { ShaderRunner, defaultParams } from '../../lib/shaders';
 import { drawScagoMark } from '../../lib/scagoMark';
 import { Transform2D } from '../../types';
 import { activeEvent } from '../../events/active';
+import { useStore } from '../../store';
 
 export interface StageCanvasHandle {
   canvas: HTMLCanvasElement | null;
@@ -67,6 +68,7 @@ function coverFit(
 
 /** Event signature watermark: event-coloured emblem (gala only) + event name. */
 function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  const copy = useStore.getState().copy;
   const baseY = h - 58;
   const markSize = Math.round(w * 0.075);
   const hex = activeEvent.accentHexes;
@@ -81,7 +83,7 @@ function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
 
-  const title = activeEvent.copy.eventName;
+  const title = copy.eventName;
   const titleSize = Math.round(w * 0.040);
   const eyebrowSize = Math.round(w * 0.020);
   ctx.font = `italic 600 ${titleSize}px Georgia, "Times New Roman", serif`;
@@ -110,7 +112,7 @@ function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.fillStyle = c1;
   ctx.globalAlpha = 0.9;
   ctx.font = `${eyebrowSize}px Georgia, serif`;
-  drawTracked(ctx, activeEvent.copy.eyebrow, textX + 2, baseY - titleSize * 0.5, eyebrowSize * 0.18);
+  drawTracked(ctx, copy.eyebrow, textX + 2, baseY - titleSize * 0.5, eyebrowSize * 0.18);
 
   const textGrad = ctx.createLinearGradient(textX, 0, textX + titleW, 0);
   textGrad.addColorStop(0, c1);
