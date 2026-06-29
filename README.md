@@ -28,6 +28,8 @@ FaceLandmarker · **Supabase** (Postgres + Storage + Realtime).
 - `/` , `/booth` — guest photo booth (Look + Filter pickers, capture, send-off animation)
 - `/experience/:id` — booth pre-loaded with a specific published experience (QR per filter)
 - `/wall` — projected live wall: **Gallery** (mosaic), **Slideshow**, **Project** (kiosk)
+- `/upload` — passcode-gated guest upload: bulk drag-and-drop photos/videos, wrap images in any
+  frame (pan/zoom crop), add name + message, post to the wall
 - `/me` , `/gallery` — a guest's own photos (persists on their device), download / share
 - `/admin` — studio dashboard (passcode-gated)
   - `/admin/library` — manage & publish experiences, QR codes, duplicate/delete
@@ -49,6 +51,7 @@ npm run dev                  # http://localhost:5180
 VITE_SUPABASE_URL=https://zrtftliozslrjomxbfrr.supabase.co
 VITE_SUPABASE_ANON_KEY=<anon/publishable key>
 VITE_ADMIN_PASSCODE=hopegala2026
+VITE_UPLOAD_PASSCODE=          # passcode for the /upload page (falls back to VITE_ADMIN_PASSCODE)
 VITE_GEMINI_API_KEY=            # optional — enables "AI Generate" in the 2D studio
 ```
 

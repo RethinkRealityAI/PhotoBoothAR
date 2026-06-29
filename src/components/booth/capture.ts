@@ -27,7 +27,7 @@ export interface CaptureInput {
 /**
  * Cover-fit drawImage: fills dest canvas with src maintaining aspect ratio (centered).
  */
-function coverFit(
+export function coverFit(
   ctx: CanvasRenderingContext2D,
   src: CanvasImageSource,
   srcW: number,
@@ -130,7 +130,7 @@ export async function compositeCapture(input: CaptureInput): Promise<string> {
 }
 
 /** Elegant gold "Hope Gala 2026" signature centered near the bottom edge. */
-function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
+export function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
@@ -152,7 +152,7 @@ function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.restore();
 }
 
-function loadImage(url: string): Promise<HTMLImageElement> {
+export function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -169,4 +169,139 @@ export function dataUrlToBlob(dataUrl: string): Blob {
   const arr = new Uint8Array(bytes.length);
   for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
   return new Blob([arr], { type: mime });
+}
+
+/* ------------------------------------------------------------------ */
+/* Static-image upload compositing (guest "Upload to Wall" flow)       */
+/* ------------------------------------------------------------------ */
+
+/** Pan/zoom crop of an uploaded image inside a fixed frame. */
+export interface UploadCrop {
+  zoom: number;     // 1 = cover-fit, >1 zooms in
+  offsetX: number;  // pan, fraction of frame width  (-1..1)
+  offsetY: number;  // pan, fraction of frame height (-1..1)
+  rotation: number; // degrees
+}
+
+export const DEFAULT_CROP: UploadCrop = { zoom: 1, offsetX: 0, offsetY: 0, rotation: 0 };
+
+export interface Rect { x: number; y: number; w: number; h: number; }
+
+/**
+ * Pure crop-rect math (no canvas) so it can be unit-tested. Returns the dest
+ * rectangle to draw the source image into, starting from a cover-fit then
+ * applying zoom (about centre) and a fractional pan. Centred + cover-fit at
+ * zoom=1, offset=0 → exactly fills destW×destH.
+ */
+export function computeCropRect(
+  imgW: number,
+  imgH: number,
+  destW: number,
+  destH: number,
+  zoom = 1,
+  offsetX = 0,
+  offsetY = 0,
+): Rect {
+  const base = Math.max(destW / imgW, destH / imgH); // cover
+  const scale = base * Math.max(zoom, 0.01);
+  const w = imgW * scale;
+  const h = imgH * scale;
+  const x = (destW - w) / 2 + offsetX * destW;
+  const y = (destH - h) / 2 + offsetY * destH;
+  return { x, y, w, h };
+}
+
+/** Frame compositing target — matches booth capture + frame SVG viewBox. */
+export const FRAME_W = 1080;
+export const FRAME_H = 1920;
+
+function canvasToBlob(canvas: HTMLCanvasElement, quality = 0.9): Promise<Blob> {
+  return new Promise((resolve) => {
+    if (canvas.toBlob) {
+      canvas.toBlob(
+        (b) => resolve(b ?? dataUrlToBlob(canvas.toDataURL('image/jpeg', quality))),
+        'image/jpeg',
+        quality,
+      );
+    } else {
+      resolve(dataUrlToBlob(canvas.toDataURL('image/jpeg', quality)));
+    }
+  });
+}
+
+export interface CompositeUploadInput {
+  srcUrl: string;
+  /** Frame overlay (SVG/PNG data or public URL). Null/omitted → no frame. */
+  frameUrl?: string | null;
+  crop?: UploadCrop;
+  /** Bake the gold gala signature (default: only when a frame is applied). */
+  applySignature?: boolean;
+}
+
+export interface CompositeUploadResult {
+  blob: Blob;
+  width: number;
+  height: number;
+}
+
+/**
+ * Composite an uploaded still image for the wall.
+ *  • With a frame → 1080×1920, image cover-fit + pan/zoom crop, frame overlaid,
+ *    gold signature baked in (consistent with booth captures).
+ *  • Without a frame → keep the image's native aspect (longest side capped),
+ *    no crop, no signature (a clean upload).
+ */
+export async function compositeUpload(input: CompositeUploadInput): Promise<CompositeUploadResult> {
+  const img = await loadImage(input.srcUrl);
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+
+  if (input.frameUrl) {
+    const canvas = document.createElement('canvas');
+    canvas.width = FRAME_W;
+    canvas.height = FRAME_H;
+    const ctx = canvas.getContext('2d')!;
+    const crop = input.crop ?? DEFAULT_CROP;
+
+    const r = computeCropRect(iw, ih, FRAME_W, FRAME_H, crop.zoom, crop.offsetX, crop.offsetY);
+    ctx.save();
+    // Rotate about the image's own centre so this matches a CSS `rotate` preview.
+    const cx = r.x + r.w / 2;
+    const cy = r.y + r.h / 2;
+    ctx.translate(cx, cy);
+    if (crop.rotation) ctx.rotate((crop.rotation * Math.PI) / 180);
+    ctx.drawImage(img, -r.w / 2, -r.h / 2, r.w, r.h);
+    ctx.restore();
+
+    try {
+      const frame = await loadImage(input.frameUrl);
+      ctx.drawImage(frame, 0, 0, FRAME_W, FRAME_H);
+    } catch (e) {
+      console.warn('[compositeUpload] frame overlay failed', e);
+    }
+
+    if (input.applySignature !== false) drawSignature(ctx, FRAME_W, FRAME_H);
+
+    const blob = await canvasToBlob(canvas);
+    return { blob, width: FRAME_W, height: FRAME_H };
+  }
+
+  // No frame → preserve aspect ratio, cap the longest side.
+  const MAX = 1600;
+  let w = iw;
+  let h = ih;
+  const longest = Math.max(w, h);
+  if (longest > MAX) {
+    const s = MAX / longest;
+    w = Math.round(w * s);
+    h = Math.round(h * s);
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = w || FRAME_W;
+  canvas.height = h || FRAME_H;
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  if (input.applySignature === true) drawSignature(ctx, canvas.width, canvas.height);
+  const blob = await canvasToBlob(canvas);
+  return { blob, width: canvas.width, height: canvas.height };
 }

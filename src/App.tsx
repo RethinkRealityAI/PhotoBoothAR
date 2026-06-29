@@ -11,6 +11,7 @@ import Booth from './components/Booth';
 import Wall from './components/Wall';
 import MyPhotos from './components/MyPhotos';
 import JoinBooth from './components/JoinBooth';
+import UploadToWall from './components/UploadToWall';
 import AdminGate from './components/admin/AdminGate';
 import Dashboard from './components/admin/Dashboard';
 import Library from './components/admin/Library';
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="/booth" element={<Booth />} />
           <Route path="/experience/:id" element={<Booth />} />
           <Route path="/wall" element={<Wall />} />
+          <Route path="/upload" element={<UploadToWall />} />
           <Route path="/me" element={<MyPhotos />} />
           <Route path="/gallery" element={<MyPhotos />} />
           <Route path="/join" element={<JoinBooth />} />
