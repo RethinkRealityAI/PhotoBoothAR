@@ -56,7 +56,7 @@ function Door({
       transition={
         reduced
           ? { duration: 0.4 }
-          : { duration: 0.95, ease: [0.16, 1, 0.3, 1] }
+          : { duration: 0.95, ease: [0.16, 1, 0.3, 1], delay: opening ? 0.22 : 0 }
       }
       onAnimationComplete={() => {
         if (opening && onOpened) onOpened();

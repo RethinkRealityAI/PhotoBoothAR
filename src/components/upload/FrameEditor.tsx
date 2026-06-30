@@ -2,10 +2,11 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * FrameEditor — the "out-of-frame" editing section. Frame rail on the left, a
- * large live preview (image inside the selected frame, with pan/zoom crop) in
- * the centre, and a reorderable thumbnail strip below with bulk actions
- * (apply-to-all / apply-to-selected / remove).
+ * FrameEditor — the "out-of-frame" editing section. Mobile-first: on phones the
+ * preview sits on top with a horizontal frame rail beneath it; on sm+ the frame
+ * rail moves to a vertical sidebar on the left. A reorderable thumbnail strip
+ * runs along the bottom (drag on desktop, ◀/▶ move buttons on touch) with bulk
+ * actions (apply-to-all / apply-to-selected / remove).
  */
 import { useState } from 'react';
 import { Experience } from '../../types';
@@ -15,7 +16,7 @@ import CropStage, { MIN_ZOOM, MAX_ZOOM, clampCrop } from './CropStage';
 import UploadDropzone from './UploadDropzone';
 import {
   Ban, RotateCcw, RotateCw, Maximize, Trash2, CheckSquare, Square,
-  Layers, CheckCheck, Film, GripVertical,
+  Layers, CheckCheck, Film, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 
 interface Props {
@@ -59,52 +60,60 @@ export default function FrameEditor({
     });
   };
 
+  const frameCells = (
+    <>
+      <FrameCell
+        label="No frame"
+        selected={!active?.frameId}
+        disabled={activeIsVideo}
+        onClick={() => setFrameForActive(null)}
+      >
+        <Ban className="w-5 h-5 text-champagne/40" />
+      </FrameCell>
+      {frames.map((exp) => {
+        const src = frameThumbSrc(exp);
+        return (
+          <FrameCell
+            key={exp.id}
+            label={exp.name}
+            selected={active?.frameId === exp.id}
+            disabled={activeIsVideo}
+            onClick={() => setFrameForActive(exp.id)}
+          >
+            {src ? (
+              <img src={src} alt={exp.name} className="w-full h-full object-contain p-1" />
+            ) : (
+              <span className="text-gold-400/60 text-lg">▣</span>
+            )}
+          </FrameCell>
+        );
+      })}
+      {frames.length === 0 && (
+        <p className="text-[10px] text-champagne/30 font-label italic px-1">Loading frames…</p>
+      )}
+    </>
+  );
+
   return (
-    <div className="flex flex-col h-full min-h-0 gap-4">
-      <div className="flex-1 min-h-0 flex gap-4">
-        {/* ── Frame rail ─────────────────────────────────────────── */}
-        <div className="w-[120px] sm:w-[148px] shrink-0 flex flex-col glass rounded-2xl border border-gold-400/15 overflow-hidden">
-          <div className="px-3 py-2.5 border-b border-gold-400/10 flex items-center gap-1.5">
+    <div className="flex flex-col h-full min-h-0 gap-3 sm:gap-4">
+      <div className="flex-1 min-h-0 flex flex-col sm:flex-row gap-3 sm:gap-4">
+        {/* ── Frame rail — sidebar on sm+, horizontal scroller on mobile ── */}
+        <div className="order-2 sm:order-1 shrink-0 sm:w-[148px] flex flex-col glass rounded-2xl border border-gold-400/15 overflow-hidden">
+          <div className="px-3 py-2 sm:py-2.5 border-b border-gold-400/10 flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-gold-400/70" />
             <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/50">Frames</span>
-          </div>
-          <div className="flex-1 overflow-y-auto hide-scrollbar p-2.5 space-y-2.5">
-            {/* None */}
-            <FrameCell
-              label="No frame"
-              selected={!active?.frameId}
-              disabled={activeIsVideo}
-              onClick={() => setFrameForActive(null)}
-            >
-              <Ban className="w-5 h-5 text-champagne/40" />
-            </FrameCell>
-            {frames.map((exp) => {
-              const src = frameThumbSrc(exp);
-              return (
-                <FrameCell
-                  key={exp.id}
-                  label={exp.name}
-                  selected={active?.frameId === exp.id}
-                  disabled={activeIsVideo}
-                  onClick={() => setFrameForActive(exp.id)}
-                >
-                  {src ? (
-                    <img src={src} alt={exp.name} className="w-full h-full object-contain p-1" />
-                  ) : (
-                    <span className="text-gold-400/60 text-lg">▣</span>
-                  )}
-                </FrameCell>
-              );
-            })}
-            {frames.length === 0 && (
-              <p className="text-[10px] text-champagne/30 font-label italic px-1">Loading frames…</p>
+            {activeIsVideo && (
+              <span className="ml-auto font-label uppercase tracking-wide text-[8px] text-champagne/35">Photos only</span>
             )}
+          </div>
+          <div className="flex flex-row sm:flex-col gap-2 sm:gap-2.5 p-2.5 overflow-x-auto sm:overflow-y-auto hide-scrollbar [&>button]:w-16 sm:[&>button]:w-full [&>button]:shrink-0">
+            {frameCells}
           </div>
         </div>
 
         {/* ── Preview + tools ────────────────────────────────────── */}
-        <div className="flex-1 min-w-0 flex flex-col gap-3">
-          <div className="flex-1 min-h-0">
+        <div className="order-1 sm:order-2 flex-1 min-w-0 min-h-0 flex flex-col gap-3">
+          <div className="flex-1 min-h-0 max-h-[50vh] sm:max-h-none">
             {!active ? (
               <div className="h-full flex items-center justify-center text-champagne/30 font-serif italic text-lg">
                 Select a photo below
@@ -165,7 +174,7 @@ export default function FrameEditor({
                 </div>
               ) : (
                 <p className="text-[11px] text-champagne/45 font-sans text-center">
-                  Pick a frame on the left to crop &amp; position. With no frame, the photo uploads at its original size.
+                  Pick a frame to crop &amp; position — drag to pan, pinch or scroll to zoom. With no frame, the photo uploads at its original size.
                 </p>
               )}
             </div>
@@ -199,6 +208,7 @@ export default function FrameEditor({
         <div className="flex items-center gap-3 overflow-x-auto hide-scrollbar pb-1">
           {items.map((item, index) => {
             const checked = selectedIds.has(item.id);
+            const isActive = item.id === activeId;
             const frameSrc = item.frameId ? frames.find((f) => f.id === item.frameId)?.asset_url : null;
             return (
               <div
@@ -212,7 +222,7 @@ export default function FrameEditor({
                 }}
                 onClick={() => onSetActive(item.id)}
                 className={`group relative shrink-0 w-16 h-[114px] rounded-xl overflow-hidden cursor-pointer transition-all ${
-                  item.id === activeId
+                  isActive
                     ? 'ring-2 ring-gold-400 ring-offset-2 ring-offset-noir-900'
                     : 'opacity-75 hover:opacity-100'
                 }`}
@@ -227,8 +237,10 @@ export default function FrameEditor({
                   <img src={frameSrc} alt="" aria-hidden className="absolute inset-0 w-full h-full pointer-events-none" />
                 )}
                 {item.kind === 'video' && (
-                  <div className="absolute top-1 left-1 bg-noir-900/70 rounded px-1 py-0.5">
-                    <Film className="w-2.5 h-2.5 text-champagne/80" />
+                  <div className="absolute inset-x-0 bottom-7 flex justify-center pointer-events-none">
+                    <span className="bg-noir-900/70 rounded-full px-1.5 py-0.5 flex items-center gap-1">
+                      <Film className="w-2.5 h-2.5 text-champagne/80" />
+                    </span>
                   </div>
                 )}
 
@@ -244,16 +256,30 @@ export default function FrameEditor({
                 {/* remove */}
                 <button
                   onClick={(e) => { e.stopPropagation(); onRemove(item.id); }}
-                  className="absolute bottom-1 right-1 text-red-300/90 bg-noir-900/60 rounded p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute top-1 left-1 text-red-300/90 bg-noir-900/60 rounded p-0.5 opacity-70 sm:opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                   title="Remove"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
 
-                {/* drag affordance */}
-                <div className="absolute bottom-1 left-1 text-champagne/50 bg-noir-900/50 rounded p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <GripVertical className="w-3 h-3" />
-                </div>
+                {/* touch-friendly move controls (always tappable; the active item
+                    is highlighted so it's clear what moves) */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); onSetActive(item.id); if (index > 0) onReorder(index, index - 1); }}
+                  disabled={index === 0}
+                  className="absolute bottom-1 left-1 text-champagne/80 bg-noir-900/65 rounded p-0.5 disabled:opacity-20"
+                  title="Move left"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onSetActive(item.id); if (index < items.length - 1) onReorder(index, index + 1); }}
+                  disabled={index === items.length - 1}
+                  className="absolute bottom-1 right-1 text-champagne/80 bg-noir-900/65 rounded p-0.5 disabled:opacity-20"
+                  title="Move right"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
               </div>
             );
           })}
@@ -276,7 +302,7 @@ function FrameCell({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="w-full flex flex-col items-center gap-1 group disabled:opacity-30 disabled:pointer-events-none"
+      className="flex flex-col items-center gap-1 group disabled:opacity-30 disabled:pointer-events-none"
       aria-pressed={selected}
     >
       <div

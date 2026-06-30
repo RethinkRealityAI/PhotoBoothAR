@@ -57,13 +57,21 @@ export default function UploadDropzone({ count, onAdd, compact = false }: Props)
       if (!list?.length) return;
       const { accepted, rejected } = triageFiles(Array.from(list), count);
       if (accepted.length) onAdd(accepted);
-      setNote(
-        rejected.length
-          ? `Skipped ${rejected.length} file${rejected.length === 1 ? '' : 's'}: ${rejected
-              .slice(0, 3)
-              .join('; ')}${rejected.length > 3 ? '…' : ''}`
-          : null,
-      );
+
+      const notes: string[] = [];
+      if (rejected.length) {
+        notes.push(
+          `Skipped ${rejected.length} file${rejected.length === 1 ? '' : 's'}: ${rejected
+            .slice(0, 3)
+            .join('; ')}${rejected.length > 3 ? '…' : ''}`,
+        );
+      }
+      // HEIC (iPhone) decodes in Safari but not most other browsers — warn softly.
+      const hasHeic = accepted.some((f) => /heic|heif/i.test(f.type) || /\.heic|\.heif$/i.test(f.name));
+      if (hasHeic && !/^((?!chrome|android).)*safari/i.test(navigator.userAgent)) {
+        notes.push('HEIC photos may not preview on this browser — Safari handles them best.');
+      }
+      setNote(notes.length ? notes.join(' ') : null);
     },
     [count, onAdd],
   );

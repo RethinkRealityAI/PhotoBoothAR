@@ -15,9 +15,13 @@ export const MAX_ZOOM = 4;
 
 /** Clamp pan offsets so the (cover-fit, zoomed) image never reveals an edge. */
 export function clampCrop(crop: UploadCrop, imgW: number, imgH: number): UploadCrop {
-  const r = computeCropRect(imgW, imgH, FRAME_W, FRAME_H, crop.zoom, 0, 0);
-  const maxX = Math.max(0, (r.w - FRAME_W) / 2 / FRAME_W);
-  const maxY = Math.max(0, (r.h - FRAME_H) / 2 / FRAME_H);
+  // Use the rotated footprint so 90°/270° turns clamp against the right extents.
+  const r = computeCropRect(imgW, imgH, FRAME_W, FRAME_H, crop.zoom, 0, 0, crop.rotation);
+  const quarterTurned = ((Math.round(crop.rotation / 90) % 2) + 2) % 2 === 1;
+  const footW = quarterTurned ? r.h : r.w;
+  const footH = quarterTurned ? r.w : r.h;
+  const maxX = Math.max(0, (footW - FRAME_W) / 2 / FRAME_W);
+  const maxY = Math.max(0, (footH - FRAME_H) / 2 / FRAME_H);
   return {
     ...crop,
     offsetX: Math.max(-maxX, Math.min(maxX, crop.offsetX)),
@@ -37,7 +41,11 @@ interface Props {
 export default function CropStage({ srcUrl, imgW, imgH, frameUrl, crop, onChange }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
+  // Single-pointer pan baseline.
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  // Active pointers (for pinch) + the pinch baseline.
+  const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinch = useRef<{ dist: number; zoom: number } | null>(null);
 
   useLayoutEffect(() => {
     const el = boxRef.current;
@@ -50,20 +58,47 @@ export default function CropStage({ srcUrl, imgW, imgH, frameUrl, crop, onChange
   }, []);
 
   // Dest rect in canvas units, then scaled to the on-screen box (both 9:16).
-  const rect = computeCropRect(imgW || 1, imgH || 1, FRAME_W, FRAME_H, crop.zoom, crop.offsetX, crop.offsetY);
+  const rect = computeCropRect(imgW || 1, imgH || 1, FRAME_W, FRAME_H, crop.zoom, crop.offsetX, crop.offsetY, crop.rotation);
   const sx = box.w / FRAME_W;
   const sy = box.h / FRAME_H;
+
+  const pinchDist = () => {
+    const pts = [...pointers.current.values()];
+    if (pts.length < 2) return 0;
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  };
 
   const onPointerDown = useCallback(
     (e: PointerEvent) => {
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-      drag.current = { x: e.clientX, y: e.clientY, ox: crop.offsetX, oy: crop.offsetY };
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.current.size === 2) {
+        // Entering a pinch — drop the pan baseline, capture the zoom baseline.
+        drag.current = null;
+        pinch.current = { dist: pinchDist() || 1, zoom: crop.zoom };
+      } else {
+        drag.current = { x: e.clientX, y: e.clientY, ox: crop.offsetX, oy: crop.offsetY };
+      }
     },
-    [crop.offsetX, crop.offsetY],
+    [crop.offsetX, crop.offsetY, crop.zoom],
   );
 
   const onPointerMove = useCallback(
     (e: PointerEvent) => {
+      if (!pointers.current.has(e.pointerId)) return;
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      // Two fingers → pinch zoom.
+      if (pointers.current.size >= 2 && pinch.current) {
+        const d = pinchDist();
+        if (d > 0) {
+          const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinch.current.zoom * (d / pinch.current.dist)));
+          onChange(clampCrop({ ...crop, zoom: next }, imgW, imgH));
+        }
+        return;
+      }
+
+      // One finger → pan.
       if (!drag.current || !box.w) return;
       const dx = (e.clientX - drag.current.x) / box.w;
       const dy = (e.clientY - drag.current.y) / box.h;
@@ -78,8 +113,10 @@ export default function CropStage({ srcUrl, imgW, imgH, frameUrl, crop, onChange
     [box.w, box.h, crop, imgW, imgH, onChange],
   );
 
-  const endDrag = useCallback(() => {
-    drag.current = null;
+  const endPointer = useCallback((e: PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+    if (pointers.current.size === 0) drag.current = null;
   }, []);
 
   const onWheel = useCallback(
@@ -98,8 +135,8 @@ export default function CropStage({ srcUrl, imgW, imgH, frameUrl, crop, onChange
       style={{ border: '1px solid rgba(var(--accent-rgb),0.25)' }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
+      onPointerUp={endPointer}
+      onPointerCancel={endPointer}
       onWheel={onWheel}
     >
       {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}

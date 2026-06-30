@@ -165,7 +165,9 @@ function UploadInner() {
 
     if (guestName.trim()) persistGuestName(guestName.trim());
 
-    for (const item of items) {
+    // Post in reverse so the guest's first-arranged item is newest → lands at the
+    // top of the newest-first wall.
+    for (const item of [...items].reverse()) {
       try {
         let blob: Blob;
         let width: number | undefined;
@@ -175,7 +177,7 @@ function UploadInner() {
           const frameUrl = item.frameId
             ? frames.find((f) => f.id === item.frameId)?.asset_url ?? null
             : null;
-          const out = await compositeUpload({ srcUrl: item.srcUrl, frameUrl, crop: item.crop });
+          const out = await compositeUpload({ srcUrl: item.srcUrl, frameUrl, crop: item.crop, srcType: item.file.type });
           blob = out.blob;
           width = out.width;
           height = out.height;
@@ -253,7 +255,26 @@ function UploadInner() {
           <Wordmark size="sm" />
         </div>
 
-        {/* Stepper */}
+        {/* Compact stepper — phones */}
+        {step !== 'done' && (
+          <div className="flex sm:hidden items-center gap-2">
+            <div className="flex items-center gap-1">
+              {steps.map((s, i) => (
+                <span
+                  key={s.id}
+                  className={`h-1.5 rounded-full transition-all ${
+                    i === stepIndex ? 'w-5 bg-foil' : i < stepIndex ? 'w-1.5 bg-gold-400/60' : 'w-1.5 bg-champagne/20'
+                  }`}
+                />
+              ))}
+            </div>
+            <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/60 whitespace-nowrap">
+              {stepIndex + 1}/{steps.length} · {steps[stepIndex]?.label}
+            </span>
+          </div>
+        )}
+
+        {/* Stepper — sm+ */}
         {step !== 'done' && (
           <div className="hidden sm:flex items-center gap-2">
             {steps.map((s, i) => (

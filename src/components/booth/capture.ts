@@ -192,6 +192,12 @@ export interface Rect { x: number; y: number; w: number; h: number; }
  * rectangle to draw the source image into, starting from a cover-fit then
  * applying zoom (about centre) and a fractional pan. Centred + cover-fit at
  * zoom=1, offset=0 → exactly fills destW×destH.
+ *
+ * `rotation` (degrees) is rotation-aware for quarter turns: at 90°/270° the
+ * image's footprint is its own dimensions swapped, so the cover scale is
+ * computed from the swapped dims — a rotated photo still fills the frame with
+ * no blank wedges. The returned rect stays in the image's own (unrotated)
+ * coordinate space; callers rotate about its centre.
  */
 export function computeCropRect(
   imgW: number,
@@ -201,8 +207,13 @@ export function computeCropRect(
   zoom = 1,
   offsetX = 0,
   offsetY = 0,
+  rotation = 0,
 ): Rect {
-  const base = Math.max(destW / imgW, destH / imgH); // cover
+  // Footprint dims after rotation (only quarter turns change the cover fit).
+  const quarterTurned = ((Math.round(rotation / 90) % 2) + 2) % 2 === 1;
+  const coverW = quarterTurned ? imgH : imgW;
+  const coverH = quarterTurned ? imgW : imgH;
+  const base = Math.max(destW / coverW, destH / coverH); // cover (rotation-aware)
   const scale = base * Math.max(zoom, 0.01);
   const w = imgW * scale;
   const h = imgH * scale;
@@ -215,16 +226,16 @@ export function computeCropRect(
 export const FRAME_W = 1080;
 export const FRAME_H = 1920;
 
-function canvasToBlob(canvas: HTMLCanvasElement, quality = 0.9): Promise<Blob> {
+function canvasToBlob(canvas: HTMLCanvasElement, type = 'image/jpeg', quality = 0.9): Promise<Blob> {
   return new Promise((resolve) => {
     if (canvas.toBlob) {
       canvas.toBlob(
-        (b) => resolve(b ?? dataUrlToBlob(canvas.toDataURL('image/jpeg', quality))),
-        'image/jpeg',
+        (b) => resolve(b ?? dataUrlToBlob(canvas.toDataURL(type, quality))),
+        type,
         quality,
       );
     } else {
-      resolve(dataUrlToBlob(canvas.toDataURL('image/jpeg', quality)));
+      resolve(dataUrlToBlob(canvas.toDataURL(type, quality)));
     }
   });
 }
@@ -236,6 +247,8 @@ export interface CompositeUploadInput {
   crop?: UploadCrop;
   /** Bake the gold gala signature (default: only when a frame is applied). */
   applySignature?: boolean;
+  /** Source MIME type — lets no-frame PNGs keep transparency (else JPEG). */
+  srcType?: string;
 }
 
 export interface CompositeUploadResult {
@@ -263,7 +276,7 @@ export async function compositeUpload(input: CompositeUploadInput): Promise<Comp
     const ctx = canvas.getContext('2d')!;
     const crop = input.crop ?? DEFAULT_CROP;
 
-    const r = computeCropRect(iw, ih, FRAME_W, FRAME_H, crop.zoom, crop.offsetX, crop.offsetY);
+    const r = computeCropRect(iw, ih, FRAME_W, FRAME_H, crop.zoom, crop.offsetX, crop.offsetY, crop.rotation);
     ctx.save();
     // Rotate about the image's own centre so this matches a CSS `rotate` preview.
     const cx = r.x + r.w / 2;
@@ -302,6 +315,8 @@ export async function compositeUpload(input: CompositeUploadInput): Promise<Comp
   const ctx = canvas.getContext('2d')!;
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   if (input.applySignature === true) drawSignature(ctx, canvas.width, canvas.height);
-  const blob = await canvasToBlob(canvas);
+  // Keep PNGs as PNG so transparent uploads don't get a black background.
+  const isPng = /png/i.test(input.srcType ?? '');
+  const blob = await canvasToBlob(canvas, isPng ? 'image/png' : 'image/jpeg');
   return { blob, width: canvas.width, height: canvas.height };
 }

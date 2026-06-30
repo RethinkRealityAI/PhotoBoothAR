@@ -42,4 +42,29 @@ describe('computeCropRect', () => {
     expect(r.w).toBeGreaterThan(0);
     expect(r.h).toBeGreaterThan(0);
   });
+
+  it('rotation-aware cover: a 90°-rotated landscape photo fills the portrait frame', () => {
+    // Landscape source; once rotated 90° its footprint is portrait and must cover.
+    const r = computeCropRect(1920, 1080, FRAME_W, FRAME_H, 1, 0, 0, 90);
+    // After rotating the drawn rect 90° about its centre, its on-screen footprint
+    // is (h × w). That footprint must cover the frame in both axes.
+    const footprintW = r.h;
+    const footprintH = r.w;
+    expect(footprintW).toBeGreaterThanOrEqual(FRAME_W - 0.01);
+    expect(footprintH).toBeGreaterThanOrEqual(FRAME_H - 0.01);
+  });
+
+  it('treats 270° the same as 90° for the cover fit', () => {
+    const a = computeCropRect(1920, 1080, FRAME_W, FRAME_H, 1, 0, 0, 90);
+    const b = computeCropRect(1920, 1080, FRAME_W, FRAME_H, 1, 0, 0, 270);
+    expect(b.w).toBeCloseTo(a.w);
+    expect(b.h).toBeCloseTo(a.h);
+  });
+
+  it('half turns (180°) keep the upright cover fit', () => {
+    const upright = computeCropRect(1080, 1920, FRAME_W, FRAME_H, 1, 0, 0, 0);
+    const flipped = computeCropRect(1080, 1920, FRAME_W, FRAME_H, 1, 0, 0, 180);
+    expect(flipped.w).toBeCloseTo(upright.w);
+    expect(flipped.h).toBeCloseTo(upright.h);
+  });
 });
