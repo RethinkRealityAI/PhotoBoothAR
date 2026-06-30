@@ -5,7 +5,7 @@
  */
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Download, Share2, RefreshCw, Send } from 'lucide-react';
+import { Download, Share2, RefreshCw, Send, Upload } from 'lucide-react';
 import { GalleryIcon, MediaStackIcon } from '../ui/MediaIcons';
 import { getGuestName } from '../../lib/session';
 import { Challenge } from '../../types';
@@ -205,6 +205,13 @@ export default function ReviewPanel({
             >
               <MediaStackIcon size={16} />
               <span className="font-label uppercase tracking-wide text-[10px]">My Media</span>
+            </a>
+            <a
+              href="/upload"
+              className="flex-1 glass rounded-xl px-4 py-2.5 flex items-center justify-center gap-2 text-champagne/70 hover:text-gold-300 border border-gold-400/15 hover:border-gold-400/35 transition-colors"
+            >
+              <Upload size={16} />
+              <span className="font-label uppercase tracking-wide text-[10px]">Upload</span>
             </a>
           </div>
         </div>
