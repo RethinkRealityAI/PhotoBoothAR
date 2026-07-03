@@ -20,7 +20,7 @@
  */
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { QrCode, Camera } from 'lucide-react';
+import { QrCode, Camera, Upload } from 'lucide-react';
 import { useStore } from '../store';
 import { subscribeToPosts, subscribeToSettings, setWallSettings as dbSetWallSettings } from '../lib/db';
 import { Post } from '../types';
@@ -302,6 +302,16 @@ export default function Wall() {
                 title="Open the photo booth"
               >
                 <Camera className="w-3.5 h-3.5" /> Booth
+              </a>
+
+              {/* Upload your own photos/videos to the wall */}
+              <a
+                href="/upload"
+                className="glass flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
+                style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
+                title="Upload your own photos to the wall"
+              >
+                <Upload className="w-3.5 h-3.5" /> Upload
               </a>
 
               {/* Share the booth link */}
