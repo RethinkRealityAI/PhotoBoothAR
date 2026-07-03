@@ -24,6 +24,7 @@ import { buildCatalog } from '../lib/catalog';
 import { submitPost } from '../lib/db';
 import { savePhoto, getGuestName, setGuestName as persistGuestName } from '../lib/session';
 import { useStore } from '../store';
+import { useEvent } from '../events/EventContext';
 
 type Step = 'upload' | 'frame' | 'details' | 'done';
 
@@ -51,6 +52,7 @@ function readDims(item: UploadItem): Promise<{ w: number; h: number }> {
 
 function UploadInner() {
   const navigate = useNavigate();
+  const { eventId, config, basePath } = useEvent();
   const {
     experiences, experiencesLoaded, fetchExperiences,
     presetOverrides, fetchPresetOverrides,
@@ -60,7 +62,7 @@ function UploadInner() {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [guestName, setGuestName] = useState(() => getGuestName());
+  const [guestName, setGuestName] = useState(() => getGuestName(eventId));
   const [posting, setPosting] = useState(false);
   const [progress, setProgress] = useState<PostProgress | null>(null);
   const [result, setResult] = useState<{ posted: number; failed: number } | null>(null);
@@ -82,9 +84,9 @@ function UploadInner() {
   }, []);
 
   const frames = useMemo(() => {
-    const catalog = buildCatalog(experiencesLoaded ? experiences : [], presetOverrides);
+    const catalog = buildCatalog(config.arContent, experiencesLoaded ? experiences : [], presetOverrides);
     return catalog.filter((e) => e.kind === 'border' || e.kind === '2d_filter');
-  }, [experiences, experiencesLoaded, presetOverrides]);
+  }, [config, experiences, experiencesLoaded, presetOverrides]);
 
   const addFiles = useCallback((files: File[]) => {
     const newItems: UploadItem[] = files.map((file) => ({
@@ -163,7 +165,7 @@ function UploadInner() {
     let failed = 0;
     setProgress({ done, total, failed });
 
-    if (guestName.trim()) persistGuestName(guestName.trim());
+    if (guestName.trim()) persistGuestName(eventId, guestName.trim());
 
     // Post in reverse so the guest's first-arranged item is newest → lands at the
     // top of the newest-first wall.
@@ -187,7 +189,7 @@ function UploadInner() {
           height = item.naturalH;
         }
 
-        const post = await submitPost({
+        const post = await submitPost(eventId, {
           blob,
           mediaType: item.kind,
           message: item.message || undefined,
@@ -198,7 +200,7 @@ function UploadInner() {
         });
 
         if (post) {
-          savePhoto({
+          savePhoto(eventId, {
             id: post.id,
             image_url: post.image_url,
             media_type: item.kind,
@@ -219,7 +221,7 @@ function UploadInner() {
     setPosting(false);
     setResult({ posted: done, failed });
     setStep('done');
-  }, [posting, items, frames, guestName]);
+  }, [posting, items, frames, guestName, eventId]);
 
   const reset = useCallback(() => {
     items.forEach((i) => URL.revokeObjectURL(i.srcUrl));
@@ -295,7 +297,7 @@ function UploadInner() {
           </div>
         )}
 
-        <a href="/wall" className="flex items-center gap-1.5 px-3 py-2 glass rounded-xl text-[10px] font-label uppercase tracking-luxe text-champagne/60 hover:text-gold-300 transition-colors">
+        <a href={`${basePath}/wall`} className="flex items-center gap-1.5 px-3 py-2 glass rounded-xl text-[10px] font-label uppercase tracking-luxe text-champagne/60 hover:text-gold-300 transition-colors">
           <X className="w-3.5 h-3.5" /> Exit
         </a>
       </header>
@@ -406,7 +408,7 @@ function UploadInner() {
                       className="flex-1 glass rounded-xl px-4 py-3 font-label uppercase tracking-luxe text-[11px] text-champagne/70 hover:text-ivory transition-colors">
                       Upload more
                     </button>
-                    <button onClick={() => navigate('/wall')}
+                    <button onClick={() => navigate(`${basePath}/wall`)}
                       className="flex-1 bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 hover:brightness-110 transition-all">
                       View the wall
                     </button>

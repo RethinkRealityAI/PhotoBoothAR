@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import EventBackground from '../ui/EventBackground';
 import { Wordmark } from '../ui/EventLogo';
-import { activeEvent } from '../../events/active';
+import { useEvent } from '../../events/EventContext';
 import { getBranding, setBranding, uploadAsset } from '../../lib/db';
 import { useStore } from '../../store';
 import type { BrandingColors, BrandingOverrides } from '../../types';
@@ -92,6 +92,7 @@ function draftToOverrides(d: Draft): BrandingOverrides {
 }
 
 export default function Branding() {
+  const { eventId } = useEvent();
   const applyBranding = useStore((s) => s.applyBranding);
   const [draft, setDraft] = useState<Draft>(() => buildInitialDraft());
   const [saving, setSaving] = useState(false);
@@ -104,7 +105,7 @@ export default function Branding() {
 
   // Refresh the draft from the DB once on mount (in case App's fetch hasn't landed).
   useEffect(() => {
-    getBranding().then((b) => {
+    getBranding(eventId).then((b) => {
       savedBrandingRef.current = b;
       applyBranding(b);
       setDraft(buildInitialDraft());
@@ -136,7 +137,7 @@ export default function Branding() {
 
   const handleLogo = async (file: File) => {
     setUploading(true);
-    const url = await uploadAsset(file, `logo-${activeEvent.id}`);
+    const url = await uploadAsset(file, `logo-${eventId}`);
     setUploading(false);
     if (url) patch({ logoUrl: url });
   };
@@ -144,7 +145,7 @@ export default function Branding() {
   const save = async () => {
     setSaving(true);
     const o = draftToOverrides(draft);
-    await setBranding(o);
+    await setBranding(eventId, o);
     savedBrandingRef.current = o;
     committedRef.current = true;
     setSaving(false);

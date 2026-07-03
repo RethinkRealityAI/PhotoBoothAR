@@ -42,7 +42,7 @@ import ChallengeSelector from './booth/ChallengeSelector';
 
 // Foundation APIs
 import { useStore } from '../store';
-import { activeEvent } from '../events/active';
+import { useEvent } from '../events/EventContext';
 import { buildCatalog } from '../lib/catalog';
 import { initializeFaceLandmarker } from '../lib/faceTracking';
 import { submitPost } from '../lib/db';
@@ -72,6 +72,7 @@ const DEFAULT_TRANSFORM: Transform2D = { scale: 1, x: 0, y: 0, rotation: 0 };
 
 export default function Booth() {
   const { id: routeExperienceId } = useParams<{ id?: string }>();
+  const { eventId, config: eventConfig, basePath } = useEvent();
 
   // ── Store ─────────────────────────────────────────────────────────────
   const {
@@ -158,8 +159,8 @@ export default function Booth() {
 
   // ── Build catalog ─────────────────────────────────────────────────────
   const catalog = useMemo(
-    () => buildCatalog(experiencesLoaded ? experiences : [], presetOverrides),
-    [experiences, experiencesLoaded, presetOverrides],
+    () => buildCatalog(eventConfig.arContent, experiencesLoaded ? experiences : [], presetOverrides),
+    [eventConfig, experiences, experiencesLoaded, presetOverrides],
   );
 
   // Pre-select from route param
@@ -186,7 +187,7 @@ export default function Booth() {
     if (appliedDefaultRef.current) return;
     if (routeExperienceId) { appliedDefaultRef.current = true; return; }
     if (!experiencesLoaded) return;
-    const id = wallSettings.defaultExperienceId ?? activeEvent.defaultExperienceId;
+    const id = wallSettings.defaultExperienceId ?? eventConfig.defaultExperienceId;
     if (!id) return;
     const exp = catalog.find((e) => e.id === id);
     if (!exp) return;
@@ -318,7 +319,7 @@ export default function Booth() {
 
       const expId = attachExp?.id ?? frameExp?.id ?? (effectId !== 'none' ? `builtin:shader:${effectId}` : undefined);
 
-      const post = await submitPost({
+      const post = await submitPost(eventId, {
         blob,
         mediaType: isVideo ? 'video' : 'image',
         durationMs: capturedDurationMs,
@@ -331,7 +332,7 @@ export default function Booth() {
       });
 
       if (post) {
-        savePhoto({
+        savePhoto(eventId, {
           id: post.id,
           image_url: post.image_url,
           media_type: isVideo ? 'video' : 'image',
@@ -340,16 +341,16 @@ export default function Booth() {
         });
         // Remember the name (so challenge mode doesn't re-ask) + mark the
         // challenge complete so it drops off this guest's list.
-        if (guestName) setGuestName(guestName);
+        if (guestName) setGuestName(eventId, guestName);
         if (selectedChallenge) {
-          addCompletedChallenge(selectedChallenge.id);
+          addCompletedChallenge(eventId, selectedChallenge.id);
           setSelectedChallenge(null); // done — don't re-tag the next shot
         }
       }
 
       setPhase('success');
     },
-    [capturedDataUrl, capturedBlobRef, capturedDurationMs, attachExp, frameExp, effectId, selectedChallenge],
+    [capturedDataUrl, capturedBlobRef, capturedDurationMs, attachExp, frameExp, effectId, selectedChallenge, eventId],
   );
 
   const handleRetake = useCallback(() => {
@@ -438,11 +439,11 @@ export default function Booth() {
                   </div>
                 ) : (
                   <>
-                    <a href="/wall" title="Live Photo Wall" aria-label="Live Photo Wall" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
+                    <a href={`${basePath}/wall`} title="Live Photo Wall" aria-label="Live Photo Wall" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
                       <GalleryIcon size={15} />
                       <span className="font-label text-[9px] uppercase tracking-wide">Wall</span>
                     </a>
-                    <a href="/me" title="My Media" aria-label="My Media" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
+                    <a href={`${basePath}/me`} title="My Media" aria-label="My Media" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
                       <MediaStackIcon size={15} />
                       <span className="font-label text-[9px] uppercase tracking-wide">Photos</span>
                     </a>

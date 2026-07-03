@@ -64,4 +64,9 @@ export interface EventConfig {
   /** Catalog id auto-applied when the booth opens if the admin hasn't set one
    *  (e.g. a signature frame). Admin's wallSettings.defaultExperienceId wins. */
   defaultExperienceId?: string;
+  /** CSS custom-property values for this event's theme (mirrors theme.css for
+   *  the legacy coded events; sourced from events.config for DB events). The
+   *  EventProvider applies these at runtime so themes no longer require a
+   *  build-time CSS import. */
+  themeVars?: Record<string, string>;
 }

@@ -49,6 +49,7 @@ import { FILTER_SHADERS, SHADER_MAP, defaultParams, ShaderRunner } from '../../l
 import { getCameraStream, stopStream } from '../../lib/camera';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { getExperience, createExperience, updateExperience, uploadAsset } from '../../lib/db';
+import { useEvent } from '../../events/EventContext';
 import type { ExperienceKind, Transform2D, ExperienceConfig } from '../../types';
 
 /* ------------------------------------------------------------------ */
@@ -392,6 +393,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export default function Creator2D() {
   const navigate = useNavigate();
+  const { eventId } = useEvent();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('id');
 
@@ -497,7 +499,7 @@ export default function Creator2D() {
   useEffect(() => {
     if (!editId) return;
     setLoadingEdit(true);
-    getExperience(editId).then((exp) => {
+    getExperience(eventId, editId).then((exp) => {
       if (!exp) { setLoadingEdit(false); return; }
       setName(exp.name);
       setIsPublished(exp.is_published);
@@ -640,8 +642,8 @@ export default function Creator2D() {
       };
 
       const result = editId
-        ? await updateExperience(editId, draft)
-        : await createExperience(draft);
+        ? await updateExperience(eventId, editId, draft)
+        : await createExperience(eventId, draft);
 
       if (!result) {
         setSaveError('Save failed — check connection and try again.');

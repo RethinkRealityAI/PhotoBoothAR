@@ -9,6 +9,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { Eye, EyeOff, Trash2, RefreshCw, Check, X, Wifi, Play } from 'lucide-react';
 import EventBackground from '../ui/EventBackground';
 import { fetchPosts, setPostHidden, deletePost, subscribeToPosts } from '../../lib/db';
+import { useEvent } from '../../events/EventContext';
 import type { Post } from '../../types';
 
 /* ------------------------------------------------------------------ */
@@ -35,12 +36,13 @@ interface PostCardProps {
 }
 
 function PostCard({ post, onRefresh, onDelete, onUpdate }: PostCardProps) {
+  const { eventId } = useEvent();
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const toggleHidden = async () => {
     setBusy(true);
-    const ok = await setPostHidden(post.id, !post.hidden);
+    const ok = await setPostHidden(eventId, post.id, !post.hidden);
     if (ok) onUpdate({ ...post, hidden: !post.hidden });
     setBusy(false);
   };
@@ -48,7 +50,7 @@ function PostCard({ post, onRefresh, onDelete, onUpdate }: PostCardProps) {
   const handleDelete = async () => {
     if (!confirmDelete) { setConfirmDelete(true); return; }
     setBusy(true);
-    const ok = await deletePost(post.id);
+    const ok = await deletePost(eventId, post.id);
     if (ok) onDelete(post.id);
     setBusy(false);
   };
@@ -171,6 +173,7 @@ function PostCard({ post, onRefresh, onDelete, onUpdate }: PostCardProps) {
 /* ------------------------------------------------------------------ */
 
 export default function Moderation() {
+  const { eventId } = useEvent();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
@@ -178,16 +181,16 @@ export default function Moderation() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const data = await fetchPosts({ includeHidden: true });
+    const data = await fetchPosts(eventId, { includeHidden: true });
     // Newest first
     setPosts(data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
     setLoading(false);
-  }, []);
+  }, [eventId]);
 
   // Realtime subscription
   useEffect(() => {
     load();
-    const unsub = subscribeToPosts({
+    const unsub = subscribeToPosts(eventId, {
       onInsert: (p) => {
         setConnected(true);
         setPosts((prev) => {
@@ -211,7 +214,7 @@ export default function Moderation() {
       clearTimeout(tid);
       unsub();
     };
-  }, [load]);
+  }, [eventId, load]);
 
   const handleUpdate = useCallback((p: Post) => {
     setPosts((prev) => prev.map((x) => (x.id === p.id ? p : x)));

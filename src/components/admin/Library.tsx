@@ -21,6 +21,7 @@ import {
 import { builtinExperiences } from '../../lib/catalog';
 import { SHADER_MAP } from '../../lib/shaders';
 import { toDataUrl } from '../../lib/borders';
+import { useEvent } from '../../events/EventContext';
 import type { Experience, PresetOverrides } from '../../types';
 
 /* ------------------------------------------------------------------ */
@@ -140,6 +141,7 @@ function ExperienceCard({
   onToggleHide, onMoveUp, onMoveDown, canMoveUp, canMoveDown,
 }: CardProps) {
   const navigate = useNavigate();
+  const { eventId } = useEvent();
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { label, color } = kindLabel(exp.kind);
@@ -147,7 +149,7 @@ function ExperienceCard({
   const toggle = async (field: 'is_published' | 'featured', current: boolean) => {
     if (isBuiltin) return;
     setBusy(true);
-    await updateExperience(exp.id, { [field]: !current });
+    await updateExperience(eventId, exp.id, { [field]: !current });
     onRefresh();
     setBusy(false);
   };
@@ -165,7 +167,7 @@ function ExperienceCard({
 
   const duplicate = async () => {
     setBusy(true);
-    await createExperience({ ...draftFrom(' copy'), is_published: false });
+    await createExperience(eventId, { ...draftFrom(' copy'), is_published: false });
     onRefresh();
     setBusy(false);
   };
@@ -173,7 +175,7 @@ function ExperienceCard({
   // Built-in "Edit": clone the preset into an editable DB row, then open its editor.
   const editBuiltin = async () => {
     setBusy(true);
-    const created = await createExperience(draftFrom());
+    const created = await createExperience(eventId, draftFrom());
     setBusy(false);
     if (created) navigate(created.kind === '3d_attachment' ? `/admin/creator3d?id=${created.id}` : `/admin/creator?id=${created.id}`);
   };
@@ -181,7 +183,7 @@ function ExperienceCard({
   const remove = async () => {
     if (!confirmDelete) { setConfirmDelete(true); return; }
     setBusy(true);
-    await deleteExperience(exp.id);
+    await deleteExperience(eventId, exp.id);
     onRefresh();
     setBusy(false);
   };
@@ -350,6 +352,7 @@ function ExperienceCard({
 
 export default function Library() {
   const navigate = useNavigate();
+  const { eventId, config } = useEvent();
   const [dbExps, setDbExps] = useState<Experience[]>([]);
   const [overrides, setOverrides] = useState<PresetOverrides>({ hidden: [], order: [] });
   const [loading, setLoading] = useState(true);
@@ -357,24 +360,24 @@ export default function Library() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [data, ov] = await Promise.all([fetchExperiences(), getPresetOverrides()]);
+    const [data, ov] = await Promise.all([fetchExperiences(eventId), getPresetOverrides(eventId)]);
     setDbExps(data);
     setOverrides(ov);
     setLoading(false);
-  }, []);
+  }, [eventId]);
 
   useEffect(() => { load(); }, [load]);
 
   // Built-in presets in the admin's chosen order
   const presets = useMemo(() => {
-    const all = builtinExperiences();
+    const all = builtinExperiences(config.arContent);
     const rank = new Map(overrides.order.map((id, i) => [id, i]));
     return [...all].sort((a, b) => {
       const ra = rank.has(a.id) ? rank.get(a.id)! : 1e6 + a.sort_order;
       const rb = rank.has(b.id) ? rank.get(b.id)! : 1e6 + b.sort_order;
       return ra - rb;
     });
-  }, [overrides.order]);
+  }, [config, overrides.order]);
 
   const hiddenSet = useMemo(() => new Set(overrides.hidden), [overrides.hidden]);
   const dbSorted = useMemo(() => [...dbExps].sort((a, b) => a.sort_order - b.sort_order), [dbExps]);
@@ -382,7 +385,7 @@ export default function Library() {
   const persistOverrides = async (patch: Partial<PresetOverrides>) => {
     const next = { ...overrides, ...patch };
     setOverrides(next);
-    await setPresetOverrides(next);
+    await setPresetOverrides(eventId, next);
   };
 
   const toggleHide = (id: string) => {
@@ -411,8 +414,8 @@ export default function Library() {
     const ao = a.sort_order || (i + 1);
     const bo = b.sort_order || (j + 1);
     await Promise.all([
-      updateExperience(a.id, { sort_order: bo }),
-      updateExperience(b.id, { sort_order: ao }),
+      updateExperience(eventId, a.id, { sort_order: bo }),
+      updateExperience(eventId, b.id, { sort_order: ao }),
     ]);
     load();
   };

@@ -17,6 +17,7 @@ import EventBackground from '../ui/EventBackground';
 import { Wordmark } from '../ui/EventLogo';
 import { fetchExperiences, fetchPosts } from '../../lib/db';
 import { useStore } from '../../store';
+import { useEvent } from '../../events/EventContext';
 
 interface Stats {
   published: number;
@@ -27,14 +28,15 @@ interface Stats {
 }
 
 function useStats() {
+  const { eventId } = useEvent();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     const [exps, posts] = await Promise.all([
-      fetchExperiences(),
-      fetchPosts({ includeHidden: true }),
+      fetchExperiences(eventId),
+      fetchPosts(eventId, { includeHidden: true }),
     ]);
     setStats({
       published: exps.filter((e) => e.is_published).length,
@@ -44,7 +46,7 @@ function useStats() {
       videos: posts.filter((p) => p.media_type === 'video').length,
     });
     setLoading(false);
-  }, []);
+  }, [eventId]);
 
   useEffect(() => { load(); }, [load]);
   return { stats, loading, reload: load };

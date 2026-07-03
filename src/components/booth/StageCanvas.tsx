@@ -22,7 +22,8 @@ import {
 import { ShaderRunner, defaultParams } from '../../lib/shaders';
 import { drawScagoMark } from '../../lib/scagoMark';
 import { Transform2D } from '../../types';
-import { activeEvent } from '../../events/active';
+import type { EventConfig } from '../../events/types';
+import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 
 export interface StageCanvasHandle {
@@ -67,17 +68,17 @@ function coverFit(
 }
 
 /** Event signature watermark: event-coloured emblem (gala only) + event name. */
-function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
+function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number, event: EventConfig) {
   const copy = useStore.getState().copy;
   const baseY = h - 58;
   const markSize = Math.round(w * 0.075);
-  const hex = activeEvent.accentHexes;
+  const hex = event.accentHexes;
   const c0 = hex[0];
   const c1 = hex[1] ?? c0;
   const c2 = hex[2] ?? c0;
   const c3 = hex[3] ?? c0;
   // The SCAGO crescent emblem is gala-specific; other events show text only.
-  const showEmblem = activeEvent.id === 'hope-gala';
+  const showEmblem = event.id === 'hope-gala';
 
   ctx.save();
   ctx.textAlign = 'left';
@@ -201,10 +202,13 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   },
   ref,
 ) {
+  const { config: eventConfig } = useEvent();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const runnerRef = useRef<ShaderRunner | null>(null);
   const rafRef = useRef<number>(0);
   const overlayImgRef = useRef<HTMLImageElement | null>(null);
+  const eventConfigRef = useRef(eventConfig);
+  eventConfigRef.current = eventConfig;
 
   // Keep fast refs so rAF reads current values without deps
   const effectIdRef = useRef(effectId);
@@ -304,7 +308,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
 
     // Step 6: Signature (only for capture, not preview — keeps preview fast)
     if (withSignature) {
-      drawSignature(ctx, w, h);
+      drawSignature(ctx, w, h, eventConfigRef.current);
     }
   }, [videoRef]);
 

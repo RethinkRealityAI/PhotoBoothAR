@@ -26,7 +26,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { getSavedPhotos } from '../lib/session';
 import { fetchMyPosts } from '../lib/db';
 import { SavedPhoto, Post, MediaType } from '../types';
-import { activeEvent } from '../events/active';
+import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
 import EventBackground from './ui/EventBackground';
 import { Wordmark } from './ui/EventLogo';
@@ -75,14 +75,14 @@ function savedToMedia(s: SavedPhoto): GalaMedia {
 // ----------------------------------------------------------------
 // Download helper: fetch → blob → anchor click
 // ----------------------------------------------------------------
-async function downloadMedia(media: GalaMedia): Promise<void> {
+async function downloadMedia(media: GalaMedia, filePrefix: string): Promise<void> {
   const isVideo = media.media_type === 'video';
   // Determine best extension from URL or type
   let ext = 'jpg';
   if (isVideo) {
     ext = media.image_url.includes('.mp4') ? 'mp4' : 'webm';
   }
-  const filename = `${activeEvent.copy.filePrefix}_${media.id.slice(0, 8)}.${ext}`;
+  const filename = `${filePrefix}_${media.id.slice(0, 8)}.${ext}`;
   try {
     const resp = await fetch(media.image_url, { mode: 'cors' });
     if (!resp.ok) throw new Error('fetch failed');
@@ -133,6 +133,7 @@ function PlayBadge({ size = 'sm' }: { size?: 'sm' | 'md' }) {
 // MediaCard (grid)
 // ----------------------------------------------------------------
 function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia) => void }) {
+  const { config } = useEvent();
   const [downloading, setDownloading] = useState(false);
   const [sharing, setSharing] = useState(false);
   const canShare = typeof navigator !== 'undefined' && !!navigator.share;
@@ -141,7 +142,7 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setDownloading(true);
-    await downloadMedia(media);
+    await downloadMedia(media, config.copy.filePrefix);
     setDownloading(false);
   };
 
@@ -265,13 +266,14 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
 // Lightbox (image + video)
 // ----------------------------------------------------------------
 function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void }) {
+  const { config } = useEvent();
   const [downloading, setDownloading] = useState(false);
   const canShare = typeof navigator !== 'undefined' && !!navigator.share;
   const isVideo = media.media_type === 'video';
 
   const handleDownload = async () => {
     setDownloading(true);
-    await downloadMedia(media);
+    await downloadMedia(media, config.copy.filePrefix);
     setDownloading(false);
   };
 
@@ -384,6 +386,7 @@ function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void })
 // Main component
 // ----------------------------------------------------------------
 export default function MyPhotos() {
+  const { eventId, config, basePath } = useEvent();
   const [media, setMedia] = useState<GalaMedia[]>([]);
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState<GalaMedia | null>(null);
@@ -391,8 +394,8 @@ export default function MyPhotos() {
 
   const fetchAndMerge = useCallback(async () => {
     const [saved, serverPosts] = await Promise.all([
-      Promise.resolve(getSavedPhotos()),
-      fetchMyPosts(),
+      Promise.resolve(getSavedPhotos(eventId)),
+      fetchMyPosts(eventId),
     ]);
 
     const map = new Map<string, GalaMedia>();
@@ -408,7 +411,7 @@ export default function MyPhotos() {
     const merged = [...map.values()].sort((a, b) => b.createdAt - a.createdAt);
     setMedia(merged);
     setLoading(false);
-  }, []);
+  }, [eventId]);
 
   // Initial fetch
   useEffect(() => {
@@ -427,7 +430,7 @@ export default function MyPhotos() {
     if (media.length === 0 || downloadingAll) return;
     setDownloadingAll(true);
     for (const item of media) {
-      await downloadMedia(item);
+      await downloadMedia(item, config.copy.filePrefix);
       await new Promise((r) => setTimeout(r, 600));
     }
     setDownloadingAll(false);
@@ -526,7 +529,7 @@ export default function MyPhotos() {
               Step up to the booth and capture your moment — your photos and videos will appear here instantly.
             </p>
             <a
-              href="/"
+              href={basePath || '/'}
               className="inline-flex items-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-8 py-3 rounded-xl glow-accent"
             >
               <CameraIcon size={15} strokeWidth={1.8} />
@@ -550,7 +553,7 @@ export default function MyPhotos() {
       {!loading && media.length > 0 && (
         <div className="relative z-10 text-center pb-10">
           <a
-            href="/"
+            href={basePath || '/'}
             className="inline-flex items-center gap-2 font-label uppercase tracking-luxe text-[10px] text-champagne/40 hover:text-champagne/70 transition-colors"
           >
             <BackIcon size={13} />

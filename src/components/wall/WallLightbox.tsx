@@ -9,16 +9,17 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Download, Share2, X, Check } from 'lucide-react';
 import { Post } from '../../types';
-import { activeEvent } from '../../events/active';
+import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 
 export default function WallLightbox({ post, onClose }: { post: Post; onClose: () => void }) {
+  const { config } = useEvent();
   const copy = useStore((s) => s.copy);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const isVideo = post.media_type === 'video';
   const ext = isVideo ? (post.image_url.includes('.mp4') ? 'mp4' : 'webm') : 'jpg';
-  const filename = `${activeEvent.copy.filePrefix}-${post.id.slice(0, 8)}.${ext}`;
+  const filename = `${config.copy.filePrefix}-${post.id.slice(0, 8)}.${ext}`;
 
   async function download() {
     setBusy(true);

@@ -14,6 +14,18 @@ export const hopeGala: EventConfig = {
   Background: GalaBackground,
   landingRoute: '/booth',
   accentHexes: ['#D4AF37', '#E8C766', '#FBF3D9', '#B8860B'],
+  // Mirrors theme.css (kept in sync) so the runtime EventProvider can theme
+  // this event without a build-time CSS import.
+  themeVars: {
+    '--color-brand-bg': '#0A0806',
+    '--color-brand-surface': '#1A130C',
+    '--color-brand-fg': '#F7F1E3',
+    '--color-brand-muted': '#E9D9B8',
+    '--color-accent': '#D4AF37',
+    '--color-accent-2': '#EFD584',
+    '--color-accent-3': '#A67C1F',
+    '--accent-rgb': '212, 175, 55',
+  },
   // Pinned to Hope Gala's own built-ins so AR effects added for other events
   // (in the shared registries) never leak into this catalog.
   arContent: {

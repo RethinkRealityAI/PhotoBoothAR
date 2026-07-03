@@ -22,6 +22,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { QrCode, Camera, Upload } from 'lucide-react';
 import { useStore } from '../store';
+import { useEvent } from '../events/EventContext';
 import { subscribeToPosts, subscribeToSettings, setWallSettings as dbSetWallSettings } from '../lib/db';
 import { Post } from '../types';
 import EventBackground from './ui/EventBackground';
@@ -39,6 +40,7 @@ import WallLightbox from './wall/WallLightbox';
 type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard';
 
 export default function Wall() {
+  const { eventId, basePath } = useEvent();
   const {
     posts,
     postsLoaded,
@@ -85,11 +87,11 @@ export default function Wall() {
   // Live settings subscription
   // ----------------------------------------------------------------
   useEffect(() => {
-    const unsub = subscribeToSettings((s) => {
+    const unsub = subscribeToSettings(eventId, (s) => {
       setWallSettings(s);
     });
     return unsub;
-  }, [setWallSettings]);
+  }, [eventId, setWallSettings]);
 
   // If leaderboard mode is disabled by admin while viewing it, fall back to mosaic
   useEffect(() => {
@@ -122,13 +124,13 @@ export default function Wall() {
   );
 
   useEffect(() => {
-    const unsubscribe = subscribeToPosts({
+    const unsubscribe = subscribeToPosts(eventId, {
       onInsert: handleInsert,
       onUpdate: updatePost,
       onDelete: removePost,
     });
     return unsubscribe;
-  }, [handleInsert, updatePost, removePost]);
+  }, [eventId, handleInsert, updatePost, removePost]);
 
   // Clean up fresh-id timers on unmount
   useEffect(() => {
@@ -186,8 +188,8 @@ export default function Wall() {
   const toggleQR = useCallback(() => {
     const next = !wallSettings.showQR;
     setWallSettings({ ...wallSettings, showQR: next }); // optimistic
-    dbSetWallSettings({ showQR: next }).catch(() => {});
-  }, [wallSettings, setWallSettings]);
+    dbSetWallSettings(eventId, { showQR: next }).catch(() => {});
+  }, [eventId, wallSettings, setWallSettings]);
 
   // Available mode tabs (leaderboard gated by setting)
   const modeTabs: { id: ViewMode; label: string }[] = [
@@ -297,7 +299,7 @@ export default function Wall() {
             <div className="flex-1 flex items-center justify-end gap-2">
               {/* Open the booth — primary, high-contrast so it's clearly the way in */}
               <a
-                href="/booth"
+                href={`${basePath}/booth`}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-foil text-noir-900 glow-accent font-label uppercase tracking-luxe text-[10px] hover:brightness-110 transition-all active:scale-95"
                 title="Open the photo booth"
               >
@@ -306,7 +308,7 @@ export default function Wall() {
 
               {/* Upload your own photos/videos to the wall */}
               <a
-                href="/upload"
+                href={`${basePath}/upload`}
                 className="glass flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
                 style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
                 title="Upload your own photos to the wall"
@@ -374,7 +376,7 @@ export default function Wall() {
                     exit={{ opacity: 0, scale: 0.92, y: 8 }}
                     transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                   >
-                    <WallQRCodes origin={origin} />
+                    <WallQRCodes origin={`${origin}${basePath}`} />
                   </motion.div>
                 )}
               </AnimatePresence>

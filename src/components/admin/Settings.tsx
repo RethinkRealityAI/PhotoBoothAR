@@ -15,10 +15,11 @@ import {
 import EventBackground from '../ui/EventBackground';
 import {
   getWallSettings, setWallSettings as dbSetWallSettings, subscribeToSettings,
-  getLandingContent, setLandingContent, DEFAULT_LANDING,
+  getLandingContent, setLandingContent, defaultLanding,
 } from '../../lib/db';
 import { buildCatalog } from '../../lib/catalog';
 import { useStore } from '../../store';
+import { useEvent } from '../../events/EventContext';
 import type { WallSettings, LandingContent } from '../../types';
 import { inputCls, TextField, TextArea } from './fields';
 
@@ -165,6 +166,7 @@ function UrlRow({ label, url, icon }: { label: string; url: string; icon: React.
 /* ------------------------------------------------------------------ */
 
 export default function Settings() {
+  const { eventId, config } = useEvent();
   const storeSet = useStore((s) => s.setWallSettings);
   const experiences = useStore((s) => s.experiences);
   const fetchExperiences = useStore((s) => s.fetchExperiences);
@@ -175,7 +177,7 @@ export default function Settings() {
   useEffect(() => { fetchExperiences(true); fetchPresetOverrides(); }, [fetchExperiences, fetchPresetOverrides]);
 
   // Catalog grouped for the "default booth filter" picker
-  const catalog = useMemo(() => buildCatalog(experiences, presetOverrides), [experiences, presetOverrides]);
+  const catalog = useMemo(() => buildCatalog(config.arContent, experiences, presetOverrides), [config, experiences, presetOverrides]);
   const effects = catalog.filter((e) => e.kind === 'shader');
   const frames = catalog.filter((e) => e.kind === 'border' || e.kind === '2d_filter');
   const pieces3d = catalog.filter((e) => e.kind === '3d_attachment');
@@ -194,13 +196,13 @@ export default function Settings() {
   const unsubRef = useRef<(() => void) | null>(null);
 
   // ── Landing ("Join the Photo Booth") page content ──
-  const [landing, setLanding] = useState<LandingContent>(DEFAULT_LANDING);
+  const [landing, setLanding] = useState<LandingContent>(() => defaultLanding(config.copy));
   const [landingSaving, setLandingSaving] = useState(false);
   const [landingSaved, setLandingSaved] = useState(false);
 
   useEffect(() => {
-    getLandingContent().then(setLanding).catch(() => {});
-  }, []);
+    getLandingContent(eventId, config.copy).then(setLanding).catch(() => {});
+  }, [eventId, config]);
 
   const patchLanding = (patch: Partial<LandingContent>) => {
     setLanding((l) => ({ ...l, ...patch }));
@@ -214,7 +216,7 @@ export default function Settings() {
   const removeStep = (i: number) => { setLanding((l) => ({ ...l, steps: l.steps.filter((_, idx) => idx !== i) })); setLandingSaved(false); };
   const saveLanding = async () => {
     setLandingSaving(true);
-    await setLandingContent(landing);
+    await setLandingContent(eventId, landing);
     setLandingSaving(false);
     setLandingSaved(true);
     setTimeout(() => setLandingSaved(false), 2500);
@@ -224,15 +226,15 @@ export default function Settings() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const s = await getWallSettings();
+    const s = await getWallSettings(eventId);
     setSettings(s);
     storeSet(s);
     setLoading(false);
-  }, [storeSet]);
+  }, [eventId, storeSet]);
 
   useEffect(() => {
     load();
-    const unsub = subscribeToSettings((s) => {
+    const unsub = subscribeToSettings(eventId, (s) => {
       setConnected(true);
       setSettings(s);
       storeSet(s);
@@ -243,14 +245,14 @@ export default function Settings() {
       clearTimeout(tid);
       unsub();
     };
-  }, [load, storeSet]);
+  }, [eventId, load, storeSet]);
 
   const toggle = async (key: keyof WallSettings, value: boolean) => {
     const next = { ...settings, [key]: value };
     setSettings(next);          // optimistic
     storeSet(next);
     setBusy(true);
-    const saved = await dbSetWallSettings({ [key]: value });
+    const saved = await dbSetWallSettings(eventId, { [key]: value });
     setSettings(saved);
     storeSet(saved);
     setBusy(false);
@@ -261,7 +263,7 @@ export default function Settings() {
     setSettings(next);          // optimistic
     storeSet(next);
     setBusy(true);
-    const saved = await dbSetWallSettings({ [key]: value });
+    const saved = await dbSetWallSettings(eventId, { [key]: value });
     setSettings(saved);
     storeSet(saved);
     setBusy(false);
@@ -272,7 +274,7 @@ export default function Settings() {
     setSettings(next);          // optimistic
     storeSet(next);
     setBusy(true);
-    const saved = await dbSetWallSettings({ defaultExperienceId: value });
+    const saved = await dbSetWallSettings(eventId, { defaultExperienceId: value });
     setSettings(saved);
     storeSet(saved);
     setBusy(false);

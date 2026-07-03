@@ -8,10 +8,10 @@
  * uniformly by `kind`.
  */
 import { Experience, PresetOverrides } from '../types';
+import type { EventARContent } from '../events/types';
 import { FILTER_SHADERS, defaultParams } from './shaders';
 import { BUILTIN_BORDERS, toDataUrl } from './borders';
 import { HEAD_PIECES } from './headPieces';
-import { activeEvent } from '../events/active';
 
 const NOW = '2026-01-01T00:00:00Z';
 
@@ -27,8 +27,8 @@ function base(id: string, name: string, sort: number): Pick<Experience, 'id' | '
 }
 
 /** Featured cool effects shown as combinable filters (excludes 'none' + special). */
-export function builtinShaderExperiences(): Experience[] {
-  return pick(FILTER_SHADERS, activeEvent.arContent.shaderIds).map((s, i) => ({
+export function builtinShaderExperiences(arContent: EventARContent): Experience[] {
+  return pick(FILTER_SHADERS, arContent.shaderIds).map((s, i) => ({
     ...base(`builtin:shader:${s.id}`, s.name, 100 + i),
     kind: 'shader',
     asset_url: null,
@@ -36,8 +36,8 @@ export function builtinShaderExperiences(): Experience[] {
   }));
 }
 
-export function builtinBorderExperiences(): Experience[] {
-  return pick(BUILTIN_BORDERS, activeEvent.arContent.borderIds).map((b, i) => ({
+export function builtinBorderExperiences(arContent: EventARContent): Experience[] {
+  return pick(BUILTIN_BORDERS, arContent.borderIds).map((b, i) => ({
     ...base(`builtin:border:${b.id}`, b.name, 200 + i),
     kind: b.kind,
     asset_url: toDataUrl(b.svg),
@@ -46,8 +46,8 @@ export function builtinBorderExperiences(): Experience[] {
 }
 
 /** Built-in procedural 3D head pieces (crown, tiara, cheek gems) as experiences. */
-export function builtinHeadPieceExperiences(): Experience[] {
-  return pick(HEAD_PIECES, activeEvent.arContent.headPieceIds).map((p, i) => ({
+export function builtinHeadPieceExperiences(arContent: EventARContent): Experience[] {
+  return pick(HEAD_PIECES, arContent.headPieceIds).map((p, i) => ({
     ...base(`builtin:3d:${p.id}`, p.name, 50 + i),
     kind: '3d_attachment',
     asset_url: null,
@@ -55,11 +55,11 @@ export function builtinHeadPieceExperiences(): Experience[] {
   }));
 }
 
-export function builtinExperiences(): Experience[] {
+export function builtinExperiences(arContent: EventARContent): Experience[] {
   return [
-    ...builtinHeadPieceExperiences(),
-    ...builtinShaderExperiences(),
-    ...builtinBorderExperiences(),
+    ...builtinHeadPieceExperiences(arContent),
+    ...builtinShaderExperiences(arContent),
+    ...builtinBorderExperiences(arContent),
   ];
 }
 
@@ -73,6 +73,7 @@ export function isBuiltin(id: string): boolean {
  * own sort_order), then the built-ins in the admin's chosen order.
  */
 export function buildCatalog(
+  arContent: EventARContent,
   dbExperiences: Experience[],
   overrides?: PresetOverrides,
 ): Experience[] {
@@ -80,7 +81,7 @@ export function buildCatalog(
     .filter((e) => e.is_published)
     .sort((a, b) => a.sort_order - b.sort_order);
 
-  let builtins = builtinExperiences();
+  let builtins = builtinExperiences(arContent);
 
   const hidden = new Set(overrides?.hidden ?? []);
   if (hidden.size) builtins = builtins.filter((b) => !hidden.has(b.id));

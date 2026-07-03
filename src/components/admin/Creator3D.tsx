@@ -65,6 +65,7 @@ import { Mark } from '../ui/EventLogo';
 import EventBackground from '../ui/EventBackground';
 
 import { getExperience, createExperience, updateExperience, uploadAsset } from '../../lib/db';
+import { useEvent } from '../../events/EventContext';
 import { AnchorConfig, HeadAnchor } from '../../types';
 import { HEAD_PIECE_MAP } from '../../lib/headPieces';
 
@@ -91,6 +92,7 @@ const DEFAULT_ROTATION = { x: 0, y: 0, z: 0 };
 
 export default function Creator3D() {
   const navigate = useNavigate();
+  const { eventId } = useEvent();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('id');
 
@@ -129,7 +131,7 @@ export default function Creator3D() {
   useEffect(() => {
     if (!editId) return;
     setLoadingEdit(true);
-    getExperience(editId).then((exp) => {
+    getExperience(eventId, editId).then((exp) => {
       if (!exp || exp.kind !== '3d_attachment') {
         setLoadingEdit(false);
         return;
@@ -249,8 +251,8 @@ export default function Creator3D() {
     };
 
     const result = editId
-      ? await updateExperience(editId, draft)
-      : await createExperience(draft);
+      ? await updateExperience(eventId, editId, draft)
+      : await createExperience(eventId, draft);
 
     setSaving(false);
     if (!result) {

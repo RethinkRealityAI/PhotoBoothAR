@@ -21,7 +21,7 @@ import confetti from 'canvas-confetti';
 import { LayoutGrid, Film } from 'lucide-react';
 import { ShaderRunner, defaultParams } from '../../lib/shaders';
 import { Emblem } from '../ui/EventLogo';
-import { activeEvent } from '../../events/active';
+import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 
 interface Props {
@@ -32,9 +32,8 @@ interface Props {
   onTakeAnother: () => void;
 }
 
-// Celebration colors come from the active event (canvas-confetti needs hex).
-const GOLD_COLORS = activeEvent.accentHexes.slice(0, 3);
-const GOLD_DEEP = activeEvent.accentHexes;
+// Celebration colors come from the active event (canvas-confetti needs hex);
+// resolved inside the component via useEvent().
 const DISSOLVE_MS = 2800;
 
 /** Smooth in-out curve — slow start, accelerates through the middle, eases out. */
@@ -156,7 +155,10 @@ function GoldMotes({ play }: { play: boolean }) {
 }
 
 export default function SendOff({ dataUrl, mediaType = 'image', uploading, success, onTakeAnother }: Props) {
+  const { config, basePath } = useEvent();
   const copy = useStore((s) => s.copy);
+  const GOLD_COLORS = config.accentHexes.slice(0, 3);
+  const GOLD_DEEP = config.accentHexes;
   const dissolveCanvasRef = useRef<HTMLCanvasElement>(null);
   const dissolveRunnerRef = useRef<ShaderRunner | null>(null);
   const rafRef = useRef<number>(0);
@@ -420,14 +422,14 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
                 Take Another
               </button>
               <a
-                href="/wall"
+                href={`${basePath}/wall`}
                 className="glass flex items-center justify-center gap-2 rounded-xl px-6 py-4 font-label text-xs uppercase tracking-wide text-champagne/70 transition-colors hover:text-ivory"
               >
                 <LayoutGrid className="h-4 w-4" />
                 View the Live Wall
               </a>
               <a
-                href="/me"
+                href={`${basePath}/me`}
                 className="glass flex items-center justify-center gap-2 rounded-xl px-6 py-4 font-label text-xs uppercase tracking-wide text-champagne/70 transition-colors hover:text-ivory"
               >
                 <Film className="h-4 w-4" />

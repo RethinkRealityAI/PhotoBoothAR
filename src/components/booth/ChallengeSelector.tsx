@@ -17,6 +17,7 @@ import {
   getCompletedChallenges, addCompletedChallenges,
 } from '../../lib/session';
 import { fetchMyPosts } from '../../lib/db';
+import { useEvent } from '../../events/EventContext';
 
 interface Props {
   selectedChallenge: Challenge | null;
@@ -24,10 +25,11 @@ interface Props {
 }
 
 export default function ChallengeSelector({ selectedChallenge, onSelect }: Props) {
+  const { eventId } = useEvent();
   const { challenges, challengesLoaded, fetchChallenges } = useStore();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [completed, setCompleted] = useState<string[]>(() => getCompletedChallenges());
-  const [nameInput, setNameInput] = useState<string>(() => getGuestName());
+  const [completed, setCompleted] = useState<string[]>(() => getCompletedChallenges(eventId));
+  const [nameInput, setNameInput] = useState<string>(() => getGuestName(eventId));
   const [needName, setNeedName] = useState(false);
 
   useEffect(() => {
@@ -37,17 +39,17 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
   // Hydrate completed-challenge set from this session's tagged posts + listen for changes.
   useEffect(() => {
     let alive = true;
-    fetchMyPosts()
+    fetchMyPosts(eventId)
       .then((posts) => {
         const ids = posts.map((p) => p.challenge_id).filter(Boolean) as string[];
-        if (ids.length) addCompletedChallenges(ids);
-        if (alive) setCompleted(getCompletedChallenges());
+        if (ids.length) addCompletedChallenges(eventId, ids);
+        if (alive) setCompleted(getCompletedChallenges(eventId));
       })
       .catch(() => {});
-    const onChange = () => setCompleted(getCompletedChallenges());
+    const onChange = () => setCompleted(getCompletedChallenges(eventId));
     window.addEventListener('challenges:changed', onChange);
     return () => { alive = false; window.removeEventListener('challenges:changed', onChange); };
-  }, []);
+  }, [eventId]);
 
   const active = challenges.filter((c) => c.active);
   if (active.length === 0 && challengesLoaded) return null;
@@ -58,8 +60,8 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
   const doneCount = active.length - available.length;
 
   const openSheet = () => {
-    setNameInput(getGuestName());
-    setNeedName(!getGuestName());
+    setNameInput(getGuestName(eventId));
+    setNeedName(!getGuestName(eventId));
     setSheetOpen(true);
   };
   const close = () => setSheetOpen(false);
@@ -67,7 +69,7 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
   const confirmName = () => {
     const n = nameInput.trim();
     if (n.length < 2) return;
-    setGuestName(n);
+    setGuestName(eventId, n);
     setNeedName(false);
   };
 
@@ -172,10 +174,10 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
 
                   {/* Greeting + change name */}
                   <button
-                    onClick={() => { setNameInput(getGuestName()); setNeedName(true); }}
+                    onClick={() => { setNameInput(getGuestName(eventId)); setNeedName(true); }}
                     className="flex items-center gap-1.5 mb-4 text-gold-300/80 hover:text-gold-200 transition-colors"
                   >
-                    <span className="font-label text-[9px] uppercase tracking-luxe">Playing as {getGuestName() || 'Guest'}</span>
+                    <span className="font-label text-[9px] uppercase tracking-luxe">Playing as {getGuestName(eventId) || 'Guest'}</span>
                     <Pencil className="w-3 h-3" />
                   </button>
 
