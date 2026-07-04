@@ -1,10 +1,19 @@
 # Adding an Event
 
-This app is a white-label platform. Each event is **one folder** under
-`src/events/<slug>/` plus **one Netlify site**, all built from the same `main`
-branch. The event id **equals its slug** and is also the database `event_id`.
+> ⚠️ **This document describes the LEGACY per-code-folder model, which now applies
+> only to the three original sites frozen on the `legacy-events` branch**
+> (galabooth / jennajake / theadetoyis). On the **Beamwall platform** (`main` →
+> the `beamwall` site) events are created **self-serve** by hosts: sign up →
+> `/host/new` wizard → an `events` row + runtime `/e/:slug` page, with no code
+> change and no per-event Netlify site. See the top-level `README.md` and
+> `docs/DEPLOYMENT-CHECKLIST.md`. Keep the steps below only for maintaining the
+> three legacy sites (e.g. a copy tweak on `legacy-events`).
 
-Push to `main` → every event's Netlify site rebuilds with the change. No forking.
+## Legacy model (frozen `legacy-events` branch)
+
+Each legacy event is **one folder** under `src/events/<slug>/` plus **one Netlify
+site**, built from the `legacy-events` branch. The event id **equals its slug**
+and is also the database `event_id` (grandfathered anon RLS keeps these working).
 
 ## 1. Create the event folder
 
