@@ -32,6 +32,7 @@ import Challenges from './components/admin/Challenges';
 import EventProvider, { useEvent } from './events/EventContext';
 import { EVENT_ID } from './events/active';
 import Landing from './pages/Landing';
+import Demo from './pages/Demo';
 import Login from './pages/auth/Login';
 import Signup from './pages/auth/Signup';
 import HostLayout from './pages/host/HostLayout';
@@ -109,7 +110,12 @@ function adminRoutes() {
 export default function App() {
   return (
     <Router>
-      <div className="min-h-screen h-screen w-screen bg-noir-900 text-ivory font-sans overflow-hidden select-none">
+      {/* Root is min-height (not fixed h-screen) and does NOT clip: immersive
+          pages (Booth, Wall, card viewer …) render as `absolute inset-0` and
+          fill the viewport with their own internal scroll, while document-style
+          pages (Landing, Demo, host studio) flow taller than the viewport and
+          let the window scroll — so nothing is ever cut off. */}
+      <div className="min-h-[100dvh] w-full bg-noir-900 text-ivory font-sans select-none">
         <Routes>
           {LEGACY_EVENT ? (
             /* ── Legacy single-event build: registry event at "/" ── */
@@ -128,6 +134,7 @@ export default function App() {
               </Route>
 
               <Route path="/" element={<Landing />} />
+              <Route path="/demo" element={<Demo />} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
 

@@ -67,8 +67,9 @@ export default function Storybook({
 
   return (
     <div className="relative w-full h-full flex flex-col items-center">
-      {/* Page */}
-      <div className="relative flex-1 w-full max-w-md min-h-0 py-4">
+      {/* Page — a narrow keepsake column on phones, a wide spread on desktop
+          so the photo and its message sit side by side instead of stacked. */}
+      <div className="relative flex-1 w-full max-w-md lg:max-w-3xl min-h-0 py-4">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={page}
@@ -97,33 +98,52 @@ export default function Storybook({
               )}
 
               {contribution && (
-                <>
-                  {contribution.mediaType === 'photo' && contribution.url && (
-                    <img
-                      src={contribution.url}
-                      alt={contribution.contributorName ? `From ${contribution.contributorName}` : 'Contribution'}
-                      className="max-h-[52%] max-w-full rounded-xl object-contain shadow-[0_12px_44px_rgba(0,0,0,0.5)]"
-                    />
-                  )}
-                  {contribution.mediaType === 'video' && contribution.url && (
-                    <video
-                      key={contribution.id}
-                      src={contribution.url}
-                      controls
-                      playsInline
-                      preload="metadata"
-                      className="max-h-[52%] max-w-full rounded-xl shadow-[0_12px_44px_rgba(0,0,0,0.5)]"
-                    />
-                  )}
-                  {contribution.message && (
-                    <p className={`mt-5 font-serif italic leading-relaxed text-brand-fg/90 ${contribution.mediaType === 'text' ? 'text-xl' : 'text-sm'}`}>
-                      “{contribution.message}”
-                    </p>
-                  )}
-                  <p className="mt-5 font-label uppercase tracking-luxe text-[10px] text-gold-300/80">
-                    — {contribution.contributorName || 'A friend'}
-                  </p>
-                </>
+                (() => {
+                  const hasMedia =
+                    (contribution.mediaType === 'photo' || contribution.mediaType === 'video') && !!contribution.url;
+                  return (
+                    <div
+                      className={`flex h-full w-full items-center justify-center gap-5 ${
+                        hasMedia ? 'flex-col lg:flex-row lg:gap-8' : 'flex-col'
+                      }`}
+                    >
+                      {hasMedia && (
+                        <div className="flex min-h-0 w-full items-center justify-center lg:flex-1">
+                          {contribution.mediaType === 'photo' ? (
+                            <img
+                              src={contribution.url}
+                              alt={contribution.contributorName ? `From ${contribution.contributorName}` : 'Contribution'}
+                              className="max-h-[42vh] lg:max-h-[64vh] max-w-full rounded-xl object-contain shadow-[0_12px_44px_rgba(0,0,0,0.5)]"
+                            />
+                          ) : (
+                            <video
+                              key={contribution.id}
+                              src={contribution.url}
+                              controls
+                              playsInline
+                              preload="metadata"
+                              className="max-h-[42vh] lg:max-h-[64vh] max-w-full rounded-xl shadow-[0_12px_44px_rgba(0,0,0,0.5)]"
+                            />
+                          )}
+                        </div>
+                      )}
+                      <div
+                        className={`flex flex-col items-center ${
+                          hasMedia ? 'lg:flex-1 lg:items-start lg:text-left' : ''
+                        }`}
+                      >
+                        {contribution.message && (
+                          <p className={`font-serif italic leading-relaxed text-brand-fg/90 ${contribution.mediaType === 'text' ? 'text-xl lg:text-2xl' : 'text-sm lg:text-base'}`}>
+                            “{contribution.message}”
+                          </p>
+                        )}
+                        <p className="mt-5 font-label uppercase tracking-luxe text-[10px] text-gold-300/80">
+                          — {contribution.contributorName || 'A friend'}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()
               )}
 
               {isEnd && (

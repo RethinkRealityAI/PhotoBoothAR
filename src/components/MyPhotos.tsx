@@ -39,6 +39,7 @@ import {
   ExpandIcon,
   CloseIcon,
   BackIcon,
+  GalleryIcon,
 } from './ui/MediaIcons';
 
 // ----------------------------------------------------------------
@@ -446,8 +447,24 @@ export default function MyPhotos() {
     <div className="absolute inset-0 overflow-y-auto hide-scrollbar bg-noir-900">
       <EventBackground density={28} />
 
+      {/* Top nav — always-visible way back to the booth and the live wall. */}
+      <div className="relative z-20 flex items-center justify-center gap-2 px-4 pt-4">
+        <a
+          href={basePath || '/'}
+          className="flex items-center gap-1.5 px-3.5 py-2 glass rounded-full text-[9px] font-label uppercase tracking-luxe text-champagne/70 hover:text-gold-300 transition-colors"
+        >
+          <CameraIcon size={14} /> Booth
+        </a>
+        <a
+          href={`${basePath}/wall`}
+          className="flex items-center gap-1.5 px-3.5 py-2 glass rounded-full text-[9px] font-label uppercase tracking-luxe text-champagne/70 hover:text-gold-300 transition-colors"
+        >
+          <GalleryIcon size={14} /> Live Wall
+        </a>
+      </div>
+
       {/* Header — SCAGO emblem + wordmark crown the page (SCAGO always above) */}
-      <div className="relative z-10 flex flex-col items-center pt-10 pb-6 px-4 text-center">
+      <div className="relative z-10 flex flex-col items-center pt-6 pb-6 px-4 text-center">
         <Wordmark size="md" />
 
         {/* Page label: this is the guest's personal media collection */}

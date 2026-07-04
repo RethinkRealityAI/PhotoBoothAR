@@ -17,9 +17,18 @@ interface Props {
   label?: string;
   className?: string;
   iconSize?: number;
+  /** Hide the label below this breakpoint (icon-only on smaller screens). */
+  hideLabelBelow?: 'sm' | 'md' | 'lg';
 }
 
-export default function ShareButton({ url, label = 'Share', className = '', iconSize = 16 }: Props) {
+/** Literal class names so Tailwind's scanner keeps them. */
+const HIDE_LABEL: Record<NonNullable<Props['hideLabelBelow']>, string> = {
+  sm: 'hidden sm:inline',
+  md: 'hidden md:inline',
+  lg: 'hidden lg:inline',
+};
+
+export default function ShareButton({ url, label = 'Share', className = '', iconSize = 16, hideLabelBelow }: Props) {
   const copy = useStore((s) => s.copy);
   const [copied, setCopied] = useState(false);
 
@@ -56,7 +65,7 @@ export default function ShareButton({ url, label = 'Share', className = '', icon
       className={className}
     >
       {copied ? <Check className="w-4 h-4 text-emerald-400" style={{ width: iconSize, height: iconSize }} /> : <Share2 style={{ width: iconSize, height: iconSize }} />}
-      {label !== '' && <span>{copied ? 'Link copied' : label}</span>}
+      {label !== '' && <span className={hideLabelBelow ? HIDE_LABEL[hideLabelBelow] : undefined}>{copied ? 'Link copied' : label}</span>}
     </button>
   );
 }

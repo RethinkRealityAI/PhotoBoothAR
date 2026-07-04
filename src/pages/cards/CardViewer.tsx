@@ -11,7 +11,7 @@
  * page-turn animation. Theme-neutral platform styling (outside EventProvider).
  */
 import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useReducedMotion } from 'motion/react';
 import { viewCard, type CardViewContribution, type CardViewData } from '../../lib/cards';
 import Storybook from '../../components/cards/templates/Storybook';
@@ -104,7 +104,19 @@ export default function CardViewer() {
         style={{ background: 'radial-gradient(90% 60% at 50% 0%, rgba(212,175,55,0.07) 0%, transparent 60%)' }}
         aria-hidden
       />
-      <main className="relative flex-1 min-h-0 w-full max-w-2xl mx-auto px-4 pt-4 pb-2 flex flex-col">
+      {/* Minimal top bar — a way back to the platform without breaking immersion. */}
+      <div className="relative z-10 flex items-center justify-between px-5 pt-4 shrink-0">
+        <Link to="/" className="font-serif text-lg font-semibold tracking-wide text-foil-static/80 transition hover:text-foil-static">
+          Beamwall
+        </Link>
+        <Link
+          to="/demo"
+          className="rounded-full border border-white/12 bg-white/[0.04] px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] font-semibold text-brand-muted/75 transition hover:text-brand-fg hover:bg-white/[0.08]"
+        >
+          Explore Beamwall
+        </Link>
+      </div>
+      <main className="relative flex-1 min-h-0 w-full max-w-2xl lg:max-w-4xl mx-auto px-4 pt-3 pb-2 flex flex-col">
         <Template
           card={card}
           contributions={contributions}

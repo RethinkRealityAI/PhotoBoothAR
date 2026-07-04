@@ -260,14 +260,14 @@ export default function Wall() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.35 }}
-            className="relative z-30 flex items-center justify-between gap-4 px-6 py-3 shrink-0"
+            className="relative z-30 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 px-3 sm:px-6 py-3 shrink-0 sm:flex-nowrap sm:justify-between"
             style={{
               background:
                 'linear-gradient(to bottom, rgba(10,7,3,0.88) 0%, rgba(10,7,3,0) 100%)',
             }}
           >
             {/* Left: wordmark + inline counter */}
-            <div className="flex items-center gap-4 flex-1 min-w-0">
+            <div className="flex items-center gap-4 min-w-0 sm:flex-1">
               <Wordmark size="sm" />
               <div className="hidden sm:flex items-baseline gap-1.5 shrink-0">
                 <span className="font-serif italic text-2xl text-foil-static leading-none">{posts.length}</span>
@@ -275,9 +275,10 @@ export default function Wall() {
               </div>
             </div>
 
-            {/* Centre: mode tabs (truly centred, never overlapped) */}
+            {/* Centre: mode tabs — drops to its own full-width row on phones so it
+                never squeezes the actions off the right edge. */}
             <div
-              className="glass flex rounded-xl overflow-hidden shrink-0"
+              className="glass order-last flex w-full justify-center overflow-hidden rounded-xl shrink-0 sm:order-none sm:w-auto"
               style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
             >
               {modeTabs.map((tab) => (
@@ -295,52 +296,54 @@ export default function Wall() {
               ))}
             </div>
 
-            {/* Right: actions */}
-            <div className="flex-1 flex items-center justify-end gap-2">
+            {/* Right: actions — labels collapse to icons below lg so the cluster
+                always fits; wraps rather than clipping on the smallest screens. */}
+            <div className="flex flex-wrap items-center justify-end gap-1.5 sm:flex-1">
               {/* Open the booth — primary, high-contrast so it's clearly the way in */}
               <a
                 href={`${basePath}/booth`}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-foil text-noir-900 glow-accent font-label uppercase tracking-luxe text-[10px] hover:brightness-110 transition-all active:scale-95"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-foil text-noir-900 glow-accent font-label uppercase tracking-luxe text-[10px] hover:brightness-110 transition-all active:scale-95"
                 title="Open the photo booth"
               >
-                <Camera className="w-3.5 h-3.5" /> Booth
+                <Camera className="w-3.5 h-3.5 shrink-0" /> <span className="hidden sm:inline">Booth</span>
               </a>
 
               {/* Upload your own photos/videos to the wall */}
               <a
                 href={`${basePath}/upload`}
-                className="glass flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
+                className="glass flex items-center gap-1.5 px-3 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
                 style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
                 title="Upload your own photos to the wall"
               >
-                <Upload className="w-3.5 h-3.5" /> Upload
+                <Upload className="w-3.5 h-3.5 shrink-0" /> <span className="hidden lg:inline">Upload</span>
               </a>
 
               {/* Share the booth link */}
               <ShareButton
                 label="Share"
                 iconSize={14}
-                className="glass flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
+                hideLabelBelow="lg"
+                className="glass flex items-center gap-1.5 px-3 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
               />
 
               {/* QR codes on/off */}
               <button
                 onClick={toggleQR}
-                className={`glass flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] transition-all ${wallSettings.showQR ? 'text-gold-200' : 'text-champagne/55 hover:text-champagne'}`}
+                className={`glass flex items-center gap-1.5 px-3 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] transition-all ${wallSettings.showQR ? 'text-gold-200' : 'text-champagne/55 hover:text-champagne'}`}
                 style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
                 title={wallSettings.showQR ? 'Hide QR codes' : 'Show QR codes'}
               >
-                <QrCode className="w-3.5 h-3.5" /> QR {wallSettings.showQR ? 'On' : 'Off'}
+                <QrCode className="w-3.5 h-3.5 shrink-0" /> <span className="hidden lg:inline">QR {wallSettings.showQR ? 'On' : 'Off'}</span>
               </button>
 
               {/* Projection mode toggle */}
               <button
                 onClick={() => setProjectionMode((p) => !p)}
-                className="glass px-3.5 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
+                className="glass flex items-center gap-1.5 px-3 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
                 style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
                 title="Projection mode (hides all chrome)"
               >
-                ⊡ Project
+                <span aria-hidden>⊡</span> <span className="hidden lg:inline">Project</span>
               </button>
             </div>
           </motion.header>
@@ -356,7 +359,7 @@ export default function Wall() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
             transition={{ duration: 0.35 }}
-            className="relative z-30 shrink-0 flex items-end justify-between px-8 pb-6 pt-2 mt-auto"
+            className="relative z-30 shrink-0 flex items-end justify-between px-4 sm:px-8 pb-4 sm:pb-6 pt-2 mt-auto"
             style={{
               background:
                 'linear-gradient(to top, rgba(10,7,3,0.92) 0%, rgba(10,7,3,0) 100%)',
