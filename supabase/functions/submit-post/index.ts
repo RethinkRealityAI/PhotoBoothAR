@@ -106,6 +106,25 @@ async function handleInit(sb: Client, body: Record<string, unknown>): Promise<Re
     return json(400, { error: 'invalid_content_type' });
   }
 
+  // Server-side videoEnabled gate: the free tier cannot post video (mirrors
+  // entitlementsFor() in src/lib/entitlements.ts — free videoEnabled=false;
+  // essentials/premium/deluxe=true). Legacy slugs, and events whose org holds
+  // an active Pro subscription, are exempt (same lift as the post cap below).
+  if (
+    mediaType === 'video' &&
+    (((event.plan_tier as string) ?? 'free') === 'free') &&
+    !LEGACY_SLUGS.has(event.slug)
+  ) {
+    const { data: sub, error: subErr } = await sb
+      .from('subscriptions')
+      .select('org_id')
+      .eq('org_id', event.org_id as string)
+      .eq('status', 'active')
+      .maybeSingle();
+    if (subErr) throw subErr;
+    if (!sub) return json(403, { error: 'video_not_allowed' });
+  }
+
   // Plan-tier post cap (free 25 / essentials 500 / premium+deluxe unlimited),
   // checked BEFORE the rate-limit bump so a capped event never burns quota.
   // An active org Pro subscription lifts the cap to premium-level (unlimited),

@@ -518,6 +518,13 @@ export default function CardsTab() {
   const doDelete = async (card: CardRow) => {
     if (!confirm(`Delete “${card.title}” and all its contributions?`)) return;
     if (await deleteCard(card.id)) {
+      // If this card was pinned as the event landing, clear the pin too —
+      // `primary_card` is a JSON blob (not an FK), so deleting the card row
+      // would otherwise leave /e/:slug guests redirected to a now-deleted card
+      // (404 dead-end). Mirrors doUnpublish + setLanding.
+      if (eventUuid && config.primaryCardPublicId === card.public_id) {
+        if (await updateEventConfig(eventUuid, { primary_card: null })) await refreshConfig();
+      }
       setCards((prev) => prev?.filter((c) => c.id !== card.id) ?? null);
     }
   };

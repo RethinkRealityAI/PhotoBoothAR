@@ -14,7 +14,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useEvent } from '../events/EventContext';
-import { hasActiveProSubscription } from './host';
+import { eventOrgHasActivePro } from './host';
 
 export type PlanTier = 'free' | 'essentials' | 'premium' | 'deluxe';
 
@@ -118,21 +118,22 @@ export function entitlementsFor(tier: PlanTier, hasProSubscription = false): Ent
  *
  * - Coded/legacy events (source === 'code') → LEGACY_ENTITLEMENTS: watermark
  *   always on, nothing gated. This covers all VITE_EVENT builds.
- * - DB events → events.plan_tier, upgraded by the org's active Pro
- *   subscription when the viewer can see it. RLS only exposes subscriptions
- *   to signed-in org members, so for anonymous guests the flag resolves
- *   false and the event's own tier decides (helper caches per page load).
+ * - DB events → events.plan_tier, upgraded by THIS EVENT's org's active Pro
+ *   subscription (scoped to the event's org, not the viewer's own). RLS only
+ *   exposes subscriptions to signed-in members of that org, so anonymous
+ *   guests and members of other orgs resolve false — the Pro floor never
+ *   leaks onto a foreign event (helper caches per event-uuid).
  */
 export function useEntitlements(): Entitlements {
-  const { planTier, source } = useEvent();
+  const { planTier, source, eventUuid } = useEvent();
   const [hasPro, setHasPro] = useState(false);
 
   useEffect(() => {
-    if (source === 'code') return;
+    if (source === 'code' || !eventUuid) return;
     let alive = true;
-    hasActiveProSubscription().then((v) => { if (alive) setHasPro(v); });
+    eventOrgHasActivePro(eventUuid).then((v) => { if (alive) setHasPro(v); });
     return () => { alive = false; };
-  }, [source]);
+  }, [source, eventUuid]);
 
   if (source === 'code') return LEGACY_ENTITLEMENTS;
   return entitlementsFor(normalizeTier(planTier), hasPro);

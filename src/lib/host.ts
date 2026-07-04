@@ -98,20 +98,28 @@ export async function fetchLedger(orgId: string, limit = 20): Promise<LedgerRow[
 }
 
 /**
- * Cached "does my org have an active Pro subscription?" flag for the
- * entitlements hook. One query per page load; RLS returns nothing for
- * anonymous guests, so this resolves false for them without erroring.
+ * Does the given EVENT's org have an active Pro subscription, from the viewer's
+ * perspective? Scoped to the event's org (not the viewer's own): RLS on
+ * `subscriptions` only returns rows for orgs the viewer is a member of, so a
+ * guest — or a signed-in member of a DIFFERENT org — always resolves false.
+ * This keeps the Pro entitlement floor on the viewer's OWN events and never
+ * leaks it onto another org's event (e.g. dropping the watermark on a foreign
+ * booth). Cached per event-uuid for the page load.
  */
-let proFlagPromise: Promise<boolean> | null = null;
-export function hasActiveProSubscription(): Promise<boolean> {
-  if (!proFlagPromise) {
-    proFlagPromise = (async () => {
+const proFlagByEvent = new Map<string, Promise<boolean>>();
+export function eventOrgHasActivePro(eventUuid: string): Promise<boolean> {
+  let p = proFlagByEvent.get(eventUuid);
+  if (!p) {
+    p = (async () => {
       try {
+        const { data: ev, error: evErr } = await supabase
+          .from('events').select('org_id').eq('id', eventUuid).maybeSingle();
+        if (evErr || !ev?.org_id) return false;
         const { data, error } = await supabase
           .from('subscriptions')
           .select('org_id')
+          .eq('org_id', ev.org_id as string)
           .eq('status', 'active')
-          .limit(1)
           .maybeSingle();
         if (error) return false;
         return Boolean(data);
@@ -119,12 +127,13 @@ export function hasActiveProSubscription(): Promise<boolean> {
         return false;
       }
     })();
+    proFlagByEvent.set(eventUuid, p);
   }
-  return proFlagPromise;
+  return p;
 }
-/** Drop the cached Pro flag (e.g. right after returning from checkout). */
+/** Drop the cached Pro flags (e.g. right after returning from checkout). */
 export function invalidateProSubscriptionCache(): void {
-  proFlagPromise = null;
+  proFlagByEvent.clear();
 }
 
 export type CheckoutBody =
