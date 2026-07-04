@@ -88,6 +88,22 @@ export interface CardViewContribution {
   sortOrder: number;
 }
 
+export type CardRenderStatus = 'queued' | 'rendering' | 'done' | 'failed';
+
+/** card_renders row (member SELECT / service-role writes). */
+export interface CardRenderRow {
+  id: string;
+  card_id: string;
+  status: CardRenderStatus | string;
+  provider: string;
+  render_id: string | null;
+  output_path: string | null;
+  error: string | null;
+  credits_charged: number;
+  created_at: string;
+  updated_at?: string;
+}
+
 export type CardsError =
   | 'card_not_found'
   | 'card_closed'
@@ -97,11 +113,16 @@ export type CardsError =
   | 'forbidden'
   | 'unauthorized'
   | 'not_published'
+  | 'card_not_published'
   | 'invalid_recipient'
   | 'email_not_configured'
   | 'email_failed'
   | 'object_too_large'
   | 'message_required'
+  | 'insufficient_credits'
+  | 'render_not_configured'
+  | 'render_submit_failed'
+  | 'render_not_found'
   | 'invalid_body'
   | 'internal'
   | 'network';
@@ -282,6 +303,62 @@ export function unpublishCard(cardId: string): Promise<CardsResult<{ card: Publi
 
 export function sendCardEmail(cardId: string): Promise<CardsResult<{ sent: boolean }>> {
   return invokeCardsFn('card-publish', { cardId, action: 'send_email' });
+}
+
+/* ------------------------------------------------------------------ */
+/* Host: keepsake-film render (card-render / card-render-status)        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Start a premium MP4 keepsake-film render (deluxe / cardsPremiumRender; 30
+ * credits). The card must already be published. Returns the queued/rendering
+ * card_renders row, or an error:
+ *   'upgrade_required'     → not a deluxe/legacy event (open the UpgradeModal)
+ *   'card_not_published'   → publish the card first
+ *   'insufficient_credits' → not enough credits
+ *   'render_not_configured'→ the platform render backend is switched off
+ */
+export async function renderCard(cardId: string): Promise<CardsResult<CardRenderRow>> {
+  const res = await invokeCardsFn<{ render: CardRenderRow }>('card-render', { cardId });
+  return { data: res.data?.render ?? null, error: res.error };
+}
+
+/**
+ * Poll a render. Returns the current card_renders row and — once the render is
+ * done — a fresh 1h signed URL to download the MP4 from the private 'renders'
+ * bucket (the client can't sign that bucket directly, so the edge fn does).
+ */
+export async function fetchRenderStatus(
+  renderId: string,
+): Promise<CardsResult<{ render: CardRenderRow; downloadUrl: string | null }>> {
+  return invokeCardsFn('card-render-status', { renderId });
+}
+
+/**
+ * Signed-download helper: resolve a fresh 1h MP4 URL for a finished render via
+ * card-render-status (the private 'renders' bucket has no member-read policy,
+ * so direct client signing is not possible). Returns null when the render is
+ * not yet done or on error.
+ */
+export async function renderDownloadUrl(renderId: string): Promise<string | null> {
+  const { data } = await fetchRenderStatus(renderId);
+  return data?.downloadUrl ?? null;
+}
+
+/** The most recent render for a card (member RLS on card_renders), if any. */
+export async function latestRender(cardId: string): Promise<CardRenderRow | null> {
+  const { data, error } = await supabase
+    .from('card_renders')
+    .select('*')
+    .eq('card_id', cardId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error('[cards] latestRender', error);
+    return null;
+  }
+  return (data as CardRenderRow | null) ?? null;
 }
 
 /* ------------------------------------------------------------------ */

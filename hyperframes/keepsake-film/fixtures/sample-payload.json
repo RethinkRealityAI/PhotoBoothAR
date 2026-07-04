@@ -1,0 +1,36 @@
+{
+  "card": {
+    "title": "With Love, Always",
+    "recipientName": "Mum",
+    "eventName": "Her 60th Birthday",
+    "template": "storybook",
+    "theme": {
+      "accent": "#e8b64a",
+      "bg": "#0d0a14",
+      "fg": "#f6f0e6"
+    }
+  },
+  "contributions": [
+    {
+      "contributorName": "The Family",
+      "message": "Sixty years of grace, laughter and impossibly good roast dinners. Here is a little film from all of us who love you.",
+      "mediaType": "text",
+      "url": null,
+      "durationSeconds": null
+    },
+    {
+      "contributorName": "Grace",
+      "message": "Thank you for every bedtime story and every scraped-knee plaster. You made the whole world feel safe and warm.",
+      "mediaType": "photo",
+      "url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNjAwIiBoZWlnaHQ9IjEwMDAiIHZpZXdCb3g9IjAgMCAxNjAwIDEwMDAiPgogIDxkZWZzPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJnIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzNhMmExMiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjAuNSIgc3RvcC1jb2xvcj0iIzZiNGExZiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMyNDFhMTAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8cmFkaWFsR3JhZGllbnQgaWQ9ImIiIGN4PSIwLjUiIGN5PSIwLjUiIHI9IjAuNSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2ZmZTZhOCIgc3RvcC1vcGFjaXR5PSIwLjkiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZlNmE4IiBzdG9wLW9wYWNpdHk9IjAiLz4KICAgIDwvcmFkaWFsR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdpZHRoPSIxNjAwIiBoZWlnaHQ9IjEwMDAiIGZpbGw9InVybCgjZykiLz4KICA8Y2lyY2xlIGN4PSIzNjAiIGN5PSIzMDAiIHI9IjE1MCIgZmlsbD0idXJsKCNiKSIgb3BhY2l0eT0iMC43Ii8+CiAgPGNpcmNsZSBjeD0iMTE4MCIgY3k9IjI0MCIgcj0iMTEwIiBmaWxsPSJ1cmwoI2IpIiBvcGFjaXR5PSIwLjU1Ii8+CiAgPGNpcmNsZSBjeD0iODIwIiBjeT0iNjIwIiByPSIyMjAiIGZpbGw9InVybCgjYikiIG9wYWNpdHk9IjAuNCIvPgogIDxjaXJjbGUgY3g9IjEzMjAiIGN5PSI3MjAiIHI9IjkwIiBmaWxsPSJ1cmwoI2IpIiBvcGFjaXR5PSIwLjYiLz4KICA8Y2lyY2xlIGN4PSIxODAiIGN5PSI3NjAiIHI9IjcwIiBmaWxsPSJ1cmwoI2IpIiBvcGFjaXR5PSIwLjUiLz4KICA8ZyBmaWxsPSJub25lIiBzdHJva2U9IiNmNWVmZTIiIHN0cm9rZS1vcGFjaXR5PSIwLjE2IiBzdHJva2Utd2lkdGg9IjIiPgogICAgPHBhdGggZD0iTTAgNzIwIFEgNDAwIDY0MCA4MDAgNzAwIFQgMTYwMCA2NjAiLz4KICAgIDxwYXRoIGQ9Ik0wIDgwMCBRIDQwMCA3MzAgODAwIDc5MCBUIDE2MDAgNzUwIi8+CiAgPC9nPgo8L3N2Zz4=",
+      "durationSeconds": null
+    },
+    {
+      "contributorName": "Tomiwa",
+      "message": "To the woman who taught me that kindness is a kind of courage. Happy birthday, Mum.",
+      "mediaType": "text",
+      "url": null,
+      "durationSeconds": null
+    }
+  ]
+}

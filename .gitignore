@@ -12,3 +12,13 @@ coverage/
 
 # MediaPipe wasm copied from node_modules at build (kept in lockstep with the JS)
 public/mediapipe/
+
+# Phase 6 keepsake-film: local render output + container render toolchain
+.hf-bin/
+hyperframes/keepsake-film/renders/
+hyperframes/keepsake-film/fixtures/*-vars.json
+
+# HyperFrames authoring skills (dev tooling; reinstall via: npx skills add heygen-com/hyperframes)
+.agents/
+.claude/skills/
+skills-lock.json

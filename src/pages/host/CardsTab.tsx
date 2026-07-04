@@ -15,18 +15,19 @@
  * guest landing via events.config.primary_card (see EventIndexRedirect in
  * App.tsx).
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ArrowDown, ArrowUp, Check, Copy, Eye, EyeOff, ExternalLink, Gift, Home, Loader2,
-  Mail, Plus, Trash2, X,
+  ArrowDown, ArrowUp, Check, Copy, Download, Eye, EyeOff, ExternalLink, Film, Gift, Home,
+  Loader2, Mail, Plus, Trash2, X,
 } from 'lucide-react';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
 import { updateEventConfig } from '../../lib/host';
 import {
-  contributeUrl, createCard, deleteCard, deleteContribution, listCards, listContributions,
-  publishCard, sendCardEmail, signContributionUrls, unpublishCard, updateContribution,
-  viewerPath, type CardRow, type ContributionRow,
+  contributeUrl, createCard, deleteCard, deleteContribution, fetchRenderStatus, latestRender,
+  listCards, listContributions, publishCard, renderCard, renderDownloadUrl, sendCardEmail,
+  signContributionUrls, unpublishCard, updateContribution, viewerPath,
+  type CardRenderRow, type CardRow, type ContributionRow,
 } from '../../lib/cards';
 import { UpgradeModal } from './UpgradeCard';
 
@@ -193,6 +194,156 @@ function ContributionsManager({ cardId }: { cardId: string }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ── Keepsake film (deluxe MP4 render) ─────────────────────────────── */
+
+const POLL_MS = 5000;
+
+/**
+ * Premium keepsake-film render for a published card (deluxe / cardsPremiumRender).
+ * "Render film" spends 30 credits via card-render, then polls card-render-status
+ * until the MP4 is ready and offers a signed download link. Rendered inside the
+ * expanded card only when entitlements.cardsPremiumRender is true.
+ */
+function KeepsakeFilmSection({ card, onUpgrade }: { card: CardRow; onUpgrade: () => void }) {
+  const [render, setRender] = useState<CardRenderRow | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const pollRef = useRef<number | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current !== null) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const poll = useCallback(async (renderId: string) => {
+    const { data } = await fetchRenderStatus(renderId);
+    if (!data) return;
+    setRender(data.render);
+    setDownloadUrl(data.downloadUrl);
+    if (data.render.status === 'done' || data.render.status === 'failed') stopPolling();
+  }, [stopPolling]);
+
+  const startPolling = useCallback((renderId: string) => {
+    stopPolling();
+    poll(renderId);
+    pollRef.current = window.setInterval(() => poll(renderId), POLL_MS);
+  }, [poll, stopPolling]);
+
+  // Load the latest existing render for this card, resume polling / download.
+  useEffect(() => {
+    let alive = true;
+    latestRender(card.id).then((r) => {
+      if (!alive) return;
+      setRender(r);
+      if (r && (r.status === 'queued' || r.status === 'rendering')) startPolling(r.id);
+      else if (r && r.status === 'done') renderDownloadUrl(r.id).then((u) => { if (alive) setDownloadUrl(u); });
+    });
+    return () => { alive = false; stopPolling(); };
+  }, [card.id, startPolling, stopPolling]);
+
+  const start = async () => {
+    setBusy(true);
+    setNotice(null);
+    const { data, error } = await renderCard(card.id);
+    setBusy(false);
+    if (error === 'upgrade_required') { onUpgrade(); return; }
+    if (error === 'render_not_configured') {
+      setNotice('Film rendering is not switched on for this platform yet — check back soon.');
+      return;
+    }
+    if (error === 'insufficient_credits') {
+      setNotice('Not enough credits to render the film (30 credits needed).');
+      return;
+    }
+    if (error === 'card_not_published') {
+      setNotice('Publish the card before rendering its film.');
+      return;
+    }
+    if (error || !data) {
+      setNotice('Could not start the render — please try again.');
+      return;
+    }
+    setRender(data);
+    setDownloadUrl(null);
+    startPolling(data.id);
+  };
+
+  const status = render?.status;
+  const inFlight = status === 'queued' || status === 'rendering';
+  const done = status === 'done';
+
+  return (
+    <div className="rounded-xl border border-gold-400/20 bg-gradient-to-b from-gold-400/[0.06] to-transparent p-4">
+      <div className="flex items-center gap-2">
+        <Film className="w-4 h-4 text-gold-300" />
+        <h4 className="font-serif text-sm text-foil-static">Keepsake film</h4>
+        <span className="ml-auto font-label uppercase tracking-luxe text-[9px] text-gold-300/70">Deluxe · 30 credits</span>
+      </div>
+      <p className="mt-1.5 font-sans text-[11px] text-brand-muted/60 leading-relaxed">
+        Render every message, photo and video into one cinematic MP4 film — a title card, a scene for
+        each contribution, and a closing card, in your event's colours.
+      </p>
+
+      {notice && (
+        <p className="mt-3 font-sans text-[11px] text-amber-200/90 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2">
+          {notice}
+        </p>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {inFlight ? (
+          <span className="flex items-center gap-2 rounded-full bg-white/[0.06] px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-gold-200">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            {status === 'queued' ? 'Queued…' : 'Rendering your film…'}
+          </span>
+        ) : done && downloadUrl ? (
+          <a
+            href={downloadUrl}
+            target="_blank"
+            rel="noreferrer"
+            download={`keepsake-${card.public_id}.mp4`}
+            className="flex items-center gap-2 rounded-full bg-foil px-5 py-2 font-label uppercase tracking-luxe text-[9px] font-bold text-noir-900 glow-accent transition active:scale-[0.98]"
+          >
+            <Download className="w-3.5 h-3.5" /> Download film
+          </a>
+        ) : done ? (
+          <span className="flex items-center gap-2 rounded-full bg-white/[0.06] px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Preparing link…
+          </span>
+        ) : (
+          <button
+            onClick={start}
+            disabled={busy}
+            className="flex items-center gap-2 rounded-full bg-foil px-5 py-2 font-label uppercase tracking-luxe text-[9px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40"
+          >
+            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Film className="w-3.5 h-3.5" />}
+            {status === 'failed' ? 'Retry render' : 'Render film'}
+          </button>
+        )}
+
+        {done && downloadUrl && (
+          <button
+            onClick={start}
+            disabled={busy}
+            className="rounded-full bg-white/[0.06] hover:bg-white/[0.12] px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-brand-fg transition disabled:opacity-40"
+          >
+            Re-render
+          </button>
+        )}
+      </div>
+
+      {status === 'failed' && !notice && (
+        <p className="mt-2.5 font-sans text-[11px] text-red-300/80">
+          The last render didn't finish{render?.error ? ` (${render.error})` : ''} — your credits were refunded. You can try again.
+        </p>
+      )}
     </div>
   );
 }
@@ -550,6 +701,11 @@ export default function CardsTab() {
                       <p className="font-sans text-[10px] text-brand-muted/50">
                         Collecting until {new Date(card.contribution_deadline).toLocaleDateString()}
                       </p>
+                    )}
+
+                    {/* Keepsake film (deluxe MP4 render) — published cards only */}
+                    {entitlements.cardsPremiumRender && published && (
+                      <KeepsakeFilmSection card={card} onUpgrade={() => setUpgradeOpen(true)} />
                     )}
 
                     {/* Contributions */}
