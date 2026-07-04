@@ -99,7 +99,9 @@ async function handleInit(sb: Client, body: Record<string, unknown>): Promise<Re
     return json(400, { error: 'invalid_content_type' });
   }
 
-  // Quota: sliding-ish window of 1h per (event, session).
+  // Quota: sliding-ish window of 1h per (event, session). Counted at INIT —
+  // signed URLs are the gate to storage, so init spam can't fill the bucket
+  // unmetered (a failed upload still consumes quota; acceptable).
   const { data: quota, error: quotaErr } = await sb
     .from('guest_quota')
     .select('window_start, post_count')
@@ -112,19 +114,26 @@ async function handleInit(sb: Client, body: Record<string, unknown>): Promise<Re
     const { error: insErr } = await sb
       .from('guest_quota')
       .upsert(
-        { event_id: event.slug, session_id: sessionId, window_start: new Date().toISOString(), post_count: 0 },
-        { onConflict: 'event_id,session_id', ignoreDuplicates: true },
+        { event_id: event.slug, session_id: sessionId, window_start: new Date().toISOString(), post_count: 1 },
+        { onConflict: 'event_id,session_id' },
       );
     if (insErr) throw insErr;
   } else if (Date.now() - new Date(quota.window_start).getTime() > QUOTA_WINDOW_MS) {
     const { error: resetErr } = await sb
       .from('guest_quota')
-      .update({ window_start: new Date().toISOString(), post_count: 0 })
+      .update({ window_start: new Date().toISOString(), post_count: 1 })
       .eq('event_id', event.slug)
       .eq('session_id', sessionId);
     if (resetErr) throw resetErr;
   } else if (quota.post_count >= QUOTA_MAX_POSTS) {
     return json(429, { error: 'quota_exceeded' });
+  } else {
+    const { error: bumpErr } = await sb
+      .from('guest_quota')
+      .update({ post_count: quota.post_count + 1 })
+      .eq('event_id', event.slug)
+      .eq('session_id', sessionId);
+    if (bumpErr) throw bumpErr;
   }
 
   const path = `${event.slug}/${sessionId}/${crypto.randomUUID()}.${ext.toLowerCase()}`;
@@ -218,31 +227,7 @@ async function handleFinalize(sb: Client, body: Record<string, unknown>): Promis
     .single();
   if (insertErr) throw insertErr;
 
-  // Count the post against the session's quota window.
-  const { data: quota, error: quotaErr } = await sb
-    .from('guest_quota')
-    .select('post_count')
-    .eq('event_id', event.slug)
-    .eq('session_id', sessionId)
-    .maybeSingle();
-  if (quotaErr) {
-    console.error('[submit-post] quota read failed', quotaErr);
-  } else {
-    const { error: bumpErr } = await sb
-      .from('guest_quota')
-      .upsert(
-        {
-          event_id: event.slug,
-          session_id: sessionId,
-          ...(quota
-            ? { post_count: quota.post_count + 1 }
-            : { post_count: 1, window_start: new Date().toISOString() }),
-        },
-        { onConflict: 'event_id,session_id' },
-      );
-    if (bumpErr) console.error('[submit-post] quota bump failed', bumpErr);
-  }
-
+  // Quota is counted at init (signed-URL issuance), not here.
   return json(200, { post });
 }
 
