@@ -34,13 +34,23 @@ import { Post } from '../../types';
 /** Base pixels-per-second scroll speed (at multiplier = 1). */
 const BASE_PX_PER_S = 60;
 
-/** Card dimensions (px). Fixed size keeps layout stable and rows equal-height. */
-const CARD_W = 220;
+/** Fixed row height (px). Card width is derived per-post from its aspect ratio
+ *  so the whole framed image shows without cropping (WYSIWYG on the wall). */
 const CARD_H = 290;
 const CARD_GAP = 12;
+const MIN_CARD_W = 150;
+const MAX_CARD_W = 360;
+
+/** Card width for a post at the fixed row height, honouring its aspect ratio. */
+function cardWidth(post: Post): number {
+  const ar = post.width && post.height ? post.width / post.height : 9 / 16;
+  return Math.round(Math.max(MIN_CARD_W, Math.min(MAX_CARD_W, CARD_H * ar)));
+}
 
 /** Total width of one card slot (card + gap). */
-const SLOT_W = CARD_W + CARD_GAP;
+function slotWidth(post: Post): number {
+  return cardWidth(post) + CARD_GAP;
+}
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                              */
@@ -63,12 +73,14 @@ function distributeToRows(posts: Post[], numRows: number): Post[][] {
  *  the viewport width. We always produce at least 2 full copies (for the snap loop). */
 function buildLoopItems(items: Post[], minWidth: number): { items: Post[]; halfLen: number } {
   if (items.length === 0) return { items: [], halfLen: 0 };
-  const stripW = items.length * SLOT_W;
-  // We need at least 2× the visible area, plus a safety margin
-  const copies = Math.max(2, Math.ceil((minWidth * 2) / stripW) + 1);
+  const stripW = items.reduce((sum, p) => sum + slotWidth(p), 0);
+  // Build an EVEN number of whole copies so the snap-back distance is an exact
+  // multiple of one full pattern — seamless even with variable card widths.
+  const copiesPerHalf = Math.max(1, Math.ceil(minWidth / stripW) + 1);
+  const copies = copiesPerHalf * 2;
   const looped: Post[] = [];
   for (let c = 0; c < copies; c++) looped.push(...items);
-  const halfLen = Math.floor(looped.length / 2) * SLOT_W;
+  const halfLen = copiesPerHalf * stripW; // whole copies → pattern realigns on snap
   return { items: looped, halfLen };
 }
 
@@ -108,7 +120,7 @@ function PostCard({ post, onSelect }: CardProps) {
       className={`relative overflow-hidden rounded-xl shrink-0 ${onSelect ? 'cursor-pointer' : ''}`}
       onClick={onSelect ? () => onSelect(post) : undefined}
       style={{
-        width: CARD_W,
+        width: cardWidth(post),
         height: CARD_H,
         marginRight: CARD_GAP,
         border: '1.5px solid rgba(var(--accent-rgb),0.28)',

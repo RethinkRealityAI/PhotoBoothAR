@@ -7,7 +7,7 @@
  * files over the per-file size cap. Mirrors the upload pattern in admin/Assets.
  */
 import { useCallback, useRef, useState, ChangeEvent, DragEvent } from 'react';
-import { UploadCloud, ImagePlus, AlertCircle } from 'lucide-react';
+import { UploadCloud, ImagePlus, AlertCircle, Plus } from 'lucide-react';
 
 export const MAX_FILES = 30;
 export const MAX_FILE_MB = 50;
@@ -19,6 +19,8 @@ interface Props {
   onAdd: (files: File[]) => void;
   /** Compact variant for the "add more" button on later steps. */
   compact?: boolean;
+  /** Tile variant — a full-size "add more" card that fills a grid cell. */
+  tile?: boolean;
 }
 
 /** Split a FileList into accepted files + human-readable rejection reasons. */
@@ -47,7 +49,7 @@ export function triageFiles(
   return { accepted, rejected };
 }
 
-export default function UploadDropzone({ count, onAdd, compact = false }: Props) {
+export default function UploadDropzone({ count, onAdd, compact = false, tile = false }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -97,6 +99,28 @@ export default function UploadDropzone({ count, onAdd, compact = false }: Props)
       onChange={onInput}
     />
   );
+
+  if (tile) {
+    return (
+      <>
+        <button
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          className={`w-full h-full flex flex-col items-center justify-center gap-2 rounded-xl transition-colors ${
+            dragging ? 'bg-gold-400/10' : 'hover:bg-noir-800/40'
+          }`}
+        >
+          <span className="w-10 h-10 rounded-full bg-foil/90 glow-accent flex items-center justify-center">
+            <Plus className="w-5 h-5 text-noir-900" />
+          </span>
+          <span className="font-label uppercase tracking-luxe text-[8px] text-champagne/55">Add more</span>
+        </button>
+        {input}
+      </>
+    );
+  }
 
   if (compact) {
     return (

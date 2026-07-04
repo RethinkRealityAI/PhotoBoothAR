@@ -18,7 +18,7 @@ import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   SwitchCamera, Clock, Video, Camera as CameraIcon,
-  SlidersHorizontal, Eye, EyeOff, ChevronUp,
+  SlidersHorizontal, Eye, EyeOff, ChevronUp, UploadCloud,
 } from 'lucide-react';
 
 import EventBackground from './ui/EventBackground';
@@ -445,6 +445,10 @@ export default function Booth() {
                     <a href="/me" title="My Media" aria-label="My Media" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
                       <MediaStackIcon size={15} />
                       <span className="font-label text-[9px] uppercase tracking-wide">Photos</span>
+                    </a>
+                    <a href="/upload" title="Upload to the wall" aria-label="Upload to the wall" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
+                      <UploadCloud className="w-[15px] h-[15px]" strokeWidth={1.7} />
+                      <span className="font-label text-[9px] uppercase tracking-wide">Upload</span>
                     </a>
                     <ShareButton
                       label="Share"
