@@ -31,6 +31,7 @@ import Challenges from '../../components/admin/Challenges';
 import Branding from '../../components/admin/Branding';
 import SettingsScreen from '../../components/admin/Settings';
 import ManagerAccess from './ManagerAccess';
+import UpgradeCard from './UpgradeCard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -39,6 +40,7 @@ interface StudioEvent {
   slug: string;
   name: string;
   status: string;
+  plan_tier: string;
 }
 
 type LoadState =
@@ -80,7 +82,7 @@ export default function EventStudio() {
     setState({ phase: 'loading' });
     supabase
       .from('events')
-      .select('id, slug, name, status')
+      .select('id, slug, name, status, plan_tier')
       .eq('id', id)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -166,6 +168,9 @@ export default function EventStudio() {
             </div>
             <GuestLinkCopy url={`${origin}${basePath}`} />
           </nav>
+
+          {/* Plan tier banner — compact upsell for non-deluxe events */}
+          <UpgradeCard eventUuid={event.id} planTier={event.plan_tier} />
 
           <main className="flex-1 relative overflow-hidden">
             <Routes>

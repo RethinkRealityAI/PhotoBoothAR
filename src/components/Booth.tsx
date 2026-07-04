@@ -48,6 +48,7 @@ import { initializeFaceLandmarker } from '../lib/faceTracking';
 import { submitPost } from '../lib/db';
 import { savePhoto, addCompletedChallenge, setGuestName } from '../lib/session';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
+import { useEntitlements } from '../lib/entitlements';
 import { dataUrlToBlob } from './booth/capture';
 import type { Transform2D, Experience, AnchorConfig, Challenge } from '../types';
 
@@ -73,6 +74,7 @@ const DEFAULT_TRANSFORM: Transform2D = { scale: 1, x: 0, y: 0, rotation: 0 };
 export default function Booth() {
   const { id: routeExperienceId } = useParams<{ id?: string }>();
   const { eventId, config: eventConfig, basePath } = useEvent();
+  const entitlements = useEntitlements();
 
   // ── Store ─────────────────────────────────────────────────────────────
   const {
@@ -101,6 +103,13 @@ export default function Booth() {
   // ── Camera ────────────────────────────────────────────────────────────
   const [started, setStarted] = useState(false);
   const [mediaMode, setMediaMode] = useState<MediaMode>('photo');
+
+  // Video capture is entitlement-gated (free tier: photo only). If the flag
+  // resolves after the guest already toggled, snap back to photo mode.
+  const videoAllowed = entitlements.videoEnabled;
+  useEffect(() => {
+    if (!videoAllowed && mediaMode === 'video') setMediaMode('photo');
+  }, [videoAllowed, mediaMode]);
 
   // Audio only needed in video mode; restart stream when mode changes to add audio
   const {
@@ -491,6 +500,7 @@ export default function Booth() {
                   overlayOpacity={frameExp?.config?.opacity}
                   threeCanvasId={is3D ? 'booth-3d-layer' : null}
                   active={true}
+                  watermark={entitlements.watermark}
                 />
               )}
               <div ref={feedContainerRef} className="absolute inset-0">
@@ -534,9 +544,11 @@ export default function Booth() {
                       <button onClick={() => { if (!recording) setMediaMode('photo'); }} disabled={recording} aria-label="Photo mode" className={`flex items-center justify-center px-2.5 py-1.5 rounded-full transition-all ${mediaMode === 'photo' ? 'bg-foil text-noir-900' : 'text-champagne/50 hover:text-ivory'}`}>
                         <CameraIcon className="w-3.5 h-3.5" />
                       </button>
-                      <button onClick={() => { if (!recording) setMediaMode('video'); }} disabled={recording} aria-label="Video mode" className={`flex items-center justify-center px-2.5 py-1.5 rounded-full transition-all ${mediaMode === 'video' ? 'bg-foil text-noir-900' : 'text-champagne/50 hover:text-ivory'}`}>
-                        <Video className="w-3.5 h-3.5" />
-                      </button>
+                      {videoAllowed && (
+                        <button onClick={() => { if (!recording) setMediaMode('video'); }} disabled={recording} aria-label="Video mode" className={`flex items-center justify-center px-2.5 py-1.5 rounded-full transition-all ${mediaMode === 'video' ? 'bg-foil text-noir-900' : 'text-champagne/50 hover:text-ivory'}`}>
+                          <Video className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                     {mediaMode === 'photo' && !recording && (
                       <div className="relative">

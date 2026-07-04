@@ -8,8 +8,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { Check, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2 } from 'lucide-react';
+import { ArrowUpRight, Check, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2 } from 'lucide-react';
 import { fetchMyEvents, updateEventStatus, type HostEventRow } from '../../lib/host';
+import { TierPill, UpgradeModal } from './UpgradeCard';
+import { normalizeTier } from '../../lib/entitlements';
 
 function statusPill(status: string): string {
   switch (status) {
@@ -63,6 +65,7 @@ export default function EventsList() {
   const [events, setEvents] = useState<HostEventRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [qrTarget, setQrTarget] = useState<HostEventRow | null>(null);
+  const [upgradeTarget, setUpgradeTarget] = useState<HostEventRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
@@ -142,9 +145,12 @@ export default function EventsList() {
                     <p className="font-serif text-lg text-brand-fg leading-tight truncate">{ev.name}</p>
                     <p className="font-sans text-[10px] uppercase tracking-widest text-brand-muted/40 mt-0.5">{ev.event_type}</p>
                   </div>
-                  <span className={`shrink-0 px-2.5 py-1 rounded-full text-[9px] font-label uppercase tracking-widest ${statusPill(ev.status)}`}>
-                    {ev.status}
-                  </span>
+                  <div className="shrink-0 flex items-center gap-1.5">
+                    <TierPill tier={ev.plan_tier} />
+                    <span className={`shrink-0 px-2.5 py-1 rounded-full text-[9px] font-label uppercase tracking-widest ${statusPill(ev.status)}`}>
+                      {ev.status}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-1.5">
@@ -193,6 +199,14 @@ export default function EventsList() {
                       End
                     </button>
                   )}
+                  {normalizeTier(ev.plan_tier) !== 'deluxe' && (
+                    <button
+                      onClick={() => setUpgradeTarget(ev)}
+                      className="ml-auto flex items-center gap-1 rounded-full bg-gold-400/10 hover:bg-gold-400/20 px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-gold-300 transition-colors"
+                    >
+                      Upgrade <ArrowUpRight className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -202,6 +216,13 @@ export default function EventsList() {
 
       {qrTarget && (
         <QRModal url={`${origin}/e/${qrTarget.slug}`} name={qrTarget.name} onClose={() => setQrTarget(null)} />
+      )}
+      {upgradeTarget && (
+        <UpgradeModal
+          eventUuid={upgradeTarget.id}
+          currentTier={upgradeTarget.plan_tier}
+          onClose={() => setUpgradeTarget(null)}
+        />
       )}
     </div>
   );

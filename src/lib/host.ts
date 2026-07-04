@@ -50,6 +50,130 @@ export async function fetchCreditBalance(orgId: string): Promise<number | null> 
 }
 
 /* ------------------------------------------------------------------ */
+/* Billing (subscriptions, ledger, Stripe sessions)                    */
+/* ------------------------------------------------------------------ */
+
+export interface SubscriptionRow {
+  org_id: string;
+  stripe_subscription_id: string | null;
+  status: string;
+  tier: string;
+  current_period_end: string | null;
+}
+
+/** The org's Pro subscription row (RLS: members only). Null if none. */
+export async function fetchSubscription(orgId: string): Promise<SubscriptionRow | null> {
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .select('org_id, stripe_subscription_id, status, tier, current_period_end')
+    .eq('org_id', orgId)
+    .maybeSingle();
+  if (error || !data) {
+    if (error) console.error('[host] fetchSubscription', error);
+    return null;
+  }
+  return data as SubscriptionRow;
+}
+
+export interface LedgerRow {
+  id: number;
+  delta: number;
+  reason: string;
+  ref: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export async function fetchLedger(orgId: string, limit = 20): Promise<LedgerRow[]> {
+  const { data, error } = await supabase
+    .from('credit_ledger')
+    .select('id, delta, reason, ref, created_at')
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error('[host] fetchLedger', error);
+    return [];
+  }
+  return (data as LedgerRow[]) ?? [];
+}
+
+/**
+ * Cached "does my org have an active Pro subscription?" flag for the
+ * entitlements hook. One query per page load; RLS returns nothing for
+ * anonymous guests, so this resolves false for them without erroring.
+ */
+let proFlagPromise: Promise<boolean> | null = null;
+export function hasActiveProSubscription(): Promise<boolean> {
+  if (!proFlagPromise) {
+    proFlagPromise = (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('subscriptions')
+          .select('org_id')
+          .eq('status', 'active')
+          .limit(1)
+          .maybeSingle();
+        if (error) return false;
+        return Boolean(data);
+      } catch {
+        return false;
+      }
+    })();
+  }
+  return proFlagPromise;
+}
+/** Drop the cached Pro flag (e.g. right after returning from checkout). */
+export function invalidateProSubscriptionCache(): void {
+  proFlagPromise = null;
+}
+
+export type CheckoutBody =
+  | { kind: 'event_package'; tier: 'essentials' | 'premium' | 'deluxe'; eventUuid: string; returnUrl: string }
+  | { kind: 'credit_pack'; pack: '50' | '120' | '300'; returnUrl: string }
+  | { kind: 'pro_subscription'; returnUrl: string };
+
+export interface BillingSessionResult {
+  /** Stripe-hosted URL to redirect to; null on error. */
+  url: string | null;
+  /** 'billing_not_configured' while Stripe keys are pending, else edge-fn error code. */
+  error: string | null;
+}
+
+async function invokeBillingFn(name: string, body: Record<string, unknown>): Promise<BillingSessionResult> {
+  try {
+    const { data, error } = await supabase.functions.invoke(name, { body });
+    if (error) {
+      if (error instanceof FunctionsHttpError) {
+        try {
+          const res = (await error.context.json()) as { error?: string };
+          return { url: null, error: res.error ?? 'internal' };
+        } catch {
+          return { url: null, error: 'internal' };
+        }
+      }
+      return { url: null, error: 'network' };
+    }
+    const res = (data ?? {}) as { url?: string };
+    return res.url ? { url: res.url, error: null } : { url: null, error: 'internal' };
+  } catch (e) {
+    console.error(`[host] ${name}`, e);
+    return { url: null, error: 'network' };
+  }
+}
+
+/** Create a Stripe Checkout session; redirect the browser to `url`. */
+export function startCheckout(body: CheckoutBody): Promise<BillingSessionResult> {
+  return invokeBillingFn('stripe-checkout', body as unknown as Record<string, unknown>);
+}
+
+/** Create a Stripe billing-portal session for the org's customer. */
+export function openPortal(returnUrl?: string): Promise<BillingSessionResult> {
+  return invokeBillingFn('stripe-portal', {
+    returnUrl: returnUrl ?? (typeof window !== 'undefined' ? window.location.href : ''),
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /* Events                                                              */
 /* ------------------------------------------------------------------ */
 

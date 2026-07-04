@@ -22,6 +22,12 @@ export interface CaptureInput {
   threeCanvas?: HTMLCanvasElement | null;
   /** 2D overlay asset URL and its transform */
   overlay?: { url: string; transform: Transform2D; opacity?: number } | null;
+  /**
+   * Bake the event signature watermark (default true). Callers thread this
+   * from useEntitlements().watermark — legacy coded events always pass true
+   * (see LEGACY_ENTITLEMENTS in src/lib/entitlements.ts).
+   */
+  watermark?: boolean;
 }
 
 /**
@@ -123,8 +129,8 @@ export async function compositeCapture(input: CaptureInput): Promise<string> {
     }
   }
 
-  // ── Step 5: Branded gold signature (every photo carries the gala mark) ──
-  drawSignature(ctx, TARGET_W, TARGET_H);
+  // ── Step 5: Branded gold signature (entitlement-gated watermark) ──────
+  if (input.watermark !== false) drawSignature(ctx, TARGET_W, TARGET_H);
 
   return canvas.toDataURL('image/jpeg', 0.9);
 }
@@ -245,7 +251,11 @@ export interface CompositeUploadInput {
   /** Frame overlay (SVG/PNG data or public URL). Null/omitted → no frame. */
   frameUrl?: string | null;
   crop?: UploadCrop;
-  /** Bake the gold gala signature (default: only when a frame is applied). */
+  /**
+   * Bake the gold event signature. Default: only when a frame is applied.
+   * Pass false when entitlements.watermark is off (paid tiers); legacy coded
+   * events keep the default/true (they always carry the mark).
+   */
   applySignature?: boolean;
   /** Source MIME type — lets no-frame PNGs keep transparency (else JPEG). */
   srcType?: string;

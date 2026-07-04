@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Session-gated platform shell for /host: Beamwall wordmark, left rail
- * (collapsing to a top bar on mobile) with Events / Billing placeholder /
- * Sign out, content via <Outlet />.
+ * (collapsing to a top bar on mobile) with Events / Billing / Sign out,
+ * content via <Outlet />.
  */
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
@@ -75,17 +75,18 @@ export default function HostLayout() {
             <span className="hidden sm:inline">Events</span>
           </NavLink>
 
-          {/* Billing — placeholder row, not a route yet */}
-          <div className={`${railLink} text-brand-muted/40 cursor-default select-none`} title="Billing is coming soon">
+          <NavLink
+            to="/host/billing"
+            className={({ isActive }) =>
+              `${railLink} ${isActive ? 'bg-white/[0.08] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.04]'}`
+            }
+          >
             <CreditCard className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline">
               Billing
               {credits !== null && <span className="ml-1.5 text-brand-muted/60">· {credits} cr</span>}
             </span>
-            <span className="hidden md:inline ml-auto rounded-full bg-white/[0.06] px-2 py-0.5 text-[8px] tracking-widest">
-              Soon
-            </span>
-          </div>
+          </NavLink>
 
           <button onClick={handleSignOut} className={`${railLink} text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.04] md:mt-auto`}>
             <LogOut className="w-4 h-4 shrink-0" />

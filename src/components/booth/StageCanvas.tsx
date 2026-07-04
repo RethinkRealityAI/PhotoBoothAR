@@ -46,6 +46,12 @@ interface Props {
   /** If present, drawn between shader and 2D overlay */
   threeCanvasId?: string | null; // DOM id of R3F canvas (inside #booth-3d-layer)
   active?: boolean;
+  /**
+   * Bake the event signature into captures (default true). Threaded from
+   * useEntitlements().watermark by the Booth — legacy coded events always
+   * pass true (LEGACY_ENTITLEMENTS keeps their watermark unconditional).
+   */
+  watermark?: boolean;
 }
 
 const PREVIEW_W = 720;
@@ -198,7 +204,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   {
     videoRef, effectId, mirror, sparkles = false,
     overlayUrl, overlayTransform, overlayOpacity,
-    threeCanvasId, active = true,
+    threeCanvasId, active = true, watermark = true,
   },
   ref,
 ) {
@@ -219,6 +225,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   const overlayOpacityRef = useRef(overlayOpacity ?? 1);
   const threeCanvasIdRef = useRef(threeCanvasId);
   const activeRef = useRef(active);
+  const watermarkRef = useRef(watermark);
 
   useEffect(() => { effectIdRef.current = effectId; }, [effectId]);
   useEffect(() => { mirrorRef.current = mirror; }, [mirror]);
@@ -238,6 +245,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   useEffect(() => { overlayOpacityRef.current = overlayOpacity ?? 1; }, [overlayOpacity]);
   useEffect(() => { threeCanvasIdRef.current = threeCanvasId ?? null; }, [threeCanvasId]);
   useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { watermarkRef.current = watermark; }, [watermark]);
 
   // Draw one frame onto `ctx` at given dimensions
   // `_canvas` is retained in signature for symmetry with capturePhoto
@@ -306,8 +314,9 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
       drawSparkles(ctx, w, h, performance.now() / 1000);
     }
 
-    // Step 6: Signature (only for capture, not preview — keeps preview fast)
-    if (withSignature) {
+    // Step 6: Signature (only for capture, not preview — keeps preview fast).
+    // Entitlement-gated: paid tiers capture without the watermark.
+    if (withSignature && watermarkRef.current) {
       drawSignature(ctx, w, h, eventConfigRef.current);
     }
   }, [videoRef]);

@@ -25,6 +25,7 @@ import { submitPost } from '../lib/db';
 import { savePhoto, getGuestName, setGuestName as persistGuestName } from '../lib/session';
 import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
+import { useEntitlements } from '../lib/entitlements';
 
 type Step = 'upload' | 'frame' | 'details' | 'done';
 
@@ -53,6 +54,9 @@ function readDims(item: UploadItem): Promise<{ w: number; h: number }> {
 function UploadInner() {
   const navigate = useNavigate();
   const { eventId, config, basePath } = useEvent();
+  const entitlements = useEntitlements();
+  const watermark = entitlements.watermark;
+  const videoAllowed = entitlements.videoEnabled;
   const {
     experiences, linkedGlobals, experiencesLoaded, fetchExperiences,
     presetOverrides, fetchPresetOverrides,
@@ -89,7 +93,12 @@ function UploadInner() {
   }, [config, experiences, linkedGlobals, experiencesLoaded, presetOverrides]);
 
   const addFiles = useCallback((files: File[]) => {
-    const newItems: UploadItem[] = files.map((file) => ({
+    // Video uploads are entitlement-gated (free tier: images only).
+    const usable = videoAllowed ? files : files.filter((f) => !f.type.startsWith('video/'));
+    if (usable.length < files.length) {
+      console.warn('[upload] video uploads are not available on this event plan — skipped');
+    }
+    const newItems: UploadItem[] = usable.map((file) => ({
       id: uid(),
       file,
       kind: file.type.startsWith('video/') ? 'video' : 'image',
@@ -105,7 +114,7 @@ function UploadInner() {
       const { w, h } = await readDims(it);
       setItems((prev) => prev.map((p) => (p.id === it.id ? { ...p, naturalW: w, naturalH: h } : p)));
     });
-  }, []);
+  }, [videoAllowed]);
 
   const updateItem = useCallback((id: string, patch: Partial<UploadItem>) => {
     setItems((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
@@ -179,7 +188,15 @@ function UploadInner() {
           const frameUrl = item.frameId
             ? frames.find((f) => f.id === item.frameId)?.asset_url ?? null
             : null;
-          const out = await compositeUpload({ srcUrl: item.srcUrl, frameUrl, crop: item.crop, srcType: item.file.type });
+          const out = await compositeUpload({
+            srcUrl: item.srcUrl,
+            frameUrl,
+            crop: item.crop,
+            srcType: item.file.type,
+            // Entitlement-gated watermark: keep the default behaviour
+            // (signature when framed) only while the plan carries the mark.
+            ...(watermark ? {} : { applySignature: false }),
+          });
           blob = out.blob;
           width = out.width;
           height = out.height;
@@ -221,7 +238,7 @@ function UploadInner() {
     setPosting(false);
     setResult({ posted: done, failed });
     setStep('done');
-  }, [posting, items, frames, guestName, eventId]);
+  }, [posting, items, frames, guestName, eventId, watermark]);
 
   const reset = useCallback(() => {
     items.forEach((i) => URL.revokeObjectURL(i.srcUrl));
