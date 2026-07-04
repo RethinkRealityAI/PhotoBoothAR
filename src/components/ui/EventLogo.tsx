@@ -6,7 +6,7 @@
  * coded SVG/image lockup everywhere; otherwise the event's coded components
  * render. This lets a new event swap its logo without a code change.
  */
-import { activeEvent } from '../../events/active';
+import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 
 const WORDMARK_HEIGHT: Record<'sm' | 'md' | 'lg' | 'xl', number> = {
@@ -17,6 +17,7 @@ const WORDMARK_HEIGHT: Record<'sm' | 'md' | 'lg' | 'xl', number> = {
 };
 
 export function Wordmark({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' | 'xl' }) {
+  const { config } = useEvent();
   const logoUrl = useStore((s) => s.logoUrl);
   if (logoUrl) {
     return (
@@ -28,22 +29,24 @@ export function Wordmark({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' | 'xl' }) 
       />
     );
   }
-  const C = activeEvent.Wordmark;
+  const C = config.Wordmark;
   return <C size={size} />;
 }
 
 export function Mark() {
+  const { config } = useEvent();
   const logoUrl = useStore((s) => s.logoUrl);
   if (logoUrl) {
     return (
       <img src={logoUrl} alt="" className="object-contain select-none" style={{ height: 36, width: 'auto' }} />
     );
   }
-  const C = activeEvent.Mark;
+  const C = config.Mark;
   return <C />;
 }
 
 export function Emblem(props: { size?: number; className?: string }) {
+  const { config } = useEvent();
   const logoUrl = useStore((s) => s.logoUrl);
   if (logoUrl) {
     const size = props.size ?? 34;
@@ -56,6 +59,6 @@ export function Emblem(props: { size?: number; className?: string }) {
       />
     );
   }
-  const C = activeEvent.Emblem;
+  const C = config.Emblem;
   return <C {...props} />;
 }

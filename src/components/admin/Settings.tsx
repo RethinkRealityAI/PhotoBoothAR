@@ -10,15 +10,19 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   QrCode, Trophy, BarChart2, Info, ExternalLink, Copy, Check,
   Wifi, RefreshCw, Sparkles, Globe, User, Rows3, Timer, Gauge,
-  Megaphone, Save, Plus, Trash2, Wand2,
+  Megaphone, Save, Plus, Trash2, Wand2, Lock,
 } from 'lucide-react';
 import EventBackground from '../ui/EventBackground';
 import {
   getWallSettings, setWallSettings as dbSetWallSettings, subscribeToSettings,
-  getLandingContent, setLandingContent, DEFAULT_LANDING,
+  getLandingContent, setLandingContent, defaultLanding,
+  getUploadSettings, saveUploadSettings, type UploadSettings,
 } from '../../lib/db';
 import { buildCatalog } from '../../lib/catalog';
+import { sha256Hex } from '../../lib/hash';
 import { useStore } from '../../store';
+import { useEvent } from '../../events/EventContext';
+import { useStudioBase } from './studioBase';
 import type { WallSettings, LandingContent } from '../../types';
 import { inputCls, TextField, TextArea } from './fields';
 
@@ -165,8 +169,11 @@ function UrlRow({ label, url, icon }: { label: string; url: string; icon: React.
 /* ------------------------------------------------------------------ */
 
 export default function Settings() {
+  const { eventId, config, source, basePath } = useEvent();
+  const base = useStudioBase();
   const storeSet = useStore((s) => s.setWallSettings);
   const experiences = useStore((s) => s.experiences);
+  const linkedGlobals = useStore((s) => s.linkedGlobals);
   const fetchExperiences = useStore((s) => s.fetchExperiences);
   const presetOverrides = useStore((s) => s.presetOverrides);
   const fetchPresetOverrides = useStore((s) => s.fetchPresetOverrides);
@@ -175,7 +182,7 @@ export default function Settings() {
   useEffect(() => { fetchExperiences(true); fetchPresetOverrides(); }, [fetchExperiences, fetchPresetOverrides]);
 
   // Catalog grouped for the "default booth filter" picker
-  const catalog = useMemo(() => buildCatalog(experiences, presetOverrides), [experiences, presetOverrides]);
+  const catalog = useMemo(() => buildCatalog(config.arContent, experiences, presetOverrides, linkedGlobals), [config, experiences, presetOverrides, linkedGlobals]);
   const effects = catalog.filter((e) => e.kind === 'shader');
   const frames = catalog.filter((e) => e.kind === 'border' || e.kind === '2d_filter');
   const pieces3d = catalog.filter((e) => e.kind === '3d_attachment');
@@ -194,13 +201,13 @@ export default function Settings() {
   const unsubRef = useRef<(() => void) | null>(null);
 
   // ── Landing ("Join the Photo Booth") page content ──
-  const [landing, setLanding] = useState<LandingContent>(DEFAULT_LANDING);
+  const [landing, setLanding] = useState<LandingContent>(() => defaultLanding(config.copy));
   const [landingSaving, setLandingSaving] = useState(false);
   const [landingSaved, setLandingSaved] = useState(false);
 
   useEffect(() => {
-    getLandingContent().then(setLanding).catch(() => {});
-  }, []);
+    getLandingContent(eventId, config.copy).then(setLanding).catch(() => {});
+  }, [eventId, config]);
 
   const patchLanding = (patch: Partial<LandingContent>) => {
     setLanding((l) => ({ ...l, ...patch }));
@@ -214,7 +221,7 @@ export default function Settings() {
   const removeStep = (i: number) => { setLanding((l) => ({ ...l, steps: l.steps.filter((_, idx) => idx !== i) })); setLandingSaved(false); };
   const saveLanding = async () => {
     setLandingSaving(true);
-    await setLandingContent(landing);
+    await setLandingContent(eventId, landing);
     setLandingSaving(false);
     setLandingSaved(true);
     setTimeout(() => setLandingSaved(false), 2500);
@@ -222,17 +229,58 @@ export default function Settings() {
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
+  // ── Public upload passcode (runtime DB events only) ──
+  const isDbEvent = source === 'db';
+  const [uploadCfg, setUploadCfg] = useState<UploadSettings | null>(null);
+  const [uploadCfgLoaded, setUploadCfgLoaded] = useState(false);
+  const [uploadCode, setUploadCode] = useState('');
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadSaved, setUploadSaved] = useState(false);
+  const uploadsOpen = Boolean(uploadCfg?.passcodeHash);
+
+  useEffect(() => {
+    if (!isDbEvent) return;
+    let alive = true;
+    getUploadSettings(eventId).then((v) => {
+      if (!alive) return;
+      setUploadCfg(v);
+      setUploadCfgLoaded(true);
+    });
+    return () => { alive = false; };
+  }, [isDbEvent, eventId]);
+
+  const saveUploadPasscode = async () => {
+    const v = uploadCode.trim();
+    if (!v) return;
+    setUploadBusy(true);
+    // Raw passcode is never stored — only its sha256 hash.
+    const value: UploadSettings = { passcodeHash: await sha256Hex(v) };
+    await saveUploadSettings(eventId, value);
+    setUploadCfg(value);
+    setUploadCode('');
+    setUploadBusy(false);
+    setUploadSaved(true);
+    setTimeout(() => setUploadSaved(false), 2500);
+  };
+
+  const closeUploads = async () => {
+    setUploadBusy(true);
+    await saveUploadSettings(eventId, { passcodeHash: null });
+    setUploadCfg({ passcodeHash: null });
+    setUploadBusy(false);
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
-    const s = await getWallSettings();
+    const s = await getWallSettings(eventId);
     setSettings(s);
     storeSet(s);
     setLoading(false);
-  }, [storeSet]);
+  }, [eventId, storeSet]);
 
   useEffect(() => {
     load();
-    const unsub = subscribeToSettings((s) => {
+    const unsub = subscribeToSettings(eventId, (s) => {
       setConnected(true);
       setSettings(s);
       storeSet(s);
@@ -243,14 +291,14 @@ export default function Settings() {
       clearTimeout(tid);
       unsub();
     };
-  }, [load, storeSet]);
+  }, [eventId, load, storeSet]);
 
   const toggle = async (key: keyof WallSettings, value: boolean) => {
     const next = { ...settings, [key]: value };
     setSettings(next);          // optimistic
     storeSet(next);
     setBusy(true);
-    const saved = await dbSetWallSettings({ [key]: value });
+    const saved = await dbSetWallSettings(eventId, { [key]: value });
     setSettings(saved);
     storeSet(saved);
     setBusy(false);
@@ -261,7 +309,7 @@ export default function Settings() {
     setSettings(next);          // optimistic
     storeSet(next);
     setBusy(true);
-    const saved = await dbSetWallSettings({ [key]: value });
+    const saved = await dbSetWallSettings(eventId, { [key]: value });
     setSettings(saved);
     storeSet(saved);
     setBusy(false);
@@ -272,7 +320,7 @@ export default function Settings() {
     setSettings(next);          // optimistic
     storeSet(next);
     setBusy(true);
-    const saved = await dbSetWallSettings({ defaultExperienceId: value });
+    const saved = await dbSetWallSettings(eventId, { defaultExperienceId: value });
     setSettings(saved);
     storeSet(saved);
     setBusy(false);
@@ -443,7 +491,7 @@ export default function Settings() {
             <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 flex items-center gap-2">
               <Megaphone className="w-3.5 h-3.5" /> Join Page
             </h2>
-            <a href="/join" target="_blank" rel="noopener noreferrer" className="font-label text-[9px] uppercase tracking-widest text-champagne/40 hover:text-gold-300 flex items-center gap-1">
+            <a href={`${basePath}/join`} target="_blank" rel="noopener noreferrer" className="font-label text-[9px] uppercase tracking-widest text-champagne/40 hover:text-gold-300 flex items-center gap-1">
               <ExternalLink className="w-3 h-3" /> Preview
             </a>
           </div>
@@ -532,20 +580,76 @@ export default function Settings() {
             </div>
             <p className="font-sans text-[11px] text-champagne/40 pt-1">
               Edit the event name, onboarding and theme on the{' '}
-              <a href="/admin/branding" className="text-gold-300 hover:text-gold-200 underline">Branding</a> page.
+              <a href={`${base}/branding`} className="text-gold-300 hover:text-gold-200 underline">Branding</a> page.
             </p>
           </div>
         </section>
+
+        {/* Public upload passcode — runtime DB events only */}
+        {isDbEvent && (
+          <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
+            <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1 flex items-center gap-2">
+              <Lock className="w-3.5 h-3.5" /> Public Upload Passcode
+            </h2>
+            <p className="font-sans text-[11px] text-champagne/40 mb-4">
+              Controls the public <span className="font-mono text-gold-300/80 text-[11px]">{basePath}/upload</span> page.
+              Set a passcode to open uploads to guests with the code; close them to keep the doors shut.
+            </p>
+            {!uploadCfgLoaded ? (
+              <div className="h-14 glass rounded-xl animate-pulse" />
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`px-3 py-1.5 rounded-full text-[9px] font-label uppercase tracking-widest ${
+                      uploadsOpen ? 'bg-emerald-500/15 text-emerald-400' : 'bg-champagne/10 text-champagne/40'
+                    }`}
+                  >
+                    {uploadsOpen ? 'Open with passcode' : 'Closed'}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={uploadCode}
+                    onChange={(e) => setUploadCode(e.target.value)}
+                    placeholder={uploadsOpen ? 'New passcode…' : 'Set a passcode to open uploads…'}
+                    className={`flex-1 ${inputCls}`}
+                  />
+                  <button
+                    onClick={saveUploadPasscode}
+                    disabled={uploadBusy || !uploadCode.trim()}
+                    className="px-4 py-2 bg-foil text-noir-900 font-label uppercase tracking-widest text-[10px] font-bold rounded-xl glow-accent transition-all disabled:opacity-40 flex items-center gap-1.5"
+                  >
+                    {uploadSaved ? <><Check className="w-3.5 h-3.5" /> Saved</> : <><Save className="w-3.5 h-3.5" /> Save</>}
+                  </button>
+                </div>
+                {uploadsOpen && (
+                  <button
+                    onClick={closeUploads}
+                    disabled={uploadBusy}
+                    className="text-[10px] font-label uppercase tracking-widest text-champagne/40 hover:text-red-400 transition-colors disabled:opacity-40"
+                  >
+                    Close uploads
+                  </button>
+                )}
+                <p className="font-sans text-[10px] text-champagne/30">
+                  The passcode is stored as a hash and shown to no one — share it with guests yourself.
+                </p>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* URLs reference */}
         <section className="glass rounded-2xl border border-gold-400/15 p-6 animate-rise-in">
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-4">Event URLs</h2>
           <div>
-            <UrlRow label="Join Page (QR poster)" url={`${origin}/join`} icon={<Megaphone className="w-3.5 h-3.5" />} />
-            <UrlRow label="AR Photo Booth" url={`${origin}/`} icon={<Sparkles className="w-3.5 h-3.5" />} />
-            <UrlRow label="Live Wall" url={`${origin}/wall`} icon={<Globe className="w-3.5 h-3.5" />} />
-            <UrlRow label="My Media (guest)" url={`${origin}/me`} icon={<User className="w-3.5 h-3.5" />} />
-            <UrlRow label="Admin Studio" url={`${origin}/admin`} icon={<QrCode className="w-3.5 h-3.5" />} />
+            <UrlRow label="Join Page (QR poster)" url={`${origin}${basePath}/join`} icon={<Megaphone className="w-3.5 h-3.5" />} />
+            <UrlRow label="AR Photo Booth" url={`${origin}${basePath}/`} icon={<Sparkles className="w-3.5 h-3.5" />} />
+            <UrlRow label="Live Wall" url={`${origin}${basePath}/wall`} icon={<Globe className="w-3.5 h-3.5" />} />
+            <UrlRow label="My Media (guest)" url={`${origin}${basePath}/me`} icon={<User className="w-3.5 h-3.5" />} />
+            <UrlRow label="Admin Studio" url={`${origin}${base}`} icon={<QrCode className="w-3.5 h-3.5" />} />
           </div>
         </section>
 

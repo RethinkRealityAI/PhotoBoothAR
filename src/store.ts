@@ -7,9 +7,23 @@
 import { create } from 'zustand';
 import { Experience, Post, Challenge, WallSettings, LeaderboardEntry, PresetOverrides, BrandingOverrides } from './types';
 import * as db from './lib/db';
-import { activeEvent } from './events/active';
-import type { EventCopy } from './events/types';
+import { activeEvent, EVENT_ID } from './events/active';
+import type { EventConfig, EventCopy } from './events/types';
 import { mergeCopy, brandingCssVars, MANAGED_CSS_VARS } from './lib/branding';
+
+/** Set at build time on legacy single-event deploys — they never query the
+ *  global catalog, keeping their network behavior byte-identical. */
+const LEGACY_EVENT = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim();
+
+const DEFAULT_WALL_SETTINGS: WallSettings = {
+  showQR: false,
+  showLeaderboard: true,
+  showChallenges: true,
+  galleryScroll: false,
+  galleryScrollSpeed: 1,
+  slideshowInterval: 6,
+  defaultExperienceId: null,
+};
 
 /** Apply theme-color overrides to :root (no-op outside the browser). Clears any
  *  previously-applied inline overrides first so a reset/revert (fewer or no
@@ -23,8 +37,17 @@ function applyBrandingVars(b: BrandingOverrides) {
 }
 
 interface AppState {
+  // Active event (set by EventProvider; defaults to the build-time event so
+  // legacy VITE_EVENT builds behave exactly as before)
+  eventId: string;
+  eventConfig: EventConfig;
+  /** Re-key the store to an event: resets all per-event data + derived copy. */
+  setActiveEvent: (eventId: string, config: EventConfig) => void;
+
   // Experiences
   experiences: Experience[];
+  /** Beamwall-catalog experiences linked into this event (runtime mode only). */
+  linkedGlobals: Experience[];
   experiencesLoaded: boolean;
   fetchExperiences: (publishedOnly?: boolean) => Promise<void>;
 
@@ -69,11 +92,41 @@ interface AppState {
 }
 
 export const useStore = create<AppState>((set, get) => ({
+  eventId: EVENT_ID,
+  eventConfig: activeEvent,
+  setActiveEvent: (eventId, eventConfig) => {
+    if (get().eventId === eventId && get().eventConfig === eventConfig) return;
+    set({
+      eventId,
+      eventConfig,
+      experiences: [],
+      linkedGlobals: [],
+      experiencesLoaded: false,
+      currentFilter: null,
+      posts: [],
+      postsLoaded: false,
+      challenges: [],
+      challengesLoaded: false,
+      wallSettings: { ...DEFAULT_WALL_SETTINGS },
+      leaderboard: [],
+      presetOverrides: { hidden: [], order: [] },
+      copy: eventConfig.copy,
+      logoUrl: null,
+      branding: {},
+      brandingLoaded: false,
+    });
+  },
+
   experiences: [],
+  linkedGlobals: [],
   experiencesLoaded: false,
   fetchExperiences: async (publishedOnly = false) => {
-    const experiences = await db.fetchExperiences({ publishedOnly });
-    set({ experiences, experiencesLoaded: true });
+    const eventId = get().eventId;
+    const [experiences, linkedGlobals] = await Promise.all([
+      db.fetchExperiences(eventId, { publishedOnly }),
+      LEGACY_EVENT ? Promise.resolve<Experience[]>([]) : db.fetchLinkedGlobalExperiences(eventId),
+    ]);
+    set({ experiences, linkedGlobals, experiencesLoaded: true });
   },
 
   currentFilter: null,
@@ -82,7 +135,7 @@ export const useStore = create<AppState>((set, get) => ({
   posts: [],
   postsLoaded: false,
   fetchPosts: async (includeHidden = false) => {
-    const posts = await db.fetchPosts({ includeHidden });
+    const posts = await db.fetchPosts(get().eventId, { includeHidden });
     set({ posts, postsLoaded: true });
   },
   prependPost: (p) => {
@@ -96,26 +149,26 @@ export const useStore = create<AppState>((set, get) => ({
   challenges: [],
   challengesLoaded: false,
   fetchChallenges: async (activeOnly = false) => {
-    const challenges = await db.fetchChallenges({ activeOnly });
+    const challenges = await db.fetchChallenges(get().eventId, { activeOnly });
     set({ challenges, challengesLoaded: true });
   },
 
   wallSettings: { showQR: false, showLeaderboard: true, showChallenges: true, galleryScroll: false, galleryScrollSpeed: 1, slideshowInterval: 6, defaultExperienceId: null },
   fetchWallSettings: async () => {
-    const wallSettings = await db.getWallSettings();
+    const wallSettings = await db.getWallSettings(get().eventId);
     set({ wallSettings });
   },
   setWallSettings: (wallSettings) => set({ wallSettings }),
 
   leaderboard: [],
   fetchLeaderboard: async () => {
-    const leaderboard = await db.fetchLeaderboard();
+    const leaderboard = await db.fetchLeaderboard(get().eventId);
     set({ leaderboard });
   },
 
   presetOverrides: { hidden: [], order: [] },
   fetchPresetOverrides: async () => {
-    const presetOverrides = await db.getPresetOverrides();
+    const presetOverrides = await db.getPresetOverrides(get().eventId);
     set({ presetOverrides });
   },
   setPresetOverrides: (presetOverrides) => set({ presetOverrides }),
@@ -127,14 +180,14 @@ export const useStore = create<AppState>((set, get) => ({
   brandingLoaded: false,
   applyBranding: (branding) => {
     applyBrandingVars(branding);
-    const copy = mergeCopy(activeEvent.copy, branding);
+    const copy = mergeCopy(get().eventConfig.copy, branding);
     if (typeof document !== 'undefined') {
       document.title = `${copy.fullName} · Photo Booth`;
     }
     set({ branding, copy, logoUrl: branding.logoUrl ?? null });
   },
   fetchBranding: async () => {
-    const branding = await db.getBranding();
+    const branding = await db.getBranding(get().eventId);
     get().applyBranding(branding);
     set({ brandingLoaded: true });
   },

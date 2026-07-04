@@ -7,19 +7,19 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ChevronRight } from 'lucide-react';
 import { Art } from './OnboardingArt';
-import { activeEvent } from '../../events/active';
+import { useEvent } from '../../events/EventContext';
 import { Emblem } from '../ui/EventLogo';
 import { useStore } from '../../store';
 
-const ONBOARDED_KEY = `${activeEvent.id}.onboarded`;
-
 export function useOnboarding(): { showOnboarding: boolean; dismiss: () => void } {
+  const { eventId } = useEvent();
+  const onboardedKey = `${eventId}.onboarded`;
   const [showOnboarding] = useState(() => {
-    try { return !localStorage.getItem(ONBOARDED_KEY); } catch { return false; }
+    try { return !localStorage.getItem(onboardedKey); } catch { return false; }
   });
 
   function dismiss() {
-    try { localStorage.setItem(ONBOARDED_KEY, '1'); } catch { /* non-fatal */ }
+    try { localStorage.setItem(onboardedKey, '1'); } catch { /* non-fatal */ }
   }
 
   return { showOnboarding, dismiss };

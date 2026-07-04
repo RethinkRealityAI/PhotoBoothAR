@@ -1,94 +1,99 @@
-# Hope Gala 2026 — AR Photo Booth & Live Wall
+# Beamwall — the AR Event Platform
 
-An immersive, face-tracked AR photo-booth platform for the **SCAGO Hope Gala & Awards**
-(Sat June 13, 2026 · Renaissance by the Creek, Mississauga ON). Guests capture magical
-gold-themed photos with AR filters, shaders, frames and 3D head pieces, then beam them to a
-live photo wall projected throughout the night — and download their own photos afterward.
+A self-serve, multi-tenant SaaS for **augmented-reality photo booths, live photo
+walls, and animated keepsake cards** — built for weddings first, and any major
+event (galas, milestone birthdays, remote celebrations). Hosts sign up, spin up
+their own event page in minutes, design frames with AI, drop 3D props onto every
+guest, and send everyone home with a keepsake film.
 
-Built with Vite · React 19 · TypeScript · Tailwind v4 · Three.js (R3F) · MediaPipe
-FaceLandmarker · **Supabase** (Postgres + Storage + Realtime).
+Built with Vite · React 19 · TypeScript · Tailwind v4 · Three.js (R3F) ·
+MediaPipe FaceLandmarker · **Supabase** (Auth + Postgres/RLS + Storage +
+Realtime + Edge Functions) · Stripe · Gemini / Higgsfield / Meshy · HeyGen
+HyperFrames.
+
+> **Two things ship from this one repo:**
+> - **`main` → the Beamwall platform** (new Netlify site) — everything below.
+> - **`legacy-events` → the 3 original single-event sites** (galabooth /
+>   jennajake / theadetoyis). They are frozen on that branch and unaffected by
+>   platform work. See [docs/EVENTS.md](docs/EVENTS.md).
 
 ---
 
-## Quick links (the night of)
+## What it does (three connected products)
 
-| What | URL |
-|------|-----|
-| 🎟️ **Guest booth** (QR this) | `https://scago-hopegala-booth.netlify.app/` |
-| 🖼️ **Live wall** (projector, use "Project" mode) | `https://scago-hopegala-booth.netlify.app/wall` |
-| 📥 **Get your photos** (guests) | `https://scago-hopegala-booth.netlify.app/me` |
-| 🛠️ **Studio / admin** (passcode `hopegala2026`) | `https://scago-hopegala-booth.netlify.app/admin` |
-
-> The booth needs **camera access**, which requires **HTTPS** — always use the Netlify URL
-> on phones (localhost is fine for dev). On the projector, open `/wall` and tap **Project**
-> for full-screen, chrome-free slideshow.
+1. **AR Photo Booth + Live Wall** — guests scan a QR, open a browser AR booth
+   (no app download), and pose with face-tracked frames, shaders and 3D props;
+   photos/videos beam live onto a projected wall.
+2. **AI Event Studio** — the host uploads frame art *or* generates it from a
+   prompt (Gemini default / Higgsfield premium), and picks 3D props from a
+   curated library *or* generates them (Meshy image/text → GLB, auto face-anchored).
+3. **Greeting Cards / Video Guestbook** — guests' captures + remote video
+   messages compile into a beautiful animated web card, emailed to the celebrant;
+   Deluxe events also get a rendered MP4 keepsake film (HeyGen HyperFrames).
 
 ## Routes
 
-- `/` , `/booth` — guest photo booth (Look + Filter pickers, capture, send-off animation)
-- `/experience/:id` — booth pre-loaded with a specific published experience (QR per filter)
-- `/wall` — projected live wall: **Gallery** (mosaic), **Slideshow**, **Project** (kiosk)
-- `/upload` — passcode-gated guest upload: bulk drag-and-drop photos/videos, wrap images in any
-  frame (pan/zoom crop), add name + message, post to the wall
-- `/me` , `/gallery` — a guest's own photos (persists on their device), download / share
-- `/admin` — studio dashboard (passcode-gated)
-  - `/admin/library` — manage & publish experiences, QR codes, duplicate/delete
-  - `/admin/creator` — author 2D stickers, borders & shader looks (drag-to-place on live feed)
-  - `/admin/creator3d` — place 3D models on head anchor points with live WYSIWYG preview
-  - `/admin/moderation` — show/hide/delete posts on the wall in real time
+| Area | Route | Notes |
+|------|-------|-------|
+| Marketing / auth | `/`, `/login`, `/signup` | platform landing + Supabase Auth |
+| Host dashboard | `/host`, `/host/new`, `/host/billing` | events, wizard, credits/plans |
+| Event studio | `/host/events/:id/*` | the 10 studio screens (branding, library, creator 2D/3D, moderation, challenges, settings, manager access…), gated by org membership |
+| Guest (per event) | `/e/:slug` → `/booth` `/wall` `/me` `/upload` `/experience/:id` | runtime-resolved tenant |
+| Greeting card | `/c/:publicId`, `/c/:publicId/contribute?t=` | public viewer + token-gated contribution |
+| Day-of staff | `/m/:slug` | PIN/link manager console (moderation + wall settings) |
 
 ## Run locally
 
 ```bash
 npm install
-cp .env.example .env.local   # then fill in the values (see below)
+cp .env.example .env.local   # fill VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
 npm run dev                  # http://localhost:5180
 ```
 
-## Environment (`.env.local`)
-
-```
-VITE_SUPABASE_URL=https://zrtftliozslrjomxbfrr.supabase.co
-VITE_SUPABASE_ANON_KEY=<anon/publishable key>
-VITE_ADMIN_PASSCODE=hopegala2026
-VITE_UPLOAD_PASSCODE=          # passcode for the /upload page (falls back to VITE_ADMIN_PASSCODE)
-VITE_GEMINI_API_KEY=            # optional — enables "AI Generate" in the 2D studio
-```
-
-`VITE_*` vars are inlined at **build** time. Change the admin passcode before the event and
-rebuild. The Supabase anon key is meant to be public.
-
-## Deploy
-
-The static build deploys to Netlify (site `scago-hopegala-booth`, already linked):
-
-```bash
-npm run build                       # outputs dist/
-netlify deploy --prod --dir=dist    # promote to https://scago-hopegala-booth.netlify.app
-```
-
-Use `netlify deploy --dir=dist` (no `--prod`) for a throwaway preview URL first.
+Platform build uses **no `VITE_EVENT`** (so `/` is the marketing/login page).
+Legacy single-event builds set `VITE_EVENT=<slug>` and render exactly as before.
 
 ## Architecture
 
-- **Data layer** — all backend I/O goes through `src/lib/db.ts` (experiences, posts, realtime,
-  storage). State in `src/store.ts` (zustand). Guest "my photos" persistence in `src/lib/session.ts`.
-- **Face AR** — `src/lib/faceRig.ts` (named head anchors + head-pose math) and
-  `src/components/ar/FaceRig.tsx` (`<FaceRig>`, `<Model>`), shared by the booth and the 3D
-  editor so placement is true WYSIWYG. Engine: MediaPipe FaceLandmarker.
-- **Shaders** — `src/lib/shaders.ts`: a WebGL `ShaderRunner` + 7 gala color grades (Golden
-  Hour, Soft Glam, Noir & Gold, Champagne Bloom, Gilded Duotone, Cinéma, Sparkle). Live + capture.
-- **Borders/overlays** — `src/lib/borders.ts`: curated gold SVG frames (incl. a hexagon motif
-  from the invitation) and sparkle/confetti overlays.
-- **Catalog** — `src/lib/catalog.ts` merges built-in filters (always available) with custom
-  studio experiences from Supabase.
-- **Theme** — `src/index.css`: champagne-gold / ivory / warm-noir tokens, gold-foil text,
-  glass, bokeh dust. Shared UI in `src/components/ui/`.
+- **Multi-tenant data** — Supabase Postgres with real RLS. `orgs → events`
+  tenancy; `event_id` (= `events.slug`) partitions the existing content tables.
+  Migrations are checked in under `supabase/migrations/` (001–008) and mirror
+  what's applied to the live project. The three legacy slugs keep working via
+  **grandfather RLS policies**.
+- **Runtime tenancy** — `src/events/runtime.ts` + `EventContext.tsx` resolve an
+  event by slug at runtime (replacing the old build-time `VITE_EVENT`). The
+  single data-access chokepoint `src/lib/db.ts` takes an explicit `eventId`.
+- **Server layer** — Supabase Edge Functions under `supabase/functions/`:
+  `submit-post` · `create-event` · `manager-api` · `stripe-checkout`/`-portal`/
+  `-webhook` · `ai-generate-image` · `ai-generate-3d` · `ai-job-status` ·
+  `card-contribute`/`-view`/`-publish` · `card-render`/`-render-status`. All AI
+  and payment keys live here, never in the client.
+- **Billing & credits** — Stripe (per-event packages + Pro subscription + credit
+  packs); atomic `spend_credits`/`grant_credits`; entitlements in
+  `src/lib/entitlements.ts` gate features client-side and are **re-checked
+  server-side** in every function.
+- **Face AR / booth / wall** — unchanged from the original app
+  (`src/lib/faceRig.ts`, `src/components/ar/*`, `src/components/booth/*`,
+  `src/components/Wall.tsx`); MediaPipe FaceLandmarker + R3F + WebGL shaders.
 
-See `docs/FOUNDATION.md` for the full internal API.
+The full productization strategy is in
+[`docs/superpowers/specs/2026-07-03-saas-platform-strategy.md`](docs/superpowers/specs/2026-07-03-saas-platform-strategy.md);
+per-phase audit trail is in [`docs/superpowers/audits/`](docs/superpowers/audits/).
+
+## Deploying / going live
+
+The platform ships **safe-by-default**: every integration degrades gracefully
+until its key is set (billing → "setup pending", AI → `ai_not_configured`, card
+email → `email_not_configured`, film render → `render_not_configured`). The full
+operator runbook — Netlify sites, Supabase function secrets, Stripe/Google/
+Resend/HeyGen setup — is in
+**[`docs/DEPLOYMENT-CHECKLIST.md`](docs/DEPLOYMENT-CHECKLIST.md)**.
 
 ## Backend (Supabase `zrtftliozslrjomxbfrr`)
 
-- Tables: `experiences`, `posts`. Buckets: `posts`, `assets` (public). Realtime on both tables.
-- **Security note:** ships with permissive anon RLS + a client-side admin passcode for the
-  single-night event. Harden with Supabase Auth afterward.
+Tables: `orgs`, `org_members`, `profiles`, `events`, `experiences`, `posts`,
+`challenges`, `app_settings`, `event_catalog_links`, `event_plans`,
+`subscriptions`, `credit_balances`, `credit_ledger`, `ai_jobs`,
+`event_access_tokens`, `cards`, `card_contributions`, `card_renders`, +
+idempotency/quota helpers. Buckets: `posts`, `assets` (public), `cards`,
+`renders` (private). RLS verified by `supabase/tests/rls-probes.sql`.

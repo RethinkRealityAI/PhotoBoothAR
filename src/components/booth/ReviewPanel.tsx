@@ -9,7 +9,7 @@ import { Download, Share2, RefreshCw, Send, Upload } from 'lucide-react';
 import { GalleryIcon, MediaStackIcon } from '../ui/MediaIcons';
 import { getGuestName } from '../../lib/session';
 import { Challenge } from '../../types';
-import { activeEvent } from '../../events/active';
+import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 
 interface Props {
@@ -26,8 +26,9 @@ export default function ReviewPanel({
   dataUrl, mediaType = 'image', durationMs,
   onRetake, onSend, sending, selectedChallenge,
 }: Props) {
+  const { eventId, config } = useEvent();
   const copy = useStore((s) => s.copy);
-  const [guestName, setGuestName] = useState(() => getGuestName());
+  const [guestName, setGuestName] = useState(() => getGuestName(eventId));
   const [message, setMessage] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -49,7 +50,7 @@ export default function ReviewPanel({
   async function resolveFile(): Promise<{ blob: Blob; filename: string }> {
     const blob = await (await fetch(dataUrl)).blob();
     const ext = mediaType === 'video' ? extFromMime(blob.type) : 'jpg';
-    return { blob, filename: `${activeEvent.copy.filePrefix}-${Date.now()}.${ext}` };
+    return { blob, filename: `${config.copy.filePrefix}-${Date.now()}.${ext}` };
   }
 
   async function handleDownload() {

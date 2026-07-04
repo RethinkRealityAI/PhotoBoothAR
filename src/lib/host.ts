@@ -1,0 +1,385 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Typed data helpers for the host platform (/host): orgs, events, credits and
+ * day-of manager access tokens. Everything runs on the shared session-authed
+ * supabase client — RLS scopes every query to the signed-in member.
+ */
+import { FunctionsHttpError } from '@supabase/supabase-js';
+import { supabase } from './supabase';
+import { sha256Hex } from './hash';
+
+/* ------------------------------------------------------------------ */
+/* Orgs & credits                                                      */
+/* ------------------------------------------------------------------ */
+
+export interface HostOrg {
+  orgId: string;
+  name: string;
+  role: 'owner' | 'editor';
+}
+
+/** The caller's org membership (first one; Phase 2a assumes a single org). */
+export async function fetchMyOrg(): Promise<HostOrg | null> {
+  const { data, error } = await supabase
+    .from('org_members')
+    .select('role, orgs(id, name)')
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) {
+    if (error) console.error('[host] fetchMyOrg', error);
+    return null;
+  }
+  const org = (Array.isArray(data.orgs) ? data.orgs[0] : data.orgs) as { id: string; name: string } | null;
+  if (!org) return null;
+  return { orgId: org.id, name: org.name, role: data.role as 'owner' | 'editor' };
+}
+
+export async function fetchCreditBalance(orgId: string): Promise<number | null> {
+  const { data, error } = await supabase
+    .from('credit_balances')
+    .select('balance')
+    .eq('org_id', orgId)
+    .maybeSingle();
+  if (error || !data) {
+    if (error) console.error('[host] fetchCreditBalance', error);
+    return null;
+  }
+  return (data.balance as number) ?? null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Billing (subscriptions, ledger, Stripe sessions)                    */
+/* ------------------------------------------------------------------ */
+
+export interface SubscriptionRow {
+  org_id: string;
+  stripe_subscription_id: string | null;
+  status: string;
+  tier: string;
+  current_period_end: string | null;
+}
+
+/** The org's Pro subscription row (RLS: members only). Null if none. */
+export async function fetchSubscription(orgId: string): Promise<SubscriptionRow | null> {
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .select('org_id, stripe_subscription_id, status, tier, current_period_end')
+    .eq('org_id', orgId)
+    .maybeSingle();
+  if (error || !data) {
+    if (error) console.error('[host] fetchSubscription', error);
+    return null;
+  }
+  return data as SubscriptionRow;
+}
+
+export interface LedgerRow {
+  id: number;
+  delta: number;
+  reason: string;
+  ref: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export async function fetchLedger(orgId: string, limit = 20): Promise<LedgerRow[]> {
+  const { data, error } = await supabase
+    .from('credit_ledger')
+    .select('id, delta, reason, ref, created_at')
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error('[host] fetchLedger', error);
+    return [];
+  }
+  return (data as LedgerRow[]) ?? [];
+}
+
+/**
+ * Does the given EVENT's org have an active Pro subscription, from the viewer's
+ * perspective? Scoped to the event's org (not the viewer's own): RLS on
+ * `subscriptions` only returns rows for orgs the viewer is a member of, so a
+ * guest — or a signed-in member of a DIFFERENT org — always resolves false.
+ * This keeps the Pro entitlement floor on the viewer's OWN events and never
+ * leaks it onto another org's event (e.g. dropping the watermark on a foreign
+ * booth). Cached per event-uuid for the page load.
+ */
+const proFlagByEvent = new Map<string, Promise<boolean>>();
+export function eventOrgHasActivePro(eventUuid: string): Promise<boolean> {
+  let p = proFlagByEvent.get(eventUuid);
+  if (!p) {
+    p = (async () => {
+      try {
+        const { data: ev, error: evErr } = await supabase
+          .from('events').select('org_id').eq('id', eventUuid).maybeSingle();
+        if (evErr || !ev?.org_id) return false;
+        const { data, error } = await supabase
+          .from('subscriptions')
+          .select('org_id')
+          .eq('org_id', ev.org_id as string)
+          .eq('status', 'active')
+          .maybeSingle();
+        if (error) return false;
+        return Boolean(data);
+      } catch {
+        return false;
+      }
+    })();
+    proFlagByEvent.set(eventUuid, p);
+  }
+  return p;
+}
+/** Drop the cached Pro flags (e.g. right after returning from checkout). */
+export function invalidateProSubscriptionCache(): void {
+  proFlagByEvent.clear();
+}
+
+export type CheckoutBody =
+  | { kind: 'event_package'; tier: 'essentials' | 'premium' | 'deluxe'; eventUuid: string; returnUrl: string }
+  | { kind: 'credit_pack'; pack: '50' | '120' | '300'; returnUrl: string }
+  | { kind: 'pro_subscription'; returnUrl: string };
+
+export interface BillingSessionResult {
+  /** Stripe-hosted URL to redirect to; null on error. */
+  url: string | null;
+  /** 'billing_not_configured' while Stripe keys are pending, else edge-fn error code. */
+  error: string | null;
+}
+
+async function invokeBillingFn(name: string, body: Record<string, unknown>): Promise<BillingSessionResult> {
+  try {
+    const { data, error } = await supabase.functions.invoke(name, { body });
+    if (error) {
+      if (error instanceof FunctionsHttpError) {
+        try {
+          const res = (await error.context.json()) as { error?: string };
+          return { url: null, error: res.error ?? 'internal' };
+        } catch {
+          return { url: null, error: 'internal' };
+        }
+      }
+      return { url: null, error: 'network' };
+    }
+    const res = (data ?? {}) as { url?: string };
+    return res.url ? { url: res.url, error: null } : { url: null, error: 'internal' };
+  } catch (e) {
+    console.error(`[host] ${name}`, e);
+    return { url: null, error: 'network' };
+  }
+}
+
+/** Create a Stripe Checkout session; redirect the browser to `url`. */
+export function startCheckout(body: CheckoutBody): Promise<BillingSessionResult> {
+  return invokeBillingFn('stripe-checkout', body as unknown as Record<string, unknown>);
+}
+
+/** Create a Stripe billing-portal session for the org's customer. */
+export function openPortal(returnUrl?: string): Promise<BillingSessionResult> {
+  return invokeBillingFn('stripe-portal', {
+    returnUrl: returnUrl ?? (typeof window !== 'undefined' ? window.location.href : ''),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Events                                                              */
+/* ------------------------------------------------------------------ */
+
+export interface HostEventRow {
+  id: string;
+  slug: string;
+  name: string;
+  event_type: string;
+  status: 'draft' | 'live' | 'ended' | 'archived' | string;
+  plan_tier: string;
+  created_at: string;
+  config: Record<string, unknown> | null;
+}
+
+/** Every event the member can see (RLS: their org's, incl. drafts). */
+export async function fetchMyEvents(): Promise<HostEventRow[]> {
+  const { data, error } = await supabase
+    .from('events')
+    .select('id, slug, name, event_type, status, plan_tier, created_at, config')
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.error('[host] fetchMyEvents', error);
+    return [];
+  }
+  return (data as HostEventRow[]) ?? [];
+}
+
+export interface CreateEventInput {
+  orgName?: string;
+  eventName: string;
+  slug: string;
+  eventType?: string;
+  startsAt?: string;
+}
+
+export type CreateEventError =
+  | 'invalid_json'
+  | 'invalid_body'
+  | 'invalid_slug'
+  | 'reserved_slug'
+  | 'unauthorized'
+  | 'slug_taken'
+  | 'internal'
+  | 'network';
+
+export interface CreateEventResult {
+  event: HostEventRow | null;
+  orgId: string | null;
+  error: CreateEventError | null;
+}
+
+/**
+ * Create an event via the create-event edge function.
+ * `functions.invoke` attaches the user JWT automatically; on a non-2xx the
+ * function's `{ error }` body is surfaced via err.context.
+ */
+export async function createEvent(input: CreateEventInput): Promise<CreateEventResult> {
+  try {
+    const { data, error } = await supabase.functions.invoke('create-event', { body: input });
+    if (error) {
+      if (error instanceof FunctionsHttpError) {
+        try {
+          const body = (await error.context.json()) as { error?: string };
+          return { event: null, orgId: null, error: (body.error as CreateEventError) ?? 'internal' };
+        } catch {
+          return { event: null, orgId: null, error: 'internal' };
+        }
+      }
+      return { event: null, orgId: null, error: 'network' };
+    }
+    const res = (data ?? {}) as { event?: HostEventRow; orgId?: string };
+    if (!res.event) return { event: null, orgId: null, error: 'internal' };
+    return { event: res.event, orgId: res.orgId ?? null, error: null };
+  } catch (e) {
+    console.error('[host] createEvent', e);
+    return { event: null, orgId: null, error: 'network' };
+  }
+}
+
+/**
+ * Shallow-merge a patch into events.config (jsonb) for a DB event.
+ * Fetches the current config, merges, and writes it back — member RLS allows
+ * both steps. Note: read-merge-write, so concurrent editors can race; fine for
+ * the low-frequency admin settings stored here (e.g. background_template).
+ */
+export async function updateEventConfig(
+  eventUuid: string,
+  patch: Record<string, unknown>,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('events')
+    .select('config')
+    .eq('id', eventUuid)
+    .maybeSingle();
+  if (error || !data) {
+    console.error('[host] updateEventConfig (read)', error);
+    return false;
+  }
+  const current = (data.config ?? {}) as Record<string, unknown>;
+  const merged = { ...current, ...patch };
+  const { error: writeError } = await supabase
+    .from('events')
+    .update({ config: merged })
+    .eq('id', eventUuid);
+  if (writeError) {
+    console.error('[host] updateEventConfig (write)', writeError);
+    return false;
+  }
+  return true;
+}
+
+export async function updateEventStatus(eventUuid: string, status: string): Promise<boolean> {
+  const { error } = await supabase.from('events').update({ status }).eq('id', eventUuid);
+  if (error) {
+    console.error('[host] updateEventStatus', error);
+    return false;
+  }
+  return true;
+}
+
+/** Client-side availability hint for the wizard. RLS hides other orgs' drafts,
+ *  so a "free" answer here isn't final — the server has the last word. */
+export async function isSlugVisiblyTaken(slug: string): Promise<boolean> {
+  const { data, error } = await supabase.from('events').select('id').eq('slug', slug).maybeSingle();
+  if (error) return false;
+  return Boolean(data);
+}
+
+/* ------------------------------------------------------------------ */
+/* Manager access tokens (day-of staff)                                */
+/* ------------------------------------------------------------------ */
+
+export interface ManagerTokenRow {
+  id: string;
+  label: string | null;
+  created_at: string;
+  expires_at: string | null;
+}
+
+const TOKEN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const TOKEN_LENGTH = 24;
+
+function randomToken(): string {
+  const bytes = new Uint8Array(TOKEN_LENGTH);
+  crypto.getRandomValues(bytes);
+  let out = '';
+  for (const b of bytes) out += TOKEN_ALPHABET[b % TOKEN_ALPHABET.length];
+  return out;
+}
+
+/**
+ * Mint a manager token for an event. The RAW token is returned exactly once
+ * and never stored — only its sha256 hash lands in event_access_tokens.
+ */
+export async function createManagerToken(
+  eventUuid: string,
+  label: string,
+  expiresAt?: string,
+): Promise<{ raw: string; row: ManagerTokenRow } | null> {
+  const raw = randomToken();
+  const token_hash = await sha256Hex(raw);
+  const { data, error } = await supabase
+    .from('event_access_tokens')
+    .insert({
+      event_id: eventUuid,
+      token_hash,
+      role: 'manager',
+      label: label.trim() || null,
+      expires_at: expiresAt ?? null,
+    })
+    .select('id, label, created_at, expires_at')
+    .single();
+  if (error || !data) {
+    console.error('[host] createManagerToken', error);
+    return null;
+  }
+  return { raw, row: data as ManagerTokenRow };
+}
+
+export async function listManagerTokens(eventUuid: string): Promise<ManagerTokenRow[]> {
+  const { data, error } = await supabase
+    .from('event_access_tokens')
+    .select('id, label, created_at, expires_at')
+    .eq('event_id', eventUuid)
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.error('[host] listManagerTokens', error);
+    return [];
+  }
+  return (data as ManagerTokenRow[]) ?? [];
+}
+
+export async function revokeManagerToken(id: string): Promise<boolean> {
+  const { error } = await supabase.from('event_access_tokens').delete().eq('id', id);
+  if (error) {
+    console.error('[host] revokeManagerToken', error);
+    return false;
+  }
+  return true;
+}

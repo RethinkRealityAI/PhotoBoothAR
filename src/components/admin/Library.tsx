@@ -10,17 +10,20 @@ import { useNavigate } from 'react-router-dom';
 import {
   Pencil, Copy, Trash2, Eye, EyeOff, Star, StarOff,
   QrCode, RefreshCw, Plus, ExternalLink, Check, X,
-  ArrowUp, ArrowDown, Sparkles, Box
+  ArrowUp, ArrowDown, Sparkles, Box, Globe, Minus
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import EventBackground from '../ui/EventBackground';
 import {
   fetchExperiences, createExperience, updateExperience, deleteExperience,
   getPresetOverrides, setPresetOverrides,
+  fetchGlobalExperiences, fetchCatalogLinks, linkCatalogItem, unlinkCatalogItem,
 } from '../../lib/db';
 import { builtinExperiences } from '../../lib/catalog';
 import { SHADER_MAP } from '../../lib/shaders';
 import { toDataUrl } from '../../lib/borders';
+import { useEvent } from '../../events/EventContext';
+import { useStudioBase } from './studioBase';
 import type { Experience, PresetOverrides } from '../../types';
 
 /* ------------------------------------------------------------------ */
@@ -84,7 +87,8 @@ function ExperienceThumbnail({ exp }: { exp: Experience }) {
 /* ------------------------------------------------------------------ */
 
 function QRModal({ exp, onClose }: { exp: Experience; onClose: () => void }) {
-  const url = `${window.location.origin}/experience/${exp.id}`;
+  const { basePath } = useEvent();
+  const url = `${window.location.origin}${basePath}/experience/${exp.id}`;
   const [copied, setCopied] = useState(false);
   const copy = () => {
     navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
@@ -140,6 +144,8 @@ function ExperienceCard({
   onToggleHide, onMoveUp, onMoveDown, canMoveUp, canMoveDown,
 }: CardProps) {
   const navigate = useNavigate();
+  const base = useStudioBase();
+  const { eventId } = useEvent();
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { label, color } = kindLabel(exp.kind);
@@ -147,7 +153,7 @@ function ExperienceCard({
   const toggle = async (field: 'is_published' | 'featured', current: boolean) => {
     if (isBuiltin) return;
     setBusy(true);
-    await updateExperience(exp.id, { [field]: !current });
+    await updateExperience(eventId, exp.id, { [field]: !current });
     onRefresh();
     setBusy(false);
   };
@@ -165,7 +171,7 @@ function ExperienceCard({
 
   const duplicate = async () => {
     setBusy(true);
-    await createExperience({ ...draftFrom(' copy'), is_published: false });
+    await createExperience(eventId, { ...draftFrom(' copy'), is_published: false });
     onRefresh();
     setBusy(false);
   };
@@ -173,20 +179,20 @@ function ExperienceCard({
   // Built-in "Edit": clone the preset into an editable DB row, then open its editor.
   const editBuiltin = async () => {
     setBusy(true);
-    const created = await createExperience(draftFrom());
+    const created = await createExperience(eventId, draftFrom());
     setBusy(false);
-    if (created) navigate(created.kind === '3d_attachment' ? `/admin/creator3d?id=${created.id}` : `/admin/creator?id=${created.id}`);
+    if (created) navigate(created.kind === '3d_attachment' ? `${base}/creator3d?id=${created.id}` : `${base}/creator?id=${created.id}`);
   };
 
   const remove = async () => {
     if (!confirmDelete) { setConfirmDelete(true); return; }
     setBusy(true);
-    await deleteExperience(exp.id);
+    await deleteExperience(eventId, exp.id);
     onRefresh();
     setBusy(false);
   };
 
-  const edit = () => navigate(exp.kind === '3d_attachment' ? `/admin/creator3d?id=${exp.id}` : `/admin/creator?id=${exp.id}`);
+  const edit = () => navigate(exp.kind === '3d_attachment' ? `${base}/creator3d?id=${exp.id}` : `${base}/creator?id=${exp.id}`);
 
   const reorder = (onMoveUp || onMoveDown);
 
@@ -350,31 +356,73 @@ function ExperienceCard({
 
 export default function Library() {
   const navigate = useNavigate();
+  const base = useStudioBase();
+  const { eventId, config, source } = useEvent();
   const [dbExps, setDbExps] = useState<Experience[]>([]);
   const [overrides, setOverrides] = useState<PresetOverrides>({ hidden: [], order: [] });
   const [loading, setLoading] = useState(true);
   const [qrTarget, setQrTarget] = useState<Experience | null>(null);
 
+  // Beamwall global catalog (runtime DB events only — hidden on legacy/coded)
+  const showCatalog = source === 'db';
+  const [globals, setGlobals] = useState<Experience[]>([]);
+  const [linkedIds, setLinkedIds] = useState<Set<string>>(new Set());
+  const [catalogLoading, setCatalogLoading] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
-    const [data, ov] = await Promise.all([fetchExperiences(), getPresetOverrides()]);
+    const [data, ov] = await Promise.all([fetchExperiences(eventId), getPresetOverrides(eventId)]);
     setDbExps(data);
     setOverrides(ov);
     setLoading(false);
-  }, []);
+  }, [eventId]);
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (!showCatalog) return;
+    let alive = true;
+    setCatalogLoading(true);
+    Promise.all([fetchGlobalExperiences(), fetchCatalogLinks(eventId)]).then(([g, ids]) => {
+      if (!alive) return;
+      setGlobals(g);
+      setLinkedIds(new Set(ids));
+      setCatalogLoading(false);
+    });
+    return () => { alive = false; };
+  }, [showCatalog, eventId]);
+
+  const toggleCatalogLink = async (exp: Experience) => {
+    const linked = linkedIds.has(exp.id);
+    // optimistic
+    setLinkedIds((prev) => {
+      const next = new Set(prev);
+      if (linked) next.delete(exp.id); else next.add(exp.id);
+      return next;
+    });
+    const ok = linked
+      ? await unlinkCatalogItem(eventId, exp.id)
+      : await linkCatalogItem(eventId, exp.id);
+    if (!ok) {
+      // revert on failure
+      setLinkedIds((prev) => {
+        const next = new Set(prev);
+        if (linked) next.add(exp.id); else next.delete(exp.id);
+        return next;
+      });
+    }
+  };
+
   // Built-in presets in the admin's chosen order
   const presets = useMemo(() => {
-    const all = builtinExperiences();
+    const all = builtinExperiences(config.arContent);
     const rank = new Map(overrides.order.map((id, i) => [id, i]));
     return [...all].sort((a, b) => {
       const ra = rank.has(a.id) ? rank.get(a.id)! : 1e6 + a.sort_order;
       const rb = rank.has(b.id) ? rank.get(b.id)! : 1e6 + b.sort_order;
       return ra - rb;
     });
-  }, [overrides.order]);
+  }, [config, overrides.order]);
 
   const hiddenSet = useMemo(() => new Set(overrides.hidden), [overrides.hidden]);
   const dbSorted = useMemo(() => [...dbExps].sort((a, b) => a.sort_order - b.sort_order), [dbExps]);
@@ -382,7 +430,7 @@ export default function Library() {
   const persistOverrides = async (patch: Partial<PresetOverrides>) => {
     const next = { ...overrides, ...patch };
     setOverrides(next);
-    await setPresetOverrides(next);
+    await setPresetOverrides(eventId, next);
   };
 
   const toggleHide = (id: string) => {
@@ -411,8 +459,8 @@ export default function Library() {
     const ao = a.sort_order || (i + 1);
     const bo = b.sort_order || (j + 1);
     await Promise.all([
-      updateExperience(a.id, { sort_order: bo }),
-      updateExperience(b.id, { sort_order: ao }),
+      updateExperience(eventId, a.id, { sort_order: bo }),
+      updateExperience(eventId, b.id, { sort_order: ao }),
     ]);
     load();
   };
@@ -442,7 +490,7 @@ export default function Library() {
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
-              onClick={() => navigate('/admin/creator')}
+              onClick={() => navigate(`${base}/creator`)}
               className="flex items-center gap-2 px-4 py-2 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent hover:scale-[1.02] transition-transform"
             >
               <Plus className="w-4 h-4" /> New
@@ -465,12 +513,21 @@ export default function Library() {
             <div className="glass rounded-2xl border border-gold-400/10 p-12 text-center">
               <p className="font-serif italic text-2xl text-foil-static mb-2">No experiences yet</p>
               <p className="font-sans text-sm text-champagne/40 mb-6">Create your first 2D, border, or shader experience below.</p>
-              <button
-                onClick={() => navigate('/admin/creator')}
-                className="px-6 py-3 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent"
-              >
-                Create First Experience
-              </button>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  onClick={() => navigate(`${base}/creator`)}
+                  className="px-6 py-3 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent"
+                >
+                  Create First Experience
+                </button>
+                <button
+                  onClick={() => navigate(`${base}/creator`)}
+                  title="Open the creator — the AI Generate panel lives in its left column"
+                  className="flex items-center gap-1.5 px-5 py-3 glass rounded-xl text-xs font-label uppercase tracking-widest text-champagne/60 hover:text-gold-300 transition-colors"
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> Generate with AI
+                </button>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -516,6 +573,73 @@ export default function Library() {
             ))}
           </div>
         </section>
+
+        {/* Beamwall global catalog — runtime DB events only */}
+        {showCatalog && (
+          <section>
+            <h2 className="font-label uppercase tracking-luxe text-[10px] text-champagne/50 mb-2">
+              Beamwall Catalog ({globals.length})
+            </h2>
+            <p className="font-sans text-[11px] text-champagne/35 mb-4">
+              Curated experiences from the Beamwall library — add them to this event's booth.
+            </p>
+            {catalogLoading ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="h-48 glass rounded-2xl border border-gold-400/10 animate-pulse" />
+                ))}
+              </div>
+            ) : globals.length === 0 ? (
+              <div className="glass rounded-2xl border border-gold-400/10 p-8 text-center">
+                <p className="font-sans text-sm text-champagne/40">
+                  Nothing in the shared catalog yet — check back soon.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {globals.map((exp) => {
+                  const linked = linkedIds.has(exp.id);
+                  const { label, color } = kindLabel(exp.kind);
+                  return (
+                    <div
+                      key={exp.id}
+                      className={`group relative rounded-2xl border transition-all duration-200 overflow-hidden flex flex-col ${
+                        linked ? 'border-gold-400/25 glass' : 'border-white/8 bg-noir-800/25'
+                      }`}
+                    >
+                      <div className="relative h-36 bg-noir-900/60">
+                        <ExperienceThumbnail exp={exp} />
+                        <div className="absolute top-2 left-2 flex items-center gap-1 bg-noir-900/70 backdrop-blur px-2 py-0.5 rounded-full">
+                          <Globe className="w-3 h-3 text-gold-300" />
+                          <span className="font-label text-[8px] uppercase tracking-widest text-gold-300">Catalog</span>
+                        </div>
+                      </div>
+                      <div className="p-3 flex flex-col gap-2 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-sans text-xs text-ivory leading-tight font-medium line-clamp-2">{exp.name}</p>
+                          <span className={`shrink-0 text-[8px] font-label uppercase tracking-widest px-1.5 py-0.5 rounded-full ${color}`}>
+                            {label}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => toggleCatalogLink(exp)}
+                          className={`mt-auto flex items-center justify-center gap-1 py-1.5 rounded-lg text-[9px] font-label uppercase tracking-widest transition-colors ${
+                            linked
+                              ? 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30'
+                              : 'glass text-champagne/50 hover:text-gold-300'
+                          }`}
+                        >
+                          {linked ? <Minus className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                          {linked ? 'Remove from event' : 'Add to event'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
 
         <div className="h-6" />
       </div>

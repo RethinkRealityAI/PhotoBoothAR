@@ -17,6 +17,8 @@ import EventBackground from '../ui/EventBackground';
 import { Wordmark } from '../ui/EventLogo';
 import { fetchExperiences, fetchPosts } from '../../lib/db';
 import { useStore } from '../../store';
+import { useEvent } from '../../events/EventContext';
+import { useStudioBase } from './studioBase';
 
 interface Stats {
   published: number;
@@ -27,14 +29,15 @@ interface Stats {
 }
 
 function useStats() {
+  const { eventId } = useEvent();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     const [exps, posts] = await Promise.all([
-      fetchExperiences(),
-      fetchPosts({ includeHidden: true }),
+      fetchExperiences(eventId),
+      fetchPosts(eventId, { includeHidden: true }),
     ]);
     setStats({
       published: exps.filter((e) => e.is_published).length,
@@ -44,7 +47,7 @@ function useStats() {
       videos: posts.filter((p) => p.media_type === 'video').length,
     });
     setLoading(false);
-  }, []);
+  }, [eventId]);
 
   useEffect(() => { load(); }, [load]);
   return { stats, loading, reload: load };
@@ -151,6 +154,8 @@ function ActionCard({ icon, title, description, onClick, accent, external }: Act
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const base = useStudioBase();
+  const { basePath } = useEvent();
   const { stats, loading, reload } = useStats();
   const copy = useStore((s) => s.copy);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -214,64 +219,64 @@ export default function Dashboard() {
               icon={<Wand2 className="w-5 h-5 text-noir-900" />}
               title="2D / Shader Creator"
               description="Author overlays, borders and shader looks with live camera preview."
-              onClick={() => navigate('/admin/creator')}
+              onClick={() => navigate(`${base}/creator`)}
               accent
             />
             <ActionCard
               icon={<Boxes className="w-5 h-5 text-gold-300" />}
               title="3D Creator"
               description="Place and configure GLB attachments anchored to face landmarks."
-              onClick={() => navigate('/admin/creator3d')}
+              onClick={() => navigate(`${base}/creator3d`)}
             />
             <ActionCard
               icon={<ImageIcon className="w-5 h-5 text-gold-300" />}
               title="Experiences Library"
               description="Browse, publish, duplicate, and manage all AR experiences."
-              onClick={() => navigate('/admin/library')}
+              onClick={() => navigate(`${base}/library`)}
             />
             <ActionCard
               icon={<ShieldCheck className="w-5 h-5 text-gold-300" />}
               title="Moderate Wall"
               description="Show or hide guest photos on the projected live wall."
-              onClick={() => navigate('/admin/moderation')}
+              onClick={() => navigate(`${base}/moderation`)}
             />
             <ActionCard
               icon={<Globe className="w-5 h-5 text-gold-300" />}
               title="Open Live Wall"
               description="Project the live photo wall on the main screen."
-              onClick={() => window.open('/wall', '_blank')}
+              onClick={() => window.open(`${basePath}/wall`, '_blank')}
               external
             />
             <ActionCard
               icon={<LayoutGrid className="w-5 h-5 text-gold-300" />}
               title="Open Booth"
               description="Preview the guest-facing photo booth experience."
-              onClick={() => window.open('/', '_blank')}
+              onClick={() => window.open(`${basePath}/`, '_blank')}
               external
             />
             <ActionCard
               icon={<Trophy className="w-5 h-5 text-gold-300" />}
               title="Challenges"
               description="Manage engagement challenges guests complete at the booth."
-              onClick={() => navigate('/admin/challenges')}
+              onClick={() => navigate(`${base}/challenges`)}
             />
             <ActionCard
               icon={<Palette className="w-5 h-5 text-gold-300" />}
               title="Branding & Identity"
               description="Edit names, onboarding, theme colours and the logo — no redeploy."
-              onClick={() => navigate('/admin/branding')}
+              onClick={() => navigate(`${base}/branding`)}
             />
             <ActionCard
               icon={<Settings className="w-5 h-5 text-gold-300" />}
               title="Event Settings"
               description="Toggle live wall features: QR code, leaderboard, challenges ticker."
-              onClick={() => navigate('/admin/settings')}
+              onClick={() => navigate(`${base}/settings`)}
             />
             <ActionCard
               icon={<Video className="w-5 h-5 text-gold-300" />}
               title="View Leaderboard"
               description="Open the projected wall leaderboard view in a new tab."
-              onClick={() => window.open('/wall', '_blank')}
+              onClick={() => window.open(`${basePath}/wall`, '_blank')}
               external
             />
           </div>
@@ -284,13 +289,13 @@ export default function Dashboard() {
             <QRCard
               label="Photo Booth"
               hint="Print for guest tables — scan to launch the AR booth on any phone."
-              url={`${origin}/`}
+              url={`${origin}${basePath}/`}
               icon={<Sparkles className="w-4 h-4" />}
             />
             <QRCard
               label="Live Wall"
               hint="Scan to view the real-time photo wall or share the link for display."
-              url={`${origin}/wall`}
+              url={`${origin}${basePath}/wall`}
               icon={<Globe className="w-4 h-4" />}
             />
           </div>

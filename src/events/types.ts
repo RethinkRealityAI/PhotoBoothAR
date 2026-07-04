@@ -55,8 +55,17 @@ export interface EventConfig {
   /** Bare event emblem icon (no text) — used wherever a small brand mark appears. */
   Emblem: ComponentType<{ size?: number; className?: string }>;
   Background: ComponentType<{ density?: number; className?: string; sparkle?: number }>;
+  /** Registry id of the background template that produced `Background` (DB
+   *  events only — set by buildRuntimeConfig from config.background_template
+   *  so the admin picker can highlight the current choice). Legacy coded
+   *  events leave it unset. */
+  backgroundTemplateId?: string;
   /** Path the "/" route redirects to, e.g. '/booth' or '/wall'. */
   landingRoute: string;
+  /** When set (DB events; events.config.primary_card = { publicId }), the
+   *  guest "/" redirect goes to the published greeting card at /c/:publicId
+   *  instead of landingRoute — the remote-event card landing. */
+  primaryCardPublicId?: string;
   arContent: EventARContent;
   /** Event palette as hex strings — for canvas/JS color needs (confetti, the
    *  captured-photo watermark) that can't read CSS variables. Brightest first. */
@@ -64,4 +73,9 @@ export interface EventConfig {
   /** Catalog id auto-applied when the booth opens if the admin hasn't set one
    *  (e.g. a signature frame). Admin's wallSettings.defaultExperienceId wins. */
   defaultExperienceId?: string;
+  /** CSS custom-property values for this event's theme (mirrors theme.css for
+   *  the legacy coded events; sourced from events.config for DB events). The
+   *  EventProvider applies these at runtime so themes no longer require a
+   *  build-time CSS import. */
+  themeVars?: Record<string, string>;
 }

@@ -87,6 +87,10 @@ export interface Experience {
   is_published: boolean;
   featured: boolean;
   sort_order: number;
+  /** True for Beamwall-catalog rows shared across all events (no event_id). */
+  is_global?: boolean;
+  org_id?: string | null;
+  source?: string | null;
 }
 
 /** Draft shape used when creating/editing an experience before persistence. */

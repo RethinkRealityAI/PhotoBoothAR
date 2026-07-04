@@ -1,0 +1,628 @@
+<!doctype html>
+<!--
+  Keepsake Film — HyperFrames cinematic render of a Beamwall greeting card.
+  ========================================================================
+  A SEPARATE composition from the React web viewer (src/components/cards/
+  templates/*). The web card stays React; THIS is the premium MP4 "film".
+
+  Data-driven: everything is built at load from the `payload` runtime variable
+  (JSON of { card, contributions }, shaped exactly like the card-view edge fn
+  output). Scenes: a title card, one scene per contribution (photo → slow
+  Ken-Burns; video → embedded/sequenced; text → typographic message card), and
+  a closing card. Event theme colours drive the palette.
+
+  HyperFrames contract honoured:
+    - standalone root (no <template> wrapper), fixed 1920x1080 frame.
+    - root OMITS data-duration on purpose → render length is derived from the
+      GSAP timeline, so the film grows/shrinks with the number of contributions.
+    - exactly one paused gsap.timeline registered at window.__timelines.keepsake,
+      built synchronously at load.
+    - all clips are DIRECT children of #root; <video> clips are direct root
+      children with framework-owned playback (no .play()/seek in our code).
+    - deterministic: no clocks, no Math.random for visual state, GSAP only, no
+      network at render time (GSAP is vendored at ./gsap.min.js; images/videos
+      arrive as data-URIs or signed URLs baked into `payload`).
+    - guest text is inserted with textContent only (never innerHTML) — no markup
+      injection from contributor names / messages.
+
+  Local preview/render works with the built-in default `payload`; the edge
+  function (supabase/functions/card-render) overrides it per card via
+  --variables at cloud-render time.
+-->
+<html
+  lang="en"
+  data-composition-variables='[
+    {"id":"payload","type":"string","label":"Card payload (JSON)","default":"{\"card\":{\"title\":\"With Love, Always\",\"recipientName\":\"Mum\",\"eventName\":\"Her 60th Birthday\",\"template\":\"storybook\",\"theme\":{}},\"contributions\":[{\"contributorName\":\"The Family\",\"message\":\"Sixty years of grace, laughter and impossibly good roast dinners. Here is a little film from all of us who love you.\",\"mediaType\":\"text\",\"url\":null,\"durationSeconds\":null},{\"contributorName\":\"Grace\",\"message\":\"Thank you for every bedtime story and every scraped-knee plaster. You made the whole world feel safe.\",\"mediaType\":\"photo\",\"url\":null,\"durationSeconds\":null},{\"contributorName\":\"Tomiwa\",\"message\":\"To the woman who taught me that kindness is a kind of courage. Happy birthday, Mum.\",\"mediaType\":\"text\",\"url\":null,\"durationSeconds\":null}]}"},
+    {"id":"accent","type":"color","label":"Accent (foil)","default":"#d4af37"},
+    {"id":"bg","type":"color","label":"Background (noir)","default":"#0c0906"},
+    {"id":"fg","type":"color","label":"Foreground (cream)","default":"#f5efe2"}
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Keepsake Film</title>
+    <script src="./gsap.min.js"></script>
+    <!--
+      Payload injection slot. The render harness (local build-render.mjs and the
+      card-render edge function) replaces the contents of this script with
+      `window.__KEEPSAKE_PAYLOAD__ = { card, contributions };` BEFORE the init
+      script below runs. This is the reliable, deterministic injection channel:
+      HyperFrames `--variables` overrides are only populated AFTER the initial
+      synchronous build, so a data-driven composition must read its data from a
+      pre-script global (or the declared default) — see the init script's
+      resolution order. Left empty here so standalone preview uses the default.
+    -->
+    <script id="kf-payload-data">/* window.__KEEPSAKE_PAYLOAD__ = … (injected at render time) */</script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+      }
+
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        /* Palette — overwritten from theme/vars in the init script. */
+        --accent: #d4af37;
+        --bg: #0c0906;
+        --bg2: #16100a;
+        --fg: #f5efe2;
+        --fg-rgb: 245, 239, 226;
+        --accent-rgb: 212, 175, 55;
+        font-family: "Playfair Display", Georgia, "Times New Roman", serif;
+        color: var(--fg);
+      }
+
+      /* Persistent layers — no class="clip" ⇒ visible for the whole film. */
+      #kf-bg {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(
+            120% 90% at 50% 8%,
+            var(--bg2) 0%,
+            var(--bg) 62%,
+            #000 100%
+          );
+      }
+      #kf-bg::after {
+        /* faint foil bloom top-centre */
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          60% 40% at 50% 0%,
+          rgba(var(--accent-rgb), 0.14) 0%,
+          transparent 70%
+        );
+      }
+      #kf-vignette {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 60;
+        box-shadow: inset 0 0 340px 90px rgba(0, 0, 0, 0.72);
+      }
+      /* Cinematic letterbox bars. */
+      #kf-bars-top,
+      #kf-bars-bottom {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 68px;
+        background: #000;
+        z-index: 70;
+        pointer-events: none;
+      }
+      #kf-bars-top {
+        top: 0;
+      }
+      #kf-bars-bottom {
+        bottom: 0;
+      }
+
+      /* Scene shell — one per clip, direct child of #root. */
+      .kf-scene {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        z-index: 10;
+        will-change: opacity, transform;
+      }
+
+      /* ── Title & closing ─────────────────────────────────────────── */
+      .kf-eyebrow {
+        font-family: "Helvetica Neue", Arial, sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.42em;
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--accent);
+        margin: 0 0 30px;
+      }
+      .kf-rule {
+        width: 92px;
+        height: 1px;
+        margin: 34px auto 0;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          var(--accent),
+          transparent
+        );
+      }
+      .kf-title {
+        font-size: 128px;
+        font-weight: 600;
+        line-height: 1.04;
+        margin: 0;
+        max-width: 1500px;
+        font-style: italic;
+        letter-spacing: -0.01em;
+        text-shadow: 0 2px 40px rgba(0, 0, 0, 0.55);
+      }
+      .kf-recipient {
+        font-family: "Helvetica Neue", Arial, sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.34em;
+        font-size: 26px;
+        font-weight: 500;
+        color: rgba(var(--fg-rgb), 0.82);
+        margin: 40px 0 0;
+      }
+      .kf-count {
+        font-family: "Helvetica Neue", Arial, sans-serif;
+        font-size: 19px;
+        letter-spacing: 0.16em;
+        color: rgba(var(--fg-rgb), 0.5);
+        margin: 22px 0 0;
+        text-transform: uppercase;
+      }
+      .kf-inner {
+        padding: 0 120px;
+        max-width: 1620px;
+      }
+
+      /* ── Text message scene ──────────────────────────────────────── */
+      .kf-quotemark {
+        font-size: 190px;
+        line-height: 0.4;
+        color: rgba(var(--accent-rgb), 0.5);
+        height: 78px;
+        margin: 0 0 8px;
+      }
+      .kf-message {
+        font-size: 62px;
+        line-height: 1.38;
+        font-style: italic;
+        font-weight: 500;
+        margin: 0 auto;
+        max-width: 1360px;
+        color: var(--fg);
+        display: -webkit-box;
+        -webkit-line-clamp: 6;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .kf-from {
+        font-family: "Helvetica Neue", Arial, sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.32em;
+        font-size: 22px;
+        font-weight: 600;
+        color: var(--accent);
+        margin: 54px 0 0;
+      }
+      .kf-from::before {
+        content: "— ";
+        color: rgba(var(--accent-rgb), 0.7);
+      }
+
+      /* ── Photo / video scene ─────────────────────────────────────── */
+      .kf-media-frame {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+      .kf-photo {
+        position: absolute;
+        inset: -6%; /* bleed so the Ken-Burns pan never shows an edge */
+        width: 112%;
+        height: 112%;
+        object-fit: cover;
+        will-change: transform;
+      }
+      .kf-media-scrim {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          to top,
+          rgba(0, 0, 0, 0.86) 0%,
+          rgba(0, 0, 0, 0.5) 22%,
+          rgba(0, 0, 0, 0) 46%
+        );
+      }
+      .kf-caption {
+        position: absolute;
+        left: 120px;
+        right: 120px;
+        bottom: 132px;
+        text-align: left;
+        z-index: 20;
+      }
+      .kf-caption .kf-cap-msg {
+        font-size: 46px;
+        line-height: 1.34;
+        font-style: italic;
+        font-weight: 500;
+        margin: 0;
+        max-width: 1400px;
+        text-shadow: 0 2px 22px rgba(0, 0, 0, 0.8);
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .kf-caption .kf-cap-from {
+        font-family: "Helvetica Neue", Arial, sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.3em;
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--accent);
+        margin: 22px 0 0;
+      }
+
+      /* Video clip fills the frame; framework owns playback. Background is
+         transparent (not black) so that if a runtime-created <video>'s frames
+         fail to composite — HyperFrames' frame producer maps extracted frames
+         to elements present at the initial DOM scan — the scene degrades
+         gracefully to the themed backdrop + caption rather than a black rectangle. */
+      .kf-video {
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+        object-fit: cover;
+        background: transparent;
+        z-index: 10;
+      }
+
+      /* Watermark — quiet, persistent. */
+      #kf-mark {
+        position: absolute;
+        right: 46px;
+        bottom: 22px;
+        z-index: 80;
+        font-family: "Helvetica Neue", Arial, sans-serif;
+        font-size: 15px;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: rgba(var(--fg-rgb), 0.4);
+      }
+      #kf-mark b {
+        color: rgba(var(--accent-rgb), 0.85);
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="keepsake" data-start="0" data-width="1920" data-height="1080">
+      <div id="kf-bg"></div>
+      <div id="kf-vignette"></div>
+      <div id="kf-bars-top"></div>
+      <div id="kf-bars-bottom"></div>
+      <div id="kf-mark">Made with <b>Beamwall</b></div>
+      <!-- scenes are injected here by the init script -->
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        /* ── Runtime variables (with a safe fallback for raw file opens) ── */
+        function readVars() {
+          try {
+            if (window.__hyperframes && typeof window.__hyperframes.getVariables === "function") {
+              return window.__hyperframes.getVariables() || {};
+            }
+          } catch (e) {
+            /* fall through to declared defaults */
+          }
+          try {
+            var decl = JSON.parse(
+              document.documentElement.getAttribute("data-composition-variables") || "[]"
+            );
+            var out = {};
+            decl.forEach(function (d) {
+              out[d.id] = d.default;
+            });
+            return out;
+          } catch (e) {
+            return {};
+          }
+        }
+
+        var vars = readVars();
+
+        /* ── Parse the payload ─────────────────────────────────────────── */
+        function parsePayload(raw) {
+          if (raw && typeof raw === "object") return raw; // already an object
+          try {
+            return JSON.parse(raw);
+          } catch (e) {
+            return null;
+          }
+        }
+
+        // Resolution order: baked global (reliable, injected into the bundle)
+        // → the `payload` runtime variable (HyperFrames --variables / cloud API,
+        // when the runtime makes it available) → the declared default.
+        var injected = typeof window !== "undefined" ? window.__KEEPSAKE_PAYLOAD__ : null;
+        var data = parsePayload(injected) || parsePayload(vars.payload) || {};
+        var card = data.card && typeof data.card === "object" ? data.card : {};
+        var contributions = Array.isArray(data.contributions) ? data.contributions : [];
+
+        /* ── Theme resolution: card.theme overrides the colour variables ── */
+        function pick(obj, keys, fallback) {
+          for (var i = 0; i < keys.length; i++) {
+            var v = obj && obj[keys[i]];
+            if (typeof v === "string" && v.trim()) return v.trim();
+          }
+          return fallback;
+        }
+        function hexToRgb(hex, fallback) {
+          if (typeof hex !== "string") return fallback;
+          var m = hex.trim().replace(/^#/, "");
+          if (m.length === 3) m = m[0] + m[0] + m[1] + m[1] + m[2] + m[2];
+          if (!/^[0-9a-fA-F]{6}$/.test(m)) return fallback;
+          return (
+            parseInt(m.slice(0, 2), 16) +
+            ", " +
+            parseInt(m.slice(2, 4), 16) +
+            ", " +
+            parseInt(m.slice(4, 6), 16)
+          );
+        }
+
+        var theme = card.theme && typeof card.theme === "object" ? card.theme : {};
+        var accent = pick(theme, ["accent", "primary", "gold", "foil"], vars.accent || "#d4af37");
+        var bg = pick(theme, ["bg", "background", "noir", "ink"], vars.bg || "#0c0906");
+        var fg = pick(theme, ["fg", "foreground", "text", "cream", "paper"], vars.fg || "#f5efe2");
+
+        var root = document.getElementById("root");
+        root.style.setProperty("--accent", accent);
+        root.style.setProperty("--bg", bg);
+        root.style.setProperty("--fg", fg);
+        root.style.setProperty("--accent-rgb", hexToRgb(accent, "212, 175, 55"));
+        root.style.setProperty("--fg-rgb", hexToRgb(fg, "245, 239, 226"));
+        // Slightly lifted second background stop for the radial gradient.
+        root.style.setProperty("--bg2", bg);
+
+        /* ── Scene plan ────────────────────────────────────────────────── */
+        var FADE = 0.85; // cross-dissolve to/from background, seconds
+        var DUR = { title: 4.2, text: 4.4, photo: 5.4, video: 6.5, closing: 4.6 };
+        var VIDEO_MIN = 3.0;
+        var VIDEO_MAX = 15.0;
+
+        var scenes = [];
+        scenes.push({ kind: "title" });
+        contributions.forEach(function (c) {
+          var type = c && c.mediaType;
+          if (type === "photo" && c.url) scenes.push({ kind: "photo", c: c });
+          else if (type === "video" && c.url) scenes.push({ kind: "video", c: c });
+          else scenes.push({ kind: "text", c: c }); // text, or media with no url
+        });
+        scenes.push({ kind: "closing" });
+
+        /* ── DOM helpers ───────────────────────────────────────────────── */
+        function el(tag, cls, id) {
+          var n = document.createElement(tag);
+          if (cls) n.className = cls;
+          if (id) n.id = id;
+          return n;
+        }
+        function txt(tag, cls, text) {
+          var n = el(tag, cls);
+          n.textContent = text == null ? "" : String(text);
+          return n;
+        }
+
+        var count = contributions.length;
+        var countLabel =
+          count === 0
+            ? "A keepsake film"
+            : count + (count === 1 ? " message, gathered with love" : " messages, gathered with love");
+
+        function buildTitle(scene, idx) {
+          var s = el("section", "kf-scene");
+          s.id = "kf-scene-" + idx;
+          var inner = el("div", "kf-inner");
+          if (card.eventName) inner.appendChild(txt("p", "kf-eyebrow", card.eventName));
+          else inner.appendChild(txt("p", "kf-eyebrow", "A Keepsake Film"));
+          inner.appendChild(txt("h1", "kf-title", card.title || "A Card For You"));
+          if (card.recipientName)
+            inner.appendChild(txt("p", "kf-recipient", "for " + card.recipientName));
+          inner.appendChild(txt("p", "kf-count", countLabel));
+          inner.appendChild(el("div", "kf-rule"));
+          s.appendChild(inner);
+          scene.anim = { title: inner.querySelector(".kf-title"), rest: inner };
+          return s;
+        }
+
+        function buildClosing(scene, idx) {
+          var s = el("section", "kf-scene");
+          s.id = "kf-scene-" + idx;
+          var inner = el("div", "kf-inner");
+          inner.appendChild(txt("p", "kf-eyebrow", "With love"));
+          inner.appendChild(
+            txt("h1", "kf-title", card.recipientName ? "For " + card.recipientName : "Thank you")
+          );
+          inner.appendChild(el("div", "kf-rule"));
+          inner.appendChild(txt("p", "kf-count", "Made with Beamwall"));
+          s.appendChild(inner);
+          scene.anim = { title: inner.querySelector(".kf-title"), rest: inner };
+          return s;
+        }
+
+        function buildText(scene, idx) {
+          var c = scene.c || {};
+          var s = el("section", "kf-scene");
+          s.id = "kf-scene-" + idx;
+          var inner = el("div", "kf-inner");
+          inner.appendChild(txt("p", "kf-quotemark", "“"));
+          inner.appendChild(txt("p", "kf-message", c.message || ""));
+          if (c.contributorName) inner.appendChild(txt("p", "kf-from", c.contributorName));
+          s.appendChild(inner);
+          scene.anim = { msg: inner.querySelector(".kf-message"), from: inner.querySelector(".kf-from") };
+          return s;
+        }
+
+        function buildPhoto(scene, idx) {
+          var c = scene.c || {};
+          var s = el("section", "kf-scene");
+          s.id = "kf-scene-" + idx;
+          var frame = el("div", "kf-media-frame");
+          var img = el("img", "kf-photo", "kf-photo-" + idx);
+          img.setAttribute("crossorigin", "anonymous");
+          img.setAttribute("alt", "");
+          img.src = c.url;
+          frame.appendChild(img);
+          frame.appendChild(el("div", "kf-media-scrim"));
+          s.appendChild(frame);
+          var cap = el("div", "kf-caption");
+          if (c.message) cap.appendChild(txt("p", "kf-cap-msg", c.message));
+          if (c.contributorName) cap.appendChild(txt("p", "kf-cap-from", c.contributorName));
+          s.appendChild(cap);
+          scene.anim = { img: img, cap: cap };
+          return s;
+        }
+
+        // Video contributions render as a framework-owned <video> (direct root
+        // child, no class="clip") plus a separate caption clip. Returns the two
+        // clip nodes so the caller can append both and time them together.
+        function buildVideo(scene, idx, start, dur) {
+          var c = scene.c || {};
+          var v = el("video", "kf-video", "kf-video-" + idx);
+          v.src = c.url;
+          v.muted = true;
+          v.setAttribute("muted", "");
+          v.setAttribute("playsinline", "");
+          v.setAttribute("data-start", start.toFixed(3));
+          v.setAttribute("data-duration", dur.toFixed(3));
+          v.setAttribute("data-track-index", "1");
+          var cap = el("section", "kf-scene");
+          cap.id = "kf-scene-" + idx;
+          cap.style.pointerEvents = "none";
+          var scrim = el("div", "kf-media-scrim");
+          cap.appendChild(scrim);
+          var box = el("div", "kf-caption");
+          if (c.message) box.appendChild(txt("p", "kf-cap-msg", c.message));
+          if (c.contributorName) box.appendChild(txt("p", "kf-cap-from", c.contributorName));
+          cap.appendChild(box);
+          scene.anim = { video: v, cap: box };
+          return { video: v, caption: cap };
+        }
+
+        /* ── Build DOM + timeline synchronously ─────────────────────────── */
+        var tl = gsap.timeline({ paused: true });
+        var t = 0;
+
+        scenes.forEach(function (scene, i) {
+          var dur =
+            scene.kind === "video"
+              ? Math.min(VIDEO_MAX, Math.max(VIDEO_MIN, Number((scene.c || {}).durationSeconds) || DUR.video))
+              : DUR[scene.kind];
+          var start = t;
+          // Alternate the primary track so consecutive scenes never share a
+          // track window (crossfade-safe), and pick a stable node to fade.
+          var track = 1 + (i % 2);
+
+          var fadeTarget;
+          if (scene.kind === "video") {
+            var pair = buildVideo(scene, i, start, dur);
+            // caption clip
+            pair.caption.setAttribute("data-start", start.toFixed(3));
+            pair.caption.setAttribute("data-duration", dur.toFixed(3));
+            pair.caption.setAttribute("data-track-index", String(track + 2));
+            pair.caption.classList.add("clip");
+            root.appendChild(pair.video);
+            root.appendChild(pair.caption);
+            // Fade the video and caption in/out (opacity is allowed on video).
+            tl.fromTo(pair.video, { opacity: 0 }, { opacity: 1, duration: FADE, ease: "power2.out" }, start);
+            tl.to(pair.video, { opacity: 0, duration: FADE, ease: "power2.in" }, start + dur - FADE);
+            if (scene.anim.cap) {
+              tl.from(scene.anim.cap, { y: 30, opacity: 0, duration: 1.0, ease: "power3.out" }, start + 0.5);
+            }
+            fadeTarget = pair.caption;
+            tl.fromTo(pair.caption, { opacity: 0 }, { opacity: 1, duration: FADE, ease: "power2.out" }, start);
+            tl.to(pair.caption, { opacity: 0, duration: FADE, ease: "power2.in" }, start + dur - FADE);
+          } else {
+            var node;
+            if (scene.kind === "title") node = buildTitle(scene, i);
+            else if (scene.kind === "closing") node = buildClosing(scene, i);
+            else if (scene.kind === "photo") node = buildPhoto(scene, i);
+            else node = buildText(scene, i);
+
+            node.classList.add("clip");
+            node.setAttribute("data-start", start.toFixed(3));
+            node.setAttribute("data-duration", dur.toFixed(3));
+            node.setAttribute("data-track-index", String(track));
+            root.appendChild(node);
+            fadeTarget = node;
+
+            // Scene cross-dissolve (through the persistent background).
+            tl.fromTo(node, { opacity: 0 }, { opacity: 1, duration: FADE, ease: "power2.out" }, start);
+            tl.to(node, { opacity: 0, duration: FADE, ease: "power2.in" }, start + dur - FADE);
+
+            // Per-kind internal motion.
+            if (scene.kind === "photo" && scene.anim.img) {
+              // Slow Ken-Burns pan+zoom across the whole scene window.
+              var dir = i % 2 === 0 ? 1 : -1;
+              tl.fromTo(
+                scene.anim.img,
+                { scale: 1.14, xPercent: -3 * dir, yPercent: -2 },
+                { scale: 1.0, xPercent: 3 * dir, yPercent: 2, duration: dur, ease: "sine.inOut" },
+                start
+              );
+              if (scene.anim.cap) {
+                tl.from(scene.anim.cap, { y: 34, opacity: 0, duration: 1.05, ease: "power3.out" }, start + 0.55);
+              }
+            } else if (scene.kind === "text") {
+              if (scene.anim.msg)
+                tl.from(scene.anim.msg, { y: 30, opacity: 0, duration: 1.1, ease: "power3.out" }, start + 0.35);
+              if (scene.anim.from)
+                tl.from(scene.anim.from, { y: 18, opacity: 0, duration: 0.9, ease: "power3.out" }, start + 0.75);
+            } else if (scene.kind === "title" || scene.kind === "closing") {
+              if (scene.anim.title)
+                tl.from(scene.anim.title, { y: 42, opacity: 0, duration: 1.15, ease: "power3.out" }, start + 0.3);
+              if (scene.anim.rest)
+                tl.from(
+                  scene.anim.rest.querySelectorAll(".kf-eyebrow, .kf-recipient, .kf-count, .kf-rule"),
+                  { y: 20, opacity: 0, duration: 0.9, ease: "power2.out", stagger: 0.12 },
+                  start + 0.55
+                );
+            }
+          }
+
+          t += dur;
+        });
+
+        // Pin the timeline's total length to the last scene's end so the render
+        // duration (root omits data-duration ⇒ derived from the timeline) is
+        // exactly the film length.
+        tl.set("#kf-bg", { opacity: 1 }, t);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["keepsake"] = tl;
+      })();
+    </script>
+  </body>
+</html>

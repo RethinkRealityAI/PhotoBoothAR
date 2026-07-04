@@ -7,10 +7,12 @@
  *
  * This is the single source of truth for all backend I/O. UI components should
  * call these helpers rather than touching the Supabase client directly.
+ *
+ * Runtime tenancy: every helper that stamps or filters `event_id` takes the
+ * eventId (slug) as its FIRST parameter — components obtain it via useEvent().
  */
 import { supabase, POSTS_BUCKET, ASSETS_BUCKET, publicUrl } from './supabase';
-import { EVENT_ID } from '../events/eventId';
-import { activeEvent } from '../events/active';
+import type { EventCopy } from '../events/types';
 import {
   Experience,
   ExperienceDraft,
@@ -25,12 +27,16 @@ import {
 } from '../types';
 import { getSessionId } from './session';
 
+/** The grandfathered single-tenant events whose RLS still permits the direct
+ *  upload+insert path — used as a fallback if the edge function is down. */
+const LEGACY_EVENT_IDS = new Set(['hope-gala', 'jenna-jake', 'detola-wuyi']);
+
 /* ------------------------------------------------------------------ */
 /* Experiences (studio-authored AR filters / borders / 3D / shaders)   */
 /* ------------------------------------------------------------------ */
 
-export async function fetchExperiences(opts?: { publishedOnly?: boolean }): Promise<Experience[]> {
-  let q = supabase.from('experiences').select('*').eq('event_id', EVENT_ID).order('sort_order').order('created_at');
+export async function fetchExperiences(eventId: string, opts?: { publishedOnly?: boolean }): Promise<Experience[]> {
+  let q = supabase.from('experiences').select('*').eq('event_id', eventId).order('sort_order').order('created_at');
   if (opts?.publishedOnly) q = q.eq('is_published', true);
   const { data, error } = await q;
   if (error) {
@@ -40,8 +46,8 @@ export async function fetchExperiences(opts?: { publishedOnly?: boolean }): Prom
   return (data as Experience[]) ?? [];
 }
 
-export async function getExperience(id: string): Promise<Experience | null> {
-  const { data, error } = await supabase.from('experiences').select('*').eq('id', id).eq('event_id', EVENT_ID).maybeSingle();
+export async function getExperience(eventId: string, id: string): Promise<Experience | null> {
+  const { data, error } = await supabase.from('experiences').select('*').eq('id', id).eq('event_id', eventId).maybeSingle();
   if (error) {
     console.error('[db] getExperience', error);
     return null;
@@ -49,7 +55,7 @@ export async function getExperience(id: string): Promise<Experience | null> {
   return (data as Experience) ?? null;
 }
 
-export async function createExperience(draft: ExperienceDraft): Promise<Experience | null> {
+export async function createExperience(eventId: string, draft: ExperienceDraft): Promise<Experience | null> {
   const row = {
     name: draft.name ?? 'Untitled Experience',
     kind: draft.kind ?? '2d_filter',
@@ -59,7 +65,7 @@ export async function createExperience(draft: ExperienceDraft): Promise<Experien
     is_published: draft.is_published ?? true,
     featured: draft.featured ?? true,
     sort_order: draft.sort_order ?? 0,
-    event_id: EVENT_ID,
+    event_id: eventId,
   };
   const { data, error } = await supabase.from('experiences').insert(row).select().single();
   if (error) {
@@ -69,8 +75,8 @@ export async function createExperience(draft: ExperienceDraft): Promise<Experien
   return data as Experience;
 }
 
-export async function updateExperience(id: string, patch: ExperienceDraft): Promise<Experience | null> {
-  const { data, error } = await supabase.from('experiences').update(patch).eq('id', id).eq('event_id', EVENT_ID).select().single();
+export async function updateExperience(eventId: string, id: string, patch: ExperienceDraft): Promise<Experience | null> {
+  const { data, error } = await supabase.from('experiences').update(patch).eq('id', id).eq('event_id', eventId).select().single();
   if (error) {
     console.error('[db] updateExperience', error);
     return null;
@@ -78,8 +84,8 @@ export async function updateExperience(id: string, patch: ExperienceDraft): Prom
   return data as Experience;
 }
 
-export async function deleteExperience(id: string): Promise<boolean> {
-  const { error } = await supabase.from('experiences').delete().eq('id', id).eq('event_id', EVENT_ID);
+export async function deleteExperience(eventId: string, id: string): Promise<boolean> {
+  const { error } = await supabase.from('experiences').delete().eq('id', id).eq('event_id', eventId);
   if (error) {
     console.error('[db] deleteExperience', error);
     return false;
@@ -88,11 +94,83 @@ export async function deleteExperience(id: string): Promise<boolean> {
 }
 
 /* ------------------------------------------------------------------ */
+/* Global catalog (Beamwall-curated experiences linkable into events)  */
+/* ------------------------------------------------------------------ */
+
+/** All published global catalog experiences (for the Library picker). */
+export async function fetchGlobalExperiences(): Promise<Experience[]> {
+  const { data, error } = await supabase
+    .from('experiences')
+    .select('*')
+    .eq('is_global', true)
+    .eq('is_published', true)
+    .order('sort_order');
+  if (error) {
+    console.error('[db] fetchGlobalExperiences', error);
+    return [];
+  }
+  return (data as Experience[]) ?? [];
+}
+
+/** Ids of the global experiences linked into this event. */
+export async function fetchCatalogLinks(eventId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('event_catalog_links')
+    .select('experience_id')
+    .eq('event_id', eventId);
+  if (error) {
+    console.error('[db] fetchCatalogLinks', error);
+    return [];
+  }
+  return ((data as { experience_id: string }[]) ?? []).map((r) => r.experience_id);
+}
+
+export async function linkCatalogItem(eventId: string, experienceId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('event_catalog_links')
+    .insert({ event_id: eventId, experience_id: experienceId });
+  if (error) {
+    console.error('[db] linkCatalogItem', error);
+    return false;
+  }
+  return true;
+}
+
+export async function unlinkCatalogItem(eventId: string, experienceId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('event_catalog_links')
+    .delete()
+    .eq('event_id', eventId)
+    .eq('experience_id', experienceId);
+  if (error) {
+    console.error('[db] unlinkCatalogItem', error);
+    return false;
+  }
+  return true;
+}
+
+/** The linked global experiences themselves (for the booth catalog). */
+export async function fetchLinkedGlobalExperiences(eventId: string): Promise<Experience[]> {
+  const { data, error } = await supabase
+    .from('event_catalog_links')
+    .select('experiences(*)')
+    .eq('event_id', eventId);
+  if (error) {
+    console.error('[db] fetchLinkedGlobalExperiences', error);
+    return [];
+  }
+  const rows = (data ?? []) as unknown as { experiences: Experience | Experience[] | null }[];
+  return rows
+    .flatMap((r) => (Array.isArray(r.experiences) ? r.experiences : r.experiences ? [r.experiences] : []))
+    .filter((e) => e.is_global && e.is_published);
+}
+
+/* ------------------------------------------------------------------ */
 /* Posts (live photo wall)                                             */
 /* ------------------------------------------------------------------ */
 
-export async function fetchPosts(opts?: { includeHidden?: boolean; limit?: number }): Promise<Post[]> {
-  let q = supabase.from('posts').select('*').eq('event_id', EVENT_ID).order('created_at', { ascending: false });
+export async function fetchPosts(eventId: string, opts?: { includeHidden?: boolean; limit?: number }): Promise<Post[]> {
+  let q = supabase.from('posts').select('*').eq('event_id', eventId).order('created_at', { ascending: false });
   if (!opts?.includeHidden) q = q.eq('hidden', false).eq('approved', true);
   if (opts?.limit) q = q.limit(opts.limit);
   const { data, error } = await q;
@@ -103,13 +181,13 @@ export async function fetchPosts(opts?: { includeHidden?: boolean; limit?: numbe
   return (data as Post[]) ?? [];
 }
 
-export async function fetchMyPosts(): Promise<Post[]> {
-  const sid = getSessionId();
+export async function fetchMyPosts(eventId: string): Promise<Post[]> {
+  const sid = getSessionId(eventId);
   const { data, error } = await supabase
     .from('posts')
     .select('*')
     .eq('session_id', sid)
-    .eq('event_id', EVENT_ID)
+    .eq('event_id', eventId)
     .order('created_at', { ascending: false });
   if (error) {
     console.error('[db] fetchMyPosts', error);
@@ -118,8 +196,8 @@ export async function fetchMyPosts(): Promise<Post[]> {
   return (data as Post[]) ?? [];
 }
 
-export async function setPostHidden(id: string, hidden: boolean): Promise<boolean> {
-  const { error } = await supabase.from('posts').update({ hidden }).eq('id', id).eq('event_id', EVENT_ID);
+export async function setPostHidden(eventId: string, id: string, hidden: boolean): Promise<boolean> {
+  const { error } = await supabase.from('posts').update({ hidden }).eq('id', id).eq('event_id', eventId);
   if (error) {
     console.error('[db] setPostHidden', error);
     return false;
@@ -127,8 +205,8 @@ export async function setPostHidden(id: string, hidden: boolean): Promise<boolea
   return true;
 }
 
-export async function deletePost(id: string): Promise<boolean> {
-  const { error } = await supabase.from('posts').delete().eq('id', id).eq('event_id', EVENT_ID);
+export async function deletePost(eventId: string, id: string): Promise<boolean> {
+  const { error } = await supabase.from('posts').delete().eq('id', id).eq('event_id', eventId);
   if (error) {
     console.error('[db] deletePost', error);
     return false;
@@ -140,17 +218,17 @@ export async function deletePost(id: string): Promise<boolean> {
  * Realtime subscription to new posts on the wall.
  * Returns an unsubscribe function. `onInsert` fires for each newly created post.
  */
-export function subscribeToPosts(handlers: {
+export function subscribeToPosts(eventId: string, handlers: {
   onInsert?: (post: Post) => void;
   onUpdate?: (post: Post) => void;
   onDelete?: (id: string) => void;
 }): () => void {
   const channel = supabase
-    .channel('posts-stream')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `event_id=eq.${EVENT_ID}` }, (payload) => {
+    .channel(`posts-stream:${eventId}`)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `event_id=eq.${eventId}` }, (payload) => {
       handlers.onInsert?.(payload.new as Post);
     })
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'posts', filter: `event_id=eq.${EVENT_ID}` }, (payload) => {
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'posts', filter: `event_id=eq.${eventId}` }, (payload) => {
       handlers.onUpdate?.(payload.new as Post);
     })
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'posts' }, (payload) => {
@@ -250,8 +328,9 @@ export interface SubmitPostInput {
   height?: number;
 }
 
-/** Upload a captured photo/video and create the wall post. Returns the created Post. */
-export async function submitPost(input: SubmitPostInput): Promise<Post | null> {
+/** Legacy direct upload+insert path — grandfathered RLS allows it for the
+ *  three coded events, so they keep working even if the function is down. */
+async function submitPostDirect(eventId: string, input: SubmitPostInput): Promise<Post | null> {
   const isVideo = input.mediaType === 'video';
   const ext = extFor(input.blob, isVideo ? 'webm' : 'jpg');
   const path = `${uid()}.${ext}`;
@@ -277,10 +356,10 @@ export async function submitPost(input: SubmitPostInput): Promise<Post | null> {
       experience_id:
         input.experienceId && !input.experienceId.startsWith('builtin:') ? input.experienceId : null,
       challenge_id: input.challengeId ?? null,
-      session_id: getSessionId(),
+      session_id: getSessionId(eventId),
       width: input.width ?? null,
       height: input.height ?? null,
-      event_id: EVENT_ID,
+      event_id: eventId,
     })
     .select()
     .single();
@@ -291,12 +370,68 @@ export async function submitPost(input: SubmitPostInput): Promise<Post | null> {
   return data as Post;
 }
 
+/**
+ * Upload a captured photo/video and create the wall post via the `submit-post`
+ * edge function (init → signed upload → finalize). Returns the created Post.
+ * Legacy events fall back to the direct path on any function error.
+ */
+export async function submitPost(eventId: string, input: SubmitPostInput): Promise<Post | null> {
+  const isVideo = input.mediaType === 'video';
+  const mediaType: MediaType = input.mediaType ?? 'image';
+  const ext = extFor(input.blob, isVideo ? 'webm' : 'jpg');
+  const contentType = input.blob.type || (isVideo ? 'video/webm' : 'image/jpeg');
+  const sessionId = getSessionId(eventId);
+
+  try {
+    const { data: init, error: initErr } = await supabase.functions.invoke('submit-post', {
+      body: { action: 'init', eventSlug: eventId, sessionId, mediaType, contentType, ext },
+    });
+    if (initErr) throw initErr;
+    const { path, token } = (init ?? {}) as { path?: string; token?: string };
+    if (!path || !token) throw new Error('submit-post init returned no upload token');
+
+    const { error: upErr } = await supabase.storage
+      .from(POSTS_BUCKET)
+      .uploadToSignedUrl(path, token, input.blob, { contentType });
+    if (upErr) throw upErr;
+
+    const { data: fin, error: finErr } = await supabase.functions.invoke('submit-post', {
+      body: {
+        action: 'finalize',
+        eventSlug: eventId,
+        sessionId,
+        path,
+        message: input.message?.trim() || null,
+        guestName: input.guestName?.trim() || null,
+        experienceId:
+          input.experienceId && !input.experienceId.startsWith('builtin:') ? input.experienceId : null,
+        challengeId: input.challengeId ?? null,
+        width: input.width ?? null,
+        height: input.height ?? null,
+        mediaType,
+        durationMs: input.durationMs ?? null,
+      },
+    });
+    if (finErr) throw finErr;
+    const post = ((fin as { post?: Post } | null)?.post ?? fin) as Post | null;
+    if (!post?.id) throw new Error('submit-post finalize returned no post');
+    return post;
+  } catch (e) {
+    if (LEGACY_EVENT_IDS.has(eventId)) {
+      console.warn('[db] submitPost edge function failed — falling back to direct upload', e);
+      return submitPostDirect(eventId, input);
+    }
+    console.error('[db] submitPost', e);
+    return null;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Challenges                                                          */
 /* ------------------------------------------------------------------ */
 
-export async function fetchChallenges(opts?: { activeOnly?: boolean }): Promise<Challenge[]> {
-  let q = supabase.from('challenges').select('*').eq('event_id', EVENT_ID).order('sort_order').order('created_at');
+export async function fetchChallenges(eventId: string, opts?: { activeOnly?: boolean }): Promise<Challenge[]> {
+  let q = supabase.from('challenges').select('*').eq('event_id', eventId).order('sort_order').order('created_at');
   if (opts?.activeOnly) q = q.eq('active', true);
   const { data, error } = await q;
   if (error) {
@@ -306,7 +441,7 @@ export async function fetchChallenges(opts?: { activeOnly?: boolean }): Promise<
   return (data as Challenge[]) ?? [];
 }
 
-export async function createChallenge(c: Partial<Challenge>): Promise<Challenge | null> {
+export async function createChallenge(eventId: string, c: Partial<Challenge>): Promise<Challenge | null> {
   const row = {
     title: c.title ?? 'New Challenge',
     description: c.description ?? null,
@@ -314,7 +449,7 @@ export async function createChallenge(c: Partial<Challenge>): Promise<Challenge 
     points: c.points ?? 10,
     sort_order: c.sort_order ?? 0,
     active: c.active ?? true,
-    event_id: EVENT_ID,
+    event_id: eventId,
   };
   const { data, error } = await supabase.from('challenges').insert(row).select().single();
   if (error) {
@@ -324,8 +459,8 @@ export async function createChallenge(c: Partial<Challenge>): Promise<Challenge 
   return data as Challenge;
 }
 
-export async function updateChallenge(id: string, patch: Partial<Challenge>): Promise<boolean> {
-  const { error } = await supabase.from('challenges').update(patch).eq('id', id).eq('event_id', EVENT_ID);
+export async function updateChallenge(eventId: string, id: string, patch: Partial<Challenge>): Promise<boolean> {
+  const { error } = await supabase.from('challenges').update(patch).eq('id', id).eq('event_id', eventId);
   if (error) {
     console.error('[db] updateChallenge', error);
     return false;
@@ -333,8 +468,8 @@ export async function updateChallenge(id: string, patch: Partial<Challenge>): Pr
   return true;
 }
 
-export async function deleteChallenge(id: string): Promise<boolean> {
-  const { error } = await supabase.from('challenges').delete().eq('id', id).eq('event_id', EVENT_ID);
+export async function deleteChallenge(eventId: string, id: string): Promise<boolean> {
+  const { error } = await supabase.from('challenges').delete().eq('id', id).eq('event_id', eventId);
   if (error) {
     console.error('[db] deleteChallenge', error);
     return false;
@@ -356,28 +491,28 @@ const DEFAULT_WALL_SETTINGS: WallSettings = {
   defaultExperienceId: null,
 };
 
-export async function getWallSettings(): Promise<WallSettings> {
-  const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'wall').eq('event_id', EVENT_ID).maybeSingle();
+export async function getWallSettings(eventId: string): Promise<WallSettings> {
+  const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'wall').eq('event_id', eventId).maybeSingle();
   if (error || !data) return DEFAULT_WALL_SETTINGS;
   return { ...DEFAULT_WALL_SETTINGS, ...(data.value as Partial<WallSettings>) };
 }
 
-export async function setWallSettings(patch: Partial<WallSettings>): Promise<WallSettings> {
-  const current = await getWallSettings();
+export async function setWallSettings(eventId: string, patch: Partial<WallSettings>): Promise<WallSettings> {
+  const current = await getWallSettings(eventId);
   const value = { ...current, ...patch };
   const { error } = await supabase
     .from('app_settings')
-    .upsert({ key: 'wall', value, updated_at: new Date().toISOString(), event_id: EVENT_ID }, { onConflict: 'event_id,key' });
+    .upsert({ key: 'wall', value, updated_at: new Date().toISOString(), event_id: eventId }, { onConflict: 'event_id,key' });
   if (error) console.error('[db] setWallSettings', error);
   return value;
 }
 
-export function subscribeToSettings(onChange: (s: WallSettings) => void): () => void {
+export function subscribeToSettings(eventId: string, onChange: (s: WallSettings) => void): () => void {
   const channel = supabase
-    .channel('app-settings-stream')
+    .channel(`app-settings-stream:${eventId}`)
     .on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'app_settings', filter: `event_id=eq.${EVENT_ID}` },
+      { event: '*', schema: 'public', table: 'app_settings', filter: `event_id=eq.${eventId}` },
       (payload) => {
         const row = payload.new as { key?: string; value?: Partial<WallSettings> };
         if (row.key !== 'wall') return;
@@ -394,59 +529,64 @@ export function subscribeToSettings(onChange: (s: WallSettings) => void): () => 
 /* Generic app_settings (key/value JSON) — landing page + preset mgmt  */
 /* ------------------------------------------------------------------ */
 
-async function getSetting<T>(key: string, fallback: T): Promise<T> {
-  const { data, error } = await supabase.from('app_settings').select('value').eq('key', key).eq('event_id', EVENT_ID).maybeSingle();
+async function getSetting<T>(eventId: string, key: string, fallback: T): Promise<T> {
+  const { data, error } = await supabase.from('app_settings').select('value').eq('key', key).eq('event_id', eventId).maybeSingle();
   if (error || !data) return fallback;
   return { ...fallback, ...(data.value as Partial<T>) };
 }
 
-async function setSetting<T extends object>(key: string, value: T): Promise<T> {
+async function setSetting<T extends object>(eventId: string, key: string, value: T): Promise<T> {
   const { error } = await supabase
     .from('app_settings')
-    .upsert({ key, value, updated_at: new Date().toISOString(), event_id: EVENT_ID }, { onConflict: 'event_id,key' });
+    .upsert({ key, value, updated_at: new Date().toISOString(), event_id: eventId }, { onConflict: 'event_id,key' });
   if (error) console.error('[db] setSetting', key, error);
   return value;
 }
 
-export const DEFAULT_LANDING: LandingContent = {
-  eyebrow: activeEvent.copy.fullName,
-  title: 'Join the Photo Booth',
-  subtitle: activeEvent.copy.tagline,
-  intro: '',
-  steps: activeEvent.copy.steps.length
-    ? activeEvent.copy.steps.map((s) => ({ title: s.title, body: s.body }))
-    : [
-        { title: 'Scan QR', body: '' },
-        { title: 'Select a Filter', body: '' },
-        { title: 'Snap Photo', body: '' },
-        { title: 'Share', body: '' },
-      ],
-  ctaLabel: 'Open the Booth',
-  url: '',
-  footer: activeEvent.copy.fullName,
-};
+/** Coded default /join content, derived from the event's copy. */
+export function defaultLanding(copy: EventCopy): LandingContent {
+  return {
+    eyebrow: copy.fullName,
+    title: 'Join the Photo Booth',
+    subtitle: copy.tagline,
+    intro: '',
+    steps: copy.steps.length
+      ? copy.steps.map((s) => ({ title: s.title, body: s.body }))
+      : [
+          { title: 'Scan QR', body: '' },
+          { title: 'Select a Filter', body: '' },
+          { title: 'Snap Photo', body: '' },
+          { title: 'Share', body: '' },
+        ],
+    ctaLabel: 'Open the Booth',
+    url: '',
+    footer: copy.fullName,
+  };
+}
 
-export async function getLandingContent(): Promise<LandingContent> {
-  const c = await getSetting<LandingContent>('landing', DEFAULT_LANDING);
+export async function getLandingContent(eventId: string, copy: EventCopy): Promise<LandingContent> {
+  const defaults = defaultLanding(copy);
+  const c = await getSetting<LandingContent>(eventId, 'landing', defaults);
   // steps may come back as a non-array if never set — guard it
-  if (!Array.isArray(c.steps) || c.steps.length === 0) c.steps = DEFAULT_LANDING.steps;
+  if (!Array.isArray(c.steps) || c.steps.length === 0) c.steps = defaults.steps;
   return c;
 }
 
-export async function setLandingContent(content: LandingContent): Promise<LandingContent> {
-  return setSetting('landing', content);
+export async function setLandingContent(eventId: string, content: LandingContent): Promise<LandingContent> {
+  return setSetting(eventId, 'landing', content);
 }
 
-export function subscribeToLanding(onChange: (c: LandingContent) => void): () => void {
+export function subscribeToLanding(eventId: string, copy: EventCopy, onChange: (c: LandingContent) => void): () => void {
+  const defaults = defaultLanding(copy);
   const channel = supabase
-    .channel('landing-stream')
+    .channel(`landing-stream:${eventId}`)
     .on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'app_settings', filter: `event_id=eq.${EVENT_ID}` },
+      { event: '*', schema: 'public', table: 'app_settings', filter: `event_id=eq.${eventId}` },
       (payload) => {
         const row = payload.new as { key?: string; value?: Partial<LandingContent> };
         if (row.key !== 'landing') return;
-        if (row.value) onChange({ ...DEFAULT_LANDING, ...row.value });
+        if (row.value) onChange({ ...defaults, ...row.value });
       },
     )
     .subscribe();
@@ -460,21 +600,21 @@ export function subscribeToLanding(onChange: (c: LandingContent) => void): () =>
 /** No overrides by default — the coded EventConfig supplies every value. */
 export const DEFAULT_BRANDING: BrandingOverrides = {};
 
-export async function getBranding(): Promise<BrandingOverrides> {
-  return getSetting<BrandingOverrides>('branding', DEFAULT_BRANDING);
+export async function getBranding(eventId: string): Promise<BrandingOverrides> {
+  return getSetting<BrandingOverrides>(eventId, 'branding', DEFAULT_BRANDING);
 }
 
-export async function setBranding(patch: BrandingOverrides): Promise<BrandingOverrides> {
-  const current = await getBranding();
-  return setSetting('branding', { ...current, ...patch });
+export async function setBranding(eventId: string, patch: BrandingOverrides): Promise<BrandingOverrides> {
+  const current = await getBranding(eventId);
+  return setSetting(eventId, 'branding', { ...current, ...patch });
 }
 
-export function subscribeToBranding(onChange: (b: BrandingOverrides) => void): () => void {
+export function subscribeToBranding(eventId: string, onChange: (b: BrandingOverrides) => void): () => void {
   const channel = supabase
-    .channel('branding-stream')
+    .channel(`branding-stream:${eventId}`)
     .on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'app_settings', filter: `event_id=eq.${EVENT_ID}` },
+      { event: '*', schema: 'public', table: 'app_settings', filter: `event_id=eq.${eventId}` },
       (payload) => {
         const row = payload.new as { key?: string; value?: BrandingOverrides };
         if (row.key !== 'branding') return;
@@ -485,19 +625,48 @@ export function subscribeToBranding(onChange: (b: BrandingOverrides) => void): (
   return () => { supabase.removeChannel(channel); };
 }
 
+/* ------------------------------------------------------------------ */
+/* Upload passcode (app_settings key='upload') — runtime events only    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Public-upload gate settings. `passcodeHash` is a sha256 hex of the passcode.
+ * Note: readable via app_settings public-read RLS — a friction layer with the
+ * same threat model as the legacy env passcode, fine for Phase 2a.
+ */
+export interface UploadSettings {
+  passcodeHash?: string | null;
+}
+
+/** Returns null when the row has never been configured (vs configured-closed). */
+export async function getUploadSettings(eventId: string): Promise<UploadSettings | null> {
+  const { data, error } = await supabase
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'upload')
+    .eq('event_id', eventId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return (data.value as UploadSettings) ?? null;
+}
+
+export async function saveUploadSettings(eventId: string, value: UploadSettings): Promise<UploadSettings> {
+  return setSetting(eventId, 'upload', value);
+}
+
 const DEFAULT_PRESET_OVERRIDES: PresetOverrides = { hidden: [], order: [] };
 
-export async function getPresetOverrides(): Promise<PresetOverrides> {
-  const o = await getSetting<PresetOverrides>('presets', DEFAULT_PRESET_OVERRIDES);
+export async function getPresetOverrides(eventId: string): Promise<PresetOverrides> {
+  const o = await getSetting<PresetOverrides>(eventId, 'presets', DEFAULT_PRESET_OVERRIDES);
   return {
     hidden: Array.isArray(o.hidden) ? o.hidden : [],
     order: Array.isArray(o.order) ? o.order : [],
   };
 }
 
-export async function setPresetOverrides(patch: Partial<PresetOverrides>): Promise<PresetOverrides> {
-  const current = await getPresetOverrides();
-  return setSetting('presets', { ...current, ...patch });
+export async function setPresetOverrides(eventId: string, patch: Partial<PresetOverrides>): Promise<PresetOverrides> {
+  const current = await getPresetOverrides(eventId);
+  return setSetting(eventId, 'presets', { ...current, ...patch });
 }
 
 /* ------------------------------------------------------------------ */
@@ -512,14 +681,14 @@ export async function setPresetOverrides(patch: Partial<PresetOverrides>): Promi
  * Finishers are listed first (in completion order), then everyone else by
  * challenges-completed → points → photos.
  */
-export async function fetchLeaderboard(limit = 20): Promise<LeaderboardEntry[]> {
+export async function fetchLeaderboard(eventId: string, limit = 20): Promise<LeaderboardEntry[]> {
   const [{ data: posts, error }, challenges] = await Promise.all([
     supabase
       .from('posts')
       .select('session_id, guest_name, challenge_id, created_at')
       .eq('hidden', false)
-      .eq('event_id', EVENT_ID),
-    fetchChallenges({ activeOnly: true }),
+      .eq('event_id', eventId),
+    fetchChallenges(eventId, { activeOnly: true }),
   ]);
   if (error || !posts) {
     console.error('[db] fetchLeaderboard', error);

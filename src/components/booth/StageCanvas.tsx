@@ -22,7 +22,8 @@ import {
 import { ShaderRunner, defaultParams } from '../../lib/shaders';
 import { drawScagoMark } from '../../lib/scagoMark';
 import { Transform2D } from '../../types';
-import { activeEvent } from '../../events/active';
+import type { EventConfig } from '../../events/types';
+import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 
 export interface StageCanvasHandle {
@@ -45,6 +46,12 @@ interface Props {
   /** If present, drawn between shader and 2D overlay */
   threeCanvasId?: string | null; // DOM id of R3F canvas (inside #booth-3d-layer)
   active?: boolean;
+  /**
+   * Bake the event signature into captures (default true). Threaded from
+   * useEntitlements().watermark by the Booth — legacy coded events always
+   * pass true (LEGACY_ENTITLEMENTS keeps their watermark unconditional).
+   */
+  watermark?: boolean;
 }
 
 const PREVIEW_W = 720;
@@ -67,17 +74,17 @@ function coverFit(
 }
 
 /** Event signature watermark: event-coloured emblem (gala only) + event name. */
-function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
+function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number, event: EventConfig) {
   const copy = useStore.getState().copy;
   const baseY = h - 58;
   const markSize = Math.round(w * 0.075);
-  const hex = activeEvent.accentHexes;
+  const hex = event.accentHexes;
   const c0 = hex[0];
   const c1 = hex[1] ?? c0;
   const c2 = hex[2] ?? c0;
   const c3 = hex[3] ?? c0;
   // The SCAGO crescent emblem is gala-specific; other events show text only.
-  const showEmblem = activeEvent.id === 'hope-gala';
+  const showEmblem = event.id === 'hope-gala';
 
   ctx.save();
   ctx.textAlign = 'left';
@@ -197,14 +204,17 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   {
     videoRef, effectId, mirror, sparkles = false,
     overlayUrl, overlayTransform, overlayOpacity,
-    threeCanvasId, active = true,
+    threeCanvasId, active = true, watermark = true,
   },
   ref,
 ) {
+  const { config: eventConfig } = useEvent();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const runnerRef = useRef<ShaderRunner | null>(null);
   const rafRef = useRef<number>(0);
   const overlayImgRef = useRef<HTMLImageElement | null>(null);
+  const eventConfigRef = useRef(eventConfig);
+  eventConfigRef.current = eventConfig;
 
   // Keep fast refs so rAF reads current values without deps
   const effectIdRef = useRef(effectId);
@@ -215,6 +225,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   const overlayOpacityRef = useRef(overlayOpacity ?? 1);
   const threeCanvasIdRef = useRef(threeCanvasId);
   const activeRef = useRef(active);
+  const watermarkRef = useRef(watermark);
 
   useEffect(() => { effectIdRef.current = effectId; }, [effectId]);
   useEffect(() => { mirrorRef.current = mirror; }, [mirror]);
@@ -234,6 +245,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   useEffect(() => { overlayOpacityRef.current = overlayOpacity ?? 1; }, [overlayOpacity]);
   useEffect(() => { threeCanvasIdRef.current = threeCanvasId ?? null; }, [threeCanvasId]);
   useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { watermarkRef.current = watermark; }, [watermark]);
 
   // Draw one frame onto `ctx` at given dimensions
   // `_canvas` is retained in signature for symmetry with capturePhoto
@@ -302,9 +314,10 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
       drawSparkles(ctx, w, h, performance.now() / 1000);
     }
 
-    // Step 6: Signature (only for capture, not preview — keeps preview fast)
-    if (withSignature) {
-      drawSignature(ctx, w, h);
+    // Step 6: Signature (only for capture, not preview — keeps preview fast).
+    // Entitlement-gated: paid tiers capture without the watermark.
+    if (withSignature && watermarkRef.current) {
+      drawSignature(ctx, w, h, eventConfigRef.current);
     }
   }, [videoRef]);
 

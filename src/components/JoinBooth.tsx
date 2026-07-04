@@ -13,30 +13,33 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
-import { getLandingContent, subscribeToLanding, DEFAULT_LANDING } from '../lib/db';
+import { getLandingContent, subscribeToLanding, defaultLanding } from '../lib/db';
 import { LandingContent } from '../types';
+import { useEvent } from '../events/EventContext';
 import EventBackground from './ui/EventBackground';
 import ScagoMark from './ui/ScagoMark';
 
 export default function JoinBooth() {
-  const [content, setContent] = useState<LandingContent>(DEFAULT_LANDING);
+  const { eventId, config, basePath } = useEvent();
+  const defaults = useMemo(() => defaultLanding(config.copy), [config]);
+  const [content, setContent] = useState<LandingContent>(defaults);
 
   useEffect(() => {
     let active = true;
-    getLandingContent().then((c) => { if (active) setContent(c); });
-    const unsubscribe = subscribeToLanding((c) => { if (active) setContent(c); });
+    getLandingContent(eventId, config.copy).then((c) => { if (active) setContent(c); });
+    const unsubscribe = subscribeToLanding(eventId, config.copy, (c) => { if (active) setContent(c); });
     return () => { active = false; unsubscribe(); };
-  }, []);
+  }, [eventId, config]);
 
   // QR encodes the admin URL if set, otherwise the booth root at this origin.
   const qrUrl = useMemo(() => {
     const trimmed = content.url?.trim();
     if (trimmed) return trimmed;
-    if (typeof window !== 'undefined') return window.location.origin + '/';
-    return '/';
-  }, [content.url]);
+    if (typeof window !== 'undefined') return window.location.origin + (basePath || '/');
+    return basePath || '/';
+  }, [content.url, basePath]);
 
-  const steps = (content.steps?.length ? content.steps : DEFAULT_LANDING.steps).map((s) => s.title);
+  const steps = (content.steps?.length ? content.steps : defaults.steps).map((s) => s.title);
 
   return (
     <div className="absolute inset-0 overflow-y-auto hide-scrollbar bg-noir-900">

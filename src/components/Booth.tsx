@@ -42,12 +42,13 @@ import ChallengeSelector from './booth/ChallengeSelector';
 
 // Foundation APIs
 import { useStore } from '../store';
-import { activeEvent } from '../events/active';
+import { useEvent } from '../events/EventContext';
 import { buildCatalog } from '../lib/catalog';
 import { initializeFaceLandmarker } from '../lib/faceTracking';
 import { submitPost } from '../lib/db';
 import { savePhoto, addCompletedChallenge, setGuestName } from '../lib/session';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
+import { useEntitlements } from '../lib/entitlements';
 import { dataUrlToBlob } from './booth/capture';
 import type { Transform2D, Experience, AnchorConfig, Challenge } from '../types';
 
@@ -72,10 +73,12 @@ const DEFAULT_TRANSFORM: Transform2D = { scale: 1, x: 0, y: 0, rotation: 0 };
 
 export default function Booth() {
   const { id: routeExperienceId } = useParams<{ id?: string }>();
+  const { eventId, config: eventConfig, basePath } = useEvent();
+  const entitlements = useEntitlements();
 
   // ── Store ─────────────────────────────────────────────────────────────
   const {
-    experiences, experiencesLoaded, fetchExperiences,
+    experiences, linkedGlobals, experiencesLoaded, fetchExperiences,
     presetOverrides, fetchPresetOverrides,
     wallSettings, fetchWallSettings,
   } = useStore();
@@ -100,6 +103,13 @@ export default function Booth() {
   // ── Camera ────────────────────────────────────────────────────────────
   const [started, setStarted] = useState(false);
   const [mediaMode, setMediaMode] = useState<MediaMode>('photo');
+
+  // Video capture is entitlement-gated (free tier: photo only). If the flag
+  // resolves after the guest already toggled, snap back to photo mode.
+  const videoAllowed = entitlements.videoEnabled;
+  useEffect(() => {
+    if (!videoAllowed && mediaMode === 'video') setMediaMode('photo');
+  }, [videoAllowed, mediaMode]);
 
   // Audio only needed in video mode; restart stream when mode changes to add audio
   const {
@@ -158,8 +168,8 @@ export default function Booth() {
 
   // ── Build catalog ─────────────────────────────────────────────────────
   const catalog = useMemo(
-    () => buildCatalog(experiencesLoaded ? experiences : [], presetOverrides),
-    [experiences, experiencesLoaded, presetOverrides],
+    () => buildCatalog(eventConfig.arContent, experiencesLoaded ? experiences : [], presetOverrides, experiencesLoaded ? linkedGlobals : []),
+    [eventConfig, experiences, linkedGlobals, experiencesLoaded, presetOverrides],
   );
 
   // Pre-select from route param
@@ -186,7 +196,7 @@ export default function Booth() {
     if (appliedDefaultRef.current) return;
     if (routeExperienceId) { appliedDefaultRef.current = true; return; }
     if (!experiencesLoaded) return;
-    const id = wallSettings.defaultExperienceId ?? activeEvent.defaultExperienceId;
+    const id = wallSettings.defaultExperienceId ?? eventConfig.defaultExperienceId;
     if (!id) return;
     const exp = catalog.find((e) => e.id === id);
     if (!exp) return;
@@ -318,7 +328,7 @@ export default function Booth() {
 
       const expId = attachExp?.id ?? frameExp?.id ?? (effectId !== 'none' ? `builtin:shader:${effectId}` : undefined);
 
-      const post = await submitPost({
+      const post = await submitPost(eventId, {
         blob,
         mediaType: isVideo ? 'video' : 'image',
         durationMs: capturedDurationMs,
@@ -331,7 +341,7 @@ export default function Booth() {
       });
 
       if (post) {
-        savePhoto({
+        savePhoto(eventId, {
           id: post.id,
           image_url: post.image_url,
           media_type: isVideo ? 'video' : 'image',
@@ -340,16 +350,16 @@ export default function Booth() {
         });
         // Remember the name (so challenge mode doesn't re-ask) + mark the
         // challenge complete so it drops off this guest's list.
-        if (guestName) setGuestName(guestName);
+        if (guestName) setGuestName(eventId, guestName);
         if (selectedChallenge) {
-          addCompletedChallenge(selectedChallenge.id);
+          addCompletedChallenge(eventId, selectedChallenge.id);
           setSelectedChallenge(null); // done — don't re-tag the next shot
         }
       }
 
       setPhase('success');
     },
-    [capturedDataUrl, capturedBlobRef, capturedDurationMs, attachExp, frameExp, effectId, selectedChallenge],
+    [capturedDataUrl, capturedBlobRef, capturedDurationMs, attachExp, frameExp, effectId, selectedChallenge, eventId],
   );
 
   const handleRetake = useCallback(() => {
@@ -438,11 +448,11 @@ export default function Booth() {
                   </div>
                 ) : (
                   <>
-                    <a href="/wall" title="Live Photo Wall" aria-label="Live Photo Wall" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
+                    <a href={`${basePath}/wall`} title="Live Photo Wall" aria-label="Live Photo Wall" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
                       <GalleryIcon size={15} />
                       <span className="font-label text-[9px] uppercase tracking-wide">Wall</span>
                     </a>
-                    <a href="/me" title="My Media" aria-label="My Media" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
+                    <a href={`${basePath}/me`} title="My Media" aria-label="My Media" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
                       <MediaStackIcon size={15} />
                       <span className="font-label text-[9px] uppercase tracking-wide">Photos</span>
                     </a>
@@ -490,6 +500,7 @@ export default function Booth() {
                   overlayOpacity={frameExp?.config?.opacity}
                   threeCanvasId={is3D ? 'booth-3d-layer' : null}
                   active={true}
+                  watermark={entitlements.watermark}
                 />
               )}
               <div ref={feedContainerRef} className="absolute inset-0">
@@ -533,9 +544,11 @@ export default function Booth() {
                       <button onClick={() => { if (!recording) setMediaMode('photo'); }} disabled={recording} aria-label="Photo mode" className={`flex items-center justify-center px-2.5 py-1.5 rounded-full transition-all ${mediaMode === 'photo' ? 'bg-foil text-noir-900' : 'text-champagne/50 hover:text-ivory'}`}>
                         <CameraIcon className="w-3.5 h-3.5" />
                       </button>
-                      <button onClick={() => { if (!recording) setMediaMode('video'); }} disabled={recording} aria-label="Video mode" className={`flex items-center justify-center px-2.5 py-1.5 rounded-full transition-all ${mediaMode === 'video' ? 'bg-foil text-noir-900' : 'text-champagne/50 hover:text-ivory'}`}>
-                        <Video className="w-3.5 h-3.5" />
-                      </button>
+                      {videoAllowed && (
+                        <button onClick={() => { if (!recording) setMediaMode('video'); }} disabled={recording} aria-label="Video mode" className={`flex items-center justify-center px-2.5 py-1.5 rounded-full transition-all ${mediaMode === 'video' ? 'bg-foil text-noir-900' : 'text-champagne/50 hover:text-ivory'}`}>
+                          <Video className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                     {mediaMode === 'photo' && !recording && (
                       <div className="relative">

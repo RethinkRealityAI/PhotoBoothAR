@@ -17,6 +17,7 @@ import {
   updateChallenge,
   deleteChallenge,
 } from '../../lib/db';
+import { useEvent } from '../../events/EventContext';
 import type { Challenge } from '../../types';
 
 /* ------------------------------------------------------------------ */
@@ -257,6 +258,7 @@ function ChallengeRow({
 /* ------------------------------------------------------------------ */
 
 export default function Challenges() {
+  const { eventId } = useEvent();
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);   // null = none, 'new' = add form
@@ -265,10 +267,10 @@ export default function Challenges() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const data = await fetchChallenges();
+    const data = await fetchChallenges(eventId);
     setChallenges(data);
     setLoading(false);
-  }, []);
+  }, [eventId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -278,7 +280,7 @@ export default function Challenges() {
     const next = challenges.length > 0
       ? Math.max(...challenges.map((c) => c.sort_order)) + 1
       : 0;
-    const created = await createChallenge({ ...patch, sort_order: next });
+    const created = await createChallenge(eventId, { ...patch, sort_order: next });
     if (created) {
       setChallenges((prev) => [...prev, created]);
       setEditingId(null);
@@ -289,7 +291,7 @@ export default function Challenges() {
   /* Save edit */
   const handleUpdate = async (id: string, patch: Partial<Challenge>) => {
     setSavingId(id);
-    const ok = await updateChallenge(id, patch);
+    const ok = await updateChallenge(eventId, id, patch);
     if (ok) {
       setChallenges((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
       setEditingId(null);
@@ -300,7 +302,7 @@ export default function Challenges() {
   /* Delete */
   const handleDelete = async (id: string) => {
     setSavingId(id);
-    const ok = await deleteChallenge(id);
+    const ok = await deleteChallenge(eventId, id);
     if (ok) {
       setChallenges((prev) => prev.filter((c) => c.id !== id));
       setConfirmDeleteId(null);
@@ -311,7 +313,7 @@ export default function Challenges() {
   /* Toggle active */
   const handleToggleActive = async (c: Challenge) => {
     setSavingId(c.id);
-    const ok = await updateChallenge(c.id, { active: !c.active });
+    const ok = await updateChallenge(eventId, c.id, { active: !c.active });
     if (ok) setChallenges((prev) => prev.map((x) => (x.id === c.id ? { ...x, active: !x.active } : x)));
     setSavingId(null);
   };
@@ -333,8 +335,8 @@ export default function Challenges() {
     setChallenges(next);
     // Persist both
     await Promise.all([
-      updateChallenge(a.id, { sort_order: a.sort_order }),
-      updateChallenge(b.id, { sort_order: b.sort_order }),
+      updateChallenge(eventId, a.id, { sort_order: a.sort_order }),
+      updateChallenge(eventId, b.id, { sort_order: b.sort_order }),
     ]);
   };
 
