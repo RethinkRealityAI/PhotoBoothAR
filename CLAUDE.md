@@ -21,6 +21,10 @@ npm run build                    # runtime (platform) build
 VITE_EVENT=hope-gala npm run build   # legacy single-event build MUST still pass
 ```
 
+Use **Node 22+** (CI pins 22). Node 20 lacks native `WebSocket`, which
+`@supabase/realtime-js` requires at client construction — any test importing a
+Supabase-dependent module throws on Node 20.
+
 The legacy build is not optional: this one repo ships **two things** — `main` →
 the Beamwall platform (Netlify site `beamwall`, no `VITE_EVENT`), and
 `legacy-events` → the 3 frozen single-event sites. A platform change that breaks
@@ -133,6 +137,11 @@ After any **major** failure — a prod incident, a data leak, a broken deploy, o
 gate-breaking regression that shipped — append an entry: **what broke · root cause
 · fix · guardrail added**. This is how we stop repeating mistakes.
 
+- **2026-07-04 — CI red while local gate was green (Node drift).** The first
+  test to import the Supabase client (`entitlements.test.ts`) threw on CI's Node
+  20 ("no native WebSocket", from `@supabase/realtime-js`); locally it passed on
+  Node 22. Fix: pinned CI to Node 22 + added the legacy build to CI. Guardrail:
+  "use Node 22+" in the gate section.
 - **2026-07-04 — App root clipped every tall page.** The root wrapper forced
   `h-screen … overflow-hidden`, so landing cards, tab strips and long pages were
   cut off. Fix: `min-h-[100dvh]`, immersive pages own their scroll. Guardrail:
