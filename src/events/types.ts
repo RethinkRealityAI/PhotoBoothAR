@@ -55,6 +55,11 @@ export interface EventConfig {
   /** Bare event emblem icon (no text) — used wherever a small brand mark appears. */
   Emblem: ComponentType<{ size?: number; className?: string }>;
   Background: ComponentType<{ density?: number; className?: string; sparkle?: number }>;
+  /** Registry id of the background template that produced `Background` (DB
+   *  events only — set by buildRuntimeConfig from config.background_template
+   *  so the admin picker can highlight the current choice). Legacy coded
+   *  events leave it unset. */
+  backgroundTemplateId?: string;
   /** Path the "/" route redirects to, e.g. '/booth' or '/wall'. */
   landingRoute: string;
   arContent: EventARContent;

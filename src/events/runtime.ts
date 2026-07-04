@@ -13,7 +13,8 @@
 import type { EventARContent, EventConfig, EventCopy } from './types';
 import { getRegisteredEvent } from './registry';
 import { supabase } from '../lib/supabase';
-import { createGenericVisuals, DefaultBackground } from './generic';
+import { createGenericVisuals } from './generic';
+import { resolveBackgroundTemplate } from '../components/theme/backgrounds';
 
 export interface RuntimeEvent {
   /** slug — doubles as the posts/experiences/app_settings event_id. */
@@ -110,6 +111,9 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
   const arContent = (cfg.arContent && typeof cfg.arContent === 'object'
     ? cfg.arContent
     : {}) as EventARContent;
+  // Ambient background: config.background_template picks from the template
+  // registry; missing/unknown ids fall back to the default (aurora).
+  const background = resolveBackgroundTemplate(cfg.background_template);
 
   return {
     id: row.slug,
@@ -118,7 +122,8 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     Wordmark: visuals.Wordmark,
     Mark: visuals.Mark,
     Emblem: visuals.Emblem,
-    Background: DefaultBackground,
+    Background: background.component,
+    backgroundTemplateId: background.id,
     landingRoute: str(cfg.landingRoute) ?? '/booth',
     arContent,
     accentHexes,

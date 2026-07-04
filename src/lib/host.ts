@@ -129,6 +129,38 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
   }
 }
 
+/**
+ * Shallow-merge a patch into events.config (jsonb) for a DB event.
+ * Fetches the current config, merges, and writes it back — member RLS allows
+ * both steps. Note: read-merge-write, so concurrent editors can race; fine for
+ * the low-frequency admin settings stored here (e.g. background_template).
+ */
+export async function updateEventConfig(
+  eventUuid: string,
+  patch: Record<string, unknown>,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('events')
+    .select('config')
+    .eq('id', eventUuid)
+    .maybeSingle();
+  if (error || !data) {
+    console.error('[host] updateEventConfig (read)', error);
+    return false;
+  }
+  const current = (data.config ?? {}) as Record<string, unknown>;
+  const merged = { ...current, ...patch };
+  const { error: writeError } = await supabase
+    .from('events')
+    .update({ config: merged })
+    .eq('id', eventUuid);
+  if (writeError) {
+    console.error('[host] updateEventConfig (write)', writeError);
+    return false;
+  }
+  return true;
+}
+
 export async function updateEventStatus(eventUuid: string, status: string): Promise<boolean> {
   const { error } = await supabase.from('events').update({ status }).eq('id', eventUuid);
   if (error) {

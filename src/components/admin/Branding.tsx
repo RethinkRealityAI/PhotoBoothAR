@@ -12,12 +12,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Palette, Type, ListOrdered, Image as ImageIcon, Save, Check,
-  Upload, Trash2, Plus, RefreshCw,
+  Upload, Trash2, Plus, RefreshCw, Wallpaper,
 } from 'lucide-react';
 import EventBackground from '../ui/EventBackground';
 import { Wordmark } from '../ui/EventLogo';
 import { useEvent } from '../../events/EventContext';
 import { getBranding, setBranding, uploadAsset } from '../../lib/db';
+import { updateEventConfig } from '../../lib/host';
+import { BACKGROUND_TEMPLATES, DEFAULT_BACKGROUND_ID } from '../theme/backgrounds';
 import { useStore } from '../../store';
 import type { BrandingColors, BrandingOverrides } from '../../types';
 import type { OnboardingStep } from '../../events/types';
@@ -92,7 +94,7 @@ function draftToOverrides(d: Draft): BrandingOverrides {
 }
 
 export default function Branding() {
-  const { eventId } = useEvent();
+  const { eventId, eventUuid, source, config, refreshConfig } = useEvent();
   const applyBranding = useStore((s) => s.applyBranding);
   const [draft, setDraft] = useState<Draft>(() => buildInitialDraft());
   const [saving, setSaving] = useState(false);
@@ -151,6 +153,21 @@ export default function Branding() {
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
+  };
+
+  // ── Background template picker (runtime DB events only) ──
+  const isDbEvent = source === 'db' && Boolean(eventUuid);
+  const currentBgId = config.backgroundTemplateId ?? DEFAULT_BACKGROUND_ID;
+  const [bgSaving, setBgSaving] = useState<string | null>(null);
+
+  const selectBackground = async (id: string) => {
+    if (!eventUuid || bgSaving || id === currentBgId) return;
+    setBgSaving(id);
+    const ok = await updateEventConfig(eventUuid, { background_template: id });
+    // Re-fetch the event config into the EventProvider so the whole studio
+    // (and this page's own backdrop) re-renders with the new template.
+    if (ok) await refreshConfig();
+    setBgSaving(null);
   };
 
   const resetToCoded = () => {
@@ -239,6 +256,50 @@ export default function Branding() {
             ))}
           </div>
         </section>
+
+        {/* Background template (runtime DB events only) */}
+        {isDbEvent && (
+          <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
+            <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1 flex items-center gap-2">
+              <Wallpaper className="w-3.5 h-3.5" /> Background
+            </h2>
+            <p className="font-sans text-[11px] text-champagne/40 mb-4">
+              The ambient animated backdrop behind every screen (booth, wall, guest pages).
+              It recolors automatically with your theme colours. Applies immediately on click.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {Object.values(BACKGROUND_TEMPLATES).map(({ id, name, component: Preview }) => {
+                const selected = id === currentBgId;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => selectBackground(id)}
+                    disabled={bgSaving !== null}
+                    aria-pressed={selected}
+                    className={`relative overflow-hidden rounded-xl border text-left transition-all ${
+                      selected
+                        ? 'border-gold-400/70 glow-accent'
+                        : 'border-gold-700/25 hover:border-gold-400/45'
+                    } ${bgSaving && bgSaving !== id ? 'opacity-50' : ''}`}
+                  >
+                    {/* live scaled preview — the real component in a small card */}
+                    <div className="relative h-24 bg-noir-900">
+                      <Preview density={10} sparkle={0.4} />
+                    </div>
+                    <div className="absolute bottom-0 inset-x-0 px-2.5 py-1.5 bg-noir-900/70 backdrop-blur-sm flex items-center justify-between">
+                      <span className={`font-label uppercase tracking-widest text-[9px] ${selected ? 'text-gold-300' : 'text-champagne/60'}`}>
+                        {name}
+                      </span>
+                      {bgSaving === id
+                        ? <RefreshCw className="w-3 h-3 text-gold-300 animate-spin" />
+                        : selected && <Check className="w-3 h-3 text-gold-300" />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {/* Onboarding steps */}
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">

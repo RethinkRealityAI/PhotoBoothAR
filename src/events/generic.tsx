@@ -9,6 +9,7 @@
  * entirely by the CSS theme variables so it recolors with the event's theme.
  */
 import type { ComponentType } from 'react';
+import AuroraGradient from '../components/theme/backgrounds/AuroraGradient';
 
 const WORDMARK_FONT_PX: Record<'sm' | 'md' | 'lg' | 'xl', number> = {
   sm: 24,
@@ -90,52 +91,11 @@ export function createGenericVisuals(name: string): GenericVisuals {
 }
 
 /**
- * Default ambient background for runtime events: a subtle animated gradient
- * built from the theme variables (--color-brand-bg/-surface + --accent-rgb).
- * Same contract as the coded events' Background components: pointer-events-none,
- * absolute inset-0, never blocks UI.
+ * Default ambient background for runtime events. Since Phase 2b this delegates
+ * to the 'aurora' background template (src/components/theme/backgrounds) — the
+ * same theme-variable-driven gradient look, now shared with the template
+ * registry. Kept exported so existing imports keep working.
  */
-export function DefaultBackground({ className }: { density?: number; className?: string; sparkle?: number }) {
-  return (
-    <div className={`pointer-events-none absolute inset-0 overflow-hidden ${className ?? ''}`} aria-hidden>
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            'radial-gradient(130% 100% at 50% 0%, var(--color-brand-surface) 0%, var(--color-brand-bg) 62%)',
-        }}
-      />
-      <div
-        className="absolute rounded-full animate-pulse"
-        style={{
-          top: '-22%',
-          left: '-18%',
-          width: '68%',
-          height: '68%',
-          background: 'radial-gradient(circle, rgba(var(--accent-rgb),0.12), transparent 70%)',
-          filter: 'blur(48px)',
-          animationDuration: '9s',
-        }}
-      />
-      <div
-        className="absolute rounded-full animate-pulse"
-        style={{
-          bottom: '-24%',
-          right: '-18%',
-          width: '72%',
-          height: '72%',
-          background: 'radial-gradient(circle, rgba(var(--accent-rgb),0.09), transparent 70%)',
-          filter: 'blur(56px)',
-          animationDuration: '13s',
-        }}
-      />
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            'radial-gradient(120% 90% at 50% 42%, transparent 55%, rgba(0,0,0,0.35) 100%)',
-        }}
-      />
-    </div>
-  );
+export function DefaultBackground(props: { density?: number; className?: string; sparkle?: number }) {
+  return <AuroraGradient {...props} />;
 }

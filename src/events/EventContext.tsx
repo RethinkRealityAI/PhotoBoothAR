@@ -10,7 +10,7 @@
  * to the event, and keeps admin branding overrides live-synced — everything
  * that used to be hard-wired to the build-time active event.
  */
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useParams } from 'react-router-dom';
 import type { EventConfig } from './types';
 import { getRegisteredEvent } from './registry';
@@ -27,6 +27,13 @@ export interface EventContextValue {
   source: 'code' | 'db';
   /** Router prefix for guest links: '' on legacy builds, `/e/<slug>` at runtime. */
   basePath: string;
+  /**
+   * Re-fetch the event's config (events.config for DB events) and swap it into
+   * this context in place — no remount, no loading flash. Used by admin
+   * screens after patching events.config (e.g. the background-template picker)
+   * so the studio reflects the change immediately.
+   */
+  refreshConfig: () => Promise<void>;
 }
 
 const EventContext = createContext<EventContextValue | null>(null);
@@ -144,6 +151,22 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
     return () => { alive = false; };
   }, [slug]);
 
+  // Refresh mechanism for admin config patches (least-invasive correct path):
+  // re-run loadEventConfig and replace the ready state's event, keeping the
+  // provider mounted so per-event store data (posts, branding, wall settings)
+  // survives. setActiveEvent is deliberately NOT re-run — it would wipe that
+  // data — but the store's eventConfig reference is synced so future
+  // applyBranding copy merges use the fresh config. Everything that renders
+  // config.Background does so via useEvent().config (see EventBackground), so
+  // updating the context state is sufficient for the change to appear live.
+  const refreshConfig = useCallback(async () => {
+    const event = await loadEventConfig(slug);
+    if (!event || loadedSlugRef.current !== slug) return;
+    applyEventTheme(event);
+    useStore.setState({ eventConfig: event.config });
+    setState({ phase: 'ready', event });
+  }, [slug]);
+
   // Load admin-editable branding overrides once per event, then keep them
   // live-synced (moved here from App so it's keyed by the resolved event).
   const readyEventId = state.phase === 'ready' ? state.event.eventId : null;
@@ -185,6 +208,7 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
     planTier: event.planTier,
     source: event.source,
     basePath: basePath ?? (slugProp ? '' : `/e/${slug}`),
+    refreshConfig,
   };
 
   return <EventContext.Provider value={value}>{children}</EventContext.Provider>;
