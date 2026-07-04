@@ -3,8 +3,9 @@
  *
  * Two actions (JSON POST body):
  *   { action: 'init', eventSlug, sessionId, mediaType, contentType, ext }
- *     -> validates event is live, rate-limits per (event, session), and
- *        returns a signed upload URL token: { path, token }.
+ *     -> validates event is live, enforces the plan-tier post cap
+ *        (403 { error: 'post_limit_reached' } when at/over), rate-limits per
+ *        (event, session), and returns a signed upload URL token: { path, token }.
  *   { action: 'finalize', eventSlug, sessionId, path, mediaType, ... }
  *     -> verifies the uploaded object (tenant-scoped path, size cap) and
  *        inserts the public.posts row via service role: { post }.
@@ -26,6 +27,12 @@ const QUOTA_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const QUOTA_MAX_POSTS = 30;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8MB
 const MAX_VIDEO_BYTES = 60 * 1024 * 1024; // 60MB
+
+/** Per-event post cap by plan tier (mirror of src/lib/entitlements.ts
+ *  maxPosts). premium/deluxe = unlimited (no entry). The three grandfathered
+ *  legacy events are never capped (LEGACY_ENTITLEMENTS = uncapped). */
+const TIER_MAX_POSTS: Record<string, number> = { free: 25, essentials: 500 };
+const LEGACY_SLUGS = new Set(['hope-gala', 'jenna-jake', 'detola-wuyi']);
 
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
 const VIDEO_EXTS = ['webm', 'mp4'];
@@ -54,7 +61,7 @@ async function getLiveEvent(sb: Client, eventSlug: unknown) {
   if (typeof eventSlug !== 'string' || !eventSlug) return null;
   const { data, error } = await sb
     .from('events')
-    .select('id, slug, status')
+    .select('id, slug, status, org_id, plan_tier')
     .eq('slug', eventSlug)
     .maybeSingle();
   if (error) throw error;
@@ -97,6 +104,29 @@ async function handleInit(sb: Client, body: Record<string, unknown>): Promise<Re
   }
   if (typeof contentType !== 'string' || !contentType.startsWith(`${mediaType}/`)) {
     return json(400, { error: 'invalid_content_type' });
+  }
+
+  // Plan-tier post cap (free 25 / essentials 500 / premium+deluxe unlimited),
+  // checked BEFORE the rate-limit bump so a capped event never burns quota.
+  // An active org Pro subscription lifts the cap to premium-level (unlimited),
+  // matching entitlementsFor() in src/lib/entitlements.ts.
+  const cap = TIER_MAX_POSTS[(event.plan_tier as string) ?? 'free'];
+  if (cap !== undefined && !LEGACY_SLUGS.has(event.slug)) {
+    const { count, error: countErr } = await sb
+      .from('posts')
+      .select('id', { count: 'exact', head: true })
+      .eq('event_id', event.slug);
+    if (countErr) throw countErr;
+    if ((count ?? 0) >= cap) {
+      const { data: sub, error: subErr } = await sb
+        .from('subscriptions')
+        .select('org_id')
+        .eq('org_id', event.org_id as string)
+        .eq('status', 'active')
+        .maybeSingle();
+      if (subErr) throw subErr;
+      if (!sub) return json(403, { error: 'post_limit_reached' });
+    }
   }
 
   // Quota: sliding-ish window of 1h per (event, session). Counted at INIT —

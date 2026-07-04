@@ -65,6 +65,7 @@ import { Mark } from '../ui/EventLogo';
 import EventBackground from '../ui/EventBackground';
 
 import { getExperience, createExperience, updateExperience, uploadAsset } from '../../lib/db';
+import { useEntitlements } from '../../lib/entitlements';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from './studioBase';
 import { AnchorConfig, HeadAnchor } from '../../types';
@@ -72,6 +73,7 @@ import { HEAD_PIECE_MAP } from '../../lib/headPieces';
 
 import AnchorPanel from './creator3d/AnchorPanel';
 import PropertiesPanel from './creator3d/PropertiesPanel';
+import AiGeneratePanel from './creator3d/AiGeneratePanel';
 
 // Lazy-load the canvases — they pull in Three.js / WebGL heavy code
 import { lazy } from 'react';
@@ -94,9 +96,13 @@ const DEFAULT_ROTATION = { x: 0, y: 0, z: 0 };
 export default function Creator3D() {
   const navigate = useNavigate();
   const base = useStudioBase();
-  const { eventId } = useEvent();
+  const { eventId, source } = useEvent();
+  const entitlements = useEntitlements();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('id');
+
+  // AI 3D generation: platform (DB) events with the AI Studio entitlement.
+  const showAiPanel = source === 'db' && entitlements.aiStudio;
 
   // ── editor state ──
   const [name, setName] = useState('Untitled 3D Experience');
@@ -388,17 +394,24 @@ export default function Creator3D() {
 
           {/* ── LEFT: asset + anchor list ── */}
           <Panel defaultSize={20} minSize={16} maxSize={28}>
-            <div className="h-full glass border-r border-gold-700/20 overflow-hidden">
-              <AnchorPanel
-                assetUrl={assetUrl}
-                assetName={assetName}
-                proceduralId={proceduralId}
-                uploading={uploading}
-                anchor={anchor}
-                onUpload={handleUpload}
-                onAnchorSelect={handleAnchorSelect}
-                onSelectPreset={handleSelectPreset}
-              />
+            <div className="h-full glass border-r border-gold-700/20 overflow-hidden flex flex-col">
+              <div className="flex-1 min-h-0">
+                <AnchorPanel
+                  assetUrl={assetUrl}
+                  assetName={assetName}
+                  proceduralId={proceduralId}
+                  uploading={uploading}
+                  anchor={anchor}
+                  onUpload={handleUpload}
+                  onAnchorSelect={handleAnchorSelect}
+                  onSelectPreset={handleSelectPreset}
+                />
+              </div>
+              {showAiPanel && (
+                <AiGeneratePanel
+                  onOpenExperience={(exp) => navigate(`${base}/creator3d?id=${exp.id}`)}
+                />
+              )}
             </div>
           </Panel>
 

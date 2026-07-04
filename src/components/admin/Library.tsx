@@ -513,12 +513,21 @@ export default function Library() {
             <div className="glass rounded-2xl border border-gold-400/10 p-12 text-center">
               <p className="font-serif italic text-2xl text-foil-static mb-2">No experiences yet</p>
               <p className="font-sans text-sm text-champagne/40 mb-6">Create your first 2D, border, or shader experience below.</p>
-              <button
-                onClick={() => navigate(`${base}/creator`)}
-                className="px-6 py-3 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent"
-              >
-                Create First Experience
-              </button>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  onClick={() => navigate(`${base}/creator`)}
+                  className="px-6 py-3 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent"
+                >
+                  Create First Experience
+                </button>
+                <button
+                  onClick={() => navigate(`${base}/creator`)}
+                  title="Open the creator — the AI Generate panel lives in its left column"
+                  className="flex items-center gap-1.5 px-5 py-3 glass rounded-xl text-xs font-label uppercase tracking-widest text-champagne/60 hover:text-gold-300 transition-colors"
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> Generate with AI
+                </button>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">

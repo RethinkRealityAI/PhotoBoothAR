@@ -49,9 +49,12 @@ import { FILTER_SHADERS, SHADER_MAP, defaultParams, ShaderRunner } from '../../l
 import { getCameraStream, stopStream } from '../../lib/camera';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { getExperience, createExperience, updateExperience, uploadAsset } from '../../lib/db';
+import { generateImage, resolveEventUuid, aiErrorMessage } from '../../lib/ai';
+import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
+import { useEntitlements } from '../../lib/entitlements';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from './studioBase';
-import type { ExperienceKind, Transform2D, ExperienceConfig } from '../../types';
+import type { Experience, ExperienceKind, Transform2D, ExperienceConfig } from '../../types';
 
 /* ------------------------------------------------------------------ */
 /* Types & constants                                                    */
@@ -112,40 +115,64 @@ function GoldSlider({
 }
 
 /* ------------------------------------------------------------------ */
-/* Gemini Magic Generate                                                */
+/* Magic Generate — server-side AI via the ai-generate-image function.  */
+/* Credits, entitlements, and the Gemini key are enforced/held server-  */
+/* side (no VITE_GEMINI_API_KEY in the client anymore).                 */
 /* ------------------------------------------------------------------ */
 
-const GEMINI_KEY = (import.meta.env.VITE_GEMINI_API_KEY as string | undefined) ?? '';
-
-function MagicGenerate({ onGenerated }: { onGenerated: (url: string, blob: Blob) => void }) {
+function MagicGenerate({
+  kind,
+  onGenerated,
+}: {
+  kind: 'border' | '2d_filter';
+  onGenerated: (exp: Experience) => void;
+}) {
+  const { eventId, eventUuid, source } = useEvent();
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showBillingLink, setShowBillingLink] = useState(false);
+  const [balance, setBalance] = useState<number | null>(null);
+
+  const refreshBalance = useCallback(async (): Promise<number | null> => {
+    const org = await fetchMyOrg();
+    if (!org) return null;
+    const bal = await fetchCreditBalance(org.orgId);
+    setBalance(bal);
+    return bal;
+  }, []);
 
   const generate = async () => {
-    if (!prompt.trim()) return;
-    setLoading(true); setError('');
+    if (!prompt.trim() || loading) return;
+    setLoading(true);
+    setError('');
+    setShowBillingLink(false);
     try {
-      const body = {
-        system_instruction: {
-          parts: [{ text: 'Output ONLY valid SVG markup. No code fences, no explanation. Transparent background. viewBox="0 0 1080 1920". Design for a gala photo-booth overlay.' }],
-        },
-        contents: [{ parts: [{ text: prompt }] }],
-      };
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
-      );
-      if (!res.ok) throw new Error(`API error ${res.status}`);
-      const json = await res.json();
-      let svg: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-      svg = svg.replace(/^```[a-z]*\n?/im, '').replace(/```$/m, '').trim();
-      if (!svg.startsWith('<svg')) throw new Error('Response was not SVG');
-      const blob = blobFromSvg(svg);
-      const url = URL.createObjectURL(blob);
-      onGenerated(url, blob);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Generation failed');
+      const uuid = await resolveEventUuid(eventId, eventUuid);
+      if (!uuid) {
+        setError(aiErrorMessage('event_not_found'));
+        return;
+      }
+      const { data, error: err } = await generateImage(uuid, {
+        prompt: prompt.trim(),
+        kind,
+        transparentBackground: kind === '2d_filter',
+      });
+      if (err || !data?.experience) {
+        if (err === 'insufficient_credits') {
+          const bal = await refreshBalance();
+          setError(`Not enough credits${bal !== null ? ` — balance: ${bal}` : ''}.`);
+          setShowBillingLink(source === 'db');
+        } else if (err === 'upgrade_required') {
+          setError(aiErrorMessage('upgrade_required'));
+          setShowBillingLink(source === 'db');
+        } else {
+          setError(aiErrorMessage(err ?? 'internal'));
+        }
+        return;
+      }
+      onGenerated(data.experience);
+      refreshBalance(); // show what's left after the spend
     } finally {
       setLoading(false);
     }
@@ -154,7 +181,7 @@ function MagicGenerate({ onGenerated }: { onGenerated: (url: string, blob: Blob)
   return (
     <div className="glass rounded-xl border border-gold-400/20 p-4 flex flex-col gap-3">
       <p className="font-label uppercase tracking-widest text-[9px] text-gold-300 flex items-center gap-1.5">
-        <Wand2 className="w-3 h-3" /> AI Generate Sticker
+        <Wand2 className="w-3 h-3" /> {kind === 'border' ? 'AI Generate Frame' : 'AI Generate Sticker'}
       </p>
       <textarea
         value={prompt}
@@ -163,15 +190,32 @@ function MagicGenerate({ onGenerated }: { onGenerated: (url: string, blob: Blob)
         rows={2}
         className="w-full bg-white/5 border border-gold-400/15 rounded-lg px-3 py-2 text-ivory text-xs placeholder-white/20 outline-none focus:border-gold-400/50 resize-none"
       />
-      {error && <p className="text-red-400 text-[10px]">{error}</p>}
+      {error && (
+        <p className="text-red-400 text-[10px]">
+          {error}
+          {showBillingLink && (
+            <>
+              {' '}
+              <a href="/host/billing" className="underline text-gold-300 hover:text-gold-200">
+                Open billing
+              </a>
+            </>
+          )}
+        </p>
+      )}
       <button
         onClick={generate}
         disabled={loading || !prompt.trim()}
         className="flex items-center justify-center gap-1.5 py-2 bg-foil text-noir-900 rounded-xl font-bold text-[10px] font-label uppercase tracking-widest disabled:opacity-40 hover:scale-[1.02] transition-transform"
       >
         {loading ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-        {loading ? 'Generating…' : 'Generate'}
+        {loading ? 'Generating…' : 'Generate · 1 credit'}
       </button>
+      {balance !== null && (
+        <p className="text-[9px] text-champagne/40 font-sans">
+          {balance} credit{balance === 1 ? '' : 's'} left · raw generation saved to your library as a draft
+        </p>
+      )}
     </div>
   );
 }
@@ -396,6 +440,7 @@ export default function Creator2D() {
   const navigate = useNavigate();
   const base = useStudioBase();
   const { eventId } = useEvent();
+  const entitlements = useEntitlements();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('id');
 
@@ -920,13 +965,19 @@ export default function Creator2D() {
                 </div>
               )}
 
-              {/* AI sticker generator */}
-              {GEMINI_KEY && kind === '2d_filter' && (
+              {/* AI generator — runs server-side (credits + entitlement enforced there) */}
+              {entitlements.aiStudio && kind !== 'shader' && (
                 <MagicGenerate
-                  onGenerated={(url, blob) => {
-                    setOverlayUrl(url);
-                    setOverlayBlob(blob);
-                    setOverlayIsBuiltin(false);
+                  kind={kind}
+                  onGenerated={(exp) => {
+                    // The server already saved an unpublished experience; load
+                    // its stored asset into the editor for placement + publish.
+                    if (exp.asset_url) {
+                      setOverlayUrl(exp.asset_url);
+                      setOverlayBlob(null);
+                      setOverlayIsBuiltin(false);
+                    }
+                    if (name === 'Untitled Experience' && exp.name) setName(exp.name);
                   }}
                 />
               )}
