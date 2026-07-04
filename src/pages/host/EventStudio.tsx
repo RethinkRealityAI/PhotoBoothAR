@@ -15,7 +15,7 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, Boxes, Check, Copy, FolderOpen, Image as ImageIcon, KeyRound,
+  ArrowLeft, Boxes, Check, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
   LayoutGrid, Palette, Settings, ShieldCheck, Trophy, Wand2,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
@@ -31,6 +31,7 @@ import Challenges from '../../components/admin/Challenges';
 import Branding from '../../components/admin/Branding';
 import SettingsScreen from '../../components/admin/Settings';
 import ManagerAccess from './ManagerAccess';
+import CardsTab from './CardsTab';
 import UpgradeCard from './UpgradeCard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -41,6 +42,7 @@ interface StudioEvent {
   name: string;
   status: string;
   plan_tier: string;
+  event_type: string;
 }
 
 type LoadState =
@@ -82,7 +84,7 @@ export default function EventStudio() {
     setState({ phase: 'loading' });
     supabase
       .from('events')
-      .select('id, slug, name, status, plan_tier')
+      .select('id, slug, name, status, plan_tier, event_type')
       .eq('id', id)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -120,6 +122,7 @@ export default function EventStudio() {
     { to: `${base}/creator3d`, label: '3D Anchors', icon: Boxes, end: false },
     { to: `${base}/moderation`, label: 'Wall', icon: ShieldCheck, end: false },
     { to: `${base}/challenges`, label: 'Challenges', icon: Trophy, end: false },
+    { to: `${base}/cards`, label: 'Cards', icon: Gift, end: false },
     { to: `${base}/branding`, label: 'Branding', icon: Palette, end: false },
     { to: `${base}/settings`, label: 'Settings', icon: Settings, end: false },
     { to: `${base}/access`, label: 'Manager access', icon: KeyRound, end: false },
@@ -174,13 +177,18 @@ export default function EventStudio() {
 
           <main className="flex-1 relative overflow-hidden">
             <Routes>
-              <Route index element={<Dashboard />} />
+              {/* Remote celebrations live in the Cards tab — make it home. */}
+              <Route
+                index
+                element={event.event_type === 'remote' ? <Navigate to={`${base}/cards`} replace /> : <Dashboard />}
+              />
               <Route path="library" element={<Library />} />
               <Route path="assets" element={<Assets />} />
               <Route path="creator" element={<Creator2D />} />
               <Route path="creator3d" element={<Creator3D />} />
               <Route path="moderation" element={<Moderation />} />
               <Route path="challenges" element={<Challenges />} />
+              <Route path="cards" element={<CardsTab />} />
               <Route path="branding" element={<Branding />} />
               <Route path="settings" element={<SettingsScreen />} />
               <Route path="access" element={<ManagerAccess eventUuid={event.id} />} />

@@ -40,6 +40,8 @@ import NewEvent from './pages/host/NewEvent';
 import Billing from './pages/host/Billing';
 import EventStudio from './pages/host/EventStudio';
 import ManagerConsole from './pages/manager/ManagerConsole';
+import CardViewer from './pages/cards/CardViewer';
+import CardContribute from './pages/cards/CardContribute';
 
 /** Set at build time for the legacy single-event deploys. */
 const LEGACY_EVENT = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim();
@@ -47,9 +49,20 @@ const LEGACY_EVENT = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').
 const DEFAULT_EVENT_SLUG =
   ((import.meta.env.VITE_DEFAULT_EVENT as string | undefined) ?? '').trim() || 'hope-gala';
 
-/** "/" inside an event → the event's configured landing route. */
+/** "/" inside an event → the event's configured landing route. When the host
+ *  pinned a published greeting card as the event landing
+ *  (events.config.primary_card → config.primaryCardPublicId), guests go
+ *  straight to the card viewer instead — the remote-celebration mode. */
 function EventIndexRedirect() {
   const { config, basePath } = useEvent();
+  // Only redirect to the pinned card when the pin is actually set. When it is
+  // null — including after the host unpublishes the pinned card, which clears
+  // the pin (see doUnpublish in CardsTab) — this falls through to the normal
+  // landing route, so guests are never trapped on an unpublished card. (The
+  // card-view path also 404s non-published cards as a second line of defence.)
+  if (config.primaryCardPublicId) {
+    return <Navigate to={`/c/${config.primaryCardPublicId}`} replace />;
+  }
   return <Navigate to={`${basePath}${config.landingRoute}`} replace />;
 }
 
@@ -125,6 +138,10 @@ export default function App() {
                 <Route path="billing" element={<Billing />} />
               </Route>
               <Route path="/host/events/:id/*" element={<EventStudio />} />
+
+              {/* Greeting cards: public viewer + token-gated contribute page */}
+              <Route path="/c/:publicId" element={<CardViewer />} />
+              <Route path="/c/:publicId/contribute" element={<CardContribute />} />
 
               {/* Day-of staff console (token-gated) */}
               <Route path="/m/:slug" element={<ManagerConsole />} />

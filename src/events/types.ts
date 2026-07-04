@@ -62,6 +62,10 @@ export interface EventConfig {
   backgroundTemplateId?: string;
   /** Path the "/" route redirects to, e.g. '/booth' or '/wall'. */
   landingRoute: string;
+  /** When set (DB events; events.config.primary_card = { publicId }), the
+   *  guest "/" redirect goes to the published greeting card at /c/:publicId
+   *  instead of landingRoute — the remote-event card landing. */
+  primaryCardPublicId?: string;
   arContent: EventARContent;
   /** Event palette as hex strings — for canvas/JS color needs (confetti, the
    *  captured-photo watermark) that can't read CSS variables. Brightest first. */

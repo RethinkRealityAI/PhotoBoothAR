@@ -114,6 +114,11 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
   // Ambient background: config.background_template picks from the template
   // registry; missing/unknown ids fall back to the default (aurora).
   const background = resolveBackgroundTemplate(cfg.background_template);
+  // Greeting-card landing override (set by the studio's "Make event landing"
+  // button): config.primary_card = { publicId } → "/" redirects to /c/:publicId.
+  const primaryCard = (cfg.primary_card ?? null) as { publicId?: unknown } | null;
+  const primaryCardPublicId =
+    primaryCard && typeof primaryCard === 'object' ? str(primaryCard.publicId) : undefined;
 
   return {
     id: row.slug,
@@ -125,6 +130,7 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     Background: background.component,
     backgroundTemplateId: background.id,
     landingRoute: str(cfg.landingRoute) ?? '/booth',
+    primaryCardPublicId,
     arContent,
     accentHexes,
     defaultExperienceId: str(cfg.defaultExperienceId),

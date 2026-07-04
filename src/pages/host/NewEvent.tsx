@@ -204,6 +204,12 @@ export default function NewEvent() {
                   <option key={t.value} value={t.value}>{t.label}</option>
                 ))}
               </select>
+              {eventType === 'remote' && (
+                <p className="mt-1 rounded-xl border border-gold-400/20 bg-gold-400/[0.06] px-3.5 py-2.5 font-sans text-[11px] leading-relaxed text-gold-200/80">
+                  Remote celebrations shine with a greeting card — create one in the studio's Cards
+                  tab after setup, and guests everywhere can add photos, videos and notes.
+                </p>
+              )}
             </label>
             <label className="flex flex-col gap-1.5">
               <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Date (optional)</span>
