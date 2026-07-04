@@ -54,7 +54,7 @@ function UploadInner() {
   const navigate = useNavigate();
   const { eventId, config, basePath } = useEvent();
   const {
-    experiences, experiencesLoaded, fetchExperiences,
+    experiences, linkedGlobals, experiencesLoaded, fetchExperiences,
     presetOverrides, fetchPresetOverrides,
   } = useStore();
 
@@ -84,9 +84,9 @@ function UploadInner() {
   }, []);
 
   const frames = useMemo(() => {
-    const catalog = buildCatalog(config.arContent, experiencesLoaded ? experiences : [], presetOverrides);
+    const catalog = buildCatalog(config.arContent, experiencesLoaded ? experiences : [], presetOverrides, experiencesLoaded ? linkedGlobals : []);
     return catalog.filter((e) => e.kind === 'border' || e.kind === '2d_filter');
-  }, [config, experiences, experiencesLoaded, presetOverrides]);
+  }, [config, experiences, linkedGlobals, experiencesLoaded, presetOverrides]);
 
   const addFiles = useCallback((files: File[]) => {
     const newItems: UploadItem[] = files.map((file) => ({

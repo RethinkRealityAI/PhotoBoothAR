@@ -50,6 +50,7 @@ import { getCameraStream, stopStream } from '../../lib/camera';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { getExperience, createExperience, updateExperience, uploadAsset } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
+import { useStudioBase } from './studioBase';
 import type { ExperienceKind, Transform2D, ExperienceConfig } from '../../types';
 
 /* ------------------------------------------------------------------ */
@@ -393,6 +394,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export default function Creator2D() {
   const navigate = useNavigate();
+  const base = useStudioBase();
   const { eventId } = useEvent();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('id');
@@ -648,7 +650,7 @@ export default function Creator2D() {
       if (!result) {
         setSaveError('Save failed — check connection and try again.');
       } else {
-        navigate('/admin/library');
+        navigate(`${base}/library`);
       }
     } catch (err) {
       console.error('[creator2d] save error', err);
@@ -656,7 +658,7 @@ export default function Creator2D() {
     } finally {
       setSaving(false);
     }
-  }, [kind, overlayBlob, overlayIsBuiltin, overlayUrl, selectedBorderId, shaderId, shaderParams, transform, name, isPublished, featured, thumbBlob, thumbUrl, editId, navigate]);
+  }, [kind, overlayBlob, overlayIsBuiltin, overlayUrl, selectedBorderId, shaderId, shaderParams, transform, name, isPublished, featured, thumbBlob, thumbUrl, editId, navigate, base]);
 
   const shaderDef = useMemo(() => SHADER_MAP[shaderId], [shaderId]);
 
@@ -685,7 +687,7 @@ export default function Creator2D() {
       <div className="relative z-20 shrink-0 h-14 flex items-center justify-between px-4 glass-strong border-b border-gold-400/15">
         <div className="flex items-center gap-3 min-w-0">
           <button
-            onClick={() => navigate('/admin/library')}
+            onClick={() => navigate(`${base}/library`)}
             className="p-1.5 glass rounded-lg text-champagne/50 hover:text-ivory transition-colors shrink-0"
             aria-label="Back to library"
           >

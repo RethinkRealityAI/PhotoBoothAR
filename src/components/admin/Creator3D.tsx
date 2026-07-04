@@ -66,6 +66,7 @@ import EventBackground from '../ui/EventBackground';
 
 import { getExperience, createExperience, updateExperience, uploadAsset } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
+import { useStudioBase } from './studioBase';
 import { AnchorConfig, HeadAnchor } from '../../types';
 import { HEAD_PIECE_MAP } from '../../lib/headPieces';
 
@@ -92,6 +93,7 @@ const DEFAULT_ROTATION = { x: 0, y: 0, z: 0 };
 
 export default function Creator3D() {
   const navigate = useNavigate();
+  const base = useStudioBase();
   const { eventId } = useEvent();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('id');
@@ -258,9 +260,9 @@ export default function Creator3D() {
     if (!result) {
       setSaveError('Save failed — check your connection and try again.');
     } else {
-      navigate('/admin/library');
+      navigate(`${base}/library`);
     }
-  }, [assetUrl, proceduralId, anchor, anchorConfig, name, isPublished, featured, thumbBlob, thumbUrl, editId, navigate]);
+  }, [assetUrl, proceduralId, anchor, anchorConfig, name, isPublished, featured, thumbBlob, thumbUrl, editId, navigate, base]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Loading state
@@ -291,7 +293,7 @@ export default function Creator3D() {
                          border-b border-gold-700/20 glass-strong">
         {/* back */}
         <button
-          onClick={() => navigate('/admin/library')}
+          onClick={() => navigate(`${base}/library`)}
           className="glass flex items-center gap-1.5 px-3 py-1.5 rounded-lg
                      font-label text-[10px] uppercase tracking-luxe text-ivory/60
                      hover:text-ivory/90 transition-colors shrink-0"
@@ -507,7 +509,7 @@ export default function Creator3D() {
                 onFeaturedChange={setFeatured}
                 onTransformChange={handleTransformChange}
                 onSave={handleSave}
-                onBack={() => navigate('/admin/library')}
+                onBack={() => navigate(`${base}/library`)}
               />
             </div>
           </Panel>

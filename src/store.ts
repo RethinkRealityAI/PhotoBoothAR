@@ -11,6 +11,10 @@ import { activeEvent, EVENT_ID } from './events/active';
 import type { EventConfig, EventCopy } from './events/types';
 import { mergeCopy, brandingCssVars, MANAGED_CSS_VARS } from './lib/branding';
 
+/** Set at build time on legacy single-event deploys — they never query the
+ *  global catalog, keeping their network behavior byte-identical. */
+const LEGACY_EVENT = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim();
+
 const DEFAULT_WALL_SETTINGS: WallSettings = {
   showQR: false,
   showLeaderboard: true,
@@ -42,6 +46,8 @@ interface AppState {
 
   // Experiences
   experiences: Experience[];
+  /** Beamwall-catalog experiences linked into this event (runtime mode only). */
+  linkedGlobals: Experience[];
   experiencesLoaded: boolean;
   fetchExperiences: (publishedOnly?: boolean) => Promise<void>;
 
@@ -94,6 +100,7 @@ export const useStore = create<AppState>((set, get) => ({
       eventId,
       eventConfig,
       experiences: [],
+      linkedGlobals: [],
       experiencesLoaded: false,
       currentFilter: null,
       posts: [],
@@ -111,10 +118,15 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   experiences: [],
+  linkedGlobals: [],
   experiencesLoaded: false,
   fetchExperiences: async (publishedOnly = false) => {
-    const experiences = await db.fetchExperiences(get().eventId, { publishedOnly });
-    set({ experiences, experiencesLoaded: true });
+    const eventId = get().eventId;
+    const [experiences, linkedGlobals] = await Promise.all([
+      db.fetchExperiences(eventId, { publishedOnly }),
+      LEGACY_EVENT ? Promise.resolve<Experience[]>([]) : db.fetchLinkedGlobalExperiences(eventId),
+    ]);
+    set({ experiences, linkedGlobals, experiencesLoaded: true });
   },
 
   currentFilter: null,

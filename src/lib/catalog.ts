@@ -70,15 +70,23 @@ export function isBuiltin(id: string): boolean {
 /**
  * Merge built-ins with DB experiences. Admin `overrides` can hide and reorder
  * the built-in presets. Custom (DB) experiences come first (sorted by their
- * own sort_order), then the built-ins in the admin's chosen order.
+ * own sort_order), then linked global catalog items, then the built-ins in
+ * the admin's chosen order.
  */
 export function buildCatalog(
   arContent: EventARContent,
   dbExperiences: Experience[],
   overrides?: PresetOverrides,
+  linkedGlobals: Experience[] = [],
 ): Experience[] {
   const custom = dbExperiences
     .filter((e) => e.is_published)
+    .sort((a, b) => a.sort_order - b.sort_order);
+
+  // Linked Beamwall-catalog items: published only, sorted, deduped vs custom.
+  const customIds = new Set(custom.map((e) => e.id));
+  const globals = linkedGlobals
+    .filter((e) => e.is_published && !customIds.has(e.id))
     .sort((a, b) => a.sort_order - b.sort_order);
 
   let builtins = builtinExperiences(arContent);
@@ -96,5 +104,5 @@ export function buildCatalog(
     });
   }
 
-  return [...custom, ...builtins];
+  return [...custom, ...globals, ...builtins];
 }

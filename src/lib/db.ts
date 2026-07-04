@@ -94,6 +94,78 @@ export async function deleteExperience(eventId: string, id: string): Promise<boo
 }
 
 /* ------------------------------------------------------------------ */
+/* Global catalog (Beamwall-curated experiences linkable into events)  */
+/* ------------------------------------------------------------------ */
+
+/** All published global catalog experiences (for the Library picker). */
+export async function fetchGlobalExperiences(): Promise<Experience[]> {
+  const { data, error } = await supabase
+    .from('experiences')
+    .select('*')
+    .eq('is_global', true)
+    .eq('is_published', true)
+    .order('sort_order');
+  if (error) {
+    console.error('[db] fetchGlobalExperiences', error);
+    return [];
+  }
+  return (data as Experience[]) ?? [];
+}
+
+/** Ids of the global experiences linked into this event. */
+export async function fetchCatalogLinks(eventId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('event_catalog_links')
+    .select('experience_id')
+    .eq('event_id', eventId);
+  if (error) {
+    console.error('[db] fetchCatalogLinks', error);
+    return [];
+  }
+  return ((data as { experience_id: string }[]) ?? []).map((r) => r.experience_id);
+}
+
+export async function linkCatalogItem(eventId: string, experienceId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('event_catalog_links')
+    .insert({ event_id: eventId, experience_id: experienceId });
+  if (error) {
+    console.error('[db] linkCatalogItem', error);
+    return false;
+  }
+  return true;
+}
+
+export async function unlinkCatalogItem(eventId: string, experienceId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('event_catalog_links')
+    .delete()
+    .eq('event_id', eventId)
+    .eq('experience_id', experienceId);
+  if (error) {
+    console.error('[db] unlinkCatalogItem', error);
+    return false;
+  }
+  return true;
+}
+
+/** The linked global experiences themselves (for the booth catalog). */
+export async function fetchLinkedGlobalExperiences(eventId: string): Promise<Experience[]> {
+  const { data, error } = await supabase
+    .from('event_catalog_links')
+    .select('experiences(*)')
+    .eq('event_id', eventId);
+  if (error) {
+    console.error('[db] fetchLinkedGlobalExperiences', error);
+    return [];
+  }
+  const rows = (data ?? []) as unknown as { experiences: Experience | Experience[] | null }[];
+  return rows
+    .flatMap((r) => (Array.isArray(r.experiences) ? r.experiences : r.experiences ? [r.experiences] : []))
+    .filter((e) => e.is_global && e.is_published);
+}
+
+/* ------------------------------------------------------------------ */
 /* Posts (live photo wall)                                             */
 /* ------------------------------------------------------------------ */
 
@@ -551,6 +623,35 @@ export function subscribeToBranding(eventId: string, onChange: (b: BrandingOverr
     )
     .subscribe();
   return () => { supabase.removeChannel(channel); };
+}
+
+/* ------------------------------------------------------------------ */
+/* Upload passcode (app_settings key='upload') — runtime events only    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Public-upload gate settings. `passcodeHash` is a sha256 hex of the passcode.
+ * Note: readable via app_settings public-read RLS — a friction layer with the
+ * same threat model as the legacy env passcode, fine for Phase 2a.
+ */
+export interface UploadSettings {
+  passcodeHash?: string | null;
+}
+
+/** Returns null when the row has never been configured (vs configured-closed). */
+export async function getUploadSettings(eventId: string): Promise<UploadSettings | null> {
+  const { data, error } = await supabase
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'upload')
+    .eq('event_id', eventId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return (data.value as UploadSettings) ?? null;
+}
+
+export async function saveUploadSettings(eventId: string, value: UploadSettings): Promise<UploadSettings> {
+  return setSetting(eventId, 'upload', value);
 }
 
 const DEFAULT_PRESET_OVERRIDES: PresetOverrides = { hidden: [], order: [] };

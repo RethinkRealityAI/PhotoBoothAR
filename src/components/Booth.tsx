@@ -76,7 +76,7 @@ export default function Booth() {
 
   // ── Store ─────────────────────────────────────────────────────────────
   const {
-    experiences, experiencesLoaded, fetchExperiences,
+    experiences, linkedGlobals, experiencesLoaded, fetchExperiences,
     presetOverrides, fetchPresetOverrides,
     wallSettings, fetchWallSettings,
   } = useStore();
@@ -159,8 +159,8 @@ export default function Booth() {
 
   // ── Build catalog ─────────────────────────────────────────────────────
   const catalog = useMemo(
-    () => buildCatalog(eventConfig.arContent, experiencesLoaded ? experiences : [], presetOverrides),
-    [eventConfig, experiences, experiencesLoaded, presetOverrides],
+    () => buildCatalog(eventConfig.arContent, experiencesLoaded ? experiences : [], presetOverrides, experiencesLoaded ? linkedGlobals : []),
+    [eventConfig, experiences, linkedGlobals, experiencesLoaded, presetOverrides],
   );
 
   // Pre-select from route param

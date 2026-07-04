@@ -34,6 +34,11 @@ import { EVENT_ID } from './events/active';
 import Landing from './pages/Landing';
 import Login from './pages/auth/Login';
 import Signup from './pages/auth/Signup';
+import HostLayout from './pages/host/HostLayout';
+import EventsList from './pages/host/EventsList';
+import NewEvent from './pages/host/NewEvent';
+import EventStudio from './pages/host/EventStudio';
+import ManagerConsole from './pages/manager/ManagerConsole';
 
 /** Set at build time for the legacy single-event deploys. */
 const LEGACY_EVENT = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim();
@@ -53,8 +58,8 @@ function RedirectToDefaultEvent() {
   return <Navigate to={`/e/${DEFAULT_EVENT_SLUG}${pathname}${search}${hash}`} replace />;
 }
 
-/** The guest + (temporarily) admin routes, rendered inside an EventProvider. */
-function eventRoutes() {
+/** The guest routes, rendered inside an EventProvider. */
+function guestRoutes() {
   return (
     <>
       <Route index element={<EventIndexRedirect />} />
@@ -65,8 +70,15 @@ function eventRoutes() {
       <Route path="me" element={<MyPhotos />} />
       <Route path="gallery" element={<MyPhotos />} />
       <Route path="join" element={<JoinBooth />} />
+    </>
+  );
+}
 
-      {/* Studio (passcode-gated) — re-homes off the event tree in a later phase */}
+/** The passcode-gated studio routes — legacy builds only; runtime events use
+ *  the session-gated /host studio instead. */
+function adminRoutes() {
+  return (
+    <>
       <Route path="admin" element={<AdminGate><Dashboard /></AdminGate>} />
       <Route path="admin/library" element={<AdminGate><Library /></AdminGate>} />
       <Route path="admin/assets" element={<AdminGate><Assets /></AdminGate>} />
@@ -88,20 +100,32 @@ export default function App() {
           {LEGACY_EVENT ? (
             /* ── Legacy single-event build: registry event at "/" ── */
             <Route path="/" element={<EventProvider slug={EVENT_ID} basePath=""><Outlet /></EventProvider>}>
-              {eventRoutes()}
+              {guestRoutes()}
+              {adminRoutes()}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           ) : (
             /* ── Runtime multi-tenant mode ── */
             <>
               <Route path="/e/:slug" element={<EventProvider><Outlet /></EventProvider>}>
-                {eventRoutes()}
+                {guestRoutes()}
+                {/* /e/:slug/admin/* falls through here — the studio moved to /host */}
                 <Route path="*" element={<EventIndexRedirect />} />
               </Route>
 
               <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
+
+              {/* Host platform (session-gated) */}
+              <Route path="/host" element={<HostLayout />}>
+                <Route index element={<EventsList />} />
+                <Route path="new" element={<NewEvent />} />
+              </Route>
+              <Route path="/host/events/:id/*" element={<EventStudio />} />
+
+              {/* Day-of staff console (token-gated) */}
+              <Route path="/m/:slug" element={<ManagerConsole />} />
 
               {/* Old top-level guest links / QR codes → default event */}
               <Route path="/booth" element={<RedirectToDefaultEvent />} />

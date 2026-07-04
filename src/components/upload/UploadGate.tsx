@@ -8,6 +8,14 @@
  * doors". On the correct passcode the card bows out and the doors slide apart to
  * reveal the upload experience beneath.
  *
+ * Two credential sources, one component (all door choreography shared):
+ * - Legacy VITE_EVENT builds: env passcode + plain compare (exactly the
+ *   original behavior, same 'hopegala.upload' session key).
+ * - Runtime events: app_settings key 'upload' — sha256 hash compare; when the
+ *   host hasn't set a passcode the doors stay shut ("uploads are closed").
+ *   The stored hash is publicly readable (app_settings public-read RLS) — a
+ *   friction layer with the same threat model as the env passcode.
+ *
  * Not hard security — a friction layer for the event (RLS hardening is tracked
  * post-event, like the studio passcode).
  */
@@ -18,8 +26,14 @@ import EventBackground from '../ui/EventBackground';
 import GoldFrameCard from '../ui/GoldFrameCard';
 import { Wordmark } from '../ui/EventLogo';
 import { useStore } from '../../store';
+import { useEvent } from '../../events/EventContext';
+import { getUploadSettings, type UploadSettings } from '../../lib/db';
+import { sha256Hex } from '../../lib/hash';
 
 const KEY = 'hopegala.upload';
+
+/** Build-time flag for the legacy single-event deploys. */
+const IS_LEGACY = Boolean(((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim());
 
 type Phase = 'locked' | 'unlocking' | 'open';
 
@@ -97,26 +111,52 @@ export default function UploadGate({ children }: { children: ReactNode }) {
     (import.meta.env.VITE_ADMIN_PASSCODE as string) ||
     'hopegala2026';
   const eventName = useStore((s) => s.copy.eventName);
+  const { eventId } = useEvent();
+
+  // Legacy keeps the original session key; runtime keys per event.
+  const storageKey = IS_LEGACY ? KEY : `pbar.upload.${eventId}`;
 
   const reduced = useRef(prefersReducedMotion());
   const [phase, setPhase] = useState<Phase>(() =>
-    sessionStorage.getItem(KEY) === '1' ? 'open' : 'locked',
+    sessionStorage.getItem(storageKey) === '1' ? 'open' : 'locked',
   );
   const [val, setVal] = useState('');
   const [err, setErr] = useState(false);
 
+  // Runtime credential: app_settings 'upload' row. 'loading' until fetched;
+  // null / no passcodeHash ⇒ uploads are closed. Never fetched on legacy.
+  const [uploadCfg, setUploadCfg] = useState<UploadSettings | null | 'loading'>(
+    IS_LEGACY ? null : 'loading',
+  );
+  useEffect(() => {
+    if (IS_LEGACY) return;
+    let alive = true;
+    getUploadSettings(eventId).then((v) => {
+      if (alive) setUploadCfg(v);
+    });
+    return () => { alive = false; };
+  }, [eventId]);
+
+  const runtimeHash = !IS_LEGACY && uploadCfg !== 'loading' ? uploadCfg?.passcodeHash ?? null : null;
+  const runtimeLoading = !IS_LEGACY && uploadCfg === 'loading';
+  const uploadsClosed = !IS_LEGACY && !runtimeLoading && !runtimeHash;
+
   const submit = useCallback(
-    (e: FormEvent) => {
+    async (e: FormEvent) => {
       e.preventDefault();
-      if (val.trim() === passcode) {
-        sessionStorage.setItem(KEY, '1');
+      const entered = val.trim();
+      const ok = IS_LEGACY
+        ? entered === passcode
+        : Boolean(runtimeHash) && (await sha256Hex(entered)) === runtimeHash;
+      if (ok) {
+        sessionStorage.setItem(storageKey, '1');
         setErr(false);
         setPhase(reduced.current ? 'open' : 'unlocking');
       } else {
         setErr(true);
       }
     },
-    [val, passcode],
+    [val, passcode, runtimeHash, storageKey],
   );
 
   // Reduced-motion path skips the door choreography entirely.
@@ -174,44 +214,76 @@ export default function UploadGate({ children }: { children: ReactNode }) {
 
                     <Wordmark size="md" />
 
-                    <h1 className="mt-5 font-serif italic text-3xl text-foil-static">
-                      Private Upload
-                    </h1>
-                    <p className="mt-1 font-label uppercase tracking-luxe text-[10px] text-champagne/50">
-                      {eventName} · Add to the Wall
-                    </p>
-                    <p className="mt-4 max-w-[17rem] font-sans text-[12px] text-champagne/55 leading-relaxed">
-                      This area is passcode-protected. Enter the event passcode to
-                      upload your photos &amp; videos to the live wall.
-                    </p>
+                    {runtimeLoading ? (
+                      /* Runtime: waiting on the upload settings row */
+                      <>
+                        <h1 className="mt-5 font-serif italic text-3xl text-foil-static">
+                          Private Upload
+                        </h1>
+                        <p className="mt-1 font-label uppercase tracking-luxe text-[10px] text-champagne/50">
+                          {eventName} · Add to the Wall
+                        </p>
+                        <p className="mt-6 font-sans text-[12px] text-champagne/45 animate-pulse">
+                          Checking the guest list…
+                        </p>
+                      </>
+                    ) : uploadsClosed ? (
+                      /* Runtime: host hasn't opened public uploads — doors stay shut */
+                      <>
+                        <h1 className="mt-5 font-serif italic text-3xl text-foil-static">
+                          Uploads Are Closed
+                        </h1>
+                        <p className="mt-1 font-label uppercase tracking-luxe text-[10px] text-champagne/50">
+                          {eventName} · Add to the Wall
+                        </p>
+                        <p className="mt-4 max-w-[17rem] font-sans text-[12px] text-champagne/55 leading-relaxed">
+                          The host hasn't opened public uploads for this event.
+                          Photos taken in the booth still land on the wall automatically.
+                        </p>
+                      </>
+                    ) : (
+                      /* Passcode form (legacy env passcode, or runtime hashed passcode) */
+                      <>
+                        <h1 className="mt-5 font-serif italic text-3xl text-foil-static">
+                          Private Upload
+                        </h1>
+                        <p className="mt-1 font-label uppercase tracking-luxe text-[10px] text-champagne/50">
+                          {eventName} · Add to the Wall
+                        </p>
+                        <p className="mt-4 max-w-[17rem] font-sans text-[12px] text-champagne/55 leading-relaxed">
+                          This area is passcode-protected. Enter the event passcode to
+                          upload your photos &amp; videos to the live wall.
+                        </p>
 
-                    <form onSubmit={submit} className="mt-7 w-full">
-                      <input
-                        type="password"
-                        autoFocus
-                        value={val}
-                        onChange={(e) => {
-                          setVal(e.target.value);
-                          setErr(false);
-                        }}
-                        placeholder="Enter passcode"
-                        className={`w-full text-center bg-white/5 border rounded-xl px-4 py-3 text-ivory placeholder-white/25 outline-none transition-colors ${
-                          err
-                            ? 'border-red-400/60'
-                            : 'border-gold-400/20 focus:border-gold-400/60'
-                        }`}
-                      />
-                      {err && (
-                        <p className="text-red-300/80 text-xs mt-3">Incorrect passcode</p>
-                      )}
-                      <button
-                        type="submit"
-                        className="mt-6 w-full py-3.5 bg-foil text-noir-900 font-bold uppercase tracking-luxe text-[11px] rounded-xl glow-accent hover:scale-[1.02] transition-transform flex items-center justify-center gap-2"
-                      >
-                        Unlock
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                    </form>
+                        <form onSubmit={submit} className="mt-7 w-full">
+                          <input
+                            type="password"
+                            autoFocus
+                            value={val}
+                            onChange={(e) => {
+                              setVal(e.target.value);
+                              setErr(false);
+                            }}
+                            placeholder="Enter passcode"
+                            className={`w-full text-center bg-white/5 border rounded-xl px-4 py-3 text-ivory placeholder-white/25 outline-none transition-colors ${
+                              err
+                                ? 'border-red-400/60'
+                                : 'border-gold-400/20 focus:border-gold-400/60'
+                            }`}
+                          />
+                          {err && (
+                            <p className="text-red-300/80 text-xs mt-3">Incorrect passcode</p>
+                          )}
+                          <button
+                            type="submit"
+                            className="mt-6 w-full py-3.5 bg-foil text-noir-900 font-bold uppercase tracking-luxe text-[11px] rounded-xl glow-accent hover:scale-[1.02] transition-transform flex items-center justify-center gap-2"
+                          >
+                            Unlock
+                            <ArrowRight className="w-4 h-4" />
+                          </button>
+                        </form>
+                      </>
+                    )}
                   </GoldFrameCard>
                 </motion.div>
               )}
