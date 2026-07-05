@@ -124,7 +124,7 @@ export default function MosaicGrid({ posts, freshIds, onSelect }: Props) {
 
   return (
     <div
-      className="w-full h-full overflow-y-auto hide-scrollbar px-4 py-4"
+      className="w-full h-full overflow-y-auto hide-scrollbar px-4 pt-4 pb-24 sm:pb-4"
       style={{
         columns: 'var(--wall-cols, 4)',
         columnGap: '12px',

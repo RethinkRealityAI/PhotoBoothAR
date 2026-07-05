@@ -2,17 +2,21 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * FrameEditor — the "out-of-frame" editing section. Mobile-first: on phones the
- * preview sits on top with a horizontal frame rail beneath it; on sm+ the frame
- * rail moves to a vertical sidebar on the left. A reorderable thumbnail strip
- * runs along the bottom (drag on desktop, ◀/▶ move buttons on touch) with bulk
- * actions (apply-to-all / apply-to-selected / remove).
+ * FrameEditor — the framing studio. The live preview is the hero: a big 9:16
+ * stage so the frame around the photo is clearly visible and easy to fit, on
+ * phones and desktops alike. A slim frame rail sits beside it (a horizontal
+ * scroller on phones, a narrow sidebar on desktop), crop tools live directly
+ * under the stage, and a reorderable thumbnail strip runs along the bottom.
+ *
+ * Every thumbnail renders through FramedThumb, so the strip, the stage, and the
+ * final wall post all show the same crop — what you see is what you get.
  */
 import { useState } from 'react';
 import { Experience } from '../../types';
 import { UploadItem } from './types';
 import { DEFAULT_CROP } from '../booth/capture';
 import CropStage, { MIN_ZOOM, MAX_ZOOM, clampCrop } from './CropStage';
+import FramedThumb from './FramedThumb';
 import UploadDropzone from './UploadDropzone';
 import {
   Ban, RotateCcw, RotateCw, Maximize, Trash2, CheckSquare, Square,
@@ -95,25 +99,11 @@ export default function FrameEditor({
   );
 
   return (
-    <div className="flex flex-col h-full min-h-0 gap-3 sm:gap-4">
-      <div className="flex-1 min-h-0 flex flex-col sm:flex-row gap-3 sm:gap-4">
-        {/* ── Frame rail — sidebar on sm+, horizontal scroller on mobile ── */}
-        <div className="order-2 sm:order-1 shrink-0 sm:w-[148px] flex flex-col glass rounded-2xl border border-gold-400/15 overflow-hidden">
-          <div className="px-3 py-2 sm:py-2.5 border-b border-gold-400/10 flex items-center gap-1.5">
-            <Layers className="w-3.5 h-3.5 text-gold-400/70" />
-            <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/50">Frames</span>
-            {activeIsVideo && (
-              <span className="ml-auto font-label uppercase tracking-wide text-[8px] text-champagne/35">Photos only</span>
-            )}
-          </div>
-          <div className="flex flex-row sm:flex-col gap-2 sm:gap-2.5 p-2.5 overflow-x-auto sm:overflow-y-auto hide-scrollbar [&>button]:w-16 sm:[&>button]:w-full [&>button]:shrink-0">
-            {frameCells}
-          </div>
-        </div>
-
-        {/* ── Preview + tools ────────────────────────────────────── */}
-        <div className="order-1 sm:order-2 flex-1 min-w-0 min-h-0 flex flex-col gap-3">
-          <div className="flex-1 min-h-0 max-h-[50vh] sm:max-h-none">
+    <div className="flex flex-col h-full min-h-0 gap-2.5 sm:gap-3">
+      <div className="flex-1 min-h-0 flex flex-col sm:flex-row gap-2.5 sm:gap-3">
+        {/* ── Preview (hero) + tools ─────────────────────────────── */}
+        <div className="order-1 sm:order-2 flex-1 min-w-0 min-h-0 flex flex-col gap-2">
+          <div className="flex-1 min-h-0">
             {!active ? (
               <div className="h-full flex items-center justify-center text-champagne/30 font-serif italic text-lg">
                 Select a photo below
@@ -144,10 +134,10 @@ export default function FrameEditor({
 
           {/* Crop tools (only meaningful for a framed image) */}
           {active && !activeIsVideo && (
-            <div className="shrink-0 glass rounded-2xl border border-gold-400/15 px-4 py-3">
+            <div className="shrink-0 glass rounded-2xl border border-gold-400/15 px-3 py-2.5">
               {activeFramed ? (
                 <div className="flex items-center gap-3 flex-wrap">
-                  <div className="flex items-center gap-2 flex-1 min-w-[160px]">
+                  <div className="flex items-center gap-2 flex-1 min-w-[150px]">
                     <Maximize className="w-3.5 h-3.5 text-gold-400/70 shrink-0" />
                     <input
                       type="range"
@@ -171,45 +161,55 @@ export default function FrameEditor({
                       <span className="font-label text-[9px] uppercase tracking-wide px-1">Reset</span>
                     </ToolBtn>
                   </div>
+                  <div className="w-full sm:w-auto flex items-center gap-1.5 sm:ml-auto">
+                    <button
+                      onClick={() => onApplyFrameToAll(active.frameId)}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 glass rounded-lg text-[9px] font-label uppercase tracking-luxe text-champagne/70 hover:text-gold-300 border border-gold-400/15 hover:border-gold-400/35 transition-colors"
+                      title="Use this frame on every photo"
+                    >
+                      <CheckCheck className="w-3.5 h-3.5" /> All
+                    </button>
+                    <button
+                      onClick={() => onApplyFrameToSelected(active.frameId)}
+                      disabled={selectedIds.size === 0}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 glass rounded-lg text-[9px] font-label uppercase tracking-luxe text-champagne/70 hover:text-gold-300 border border-gold-400/15 hover:border-gold-400/35 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                      title="Apply this frame to the selected photos"
+                    >
+                      <CheckSquare className="w-3.5 h-3.5" /> Selected ({selectedIds.size})
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <p className="text-[11px] text-champagne/45 font-sans text-center">
-                  Pick a frame to crop &amp; position — drag to pan, pinch or scroll to zoom. With no frame, the photo uploads at its original size.
+                <p className="text-[11px] text-champagne/50 font-sans text-center leading-relaxed">
+                  Pick a frame from the rail to position &amp; crop — then <span className="text-gold-300">drag</span> to move
+                  and <span className="text-gold-300">pinch / scroll</span> to zoom. No frame? It posts at its original size.
                 </p>
               )}
             </div>
           )}
+        </div>
 
-          {/* Bulk actions */}
-          {active && (
-            <div className="shrink-0 flex items-center gap-2 flex-wrap">
-              <button
-                onClick={() => onApplyFrameToAll(active.frameId)}
-                className="flex items-center gap-1.5 px-3 py-2 glass rounded-xl text-[9px] font-label uppercase tracking-luxe text-champagne/70 hover:text-gold-300 border border-gold-400/15 hover:border-gold-400/35 transition-colors"
-                title="Use the current photo's frame on every photo"
-              >
-                <CheckCheck className="w-3.5 h-3.5" /> Apply frame to all
-              </button>
-              <button
-                onClick={() => onApplyFrameToSelected(active.frameId)}
-                disabled={selectedIds.size === 0}
-                className="flex items-center gap-1.5 px-3 py-2 glass rounded-xl text-[9px] font-label uppercase tracking-luxe text-champagne/70 hover:text-gold-300 border border-gold-400/15 hover:border-gold-400/35 transition-colors disabled:opacity-40 disabled:pointer-events-none"
-                title="Apply to checked photos"
-              >
-                <CheckSquare className="w-3.5 h-3.5" /> Apply to selected ({selectedIds.size})
-              </button>
-            </div>
-          )}
+        {/* ── Frame rail — narrow sidebar on desktop, scroller on mobile ── */}
+        <div className="order-2 sm:order-1 shrink-0 sm:w-[128px] flex flex-col glass rounded-2xl border border-gold-400/15 overflow-hidden">
+          <div className="px-3 py-2 border-b border-gold-400/10 flex items-center gap-1.5">
+            <Layers className="w-3.5 h-3.5 text-gold-400/70" />
+            <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/50">Frames</span>
+            {activeIsVideo && (
+              <span className="ml-auto font-label uppercase tracking-wide text-[8px] text-champagne/35">Photos only</span>
+            )}
+          </div>
+          <div className="flex flex-row sm:flex-col gap-2 sm:gap-2.5 p-2.5 overflow-x-auto sm:overflow-y-auto hide-scrollbar [&>button]:w-16 sm:[&>button]:w-full [&>button]:shrink-0">
+            {frameCells}
+          </div>
         </div>
       </div>
 
-      {/* ── Thumbnail strip (reorder + select + remove) ──────────── */}
+      {/* ── Thumbnail strip (switch active + reorder + select + remove) ── */}
       <div className="shrink-0">
-        <div className="flex items-center gap-3 overflow-x-auto hide-scrollbar pb-1">
+        <div className="flex items-center gap-2.5 overflow-x-auto hide-scrollbar pb-1">
           {items.map((item, index) => {
             const checked = selectedIds.has(item.id);
             const isActive = item.id === activeId;
-            const frameSrc = item.frameId ? frames.find((f) => f.id === item.frameId)?.asset_url : null;
             return (
               <div
                 key={item.id}
@@ -221,21 +221,14 @@ export default function FrameEditor({
                   setDragIndex(null);
                 }}
                 onClick={() => onSetActive(item.id)}
-                className={`group relative shrink-0 w-16 h-[114px] rounded-xl overflow-hidden cursor-pointer transition-all ${
+                className={`group relative shrink-0 w-[62px] h-[110px] rounded-xl overflow-hidden cursor-pointer transition-all ${
                   isActive
                     ? 'ring-2 ring-gold-400 ring-offset-2 ring-offset-noir-900'
-                    : 'opacity-75 hover:opacity-100'
+                    : 'opacity-70 hover:opacity-100'
                 }`}
-                style={{ background: 'linear-gradient(135deg, #1A130C, #2a1f0f)' }}
               >
-                {item.kind === 'video' ? (
-                  <video src={item.srcUrl} className="w-full h-full object-cover" muted />
-                ) : (
-                  <img src={item.srcUrl} alt="" className="w-full h-full object-cover" />
-                )}
-                {frameSrc && (
-                  <img src={frameSrc} alt="" aria-hidden className="absolute inset-0 w-full h-full pointer-events-none" />
-                )}
+                <FramedThumb item={item} frames={frames} className="w-full h-full" rounded="rounded-xl" />
+
                 {item.kind === 'video' && (
                   <div className="absolute inset-x-0 bottom-7 flex justify-center pointer-events-none">
                     <span className="bg-noir-900/70 rounded-full px-1.5 py-0.5 flex items-center gap-1">
@@ -262,8 +255,7 @@ export default function FrameEditor({
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
 
-                {/* touch-friendly move controls (always tappable; the active item
-                    is highlighted so it's clear what moves) */}
+                {/* touch-friendly move controls */}
                 <button
                   onClick={(e) => { e.stopPropagation(); onSetActive(item.id); if (index > 0) onReorder(index, index - 1); }}
                   disabled={index === 0}
