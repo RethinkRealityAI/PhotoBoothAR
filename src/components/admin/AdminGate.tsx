@@ -16,7 +16,7 @@ import { useStore } from '../../store';
 const KEY = 'hopegala.admin';
 
 export default function AdminGate({ children }: { children: ReactNode }) {
-  const passcode = (import.meta.env.VITE_ADMIN_PASSCODE as string) || 'hopegala2026';
+  const passcode = (import.meta.env.VITE_ADMIN_PASSCODE as string) || 'changeme';
   const eventName = useStore((s) => s.copy.eventName);
   const [ok, setOk] = useState(() => sessionStorage.getItem(KEY) === '1');
   const [val, setVal] = useState('');

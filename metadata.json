@@ -1,6 +1,6 @@
 {
-  "name": "Hope Gala AR Filter Booth",
-  "description": "AR face tracking photo booth and live photo wall for the SCAGO Hope Gala 2026.",
+  "name": "Beamwall",
+  "description": "Beamwall — an AR photo booth in every guest's pocket and a cinematic live wall for weddings, galas and events. Design frames, effects and greeting cards in minutes.",
   "requestFramePermissions": [
     "camera",
     "microphone"

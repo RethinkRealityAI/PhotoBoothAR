@@ -135,14 +135,33 @@ export async function compositeCapture(input: CaptureInput): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.9);
 }
 
-/** Elegant gold "Hope Gala 2026" signature centered near the bottom edge. */
-export function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
+/**
+ * Elegant gold signature centered near the bottom edge — the free-tier credit.
+ * Defaults to the platform mark ("Beamwall"); paid plans drop it (watermark
+ * entitlement), and a caller may pass a custom label if ever desired.
+ */
+export function drawSignature(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  label = 'Beamwall',
+) {
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
   const y = h - 52;
-  ctx.font = 'italic 600 42px Georgia, "Times New Roman", serif';
-  const grad = ctx.createLinearGradient(w / 2 - 240, 0, w / 2 + 240, 0);
+  const basePx = 42;
+  ctx.font = `italic 600 ${basePx}px Georgia, "Times New Roman", serif`;
+  // Measure the real label and shrink long event names so the signature never
+  // overflows the canvas (a char-count heuristic can't know the true width).
+  const maxTextW = w * 0.7;
+  let textW = ctx.measureText(label).width;
+  if (textW > maxTextW) {
+    const px = Math.max(22, Math.floor(basePx * (maxTextW / textW)));
+    ctx.font = `italic 600 ${px}px Georgia, "Times New Roman", serif`;
+    textW = ctx.measureText(label).width;
+  }
+  const grad = ctx.createLinearGradient(w / 2 - textW / 2 - 20, 0, w / 2 + textW / 2 + 20, 0);
   grad.addColorStop(0, '#B8860B');
   grad.addColorStop(0.5, '#FBF3D9');
   grad.addColorStop(1, '#B8860B');
@@ -150,11 +169,16 @@ export function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: numbe
   ctx.shadowBlur = 10;
   ctx.fillStyle = grad;
   ctx.globalAlpha = 0.95;
-  ctx.fillText('Hope Gala 2026', w / 2, y);
-  // small flanking flourishes
-  ctx.font = '24px Georgia, serif';
-  ctx.fillText('✦', w / 2 - 180, y - 4);
-  ctx.fillText('✦', w / 2 + 180, y - 4);
+  ctx.fillText(label, w / 2, y);
+  // Flanking flourishes sit just outside the measured text — skipped if they'd
+  // fall off the canvas edge (very long names).
+  const flankOffset = textW / 2 + 34;
+  if (w / 2 + flankOffset < w - 12) {
+    ctx.shadowBlur = 0;
+    ctx.font = '24px Georgia, serif';
+    ctx.fillText('✦', w / 2 - flankOffset, y - 4);
+    ctx.fillText('✦', w / 2 + flankOffset, y - 4);
+  }
   ctx.restore();
 }
 
@@ -257,6 +281,9 @@ export interface CompositeUploadInput {
    * events keep the default/true (they always carry the mark).
    */
   applySignature?: boolean;
+  /** Text baked as the signature (defaults to the platform mark). Callers pass
+   *  the event's name so an uploaded photo matches a booth capture. */
+  signatureLabel?: string;
   /** Source MIME type — lets no-frame PNGs keep transparency (else JPEG). */
   srcType?: string;
 }
@@ -303,7 +330,7 @@ export async function compositeUpload(input: CompositeUploadInput): Promise<Comp
       console.warn('[compositeUpload] frame overlay failed', e);
     }
 
-    if (input.applySignature !== false) drawSignature(ctx, FRAME_W, FRAME_H);
+    if (input.applySignature !== false) drawSignature(ctx, FRAME_W, FRAME_H, input.signatureLabel);
 
     const blob = await canvasToBlob(canvas);
     return { blob, width: FRAME_W, height: FRAME_H };
@@ -324,7 +351,7 @@ export async function compositeUpload(input: CompositeUploadInput): Promise<Comp
   canvas.height = h || FRAME_H;
   const ctx = canvas.getContext('2d')!;
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  if (input.applySignature === true) drawSignature(ctx, canvas.width, canvas.height);
+  if (input.applySignature === true) drawSignature(ctx, canvas.width, canvas.height, input.signatureLabel);
   // Keep PNGs as PNG so transparent uploads don't get a black background.
   const isPng = /png/i.test(input.srcType ?? '');
   const blob = await canvasToBlob(canvas, isPng ? 'image/png' : 'image/jpeg');

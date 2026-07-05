@@ -17,6 +17,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation }
 import Booth from './components/Booth';
 import Wall from './components/Wall';
 import MyPhotos from './components/MyPhotos';
+import ChallengesPage from './components/ChallengesPage';
 import JoinBooth from './components/JoinBooth';
 import UploadToWall from './components/UploadToWall';
 import AdminGate from './components/admin/AdminGate';
@@ -81,6 +82,7 @@ function guestRoutes() {
       <Route path="experience/:id" element={<Booth />} />
       <Route path="wall" element={<Wall />} />
       <Route path="upload" element={<UploadToWall />} />
+      <Route path="challenges" element={<ChallengesPage />} />
       <Route path="me" element={<MyPhotos />} />
       <Route path="gallery" element={<MyPhotos />} />
       <Route path="join" element={<JoinBooth />} />

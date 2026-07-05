@@ -17,7 +17,7 @@ import { getLandingContent, subscribeToLanding, defaultLanding } from '../lib/db
 import { LandingContent } from '../types';
 import { useEvent } from '../events/EventContext';
 import EventBackground from './ui/EventBackground';
-import ScagoMark from './ui/ScagoMark';
+import { Emblem } from './ui/EventLogo';
 
 export default function JoinBooth() {
   const { eventId, config, basePath } = useEvent();
@@ -100,7 +100,7 @@ export default function JoinBooth() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1], delay: 0.1 }}
           >
-            <ScagoMark size={56} variant="gold" animated className="drop-shadow-[0_0_22px_rgba(var(--accent-rgb),0.4)]" title="SCAGO" />
+            <Emblem size={56} className="drop-shadow-[0_0_22px_rgba(var(--accent-rgb),0.4)]" />
             <p className="mt-3 font-label uppercase tracking-luxe text-[10px] sm:text-xs text-champagne/70">
               {content.eyebrow}
             </p>

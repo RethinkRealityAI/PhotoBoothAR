@@ -30,6 +30,7 @@ import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
 import EventBackground from './ui/EventBackground';
 import { Wordmark } from './ui/EventLogo';
+import GuestNav from './ui/GuestNav';
 import {
   CameraIcon,
   PhotoIcon,
@@ -190,7 +191,7 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
       ) : (
         <img
           src={media.image_url}
-          alt="Your gala moment"
+          alt="Your moment"
           className="w-full block object-cover"
           style={{ aspectRatio: '9/16' }}
           loading="lazy"
@@ -325,7 +326,7 @@ function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void })
         ) : (
           <img
             src={media.image_url}
-            alt="Your gala moment"
+            alt="Your moment"
             className="w-full rounded-2xl"
             style={{ boxShadow: '0 0 60px rgba(var(--accent-rgb),0.18)' }}
           />
@@ -446,15 +447,23 @@ export default function MyPhotos() {
     <div className="absolute inset-0 overflow-y-auto hide-scrollbar bg-noir-900">
       <EventBackground density={28} />
 
+      {/* Cross-page navigation — top pill on desktop; on mobile GuestNav renders
+          a fixed bottom tab bar instead (via portal), so this strip hides on
+          small screens while the bottom bar still appears. */}
+      <div className="hidden sm:flex sticky top-0 z-30 justify-center px-3 pt-4 pb-2"
+        style={{ background: 'linear-gradient(to bottom, rgba(10,7,3,0.92) 0%, rgba(10,7,3,0) 100%)' }}>
+        <GuestNav current="photos" />
+      </div>
+
       {/* Header — SCAGO emblem + wordmark crown the page (SCAGO always above) */}
-      <div className="relative z-10 flex flex-col items-center pt-10 pb-6 px-4 text-center">
+      <div className="relative z-10 flex flex-col items-center pt-6 pb-6 px-4 text-center">
         <Wordmark size="md" />
 
         {/* Page label: this is the guest's personal media collection */}
         <p className="mt-6 font-label uppercase tracking-luxe text-[10px] text-gold-300/70">
           My Media
         </p>
-        <p className="mt-2 font-serif italic text-2xl text-ivory/85">Your gala moments</p>
+        <p className="mt-2 font-serif italic text-2xl text-ivory/85">Your moments</p>
         <span
           className="mt-3 h-px w-16 block"
           style={{ background: 'linear-gradient(to right, transparent, rgba(var(--accent-rgb),0.6), transparent)' }}
@@ -498,7 +507,7 @@ export default function MyPhotos() {
       </div>
 
       {/* Content */}
-      <div className="relative z-10 px-4 pb-16">
+      <div className="relative z-10 px-4 pb-28 sm:pb-16">
         {loading ? (
           <div className="flex justify-center py-16">
             <div className="flex flex-col items-center gap-4 animate-rise-in">
