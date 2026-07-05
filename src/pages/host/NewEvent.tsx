@@ -90,8 +90,12 @@ export default function NewEvent() {
     if (res.event) {
       // Seed the chosen template's complete look (theme, frames, effects, copy)
       // into events.config so the event is beautiful the moment it opens.
-      // Best-effort client-side merge — member RLS permits it.
-      await updateEventConfig(res.event.id, templateConfigPatch(template, name.trim()));
+      // Best-effort client-side merge (member RLS permits it) with one retry;
+      // if it still fails the event is created plain and the studio's go-live
+      // checklist guides the host to set a look in Branding.
+      const patch = templateConfigPatch(template, name.trim());
+      const seeded = await updateEventConfig(res.event.id, patch);
+      if (!seeded) await updateEventConfig(res.event.id, patch);
     }
     setCreating(false);
     if (res.error) {
@@ -166,11 +170,12 @@ export default function NewEvent() {
   const canNext2 = slugHint.kind === 'ok' || slugHint.kind === 'checking';
 
   return (
-    <div className="p-6 md:p-10 max-w-lg mx-auto">
+    <div className="p-6 md:p-10 max-w-5xl mx-auto">
       <Link to="/host" className="inline-flex items-center gap-1.5 mb-6 font-label uppercase tracking-luxe text-[10px] text-brand-muted/60 hover:text-brand-fg transition-colors">
         <ArrowLeft className="w-3.5 h-3.5" /> Events
       </Link>
 
+      <div className="grid gap-8 items-start lg:grid-cols-[1fr_360px]">
       <div className="glass-strong rounded-3xl p-8 animate-rise-in">
         {/* Step dots */}
         <div className="flex items-center justify-center gap-2 mb-8">
@@ -306,7 +311,7 @@ export default function NewEvent() {
               <p className="mt-1 font-sans text-xs text-brand-muted/60">Here’s the look — you can fine-tune everything later.</p>
             </div>
             <div className="flex gap-4 items-stretch">
-              <div className="w-28 sm:w-32 shrink-0">
+              <div className="w-28 sm:w-32 shrink-0 lg:hidden">
                 <TemplatePreview template={template} eventName={name.trim()} />
               </div>
               <div className="flex-1 rounded-2xl bg-white/[0.03] border border-white/10 p-4 sm:p-5 space-y-2.5 self-center">
@@ -349,6 +354,20 @@ export default function NewEvent() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Live preview pane — uses the desktop viewport so the event comes to
+          life as it's built. Hidden on smaller screens (the confirm step shows
+          a compact preview inline there). */}
+      <aside className="hidden lg:flex flex-col gap-4 sticky top-10">
+        <TemplatePreview template={template} eventName={name.trim() || template.label} className="w-full max-w-[340px] mx-auto" />
+        <div className="text-center">
+          <p className="font-serif italic text-lg text-foil-static leading-tight">{name.trim() || 'Your event'}</p>
+          <p className="mt-0.5 font-label uppercase tracking-luxe text-[9px] text-brand-muted/55">
+            {template.emoji} {template.label}{remote ? ' · Remote' : ''} · live preview
+          </p>
+        </div>
+      </aside>
       </div>
     </div>
   );

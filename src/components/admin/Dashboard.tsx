@@ -263,8 +263,11 @@ export default function Dashboard() {
   const base = useStudioBase();
   const { basePath, eventUuid, status, config } = useEvent();
   const { stats, loading, reload } = useStats();
-  const [liveNow, setLiveNow] = useState(status === 'live');
   const [going, setGoing] = useState(false);
+  // `status` is the freshly-loaded DB status (runtime.ts), so it's the source of
+  // truth. After going live we reload so the studio topbar + checklist stay in
+  // lockstep instead of drifting from an optimistic local flag.
+  const live = status === 'live';
 
   const hasLook = Boolean(config.themeVars && Object.keys(config.themeVars).length > 0);
   const hasFrames = ((config.arContent?.borderIds?.length ?? 0) > 0) || ((stats?.published ?? 0) > 0);
@@ -279,8 +282,12 @@ export default function Dashboard() {
     if (!eventUuid || going) return;
     setGoing(true);
     const ok = await updateEventStatus(eventUuid, 'live');
-    setGoing(false);
-    if (ok) setLiveNow(true);
+    if (ok) {
+      // Reload so every surface re-reads the persisted 'live' status.
+      window.location.reload();
+    } else {
+      setGoing(false);
+    }
   }, [eventUuid, going]);
   const copy = useStore((s) => s.copy);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -315,7 +322,7 @@ export default function Dashboard() {
         {eventUuid && (
           <GoLiveChecklist
             steps={checklist}
-            live={liveNow}
+            live={live}
             canGoLive={canGoLive}
             going={going}
             onGoLive={goLive}

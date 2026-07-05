@@ -150,8 +150,18 @@ export function drawSignature(
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
   const y = h - 52;
-  ctx.font = 'italic 600 42px Georgia, "Times New Roman", serif';
-  const grad = ctx.createLinearGradient(w / 2 - 240, 0, w / 2 + 240, 0);
+  const basePx = 42;
+  ctx.font = `italic 600 ${basePx}px Georgia, "Times New Roman", serif`;
+  // Measure the real label and shrink long event names so the signature never
+  // overflows the canvas (a char-count heuristic can't know the true width).
+  const maxTextW = w * 0.7;
+  let textW = ctx.measureText(label).width;
+  if (textW > maxTextW) {
+    const px = Math.max(22, Math.floor(basePx * (maxTextW / textW)));
+    ctx.font = `italic 600 ${px}px Georgia, "Times New Roman", serif`;
+    textW = ctx.measureText(label).width;
+  }
+  const grad = ctx.createLinearGradient(w / 2 - textW / 2 - 20, 0, w / 2 + textW / 2 + 20, 0);
   grad.addColorStop(0, '#B8860B');
   grad.addColorStop(0.5, '#FBF3D9');
   grad.addColorStop(1, '#B8860B');
@@ -160,11 +170,15 @@ export function drawSignature(
   ctx.fillStyle = grad;
   ctx.globalAlpha = 0.95;
   ctx.fillText(label, w / 2, y);
-  // small flanking flourishes
-  const flankOffset = Math.min(200, 90 + label.length * 9);
-  ctx.font = '24px Georgia, serif';
-  ctx.fillText('✦', w / 2 - flankOffset, y - 4);
-  ctx.fillText('✦', w / 2 + flankOffset, y - 4);
+  // Flanking flourishes sit just outside the measured text — skipped if they'd
+  // fall off the canvas edge (very long names).
+  const flankOffset = textW / 2 + 34;
+  if (w / 2 + flankOffset < w - 12) {
+    ctx.shadowBlur = 0;
+    ctx.font = '24px Georgia, serif';
+    ctx.fillText('✦', w / 2 - flankOffset, y - 4);
+    ctx.fillText('✦', w / 2 + flankOffset, y - 4);
+  }
   ctx.restore();
 }
 
