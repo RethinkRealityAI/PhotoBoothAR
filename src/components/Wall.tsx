@@ -18,14 +18,15 @@
  * Realtime: subscribeToPosts; fallback poll every ~20 s.
  * Beam-in: fires <BeamIn/> overlay on every onInsert event.
  */
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useLayoutEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { QrCode, Camera, Upload } from 'lucide-react';
+import { QrCode } from 'lucide-react';
 import { useStore } from '../store';
 import { subscribeToPosts, subscribeToSettings, setWallSettings as dbSetWallSettings } from '../lib/db';
 import { Post } from '../types';
 import EventBackground from './ui/EventBackground';
 import { Wordmark } from './ui/EventLogo';
+import GuestNav from './ui/GuestNav';
 import ShareButton from './ui/ShareButton';
 import BeamIn from './wall/BeamIn';
 import MosaicGrid from './wall/MosaicGrid';
@@ -69,6 +70,20 @@ export default function Wall() {
 
   // Fallback poll interval ref
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Measure the (variable-height, wrapping) header so gallery content always
+  // starts just below it — never clipped, no magic numbers.
+  const headerRef = useRef<HTMLElement | null>(null);
+  const [headerH, setHeaderH] = useState(96);
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) { setHeaderH(0); return; }
+    const measure = () => setHeaderH(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [projectionMode]);
 
   // ----------------------------------------------------------------
   // Initial data load
@@ -211,7 +226,7 @@ export default function Wall() {
 
       {/* ── Gallery: Marquee (scrolling rows) or Mosaic (masonry grid) ── */}
       {mode === 'mosaic' && (
-        <div className="absolute inset-0 pt-[72px]">
+        <div className="absolute inset-0" style={{ paddingTop: projectionMode ? 0 : headerH }}>
           {wallSettings.galleryScroll ? (
             <MarqueeGrid
               posts={posts}
@@ -239,7 +254,7 @@ export default function Wall() {
 
       {/* ── Leaderboard ── */}
       {mode === 'leaderboard' && (
-        <div className="absolute inset-0 pt-[72px]">
+        <div className="absolute inset-0" style={{ paddingTop: projectionMode ? 0 : headerH }}>
           <LeaderboardView />
         </div>
       )}
@@ -249,97 +264,84 @@ export default function Wall() {
         <ChallengesTicker bottomOffset={96} />
       )}
 
-      {/* ── Chrome header ── hidden in projection mode ── */}
+      {/* ── Chrome header ── centered, viewport-contained, hidden in projection ── */}
       <AnimatePresence>
         {!projectionMode && (
           <motion.header
             key="header"
+            ref={headerRef}
             initial={{ opacity: 0, y: -16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.35 }}
-            className="relative z-30 flex items-center justify-between gap-4 px-6 py-3 shrink-0"
+            className="relative z-30 shrink-0 flex flex-col items-center gap-2 px-3 pt-3 pb-3"
             style={{
               background:
-                'linear-gradient(to bottom, rgba(10,7,3,0.88) 0%, rgba(10,7,3,0) 100%)',
+                'linear-gradient(to bottom, rgba(10,7,3,0.9) 0%, rgba(10,7,3,0) 100%)',
             }}
           >
-            {/* Left: wordmark + inline counter */}
-            <div className="flex items-center gap-4 flex-1 min-w-0">
+            {/* Brand — far left on wide screens only, so the nav stays truly centered */}
+            <div className="hidden xl:flex items-center gap-3 absolute left-6 top-1/2 -translate-y-1/2">
               <Wordmark size="sm" />
-              <div className="hidden sm:flex items-baseline gap-1.5 shrink-0">
-                <span className="font-serif italic text-2xl text-foil-static leading-none">{posts.length}</span>
-                <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/45">moments</span>
+            </div>
+            {/* Moment count — far right on wide screens only */}
+            <div className="hidden xl:flex items-baseline gap-1.5 absolute right-6 top-1/2 -translate-y-1/2">
+              <span className="font-serif italic text-2xl text-foil-static leading-none">{posts.length}</span>
+              <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/45">moments</span>
+            </div>
+
+            {/* Primary cross-page navigation — go anywhere from here */}
+            <GuestNav current="wall" />
+
+            {/* View tabs + wall actions — centered, wraps, never clipped */}
+            <div className="flex flex-wrap items-center justify-center gap-2 max-w-full">
+              <div
+                className="glass flex rounded-full p-0.5 shrink-0"
+                style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
+              >
+                {modeTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setMode(tab.id)}
+                    className={`px-3.5 py-1.5 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
+                      mode === tab.id
+                        ? 'bg-foil text-noir-900 glow-accent'
+                        : 'text-champagne/60 hover:text-champagne'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
-            </div>
 
-            {/* Centre: mode tabs (truly centred, never overlapped) */}
-            <div
-              className="glass flex rounded-xl overflow-hidden shrink-0"
-              style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
-            >
-              {modeTabs.map((tab) => (
+              <div className="flex items-center gap-1.5 shrink-0">
+                {/* QR codes on/off */}
                 <button
-                  key={tab.id}
-                  onClick={() => setMode(tab.id)}
-                  className={`px-4 py-2 font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
-                    mode === tab.id
-                      ? 'bg-foil text-noir-900 glow-accent'
-                      : 'text-champagne/60 hover:text-champagne'
-                  }`}
+                  onClick={toggleQR}
+                  className={`glass flex items-center gap-1.5 px-3 py-2 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all ${wallSettings.showQR ? 'text-gold-200' : 'text-champagne/55 hover:text-champagne'}`}
+                  style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
+                  title={wallSettings.showQR ? 'Hide QR codes' : 'Show QR codes'}
                 >
-                  {tab.label}
+                  <QrCode className="w-3.5 h-3.5" /> QR {wallSettings.showQR ? 'On' : 'Off'}
                 </button>
-              ))}
-            </div>
 
-            {/* Right: actions */}
-            <div className="flex-1 flex items-center justify-end gap-2">
-              {/* Open the booth — primary, high-contrast so it's clearly the way in */}
-              <a
-                href="/booth"
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-foil text-noir-900 glow-accent font-label uppercase tracking-luxe text-[10px] hover:brightness-110 transition-all active:scale-95"
-                title="Open the photo booth"
-              >
-                <Camera className="w-3.5 h-3.5" /> Booth
-              </a>
+                {/* Share the booth link */}
+                <ShareButton
+                  label="Share"
+                  iconSize={14}
+                  className="glass flex items-center gap-1.5 px-3 py-2 rounded-full font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
+                />
 
-              {/* Upload your own photos/videos to the wall */}
-              <a
-                href="/upload"
-                className="glass flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
-                style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
-                title="Upload your own photos to the wall"
-              >
-                <Upload className="w-3.5 h-3.5" /> Upload
-              </a>
-
-              {/* Share the booth link */}
-              <ShareButton
-                label="Share"
-                iconSize={14}
-                className="glass flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
-              />
-
-              {/* QR codes on/off */}
-              <button
-                onClick={toggleQR}
-                className={`glass flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] transition-all ${wallSettings.showQR ? 'text-gold-200' : 'text-champagne/55 hover:text-champagne'}`}
-                style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
-                title={wallSettings.showQR ? 'Hide QR codes' : 'Show QR codes'}
-              >
-                <QrCode className="w-3.5 h-3.5" /> QR {wallSettings.showQR ? 'On' : 'Off'}
-              </button>
-
-              {/* Projection mode toggle */}
-              <button
-                onClick={() => setProjectionMode((p) => !p)}
-                className="glass px-3.5 py-2 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
-                style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
-                title="Projection mode (hides all chrome)"
-              >
-                ⊡ Project
-              </button>
+                {/* Projection mode toggle */}
+                <button
+                  onClick={() => setProjectionMode((p) => !p)}
+                  className="glass px-3 py-2 rounded-full font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
+                  style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
+                  title="Projection mode (hides all chrome)"
+                >
+                  ⊡ Project
+                </button>
+              </div>
             </div>
           </motion.header>
         )}

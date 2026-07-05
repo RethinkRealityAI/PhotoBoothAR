@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Send, Film } from 'lucide-react';
 import { Experience } from '../../types';
 import { UploadItem } from './types';
+import FramedThumb from './FramedThumb';
 
 export interface PostProgress {
   done: number;
@@ -73,16 +74,10 @@ export default function DetailsAndPost({
       {/* Per-item review list */}
       <div className="flex-1 min-h-0 overflow-y-auto hide-scrollbar space-y-2.5 pr-1">
         {items.map((item) => {
-          const frameSrc = item.frameId ? frames.find((f) => f.id === item.frameId)?.asset_url : null;
           return (
             <div key={item.id} className="flex gap-3 items-center glass rounded-2xl border border-gold-400/12 p-2.5">
-              <div className="relative w-12 h-[84px] shrink-0 rounded-lg overflow-hidden" style={{ background: 'linear-gradient(135deg, #1A130C, #2a1f0f)' }}>
-                {item.kind === 'video' ? (
-                  <video src={item.srcUrl} className="w-full h-full object-cover" muted />
-                ) : (
-                  <img src={item.srcUrl} alt="" className="w-full h-full object-cover" />
-                )}
-                {frameSrc && <img src={frameSrc} alt="" aria-hidden className="absolute inset-0 w-full h-full pointer-events-none" />}
+              <div className="relative w-12 aspect-[9/16] shrink-0">
+                <FramedThumb item={item} frames={frames} className="w-full h-full" rounded="rounded-lg" />
                 {item.kind === 'video' && (
                   <div className="absolute top-1 left-1 bg-noir-900/70 rounded px-1 py-0.5"><Film className="w-2.5 h-2.5 text-champagne/80" /></div>
                 )}

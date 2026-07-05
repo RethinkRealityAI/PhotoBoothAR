@@ -2,13 +2,19 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * CropStage — interactive 9:16 preview of an uploaded image inside the chosen
- * frame. Drag to pan, wheel/pinch-zoom to zoom. The CSS transform here mirrors
- * `computeCropRect` exactly, so what you see is what gets baked by
- * `compositeUpload` at post time.
+ * CropStage — the large, interactive 9:16 preview of an uploaded image inside
+ * the chosen frame. Drag to pan, wheel/pinch to zoom, rotate with the tools.
+ *
+ * The image is positioned with `cropImageStyle` (percentages of the 9:16 box),
+ * the exact transform `compositeUpload` bakes to the wall — so the stage is
+ * truly WYSIWYG at any size, with no measuring or sub-pixel drift. Only the pan
+ * gesture reads the live box size, to convert pixel drags into frame fractions.
  */
-import { useCallback, useLayoutEffect, useRef, useState, PointerEvent, WheelEvent } from 'react';
+import { useCallback, useRef, useState, PointerEvent, WheelEvent } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Hand, Sparkles } from 'lucide-react';
 import { computeCropRect, FRAME_W, FRAME_H, UploadCrop } from '../booth/capture';
+import { cropImageStyle } from './framePreview';
 
 export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 4;
@@ -40,27 +46,13 @@ interface Props {
 
 export default function CropStage({ srcUrl, imgW, imgH, frameUrl, crop, onChange }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
-  const [box, setBox] = useState({ w: 0, h: 0 });
   // Single-pointer pan baseline.
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   // Active pointers (for pinch) + the pinch baseline.
   const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinch = useRef<{ dist: number; zoom: number } | null>(null);
-
-  useLayoutEffect(() => {
-    const el = boxRef.current;
-    if (!el) return;
-    const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight });
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // Dest rect in canvas units, then scaled to the on-screen box (both 9:16).
-  const rect = computeCropRect(imgW || 1, imgH || 1, FRAME_W, FRAME_H, crop.zoom, crop.offsetX, crop.offsetY, crop.rotation);
-  const sx = box.w / FRAME_W;
-  const sy = box.h / FRAME_H;
+  const [active, setActive] = useState(false);
+  const [touched, setTouched] = useState(false);
 
   const pinchDist = () => {
     const pts = [...pointers.current.values()];
@@ -72,8 +64,9 @@ export default function CropStage({ srcUrl, imgW, imgH, frameUrl, crop, onChange
     (e: PointerEvent) => {
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
       pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      setActive(true);
+      setTouched(true);
       if (pointers.current.size === 2) {
-        // Entering a pinch — drop the pan baseline, capture the zoom baseline.
         drag.current = null;
         pinch.current = { dist: pinchDist() || 1, zoom: crop.zoom };
       } else {
@@ -98,30 +91,33 @@ export default function CropStage({ srcUrl, imgW, imgH, frameUrl, crop, onChange
         return;
       }
 
-      // One finger → pan.
-      if (!drag.current || !box.w) return;
-      const dx = (e.clientX - drag.current.x) / box.w;
-      const dy = (e.clientY - drag.current.y) / box.h;
+      // One finger → pan (convert pixel delta → fraction of the live box).
+      const box = boxRef.current;
+      if (!drag.current || !box) return;
+      const bw = box.clientWidth || 1;
+      const bh = box.clientHeight || 1;
+      const dx = (e.clientX - drag.current.x) / bw;
+      const dy = (e.clientY - drag.current.y) / bh;
       onChange(
-        clampCrop(
-          { ...crop, offsetX: drag.current.ox + dx, offsetY: drag.current.oy + dy },
-          imgW,
-          imgH,
-        ),
+        clampCrop({ ...crop, offsetX: drag.current.ox + dx, offsetY: drag.current.oy + dy }, imgW, imgH),
       );
     },
-    [box.w, box.h, crop, imgW, imgH, onChange],
+    [crop, imgW, imgH, onChange],
   );
 
   const endPointer = useCallback((e: PointerEvent) => {
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
-    if (pointers.current.size === 0) drag.current = null;
+    if (pointers.current.size === 0) {
+      drag.current = null;
+      setActive(false);
+    }
   }, []);
 
   const onWheel = useCallback(
     (e: WheelEvent) => {
       e.preventDefault();
+      setTouched(true);
       const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, crop.zoom * (e.deltaY < 0 ? 1.08 : 0.92)));
       onChange(clampCrop({ ...crop, zoom: next }, imgW, imgH));
     },
@@ -131,8 +127,11 @@ export default function CropStage({ srcUrl, imgW, imgH, frameUrl, crop, onChange
   return (
     <div
       ref={boxRef}
-      className="relative mx-auto h-full max-h-full aspect-[9/16] overflow-hidden rounded-2xl bg-noir-900 shadow-2xl select-none touch-none"
-      style={{ border: '1px solid rgba(var(--accent-rgb),0.25)' }}
+      className="relative mx-auto h-full max-h-full aspect-[9/16] overflow-hidden rounded-2xl bg-noir-900 select-none touch-none cursor-grab active:cursor-grabbing"
+      style={{
+        border: '1px solid rgba(var(--accent-rgb),0.3)',
+        boxShadow: '0 24px 70px -24px rgba(0,0,0,0.85), 0 0 0 1px rgba(var(--accent-rgb),0.08)',
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endPointer}
@@ -144,15 +143,8 @@ export default function CropStage({ srcUrl, imgW, imgH, frameUrl, crop, onChange
         src={srcUrl}
         alt=""
         draggable={false}
-        className="absolute will-change-transform cursor-grab active:cursor-grabbing"
-        style={{
-          left: rect.x * sx,
-          top: rect.y * sy,
-          width: rect.w * sx,
-          height: rect.h * sy,
-          transform: crop.rotation ? `rotate(${crop.rotation}deg)` : undefined,
-          transformOrigin: 'center center',
-        }}
+        className="will-change-transform"
+        style={cropImageStyle(crop, imgW, imgH)}
       />
       {frameUrl && (
         <img
@@ -162,13 +154,55 @@ export default function CropStage({ srcUrl, imgW, imgH, frameUrl, crop, onChange
           className="absolute inset-0 w-full h-full pointer-events-none"
         />
       )}
-      {/* subtle grid guide while interacting */}
-      <div className="absolute inset-0 pointer-events-none opacity-0 hover:opacity-100 transition-opacity">
-        <div className="absolute inset-y-0 left-1/3 w-px bg-white/10" />
-        <div className="absolute inset-y-0 left-2/3 w-px bg-white/10" />
-        <div className="absolute inset-x-0 top-1/3 h-px bg-white/10" />
-        <div className="absolute inset-x-0 top-2/3 h-px bg-white/10" />
+
+      {/* Rule-of-thirds fit guides — fade in only while adjusting. */}
+      <div
+        className="absolute inset-0 pointer-events-none transition-opacity duration-200"
+        style={{ opacity: active ? 1 : 0 }}
+      >
+        <div className="absolute inset-y-0 left-1/3 w-px bg-white/25" />
+        <div className="absolute inset-y-0 left-2/3 w-px bg-white/25" />
+        <div className="absolute inset-x-0 top-1/3 h-px bg-white/25" />
+        <div className="absolute inset-x-0 top-2/3 h-px bg-white/25" />
       </div>
+
+      {/* Sleek instruction hint — top-center, auto-dismisses on first interaction. */}
+      <AnimatePresence>
+        {frameUrl && !touched && (
+          <motion.div
+            key="hint"
+            className="absolute inset-x-0 top-3 flex justify-center px-3 pointer-events-none"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.35 }}
+          >
+            <div className="glass-strong rounded-full px-3 py-1.5 flex items-center gap-1.5 border border-gold-400/25 shadow-lg max-w-[92%]">
+              <Hand className="w-3 h-3 text-gold-300 shrink-0" />
+              <span className="font-label uppercase tracking-wide text-[8px] text-champagne/85 text-center leading-tight">
+                Drag · pinch to zoom
+              </span>
+            </div>
+          </motion.div>
+        )}
+        {!frameUrl && (
+          <motion.div
+            key="noframe"
+            className="absolute inset-x-0 top-3 flex justify-center px-3 pointer-events-none"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.35 }}
+          >
+            <div className="glass-strong rounded-full px-3 py-1.5 flex items-center gap-1.5 border border-gold-400/20 shadow-lg max-w-[92%]">
+              <Sparkles className="w-3 h-3 text-gold-300/80 shrink-0" />
+              <span className="font-label uppercase tracking-wide text-[8px] text-champagne/70 text-center leading-tight">
+                Pick a frame to position it — or post as-is
+              </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
