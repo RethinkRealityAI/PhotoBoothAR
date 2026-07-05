@@ -12,15 +12,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { ArrowLeft, ArrowRight, Check, Copy, Loader2, PartyPopper } from 'lucide-react';
 import { slugify, SLUG_RE, RESERVED_SLUGS } from '../../lib/slug';
-import { createEvent, isSlugVisiblyTaken, type CreateEventError, type HostEventRow } from '../../lib/host';
-
-const EVENT_TYPES = [
-  { value: 'wedding', label: 'Wedding' },
-  { value: 'gala', label: 'Gala' },
-  { value: 'birthday', label: 'Birthday' },
-  { value: 'party', label: 'Party' },
-  { value: 'remote', label: 'Remote / virtual' },
-];
+import { createEvent, updateEventConfig, isSlugVisiblyTaken, type CreateEventError, type HostEventRow } from '../../lib/host';
+import { EVENT_TEMPLATES, templateById, templateConfigPatch } from '../../lib/eventTemplates';
+import TemplatePreview from '../../components/ui/TemplatePreview';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-brand-fg ' +
@@ -47,8 +41,10 @@ export default function NewEvent() {
 
   // Step 1
   const [name, setName] = useState('');
-  const [eventType, setEventType] = useState('wedding');
+  const [templateId, setTemplateId] = useState('wedding');
+  const [remote, setRemote] = useState(false);
   const [date, setDate] = useState('');
+  const template = templateById(templateId) ?? EVENT_TEMPLATES[0];
 
   // Step 2
   const [slug, setSlug] = useState('');
@@ -90,7 +86,13 @@ export default function NewEvent() {
     setCreating(true);
     setCreateError(null);
     const startsAt = date ? new Date(`${date}T00:00:00`).toISOString() : undefined;
-    const res = await createEvent({ eventName: name.trim(), slug, eventType, startsAt });
+    const res = await createEvent({ eventName: name.trim(), slug, eventType: remote ? 'remote' : template.eventType, startsAt });
+    if (res.event) {
+      // Seed the chosen template's complete look (theme, frames, effects, copy)
+      // into events.config so the event is beautiful the moment it opens.
+      // Best-effort client-side merge — member RLS permits it.
+      await updateEventConfig(res.event.id, templateConfigPatch(template, name.trim()));
+    }
     setCreating(false);
     if (res.error) {
       const slugErrors: CreateEventError[] = ['slug_taken', 'reserved_slug', 'invalid_slug'];
@@ -197,20 +199,43 @@ export default function NewEvent() {
                 className={inputClass}
               />
             </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Type</span>
-              <select value={eventType} onChange={(e) => setEventType(e.target.value)} className={inputClass}>
-                {EVENT_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-              {eventType === 'remote' && (
-                <p className="mt-1 rounded-xl border border-gold-400/20 bg-gold-400/[0.06] px-3.5 py-2.5 font-sans text-[11px] leading-relaxed text-gold-200/80">
-                  Remote celebrations shine with a greeting card — create one in the studio's Cards
-                  tab after setup, and guests everywhere can add photos, videos and notes.
-                </p>
-              )}
-            </label>
+            <div className="flex flex-col gap-2">
+              <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Choose a style</span>
+              <div className="grid grid-cols-3 gap-2">
+                {EVENT_TEMPLATES.map((t) => {
+                  const on = t.id === templateId;
+                  return (
+                    <button
+                      type="button"
+                      key={t.id}
+                      onClick={() => setTemplateId(t.id)}
+                      aria-pressed={on}
+                      title={t.label}
+                      className={`group relative rounded-xl border p-2 text-left transition active:scale-[0.98] ${on ? 'border-[color:var(--color-accent)]/70 ring-1 ring-[color:var(--color-accent)]/40' : 'border-white/10 hover:border-white/25'}`}
+                    >
+                      <div className="h-9 rounded-lg mb-1.5 shadow-[inset_0_1px_8px_rgba(0,0,0,0.4)]" style={{ background: t.swatch }} />
+                      <div className="flex items-center gap-1">
+                        <span className="text-[13px] leading-none">{t.emoji}</span>
+                        <span className="font-label uppercase tracking-luxe text-[8.5px] text-brand-fg">{t.label}</span>
+                      </div>
+                      {on && (
+                        <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[color:var(--color-accent)] flex items-center justify-center">
+                          <Check className="w-2.5 h-2.5 text-noir-900" />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="font-sans text-[11px] text-brand-muted/60 leading-relaxed min-h-[2.5em]">{template.blurb}</p>
+
+              <label className="mt-0.5 flex items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5 cursor-pointer hover:bg-white/[0.04] transition-colors">
+                <input type="checkbox" checked={remote} onChange={(e) => setRemote(e.target.checked)} className="mt-0.5 accent-[color:var(--color-accent)]" />
+                <span className="font-sans text-[11px] leading-relaxed text-brand-muted/70">
+                  <span className="text-brand-fg">Remote / virtual celebration.</span> Guests can’t attend in person — we’ll open the studio to a shareable greeting card where anyone, anywhere adds photos, videos &amp; notes. Your chosen style still applies.
+                </span>
+              </label>
+            </div>
             <label className="flex flex-col gap-1.5">
               <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Date (optional)</span>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} />
@@ -278,16 +303,20 @@ export default function NewEvent() {
           <div className="flex flex-col gap-5">
             <div>
               <h1 className="font-serif text-2xl text-foil-static">Ready to create</h1>
-              <p className="mt-1 font-sans text-xs text-brand-muted/60">One last look before we set the stage.</p>
+              <p className="mt-1 font-sans text-xs text-brand-muted/60">Here’s the look — you can fine-tune everything later.</p>
             </div>
-            <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-5 space-y-2.5">
+            <div className="flex gap-4 items-stretch">
+              <div className="w-28 sm:w-32 shrink-0">
+                <TemplatePreview template={template} eventName={name.trim()} />
+              </div>
+              <div className="flex-1 rounded-2xl bg-white/[0.03] border border-white/10 p-4 sm:p-5 space-y-2.5 self-center">
               <div className="flex justify-between gap-4 text-sm">
                 <span className="text-brand-muted/50">Name</span>
                 <span className="text-brand-fg text-right">{name.trim()}</span>
               </div>
               <div className="flex justify-between gap-4 text-sm">
-                <span className="text-brand-muted/50">Type</span>
-                <span className="text-brand-fg capitalize">{eventType}</span>
+                <span className="text-brand-muted/50">Style</span>
+                <span className="text-brand-fg text-right">{template.emoji} {template.label}{remote ? ' · Remote' : ''}</span>
               </div>
               <div className="flex justify-between gap-4 text-sm">
                 <span className="text-brand-muted/50">Link</span>
@@ -299,6 +328,7 @@ export default function NewEvent() {
                   <span className="text-brand-fg">{date}</span>
                 </div>
               )}
+              </div>
             </div>
             {createError && <p role="alert" className="text-sm text-red-400">{createError}</p>}
             <div className="flex gap-3">

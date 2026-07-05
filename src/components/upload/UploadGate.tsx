@@ -109,7 +109,7 @@ export default function UploadGate({ children }: { children: ReactNode }) {
   const passcode =
     (import.meta.env.VITE_UPLOAD_PASSCODE as string) ||
     (import.meta.env.VITE_ADMIN_PASSCODE as string) ||
-    'hopegala2026';
+    'changeme';
   const eventName = useStore((s) => s.copy.eventName);
   const { eventId } = useEvent();
 

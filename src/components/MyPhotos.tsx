@@ -191,7 +191,7 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
       ) : (
         <img
           src={media.image_url}
-          alt="Your gala moment"
+          alt="Your moment"
           className="w-full block object-cover"
           style={{ aspectRatio: '9/16' }}
           loading="lazy"
@@ -326,7 +326,7 @@ function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void })
         ) : (
           <img
             src={media.image_url}
-            alt="Your gala moment"
+            alt="Your moment"
             className="w-full rounded-2xl"
             style={{ boxShadow: '0 0 60px rgba(var(--accent-rgb),0.18)' }}
           />
@@ -463,7 +463,7 @@ export default function MyPhotos() {
         <p className="mt-6 font-label uppercase tracking-luxe text-[10px] text-gold-300/70">
           My Media
         </p>
-        <p className="mt-2 font-serif italic text-2xl text-ivory/85">Your gala moments</p>
+        <p className="mt-2 font-serif italic text-2xl text-ivory/85">Your moments</p>
         <span
           className="mt-3 h-px w-16 block"
           style={{ background: 'linear-gradient(to right, transparent, rgba(var(--accent-rgb),0.6), transparent)' }}

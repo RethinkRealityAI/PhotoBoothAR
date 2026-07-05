@@ -135,8 +135,17 @@ export async function compositeCapture(input: CaptureInput): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.9);
 }
 
-/** Elegant gold "Hope Gala 2026" signature centered near the bottom edge. */
-export function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number) {
+/**
+ * Elegant gold signature centered near the bottom edge — the free-tier credit.
+ * Defaults to the platform mark ("Beamwall"); paid plans drop it (watermark
+ * entitlement), and a caller may pass a custom label if ever desired.
+ */
+export function drawSignature(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  label = 'Beamwall',
+) {
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
@@ -150,11 +159,12 @@ export function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: numbe
   ctx.shadowBlur = 10;
   ctx.fillStyle = grad;
   ctx.globalAlpha = 0.95;
-  ctx.fillText('Hope Gala 2026', w / 2, y);
+  ctx.fillText(label, w / 2, y);
   // small flanking flourishes
+  const flankOffset = Math.min(200, 90 + label.length * 9);
   ctx.font = '24px Georgia, serif';
-  ctx.fillText('✦', w / 2 - 180, y - 4);
-  ctx.fillText('✦', w / 2 + 180, y - 4);
+  ctx.fillText('✦', w / 2 - flankOffset, y - 4);
+  ctx.fillText('✦', w / 2 + flankOffset, y - 4);
   ctx.restore();
 }
 
@@ -257,6 +267,9 @@ export interface CompositeUploadInput {
    * events keep the default/true (they always carry the mark).
    */
   applySignature?: boolean;
+  /** Text baked as the signature (defaults to the platform mark). Callers pass
+   *  the event's name so an uploaded photo matches a booth capture. */
+  signatureLabel?: string;
   /** Source MIME type — lets no-frame PNGs keep transparency (else JPEG). */
   srcType?: string;
 }
@@ -303,7 +316,7 @@ export async function compositeUpload(input: CompositeUploadInput): Promise<Comp
       console.warn('[compositeUpload] frame overlay failed', e);
     }
 
-    if (input.applySignature !== false) drawSignature(ctx, FRAME_W, FRAME_H);
+    if (input.applySignature !== false) drawSignature(ctx, FRAME_W, FRAME_H, input.signatureLabel);
 
     const blob = await canvasToBlob(canvas);
     return { blob, width: FRAME_W, height: FRAME_H };
@@ -324,7 +337,7 @@ export async function compositeUpload(input: CompositeUploadInput): Promise<Comp
   canvas.height = h || FRAME_H;
   const ctx = canvas.getContext('2d')!;
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  if (input.applySignature === true) drawSignature(ctx, canvas.width, canvas.height);
+  if (input.applySignature === true) drawSignature(ctx, canvas.width, canvas.height, input.signatureLabel);
   // Keep PNGs as PNG so transparent uploads don't get a black background.
   const isPng = /png/i.test(input.srcType ?? '');
   const blob = await canvasToBlob(canvas, isPng ? 'image/png' : 'image/jpeg');

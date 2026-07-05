@@ -227,6 +227,9 @@ function UploadInner() {
             frameUrl,
             crop: item.crop,
             srcType: item.file.type,
+            // The free-tier mark reads the EVENT's own name (matches a booth
+            // capture) — never a hardcoded gala label.
+            signatureLabel: config.copy.eventName,
             // Entitlement-gated watermark: keep the default behaviour
             // (signature when framed) only while the plan carries the mark.
             ...(watermark ? {} : { applySignature: false }),
