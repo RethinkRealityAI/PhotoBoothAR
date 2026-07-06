@@ -45,12 +45,16 @@ import CardViewer from './pages/cards/CardViewer';
 import CardContribute from './pages/cards/CardContribute';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminOverview from './pages/admin/Overview';
+import AdminCustomers from './pages/admin/Customers';
+import AdminCustomerDetail from './pages/admin/CustomerDetail';
+import AdminEvents from './pages/admin/Events';
 
 /** Set at build time for the legacy single-event deploys. */
 const LEGACY_EVENT = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim();
-/** Where the old top-level guest routes redirect in runtime mode. */
+/** Where the old top-level guest routes redirect in runtime mode. Defaults to
+ *  the neutral sandbox event, never a real customer's live event. */
 const DEFAULT_EVENT_SLUG =
-  ((import.meta.env.VITE_DEFAULT_EVENT as string | undefined) ?? '').trim() || 'hope-gala';
+  ((import.meta.env.VITE_DEFAULT_EVENT as string | undefined) ?? '').trim() || 'demo';
 
 /** "/" inside an event → the event's configured landing route. When the host
  *  pinned a published greeting card as the event landing
@@ -146,6 +150,9 @@ export default function App() {
               {/* Platform super-admin — session + platform_admins gated, NOT event-scoped */}
               <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<AdminOverview />} />
+                <Route path="customers" element={<AdminCustomers />} />
+                <Route path="customers/:orgId" element={<AdminCustomerDetail />} />
+                <Route path="events" element={<AdminEvents />} />
               </Route>
 
               {/* Greeting cards: public viewer + token-gated contribute page */}

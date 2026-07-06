@@ -15,9 +15,9 @@ Ordered path to real paying customers:
    + the webhook endpoint (`DEPLOYMENT-CHECKLIST.md` §3). Until then nobody can pay and
    there is zero revenue data. Admin **Phase 3** adds an `orders` table +
    `invoice.payment_succeeded` so revenue is recorded once keys are live.
-3. **Kill the default-event redirect leak** — bare runtime paths (`/booth`, `/wall`, …)
-   still redirect to `/e/hope-gala` (the `VITE_DEFAULT_EVENT` fallback in `src/App.tsx`).
-   Point it at a neutral demo event or the Landing before driving traffic.
+3. ~~**Kill the default-event redirect leak**~~ — done: bare runtime paths (`/booth`,
+   `/wall`, …) now redirect to `/e/demo` (the neutral Demo Sandbox org's event), not a
+   real customer's live gala. `VITE_DEFAULT_EVENT` still overrides if ever needed.
 4. **In-app password reset** — there is no self-serve "forgot password" screen
    (`src/pages/auth/*`). Admin **Phase 4** adds admin-mediated reset (`generateLink`); a
    guest self-serve reset is still a gap.
@@ -27,7 +27,6 @@ Ordered path to real paying customers:
 ## Watchouts
 
 - Stripe unprovisioned -> billing 503, no revenue data. #1 launch gate.
-- Default-event redirect leaks bare paths to `/e/hope-gala` (`VITE_DEFAULT_EVENT`).
 - No self-serve password-reset UI exists yet.
 - User management = **ban, never delete** (`ban_duration`): deleting a user cascades
   `profiles`/`org_members` and nulls `orgs.owner_id`, orphaning the org.

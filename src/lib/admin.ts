@@ -78,3 +78,85 @@ export interface OverviewMetrics {
 export function fetchOverviewMetrics(): Promise<AdminResult<OverviewMetrics>> {
   return adminApi<OverviewMetrics>('overview_metrics');
 }
+
+export interface OrgRow {
+  id: string;
+  name: string;
+  ownerId: string | null;
+  hasStripeCustomer: boolean;
+  createdAt: string;
+  eventCount: number;
+  subscriptionStatus: string | null;
+  subscriptionTier: string | null;
+  creditBalance: number;
+}
+
+export function fetchOrgs(): Promise<AdminResult<{ orgs: OrgRow[] }>> {
+  return adminApi('list_orgs');
+}
+
+export interface OrgMember {
+  userId: string;
+  role: string;
+  displayName: string | null;
+  email: string | null;
+  createdAt: string;
+}
+
+export interface OrgEvent {
+  id: string;
+  slug: string;
+  name: string;
+  event_type: string;
+  status: string;
+  plan_tier: string;
+  created_at: string;
+}
+
+export interface OrgEventPlan {
+  id: string;
+  event_id: string;
+  tier: string;
+  purchased_at: string;
+}
+
+export interface OrgLedgerRow {
+  id: number;
+  delta: number;
+  reason: string;
+  created_at: string;
+}
+
+export interface OrgDetail {
+  org: { id: string; name: string; owner_id: string | null; stripe_customer_id: string | null; created_at: string };
+  members: OrgMember[];
+  events: OrgEvent[];
+  eventPlans: OrgEventPlan[];
+  subscription: { status: string; tier: string; current_period_end: string | null; stripe_subscription_id: string | null } | null;
+  creditBalance: number;
+  ledger: OrgLedgerRow[];
+}
+
+export function fetchOrg(orgId: string): Promise<AdminResult<OrgDetail>> {
+  return adminApi('get_org', { orgId });
+}
+
+export interface AdminEventRow {
+  id: string;
+  slug: string;
+  name: string;
+  event_type: string;
+  status: string;
+  plan_tier: string;
+  org_id: string;
+  orgName: string;
+  created_at: string;
+}
+
+export function fetchEvents(): Promise<AdminResult<{ events: AdminEventRow[] }>> {
+  return adminApi('list_events');
+}
+
+export function setEventStatus(eventId: string, status: string): Promise<AdminResult<{ id: string; status: string }>> {
+  return adminApi('set_event_status', { eventId, status });
+}

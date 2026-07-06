@@ -24,8 +24,8 @@ interface NavItem { to: string; end?: boolean; label: string; Icon: LucideIcon; 
 // never shows a link to a route that doesn't exist yet.
 const NAV: NavItem[] = [
   { to: '/admin', end: true, label: 'Overview', Icon: LayoutDashboard, ready: true },
-  { to: '/admin/customers', label: 'Customers', Icon: Building2, ready: false },
-  { to: '/admin/events', label: 'Events', Icon: CalendarRange, ready: false },
+  { to: '/admin/customers', label: 'Customers', Icon: Building2, ready: true },
+  { to: '/admin/events', label: 'Events', Icon: CalendarRange, ready: true },
   { to: '/admin/payments', label: 'Payments', Icon: Receipt, ready: false },
   { to: '/admin/users', label: 'Users', Icon: Users, ready: false },
   { to: '/admin/audit', label: 'Audit', Icon: ScrollText, ready: false },

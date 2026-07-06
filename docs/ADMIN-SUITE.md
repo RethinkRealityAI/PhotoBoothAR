@@ -5,8 +5,8 @@ the whole business**: every customer/org, all events cross-tenant, payments, and
 support actions. It is **distinct from the per-event host studio** (`/host/**`,
 `src/components/admin/*`) which is a customer managing their *own* event.
 
-Branch `claude/platform-admin-suite` → **draft PR #10**. Built in phases, each
-independently shippable. **Phase 1 is done and deployed; Phases 2–5 remain.**
+Built in phases, each independently shippable. **Phases 1–2 are done and
+deployed; Phases 3–5 remain.**
 
 ---
 
@@ -59,24 +59,33 @@ password — it's the account's normal Supabase login + platform-admin membershi
 
 ---
 
+## Phase 2 — DONE & DEPLOYED ✅
+
+**Edge function `admin-api`** (redeployed, version 2): `list_orgs` (org +
+event count + subscription + credit balance, no server pagination — table
+volume is early-stage), `get_org` (members with resolved emails via
+`admin_user_emails`, events, `event_plans`, subscription, credit balance +
+recent ledger), `list_events` (cross-tenant, joined with org name),
+`set_event_status` (validates the 4 event statuses, audited via the new
+`auditLog` helper).
+
+**Frontend:** `Customers` (`/admin/customers`) and `Events` (`/admin/events`)
+list screens, `CustomerDetail` (`/admin/customers/:orgId`) drill-down. New
+primitives `Modal`, `DataTable`, `Pagination` in `src/components/ui/`. New pure
+`src/lib/adminFilters.ts` (search/sort/paginate, client-side — the admin-api
+actions return full result sets) with `adminFilters.test.ts`. `AdminLayout` nav
+`ready:true` for Customers/Events; routes added in `src/App.tsx`.
+
+**Cleanup:** the three host copies of the local `statusPill()` helper —
+`src/pages/host/{EventsList.tsx, EventStudio.tsx, CardsTab.tsx}` — now import
+the shared `StatusPill` component instead.
+
 ## Remaining phases (execute in order)
 
 For each: add the `admin-api` action(s) (assert-before-switch; `admin_audit` every
 mutation), build the screen(s), keep logic in pure `.ts` + colocated tests, flip
 the `AdminLayout` nav `ready:true` and add the `<Route>` in `src/App.tsx`, then run
 `npm run lint && npm test && npm run build` before pushing.
-
-### Phase 2 — Customers + Events
-- **admin-api:** `list_orgs`, `get_org` (members + emails via `admin_user_emails`,
-  events, `event_plans`, `subscriptions`, credits + ledger), `list_events`,
-  `set_event_status` (audited).
-- **Screens:** `Customers`, `CustomerDetail` (`/admin/customers/:orgId`), `Events`.
-- **Primitives to build now (deferred from P1, first consumers here):** `Modal`,
-  `DataTable`, `Pagination` in `src/components/ui/` (reuse the `QRModal` shell and
-  the `EventsList` skeleton/empty patterns).
-- **Cleanup:** adopt the shared `StatusPill` in the three host copies —
-  `src/pages/host/{EventsList.tsx:16, EventStudio.tsx:53, CardsTab.tsx:39}`.
-- **Tests:** `adminFilters.ts` (search/sort/paginate) + `adminFilters.test.ts`.
 
 ### Phase 3 — Payments + revenue (needs the orders data path)
 - **Migration `010_orders.sql`:** `orders(id, org_id, event_id, kind, tier,
@@ -114,7 +123,7 @@ the `AdminLayout` nav `ready:true` and add the `<Route>` in `src/App.tsx`, then 
 | Primitive | Status |
 |---|---|
 | `cn()`, `StatusPill` + `statusPill.ts`, `adminFormat.ts` | ✅ built (Phase 1) |
-| `Modal`, `DataTable`, `Pagination` | ⏳ Phase 2 (first consumers) |
+| `Modal`, `DataTable`, `Pagination` | ✅ built (Phase 2) |
 | `Toast` (`ToastProvider`/`useToast`) | ⏳ Phase 4 |
 
 DB helpers already in `009` that later phases just call: `admin_user_emails`

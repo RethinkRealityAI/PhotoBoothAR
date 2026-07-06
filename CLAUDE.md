@@ -39,7 +39,7 @@ Supabase project ref: `zrtftliozslrjomxbfrr`. Platform owner / first platform-ad
 
 Commands: dev `npm run dev` (http://localhost:5180) · typecheck `npm run lint` (= `tsc --noEmit`) · test `npm test` (= `vitest run`) · build `npm run build`.
 
-Current state (2026-07-06): PR #9 merged to `main` (de-brand + template onboarding + pricing + guest nav/Challenges/liquid-glass). Active: branch `claude/platform-admin-suite` -> draft PR #10 — platform super-admin suite at `/admin`; Phase 1 done & DEPLOYED, Phases 2-5 pending. Live Supabase: migrations `001`-`009` + edge fn `admin-api` deployed; `platform_admins` seeded. Stripe keys UNPROVISIONED -> billing returns 503 = the #1 gate before real customers.
+Current state (2026-07-06): PR #10 merged to `main` (platform super-admin suite Phase 1). Active: branch `claude/beamwall-admin-suite-5muz8t` building the admin suite — Phase 2 (Customers/Events, `admin-api` v2) done and deployed; Phases 3-5 remain. Live Supabase: migrations `001`-`009` + edge fn `admin-api` deployed; `platform_admins` seeded. Stripe keys UNPROVISIONED -> billing returns 503 = the #1 gate before real customers.
 
 Before `npm test`: no `.env.local` may set `VITE_EVENT` — it flips the app to legacy mode and breaks `src/lib/catalog.test.ts` (`.env*` is gitignored).
 Tests run in vitest `node` env, glob `src/**/*.test.ts` ONLY (never `.tsx`) — pure logic, no React render (jsdom/RTL not installed); keep real logic in plain `.ts` + colocated `.test.ts`.

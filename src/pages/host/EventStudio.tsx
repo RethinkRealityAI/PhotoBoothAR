@@ -33,6 +33,7 @@ import SettingsScreen from '../../components/admin/Settings';
 import ManagerAccess from './ManagerAccess';
 import CardsTab from './CardsTab';
 import UpgradeCard from './UpgradeCard';
+import StatusPill from '../../components/ui/StatusPill';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -49,15 +50,6 @@ type LoadState =
   | { phase: 'loading' }
   | { phase: 'missing' }
   | { phase: 'ready'; event: StudioEvent };
-
-function statusPill(status: string): string {
-  switch (status) {
-    case 'live': return 'bg-emerald-500/15 text-emerald-400';
-    case 'ended': return 'bg-amber-500/15 text-amber-400';
-    case 'archived': return 'bg-white/[0.05] text-brand-muted/40';
-    default: return 'bg-white/[0.08] text-brand-muted/70';
-  }
-}
 
 function GuestLinkCopy({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
@@ -145,9 +137,7 @@ export default function EventStudio() {
               <p className="font-serif italic text-sm text-ivory leading-tight truncate max-w-[12rem]">{event.name}</p>
               <div className="flex items-center gap-1.5">
                 <span className="font-mono text-[9px] text-champagne/40">/e/{event.slug}</span>
-                <span className={`px-1.5 py-px rounded-full text-[8px] font-label uppercase tracking-widest ${statusPill(event.status)}`}>
-                  {event.status}
-                </span>
+                <StatusPill status={event.status} />
               </div>
             </div>
             <div className="flex-1 overflow-x-auto hide-scrollbar">
