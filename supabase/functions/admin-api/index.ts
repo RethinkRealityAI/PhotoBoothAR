@@ -31,9 +31,16 @@
  *   adjust_credits   → { data: { orgId, balance } } (args: { orgId, delta, reason }) — audited
  *   set_event_tier   → { data: { id, plan_tier } } (args: { eventId, tier }) — audited;
  *                       admin comp, does not insert an event_plans purchase row
+ *   list_audit       → { data: { entries: [...] } } (most recent 200)
+ *   list_admins      → { data: { admins: [...] } }
+ *   add_admin        → { data: { userId, email, invited } } (args: { email }) — audited;
+ *                       resolves an existing user by email, else invites one
+ *   remove_admin     → { data: { userId } } (args: { userId }) — audited;
+ *                       blocked: removing self, removing the last admin
  *
- * 400 { error:'invalid_json'|'invalid_args'|'unknown_action' } · 401 unauthorized ·
- * 403 forbidden · 404 not_found · 500 internal
+ * 400 { error:'invalid_json'|'invalid_args'|'cannot_remove_self'|'cannot_remove_last_admin'|
+ *       'unknown_action' } · 401 unauthorized · 403 forbidden · 404 not_found ·
+ * 409 already_admin · 500 internal
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
@@ -452,6 +459,117 @@ async function setEventTier(sb: Client, actorUserId: string, args: Record<string
   return json(200, { data });
 }
 
+async function listAudit(sb: Client): Promise<Response> {
+  const { data: entries, error } = await sb
+    .from('admin_audit')
+    .select('id, actor_user_id, action, target_type, target_id, meta, created_at')
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) throw error;
+
+  const actorIds = [...new Set((entries ?? []).map((e) => e.actor_user_id as string).filter(Boolean))];
+  const { data: emails, error: emailErr } = actorIds.length
+    ? await sb.rpc('admin_user_emails', { p_ids: actorIds })
+    : { data: [], error: null };
+  if (emailErr) throw emailErr;
+  const emailById = new Map((emails ?? []).map((e) => [e.id as string, e.email as string | null]));
+
+  const rows = (entries ?? []).map((e) => ({ ...e, actorEmail: emailById.get(e.actor_user_id as string) ?? null }));
+  return json(200, { data: { entries: rows } });
+}
+
+async function listAdmins(sb: Client): Promise<Response> {
+  const { data: admins, error } = await sb
+    .from('platform_admins')
+    .select('user_id, email, added_by, created_at')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+
+  const ids = [...new Set([
+    ...(admins ?? []).map((a) => a.user_id as string),
+    ...(admins ?? []).map((a) => a.added_by as string).filter(Boolean),
+  ])];
+  const [{ data: emails, error: emailErr }, { data: profiles, error: profErr }] = ids.length
+    ? await Promise.all([
+      sb.rpc('admin_user_emails', { p_ids: ids }),
+      sb.from('profiles').select('id, display_name').in('id', ids),
+    ])
+    : [{ data: [], error: null }, { data: [], error: null }];
+  if (emailErr) throw emailErr;
+  if (profErr) throw profErr;
+  const emailById = new Map((emails ?? []).map((e) => [e.id as string, e.email as string | null]));
+  const nameById = new Map((profiles ?? []).map((p) => [p.id as string, p.display_name as string | null]));
+
+  const rows = (admins ?? []).map((a) => ({
+    userId: a.user_id,
+    email: emailById.get(a.user_id as string) ?? a.email ?? null,
+    displayName: nameById.get(a.user_id as string) ?? null,
+    addedBy: a.added_by,
+    addedByEmail: a.added_by ? emailById.get(a.added_by as string) ?? null : null,
+    createdAt: a.created_at,
+  }));
+  return json(200, { data: { admins: rows } });
+}
+
+async function findUserIdByEmail(sb: Client, email: string): Promise<string | null> {
+  const { data, error } = await sb.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (error) throw error;
+  const match = data.users.find((u) => (u.email ?? '').toLowerCase() === email);
+  return match?.id ?? null;
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+async function addAdmin(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const email = typeof args.email === 'string' ? args.email.trim().toLowerCase() : '';
+  if (!email || !EMAIL_RE.test(email)) return json(400, { error: 'invalid_args' });
+
+  let userId = await findUserIdByEmail(sb, email);
+  let invited = false;
+  if (!userId) {
+    const { data, error } = await sb.auth.admin.inviteUserByEmail(email);
+    if (error) throw error;
+    userId = data.user?.id ?? null;
+    invited = true;
+  }
+  if (!userId) return json(500, { error: 'internal' });
+
+  const { error: insErr } = await sb
+    .from('platform_admins')
+    .insert({ user_id: userId, email, added_by: actorUserId });
+  if (insErr) {
+    if ((insErr as { code?: string }).code === '23505') return json(409, { error: 'already_admin' });
+    throw insErr;
+  }
+
+  await auditLog(sb, actorUserId, 'add_admin', 'user', userId, { email, invited });
+  return json(200, { data: { userId, email, invited } });
+}
+
+async function removeAdmin(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const userId = typeof args.userId === 'string' ? args.userId : '';
+  if (!userId) return json(400, { error: 'invalid_args' });
+  if (userId === actorUserId) return json(400, { error: 'cannot_remove_self' });
+
+  const { count, error: countErr } = await sb
+    .from('platform_admins')
+    .select('*', { count: 'exact', head: true });
+  if (countErr) throw countErr;
+  if ((count ?? 0) <= 1) return json(400, { error: 'cannot_remove_last_admin' });
+
+  const { data, error } = await sb
+    .from('platform_admins')
+    .delete()
+    .eq('user_id', userId)
+    .select('user_id')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return json(404, { error: 'not_found' });
+
+  await auditLog(sb, actorUserId, 'remove_admin', 'user', userId);
+  return json(200, { data: { userId } });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -522,6 +640,14 @@ Deno.serve(async (req: Request) => {
         return await adjustCredits(sb, user.id, args);
       case 'set_event_tier':
         return await setEventTier(sb, user.id, args);
+      case 'list_audit':
+        return await listAudit(sb);
+      case 'list_admins':
+        return await listAdmins(sb);
+      case 'add_admin':
+        return await addAdmin(sb, user.id, args);
+      case 'remove_admin':
+        return await removeAdmin(sb, user.id, args);
       default:
         return json(400, { error: 'unknown_action' });
     }

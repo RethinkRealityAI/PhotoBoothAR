@@ -5,8 +5,8 @@ the whole business**: every customer/org, all events cross-tenant, payments, and
 support actions. It is **distinct from the per-event host studio** (`/host/**`,
 `src/components/admin/*`) which is a customer managing their *own* event.
 
-Built in phases, each independently shippable. **Phases 1–4 are done and
-deployed; Phase 5 remains.**
+Built in phases, each independently shippable. **All five phases are done and
+deployed.**
 
 ---
 
@@ -135,19 +135,27 @@ also gained a "Comp plan" action (`set_event_tier`'s UI home — it's event
 data, so it lives there rather than on the Users screen). `AdminLayout` nav
 `ready:true` for Users; route added in `src/App.tsx`.
 
-## Remaining phases (execute in order)
+---
 
-For each: add the `admin-api` action(s) (assert-before-switch; `admin_audit` every
-mutation), build the screen(s), keep logic in pure `.ts` + colocated tests, flip
-the `AdminLayout` nav `ready:true` and add the `<Route>` in `src/App.tsx`, then run
-`npm run lint && npm test && npm run build` before pushing.
+## Phase 5 — DONE & DEPLOYED ✅
 
-### Phase 5 — Audit log + admin roster
-- **admin-api:** `list_audit`, `list_admins`, `add_admin(email)` (resolve→user_id,
-  else invite), `remove_admin(userId)` with guards: **cannot remove self, cannot
-  remove the last admin.**
-- **Screens:** `Audit`, `Admins`.
-- **Tests:** `adminAuth.ts` (`canRemoveAdmin`, `normalizeAdminEmail`).
+**Edge function `admin-api`** (redeployed, version 5): `list_audit` (most
+recent 200 `admin_audit` rows, joined with resolved actor emails — operational
+view, not an archive), `list_admins` (roster joined with resolved emails +
+`added_by` email + `profiles.display_name`), `add_admin` (resolves an existing
+user by email via the same `listUsers` scan as `list_users`/`reset_password`,
+else `inviteUserByEmail`; a duplicate insert into `platform_admins` surfaces
+as `409 already_admin`), `remove_admin` (blocks removing yourself and blocks
+emptying the roster — the last remaining admin can't be removed even by
+someone else). All four audited (add/remove; list actions are reads).
+
+**Frontend:** `Audit` screen (`/admin/audit`, read-only) and `Admins` screen
+(`/admin/admins` — add by email, remove behind `canRemoveAdmin`'s client-side
+pre-check so a blocked removal shows as a disabled button with a tooltip
+instead of a round-trip error). New pure `src/lib/adminAuth.ts`
+(`canRemoveAdmin`, `normalizeAdminEmail` — mirrors the Deno `removeAdmin`
+guard) with `adminAuth.test.ts`. `AdminLayout` nav `ready:true` for
+Audit/Admins; routes added in `src/App.tsx`.
 
 ---
 

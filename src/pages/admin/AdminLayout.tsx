@@ -29,8 +29,8 @@ const NAV: NavItem[] = [
   { to: '/admin/events', label: 'Events', Icon: CalendarRange, ready: true },
   { to: '/admin/payments', label: 'Payments', Icon: Receipt, ready: true },
   { to: '/admin/users', label: 'Users', Icon: Users, ready: true },
-  { to: '/admin/audit', label: 'Audit', Icon: ScrollText, ready: false },
-  { to: '/admin/admins', label: 'Admins', Icon: ShieldCheck, ready: false },
+  { to: '/admin/audit', label: 'Audit', Icon: ScrollText, ready: true },
+  { to: '/admin/admins', label: 'Admins', Icon: ShieldCheck, ready: true },
 ];
 
 function Spinner() {

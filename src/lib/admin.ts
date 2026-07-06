@@ -222,3 +222,42 @@ export function adjustCredits(
 ): Promise<AdminResult<{ orgId: string; balance: number }>> {
   return adminApi('adjust_credits', { orgId, delta, reason });
 }
+
+export interface AuditEntry {
+  id: number;
+  actor_user_id: string | null;
+  actorEmail: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  meta: Record<string, unknown> | null;
+  created_at: string;
+}
+
+/** Most recent 200 entries — the audit log is operational, not archival. */
+export function fetchAudit(): Promise<AdminResult<{ entries: AuditEntry[] }>> {
+  return adminApi('list_audit');
+}
+
+export interface AdminRow {
+  userId: string;
+  email: string | null;
+  displayName: string | null;
+  addedBy: string | null;
+  addedByEmail: string | null;
+  createdAt: string;
+}
+
+export function fetchAdmins(): Promise<AdminResult<{ admins: AdminRow[] }>> {
+  return adminApi('list_admins');
+}
+
+export function addAdmin(
+  email: string,
+): Promise<AdminResult<{ userId: string; email: string; invited: boolean }>> {
+  return adminApi('add_admin', { email });
+}
+
+export function removeAdmin(userId: string): Promise<AdminResult<{ userId: string }>> {
+  return adminApi('remove_admin', { userId });
+}

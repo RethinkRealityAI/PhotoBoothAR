@@ -50,6 +50,8 @@ import AdminCustomerDetail from './pages/admin/CustomerDetail';
 import AdminEvents from './pages/admin/Events';
 import AdminPayments from './pages/admin/Payments';
 import AdminUsers from './pages/admin/Users';
+import AdminAudit from './pages/admin/Audit';
+import AdminAdmins from './pages/admin/Admins';
 
 /** Set at build time for the legacy single-event deploys. */
 const LEGACY_EVENT = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim();
@@ -157,6 +159,8 @@ export default function App() {
                 <Route path="events" element={<AdminEvents />} />
                 <Route path="payments" element={<AdminPayments />} />
                 <Route path="users" element={<AdminUsers />} />
+                <Route path="audit" element={<AdminAudit />} />
+                <Route path="admins" element={<AdminAdmins />} />
               </Route>
 
               {/* Greeting cards: public viewer + token-gated contribute page */}

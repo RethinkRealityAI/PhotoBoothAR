@@ -9,18 +9,19 @@ CLAUDE.md `## Project` pointers. See also: `README.md` (architecture / routes / 
 ## Roadmap
 
 Ordered path to real paying customers:
-1. **Finish the platform admin suite (Phases 2–5)** — in progress on PR #10; plan in
-   `docs/ADMIN-SUITE.md`. The cockpit to run the business.
+1. ~~**Finish the platform admin suite (Phases 2–5)**~~ — done: all five phases built,
+   deployed, and pending merge/review (PR #11); detail in `docs/ADMIN-SUITE.md`. The
+   cockpit to run the business.
 2. **Provision Stripe (the money gate)** — `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET`
    + the webhook endpoint (`DEPLOYMENT-CHECKLIST.md` §3). Until then nobody can pay and
-   there is zero revenue data. Admin **Phase 3** adds an `orders` table +
-   `invoice.payment_succeeded` so revenue is recorded once keys are live.
+   there is zero revenue data. The `orders` table + `invoice.payment_succeeded` handler
+   (admin Phase 3) are already live, so revenue starts recording the moment keys are set.
 3. ~~**Kill the default-event redirect leak**~~ — done: bare runtime paths (`/booth`,
    `/wall`, …) now redirect to `/e/demo` (the neutral Demo Sandbox org's event), not a
    real customer's live gala. `VITE_DEFAULT_EVENT` still overrides if ever needed.
 4. **In-app password reset** — there is no self-serve "forgot password" screen
-   (`src/pages/auth/*`). Admin **Phase 4** adds admin-mediated reset (`generateLink`); a
-   guest self-serve reset is still a gap.
+   (`src/pages/auth/*`). Admin-mediated reset (`generateLink`, admin Phase 4) is live for
+   platform admins; a guest self-serve reset is still a gap.
 5. **Remaining go-live keys** — AI (Gemini/Meshy), Resend email, HeyGen film, custom
    domain (all optional / degrade gracefully; `DEPLOYMENT-CHECKLIST.md` §2,4,5,6).
 
