@@ -4,8 +4,8 @@ Everything needed to take the platform (PR #5) from "merged" to "live and
 charging". The platform is **safe-by-default**: every integration below degrades
 gracefully until its key is set, so you can enable them one at a time.
 
-Supabase project: `zrtftliozslrjomxbfrr`. All migrations 001–008 and all edge
-functions are **already applied/deployed** to it. Set secrets in
+Supabase project: `zrtftliozslrjomxbfrr`. All migrations 001–009 and all edge
+functions (incl. `admin-api`) are **already applied/deployed** to it. Set secrets in
 **Supabase → Project Settings → Edge Functions → Secrets** (or `supabase secrets set`).
 
 ---
@@ -40,6 +40,11 @@ today all three legacy Netlify sites build from `main`.
       Providers; the app already calls `signInWithGoogle`).
 - [ ] Sign up once as `dapo@rethinkreality.ai` and confirm → this claims the
       "Legacy Events" org so the 3 legacy events appear in your `/host` dashboard.
+- [ ] **Platform admin** — migration `009` seeds `dapo@rethinkreality.ai` into
+      `platform_admins` (and re-claims on confirm), so the cross-tenant super-admin
+      console at `/admin` unlocks with that same login (no separate password). In-UI
+      add/remove of other admins ships with the admin suite (PR #10, Phase 5); until
+      then grant one by inserting into `platform_admins`. See [ADMIN-SUITE.md](ADMIN-SUITE.md).
 
 ## 2. AI generation — Gemini (default), then Meshy / Higgsfield
 

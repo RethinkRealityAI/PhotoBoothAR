@@ -38,6 +38,7 @@ HyperFrames.
 | Marketing / auth | `/`, `/login`, `/signup` | platform landing + Supabase Auth |
 | Host dashboard | `/host`, `/host/new`, `/host/billing` | events, wizard, credits/plans |
 | Event studio | `/host/events/:id/*` | the 10 studio screens (branding, library, creator 2D/3D, moderation, challenges, settings, manager access…), gated by org membership |
+| **Platform admin** | `/admin/*` | RethinkReality super-admin across all tenants; gated by `platform_admins` (see [docs/ADMIN-SUITE.md](docs/ADMIN-SUITE.md)) |
 | Guest (per event) | `/e/:slug` → `/booth` `/wall` `/me` `/upload` `/experience/:id` | runtime-resolved tenant |
 | Greeting card | `/c/:publicId`, `/c/:publicId/contribute?t=` | public viewer + token-gated contribution |
 | Day-of staff | `/m/:slug` | PIN/link manager console (moderation + wall settings) |
@@ -57,14 +58,14 @@ Legacy single-event builds set `VITE_EVENT=<slug>` and render exactly as before.
 
 - **Multi-tenant data** — Supabase Postgres with real RLS. `orgs → events`
   tenancy; `event_id` (= `events.slug`) partitions the existing content tables.
-  Migrations are checked in under `supabase/migrations/` (001–008) and mirror
+  Migrations are checked in under `supabase/migrations/` (001–009) and mirror
   what's applied to the live project. The three legacy slugs keep working via
   **grandfather RLS policies**.
 - **Runtime tenancy** — `src/events/runtime.ts` + `EventContext.tsx` resolve an
   event by slug at runtime (replacing the old build-time `VITE_EVENT`). The
   single data-access chokepoint `src/lib/db.ts` takes an explicit `eventId`.
 - **Server layer** — Supabase Edge Functions under `supabase/functions/`:
-  `submit-post` · `create-event` · `manager-api` · `stripe-checkout`/`-portal`/
+  `submit-post` · `create-event` · `admin-api` (platform super-admin) · `manager-api` · `stripe-checkout`/`-portal`/
   `-webhook` · `ai-generate-image` · `ai-generate-3d` · `ai-job-status` ·
   `card-contribute`/`-view`/`-publish` · `card-render`/`-render-status`. All AI
   and payment keys live here, never in the client.
@@ -78,7 +79,9 @@ Legacy single-event builds set `VITE_EVENT=<slug>` and render exactly as before.
 
 The full productization strategy is in
 [`docs/superpowers/specs/2026-07-03-saas-platform-strategy.md`](docs/superpowers/specs/2026-07-03-saas-platform-strategy.md);
-per-phase audit trail is in [`docs/superpowers/audits/`](docs/superpowers/audits/).
+per-phase audit trail is in [`docs/superpowers/audits/`](docs/superpowers/audits/). The
+platform super-admin console (`/admin`) is in [`docs/ADMIN-SUITE.md`](docs/ADMIN-SUITE.md);
+agent onboarding + working memory is in [`CLAUDE.md`](CLAUDE.md).
 
 ## Deploying / going live
 
@@ -94,6 +97,6 @@ Resend/HeyGen setup — is in
 Tables: `orgs`, `org_members`, `profiles`, `events`, `experiences`, `posts`,
 `challenges`, `app_settings`, `event_catalog_links`, `event_plans`,
 `subscriptions`, `credit_balances`, `credit_ledger`, `ai_jobs`,
-`event_access_tokens`, `cards`, `card_contributions`, `card_renders`, +
-idempotency/quota helpers. Buckets: `posts`, `assets` (public), `cards`,
+`event_access_tokens`, `cards`, `card_contributions`, `card_renders`,
+`platform_admins`, `admin_audit`, + idempotency/quota helpers. Buckets: `posts`, `assets` (public), `cards`,
 `renders` (private). RLS verified by `supabase/tests/rls-probes.sql`.
