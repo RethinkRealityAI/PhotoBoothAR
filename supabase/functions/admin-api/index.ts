@@ -23,6 +23,14 @@
  *   list_orders      → { data: { orders: [...] } }
  *   revenue_summary  → { data: { totalsByCurrency, oneTimeByCurrency,
  *                                subscriptionByCurrency, orderCount } }
+ *   list_users       → { data: { users: [...] } }
+ *   reset_password   → { data: { link } } (args: { userId }) — generateLink,
+ *                       NEVER stored in admin_audit.meta (session-granting secret)
+ *   set_user_banned  → { data: { id, banned } } (args: { userId, banned }) — audited;
+ *                       ban only, never delete (delete orphans profiles/orgs)
+ *   adjust_credits   → { data: { orgId, balance } } (args: { orgId, delta, reason }) — audited
+ *   set_event_tier   → { data: { id, plan_tier } } (args: { eventId, tier }) — audited;
+ *                       admin comp, does not insert an event_plans purchase row
  *
  * 400 { error:'invalid_json'|'invalid_args'|'unknown_action' } · 401 unauthorized ·
  * 403 forbidden · 404 not_found · 500 internal
@@ -325,6 +333,125 @@ async function revenueSummary(sb: Client): Promise<Response> {
   });
 }
 
+function isBanned(user: { banned_until?: string | null }): boolean {
+  if (!user.banned_until) return false;
+  const t = Date.parse(user.banned_until);
+  return Number.isFinite(t) && t > Date.now();
+}
+
+async function listUsers(sb: Client): Promise<Response> {
+  const { data, error } = await sb.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (error) throw error;
+  const users = data.users;
+  const userIds = users.map((u) => u.id);
+
+  const [{ data: profiles, error: profErr }, { data: memberships, error: memErr }, { data: admins, error: admErr }] =
+    userIds.length
+      ? await Promise.all([
+        sb.from('profiles').select('id, display_name').in('id', userIds),
+        sb.from('org_members').select('user_id, org_id, role').in('user_id', userIds),
+        sb.from('platform_admins').select('user_id').in('user_id', userIds),
+      ])
+      : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }];
+  if (profErr) throw profErr;
+  if (memErr) throw memErr;
+  if (admErr) throw admErr;
+
+  const nameById = new Map((profiles ?? []).map((p) => [p.id as string, p.display_name as string | null]));
+  const membershipByUser = new Map((memberships ?? []).map((m) => [m.user_id as string, m]));
+  const adminSet = new Set((admins ?? []).map((a) => a.user_id as string));
+
+  const orgIds = [...new Set((memberships ?? []).map((m) => m.org_id as string))];
+  const { data: orgs, error: orgErr } = orgIds.length
+    ? await sb.from('orgs').select('id, name').in('id', orgIds)
+    : { data: [], error: null };
+  if (orgErr) throw orgErr;
+  const orgNameById = new Map((orgs ?? []).map((o) => [o.id as string, o.name as string]));
+
+  const rows = users.map((u) => {
+    const membership = membershipByUser.get(u.id) as { org_id: string; role: string } | undefined;
+    return {
+      id: u.id,
+      email: u.email ?? null,
+      displayName: nameById.get(u.id) ?? null,
+      createdAt: u.created_at,
+      lastSignInAt: u.last_sign_in_at ?? null,
+      banned: isBanned(u),
+      orgId: membership?.org_id ?? null,
+      orgName: membership ? orgNameById.get(membership.org_id) ?? null : null,
+      role: membership?.role ?? null,
+      isPlatformAdmin: adminSet.has(u.id),
+    };
+  });
+  return json(200, { data: { users: rows } });
+}
+
+/** Recovery link is a session-granting secret — returned once, NEVER logged
+ *  to admin_audit.meta (only that a reset happened, and for whom). */
+async function resetPassword(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const userId = typeof args.userId === 'string' ? args.userId : '';
+  if (!userId) return json(400, { error: 'invalid_args' });
+
+  const { data: userRes, error: userErr } = await sb.auth.admin.getUserById(userId);
+  if (userErr) throw userErr;
+  const email = userRes?.user?.email;
+  if (!email) return json(404, { error: 'not_found' });
+
+  const { data, error } = await sb.auth.admin.generateLink({ type: 'recovery', email });
+  if (error) throw error;
+
+  await auditLog(sb, actorUserId, 'reset_password', 'user', userId);
+  return json(200, { data: { link: data.properties?.action_link ?? null } });
+}
+
+/** Ban only — never delete (delete cascades profiles/org_members and orphans
+ *  the org via orgs.owner_id). '876000h' (100y) approximates "indefinite". */
+async function setUserBanned(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const userId = typeof args.userId === 'string' ? args.userId : '';
+  const banned = typeof args.banned === 'boolean' ? args.banned : null;
+  if (!userId || banned === null) return json(400, { error: 'invalid_args' });
+
+  const { error } = await sb.auth.admin.updateUserById(userId, { ban_duration: banned ? '876000h' : 'none' });
+  if (error) throw error;
+
+  await auditLog(sb, actorUserId, banned ? 'ban_user' : 'unban_user', 'user', userId, { banned });
+  return json(200, { data: { id: userId, banned } });
+}
+
+async function adjustCredits(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const orgId = typeof args.orgId === 'string' ? args.orgId : '';
+  const delta = typeof args.delta === 'number' && Number.isFinite(args.delta) ? Math.trunc(args.delta) : null;
+  const reason = typeof args.reason === 'string' ? args.reason.trim() : '';
+  if (!orgId || !delta || !reason) return json(400, { error: 'invalid_args' });
+
+  const { data, error } = await sb.rpc('admin_adjust_credits', {
+    p_org: orgId,
+    p_delta: delta,
+    p_reason: reason,
+    p_ref: null,
+  });
+  if (error) throw error;
+
+  await auditLog(sb, actorUserId, 'adjust_credits', 'org', orgId, { delta, reason, newBalance: data });
+  return json(200, { data: { orgId, balance: data } });
+}
+
+const EVENT_TIERS = new Set(['free', 'essentials', 'premium', 'deluxe']);
+
+async function setEventTier(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const eventId = typeof args.eventId === 'string' ? args.eventId : '';
+  const tier = typeof args.tier === 'string' ? args.tier : '';
+  if (!eventId || !EVENT_TIERS.has(tier)) return json(400, { error: 'invalid_args' });
+
+  const { data, error } = await sb.from('events').update({ plan_tier: tier }).eq('id', eventId)
+    .select('id, plan_tier').maybeSingle();
+  if (error) throw error;
+  if (!data) return json(404, { error: 'not_found' });
+
+  await auditLog(sb, actorUserId, 'set_event_tier', 'event', eventId, { tier, comped: true });
+  return json(200, { data });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -385,6 +512,16 @@ Deno.serve(async (req: Request) => {
         return await listOrders(sb);
       case 'revenue_summary':
         return await revenueSummary(sb);
+      case 'list_users':
+        return await listUsers(sb);
+      case 'reset_password':
+        return await resetPassword(sb, user.id, args);
+      case 'set_user_banned':
+        return await setUserBanned(sb, user.id, args);
+      case 'adjust_credits':
+        return await adjustCredits(sb, user.id, args);
+      case 'set_event_tier':
+        return await setEventTier(sb, user.id, args);
       default:
         return json(400, { error: 'unknown_action' });
     }

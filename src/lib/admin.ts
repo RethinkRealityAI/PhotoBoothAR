@@ -162,6 +162,10 @@ export function setEventStatus(eventId: string, status: string): Promise<AdminRe
   return adminApi('set_event_status', { eventId, status });
 }
 
+export function setEventTier(eventId: string, tier: string): Promise<AdminResult<{ id: string; plan_tier: string }>> {
+  return adminApi('set_event_tier', { eventId, tier });
+}
+
 export interface OrderRow {
   id: number;
   org_id: string;
@@ -182,4 +186,39 @@ export function fetchOrders(): Promise<AdminResult<{ orders: OrderRow[] }>> {
 
 export function fetchRevenueSummary(): Promise<AdminResult<RevenueSummary>> {
   return adminApi('revenue_summary');
+}
+
+export interface UserRow {
+  id: string;
+  email: string | null;
+  displayName: string | null;
+  createdAt: string;
+  lastSignInAt: string | null;
+  banned: boolean;
+  orgId: string | null;
+  orgName: string | null;
+  role: string | null;
+  isPlatformAdmin: boolean;
+}
+
+export function fetchUsers(): Promise<AdminResult<{ users: UserRow[] }>> {
+  return adminApi('list_users');
+}
+
+/** Returns the recovery link once — a session-granting secret. Never log,
+ *  store, or pass it anywhere except directly into the admin's clipboard/UI. */
+export function resetPassword(userId: string): Promise<AdminResult<{ link: string | null }>> {
+  return adminApi('reset_password', { userId });
+}
+
+export function setUserBanned(userId: string, banned: boolean): Promise<AdminResult<{ id: string; banned: boolean }>> {
+  return adminApi('set_user_banned', { userId, banned });
+}
+
+export function adjustCredits(
+  orgId: string,
+  delta: number,
+  reason: string,
+): Promise<AdminResult<{ orgId: string; balance: number }>> {
+  return adminApi('adjust_credits', { orgId, delta, reason });
 }

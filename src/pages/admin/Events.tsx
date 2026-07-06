@@ -5,28 +5,33 @@
  * /admin/events — every event across every org, cross-tenant. Status changes
  * go through admin-api's `set_event_status` (audited) behind a confirm modal —
  * this bypasses the owning org's own host studio, so it should read as
- * deliberate, not a stray click.
+ * deliberate, not a stray click. "Comp plan" (`set_event_tier`) is the same
+ * pattern for admin-granted tiers outside of Stripe (support comps, trials).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
-import { fetchEvents, setEventStatus, type AdminEventRow } from '../../lib/admin';
+import { fetchEvents, setEventStatus, setEventTier, type AdminEventRow } from '../../lib/admin';
 import { formatDate } from '../../lib/adminFormat';
 import { searchRows, sortRows, paginateRows } from '../../lib/adminFilters';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import Pagination from '../../components/ui/Pagination';
 import Modal from '../../components/ui/Modal';
 import StatusPill from '../../components/ui/StatusPill';
+import { useToast } from '../../components/ui/Toast';
 
 const PAGE_SIZE = 10;
 const STATUSES = ['draft', 'live', 'ended', 'archived'] as const;
+const TIERS = ['free', 'essentials', 'premium', 'deluxe'] as const;
 
 export default function Events() {
+  const { push } = useToast();
   const [events, setEvents] = useState<AdminEventRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [target, setTarget] = useState<AdminEventRow | null>(null);
+  const [tierTarget, setTierTarget] = useState<AdminEventRow | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -49,11 +54,22 @@ export default function Events() {
     if (!target) return;
     setBusy(true);
     const { error } = await setEventStatus(target.id, status);
-    if (!error) {
-      setEvents((list) => list.map((e) => (e.id === target.id ? { ...e, status } : e)));
-      setTarget(null);
-    }
     setBusy(false);
+    if (error) { push('Could not change status.', 'error'); return; }
+    setEvents((list) => list.map((e) => (e.id === target.id ? { ...e, status } : e)));
+    push(`${target.name} is now ${status}.`, 'success');
+    setTarget(null);
+  };
+
+  const applyTier = async (tier: string) => {
+    if (!tierTarget) return;
+    setBusy(true);
+    const { error } = await setEventTier(tierTarget.id, tier);
+    setBusy(false);
+    if (error) { push('Could not comp this plan.', 'error'); return; }
+    setEvents((list) => list.map((e) => (e.id === tierTarget.id ? { ...e, plan_tier: tier } : e)));
+    push(`${tierTarget.name} comped to ${tier}.`, 'success');
+    setTierTarget(null);
   };
 
   const columns: Column<AdminEventRow>[] = [
@@ -80,12 +96,20 @@ export default function Events() {
       key: 'actions',
       label: '',
       render: (e) => (
-        <button
-          onClick={(ev) => { ev.stopPropagation(); setTarget(e); }}
-          className="rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg/80 transition-colors"
-        >
-          Change status
-        </button>
+        <div className="flex items-center gap-2 justify-end">
+          <button
+            onClick={(ev) => { ev.stopPropagation(); setTierTarget(e); }}
+            className="rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg/80 transition-colors"
+          >
+            Comp plan
+          </button>
+          <button
+            onClick={(ev) => { ev.stopPropagation(); setTarget(e); }}
+            className="rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg/80 transition-colors"
+          >
+            Change status
+          </button>
+        </div>
       ),
     },
   ];
@@ -137,6 +161,27 @@ export default function Events() {
                 className="rounded-xl bg-white/[0.06] hover:bg-white/[0.1] px-4 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors disabled:opacity-40 capitalize text-left"
               >
                 Set to {s}
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
+
+      {tierTarget && (
+        <Modal title={`Comp plan — ${tierTarget.name}`} onClose={() => setTierTarget(null)} maxWidthClass="max-w-sm">
+          <p className="font-sans text-xs text-brand-muted/60 mb-5">
+            Currently <span className="capitalize">{tierTarget.plan_tier}</span>. This grants the tier directly —
+            it does not charge Stripe or create a purchase record.
+          </p>
+          <div className="flex flex-col gap-2">
+            {TIERS.filter((t) => t !== tierTarget.plan_tier).map((t) => (
+              <button
+                key={t}
+                onClick={() => applyTier(t)}
+                disabled={busy}
+                className="rounded-xl bg-white/[0.06] hover:bg-white/[0.1] px-4 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors disabled:opacity-40 capitalize text-left"
+              >
+                Comp to {t}
               </button>
             ))}
           </div>

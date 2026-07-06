@@ -5,8 +5,8 @@ the whole business**: every customer/org, all events cross-tenant, payments, and
 support actions. It is **distinct from the per-event host studio** (`/host/**`,
 `src/components/admin/*`) which is a customer managing their *own* event.
 
-Built in phases, each independently shippable. **Phases 1–3 are done and
-deployed; Phases 4–5 remain.**
+Built in phases, each independently shippable. **Phases 1–4 are done and
+deployed; Phase 5 remains.**
 
 ---
 
@@ -109,19 +109,38 @@ unprovisioned, so this is the real state today, not a placeholder). New pure
 kept in sync the same way `ENTITLEMENTS` already is) with `revenue.test.ts`.
 `AdminLayout` nav `ready:true` for Payments; route added in `src/App.tsx`.
 
+---
+
+## Phase 4 — DONE & DEPLOYED ✅
+
+**Edge function `admin-api`** (redeployed, version 4): `list_users`
+(`auth.admin.listUsers`, joined with `profiles.display_name`, `org_members`
+role/org, `platform_admins` flag), `reset_password` (`generateLink` recovery —
+the link is returned once and is **never** written to `admin_audit.meta`, only
+that a reset happened and for whom), `set_user_banned` (`updateUserById
+ban_duration` — **ban, never delete**, since delete cascades
+`profiles`/`org_members` and orphans the org), `adjust_credits`
+(`admin_adjust_credits` rpc, audited with the delta/reason/new balance),
+`set_event_tier` (an admin comp — updates `events.plan_tier` directly, does
+**not** insert an `event_plans` purchase row since no Stripe charge occurred).
+All five audited.
+
+**Frontend:** `Users` screen (`/admin/users`) — reset password (link shown
+once in a modal, copy-to-clipboard), ban/unban (ban behind a confirm modal),
+adjust credits (modal, only offered for users with an org). New primitive
+`Toast` (`ToastProvider`/`useToast()`, mounted around `AdminLayout`'s
+`Outlet`) gives every mutation user-facing success/error feedback — also
+adopted by the Phase 2 `Events` screen's existing status-change flow. `Events`
+also gained a "Comp plan" action (`set_event_tier`'s UI home — it's event
+data, so it lives there rather than on the Users screen). `AdminLayout` nav
+`ready:true` for Users; route added in `src/App.tsx`.
+
 ## Remaining phases (execute in order)
 
 For each: add the `admin-api` action(s) (assert-before-switch; `admin_audit` every
 mutation), build the screen(s), keep logic in pure `.ts` + colocated tests, flip
 the `AdminLayout` nav `ready:true` and add the `<Route>` in `src/App.tsx`, then run
 `npm run lint && npm test && npm run build` before pushing.
-
-### Phase 4 — User management (`admin_adjust_credits` + email fns already exist)
-- **admin-api:** `list_users` (`admin.auth.admin.listUsers`), `reset_password`
-  (`generateLink` recovery — return link, never audit it), `set_user_banned`
-  (`updateUserById ban_duration` — **ban, not delete**), `adjust_credits`
-  (`admin_adjust_credits` rpc), `set_event_tier` (comp a plan). Audit each.
-- **Screen:** `Users`. **Primitive:** `Toast` (`ToastProvider`+`useToast()`).
 
 ### Phase 5 — Audit log + admin roster
 - **admin-api:** `list_audit`, `list_admins`, `add_admin(email)` (resolve→user_id,
@@ -138,7 +157,7 @@ the `AdminLayout` nav `ready:true` and add the `<Route>` in `src/App.tsx`, then 
 |---|---|
 | `cn()`, `StatusPill` + `statusPill.ts`, `adminFormat.ts` | ✅ built (Phase 1) |
 | `Modal`, `DataTable`, `Pagination` | ✅ built (Phase 2) |
-| `Toast` (`ToastProvider`/`useToast`) | ⏳ Phase 4 |
+| `Toast` (`ToastProvider`/`useToast`) | ✅ built (Phase 4) |
 
 DB helpers already in `009` that later phases just call: `admin_user_emails`
 (P2/P4), `admin_adjust_credits` (P4), `admin_audit` (P2+).
