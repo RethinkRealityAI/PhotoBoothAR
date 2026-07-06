@@ -20,6 +20,9 @@
  *                                creditBalance, ledger } } (args: { orgId })
  *   list_events      → { data: { events: [...] } }
  *   set_event_status → { data: { id, status } } (args: { eventId, status }) — audited
+ *   list_orders      → { data: { orders: [...] } }
+ *   revenue_summary  → { data: { totalsByCurrency, oneTimeByCurrency,
+ *                                subscriptionByCurrency, orderCount } }
  *
  * 400 { error:'invalid_json'|'invalid_args'|'unknown_action' } · 401 unauthorized ·
  * 403 forbidden · 404 not_found · 500 internal
@@ -81,6 +84,16 @@ async function overviewMetrics(sb: Client): Promise<Response> {
     0,
   );
 
+  // usd-only sum — every checkout session today is created in usd (see
+  // stripe-checkout); a true multi-currency total lives in revenue_summary.
+  const { data: usdOrders, error: ordErr } = await sb
+    .from('orders')
+    .select('amount_total')
+    .eq('status', 'paid')
+    .eq('currency', 'usd');
+  if (ordErr) throw ordErr;
+  const revenueCents = (usdOrders ?? []).reduce((sum: number, o: { amount_total: number }) => sum + o.amount_total, 0);
+
   return json(200, {
     data: {
       orgs,
@@ -89,7 +102,7 @@ async function overviewMetrics(sb: Client): Promise<Response> {
       activeSubscriptions,
       outstandingCredits,
       engagement: { posts, cards },
-      revenueCents: null, // populated in Phase 3 (orders table)
+      revenueCents,
     },
   });
 }
@@ -265,6 +278,53 @@ async function setEventStatus(sb: Client, actorUserId: string, args: Record<stri
   return json(200, { data });
 }
 
+async function listOrders(sb: Client): Promise<Response> {
+  const { data: orders, error } = await sb
+    .from('orders')
+    .select('id, org_id, event_id, kind, tier, amount_total, currency, status, stripe_ref, created_at')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+
+  const orgIds = [...new Set((orders ?? []).map((o) => o.org_id as string))];
+  const { data: orgs, error: orgErr } = orgIds.length
+    ? await sb.from('orgs').select('id, name').in('id', orgIds)
+    : { data: [], error: null };
+  if (orgErr) throw orgErr;
+  const orgNameById = new Map((orgs ?? []).map((o) => [o.id as string, o.name as string]));
+
+  const rows = (orders ?? []).map((o) => ({ ...o, orgName: orgNameById.get(o.org_id as string) ?? '—' }));
+  return json(200, { data: { orders: rows } });
+}
+
+/** Server-side aggregate so the client never needs a PRICES copy — amounts
+ *  are already the exact cents Stripe reported (see stripe-webhook). Mirrors
+ *  src/lib/revenue.ts's summarizeOrders (tested there in isolation). */
+async function revenueSummary(sb: Client): Promise<Response> {
+  const { data: orders, error } = await sb
+    .from('orders')
+    .select('kind, amount_total, currency, status')
+    .neq('status', 'refunded');
+  if (error) throw error;
+
+  const totalsByCurrency: Record<string, number> = {};
+  const oneTimeByCurrency: Record<string, number> = {};
+  const subscriptionByCurrency: Record<string, number> = {};
+  for (const o of orders ?? []) {
+    const currency = ((o.currency as string) || 'usd').toLowerCase();
+    const amount = o.amount_total as number;
+    totalsByCurrency[currency] = (totalsByCurrency[currency] ?? 0) + amount;
+    if (o.kind === 'pro_subscription') {
+      subscriptionByCurrency[currency] = (subscriptionByCurrency[currency] ?? 0) + amount;
+    } else {
+      oneTimeByCurrency[currency] = (oneTimeByCurrency[currency] ?? 0) + amount;
+    }
+  }
+
+  return json(200, {
+    data: { totalsByCurrency, oneTimeByCurrency, subscriptionByCurrency, orderCount: (orders ?? []).length },
+  });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -321,6 +381,10 @@ Deno.serve(async (req: Request) => {
         return await listEvents(sb);
       case 'set_event_status':
         return await setEventStatus(sb, user.id, args);
+      case 'list_orders':
+        return await listOrders(sb);
+      case 'revenue_summary':
+        return await revenueSummary(sb);
       default:
         return json(400, { error: 'unknown_action' });
     }

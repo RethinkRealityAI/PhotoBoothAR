@@ -5,8 +5,8 @@ the whole business**: every customer/org, all events cross-tenant, payments, and
 support actions. It is **distinct from the per-event host studio** (`/host/**`,
 `src/components/admin/*`) which is a customer managing their *own* event.
 
-Built in phases, each independently shippable. **Phases 1–2 are done and
-deployed; Phases 3–5 remain.**
+Built in phases, each independently shippable. **Phases 1–3 are done and
+deployed; Phases 4–5 remain.**
 
 ---
 
@@ -80,27 +80,41 @@ actions return full result sets) with `adminFilters.test.ts`. `AdminLayout` nav
 `src/pages/host/{EventsList.tsx, EventStudio.tsx, CardsTab.tsx}` — now import
 the shared `StatusPill` component instead.
 
+---
+
+## Phase 3 — DONE & DEPLOYED ✅
+
+**DB (migration `010_orders.sql`, applied to `zrtftliozslrjomxbfrr`):** `orders`
+(one row per fulfilled charge — `event_package`/`credit_pack`/`pro_subscription`,
+integer cents, `paid`/`refunded` status), service-role only (no client policies).
+
+**`supabase/functions/stripe-webhook/index.ts`** (redeployed, version 2,
+`verify_jwt` still off): every `checkout.session.completed` branch now also
+inserts an `orders` row (amounts straight from `session.amount_total`/
+`currency` — never recomputed from `PRICES`); a new `invoice.payment_succeeded`
+handler records Pro renewals, gated on `billing_reason='subscription_cycle'` so
+the first period isn't double-counted against the checkout-session row.
+
+**Edge function `admin-api`** (redeployed, version 3): `list_orders`
+(cross-tenant, joined with org name), `revenue_summary` (SQL-side aggregate —
+totals by currency, one-time vs subscription split, excludes `refunded`).
+`overview_metrics`'s `revenueCents` is now a real usd-only sum instead of
+always-null.
+
+**Frontend:** `Payments` screen (`/admin/payments`) — stat tiles from
+`revenue_summary`, a searchable/paginated order table from `list_orders`, and
+an honest "no live payments yet" empty state (Stripe keys are still
+unprovisioned, so this is the real state today, not a placeholder). New pure
+`src/lib/revenue.ts` (`summarizeOrders` — mirrors the Deno `revenueSummary`,
+kept in sync the same way `ENTITLEMENTS` already is) with `revenue.test.ts`.
+`AdminLayout` nav `ready:true` for Payments; route added in `src/App.tsx`.
+
 ## Remaining phases (execute in order)
 
 For each: add the `admin-api` action(s) (assert-before-switch; `admin_audit` every
 mutation), build the screen(s), keep logic in pure `.ts` + colocated tests, flip
 the `AdminLayout` nav `ready:true` and add the `<Route>` in `src/App.tsx`, then run
 `npm run lint && npm test && npm run build` before pushing.
-
-### Phase 3 — Payments + revenue (needs the orders data path)
-- **Migration `010_orders.sql`:** `orders(id, org_id, event_id, kind, tier,
-  amount_total int /*cents*/, currency, status, stripe_ref, created_at)`, RLS on /
-  service-role only.
-- **Extend `supabase/functions/stripe-webhook/index.ts`:** insert an `orders` row
-  in `handleCheckoutCompleted` (from `session.amount_total`/`currency`/
-  `payment_intent`/`subscription` + existing `meta`), **and add an
-  `invoice.payment_succeeded` handler** (Pro renewals are invisible today).
-- **admin-api:** `list_orders`, `revenue_summary` (compute amounts **server-side**
-  so the client needs no `PRICES` copy).
-- **Screen:** `Payments` with an honest "no live payments yet" empty state (Stripe
-  keys are unprovisioned, so there's nothing until they're set).
-- **Tests:** `revenue.ts` (`summarizeOrders`) — empty→zeros, `refunded` excluded,
-  multi-currency separated, one-time vs subscription split.
 
 ### Phase 4 — User management (`admin_adjust_credits` + email fns already exist)
 - **admin-api:** `list_users` (`admin.auth.admin.listUsers`), `reset_password`

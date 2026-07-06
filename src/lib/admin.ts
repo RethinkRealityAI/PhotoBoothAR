@@ -11,6 +11,7 @@
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import type { RevenueSummary } from './revenue';
 
 /** Is the current session a platform admin? UX gate only. */
 export async function checkIsPlatformAdmin(): Promise<boolean> {
@@ -71,7 +72,7 @@ export interface OverviewMetrics {
   activeSubscriptions: number;
   outstandingCredits: number;
   engagement: { posts: number; cards: number };
-  /** Populated in Phase 3 (orders table); null until then. */
+  /** usd-only sum of paid orders; null only if the orders table itself errors. */
   revenueCents: number | null;
 }
 
@@ -159,4 +160,26 @@ export function fetchEvents(): Promise<AdminResult<{ events: AdminEventRow[] }>>
 
 export function setEventStatus(eventId: string, status: string): Promise<AdminResult<{ id: string; status: string }>> {
   return adminApi('set_event_status', { eventId, status });
+}
+
+export interface OrderRow {
+  id: number;
+  org_id: string;
+  event_id: string | null;
+  kind: 'event_package' | 'credit_pack' | 'pro_subscription';
+  tier: string | null;
+  amount_total: number;
+  currency: string;
+  status: string;
+  stripe_ref: string | null;
+  created_at: string;
+  orgName: string;
+}
+
+export function fetchOrders(): Promise<AdminResult<{ orders: OrderRow[] }>> {
+  return adminApi('list_orders');
+}
+
+export function fetchRevenueSummary(): Promise<AdminResult<RevenueSummary>> {
+  return adminApi('revenue_summary');
 }

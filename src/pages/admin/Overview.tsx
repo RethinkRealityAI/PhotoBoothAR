@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * /admin — platform overview. Cross-tenant counts (orgs, users, events by
- * status, active Pro subs, outstanding credits, engagement) from the admin-api
- * `overview_metrics` action. Revenue is intentionally "—" until Phase 3 wires
- * the orders table + Stripe.
+ * status, active Pro subs, outstanding credits, engagement, revenue) from the
+ * admin-api `overview_metrics` action. Revenue reads the `orders` table
+ * (Phase 3) — it's genuinely $0 until Stripe keys are provisioned, not a
+ * placeholder; see the Payments screen for the full breakdown.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
