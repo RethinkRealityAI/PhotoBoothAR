@@ -43,6 +43,8 @@ import EventStudio from './pages/host/EventStudio';
 import ManagerConsole from './pages/manager/ManagerConsole';
 import CardViewer from './pages/cards/CardViewer';
 import CardContribute from './pages/cards/CardContribute';
+import AdminLayout from './pages/admin/AdminLayout';
+import AdminOverview from './pages/admin/Overview';
 
 /** Set at build time for the legacy single-event deploys. */
 const LEGACY_EVENT = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim();
@@ -141,6 +143,11 @@ export default function App() {
               </Route>
               <Route path="/host/events/:id/*" element={<EventStudio />} />
 
+              {/* Platform super-admin — session + platform_admins gated, NOT event-scoped */}
+              <Route path="/admin" element={<AdminLayout />}>
+                <Route index element={<AdminOverview />} />
+              </Route>
+
               {/* Greeting cards: public viewer + token-gated contribute page */}
               <Route path="/c/:publicId" element={<CardViewer />} />
               <Route path="/c/:publicId/contribute" element={<CardContribute />} />
@@ -156,7 +163,6 @@ export default function App() {
               <Route path="/me" element={<RedirectToDefaultEvent />} />
               <Route path="/gallery" element={<RedirectToDefaultEvent />} />
               <Route path="/join" element={<RedirectToDefaultEvent />} />
-              <Route path="/admin/*" element={<RedirectToDefaultEvent />} />
 
               <Route path="*" element={<Navigate to="/" replace />} />
             </>
