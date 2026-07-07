@@ -141,7 +141,7 @@ function ContributionsManager({ cardId }: { cardId: string }) {
               ) : row.media_type === 'video' && url ? (
                 <video src={url} muted playsInline preload="metadata" className="w-full h-full object-cover" />
               ) : (
-                <span className="font-serif italic text-lg text-gold-300/70">
+                <span className="font-serif italic text-lg text-accent-2/70">
                   {row.media_type === 'text' ? '“ ”' : '…'}
                 </span>
               )}
@@ -280,11 +280,11 @@ function KeepsakeFilmSection({ card, onUpgrade }: { card: CardRow; onUpgrade: ()
   const done = status === 'done';
 
   return (
-    <div className="rounded-xl border border-gold-400/20 bg-gradient-to-b from-gold-400/[0.06] to-transparent p-4">
+    <div className="rounded-xl border border-accent/20 bg-gradient-to-b from-accent/[0.06] to-transparent p-4">
       <div className="flex items-center gap-2">
-        <Film className="w-4 h-4 text-gold-300" />
+        <Film className="w-4 h-4 text-accent-2" />
         <h4 className="font-serif text-sm text-foil-static">Keepsake film</h4>
-        <span className="ml-auto font-label uppercase tracking-luxe text-[9px] text-gold-300/70">Deluxe · 30 credits</span>
+        <span className="ml-auto font-label uppercase tracking-luxe text-[9px] text-accent-2/70">Deluxe · 30 credits</span>
       </div>
       <p className="mt-1.5 font-sans text-[11px] text-brand-muted/60 leading-relaxed">
         Render every message, photo and video into one cinematic MP4 film — a title card, a scene for
@@ -299,7 +299,7 @@ function KeepsakeFilmSection({ card, onUpgrade }: { card: CardRow; onUpgrade: ()
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {inFlight ? (
-          <span className="flex items-center gap-2 rounded-full bg-white/[0.06] px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-gold-200">
+          <span className="flex items-center gap-2 rounded-full bg-white/[0.06] px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-accent-2">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             {status === 'queued' ? 'Queued…' : 'Rendering your film…'}
           </span>
@@ -309,7 +309,7 @@ function KeepsakeFilmSection({ card, onUpgrade }: { card: CardRow; onUpgrade: ()
             target="_blank"
             rel="noreferrer"
             download={`keepsake-${card.public_id}.mp4`}
-            className="flex items-center gap-2 rounded-full bg-foil px-5 py-2 font-label uppercase tracking-luxe text-[9px] font-bold text-noir-900 glow-accent transition active:scale-[0.98]"
+            className="flex items-center gap-2 rounded-full bg-foil px-5 py-2 font-label uppercase tracking-luxe text-[9px] font-bold text-white glow-accent transition active:scale-[0.98]"
           >
             <Download className="w-3.5 h-3.5" /> Download film
           </a>
@@ -321,7 +321,7 @@ function KeepsakeFilmSection({ card, onUpgrade }: { card: CardRow; onUpgrade: ()
           <button
             onClick={start}
             disabled={busy}
-            className="flex items-center gap-2 rounded-full bg-foil px-5 py-2 font-label uppercase tracking-luxe text-[9px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40"
+            className="flex items-center gap-2 rounded-full bg-foil px-5 py-2 font-label uppercase tracking-luxe text-[9px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40"
           >
             {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Film className="w-3.5 h-3.5" />}
             {status === 'failed' ? 'Retry render' : 'Render film'}
@@ -383,7 +383,7 @@ function CreateCardForm({ eventSlug, onCreated, onClose }: {
   };
 
   return (
-    <div className="rounded-2xl border border-gold-400/25 bg-white/[0.03] p-5 animate-rise-in">
+    <div className="rounded-2xl border border-accent/25 bg-white/[0.03] p-5 animate-rise-in">
       <div className="flex items-start justify-between gap-3 mb-4">
         <h3 className="font-serif text-lg text-foil-static">New greeting card</h3>
         <button onClick={onClose} className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 transition" aria-label="Close">
@@ -419,7 +419,7 @@ function CreateCardForm({ eventSlug, onCreated, onClose }: {
       <button
         onClick={submit}
         disabled={!title.trim() || busy}
-        className="mt-4 rounded-full bg-foil px-6 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center gap-2"
+        className="mt-4 rounded-full bg-foil px-6 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center gap-2"
       >
         {busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</> : 'Create card'}
       </button>
@@ -547,7 +547,7 @@ export default function CardsTab() {
     return (
       <div className="absolute inset-0 overflow-y-auto app-bg">
         <div className="max-w-lg mx-auto p-10 text-center">
-          <Gift className="w-8 h-8 mx-auto text-gold-400/70" />
+          <Gift className="w-8 h-8 mx-auto text-accent/70" />
           <h2 className="mt-4 font-serif text-2xl text-foil-static">Greeting cards</h2>
           <p className="mt-2 font-sans text-sm text-brand-muted/60 leading-relaxed">
             Cards are available for platform events. This coded legacy event manages its content from
@@ -572,7 +572,7 @@ export default function CardsTab() {
           {!creating && (
             <button
               onClick={() => setCreating(true)}
-              className="flex items-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-noir-900 glow-accent transition active:scale-[0.98]"
+              className="flex items-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
             >
               <Plus className="w-3.5 h-3.5" /> New card
             </button>
@@ -607,7 +607,7 @@ export default function CardsTab() {
           </div>
         ) : cards.length === 0 && !creating ? (
           <div className="rounded-2xl border border-dashed border-white/15 py-14 text-center">
-            <Gift className="w-7 h-7 mx-auto text-gold-400/60" />
+            <Gift className="w-7 h-7 mx-auto text-accent/60" />
             <p className="mt-3 font-sans text-sm text-brand-muted/60">
               No cards yet — create one and share the contribute link with friends and family.
             </p>
@@ -664,7 +664,7 @@ export default function CardsTab() {
                         <button
                           onClick={() => doPublish(card)}
                           disabled={busy}
-                          className="flex items-center gap-1.5 rounded-full bg-foil px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40"
+                          className="flex items-center gap-1.5 rounded-full bg-foil px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40"
                         >
                           {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Publish
                         </button>
@@ -689,7 +689,7 @@ export default function CardsTab() {
                           title="Send /e/ guests straight to this card"
                           className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 font-label uppercase tracking-luxe text-[9px] transition disabled:opacity-40 ${
                             isLanding
-                              ? 'bg-gold-400/15 text-gold-300 ring-1 ring-gold-400/30'
+                              ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30'
                               : 'bg-white/[0.06] hover:bg-white/[0.12] text-brand-fg'
                           }`}
                         >

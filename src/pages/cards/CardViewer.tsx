@@ -27,7 +27,7 @@ function CenterScreen({ eyebrow, title, body }: { eyebrow: string; title: string
   return (
     <div className="absolute inset-0 flex items-center justify-center app-bg p-6">
       <div className="flex flex-col items-center gap-4 text-center animate-rise-in max-w-sm">
-        <div className="w-12 h-12 rounded-full border border-gold-400/30 animate-pulse-glow" />
+        <div className="w-12 h-12 rounded-full border border-accent/30 animate-pulse-glow" />
         <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">{eyebrow}</p>
         <h1 className="font-serif italic text-3xl text-foil-static">{title}</h1>
         {body && <p className="font-sans text-sm text-brand-muted/60 leading-relaxed">{body}</p>}
@@ -101,7 +101,7 @@ export default function CardViewer() {
       {/* soft ambient glow — neutral, no event theme */}
       <div
         className="pointer-events-none absolute inset-0"
-        style={{ background: 'radial-gradient(90% 60% at 50% 0%, rgba(212,175,55,0.07) 0%, transparent 60%)' }}
+        style={{ background: 'radial-gradient(90% 60% at 50% 0%, rgba(var(--accent-rgb),0.07) 0%, transparent 60%)' }}
         aria-hidden
       />
       <main className="relative flex-1 min-h-0 w-full max-w-2xl mx-auto px-4 pt-4 pb-2 flex flex-col">

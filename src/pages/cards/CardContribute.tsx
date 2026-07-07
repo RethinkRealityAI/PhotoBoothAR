@@ -69,7 +69,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <div className="absolute inset-0 app-bg overflow-y-auto">
       <div
         className="pointer-events-none fixed inset-0"
-        style={{ background: 'radial-gradient(90% 60% at 50% 0%, rgba(212,175,55,0.07) 0%, transparent 60%)' }}
+        style={{ background: 'radial-gradient(90% 60% at 50% 0%, rgba(var(--accent-rgb),0.07) 0%, transparent 60%)' }}
         aria-hidden
       />
       <div className="relative mx-auto w-full max-w-md px-4 py-8 min-h-full flex flex-col justify-center">
@@ -232,7 +232,7 @@ export default function CardContribute() {
       <Shell>
         <GoldFrameCard contentClassName="px-8 py-12">
           <div className="w-14 h-14 rounded-full bg-foil glow-accent flex items-center justify-center">
-            <Heart className="w-6 h-6 text-noir-900" />
+            <Heart className="w-6 h-6 text-white" />
           </div>
           <h1 className="mt-5 font-serif italic text-3xl text-foil-static">Beautifully done</h1>
           <p className="mt-3 font-sans text-sm text-brand-muted/70 leading-relaxed">
@@ -305,7 +305,7 @@ export default function CardContribute() {
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`flex-1 flex items-center justify-center gap-1.5 rounded-full px-2 py-2 font-label uppercase tracking-luxe text-[9px] transition ${
-                tab === t.id ? 'bg-foil text-noir-900 font-bold' : 'text-brand-muted/60 hover:text-brand-fg'
+                tab === t.id ? 'bg-foil text-white font-bold' : 'text-brand-muted/60 hover:text-brand-fg'
               }`}
             >
               <t.icon className="w-3.5 h-3.5" /> {t.label}
@@ -349,9 +349,9 @@ export default function CardContribute() {
         {tab === 'upload' && !captured && (
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-gold-400/25 bg-white/[0.02] px-6 py-12 text-center hover:border-gold-400/45 transition"
+            className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-accent/25 bg-white/[0.02] px-6 py-12 text-center hover:border-accent/45 transition"
           >
-            <Upload className="w-7 h-7 text-gold-400/80" />
+            <Upload className="w-7 h-7 text-accent/80" />
             <span className="font-sans text-sm text-brand-muted/70">
               Choose a photo or video<br />
               <span className="text-[10px] text-brand-muted/45">
@@ -370,7 +370,7 @@ export default function CardContribute() {
 
         {/* Preview of the chosen/captured media */}
         {!isText && captured && (
-          <div className="relative overflow-hidden rounded-2xl border border-gold-400/25 bg-black">
+          <div className="relative overflow-hidden rounded-2xl border border-accent/25 bg-black">
             {captured.mediaType === 'photo' ? (
               <img src={captured.previewUrl} alt="Your capture" className="w-full max-h-96 object-contain" />
             ) : (
@@ -390,7 +390,7 @@ export default function CardContribute() {
         <button
           onClick={handleSubmit}
           disabled={!canSubmit}
-          className="mt-1 w-full rounded-full bg-foil px-6 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+          className="mt-1 w-full rounded-full bg-foil px-6 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
         >
           {submitting ? (
             <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>

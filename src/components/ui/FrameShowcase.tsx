@@ -53,7 +53,7 @@ function FrameCard({ frame, index }: { frame: ShowcaseFrame; index: number }) {
   const showImage = Boolean(image) && !imageFailed;
   return (
     <motion.div
-      className="flex flex-col items-center gap-3"
+      className="flex min-w-0 flex-col items-center gap-3"
       initial={{ opacity: 0, y: -70, scaleY: 0.55, filter: 'brightness(2.2) blur(6px)' }}
       animate={{ opacity: 1, y: 0, scaleY: 1, filter: 'brightness(1) blur(0px)' }}
       transition={{ duration: 0.9, delay: 0.15 + index * 0.12, ease: [0.16, 1, 0.3, 1] }}
@@ -75,8 +75,12 @@ function FrameCard({ frame, index }: { frame: ShowcaseFrame; index: number }) {
             {Icon ? (
               <Icon className="h-8 w-8 sm:h-10 sm:w-10" style={{ color: hue }} strokeWidth={1.5} />
             ) : (
-              <span className="font-label uppercase tracking-luxe text-[9px]" style={{ color: hue }}>
-                Coming&nbsp;soon
+              <span
+                className="flex flex-col items-center font-label uppercase tracking-wide text-[8px] leading-tight sm:tracking-luxe sm:text-[9px]"
+                style={{ color: hue }}
+              >
+                <span>Coming</span>
+                <span>soon</span>
               </span>
             )}
           </div>
@@ -87,11 +91,18 @@ function FrameCard({ frame, index }: { frame: ShowcaseFrame; index: number }) {
           style={{ background: `linear-gradient(to top, rgba(5,6,11,0.85), transparent)` }}
         />
       </div>
-      <div className="flex flex-col items-center gap-0.5 text-center">
-        <span className="font-label uppercase tracking-luxe text-[10px] font-semibold" style={{ color: hue }}>
+      <div className="flex w-full min-w-0 flex-col items-center gap-0.5 text-center">
+        <span
+          className="w-full break-words font-label uppercase tracking-wide text-[9px] font-semibold leading-tight sm:tracking-luxe sm:text-[10px]"
+          style={{ color: hue }}
+        >
           {label}
         </span>
-        {caption && <span className="font-sans text-[11px] text-brand-muted/60">{caption}</span>}
+        {caption && (
+          <span className="w-full break-words font-sans text-[10px] leading-snug text-brand-muted/60 sm:text-[11px]">
+            {caption}
+          </span>
+        )}
       </div>
     </motion.div>
   );

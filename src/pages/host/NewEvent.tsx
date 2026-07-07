@@ -126,15 +126,15 @@ export default function NewEvent() {
   if (created) {
     return (
       <div className="p-6 md:p-10 max-w-lg mx-auto">
-        <div className="glass-strong rounded-3xl p-10 text-center flex flex-col items-center gap-5 animate-rise-in">
+        <div className="liquid-glass rounded-3xl p-10 text-center flex flex-col items-center gap-5 animate-rise-in">
           <div className="w-14 h-14 rounded-full bg-foil glow-accent flex items-center justify-center">
-            <PartyPopper className="w-6 h-6 text-noir-900" />
+            <PartyPopper className="w-6 h-6 text-white" />
           </div>
           <div>
             <h1 className="font-serif text-3xl text-foil-static">{created.name}</h1>
             <p className="mt-1 font-sans text-xs text-brand-muted/60">Your event is ready (in draft). Go live from the events list when the day comes.</p>
           </div>
-          <div className="rounded-xl p-3 bg-ivory/95 shadow-lg">
+          <div className="rounded-xl p-3 bg-brand-fg/95 shadow-lg">
             <QRCodeSVG value={guestUrl} size={160} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
           </div>
           <div className="flex items-center gap-1.5 w-full justify-center">
@@ -150,7 +150,7 @@ export default function NewEvent() {
           <div className="flex flex-col sm:flex-row gap-3 w-full pt-2">
             <button
               onClick={() => navigate(`/host/events/${created.id}`)}
-              className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[10px] font-bold text-noir-900 glow-accent transition active:scale-[0.98]"
+              className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
             >
               Open studio
             </button>
@@ -176,7 +176,7 @@ export default function NewEvent() {
       </Link>
 
       <div className="grid gap-8 items-start lg:grid-cols-[1fr_360px]">
-      <div className="glass-strong rounded-3xl p-8 animate-rise-in">
+      <div className="liquid-glass rounded-3xl p-8 animate-rise-in">
         {/* Step dots */}
         <div className="flex items-center justify-center gap-2 mb-8">
           {[1, 2, 3].map((s) => (
@@ -225,7 +225,7 @@ export default function NewEvent() {
                       </div>
                       {on && (
                         <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[color:var(--color-accent)] flex items-center justify-center">
-                          <Check className="w-2.5 h-2.5 text-noir-900" />
+                          <Check className="w-2.5 h-2.5 text-white" />
                         </span>
                       )}
                     </button>
@@ -248,7 +248,7 @@ export default function NewEvent() {
             <button
               onClick={() => setStep(2)}
               disabled={!canNext1}
-              className="mt-2 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+              className="mt-2 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
             >
               Next <ArrowRight className="w-4 h-4" />
             </button>
@@ -296,7 +296,7 @@ export default function NewEvent() {
               <button
                 onClick={() => setStep(3)}
                 disabled={!canNext2}
-                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
               >
                 Next <ArrowRight className="w-4 h-4" />
               </button>
@@ -347,7 +347,7 @@ export default function NewEvent() {
               <button
                 onClick={doCreate}
                 disabled={creating}
-                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
+                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating…</> : 'Create event'}
               </button>
