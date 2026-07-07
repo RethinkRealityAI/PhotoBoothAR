@@ -38,9 +38,21 @@ A2UI pipeline, but **event-aware and tool-using**:
   | generate frame/sticker | `generateImage` (`src/lib/ai.ts`) | Image + publish Button |
   | set default experience / landing route | `updateEventConfig` | ChoicePicker |
   | share kit (QRs for welcome/booth/wall/challenges) | client-render | Card with QR Images |
-- **A2UI widget additions needed**: `Image` from data-model URL (done),
-  `Modal` (confirmations), maybe `Slider` (opacity). The renderer's action
-  contract generalizes from `confirm_plan` to a `name`-dispatched handler map.
+- **Beamwall widget catalog** (`BEAMWALL_CATALOG_ID` in `src/lib/a2ui.ts`,
+  rendered by `A2uiSurface.tsx`). Rule: every agent mutation renders a
+  PREVIEW widget of what it's about to change before the confirm button.
+  Shipped: `TemplatePreview { templateId, eventName }` (live look preview in
+  the plan card), `QrCode { value, caption }`. Planned next:
+  | Widget | Previews |
+  |---|---|
+  | `FramePreview { assetUrl, transform }` | a generated/selected frame over a sample photo |
+  | `ChallengeList { path }` (templated) | challenge set being added/edited |
+  | `EventStat { label, value }` | query answers ("how many wall posts?") |
+  | `BoothMock { experienceId }` | booth orb-bar with the new default highlighted |
+  | `Diff { before, after }` | copy/theme changes before applying |
+  | `Modal` (basic catalog) | destructive-action confirmations |
+  The renderer's action contract generalizes from `confirm_plan` to a
+  `name`-dispatched handler map on the consumer side.
 
 ## Phase 2 — Share kit & signage
 
