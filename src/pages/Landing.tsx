@@ -79,7 +79,7 @@ export default function Landing() {
   const showcase = SHOWCASE.map((id) => EVENT_TEMPLATES.find((t) => t.id === id)!).filter(Boolean);
 
   return (
-    <div className="min-h-screen w-full app-bg text-brand-fg overflow-y-auto">
+    <div className="h-full w-full app-bg text-brand-fg overflow-y-auto">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-8">
         {/* Top bar */}
         <header className="flex items-center justify-between">

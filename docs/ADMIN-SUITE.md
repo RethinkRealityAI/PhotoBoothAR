@@ -50,8 +50,8 @@ assert middleware, and the `overview_metrics` action (cross-tenant counts).
 **Frontend:** `src/lib/admin.ts` (admin-api client + gate); `AdminLayout`
 (three-state gate: loading → spinner, no session → `/login`, not admin →
 `/host`); `Overview` stat-tile dashboard; `/admin` route added and the legacy
-`/admin/*` redirect removed. Shared: `cn()`, `StatusPill` + pure `statusPill.ts`
-tone map, `adminFormat.ts`. Tests: `cn`, `statusPill`, `adminFormat` (pure).
+`/admin/*` redirect removed. Shared: `cn()`, `StatusPill` + pure `pillStyles.ts`
+tone map, `adminFormat.ts`. Tests: `cn`, `pillStyles`, `adminFormat` (pure).
 
 **Access:** log in at `/login` as a `platform_admins` member (currently the owner)
 → visit `/admin`. Non-admins are bounced to `/host`. There is no separate admin
@@ -103,8 +103,10 @@ always-null.
 
 **Frontend:** `Payments` screen (`/admin/payments`) — stat tiles from
 `revenue_summary`, a searchable/paginated order table from `list_orders`, and
-an honest "no live payments yet" empty state (Stripe keys are still
-unprovisioned, so this is the real state today, not a placeholder). New pure
+an honest "no live payments yet" empty state for orgs with nothing recorded
+yet. (Stripe SANDBOX keys are now provisioned and validated end-to-end —
+2026-07-06 `credit_pack` test purchase shows up here correctly; LIVE keys are
+still the real go-live gate, see `DEPLOYMENT-CHECKLIST.md` §3.) New pure
 `src/lib/revenue.ts` (`summarizeOrders` — mirrors the Deno `revenueSummary`,
 kept in sync the same way `ENTITLEMENTS` already is) with `revenue.test.ts`.
 `AdminLayout` nav `ready:true` for Payments; route added in `src/App.tsx`.
@@ -163,7 +165,7 @@ Audit/Admins; routes added in `src/App.tsx`.
 
 | Primitive | Status |
 |---|---|
-| `cn()`, `StatusPill` + `statusPill.ts`, `adminFormat.ts` | ✅ built (Phase 1) |
+| `cn()`, `StatusPill` + `pillStyles.ts`, `adminFormat.ts` | ✅ built (Phase 1) |
 | `Modal`, `DataTable`, `Pagination` | ✅ built (Phase 2) |
 | `Toast` (`ToastProvider`/`useToast`) | ✅ built (Phase 4) |
 

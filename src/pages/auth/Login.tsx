@@ -59,7 +59,7 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen w-full app-bg flex items-center justify-center px-5 py-12 overflow-y-auto">
+    <div className="h-full w-full app-bg flex items-center justify-center px-5 py-12 overflow-y-auto">
       <div className="w-full max-w-sm animate-rise-in">
         <div className="glass-strong rounded-3xl px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
           <Link

@@ -197,17 +197,100 @@ export interface HostEventRow {
   config: Record<string, unknown> | null;
 }
 
-/** Every event the member can see (RLS: their org's, incl. drafts). */
+/**
+ * Slug of the platform's demo/sandbox event. Fixed — deliberately NOT derived
+ * from VITE_DEFAULT_EVENT (that's a separate, per-deployment white-label knob
+ * for legacy guest-route fallbacks; see App.tsx's own DEFAULT_EVENT_SLUG).
+ * RESERVED_SLUGS (src/lib/slug.ts + the create-event edge function) reserves
+ * this exact literal so no customer can ever create an event that claims it —
+ * if this were tied to a configurable env var instead, a deployment could
+ * silently un-reserve the slug just by changing VITE_DEFAULT_EVENT, reopening
+ * the leak SHOW_DEMO_EVENT exists to avoid.
+ */
+export const DEMO_EVENT_SLUG = 'demo';
+
+/**
+ * Off by default: `events_public_read` RLS deliberately lets anyone read any
+ * non-draft event (guest pages need that), so the demo event is otherwise
+ * invisible to hosts with no org — it does NOT show up "by accident". Set
+ * VITE_SHOW_DEMO_EVENT=true only to deliberately surface it as a showcase for
+ * orgs that haven't created an event yet.
+ */
+export const SHOW_DEMO_EVENT =
+  ((import.meta.env.VITE_SHOW_DEMO_EVENT as string | undefined) ?? '').trim() === 'true';
+
+const EVENT_COLUMNS = 'id, slug, name, event_type, status, plan_tier, created_at, config';
+
+/** The caller's org_id memberships. Returned as a plain array — duplicates
+ *  are harmless for the `.in('org_id', ...)` filters callers use it for, and
+ *  org_members has at most one row per (user, org) pair anyway. Null on
+ *  query failure (distinct from an empty array, i.e. genuinely orgless). */
+async function fetchMyOrgIds(): Promise<string[] | null> {
+  const { data, error } = await supabase.from('org_members').select('org_id');
+  if (error) {
+    console.error('[host] fetchMyOrgIds', error);
+    return null;
+  }
+  return (data ?? []).map((m) => m.org_id as string);
+}
+
+/**
+ * Every event the CALLER'S org(s) own — explicitly scoped here, not left to
+ * RLS. `events_public_read` allows reading any non-draft event platform-wide
+ * (guest pages depend on that), so without this filter every signed-in host
+ * would see every customer's events on their own dashboard. Optionally also
+ * surfaces the demo event for orgs with none of their own, gated by
+ * SHOW_DEMO_EVENT (off by default).
+ */
 export async function fetchMyEvents(): Promise<HostEventRow[]> {
+  const orgIds = await fetchMyOrgIds();
+  if (orgIds === null) return [];
+
+  if (orgIds.length === 0) {
+    if (!SHOW_DEMO_EVENT) return [];
+    const { data: demo, error: demoErr } = await supabase
+      .from('events')
+      .select(EVENT_COLUMNS)
+      .eq('slug', DEMO_EVENT_SLUG)
+      .maybeSingle();
+    if (demoErr || !demo) return [];
+    return [demo as HostEventRow];
+  }
+
   const { data, error } = await supabase
     .from('events')
-    .select('id, slug, name, event_type, status, plan_tier, created_at, config')
+    .select(EVENT_COLUMNS)
+    .in('org_id', orgIds)
     .order('created_at', { ascending: false });
   if (error) {
     console.error('[host] fetchMyEvents', error);
     return [];
   }
   return (data as HostEventRow[]) ?? [];
+}
+
+/**
+ * Whether the caller may enter the studio for the event at `slug` — either
+ * because they're a real member (the `is_event_member` RPC, the actual
+ * RLS-backed check) or, when SHOW_DEMO_EVENT is on, because this is the demo
+ * showcase slug AND the caller has no org of their own yet. That second
+ * condition matters: without it, a host who already has real events of their
+ * own would ALSO get the demo bypass (skipping the membership check
+ * entirely) for a slug that isn't theirs — this keeps the demo bypass exactly
+ * as narrow as what fetchMyEvents already shows on the dashboard, so the two
+ * can't drift into disagreeing about who gets demo access.
+ */
+export async function canEnterStudio(slug: string): Promise<boolean> {
+  if (SHOW_DEMO_EVENT && slug === DEMO_EVENT_SLUG) {
+    const orgIds = await fetchMyOrgIds();
+    if (orgIds !== null && orgIds.length === 0) return true;
+  }
+  const { data: isMember, error } = await supabase.rpc('is_event_member', { p_slug: slug });
+  if (error) {
+    console.error('[host] canEnterStudio', error);
+    return false;
+  }
+  return Boolean(isMember);
 }
 
 export interface CreateEventInput {

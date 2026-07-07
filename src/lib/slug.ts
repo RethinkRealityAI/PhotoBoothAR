@@ -39,6 +39,10 @@ export const RESERVED_SLUGS = new Set([
   'hope-gala',
   'jenna-jake',
   'detola-wuyi',
+  // The platform's own demo/sandbox event (src/lib/host.ts DEMO_EVENT_SLUG) —
+  // must stay reserved so no customer event can ever claim this slug and get
+  // surfaced by the SHOW_DEMO_EVENT showcase toggle.
+  'demo',
 ]);
 
 /**
