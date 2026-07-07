@@ -229,3 +229,27 @@ input[type="range"] { accent-color: var(--color-gold-400); }
 
 /* Selection */
 ::selection { background: rgba(212,175,55,0.35); color: #fff; }
+
+/* Share & Print kit (ShareKit.tsx): printing shows ONLY the QR cards, on
+   white, as clean signage/table cards — everything else is hidden. */
+@media print {
+  body * { visibility: hidden; }
+  #share-print-root, #share-print-root * { visibility: visible; }
+  #share-print-root {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    padding: 16px;
+    background: #fff;
+  }
+  #share-print-root .share-card {
+    border: 1px solid #ddd;
+    border-radius: 16px;
+    background: #fff;
+    color: #1a1108;
+    break-inside: avoid;
+  }
+  #share-print-root .share-card p { color: #1a1108; }
+}

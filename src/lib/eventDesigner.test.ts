@@ -159,7 +159,7 @@ describe('buildPlanSurface (A2UI generative UI)', () => {
   it('streams a valid A2UI surface the reducer can fold into state', () => {
     const messages = buildPlanSurface(plan, 'plan_1');
     expect(surfaceIdOf(messages)).toBe('plan_1');
-    expect(messages[0].createSurface?.catalogId).toContain('a2ui.org');
+    expect(messages[0].createSurface?.catalogId).toContain('beamwall');
 
     const surfaces = applySurfaceMessages({}, messages);
     const s = surfaces.plan_1;

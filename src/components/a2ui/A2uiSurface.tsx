@@ -16,10 +16,13 @@
  */
 import { memo } from 'react';
 import { CalendarDays, Check, Heart, PartyPopper, Sparkles, Star } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   resolveBindingPath, resolveContext, resolveDynamic,
   type A2uiActionEvent, type A2uiComponent, type SurfaceState,
 } from '../../lib/a2ui';
+import { EVENT_TEMPLATES, templateById } from '../../lib/eventTemplates';
+import TemplatePreview from '../ui/TemplatePreview';
 
 interface Props {
   surface: SurfaceState;
@@ -279,6 +282,35 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
                 );
               })}
             </div>
+          </div>
+        );
+      }
+
+      /* ── Beamwall custom catalog (BEAMWALL_CATALOG_ID) ─────────────── */
+
+      case 'TemplatePreview': {
+        // Live look preview — updates as bindings (style chips, name field)
+        // change, so the agent always SHOWS what it is about to apply.
+        const tpl = templateById(str(c.templateId, scope)) ?? EVENT_TEMPLATES[0];
+        const eventName = str(c.eventName, scope) || tpl.label;
+        return (
+          <div key={key} className="w-full max-w-[220px] mx-auto">
+            <TemplatePreview template={tpl} eventName={eventName} />
+          </div>
+        );
+      }
+
+      case 'QrCode': {
+        const value = str(c.value, scope);
+        if (!value) return null;
+        return (
+          <div key={key} className="flex flex-col items-center gap-1.5">
+            <div className="rounded-xl p-2 bg-ivory/95">
+              <QRCodeSVG value={value} size={104} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
+            </div>
+            {c.caption !== undefined && (
+              <p className="font-sans text-[10px] text-brand-muted/60">{str(c.caption, scope)}</p>
+            )}
           </div>
         );
       }

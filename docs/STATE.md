@@ -4,11 +4,13 @@
 Refine AR tracking + booth UX smoothness, and add an AI agent (concierge) that designs whole events conversationally in the onboarding wizard.
 
 ## Now
-A2UI done & verified; commit. Push still permission-blocked (needs explicit user "push" in-conversation).
+Phase 2 build: (a) Share & Print kit tab in EventStudio (QRs for welcome/booth/wall/upload/challenges + print CSS); (b) audit+fix go-live checklist (find via grep "checklist" — likely admin/Dashboard.tsx); (c) custom A2UI widgets TemplatePreview + QrCode in A2uiSurface + emit TemplatePreview from buildPlanSurface (agent-mode previews); (d) chat sessionStorage persistence in NewEvent; (e) template-drift fix (client sends template list to ai-event-designer, redeploy).
 
 ## Next
-1. User: set GEMINI_API_KEY as a Supabase edge-function secret (dashboard → Edge Functions → Secrets) — key given in chat 2026-07-07, NEVER commit it; user will rotate post-deploy.
-2. On user's word: push claude/ar-agent-ai-studio-da6d0f + open draft PR.
+1. Screenshot verification: sandbox CANNOT reach *.supabase.co (curl 403) → no live E2E. Plan: Playwright + chromium (/opt/pw-browsers/chromium), dev server `VITE_EVENT=hope-gala npm run dev` (inline env, NOT .env.local) for legacy booth/welcome shots (code-registry, no DB); runtime-mode concierge shots via injected fake sb-<ref>-auth-token localStorage session + Playwright route mocks; fake camera flag --use-fake-device-for-media-stream.
+2. Image-gen E2E chain (generate→library→frame→default) NOT runnable from sandbox — verify logic via Supabase MCP execute_sql read-backs; needs one human run once GEMINI_API_KEY secret is set (still unset? user given key in chat, never commit).
+3. Phase 3 remaining: rate-limit migration for ai-event-designer, key restriction note.
+4. On user's word: push claude/ar-agent-ai-studio-da6d0f + draft PR (permission-blocked without it).
 
 ## Constraints
 - User (2026-07-07): Gemini API key shared in chat for the platform; "i'll rotate it later once we deploy" — key must NEVER be committed to the repo; it belongs in Supabase edge-function secrets (GEMINI_API_KEY) only.

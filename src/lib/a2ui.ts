@@ -71,6 +71,14 @@ export const A2UI_VERSION = 'v0.9.1';
 export const BASIC_CATALOG_ID =
   'https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json';
 
+/** Beamwall's custom catalog: the basic catalog PLUS platform widgets the
+ *  renderer trusts (A2UI extension mechanism — agents may only invoke
+ *  registered components):
+ *    TemplatePreview { templateId, eventName }  — live event-look preview
+ *    QrCode          { value, caption? }        — scannable link chip
+ *  Grow this list as the studio copilot gains tools (see AGENT-ROADMAP.md). */
+export const BEAMWALL_CATALOG_ID = 'https://beamwall.app/a2ui/catalogs/v1';
+
 /* ── JSON Pointer (RFC 6901) ─────────────────────────────────────────── */
 
 /** Tokens that would let agent-authored paths reach the prototype chain.

@@ -17,7 +17,7 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { slugify } from './slug';
 import { EVENT_TEMPLATES, templateById, type TemplateId } from './eventTemplates';
-import { A2UI_VERSION, BASIC_CATALOG_ID, type A2uiMessage } from './a2ui';
+import { A2UI_VERSION, BEAMWALL_CATALOG_ID, type A2uiMessage } from './a2ui';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -220,7 +220,7 @@ export function normalizePlan(raw: unknown): EventPlan {
 export function buildPlanSurface(plan: EventPlan, surfaceId: string): A2uiMessage[] {
   const styleOptions = EVENT_TEMPLATES.map((t) => ({ label: `${t.emoji} ${t.label}`, value: t.id }));
   return [
-    { version: A2UI_VERSION, createSurface: { surfaceId, catalogId: BASIC_CATALOG_ID } },
+    { version: A2UI_VERSION, createSurface: { surfaceId, catalogId: BEAMWALL_CATALOG_ID } },
     {
       version: A2UI_VERSION,
       updateDataModel: { surfaceId, path: '/', value: { plan: { ...plan } } },
@@ -234,9 +234,17 @@ export function buildPlanSurface(plan: EventPlan, surfaceId: string): A2uiMessag
           {
             id: 'body',
             component: 'Column',
-            children: ['heading', 'nameField', 'styleChoice', 'dateField', 'remoteCheck', 'slugField', 'divider', 'actions'],
+            children: ['heading', 'preview', 'nameField', 'styleChoice', 'dateField', 'remoteCheck', 'slugField', 'divider', 'actions'],
           },
           { id: 'heading', component: 'Text', text: 'Your event, so far', variant: 'h4' },
+          // Beamwall custom widget: live look preview bound to the SAME data
+          // the fields edit — the card always shows what confirm will apply.
+          {
+            id: 'preview',
+            component: 'TemplatePreview',
+            templateId: { path: '/plan/templateId' },
+            eventName: { path: '/plan/name' },
+          },
           { id: 'nameField', component: 'TextField', label: 'Event name', value: { path: '/plan/name' } },
           { id: 'styleChoice', component: 'ChoicePicker', label: 'Style', options: styleOptions, value: { path: '/plan/templateId' } },
           { id: 'dateField', component: 'DateTimeInput', label: 'Date', enableDate: true, enableTime: false, value: { path: '/plan/date' } },

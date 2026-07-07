@@ -269,7 +269,7 @@ export default function NewEvent() {
           </div>
           <div>
             <h1 className="font-serif text-3xl text-foil-static">{created.name}</h1>
-            <p className="mt-1 font-sans text-xs text-brand-muted/60">Your event is ready (in draft). Go live from the events list when the day comes.</p>
+            <p className="mt-1 font-sans text-xs text-brand-muted/60">Your event is ready, in draft. Open the studio to finish the go-live checklist — then share it with one tap.</p>
           </div>
           <div className="rounded-xl p-3 bg-ivory/95 shadow-lg">
             <QRCodeSVG value={guestUrl} size={160} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
