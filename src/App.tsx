@@ -15,6 +15,7 @@
  */
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import Booth from './components/Booth';
+import GuestWelcome from './components/GuestWelcome';
 import Wall from './components/Wall';
 import MyPhotos from './components/MyPhotos';
 import ChallengesPage from './components/ChallengesPage';
@@ -80,6 +81,7 @@ function guestRoutes() {
   return (
     <>
       <Route index element={<EventIndexRedirect />} />
+      <Route path="welcome" element={<GuestWelcome />} />
       <Route path="booth" element={<Booth />} />
       <Route path="experience/:id" element={<Booth />} />
       <Route path="wall" element={<Wall />} />

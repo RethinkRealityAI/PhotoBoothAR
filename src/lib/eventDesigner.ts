@@ -44,6 +44,10 @@ export interface DesignResult {
   surfaceId: string;
   /** 'ai' when the edge function answered; 'local' for the keyword fallback. */
   source: 'ai' | 'local';
+  /** Which plan fields the planner actively decided this turn. Undecided
+   *  fields must not overwrite what the host set by hand (the local keyword
+   *  planner defaults templateId/remote when it finds no signal). */
+  decided: { template: boolean; remote: boolean };
 }
 
 /* ── Local fallback planner (pure — unit-tested) ─────────────────────── */
@@ -69,11 +73,21 @@ export function inferTemplate(text: string): TemplateId | null {
 /** A quoted "Event Name", a "Jenna and Jake's wedding" possessive, or a
  *  "for Jenna and Jake" mention built into a name with the occasion label.
  *  Null when none is present. */
+/** Capitalized non-person words that follow "for/celebrating" in prose —
+ *  holidays and seasons must not become possessive event names. */
+const NON_PERSON_WORDS =
+  /^(Christmas|Easter|Halloween|Thanksgiving|New|Eid|Diwali|Hanukkah|Valentine|Ramadan|Summer|Winter|Spring|Autumn)$/;
+
 export function extractName(text: string, templateId: TemplateId | null): string | null {
-  const quoted = text.match(/["“”']([^"“”']{3,60})["“”']/);
+  // Real quote marks only — a straight apostrophe also appears in "It's" and
+  // "Jake's", where treating it as a quote captured garbage between two
+  // unrelated apostrophes.
+  const quoted = text.match(/["“”]([^"“”]{3,60})["“”]/);
   if (quoted) return quoted[1].trim();
+  // No /i flag: the leading [A-Z] must stay a real capital ("my sister's
+  // birthday" is not a name); occasion words tolerate either case inline.
   const owned = text.match(
-    /\b([A-Z][A-Za-z'’-]+(?:\s+(?:and|&)\s+[A-Z][A-Za-z'’-]+)?)['’]s\s+(?:\d{1,3}(?:st|nd|rd|th)\s+)?(wedding|birthday|gala|bash|party|celebration|anniversary|graduation|quincea\w*)\b/i,
+    /\b([A-Z][A-Za-z'’-]+(?:\s+(?:and|&)\s+[A-Z][A-Za-z'’-]+)?)['’]s\s+(?:\d{1,3}(?:st|nd|rd|th)\s+)?([Ww]edding|[Bb]irthday|[Gg]ala|[Bb]ash|[Pp]arty|[Cc]elebration|[Aa]nniversary|[Gg]raduation|[Qq]uincea\w*)\b/,
   );
   if (owned) {
     const person = owned[1].replace(/\s+and\s+/, ' & ');
@@ -83,7 +97,7 @@ export function extractName(text: string, templateId: TemplateId | null): string
   const who = text.match(
     /\b(?:for|celebrating)\s+(?:my\s+)?([A-Z][A-Za-z'’-]+(?:\s+(?:and|&)\s+[A-Z][A-Za-z'’-]+)?)/,
   );
-  if (who) {
+  if (who && !NON_PERSON_WORDS.test(who[1])) {
     const label = templateById(templateId ?? undefined)?.label ?? 'Celebration';
     const person = who[1].replace(/\s+and\s+/, ' & ');
     const possessive = person.endsWith('s') ? `${person}'` : `${person}'s`;
@@ -134,7 +148,9 @@ export function detectRemote(text: string): boolean {
  * usable plan (template defaults to 'party') plus a friendly reply that asks
  * for whatever is still missing.
  */
-export function localDesign(messages: ChatMessage[]): { reply: string; plan: EventPlan } {
+export function localDesign(
+  messages: ChatMessage[],
+): { reply: string; plan: EventPlan; decided: { template: boolean; remote: boolean } } {
   const userTexts = messages.filter((m) => m.role === 'user').map((m) => m.content);
   let templateId: TemplateId | null = null;
   let name: string | null = null;
@@ -169,7 +185,7 @@ export function localDesign(messages: ChatMessage[]): { reply: string; plan: Eve
       ? 'Review everything on the right — tweak anything, then create your event!'
       : 'What should we call the event? You can also just type a name in the form.',
   );
-  return { reply: bits.join(' '), plan };
+  return { reply: bits.join(' '), plan, decided: { template: templateId !== null, remote } };
 }
 
 /* ── Plan hygiene (shared by AI + local paths) ───────────────────────── */
@@ -255,12 +271,22 @@ export function surfaceIdOf(messages: A2uiMessage[]): string | null {
 export async function designEvent(messages: ChatMessage[]): Promise<DesignResult> {
   // One surface per conversation turn, so the chat history keeps every card.
   const sid = `plan_${messages.length}`;
-  const withUi = (reply: string, plan: EventPlan, source: 'ai' | 'local', serverUi?: unknown): DesignResult => {
+  const withUi = (
+    reply: string,
+    plan: EventPlan,
+    source: 'ai' | 'local',
+    decided: DesignResult['decided'],
+    serverUi?: unknown,
+  ): DesignResult => {
     const streamed = Array.isArray(serverUi)
       ? (serverUi.filter((m) => m && typeof m === 'object') as A2uiMessage[])
       : [];
     const a2ui = streamed.length > 0 ? streamed : buildPlanSurface(plan, sid);
-    return { reply, plan, a2ui, surfaceId: surfaceIdOf(a2ui) ?? sid, source };
+    return { reply, plan, a2ui, surfaceId: surfaceIdOf(a2ui) ?? sid, source, decided };
+  };
+  const localFallback = (): DesignResult => {
+    const local = localDesign(messages);
+    return withUi(local.reply, local.plan, 'local', local.decided);
   };
 
   try {
@@ -277,18 +303,17 @@ export async function designEvent(messages: ChatMessage[]): Promise<DesignResult
           console.warn('[eventDesigner] edge fn error, using local planner:', res.error);
         } catch { /* body unreadable — fall through to local */ }
       }
-      const local = localDesign(messages);
-      return withUi(local.reply, local.plan, 'local');
+      return localFallback();
     }
     const res = (data ?? {}) as { reply?: string; plan?: unknown; a2ui?: unknown };
     if (typeof res.reply !== 'string' || !res.reply) {
-      const local = localDesign(messages);
-      return withUi(local.reply, local.plan, 'local');
+      return localFallback();
     }
-    return withUi(res.reply, normalizePlan(res.plan), 'ai', res.a2ui);
+    // The AI sees the whole conversation and always takes a position on
+    // template + remote, so both count as decided.
+    return withUi(res.reply, normalizePlan(res.plan), 'ai', { template: true, remote: true }, res.a2ui);
   } catch (e) {
     console.warn('[eventDesigner] designEvent failed, using local planner', e);
-    const local = localDesign(messages);
-    return withUi(local.reply, local.plan, 'local');
+    return localFallback();
   }
 }

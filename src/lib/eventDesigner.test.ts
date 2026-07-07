@@ -45,6 +45,16 @@ describe('extractName', () => {
     expect(extractName('something fun', null)).toBeNull();
     expect(extractName('', null)).toBeNull();
   });
+
+  it('does not treat apostrophes as quotes (audit regression)', () => {
+    expect(extractName("It's Jenna and Jake's wedding on 2026-09-12", null)).toBe("Jenna & Jake's Wedding");
+  });
+
+  it('rejects lowercase possessives and holiday words (audit regression)', () => {
+    expect(extractName("it's my sister's birthday party", null)).toBeNull();
+    expect(extractName('a photo booth for Christmas', 'party')).toBeNull();
+    expect(extractName('a party for Thanksgiving dinner', 'party')).toBeNull();
+  });
 });
 
 describe('extractDate', () => {
@@ -98,9 +108,17 @@ describe('localDesign', () => {
     expect(reply.toLowerCase()).toContain('call');
   });
 
-  it('defaults to the party look when nothing matches', () => {
-    const { plan } = localDesign([{ role: 'user', content: 'hello' }]);
+  it('defaults to the party look when nothing matches, but marks it undecided', () => {
+    const { plan, decided } = localDesign([{ role: 'user', content: 'hello' }]);
     expect(plan.templateId).toBe('party');
+    expect(decided).toEqual({ template: false, remote: false });
+  });
+
+  it('marks template/remote decided when the text carries a signal', () => {
+    const { decided } = localDesign([
+      { role: 'user', content: 'a virtual wedding celebration over Zoom' },
+    ]);
+    expect(decided).toEqual({ template: true, remote: true });
   });
 });
 

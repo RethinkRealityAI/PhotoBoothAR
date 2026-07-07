@@ -11,7 +11,7 @@
  *   2. Slug (auto-suggested, live-validated; server has the final word)
  *   3. Create → success screen with guest link + QR + Open studio.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { ArrowLeft, ArrowRight, Check, Copy, Loader2, PartyPopper, Send, Sparkles } from 'lucide-react';
@@ -19,7 +19,7 @@ import { slugify, SLUG_RE, RESERVED_SLUGS } from '../../lib/slug';
 import { createEvent, updateEventConfig, isSlugVisiblyTaken, type CreateEventError, type HostEventRow } from '../../lib/host';
 import { EVENT_TEMPLATES, templateById, templateConfigPatch } from '../../lib/eventTemplates';
 import { designEvent, normalizePlan, type ChatMessage, type EventPlan } from '../../lib/eventDesigner';
-import { applySurfaceMessages, setPath, type A2uiActionEvent, type SurfaceState } from '../../lib/a2ui';
+import { applySurfaceMessages, getPath, setPath, type A2uiActionEvent, type SurfaceState } from '../../lib/a2ui';
 import A2uiSurface from '../../components/a2ui/A2uiSurface';
 import TemplatePreview from '../../components/ui/TemplatePreview';
 
@@ -53,9 +53,13 @@ const CHAT_SUGGESTIONS = [
 ];
 
 /** A transcript entry: the wire ChatMessage plus the id of the A2UI surface
- *  (generative UI card) streamed with that assistant turn, if any. */
+ *  (generative UI card) streamed with that assistant turn, if any.
+ *  `localOnly` marks client-injected nudges (e.g. "name it first") that must
+ *  NOT be sent to the agent — two adjacent assistant turns violate Gemini's
+ *  user/model role alternation and 400 the whole conversation. */
 interface ChatItem extends ChatMessage {
   surfaceId?: string;
+  localOnly?: boolean;
 }
 
 export default function NewEvent() {
@@ -94,7 +98,7 @@ export default function NewEvent() {
   //    and the chat renders each surface under its assistant bubble. ──
   const [surfaces, setSurfaces] = useState<Record<string, SurfaceState>>({});
 
-  const handleSurfaceData = (surfaceId: string, path: string, value: unknown) => {
+  const handleSurfaceData = useCallback((surfaceId: string, path: string, value: unknown) => {
     setSurfaces((s) => {
       const surf = s[surfaceId];
       if (!surf) return s;
@@ -105,37 +109,54 @@ export default function NewEvent() {
           : {};
       return { ...s, [surfaceId]: { ...surf, dataModel } };
     });
-  };
+  }, []);
 
-  const handleSurfaceAction = (event: A2uiActionEvent) => {
-    if (event.name !== 'confirm_plan') return;
-    const plan = normalizePlan(event.context.plan);
+  /** Local nudge from the concierge UI — never sent to the agent. */
+  const nudge = useCallback((content: string) => {
+    setChatMessages((m) => [...m, { role: 'assistant', content, localOnly: true }]);
+  }, []);
+
+  /**
+   * THE single confirm path: every route into review (card button, bottom
+   * button) validates and applies the same plan the same way, so edits can
+   * never be silently dropped and invalid slugs are caught before create.
+   */
+  const confirmPlan = useCallback((plan: ReturnType<typeof normalizePlan>) => {
     if (!plan.name) {
-      setChatMessages((m) => [
-        ...m,
-        { role: 'assistant', content: 'Give your event a name first — type it in the card or tell me here.' },
-      ]);
+      nudge('Give your event a name first — type it in the card or tell me here.');
       return;
     }
-    // Confirm is authoritative: the card's edited values replace the wizard state.
+    const finalSlug = plan.slug ?? slugify(plan.name);
+    const slugErr = slugClientError(finalSlug);
+    if (slugErr) {
+      nudge(`That guest link won't work: ${slugErr} Edit the link in the card and confirm again.`);
+      return;
+    }
+    // Confirm is authoritative: the (card-edited) plan replaces the wizard state.
     setName(plan.name);
     setTemplateId(plan.templateId);
     setRemote(plan.remote);
     setDate(plan.date ?? '');
-    setSlug(plan.slug ?? slugify(plan.name));
+    setSlug(finalSlug);
     setSlugTouched(true);
     setStep(3);
-  };
+  }, [nudge]);
+
+  const handleSurfaceAction = useCallback((event: A2uiActionEvent) => {
+    if (event.name !== 'confirm_plan') return;
+    confirmPlan(normalizePlan(event.context.plan));
+  }, [confirmPlan]);
 
   useEffect(() => {
     chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [chatMessages, chatBusy]);
 
   /** Chat drives the SAME wizard state as the manual form — only fields the
-   *  plan actually decided (non-null) overwrite what the host typed. */
-  const applyPlan = (plan: EventPlan) => {
-    setTemplateId(plan.templateId);
-    setRemote(plan.remote);
+   *  planner actively decided this turn overwrite what the host set by hand
+   *  (the local fallback defaults templateId/remote when it finds no signal). */
+  const applyPlan = (plan: EventPlan, decided: { template: boolean; remote: boolean }) => {
+    if (decided.template) setTemplateId(plan.templateId);
+    if (decided.remote) setRemote(plan.remote);
     if (plan.name) setName(plan.name);
     if (plan.date) setDate(plan.date);
     if (plan.slug) {
@@ -151,12 +172,27 @@ export default function NewEvent() {
     setChatMessages(next);
     setChatInput('');
     setChatBusy(true);
-    const history: ChatMessage[] = next.map(({ role, content: c }) => ({ role, content: c }));
+    // Strip client-injected nudges: the agent must see strictly alternating
+    // user/model turns or Gemini rejects the request.
+    const history: ChatMessage[] = next
+      .filter((m) => !m.localOnly)
+      .map(({ role, content: c }) => ({ role, content: c }));
     const res = await designEvent(history); // never throws — falls back to the local planner
-    applyPlan(res.plan);
+    applyPlan(res.plan, res.decided);
     setSurfaces((s) => applySurfaceMessages(s, res.a2ui));
     setChatMessages([...next, { role: 'assistant', content: res.reply, surfaceId: res.surfaceId }]);
     setChatBusy(false);
+  };
+
+  /** Bottom "Review & create": prefer the LATEST card's (possibly edited)
+   *  plan over the wizard snapshot so in-card edits are never dropped. */
+  const reviewAndCreate = () => {
+    const latest = [...chatMessages].reverse().find((m) => m.surfaceId)?.surfaceId;
+    const surf = latest ? surfaces[latest] : undefined;
+    const plan = surf
+      ? normalizePlan(getPath(surf.dataModel, '/plan'))
+      : normalizePlan({ name, templateId, remote, date: date || null, slug });
+    confirmPlan(plan);
   };
 
   // Auto-suggest the slug from the name until the user edits it themselves.
@@ -378,7 +414,7 @@ export default function NewEvent() {
             </div>
 
             <button
-              onClick={() => setStep(3)}
+              onClick={reviewAndCreate}
               disabled={!name.trim() || !slug}
               className="w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
             >

@@ -233,10 +233,6 @@ export default function Booth() {
   // grace (model warm-up + brief misses), coach the guest into the frame.
   const [faceVisible, setFaceVisible] = useState(false);
   const [faceHint, setFaceHint] = useState(false);
-  const attachId = attachExp?.id;
-  useEffect(() => {
-    setFaceVisible(false); // new attachment → rig re-reports visibility
-  }, [attachId]);
   useEffect(() => {
     if (is3D && !faceVisible && phase === 'camera' && ready) {
       const tid = setTimeout(() => setFaceHint(true), 1500);

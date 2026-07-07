@@ -43,8 +43,8 @@ A2UI done & verified; commit. Push still permission-blocked (needs explicit user
 
 ## Open items
 - Stripe/AI keys unprovisioned (platform gate, out of scope).
-- AUDIT 2026-07-07 (8-angle review, unfixed — user has findings list): (1) NewEvent bottom "Review & create" ignores A2UI-card edits (only confirm_plan reads them); (2) Booth face-hint sticks false after switching 3D pieces (FaceRig only fires onVisibilityChange on change; Overlay3D not keyed by attachId); (3) applyPlan unconditionally sets templateId/remote each turn — local fallback clobbers manual choices; (4) extractName quoted-regex treats apostrophes as quotes ("It's ... Jake's" → garbage name) + owned-regex /i matches lowercase; (5) consecutive assistant msgs after empty-name nudge → Gemini role-alternation 400 → silent local fallback; (6) concierge path skips step-2 slug client validation; (7) A2uiSurface not memoized (all cards re-render per keystroke); (8) edge fn TEMPLATES duplicates eventTemplates.ts (drift risk); cleanup: 3rd FunctionsHttpError decode copy, dual plan-apply sites, inputClass drift.
-- No rate limit on ai-event-designer (free JWT-gated Gemini calls once key set).
+- AUDIT items FIXED 2026-07-07 (all verified by lint+125 tests): (1) reviewAndCreate reads latest card plan via confirmPlan; (2) FaceRig visibleRef null-init reports first frame, Booth reset effect removed; (3) applyPlan honors DesignResult.decided flags; (4) extractName regexes fixed (+4 regression tests); (5) localOnly nudges filtered from agent history; (6) confirmPlan runs slugClientError; (7) A2uiSurface memoized. STILL OPEN (accepted/deferred): edge fn TEMPLATES duplication, 3rd FunctionsHttpError decode copy, inputClass drift — see docs/AGENT-ROADMAP.md Phase 3.
+- No rate limit on ai-event-designer (free JWT-gated Gemini calls once key set) — roadmap Phase 3.
 
 ## Failed attempts
 (none)

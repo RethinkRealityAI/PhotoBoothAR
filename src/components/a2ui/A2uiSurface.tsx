@@ -14,6 +14,7 @@
  * fires `onAction` with its context resolved against the data model at
  * trigger time, per the spec.
  */
+import { memo } from 'react';
 import { CalendarDays, Check, Heart, PartyPopper, Sparkles, Star } from 'lucide-react';
 import {
   resolveBindingPath, resolveContext, resolveDynamic,
@@ -70,7 +71,7 @@ const labelClass = 'font-label uppercase tracking-luxe text-[9px] text-brand-mut
 
 const warned = new Set<string>();
 
-export default function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
+function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
   const { components, dataModel, surfaceId } = surface;
 
   /** Absolute data-model path behind a `{ path }` binding, or null. */
@@ -294,3 +295,8 @@ export default function A2uiSurface({ surface, onAction, onDataChange, busy = fa
   if (!components.root) return null;
   return <div className="w-full">{render('root', '')}</div>;
 }
+
+/** Memoized: the surfaces map preserves object identity for untouched
+ *  surfaces, so typing in one card (or the chat input) no longer re-renders
+ *  every other card in the transcript. */
+export default memo(A2uiSurface);

@@ -51,9 +51,9 @@ import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { getExperience, createExperience, updateExperience, uploadAsset } from '../../lib/db';
 import { generateImage, resolveEventUuid, aiErrorMessage } from '../../lib/ai';
 import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
-import { useEntitlements } from '../../lib/entitlements';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from './studioBase';
+import { useEntitlements } from '../../lib/entitlements';
 import type { Experience, ExperienceKind, Transform2D, ExperienceConfig } from '../../types';
 
 /* ------------------------------------------------------------------ */
@@ -965,9 +965,19 @@ export default function Creator2D() {
                 </div>
               )}
 
-              {/* AI generator — runs server-side (credits + entitlement enforced there) */}
-              {entitlements.aiStudio && kind !== 'shader' && (
-                <MagicGenerate
+              {/* AI generator — runs server-side (credits + entitlement enforced
+                  there). Shown to EVERY tier: the server grants each event 3 free
+                  image generations before answering upgrade_required for the free
+                  tier — the panel is the trial's front door, and entitlements
+                  drive the copy so the trial reads as a trial. */}
+              {kind !== 'shader' && (
+                <>
+                  {!entitlements.aiStudio && (
+                    <p className="text-[9px] text-gold-300/70 leading-relaxed -mb-1">
+                      ✨ Your first 3 AI frames are on us — upgrade this event for unlimited AI Studio.
+                    </p>
+                  )}
+                  <MagicGenerate
                   kind={kind}
                   onGenerated={(exp) => {
                     // The server already saved an unpublished experience; load
@@ -979,7 +989,8 @@ export default function Creator2D() {
                     }
                     if (name === 'Untitled Experience' && exp.name) setName(exp.name);
                   }}
-                />
+                  />
+                </>
               )}
 
               {/* Camera error */}
