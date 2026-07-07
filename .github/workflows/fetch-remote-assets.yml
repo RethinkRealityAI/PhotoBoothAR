@@ -13,6 +13,7 @@ on:
   push:
     paths:
       - "scripts/remote-assets.json"
+      - ".github/workflows/fetch-remote-assets.yml"
 
 permissions:
   contents: write
@@ -35,6 +36,9 @@ jobs:
             echo "→ $path"
             curl -fSL --retry 3 --retry-delay 2 -o "$path" "$url"
           done
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
 
       - name: Compress fetched media (studio assets only)
         run: |
