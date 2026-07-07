@@ -4,12 +4,15 @@
 Refine AR tracking + booth UX smoothness, and add an AI agent (concierge) that designs whole events conversationally in the onboarding wizard.
 
 ## Now
-Final verify → commit → push claude/ar-agent-ai-studio-da6d0f → draft PR.
+A2UI done & verified; commit. Push still permission-blocked (needs explicit user "push" in-conversation).
 
 ## Next
-(after PR) watch CI / review feedback.
+1. User: set GEMINI_API_KEY as a Supabase edge-function secret (dashboard → Edge Functions → Secrets) — key given in chat 2026-07-07, NEVER commit it; user will rotate post-deploy.
+2. On user's word: push claude/ar-agent-ai-studio-da6d0f + open draft PR.
 
 ## Constraints
+- User (2026-07-07): Gemini API key shared in chat for the platform; "i'll rotate it later once we deploy" — key must NEVER be committed to the repo; it belongs in Supabase edge-function secrets (GEMINI_API_KEY) only.
+- User (2026-07-07): "Sorry by tambo, this is what I meant to use for the Generative UI framework. Implement it now https://a2ui.org/composer/" — generative UI = A2UI protocol.
 - (platform) Never break legacy-events sites — faceRig/Booth are shared; keep default behavior compatible.
 - (platform) No `.env.local` with VITE_EVENT during tests.
 - (task) No new npm dependencies; edge fn dir needs its own deno.json; never loosen tenant RLS.
@@ -35,6 +38,8 @@ Final verify → commit → push claude/ar-agent-ai-studio-da6d0f → draft PR.
 - Step 4 edge fn — RESULT: ai-event-designer deployed v1 ACTIVE (verify_jwt on) via Supabase MCP.
 - Step 5 concierge UI — RESULT: NewEvent.tsx chat mode (default) drives wizard state; lint + 109 tests + build all green.
 - Docs — RESULT: README fn list, DEPLOYMENT-CHECKLIST §2, CLAUDE.md current-state updated.
+- A2UI adoption — RESULT: src/lib/a2ui.ts (v0.9.1 core: JSON-Pointer model, reducer, bindings; 10 tests) + src/components/a2ui/A2uiSurface.tsx (themed basic-catalog renderer) + buildPlanSurface in eventDesigner.ts (3 tests); NewEvent chat renders interactive plan cards w/ confirm_plan action. lint clean, 122 tests, build green.
+- Gemini key — RESULT: validated live (200, gemini-2.5-flash replied "ok"); cannot set Supabase secret from sandbox (no MCP secrets tool, *.supabase.co blocked).
 
 ## Open items
 - Stripe/AI keys unprovisioned (platform gate, out of scope).

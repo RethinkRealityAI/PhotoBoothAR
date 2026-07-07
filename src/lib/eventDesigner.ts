@@ -17,6 +17,7 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { slugify } from './slug';
 import { EVENT_TEMPLATES, templateById, type TemplateId } from './eventTemplates';
+import { A2UI_VERSION, BASIC_CATALOG_ID, type A2uiMessage } from './a2ui';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -36,6 +37,11 @@ export interface EventPlan {
 export interface DesignResult {
   reply: string;
   plan: EventPlan;
+  /** A2UI v0.9.1 message stream rendering the plan as an interactive card.
+   *  Server-streamed when the edge fn provides one; built locally otherwise. */
+  a2ui: A2uiMessage[];
+  /** Id of the surface the a2ui stream creates (chat renders it inline). */
+  surfaceId: string;
   /** 'ai' when the edge function answered; 'local' for the keyword fallback. */
   source: 'ai' | 'local';
 }
@@ -185,9 +191,78 @@ export function normalizePlan(raw: unknown): EventPlan {
   };
 }
 
+/* ── A2UI plan surface (generative UI) ───────────────────────────────── */
+
+/**
+ * Render an EventPlan as an A2UI v0.9.1 message stream: an interactive
+ * plan-editor card (name / style / date / remote / link, all two-way bound to
+ * the surface data model) with a confirm action that hands the edited plan
+ * back to the wizard. Built deterministically from the plan — the same stream
+ * shape the edge fn may stream directly in future, so the client pipeline
+ * (reducer + renderer) needs no change when that lands.
+ */
+export function buildPlanSurface(plan: EventPlan, surfaceId: string): A2uiMessage[] {
+  const styleOptions = EVENT_TEMPLATES.map((t) => ({ label: `${t.emoji} ${t.label}`, value: t.id }));
+  return [
+    { version: A2UI_VERSION, createSurface: { surfaceId, catalogId: BASIC_CATALOG_ID } },
+    {
+      version: A2UI_VERSION,
+      updateDataModel: { surfaceId, path: '/', value: { plan: { ...plan } } },
+    },
+    {
+      version: A2UI_VERSION,
+      updateComponents: {
+        surfaceId,
+        components: [
+          { id: 'root', component: 'Card', child: 'body' },
+          {
+            id: 'body',
+            component: 'Column',
+            children: ['heading', 'nameField', 'styleChoice', 'dateField', 'remoteCheck', 'slugField', 'divider', 'actions'],
+          },
+          { id: 'heading', component: 'Text', text: 'Your event, so far', variant: 'h4' },
+          { id: 'nameField', component: 'TextField', label: 'Event name', value: { path: '/plan/name' } },
+          { id: 'styleChoice', component: 'ChoicePicker', label: 'Style', options: styleOptions, value: { path: '/plan/templateId' } },
+          { id: 'dateField', component: 'DateTimeInput', label: 'Date', enableDate: true, enableTime: false, value: { path: '/plan/date' } },
+          { id: 'remoteCheck', component: 'CheckBox', label: 'Remote / virtual celebration', value: { path: '/plan/remote' } },
+          { id: 'slugField', component: 'TextField', label: 'Guest link (/e/…)', value: { path: '/plan/slug' } },
+          { id: 'divider', component: 'Divider', axis: 'horizontal' },
+          { id: 'actions', component: 'Row', justify: 'end', children: ['confirmBtn'] },
+          {
+            id: 'confirmBtn',
+            component: 'Button',
+            variant: 'primary',
+            child: 'confirmLabel',
+            action: { event: { name: 'confirm_plan', context: { plan: { path: '/plan' } } } },
+          },
+          { id: 'confirmLabel', component: 'Text', text: 'Use this plan' },
+        ],
+      },
+    },
+  ];
+}
+
+/** The surface id an A2UI stream creates, if any. */
+export function surfaceIdOf(messages: A2uiMessage[]): string | null {
+  for (const m of messages) {
+    if (m.createSurface?.surfaceId) return m.createSurface.surfaceId;
+  }
+  return null;
+}
+
 /* ── Edge-function client with local fallback ────────────────────────── */
 
 export async function designEvent(messages: ChatMessage[]): Promise<DesignResult> {
+  // One surface per conversation turn, so the chat history keeps every card.
+  const sid = `plan_${messages.length}`;
+  const withUi = (reply: string, plan: EventPlan, source: 'ai' | 'local', serverUi?: unknown): DesignResult => {
+    const streamed = Array.isArray(serverUi)
+      ? (serverUi.filter((m) => m && typeof m === 'object') as A2uiMessage[])
+      : [];
+    const a2ui = streamed.length > 0 ? streamed : buildPlanSurface(plan, sid);
+    return { reply, plan, a2ui, surfaceId: surfaceIdOf(a2ui) ?? sid, source };
+  };
+
   try {
     // Lazy import: creating the supabase client needs VITE_ env vars, which the
     // node test env doesn't have — the planner half of this module stays pure.
@@ -203,17 +278,17 @@ export async function designEvent(messages: ChatMessage[]): Promise<DesignResult
         } catch { /* body unreadable — fall through to local */ }
       }
       const local = localDesign(messages);
-      return { ...local, source: 'local' };
+      return withUi(local.reply, local.plan, 'local');
     }
-    const res = (data ?? {}) as { reply?: string; plan?: unknown };
+    const res = (data ?? {}) as { reply?: string; plan?: unknown; a2ui?: unknown };
     if (typeof res.reply !== 'string' || !res.reply) {
       const local = localDesign(messages);
-      return { ...local, source: 'local' };
+      return withUi(local.reply, local.plan, 'local');
     }
-    return { reply: res.reply, plan: normalizePlan(res.plan), source: 'ai' };
+    return withUi(res.reply, normalizePlan(res.plan), 'ai', res.a2ui);
   } catch (e) {
     console.warn('[eventDesigner] designEvent failed, using local planner', e);
     const local = localDesign(messages);
-    return { ...local, source: 'local' };
+    return withUi(local.reply, local.plan, 'local');
   }
 }

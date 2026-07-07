@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   inferTemplate, extractName, extractDate, detectRemote, localDesign, normalizePlan,
+  buildPlanSurface, surfaceIdOf, type EventPlan,
 } from './eventDesigner';
+import { applySurfaceMessages, getPath, resolveContext } from './a2ui';
 
 describe('inferTemplate', () => {
   it('maps occasion keywords to templates', () => {
@@ -124,5 +126,50 @@ describe('normalizePlan', () => {
     expect(normalizePlan(null).templateId).toBe('party');
     expect(normalizePlan(undefined).name).toBeNull();
     expect(normalizePlan('nonsense').slug).toBeNull();
+  });
+});
+
+describe('buildPlanSurface (A2UI generative UI)', () => {
+  const plan: EventPlan = {
+    name: "Jenna & Jake's Wedding",
+    templateId: 'wedding',
+    remote: false,
+    date: '2026-09-12',
+    slug: 'jenna-jakes-wedding',
+  };
+
+  it('streams a valid A2UI surface the reducer can fold into state', () => {
+    const messages = buildPlanSurface(plan, 'plan_1');
+    expect(surfaceIdOf(messages)).toBe('plan_1');
+    expect(messages[0].createSurface?.catalogId).toContain('a2ui.org');
+
+    const surfaces = applySurfaceMessages({}, messages);
+    const s = surfaces.plan_1;
+    expect(s).toBeDefined();
+    expect(s.components.root.component).toBe('Card');
+    expect(getPath(s.dataModel, '/plan/name')).toBe(plan.name);
+    expect(getPath(s.dataModel, '/plan/templateId')).toBe('wedding');
+  });
+
+  it('every referenced child id exists in the flat component list', () => {
+    const surfaces = applySurfaceMessages({}, buildPlanSurface(plan, 'p'));
+    const comps = surfaces.p.components;
+    for (const c of Object.values(comps)) {
+      if (typeof c.child === 'string') expect(comps[c.child], `${c.id}.child`).toBeDefined();
+      if (Array.isArray(c.children)) {
+        for (const id of c.children) expect(comps[id as string], `${c.id}.children`).toBeDefined();
+      }
+    }
+  });
+
+  it("confirm action's context resolves the (edited) plan at trigger time", () => {
+    const surfaces = applySurfaceMessages({}, buildPlanSurface(plan, 'p'));
+    const s = surfaces.p;
+    const action = (s.components.confirmBtn.action as { event: { context: Record<string, unknown> } }).event;
+    // Simulate a user edit through the two-way binding, then trigger.
+    const edited = { ...s, dataModel: { plan: { ...plan, name: 'Renamed' } } };
+    const ctx = resolveContext(action.context, edited.dataModel);
+    expect((ctx.plan as EventPlan).name).toBe('Renamed');
+    expect((ctx.plan as EventPlan).slug).toBe('jenna-jakes-wedding');
   });
 });

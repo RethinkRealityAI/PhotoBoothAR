@@ -18,7 +18,9 @@ import { ArrowLeft, ArrowRight, Check, Copy, Loader2, PartyPopper, Send, Sparkle
 import { slugify, SLUG_RE, RESERVED_SLUGS } from '../../lib/slug';
 import { createEvent, updateEventConfig, isSlugVisiblyTaken, type CreateEventError, type HostEventRow } from '../../lib/host';
 import { EVENT_TEMPLATES, templateById, templateConfigPatch } from '../../lib/eventTemplates';
-import { designEvent, type ChatMessage, type EventPlan } from '../../lib/eventDesigner';
+import { designEvent, normalizePlan, type ChatMessage, type EventPlan } from '../../lib/eventDesigner';
+import { applySurfaceMessages, setPath, type A2uiActionEvent, type SurfaceState } from '../../lib/a2ui';
+import A2uiSurface from '../../components/a2ui/A2uiSurface';
 import TemplatePreview from '../../components/ui/TemplatePreview';
 
 const inputClass =
@@ -50,6 +52,12 @@ const CHAT_SUGGESTIONS = [
   "My mum's 60th — family joins from abroad",
 ];
 
+/** A transcript entry: the wire ChatMessage plus the id of the A2UI surface
+ *  (generative UI card) streamed with that assistant turn, if any. */
+interface ChatItem extends ChatMessage {
+  surfaceId?: string;
+}
+
 export default function NewEvent() {
   const navigate = useNavigate();
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -76,10 +84,48 @@ export default function NewEvent() {
   // ── Concierge chat (default path; the greeting lives outside the
   //    transcript so the edge fn always sees a user-first conversation) ──
   const [concierge, setConcierge] = useState(true);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatItem[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  // ── A2UI surfaces (generative UI): each concierge turn streams an A2UI
+  //    plan-editor card; the reducer folds the messages into surface state
+  //    and the chat renders each surface under its assistant bubble. ──
+  const [surfaces, setSurfaces] = useState<Record<string, SurfaceState>>({});
+
+  const handleSurfaceData = (surfaceId: string, path: string, value: unknown) => {
+    setSurfaces((s) => {
+      const surf = s[surfaceId];
+      if (!surf) return s;
+      const model = setPath(surf.dataModel, path, value);
+      const dataModel =
+        model !== null && typeof model === 'object' && !Array.isArray(model)
+          ? (model as Record<string, unknown>)
+          : {};
+      return { ...s, [surfaceId]: { ...surf, dataModel } };
+    });
+  };
+
+  const handleSurfaceAction = (event: A2uiActionEvent) => {
+    if (event.name !== 'confirm_plan') return;
+    const plan = normalizePlan(event.context.plan);
+    if (!plan.name) {
+      setChatMessages((m) => [
+        ...m,
+        { role: 'assistant', content: 'Give your event a name first — type it in the card or tell me here.' },
+      ]);
+      return;
+    }
+    // Confirm is authoritative: the card's edited values replace the wizard state.
+    setName(plan.name);
+    setTemplateId(plan.templateId);
+    setRemote(plan.remote);
+    setDate(plan.date ?? '');
+    setSlug(plan.slug ?? slugify(plan.name));
+    setSlugTouched(true);
+    setStep(3);
+  };
 
   useEffect(() => {
     chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -101,13 +147,15 @@ export default function NewEvent() {
   const sendChat = async (text: string) => {
     const content = text.trim();
     if (!content || chatBusy) return;
-    const next: ChatMessage[] = [...chatMessages, { role: 'user', content }];
+    const next: ChatItem[] = [...chatMessages, { role: 'user', content }];
     setChatMessages(next);
     setChatInput('');
     setChatBusy(true);
-    const res = await designEvent(next); // never throws — falls back to the local planner
+    const history: ChatMessage[] = next.map(({ role, content: c }) => ({ role, content: c }));
+    const res = await designEvent(history); // never throws — falls back to the local planner
     applyPlan(res.plan);
-    setChatMessages([...next, { role: 'assistant', content: res.reply }]);
+    setSurfaces((s) => applySurfaceMessages(s, res.a2ui));
+    setChatMessages([...next, { role: 'assistant', content: res.reply, surfaceId: res.surfaceId }]);
     setChatBusy(false);
   };
 
@@ -270,8 +318,18 @@ export default function NewEvent() {
                     {m.content}
                   </div>
                 ) : (
-                  <div key={i} className="max-w-[85%] self-start rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[13px] leading-relaxed text-brand-fg/90">
-                    {m.content}
+                  <div key={i} className="max-w-[92%] self-start flex flex-col gap-2">
+                    <div className="rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[13px] leading-relaxed text-brand-fg/90">
+                      {m.content}
+                    </div>
+                    {m.surfaceId && surfaces[m.surfaceId] && (
+                      <A2uiSurface
+                        surface={surfaces[m.surfaceId]}
+                        onAction={handleSurfaceAction}
+                        onDataChange={handleSurfaceData}
+                        busy={chatBusy}
+                      />
+                    )}
                   </div>
                 ),
               )}
@@ -317,27 +375,6 @@ export default function NewEvent() {
               >
                 <Send className="w-4 h-4" />
               </button>
-            </div>
-
-            <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-4 space-y-2">
-              <div className="flex justify-between gap-4 text-[13px]">
-                <span className="text-brand-muted/50">Name</span>
-                <span className="text-brand-fg text-right">{name.trim() || '—'}</span>
-              </div>
-              <div className="flex justify-between gap-4 text-[13px]">
-                <span className="text-brand-muted/50">Style</span>
-                <span className="text-brand-fg text-right">{template.emoji} {template.label}{remote ? ' · Remote' : ''}</span>
-              </div>
-              <div className="flex justify-between gap-4 text-[13px]">
-                <span className="text-brand-muted/50">Link</span>
-                <span className="font-mono text-brand-fg">{slug ? `/e/${slug}` : '—'}</span>
-              </div>
-              {date && (
-                <div className="flex justify-between gap-4 text-[13px]">
-                  <span className="text-brand-muted/50">Date</span>
-                  <span className="text-brand-fg">{date}</span>
-                </div>
-              )}
             </div>
 
             <button
