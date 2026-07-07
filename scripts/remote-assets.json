@@ -1,0 +1,77 @@
+{
+  "comment": "Remote assets to vendor into the repo. Run the 'Fetch remote assets' GitHub Action (workflow_dispatch on your branch) after editing — CI runners have open egress; the Claude sandbox does not. Paths are repo-relative.",
+  "assets": [
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_041724_7bedd98a-8eb8-4bc2-bf02-7fea18093449.png",
+      "path": "src/assets/landing/booth-portrait.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_041725_a17613f5-4843-4613-a2a9-e8cdb0c2f74e.png",
+      "path": "src/assets/landing/wall-scene.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_200737_943986c8-dd10-470e-aaa6-111d201c44b8.png",
+      "path": "src/assets/landing/booth-cutout.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_200738_85934f0a-016b-4485-8a6e-ad7e46c05f16.png",
+      "path": "src/assets/landing/trophy-cutout.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_200740_8776f1f4-bf55-491d-81da-68ead729e647.png",
+      "path": "src/assets/landing/card-cutout.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_200741_752e6d84-455f-4237-a676-27983748494a.png",
+      "path": "src/assets/landing/frame-cluster-cutout.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_041724_7bedd98a-8eb8-4bc2-bf02-7fea18093449.png",
+      "path": "hyperframes/studio/assets/booth-portrait.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_041725_a17613f5-4843-4613-a2a9-e8cdb0c2f74e.png",
+      "path": "hyperframes/studio/assets/wall-scene.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_200738_85934f0a-016b-4485-8a6e-ad7e46c05f16.png",
+      "path": "hyperframes/studio/assets/trophy-cutout.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_200740_8776f1f4-bf55-491d-81da-68ead729e647.png",
+      "path": "hyperframes/studio/assets/card-cutout.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_215711_118c0dd2-dd93-4e50-9dca-cf015efb82bc.mp4",
+      "path": "hyperframes/studio/assets/clip-booth-selfie.mp4"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_215713_d49680eb-14c8-4cb9-b64f-3d3d7b63f545.mp4",
+      "path": "hyperframes/studio/assets/clip-wall-hall.mp4"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_215713_fc3d2fd3-fa8a-445b-88d6-60d9fa15aaab.mp4",
+      "path": "hyperframes/studio/assets/clip-group-selfie.mp4"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_215735_6ca2c499-f209-4155-a381-1dd440c16724.wav",
+      "path": "hyperframes/studio/assets/vo-booth.wav"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_215738_b0b00a19-e526-41b6-89b7-a3274845703b.wav",
+      "path": "hyperframes/studio/assets/vo-wall.wav"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_215741_906989ff-43c9-4057-8f15-984fcb79d0f6.wav",
+      "path": "hyperframes/studio/assets/vo-challenges.wav"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_215743_dc07ec3d-e350-44d6-b344-77289b36b31a.wav",
+      "path": "hyperframes/studio/assets/vo-cards.wav"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_220306_7c7e9984-9728-4dc8-a13a-f1ba21dff543.wav",
+      "path": "hyperframes/studio/assets/vo-promo.wav"
+    }
+  ]
+}

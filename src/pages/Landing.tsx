@@ -25,6 +25,8 @@ import SpectrumField from '../components/ui/SpectrumField';
 import FrameShowcase from '../components/ui/FrameShowcase';
 import { BoothIcon, WallIcon, ChallengeIcon, CardIcon, type BeamIconProps } from '../components/ui/BeamIcons';
 import { BOOTH_CUTOUT, WALL_SCENE, TROPHY_CUTOUT, CARD_CUTOUT, FRAME_CLUSTER_CUTOUT } from '../lib/landingAssets';
+import promoVideo from '../assets/landing/beamwall-promo.mp4';
+import promoPoster from '../assets/landing/beamwall-promo-poster.jpg';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -474,6 +476,39 @@ export default function Landing() {
               <FeatureSection key={f.id} feature={f} />
             ))}
           </div>
+
+          {/* Promo film — rendered from hyperframes/beamwall-promo via the
+              HyperFrames CLI; committed as a self-hosted asset. Muted +
+              playsInline so mobile browsers allow the autoplay loop. */}
+          <section data-parallax-scope className="mt-32 w-full">
+            <div data-reveal className="flex flex-col items-center">
+              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">See it in action</h2>
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
+                Fifteen seconds of what your guests experience — booth, wall, challenges and keepsakes.
+              </p>
+            </div>
+            <div data-reveal className="mx-auto mt-10 w-full max-w-4xl">
+              <div
+                className="relative overflow-hidden rounded-3xl"
+                style={{
+                  border: '1px solid rgba(91, 140, 255, 0.4)',
+                  boxShadow: '0 0 60px -12px rgba(91, 140, 255, 0.45), 0 30px 90px -30px rgba(0,0,0,0.85)',
+                }}
+              >
+                <video
+                  src={promoVideo}
+                  poster={promoPoster}
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                  className="block h-auto w-full"
+                  aria-label="Beamwall promo video"
+                />
+              </div>
+            </div>
+          </section>
 
           {/* Live themed showcase */}
           <section data-parallax-scope className="mt-32 w-full">

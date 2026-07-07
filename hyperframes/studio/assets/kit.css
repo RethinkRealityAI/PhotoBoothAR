@@ -1,0 +1,246 @@
+/*
+ * Beamwall video kit — shared styles for every composition in this studio.
+ * Palette + typography mirror src/index.css (void/beam scales). Each
+ * composition's root must set class="bw-root" and its own size.
+ */
+@font-face {
+  font-family: "Cormorant Garamond";
+  src: url("./fonts/cormorant-garamond-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Cormorant Garamond";
+  src: url("./fonts/cormorant-garamond-latin-600-normal.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Jost";
+  src: url("./fonts/jost-latin-500-normal.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Jost";
+  src: url("./fonts/jost-latin-600-normal.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+}
+
+.bw-root {
+  position: relative;
+  overflow: hidden;
+  --void: #05060b;
+  --fg: #eef3ff;
+  --muted: #a9b4cc;
+  --blue: #5b8cff;
+  --teal: #22d3ee;
+  --orange: #fb923c;
+  --green: #34d399;
+  --magenta: #e879f9;
+  --violet: #7c6cf7;
+  --cyan: #38bdf8;
+  font-family: "Cormorant Garamond", Georgia, serif;
+  color: var(--fg);
+}
+
+/* Backdrop layers (built by BW.buildBackdrop) */
+.bw-bg {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(140% 100% at 50% 0%, #0a0d18 0%, var(--void) 55%, #000 100%);
+}
+.bw-beam {
+  position: absolute;
+  top: -6%;
+  height: 112%;
+  width: 90px;
+  opacity: 0;
+  transform-origin: 50% 100%;
+  filter: blur(26px);
+}
+.bw-star {
+  position: absolute;
+  border-radius: 999px;
+  opacity: 0;
+}
+.bw-floor {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: 108px;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(91, 140, 255, 0.5), rgba(34, 211, 238, 0.55), rgba(232, 121, 249, 0.5), transparent);
+  opacity: 0;
+}
+.bw-flash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(60% 45% at 50% 42%, rgba(238, 243, 255, 0.9), rgba(122, 140, 255, 0.25) 55%, transparent 75%);
+  opacity: 0;
+  z-index: 55;
+  pointer-events: none;
+}
+.bw-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+  box-shadow: inset 0 0 320px 80px rgba(0, 0, 0, 0.8);
+}
+
+/* Scene shells */
+.scene {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  z-index: 10;
+  will-change: opacity, transform;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Typography */
+.eyebrow {
+  font-family: "Jost", Arial, sans-serif;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.44em;
+  font-size: 24px;
+  color: var(--muted);
+  margin: 0 0 30px;
+}
+.title-xl {
+  font-weight: 600;
+  font-size: 170px;
+  line-height: 1;
+  margin: 0;
+}
+.title-lg {
+  font-weight: 400;
+  font-size: 96px;
+  line-height: 1.08;
+  margin: 0;
+}
+.title-md {
+  font-weight: 400;
+  font-size: 72px;
+  line-height: 1.1;
+  margin: 0;
+}
+.sub {
+  font-family: "Jost", Arial, sans-serif;
+  font-weight: 500;
+  font-size: 28px;
+  color: var(--muted);
+  margin: 30px 0 0;
+  letter-spacing: 0.02em;
+}
+.foil {
+  background: linear-gradient(115deg, var(--violet) 0%, #a9c4ff 38%, var(--fg) 50%, var(--blue) 68%, var(--violet) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.label {
+  font-family: "Jost", Arial, sans-serif;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+}
+
+/* CTA pill */
+.pill {
+  font-family: "Jost", Arial, sans-serif;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.32em;
+  font-size: 26px;
+  color: #fff;
+  padding: 28px 72px;
+  border-radius: 999px;
+  background: linear-gradient(115deg, var(--violet), var(--blue) 45%, #a9c4ff 55%, var(--blue) 70%, var(--violet));
+  box-shadow: 0 0 70px -10px rgba(91, 140, 255, 0.75);
+}
+
+/* Glass surfaces */
+.glass-card {
+  border-radius: 30px;
+  background: rgba(9, 11, 20, 0.82);
+  border: 1.5px solid rgba(169, 196, 255, 0.35);
+  box-shadow: 0 0 60px -14px rgba(91, 140, 255, 0.5), 0 30px 80px -30px rgba(0, 0, 0, 0.85);
+}
+
+/* Phone chrome (BW.phone) */
+.bw-phone {
+  position: relative;
+  border-radius: 56px;
+  border: 3px solid rgba(169, 196, 255, 0.45);
+  background: #0a0c15;
+  box-shadow: 0 0 70px -12px rgba(91, 140, 255, 0.55), 0 40px 90px -30px rgba(0, 0, 0, 0.9);
+  padding: 16px;
+}
+.bw-phone .notch {
+  position: absolute;
+  top: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 26%;
+  height: 26px;
+  border-radius: 999px;
+  background: #04050a;
+  z-index: 5;
+}
+.bw-phone .screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 42px;
+  overflow: hidden;
+  background: #04050a;
+}
+.bw-phone .screen > video,
+.bw-phone .screen > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Glowing gallery frame (BW.frame) */
+.bw-frame {
+  position: relative;
+  border-radius: 24px;
+  background: rgba(7, 9, 16, 0.75);
+  overflow: hidden;
+}
+.bw-frame > img,
+.bw-frame > .fill {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.bw-frame .sheen {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(168deg, rgba(255, 255, 255, 0.12), transparent 32%);
+  pointer-events: none;
+}
