@@ -2,35 +2,109 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Beamwall marketing landing page — hero, a live themed showcase, feature
- * cards, transparent per-event pricing, and clear CTAs. Honest and
+ * Beamwall marketing landing page — an immersive scroll experience on the
+ * platform's black "beam wall" identity. A fixed WebGL spectrum field and
+ * parallax ghost-frames sit behind everything; the hero's glass frames beam
+ * in on load; each product pillar (AR booth, live wall, challenges, keepsake
+ * cards) gets a full feature section whose transparent-cutout artwork floats
+ * and drifts with scroll (GSAP ScrollTrigger + Framer Motion). Honest and
  * dark-pattern-free: real prices, no fake urgency, every CTA leads to sign-up.
+ *
+ * Scroll architecture: App's shell is h-screen overflow-hidden, so THIS
+ * component owns scrolling via its root (h-full overflow-y-auto). All
+ * ScrollTriggers therefore pass that root as their `scroller`.
  */
+import { useLayoutEffect, useRef, useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, Sparkles, Video, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
+import gsap from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { EVENT_TEMPLATES } from '../lib/eventTemplates';
 import TemplatePreview from '../components/ui/TemplatePreview';
 import SpectrumField from '../components/ui/SpectrumField';
 import FrameShowcase from '../components/ui/FrameShowcase';
+import { BoothIcon, WallIcon, ChallengeIcon, CardIcon, type BeamIconProps } from '../components/ui/BeamIcons';
+import { BOOTH_CUTOUT, WALL_SCENE, TROPHY_CUTOUT, CARD_CUTOUT, FRAME_CLUSTER_CUTOUT } from '../lib/landingAssets';
 
-const FEATURES = [
+gsap.registerPlugin(ScrollTrigger);
+
+/* ── Content ────────────────────────────────────────────────────────── */
+
+interface Feature {
+  id: string;
+  eyebrow: string;
+  title: string;
+  copy: string;
+  bullets: string[];
+  Icon: ComponentType<BeamIconProps>;
+  from: string;
+  to: string;
+  /** "r, g, b" of `from`, for glows. */
+  rgb: string;
+  image: string;
+  /** Cutouts float free over a glow; scenes render inside a glass frame. */
+  imageStyle: 'cutout' | 'framed';
+  flip?: boolean;
+}
+
+const FEATURES: Feature[] = [
   {
-    icon: Camera,
-    title: 'AR booth + live wall',
+    id: 'booth',
+    eyebrow: 'Immersive AR booth',
+    title: 'A photo booth that lives in every pocket',
     copy:
-      'Guests scan a QR code and step into an AR photo booth in their browser — no app to download. Every shot beams onto a cinematic live wall the whole room watches.',
+      'Guests scan one QR code and step straight into an AR photo booth in their browser — no app, no queue. Face-tracked 3D props, live WebGL effects and your event’s frames follow every smile.',
+    bullets: ['Face-tracked 3D props & frames', 'Cinematic live effects', 'Photo & video capture, no app'],
+    Icon: BoothIcon,
+    from: '#5B8CFF',
+    to: '#7C6CF7',
+    rgb: '91, 140, 255',
+    image: BOOTH_CUTOUT,
+    imageStyle: 'cutout',
   },
   {
-    icon: Sparkles,
-    title: 'Themed in seconds',
+    id: 'wall',
+    eyebrow: 'Live photo wall',
+    title: 'Every shot beams onto the wall, live',
     copy:
-      'Pick a style — wedding, gala, birthday, corporate or party — and your booth, frames and wall are instantly on-brand. Fine-tune colours, frames and 3D props anytime.',
+      'The moment a guest captures a photo it beams onto a cinematic wall the whole room watches — mosaic, slideshow and marquee views with moderation you control from your phone.',
+    bullets: ['Realtime beam-in animations', 'Mosaic, slideshow & marquee views', 'One-tap moderation'],
+    Icon: WallIcon,
+    from: '#22D3EE',
+    to: '#38BDF8',
+    rgb: '34, 211, 238',
+    image: WALL_SCENE,
+    imageStyle: 'framed',
+    flip: true,
   },
   {
-    icon: Video,
-    title: 'Video guestbook & cards',
+    id: 'challenges',
+    eyebrow: 'Challenges',
+    title: 'Turn the room into the game',
     copy:
-      'Guests leave short video messages and signed greeting cards you keep forever — a keepsake film, ready the morning after.',
+      'Set photo challenges — “catch the first dance”, “selfie with a stranger” — and watch the leaderboard light the wall up. Guests play, the wall fills, the room comes alive.',
+    bullets: ['Custom photo challenges', 'Live leaderboard on the wall', 'Prizes decided by the crowd'],
+    Icon: ChallengeIcon,
+    from: '#FB923C',
+    to: '#F59E0B',
+    rgb: '251, 146, 60',
+    image: TROPHY_CUTOUT,
+    imageStyle: 'cutout',
+  },
+  {
+    id: 'cards',
+    eyebrow: 'Keepsake cards & guestbook',
+    title: 'The morning-after keepsake',
+    copy:
+      'Guests leave short video messages and sign a collective greeting card. It all becomes a keepsake you keep forever — with a highlight film rendered overnight on premium plans.',
+    bullets: ['Video guestbook messages', 'Collaborative greeting cards', 'Keepsake highlight film'],
+    Icon: CardIcon,
+    from: '#E879F9',
+    to: '#C084FC',
+    rgb: '232, 121, 249',
+    image: CARD_CUTOUT,
+    imageStyle: 'cutout',
+    flip: true,
   },
 ];
 
@@ -77,13 +151,204 @@ const TIERS: Tier[] = [
 
 const SHOWCASE = ['wedding', 'party', 'gala'];
 
+/** Ghost frames drifting at different depths behind the whole page. */
+const GHOST_FRAMES = [
+  { left: '6%', top: '18%', w: 110, h: 165, rgb: '91, 140, 255', depth: 0.35, rot: -8 },
+  { left: '88%', top: '12%', w: 90, h: 135, rgb: '34, 211, 238', depth: 0.55, rot: 10 },
+  { left: '80%', top: '55%', w: 130, h: 195, rgb: '232, 121, 249', depth: 0.25, rot: -6 },
+  { left: '10%', top: '68%', w: 84, h: 126, rgb: '251, 146, 60', depth: 0.6, rot: 12 },
+  { left: '45%', top: '85%', w: 100, h: 150, rgb: '124, 108, 247', depth: 0.45, rot: -12 },
+];
+
+/* ── Building blocks ────────────────────────────────────────────────── */
+
+/** Transparent-cutout artwork that floats over a tinted glow. */
+function CutoutArt({ feature }: { feature: Feature }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="relative mx-auto flex aspect-square w-full max-w-[26rem] items-center justify-center" data-parallax-depth="0.14">
+      <div
+        className="absolute inset-[8%] rounded-full blur-3xl"
+        style={{ background: `radial-gradient(circle, rgba(${feature.rgb}, 0.32), transparent 68%)` }}
+      />
+      {!failed ? (
+        <img
+          src={feature.image}
+          alt=""
+          aria-hidden
+          className="animate-float relative max-h-full w-auto max-w-full object-contain drop-shadow-[0_24px_60px_rgba(0,0,0,0.55)]"
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <feature.Icon size={96} from={feature.from} to={feature.to} className="relative" />
+      )}
+      {/* grounding glow puddle */}
+      <div
+        className="absolute bottom-[6%] left-1/2 h-6 w-3/5 -translate-x-1/2 rounded-full blur-2xl"
+        style={{ background: `rgba(${feature.rgb}, 0.35)` }}
+      />
+    </div>
+  );
+}
+
+/** Photographic artwork inside a glowing glass frame. */
+function FramedArt({ feature }: { feature: Feature }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="relative mx-auto w-full max-w-[24rem]" data-parallax-depth="0.14">
+      <div
+        className="animate-float relative aspect-[4/5] overflow-hidden rounded-3xl"
+        style={{
+          border: `1px solid rgba(${feature.rgb}, 0.5)`,
+          boxShadow: `0 0 46px -8px rgba(${feature.rgb}, 0.5), 0 30px 80px -30px rgba(0,0,0,0.8)`,
+          transform: 'rotate(2deg)',
+        }}
+      >
+        {!failed ? (
+          <img
+            src={feature.image}
+            alt=""
+            aria-hidden
+            className="h-full w-full object-cover"
+            loading="lazy"
+            onError={() => setFailed(true)}
+          />
+        ) : (
+          <div
+            className="flex h-full w-full items-center justify-center"
+            style={{ background: `radial-gradient(120% 90% at 50% 25%, rgba(${feature.rgb}, 0.3), rgba(6,7,13,0.8) 70%)` }}
+          >
+            <feature.Icon size={80} from={feature.from} to={feature.to} />
+          </div>
+        )}
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{ background: 'linear-gradient(165deg, rgba(255,255,255,0.12), transparent 32%)' }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function FeatureSection({ feature }: { feature: Feature }) {
+  const art = feature.imageStyle === 'cutout' ? <CutoutArt feature={feature} /> : <FramedArt feature={feature} />;
+  return (
+    <section data-parallax-scope className="grid w-full items-center gap-10 sm:grid-cols-2 sm:gap-14">
+      <div data-reveal className={`text-left ${feature.flip ? 'sm:order-2' : ''}`}>
+        <div
+          className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-2xl"
+          style={{
+            background: `linear-gradient(140deg, rgba(${feature.rgb}, 0.18), rgba(${feature.rgb}, 0.05))`,
+            border: `1px solid rgba(${feature.rgb}, 0.35)`,
+            boxShadow: `0 0 24px -6px rgba(${feature.rgb}, 0.45)`,
+          }}
+        >
+          <feature.Icon size={26} from={feature.from} to={feature.to} />
+        </div>
+        <p className="font-label uppercase tracking-luxe text-[10px]" style={{ color: feature.from }}>
+          {feature.eyebrow}
+        </p>
+        <h2 className="mt-3 font-serif text-3xl leading-tight text-brand-fg sm:text-4xl">{feature.title}</h2>
+        <p className="mt-4 max-w-md text-[15px] leading-relaxed text-brand-muted/80">{feature.copy}</p>
+        <ul className="mt-6 flex flex-col gap-2.5">
+          {feature.bullets.map((b) => (
+            <li key={b} className="flex items-start gap-2.5 text-sm text-brand-fg/90">
+              <Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: feature.from }} />
+              <span>{b}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div data-reveal className={feature.flip ? 'sm:order-1' : ''}>
+        {art}
+      </div>
+    </section>
+  );
+}
+
+/* ── Page ───────────────────────────────────────────────────────────── */
+
 export default function Landing() {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const showcase = SHOWCASE.map((id) => EVENT_TEMPLATES.find((t) => t.id === id)!).filter(Boolean);
 
+  // Scroll choreography: soft reveals for [data-reveal], scrubbed drift for
+  // [data-parallax-depth] artwork, and slow full-page drift for ghost frames.
+  // All triggers use this component's own scroll container; matchMedia skips
+  // everything under prefers-reduced-motion, and mm.revert() cleans up.
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current;
+    const content = contentRef.current;
+    if (!scroller || !content) return;
+    const mm = gsap.matchMedia();
+    mm.add('(prefers-reduced-motion: no-preference)', () => {
+      gsap.utils.toArray<HTMLElement>('[data-reveal]', content).forEach((el) => {
+        gsap.fromTo(
+          el,
+          { y: 44, opacity: 0 },
+          {
+            y: 0,
+            opacity: 1,
+            duration: 0.9,
+            ease: 'power3.out',
+            scrollTrigger: { trigger: el, scroller, start: 'top 84%' },
+          },
+        );
+      });
+      gsap.utils.toArray<HTMLElement>('[data-parallax-depth]', content).forEach((el) => {
+        const depth = parseFloat(el.dataset.parallaxDepth ?? '0.15');
+        gsap.to(el, {
+          yPercent: -depth * 100,
+          ease: 'none',
+          scrollTrigger: {
+            trigger: el.closest('[data-parallax-scope]') ?? el,
+            scroller,
+            scrub: 0.6,
+            start: 'top bottom',
+            end: 'bottom top',
+          },
+        });
+      });
+      gsap.utils.toArray<HTMLElement>('[data-ghost-depth]').forEach((el) => {
+        const depth = parseFloat(el.dataset.ghostDepth ?? '0.4');
+        gsap.to(el, {
+          yPercent: -depth * 220,
+          ease: 'none',
+          scrollTrigger: { trigger: content, scroller, scrub: 1.2, start: 'top top', end: 'bottom bottom' },
+        });
+      });
+    });
+    return () => mm.revert();
+  }, []);
+
   return (
-    <div className="relative min-h-screen w-full overflow-x-hidden overflow-y-auto app-bg text-brand-fg">
-      <SpectrumField className="z-0" />
-      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-8">
+    <div ref={scrollRef} className="relative h-full w-full overflow-x-hidden overflow-y-auto scroll-smooth bg-brand-bg text-brand-fg">
+      {/* Fixed immersive backdrop: WebGL spectrum + parallax ghost frames. */}
+      <div className="pointer-events-none fixed inset-0 z-0">
+        <SpectrumField />
+        {GHOST_FRAMES.map((g, i) => (
+          <div
+            key={i}
+            data-ghost-depth={g.depth}
+            className="absolute rounded-2xl opacity-30"
+            style={{
+              left: g.left,
+              top: g.top,
+              width: g.w,
+              height: g.h,
+              border: `1px solid rgba(${g.rgb}, 0.35)`,
+              boxShadow: `0 0 26px -6px rgba(${g.rgb}, 0.28), inset 0 0 24px -8px rgba(${g.rgb}, 0.22)`,
+              background: `radial-gradient(120% 90% at 50% 20%, rgba(${g.rgb}, 0.06), transparent 70%)`,
+              transform: `rotate(${g.rot}deg)`,
+              filter: 'blur(1.5px)',
+            }}
+          />
+        ))}
+      </div>
+
+      <div ref={contentRef} className="relative z-10 mx-auto flex w-full max-w-6xl flex-col px-6 py-8">
         {/* Top bar */}
         <header className="flex items-center justify-between">
           <span className="font-serif text-2xl font-semibold tracking-wide text-foil-static">Beamwall</span>
@@ -101,7 +366,7 @@ export default function Landing() {
         </header>
 
         {/* Hero */}
-        <main className="flex flex-1 flex-col items-center py-14 text-center sm:py-16">
+        <main className="flex flex-1 flex-col items-center pt-14 text-center sm:pt-16">
           <span className="mb-5 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
             AR photo booth &amp; live wall for events
           </span>
@@ -129,49 +394,61 @@ export default function Landing() {
           </div>
           <p className="mt-4 font-sans text-xs text-brand-muted/50">Free to start · no credit card to create your event.</p>
 
-          {/* Focal visual — the beam wall itself: every pillar of the product,
-              beaming in as glowing frames the moment the page loads. */}
+          {/* Focal visual — the beam wall itself: the product's pillars as
+              glowing frames, beaming in the moment the page loads. */}
           <FrameShowcase className="mt-16 w-full max-w-4xl" />
 
-          {/* Live themed showcase */}
-          <h2 className="mt-20 font-serif text-2xl text-foil-static sm:text-3xl">Pick a style, in one tap</h2>
-          <div className="mt-8 grid w-full max-w-3xl grid-cols-3 gap-4 sm:gap-6">
-            {showcase.map((t, i) => (
-              <div key={t.id} className={`flex flex-col items-center gap-2.5 ${i === 1 ? 'sm:-translate-y-4' : ''}`}>
-                <div className="w-full">
-                  <TemplatePreview template={t} />
-                </div>
-                <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">
-                  {t.emoji} {t.label}
-                </span>
-              </div>
-            ))}
-          </div>
-          <p className="mt-5 font-sans text-sm text-brand-muted/55">One tap picks a look — booth, frames and wall, instantly on-brand.</p>
-
-          {/* Feature cards */}
-          <div className="mt-20 grid w-full gap-5 sm:grid-cols-3">
+          {/* Feature stories — one immersive section per pillar. */}
+          <div className="mt-28 flex w-full max-w-5xl flex-col gap-28 sm:mt-36 sm:gap-36">
             {FEATURES.map((f) => (
-              <div key={f.title} className="liquid-glass rounded-2xl px-6 py-8 text-left shadow-[0_16px_60px_rgba(0,0,0,0.4)]">
-                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[color:var(--color-accent)]/12 text-accent">
-                  <f.icon className="h-5 w-5" />
-                </div>
-                <h3 className="font-serif text-xl text-accent">{f.title}</h3>
-                <p className="mt-2.5 text-sm leading-relaxed text-brand-muted/80">{f.copy}</p>
-              </div>
+              <FeatureSection key={f.id} feature={f} />
             ))}
           </div>
+
+          {/* Live themed showcase */}
+          <section data-parallax-scope className="mt-32 w-full">
+            <div data-reveal className="relative flex flex-col items-center">
+              <img
+                src={FRAME_CLUSTER_CUTOUT}
+                alt=""
+                aria-hidden
+                loading="lazy"
+                data-parallax-depth="0.1"
+                className="animate-float pointer-events-none absolute -top-24 right-[4%] hidden w-40 opacity-70 lg:block"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              />
+              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">Pick a style, in one tap</h2>
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
+                Wedding, gala, birthday, corporate or party — booth, frames and wall recolor instantly, then
+                fine-tune everything in the studio.
+              </p>
+            </div>
+            <div data-reveal className="mt-10 grid w-full grid-cols-3 gap-4 sm:gap-6 mx-auto max-w-3xl">
+              {showcase.map((t, i) => (
+                <div key={t.id} className={`flex flex-col items-center gap-2.5 ${i === 1 ? 'sm:-translate-y-4' : ''}`}>
+                  <div className="w-full">
+                    <TemplatePreview template={t} />
+                  </div>
+                  <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">
+                    {t.emoji} {t.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
 
           {/* Pricing */}
-          <section id="pricing" className="mt-24 w-full scroll-mt-6">
-            <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">Simple pricing, per event</h2>
-            <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
-              Pay only for the events you host — no subscription required. Start free, upgrade an event
-              whenever you like. Frequent host? Beamwall Pro is <span className="text-brand-fg">$79/month</span> for
-              premium features across every event.
-            </p>
+          <section id="pricing" className="mt-32 w-full scroll-mt-8">
+            <div data-reveal>
+              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">Simple pricing, per event</h2>
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
+                Pay only for the events you host — no subscription required. Start free, upgrade an event
+                whenever you like. Frequent host? Beamwall Pro is <span className="text-brand-fg">$79/month</span> for
+                premium features across every event.
+              </p>
+            </div>
 
-            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div data-reveal className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {TIERS.map((t) => (
                 <div
                   key={t.name}
@@ -216,7 +493,7 @@ export default function Landing() {
           </section>
 
           {/* Closing CTA */}
-          <div className="mt-24 flex w-full max-w-2xl flex-col items-center rounded-3xl liquid-glass px-8 py-12 text-center">
+          <div data-reveal className="mt-32 flex w-full max-w-2xl flex-col items-center rounded-3xl liquid-glass px-8 py-12 text-center">
             <h2 className="font-serif text-3xl text-foil-static">Ready in minutes.</h2>
             <p className="mt-3 max-w-md text-sm leading-relaxed text-brand-muted/75">
               Create your event, pick a style, and share the QR code. Your guests bring the moments; the
@@ -232,7 +509,7 @@ export default function Landing() {
         </main>
 
         {/* Footer */}
-        <footer className="flex flex-col items-center gap-2 pb-4 pt-16 text-center">
+        <footer className="flex flex-col items-center gap-2 pb-6 pt-20 text-center">
           <span className="font-serif text-lg text-foil-static">Beamwall</span>
           <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
             Loved at weddings, galas &amp; milestone birthdays.

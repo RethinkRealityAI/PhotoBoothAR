@@ -240,8 +240,18 @@ body {
   0%, 100% { opacity: 0; transform: scale(0.5); }
   50%      { opacity: var(--tw-peak, 0.9); transform: scale(1); }
 }
+/* Gentle levitation for imagery that "lives" on the page. */
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-12px); }
+}
+
 .animate-rise-in { animation: rise-in 0.7s cubic-bezier(0.16,1,0.3,1) both; }
 .animate-pulse-glow { animation: pulse-glow 3.2s ease-in-out infinite; }
+.animate-float { animation: float-y 6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-float { animation: none; }
+}
 
 /* Range inputs styled to the active accent */
 input[type="range"] { accent-color: var(--color-accent); }

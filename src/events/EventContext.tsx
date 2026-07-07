@@ -16,6 +16,7 @@ import type { EventConfig } from './types';
 import { getRegisteredEvent } from './registry';
 import { codeRuntimeEvent, loadEventConfig, type RuntimeEvent } from './runtime';
 import { subscribeToBranding } from '../lib/db';
+import { MANAGED_CSS_VARS } from '../lib/branding';
 import { useStore } from '../store';
 
 export interface EventContextValue {
@@ -81,6 +82,25 @@ function applyEventTheme(event: RuntimeEvent) {
   document.title = `${event.config.copy.fullName} · Photo Booth`;
 }
 
+/** Must match index.html's <title> so reset === the pre-event state. */
+const PLATFORM_TITLE = 'Beamwall · AR photo booth & live wall for events';
+
+/**
+ * Restore the platform-default look when leaving an event context: remove the
+ * data-event scope, empty the injected theme rule, clear any inline branding
+ * overrides applyBrandingVars set on :root, and reset the document title.
+ * Without this, an event's theme lingers over /host and /admin after leaving
+ * the studio — the platform chrome must never wear a customer's branding.
+ */
+function resetPlatformTheme() {
+  if (typeof document === 'undefined') return;
+  delete document.documentElement.dataset.event;
+  const style = document.getElementById(THEME_STYLE_ID);
+  if (style) style.textContent = '';
+  for (const v of MANAGED_CSS_VARS) document.documentElement.style.removeProperty(v);
+  document.title = PLATFORM_TITLE;
+}
+
 /** Point the store (and DOM theme) at this event before children render. */
 function bootstrapEvent(event: RuntimeEvent) {
   applyEventTheme(event);
@@ -133,6 +153,16 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
     return { phase: 'loading' };
   });
   const loadedSlugRef = useRef<string | null>(state.phase === 'ready' ? slug : null);
+
+  // De-theme on unmount so platform chrome (/host, /admin, /) never keeps an
+  // event's branding after leaving. The mount half re-asserts the theme for
+  // coded events, whose render-phase bootstrap runs BEFORE a replaced sibling
+  // provider's unmount cleanup would otherwise wipe it.
+  const mountedEventRef = useRef<RuntimeEvent | null>(state.phase === 'ready' ? state.event : null);
+  useEffect(() => {
+    if (mountedEventRef.current) applyEventTheme(mountedEventRef.current);
+    return resetPlatformTheme;
+  }, []);
 
   useEffect(() => {
     if (loadedSlugRef.current === slug) return;

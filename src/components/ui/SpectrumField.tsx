@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * SpectrumField — generative WebGL background for the platform's black
- * "beam wall" theme: soft vertical light beams in a multi-hue spectrum,
- * drifting and flickering, with a scatter of twinkling sparkle points.
+ * "beam wall" theme: a true-black field with soft vertical light beams in a
+ * multi-hue spectrum, a faint drifting nebula wash, twinkling sparkle points
+ * and a glowing horizon line — like standing in a dark hall in front of the
+ * wall itself.
  *
  * Raw WebGL1 / GLSL ES 1.00 fullscreen-triangle shader (no Three.js/R3F),
  * matching the technique already used for the booth's procedural filters in
@@ -13,9 +15,11 @@
  * of a single event accent, since this is the platform's own identity, not
  * a per-event theme.
  *
- * Renders nothing (falls through to the `.app-bg` CSS gradient behind it)
- * if WebGL is unavailable, and freezes on a single static frame when the
- * user prefers reduced motion.
+ * The shader renders the ENTIRE background (opaque, starting from pure
+ * void-black) so the look is deterministic — it never depends on what CSS
+ * gradient happens to sit underneath. If WebGL is unavailable it renders
+ * nothing and the solid `bg-brand-bg` behind it stays. With
+ * prefers-reduced-motion it freezes on a single static frame.
  */
 import { useEffect, useRef } from 'react';
 
@@ -35,6 +39,19 @@ varying vec2 vUv;
 
 float hash21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
 
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i);
+  float b = hash21(i + vec2(1.0, 0.0));
+  float c = hash21(i + vec2(0.0, 1.0));
+  float d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float fbm(vec2 p){
+  return vnoise(p) * 0.6 + vnoise(p * 2.3 + vec2(1.7, 9.2)) * 0.28 + vnoise(p * 4.9 + vec2(8.3, 2.8)) * 0.12;
+}
+
 vec3 beamColor(int i){
   if (i == 0) return vec3(0.357, 0.549, 1.000); /* blue    #5B8CFF */
   if (i == 1) return vec3(0.133, 0.827, 0.933); /* teal    #22D3EE */
@@ -48,36 +65,61 @@ vec3 beamColor(int i){
 void main(){
   vec2 uv = vUv;
   vec2 aspect = vec2(uResolution.x / uResolution.y, 1.0);
-  vec3 col = vec3(0.0);
 
-  /* Soft vertical beams, one per hue, gently drifting side to side. */
+  /* true void-black base with the faintest cool lift at the top */
+  vec3 col = vec3(0.016, 0.02, 0.038) * (1.0 - uv.y * 0.55);
+
+  /* slow drifting nebula wash — barely-there color depth between the beams */
+  float neb = fbm(uv * vec2(2.2, 1.5) + vec2(uTime * 0.012, -uTime * 0.008));
+  vec3 nebTint = mix(vec3(0.10, 0.16, 0.42), vec3(0.30, 0.14, 0.44), uv.x);
+  col += nebTint * smoothstep(0.5, 0.98, neb) * 0.055;
+
+  /* Soft vertical beams, gently drifting side to side. Beam width is a
+     fraction of SCREEN WIDTH (not height) so portrait phones don't smear
+     all seven into one wash — and narrow screens keep only four beams. */
+  bool narrow = aspect.x < 0.75;
+  float slots = narrow ? 4.0 : 7.0;
   for (int i = 0; i < 7; i++) {
     float fi = float(i);
-    float baseX = (fi + 0.5) / 7.0;
-    float drift = sin(uTime * (0.05 + 0.015 * fi) + fi * 2.1) * 0.05;
-    float d = abs(uv.x - (baseX + drift)) * aspect.x;
-    float beam = exp(-d * d * 46.0) * 0.5;
-    float flicker = 0.65 + 0.35 * sin(uTime * (0.5 + 0.2 * fi) + fi * 5.0 + uv.y * 3.0);
-    float heightFade = smoothstep(0.0, 0.30, uv.y) * (1.0 - smoothstep(0.55, 1.0, uv.y));
+    if (narrow && (i == 2 || i == 4 || i == 6)) continue;
+    float slot = narrow ? (fi == 0.0 ? 0.0 : (fi == 1.0 ? 1.0 : (fi == 3.0 ? 2.0 : 3.0))) : fi;
+    float baseX = (slot + 0.5) / slots;
+    float drift = sin(uTime * (0.05 + 0.015 * fi) + fi * 2.1) * 0.045;
+    float d = abs(uv.x - (baseX + drift));
+    /* tight bright core + restrained halo keeps blacks black */
+    float beam = exp(-d * d * 950.0) * 0.5 + exp(-d * d * 210.0) * 0.10;
+    float flicker = 0.7 + 0.3 * sin(uTime * (0.5 + 0.2 * fi) + fi * 5.0 + uv.y * 3.0);
+    /* beams rise from the horizon and dissolve upward */
+    float heightFade = smoothstep(0.05, 0.42, 1.0 - uv.y) * smoothstep(1.0, 0.55, 1.0 - uv.y) +
+                       smoothstep(0.0, 0.55, 1.0 - uv.y) * 0.18;
     col += beamColor(i) * beam * flicker * heightFade;
   }
 
-  /* Twinkling sparkle points scattered across the field. */
-  vec3 sparkle = vec3(0.0);
+  /* glowing horizon line near the base — the "wall floor" */
+  float horizonY = 0.86;
+  float hd = abs(uv.y - horizonY);
+  vec3 horizonTint = mix(beamColor(0), beamColor(5), uv.x) * 0.55 + vec3(0.12);
+  col += horizonTint * exp(-hd * hd * 900.0) * 0.16;
+  col += horizonTint * exp(-hd * hd * 90.0) * 0.05;
+
+  /* twinkling sparkle points scattered across the upper field */
   for (int i = 0; i < 24; i++) {
     float fi = float(i);
     vec2 cell = vec2(mod(fi, 6.0), floor(fi / 6.0)) / vec2(6.0, 4.0);
     vec2 jitter = vec2(hash21(cell + 0.1), hash21(cell + 0.7));
-    vec2 center = (cell + jitter * 0.9) * aspect;
+    vec2 center = (cell + jitter * 0.9) * vec2(aspect.x, 0.8);
     float sz = 0.0022 + hash21(cell + 1.3) * 0.0035;
     float speed = 0.5 + hash21(cell + 2.1) * 1.4;
     float phase = uTime * speed + hash21(cell + 3.7) * 6.28318;
     float d = length(uv * aspect - center);
     float tw = smoothstep(sz, 0.0, d) * (0.5 + 0.5 * sin(phase));
     int hi = int(mod(fi, 7.0));
-    sparkle += tw * beamColor(hi);
+    col += tw * beamColor(hi) * 0.8;
   }
-  col += sparkle * 0.85;
+
+  /* vignette keeps edges and the reading column properly black */
+  float vin = smoothstep(1.15, 0.4, length((uv - 0.5) * vec2(aspect.x * 0.8, 1.15)));
+  col *= mix(0.42, 1.0, vin);
 
   gl_FragColor = vec4(col, 1.0);
 }`;
@@ -99,7 +141,7 @@ export default function SpectrumField({ className = '' }: { className?: string }
     const gl =
       (canvas.getContext('webgl', { premultipliedAlpha: false }) as WebGLRenderingContext | null) ||
       (canvas.getContext('experimental-webgl') as WebGLRenderingContext | null);
-    if (!gl) return; // no WebGL — the CSS app-bg gradient behind this stays visible
+    if (!gl) return; // no WebGL — the solid bg-brand-bg behind this stays visible
 
     const vs = gl.createShader(gl.VERTEX_SHADER)!;
     gl.shaderSource(vs, VERTEX);
@@ -171,7 +213,7 @@ export default function SpectrumField({ className = '' }: { className?: string }
     <canvas
       ref={canvasRef}
       aria-hidden
-      className={`pointer-events-none absolute inset-0 h-full w-full opacity-70 ${className}`}
+      className={`pointer-events-none absolute inset-0 h-full w-full ${className}`}
     />
   );
 }
