@@ -42,6 +42,8 @@ function slugClientError(slug: string): string | null {
   return null;
 }
 
+const CHAT_STORE_KEY = 'beamwall:concierge:v1';
+
 const CHAT_GREETING =
   "Tell me about your event — who or what are we celebrating? I'll design the whole thing: " +
   'the look, the name, the guest link. You can fine-tune every detail afterwards.';
@@ -97,6 +99,26 @@ export default function NewEvent() {
   //    plan-editor card; the reducer folds the messages into surface state
   //    and the chat renders each surface under its assistant bubble. ──
   const [surfaces, setSurfaces] = useState<Record<string, SurfaceState>>({});
+
+  // Persist the conversation across accidental refreshes (session-scoped;
+  // cleared on successful create). Everything stored is plain JSON.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(CHAT_STORE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { chat?: ChatItem[]; surfaces?: Record<string, SurfaceState> };
+      if (Array.isArray(saved.chat) && saved.chat.length > 0) setChatMessages(saved.chat);
+      if (saved.surfaces && typeof saved.surfaces === 'object') setSurfaces(saved.surfaces);
+    } catch { /* corrupt entry → start fresh */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    try {
+      if (chatMessages.length > 0) {
+        sessionStorage.setItem(CHAT_STORE_KEY, JSON.stringify({ chat: chatMessages, surfaces }));
+      }
+    } catch { /* storage full/blocked — persistence is best-effort */ }
+  }, [chatMessages, surfaces]);
 
   const handleSurfaceData = useCallback((surfaceId: string, path: string, value: unknown) => {
     setSurfaces((s) => {
@@ -235,6 +257,9 @@ export default function NewEvent() {
       if (!seeded) await updateEventConfig(res.event.id, patch);
     }
     setCreating(false);
+    if (res.event) {
+      try { sessionStorage.removeItem(CHAT_STORE_KEY); } catch { /* best-effort */ }
+    }
     if (res.error) {
       const slugErrors: CreateEventError[] = ['slug_taken', 'reserved_slug', 'invalid_slug'];
       if (slugErrors.includes(res.error)) {

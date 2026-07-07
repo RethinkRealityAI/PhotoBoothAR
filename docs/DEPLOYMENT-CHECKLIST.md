@@ -4,7 +4,7 @@ Everything needed to take the platform (PR #5) from "merged" to "live and
 charging". The platform is **safe-by-default**: every integration below degrades
 gracefully until its key is set, so you can enable them one at a time.
 
-Supabase project: `zrtftliozslrjomxbfrr`. All migrations 001–009 and all edge
+Supabase project: `zrtftliozslrjomxbfrr`. All migrations 001–010 and all edge
 functions (incl. `admin-api`) are **already applied/deployed** to it. Set secrets in
 **Supabase → Project Settings → Edge Functions → Secrets** (or `supabase secrets set`).
 

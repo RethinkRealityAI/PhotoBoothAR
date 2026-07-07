@@ -302,7 +302,13 @@ export async function designEvent(messages: ChatMessage[]): Promise<DesignResult
     // node test env doesn't have — the planner half of this module stays pure.
     const { supabase } = await import('./supabase');
     const { data, error } = await supabase.functions.invoke('ai-event-designer', {
-      body: { messages },
+      body: {
+        messages,
+        // The live template catalog rides along so the agent's prompt/schema
+        // can never drift from the app's real templates (edge fn validates
+        // and falls back to its built-in list).
+        templates: EVENT_TEMPLATES.map((t) => ({ id: t.id, vibe: `${t.label} — ${t.blurb}` })),
+      },
     });
     if (error) {
       if (error instanceof FunctionsHttpError) {

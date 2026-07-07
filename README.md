@@ -58,7 +58,7 @@ Legacy single-event builds set `VITE_EVENT=<slug>` and render exactly as before.
 
 - **Multi-tenant data** — Supabase Postgres with real RLS. `orgs → events`
   tenancy; `event_id` (= `events.slug`) partitions the existing content tables.
-  Migrations are checked in under `supabase/migrations/` (001–009) and mirror
+  Migrations are checked in under `supabase/migrations/` (001–010) and mirror
   what's applied to the live project. The three legacy slugs keep working via
   **grandfather RLS policies**.
 - **Runtime tenancy** — `src/events/runtime.ts` + `EventContext.tsx` resolve an
