@@ -332,12 +332,12 @@ export default function NewEvent() {
   const canNext2 = slugHint.kind === 'ok' || slugHint.kind === 'checking';
 
   return (
-    <div className="p-6 md:p-10 max-w-5xl mx-auto">
-      <Link to="/host" className="inline-flex items-center gap-1.5 mb-6 font-label uppercase tracking-luxe text-[10px] text-brand-muted/60 hover:text-brand-fg transition-colors">
+    <div className="p-4 md:p-8 max-w-6xl mx-auto">
+      <Link to="/host" className="inline-flex items-center gap-1.5 mb-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/60 hover:text-brand-fg transition-colors">
         <ArrowLeft className="w-3.5 h-3.5" /> Events
       </Link>
 
-      <div className="grid gap-8 items-start lg:grid-cols-[1fr_360px]">
+      <div className="grid gap-6 items-start lg:grid-cols-[minmax(0,1fr)_280px]">
       <div className="glass-strong rounded-3xl p-8 animate-rise-in">
         {/* Step dots */}
         <div className="flex items-center justify-center gap-2 mb-8">
@@ -368,7 +368,7 @@ export default function NewEvent() {
 
             <div
               ref={chatScrollRef}
-              className="min-h-[220px] max-h-[320px] overflow-y-auto rounded-2xl bg-white/[0.02] border border-white/10 p-4 flex flex-col gap-2.5"
+              className="h-[min(56vh,640px)] min-h-[320px] overflow-y-auto rounded-2xl bg-white/[0.02] border border-white/10 p-4 flex flex-col gap-2.5"
             >
               <div className="max-w-[85%] self-start rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[13px] leading-relaxed text-brand-fg/90">
                 {CHAT_GREETING}
@@ -628,8 +628,8 @@ export default function NewEvent() {
       {/* Live preview pane — uses the desktop viewport so the event comes to
           life as it's built. Hidden on smaller screens (the confirm step shows
           a compact preview inline there). */}
-      <aside className="hidden lg:flex flex-col gap-4 sticky top-10">
-        <TemplatePreview template={template} eventName={name.trim() || template.label} className="w-full max-w-[340px] mx-auto" />
+      <aside className="hidden lg:flex flex-col gap-4 sticky top-8">
+        <TemplatePreview template={template} eventName={name.trim() || template.label} className="w-full max-w-[260px] mx-auto" />
         <div className="text-center">
           <p className="font-serif italic text-lg text-foil-static leading-tight">{name.trim() || 'Your event'}</p>
           <p className="mt-0.5 font-label uppercase tracking-luxe text-[9px] text-brand-muted/55">

@@ -54,6 +54,32 @@ A2UI pipeline, but **event-aware and tool-using**:
   The renderer's action contract generalizes from `confirm_plan` to a
   `name`-dispatched handler map on the consumer side.
 
+## Concierge v3 — the whole checklist happens in chat (next build)
+
+The goal: a host finishes look, colours, AND a signature frame inside the
+concierge, so the studio dashboard's only remaining step is the test photo.
+- **Colour picking as a widget**: a `ColorChoice` custom widget bound to
+  `/plan/accent` etc., live-restyling the `TemplatePreview` (same two-way
+  binding the style chips already use).
+- **In-chat frame generation**: post-create handoff — after Create, the
+  concierge keeps the conversation, now event-aware, and offers "want me to
+  design your signature frame?" → calls `ai-generate-image` (kind `border`,
+  9:16 / 1080×1920 portrait — the booth capture size) → renders a
+  `FramePreview` widget → host can nudge position/scale (drag = editing the
+  experience's `transform`) and hit Save → the experience publishes to their
+  studio Library automatically.
+- Checklist steps then read "done" because the host actually did them in
+  chat; template-default passes stay labelled as defaults (shipped 2026-07-07).
+
+## Admin limits console (user-requested; pairs with admin-suite Phase 4)
+
+Platform admins are already limit-free end-to-end (create-event → deluxe,
+designer rate-limit exempt, orgs comped 1000 credits, existing events
+upgraded). The manual "space to change limits per event/user" = admin-suite
+Phase 4's `set_event_tier` + `adjust_credits` admin-api actions + a Limits
+screen (event tier dropdown, org credit grants) — build it there so it gets
+the audit trail (`admin_audit`) for free. See docs/ADMIN-SUITE.md Phase 4.
+
 ## Phase 2 — Share kit & signage
 
 - Host-facing "Share & Print" screen: per-surface QR codes (welcome, booth,

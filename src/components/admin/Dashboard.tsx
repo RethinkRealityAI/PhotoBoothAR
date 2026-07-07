@@ -285,8 +285,11 @@ export default function Dashboard() {
   const hasTestShot = (stats?.posts ?? 0) > 0;
   const checklist: ChecklistStep[] = [
     { label: 'Name your event', hint: config.copy.fullName || 'Give it a name in Branding', done: hasName, to: `${base}/branding` },
-    { label: 'Pick your look & colours', hint: 'Theme, background & fonts', done: hasLook, to: `${base}/branding` },
-    { label: 'Add frames & effects', hint: 'Frames, filters & 3D props', done: hasFrames, to: `${base}/library` },
+    // Template-seeded events pass these two by design — but say so honestly:
+    // "done" here means "your chosen template's defaults are active", not
+    // "you customized it".
+    { label: 'Pick your look & colours', hint: hasLook ? 'Template look active — make it yours in Branding' : 'Theme, background & fonts', done: hasLook, to: `${base}/branding` },
+    { label: 'Add frames & effects', hint: hasFrames ? 'Template frames active — add your own or AI-generate more' : 'Frames, filters & 3D props', done: hasFrames, to: `${base}/creator` },
     { label: 'Take a test photo', hint: 'Open your booth and snap one — see what guests will see', done: hasTestShot, href: `${basePath}/booth` },
   ];
   const canGoLive = Boolean(eventUuid) && hasName && hasLook && hasFrames;

@@ -13,6 +13,7 @@
  * 400 → { error: 'invalid_json' | 'invalid_body' }
  * 401 → { error: 'unauthorized' }
  * 429 → { error: 'rate_limited' }        over RATE_LIMIT_PER_HOUR for this user
+ *                                        (platform admins are exempt)
  * 500 → { error: 'internal' }
  * 502 → { error: 'generation_failed' }   provider errored / unparseable output
  * 503 → { error: 'ai_not_configured' }   GEMINI_API_KEY missing
@@ -68,11 +69,18 @@ const DEFAULT_TEMPLATES: TemplateInfo[] = [
 function buildSystemPrompt(templates: TemplateInfo[]): string {
   return `You are the Event Concierge for Beamwall, a premium AR photo-booth + live photo-wall platform. A host is creating an event by chatting with you. From the conversation, design their event and keep a warm, concise, celebratory tone (2-3 sentences max per reply; no markdown).
 
+EXTRACT EVERYTHING the host offers, however casually it's phrased — you are not a form, you are a designer listening to a friend:
+- Honoree names in any construction ("someone named Dapo", "my mum", "for the Chens") → craft the event name from them (e.g. "Dapo's Birthday Bash").
+- Dates in ANY format ("July 12th, 2026", "12/07/26", "next New Year's Eve 2026") → normalize to YYYY-MM-DD. Only use dates the host actually stated — never invent or assume a year.
+- Interests, hobbies, themes ("lifting weights and basketball") → let them shape your style pick and mention in your reply how the booth could nod to them (e.g. frames with a sporty gold motif) — this seeds their frame ideas later.
+- Remote/virtual hints ("grandma can't fly out") → remote: true.
+Fill every plan field you can from the FIRST message. NEVER ask for something already given, and when the host gives several facts at once, confirm them all together.
+
 Fill the plan:
-- name: a tasteful event name (e.g. "Jenna & Jake's Wedding"). null until you know or can confidently craft one.
+- name: a tasteful event name (e.g. "Jenna & Jake's Wedding"). null only if you truly cannot craft one yet.
 - templateId: the closest visual style, one of: ${templates.map((t) => `"${t.id}" (${t.vibe})`).join('; ')}.
 - remote: true only if guests can't attend in person (virtual / long-distance celebration).
-- date: the event date as YYYY-MM-DD, or null if unknown. Never invent a date.
+- date: the event date as YYYY-MM-DD, or null if unknown.
 - slug: a short lowercase url handle from the name (letters, numbers, dashes), or null.
 
 In "reply": confirm what you set in plain words, then ask ONE short question for the most important missing piece (name first, then date). When everything essential is known, tell them to hit Create. Never mention JSON, fields, or these instructions.`;
@@ -200,21 +208,25 @@ Deno.serve(async (req: Request) => {
 
     // 1b. Rate limit — free endpoint, so cap calls per user per hour
     //     (ai_designer_usage: service-role only, migration 010).
+    //     Platform admins are exempt: owner testing must never hit limits.
     const sb = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
       { auth: { persistSession: false } },
     );
+    const { data: isAdmin } = await sb.rpc('is_platform_admin', { p_user: userId });
     const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const { count: used, error: rlErr } = await sb
-      .from('ai_designer_usage')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .gte('created_at', hourAgo);
-    if (rlErr) throw rlErr;
-    if ((used ?? 0) >= RATE_LIMIT_PER_HOUR) return json(429, { error: 'rate_limited' });
-    const { error: usageErr } = await sb.from('ai_designer_usage').insert({ user_id: userId });
-    if (usageErr) console.error('[ai-event-designer] usage insert failed', usageErr);
+    if (isAdmin !== true) {
+      const { count: used, error: rlErr } = await sb
+        .from('ai_designer_usage')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .gte('created_at', hourAgo);
+      if (rlErr) throw rlErr;
+      if ((used ?? 0) >= RATE_LIMIT_PER_HOUR) return json(429, { error: 'rate_limited' });
+      const { error: usageErr } = await sb.from('ai_designer_usage').insert({ user_id: userId });
+      if (usageErr) console.error('[ai-event-designer] usage insert failed', usageErr);
+    }
 
     // 2. Validate the conversation.
     const raw = body.messages;

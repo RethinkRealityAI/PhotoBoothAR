@@ -294,7 +294,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
         const tpl = templateById(str(c.templateId, scope)) ?? EVENT_TEMPLATES[0];
         const eventName = str(c.eventName, scope) || tpl.label;
         return (
-          <div key={key} className="w-full max-w-[220px] mx-auto">
+          <div key={key} className="w-full max-w-[168px] mx-auto">
             <TemplatePreview template={tpl} eventName={eventName} />
           </div>
         );

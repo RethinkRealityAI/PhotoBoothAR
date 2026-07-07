@@ -95,7 +95,7 @@ export function extractName(text: string, templateId: TemplateId | null): string
     return `${person}'s ${occasion}`;
   }
   const who = text.match(
-    /\b(?:for|celebrating)\s+(?:my\s+)?([A-Z][A-Za-z'’-]+(?:\s+(?:and|&)\s+[A-Z][A-Za-z'’-]+)?)/,
+    /\b(?:for|celebrating|named|called)\s+(?:my\s+|someone\s+named\s+)?([A-Z][A-Za-z'’-]+(?:\s+(?:and|&)\s+[A-Z][A-Za-z'’-]+)?)/,
   );
   if (who && !NON_PERSON_WORDS.test(who[1])) {
     const label = templateById(templateId ?? undefined)?.label ?? 'Celebration';
