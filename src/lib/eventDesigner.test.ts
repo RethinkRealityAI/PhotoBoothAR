@@ -137,6 +137,7 @@ describe('normalizePlan', () => {
       remote: false,
       date: null,
       slug: 'starlight-gala',
+      accent: null,
     });
   });
 
@@ -144,6 +145,13 @@ describe('normalizePlan', () => {
     expect(normalizePlan(null).templateId).toBe('party');
     expect(normalizePlan(undefined).name).toBeNull();
     expect(normalizePlan('nonsense').slug).toBeNull();
+  });
+
+  it('validates accent as #RRGGBB or null', () => {
+    expect(normalizePlan({ accent: '#D4AF37' }).accent).toBe('#D4AF37');
+    expect(normalizePlan({ accent: 'gold' }).accent).toBeNull();
+    expect(normalizePlan({ accent: '#FFF' }).accent).toBeNull();
+    expect(normalizePlan({}).accent).toBeNull();
   });
 });
 
@@ -154,6 +162,7 @@ describe('buildPlanSurface (A2UI generative UI)', () => {
     remote: false,
     date: '2026-09-12',
     slug: 'jenna-jakes-wedding',
+    accent: null,
   };
 
   it('streams a valid A2UI surface the reducer can fold into state', () => {

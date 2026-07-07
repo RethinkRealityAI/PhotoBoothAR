@@ -12,22 +12,25 @@
 import type { CSSProperties } from 'react';
 import { BORDER_MAP, toDataUrl } from '../../lib/borders';
 import { resolveBackgroundTemplate } from '../theme/backgrounds';
-import type { EventTemplate } from '../../lib/eventTemplates';
+import { accentThemePatch, type EventTemplate } from '../../lib/eventTemplates';
 
 interface Props {
   template: EventTemplate;
   /** Optional name to show subtly at the base. */
   eventName?: string;
+  /** Optional '#RRGGBB' accent override — live re-accents the whole preview. */
+  accent?: string | null;
   className?: string;
 }
 
-export default function TemplatePreview({ template, eventName, className = '' }: Props) {
+export default function TemplatePreview({ template, eventName, accent, className = '' }: Props) {
   const Bg = resolveBackgroundTemplate(template.background).component;
   const border = BORDER_MAP[template.frameId];
   const frameUrl = border ? toDataUrl(border.svg) : null;
 
   const themeStyle = {
     ...template.themeVars,
+    ...(accent ? accentThemePatch(accent) : {}),
     background: 'var(--color-brand-bg)',
     border: '1px solid rgba(var(--accent-rgb),0.28)',
   } as CSSProperties;

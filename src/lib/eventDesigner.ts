@@ -16,7 +16,7 @@
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { slugify } from './slug';
-import { EVENT_TEMPLATES, templateById, type TemplateId } from './eventTemplates';
+import { ACCENT_SWATCHES, EVENT_TEMPLATES, templateById, type TemplateId } from './eventTemplates';
 import { A2UI_VERSION, BEAMWALL_CATALOG_ID, type A2uiMessage } from './a2ui';
 
 export interface ChatMessage {
@@ -32,6 +32,9 @@ export interface EventPlan {
   /** YYYY-MM-DD or null. */
   date: string | null;
   slug: string | null;
+  /** '#RRGGBB' accent override for the template look, or null (client-side
+   *  concierge choice — the AI never sets this). */
+  accent: string | null;
 }
 
 export interface DesignResult {
@@ -173,6 +176,7 @@ export function localDesign(
     remote,
     date,
     slug: name ? slugify(name) : null,
+    accent: null,
   };
 
   const bits: string[] = [];
@@ -198,12 +202,14 @@ export function normalizePlan(raw: unknown): EventPlan {
   const dateRaw = typeof r.date === 'string' ? r.date : '';
   const date = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : null;
   const slugRaw = typeof r.slug === 'string' && r.slug.trim() ? r.slug : name;
+  const accentRaw = typeof r.accent === 'string' ? r.accent.trim() : '';
   return {
     name,
     templateId,
     remote: r.remote === true,
     date,
     slug: slugRaw ? slugify(slugRaw) : null,
+    accent: /^#[0-9a-fA-F]{6}$/.test(accentRaw) ? accentRaw : null,
   };
 }
 
@@ -234,7 +240,7 @@ export function buildPlanSurface(plan: EventPlan, surfaceId: string): A2uiMessag
           {
             id: 'body',
             component: 'Column',
-            children: ['heading', 'preview', 'nameField', 'styleChoice', 'dateField', 'remoteCheck', 'slugField', 'divider', 'actions'],
+            children: ['heading', 'preview', 'nameField', 'styleChoice', 'accentChoice', 'dateField', 'remoteCheck', 'slugField', 'divider', 'actions'],
           },
           { id: 'heading', component: 'Text', text: 'Your event, so far', variant: 'h4' },
           // Beamwall custom widget: live look preview bound to the SAME data
@@ -244,6 +250,14 @@ export function buildPlanSurface(plan: EventPlan, surfaceId: string): A2uiMessag
             component: 'TemplatePreview',
             templateId: { path: '/plan/templateId' },
             eventName: { path: '/plan/name' },
+            accent: { path: '/plan/accent' },
+          },
+          {
+            id: 'accentChoice',
+            component: 'ColorChoice',
+            label: 'Accent colour',
+            options: [...ACCENT_SWATCHES],
+            value: { path: '/plan/accent' },
           },
           { id: 'nameField', component: 'TextField', label: 'Event name', value: { path: '/plan/name' } },
           { id: 'styleChoice', component: 'ChoicePicker', label: 'Style', options: styleOptions, value: { path: '/plan/templateId' } },

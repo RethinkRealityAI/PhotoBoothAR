@@ -17,8 +17,9 @@ import { QRCodeSVG } from 'qrcode.react';
 import { ArrowLeft, ArrowRight, Check, Copy, Loader2, PartyPopper, Send, Sparkles } from 'lucide-react';
 import { slugify, SLUG_RE, RESERVED_SLUGS } from '../../lib/slug';
 import { createEvent, updateEventConfig, isSlugVisiblyTaken, type CreateEventError, type HostEventRow } from '../../lib/host';
-import { EVENT_TEMPLATES, templateById, templateConfigPatch } from '../../lib/eventTemplates';
+import { accentThemePatch, EVENT_TEMPLATES, templateById, templateConfigPatch } from '../../lib/eventTemplates';
 import { designEvent, normalizePlan, type ChatMessage, type EventPlan } from '../../lib/eventDesigner';
+import FrameStudio from './FrameStudio';
 import { applySurfaceMessages, getPath, setPath, type A2uiActionEvent, type SurfaceState } from '../../lib/a2ui';
 import A2uiSurface from '../../components/a2ui/A2uiSurface';
 import TemplatePreview from '../../components/ui/TemplatePreview';
@@ -72,6 +73,7 @@ export default function NewEvent() {
   const [name, setName] = useState('');
   const [templateId, setTemplateId] = useState('wedding');
   const [remote, setRemote] = useState(false);
+  const [accent, setAccent] = useState<string | null>(null);
   const [date, setDate] = useState('');
   const template = templateById(templateId) ?? EVENT_TEMPLATES[0];
 
@@ -158,6 +160,7 @@ export default function NewEvent() {
     setName(plan.name);
     setTemplateId(plan.templateId);
     setRemote(plan.remote);
+    setAccent(plan.accent);
     setDate(plan.date ?? '');
     setSlug(finalSlug);
     setSlugTouched(true);
@@ -213,7 +216,7 @@ export default function NewEvent() {
     const surf = latest ? surfaces[latest] : undefined;
     const plan = surf
       ? normalizePlan(getPath(surf.dataModel, '/plan'))
-      : normalizePlan({ name, templateId, remote, date: date || null, slug });
+      : normalizePlan({ name, templateId, remote, date: date || null, slug, accent });
     confirmPlan(plan);
   };
 
@@ -253,6 +256,11 @@ export default function NewEvent() {
       // if it still fails the event is created plain and the studio's go-live
       // checklist guides the host to set a look in Branding.
       const patch = templateConfigPatch(template, name.trim());
+      // Concierge accent choice: re-accent the template's theme so the live
+      // event matches the preview the host confirmed.
+      if (accent) {
+        patch.themeVars = { ...(patch.themeVars as Record<string, string>), ...accentThemePatch(accent) };
+      }
       const seeded = await updateEventConfig(res.event.id, patch);
       if (!seeded) await updateEventConfig(res.event.id, patch);
     }
@@ -299,6 +307,12 @@ export default function NewEvent() {
           <div className="rounded-xl p-3 bg-ivory/95 shadow-lg">
             <QRCodeSVG value={guestUrl} size={160} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
           </div>
+          {/* Concierge v3: finish the frame right here — generated at 9:16,
+              published + pinned as the booth default in one tap. */}
+          <FrameStudio
+            eventUuid={created.id}
+            suggestion={`An elegant ${template.label.toLowerCase()} border frame for "${created.name}" — refined ornament hugging the edges, centre fully clear`}
+          />
           <div className="flex items-center gap-1.5 w-full justify-center">
             <p className="font-mono text-[11px] text-brand-muted/70 truncate">{guestUrl}</p>
             <button
@@ -629,7 +643,7 @@ export default function NewEvent() {
           life as it's built. Hidden on smaller screens (the confirm step shows
           a compact preview inline there). */}
       <aside className="hidden lg:flex flex-col gap-4 sticky top-8">
-        <TemplatePreview template={template} eventName={name.trim() || template.label} className="w-full max-w-[260px] mx-auto" />
+        <TemplatePreview template={template} eventName={name.trim() || template.label} accent={accent} className="w-full max-w-[260px] mx-auto" />
         <div className="text-center">
           <p className="font-serif italic text-lg text-foil-static leading-tight">{name.trim() || 'Your event'}</p>
           <p className="mt-0.5 font-label uppercase tracking-luxe text-[9px] text-brand-muted/55">

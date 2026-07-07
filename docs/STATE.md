@@ -4,7 +4,8 @@
 Refine AR tracking + booth UX smoothness, and add an AI agent (concierge) that designs whole events conversationally in the onboarding wizard.
 
 ## Now
-Phase 3 complete: migration 010 ai_designer_usage APPLIED live + committed; ai-event-designer v3 DEPLOYED (40/h/user rate limit + client-sent template catalog); concierge chat persists in sessionStorage (cleared on create). Branch pushed; draft PR #13 open + subscribed (watch CI/reviews until merged/closed).
+Concierge v3 slice 1: FrameStudio (new src/pages/host/FrameStudio.tsx) on NewEvent success screen — generateImage(eventUuid,{kind:'border',transparentBackground:true}) via src/lib/ai.ts (3 free/event), 9:16 preview, "Use as booth frame" = supabase update experiences.is_published=true + updateEventConfig(defaultExperienceId). Slice 2 if budget: accent ColorChoice widget (TemplatePreview accent prop; EventPlan.accent client-only; patch themeVars in doCreate).
+Done earlier: Phase 3 (rate limit migration 010, fn v4 w/ admin exempt + extraction prompt, template catalog, chat persistence), admin god-mode (create-event v5 deluxe, backfill 5 events + 1000cr comp), layout (56vh chat), honest checklist. PR #13 watched.
 
 ## Next
 1. Screenshot verification: sandbox CANNOT reach *.supabase.co (curl 403) → no live E2E. Plan: Playwright + chromium (/opt/pw-browsers/chromium), dev server `VITE_EVENT=hope-gala npm run dev` (inline env, NOT .env.local) for legacy booth/welcome shots (code-registry, no DB); runtime-mode concierge shots via injected fake sb-<ref>-auth-token localStorage session + Playwright route mocks; fake camera flag --use-fake-device-for-media-stream.

@@ -293,9 +293,41 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
         // change, so the agent always SHOWS what it is about to apply.
         const tpl = templateById(str(c.templateId, scope)) ?? EVENT_TEMPLATES[0];
         const eventName = str(c.eventName, scope) || tpl.label;
+        const accent = str(c.accent, scope) || null;
         return (
           <div key={key} className="w-full max-w-[168px] mx-auto">
-            <TemplatePreview template={tpl} eventName={eventName} />
+            <TemplatePreview template={tpl} eventName={eventName} accent={accent} />
+          </div>
+        );
+      }
+
+      case 'ColorChoice': {
+        // Beamwall custom widget: circular swatches bound like ChoicePicker.
+        // Clicking the selected swatch clears the choice (back to template).
+        const path = bindingPath(c.value, scope);
+        const current = resolveDynamic(c.value, dataModel, scope);
+        const options = Array.isArray(c.options) ? (c.options as unknown[]).filter((o): o is string => typeof o === 'string') : [];
+        return (
+          <div key={key} className="flex flex-col gap-1">
+            {c.label !== undefined && <span className={labelClass}>{str(c.label, scope)}</span>}
+            <div className="flex flex-wrap items-center gap-2">
+              {options.map((hex) => {
+                const selected = current === hex;
+                return (
+                  <button
+                    key={`${key}-sw-${hex}`}
+                    onClick={() => path !== null && onDataChange(surfaceId, path, selected ? null : hex)}
+                    aria-pressed={selected}
+                    title={hex}
+                    className={`w-7 h-7 rounded-full border-2 transition-transform active:scale-90 ${
+                      selected ? 'border-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.35)]' : 'border-white/20'
+                    }`}
+                    style={{ background: hex }}
+                  />
+                );
+              })}
+              <span className="font-sans text-[10px] text-brand-muted/50">{current ? '' : 'template default'}</span>
+            </div>
           </div>
         );
       }
