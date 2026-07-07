@@ -93,6 +93,13 @@ the `AdminLayout` nav `ready:true` and add the `<Route>` in `src/App.tsx`, then 
 - **Tests:** `revenue.ts` (`summarizeOrders`) — empty→zeros, `refunded` excluded,
   multi-currency separated, one-time vs subscription split.
 
+> **Shipped outside this branch (2026-07-07, PR #13):** platform-admin
+> god-mode — `create-event` v5 makes any admin-created event `deluxe`,
+> `ai-event-designer` v4 exempts admins from its rate limit, existing
+> admin-org events were upgraded live and admin orgs comped 1000 credits
+> (`admin_comp`). Phase 4's Limits screen (`set_event_tier`,
+> `adjust_credits`) is the manual/audited counterpart.
+
 ### Phase 4 — User management (`admin_adjust_credits` + email fns already exist)
 - **admin-api:** `list_users` (`admin.auth.admin.listUsers`), `reset_password`
   (`generateLink` recovery — return link, never audit it), `set_user_banned`

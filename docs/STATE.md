@@ -4,14 +4,16 @@
 Refine AR tracking + booth UX smoothness, and add an AI agent (concierge) that designs whole events conversationally in the onboarding wizard.
 
 ## Now
-Concierge v3 slice 1: FrameStudio (new src/pages/host/FrameStudio.tsx) on NewEvent success screen — generateImage(eventUuid,{kind:'border',transparentBackground:true}) via src/lib/ai.ts (3 free/event), 9:16 preview, "Use as booth frame" = supabase update experiences.is_published=true + updateEventConfig(defaultExperienceId). Slice 2 if budget: accent ColorChoice widget (TemplatePreview accent prop; EventPlan.accent client-only; patch themeVars in doCreate).
-Done earlier: Phase 3 (rate limit migration 010, fn v4 w/ admin exempt + extraction prompt, template catalog, chat persistence), admin god-mode (create-event v5 deluxe, backfill 5 events + 1000cr comp), layout (56vh chat), honest checklist. PR #13 watched.
+All planned phases shipped & pushed (tip e326da9, PR #13 draft, deploy preview green, watch + hourly check-in armed). Docs refreshed. Waiting on: PR-13 CI/reviews, human E2E run.
 
 ## Next
-1. Screenshot verification: sandbox CANNOT reach *.supabase.co (curl 403) → no live E2E. Plan: Playwright + chromium (/opt/pw-browsers/chromium), dev server `VITE_EVENT=hope-gala npm run dev` (inline env, NOT .env.local) for legacy booth/welcome shots (code-registry, no DB); runtime-mode concierge shots via injected fake sb-<ref>-auth-token localStorage session + Playwright route mocks; fake camera flag --use-fake-device-for-media-stream.
-2. Image-gen E2E chain (generate→library→frame→default) NOT runnable from sandbox — verify logic via Supabase MCP execute_sql read-backs; needs one human run once GEMINI_API_KEY secret is set (still unset? user given key in chat, never commit).
-3. Phase 3 remaining: rate-limit migration for ai-event-designer, key restriction note.
-4. On user's word: push claude/ar-agent-ai-studio-da6d0f + draft PR (permission-blocked without it).
+1. HUMAN E2E (5 min, deploy-preview-13--beamwall.netlify.app, admin login): concierge chat (real Gemini now) → accent swatch → create (event should be deluxe) → Frame Studio generate → "Use as booth frame" → booth shows it; checklist shows only "Take a test photo" open. Sandbox cannot do this (*.supabase.co blocked).
+2. Concierge v3 remainder: draggable frame placement (edit experience transform in FrameStudio preview); post-create event-aware chat handoff (tools: challenges CRUD, event queries; widgets FramePreview/ChallengeList/EventStat per AGENT-ROADMAP).
+3. Admin Limits console = admin-suite Phase 4 (`set_event_tier`, `adjust_credits` admin-api actions + Limits screen, audited).
+4. Admin-suite Phases 2-5 on branch claude/platform-admin-suite (PR #10).
+5. Platform gates (docs/guardrails/PROJECT.md#roadmap): Stripe keys (#1), default-event redirect leak, self-serve password reset.
+6. After deploy: rotate GEMINI_API_KEY + restrict it to the Generative Language API.
+7. Merge PR #13 when reviewed; then PR #10 workstream.
 
 ## Constraints
 - User (2026-07-07): Gemini API key shared in chat for the platform; "i'll rotate it later once we deploy" — key must NEVER be committed to the repo; it belongs in Supabase edge-function secrets (GEMINI_API_KEY) only.

@@ -39,7 +39,7 @@ HyperFrames.
 | Host dashboard | `/host`, `/host/new`, `/host/billing` | events, wizard, credits/plans |
 | Event studio | `/host/events/:id/*` | the 10 studio screens (branding, library, creator 2D/3D, moderation, challenges, settings, manager access…), gated by org membership |
 | **Platform admin** | `/admin/*` | RethinkReality super-admin across all tenants; gated by `platform_admins` (see [docs/ADMIN-SUITE.md](docs/ADMIN-SUITE.md)) |
-| Guest (per event) | `/e/:slug` → `/booth` `/wall` `/me` `/upload` `/experience/:id` | runtime-resolved tenant |
+| Guest (per event) | `/e/:slug` → `/welcome` `/booth` `/wall` `/me` `/upload` `/experience/:id` | runtime-resolved tenant; `/welcome` = instruction landing for signage QRs |
 | Greeting card | `/c/:publicId`, `/c/:publicId/contribute?t=` | public viewer + token-gated contribution |
 | Day-of staff | `/m/:slug` | PIN/link manager console (moderation + wall settings) |
 

@@ -54,22 +54,23 @@ A2UI pipeline, but **event-aware and tool-using**:
   The renderer's action contract generalizes from `confirm_plan` to a
   `name`-dispatched handler map on the consumer side.
 
-## Concierge v3 — the whole checklist happens in chat (next build)
+## Concierge v3 — the whole checklist happens in chat
 
-The goal: a host finishes look, colours, AND a signature frame inside the
+Goal: a host finishes look, colours, AND a signature frame inside the
 concierge, so the studio dashboard's only remaining step is the test photo.
-- **Colour picking as a widget**: a `ColorChoice` custom widget bound to
-  `/plan/accent` etc., live-restyling the `TemplatePreview` (same two-way
-  binding the style chips already use).
-- **In-chat frame generation**: post-create handoff — after Create, the
-  concierge keeps the conversation, now event-aware, and offers "want me to
-  design your signature frame?" → calls `ai-generate-image` (kind `border`,
-  9:16 / 1080×1920 portrait — the booth capture size) → renders a
-  `FramePreview` widget → host can nudge position/scale (drag = editing the
-  experience's `transform`) and hit Save → the experience publishes to their
-  studio Library automatically.
-- Checklist steps then read "done" because the host actually did them in
-  chat; template-default passes stay labelled as defaults (shipped 2026-07-07).
+- ✅ SHIPPED (2026-07-07): `ColorChoice` widget bound to `/plan/accent`
+  live-restyling `TemplatePreview` (single theming source:
+  `accentThemePatch()` in eventTemplates.ts — preview === created config).
+- ✅ SHIPPED (2026-07-07): **AI Frame Studio** on the create-success screen
+  (`src/pages/host/FrameStudio.tsx`): brief → `ai-generate-image`
+  (kind `border`, 9:16/1080×1920, transparent, clear centre) → in-place
+  preview → one tap publishes the experience AND pins it as the booth
+  default. First 3 free per event.
+- ⏳ REMAINING: draggable position/scale on the FrameStudio preview (drag =
+  editing the experience `transform`, save in place); accent choice carried
+  into freshly streamed cards mid-conversation (today it persists in wizard
+  state from confirm, but a new turn's card restarts at template default);
+  post-create event-aware chat handoff (the Studio Copilot below).
 
 ## Admin limits console (user-requested; pairs with admin-suite Phase 4)
 
