@@ -1,5 +1,5 @@
 {
-  "comment": "Remote assets to vendor into the repo. Run the 'Fetch remote assets' GitHub Action (workflow_dispatch on your branch) after editing — CI runners have open egress; the Claude sandbox does not. Paths are repo-relative.",
+  "comment": "Remote assets to vendor into the repo. Pushing a change to this file triggers the 'Fetch remote assets' GitHub Action automatically (or dispatch it manually) — CI runners have open egress; the Claude sandbox does not. Paths are repo-relative.",
   "assets": [
     {
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_041724_7bedd98a-8eb8-4bc2-bf02-7fea18093449.png",

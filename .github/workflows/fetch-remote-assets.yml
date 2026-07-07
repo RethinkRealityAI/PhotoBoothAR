@@ -8,6 +8,11 @@ name: Fetch remote assets
 
 on:
   workflow_dispatch:
+  # Also fire on manifest changes — the Claude GitHub integration can push but
+  # lacks actions:write, so it can't dispatch workflows directly.
+  push:
+    paths:
+      - "scripts/remote-assets.json"
 
 permissions:
   contents: write
