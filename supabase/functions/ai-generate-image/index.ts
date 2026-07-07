@@ -17,6 +17,8 @@
  * 500 → { error: 'internal' }
  * 502 → { error: 'generation_failed' }   provider errored (credits refunded)
  * 503 → { error: 'ai_not_configured' }   provider key missing (credits refunded)
+ * 503 → { error: 'ai_quota' }            provider quota/billing exhausted
+ *                                        (credits refunded)
  *
  * Flow: auth → event + org membership → server-side aiStudio entitlement →
  * spend credits FIRST (atomic rpc) → ai_jobs row (running) → provider call →
@@ -133,7 +135,7 @@ function buildPrompt(prompt: string, kind: string, transparent: boolean): string
 /* ── Providers ──────────────────────────────────────────────────────── */
 
 class AiError extends Error {
-  constructor(public code: 'ai_not_configured' | 'generation_failed', detail?: string) {
+  constructor(public code: 'ai_not_configured' | 'generation_failed' | 'ai_quota', detail?: string) {
     super(detail ?? code);
   }
 }
@@ -158,7 +160,9 @@ async function generateGemini(prompt: string): Promise<Uint8Array> {
   );
   if (!res.ok) {
     console.error('[ai-generate-image] gemini error', res.status, await res.text().catch(() => ''));
-    throw new AiError('generation_failed', `gemini_http_${res.status}`);
+    // 429 from Gemini = plan/billing quota (flash-image has NO free tier) —
+    // a distinct, actionable error, not a "bad prompt".
+    throw new AiError(res.status === 429 ? 'ai_quota' : 'generation_failed', `gemini_http_${res.status}`);
   }
   const body = (await res.json()) as {
     candidates?: { content?: { parts?: { inlineData?: { mimeType?: string; data?: string } }[] } }[];
@@ -203,7 +207,7 @@ async function generateHiggsfield(prompt: string): Promise<Uint8Array> {
   });
   if (!res.ok) {
     console.error('[ai-generate-image] higgsfield error', res.status, await res.text().catch(() => ''));
-    throw new AiError('generation_failed', `higgsfield_http_${res.status}`);
+    throw new AiError(res.status === 429 ? 'ai_quota' : 'generation_failed', `higgsfield_http_${res.status}`);
   }
   const body = (await res.json()) as HiggsfieldImageResponse;
   const image = body.images?.[0];
@@ -440,6 +444,7 @@ Deno.serve(async (req: Request) => {
       const detail = err instanceof Error ? err.message : String(err);
       await refundAndFail(sb, jobId, orgId, cost, ref, detail);
       if (code === 'ai_not_configured') return json(503, { error: 'ai_not_configured' });
+      if (code === 'ai_quota') return json(503, { error: 'ai_quota' });
       if (code === 'generation_failed') return json(502, { error: 'generation_failed' });
       console.error('[ai-generate-image] internal error after spend', err);
       return json(500, { error: 'internal' });

@@ -204,7 +204,22 @@ export default function NewEvent() {
       .map(({ role, content: c }) => ({ role, content: c }));
     const res = await designEvent(history); // never throws — falls back to the local planner
     applyPlan(res.plan, res.decided);
-    setSurfaces((s) => applySurfaceMessages(s, res.a2ui));
+    setSurfaces((s) => {
+      let merged = applySurfaceMessages(s, res.a2ui);
+      // Carry the host's accent choice into the fresh card (the planner never
+      // decides accent, so a new turn must not reset it to template default).
+      if (accent && !res.plan.accent) {
+        const surf = merged[res.surfaceId];
+        if (surf) {
+          const model = setPath(surf.dataModel, '/plan/accent', accent);
+          merged = {
+            ...merged,
+            [res.surfaceId]: { ...surf, dataModel: model as Record<string, unknown> },
+          };
+        }
+      }
+      return merged;
+    });
     setChatMessages([...next, { role: 'assistant', content: res.reply, surfaceId: res.surfaceId }]);
     setChatBusy(false);
   };

@@ -22,6 +22,7 @@ export type AiErrorCode =
   | 'event_not_found'
   | 'job_not_found'
   | 'generation_failed'
+  | 'ai_quota'
   | 'ai_not_configured'
   | 'internal'
   | 'network';
@@ -147,6 +148,8 @@ export function aiErrorMessage(code: AiErrorCode): string {
       return 'This event is not registered on the platform.';
     case 'generation_failed':
       return 'Generation failed — credits were refunded. Try a different prompt.';
+    case 'ai_quota':
+      return 'The AI provider is out of quota — the Gemini API key’s Google project needs billing enabled (the image model has no free tier). Credits were refunded.';
     case 'network':
       return 'Network error — check your connection and try again.';
     default:

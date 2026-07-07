@@ -11,11 +11,21 @@
  * the dashboard. First 3 generations per event are free on every tier
  * (enforced server-side in ai-generate-image).
  */
-import { useState } from 'react';
-import { Check, Loader2, RefreshCw, Sparkles, Wand2 } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Check, Loader2, Move, RefreshCw, Sparkles, Wand2 } from 'lucide-react';
 import { generateImage, aiErrorMessage, type AiErrorCode } from '../../lib/ai';
 import { updateEventConfig } from '../../lib/host';
 import type { Experience } from '../../types';
+
+/** Matches StageCanvas overlay semantics exactly: x/y are % of the canvas
+ *  offset from centre, scale is a multiplier (rotation stays 0 here). */
+interface FrameTransform {
+  scale: number;
+  x: number;
+  y: number;
+}
+const IDENTITY: FrameTransform = { scale: 1, x: 0, y: 0 };
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 type Phase =
   | { kind: 'idle' }
@@ -39,10 +49,14 @@ export default function FrameStudio({
 }) {
   const [prompt, setPrompt] = useState(suggestion);
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
+  const [tf, setTf] = useState<FrameTransform>(IDENTITY);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
 
   const generate = async () => {
     const brief = prompt.trim();
     if (!brief || phase.kind === 'generating') return;
+    setTf(IDENTITY);
     setPhase({ kind: 'generating' });
     const res = await generateImage(eventUuid, {
       prompt: brief,
@@ -58,12 +72,19 @@ export default function FrameStudio({
 
   const useAsFrame = async (experience: Experience) => {
     setPhase({ kind: 'applying', experience });
-    // Publish the (server-created, unpublished) experience, then pin it as
-    // the booth default — both member-RLS writes, same as the studio does.
+    // Publish the (server-created, unpublished) experience with the host's
+    // placement baked into config.transform, then pin it as the booth
+    // default — both member-RLS writes, same as the studio does.
     const { supabase } = await import('../../lib/supabase');
     const { error: pubErr } = await supabase
       .from('experiences')
-      .update({ is_published: true })
+      .update({
+        is_published: true,
+        config: {
+          ...((experience.config ?? {}) as Record<string, unknown>),
+          transform: { scale: tf.scale, x: tf.x, y: tf.y, rotation: 0 },
+        },
+      })
       .eq('id', experience.id);
     const pinned = await updateEventConfig(eventUuid, { defaultExperienceId: experience.id });
     if (pubErr || !pinned) {
@@ -105,18 +126,55 @@ export default function FrameStudio({
 
           {(phase.kind === 'preview' || phase.kind === 'applying') && (
             <div className="flex items-start gap-4">
-              <div className="w-28 shrink-0 aspect-[9/16] rounded-xl overflow-hidden border border-white/15 bg-noir-900 relative">
+              <div
+                ref={boxRef}
+                onPointerDown={(e) => {
+                  dragRef.current = { px: e.clientX, py: e.clientY, x: tf.x, y: tf.y };
+                  (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+                }}
+                onPointerMove={(e) => {
+                  const d = dragRef.current;
+                  const box = boxRef.current;
+                  if (!d || !box) return;
+                  // px → % of the box == % of the booth canvas (StageCanvas units).
+                  setTf((t) => ({
+                    ...t,
+                    x: clamp(d.x + ((e.clientX - d.px) / box.clientWidth) * 100, -40, 40),
+                    y: clamp(d.y + ((e.clientY - d.py) / box.clientHeight) * 100, -40, 40),
+                  }));
+                }}
+                onPointerUp={() => { dragRef.current = null; }}
+                className="w-32 shrink-0 aspect-[9/16] rounded-xl overflow-hidden border border-white/15 bg-noir-900 relative cursor-grab active:cursor-grabbing touch-none select-none"
+              >
                 {/* Stand-in subject so the frame frames something. */}
                 <div className="absolute inset-0 bg-[radial-gradient(80%_60%_at_50%_45%,rgba(255,255,255,0.14),transparent_70%)]" />
                 {phase.experience.asset_url && (
-                  <img src={phase.experience.asset_url} alt="Generated frame" className="absolute inset-0 w-full h-full object-cover" />
+                  <img
+                    src={phase.experience.asset_url}
+                    alt="Generated frame"
+                    draggable={false}
+                    className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                    style={{ transform: `translate(${tf.x}%, ${tf.y}%) scale(${tf.scale})` }}
+                  />
                 )}
               </div>
               <div className="flex-1 flex flex-col gap-2 pt-1">
-                <p className="font-sans text-[12px] text-brand-muted/70 leading-relaxed">
-                  Rendered at the booth's 9:16 capture size with a clear centre. Not quite right?
-                  Tweak the brief and regenerate.
+                <p className="font-sans text-[12px] text-brand-muted/70 leading-relaxed flex items-center gap-1.5">
+                  <Move className="w-3.5 h-3.5 shrink-0 text-brand-muted/50" />
+                  Drag the frame to reposition it — your placement is saved with it.
                 </p>
+                <label className="flex items-center gap-2">
+                  <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 shrink-0">Size</span>
+                  <input
+                    type="range"
+                    min={0.7}
+                    max={1.4}
+                    step={0.02}
+                    value={tf.scale}
+                    onChange={(e) => setTf((t) => ({ ...t, scale: Number(e.target.value) }))}
+                    className="flex-1"
+                  />
+                </label>
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => useAsFrame(phase.experience)}
