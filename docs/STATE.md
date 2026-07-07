@@ -2,10 +2,10 @@
 Redesign Beamwall's default platform theme + Landing hero to a black-bg, multi-color "beam" look (per user's reference image of glowing vertical glass frames), replacing the inherited Hope-Gala champagne-gold as the platform default, with frames beaming in on load and subtle colored particle streams in the background.
 
 ## Now
-Phase 3 (user's second feedback round) complete and verified — ready to commit + push to PR #12. Fixed: (1) event-theme pollution of platform chrome, (2) Landing scroll completely broken (h-screen overflow-hidden App shell + min-h-screen Landing = clipped, unscrollable), (3) washed-out background (root cause: shader beam width scaled by aspect.x, ~2x wider on portrait → 7 overlapping beams = milky wash; plus theme-pollution made app-bg tint unpredictable), (4) full Landing redesign: GSAP ScrollTrigger reveals/parallax, 4 feature sections (Booth/Wall/Challenges/Cards) with Higgsfield transparent cutouts, custom gradient SVG icons (BeamIcons), 5 hero frames desktop / 3 large on mobile, fixed ghost-frame parallax backdrop, richer SpectrumField (nebula + horizon + vignette, width-relative beams, 4 beams on narrow screens).
+Phase 4 (user's third feedback round) complete and verified — ready to commit + push to PR #12. Built: (1) hero rebuilt as a perspective ARC of tall glass frames (rotateY under shared perspective, per-frame light beams rising above, flipped+masked floor reflections, floor glow), frames larger, staggered left→right entrance, copy layered OVER the arc with opposing parallax depths (pointer-events-none wrapper, links opt back in); (2) click any hero frame → info modal (portalled to body, Escape/backdrop close, hue-matched glow, blurb+bullets+CTA) — verified via Playwright click + Escape; (3) reveal system v2: data-reveal="up|left|right" directional slide-ins, data-reveal-stagger cascades (feature bullets, template cards), reduced-motion now gets opacity-only fades instead of nothing (probable cause of user's "everything is static" report — reveals WERE armed, verified all 13 at opacity 0 pre-scroll); (4) frame-cluster art moved from a small decoration to a big background traveler sweeping right→center-left downward across the whole page scroll (fixed layer, GSAP scrub); (5) per-event favicon system: EventConfig.faviconHref applied by EventProvider, restored by resetPlatformTheme (platform href captured at module load); detola-wuyi=dw-emblem.png, hope-gala=scagoMarkDataUrl(64).
 
 ## Next
-- Commit Phase 3 + push (PR #12 auto-updates; babysitting subscription active)
+- Commit Phase 4 + push (PR #12 auto-updates; babysitting subscription active)
 - Nothing else outstanding
 
 ## Constraints
@@ -52,6 +52,8 @@ Phase 3 (user's second feedback round) complete and verified — ready to commit
 ## Open items
 - The 6 Higgsfield images are remote-URL-dependent (see Decisions) — swap for self-hosted src/assets/landing/*.png once downloadable; all URLs live in src/lib/landingAssets.ts.
 - Theme-pollution fix verified by code review + lint only (auth-gated /host flow can't be driven in this sandbox); worth a quick manual check after deploy: open an event studio, go back to /host, confirm platform colors.
+- NOTED (not done): jenna-jake has no faviconHref — its logo is an inline React SVG component with no data-URL export (src/events/jenna-jake/Logo.tsx); falls back to the platform favicon.
+- The 3 frozen legacy Netlify sites (galabooth/jennajake/theadetoyis) build from the `legacy-events` branch — the per-event favicon/title behavior only reaches them if that branch is rebased/cherry-picked and redeployed; flagged to the user.
 
 ## Failed attempts
 - ATTEMPT: curl the Higgsfield CDN image URLs directly into src/assets/landing/ → BLOCKED: proxy returned 403 (org egress policy denies d8j0ntlcm91z4.cloudfront.net), confirmed via status endpoint; did not retry per proxy README guidance.

@@ -79,7 +79,24 @@ function applyEventTheme(event: RuntimeEvent) {
     document.head.appendChild(link);
   }
 
+  if (event.config.faviconHref) setFavicon(event.config.faviconHref);
   document.title = `${event.config.copy.fullName} · Photo Booth`;
+}
+
+/** The platform favicon from index.html, captured before any event overrides it. */
+const platformFaviconHref: string | null =
+  typeof document !== 'undefined'
+    ? (document.querySelector('link[rel="icon"]') as HTMLLinkElement | null)?.href ?? null
+    : null;
+
+function setFavicon(href: string) {
+  let link = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'icon';
+    document.head.appendChild(link);
+  }
+  link.href = href;
 }
 
 /** Must match index.html's <title> so reset === the pre-event state. */
@@ -98,6 +115,7 @@ function resetPlatformTheme() {
   const style = document.getElementById(THEME_STYLE_ID);
   if (style) style.textContent = '';
   for (const v of MANAGED_CSS_VARS) document.documentElement.style.removeProperty(v);
+  if (platformFaviconHref) setFavicon(platformFaviconHref);
   document.title = PLATFORM_TITLE;
 }
 

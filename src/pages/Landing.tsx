@@ -235,7 +235,8 @@ function FeatureSection({ feature }: { feature: Feature }) {
   const art = feature.imageStyle === 'cutout' ? <CutoutArt feature={feature} /> : <FramedArt feature={feature} />;
   return (
     <section data-parallax-scope className="grid w-full items-center gap-10 sm:grid-cols-2 sm:gap-14">
-      <div data-reveal className={`text-left ${feature.flip ? 'sm:order-2' : ''}`}>
+      {/* Text slides in from its own side; artwork from the opposite side. */}
+      <div data-reveal={feature.flip ? 'right' : 'left'} className={`text-left ${feature.flip ? 'sm:order-2' : ''}`}>
         <div
           className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-2xl"
           style={{
@@ -251,7 +252,7 @@ function FeatureSection({ feature }: { feature: Feature }) {
         </p>
         <h2 className="mt-3 font-serif text-3xl leading-tight text-brand-fg sm:text-4xl">{feature.title}</h2>
         <p className="mt-4 max-w-md text-[15px] leading-relaxed text-brand-muted/80">{feature.copy}</p>
-        <ul className="mt-6 flex flex-col gap-2.5">
+        <ul data-reveal-stagger className="mt-6 flex flex-col gap-2.5">
           {feature.bullets.map((b) => (
             <li key={b} className="flex items-start gap-2.5 text-sm text-brand-fg/90">
               <Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: feature.from }} />
@@ -260,7 +261,7 @@ function FeatureSection({ feature }: { feature: Feature }) {
           ))}
         </ul>
       </div>
-      <div data-reveal className={feature.flip ? 'sm:order-1' : ''}>
+      <div data-reveal={feature.flip ? 'left' : 'right'} className={feature.flip ? 'sm:order-1' : ''}>
         {art}
       </div>
     </section>
@@ -274,26 +275,49 @@ export default function Landing() {
   const contentRef = useRef<HTMLDivElement>(null);
   const showcase = SHOWCASE.map((id) => EVENT_TEMPLATES.find((t) => t.id === id)!).filter(Boolean);
 
-  // Scroll choreography: soft reveals for [data-reveal], scrubbed drift for
-  // [data-parallax-depth] artwork, and slow full-page drift for ghost frames.
-  // All triggers use this component's own scroll container; matchMedia skips
-  // everything under prefers-reduced-motion, and mm.revert() cleans up.
+  // Scroll choreography. [data-reveal="up|left|right"] slide in on entry,
+  // [data-reveal-stagger] cascades its children, [data-parallax-depth] drifts
+  // with scroll, ghost frames + the big frame-cluster sweep across the whole
+  // page. Every trigger uses this component's own scroll container. Under
+  // prefers-reduced-motion everything becomes a plain opacity fade (no
+  // movement) instead of disappearing entirely; mm.revert() cleans up.
   useLayoutEffect(() => {
     const scroller = scrollRef.current;
     const content = contentRef.current;
     if (!scroller || !content) return;
     const mm = gsap.matchMedia();
     mm.add('(prefers-reduced-motion: no-preference)', () => {
+      const OFFSETS: Record<string, { x: number; y: number }> = {
+        up: { x: 0, y: 64 },
+        left: { x: -80, y: 0 },
+        right: { x: 80, y: 0 },
+      };
       gsap.utils.toArray<HTMLElement>('[data-reveal]', content).forEach((el) => {
+        const o = OFFSETS[el.dataset.reveal || 'up'] ?? OFFSETS.up;
         gsap.fromTo(
           el,
-          { y: 44, opacity: 0 },
+          { x: o.x, y: o.y, opacity: 0 },
+          {
+            x: 0,
+            y: 0,
+            opacity: 1,
+            duration: 1,
+            ease: 'power3.out',
+            scrollTrigger: { trigger: el, scroller, start: 'top 85%' },
+          },
+        );
+      });
+      gsap.utils.toArray<HTMLElement>('[data-reveal-stagger]', content).forEach((group) => {
+        gsap.fromTo(
+          group.children,
+          { y: 30, opacity: 0 },
           {
             y: 0,
             opacity: 1,
-            duration: 0.9,
-            ease: 'power3.out',
-            scrollTrigger: { trigger: el, scroller, start: 'top 84%' },
+            duration: 0.7,
+            stagger: 0.09,
+            ease: 'power2.out',
+            scrollTrigger: { trigger: group, scroller, start: 'top 88%' },
           },
         );
       });
@@ -319,15 +343,51 @@ export default function Landing() {
           scrollTrigger: { trigger: content, scroller, scrub: 1.2, start: 'top top', end: 'bottom bottom' },
         });
       });
+      // The frame cluster sweeps from the right edge toward center-left and
+      // downward across the whole page — a slow, deep background traveler.
+      const cluster = document.querySelector('[data-cluster]');
+      if (cluster) {
+        gsap.fromTo(
+          cluster,
+          { xPercent: 12, yPercent: -8, rotate: 8 },
+          {
+            xPercent: -115,
+            yPercent: 60,
+            rotate: -8,
+            ease: 'none',
+            scrollTrigger: { trigger: content, scroller, scrub: 1.4, start: 'top top', end: 'bottom bottom' },
+          },
+        );
+      }
+    });
+    mm.add('(prefers-reduced-motion: reduce)', () => {
+      gsap.utils.toArray<HTMLElement>('[data-reveal], [data-reveal-stagger]', content).forEach((el) => {
+        gsap.fromTo(
+          el,
+          { opacity: 0 },
+          { opacity: 1, duration: 0.5, scrollTrigger: { trigger: el, scroller, start: 'top 90%' } },
+        );
+      });
     });
     return () => mm.revert();
   }, []);
 
   return (
     <div ref={scrollRef} className="relative h-full w-full overflow-x-hidden overflow-y-auto scroll-smooth bg-brand-bg text-brand-fg">
-      {/* Fixed immersive backdrop: WebGL spectrum + parallax ghost frames. */}
+      {/* Fixed immersive backdrop: WebGL spectrum, parallax ghost frames, and
+          the big frame-cluster art slowly sweeping right → center-left. */}
       <div className="pointer-events-none fixed inset-0 z-0">
         <SpectrumField />
+        <img
+          data-cluster
+          src={FRAME_CLUSTER_CUTOUT}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          className="absolute top-[14%] hidden w-[28rem] opacity-[0.15] blur-[2px] md:block"
+          style={{ right: '-12%' }}
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+        />
         {GHOST_FRAMES.map((g, i) => (
           <div
             key={i}
@@ -365,38 +425,48 @@ export default function Landing() {
           </nav>
         </header>
 
-        {/* Hero */}
-        <main className="flex flex-1 flex-col items-center pt-14 text-center sm:pt-16">
-          <span className="mb-5 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
-            AR photo booth &amp; live wall for events
-          </span>
-          <h1 className="max-w-3xl font-serif text-5xl leading-[1.05] text-shadow-lux sm:text-6xl">
-            Your event, in <span className="text-foil-static">augmented reality</span>.
-          </h1>
-          <p className="mt-6 max-w-2xl text-base leading-relaxed text-brand-muted/85 sm:text-lg">
-            Give every guest a magical AR photo booth in their pocket — no app to download. Photos beam
-            onto a live wall styled with frames and 3D magic you set up in minutes.
-          </p>
+        {/* Hero — copy floats ABOVE the frame arc (z-20 vs z-10); the arc is
+            pulled up behind it and the two move at different parallax depths
+            for a 3D layered feel. The copy wrapper is pointer-events-none so
+            frame clicks pass through; its links opt back in. */}
+        <main className="flex flex-1 flex-col items-center text-center">
+          <section data-parallax-scope className="relative flex w-full flex-col items-center pt-14 sm:pt-16">
+            <div className="pointer-events-none relative z-20 flex flex-col items-center" data-parallax-depth="-0.05">
+              <span className="mb-5 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
+                AR photo booth &amp; live wall for events
+              </span>
+              <h1 className="max-w-3xl font-serif text-5xl leading-[1.05] text-shadow-lux sm:text-6xl">
+                Your event, in <span className="text-foil-static">augmented reality</span>.
+              </h1>
+              <p className="mt-6 max-w-2xl text-base leading-relaxed text-brand-muted/85 sm:text-lg">
+                Give every guest a magical AR photo booth in their pocket — no app to download. Photos beam
+                onto a live wall styled with frames and 3D magic you set up in minutes.
+              </p>
 
-          <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row">
-            <Link
-              to="/signup"
-              className="rounded-full bg-foil px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
-            >
-              Create your event
-            </Link>
-            <a
-              href="#pricing"
-              className="rounded-full border border-white/15 bg-white/[0.04] px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98]"
-            >
-              See pricing
-            </a>
-          </div>
-          <p className="mt-4 font-sans text-xs text-brand-muted/50">Free to start · no credit card to create your event.</p>
+              <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row">
+                <Link
+                  to="/signup"
+                  className="pointer-events-auto rounded-full bg-foil px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
+                >
+                  Create your event
+                </Link>
+                <a
+                  href="#pricing"
+                  className="pointer-events-auto rounded-full border border-white/15 bg-white/[0.04] px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98]"
+                >
+                  See pricing
+                </a>
+              </div>
+              <p className="mt-4 font-sans text-xs text-brand-muted/50">Free to start · no credit card to create your event.</p>
+            </div>
 
-          {/* Focal visual — the beam wall itself: the product's pillars as
-              glowing frames, beaming in the moment the page loads. */}
-          <FrameShowcase className="mt-16 w-full max-w-4xl" />
+            {/* Focal visual — the beam wall itself: tall glowing frames in a
+                perspective arc, beams rising behind the copy, reflections on
+                the floor. Tap a frame to learn about that pillar. */}
+            <div className="relative z-10 mt-2 w-full max-w-5xl sm:-mt-12" data-parallax-depth="0.08">
+              <FrameShowcase className="w-full" />
+            </div>
+          </section>
 
           {/* Feature stories — one immersive section per pillar. */}
           <div className="mt-28 flex w-full max-w-5xl flex-col gap-28 sm:mt-36 sm:gap-36">
@@ -408,22 +478,13 @@ export default function Landing() {
           {/* Live themed showcase */}
           <section data-parallax-scope className="mt-32 w-full">
             <div data-reveal className="relative flex flex-col items-center">
-              <img
-                src={FRAME_CLUSTER_CUTOUT}
-                alt=""
-                aria-hidden
-                loading="lazy"
-                data-parallax-depth="0.1"
-                className="animate-float pointer-events-none absolute -top-24 right-[4%] hidden w-40 opacity-70 lg:block"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-              />
               <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">Pick a style, in one tap</h2>
               <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
                 Wedding, gala, birthday, corporate or party — booth, frames and wall recolor instantly, then
                 fine-tune everything in the studio.
               </p>
             </div>
-            <div data-reveal className="mt-10 grid w-full grid-cols-3 gap-4 sm:gap-6 mx-auto max-w-3xl">
+            <div data-reveal-stagger className="mt-10 grid w-full grid-cols-3 gap-4 sm:gap-6 mx-auto max-w-3xl">
               {showcase.map((t, i) => (
                 <div key={t.id} className={`flex flex-col items-center gap-2.5 ${i === 1 ? 'sm:-translate-y-4' : ''}`}>
                   <div className="w-full">

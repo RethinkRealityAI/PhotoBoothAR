@@ -50,6 +50,10 @@ export interface EventConfig {
   copy: EventCopy;
   /** Google Fonts stylesheet href to inject at runtime (or '' if none). */
   fontHref: string;
+  /** Favicon for this event (data URL or bundled asset URL). Applied by the
+   *  EventProvider while the event is active; the platform icon is restored
+   *  on leave. Unset → the platform favicon stays. */
+  faviconHref?: string;
   Wordmark: ComponentType<{ size?: 'sm' | 'md' | 'lg' | 'xl' }>;
   Mark: ComponentType;
   /** Bare event emblem icon (no text) — used wherever a small brand mark appears. */
