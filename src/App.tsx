@@ -113,7 +113,7 @@ function adminRoutes() {
 export default function App() {
   return (
     <Router>
-      <div className="min-h-screen h-screen w-screen bg-noir-900 text-ivory font-sans overflow-hidden select-none">
+      <div className="min-h-screen h-screen w-screen bg-brand-bg text-ivory font-sans overflow-hidden select-none">
         <Routes>
           {LEGACY_EVENT ? (
             /* ── Legacy single-event build: registry event at "/" ── */

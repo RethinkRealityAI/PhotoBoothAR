@@ -10,6 +10,8 @@ import { Link } from 'react-router-dom';
 import { Camera, Sparkles, Video, Check } from 'lucide-react';
 import { EVENT_TEMPLATES } from '../lib/eventTemplates';
 import TemplatePreview from '../components/ui/TemplatePreview';
+import SpectrumField from '../components/ui/SpectrumField';
+import FrameShowcase from '../components/ui/FrameShowcase';
 
 const FEATURES = [
   {
@@ -79,8 +81,9 @@ export default function Landing() {
   const showcase = SHOWCASE.map((id) => EVENT_TEMPLATES.find((t) => t.id === id)!).filter(Boolean);
 
   return (
-    <div className="min-h-screen w-full app-bg text-brand-fg overflow-y-auto">
-      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-8">
+    <div className="relative min-h-screen w-full overflow-x-hidden overflow-y-auto app-bg text-brand-fg">
+      <SpectrumField className="z-0" />
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-8">
         {/* Top bar */}
         <header className="flex items-center justify-between">
           <span className="font-serif text-2xl font-semibold tracking-wide text-foil-static">Beamwall</span>
@@ -113,7 +116,7 @@ export default function Landing() {
           <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row">
             <Link
               to="/signup"
-              className="rounded-full bg-foil px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98]"
+              className="rounded-full bg-foil px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
             >
               Create your event
             </Link>
@@ -126,8 +129,13 @@ export default function Landing() {
           </div>
           <p className="mt-4 font-sans text-xs text-brand-muted/50">Free to start · no credit card to create your event.</p>
 
+          {/* Focal visual — the beam wall itself: every pillar of the product,
+              beaming in as glowing frames the moment the page loads. */}
+          <FrameShowcase className="mt-16 w-full max-w-4xl" />
+
           {/* Live themed showcase */}
-          <div className="mt-16 grid w-full max-w-3xl grid-cols-3 gap-4 sm:gap-6">
+          <h2 className="mt-20 font-serif text-2xl text-foil-static sm:text-3xl">Pick a style, in one tap</h2>
+          <div className="mt-8 grid w-full max-w-3xl grid-cols-3 gap-4 sm:gap-6">
             {showcase.map((t, i) => (
               <div key={t.id} className={`flex flex-col items-center gap-2.5 ${i === 1 ? 'sm:-translate-y-4' : ''}`}>
                 <div className="w-full">
@@ -144,7 +152,7 @@ export default function Landing() {
           {/* Feature cards */}
           <div className="mt-20 grid w-full gap-5 sm:grid-cols-3">
             {FEATURES.map((f) => (
-              <div key={f.title} className="glass rounded-2xl px-6 py-8 text-left shadow-[0_16px_60px_rgba(0,0,0,0.4)]">
+              <div key={f.title} className="liquid-glass rounded-2xl px-6 py-8 text-left shadow-[0_16px_60px_rgba(0,0,0,0.4)]">
                 <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[color:var(--color-accent)]/12 text-accent">
                   <f.icon className="h-5 w-5" />
                 </div>
@@ -174,7 +182,7 @@ export default function Landing() {
                   }`}
                 >
                   {t.popular && (
-                    <span className="absolute -top-2.5 left-6 rounded-full bg-foil px-3 py-1 font-label uppercase tracking-luxe text-[8px] font-bold text-noir-900">
+                    <span className="absolute -top-2.5 left-6 rounded-full bg-foil px-3 py-1 font-label uppercase tracking-luxe text-[8px] font-bold text-white">
                       Most popular
                     </span>
                   )}
@@ -196,7 +204,7 @@ export default function Landing() {
                     to="/signup"
                     className={`mt-6 rounded-full px-5 py-3 text-center font-label uppercase tracking-luxe text-[10px] font-bold transition active:scale-[0.98] ${
                       t.popular
-                        ? 'bg-foil text-noir-900 glow-accent'
+                        ? 'bg-foil text-white glow-accent'
                         : 'border border-white/15 bg-white/[0.04] text-brand-fg hover:bg-white/[0.08]'
                     }`}
                   >
@@ -208,7 +216,7 @@ export default function Landing() {
           </section>
 
           {/* Closing CTA */}
-          <div className="mt-24 flex w-full max-w-2xl flex-col items-center rounded-3xl glass px-8 py-12 text-center">
+          <div className="mt-24 flex w-full max-w-2xl flex-col items-center rounded-3xl liquid-glass px-8 py-12 text-center">
             <h2 className="font-serif text-3xl text-foil-static">Ready in minutes.</h2>
             <p className="mt-3 max-w-md text-sm leading-relaxed text-brand-muted/75">
               Create your event, pick a style, and share the QR code. Your guests bring the moments; the
@@ -216,7 +224,7 @@ export default function Landing() {
             </p>
             <Link
               to="/signup"
-              className="mt-7 rounded-full bg-foil px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98]"
+              className="mt-7 rounded-full bg-foil px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
             >
               Create your event
             </Link>

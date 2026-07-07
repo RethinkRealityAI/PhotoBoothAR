@@ -4,7 +4,7 @@
  *
  * Platform super-admin shell for /admin. Distinct from the per-event host
  * studio: NOT wrapped in an EventProvider (so it renders in the default
- * champagne-gold theme via the semantic utilities), and gated on a THREE-state
+ * black/beam-blue platform theme via the semantic utilities), and gated on a THREE-state
  * check — session loading → spinner; no session → /login; signed in but not a
  * platform admin → bounced to /host. The client gate is UX only; admin-api
  * re-checks on every request.
