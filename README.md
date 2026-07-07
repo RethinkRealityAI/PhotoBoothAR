@@ -67,6 +67,8 @@ Legacy single-event builds set `VITE_EVENT=<slug>` and render exactly as before.
 - **Server layer** — Supabase Edge Functions under `supabase/functions/`:
   `submit-post` · `create-event` · `admin-api` (platform super-admin) · `manager-api` · `stripe-checkout`/`-portal`/
   `-webhook` · `ai-generate-image` · `ai-generate-3d` · `ai-job-status` ·
+  `ai-event-designer` (conversational event concierge for `/host/new`; falls
+  back to a client-side keyword planner when unprovisioned) ·
   `card-contribute`/`-view`/`-publish` · `card-render`/`-render-status`. All AI
   and payment keys live here, never in the client.
 - **Billing & credits** — Stripe (per-event packages + Pro subscription + credit

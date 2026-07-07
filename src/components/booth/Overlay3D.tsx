@@ -15,9 +15,11 @@ interface Props {
   anchor: AnchorConfig;
   videoId?: string;
   mirror?: boolean;
+  /** Fires when face tracking acquires/loses the face (drives the booth hint). */
+  onFaceVisible?: (visible: boolean) => void;
 }
 
-export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true }: Props) {
+export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, onFaceVisible }: Props) {
   return (
     <div id="booth-3d-layer" className="absolute inset-0 pointer-events-none z-20">
       <Canvas
@@ -30,7 +32,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
         <directionalLight position={[2, 4, 3]} intensity={1.8} />
         <pointLight position={[-2, 2, 2]} intensity={0.8} color="#E8C766" />
 
-        <FaceRig videoId={videoId} anchor={anchor.anchor} config={anchor} mirror={mirror}>
+        <FaceRig videoId={videoId} anchor={anchor.anchor} config={anchor} mirror={mirror} onVisibilityChange={onFaceVisible}>
           {isHeadPiece(proceduralId) ? (
             <HeadPiece id={proceduralId as string} />
           ) : assetUrl ? (

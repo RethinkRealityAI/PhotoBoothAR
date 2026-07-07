@@ -2,7 +2,11 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * /host/new — three-step event creation wizard:
+ * /host/new — event creation, two ways into the same wizard state:
+ *   ✨ Concierge (default): describe the event in chat; the AI (or the local
+ *      keyword planner when AI is unprovisioned) fills name/style/link/date,
+ *      then jump straight to review.
+ *   Manual: the classic three steps —
  *   1. Basics (name, type, optional date)
  *   2. Slug (auto-suggested, live-validated; server has the final word)
  *   3. Create → success screen with guest link + QR + Open studio.
@@ -10,10 +14,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { ArrowLeft, ArrowRight, Check, Copy, Loader2, PartyPopper } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Copy, Loader2, PartyPopper, Send, Sparkles } from 'lucide-react';
 import { slugify, SLUG_RE, RESERVED_SLUGS } from '../../lib/slug';
 import { createEvent, updateEventConfig, isSlugVisiblyTaken, type CreateEventError, type HostEventRow } from '../../lib/host';
 import { EVENT_TEMPLATES, templateById, templateConfigPatch } from '../../lib/eventTemplates';
+import { designEvent, type ChatMessage, type EventPlan } from '../../lib/eventDesigner';
 import TemplatePreview from '../../components/ui/TemplatePreview';
 
 const inputClass =
@@ -34,6 +39,16 @@ function slugClientError(slug: string): string | null {
   if (RESERVED_SLUGS.has(slug)) return 'That link is reserved — try another.';
   return null;
 }
+
+const CHAT_GREETING =
+  "Tell me about your event — who or what are we celebrating? I'll design the whole thing: " +
+  'the look, the name, the guest link. You can fine-tune every detail afterwards.';
+
+const CHAT_SUGGESTIONS = [
+  "Jenna and Jake's wedding on 2026-09-12",
+  'A black-tie charity gala in November',
+  "My mum's 60th — family joins from abroad",
+];
 
 export default function NewEvent() {
   const navigate = useNavigate();
@@ -57,6 +72,44 @@ export default function NewEvent() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [created, setCreated] = useState<HostEventRow | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // ── Concierge chat (default path; the greeting lives outside the
+  //    transcript so the edge fn always sees a user-first conversation) ──
+  const [concierge, setConcierge] = useState(true);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatBusy, setChatBusy] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [chatMessages, chatBusy]);
+
+  /** Chat drives the SAME wizard state as the manual form — only fields the
+   *  plan actually decided (non-null) overwrite what the host typed. */
+  const applyPlan = (plan: EventPlan) => {
+    setTemplateId(plan.templateId);
+    setRemote(plan.remote);
+    if (plan.name) setName(plan.name);
+    if (plan.date) setDate(plan.date);
+    if (plan.slug) {
+      setSlug(plan.slug);
+      setSlugTouched(true);
+    }
+  };
+
+  const sendChat = async (text: string) => {
+    const content = text.trim();
+    if (!content || chatBusy) return;
+    const next: ChatMessage[] = [...chatMessages, { role: 'user', content }];
+    setChatMessages(next);
+    setChatInput('');
+    setChatBusy(true);
+    const res = await designEvent(next); // never throws — falls back to the local planner
+    applyPlan(res.plan);
+    setChatMessages([...next, { role: 'assistant', content: res.reply }]);
+    setChatBusy(false);
+  };
 
   // Auto-suggest the slug from the name until the user edits it themselves.
   useEffect(() => {
@@ -187,11 +240,129 @@ export default function NewEvent() {
           ))}
         </div>
 
-        {step === 1 && (
+        {step === 1 && concierge && (
+          <div className="flex flex-col gap-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h1 className="font-serif text-2xl text-foil-static flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-[color:var(--color-accent)]" /> Event Concierge
+                </h1>
+                <p className="mt-1 font-sans text-xs text-brand-muted/60">Describe your event — I'll build it while you watch the preview.</p>
+              </div>
+              <button
+                onClick={() => setConcierge(false)}
+                className="shrink-0 font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 hover:text-brand-fg transition-colors underline underline-offset-4 decoration-white/20"
+              >
+                Fill in manually
+              </button>
+            </div>
+
+            <div
+              ref={chatScrollRef}
+              className="min-h-[220px] max-h-[320px] overflow-y-auto rounded-2xl bg-white/[0.02] border border-white/10 p-4 flex flex-col gap-2.5"
+            >
+              <div className="max-w-[85%] self-start rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[13px] leading-relaxed text-brand-fg/90">
+                {CHAT_GREETING}
+              </div>
+              {chatMessages.map((m, i) =>
+                m.role === 'user' ? (
+                  <div key={i} className="max-w-[85%] self-end rounded-2xl rounded-tr-md bg-[color:var(--color-accent)]/15 border border-[color:var(--color-accent)]/30 px-3.5 py-2.5 font-sans text-[13px] leading-relaxed text-brand-fg">
+                    {m.content}
+                  </div>
+                ) : (
+                  <div key={i} className="max-w-[85%] self-start rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[13px] leading-relaxed text-brand-fg/90">
+                    {m.content}
+                  </div>
+                ),
+              )}
+              {chatBusy && (
+                <div className="self-start flex items-center gap-1.5 rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-muted/60" />
+                  <span className="font-sans text-[12px] text-brand-muted/60">Designing…</span>
+                </div>
+              )}
+            </div>
+
+            {chatMessages.length === 0 && (
+              <div className="flex flex-wrap gap-2">
+                {CHAT_SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => sendChat(s)}
+                    className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-sans text-[11px] text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.06] transition-colors"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') sendChat(chatInput);
+                }}
+                maxLength={2000}
+                placeholder="e.g. A rooftop engagement party for Priya and Sam in May…"
+                className={inputClass}
+              />
+              <button
+                onClick={() => sendChat(chatInput)}
+                disabled={!chatInput.trim() || chatBusy}
+                aria-label="Send"
+                className="shrink-0 w-11 h-11 rounded-full bg-foil glow-accent flex items-center justify-center text-noir-900 transition active:scale-95 disabled:opacity-40"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-4 space-y-2">
+              <div className="flex justify-between gap-4 text-[13px]">
+                <span className="text-brand-muted/50">Name</span>
+                <span className="text-brand-fg text-right">{name.trim() || '—'}</span>
+              </div>
+              <div className="flex justify-between gap-4 text-[13px]">
+                <span className="text-brand-muted/50">Style</span>
+                <span className="text-brand-fg text-right">{template.emoji} {template.label}{remote ? ' · Remote' : ''}</span>
+              </div>
+              <div className="flex justify-between gap-4 text-[13px]">
+                <span className="text-brand-muted/50">Link</span>
+                <span className="font-mono text-brand-fg">{slug ? `/e/${slug}` : '—'}</span>
+              </div>
+              {date && (
+                <div className="flex justify-between gap-4 text-[13px]">
+                  <span className="text-brand-muted/50">Date</span>
+                  <span className="text-brand-fg">{date}</span>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setStep(3)}
+              disabled={!name.trim() || !slug}
+              className="w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+            >
+              Review &amp; create <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {step === 1 && !concierge && (
           <div className="flex flex-col gap-5">
-            <div>
-              <h1 className="font-serif text-2xl text-foil-static">The basics</h1>
-              <p className="mt-1 font-sans text-xs text-brand-muted/60">What are we celebrating?</p>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h1 className="font-serif text-2xl text-foil-static">The basics</h1>
+                <p className="mt-1 font-sans text-xs text-brand-muted/60">What are we celebrating?</p>
+              </div>
+              <button
+                onClick={() => setConcierge(true)}
+                className="shrink-0 inline-flex items-center gap-1 font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 hover:text-brand-fg transition-colors underline underline-offset-4 decoration-white/20"
+              >
+                <Sparkles className="w-3 h-3" /> Use the concierge
+              </button>
             </div>
             <label className="flex flex-col gap-1.5">
               <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Event name</span>

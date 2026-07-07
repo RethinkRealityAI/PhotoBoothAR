@@ -51,6 +51,9 @@ today all three legacy Netlify sites build from `main`.
 - [ ] `GEMINI_API_KEY` — enables AI frame/sticker generation (was the old
       client-side `VITE_GEMINI_API_KEY`, now server-only). Without it,
       image gen returns `ai_not_configured` (credits auto-refunded).
+      Also powers `ai-event-designer` (the /host/new Event Concierge chat);
+      without the key it returns `ai_not_configured` and the client falls
+      back to the local keyword planner — the chat flow keeps working.
 - [ ] `MESHY_API_KEY` — enables 3D-prop generation (image/text → GLB).
 - [ ] `HIGGSFIELD_API_KEY` + `HIGGSFIELD_API_URL` — optional premium image
       provider; Gemini is the default and works alone.
