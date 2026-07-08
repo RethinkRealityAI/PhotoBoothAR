@@ -65,7 +65,7 @@ function GuestLinkCopy({ url }: { url: string }) {
     <button
       onClick={() => navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
       title="Copy guest link"
-      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg glass text-[10px] font-mono text-champagne/60 hover:text-gold-300 transition-colors max-w-[14rem]"
+      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass text-[10px] font-mono text-brand-muted/60 hover:text-accent-2 transition-colors max-w-[14rem]"
     >
       {copied ? <Check className="w-3 h-3 text-emerald-400 shrink-0" /> : <Copy className="w-3 h-3 shrink-0" />}
       <span className="truncate hidden sm:inline">{url.replace(/^https?:\/\//, '')}</span>
@@ -133,18 +133,18 @@ export default function EventStudio() {
       <EventProvider slug={event.slug} basePath={basePath}>
         <div className="absolute inset-0 flex flex-col">
           {/* Studio top bar (adapted from AdminGate's tab strip) */}
-          <nav className="h-16 shrink-0 flex items-center gap-3 px-4 glass-strong border-b border-gold-400/15 z-50">
+          <nav className="h-16 shrink-0 flex items-center gap-3 px-4 liquid-glass border-b border-accent/15 z-50">
             <Link
               to="/host"
               title="Back to events"
-              className="p-1.5 glass rounded-lg text-champagne/50 hover:text-ivory transition-colors shrink-0"
+              className="p-1.5 liquid-glass rounded-lg text-brand-muted/50 hover:text-brand-fg transition-colors shrink-0"
             >
               <ArrowLeft className="w-4 h-4" />
             </Link>
             <div className="min-w-0 hidden lg:block">
-              <p className="font-serif italic text-sm text-ivory leading-tight truncate max-w-[12rem]">{event.name}</p>
+              <p className="font-serif italic text-sm text-brand-fg leading-tight truncate max-w-[12rem]">{event.name}</p>
               <div className="flex items-center gap-1.5">
-                <span className="font-mono text-[9px] text-champagne/40">/e/{event.slug}</span>
+                <span className="font-mono text-[9px] text-brand-muted/40">/e/{event.slug}</span>
                 <span className={`px-1.5 py-px rounded-full text-[8px] font-label uppercase tracking-widest ${statusPill(event.status)}`}>
                   {event.status}
                 </span>
@@ -159,7 +159,7 @@ export default function EventStudio() {
                     end={t.end}
                     className={({ isActive }) =>
                       `flex items-center gap-1.5 px-2.5 md:px-3.5 py-2 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors whitespace-nowrap ${
-                        isActive ? 'bg-gold-400/15 text-gold-200 ring-1 ring-gold-400/30' : 'text-champagne/50 hover:text-ivory'
+                        isActive ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'text-brand-muted/50 hover:text-brand-fg'
                       }`
                     }
                   >

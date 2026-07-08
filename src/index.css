@@ -1,7 +1,9 @@
 /**
- * Hope Gala 2026 — design system.
- * Elegant black-tie palette: champagne gold + ivory on warm near-black,
- * gold-foil gradients, glass, bokeh dust. Matches the gala invitation.
+ * Beamwall platform design system (default theme).
+ * Black "beam wall" palette: void-black background with an electric
+ * blue → violet accent spectrum, glass surfaces and beaming light streaks.
+ * Individual events still override the semantic tokens below via their own
+ * theme.css (see src/events/*), which is unaffected by this default.
  */
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=Pinyon+Script&family=Jost:wght@300;400;500;600&display=swap');
 @import "tailwindcss";
@@ -22,26 +24,42 @@
   --color-cream:    #EFE6D2;
   --color-champagne:#E9D9B8;
 
-  /* Warm near-black backgrounds */
+  /* Warm near-black backgrounds — kept for events that still reference them */
   --color-noir-900: #0A0806;
   --color-noir-800: #100C08;
   --color-noir-700: #1A130C;
   --color-noir-600: #271C12;
 
+  /* Beamwall void scale — cool near-black platform background */
+  --color-void-900: #05060B;
+  --color-void-800: #0A0C15;
+  --color-void-700: #12141F;
+  --color-void-600: #1B2030;
+
+  /* Beamwall beam scale — electric blue → violet, the platform's own accent */
+  --color-beam-50:  #EEF3FF;
+  --color-beam-200: #A9C4FF;
+  --color-beam-400: #5B8CFF;
+  --color-beam-500: #4A72E6;
+  --color-beam-600: #7C6CF7;
+  --color-beam-700: #3A46B0;
+
   /* Semantic brand tokens (kept as aliases so legacy classes still resolve) */
-  --color-brand-bg:    #0A0806;
+  --color-brand-bg:    var(--color-void-900);
   --color-brand-text:  #F7F1E3;
   --color-brand-gold:  #D4AF37;
   --color-brand-orange:#E8C766;
   --color-rose:        #E7B6A0; /* soft rose-gold accent */
 
-  /* Semantic theme tokens — events override these in their theme.css */
-  --color-brand-surface: var(--color-noir-700);
-  --color-brand-fg:      var(--color-ivory);
-  --color-brand-muted:   var(--color-champagne);
-  --color-accent:        var(--color-gold-400);
-  --color-accent-2:      var(--color-gold-200);
-  --color-accent-3:      var(--color-gold-600);
+  /* Semantic theme tokens — events override these in their theme.css.
+     Platform default (no event) now points at the void/beam scales instead
+     of gold/noir, so Landing, /login, /host and /admin render black + blue. */
+  --color-brand-surface: var(--color-void-700);
+  --color-brand-fg:      var(--color-beam-50);
+  --color-brand-muted:   #A9B4CC;
+  --color-accent:        var(--color-beam-400);
+  --color-accent-2:      var(--color-beam-200);
+  --color-accent-3:      var(--color-beam-600);
 
   --font-sans:    "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-serif:   "Cormorant Garamond", ui-serif, Georgia, serif;
@@ -52,8 +70,8 @@
 :root {
   color-scheme: dark;
   /* Accent as a raw "r, g, b" triplet for inline rgba(var(--accent-rgb), a)
-     usages. Events override this in their theme.css. Default = gala gold. */
-  --accent-rgb: 212, 175, 55;
+     usages. Events override this in their theme.css. Default = beam blue. */
+  --accent-rgb: 91, 140, 255;
 }
 
 html, body, #root {
@@ -61,8 +79,8 @@ html, body, #root {
 }
 
 body {
-  background-color: var(--color-noir-900);
-  color: var(--color-ivory);
+  background-color: var(--color-brand-bg);
+  color: var(--color-brand-fg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -132,9 +150,11 @@ body {
     color: transparent;
   }
 
-  /* Gold surface (foil gradient as a fill, e.g. for buttons) */
+  /* Accent surface (foil gradient as a fill, e.g. for buttons) — token-based
+     so it follows whichever accent is active (platform default or an
+     event's own theme.css), instead of being hardcoded gold. */
   .bg-foil {
-    background-image: linear-gradient(120deg, #A67C1F, #D4AF37 35%, #F0DC9A 50%, #D4AF37 65%, #A67C1F);
+    background-image: linear-gradient(120deg, var(--color-accent-3), var(--color-accent) 35%, var(--color-accent-2) 50%, var(--color-accent) 65%, var(--color-accent-3));
   }
 
   .glow-gold   { box-shadow: 0 0 40px -8px rgba(212, 175, 55, 0.45); }
@@ -220,12 +240,21 @@ body {
   0%, 100% { opacity: 0; transform: scale(0.5); }
   50%      { opacity: var(--tw-peak, 0.9); transform: scale(1); }
 }
+/* Gentle levitation for imagery that "lives" on the page. */
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-12px); }
+}
 
 .animate-rise-in { animation: rise-in 0.7s cubic-bezier(0.16,1,0.3,1) both; }
 .animate-pulse-glow { animation: pulse-glow 3.2s ease-in-out infinite; }
+.animate-float { animation: float-y 6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-float { animation: none; }
+}
 
-/* Range inputs styled gold */
-input[type="range"] { accent-color: var(--color-gold-400); }
+/* Range inputs styled to the active accent */
+input[type="range"] { accent-color: var(--color-accent); }
 
 /* Selection */
-::selection { background: rgba(212,175,55,0.35); color: #fff; }
+::selection { background: rgba(var(--accent-rgb), 0.35); color: #fff; }

@@ -9,12 +9,14 @@ import { detolaWuyiCopy } from './copy';
 import { detolaWuyiAR } from './arContent';
 import { DetolaWuyiWordmark, DetolaWuyiMark, DetolaWuyiEmblem } from './Logo';
 import DetolaWuyiBackground from './Background';
+import dwEmblem from './dw-emblem.png';
 
 export const detolaWuyi: EventConfig = {
   id: 'detola-wuyi',
   copy: detolaWuyiCopy,
   fontHref:
     'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=Pinyon+Script&family=Jost:wght@300;400;500;600&display=swap',
+  faviconHref: dwEmblem,
   Wordmark: DetolaWuyiWordmark,
   Mark: DetolaWuyiMark,
   Emblem: DetolaWuyiEmblem,

@@ -1,0 +1,297 @@
+<!doctype html>
+<!--
+  Beamwall · Master Promo — ~58s brand film (HyperFrames composition "promo").
+  Distilled beats from the four 30s feature films (booth/wall/challenges/
+  cards), stitched under one narration pass (assets/vo-promo.m4a, 44.5s,
+  starts 1.0s) and the ambient bed. Scene map:
+    S1  0.0–5.2   brand sting — beam-line strike, wordmark, tagline
+    S2  5.0–13.2  BOOTH — phone with real selfie footage, AR sparkles, QR
+    S3 13.0–24.2  WALL — capture flash → photo flies to a skeleton grid that
+                  fills live (the how-it-works, compressed)
+    S4 24.0–33.6  CHALLENGES — challenge card, real group footage, +50 toast,
+                  leaderboard swap
+    S5 33.4–43.2  CARDS — greeting card opens, contents populate, film strip
+    S6 43.0–58.0  FINALE — real venue footage under scrim → wordmark, CTA,
+                  QR; beams bow out for a clean loop point
+  Contract: root omits data-duration (timeline pins 58.0); scenes alternate
+  tracks 1/2; all <video>/<audio> are direct root children (framework-owned),
+  windows chosen so no two clips overlap on a track.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Beamwall · Promo</title>
+    <link rel="stylesheet" href="assets/kit.css" />
+    <script src="assets/gsap.min.js"></script>
+    <script src="assets/kit.js"></script>
+    <style>
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+      #root { width: 1920px; height: 1080px; }
+
+      /* S1 */
+      #pr-beamline { width: 5px; height: 1080px; position: absolute; left: 50%; top: 0; margin-left: -2.5px; background: linear-gradient(to bottom, transparent, #dbe6ff 30%, var(--blue) 60%, transparent); opacity: 0; z-index: 8; }
+      #s1-wordmark { font-weight: 600; font-size: 210px; line-height: 1; margin: 0; }
+      #s1-tag { font-family: "Jost", Arial, sans-serif; font-weight: 500; letter-spacing: 0.34em; text-transform: uppercase; font-size: 22px; color: var(--muted); margin: 40px 0 0; }
+
+      /* S2 booth */
+      #pr-clip-selfie { position: absolute; left: 379px; top: 259px; width: 302px; height: 659px; object-fit: cover; border-radius: 42px; z-index: 12; }
+      #s2-phone-wrap { position: absolute; left: 360px; top: 240px; }
+      #s2-phone-wrap .bw-phone { background: transparent; z-index: 13; position: relative; }
+      #s2-phone-wrap .bw-phone .screen { background: transparent; }
+      #s2-copy { position: absolute; left: 900px; top: 330px; width: 700px; text-align: left; }
+      .spark { position: absolute; opacity: 0; z-index: 14; }
+      #s2-qr { display: flex; align-items: center; gap: 24px; margin-top: 44px; }
+      #s2-qr .qr { width: 104px; height: 104px; border-radius: 18px; border: 1.5px solid rgba(169,196,255,0.55); box-shadow: 0 0 36px -6px rgba(91,140,255,0.6); padding: 10px; background: rgba(8,10,20,0.9); }
+      #s2-qr .qr img { display: block; width: 100%; height: 100%; }
+      #s2-qr .lbl { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 25px; color: var(--fg); }
+
+      /* S3 wall */
+      #s3-grid { position: absolute; right: 250px; top: 260px; display: grid; grid-template-columns: repeat(3, 190px); grid-template-rows: repeat(3, 190px); gap: 24px; }
+      .skel { border: 2px dashed rgba(169,196,255,0.28); border-radius: 20px; background: rgba(9,11,20,0.5); position: relative; }
+      .cellfill { position: absolute; inset: 0; border-radius: 18px; opacity: 0; }
+      #s3-cap { position: absolute; left: 260px; top: 430px; width: 620px; text-align: left; }
+      #s3-flycard { position: absolute; left: 420px; top: 560px; width: 150px; height: 200px; border-radius: 16px; background: linear-gradient(150deg, #5b8cff, #38bdf8); box-shadow: 0 0 44px -6px rgba(238,243,255,0.55); opacity: 0; z-index: 20; }
+
+      /* S4 challenges */
+      #pr-clip-group { position: absolute; left: 349px; top: 289px; width: 282px; height: 618px; object-fit: cover; border-radius: 42px; z-index: 12; }
+      #s4-phone-wrap { position: absolute; left: 330px; top: 270px; }
+      #s4-phone-wrap .bw-phone { background: transparent; z-index: 13; position: relative; }
+      #s4-phone-wrap .bw-phone .screen { background: transparent; }
+      #s4-card { position: absolute; right: 240px; top: 250px; width: 560px; padding: 44px 48px; text-align: left; border-color: rgba(251,146,60,0.5) !important; box-shadow: 0 0 60px -14px rgba(251,146,60,0.5), 0 30px 80px -30px rgba(0,0,0,0.85) !important; }
+      #s4-card .chlbl { font-family: "Jost", Arial, sans-serif; font-weight: 600; letter-spacing: 0.3em; font-size: 20px; color: var(--orange); text-transform: uppercase; }
+      #s4-card .chtitle { font-size: 52px; font-weight: 400; margin: 18px 0 26px; }
+      #s4-card .bar { height: 8px; border-radius: 999px; background: rgba(251,146,60,0.18); overflow: hidden; }
+      #s4-card .bar i { display: block; height: 100%; width: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--orange), #f59e0b); transform: scaleX(0); transform-origin: left center; }
+      #s4-toast { position: absolute; left: 330px; top: 170px; font-family: "Jost", Arial, sans-serif; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; font-size: 24px; color: #fff; padding: 20px 44px; border-radius: 999px; background: linear-gradient(115deg, #f59e0b, var(--orange)); box-shadow: 0 0 50px -8px rgba(251,146,60,0.8); opacity: 0; z-index: 22; }
+
+      /* S5 cards */
+      #s5-cardwrap { position: absolute; left: 50%; top: 200px; transform: translateX(-50%); width: 860px; height: 560px; perspective: 1600px; }
+      #s5-page { position: absolute; inset: 0; padding: 40px 44px; text-align: left; border-color: rgba(232,121,249,0.5) !important; box-shadow: 0 0 60px -14px rgba(232,121,249,0.5), 0 30px 80px -30px rgba(0,0,0,0.85) !important; }
+      #s5-cover { position: absolute; inset: 0; border-radius: 30px; background: linear-gradient(150deg, #1a0f22, #0a0712); border: 1.5px solid rgba(232,121,249,0.55); transform-origin: left center; z-index: 5; display: grid; place-items: center; }
+      #s5-cover .cvr { font-size: 64px; }
+      #s5-polaroid { position: absolute; left: 60px; top: 120px; width: 180px; height: 224px; background: #f5f0f6; border-radius: 8px; padding: 10px 10px 40px; opacity: 0; transform: rotate(-5deg); }
+      #s5-polaroid i { display: block; width: 100%; height: 100%; border-radius: 4px; background: linear-gradient(150deg, var(--violet), var(--magenta)); }
+      #s5-msg { position: absolute; left: 300px; top: 150px; width: 480px; font-style: italic; font-size: 34px; line-height: 1.4; opacity: 0; }
+      .sig { position: absolute; font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 22px; color: var(--muted); opacity: 0; }
+
+      /* S6 finale */
+      #pr-clip-hall { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; object-fit: cover; z-index: 6; }
+      #s6 .scrim { position: absolute; inset: 0; background: linear-gradient(to top, rgba(4,5,10,0.94) 12%, rgba(4,5,10,0.5) 50%, rgba(4,5,10,0.65)); }
+      #s6 .stack { position: relative; }
+      #s6-qr { width: 124px; height: 124px; border-radius: 22px; border: 1.5px solid rgba(169,196,255,0.55); box-shadow: 0 0 36px -6px rgba(91,140,255,0.6); padding: 12px; background: rgba(8,10,20,0.9); margin-top: 48px; }
+      #s6-qr img { display: block; width: 100%; height: 100%; }
+      .fine { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 22px; color: var(--muted); margin-top: 28px; letter-spacing: 0.05em; }
+      .sect-eyebrow { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4em; font-size: 22px; margin: 0 0 24px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" class="bw-root" data-composition-id="promo" data-start="0" data-width="1920" data-height="1080">
+      <audio id="pr-vo" src="assets/vo-promo.m4a" data-start="1.0" data-track-index="8"></audio>
+      <audio id="pr-bed" src="assets/music-bed.m4a" data-start="0" data-duration="58" data-volume="0.16" data-track-index="9"></audio>
+
+      <!-- footage windows (root children; tracks 3/4 never overlap) -->
+      <video id="pr-clip-selfie" src="assets/clip-booth-selfie.mp4" data-start="5.4" data-duration="5.0" data-track-index="3" data-volume="0" muted></video>
+      <video id="pr-clip-group" src="assets/clip-group-selfie.mp4" data-start="24.4" data-duration="5.0" data-track-index="4" data-volume="0" muted></video>
+      <video id="pr-clip-hall" src="assets/clip-wall-hall.mp4" data-start="43.2" data-duration="5.0" data-track-index="3" data-volume="0" muted></video>
+
+      <!-- S1 brand sting -->
+      <div id="s1" class="clip scene" data-start="0" data-duration="5.2" data-track-index="1">
+        <div id="pr-beamline"></div>
+        <div class="stack">
+          <p class="eyebrow" id="s1-eyebrow">AR photo booth &amp; live wall</p>
+          <h1 id="s1-wordmark" class="foil">Beamwall</h1>
+          <p id="s1-tag">Every event becomes an experience</p>
+        </div>
+      </div>
+
+      <!-- S2 booth -->
+      <div id="s2" class="clip scene" data-start="5.0" data-duration="8.2" data-track-index="2">
+        <div id="s2-phone-wrap"></div>
+        <div id="s2-copy">
+          <p class="sect-eyebrow" style="color: var(--blue)">The AR booth</p>
+          <h2 class="title-md">One QR code. <em class="foil" style="font-style: normal">Every guest is in.</em></h2>
+          <div id="s2-qr">
+            <div class="qr"><img src="assets/qr.svg" alt="" /></div>
+            <span class="lbl">No app to download</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- S3 wall -->
+      <div id="s3" class="clip scene" data-start="13.0" data-duration="11.2" data-track-index="1">
+        <div id="s3-cap">
+          <p class="sect-eyebrow" style="color: var(--teal)">The live wall</p>
+          <h2 class="title-md">Every shot <em class="foil" style="font-style: normal">beams</em> onto the wall.</h2>
+        </div>
+        <div id="s3-grid"></div>
+        <div id="s3-flycard"></div>
+      </div>
+
+      <!-- S4 challenges -->
+      <div id="s4" class="clip scene" data-start="24.0" data-duration="9.6" data-track-index="2">
+        <div id="s4-phone-wrap"></div>
+        <div id="s4-toast">Challenge complete · +50</div>
+        <div id="s4-card" class="glass-card">
+          <span class="chlbl">Challenge 03 · +50 pts</span>
+          <h3 class="chtitle">Catch the first dance</h3>
+          <div class="bar"><i id="s4-bar-fill"></i></div>
+        </div>
+      </div>
+
+      <!-- S5 cards -->
+      <div id="s5" class="clip scene" data-start="33.4" data-duration="9.8" data-track-index="1">
+        <div class="stack" style="position: absolute; left: 0; right: 0; top: 96px">
+          <p class="sect-eyebrow" style="color: var(--magenta)">Keepsake cards</p>
+        </div>
+        <div id="s5-cardwrap">
+          <div id="s5-page" class="glass-card">
+            <div id="s5-polaroid"><i></i></div>
+            <p id="s5-msg" class="foil" style="font-style: italic">“Thank you for every single memory — we love you.”</p>
+            <span class="sig" id="sig-0" style="left: 300px; top: 360px">— Ada</span>
+            <span class="sig" id="sig-1" style="left: 430px; top: 400px">— The Cousins</span>
+            <span class="sig" id="sig-2" style="left: 610px; top: 370px">— Femi</span>
+          </div>
+          <div id="s5-cover"><span class="cvr foil">With love, always</span></div>
+        </div>
+      </div>
+
+      <!-- S6 finale -->
+      <div id="s6" class="clip scene" data-start="43.0" data-duration="15.0" data-track-index="2">
+        <div class="scrim"></div>
+        <div class="stack">
+          <h2 class="title-xl foil" id="s6-wordmark" style="font-size: 160px">Beamwall</h2>
+          <div class="pill" id="s6-pill" style="margin-top: 50px">Create your event</div>
+          <div id="s6-qr"><img src="assets/qr.svg" alt="" /></div>
+          <p class="fine" id="s6-fine">Create your event in minutes · free to start · beamwall</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+        var root = document.getElementById("root");
+        BW.buildBackdrop(root, "pr");
+
+        /* phones */
+        var ph2 = BW.phone("s2-phone", 340);
+        document.getElementById("s2-phone-wrap").appendChild(ph2.el);
+        var ph4 = BW.phone("s4-phone", 320);
+        document.getElementById("s4-phone-wrap").appendChild(ph4.el);
+
+        /* AR sparkles around the booth phone */
+        var SPARKS = [
+          { x: 300, y: 210, h: "blue", s: 44 },
+          { x: 720, y: 300, h: "cyan", s: 34 },
+          { x: 290, y: 560, h: "violet", s: 30 },
+          { x: 700, y: 620, h: "teal", s: 40 },
+        ];
+        SPARKS.forEach(function (sp, i) {
+          var el = document.createElement("div");
+          el.className = "spark";
+          el.id = "spark-" + i;
+          el.style.left = sp.x + "px";
+          el.style.top = sp.y + "px";
+          el.innerHTML = BW.icon("spark", BW.hue(sp.h).css, sp.s);
+          document.getElementById("s2").appendChild(el);
+        });
+
+        /* wall grid */
+        var grid = document.getElementById("s3-grid");
+        var FILLS = ["blue", "magenta", "orange", "teal", "violet", "green", "cyan", "blue", "magenta"];
+        for (var i = 0; i < 9; i++) {
+          var cell = document.createElement("div");
+          cell.className = "skel";
+          cell.id = "cell-" + i;
+          var fill = document.createElement("div");
+          fill.className = "cellfill";
+          fill.id = "fill-" + i;
+          var h = BW.hue(FILLS[i]);
+          fill.style.background = "linear-gradient(150deg, rgba(" + h.rgb + ",0.9), rgba(" + h.rgb + ",0.45))";
+          fill.style.boxShadow = "inset 0 0 40px -10px rgba(255,255,255,0.35)";
+          cell.appendChild(fill);
+          grid.appendChild(cell);
+        }
+
+        /* ── timeline ── */
+        var EASE = "power3.out";
+        var END = 58.0;
+        var tl = gsap.timeline({ paused: true });
+        BW.animateBackdrop(tl, "pr", END);
+
+        /* S1 sting */
+        tl.fromTo("#pr-beamline", { opacity: 0, scaleY: 0 }, { opacity: 1, scaleY: 1, duration: 0.5, ease: "power4.in" }, 0.25);
+        tl.to("#pr-beamline", { opacity: 0, duration: 0.7, ease: "power2.out" }, 0.8);
+        BW.flashAt(tl, "pr", 0.7, 1);
+        tl.fromTo("#s1-wordmark", { opacity: 0, y: -90, scaleY: 0.5 }, { opacity: 1, y: 0, scaleY: 1, duration: 1.0, ease: EASE }, 0.75);
+        tl.fromTo("#s1-eyebrow", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.7, ease: EASE }, 1.2);
+        tl.fromTo("#s1-tag", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.7, ease: EASE }, 1.4);
+        tl.to("#s1 .stack", { opacity: 0, y: -46, duration: 0.5, ease: "power2.in" }, 4.6);
+
+        /* S2 booth */
+        tl.fromTo("#s2-phone-wrap", { opacity: 0, y: 90 }, { opacity: 1, y: 0, duration: 0.9, ease: EASE }, 5.3);
+        tl.fromTo("#s2-copy", { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.9, ease: EASE }, 5.7);
+        SPARKS.forEach(function (_sp, i) {
+          var at = 6.4 + i * 0.5;
+          tl.fromTo("#spark-" + i, { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(2)" }, at);
+          tl.to("#spark-" + i, { opacity: 0.25, scale: 0.85, duration: 0.9, ease: "sine.inOut" }, at + 0.6);
+        });
+        tl.to("#s2", { opacity: 0, duration: 0.55, ease: "power2.in" }, 12.6);
+
+        /* S3 wall — capture → fly → fill */
+        tl.fromTo("#s3-cap", { opacity: 0, x: -70 }, { opacity: 1, x: 0, duration: 0.9, ease: EASE }, 13.3);
+        tl.fromTo("#s3-grid", { opacity: 0, x: 80 }, { opacity: 1, x: 0, duration: 0.9, ease: EASE }, 13.6);
+        BW.flashAt(tl, "pr", 15.2, 0.8);
+        tl.fromTo(
+          "#s3-flycard",
+          { opacity: 0, x: 0, y: 0, scale: 0.62, rotation: -6 },
+          { opacity: 1, x: 856, y: -96, scale: 1.27, rotation: 0, duration: 1.0, ease: "power2.inOut" },
+          15.45
+        );
+        tl.to("#s3-flycard", { opacity: 0, duration: 0.3 }, 16.55);
+        tl.fromTo("#fill-4", { opacity: 0 }, { opacity: 1, duration: 0.35 }, 16.5);
+        var order = [0, 8, 2, 6, 1, 5, 3, 7];
+        order.forEach(function (idx, n) {
+          tl.fromTo("#fill-" + idx, { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.6)" }, 17.3 + n * 0.6);
+        });
+        tl.to("#s3", { opacity: 0, duration: 0.55, ease: "power2.in" }, 23.6);
+
+        /* S4 challenges */
+        tl.fromTo("#s4-card", { opacity: 0, x: 90, rotateY: -14 }, { opacity: 1, x: 0, rotateY: -4, duration: 0.9, ease: EASE }, 24.3);
+        tl.fromTo("#s4-phone-wrap", { opacity: 0, y: 90 }, { opacity: 1, y: 0, duration: 0.9, ease: EASE }, 24.6);
+        tl.to("#s4-bar-fill", { scaleX: 0.62, duration: 1.4, ease: "power2.inOut" }, 25.6);
+        BW.flashAt(tl, "pr", 27.4, 0.85);
+        tl.fromTo("#s4-toast", { opacity: 0, y: 26, scale: 0.9 }, { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "back.out(1.7)" }, 27.7);
+        tl.to("#s4", { opacity: 0, duration: 0.55, ease: "power2.in" }, 33.0);
+
+        /* S5 cards — the card opens, contents populate */
+        tl.fromTo("#s5-cardwrap", { opacity: 0, y: 70 }, { opacity: 1, y: 0, duration: 0.9, ease: EASE }, 33.7);
+        tl.to("#s5-cover", { rotateY: -150, duration: 1.4, ease: "power2.inOut" }, 34.9);
+        tl.to("#s5-cover", { opacity: 0, duration: 0.4 }, 36.2);
+        tl.fromTo("#s5-polaroid", { opacity: 0, y: 30, rotation: -12 }, { opacity: 1, y: 0, rotation: -5, duration: 0.7, ease: "back.out(1.5)" }, 36.4);
+        tl.fromTo("#s5-msg", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.8, ease: EASE }, 36.9);
+        for (var g = 0; g < 3; g++) {
+          tl.fromTo("#sig-" + g, { opacity: 0, y: 14 }, { opacity: 0.9, y: 0, duration: 0.5, ease: EASE }, 37.6 + g * 0.35);
+        }
+        tl.to("#s5", { opacity: 0, duration: 0.55, ease: "power2.in" }, 42.6);
+
+        /* S6 finale over real footage */
+        tl.fromTo("#s6-wordmark", { opacity: 0, y: -70, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 1.0, ease: EASE }, 44.0);
+        tl.fromTo("#s6-pill", { opacity: 0, y: 34, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: "back.out(1.6)" }, 44.8);
+        tl.fromTo("#s6-qr", { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.5)" }, 45.2);
+        tl.fromTo("#s6-fine", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 45.6);
+        tl.to("#s6 .stack", { opacity: 0, duration: 0.8, ease: "power2.in" }, 56.6);
+        tl.to("#pr-beam-blue, #pr-beam-teal, #pr-beam-orange, #pr-beam-green, #pr-beam-magenta, #pr-beam-violet, #pr-beam-cyan", { opacity: 0.22, duration: 1.0, ease: "sine.inOut" }, 56.4);
+
+        /* pin duration */
+        tl.set("#pr-bg", { opacity: 1 }, END);
+        window.__timelines = window.__timelines || {};
+        window.__timelines["promo"] = tl;
+      })();
+    </script>
+  </body>
+</html>

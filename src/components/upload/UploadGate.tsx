@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * UploadGate — password protection for the public /upload page so bots/strangers
- * can't mass-upload to the wall. Beautiful, on-theme: an ornate gold-border card
+ * can't mass-upload to the wall. Beautiful, on-theme: an ornate accent-border card
  * (same treatment as the booth entrance) floating between two closed "elevator
  * doors". On the correct passcode the card bows out and the doors slide apart to
  * reveal the upload experience beneath.
@@ -77,15 +77,15 @@ function Door({
       }}
       style={{
         background:
-          'linear-gradient(180deg, #0B0806 0%, #15100a 45%, #1c1409 100%)',
+          'linear-gradient(180deg, var(--color-brand-bg) 0%, var(--color-brand-surface) 45%, var(--color-brand-bg) 100%)',
       }}
     >
-      {/* faint vertical brushed-gold panelling */}
+      {/* faint vertical brushed panelling, tinted to the active accent */}
       <div
         className="absolute inset-0 opacity-[0.06]"
         style={{
           background:
-            'repeating-linear-gradient(90deg, #FBF3D9 0 1px, transparent 1px 26px)',
+            'repeating-linear-gradient(90deg, var(--color-accent-2) 0 1px, transparent 1px 26px)',
         }}
       />
       {/* ornate inner edge (the seam where the doors meet) */}
@@ -93,13 +93,13 @@ function Door({
         className={`absolute inset-y-0 ${isLeft ? 'right-0' : 'left-0'} w-[3px]`}
         style={{
           background:
-            'linear-gradient(to bottom, transparent, rgba(212,175,55,0.85) 18%, #FBF3D9 50%, rgba(212,175,55,0.85) 82%, transparent)',
-          boxShadow: '0 0 22px 3px rgba(212,175,55,0.45)',
+            'linear-gradient(to bottom, transparent, rgba(var(--accent-rgb),0.85) 18%, var(--color-accent-2) 50%, rgba(var(--accent-rgb),0.85) 82%, transparent)',
+          boxShadow: '0 0 22px 3px rgba(var(--accent-rgb),0.45)',
         }}
       />
       {/* secondary hairline just inside the seam */}
       <div
-        className={`absolute inset-y-8 ${isLeft ? 'right-3' : 'left-3'} w-px bg-gold-400/20`}
+        className={`absolute inset-y-8 ${isLeft ? 'right-3' : 'left-3'} w-px bg-accent/20`}
       />
     </motion.div>
   );
@@ -209,7 +209,7 @@ export default function UploadGate({ children }: { children: ReactNode }) {
                 >
                   <GoldFrameCard className="w-full max-w-sm" contentClassName="px-8 py-11">
                     <div className="w-14 h-14 mb-6 rounded-full bg-foil glow-accent flex items-center justify-center">
-                      <Lock className="w-6 h-6 text-noir-900" />
+                      <Lock className="w-6 h-6 text-white" />
                     </div>
 
                     <Wordmark size="md" />
@@ -220,10 +220,10 @@ export default function UploadGate({ children }: { children: ReactNode }) {
                         <h1 className="mt-5 font-serif italic text-3xl text-foil-static">
                           Private Upload
                         </h1>
-                        <p className="mt-1 font-label uppercase tracking-luxe text-[10px] text-champagne/50">
+                        <p className="mt-1 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
                           {eventName} · Add to the Wall
                         </p>
-                        <p className="mt-6 font-sans text-[12px] text-champagne/45 animate-pulse">
+                        <p className="mt-6 font-sans text-[12px] text-brand-muted/45 animate-pulse">
                           Checking the guest list…
                         </p>
                       </>
@@ -233,10 +233,10 @@ export default function UploadGate({ children }: { children: ReactNode }) {
                         <h1 className="mt-5 font-serif italic text-3xl text-foil-static">
                           Uploads Are Closed
                         </h1>
-                        <p className="mt-1 font-label uppercase tracking-luxe text-[10px] text-champagne/50">
+                        <p className="mt-1 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
                           {eventName} · Add to the Wall
                         </p>
-                        <p className="mt-4 max-w-[17rem] font-sans text-[12px] text-champagne/55 leading-relaxed">
+                        <p className="mt-4 max-w-[17rem] font-sans text-[12px] text-brand-muted/55 leading-relaxed">
                           The host hasn't opened public uploads for this event.
                           Photos taken in the booth still land on the wall automatically.
                         </p>
@@ -247,10 +247,10 @@ export default function UploadGate({ children }: { children: ReactNode }) {
                         <h1 className="mt-5 font-serif italic text-3xl text-foil-static">
                           Private Upload
                         </h1>
-                        <p className="mt-1 font-label uppercase tracking-luxe text-[10px] text-champagne/50">
+                        <p className="mt-1 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
                           {eventName} · Add to the Wall
                         </p>
-                        <p className="mt-4 max-w-[17rem] font-sans text-[12px] text-champagne/55 leading-relaxed">
+                        <p className="mt-4 max-w-[17rem] font-sans text-[12px] text-brand-muted/55 leading-relaxed">
                           This area is passcode-protected. Enter the event passcode to
                           upload your photos &amp; videos to the live wall.
                         </p>
@@ -265,10 +265,10 @@ export default function UploadGate({ children }: { children: ReactNode }) {
                               setErr(false);
                             }}
                             placeholder="Enter passcode"
-                            className={`w-full text-center bg-white/5 border rounded-xl px-4 py-3 text-ivory placeholder-white/25 outline-none transition-colors ${
+                            className={`w-full text-center bg-white/5 border rounded-xl px-4 py-3 text-brand-fg placeholder-white/25 outline-none transition-colors ${
                               err
                                 ? 'border-red-400/60'
-                                : 'border-gold-400/20 focus:border-gold-400/60'
+                                : 'border-accent/20 focus:border-accent/60'
                             }`}
                           />
                           {err && (
@@ -276,7 +276,7 @@ export default function UploadGate({ children }: { children: ReactNode }) {
                           )}
                           <button
                             type="submit"
-                            className="mt-6 w-full py-3.5 bg-foil text-noir-900 font-bold uppercase tracking-luxe text-[11px] rounded-xl glow-accent hover:scale-[1.02] transition-transform flex items-center justify-center gap-2"
+                            className="mt-6 w-full py-3.5 bg-foil text-white font-bold uppercase tracking-luxe text-[11px] rounded-xl glow-accent hover:scale-[1.02] transition-transform flex items-center justify-center gap-2"
                           >
                             Unlock
                             <ArrowRight className="w-4 h-4" />

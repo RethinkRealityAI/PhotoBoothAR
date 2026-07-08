@@ -58,14 +58,14 @@ export default function Overview() {
           {Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-28 glass rounded-2xl animate-pulse" />)}
         </div>
       ) : state === 'error' ? (
-        <div className="glass-strong rounded-3xl p-12 text-center max-w-lg mx-auto">
+        <div className="liquid-glass rounded-3xl p-12 text-center max-w-lg mx-auto">
           <h2 className="font-serif text-2xl text-foil-static mb-2">Couldn’t load metrics</h2>
           <p className="font-sans text-sm text-brand-muted/70 leading-relaxed mb-6">
             The platform API didn’t respond. Check your connection and try again.
           </p>
           <button
             onClick={load}
-            className="inline-flex items-center gap-2 rounded-full bg-foil px-6 py-3 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98]"
+            className="inline-flex items-center gap-2 rounded-full bg-foil px-6 py-3 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
           >
             <RefreshCw className="w-4 h-4" /> Retry
           </button>
