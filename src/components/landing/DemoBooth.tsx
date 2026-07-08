@@ -149,10 +149,12 @@ function BeamFlightFx({
     // 1 · The shot itself: energize, then dive into the tile.
     const clone = box.querySelector<HTMLElement>('[data-fx="clone"]');
     if (clone) {
+      // Starts already-hot (brightness ~1.85) so it reads as a continuation
+      // of the in-stage charge phase, not a fresh element.
       anims.push(clone.animate(
         [
-          { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px`, borderRadius: '2rem', filter: 'brightness(1) saturate(1)', opacity: 1 },
-          { left: `${from.left}px`, top: `${from.top - 14}px`, width: `${from.width}px`, height: `${from.height}px`, borderRadius: '2rem', filter: 'brightness(1.7) saturate(1.5)', opacity: 1, offset: 0.28 },
+          { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px`, borderRadius: '2rem', filter: 'brightness(1.85) saturate(1.6)', opacity: 1 },
+          { left: `${from.left}px`, top: `${from.top - 14}px`, width: `${from.width}px`, height: `${from.height}px`, borderRadius: '2rem', filter: 'brightness(2) saturate(1.7)', opacity: 1, offset: 0.28 },
           { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px`, borderRadius: '0.5rem', filter: 'brightness(2.4) saturate(1.8)', opacity: 0.95 },
         ],
         { duration: 820, easing: EASE, fill: 'forwards' },
@@ -346,6 +348,8 @@ export default function DemoBooth() {
   const [trackerReady, setTrackerReady] = useState(false);
   const [wallShots, setWallShots] = useState<string[]>([]);
   const [canShare, setCanShare] = useState(false);
+  /** The shot charging up in-stage (SendOff-style) before its flight. */
+  const [beaming, setBeaming] = useState<string | null>(null);
   const [flight, setFlight] = useState<Flight | null>(null);
 
   const stageRef = useRef<StageCanvasHandle>(null);
@@ -392,26 +396,84 @@ export default function DemoBooth() {
     setWallShots((prev) => [...prev, img].slice(-WALL_SLOTS));
   }, []);
 
-  const beamToWall = useCallback(() => {
-    if (!shot) return;
+  /** Stage → target-tile rects in demo-root space, or null if unmeasurable. */
+  const measureFlight = useCallback((): Pick<Flight, 'from' | 'to'> | null => {
     const root = rootRef.current;
     const stageBox = stageBoxRef.current;
     // The tile this shot will land in (grid shifts left once full).
     const slot = Math.min(wallShots.length, WALL_SLOTS - 1);
     const tile = wallGridRef.current?.children[slot] as HTMLElement | undefined;
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    if (!root || !stageBox || !tile || reduceMotion || flight) {
-      commitToWall(shot);
-      setShot(null);
-      return;
-    }
+    if (!root || !stageBox || !tile) return null;
     const rootBox = root.getBoundingClientRect();
     const rel = (r: DOMRect): BeamRect => ({
       left: r.left - rootBox.left, top: r.top - rootBox.top, width: r.width, height: r.height,
     });
-    setFlight({ shot, from: rel(stageBox.getBoundingClientRect()), to: rel(tile.getBoundingClientRect()) });
+    return { from: rel(stageBox.getBoundingClientRect()), to: rel(tile.getBoundingClientRect()) };
+  }, [wallShots.length]);
+
+  const beamToWall = useCallback(() => {
+    if (!shot) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    if (reduceMotion || beaming || flight || !measureFlight()) {
+      commitToWall(shot);
+      setShot(null);
+      return;
+    }
+    // Phase A: charge up in the stage (SendOff idiom); flight follows.
+    setBeaming(shot);
     setShot(null);
-  }, [shot, wallShots.length, flight, commitToWall]);
+  }, [shot, beaming, flight, measureFlight, commitToWall]);
+
+  // Phase A choreography: a spectrum light column rises through the photo,
+  // sparks float up, the shot energizes — then hands off to BeamFlightFx.
+  useEffect(() => {
+    if (!beaming) return;
+    const stageBox = stageBoxRef.current;
+    const anims: Animation[] = [];
+    if (stageBox) {
+      const img = stageBox.querySelector<HTMLElement>('[data-charge="img"]');
+      if (img) {
+        anims.push(img.animate(
+          [
+            { transform: 'translateY(0) scale(1)', filter: 'brightness(1) saturate(1)' },
+            { transform: 'translateY(-10px) scale(1.03)', filter: 'brightness(1.85) saturate(1.6)' },
+          ],
+          { duration: 660, easing: 'ease-in', fill: 'forwards' },
+        ));
+      }
+      const column = stageBox.querySelector<HTMLElement>('[data-charge="column"]');
+      if (column) {
+        anims.push(column.animate(
+          [
+            { transform: 'scaleY(0)', opacity: 0 },
+            { transform: 'scaleY(1)', opacity: 0.9, offset: 0.55 },
+            { transform: 'scaleY(1)', opacity: 0.75 },
+          ],
+          { duration: 660, easing: 'ease-out', fill: 'forwards' },
+        ));
+      }
+      stageBox.querySelectorAll<HTMLElement>('[data-charge="spark"]').forEach((sp, i) => {
+        anims.push(sp.animate(
+          [
+            { transform: 'translateY(0) scale(0.4)', opacity: 0 },
+            { transform: `translateY(-${90 + (i % 4) * 46}px) translateX(${((i % 3) - 1) * 18}px) scale(1)`, opacity: 0.95, offset: 0.55 },
+            { transform: `translateY(-${170 + (i % 4) * 60}px) translateX(${((i % 3) - 1) * 30}px) scale(0.3)`, opacity: 0 },
+          ],
+          { duration: 700, delay: i * 55, easing: 'ease-out', fill: 'both' },
+        ));
+      });
+    }
+    const handoff = window.setTimeout(() => {
+      const rects = measureFlight();
+      if (rects) setFlight({ shot: beaming, ...rects });
+      else commitToWall(beaming);
+      setBeaming(null);
+    }, 680);
+    return () => {
+      window.clearTimeout(handoff);
+      anims.forEach((a) => a.cancel());
+    };
+  }, [beaming, measureFlight, commitToWall]);
 
   const share = useCallback(async () => {
     if (!shot) return;
@@ -533,7 +595,7 @@ export default function DemoBooth() {
               overlayUrl={frameId ? FRAME_URLS[frameId] : null}
               threeCanvasId={propId ? 'booth-3d-layer' : null}
               watermark={false}
-              active={!shot}
+              active={!shot && !beaming}
             />
             {propId && !trackerReady && (
               <p className="absolute left-0 right-0 top-4 z-20 text-center font-label text-[9px] uppercase tracking-luxe text-brand-muted/60">
@@ -547,10 +609,44 @@ export default function DemoBooth() {
               style={{ opacity: flash ? 0.85 : 0 }}
             />
 
-            {/* Captured shot review */}
-            {shot && (
+            {/* Captured shot review — doubles as the send-off "charge" stage:
+                while `beaming`, the buttons are gone and a spectrum column
+                rises through the energizing photo before the flight. */}
+            {(shot || beaming) && (
               <div className="absolute inset-0 z-30 flex flex-col bg-void-900/85 backdrop-blur-sm">
-                <img src={shot} alt="Your captured demo photo" className="min-h-0 flex-1 object-contain" />
+                <img
+                  data-charge="img"
+                  src={beaming ?? shot ?? undefined}
+                  alt="Your captured demo photo"
+                  className="min-h-0 flex-1 object-contain"
+                />
+                {beaming && (
+                  <>
+                    <span
+                      data-charge="column"
+                      className="pointer-events-none absolute inset-y-0 left-1/2 w-24 origin-bottom -translate-x-1/2"
+                      style={{
+                        background: `linear-gradient(to top, ${SPECTRUM[1]}66, ${SPECTRUM[0]}44 45%, ${SPECTRUM[5]}22 80%, transparent)`,
+                        filter: 'blur(6px)',
+                        opacity: 0,
+                      }}
+                    />
+                    {SPECTRUM.map((hue, i) => (
+                      <span
+                        key={hue}
+                        data-charge="spark"
+                        className="pointer-events-none absolute bottom-24 h-1.5 w-1.5 rounded-full"
+                        style={{
+                          left: `${22 + i * 9}%`,
+                          background: hue,
+                          boxShadow: `0 0 8px 2px ${hue}`,
+                          opacity: 0,
+                        }}
+                      />
+                    ))}
+                  </>
+                )}
+                {shot && !beaming && (
                 <div className="flex flex-col items-center gap-2.5 px-4 pb-4 pt-3">
                   <button
                     type="button"
@@ -585,12 +681,13 @@ export default function DemoBooth() {
                     </button>
                   </div>
                 </div>
+                )}
               </div>
             )}
 
             {/* In-camera controls: category tabs → orb carousel → shutter,
                 on a scrim so they read over any feed (FilterOrbs idiom). */}
-            {!shot && (
+            {!shot && !beaming && (
               <div
                 className="absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 px-3 pb-4 pt-10"
                 style={{ background: 'linear-gradient(to top, rgba(5,6,11,0.88) 30%, rgba(5,6,11,0.45) 70%, transparent)' }}
