@@ -23,7 +23,7 @@ import { ShaderRunner, defaultParams } from '../../lib/shaders';
 import { drawScagoMark } from '../../lib/scagoMark';
 import { Transform2D } from '../../types';
 import type { EventConfig } from '../../events/types';
-import { useEvent } from '../../events/EventContext';
+import { useOptionalEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 
 export interface StageCanvasHandle {
@@ -208,7 +208,8 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   },
   ref,
 ) {
-  const { config: eventConfig } = useEvent();
+  // Null on platform surfaces (Landing demo booth) — watermark needs an event.
+  const eventConfig = useOptionalEvent()?.config ?? null;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const runnerRef = useRef<ShaderRunner | null>(null);
   const rafRef = useRef<number>(0);
@@ -315,9 +316,11 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     }
 
     // Step 6: Signature (only for capture, not preview — keeps preview fast).
-    // Entitlement-gated: paid tiers capture without the watermark.
-    if (withSignature && watermarkRef.current) {
-      drawSignature(ctx, w, h, eventConfigRef.current);
+    // Entitlement-gated: paid tiers capture without the watermark. No event
+    // context (platform demo booth) -> nothing to sign.
+    const signatureConfig = eventConfigRef.current;
+    if (withSignature && watermarkRef.current && signatureConfig) {
+      drawSignature(ctx, w, h, signatureConfig);
     }
   }, [videoRef]);
 

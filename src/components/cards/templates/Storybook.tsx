@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Storybook card template — one contribution per "page" with an elegant page
- * transition. Dark, premium, theme-neutral platform styling (no event theme).
+ * transition. Dark, premium, theme-neutral platform styling (no event theme),
+ * token-based (--color-accent/-2) so it follows the platform default.
  *
  * Pure function of the normalized progress model (see ./types.ts): the page
  * shown is entirely determined by `index`; onNext/onPrev only wire the
@@ -20,7 +21,7 @@ function Corner({ className }: { className: string }) {
   return (
     <svg
       viewBox="0 0 40 40"
-      className={`absolute w-7 h-7 text-gold-400/60 ${className}`}
+      className={`absolute w-7 h-7 text-accent/60 ${className}`}
       fill="none"
       stroke="currentColor"
       strokeWidth="1.3"
@@ -36,8 +37,8 @@ function Corner({ className }: { className: string }) {
 
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative w-full h-full rounded-[1.8rem] overflow-hidden border border-gold-400/25 bg-gradient-to-b from-white/[0.05] to-white/[0.015] shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
-      <div className="absolute inset-[10px] rounded-[1.4rem] border border-gold-400/15 pointer-events-none" />
+    <div className="relative w-full h-full rounded-[1.8rem] overflow-hidden border border-accent/25 bg-gradient-to-b from-white/[0.05] to-white/[0.015] shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
+      <div className="absolute inset-[10px] rounded-[1.4rem] border border-accent/15 pointer-events-none" />
       <Corner className="top-3 left-3" />
       <Corner className="top-3 right-3 rotate-90" />
       <Corner className="bottom-3 right-3 rotate-180" />
@@ -89,7 +90,7 @@ export default function Storybook({
                   {card.recipientName && (
                     <p className="mt-4 font-sans text-sm text-brand-muted/80">for {card.recipientName}</p>
                   )}
-                  <div className="mt-8 h-px w-24 bg-gold-400/40" />
+                  <div className="mt-8 h-px w-24 bg-accent/40" />
                   <p className="mt-6 font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">
                     {contributions.length} {contributions.length === 1 ? 'message' : 'messages'} inside
                   </p>
@@ -120,7 +121,7 @@ export default function Storybook({
                       “{contribution.message}”
                     </p>
                   )}
-                  <p className="mt-5 font-label uppercase tracking-luxe text-[10px] text-gold-300/80">
+                  <p className="mt-5 font-label uppercase tracking-luxe text-[10px] text-accent-2/80">
                     — {contribution.contributorName || 'A friend'}
                   </p>
                 </>
@@ -132,7 +133,7 @@ export default function Storybook({
                   {card.recipientName && (
                     <p className="mt-3 font-sans text-sm text-brand-muted/70">With love, from everyone — to {card.recipientName}.</p>
                   )}
-                  <div className="mt-8 h-px w-24 bg-gold-400/40" />
+                  <div className="mt-8 h-px w-24 bg-accent/40" />
                   <p className="mt-7 font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">Made with Beamwall</p>
                   <Link
                     to="/"
@@ -172,7 +173,7 @@ export default function Storybook({
           {Array.from({ length: total }, (_, i) => (
             <span
               key={i}
-              className={`rounded-full transition-all ${i === page ? 'w-5 h-1.5 bg-gold-400/80' : 'w-1.5 h-1.5 bg-white/20'}`}
+              className={`rounded-full transition-all ${i === page ? 'w-5 h-1.5 bg-accent/80' : 'w-1.5 h-1.5 bg-white/20'}`}
             />
           ))}
         </div>

@@ -39,6 +39,7 @@ ROOT CAUSE of "AI can't connect" FOUND (2026-07-08): the GEMINI_API_KEY Supabase
 - BASELINE: npm run lint clean; npm test 84 passed (13 files).
 
 ## Done
+- PR #12 merge (2026-07-08) — RESULT: beam-identity redesign (branch claude/beam-wall-redesign-fb8r0p, 21 commits: black/beam theme tokens, Landing rebuild, demo booth, HyperFrames video suite, EventProvider de-theming, gsap dep) merged into PR #13. 3 conflicts resolved (STATE.md ours; index.css their token-based ::selection + our print block; NewEvent our concierge structure + their liquid-glass). Session AI surfaces rethemed to their convention: text-white on bg-foil, liquid-glass, brand-muted/accent-2, QR pads bg-brand-fg (CopilotFab/Panel/Chat, A2uiSurface, NewEvent, FrameStudio, ShareKit); copilot select options → brand-surface/brand-fg.
 - Investigation — RESULT: task block posted; no "General Studio" symbol exists (user means booth + host studio overall).
 - Step 1 One-Euro smoothing — RESULT: src/lib/smoothing.ts + 9 tests green; faceRig.ts dt-aware adaptive filtering (lint clean).
 - Step 2 booth face hint — RESULT: Overlay3D onFaceVisible prop + Booth "Center your face" pill (lint clean).

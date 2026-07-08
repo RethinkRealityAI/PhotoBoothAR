@@ -43,7 +43,7 @@ export default function CopilotFab() {
           onClick={open}
           title="Beamwall Copilot"
           aria-label="Open the Beamwall Copilot"
-          className="fixed bottom-6 right-6 z-[70] w-14 h-14 rounded-full bg-foil glow-accent shadow-[0_10px_40px_rgba(0,0,0,0.5)] flex items-center justify-center text-noir-900 active:scale-95 transition-transform"
+          className="fixed bottom-6 right-6 z-[70] w-14 h-14 rounded-full bg-foil glow-accent shadow-[0_10px_40px_rgba(0,0,0,0.5)] flex items-center justify-center text-white active:scale-95 transition-transform"
         >
           <Sparkles className="w-6 h-6" />
         </motion.button>

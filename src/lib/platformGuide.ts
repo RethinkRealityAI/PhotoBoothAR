@@ -38,6 +38,7 @@ PLANS & CREDITS:
 - Credits: AI generation currency (1 credit ≈ one AI image; 3D and film cost more). Bought in packs; first 3 images per event are free. Billing lives at /host/billing.
 
 COMMON HOW-TOS:
+- Show someone what Beamwall does without an account: the home page (/) has a live no-sign-in demo booth — real AR camera, frames, effects and a mini live wall.
 - Go live: finish the Dashboard checklist → Go live button. Share: Share tab → print signage (point signage at /welcome).
 - Change the booth's default frame: Experiences → publish the frame → set as default (or let the Frame Studio do it at create time).
 - Add a challenge: Challenges tab → New challenge (or ask the copilot).

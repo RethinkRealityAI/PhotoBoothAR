@@ -203,7 +203,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
             disabled={busy}
             className={
               primary
-                ? 'rounded-full bg-foil px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-bold text-noir-900 glow-accent transition active:scale-[0.97] disabled:opacity-40'
+                ? 'rounded-full bg-foil px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.97] disabled:opacity-40'
                 : 'font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-40'
             }
           >
@@ -352,7 +352,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
         if (!value) return null;
         return (
           <div key={key} className="flex flex-col items-center gap-1.5">
-            <div className="rounded-xl p-2 bg-ivory/95">
+            <div className="rounded-xl p-2 bg-brand-fg/95">
               <QRCodeSVG value={value} size={104} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
             </div>
             {c.caption !== undefined && (

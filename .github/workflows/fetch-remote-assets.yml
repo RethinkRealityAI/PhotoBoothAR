@@ -1,0 +1,70 @@
+# Vendors remote assets (Higgsfield CDN images/video/audio) into the repo.
+#
+# Why: the Claude Code sandbox's egress policy blocks the Higgsfield CDN, so
+# generated media can't be downloaded there — but GitHub runners can. Add
+# entries to scripts/remote-assets.json, push, then dispatch this workflow on
+# the branch; it downloads everything and commits the files back.
+name: Fetch remote assets
+
+on:
+  workflow_dispatch:
+  # Also fire on manifest changes — the Claude GitHub integration can push but
+  # lacks actions:write, so it can't dispatch workflows directly.
+  push:
+    paths:
+      - "scripts/remote-assets.json"
+      - ".github/workflows/fetch-remote-assets.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download assets from manifest
+        run: |
+          set -euo pipefail
+          count=$(jq '.assets | length' scripts/remote-assets.json)
+          echo "Fetching $count assets"
+          for i in $(seq 0 $((count - 1))); do
+            url=$(jq -r ".assets[$i].url" scripts/remote-assets.json)
+            path=$(jq -r ".assets[$i].path" scripts/remote-assets.json)
+            mkdir -p "$(dirname "$path")"
+            echo "→ $path"
+            curl -fSL --retry 3 --retry-delay 2 -o "$path" "$url"
+          done
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Compress fetched media (studio assets only)
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # Narration WAVs → mono 96k AAC; raw generation MP4s → CRF-27 H.264,
+          # audio stripped. Keeps the repo lean; ubuntu runners ship ffmpeg.
+          for f in hyperframes/studio/assets/*.wav; do
+            out="${f%.wav}.m4a"
+            ffmpeg -y -i "$f" -ac 1 -c:a aac -b:a 96k "$out"
+            rm "$f"
+          done
+          for f in hyperframes/studio/assets/clip-*.mp4; do
+            tmp="${f%.mp4}.tmp.mp4"
+            ffmpeg -y -i "$f" -c:v libx264 -preset slow -crf 27 -pix_fmt yuv420p -movflags +faststart -an "$tmp"
+            mv "$tmp" "$f"
+          done
+
+      - name: Commit vendored assets
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes — assets already vendored."
+          else
+            git commit -m "chore: vendor remote assets from manifest"
+            git push
+          fi

@@ -70,7 +70,7 @@ const TIER_ORDER: PlanTier[] = ['free', 'essentials', 'premium', 'deluxe'];
 function tierPillClass(tier: PlanTier): string {
   switch (tier) {
     case 'deluxe': return 'bg-purple-500/15 text-purple-300';
-    case 'premium': return 'bg-gold-400/15 text-gold-300';
+    case 'premium': return 'bg-accent/15 text-accent-2';
     case 'essentials': return 'bg-sky-500/15 text-sky-300';
     default: return 'bg-white/[0.08] text-brand-muted/70';
   }
@@ -136,7 +136,7 @@ export function UpgradeModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto" onClick={onClose}>
       <div
-        className="glass-strong rounded-3xl p-6 md:p-8 w-full max-w-3xl animate-rise-in my-8"
+        className="liquid-glass rounded-3xl p-6 md:p-8 w-full max-w-3xl animate-rise-in my-8"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4 mb-1">
@@ -164,13 +164,13 @@ export function UpgradeModal({
               <div
                 key={pkg.tier}
                 className={`rounded-2xl p-5 flex flex-col gap-3 border ${
-                  highlight ? 'border-gold-400/40 bg-gold-400/[0.06]' : 'border-white/10 bg-white/[0.03]'
+                  highlight ? 'border-accent/40 bg-accent/[0.06]' : 'border-white/10 bg-white/[0.03]'
                 }`}
               >
                 <div>
                   <div className="flex items-center justify-between">
                     <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">{pkg.tier}</p>
-                    {highlight && <Sparkles className="w-3.5 h-3.5 text-gold-300" />}
+                    {highlight && <Sparkles className="w-3.5 h-3.5 text-accent-2" />}
                   </div>
                   <p className="font-serif text-3xl text-brand-fg mt-1">{pkg.price}</p>
                   <p className="font-sans text-[10px] text-brand-muted/50">{pkg.tagline} · per event</p>
@@ -186,7 +186,7 @@ export function UpgradeModal({
                   onClick={() => buy(pkg.tier)}
                   disabled={owned || busyTier !== null}
                   className={`w-full rounded-full py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold transition active:scale-[0.98] disabled:opacity-40 disabled:active:scale-100 ${
-                    highlight ? 'bg-foil text-noir-900 glow-accent' : 'bg-white/[0.08] hover:bg-white/[0.14] text-brand-fg'
+                    highlight ? 'bg-foil text-white glow-accent' : 'bg-white/[0.08] hover:bg-white/[0.14] text-brand-fg'
                   }`}
                 >
                   {owned ? 'Current plan' : busyTier === pkg.tier ? 'Redirecting…' : `Get ${pkg.tier}`}
@@ -218,12 +218,12 @@ export default function UpgradeCard({ eventUuid, planTier }: { eventUuid: string
 
   return (
     <>
-      <div className="shrink-0 flex items-center gap-3 px-4 py-2 border-b border-gold-400/10 bg-white/[0.02]">
+      <div className="shrink-0 flex items-center gap-3 px-4 py-2 border-b border-accent/10 bg-white/[0.02]">
         <TierPill tier={tier} />
         <p className="flex-1 font-sans text-[11px] text-brand-muted/60 truncate">{pitch}</p>
         <button
           onClick={() => setOpen(true)}
-          className="flex items-center gap-1.5 rounded-full bg-foil px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] font-bold text-noir-900 glow-accent transition active:scale-[0.98]"
+          className="flex items-center gap-1.5 rounded-full bg-foil px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] font-bold text-white glow-accent transition active:scale-[0.98]"
         >
           Upgrade <ArrowUpRight className="w-3 h-3" />
         </button>

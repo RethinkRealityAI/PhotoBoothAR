@@ -144,7 +144,7 @@ export default function FrameStudio({
                   }));
                 }}
                 onPointerUp={() => { dragRef.current = null; }}
-                className="w-32 shrink-0 aspect-[9/16] rounded-xl overflow-hidden border border-white/15 bg-noir-900 relative cursor-grab active:cursor-grabbing touch-none select-none"
+                className="w-32 shrink-0 aspect-[9/16] rounded-xl overflow-hidden border border-white/15 bg-brand-bg relative cursor-grab active:cursor-grabbing touch-none select-none"
               >
                 {/* Stand-in subject so the frame frames something. */}
                 <div className="absolute inset-0 bg-[radial-gradient(80%_60%_at_50%_45%,rgba(255,255,255,0.14),transparent_70%)]" />
@@ -179,7 +179,7 @@ export default function FrameStudio({
                   <button
                     onClick={() => useAsFrame(phase.experience)}
                     disabled={phase.kind === 'applying'}
-                    className="flex items-center gap-1.5 rounded-full bg-foil px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-bold text-noir-900 glow-accent transition active:scale-[0.97] disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-full bg-foil px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.97] disabled:opacity-50"
                   >
                     {phase.kind === 'applying'
                       ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Activating…</>
@@ -205,7 +205,7 @@ export default function FrameStudio({
             <button
               onClick={generate}
               disabled={phase.kind === 'generating' || !prompt.trim()}
-              className="flex items-center justify-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-50"
             >
               {phase.kind === 'generating'
                 ? <><Loader2 className="w-4 h-4 animate-spin" /> Designing your frame…</>

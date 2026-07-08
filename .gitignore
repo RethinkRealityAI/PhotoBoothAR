@@ -18,6 +18,11 @@ public/mediapipe/
 hyperframes/keepsake-film/renders/
 hyperframes/keepsake-film/fixtures/*-vars.json
 
+# Video studio: local render output (finished web assets are copied to
+# src/assets/landing/ and committed there instead) + snapshot QA scratch
+hyperframes/studio/renders/
+hyperframes/studio/*/snapshots/
+
 # HyperFrames authoring skills (dev tooling; reinstall via: npx skills add heygen-com/hyperframes)
 .agents/
 .claude/skills/

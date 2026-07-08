@@ -92,7 +92,7 @@ export default function CopilotPanel() {
             {/* Header */}
             <div className="shrink-0 flex items-center gap-2.5 px-4 py-3 border-b border-white/10">
               <div className="w-8 h-8 rounded-full bg-foil glow-accent flex items-center justify-center">
-                <Sparkles className="w-4 h-4 text-noir-900" />
+                <Sparkles className="w-4 h-4 text-white" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="font-serif text-sm text-foil-static leading-tight">Beamwall Copilot</p>
@@ -126,7 +126,7 @@ export default function CopilotPanel() {
                     value={selectedUuid ?? ''}
                     onChange={(e) => setSelectedUuid(e.target.value || null)}
                     style={{ colorScheme: 'dark' }}
-                    className="w-full appearance-none rounded-xl bg-white/[0.04] border border-white/10 pl-3 pr-8 py-2 text-[12px] text-brand-fg outline-none focus:border-[color:var(--color-accent)]/60 [&>option]:bg-noir-900 [&>option]:text-ivory"
+                    className="w-full appearance-none rounded-xl bg-white/[0.04] border border-white/10 pl-3 pr-8 py-2 text-[12px] text-brand-fg outline-none focus:border-[color:var(--color-accent)]/60 [&>option]:bg-brand-surface [&>option]:text-brand-fg"
                   >
                     <option value="">Just the platform (no event)</option>
                     {(events ?? []).map((e) => (
