@@ -5,7 +5,7 @@ charging". The platform is **safe-by-default**: every integration below degrades
 gracefully until its key is set, so you can enable them one at a time.
 
 Supabase project: `zrtftliozslrjomxbfrr`. All migrations 001–010 and all edge
-functions (incl. `admin-api`) are **already applied/deployed** to it. Set secrets in
+functions (incl. `admin-api`, `stripe-webhook`) are **already applied/deployed** to it. Set secrets in
 **Supabase → Project Settings → Edge Functions → Secrets** (or `supabase secrets set`).
 
 ---
@@ -61,15 +61,21 @@ today all three legacy Netlify sites build from `main`.
 
 ## 3. Billing — Stripe (test first)
 
-- [ ] `STRIPE_SECRET_KEY` (test mode to start).
-- [ ] Add a Stripe **webhook endpoint** →
+- [x] `STRIPE_SECRET_KEY` (test/sandbox mode) — set 2026-07-06.
+- [x] Stripe **webhook endpoint** →
       `https://zrtftliozslrjomxbfrr.supabase.co/functions/v1/stripe-webhook`
-      with events `checkout.session.completed`,
-      `customer.subscription.updated`, `customer.subscription.deleted`. Copy its
-      signing secret into `STRIPE_WEBHOOK_SECRET`.
-- [ ] Test: buy an event package / credit pack / Pro sub in test mode → confirm
-      `event_plans` / `subscriptions` / `credit_ledger` update and the watermark
-      drops on that event. (No Stripe products to pre-create — prices are inline.)
+      with events `checkout.session.completed`, `invoice.payment_succeeded`,
+      `customer.subscription.updated`, `customer.subscription.deleted`.
+      `STRIPE_WEBHOOK_SECRET` set 2026-07-06.
+- [x] Test `credit_pack` in test mode → confirmed 2026-07-06: real checkout session,
+      webhook signature verified, `credit_ledger` + `orders` both updated correctly.
+- [ ] Test `event_package` and `pro_subscription` the same way (only `credit_pack` has
+      been proven end-to-end so far) — confirm `event_plans`/`subscriptions` update and
+      the watermark drops on that event.
+- [ ] **Go live**: swap `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` for LIVE-mode values
+      — this means a NEW webhook endpoint in Stripe's live mode (test-mode and live-mode
+      webhook endpoints/secrets are separate) and a new signing secret. Until this swap,
+      no real money can move even though sandbox billing works end-to-end.
 
 ## 4. Greeting-card email — Resend
 

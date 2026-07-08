@@ -18,16 +18,8 @@ import { Check, Copy, ExternalLink, Loader2, PartyPopper, Pencil, Settings2, Spa
 import { fetchMyEvents, updateEventName, updateEventStatus, type HostEventRow } from '../../lib/host';
 import { loadEventSnapshot, type EventSnapshot } from '../../lib/eventSnapshot';
 import { TierPill } from './UpgradeCard';
+import StatusPill from '../../components/ui/StatusPill';
 import CopilotChat from '../../components/copilot/CopilotChat';
-
-function statusPill(status: string): string {
-  switch (status) {
-    case 'live': return 'bg-emerald-500/15 text-emerald-400';
-    case 'ended': return 'bg-amber-500/15 text-amber-400';
-    case 'archived': return 'bg-white/[0.05] text-brand-muted/40';
-    default: return 'bg-white/[0.08] text-brand-muted/70'; // draft
-  }
-}
 
 /** One selectable event card: inline rename, status toggle, link chips. */
 function EventCard({
@@ -106,9 +98,7 @@ function EventCard({
         </div>
         <div className="shrink-0 flex items-center gap-1">
           <TierPill tier={ev.plan_tier} />
-          <span className={`px-2 py-0.5 rounded-full text-[8px] font-label uppercase tracking-widest ${statusPill(ev.status)}`}>
-            {ev.status}
-          </span>
+          <StatusPill status={ev.status} />
         </div>
       </div>
 

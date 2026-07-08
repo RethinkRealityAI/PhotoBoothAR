@@ -5,8 +5,8 @@ the whole business**: every customer/org, all events cross-tenant, payments, and
 support actions. It is **distinct from the per-event host studio** (`/host/**`,
 `src/components/admin/*`) which is a customer managing their *own* event.
 
-Branch `claude/platform-admin-suite` → **draft PR #10**. Built in phases, each
-independently shippable. **Phase 1 is done and deployed; Phases 2–5 remain.**
+Built in phases, each independently shippable. **All five phases are done and
+deployed.**
 
 ---
 
@@ -50,8 +50,8 @@ assert middleware, and the `overview_metrics` action (cross-tenant counts).
 **Frontend:** `src/lib/admin.ts` (admin-api client + gate); `AdminLayout`
 (three-state gate: loading → spinner, no session → `/login`, not admin →
 `/host`); `Overview` stat-tile dashboard; `/admin` route added and the legacy
-`/admin/*` redirect removed. Shared: `cn()`, `StatusPill` + pure `statusPill.ts`
-tone map, `adminFormat.ts`. Tests: `cn`, `statusPill`, `adminFormat` (pure).
+`/admin/*` redirect removed. Shared: `cn()`, `StatusPill` + pure `pillStyles.ts`
+tone map, `adminFormat.ts`. Tests: `cn`, `pillStyles`, `adminFormat` (pure).
 
 **Access:** log in at `/login` as a `platform_admins` member (currently the owner)
 → visit `/admin`. Non-admins are bounced to `/host`. There is no separate admin
@@ -59,60 +59,112 @@ password — it's the account's normal Supabase login + platform-admin membershi
 
 ---
 
-## Remaining phases (execute in order)
+## Phase 2 — DONE & DEPLOYED ✅
 
-For each: add the `admin-api` action(s) (assert-before-switch; `admin_audit` every
-mutation), build the screen(s), keep logic in pure `.ts` + colocated tests, flip
-the `AdminLayout` nav `ready:true` and add the `<Route>` in `src/App.tsx`, then run
-`npm run lint && npm test && npm run build` before pushing.
+**Edge function `admin-api`** (redeployed, version 2): `list_orgs` (org +
+event count + subscription + credit balance, no server pagination — table
+volume is early-stage), `get_org` (members with resolved emails via
+`admin_user_emails`, events, `event_plans`, subscription, credit balance +
+recent ledger), `list_events` (cross-tenant, joined with org name),
+`set_event_status` (validates the 4 event statuses, audited via the new
+`auditLog` helper).
 
-### Phase 2 — Customers + Events
-- **admin-api:** `list_orgs`, `get_org` (members + emails via `admin_user_emails`,
-  events, `event_plans`, `subscriptions`, credits + ledger), `list_events`,
-  `set_event_status` (audited).
-- **Screens:** `Customers`, `CustomerDetail` (`/admin/customers/:orgId`), `Events`.
-- **Primitives to build now (deferred from P1, first consumers here):** `Modal`,
-  `DataTable`, `Pagination` in `src/components/ui/` (reuse the `QRModal` shell and
-  the `EventsList` skeleton/empty patterns).
-- **Cleanup:** adopt the shared `StatusPill` in the three host copies —
-  `src/pages/host/{EventsList.tsx:16, EventStudio.tsx:53, CardsTab.tsx:39}`.
-- **Tests:** `adminFilters.ts` (search/sort/paginate) + `adminFilters.test.ts`.
+**Frontend:** `Customers` (`/admin/customers`) and `Events` (`/admin/events`)
+list screens, `CustomerDetail` (`/admin/customers/:orgId`) drill-down. New
+primitives `Modal`, `DataTable`, `Pagination` in `src/components/ui/`. New pure
+`src/lib/adminFilters.ts` (search/sort/paginate, client-side — the admin-api
+actions return full result sets) with `adminFilters.test.ts`. `AdminLayout` nav
+`ready:true` for Customers/Events; routes added in `src/App.tsx`.
 
-### Phase 3 — Payments + revenue (needs the orders data path)
-- **Migration `010_orders.sql`:** `orders(id, org_id, event_id, kind, tier,
-  amount_total int /*cents*/, currency, status, stripe_ref, created_at)`, RLS on /
-  service-role only.
-- **Extend `supabase/functions/stripe-webhook/index.ts`:** insert an `orders` row
-  in `handleCheckoutCompleted` (from `session.amount_total`/`currency`/
-  `payment_intent`/`subscription` + existing `meta`), **and add an
-  `invoice.payment_succeeded` handler** (Pro renewals are invisible today).
-- **admin-api:** `list_orders`, `revenue_summary` (compute amounts **server-side**
-  so the client needs no `PRICES` copy).
-- **Screen:** `Payments` with an honest "no live payments yet" empty state (Stripe
-  keys are unprovisioned, so there's nothing until they're set).
-- **Tests:** `revenue.ts` (`summarizeOrders`) — empty→zeros, `refunded` excluded,
-  multi-currency separated, one-time vs subscription split.
+**Cleanup:** the three host copies of the local `statusPill()` helper —
+`src/pages/host/{EventsList.tsx, EventStudio.tsx, CardsTab.tsx}` — now import
+the shared `StatusPill` component instead.
 
-> **Shipped outside this branch (2026-07-07, PR #13):** platform-admin
-> god-mode — `create-event` v5 makes any admin-created event `deluxe`,
-> `ai-event-designer` v4 exempts admins from its rate limit, existing
-> admin-org events were upgraded live and admin orgs comped 1000 credits
-> (`admin_comp`). Phase 4's Limits screen (`set_event_tier`,
-> `adjust_credits`) is the manual/audited counterpart.
+> **Shipped alongside in PR #13:** platform-admin god-mode — `create-event`
+> v5 makes any admin-created event `deluxe`, `ai-event-designer` exempts
+> admins from its rate limit, existing admin-org events were upgraded live
+> and admin orgs comped 1000 credits (`admin_comp`). Phase 4's Limits
+> actions (`set_event_tier`, `adjust_credits`) are the manual/audited
+> counterpart.
 
-### Phase 4 — User management (`admin_adjust_credits` + email fns already exist)
-- **admin-api:** `list_users` (`admin.auth.admin.listUsers`), `reset_password`
-  (`generateLink` recovery — return link, never audit it), `set_user_banned`
-  (`updateUserById ban_duration` — **ban, not delete**), `adjust_credits`
-  (`admin_adjust_credits` rpc), `set_event_tier` (comp a plan). Audit each.
-- **Screen:** `Users`. **Primitive:** `Toast` (`ToastProvider`+`useToast()`).
+---
 
-### Phase 5 — Audit log + admin roster
-- **admin-api:** `list_audit`, `list_admins`, `add_admin(email)` (resolve→user_id,
-  else invite), `remove_admin(userId)` with guards: **cannot remove self, cannot
-  remove the last admin.**
-- **Screens:** `Audit`, `Admins`.
-- **Tests:** `adminAuth.ts` (`canRemoveAdmin`, `normalizeAdminEmail`).
+## Phase 3 — DONE & DEPLOYED ✅
+
+**DB (migration `010_orders.sql`, applied to `zrtftliozslrjomxbfrr`):** `orders`
+(one row per fulfilled charge — `event_package`/`credit_pack`/`pro_subscription`,
+integer cents, `paid`/`refunded` status), service-role only (no client policies).
+
+**`supabase/functions/stripe-webhook/index.ts`** (redeployed, version 2,
+`verify_jwt` still off): every `checkout.session.completed` branch now also
+inserts an `orders` row (amounts straight from `session.amount_total`/
+`currency` — never recomputed from `PRICES`); a new `invoice.payment_succeeded`
+handler records Pro renewals, gated on `billing_reason='subscription_cycle'` so
+the first period isn't double-counted against the checkout-session row.
+
+**Edge function `admin-api`** (redeployed, version 3): `list_orders`
+(cross-tenant, joined with org name), `revenue_summary` (SQL-side aggregate —
+totals by currency, one-time vs subscription split, excludes `refunded`).
+`overview_metrics`'s `revenueCents` is now a real usd-only sum instead of
+always-null.
+
+**Frontend:** `Payments` screen (`/admin/payments`) — stat tiles from
+`revenue_summary`, a searchable/paginated order table from `list_orders`, and
+an honest "no live payments yet" empty state for orgs with nothing recorded
+yet. (Stripe SANDBOX keys are now provisioned and validated end-to-end —
+2026-07-06 `credit_pack` test purchase shows up here correctly; LIVE keys are
+still the real go-live gate, see `DEPLOYMENT-CHECKLIST.md` §3.) New pure
+`src/lib/revenue.ts` (`summarizeOrders` — mirrors the Deno `revenueSummary`,
+kept in sync the same way `ENTITLEMENTS` already is) with `revenue.test.ts`.
+`AdminLayout` nav `ready:true` for Payments; route added in `src/App.tsx`.
+
+---
+
+## Phase 4 — DONE & DEPLOYED ✅
+
+**Edge function `admin-api`** (redeployed, version 4): `list_users`
+(`auth.admin.listUsers`, joined with `profiles.display_name`, `org_members`
+role/org, `platform_admins` flag), `reset_password` (`generateLink` recovery —
+the link is returned once and is **never** written to `admin_audit.meta`, only
+that a reset happened and for whom), `set_user_banned` (`updateUserById
+ban_duration` — **ban, never delete**, since delete cascades
+`profiles`/`org_members` and orphans the org), `adjust_credits`
+(`admin_adjust_credits` rpc, audited with the delta/reason/new balance),
+`set_event_tier` (an admin comp — updates `events.plan_tier` directly, does
+**not** insert an `event_plans` purchase row since no Stripe charge occurred).
+All five audited.
+
+**Frontend:** `Users` screen (`/admin/users`) — reset password (link shown
+once in a modal, copy-to-clipboard), ban/unban (ban behind a confirm modal),
+adjust credits (modal, only offered for users with an org). New primitive
+`Toast` (`ToastProvider`/`useToast()`, mounted around `AdminLayout`'s
+`Outlet`) gives every mutation user-facing success/error feedback — also
+adopted by the Phase 2 `Events` screen's existing status-change flow. `Events`
+also gained a "Comp plan" action (`set_event_tier`'s UI home — it's event
+data, so it lives there rather than on the Users screen). `AdminLayout` nav
+`ready:true` for Users; route added in `src/App.tsx`.
+
+---
+
+## Phase 5 — DONE & DEPLOYED ✅
+
+**Edge function `admin-api`** (redeployed, version 5): `list_audit` (most
+recent 200 `admin_audit` rows, joined with resolved actor emails — operational
+view, not an archive), `list_admins` (roster joined with resolved emails +
+`added_by` email + `profiles.display_name`), `add_admin` (resolves an existing
+user by email via the same `listUsers` scan as `list_users`/`reset_password`,
+else `inviteUserByEmail`; a duplicate insert into `platform_admins` surfaces
+as `409 already_admin`), `remove_admin` (blocks removing yourself and blocks
+emptying the roster — the last remaining admin can't be removed even by
+someone else). All four audited (add/remove; list actions are reads).
+
+**Frontend:** `Audit` screen (`/admin/audit`, read-only) and `Admins` screen
+(`/admin/admins` — add by email, remove behind `canRemoveAdmin`'s client-side
+pre-check so a blocked removal shows as a disabled button with a tooltip
+instead of a round-trip error). New pure `src/lib/adminAuth.ts`
+(`canRemoveAdmin`, `normalizeAdminEmail` — mirrors the Deno `removeAdmin`
+guard) with `adminAuth.test.ts`. `AdminLayout` nav `ready:true` for
+Audit/Admins; routes added in `src/App.tsx`.
 
 ---
 
@@ -120,9 +172,9 @@ the `AdminLayout` nav `ready:true` and add the `<Route>` in `src/App.tsx`, then 
 
 | Primitive | Status |
 |---|---|
-| `cn()`, `StatusPill` + `statusPill.ts`, `adminFormat.ts` | ✅ built (Phase 1) |
-| `Modal`, `DataTable`, `Pagination` | ⏳ Phase 2 (first consumers) |
-| `Toast` (`ToastProvider`/`useToast`) | ⏳ Phase 4 |
+| `cn()`, `StatusPill` + `pillStyles.ts`, `adminFormat.ts` | ✅ built (Phase 1) |
+| `Modal`, `DataTable`, `Pagination` | ✅ built (Phase 2) |
+| `Toast` (`ToastProvider`/`useToast`) | ✅ built (Phase 4) |
 
 DB helpers already in `009` that later phases just call: `admin_user_emails`
 (P2/P4), `admin_adjust_credits` (P4), `admin_audit` (P2+).

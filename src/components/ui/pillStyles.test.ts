@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { statusTone, pillClass } from './statusPill';
+import { statusTone, pillClass } from './pillStyles';
 
 describe('statusTone — unified status vocabulary', () => {
   it('maps the event lifecycle', () => {

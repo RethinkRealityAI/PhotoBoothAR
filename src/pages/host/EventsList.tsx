@@ -12,15 +12,7 @@ import { ArrowUpRight, Check, Copy, ExternalLink, Plus, QrCode, RefreshCw, Setti
 import { fetchMyEvents, updateEventStatus, type HostEventRow } from '../../lib/host';
 import { TierPill, UpgradeModal } from './UpgradeCard';
 import { normalizeTier } from '../../lib/entitlements';
-
-function statusPill(status: string): string {
-  switch (status) {
-    case 'live': return 'bg-emerald-500/15 text-emerald-400';
-    case 'ended': return 'bg-amber-500/15 text-amber-400';
-    case 'archived': return 'bg-white/[0.05] text-brand-muted/40';
-    default: return 'bg-white/[0.08] text-brand-muted/70'; // draft
-  }
-}
+import StatusPill from '../../components/ui/StatusPill';
 
 function CopyLinkButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -147,9 +139,7 @@ export default function EventsList() {
                   </div>
                   <div className="shrink-0 flex items-center gap-1.5">
                     <TierPill tier={ev.plan_tier} />
-                    <span className={`shrink-0 px-2.5 py-1 rounded-full text-[9px] font-label uppercase tracking-widest ${statusPill(ev.status)}`}>
-                      {ev.status}
-                    </span>
+                    <StatusPill status={ev.status} />
                   </div>
                 </div>
 

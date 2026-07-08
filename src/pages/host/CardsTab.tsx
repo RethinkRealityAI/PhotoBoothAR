@@ -30,19 +30,12 @@ import {
   type CardRenderRow, type CardRow, type ContributionRow,
 } from '../../lib/cards';
 import { UpgradeModal } from './UpgradeCard';
+import StatusPill from '../../components/ui/StatusPill';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-2.5 text-sm text-brand-fg ' +
   'placeholder:text-brand-muted/40 outline-none transition focus:border-[color:var(--color-accent)]/60 ' +
   'focus:bg-white/[0.06]';
-
-function statusPill(status: string): string {
-  switch (status) {
-    case 'published': return 'bg-emerald-500/15 text-emerald-400';
-    case 'rendered': return 'bg-purple-500/15 text-purple-300';
-    default: return 'bg-sky-500/15 text-sky-300'; // collecting
-  }
-}
 
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -634,9 +627,7 @@ export default function CardsTab() {
                       {isLanding ? ' · event landing' : ''}
                     </p>
                   </div>
-                  <span className={`shrink-0 px-2.5 py-1 rounded-full text-[9px] font-label uppercase tracking-widest ${statusPill(card.status)}`}>
-                    {card.status}
-                  </span>
+                  <StatusPill status={card.status} className="shrink-0" />
                 </button>
 
                 {open && (

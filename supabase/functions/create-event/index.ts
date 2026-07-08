@@ -35,6 +35,10 @@ const RESERVED_SLUGS = new Set([
   'experience', 'beamwall', 'legal', 'pricing', 'help', 'about',
   // Coded legacy events
   'hope-gala', 'jenna-jake', 'detola-wuyi',
+  // The platform's own demo/sandbox event (src/lib/host.ts DEMO_EVENT_SLUG) —
+  // must stay reserved so no customer event can ever claim this slug and get
+  // surfaced by the SHOW_DEMO_EVENT showcase toggle.
+  'demo',
 ]);
 
 const EVENT_TYPES = new Set(['wedding', 'gala', 'birthday', 'party', 'remote']);

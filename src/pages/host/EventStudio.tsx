@@ -6,11 +6,13 @@
  * access) re-homed under the host platform, wrapped in an EventProvider so the
  * screens' useEvent()/useStore tenancy works unchanged.
  *
- * No AdminGate here — the session + org membership is the gate (the events row
- * only resolves for members via RLS). Known accepted quirks: archived events
- * render EventProvider's "This event has ended" screen instead of the studio,
- * and the event theme (data-event attr, document title) lingers when
- * navigating back to /host — same as leaving /e/:slug today.
+ * Gated explicitly below via `canEnterStudio` — `events_public_read` RLS
+ * deliberately lets anyone read any non-draft event's row (guest pages need
+ * that), so the row resolving is NOT proof of membership; that call is the
+ * actual gate. Known accepted quirks: archived events render EventProvider's
+ * "This event has ended" screen instead of the studio, and the event theme
+ * (data-event attr, document title) lingers when navigating back to /host —
+ * same as leaving /e/:slug today.
  */
 import { useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useParams } from 'react-router-dom';
@@ -20,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useCopilotStore } from '../../lib/copilotStore';
 import { supabase } from '../../lib/supabase';
+import { canEnterStudio } from '../../lib/host';
 import EventProvider from '../../events/EventContext';
 import { StudioBaseContext } from '../../components/admin/studioBase';
 import Dashboard from '../../components/admin/Dashboard';
@@ -35,6 +38,7 @@ import ManagerAccess from './ManagerAccess';
 import CardsTab from './CardsTab';
 import ShareKit from './ShareKit';
 import UpgradeCard from './UpgradeCard';
+import StatusPill from '../../components/ui/StatusPill';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -51,15 +55,6 @@ type LoadState =
   | { phase: 'loading' }
   | { phase: 'missing' }
   | { phase: 'ready'; event: StudioEvent };
-
-function statusPill(status: string): string {
-  switch (status) {
-    case 'live': return 'bg-emerald-500/15 text-emerald-400';
-    case 'ended': return 'bg-amber-500/15 text-amber-400';
-    case 'archived': return 'bg-white/[0.05] text-brand-muted/40';
-    default: return 'bg-white/[0.08] text-brand-muted/70';
-  }
-}
 
 function GuestLinkCopy({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
@@ -84,19 +79,26 @@ export default function EventStudio() {
     if (!validId) return;
     let alive = true;
     setState({ phase: 'loading' });
-    supabase
-      .from('events')
-      .select('id, slug, name, status, plan_tier, event_type')
-      .eq('id', id)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (!alive) return;
-        if (error || !data) {
-          setState({ phase: 'missing' });
-          return;
-        }
-        setState({ phase: 'ready', event: data as StudioEvent });
-      });
+    (async () => {
+      const { data, error } = await supabase
+        .from('events')
+        .select('id, slug, name, status, plan_tier, event_type')
+        .eq('id', id)
+        .maybeSingle();
+      if (!alive) return;
+      if (error || !data) {
+        setState({ phase: 'missing' });
+        return;
+      }
+
+      const allowed = await canEnterStudio(data.slug);
+      if (!alive) return;
+      if (!allowed) {
+        setState({ phase: 'missing' });
+        return;
+      }
+      setState({ phase: 'ready', event: data as StudioEvent });
+    })();
     return () => { alive = false; };
   }, [id, validId]);
 
@@ -148,9 +150,7 @@ export default function EventStudio() {
               <p className="font-serif italic text-sm text-brand-fg leading-tight truncate max-w-[12rem]">{event.name}</p>
               <div className="flex items-center gap-1.5">
                 <span className="font-mono text-[9px] text-brand-muted/40">/e/{event.slug}</span>
-                <span className={`px-1.5 py-px rounded-full text-[8px] font-label uppercase tracking-widest ${statusPill(event.status)}`}>
-                  {event.status}
-                </span>
+                <StatusPill status={event.status} />
               </div>
             </div>
             <div className="flex-1 overflow-x-auto hide-scrollbar">

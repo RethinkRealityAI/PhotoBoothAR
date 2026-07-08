@@ -102,5 +102,5 @@ Tables: `orgs`, `org_members`, `profiles`, `events`, `experiences`, `posts`,
 `challenges`, `app_settings`, `event_catalog_links`, `event_plans`,
 `subscriptions`, `credit_balances`, `credit_ledger`, `ai_jobs`,
 `event_access_tokens`, `cards`, `card_contributions`, `card_renders`,
-`platform_admins`, `admin_audit`, + idempotency/quota helpers. Buckets: `posts`, `assets` (public), `cards`,
+`platform_admins`, `admin_audit`, `orders`, + idempotency/quota helpers. Buckets: `posts`, `assets` (public), `cards`,
 `renders` (private). RLS verified by `supabase/tests/rls-probes.sql`.

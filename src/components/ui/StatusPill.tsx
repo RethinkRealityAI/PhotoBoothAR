@@ -2,10 +2,10 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Shared status pill. Styling comes from the pure `statusPill` tone map so the
+ * Shared status pill. Styling comes from the pure `pillStyles` tone map so the
  * host studio and the admin suite render statuses identically.
  */
-import { pillClass } from './statusPill';
+import { pillClass } from './pillStyles';
 
 export default function StatusPill({ status, className = '' }: { status: string; className?: string }) {
   return (

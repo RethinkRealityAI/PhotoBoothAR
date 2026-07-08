@@ -16,6 +16,11 @@
  *     kind=pro_subscription → upsert subscriptions {org_id, stripe_subscription_id,
  *                          status:'active', current_period_end (fetched from Stripe)}
  *                          + grant_credits(300, 'pro_grant')
+ *     ALL kinds also insert an `orders` row (amount_total/currency from the
+ *     session — never recomputed from PRICES) for the admin Payments screen.
+ *   invoice.payment_succeeded (billing_reason='subscription_cycle' only — the
+ *     first period is already recorded via checkout.session.completed above)
+ *     → insert an `orders` row for the Pro renewal.
  *   customer.subscription.updated → subscriptions.status/current_period_end sync
  *   customer.subscription.deleted → subscriptions.status = 'canceled'
  *   (anything else → 200 {received:true, ignored:true})
@@ -161,6 +166,21 @@ async function fetchPeriodEnd(subscriptionId: string): Promise<string | null> {
   }
 }
 
+interface OrderInsert {
+  org_id: string;
+  event_id: string | null;
+  kind: 'event_package' | 'credit_pack' | 'pro_subscription';
+  tier: string | null;
+  amount_total: number;
+  currency: string;
+  stripe_ref: string | null;
+}
+
+async function insertOrder(sb: SupabaseClient, order: OrderInsert): Promise<void> {
+  const { error } = await sb.from('orders').insert({ ...order, status: 'paid' });
+  if (error) throw error;
+}
+
 /* ── Event handlers ─────────────────────────────────────────────────── */
 
 async function handleCheckoutCompleted(
@@ -177,6 +197,8 @@ async function handleCheckoutCompleted(
     return;
   }
   const ref = { stripe_event: eventId, checkout_session: session.id };
+  const amountTotal = typeof session.amount_total === 'number' ? session.amount_total : 0;
+  const currency = (session.currency as string) ?? 'usd';
 
   if (kind === 'event_package') {
     const tier = meta.tier;
@@ -199,10 +221,28 @@ async function handleCheckoutCompleted(
     if (tierErr) throw tierErr;
 
     await grantCredits(sb, orgId, credits, 'plan_grant', { ...ref, tier, event_uuid: eventUuid });
+    await insertOrder(sb, {
+      org_id: orgId,
+      event_id: eventUuid,
+      kind: 'event_package',
+      tier,
+      amount_total: amountTotal,
+      currency,
+      stripe_ref: (session.payment_intent as string) ?? (session.id as string),
+    });
   } else if (kind === 'credit_pack') {
     const credits = PACK_CREDITS[meta.pack];
     if (!credits) throw new Error(`invalid credit_pack metadata on ${session.id}`);
     await grantCredits(sb, orgId, credits, 'pack', { ...ref, pack: meta.pack });
+    await insertOrder(sb, {
+      org_id: orgId,
+      event_id: null,
+      kind: 'credit_pack',
+      tier: meta.pack,
+      amount_total: amountTotal,
+      currency,
+      stripe_ref: (session.payment_intent as string) ?? (session.id as string),
+    });
   } else if (kind === 'pro_subscription') {
     const subscriptionId = (session.subscription as string) ?? null;
     const periodEnd = subscriptionId ? await fetchPeriodEnd(subscriptionId) : null;
@@ -218,9 +258,51 @@ async function handleCheckoutCompleted(
     );
     if (subErr) throw subErr;
     await grantCredits(sb, orgId, PRO_MONTHLY_CREDITS, 'pro_grant', { ...ref, subscription: subscriptionId });
+    await insertOrder(sb, {
+      org_id: orgId,
+      event_id: null,
+      kind: 'pro_subscription',
+      tier: 'pro',
+      amount_total: amountTotal,
+      currency,
+      stripe_ref: subscriptionId ?? (session.id as string),
+    });
   } else {
     console.warn('[stripe-webhook] unknown checkout kind', kind, session.id);
   }
+}
+
+/** Pro renewals only — the subscription's first period is already recorded as
+ *  an `orders` row by handleCheckoutCompleted above, so this is gated on
+ *  billing_reason='subscription_cycle' to avoid double-counting it. */
+async function handleInvoicePaymentSucceeded(
+  sb: SupabaseClient,
+  invoice: Record<string, unknown>,
+): Promise<void> {
+  if (invoice.billing_reason !== 'subscription_cycle') return;
+  const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : null;
+  if (!subscriptionId) return;
+
+  const { data: sub, error: subErr } = await sb
+    .from('subscriptions')
+    .select('org_id')
+    .eq('stripe_subscription_id', subscriptionId)
+    .maybeSingle();
+  if (subErr) throw subErr;
+  if (!sub) {
+    console.warn('[stripe-webhook] invoice.payment_succeeded: unknown subscription', subscriptionId);
+    return;
+  }
+
+  await insertOrder(sb, {
+    org_id: sub.org_id as string,
+    event_id: null,
+    kind: 'pro_subscription',
+    tier: 'pro',
+    amount_total: typeof invoice.amount_paid === 'number' ? invoice.amount_paid : 0,
+    currency: (invoice.currency as string) ?? 'usd',
+    stripe_ref: typeof invoice.id === 'string' ? invoice.id : null,
+  });
 }
 
 async function handleSubscriptionChange(
@@ -311,6 +393,8 @@ Deno.serve(async (req: Request) => {
     const object = ((event.data ?? {}) as { object?: Record<string, unknown> }).object ?? {};
     if (type === 'checkout.session.completed') {
       await handleCheckoutCompleted(sb, eventId, object);
+    } else if (type === 'invoice.payment_succeeded') {
+      await handleInvoicePaymentSucceeded(sb, object);
     } else if (type === 'customer.subscription.updated' || type === 'customer.subscription.deleted') {
       await handleSubscriptionChange(sb, type, object);
     } else {
