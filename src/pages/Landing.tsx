@@ -14,7 +14,7 @@
  * component owns scrolling via its root (h-full overflow-y-auto). All
  * ScrollTriggers therefore pass that root as their `scroller`.
  */
-import { useLayoutEffect, useRef, useState, type ComponentType } from 'react';
+import { lazy, Suspense, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
 import { Check } from 'lucide-react';
 import gsap from 'gsap';
@@ -37,6 +37,10 @@ import cardsFeatureVideo from '../assets/landing/cards-feature.mp4';
 import cardsFeaturePoster from '../assets/landing/cards-feature-poster.jpg';
 
 gsap.registerPlugin(ScrollTrigger);
+
+// Code-split: the demo booth drags in the AR stack (camera, WebGL shaders,
+// MediaPipe, Three) — loaded only when the section approaches the viewport.
+const DemoBooth = lazy(() => import('../components/landing/DemoBooth'));
 
 /* ── Content ────────────────────────────────────────────────────────── */
 
@@ -183,11 +187,47 @@ const GHOST_FRAMES = [
 
 /* ── Building blocks ────────────────────────────────────────────────── */
 
+/**
+ * Film embed with managed playback: plays only while ~40% in view, pauses
+ * offscreen. Five looping videos on one page would otherwise decode (and
+ * drain batteries) simultaneously — iOS Safari also caps concurrent video
+ * pipelines, which silently freezes whichever films exceed the cap.
+ */
+function FilmEmbed({ src, poster, label }: { src: string; poster: string; label: string }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) el.play().catch(() => { /* autoplay blocked — poster stays */ });
+        else el.pause();
+      },
+      { threshold: 0.4 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <video
+      ref={ref}
+      src={src}
+      poster={poster}
+      muted
+      loop
+      playsInline
+      preload="metadata"
+      className="block h-auto w-full"
+      aria-label={label}
+    />
+  );
+}
+
 /** Transparent-cutout artwork that floats over a tinted glow. */
 function CutoutArt({ feature }: { feature: Feature }) {
   const [failed, setFailed] = useState(false);
   return (
-    <div className="relative mx-auto flex aspect-square w-full max-w-[26rem] items-center justify-center" data-parallax-depth="0.14">
+    <div className="relative mx-auto flex aspect-square w-full max-w-[19rem] items-center justify-center sm:max-w-[26rem]" data-parallax-depth="0.14">
       <div
         className="absolute inset-[8%] rounded-full blur-3xl"
         style={{ background: `radial-gradient(circle, rgba(${feature.rgb}, 0.32), transparent 68%)` }}
@@ -217,7 +257,7 @@ function CutoutArt({ feature }: { feature: Feature }) {
 function FramedArt({ feature }: { feature: Feature }) {
   const [failed, setFailed] = useState(false);
   return (
-    <div className="relative mx-auto w-full max-w-[24rem]" data-parallax-depth="0.14">
+    <div className="relative mx-auto w-full max-w-[19rem] sm:max-w-[24rem]" data-parallax-depth="0.14">
       <div
         className="animate-float relative aspect-[4/5] overflow-hidden rounded-3xl"
         style={{
@@ -289,17 +329,7 @@ function FeatureSection({ feature }: { feature: Feature }) {
             boxShadow: `0 0 34px -10px rgba(${feature.rgb}, 0.5), 0 20px 60px -24px rgba(0,0,0,0.8)`,
           }}
         >
-          <video
-            src={feature.video}
-            poster={feature.videoPoster}
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            className="block h-auto w-full"
-            aria-label={`${feature.title} — feature film`}
-          />
+          <FilmEmbed src={feature.video} poster={feature.videoPoster} label={`${feature.title} — feature film`} />
         </div>
       </div>
       <div data-reveal={feature.flip ? 'left' : 'right'} className={feature.flip ? 'sm:order-1' : ''}>
@@ -503,14 +533,17 @@ export default function Landing() {
 
             {/* Focal visual — the beam wall itself: tall glowing frames in a
                 perspective arc, beams rising behind the copy, reflections on
-                the floor. Tap a frame to learn about that pillar. */}
-            <div className="relative z-10 mt-2 w-full max-w-5xl sm:-mt-12" data-parallax-depth="0.08">
+                the floor. Tap a frame to learn about that pillar. mt-12 on
+                mobile keeps the arc clear of the hero fine print (they overlap
+                at mt-2 on narrow screens). */}
+            <div className="relative z-10 mt-12 w-full max-w-5xl sm:-mt-12" data-parallax-depth="0.08">
               <FrameShowcase className="w-full" />
             </div>
           </section>
 
-          {/* Feature stories — one immersive section per pillar. */}
-          <div className="mt-28 flex w-full max-w-5xl flex-col gap-28 sm:mt-36 sm:gap-36">
+          {/* Feature stories — one immersive section per pillar. Tighter
+              rhythm on mobile where each section already stacks tall. */}
+          <div className="mt-24 flex w-full max-w-5xl flex-col gap-20 sm:mt-36 sm:gap-36">
             {FEATURES.map((f) => (
               <FeatureSection key={f.id} feature={f} />
             ))}
@@ -534,17 +567,7 @@ export default function Landing() {
                   boxShadow: '0 0 60px -12px rgba(91, 140, 255, 0.45), 0 30px 90px -30px rgba(0,0,0,0.85)',
                 }}
               >
-                <video
-                  src={promoVideo}
-                  poster={promoPoster}
-                  autoPlay
-                  muted
-                  loop
-                  playsInline
-                  preload="metadata"
-                  className="block h-auto w-full"
-                  aria-label="Beamwall promo video"
-                />
+                <FilmEmbed src={promoVideo} poster={promoPoster} label="Beamwall promo video" />
               </div>
             </div>
           </section>
@@ -624,6 +647,31 @@ export default function Landing() {
                   </Link>
                 </div>
               ))}
+            </div>
+          </section>
+
+          {/* Live sandbox booth — the product itself, embedded. Camera only
+              starts on an explicit tap inside DemoBooth; the heavy AR chunk
+              (MediaPipe/Three) is code-split behind React.lazy. */}
+          <section data-parallax-scope className="mt-32 w-full">
+            <div data-reveal className="flex flex-col items-center">
+              <span className="mb-4 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
+                Try it now — live
+              </span>
+              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">Step into the booth</h2>
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
+                This is the real thing — pick a frame, an effect and a 3D prop, and take a shot right
+                here. Runs in your browser; nothing leaves your device.
+              </p>
+            </div>
+            <div data-reveal className="mx-auto mt-10 w-full max-w-2xl">
+              <Suspense
+                fallback={
+                  <div className="mx-auto aspect-[9/16] w-full max-w-[320px] animate-pulse rounded-[2rem] border border-white/10 bg-white/[0.03] sm:max-w-[360px]" />
+                }
+              >
+                <DemoBooth />
+              </Suspense>
             </div>
           </section>
 

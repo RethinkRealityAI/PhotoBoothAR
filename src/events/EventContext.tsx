@@ -45,6 +45,15 @@ export function useEvent(): EventContextValue {
   return ctx;
 }
 
+/**
+ * Like useEvent, but returns null outside <EventProvider> instead of throwing.
+ * For components that can render on platform surfaces (e.g. the Landing demo
+ * booth reusing StageCanvas) where no event is active.
+ */
+export function useOptionalEvent(): EventContextValue | null {
+  return useContext(EventContext);
+}
+
 /* ── Theme application ──────────────────────────────────────────────── */
 
 const THEME_STYLE_ID = 'pbar-event-theme';

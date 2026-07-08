@@ -244,3 +244,12 @@ re-encoded → file size sane (<2MB for landing embeds) → embedded/committed �
      "we'll need to market those features separately"), re-render from
      the composition sources (`hyperframes lint`/`render` still clean as
      of this entry) rather than assuming a copy survived anywhere.
+  6. **This sandbox's Playwright Chromium has NO H.264 decoder**
+     (`canPlayType('video/mp4; codecs="avc1..."')` returns "") — every
+     H.264 `<video>` errors with MediaError code 4 and shows only its
+     poster. So headless screenshots/`video.paused` checks CANNOT verify
+     mp4 playback here; treat "paused/black video" in Playwright sweeps
+     as an environment artifact, verify poster + play/pause wiring logic
+     instead, and rely on the Netlify deploy preview for real playback.
+     Posters therefore MUST be chosen from bright, content-full moments
+     (a poster is what this sandbox — and any slow connection — shows).
