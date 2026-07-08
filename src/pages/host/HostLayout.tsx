@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
-import { CalendarRange, CreditCard, LogOut } from 'lucide-react';
+import { CalendarRange, CreditCard, LogOut, Sparkles } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
 import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
 
@@ -86,6 +86,16 @@ export default function HostLayout() {
               Billing
               {credits !== null && <span className="ml-1.5 text-brand-muted/60">· {credits} cr</span>}
             </span>
+          </NavLink>
+
+          <NavLink
+            to="/host/concierge"
+            className={({ isActive }) =>
+              `${railLink} ${isActive ? 'bg-white/[0.08] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.04]'}`
+            }
+          >
+            <Sparkles className="w-4 h-4 shrink-0 text-[color:var(--color-accent)]" />
+            <span className="hidden sm:inline">Concierge</span>
           </NavLink>
 
           <button onClick={handleSignOut} className={`${railLink} text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.04] md:mt-auto`}>

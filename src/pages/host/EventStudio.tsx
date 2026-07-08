@@ -16,8 +16,9 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Boxes, Check, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
-  LayoutGrid, Palette, Settings, ShieldCheck, Trophy, Wand2,
+  LayoutGrid, Palette, QrCode, Settings, ShieldCheck, Sparkles, Trophy, Wand2,
 } from 'lucide-react';
+import { useCopilotStore } from '../../lib/copilotStore';
 import { supabase } from '../../lib/supabase';
 import EventProvider from '../../events/EventContext';
 import { StudioBaseContext } from '../../components/admin/studioBase';
@@ -32,6 +33,7 @@ import Branding from '../../components/admin/Branding';
 import SettingsScreen from '../../components/admin/Settings';
 import ManagerAccess from './ManagerAccess';
 import CardsTab from './CardsTab';
+import ShareKit from './ShareKit';
 import UpgradeCard from './UpgradeCard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -123,6 +125,7 @@ export default function EventStudio() {
     { to: `${base}/moderation`, label: 'Wall', icon: ShieldCheck, end: false },
     { to: `${base}/challenges`, label: 'Challenges', icon: Trophy, end: false },
     { to: `${base}/cards`, label: 'Cards', icon: Gift, end: false },
+    { to: `${base}/share`, label: 'Share', icon: QrCode, end: false },
     { to: `${base}/branding`, label: 'Branding', icon: Palette, end: false },
     { to: `${base}/settings`, label: 'Settings', icon: Settings, end: false },
     { to: `${base}/access`, label: 'Manager access', icon: KeyRound, end: false },
@@ -169,6 +172,14 @@ export default function EventStudio() {
                 ))}
               </div>
             </div>
+            <button
+              onClick={() => useCopilotStore.getState().open()}
+              title="Beamwall Copilot"
+              aria-label="Open the Beamwall Copilot"
+              className="shrink-0 w-8 h-8 rounded-full bg-foil glow-accent flex items-center justify-center text-noir-900 active:scale-95 transition-transform"
+            >
+              <Sparkles className="w-4 h-4" />
+            </button>
             <GuestLinkCopy url={`${origin}${basePath}`} />
           </nav>
 
@@ -189,6 +200,7 @@ export default function EventStudio() {
               <Route path="moderation" element={<Moderation />} />
               <Route path="challenges" element={<Challenges />} />
               <Route path="cards" element={<CardsTab />} />
+              <Route path="share" element={<ShareKit />} />
               <Route path="branding" element={<Branding />} />
               <Route path="settings" element={<SettingsScreen />} />
               <Route path="access" element={<ManagerAccess eventUuid={event.id} />} />

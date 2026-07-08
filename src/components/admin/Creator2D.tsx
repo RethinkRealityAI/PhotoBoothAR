@@ -51,9 +51,9 @@ import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { getExperience, createExperience, updateExperience, uploadAsset } from '../../lib/db';
 import { generateImage, resolveEventUuid, aiErrorMessage } from '../../lib/ai';
 import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
-import { useEntitlements } from '../../lib/entitlements';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from './studioBase';
+import { useEntitlements } from '../../lib/entitlements';
 import type { Experience, ExperienceKind, Transform2D, ExperienceConfig } from '../../types';
 
 /* ------------------------------------------------------------------ */
@@ -247,9 +247,11 @@ function LivePreview({
   const dragging = useRef(false);
   const dragStart = useRef<{ mx: number; my: number; tx: number; ty: number }>({ mx: 0, my: 0, tx: 0, ty: 0 });
 
-  // Wheel → scale (works for all kinds when an overlay is present)
+  // Wheel → scale. Stickers AND borders: a generated frame that isn't exactly
+  // 9:16 letterboxes small under object-contain, so hosts must be able to
+  // scale/reposition it (the transform saves to config and the booth honors it).
   const onWheel = (e: React.WheelEvent) => {
-    if (kind !== '2d_filter') return;
+    if (kind === 'shader' || !overlayUrl) return;
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.05 : 0.05;
     const next = Math.max(0.1, Math.min(5, transform.scale + delta));
@@ -257,7 +259,7 @@ function LivePreview({
   };
 
   const onMouseDown = (e: React.MouseEvent) => {
-    if (kind !== '2d_filter' || !overlayUrl) return;
+    if (kind === 'shader' || !overlayUrl) return;
     e.preventDefault();
     dragging.current = true;
     dragStart.current = { mx: e.clientX, my: e.clientY, tx: transform.x, ty: transform.y };
@@ -289,12 +291,12 @@ function LivePreview({
   // Touch drag
   const touchStart = useRef<{ tx0: number; ty0: number; x0: number; y0: number }>({ tx0: 0, ty0: 0, x0: 0, y0: 0 });
   const onTouchStart = (e: React.TouchEvent) => {
-    if (kind !== '2d_filter' || !overlayUrl) return;
+    if (kind === 'shader' || !overlayUrl) return;
     const t = e.touches[0];
     touchStart.current = { tx0: transform.x, ty0: transform.y, x0: t.clientX, y0: t.clientY };
   };
   const onTouchMove = (e: React.TouchEvent) => {
-    if (kind !== '2d_filter' || !overlayUrl || !containerRef.current) return;
+    if (kind === 'shader' || !overlayUrl || !containerRef.current) return;
     e.preventDefault();
     const t = e.touches[0];
     const rect = containerRef.current.getBoundingClientRect();
@@ -323,12 +325,20 @@ function LivePreview({
         touchAction: 'none',
       }
     : {
+        // Border: full-frame base, but transform-aware — generated frames that
+        // aren't exactly 9:16 letterbox under contain, so the host drags/scales
+        // them into place exactly like the booth will render them.
         position: 'absolute',
-        inset: 0,
+        left: `calc(50% + ${transform.x}%)`,
+        top: `calc(50% + ${transform.y}%)`,
+        transform: `translate(-50%, -50%) scale(${transform.scale}) rotate(${transform.rotation}deg)`,
         width: '100%',
         height: '100%',
         objectFit: 'contain',
-        pointerEvents: 'none',
+        cursor: overlayUrl ? 'grab' : 'default',
+        userSelect: 'none',
+        pointerEvents: overlayUrl ? 'auto' : 'none',
+        touchAction: 'none',
       };
 
   // Shader name for badge
@@ -388,8 +398,8 @@ function LivePreview({
         </div>
       )}
 
-      {/* Drag hint for 2D sticker */}
-      {kind === '2d_filter' && overlayUrl && (
+      {/* Drag hint for stickers and borders */}
+      {kind !== 'shader' && overlayUrl && (
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none">
           <span className="bg-noir-900/70 text-champagne/60 text-[9px] font-sans px-3 py-1.5 rounded-full backdrop-blur-sm border border-white/10">
             Drag · Scroll to scale
@@ -965,9 +975,19 @@ export default function Creator2D() {
                 </div>
               )}
 
-              {/* AI generator — runs server-side (credits + entitlement enforced there) */}
-              {entitlements.aiStudio && kind !== 'shader' && (
-                <MagicGenerate
+              {/* AI generator — runs server-side (credits + entitlement enforced
+                  there). Shown to EVERY tier: the server grants each event 3 free
+                  image generations before answering upgrade_required for the free
+                  tier — the panel is the trial's front door, and entitlements
+                  drive the copy so the trial reads as a trial. */}
+              {kind !== 'shader' && (
+                <>
+                  {!entitlements.aiStudio && (
+                    <p className="text-[9px] text-gold-300/70 leading-relaxed -mb-1">
+                      ✨ Your first 3 AI frames are on us — upgrade this event for unlimited AI Studio.
+                    </p>
+                  )}
+                  <MagicGenerate
                   kind={kind}
                   onGenerated={(exp) => {
                     // The server already saved an unpublished experience; load
@@ -979,7 +999,8 @@ export default function Creator2D() {
                     }
                     if (name === 'Untitled Experience' && exp.name) setName(exp.name);
                   }}
-                />
+                  />
+                </>
               )}
 
               {/* Camera error */}
@@ -1059,11 +1080,13 @@ export default function Creator2D() {
                 </div>
               )}
 
-              {/* ── Transform controls (2D sticker) ── */}
-              {kind === '2d_filter' && (
+              {/* ── Transform controls (stickers + borders) ── */}
+              {kind !== 'shader' && (
                 <div className="flex flex-col gap-4">
                   <div className="flex items-center justify-between">
-                    <p className="font-sans text-xs text-ivory font-medium">Sticker Transform</p>
+                    <p className="font-sans text-xs text-ivory font-medium">
+                      {kind === 'border' ? 'Frame Placement' : 'Sticker Transform'}
+                    </p>
                     <button
                       onClick={() => setTransform(DEFAULT_TRANSFORM)}
                       className="flex items-center gap-1 text-[9px] text-champagne/40 hover:text-gold-300 transition-colors"
@@ -1114,7 +1137,9 @@ export default function Creator2D() {
                 <div className="glass rounded-xl border border-gold-400/10 p-4 flex flex-col gap-2">
                   <p className="font-label uppercase tracking-luxe text-[9px] text-gold-400/60">Full Frame</p>
                   <p className="font-sans text-xs text-champagne/50 leading-relaxed">
-                    Borders are rendered at 1080×1920 covering the entire frame. Choose a built-in design or upload a custom transparent PNG/SVG.
+                    Borders render over the whole 1080×1920 frame. Pick a built-in design, upload a
+                    transparent PNG/SVG, or AI-generate one — then drag and scale it into place; your
+                    placement is saved with the frame.
                   </p>
                 </div>
               )}

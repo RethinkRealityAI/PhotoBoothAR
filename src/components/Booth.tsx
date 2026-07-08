@@ -18,7 +18,7 @@ import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   SwitchCamera, Clock, Video, Camera as CameraIcon,
-  SlidersHorizontal, Eye, EyeOff, ChevronUp, UploadCloud,
+  SlidersHorizontal, Eye, EyeOff, ChevronUp, UploadCloud, ScanFace,
 } from 'lucide-react';
 
 import EventBackground from './ui/EventBackground';
@@ -226,6 +226,20 @@ export default function Booth() {
     (!!attachExp.asset_url || !!attachExp.config?.procedural);
   const anchorConfig: AnchorConfig | null =
     is3D && attachExp?.config?.anchor ? (attachExp.config.anchor as AnchorConfig) : null;
+
+  // ── Face-tracking hint ────────────────────────────────────────────────
+  // A 3D piece is invisible until the tracker finds a face — without feedback
+  // that reads as "broken". Track visibility from the rig and, after a short
+  // grace (model warm-up + brief misses), coach the guest into the frame.
+  const [faceVisible, setFaceVisible] = useState(false);
+  const [faceHint, setFaceHint] = useState(false);
+  useEffect(() => {
+    if (is3D && !faceVisible && phase === 'camera' && ready) {
+      const tid = setTimeout(() => setFaceHint(true), 1500);
+      return () => clearTimeout(tid);
+    }
+    setFaceHint(false);
+  }, [is3D, faceVisible, phase, ready]);
 
   // ── Shutter / countdown ───────────────────────────────────────────────
   const handleShutterPress = useCallback(() => {
@@ -515,8 +529,28 @@ export default function Booth() {
                     anchor={anchorConfig}
                     videoId="booth-video"
                     mirror={isFront}
+                    onFaceVisible={setFaceVisible}
                   />
                 )}
+              </div>
+              <div className="absolute top-4 inset-x-0 z-30 flex justify-center pointer-events-none">
+                <AnimatePresence>
+                  {faceHint && (
+                    <motion.div
+                      key="face-hint"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.25 }}
+                      className="flex items-center gap-2 px-3.5 py-2 rounded-full glass-strong border border-gold-400/25"
+                    >
+                      <ScanFace className="w-4 h-4 text-gold-300 animate-pulse" />
+                      <span className="font-label text-[10px] uppercase tracking-wide text-champagne/80">
+                        Center your face in the frame
+                      </span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
               <div
                 className="absolute inset-0 pointer-events-none"

@@ -19,6 +19,7 @@
 import * as THREE from 'three';
 import { HeadAnchor } from '../types';
 import { getFaceLandmarker } from './faceTracking';
+import { OneEuroVec3, OneEuroQuat, type OneEuroConfig, type Vec3, type Quat } from './smoothing';
 
 export interface AnchorPreset {
   id: HeadAnchor;
@@ -87,12 +88,30 @@ let _gSeen = 0;          // performance.now() of the last successful detection
 let _gHas = false;       // a face has been detected at least once
 let _lastDetectTs = 0;   // throttle clock for detectForVideo
 
+/**
+ * One-Euro tuning (see smoothing.ts). Position/scale speeds are in cm/s
+ * (MediaPipe's metric head space); rotation speed is rad/s. Low minCutoff
+ * keeps a resting face rock-steady; beta raises the cutoff under motion so
+ * fast head turns track without trailing.
+ */
+const POS_FILTER: OneEuroConfig = { minCutoff: 1.15, beta: 0.08, dCutoff: 1.0 };
+const ROT_FILTER: OneEuroConfig = { minCutoff: 1.5, beta: 0.6, dCutoff: 1.0 };
+const SCALE_FILTER: OneEuroConfig = { minCutoff: 1.0, beta: 0.5, dCutoff: 1.0 };
+
 interface SmoothState {
-  pos: THREE.Vector3;
-  quat: THREE.Quaternion;
-  scale: THREE.Vector3;
-  init: boolean;
+  pos: OneEuroVec3;
+  quat: OneEuroQuat;
+  scale: OneEuroVec3;
+  lastMs: number; // performance.now() of the previous filter step, ms
 }
+
+/* Scratch tuples shared across calls (one rig filters at a time). */
+const _fpIn: Vec3 = [0, 0, 0];
+const _fpOut: Vec3 = [0, 0, 0];
+const _fqIn: Quat = [0, 0, 0, 1];
+const _fqOut: Quat = [0, 0, 0, 1];
+const _fsIn: Vec3 = [1, 1, 1];
+const _fsOut: Vec3 = [1, 1, 1];
 
 /** Run the landmarker at most once per DETECT_INTERVAL_MS; cache the raw pose. */
 function detectIfDue(fl: ReturnType<typeof getFaceLandmarker>, video: HTMLVideoElement, now: number) {
@@ -148,7 +167,11 @@ export function updateHeadPose(
   // so the next acquisition snaps in cleanly rather than gliding from a stale pose.
   if (!_gHas || now - _gSeen > HOLD_MS) {
     const stale = group.userData._smooth as SmoothState | undefined;
-    if (stale) stale.init = false;
+    if (stale) {
+      stale.pos.reset();
+      stale.quat.reset();
+      stale.scale.reset();
+    }
     return false;
   }
 
@@ -164,29 +187,31 @@ export function updateHeadPose(
 
   // Smoothing state lives on the object so multiple rigs don't interfere.
   const s = (group.userData._smooth as SmoothState | undefined) ?? {
-    pos: new THREE.Vector3(),
-    quat: new THREE.Quaternion(),
-    scale: new THREE.Vector3(1, 1, 1),
-    init: false,
+    pos: new OneEuroVec3(POS_FILTER),
+    quat: new OneEuroQuat(ROT_FILTER),
+    scale: new OneEuroVec3(SCALE_FILTER),
+    lastMs: 0,
   };
   group.userData._smooth = s;
 
-  if (!s.init) {
-    s.pos.copy(_tPos);
-    s.quat.copy(_tQuat);
-    s.scale.copy(_tScale);
-    s.init = true;
-  } else {
-    // Smooth toward the target every render frame (even between detections) for
-    // fluid, jitter-free motion.
-    s.pos.lerp(_tPos, 0.45);
-    s.quat.slerp(_tQuat, 0.5);
-    s.scale.lerp(_tScale, 0.4);
-  }
+  // Frame-rate-independent step: real elapsed time since this rig's last
+  // filter pass, clamped to [1ms, 100ms] (coarsened timers can repeat a value;
+  // a tab-switch gap should snap, not integrate a huge velocity).
+  const dtSec = Math.min(Math.max(now - s.lastMs, 1), 100) / 1000;
+  s.lastMs = now;
 
-  group.position.copy(s.pos);
-  group.quaternion.copy(s.quat);
-  group.scale.copy(s.scale);
+  // One-Euro filter every render frame (even between detections): steady when
+  // the face is still, tight on the face during fast motion.
+  _fpIn[0] = _tPos.x; _fpIn[1] = _tPos.y; _fpIn[2] = _tPos.z;
+  _fqIn[0] = _tQuat.x; _fqIn[1] = _tQuat.y; _fqIn[2] = _tQuat.z; _fqIn[3] = _tQuat.w;
+  _fsIn[0] = _tScale.x; _fsIn[1] = _tScale.y; _fsIn[2] = _tScale.z;
+  s.pos.filter(_fpIn, dtSec, _fpOut);
+  s.quat.filter(_fqIn, dtSec, _fqOut);
+  s.scale.filter(_fsIn, dtSec, _fsOut);
+
+  group.position.set(_fpOut[0], _fpOut[1], _fpOut[2]);
+  group.quaternion.set(_fqOut[0], _fqOut[1], _fqOut[2], _fqOut[3]);
+  group.scale.set(_fsOut[0], _fsOut[1], _fsOut[2]);
   return true;
 }
 

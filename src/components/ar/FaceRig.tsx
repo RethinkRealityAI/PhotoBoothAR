@@ -75,7 +75,10 @@ export function FaceRig({
   children: ReactNode;
 }) {
   const head = useRef<THREE.Group>(null);
-  const visibleRef = useRef(false);
+  // null = not yet reported: the FIRST frame always fires onVisibilityChange,
+  // so a consumer mounting mid-track gets the true state immediately instead
+  // of waiting for the next visibility flip.
+  const visibleRef = useRef<boolean | null>(null);
 
   useFrame(() => {
     const group = head.current;

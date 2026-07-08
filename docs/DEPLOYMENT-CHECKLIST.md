@@ -4,7 +4,7 @@ Everything needed to take the platform (PR #5) from "merged" to "live and
 charging". The platform is **safe-by-default**: every integration below degrades
 gracefully until its key is set, so you can enable them one at a time.
 
-Supabase project: `zrtftliozslrjomxbfrr`. All migrations 001–009 and all edge
+Supabase project: `zrtftliozslrjomxbfrr`. All migrations 001–010 and all edge
 functions (incl. `admin-api`) are **already applied/deployed** to it. Set secrets in
 **Supabase → Project Settings → Edge Functions → Secrets** (or `supabase secrets set`).
 
@@ -48,9 +48,13 @@ today all three legacy Netlify sites build from `main`.
 
 ## 2. AI generation — Gemini (default), then Meshy / Higgsfield
 
-- [ ] `GEMINI_API_KEY` — enables AI frame/sticker generation (was the old
-      client-side `VITE_GEMINI_API_KEY`, now server-only). Without it,
+- [x] `GEMINI_API_KEY` — **SET (2026-07-07)**; rotate post-deploy and restrict
+      the new key to the Generative Language API in Google Cloud console.
+      Enables AI frame/sticker generation (server-only). Without it,
       image gen returns `ai_not_configured` (credits auto-refunded).
+      Also powers `ai-event-designer` (the /host/new Event Concierge chat);
+      without the key it returns `ai_not_configured` and the client falls
+      back to the local keyword planner — the chat flow keeps working.
 - [ ] `MESHY_API_KEY` — enables 3D-prop generation (image/text → GLB).
 - [ ] `HIGGSFIELD_API_KEY` + `HIGGSFIELD_API_URL` — optional premium image
       provider; Gemini is the default and works alone.
