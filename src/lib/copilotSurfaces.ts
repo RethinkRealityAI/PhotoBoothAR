@@ -68,6 +68,23 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
         ...confirm.components,
       ]);
     }
+    case 'add_challenge_pack': {
+      const confirm = confirmRow('Add all');
+      const rows = action.proposal.challenges;
+      const rowIds = rows.map((_, i) => `chal_${i}`);
+      return surface(surfaceId, { proposal: { tool: action.tool, ...action.proposal } }, [
+        { id: 'root', component: 'Card', child: 'body' },
+        { id: 'body', component: 'Column', children: ['heading', 'themeField', ...rowIds, ...confirm.ids] },
+        { id: 'heading', component: 'Text', text: `Challenge pack · ${rows.length} challenges`, variant: 'h5' },
+        textField('themeField', 'Theme', '/proposal/theme'),
+        ...rows.flatMap((c, i): A2uiComponent[] => [
+          { id: `chal_${i}`, component: 'Column', children: [`chal_${i}_t`, `chal_${i}_d`] },
+          { id: `chal_${i}_t`, component: 'Text', text: `${c.emoji} ${c.title} · ${c.points} pts` },
+          { id: `chal_${i}_d`, component: 'Text', variant: 'caption', text: c.description || '—' },
+        ]),
+        ...confirm.components,
+      ]);
+    }
     case 'update_challenge': {
       const confirm = confirmRow('Apply changes');
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [

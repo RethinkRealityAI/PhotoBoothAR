@@ -15,10 +15,11 @@
  * 200 create  → { reply, plan }    plan = { name, templateId, remote, date,
  *                                  slug, accent } (client normalizes)
  * 200 copilot → { reply, actions } actions = ≤3 TOOL PROPOSALS (flat
- *   arg-superset objects, tool ∈ add_challenge | update_challenge |
- *   delete_challenge | create_card | get_stats | share_links). The server
- *   NEVER executes tools — the client renders each mutation as an A2UI
- *   confirm card and runs the lib call with the host's own RLS session.
+ *   arg-superset objects, tool ∈ add_challenge | add_challenge_pack |
+ *   update_challenge | delete_challenge | create_card | get_stats |
+ *   share_links). The server NEVER executes tools — the client renders each
+ *   mutation as an A2UI confirm card and runs the lib call with the host's
+ *   own RLS session.
  *   Why proposals instead of native Gemini functionDeclarations: structured
  *   output (responseSchema, which the create plan depends on) and tools are
  *   mutually exclusive on generateContent, and client-side execution forces
@@ -171,11 +172,19 @@ ${context
 
 When the host wants something changed that you have a tool for, put it in "actionsJson": a compact JSON array string of at most ${MAX_ACTIONS} tool objects, e.g. "[{\\"tool\\":\\"add_challenge\\",\\"title\\":\\"Scavenger hunt\\",\\"emoji\\":\\"🎈\\",\\"points\\":20}]" — or exactly "[]" when there is nothing to do. NEVER claim you already did it: the card shown below your reply lets them review and confirm. For update/delete, copy challengeId EXACTLY from the event data. Tools:
 - add_challenge { title, emoji?, points?, description? } — new photo mission
+- add_challenge_pack { theme, challenges: [{ title, emoji?, points?, description? }] } — 3-6 challenges added together as a themed set; use when the host wants several at once or asks you to design a set
 - update_challenge { challengeId, title?, emoji?, points?, active?, description? }
 - delete_challenge { challengeId }
 - create_card { cardTitle, recipientName?, cardTemplate: 'storybook'|'filmstrip'?, deadline? YYYY-MM-DD } — greeting card + contribution link
 - get_stats {} — show the event's live numbers
 - share_links {} — QR codes / links for every guest surface
+
+EXTRACTING TOOL ARGUMENTS — never dump the host's whole sentence into one field:
+- title / cardTitle: a short punchy NAME you write, 2-6 words ("Dance floor cam", not "add a challenge where guests take a picture of people dancing").
+- description: the instruction to guests, in a full sentence — put the host's details here, rephrased for guests.
+- points: only a number the host stated, else omit (default applies). deadline: only a date the host stated.
+- Example: host says "add a challenge to snap the bride and groom kissing, 30 points" → {"tool":"add_challenge","title":"Caught kissing","emoji":"💋","points":30,"description":"Snap the bride and groom sharing a kiss."}
+- If the request is AMBIGUOUS (you can't tell what to name it, which challenge they mean, or what they actually want changed), propose NOTHING: return "[]" and ask ONE short clarifying question in "reply" instead. A wrong guess wastes the host's confirm.
 Anything without a tool: point the host to the exact studio tab (guide above). Never invent event data.`;
 }
 

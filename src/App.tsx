@@ -41,6 +41,7 @@ import Signup from './pages/auth/Signup';
 import HostLayout from './pages/host/HostLayout';
 import EventsList from './pages/host/EventsList';
 import NewEvent from './pages/host/NewEvent';
+import Concierge from './pages/host/Concierge';
 import Billing from './pages/host/Billing';
 import EventStudio from './pages/host/EventStudio';
 import ManagerConsole from './pages/manager/ManagerConsole';
@@ -143,6 +144,7 @@ export default function App() {
               <Route path="/host" element={<HostLayout />}>
                 <Route index element={<EventsList />} />
                 <Route path="new" element={<NewEvent />} />
+                <Route path="concierge" element={<Concierge />} />
                 <Route path="billing" element={<Billing />} />
               </Route>
               <Route path="/host/events/:id/*" element={<EventStudio />} />

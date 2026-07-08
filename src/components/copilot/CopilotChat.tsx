@@ -242,6 +242,12 @@ export default function CopilotChat({
                 }, sid), sid);
               },
             },
+            {
+              // AI round-trip on purpose: the model designs a THEMED set from
+              // the live event snapshot, then it arrives as one confirm card.
+              label: '🎁 Challenge pack',
+              run: () => send('Design a themed pack of 5 photo challenges that fit this event.'),
+            },
           ] as { label: string; run: () => void }[]).map((q) => (
             <button
               key={q.label}

@@ -86,8 +86,17 @@ export default function CopilotPanel() {
           transition={{ type: 'spring', stiffness: 340, damping: 28 }}
           /* Mobile: inset on all four sides so the window can never be cut off
              by the browser chrome and stays centred (equal left/right insets).
-             Desktop (md+): a compact floating window anchored bottom-right. */
-          className="fixed z-[80] inset-x-3 top-3 bottom-3 md:inset-x-auto md:top-auto md:right-6 md:bottom-6 md:w-[420px] md:h-[min(680px,calc(100dvh-3rem))] rounded-3xl overflow-hidden liquid-glass border border-white/10 shadow-[0_30px_90px_-20px_rgba(0,0,0,0.85)] flex flex-col"
+             Desktop (md+): a compact floating window anchored bottom-right —
+             explicit left/top/right/bottom classes, no inset-x shorthand (the
+             shorthand's md: override lost the ordering fight and stranded the
+             window top-left). The inline background re-solidifies the glass:
+             liquid-glass alone is too transparent to read chat over a page. */
+          className="fixed z-[80] left-3 right-3 top-3 bottom-3 md:left-auto md:top-auto md:right-6 md:bottom-6 md:w-[420px] md:h-[680px] md:max-h-[calc(100dvh-3rem)] rounded-3xl overflow-hidden liquid-glass border border-white/10 shadow-[0_30px_90px_-20px_rgba(0,0,0,0.85)] flex flex-col"
+          /* position INLINE because .liquid-glass (unlayered CSS) declares
+             position:relative, which beats the layered Tailwind `fixed`
+             utility — that collision stranded the popup at the page's static
+             position instead of anchoring it to the viewport. */
+          style={{ position: 'fixed', backgroundColor: 'color-mix(in srgb, var(--color-brand-bg) 88%, transparent)' }}
         >
             {/* Header */}
             <div className="shrink-0 flex items-center gap-2.5 px-4 py-3 border-b border-white/10">

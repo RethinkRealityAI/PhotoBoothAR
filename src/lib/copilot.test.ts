@@ -52,6 +52,41 @@ describe('normalizeActions', () => {
     expect(normalizeActions([{ tool: 'update_challenge', challengeId: 'ch-real' }], null)).toEqual([]);
     expect(normalizeActions([{ tool: 'add_challenge', title: 'ok' }], null)).toHaveLength(1);
   });
+
+  it('salvages a sentence-dumped title into title + description', () => {
+    const sentence =
+      'add a challenge where guests take a picture of people dancing on the dance floor with the couple';
+    const out = normalizeActions([{ tool: 'add_challenge', title: sentence }], snapshot);
+    expect(out).toHaveLength(1);
+    const p = (out[0] as { proposal: { title: string; description: string } }).proposal;
+    expect(p.title.length).toBeLessThanOrEqual(60);
+    expect(p.title.endsWith(' ')).toBe(false);
+    expect(p.description).toBe(sentence);
+    // A short title with its own description passes through untouched.
+    const short = normalizeActions(
+      [{ tool: 'add_challenge', title: 'Dance floor cam', description: 'Snap the dancers.' }], snapshot,
+    );
+    expect((short[0] as { proposal: { title: string; description: string } }).proposal)
+      .toMatchObject({ title: 'Dance floor cam', description: 'Snap the dancers.' });
+  });
+
+  it('validates challenge packs: per-item filtering, 6-item cap, theme default', () => {
+    const out = normalizeActions([{
+      tool: 'add_challenge_pack',
+      challenges: [
+        { title: 'First dance', emoji: '💃', points: 20 },
+        { emoji: '💀' },                                   // no title — dropped
+        ...Array.from({ length: 8 }, (_v, i) => ({ title: `extra ${i}` })),
+      ],
+    }], snapshot);
+    expect(out).toHaveLength(1);
+    const p = (out[0] as { proposal: { theme: string; challenges: unknown[] } }).proposal;
+    expect(p.theme).toBe('Challenge pack');
+    expect(p.challenges).toHaveLength(6);
+    expect(p.challenges[0]).toEqual({ title: 'First dance', emoji: '💃', points: 20, description: '' });
+    // A pack with zero usable challenges is dropped entirely.
+    expect(normalizeActions([{ tool: 'add_challenge_pack', challenges: [{}, null] }], snapshot)).toEqual([]);
+  });
 });
 
 describe('mergeWireTurns', () => {

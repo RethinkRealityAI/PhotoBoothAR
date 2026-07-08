@@ -20,8 +20,16 @@ import type { EventSnapshot } from './eventSnapshot';
 
 /* ── Action types (post-normalization) ───────────────────────────────── */
 
+export interface ChallengeDraft {
+  title: string;
+  emoji: string;
+  points: number;
+  description: string;
+}
+
 export type CopilotAction =
-  | { tool: 'add_challenge'; proposal: { title: string; emoji: string; points: number; description: string } }
+  | { tool: 'add_challenge'; proposal: ChallengeDraft }
+  | { tool: 'add_challenge_pack'; proposal: { theme: string; challenges: ChallengeDraft[] } }
   | { tool: 'update_challenge'; proposal: { challengeId: string; title?: string; emoji?: string; points?: number; active?: boolean } }
   | { tool: 'delete_challenge'; proposal: { challengeId: string } }
   | { tool: 'create_card'; proposal: { cardTitle: string; recipientName: string; cardTemplate: 'storybook' | 'filmstrip'; deadline: string } }
@@ -36,6 +44,31 @@ const points = (v: unknown): number => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? Math.min(1000, Math.max(0, Math.round(n))) : 10;
 };
+
+const TITLE_MAX = 60;
+
+/**
+ * A model that dumps the host's whole sentence into `title` produces an ugly,
+ * unusable card. Salvage: keep a short leading fragment as the title and move
+ * the full text into the description (when it doesn't already have one).
+ */
+function splitLongTitle(rawTitle: string, rawDescription: string): { title: string; description: string } {
+  if (rawTitle.length <= TITLE_MAX) return { title: rawTitle, description: rawDescription };
+  const shortened = rawTitle.slice(0, TITLE_MAX).replace(/\s+\S*$/, '').replace(/[,;:.\s]+$/, '');
+  return {
+    title: shortened || rawTitle.slice(0, TITLE_MAX),
+    description: rawDescription || rawTitle,
+  };
+}
+
+/** One challenge draft from untrusted model output; null when unusable. */
+function challengeDraft(raw: unknown): ChallengeDraft | null {
+  const a = (raw ?? {}) as Record<string, unknown>;
+  const rawTitle = str(a.title, 200);
+  if (!rawTitle) return null;
+  const { title, description } = splitLongTitle(rawTitle, str(a.description, 300));
+  return { title, emoji: str(a.emoji, 8) || '⭐', points: points(a.points), description };
+}
 
 /**
  * Validate raw model actions into executable ones. Strict on ids: update /
@@ -52,16 +85,20 @@ export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): 
     const a = (item ?? {}) as Record<string, unknown>;
     switch (a.tool) {
       case 'add_challenge': {
-        const title = str(a.title);
-        if (!title) break;
+        const draft = challengeDraft(a);
+        if (!draft) break;
+        out.push({ tool: 'add_challenge', proposal: draft });
+        break;
+      }
+      case 'add_challenge_pack': {
+        const drafts = (Array.isArray(a.challenges) ? a.challenges : [])
+          .map(challengeDraft)
+          .filter((c): c is ChallengeDraft => c !== null)
+          .slice(0, 6);
+        if (drafts.length === 0) break;
         out.push({
-          tool: 'add_challenge',
-          proposal: {
-            title,
-            emoji: str(a.emoji, 8) || '⭐',
-            points: points(a.points),
-            description: str(a.description, 300),
-          },
+          tool: 'add_challenge_pack',
+          proposal: { theme: str(a.theme, 80) || 'Challenge pack', challenges: drafts },
         });
         break;
       }
@@ -152,6 +189,25 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
         return row
           ? { ok: true, summary: `Challenge "${row.title}" added (id ${row.id}).` }
           : { ok: false, summary: 'Adding the challenge failed.' };
+      }
+      case 'add_challenge_pack': {
+        const { createChallenge } = await import('./db');
+        // Card edits pass through the surface data model — re-validate each
+        // entry rather than trusting the array shape survived intact.
+        const drafts = (Array.isArray(action.proposal.challenges) ? action.proposal.challenges : [])
+          .map(challengeDraft)
+          .filter((c): c is ChallengeDraft => c !== null);
+        if (drafts.length === 0) return { ok: false, summary: 'The pack had no usable challenges.' };
+        let added = 0;
+        for (const d of drafts) {
+          const row = await createChallenge(ctx.slug, {
+            title: d.title, emoji: d.emoji, points: points(d.points), description: d.description || null, active: true,
+          });
+          if (row) added++;
+        }
+        return added > 0
+          ? { ok: true, summary: `Added ${added} of ${drafts.length} "${action.proposal.theme}" challenges.` }
+          : { ok: false, summary: 'Adding the challenge pack failed.' };
       }
       case 'update_challenge': {
         const { updateChallenge } = await import('./db');

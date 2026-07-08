@@ -28,7 +28,8 @@ export default function CopilotFab() {
   const visible =
     hasSession &&
     pathname.startsWith('/host') &&
-    !pathname.startsWith('/host/new') &&
+    !pathname.startsWith('/host/new') &&        // full create concierge lives there
+    !pathname.startsWith('/host/concierge') &&  // inline chat lives there
     !isOpen;
 
   return (
