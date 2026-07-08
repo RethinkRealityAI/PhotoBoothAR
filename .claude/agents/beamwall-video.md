@@ -183,3 +183,64 @@ re-encoded → file size sane (<2MB for landing embeds) → embedded/committed �
       you put inside the command string — a 1920×1080 render easily
       exceeds that. Run renders with `run_in_background: true` instead of
       trying to raise the in-shell `timeout`.
+- 2026-07-08: Rendered all 5 studio compositions end to end (booth/wall/
+  challenges/cards → 30s each, promo → 58s master) and shipped them on
+  Landing. Findings:
+  1. **`@ffmpeg-installer/ffmpeg`'s bundled binary (a 2018-era static
+     build) is too old for HyperFrames' audio mixer.** `render`'s audio
+     stage builds an `apad=whole_dur=<N>` filter per track — that option
+     was added in FFmpeg ~4.2; the installer's binary only has `whole_len`
+     (sample-count, not duration) and errors with `Option 'whole_dur' not
+     found`, which the CLI swallows down to a generic
+     `[WARN] Audio mix failed — output will be video-only: FFmpeg exited
+     with code 1`. Symptom is a perfectly fine-looking render with
+     silently NO AUDIO — check `hasAudio` in the render's own trace log
+     (`"phase":"audio_process"` → next few lines) or just `ffprobe` the
+     output for an audio stream before trusting it shipped correctly.
+     Fix: install a real system ffmpeg instead
+     (`apt-get install -y libva2=2.20.0-2build1 libva-drm2=2.20.0-2build1
+     libva-x11-2=2.20.0-2build1 libcaca0=0.99.beta20-4build2 && apt-get
+     install -y ffmpeg` — this sandbox's default `noble-updates`/security
+     pockets 404 on the exact libva2/libcaca0 patch versions `ffmpeg`
+     depends on, but the plain `noble` pocket's slightly-older build
+     versions install fine and satisfy the same dependency) then point
+     `HYPERFRAMES_FFMPEG_PATH`/`HYPERFRAMES_FFPROBE_PATH` at
+     `/usr/bin/ffmpeg` / `/usr/bin/ffprobe` instead of the npm-installed
+     ones. Verify with `ffmpeg -h filter=apad | grep whole_dur`.
+  2. **`--workers 4` (or however many cores `nproc` reports) cuts render
+     time drastically** — the CLI's own auto-calibration picked
+     `workerCount: 1` here (it measured ~1.9s/frame and deemed capture
+     "slow", defaulting conservatively), but this sandbox has 4 cores and
+     forcing `--workers 4` parallelizes frame capture across them with no
+     downside observed. A 30s/1920x1080/948-frame composition took ~11min
+     wall-clock at 4 workers; the 58s promo (1788 frames) took ~20min.
+     Always pass `--workers <nproc>` explicitly rather than trusting
+     calibration in this environment.
+  3. Composition duration can come out slightly longer than the GSAP
+     timeline's own pinned end (registered `tl` had `tl.duration()===30`
+     via the `tl.set(..., END)` pin, but the render's discovered
+     `window.__hf.duration` was `31.6`/`59.6` — the render preserved the
+     extra ~1.6s as pure background/beams with no foreground content, not
+     a defect). Didn't chase the exact root cause since it's cosmetically
+     harmless (looks like a clean loop-out tail) and every visual
+     snapshot the extra time touches was already background-only — but if
+     a future composition needs an EXACT total duration, don't trust the
+     GSAP `tl.set` pin alone; verify the rendered file's real length with
+     `ffprobe` afterward.
+  4. `ffmpeg -ss <t> -i in.mp4 -frames:v 1 -q:v 3 out.jpg` (poster-frame
+     extraction) warns `does not contain an image sequence pattern` and
+     may not write the file reliably on some ffmpeg builds unless you add
+     `-update 1` — always include it for single-frame JPEG/PNG output.
+  5. Definition-of-done pipeline that worked start to finish this round:
+     render (system ffmpeg, `--workers <nproc>`) → `ffprobe` to confirm
+     `hasAudio`/duration → re-encode per feature to 1280×720 crf 27 `-an`
+     (landing embeds are muted-autoplay, so audio is dead weight) →
+     extract a mid-action poster frame → commit only the web re-encodes
+     to `src/assets/landing/`. `hyperframes/studio/renders/` (the
+     narrated, full-quality masters ffmpeg reads from) is gitignored —
+     it's local build output, not a deliverable, so it does NOT persist
+     in the repo. If a future task needs the narrated/full-audio versions
+     for separate social/marketing distribution (the original ask —
+     "we'll need to market those features separately"), re-render from
+     the composition sources (`hyperframes lint`/`render` still clean as
+     of this entry) rather than assuming a copy survived anywhere.
