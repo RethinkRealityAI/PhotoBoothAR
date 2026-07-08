@@ -15,10 +15,24 @@ guest landing at `/e/:slug/welcome`.
 | Frame/sticker images | `gemini-2.5-flash-image` | ~$0.039/image (1290 out-tokens) | Already deployed; **Imagen 4 is deprecated (EOL 2026-08-17) — do NOT migrate to it** |
 | Credit math | 1 credit = 1 gemini image | ~26x margin at $1/credit | Free allowance: `FREE_IMAGES_PER_EVENT = 3` in `ai-generate-image` |
 
-## Phase 1 — Studio Copilot (the big one)
+## Phase 1 — Studio Copilot — ✅ SHIPPED (2026-07-07)
 
-A persistent chat panel inside EventStudio (`/host/events/:id`) — same
-A2UI pipeline, but **event-aware and tool-using**:
+Shipped as the **Platform Copilot**: global FAB + right drawer across all of
+`/host/**` (mounted once in App.tsx; opens from the FAB, the HostLayout rail,
+or the EventStudio nav). `ai-event-designer` v5 gained `mode:'copilot'`:
+client sends the event snapshot (`src/lib/eventSnapshot.ts`) + the platform
+guide digest (`src/lib/platformGuide.ts`); the model returns `{reply,
+actions[]}` — typed tool PROPOSALS (never executed server-side; structured
+output and Gemini functionDeclarations are mutually exclusive, and tools run
+client-side anyway). `src/lib/copilot.ts` normalizes (strict challengeId
+matching kills hallucinated ids), renders A2UI confirm cards
+(`copilotSurfaces.ts`), executes on confirm with the host's RLS session, and
+feeds `[tool_result]` turns back (merged for role alternation). v1 tools:
+add/update/delete_challenge, create_card (QR result card), get_stats,
+share_links. Also shipped: create-mode discovery-question policy (favourite
+colour / venue follow-ups) + AI-set `plan.accent`.
+
+### Original phase sketch (kept for the v2 tool ideas):
 
 - **Architecture**: extend `ai-event-designer` (or new `ai-event-agent`) with
   Gemini *function calling*. Tools return structured calls; the CLIENT

@@ -33,6 +33,8 @@ import Branding from './components/admin/Branding';
 import Challenges from './components/admin/Challenges';
 import EventProvider, { useEvent } from './events/EventContext';
 import { EVENT_ID } from './events/active';
+import CopilotFab from './components/copilot/CopilotFab';
+import CopilotPanel from './components/copilot/CopilotPanel';
 import Landing from './pages/Landing';
 import Login from './pages/auth/Login';
 import Signup from './pages/auth/Signup';
@@ -170,6 +172,15 @@ export default function App() {
             </>
           )}
         </Routes>
+        {/* Platform Copilot — one global mount so it persists across the
+            /host rail pages AND the event studio (sibling route trees).
+            Runtime mode only; visibility is gated inside the components. */}
+        {!LEGACY_EVENT && (
+          <>
+            <CopilotFab />
+            <CopilotPanel />
+          </>
+        )}
       </div>
     </Router>
   );

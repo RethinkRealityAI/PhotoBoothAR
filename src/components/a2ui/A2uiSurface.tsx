@@ -100,6 +100,11 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
       if (/^https?:\/\//.test(url)) window.open(url, '_blank', 'noopener,noreferrer');
       return;
     }
+    if (action.functionCall?.call === 'copyToClipboard') {
+      const value = str(action.functionCall.args?.value, scope);
+      if (value) navigator.clipboard?.writeText(value).catch(() => { /* permission denied — ignore */ });
+      return;
+    }
     if (action.event?.name) {
       onAction({
         name: action.event.name,
@@ -328,6 +333,16 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
               })}
               <span className="font-sans text-[10px] text-brand-muted/50">{current ? '' : 'template default'}</span>
             </div>
+          </div>
+        );
+      }
+
+      case 'EventStat': {
+        // Beamwall custom widget: one stat tile (copilot get_stats rows).
+        return (
+          <div key={key} className="flex flex-col items-center gap-0.5 px-3 py-2">
+            <span className="font-serif text-lg text-foil-static leading-none">{str(c.value, scope)}</span>
+            <span className="font-label uppercase tracking-luxe text-[8px] text-brand-muted/60">{str(c.label, scope)}</span>
           </div>
         );
       }

@@ -16,8 +16,9 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Boxes, Check, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
-  LayoutGrid, Palette, QrCode, Settings, ShieldCheck, Trophy, Wand2,
+  LayoutGrid, Palette, QrCode, Settings, ShieldCheck, Sparkles, Trophy, Wand2,
 } from 'lucide-react';
+import { useCopilotStore } from '../../lib/copilotStore';
 import { supabase } from '../../lib/supabase';
 import EventProvider from '../../events/EventContext';
 import { StudioBaseContext } from '../../components/admin/studioBase';
@@ -171,6 +172,14 @@ export default function EventStudio() {
                 ))}
               </div>
             </div>
+            <button
+              onClick={() => useCopilotStore.getState().open()}
+              title="Beamwall Copilot"
+              aria-label="Open the Beamwall Copilot"
+              className="shrink-0 w-8 h-8 rounded-full bg-foil glow-accent flex items-center justify-center text-noir-900 active:scale-95 transition-transform"
+            >
+              <Sparkles className="w-4 h-4" />
+            </button>
             <GuestLinkCopy url={`${origin}${basePath}`} />
           </nav>
 

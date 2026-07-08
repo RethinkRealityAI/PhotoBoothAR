@@ -182,6 +182,7 @@ export default function NewEvent() {
   const applyPlan = (plan: EventPlan, decided: { template: boolean; remote: boolean }) => {
     if (decided.template) setTemplateId(plan.templateId);
     if (decided.remote) setRemote(plan.remote);
+    if (plan.accent) setAccent(plan.accent); // AI-extracted colour restyles the preview live
     if (plan.name) setName(plan.name);
     if (plan.date) setDate(plan.date);
     if (plan.slug) {

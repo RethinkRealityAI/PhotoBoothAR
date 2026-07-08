@@ -4,7 +4,7 @@
 Refine AR tracking + booth UX smoothness, and add an AI agent (concierge) that designs whole events conversationally in the onboarding wizard.
 
 ## Now
-All planned phases shipped & pushed (tip e326da9, PR #13 draft, deploy preview green, watch + hourly check-in armed). Docs refreshed. Waiting on: PR-13 CI/reviews, human E2E run.
+Platform Copilot SHIPPED (plan /root/.claude/plans/not-bad-but-i-keen-hanrahan.md fully executed): global FAB+drawer across /host/** (App.tsx mount, HostLayout rail + EventStudio nav buttons), ai-event-designer v5 DEPLOYED (mode:'copilot' tool proposals + create-mode discovery questions + AI-set accent), libs eventSnapshot/platformGuide/copilot/copilotSurfaces/copilotStore (+14 new tests, 139 total), A2uiSurface EventStat + copyToClipboard. Committing + screenshot pass now.
 
 ## Next
 1. HUMAN E2E (5 min, deploy-preview-13--beamwall.netlify.app, admin login): concierge chat (real Gemini now) → accent swatch → create (event should be deluxe) → Frame Studio generate → "Use as booth frame" → booth shows it; checklist shows only "Take a test photo" open. Sandbox cannot do this (*.supabase.co blocked).

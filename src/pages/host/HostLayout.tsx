@@ -8,9 +8,10 @@
  */
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
-import { CalendarRange, CreditCard, LogOut } from 'lucide-react';
+import { CalendarRange, CreditCard, LogOut, Sparkles } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
 import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
+import { useCopilotStore } from '../../lib/copilotStore';
 
 export default function HostLayout() {
   const navigate = useNavigate();
@@ -87,6 +88,14 @@ export default function HostLayout() {
               {credits !== null && <span className="ml-1.5 text-brand-muted/60">· {credits} cr</span>}
             </span>
           </NavLink>
+
+          <button
+            onClick={() => useCopilotStore.getState().open()}
+            className={`${railLink} text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.04]`}
+          >
+            <Sparkles className="w-4 h-4 shrink-0 text-[color:var(--color-accent)]" />
+            <span className="hidden sm:inline">Copilot</span>
+          </button>
 
           <button onClick={handleSignOut} className={`${railLink} text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.04] md:mt-auto`}>
             <LogOut className="w-4 h-4 shrink-0" />
