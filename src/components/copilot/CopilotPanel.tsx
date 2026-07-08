@@ -84,7 +84,10 @@ export default function CopilotPanel() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 24, scale: 0.96 }}
           transition={{ type: 'spring', stiffness: 340, damping: 28 }}
-          className="fixed bottom-4 right-4 md:bottom-6 md:right-6 z-[80] w-[min(420px,calc(100vw-2rem))] h-[min(680px,calc(100vh-3rem))] rounded-3xl overflow-hidden liquid-glass border border-white/10 shadow-[0_30px_90px_-20px_rgba(0,0,0,0.85)] flex flex-col"
+          /* Mobile: inset on all four sides so the window can never be cut off
+             by the browser chrome and stays centred (equal left/right insets).
+             Desktop (md+): a compact floating window anchored bottom-right. */
+          className="fixed z-[80] inset-x-3 top-3 bottom-3 md:inset-x-auto md:top-auto md:right-6 md:bottom-6 md:w-[420px] md:h-[min(680px,calc(100dvh-3rem))] rounded-3xl overflow-hidden liquid-glass border border-white/10 shadow-[0_30px_90px_-20px_rgba(0,0,0,0.85)] flex flex-col"
         >
             {/* Header */}
             <div className="shrink-0 flex items-center gap-2.5 px-4 py-3 border-b border-white/10">

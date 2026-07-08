@@ -361,16 +361,21 @@ export default function NewEvent() {
   const canNext1 = Boolean(name.trim());
   const canNext2 = slugHint.kind === 'ok' || slugHint.kind === 'checking';
 
+  // The concierge chat step fills the host viewport so nothing scrolls off
+  // screen — the transcript flexes and only IT scrolls internally. Other
+  // steps keep their natural (short) height.
+  const conciergeStep = step === 1 && concierge;
+
   return (
-    <div className="p-4 md:p-8 max-w-6xl mx-auto">
-      <Link to="/host" className="inline-flex items-center gap-1.5 mb-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/60 hover:text-brand-fg transition-colors">
+    <div className={`p-4 md:p-8 max-w-6xl mx-auto ${conciergeStep ? 'h-full flex flex-col min-h-0' : ''}`}>
+      <Link to="/host" className="inline-flex items-center gap-1.5 mb-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/60 hover:text-brand-fg transition-colors shrink-0">
         <ArrowLeft className="w-3.5 h-3.5" /> Events
       </Link>
 
-      <div className="grid gap-6 items-start lg:grid-cols-[minmax(0,1fr)_280px]">
-      <div className="glass-strong rounded-3xl p-8 animate-rise-in">
+      <div className={`grid gap-6 items-start lg:grid-cols-[minmax(0,1fr)_280px] ${conciergeStep ? 'flex-1 min-h-0' : ''}`}>
+      <div className={`glass-strong rounded-3xl animate-rise-in ${conciergeStep ? 'p-5 md:p-6 flex flex-col min-h-0 overflow-hidden' : 'p-8'}`}>
         {/* Step dots */}
-        <div className="flex items-center justify-center gap-2 mb-8">
+        <div className={`flex items-center justify-center gap-2 ${conciergeStep ? 'mb-4 shrink-0' : 'mb-8'}`}>
           {[1, 2, 3].map((s) => (
             <span
               key={s}
@@ -380,8 +385,8 @@ export default function NewEvent() {
         </div>
 
         {step === 1 && concierge && (
-          <div className="flex flex-col gap-4">
-            <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-3 flex-1 min-h-0">
+            <div className="flex items-start justify-between gap-3 shrink-0">
               <div>
                 <h1 className="font-serif text-2xl text-foil-static flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-[color:var(--color-accent)]" /> Event Concierge
@@ -398,7 +403,7 @@ export default function NewEvent() {
 
             <div
               ref={chatScrollRef}
-              className="h-[min(56vh,640px)] min-h-[320px] overflow-y-auto rounded-2xl bg-white/[0.02] border border-white/10 p-4 flex flex-col gap-2.5"
+              className="flex-1 min-h-0 overflow-y-auto rounded-2xl bg-white/[0.02] border border-white/10 p-4 flex flex-col gap-2.5"
             >
               <div className="max-w-[85%] self-start rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[13px] leading-relaxed text-brand-fg/90">
                 {CHAT_GREETING}
@@ -433,7 +438,7 @@ export default function NewEvent() {
             </div>
 
             {chatMessages.length === 0 && (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 shrink-0">
                 {CHAT_SUGGESTIONS.map((s) => (
                   <button
                     key={s}
@@ -446,7 +451,7 @@ export default function NewEvent() {
               </div>
             )}
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <input
                 autoFocus
                 value={chatInput}
@@ -471,7 +476,7 @@ export default function NewEvent() {
             <button
               onClick={reviewAndCreate}
               disabled={!name.trim() || !slug}
-              className="w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+              className="shrink-0 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
             >
               Review &amp; create <ArrowRight className="w-4 h-4" />
             </button>

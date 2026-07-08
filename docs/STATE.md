@@ -4,10 +4,10 @@
 Refine AR tracking + booth UX smoothness, and add an AI agent (concierge) that designs whole events conversationally in the onboarding wizard.
 
 ## Now
-Live-fix batch from user testing (gated 2026-07-08: lint clean · 139/139 tests · build ✓): CopilotPanel rewritten side-drawer → floating bottom-right liquid-glass popup (no gray backdrop) + dark-themed event select; CopilotChat quick-action pills (Stats/Share links/New challenge/New card, no AI round-trip); ai-event-designer copilot schema switched to actionsJson STRING (see Facts). Redeploying the fn + committing/pushing to PR #13.
+ROOT CAUSE of "AI can't connect" FOUND (2026-07-08): the GEMINI_API_KEY Supabase secret is being REJECTED by Google → both AI fns 502 in ~1s. NOT the ARRAY-schema hang I claimed before (that theory was WRONG — all v4/v5/v6 502s fire <1.1s, and a direct Gemini call with a bad key returns 400 API_KEY_INVALID in 0.53s; see Facts). The secret is SET (else 503 ai_not_configured) but its value is invalid/rotated/quote-wrapped. Shipped this session: both edge fns now trim/strip-quotes the key + map 400/401/403 → new `ai_key_invalid` (503) so the app says "AI key rejected — set a valid GEMINI_API_KEY" instead of a vague "can't connect"; copilot.ts shows that truthful message; CopilotPanel mobile sizing (inset-based, dvh, centred); NewEvent concierge viewport-contained (no page scroll). Deployed ai-event-designer v7 + ai-generate-image v7. Gated: lint clean · 139 tests · build ✓.
 
 ## Next
-1. HUMAN E2E (5 min, deploy-preview-13--beamwall.netlify.app, admin login): copilot popup (FAB bottom-right) → ask "add a scavenger hunt challenge worth 20 points" → confirm card → row in Challenges tab; Frame Studio generate (billing now enabled — direct gemini-2.5-flash-image curl returned 200+PNG); concierge chat → accent swatch → create. Sandbox cannot do this (*.supabase.co blocked).
+1. **USER ACTION — the real unblock**: set a VALID GEMINI_API_KEY in Supabase secrets (dashboard → Edge Functions → Secrets, or `supabase secrets set GEMINI_API_KEY=<key> --project-ref zrtftliozslrjomxbfrr`), no wrapping quotes. The v7 trim salvages a quote/whitespace-corrupted key automatically; a genuinely rotated/wrong key must be replaced. Then retest copilot + Frame Studio on the preview. Sandbox cannot set secrets or reach *.supabase.co.
 2. Concierge v3 remainder: draggable frame placement (edit experience transform in FrameStudio preview); post-create event-aware chat handoff (tools: challenges CRUD, event queries; widgets FramePreview/ChallengeList/EventStat per AGENT-ROADMAP).
 3. Admin Limits console = admin-suite Phase 4 (`set_event_tier`, `adjust_credits` admin-api actions + Limits screen, audited).
 4. Admin-suite Phases 2-5 on branch claude/platform-admin-suite (PR #10).
@@ -33,7 +33,8 @@ Live-fix batch from user testing (gated 2026-07-08: lint clean · 139/139 tests 
 - Tracking core: src/lib/faceRig.ts updateHeadPose (fixed lerp 0.45/0.5/0.4 at :182-184); detection throttle 33ms, HOLD_MS 500.
 - Templates: src/lib/eventTemplates.ts (EVENT_TEMPLATES, templateConfigPatch). Event create: src/lib/host.ts createEvent + updateEventConfig.
 - Edge fn pattern: supabase/functions/ai-generate-image/index.ts (json(), serviceClient(), user JWT auth). Gemini text model available via GEMINI_API_KEY secret (may be unprovisioned → 503 ai_not_configured).
-- GEMINI TRAP (verified live 2026-07-07 by direct curl bisection): any ARRAY-of-OBJECT in gemini-2.5-flash responseSchema makes constrained decoding HANG → edge fn times out as 502. Encode arrays as a JSON STRING field (copilot uses actionsJson) and JSON.parse server-side; {reply, actionsJson} answers in ~2s.
+- GEMINI TRAP (2026-07-07): ARRAY-of-OBJECT in gemini-2.5-flash responseSchema can hang constrained decoding; copilot encodes actions as an actionsJson STRING and JSON.parse-es server-side. NOTE (2026-07-08): this was NOT the cause of the current 502s — see next line.
+- AI-OUTAGE ROOT CAUSE (2026-07-08, verified): edge-function logs show every ai-event-designer/ai-generate-image 502 fires in <1.1s (v4 874ms, v5 825ms, v6 1082ms) — too fast to be a decode hang. A direct POST to gemini-2.5-flash with a bad key returns 400 {reason: API_KEY_INVALID} in 0.53s, matching exactly. So callGemini hits !res.ok fast → generation_failed → 502. Fix: v7 of both fns trims/strips-quotes the key + maps 400 API_KEY_INVALID / 401 / 403 → ai_key_invalid (503). REMAINING BLOCKER: the secret's key VALUE must be valid — a user/dashboard action (no MCP secrets tool; *.supabase.co blocked from sandbox). Sandbox env GOOGLE_API_KEY is a DIFFERENT (Firebase) key, not the Gemini secret.
 - gemini-2.5-flash-image works post-billing (direct curl 200 + PNG, ~5s) — earlier frame-gen 502s were the pre-billing quota (now surfaced as ai_quota/503).
 - BASELINE: npm run lint clean; npm test 84 passed (13 files).
 
@@ -49,6 +50,7 @@ Live-fix batch from user testing (gated 2026-07-08: lint clean · 139/139 tests 
 - Gemini key — RESULT: validated live (200, gemini-2.5-flash replied "ok"); cannot set Supabase secret from sandbox (no MCP secrets tool, *.supabase.co blocked).
 - Platform Copilot — RESULT: shipped in commit 2756650 (FAB+panel across /host/**, ai-event-designer v5 copilot mode, 6 tools, A2UI confirm cards, 139 tests).
 - Copilot 502 diagnosis — RESULT: bisected via direct Gemini curl; ARRAY-of-OBJECT responseSchema hangs, actionsJson STRING answers in ~2s and emitted a correct add_challenge proposal.
+- AI outage re-diagnosis (2026-07-08) — RESULT: real cause is a REJECTED GEMINI_API_KEY secret (fast 400 → 502), not the schema. Both fns v7 harden the key (trim/quote-strip) + report ai_key_invalid; copilot message + UI (mobile popup, concierge viewport) fixed. Lint clean · 139 tests · build ✓. Live unblock = user sets a valid key.
 
 ## Open items
 - Stripe/AI keys unprovisioned (platform gate, out of scope).

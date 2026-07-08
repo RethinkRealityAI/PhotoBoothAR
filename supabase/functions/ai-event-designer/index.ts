@@ -31,6 +31,9 @@
  * 500 → { error: 'internal' }
  * 502 → { error: 'generation_failed' }   provider errored / unparseable output
  * 503 → { error: 'ai_not_configured' }   GEMINI_API_KEY missing
+ * 503 → { error: 'ai_key_invalid' }       GEMINI_API_KEY set but rejected by
+ *                                          Google (rotated / wrong / restricted)
+ * 503 → { error: 'ai_quota' }             plan/billing quota exhausted (429)
  *
  * Unlike ai-generate-image this runs BEFORE any event exists, so there is no
  * event/org membership check and NO credit spend — planning chat is free; the
@@ -201,7 +204,9 @@ async function callGemini(
   systemText: string,
   schema: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const key = Deno.env.get('GEMINI_API_KEY');
+  // Secrets set via the dashboard sometimes arrive wrapped in quotes or with a
+  // trailing newline; Google then rejects them as API_KEY_INVALID. Strip both.
+  const key = Deno.env.get('GEMINI_API_KEY')?.trim().replace(/^["']|["']$/g, '');
   if (!key) throw new AiError('ai_not_configured');
 
   const res = await fetch(
@@ -224,8 +229,18 @@ async function callGemini(
     },
   );
   if (!res.ok) {
-    console.error('[ai-event-designer] gemini error', res.status, await res.text().catch(() => ''));
-    throw new AiError(res.status === 429 ? 'ai_quota' : 'generation_failed', `gemini_http_${res.status}`);
+    const bodyText = await res.text().catch(() => '');
+    console.error('[ai-event-designer] gemini error', res.status, bodyText);
+    // A rejected/rotated/missing-billing key fails FAST with 400 API_KEY_INVALID
+    // or 401/403 — a CONFIG problem, not a transient generation failure. Report
+    // it distinctly so the app can tell the owner the key needs attention
+    // instead of a vague "couldn't generate".
+    const keyRejected =
+      res.status === 401 ||
+      res.status === 403 ||
+      (res.status === 400 && /API_KEY_INVALID|api key not valid|PERMISSION_DENIED/i.test(bodyText));
+    const code = res.status === 429 ? 'ai_quota' : keyRejected ? 'ai_key_invalid' : 'generation_failed';
+    throw new AiError(code, `gemini_http_${res.status}`);
   }
   const body = (await res.json()) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[];
@@ -245,7 +260,10 @@ async function callGemini(
 }
 
 class AiError extends Error {
-  constructor(public code: 'ai_not_configured' | 'generation_failed' | 'ai_quota', detail?: string) {
+  constructor(
+    public code: 'ai_not_configured' | 'ai_key_invalid' | 'generation_failed' | 'ai_quota',
+    detail?: string,
+  ) {
     super(detail ?? code);
   }
 }
@@ -335,6 +353,7 @@ Deno.serve(async (req: Request) => {
   } catch (err) {
     if (err instanceof AiError) {
       if (err.code === 'ai_not_configured') return json(503, { error: 'ai_not_configured' });
+      if (err.code === 'ai_key_invalid') return json(503, { error: 'ai_key_invalid' });
       if (err.code === 'ai_quota') return json(503, { error: 'ai_quota' });
       return json(502, { error: 'generation_failed' });
     }

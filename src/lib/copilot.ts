@@ -203,6 +203,24 @@ const OFFLINE_REPLY =
   'I can’t reach the AI service right now, so I can answer from the built-in guide only: ' +
   'use the studio tabs for changes (Challenges, Cards, Share), and try me again in a moment.';
 
+/** Turn the edge fn's error code into an honest, owner-actionable message —
+ *  a rejected key is a config problem, not a flaky connection. */
+function offlineReplyFor(reason?: string): string {
+  switch (reason) {
+    case 'ai_not_configured':
+    case 'ai_key_invalid':
+      return 'The AI isn’t reachable because its API key is missing or being rejected by Google. ' +
+        'A platform admin needs to set a valid GEMINI_API_KEY in the Supabase secrets. ' +
+        'Until then I can still point you to the studio tabs (Challenges, Cards, Share).';
+    case 'rate_limited':
+      return 'You’ve hit the hourly AI limit — give it a few minutes and ask me again.';
+    case 'ai_quota':
+      return 'The AI plan’s quota is exhausted right now. Try again later, or check billing in Google AI Studio.';
+    default:
+      return OFFLINE_REPLY;
+  }
+}
+
 export async function askCopilot(
   messages: ChatMessage[],
   snapshot: EventSnapshot | null,
@@ -219,13 +237,15 @@ export async function askCopilot(
       },
     });
     if (error) {
+      let reason: string | undefined;
       if (error instanceof FunctionsHttpError) {
         try {
           const res = (await error.context.json()) as { error?: string };
-          console.warn('[copilot] edge fn error:', res.error);
+          reason = res.error;
+          console.warn('[copilot] edge fn error:', reason);
         } catch { /* body unreadable */ }
       }
-      return { reply: OFFLINE_REPLY, actions: [], source: 'offline' };
+      return { reply: offlineReplyFor(reason), actions: [], source: 'offline' };
     }
     const res = (data ?? {}) as { reply?: string; actions?: unknown };
     if (typeof res.reply !== 'string' || !res.reply) {

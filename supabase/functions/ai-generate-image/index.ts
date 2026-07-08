@@ -17,6 +17,8 @@
  * 500 → { error: 'internal' }
  * 502 → { error: 'generation_failed' }   provider errored (credits refunded)
  * 503 → { error: 'ai_not_configured' }   provider key missing (credits refunded)
+ * 503 → { error: 'ai_key_invalid' }      provider key set but rejected by Google
+ *                                        (rotated / wrong / restricted; refunded)
  * 503 → { error: 'ai_quota' }            provider quota/billing exhausted
  *                                        (credits refunded)
  *
@@ -135,7 +137,10 @@ function buildPrompt(prompt: string, kind: string, transparent: boolean): string
 /* ── Providers ──────────────────────────────────────────────────────── */
 
 class AiError extends Error {
-  constructor(public code: 'ai_not_configured' | 'generation_failed' | 'ai_quota', detail?: string) {
+  constructor(
+    public code: 'ai_not_configured' | 'ai_key_invalid' | 'generation_failed' | 'ai_quota',
+    detail?: string,
+  ) {
     super(detail ?? code);
   }
 }
@@ -144,7 +149,9 @@ class AiError extends Error {
  *  (Server-side move of the old browser call to generativelanguage.googleapis.com
  *  in Creator2D; the image model returns inlineData base64 instead of SVG text.) */
 async function generateGemini(prompt: string): Promise<Uint8Array> {
-  const key = Deno.env.get('GEMINI_API_KEY');
+  // Dashboard-set secrets can arrive wrapped in quotes / with a trailing
+  // newline; Google then rejects them as API_KEY_INVALID. Strip both.
+  const key = Deno.env.get('GEMINI_API_KEY')?.trim().replace(/^["']|["']$/g, '');
   if (!key) throw new AiError('ai_not_configured');
 
   const res = await fetch(
@@ -159,10 +166,17 @@ async function generateGemini(prompt: string): Promise<Uint8Array> {
     },
   );
   if (!res.ok) {
-    console.error('[ai-generate-image] gemini error', res.status, await res.text().catch(() => ''));
+    const bodyText = await res.text().catch(() => '');
+    console.error('[ai-generate-image] gemini error', res.status, bodyText);
     // 429 from Gemini = plan/billing quota (flash-image has NO free tier) —
-    // a distinct, actionable error, not a "bad prompt".
-    throw new AiError(res.status === 429 ? 'ai_quota' : 'generation_failed', `gemini_http_${res.status}`);
+    // a distinct, actionable error, not a "bad prompt". 400 API_KEY_INVALID /
+    // 401 / 403 = the key itself is rejected (rotated / wrong / restricted).
+    const keyRejected =
+      res.status === 401 ||
+      res.status === 403 ||
+      (res.status === 400 && /API_KEY_INVALID|api key not valid|PERMISSION_DENIED/i.test(bodyText));
+    const code = res.status === 429 ? 'ai_quota' : keyRejected ? 'ai_key_invalid' : 'generation_failed';
+    throw new AiError(code, `gemini_http_${res.status}`);
   }
   const body = (await res.json()) as {
     candidates?: { content?: { parts?: { inlineData?: { mimeType?: string; data?: string } }[] } }[];
@@ -444,6 +458,7 @@ Deno.serve(async (req: Request) => {
       const detail = err instanceof Error ? err.message : String(err);
       await refundAndFail(sb, jobId, orgId, cost, ref, detail);
       if (code === 'ai_not_configured') return json(503, { error: 'ai_not_configured' });
+      if (code === 'ai_key_invalid') return json(503, { error: 'ai_key_invalid' });
       if (code === 'ai_quota') return json(503, { error: 'ai_quota' });
       if (code === 'generation_failed') return json(502, { error: 'generation_failed' });
       console.error('[ai-generate-image] internal error after spend', err);
