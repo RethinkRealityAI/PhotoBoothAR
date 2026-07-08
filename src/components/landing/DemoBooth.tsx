@@ -5,20 +5,25 @@
  * DemoBooth — the Landing page's live "try it now" sandbox booth.
  *
  * A trimmed-down, fully client-side cut of the real guest booth: live camera →
- * WebGL filter → face-tracked 3D prop → frame overlay, with photo capture and
- * local download. No auth, no upload, no event — everything stays on-device.
- * Reuses the production pipeline (useCameraStream / StageCanvas / Overlay3D)
- * so the demo IS the product, not a mock. Camera starts only on explicit tap.
+ * WebGL filter → face-tracked 3D prop → frame overlay, with photo capture,
+ * native share and local download. No auth, no upload, no event — everything
+ * stays on-device. Reuses the production pipeline (useCameraStream /
+ * StageCanvas / Overlay3D) so the demo IS the product, not a mock. Camera
+ * starts only on explicit tap.
  *
- * Curated to exactly 3 frames × 3 filters × 3 props (tap again to clear), all
- * beam-branded: frames are demo-local SVGs, filters/props are the same
- * built-ins guests get. Face-landmarker failure (offline/CDN blocked) keeps
- * camera + filters + frames working — only the 3D props quietly no-op.
+ * UI lives INSIDE the camera like a real camera app (same idiom as the booth's
+ * FilterOrbs): category tabs (Frame · Effect · 3D) over an orb carousel over
+ * the shutter, all on a bottom scrim. Captures can "beam" onto a mini live
+ * wall under the stage — the product's core loop, demonstrated in place.
+ * Face-landmarker failure (offline/CDN blocked) keeps camera + filters +
+ * frames working — only the 3D props quietly no-op.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Ban, Crown, Glasses, Sparkles } from 'lucide-react';
 import { useCameraStream } from '../booth/useCameraStream';
 import StageCanvas, { type StageCanvasHandle } from '../booth/StageCanvas';
 import Overlay3D from '../booth/Overlay3D';
+import { dataUrlToBlob } from '../booth/capture';
 import { toDataUrl } from '../../lib/borders';
 import { SHADER_MAP } from '../../lib/shaders';
 import { HEAD_PIECE_MAP } from '../../lib/headPieces';
@@ -68,6 +73,8 @@ const DEMO_FRAME_SVGS: Record<string, string> = {
 </svg>`,
 };
 
+type Category = 'frame' | 'effect' | 'prop';
+
 interface Choice { id: string; name: string; hue: string; }
 
 const FRAMES: Choice[] = [
@@ -81,62 +88,105 @@ const FILTERS: Choice[] = [
   { id: 'neon-pulse', name: 'Neon', hue: '#E879F9' },
 ];
 const PROPS: Choice[] = [
-  { id: 'neon-shades', name: 'Neon Shades', hue: '#7C6CF7' },
+  { id: 'neon-shades', name: 'Shades', hue: '#7C6CF7' },
   { id: 'queen-tiara', name: 'Tiara', hue: '#38BDF8' },
-  { id: 'cheek-stars', name: 'Sparkles', hue: '#FB923C' },
+  { id: 'cheek-stars', name: 'Sparkle', hue: '#FB923C' },
+];
+
+const CATEGORIES: { key: Category; label: string; options: Choice[] }[] = [
+  { key: 'frame', label: 'Frame', options: FRAMES },
+  { key: 'effect', label: 'Effect', options: FILTERS },
+  { key: 'prop', label: '3D', options: PROPS },
 ];
 
 const FRAME_URLS: Record<string, string> = Object.fromEntries(
   Object.entries(DEMO_FRAME_SVGS).map(([id, svg]) => [id, toDataUrl(svg)]),
 );
 
-function ChipRow({
-  label, options, selected, onPick,
+const PROP_ICONS: Record<string, typeof Glasses> = {
+  'neon-shades': Glasses,
+  'queen-tiara': Crown,
+  'cheek-stars': Sparkles,
+};
+
+const WALL_SLOTS = 6;
+
+/* ── In-camera orb (FilterOrbs idiom, beam-branded + demo-scaled) ─────── */
+
+function Orb({
+  active, hue, label, onClick, children,
 }: {
+  active: boolean;
+  hue: string;
   label: string;
-  options: Choice[];
-  selected: string | null;
-  onPick: (id: string | null) => void;
+  onClick: () => void;
+  children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center gap-2 sm:flex-row sm:gap-3">
-      <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 sm:w-14 sm:text-right">
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className="group flex w-[52px] shrink-0 flex-col items-center gap-1 focus:outline-none"
+    >
+      <span
+        className="relative flex h-[46px] w-[46px] items-center justify-center overflow-hidden rounded-full transition-all duration-200 group-active:scale-90"
+        style={{
+          background: 'rgba(9, 11, 20, 0.65)',
+          border: `1.5px solid ${active ? hue : 'rgba(238,243,255,0.18)'}`,
+          boxShadow: active ? `0 0 18px -2px ${hue}` : 'none',
+          transform: active ? 'scale(1.08)' : undefined,
+        }}
+      >
+        {children}
+      </span>
+      <span
+        className="max-w-[52px] truncate text-center font-label text-[7.5px] uppercase tracking-wide leading-none"
+        style={{ color: active ? hue : 'rgba(169,180,204,0.6)' }}
+      >
         {label}
       </span>
-      <div className="flex flex-wrap justify-center gap-2">
-        {options.map((o) => {
-          const on = selected === o.id;
-          return (
-            <button
-              key={o.id}
-              type="button"
-              onClick={() => onPick(on ? null : o.id)}
-              aria-pressed={on}
-              className="rounded-full px-4 py-1.5 font-label text-[11px] uppercase tracking-[0.18em] transition-all duration-200"
-              style={{
-                color: on ? '#EEF3FF' : 'rgba(169,180,204,0.85)',
-                background: on ? `linear-gradient(135deg, ${o.hue}33, ${o.hue}14)` : 'rgba(18,20,31,0.6)',
-                border: `1px solid ${on ? o.hue : 'rgba(169,180,204,0.22)'}`,
-                boxShadow: on ? `0 0 22px -6px ${o.hue}` : 'none',
-              }}
-            >
-              {o.name}
-            </button>
-          );
-        })}
-      </div>
-    </div>
+    </button>
   );
 }
 
+function OrbThumb({ category, choice }: { category: Category; choice: Choice }) {
+  if (category === 'frame') {
+    // A tiny frame-shaped glyph reads better at 46px than the real 9:16 SVG.
+    return (
+      <span
+        className="h-6 w-[17px] rounded-[4px]"
+        style={{ border: `2px solid ${choice.hue}`, boxShadow: `inset 0 0 6px -2px ${choice.hue}` }}
+      />
+    );
+  }
+  if (category === 'effect') {
+    return (
+      <span
+        className="flex h-full w-full items-center justify-center"
+        style={{ background: `radial-gradient(circle at 50% 35%, ${choice.hue}55, transparent 75%)` }}
+      >
+        <Sparkles className="h-4 w-4" style={{ color: choice.hue }} />
+      </span>
+    );
+  }
+  const Icon = PROP_ICONS[choice.id] ?? Sparkles;
+  return <Icon className="h-5 w-5" style={{ color: choice.hue }} />;
+}
+
+/* ── Component ────────────────────────────────────────────────────────── */
+
 export default function DemoBooth() {
   const [started, setStarted] = useState(false);
+  const [category, setCategory] = useState<Category>('frame');
   const [frameId, setFrameId] = useState<string | null>('beam');
   const [effectId, setEffectId] = useState<string | null>(null);
   const [propId, setPropId] = useState<string | null>(null);
   const [shot, setShot] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
   const [trackerReady, setTrackerReady] = useState(false);
+  const [wallShots, setWallShots] = useState<string[]>([]);
+  const [canShare, setCanShare] = useState(false);
 
   const stageRef = useRef<StageCanvasHandle>(null);
   const { videoRef, ready, error, retry, facingMode, flipCamera, canFlip } = useCameraStream(started, false);
@@ -153,6 +203,16 @@ export default function DemoBooth() {
     return () => { cancelled = true; };
   }, [started]);
 
+  // navigator.share with files is mobile-mostly; probe once with a dummy file.
+  useEffect(() => {
+    try {
+      const probe = new File([new Blob(['x'], { type: 'image/jpeg' })], 'x.jpg', { type: 'image/jpeg' });
+      setCanShare(typeof navigator !== 'undefined' && !!navigator.canShare?.({ files: [probe] }));
+    } catch {
+      setCanShare(false);
+    }
+  }, []);
+
   const capture = useCallback(async () => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -165,9 +225,51 @@ export default function DemoBooth() {
     }
   }, []);
 
+  const beamToWall = useCallback(() => {
+    if (!shot) return;
+    setWallShots((prev) => [...prev, shot].slice(-WALL_SLOTS));
+    setShot(null);
+  }, [shot]);
+
+  const share = useCallback(async () => {
+    if (!shot) return;
+    try {
+      const file = new File([dataUrlToBlob(shot)], 'beamwall-demo.jpg', { type: 'image/jpeg' });
+      await navigator.share({ files: [file], title: 'Beamwall' });
+    } catch {
+      /* user dismissed the sheet, or share failed — nothing to clean up */
+    }
+  }, [shot]);
+
+  // The brand beam-in for freshly landed wall tiles (Web Animations API —
+  // runs once on mount, no CSS keyframes to register).
+  const beamTileIn = useCallback((el: HTMLDivElement | null) => {
+    if (!el || el.dataset.beamed) return;
+    el.dataset.beamed = '1';
+    el.animate(
+      [
+        { opacity: 0, transform: 'translateY(-30px) scaleY(0.55)', filter: 'brightness(2.4)' },
+        { opacity: 1, transform: 'none', filter: 'brightness(1)' },
+      ],
+      { duration: 700, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
+    );
+  }, []);
+
   const anchor = propId ? HEAD_PIECE_MAP[propId]?.config : null;
   // Curated demo filters are real built-ins; fall back to none if renamed.
   const activeEffect = effectId && SHADER_MAP[effectId] ? effectId : 'none';
+  const selectedOf: Record<Category, string | null> = { frame: frameId, effect: effectId, prop: propId };
+  const setterOf: Record<Category, (id: string | null) => void> = {
+    frame: setFrameId,
+    effect: setEffectId,
+    prop: setPropId,
+  };
+  const activeCat = CATEGORIES.find((c) => c.key === category) ?? CATEGORIES[0];
+  const catHue = (key: Category) => {
+    const sel = selectedOf[key];
+    if (!sel) return null;
+    return CATEGORIES.find((c) => c.key === key)?.options.find((o) => o.id === sel)?.hue ?? null;
+  };
 
   return (
     <div className="flex w-full flex-col items-center">
@@ -264,62 +366,158 @@ export default function DemoBooth() {
 
             {/* Captured shot review */}
             {shot && (
-              <div className="absolute inset-0 z-30 flex flex-col bg-void-900/80 backdrop-blur-sm">
+              <div className="absolute inset-0 z-30 flex flex-col bg-void-900/85 backdrop-blur-sm">
                 <img src={shot} alt="Your captured demo photo" className="min-h-0 flex-1 object-contain" />
-                <div className="flex items-center justify-center gap-3 py-4">
-                  <a
-                    href={shot}
-                    download="beamwall-demo.jpg"
-                    className="bg-foil rounded-full px-5 py-2 font-label text-[11px] uppercase tracking-luxe text-white"
-                  >
-                    Save photo
-                  </a>
+                <div className="flex flex-col items-center gap-2.5 px-4 pb-4 pt-3">
                   <button
                     type="button"
-                    onClick={() => setShot(null)}
-                    className="rounded-full border border-brand-muted/40 px-5 py-2 font-label text-[11px] uppercase tracking-luxe text-brand-fg"
+                    onClick={beamToWall}
+                    className="bg-foil w-full max-w-[240px] rounded-full px-5 py-2.5 font-label text-[11px] uppercase tracking-luxe text-white glow-accent transition active:scale-[0.98]"
                   >
-                    Retake
+                    Beam it to the wall
                   </button>
+                  <div className="flex items-center justify-center gap-2.5">
+                    <a
+                      href={shot}
+                      download="beamwall-demo.jpg"
+                      className="rounded-full border border-brand-muted/40 px-4 py-1.5 font-label text-[10px] uppercase tracking-luxe text-brand-fg"
+                    >
+                      Save
+                    </a>
+                    {canShare && (
+                      <button
+                        type="button"
+                        onClick={share}
+                        className="rounded-full border border-brand-muted/40 px-4 py-1.5 font-label text-[10px] uppercase tracking-luxe text-brand-fg"
+                      >
+                        Share
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShot(null)}
+                      className="rounded-full border border-brand-muted/40 px-4 py-1.5 font-label text-[10px] uppercase tracking-luxe text-brand-fg"
+                    >
+                      Retake
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Shutter + flip */}
+            {/* In-camera controls: category tabs → orb carousel → shutter,
+                on a scrim so they read over any feed (FilterOrbs idiom). */}
             {!shot && (
-              <div className="absolute bottom-5 left-0 right-0 z-20 flex items-center justify-center gap-6">
-                <button
-                  type="button"
-                  onClick={capture}
-                  disabled={!ready}
-                  aria-label="Take photo"
-                  className="h-16 w-16 rounded-full border-4 border-white/90 bg-white/25 backdrop-blur-sm transition-transform active:scale-90 disabled:opacity-40"
-                  style={{ boxShadow: '0 0 34px -6px rgba(238,243,255,0.9)' }}
-                />
-                {canFlip && (
+              <div
+                className="absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 px-3 pb-4 pt-10"
+                style={{ background: 'linear-gradient(to top, rgba(5,6,11,0.88) 30%, rgba(5,6,11,0.45) 70%, transparent)' }}
+              >
+                <div className="flex items-center gap-5">
+                  {CATEGORIES.map((c) => {
+                    const on = category === c.key;
+                    const dot = catHue(c.key);
+                    return (
+                      <button
+                        key={c.key}
+                        type="button"
+                        onClick={() => setCategory(c.key)}
+                        className="relative pb-1 font-label text-[9px] uppercase tracking-[0.28em] transition-colors"
+                        style={{ color: on ? '#EEF3FF' : 'rgba(169,180,204,0.55)' }}
+                      >
+                        {c.label}
+                        {dot && (
+                          <span
+                            className="absolute -right-2 top-0 h-1.5 w-1.5 rounded-full"
+                            style={{ background: dot, boxShadow: `0 0 6px ${dot}` }}
+                          />
+                        )}
+                        {on && (
+                          <span className="absolute bottom-0 left-1/2 h-px w-5 -translate-x-1/2 bg-brand-fg/80" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-start justify-center gap-2">
+                  <Orb
+                    active={selectedOf[category] === null}
+                    hue="#A9B4CC"
+                    label="None"
+                    onClick={() => setterOf[category](null)}
+                  >
+                    <Ban className="h-4 w-4 text-brand-muted/60" />
+                  </Orb>
+                  {activeCat.options.map((o) => (
+                    <Orb
+                      key={o.id}
+                      active={selectedOf[category] === o.id}
+                      hue={o.hue}
+                      label={o.name}
+                      onClick={() => setterOf[category](selectedOf[category] === o.id ? null : o.id)}
+                    >
+                      <OrbThumb category={category} choice={o} />
+                    </Orb>
+                  ))}
+                </div>
+
+                <div className="relative mt-1 flex w-full items-center justify-center">
                   <button
                     type="button"
-                    onClick={flipCamera}
-                    aria-label="Flip camera"
-                    className="absolute right-6 flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-void-900/50 text-brand-fg backdrop-blur-sm"
-                  >
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 8v4h4M21 16v-4h-4" />
-                      <path d="M20.5 9A8.5 8.5 0 0 0 6 5.5L3 8M3.5 15A8.5 8.5 0 0 0 18 18.5l3-2.5" />
-                    </svg>
-                  </button>
-                )}
+                    onClick={capture}
+                    disabled={!ready}
+                    aria-label="Take photo"
+                    className="h-14 w-14 rounded-full border-4 border-white/90 bg-white/25 backdrop-blur-sm transition-transform active:scale-90 disabled:opacity-40"
+                    style={{ boxShadow: '0 0 30px -6px rgba(238,243,255,0.9)' }}
+                  />
+                  {canFlip && (
+                    <button
+                      type="button"
+                      onClick={flipCamera}
+                      aria-label="Flip camera"
+                      className="absolute right-3 flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-void-900/50 text-brand-fg backdrop-blur-sm"
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 8v4h4M21 16v-4h-4" />
+                        <path d="M20.5 9A8.5 8.5 0 0 0 6 5.5L3 8M3.5 15A8.5 8.5 0 0 0 18 18.5l3-2.5" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </>
         )}
       </div>
 
-      {/* Pickers */}
-      <div className="mt-8 flex w-full max-w-xl flex-col gap-4">
-        <ChipRow label="Frame" options={FRAMES} selected={frameId} onPick={setFrameId} />
-        <ChipRow label="Effect" options={FILTERS} selected={effectId} onPick={setEffectId} />
-        <ChipRow label="3D Prop" options={PROPS} selected={propId} onPick={setPropId} />
+      {/* Mini live wall — captures beam in exactly like at a real event. */}
+      <div className="mt-8 w-full max-w-[420px]">
+        <p className="mb-3 text-center font-label text-[9px] uppercase tracking-luxe text-brand-muted/60">
+          The live wall — your shots beam in
+        </p>
+        <div className="grid grid-cols-6 gap-2">
+          {Array.from({ length: WALL_SLOTS }, (_, i) => {
+            const img = wallShots[i];
+            return img ? (
+              <div
+                key={`${i}-${img.length}`}
+                ref={beamTileIn}
+                className="aspect-[9/16] overflow-hidden rounded-lg"
+                style={{
+                  border: '1px solid rgba(91,140,255,0.55)',
+                  boxShadow: '0 0 18px -4px rgba(91,140,255,0.6)',
+                }}
+              >
+                <img src={img} alt="" aria-hidden className="h-full w-full object-cover" />
+              </div>
+            ) : (
+              <div
+                key={`empty-${i}`}
+                className="aspect-[9/16] rounded-lg border border-dashed border-white/12 bg-white/[0.02]"
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );
