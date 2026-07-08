@@ -413,8 +413,12 @@ export default function DemoBooth() {
 
   const beamToWall = useCallback(() => {
     if (!shot) return;
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    if (reduceMotion || beaming || flight || !measureFlight()) {
+    // Re-entry while a ceremony is running is the ONLY direct-commit path.
+    // The show is a direct response to the user's tap, so it plays even
+    // under prefers-reduced-motion (which Android battery saver and Samsung
+    // "remove animations" report) — ambient motion elsewhere stays reduced;
+    // suppressing an explicitly requested animation just reads as broken.
+    if (beaming || flight) {
       commitToWall(shot);
       setShot(null);
       return;
@@ -422,7 +426,7 @@ export default function DemoBooth() {
     // Phase A: charge up in the stage (SendOff idiom); flight follows.
     setBeaming(shot);
     setShot(null);
-  }, [shot, beaming, flight, measureFlight, commitToWall]);
+  }, [shot, beaming, flight, commitToWall]);
 
   // Phase A choreography: a spectrum light column rises through the photo,
   // sparks float up, the shot energizes — then hands off to BeamFlightFx.
@@ -464,6 +468,11 @@ export default function DemoBooth() {
       });
     }
     const handoff = window.setTimeout(() => {
+      // Make sure the landing is on-screen — on phones the wall strip can sit
+      // just below the fold, making the flight look like the photo vanished.
+      // Instant + nearest = minimal jump, and it happens BEFORE measuring so
+      // the flight rects match the settled layout.
+      wallGridRef.current?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
       const rects = measureFlight();
       if (rects) setFlight({ shot: beaming, ...rects });
       else commitToWall(beaming);
