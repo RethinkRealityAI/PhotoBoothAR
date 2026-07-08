@@ -27,6 +27,14 @@ import { BoothIcon, WallIcon, ChallengeIcon, CardIcon, type BeamIconProps } from
 import { BOOTH_CUTOUT, WALL_SCENE, TROPHY_CUTOUT, CARD_CUTOUT, FRAME_CLUSTER_CUTOUT } from '../lib/landingAssets';
 import promoVideo from '../assets/landing/beamwall-promo.mp4';
 import promoPoster from '../assets/landing/beamwall-promo-poster.jpg';
+import boothFeatureVideo from '../assets/landing/booth-feature.mp4';
+import boothFeaturePoster from '../assets/landing/booth-feature-poster.jpg';
+import wallFeatureVideo from '../assets/landing/wall-feature.mp4';
+import wallFeaturePoster from '../assets/landing/wall-feature-poster.jpg';
+import challengesFeatureVideo from '../assets/landing/challenges-feature.mp4';
+import challengesFeaturePoster from '../assets/landing/challenges-feature-poster.jpg';
+import cardsFeatureVideo from '../assets/landing/cards-feature.mp4';
+import cardsFeaturePoster from '../assets/landing/cards-feature-poster.jpg';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -47,6 +55,9 @@ interface Feature {
   /** Cutouts float free over a glow; scenes render inside a glass frame. */
   imageStyle: 'cutout' | 'framed';
   flip?: boolean;
+  /** 30s feature film — rendered by the HyperFrames video studio (hyperframes/studio/<id>). */
+  video: string;
+  videoPoster: string;
 }
 
 const FEATURES: Feature[] = [
@@ -63,6 +74,8 @@ const FEATURES: Feature[] = [
     rgb: '91, 140, 255',
     image: BOOTH_CUTOUT,
     imageStyle: 'cutout',
+    video: boothFeatureVideo,
+    videoPoster: boothFeaturePoster,
   },
   {
     id: 'wall',
@@ -78,6 +91,8 @@ const FEATURES: Feature[] = [
     image: WALL_SCENE,
     imageStyle: 'framed',
     flip: true,
+    video: wallFeatureVideo,
+    videoPoster: wallFeaturePoster,
   },
   {
     id: 'challenges',
@@ -92,6 +107,8 @@ const FEATURES: Feature[] = [
     rgb: '251, 146, 60',
     image: TROPHY_CUTOUT,
     imageStyle: 'cutout',
+    video: challengesFeatureVideo,
+    videoPoster: challengesFeaturePoster,
   },
   {
     id: 'cards',
@@ -107,6 +124,8 @@ const FEATURES: Feature[] = [
     image: CARD_CUTOUT,
     imageStyle: 'cutout',
     flip: true,
+    video: cardsFeatureVideo,
+    videoPoster: cardsFeaturePoster,
   },
 ];
 
@@ -262,6 +281,26 @@ function FeatureSection({ feature }: { feature: Feature }) {
             </li>
           ))}
         </ul>
+        <div
+          data-reveal
+          className="relative mt-8 max-w-md overflow-hidden rounded-2xl"
+          style={{
+            border: `1px solid rgba(${feature.rgb}, 0.4)`,
+            boxShadow: `0 0 34px -10px rgba(${feature.rgb}, 0.5), 0 20px 60px -24px rgba(0,0,0,0.8)`,
+          }}
+        >
+          <video
+            src={feature.video}
+            poster={feature.videoPoster}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            className="block h-auto w-full"
+            aria-label={`${feature.title} — feature film`}
+          />
+        </div>
       </div>
       <div data-reveal={feature.flip ? 'left' : 'right'} className={feature.flip ? 'sm:order-1' : ''}>
         {art}
@@ -477,14 +516,14 @@ export default function Landing() {
             ))}
           </div>
 
-          {/* Promo film — rendered from hyperframes/beamwall-promo via the
+          {/* Master promo film — rendered from hyperframes/studio/promo via the
               HyperFrames CLI; committed as a self-hosted asset. Muted +
               playsInline so mobile browsers allow the autoplay loop. */}
           <section data-parallax-scope className="mt-32 w-full">
             <div data-reveal className="flex flex-col items-center">
-              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">See it in action</h2>
+              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">The full experience</h2>
               <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
-                Fifteen seconds of what your guests experience — booth, wall, challenges and keepsakes.
+                One minute of what your guests experience — booth, wall, challenges and keepsakes.
               </p>
             </div>
             <div data-reveal className="mx-auto mt-10 w-full max-w-4xl">
