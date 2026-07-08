@@ -216,6 +216,45 @@ export default function CopilotChat({
         )}
       </div>
 
+      {/* Quick actions — launch widgets instantly, no AI round-trip. */}
+      {snapshot && (
+        <div className="shrink-0 flex flex-wrap gap-1.5">
+          {([
+            { label: '📊 Stats', run: () => runReadOnly({ tool: 'get_stats' }) },
+            { label: '🔗 Share links', run: () => runReadOnly({ tool: 'share_links' }) },
+            {
+              label: '🏆 New challenge',
+              run: () => {
+                const sid = `prop_${++seqRef.current}`;
+                addSurface(buildProposalSurface({
+                  tool: 'add_challenge',
+                  proposal: { title: 'New photo mission', emoji: '⭐', points: 10, description: '' },
+                }, sid), sid);
+              },
+            },
+            {
+              label: '💌 New card',
+              run: () => {
+                const sid = `prop_${++seqRef.current}`;
+                addSurface(buildProposalSurface({
+                  tool: 'create_card',
+                  proposal: { cardTitle: `Memories for ${snapshot.name}`, recipientName: '', cardTemplate: 'storybook', deadline: '' },
+                }, sid), sid);
+              },
+            },
+          ] as { label: string; run: () => void }[]).map((q) => (
+            <button
+              key={q.label}
+              onClick={q.run}
+              disabled={busy}
+              className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 font-sans text-[10.5px] text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.07] transition-colors disabled:opacity-40"
+            >
+              {q.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="shrink-0 flex items-center gap-2">
         <input
           value={input}

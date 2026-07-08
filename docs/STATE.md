@@ -4,10 +4,10 @@
 Refine AR tracking + booth UX smoothness, and add an AI agent (concierge) that designs whole events conversationally in the onboarding wizard.
 
 ## Now
-Platform Copilot SHIPPED (plan /root/.claude/plans/not-bad-but-i-keen-hanrahan.md fully executed): global FAB+drawer across /host/** (App.tsx mount, HostLayout rail + EventStudio nav buttons), ai-event-designer v5 DEPLOYED (mode:'copilot' tool proposals + create-mode discovery questions + AI-set accent), libs eventSnapshot/platformGuide/copilot/copilotSurfaces/copilotStore (+14 new tests, 139 total), A2uiSurface EventStat + copyToClipboard. Committing + screenshot pass now.
+Live-fix batch from user testing (gated 2026-07-08: lint clean · 139/139 tests · build ✓): CopilotPanel rewritten side-drawer → floating bottom-right liquid-glass popup (no gray backdrop) + dark-themed event select; CopilotChat quick-action pills (Stats/Share links/New challenge/New card, no AI round-trip); ai-event-designer copilot schema switched to actionsJson STRING (see Facts). Redeploying the fn + committing/pushing to PR #13.
 
 ## Next
-1. HUMAN E2E (5 min, deploy-preview-13--beamwall.netlify.app, admin login): concierge chat (real Gemini now) → accent swatch → create (event should be deluxe) → Frame Studio generate → "Use as booth frame" → booth shows it; checklist shows only "Take a test photo" open. Sandbox cannot do this (*.supabase.co blocked).
+1. HUMAN E2E (5 min, deploy-preview-13--beamwall.netlify.app, admin login): copilot popup (FAB bottom-right) → ask "add a scavenger hunt challenge worth 20 points" → confirm card → row in Challenges tab; Frame Studio generate (billing now enabled — direct gemini-2.5-flash-image curl returned 200+PNG); concierge chat → accent swatch → create. Sandbox cannot do this (*.supabase.co blocked).
 2. Concierge v3 remainder: draggable frame placement (edit experience transform in FrameStudio preview); post-create event-aware chat handoff (tools: challenges CRUD, event queries; widgets FramePreview/ChallengeList/EventStat per AGENT-ROADMAP).
 3. Admin Limits console = admin-suite Phase 4 (`set_event_tier`, `adjust_credits` admin-api actions + Limits screen, audited).
 4. Admin-suite Phases 2-5 on branch claude/platform-admin-suite (PR #10).
@@ -33,6 +33,8 @@ Platform Copilot SHIPPED (plan /root/.claude/plans/not-bad-but-i-keen-hanrahan.m
 - Tracking core: src/lib/faceRig.ts updateHeadPose (fixed lerp 0.45/0.5/0.4 at :182-184); detection throttle 33ms, HOLD_MS 500.
 - Templates: src/lib/eventTemplates.ts (EVENT_TEMPLATES, templateConfigPatch). Event create: src/lib/host.ts createEvent + updateEventConfig.
 - Edge fn pattern: supabase/functions/ai-generate-image/index.ts (json(), serviceClient(), user JWT auth). Gemini text model available via GEMINI_API_KEY secret (may be unprovisioned → 503 ai_not_configured).
+- GEMINI TRAP (verified live 2026-07-07 by direct curl bisection): any ARRAY-of-OBJECT in gemini-2.5-flash responseSchema makes constrained decoding HANG → edge fn times out as 502. Encode arrays as a JSON STRING field (copilot uses actionsJson) and JSON.parse server-side; {reply, actionsJson} answers in ~2s.
+- gemini-2.5-flash-image works post-billing (direct curl 200 + PNG, ~5s) — earlier frame-gen 502s were the pre-billing quota (now surfaced as ai_quota/503).
 - BASELINE: npm run lint clean; npm test 84 passed (13 files).
 
 ## Done
@@ -45,6 +47,8 @@ Platform Copilot SHIPPED (plan /root/.claude/plans/not-bad-but-i-keen-hanrahan.m
 - Docs — RESULT: README fn list, DEPLOYMENT-CHECKLIST §2, CLAUDE.md current-state updated.
 - A2UI adoption — RESULT: src/lib/a2ui.ts (v0.9.1 core: JSON-Pointer model, reducer, bindings; 10 tests) + src/components/a2ui/A2uiSurface.tsx (themed basic-catalog renderer) + buildPlanSurface in eventDesigner.ts (3 tests); NewEvent chat renders interactive plan cards w/ confirm_plan action. lint clean, 122 tests, build green.
 - Gemini key — RESULT: validated live (200, gemini-2.5-flash replied "ok"); cannot set Supabase secret from sandbox (no MCP secrets tool, *.supabase.co blocked).
+- Platform Copilot — RESULT: shipped in commit 2756650 (FAB+panel across /host/**, ai-event-designer v5 copilot mode, 6 tools, A2UI confirm cards, 139 tests).
+- Copilot 502 diagnosis — RESULT: bisected via direct Gemini curl; ARRAY-of-OBJECT responseSchema hangs, actionsJson STRING answers in ~2s and emitted a correct add_challenge proposal.
 
 ## Open items
 - Stripe/AI keys unprovisioned (platform gate, out of scope).

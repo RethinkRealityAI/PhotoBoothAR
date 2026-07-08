@@ -77,15 +77,15 @@ export default function CopilotPanel() {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[80] flex justify-end bg-black/60 backdrop-blur-sm" onClick={close}>
-          <motion.div
-            initial={{ x: 480, opacity: 0.6 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 480, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-            onClick={(e) => e.stopPropagation()}
-            className="h-full w-full max-w-md app-bg border-l border-white/10 flex flex-col"
-          >
+        /* Floating chat window — NO backdrop: the page stays visible and
+           interactive behind it, like a premium support widget. */
+        <motion.div
+          initial={{ opacity: 0, y: 24, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 24, scale: 0.96 }}
+          transition={{ type: 'spring', stiffness: 340, damping: 28 }}
+          className="fixed bottom-4 right-4 md:bottom-6 md:right-6 z-[80] w-[min(420px,calc(100vw-2rem))] h-[min(680px,calc(100vh-3rem))] rounded-3xl overflow-hidden liquid-glass border border-white/10 shadow-[0_30px_90px_-20px_rgba(0,0,0,0.85)] flex flex-col"
+        >
             {/* Header */}
             <div className="shrink-0 flex items-center gap-2.5 px-4 py-3 border-b border-white/10">
               <div className="w-8 h-8 rounded-full bg-foil glow-accent flex items-center justify-center">
@@ -122,7 +122,8 @@ export default function CopilotPanel() {
                   <select
                     value={selectedUuid ?? ''}
                     onChange={(e) => setSelectedUuid(e.target.value || null)}
-                    className="w-full appearance-none rounded-xl bg-white/[0.04] border border-white/10 pl-3 pr-8 py-2 text-[12px] text-brand-fg outline-none focus:border-[color:var(--color-accent)]/60"
+                    style={{ colorScheme: 'dark' }}
+                    className="w-full appearance-none rounded-xl bg-white/[0.04] border border-white/10 pl-3 pr-8 py-2 text-[12px] text-brand-fg outline-none focus:border-[color:var(--color-accent)]/60 [&>option]:bg-noir-900 [&>option]:text-ivory"
                   >
                     <option value="">Just the platform (no event)</option>
                     {(events ?? []).map((e) => (
@@ -141,8 +142,7 @@ export default function CopilotPanel() {
               snapshot={snapshot}
               onMutated={refreshSnapshot}
             />
-          </motion.div>
-        </div>
+        </motion.div>
       )}
     </AnimatePresence>
   );

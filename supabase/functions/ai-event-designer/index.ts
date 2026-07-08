@@ -166,7 +166,7 @@ ${context
     ? `CURRENT EVENT (live data — quote real names/numbers/ids from here):\n${context}`
     : 'No event is selected. Answer platform questions; for event-specific actions ask the host to pick an event in the panel.'}
 
-When the host wants something changed that you have a tool for, put it in "actions" (max ${MAX_ACTIONS}) — NEVER claim you already did it: the card shown below your reply lets them review and confirm. For update/delete, copy challengeId EXACTLY from the event data. Tools:
+When the host wants something changed that you have a tool for, put it in "actionsJson": a compact JSON array string of at most ${MAX_ACTIONS} tool objects, e.g. "[{\\"tool\\":\\"add_challenge\\",\\"title\\":\\"Scavenger hunt\\",\\"emoji\\":\\"🎈\\",\\"points\\":20}]" — or exactly "[]" when there is nothing to do. NEVER claim you already did it: the card shown below your reply lets them review and confirm. For update/delete, copy challengeId EXACTLY from the event data. Tools:
 - add_challenge { title, emoji?, points?, description? } — new photo mission
 - update_challenge { challengeId, title?, emoji?, points?, active?, description? }
 - delete_challenge { challengeId }
@@ -176,37 +176,21 @@ When the host wants something changed that you have a tool for, put it in "actio
 Anything without a tool: point the host to the exact studio tab (guide above). Never invent event data.`;
 }
 
+/**
+ * IMPORTANT: actions ride inside a JSON-encoded STRING field, not a schema
+ * ARRAY. Verified live (2026-07-07): any ARRAY-of-OBJECT in responseSchema
+ * makes gemini-2.5-flash constrained decoding HANG indefinitely (the fn then
+ * times out as a 502), while {reply, actionsJson STRING} answers in ~2s.
+ * The client-side normalizer treats the parsed JSON as untrusted anyway.
+ */
 function buildCopilotSchema() {
   return {
     type: 'OBJECT',
     properties: {
       reply: { type: 'STRING' },
-      actions: {
-        type: 'ARRAY',
-        nullable: true,
-        items: {
-          type: 'OBJECT',
-          properties: {
-            tool: {
-              type: 'STRING',
-              enum: ['add_challenge', 'update_challenge', 'delete_challenge', 'create_card', 'get_stats', 'share_links'],
-            },
-            title: { type: 'STRING', nullable: true },
-            emoji: { type: 'STRING', nullable: true },
-            points: { type: 'NUMBER', nullable: true },
-            description: { type: 'STRING', nullable: true },
-            challengeId: { type: 'STRING', nullable: true },
-            active: { type: 'BOOLEAN', nullable: true },
-            cardTitle: { type: 'STRING', nullable: true },
-            recipientName: { type: 'STRING', nullable: true },
-            cardTemplate: { type: 'STRING', nullable: true },
-            deadline: { type: 'STRING', nullable: true },
-          },
-          required: ['tool'],
-        },
-      },
+      actionsJson: { type: 'STRING' },
     },
-    required: ['reply'],
+    required: ['reply', 'actionsJson'],
   };
 }
 
@@ -336,7 +320,11 @@ Deno.serve(async (req: Request) => {
       const docsRaw = typeof body.docs === 'string' ? body.docs.trim() : '';
       const docs = docsRaw && docsRaw.length <= MAX_DOCS_CHARS ? docsRaw : FALLBACK_DOCS;
       const parsed = await callGemini(messages, buildCopilotPrompt(docs, context), buildCopilotSchema());
-      const actions = Array.isArray(parsed.actions) ? parsed.actions.slice(0, MAX_ACTIONS) : [];
+      let actions: unknown[] = [];
+      try {
+        const decoded = JSON.parse(typeof parsed.actionsJson === 'string' ? parsed.actionsJson : '[]');
+        if (Array.isArray(decoded)) actions = decoded.slice(0, MAX_ACTIONS);
+      } catch { /* malformed actionsJson → no actions; reply still ships */ }
       return json(200, { reply: parsed.reply, actions });
     }
 
