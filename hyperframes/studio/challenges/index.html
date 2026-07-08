@@ -1,0 +1,242 @@
+<!doctype html>
+<!--
+  Beamwall · Challenges — 30s feature film (HyperFrames composition "challenges").
+  Scene map (VO: assets/vo-challenges.m4a, 18.84s, starts at 0.8s):
+    S1 0.0–4.2   sting — trophy cutout drops in over an orange glow, title
+    S2 4.0–13.0  the challenge card — glass card tilts in, progress bar fills,
+                 a second card peeks behind (the deck)
+    S3 12.8–21.2 enactment + leaderboard — real group selfie in a phone, flash,
+                 "+50" toast, leaderboard rows cascade then #1/#2 swap live
+    S4 21.0–30.0 outro — wordmark, CTA pill, QR
+  Contract: root omits data-duration (timeline pins 30.0); scenes alternate
+  tracks 1/2; <video>/<audio> are direct root children (framework-owned),
+  positioned to coincide with in-scene chrome (the phone screen rect).
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Beamwall · Challenges</title>
+    <link rel="stylesheet" href="assets/kit.css" />
+    <script src="assets/gsap.min.js"></script>
+    <script src="assets/kit.js"></script>
+    <style>
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+      #ch-root { width: 1920px; height: 1080px; }
+
+      /* S1 sting */
+      #ch-s1 .stack { position: relative; }
+      #ch-s1-glow { position: absolute; left: 50%; top: 150px; width: 720px; height: 720px; margin-left: -360px; border-radius: 999px; background: radial-gradient(circle, rgba(251,146,60,0.5), rgba(245,158,11,0.18) 55%, transparent 72%); filter: blur(40px); opacity: 0; }
+      #ch-s1-trophy { height: 460px; object-fit: contain; filter: drop-shadow(0 30px 60px rgba(251,146,60,0.45)); opacity: 0; position: relative; z-index: 2; }
+      #ch-s1 .eyebrow { margin-top: 44px; }
+
+      /* S2 the challenge card */
+      #ch-s2-deck { position: relative; perspective: 1200px; width: 640px; height: 420px; }
+      #ch-card { position: absolute; inset: 0; border-color: rgba(251,146,60,0.55); box-shadow: 0 0 60px -14px rgba(251,146,60,0.55), 0 30px 80px -30px rgba(0,0,0,0.85); padding: 44px 48px; box-sizing: border-box; display: flex; flex-direction: column; align-items: flex-start; text-align: left; opacity: 0; z-index: 2; }
+      #ch-card-2 { position: absolute; left: 480px; top: 70px; width: 460px; height: 300px; transform: rotate(6deg); border-color: rgba(251,146,60,0.3); box-shadow: 0 0 40px -14px rgba(251,146,60,0.35), 0 30px 80px -30px rgba(0,0,0,0.85); padding: 36px 40px; box-sizing: border-box; text-align: left; opacity: 0; z-index: 1; }
+      .ch-card-top { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+      .ch-chip { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3em; font-size: 20px; color: var(--orange); padding: 10px 24px; border-radius: 999px; border: 1.5px solid rgba(251,146,60,0.5); opacity: 0; }
+      .ch-badge { font-family: "Jost", Arial, sans-serif; font-weight: 600; letter-spacing: 0.18em; font-size: 22px; color: #1a1206; padding: 12px 26px; border-radius: 999px; background: linear-gradient(115deg, #f59e0b, #fbbf24 55%, #f59e0b); box-shadow: 0 0 34px -6px rgba(245,158,11,0.7); opacity: 0; }
+      #ch-card-title { font-weight: 600; font-size: 54px; line-height: 1.1; margin: 34px 0 0; opacity: 0; }
+      #ch-card-2 h4 { font-weight: 600; font-size: 40px; line-height: 1.1; margin: 26px 0 0; color: var(--muted); }
+      #ch-track { position: relative; width: 100%; height: 8px; border-radius: 999px; background: rgba(238,243,255,0.14); margin-top: 44px; overflow: hidden; opacity: 0; }
+      #ch-fill { position: absolute; inset: 0; border-radius: 999px; background: linear-gradient(90deg, #f59e0b, var(--orange)); box-shadow: 0 0 20px rgba(251,146,60,0.7); transform-origin: left center; }
+      #ch-count { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 24px; color: var(--muted); margin: 18px 0 0; letter-spacing: 0.05em; opacity: 0; }
+      #ch-timer { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.22em; font-size: 18px; color: var(--muted); padding: 10px 22px; border-radius: 999px; border: 1.5px solid rgba(169,196,255,0.3); margin-top: 30px; opacity: 0; }
+
+      /* S3 enactment + leaderboard */
+      #ch-s3 { text-align: left; }
+      #ch-s3-phone-wrap { position: absolute; left: 330px; top: 270px; }
+      /* the group-selfie <video> is a root child positioned exactly over the phone screen */
+      #ch-clip-group { position: absolute; left: 349px; top: 289px; width: 282px; height: 618px; object-fit: cover; border-radius: 42px; z-index: 12; }
+      #ch-s3-phone-wrap .bw-phone { position: relative; z-index: 13; background: transparent; }
+      #ch-s3-phone-wrap .bw-phone .screen { background: transparent; }
+      #ch-toast { position: absolute; left: 330px; top: 176px; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.24em; font-size: 22px; color: #fff; padding: 18px 40px; border-radius: 999px; background: linear-gradient(115deg, #f59e0b, var(--orange) 55%, #f59e0b); box-shadow: 0 0 50px -8px rgba(251,146,60,0.8); opacity: 0; z-index: 14; }
+      #ch-lb { position: absolute; right: 260px; top: 300px; width: 560px; border-color: rgba(251,146,60,0.45); box-shadow: 0 0 60px -14px rgba(251,146,60,0.5), 0 30px 80px -30px rgba(0,0,0,0.85); padding: 38px 42px; box-sizing: border-box; opacity: 0; }
+      #ch-lb-label { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3em; font-size: 20px; color: var(--orange); margin: 0 0 26px; }
+      .ch-row { display: flex; align-items: center; gap: 24px; height: 64px; margin-bottom: 14px; padding: 0 24px; border-radius: 18px; background: rgba(238,243,255,0.06); font-family: "Jost", Arial, sans-serif; opacity: 0; }
+      .ch-row .rank { font-weight: 600; font-size: 26px; color: var(--orange); width: 34px; }
+      .ch-row .name { font-weight: 500; font-size: 27px; color: var(--fg); flex: 1; }
+      .ch-row .pts { font-weight: 600; font-size: 26px; color: var(--muted); letter-spacing: 0.06em; }
+      #ch-lb-spark { position: absolute; left: -34px; top: 92px; opacity: 0; z-index: 3; }
+
+      /* S4 outro */
+      #ch-s4-qr { width: 128px; height: 128px; border-radius: 22px; border: 1.5px solid rgba(169,196,255,0.55); box-shadow: 0 0 36px -6px rgba(91,140,255,0.6); padding: 12px; background: rgba(8,10,20,0.9); margin-top: 52px; }
+      #ch-s4-qr img { display: block; width: 100%; height: 100%; }
+      .fine { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 22px; color: var(--muted); margin-top: 30px; letter-spacing: 0.05em; }
+    </style>
+  </head>
+  <body>
+    <div id="ch-root" class="bw-root" data-composition-id="challenges" data-start="0" data-width="1920" data-height="1080">
+      <!-- audio: narration + subtle bed (framework-owned, direct root children) -->
+      <audio id="ch-vo" src="assets/vo-challenges.m4a" data-start="0.8" data-track-index="8"></audio>
+      <audio id="ch-bed" src="assets/music-bed.m4a" data-start="0" data-duration="30" data-volume="0.16" data-track-index="9"></audio>
+
+      <div id="ch-s1" class="clip scene" data-start="0" data-duration="4.2" data-track-index="1">
+        <div class="stack">
+          <div id="ch-s1-glow"></div>
+          <img id="ch-s1-trophy" src="assets/trophy-cutout.png" alt="" />
+          <p class="eyebrow" id="ch-s1-eyebrow">Beamwall · Challenges</p>
+          <h1 class="title-lg" id="ch-s1-title">Turn the room into <em class="foil" style="font-style: normal">the game</em>.</h1>
+        </div>
+      </div>
+
+      <div id="ch-s2" class="clip scene" data-start="4.0" data-duration="9.0" data-track-index="2">
+        <div id="ch-s2-deck">
+          <div id="ch-card-2" class="glass-card">
+            <span class="ch-chip" id="ch-chip-2" style="opacity: 1">Challenge 04</span>
+            <h4 id="ch-card-2-title">Selfie with a stranger</h4>
+          </div>
+          <div id="ch-card" class="glass-card">
+            <div class="ch-card-top">
+              <span class="ch-chip" id="ch-chip-1">Challenge 03</span>
+              <span class="ch-badge" id="ch-badge">+50 pts</span>
+            </div>
+            <h3 id="ch-card-title">Catch the first dance</h3>
+            <div id="ch-track"><div id="ch-fill"></div></div>
+            <p id="ch-count">17 / 40 guests</p>
+            <span id="ch-timer">ends 21:30</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- S3 group-selfie footage inside the phone (root child; window matches S3 capture beat) -->
+      <video id="ch-clip-group" src="assets/clip-group-selfie.mp4" data-start="13.0" data-duration="5.0" data-track-index="4" data-volume="0" muted></video>
+
+      <div id="ch-s3" class="clip scene" data-start="12.8" data-duration="8.4" data-track-index="1">
+        <div id="ch-s3-phone-wrap"></div>
+        <div id="ch-toast">Challenge complete · +50</div>
+        <div id="ch-lb" class="glass-card">
+          <p id="ch-lb-label">Live leaderboard</p>
+          <div id="ch-lb-rows"></div>
+          <span id="ch-lb-spark"></span>
+        </div>
+      </div>
+
+      <div id="ch-s4" class="clip scene" data-start="21.0" data-duration="9.0" data-track-index="2">
+        <div class="stack">
+          <h2 class="title-xl foil" id="ch-s4-wordmark" style="font-size: 150px">Beamwall</h2>
+          <div class="pill" id="ch-s4-pill" style="margin-top: 54px">Create your event</div>
+          <div id="ch-s4-qr"><img src="assets/qr.svg" alt="" /></div>
+          <p class="fine" id="ch-s4-fine">Free to start · no credit card · beamwall</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+        var root = document.getElementById("ch-root");
+        BW.buildBackdrop(root, "ch");
+
+        /* phone chrome (screen left transparent; the real <video> sits over it) */
+        var ph = BW.phone("ch-s3-phone", 320);
+        document.getElementById("ch-s3-phone-wrap").appendChild(ph.el);
+
+        /* leaderboard rows (rank, name, pts) */
+        var ROWS = [
+          { name: "Table 7", pts: 210 },
+          { name: "Ada & Femi", pts: 180 },
+          { name: "The Cousins", pts: 165 },
+          { name: "Table 2", pts: 140 },
+        ];
+        var lbRows = document.getElementById("ch-lb-rows");
+        ROWS.forEach(function (r, i) {
+          var row = document.createElement("div");
+          row.className = "ch-row";
+          row.id = "ch-lb-row-" + (i + 1);
+          var rank = document.createElement("span");
+          rank.className = "rank";
+          rank.textContent = String(i + 1);
+          var name = document.createElement("span");
+          name.className = "name";
+          name.textContent = r.name;
+          var pts = document.createElement("span");
+          pts.className = "pts";
+          pts.textContent = r.pts + " pts";
+          row.appendChild(rank);
+          row.appendChild(name);
+          row.appendChild(pts);
+          lbRows.appendChild(row);
+        });
+
+        /* spark icon beside the new #1 after the swap */
+        document.getElementById("ch-lb-spark").innerHTML = BW.icon("spark", "#fb923c", 56);
+
+        /* ── timeline ── */
+        var EASE = "power3.out";
+        var END = 30.0;
+        var ROW_H = 78; /* row height 64 + 14 gap */
+        var tl = gsap.timeline({ paused: true });
+        BW.animateBackdrop(tl, "ch", END);
+
+        /* S1 — trophy drops in over the glow */
+        tl.fromTo("#ch-s1-glow", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 1.0, ease: "power2.out" }, 0.2);
+        tl.fromTo("#ch-s1-trophy", { opacity: 0, y: -420 }, { opacity: 1, y: 0, duration: 0.9, ease: "back.out(1.4)" }, 0.4);
+        BW.flashAt(tl, "ch", 1.1, 0.6); /* the trophy lands */
+        tl.fromTo("#ch-s1-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 1.4);
+        tl.fromTo("#ch-s1-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.8, ease: EASE }, 1.6);
+        tl.to("#ch-s1 .stack", { opacity: 0, y: -40, duration: 0.5, ease: "power2.in" }, 3.6);
+
+        /* S2 — the challenge card tilts in, the deck peeks, progress fills */
+        tl.fromTo(
+          "#ch-card",
+          { opacity: 0, x: 140, rotationY: -14 },
+          { opacity: 1, x: 0, rotationY: -4, duration: 1.1, ease: EASE },
+          4.4
+        );
+        tl.fromTo("#ch-card-2", { opacity: 0, x: 60 }, { opacity: 0.55, x: 0, duration: 0.9, ease: EASE }, 5.0);
+        tl.fromTo("#ch-chip-1", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 5.1);
+        tl.fromTo("#ch-badge", { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1, duration: 0.55, ease: "back.out(1.7)" }, 5.3);
+        tl.fromTo("#ch-card-title", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.7, ease: EASE }, 5.5);
+        tl.fromTo("#ch-track", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 6.0);
+        tl.fromTo("#ch-timer", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 6.4);
+        /* guests complete it live: 0 → 62% */
+        tl.fromTo("#ch-fill", { scaleX: 0 }, { scaleX: 0.62, duration: 2.0, ease: "power2.inOut" }, 8.0);
+        tl.fromTo("#ch-count", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 8.2);
+        /* the deck floats subtly */
+        tl.to("#ch-s2-deck", { y: -12, duration: 3.2, ease: "sine.inOut", yoyo: true, repeat: 1 }, 5.8);
+        tl.to("#ch-s2", { opacity: 0, duration: 0.55, ease: "power2.in" }, 12.5);
+
+        /* S3 — guests enact the challenge; the leaderboard lights up */
+        tl.fromTo("#ch-s3-phone-wrap", { opacity: 0, y: 90 }, { opacity: 1, y: 0, duration: 0.9, ease: EASE }, 13.1);
+        tl.fromTo("#ch-lb", { opacity: 0, x: 80 }, { opacity: 1, x: 0, duration: 0.9, ease: EASE }, 13.6);
+        for (var r = 1; r <= 4; r++) {
+          tl.fromTo(
+            "#ch-lb-row-" + r,
+            { opacity: 0, x: 40 },
+            { opacity: 1, x: 0, duration: 0.5, ease: EASE },
+            14.0 + (r - 1) * 0.35
+          );
+        }
+        BW.flashAt(tl, "ch", 15.6, 0.9); /* the capture moment */
+        tl.fromTo(
+          "#ch-toast",
+          { opacity: 0, y: 24, scale: 0.6 },
+          { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "back.out(1.7)" },
+          15.9
+        );
+        /* Ada & Femi overtake Table 7 — rows 1 and 2 swap live */
+        tl.to("#ch-lb-row-1", { y: ROW_H, duration: 0.7, ease: "power2.inOut" }, 18.2);
+        tl.to("#ch-lb-row-2", { y: -ROW_H, duration: 0.7, ease: "power2.inOut" }, 18.2);
+        tl.fromTo("#ch-lb-spark", { opacity: 0, scale: 0.4, rotation: -40 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.6, ease: "back.out(1.7)" }, 18.9);
+        tl.to("#ch-s3", { opacity: 0, duration: 0.5, ease: "power2.in" }, 20.7);
+
+        /* S4 — outro */
+        tl.fromTo("#ch-s4-wordmark", { opacity: 0, y: -70, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 1.0, ease: EASE }, 21.4);
+        tl.fromTo("#ch-s4-pill", { opacity: 0, y: 34, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: "back.out(1.6)" }, 22.1);
+        tl.fromTo("#ch-s4-qr", { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.5)" }, 22.5);
+        tl.fromTo("#ch-s4-fine", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 22.9);
+        tl.to("#ch-s4 .stack", { opacity: 0, duration: 0.6, ease: "power2.in" }, 29.2);
+
+        /* pin duration */
+        tl.set("#ch-bg", { opacity: 1 }, END);
+        window.__timelines = window.__timelines || {};
+        window.__timelines["challenges"] = tl;
+      })();
+    </script>
+  </body>
+</html>

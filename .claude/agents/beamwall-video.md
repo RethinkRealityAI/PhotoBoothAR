@@ -99,3 +99,87 @@ re-encoded → file size sane (<2MB for landing embeds) → embedded/committed �
   frame-arc wall with beaming shots / pillar chips / CTA), 15.3s, tracks
   alternate 1/2, timeline end pinned at 15.3 via tl.set on #bg. Embedded in
   Landing between feature stories and template picker.
+- 2026-07-08: Multi-composition studio (`hyperframes/studio/`, shared
+  `assets/kit.css`+`kit.js`+media) hit five lint errors that took a session
+  to fully unwind — recorded here so the next run skips straight to the fix:
+  1. **Egress-blocked media → CI vendoring pattern.** Higgsfield CDN URLs
+     can't be fetched from this sandbox. Fix: add `{url, path}` entries to
+     `scripts/remote-assets.json`; a push touching that file (or
+     `.github/workflows/fetch-remote-assets.yml`) auto-fires the "Fetch
+     remote assets" workflow, which has open egress, downloads everything,
+     compresses (`*.wav`→`*.m4a` mono 96k AAC; `clip-*.mp4`→crf-27 h264,
+     audio stripped — ubuntu runners do NOT ship ffmpeg, `apt-get install`
+     it first) and commits back as github-actions[bot]. The Claude GitHub
+     integration lacks `actions:write` so it can't `workflow_dispatch`
+     directly — the push-trigger is the only way it can kick the job.
+  2. **Project-root asset resolution.** `hyperframes lint/validate/render`
+     take a `DIR` = project root; every asset path in every file under that
+     root — regardless of which subfolder the HTML lives in — resolves
+     against `DIR`, NOT relative to the HTML file's own location. `../`
+     traversal above `DIR` is a hard lint error
+     (`invalid_parent_traversal_in_asset_path`). For N compositions sharing
+     one `assets/` folder, give each composition its own directory
+     (`studio/<name>/index.html`, since `lint DIR` requires a literal
+     `index.html` in `DIR` — it does not auto-discover loose sibling
+     `.html` files) and **symlink the shared assets in**:
+     `ln -s ../assets studio/<name>/assets`. Then every reference is the
+     plain root-relative `assets/foo.png` — no `../` anywhere. Symlinks
+     resolve fine through the CLI's static file serving; this is far
+     cheaper than duplicating 14MB of media five times over.
+  3. **Timeline registration must be a literal, not indirection.** Calling a
+     helper like `BW.register(id, tl)` that internally does
+     `window.__timelines[id] = tl` is invisible to the linter's static
+     source scan — it fires `gsap_timeline_not_registered`,
+     `missing_timeline_registry`, AND (as a cascade) 
+     `root_composition_missing_duration_source` (duration is inferred from
+     the registered timeline; if the registry looks empty, there's no
+     duration source either). Fix: put the literal two lines directly in
+     each composition's own `<script>`:
+     `window.__timelines = window.__timelines || {}; window.__timelines["<id>"] = tl;`
+     — keep the shared helper for other logic if you like, just don't rely
+     on it for the registration line itself.
+  4. **`video_missing_muted` wants the literal HTML attribute.**
+     `data-volume="0"` is not enough — every silent `<video>` also needs a
+     bare `muted` attribute, or `data-has-audio="true"` if it's meant to
+     contribute sound.
+  5. **`gsap_exit_missing_hard_kill`.** Any exit tween that ends exactly on
+     a clip/scene boundary needs a `tl.set(sel, {opacity:0}, <boundary>)`
+     right after it, so non-linear seeking can't land mid-fade. If the
+     faded element IS a `class="clip"` node itself (framework-owned
+     visibility), don't tween the clip directly — wrap its content in an
+     inner plain `<div>` and put the exit tween + hard-kill on that wrapper
+     instead.
+  6. **`font_family_without_font_face` fires even with a correct external
+     `@font-face` in a linked stylesheet.** The check is a static text scan
+     of style content the tool collects itself — it does not treat a
+     `<link rel="stylesheet" href="assets/kit.css">` file as covered, even
+     though real Chrome loads and applies it fine at render time. Fix:
+     duplicate the actually-used `@font-face` rules inline in each
+     composition's own `<style>` block too (url paths relative to the
+     composition's own document location, e.g. `assets/fonts/x.woff2` —
+     redundant with kit.css's rules but harmless).
+  7. `duplicate_media_discovery_risk` (warning, not error) fired on
+     img/video elements that are NOT actually duplicated in the DOM (single
+     `<video>` tag, or two `qr.svg` `<img>`s in clearly different scenes
+     with different data-start/duration on their ancestor clips) — treated
+     as a linter false-positive after manual source inspection; did not
+     block render. Don't burn more time chasing it unless a real duplicate
+     turns up on inspection.
+  8. `hyperframes validate --timeout <ms>` sometimes still reports "Could
+     not read the duration of N media element(s) within the validate
+     timeout" for bed/clip audio+video even at 40000ms in this sandbox —
+     appears to be a headless-Chrome media-probe limitation here (no GPU
+     video decode?), not a real problem: render itself resolves durations
+     via ffprobe, not the DOM media API, and the rendered output is
+     correct. Don't chase this one either if lint+validate both report
+     0 errors.
+  9. `hyperframes snapshot` frames that land exactly on a scene-boundary
+     fade (e.g. mid-exit-tween, or before the very first entrance tween
+     starts) look "blank" in the contact sheet — read the surrounding
+     scene's `tl.fromTo`/`tl.to` start times before treating a blank
+     snapshot frame as a bug.
+  10. Command-level timeouts: this environment's shell tool call has its
+      own ~120s default execution budget separate from any `timeout N`
+      you put inside the command string — a 1920×1080 render easily
+      exceeds that. Run renders with `run_in_background: true` instead of
+      trying to raise the in-shell `timeout`.
