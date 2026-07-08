@@ -158,7 +158,10 @@ interface ChecklistStep {
   label: string;
   hint: string;
   done: boolean;
+  /** In-studio route to fix/see this step. */
   to?: string;
+  /** External/guest URL (opens a new tab) — e.g. the booth for a test photo. */
+  href?: string;
 }
 
 /**
@@ -189,8 +192,10 @@ function GoLiveChecklist({
           </h2>
           <p className="font-sans text-xs text-champagne/55 mt-0.5">
             {live
-              ? 'Guests can scan and join right now. Share the QR codes below.'
-              : `You're ${pct}% ready — finish up, then go live in one tap.`}
+              ? 'Guests can scan and join right now — print signage from the Share tab.'
+              : pct === 100
+                ? 'Everything checks out — go live whenever you’re ready.'
+                : `You're ${pct}% ready — finish up, then go live in one tap.`}
           </p>
         </div>
         <div
@@ -211,9 +216,12 @@ function GoLiveChecklist({
         {steps.map((s) => (
           <li key={s.label}>
             <button
-              onClick={() => s.to && navigate(s.to)}
-              disabled={!s.to}
-              className={`group w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${s.to ? 'hover:bg-gold-400/[0.06]' : ''}`}
+              onClick={() => {
+                if (s.to) navigate(s.to);
+                else if (s.href) window.open(s.href, '_blank');
+              }}
+              disabled={!s.to && !s.href}
+              className={`group w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${s.to || s.href ? 'hover:bg-gold-400/[0.06]' : ''}`}
             >
               {s.done ? (
                 <span className="shrink-0 w-5 h-5 rounded-full bg-gold-400/20 flex items-center justify-center">
@@ -226,7 +234,7 @@ function GoLiveChecklist({
                 <span className={`block font-sans text-sm leading-tight ${s.done ? 'text-champagne/60' : 'text-ivory'}`}>{s.label}</span>
                 <span className="block font-sans text-[11px] text-champagne/40 leading-tight truncate">{s.hint}</span>
               </span>
-              {s.to && <ArrowRight className="shrink-0 w-3.5 h-3.5 text-champagne/30 group-hover:text-gold-300 transition-colors" />}
+              {(s.to || s.href) && <ArrowRight className="shrink-0 w-3.5 h-3.5 text-champagne/30 group-hover:text-gold-300 transition-colors" />}
             </button>
           </li>
         ))}
@@ -269,14 +277,22 @@ export default function Dashboard() {
   // lockstep instead of drifting from an optimistic local flag.
   const live = status === 'live';
 
+  // Every step is VERIFIED against real state — a checklist that shows a
+  // check the host didn't earn erodes trust in the whole panel.
+  const hasName = Boolean(config.copy.fullName?.trim());
   const hasLook = Boolean(config.themeVars && Object.keys(config.themeVars).length > 0);
   const hasFrames = ((config.arContent?.borderIds?.length ?? 0) > 0) || ((stats?.published ?? 0) > 0);
+  const hasTestShot = (stats?.posts ?? 0) > 0;
   const checklist: ChecklistStep[] = [
-    { label: 'Name your event', hint: config.copy.fullName || 'Set in Branding', done: true, to: `${base}/branding` },
-    { label: 'Pick your look & colours', hint: 'Theme, background & fonts', done: hasLook, to: `${base}/branding` },
-    { label: 'Add frames & effects', hint: 'Frames, filters & 3D props', done: hasFrames, to: `${base}/library` },
+    { label: 'Name your event', hint: config.copy.fullName || 'Give it a name in Branding', done: hasName, to: `${base}/branding` },
+    // Template-seeded events pass these two by design — but say so honestly:
+    // "done" here means "your chosen template's defaults are active", not
+    // "you customized it".
+    { label: 'Pick your look & colours', hint: hasLook ? 'Template look active — make it yours in Branding' : 'Theme, background & fonts', done: hasLook, to: `${base}/branding` },
+    { label: 'Add frames & effects', hint: hasFrames ? 'Template frames active — add your own or AI-generate more' : 'Frames, filters & 3D props', done: hasFrames, to: `${base}/creator` },
+    { label: 'Take a test photo', hint: 'Open your booth and snap one — see what guests will see', done: hasTestShot, href: `${basePath}/booth` },
   ];
-  const canGoLive = Boolean(eventUuid) && hasLook && hasFrames;
+  const canGoLive = Boolean(eventUuid) && hasName && hasLook && hasFrames;
 
   const goLive = useCallback(async () => {
     if (!eventUuid || going) return;

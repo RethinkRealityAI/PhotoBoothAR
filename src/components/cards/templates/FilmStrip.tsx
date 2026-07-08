@@ -40,9 +40,9 @@ function Frame({
   return (
     <div
       ref={frameRef}
-      className={`relative rounded-lg border bg-noir-900/70 px-5 py-6 text-center transition-all ${
+      className={`relative rounded-lg border bg-brand-bg/70 px-5 py-6 text-center transition-all ${
         reducedMotion ? '' : 'duration-300'
-      } ${active ? 'border-gold-400/60 shadow-[0_0_36px_rgba(212,175,55,0.18)]' : 'border-white/10 opacity-80'}`}
+      } ${active ? 'border-accent/60 shadow-[0_0_36px_rgba(var(--accent-rgb),0.18)]' : 'border-white/10 opacity-80'}`}
     >
       {children}
     </div>
@@ -73,7 +73,7 @@ export default function FilmStrip({
 
   return (
     <div className="relative w-full h-full overflow-y-auto">
-      <div className="relative mx-auto max-w-md min-h-full bg-noir-900/90 border-x border-white/10">
+      <div className="relative mx-auto max-w-md min-h-full bg-brand-bg/90 border-x border-white/10">
         {/* sprocket rails */}
         <div className="absolute left-0 top-0 bottom-0 w-8 border-r border-white/10" style={RAIL_STYLE} aria-hidden />
         <div className="absolute right-0 top-0 bottom-0 w-8 border-l border-white/10" style={RAIL_STYLE} aria-hidden />
@@ -112,7 +112,7 @@ export default function FilmStrip({
                   “{c.message}”
                 </p>
               )}
-              <p className="mt-3 font-label uppercase tracking-luxe text-[9px] text-gold-300/80">
+              <p className="mt-3 font-label uppercase tracking-luxe text-[9px] text-accent-2/80">
                 — {c.contributorName || 'A friend'}
               </p>
             </Frame>

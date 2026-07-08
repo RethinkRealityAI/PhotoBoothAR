@@ -15,6 +15,7 @@
  */
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import Booth from './components/Booth';
+import GuestWelcome from './components/GuestWelcome';
 import Wall from './components/Wall';
 import MyPhotos from './components/MyPhotos';
 import ChallengesPage from './components/ChallengesPage';
@@ -32,12 +33,15 @@ import Branding from './components/admin/Branding';
 import Challenges from './components/admin/Challenges';
 import EventProvider, { useEvent } from './events/EventContext';
 import { EVENT_ID } from './events/active';
+import CopilotFab from './components/copilot/CopilotFab';
+import CopilotPanel from './components/copilot/CopilotPanel';
 import Landing from './pages/Landing';
 import Login from './pages/auth/Login';
 import Signup from './pages/auth/Signup';
 import HostLayout from './pages/host/HostLayout';
 import EventsList from './pages/host/EventsList';
 import NewEvent from './pages/host/NewEvent';
+import Concierge from './pages/host/Concierge';
 import Billing from './pages/host/Billing';
 import EventStudio from './pages/host/EventStudio';
 import ManagerConsole from './pages/manager/ManagerConsole';
@@ -88,6 +92,7 @@ function guestRoutes() {
   return (
     <>
       <Route index element={<EventIndexRedirect />} />
+      <Route path="welcome" element={<GuestWelcome />} />
       <Route path="booth" element={<Booth />} />
       <Route path="experience/:id" element={<Booth />} />
       <Route path="wall" element={<Wall />} />
@@ -121,7 +126,7 @@ function adminRoutes() {
 export default function App() {
   return (
     <Router>
-      <div className="min-h-screen h-screen w-screen bg-noir-900 text-ivory font-sans overflow-hidden select-none">
+      <div className="min-h-screen h-screen w-screen bg-brand-bg text-ivory font-sans overflow-hidden select-none">
         <Routes>
           {LEGACY_EVENT ? (
             /* ── Legacy single-event build: registry event at "/" ── */
@@ -147,6 +152,7 @@ export default function App() {
               <Route path="/host" element={<HostLayout />}>
                 <Route index element={<EventsList />} />
                 <Route path="new" element={<NewEvent />} />
+                <Route path="concierge" element={<Concierge />} />
                 <Route path="billing" element={<Billing />} />
               </Route>
               <Route path="/host/events/:id/*" element={<EventStudio />} />
@@ -183,6 +189,15 @@ export default function App() {
             </>
           )}
         </Routes>
+        {/* Platform Copilot — one global mount so it persists across the
+            /host rail pages AND the event studio (sibling route trees).
+            Runtime mode only; visibility is gated inside the components. */}
+        {!LEGACY_EVENT && (
+          <>
+            <CopilotFab />
+            <CopilotPanel />
+          </>
+        )}
       </div>
     </Router>
   );

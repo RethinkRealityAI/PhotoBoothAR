@@ -1,0 +1,219 @@
+<!doctype html>
+<!--
+  Beamwall · Live Wall — 30s feature film (HyperFrames composition "wall").
+  Scene map (VO: assets/vo-wall.m4a, 24.9s, starts at 0.8s):
+    S1 0.0–4.6   sting — real venue footage full-bleed, title over scrim
+    S2 4.4–17.6  HOW IT WORKS — figure captures in a phone (real selfie clip
+                 on the phone screen), flash, the photo flies to a wall grid
+                 of skeleton frames, then other photos beam in live
+    S3 17.4–23.6 view modes — mosaic band morphs, mode labels cycle
+    S4 23.4–30.0 outro — wordmark, CTA pill, QR
+  Contract: root omits data-duration (timeline pins 30.0); scenes alternate
+  tracks 1/2; <video>/<audio> are direct root children (framework-owned),
+  positioned to coincide with in-scene chrome (the phone screen rect).
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Beamwall · Live Wall</title>
+    <link rel="stylesheet" href="assets/kit.css" />
+    <script src="assets/gsap.min.js"></script>
+    <script src="assets/kit.js"></script>
+    <style>
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+      #root { width: 1920px; height: 1080px; }
+
+      /* S1 sting */
+      #wl-clip-hall { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; object-fit: cover; z-index: 6; }
+      #s1 .scrim { position: absolute; inset: 0; background: linear-gradient(to top, rgba(4,5,10,0.92) 8%, rgba(4,5,10,0.35) 45%, rgba(4,5,10,0.55)); }
+      #s1 .stack { position: relative; }
+
+      /* S2 how-it-works */
+      #s2 { text-align: left; }
+      #s2-phone-wrap { position: absolute; left: 300px; top: 250px; }
+      /* the selfie <video> is a root child positioned exactly over the phone screen */
+      #wl-clip-selfie { position: absolute; left: 316px; top: 266px; width: 308px; height: 665px; object-fit: cover; border-radius: 42px; z-index: 12; }
+      #s2-phone-wrap .bw-phone { position: relative; z-index: 13; background: transparent; }
+      #s2-phone-wrap .bw-phone .screen { background: transparent; }
+      #s2-steps { position: absolute; left: 300px; top: 100px; }
+      .step-lbl { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.32em; font-size: 26px; opacity: 0; }
+      #s2-step1 { color: var(--blue); }
+      #s2-step2 { color: var(--teal); position: absolute; left: 690px; top: 0; width: 600px; }
+      #s2-grid { position: absolute; right: 210px; top: 240px; display: grid; grid-template-columns: repeat(3, 210px); grid-template-rows: repeat(3, 210px); gap: 26px; }
+      .skel { border: 2px dashed rgba(169, 196, 255, 0.28); border-radius: 22px; background: rgba(9, 11, 20, 0.5); }
+      .cellfill { position: absolute; inset: 0; border-radius: 20px; opacity: 0; }
+      #s2-flycard { position: absolute; left: 400px; top: 480px; width: 160px; height: 213px; border-radius: 16px; background: linear-gradient(150deg, #5b8cff, #38bdf8); box-shadow: 0 0 44px -6px rgba(238,243,255,0.55); opacity: 0; z-index: 20; }
+
+      /* S3 modes */
+      #s3-band { position: absolute; left: -60px; right: -60px; top: 380px; display: flex; gap: 30px; }
+      #s3-modes { position: absolute; left: 0; right: 0; top: 200px; display: flex; justify-content: center; gap: 34px; }
+      .mode-chip { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3em; font-size: 24px; color: var(--muted); padding: 18px 40px; border-radius: 999px; border: 1.5px solid rgba(169,196,255,0.25); opacity: 0.55; }
+      .mode-chip.on { color: #fff; border-color: rgba(91,140,255,0.7); box-shadow: 0 0 40px -8px rgba(91,140,255,0.6); }
+
+      /* S4 outro */
+      #s4-qr { width: 128px; height: 128px; border-radius: 22px; border: 1.5px solid rgba(169,196,255,0.55); box-shadow: 0 0 36px -6px rgba(91,140,255,0.6); padding: 12px; background: rgba(8,10,20,0.9); margin-top: 52px; }
+      #s4-qr img { display: block; width: 100%; height: 100%; }
+      .fine { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 22px; color: var(--muted); margin-top: 30px; letter-spacing: 0.05em; }
+    </style>
+  </head>
+  <body>
+    <div id="root" class="bw-root" data-composition-id="wall" data-start="0" data-width="1920" data-height="1080">
+      <!-- audio: narration + subtle bed (framework-owned, direct root children) -->
+      <audio id="wl-vo" src="assets/vo-wall.m4a" data-start="0.8" data-track-index="8"></audio>
+      <audio id="wl-bed" src="assets/music-bed.m4a" data-start="0" data-duration="30" data-volume="0.16" data-track-index="9"></audio>
+
+      <!-- S1 footage (root child; window matches scene 1) -->
+      <video id="wl-clip-hall" src="assets/clip-wall-hall.mp4" data-start="0" data-duration="4.6" data-track-index="3" data-volume="0" muted></video>
+
+      <div id="s1" class="clip scene" data-start="0" data-duration="4.6" data-track-index="1">
+        <div class="scrim"></div>
+        <div class="stack">
+          <p class="eyebrow" id="s1-eyebrow">Beamwall · Live wall</p>
+          <h1 class="title-lg" id="s1-title">Every shot, on the <em class="foil" style="font-style: normal">big screen</em>.</h1>
+        </div>
+      </div>
+
+      <!-- S2 selfie footage inside the phone (root child; window matches S2 capture beat) -->
+      <video id="wl-clip-selfie" src="assets/clip-booth-selfie.mp4" data-start="4.4" data-duration="5.2" data-track-index="4" data-volume="0" muted></video>
+
+      <div id="s2" class="clip scene" data-start="4.4" data-duration="13.2" data-track-index="2">
+        <div id="s2-steps">
+          <span class="step-lbl" id="s2-step1">1 · Guest captures</span>
+          <span class="step-lbl" id="s2-step2">2 · It beams onto the wall — live</span>
+        </div>
+        <div id="s2-phone-wrap"></div>
+        <div id="s2-grid"></div>
+        <div id="s2-flycard"></div>
+      </div>
+
+      <div id="s3" class="clip scene" data-start="17.4" data-duration="6.2" data-track-index="1">
+        <div id="s3-inner">
+          <div id="s3-modes">
+            <span class="mode-chip" id="mode-mosaic">Mosaic</span>
+            <span class="mode-chip" id="mode-slideshow">Slideshow</span>
+            <span class="mode-chip" id="mode-marquee">Marquee</span>
+          </div>
+          <div id="s3-band"></div>
+        </div>
+      </div>
+
+      <div id="s4" class="clip scene" data-start="23.4" data-duration="6.6" data-track-index="2">
+        <div class="stack">
+          <h2 class="title-xl foil" id="s4-wordmark" style="font-size: 150px">Beamwall</h2>
+          <div class="pill" id="s4-pill" style="margin-top: 54px">Create your event</div>
+          <div id="s4-qr"><img src="assets/qr.svg" alt="" /></div>
+          <p class="fine" id="s4-fine">Free to start · no credit card · beamwall</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+        var root = document.getElementById("root");
+        BW.buildBackdrop(root, "wl");
+
+        /* phone chrome (screen left transparent; the real <video> sits over it) */
+        var ph = BW.phone("s2-phone", 340);
+        document.getElementById("s2-phone-wrap").appendChild(ph.el);
+
+        /* wall grid: 9 skeleton cells; each gets a hidden colored fill */
+        var grid = document.getElementById("s2-grid");
+        var FILLS = ["blue", "magenta", "orange", "teal", "violet", "green", "cyan", "blue", "magenta"];
+        for (var i = 0; i < 9; i++) {
+          var cell = document.createElement("div");
+          cell.className = "skel";
+          cell.id = "cell-" + i;
+          cell.style.position = "relative";
+          var fill = document.createElement("div");
+          fill.className = "cellfill";
+          fill.id = "fill-" + i;
+          var h = BW.hue(FILLS[i]);
+          fill.style.background = "linear-gradient(150deg, rgba(" + h.rgb + ",0.9), rgba(" + h.rgb + ",0.45))";
+          fill.style.boxShadow = "inset 0 0 40px -10px rgba(255,255,255,0.35)";
+          cell.appendChild(fill);
+          grid.appendChild(cell);
+        }
+
+        /* S3 marquee band of frames */
+        var band = document.getElementById("s3-band");
+        for (var b = 0; b < 8; b++) {
+          var hue = BW.HUES[b % 7];
+          var fr = BW.frame("band-" + b, hue, 250, 330);
+          var f2 = document.createElement("div");
+          f2.className = "fill";
+          f2.style.background = "linear-gradient(150deg, rgba(" + hue.rgb + ",0.75), rgba(" + hue.rgb + ",0.3))";
+          fr.insertBefore(f2, fr.firstChild);
+          band.appendChild(fr);
+        }
+
+        /* ── timeline ── */
+        var EASE = "power3.out";
+        var END = 30.0;
+        var tl = gsap.timeline({ paused: true });
+        BW.animateBackdrop(tl, "wl", END);
+
+        /* S1 */
+        tl.fromTo("#s1 .stack", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.9, ease: EASE }, 0.5);
+        tl.to("#s1 .stack", { opacity: 0, y: -40, duration: 0.5, ease: "power2.in" }, 3.9);
+        tl.set("#s1 .stack", { opacity: 0 }, 4.4);
+
+        /* S2 — capture → beam → fill */
+        tl.fromTo("#s2-phone-wrap", { opacity: 0, y: 90 }, { opacity: 1, y: 0, duration: 0.9, ease: EASE }, 4.7);
+        tl.fromTo("#s2-step1", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 5.1);
+        tl.fromTo("#s2-grid", { opacity: 0, x: 80 }, { opacity: 1, x: 0, duration: 0.9, ease: EASE }, 5.4);
+        BW.flashAt(tl, "wl", 8.7, 0.9); /* the capture moment */
+        /* photo flies from the phone into the center cell (right ≈ +860px, up ≈ -60px) */
+        tl.fromTo(
+          "#s2-flycard",
+          { opacity: 0, x: 0, y: 0, scale: 0.6, rotation: -6 },
+          { opacity: 1, x: 862, y: -47, scale: 1.31, rotation: 0, duration: 1.0, ease: "power2.inOut" },
+          8.95
+        );
+        tl.to("#s2-flycard", { opacity: 0, duration: 0.3 }, 10.05);
+        tl.fromTo("#fill-4", { opacity: 0 }, { opacity: 1, duration: 0.35 }, 10.0);
+        tl.fromTo("#s2-step2", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 10.2);
+        /* other guests' photos beam in one by one — the wall is alive */
+        var order = [0, 8, 2, 6, 1, 5, 3, 7];
+        order.forEach(function (idx, n) {
+          tl.fromTo(
+            "#fill-" + idx,
+            { opacity: 0, scale: 0.7 },
+            { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.6)" },
+            11.0 + n * 0.62
+          );
+        });
+        tl.to("#s2", { opacity: 0, duration: 0.55, ease: "power2.in" }, 17.0);
+
+        /* S3 — modes cycle while the band drifts */
+        tl.fromTo("#s3-band", { x: 120, opacity: 0 }, { opacity: 1, duration: 0.8, ease: EASE }, 17.7);
+        tl.to("#s3-band", { x: -420, duration: 5.4, ease: "none" }, 17.7);
+        var modes = ["mosaic", "slideshow", "marquee"];
+        modes.forEach(function (m, n) {
+          var at = 17.9 + n * 1.7;
+          tl.fromTo("#mode-" + m, { opacity: 0.55 }, { opacity: 1, duration: 0.3 }, at);
+          tl.to("#mode-" + m, { color: "#ffffff", borderColor: "rgba(91,140,255,0.7)", boxShadow: "0 0 40px -8px rgba(91,140,255,0.6)", duration: 0.3 }, at);
+          if (n < 2) tl.to("#mode-" + m, { opacity: 0.55, color: "#a9b4cc", borderColor: "rgba(169,196,255,0.25)", boxShadow: "none", duration: 0.3 }, at + 1.7);
+        });
+        tl.to("#s3-inner", { opacity: 0, duration: 0.5, ease: "power2.in" }, 22.9);
+        tl.set("#s3-inner", { opacity: 0 }, 23.4);
+
+        /* S4 — outro */
+        tl.fromTo("#s4-wordmark", { opacity: 0, y: -70, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 1.0, ease: EASE }, 23.8);
+        tl.fromTo("#s4-pill", { opacity: 0, y: 34, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: "back.out(1.6)" }, 24.5);
+        tl.fromTo("#s4-qr", { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.5)" }, 24.9);
+        tl.fromTo("#s4-fine", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 25.3);
+        tl.to("#s4 .stack", { opacity: 0, duration: 0.6, ease: "power2.in" }, 29.2);
+
+        /* pin duration */
+        tl.set("#wl-bg", { opacity: 1 }, END);
+        window.__timelines = window.__timelines || {};
+        window.__timelines["wall"] = tl;
+      })();
+    </script>
+  </body>
+</html>

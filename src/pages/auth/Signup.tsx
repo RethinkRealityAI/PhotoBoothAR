@@ -134,7 +134,7 @@ export default function Signup() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="mt-1 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="mt-1 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {submitting ? 'Creating account…' : 'Create account'}
                 </button>

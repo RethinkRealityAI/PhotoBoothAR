@@ -25,7 +25,7 @@ const CREDIT_PACKS: { pack: '50' | '120' | '300'; credits: number; price: string
 
 const REASON_BADGES: Record<string, { label: string; cls: string }> = {
   signup_grant: { label: 'Signup', cls: 'bg-sky-500/15 text-sky-300' },
-  plan_grant: { label: 'Package', cls: 'bg-gold-400/15 text-gold-300' },
+  plan_grant: { label: 'Package', cls: 'bg-accent/15 text-accent-2' },
   pack: { label: 'Pack', cls: 'bg-emerald-500/15 text-emerald-400' },
   pro_grant: { label: 'Pro', cls: 'bg-purple-500/15 text-purple-300' },
 };
@@ -152,9 +152,9 @@ export default function Billing() {
 
       <div className="grid gap-4 md:grid-cols-2 mb-6">
         {/* Credits */}
-        <div className="glass rounded-2xl p-5 flex flex-col gap-4">
+        <div className="liquid-glass rounded-2xl p-5 flex flex-col gap-4">
           <div className="flex items-center gap-2 text-brand-muted/60">
-            <Coins className="w-4 h-4 text-gold-400/80" />
+            <Coins className="w-4 h-4 text-accent/80" />
             <span className="font-label uppercase tracking-luxe text-[10px]">Credits</span>
           </div>
           <p className="font-serif text-4xl text-brand-fg">
@@ -180,10 +180,10 @@ export default function Billing() {
         </div>
 
         {/* Pro subscription */}
-        <div className="glass rounded-2xl p-5 flex flex-col gap-4">
+        <div className="liquid-glass rounded-2xl p-5 flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-brand-muted/60">
-              <Sparkles className="w-4 h-4 text-gold-400/80" />
+              <Sparkles className="w-4 h-4 text-accent/80" />
               <span className="font-label uppercase tracking-luxe text-[10px]">Beamwall Pro</span>
             </div>
             {subscription && (
@@ -210,7 +210,7 @@ export default function Billing() {
               <button
                 onClick={() => checkout('pro', { kind: 'pro_subscription', returnUrl })}
                 disabled={busy !== null || !org}
-                className="flex-1 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40"
+                className="flex-1 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40"
               >
                 {busy === 'pro' ? 'Redirecting…' : 'Subscribe'}
               </button>
@@ -230,7 +230,7 @@ export default function Billing() {
       </div>
 
       {/* Ledger */}
-      <div className="glass rounded-2xl p-5">
+      <div className="liquid-glass rounded-2xl p-5">
         <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60 mb-3">
           Recent credit activity
         </p>

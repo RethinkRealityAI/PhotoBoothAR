@@ -177,6 +177,38 @@ export function templateById(id: string | null | undefined): EventTemplate | und
   return EVENT_TEMPLATES.find((t) => t.id === id);
 }
 
+/** Curated accent swatches the concierge offers (any template). */
+export const ACCENT_SWATCHES = [
+  '#D4AF37', // classic gold
+  '#FF6FD6', // rose pop
+  '#19E3FF', // electric cyan
+  '#7A2BFF', // royal violet
+  '#2FDD8B', // emerald
+  '#FF5A5F', // coral
+  '#E8E4DA', // champagne silver
+] as const;
+
+/** '#RRGGBB' → 'r, g, b' (the format --accent-rgb expects), or null. */
+export function hexToRgbString(hex: string): string | null {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+}
+
+/** Theme-var overrides that re-accent any template with one chosen colour.
+ *  Used by the live TemplatePreview AND the events.config themeVars patch,
+ *  so what the host previews is exactly what the event gets. */
+export function accentThemePatch(accent: string): Record<string, string> {
+  const rgb = hexToRgbString(accent);
+  if (!rgb) return {};
+  return {
+    '--color-accent': accent,
+    '--color-accent-2': accent,
+    '--accent-rgb': rgb,
+  };
+}
+
 /**
  * The events.config JSON a template seeds. Shallow-merged into the row's config
  * (which already holds `{ copy: { fullName } }`), so we re-include fullName +

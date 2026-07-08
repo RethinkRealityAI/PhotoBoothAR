@@ -39,7 +39,7 @@ HyperFrames.
 | Host dashboard | `/host`, `/host/new`, `/host/billing` | events, wizard, credits/plans |
 | Event studio | `/host/events/:id/*` | the 10 studio screens (branding, library, creator 2D/3D, moderation, challenges, settings, manager access…), gated by org membership |
 | **Platform admin** | `/admin/*` | RethinkReality super-admin across all tenants; gated by `platform_admins` (see [docs/ADMIN-SUITE.md](docs/ADMIN-SUITE.md)) |
-| Guest (per event) | `/e/:slug` → `/booth` `/wall` `/me` `/upload` `/experience/:id` | runtime-resolved tenant |
+| Guest (per event) | `/e/:slug` → `/welcome` `/booth` `/wall` `/me` `/upload` `/experience/:id` | runtime-resolved tenant; `/welcome` = instruction landing for signage QRs |
 | Greeting card | `/c/:publicId`, `/c/:publicId/contribute?t=` | public viewer + token-gated contribution |
 | Day-of staff | `/m/:slug` | PIN/link manager console (moderation + wall settings) |
 
@@ -58,7 +58,7 @@ Legacy single-event builds set `VITE_EVENT=<slug>` and render exactly as before.
 
 - **Multi-tenant data** — Supabase Postgres with real RLS. `orgs → events`
   tenancy; `event_id` (= `events.slug`) partitions the existing content tables.
-  Migrations are checked in under `supabase/migrations/` (001–009) and mirror
+  Migrations are checked in under `supabase/migrations/` (001–010) and mirror
   what's applied to the live project. The three legacy slugs keep working via
   **grandfather RLS policies**.
 - **Runtime tenancy** — `src/events/runtime.ts` + `EventContext.tsx` resolve an
@@ -67,6 +67,10 @@ Legacy single-event builds set `VITE_EVENT=<slug>` and render exactly as before.
 - **Server layer** — Supabase Edge Functions under `supabase/functions/`:
   `submit-post` · `create-event` · `admin-api` (platform super-admin) · `manager-api` · `stripe-checkout`/`-portal`/
   `-webhook` · `ai-generate-image` · `ai-generate-3d` · `ai-job-status` ·
+  `ai-event-designer` (conversational event concierge for `/host/new`; falls
+  back to a client-side keyword planner when unprovisioned; replies render as
+  interactive **A2UI v0.9.1** generative-UI cards — protocol core in
+  `src/lib/a2ui.ts`, themed renderer in `src/components/a2ui/`) ·
   `card-contribute`/`-view`/`-publish` · `card-render`/`-render-status`. All AI
   and payment keys live here, never in the client.
 - **Billing & credits** — Stripe (per-event packages + Pro subscription + credit

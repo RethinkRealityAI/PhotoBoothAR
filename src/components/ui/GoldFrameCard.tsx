@@ -2,21 +2,24 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * GoldFrameCard — the ornate, animated gold-border card used for premium
- * "first impression" moments (booth entrance, the upload password gate).
+ * GoldFrameCard — the ornate, animated accent-border card used for premium
+ * "first impression" moments (booth entrance, the upload password gate, the
+ * card-contribute gate). Token-based (--color-accent/-2/-3), so it shows gold
+ * inside a gold-themed event, neon inside a neon-themed event, and the
+ * platform's blue/violet default on theme-neutral platform surfaces.
  *
- * A rotating conic-gradient sheen sweeps light around a glowing ~2px gold ring,
- * with a static inner hairline double-rule and four corner flourishes. Pass the
- * card contents as children.
+ * A rotating conic-gradient sheen sweeps light around a glowing ~2px accent
+ * ring, with a static inner hairline double-rule and four corner flourishes.
+ * Pass the card contents as children.
  */
 import { ReactNode } from 'react';
 
-/** Small ornate gold corner flourish. */
+/** Small ornate accent corner flourish. */
 function Corner({ className }: { className: string }) {
   return (
     <svg
       viewBox="0 0 40 40"
-      className={`absolute w-8 h-8 text-gold-400/70 ${className}`}
+      className={`absolute w-8 h-8 text-accent/70 ${className}`}
       fill="none"
       stroke="currentColor"
       strokeWidth="1.3"
@@ -44,23 +47,23 @@ export default function GoldFrameCard({
   return (
     <div className={`relative ${className}`}>
       {/* soft outer glow */}
-      <div className="absolute -inset-3 rounded-[2.6rem] bg-gold-400/10 blur-2xl pointer-events-none" />
+      <div className="absolute -inset-3 rounded-[2.6rem] bg-accent/10 blur-2xl pointer-events-none" />
 
-      {/* animated gold-border card */}
+      {/* animated accent-border card */}
       <div className="relative rounded-[2rem] overflow-hidden shadow-[0_24px_90px_rgba(0,0,0,0.62)]">
-        {/* rotating conic sheen — the animated gold border */}
+        {/* rotating conic sheen — the animated accent border */}
         <div
           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[1200px] h-[1200px]"
           style={{
             background:
-              'conic-gradient(from 0deg, #9A6F1C 0deg, #B8860B 38deg, #FBF3D9 66deg, #E8C766 94deg, #B8860B 140deg, #8A6314 200deg, #D4AF37 248deg, #FBF3D9 286deg, #B8860B 322deg, #9A6F1C 360deg)',
+              'conic-gradient(from 0deg, var(--color-accent-3) 0deg, var(--color-accent) 38deg, var(--color-accent-2) 66deg, var(--color-brand-fg) 94deg, var(--color-accent-2) 140deg, var(--color-accent-3) 200deg, var(--color-accent) 248deg, var(--color-brand-fg) 286deg, var(--color-accent-2) 322deg, var(--color-accent-3) 360deg)',
             animation: 'slow-spin 9s linear infinite',
           }}
         />
         {/* inner fill leaves a glowing ~2px ring */}
-        <div className="absolute inset-[2px] rounded-[1.9rem] bg-noir-900/82 backdrop-blur-sm" />
+        <div className="absolute inset-[2px] rounded-[1.9rem] bg-brand-bg/82 backdrop-blur-sm" />
         {/* static inner hairline for an ornate double-rule */}
-        <div className="absolute inset-[11px] rounded-[1.5rem] border border-gold-400/20 pointer-events-none" />
+        <div className="absolute inset-[11px] rounded-[1.5rem] border border-accent/20 pointer-events-none" />
 
         {/* content */}
         <div className={`relative flex flex-col items-center text-center ${contentClassName}`}>

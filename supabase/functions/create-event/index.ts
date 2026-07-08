@@ -170,6 +170,13 @@ Deno.serve(async (req: Request) => {
       if (ledgerErr) throw ledgerErr;
     }
 
+    // 3b. Platform admins run limit-free: any event an admin creates lands as
+    //     'deluxe' — the tier is the limits knob everywhere (entitlements,
+    //     watermark, AI gates), so owner testing never trips a paywall.
+    //     Server-side check via is_platform_admin (migration 009).
+    const { data: isAdmin, error: adminErr } = await sb.rpc('is_platform_admin', { p_user: user.id });
+    if (adminErr) console.error('[create-event] admin check failed (treating as non-admin)', adminErr);
+
     // 4. Insert the draft event.
     const { data: event, error: insErr } = await sb
       .from('events')
@@ -181,6 +188,7 @@ Deno.serve(async (req: Request) => {
         status: 'draft',
         config: { copy: { fullName: name } },
         starts_at,
+        ...(isAdmin === true ? { plan_tier: 'deluxe' } : {}),
       })
       .select()
       .single();

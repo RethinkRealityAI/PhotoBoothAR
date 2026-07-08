@@ -80,6 +80,13 @@ actions return full result sets) with `adminFilters.test.ts`. `AdminLayout` nav
 `src/pages/host/{EventsList.tsx, EventStudio.tsx, CardsTab.tsx}` — now import
 the shared `StatusPill` component instead.
 
+> **Shipped alongside in PR #13:** platform-admin god-mode — `create-event`
+> v5 makes any admin-created event `deluxe`, `ai-event-designer` exempts
+> admins from its rate limit, existing admin-org events were upgraded live
+> and admin orgs comped 1000 credits (`admin_comp`). Phase 4's Limits
+> actions (`set_event_tier`, `adjust_credits`) are the manual/audited
+> counterpart.
+
 ---
 
 ## Phase 3 — DONE & DEPLOYED ✅

@@ -32,11 +32,11 @@ function QRModal({ url, name, onClose }: { url: string; name: string; onClose: (
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={onClose}>
       <div
-        className="glass-strong rounded-3xl p-8 w-full max-w-xs text-center animate-rise-in flex flex-col items-center gap-4"
+        className="liquid-glass rounded-3xl p-8 w-full max-w-xs text-center animate-rise-in flex flex-col items-center gap-4"
         onClick={(e) => e.stopPropagation()}
       >
         <p className="font-serif text-xl text-foil-static">{name}</p>
-        <div className="rounded-xl p-3 bg-ivory/95 shadow-lg">
+        <div className="rounded-xl p-3 bg-brand-fg/95 shadow-lg">
           <QRCodeSVG value={url} size={160} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
         </div>
         <p className="font-mono text-[9px] text-brand-muted/60 break-all">{url}</p>
@@ -99,7 +99,7 @@ export default function EventsList() {
           </button>
           <Link
             to="/host/new"
-            className="flex items-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-noir-900 glow-accent transition active:scale-[0.98]"
+            className="flex items-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
           >
             <Plus className="w-4 h-4" /> New event
           </Link>
@@ -109,18 +109,18 @@ export default function EventsList() {
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-40 glass rounded-2xl animate-pulse" />
+            <div key={i} className="h-40 liquid-glass rounded-2xl animate-pulse" />
           ))}
         </div>
       ) : events.length === 0 ? (
-        <div className="glass-strong rounded-3xl p-12 text-center max-w-lg mx-auto">
+        <div className="liquid-glass rounded-3xl p-12 text-center max-w-lg mx-auto">
           <h2 className="font-serif text-2xl text-foil-static mb-2">Create your first event</h2>
           <p className="font-sans text-sm text-brand-muted/70 leading-relaxed mb-8">
             Booth, live wall and studio in under a minute — pick a name, claim your link, and share the QR with your guests.
           </p>
           <Link
             to="/host/new"
-            className="inline-flex items-center gap-2 rounded-full bg-foil px-8 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98]"
+            className="inline-flex items-center gap-2 rounded-full bg-foil px-8 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
           >
             <Plus className="w-4 h-4" /> New event
           </Link>
@@ -131,7 +131,7 @@ export default function EventsList() {
             const guestUrl = `${origin}/e/${ev.slug}`;
             const busy = busyId === ev.id;
             return (
-              <div key={ev.id} className="glass rounded-2xl p-5 flex flex-col gap-3">
+              <div key={ev.id} className="liquid-glass rounded-2xl p-5 flex flex-col gap-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-serif text-lg text-brand-fg leading-tight truncate">{ev.name}</p>
@@ -192,7 +192,7 @@ export default function EventsList() {
                   {normalizeTier(ev.plan_tier) !== 'deluxe' && (
                     <button
                       onClick={() => setUpgradeTarget(ev)}
-                      className="ml-auto flex items-center gap-1 rounded-full bg-gold-400/10 hover:bg-gold-400/20 px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-gold-300 transition-colors"
+                      className="ml-auto flex items-center gap-1 rounded-full bg-accent/10 hover:bg-accent/20 px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-accent-2 transition-colors"
                     >
                       Upgrade <ArrowUpRight className="w-3 h-3" />
                     </button>

@@ -17,6 +17,10 @@
  * 500 → { error: 'internal' }
  * 502 → { error: 'generation_failed' }   provider errored (credits refunded)
  * 503 → { error: 'ai_not_configured' }   provider key missing (credits refunded)
+ * 503 → { error: 'ai_key_invalid' }      provider key set but rejected by Google
+ *                                        (rotated / wrong / restricted; refunded)
+ * 503 → { error: 'ai_quota' }            provider quota/billing exhausted
+ *                                        (credits refunded)
  *
  * Flow: auth → event + org membership → server-side aiStudio entitlement →
  * spend credits FIRST (atomic rpc) → ai_jobs row (running) → provider call →
@@ -45,6 +49,12 @@ const GEMINI_MODEL = 'gemini-2.5-flash-image';
 /** Credit cost per provider (strategy doc: gemini image 1cr, higgsfield 2cr). */
 const COSTS = { gemini: 1, higgsfield: 2 } as const;
 type Provider = keyof typeof COSTS;
+
+/** Every event's first N image generations are FREE for every tier — no
+ *  credits spent, no upgrade gate — so hosts taste the AI studio before
+ *  paying. Counted per event over non-failed image jobs (failed jobs were
+ *  refunded and don't consume the allowance). Server-authoritative. */
+const FREE_IMAGES_PER_EVENT = 3;
 
 const KINDS = new Set(['2d_filter', 'border']);
 
@@ -127,7 +137,10 @@ function buildPrompt(prompt: string, kind: string, transparent: boolean): string
 /* ── Providers ──────────────────────────────────────────────────────── */
 
 class AiError extends Error {
-  constructor(public code: 'ai_not_configured' | 'generation_failed', detail?: string) {
+  constructor(
+    public code: 'ai_not_configured' | 'ai_key_invalid' | 'generation_failed' | 'ai_quota',
+    detail?: string,
+  ) {
     super(detail ?? code);
   }
 }
@@ -136,7 +149,9 @@ class AiError extends Error {
  *  (Server-side move of the old browser call to generativelanguage.googleapis.com
  *  in Creator2D; the image model returns inlineData base64 instead of SVG text.) */
 async function generateGemini(prompt: string): Promise<Uint8Array> {
-  const key = Deno.env.get('GEMINI_API_KEY');
+  // Dashboard-set secrets can arrive wrapped in quotes / with a trailing
+  // newline; Google then rejects them as API_KEY_INVALID. Strip both.
+  const key = Deno.env.get('GEMINI_API_KEY')?.trim().replace(/^["']|["']$/g, '');
   if (!key) throw new AiError('ai_not_configured');
 
   const res = await fetch(
@@ -151,8 +166,17 @@ async function generateGemini(prompt: string): Promise<Uint8Array> {
     },
   );
   if (!res.ok) {
-    console.error('[ai-generate-image] gemini error', res.status, await res.text().catch(() => ''));
-    throw new AiError('generation_failed', `gemini_http_${res.status}`);
+    const bodyText = await res.text().catch(() => '');
+    console.error('[ai-generate-image] gemini error', res.status, bodyText);
+    // 429 from Gemini = plan/billing quota (flash-image has NO free tier) —
+    // a distinct, actionable error, not a "bad prompt". 400 API_KEY_INVALID /
+    // 401 / 403 = the key itself is rejected (rotated / wrong / restricted).
+    const keyRejected =
+      res.status === 401 ||
+      res.status === 403 ||
+      (res.status === 400 && /API_KEY_INVALID|api key not valid|PERMISSION_DENIED/i.test(bodyText));
+    const code = res.status === 429 ? 'ai_quota' : keyRejected ? 'ai_key_invalid' : 'generation_failed';
+    throw new AiError(code, `gemini_http_${res.status}`);
   }
   const body = (await res.json()) as {
     candidates?: { content?: { parts?: { inlineData?: { mimeType?: string; data?: string } }[] } }[];
@@ -197,7 +221,7 @@ async function generateHiggsfield(prompt: string): Promise<Uint8Array> {
   });
   if (!res.ok) {
     console.error('[ai-generate-image] higgsfield error', res.status, await res.text().catch(() => ''));
-    throw new AiError('generation_failed', `higgsfield_http_${res.status}`);
+    throw new AiError(res.status === 429 ? 'ai_quota' : 'generation_failed', `higgsfield_http_${res.status}`);
   }
   const body = (await res.json()) as HiggsfieldImageResponse;
   const image = body.images?.[0];
@@ -220,13 +244,15 @@ async function refundAndFail(
   ref: Record<string, unknown>,
   errMsg: string,
 ): Promise<void> {
-  const { error: refundErr } = await sb.rpc('grant_credits', {
-    p_org: orgId,
-    p_amount: amount,
-    p_reason: 'ai_refund',
-    p_ref: ref,
-  });
-  if (refundErr) console.error('[ai-generate-image] REFUND FAILED', jobId, refundErr);
+  if (amount > 0) {
+    const { error: refundErr } = await sb.rpc('grant_credits', {
+      p_org: orgId,
+      p_amount: amount,
+      p_reason: 'ai_refund',
+      p_ref: ref,
+    });
+    if (refundErr) console.error('[ai-generate-image] REFUND FAILED', jobId, refundErr);
+  }
   const { error: jobErr } = await sb
     .from('ai_jobs')
     .update({ status: 'failed', error: errMsg, updated_at: new Date().toISOString() })
@@ -294,35 +320,54 @@ Deno.serve(async (req: Request) => {
     if (memErr) throw memErr;
     if (!member) return json(403, { error: 'forbidden' });
 
-    // 4. Server-side aiStudio entitlement: paid event tier, active org Pro
-    //    subscription, or grandfathered legacy slug. Free tier → upgrade.
-    let allowed = PAID_TIERS.has(event.plan_tier as string) || LEGACY_SLUGS.has(eventSlug);
-    if (!allowed) {
-      const { data: sub, error: subErr } = await sb
-        .from('subscriptions')
-        .select('org_id')
-        .eq('org_id', orgId)
-        .eq('status', 'active')
-        .maybeSingle();
-      if (subErr) throw subErr;
-      allowed = Boolean(sub);
+    // 4a. Trial allowance: the event's first FREE_IMAGES_PER_EVENT image
+    //     generations bypass both the entitlement gate and the credit spend.
+    //     (Count is best-effort — two exactly-concurrent requests could both
+    //     read the same count; the worst case is one extra free image.)
+    const { count: usedImages, error: cntErr } = await sb
+      .from('ai_jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('event_id', eventUuid)
+      .eq('kind', 'image')
+      .neq('status', 'failed');
+    if (cntErr) throw cntErr;
+    const isFreeTrial = (usedImages ?? 0) < FREE_IMAGES_PER_EVENT;
+
+    // 4b. Server-side aiStudio entitlement: paid event tier, active org Pro
+    //     subscription, or grandfathered legacy slug. Free tier → upgrade
+    //     (once the trial allowance is exhausted).
+    if (!isFreeTrial) {
+      let allowed = PAID_TIERS.has(event.plan_tier as string) || LEGACY_SLUGS.has(eventSlug);
+      if (!allowed) {
+        const { data: sub, error: subErr } = await sb
+          .from('subscriptions')
+          .select('org_id')
+          .eq('org_id', orgId)
+          .eq('status', 'active')
+          .maybeSingle();
+        if (subErr) throw subErr;
+        allowed = Boolean(sub);
+      }
+      if (!allowed) return json(403, { error: 'upgrade_required' });
     }
-    if (!allowed) return json(403, { error: 'upgrade_required' });
 
     // 5. Spend credits FIRST (atomic; raises 'insufficient_credits').
-    const cost = COSTS[provider];
+    //    Trial generations cost 0 — nothing is spent and nothing refunds.
+    const cost = isFreeTrial ? 0 : COSTS[provider];
     const ref = { event_uuid: eventUuid, prompt_hash: await promptHash(prompt) };
-    const { error: spendErr } = await sb.rpc('spend_credits', {
-      p_org: orgId,
-      p_amount: cost,
-      p_reason: 'ai_image',
-      p_ref: ref,
-    });
-    if (spendErr) {
-      if (String(spendErr.message ?? '').includes('insufficient_credits')) {
-        return json(402, { error: 'insufficient_credits' });
+    if (cost > 0) {
+      const { error: spendErr } = await sb.rpc('spend_credits', {
+        p_org: orgId,
+        p_amount: cost,
+        p_reason: 'ai_image',
+        p_ref: ref,
+      });
+      if (spendErr) {
+        if (String(spendErr.message ?? '').includes('insufficient_credits')) {
+          return json(402, { error: 'insufficient_credits' });
+        }
+        throw spendErr;
       }
-      throw spendErr;
     }
 
     // 6. Record the job (running). If even this insert fails, refund directly.
@@ -340,10 +385,12 @@ Deno.serve(async (req: Request) => {
       .select()
       .single();
     if (jobErr || !job) {
-      const { error: refundErr } = await sb.rpc('grant_credits', {
-        p_org: orgId, p_amount: cost, p_reason: 'ai_refund', p_ref: ref,
-      });
-      if (refundErr) console.error('[ai-generate-image] REFUND FAILED (job insert)', refundErr);
+      if (cost > 0) {
+        const { error: refundErr } = await sb.rpc('grant_credits', {
+          p_org: orgId, p_amount: cost, p_reason: 'ai_refund', p_ref: ref,
+        });
+        if (refundErr) console.error('[ai-generate-image] REFUND FAILED (job insert)', refundErr);
+      }
       throw jobErr ?? new Error('job_insert_failed');
     }
     const jobId = job.id as string;
@@ -411,6 +458,8 @@ Deno.serve(async (req: Request) => {
       const detail = err instanceof Error ? err.message : String(err);
       await refundAndFail(sb, jobId, orgId, cost, ref, detail);
       if (code === 'ai_not_configured') return json(503, { error: 'ai_not_configured' });
+      if (code === 'ai_key_invalid') return json(503, { error: 'ai_key_invalid' });
+      if (code === 'ai_quota') return json(503, { error: 'ai_quota' });
       if (code === 'generation_failed') return json(502, { error: 'generation_failed' });
       console.error('[ai-generate-image] internal error after spend', err);
       return json(500, { error: 'internal' });

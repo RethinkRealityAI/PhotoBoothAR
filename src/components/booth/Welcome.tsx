@@ -2,7 +2,7 @@
  * Booth entrance. Gates the camera start behind a tap (more reliable on iOS,
  * and a more magical arrival than jumping straight to a permission prompt).
  *
- * The hero sits inside an ornate card with an animated gold sheen border that
+ * The hero sits inside an ornate card with an animated accent sheen border that
  * slowly sweeps light around the frame — a premium, magical first impression.
  */
 import { motion } from 'motion/react';
@@ -34,7 +34,7 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
           </motion.div>
 
           <motion.p
-            className="mt-7 max-w-xs font-serif italic text-lg text-champagne/80 leading-relaxed"
+            className="mt-7 max-w-xs font-serif italic text-lg text-brand-muted/80 leading-relaxed"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.55, duration: 0.8 }}
@@ -45,7 +45,7 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
           <motion.button
             onClick={onStart}
             whileTap={{ scale: 0.96 }}
-            className="mt-9 flex items-center gap-3 px-9 py-4 bg-foil text-noir-900 rounded-full font-label uppercase tracking-luxe text-[11px] font-bold glow-accent animate-pulse-glow"
+            className="mt-9 flex items-center gap-3 px-9 py-4 bg-foil text-white rounded-full font-label uppercase tracking-luxe text-[11px] font-bold glow-accent animate-pulse-glow"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.8, duration: 0.6 }}
@@ -55,7 +55,7 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
           </motion.button>
 
           <motion.p
-            className="mt-6 font-label uppercase tracking-luxe text-[8px] text-champagne/30 leading-relaxed"
+            className="mt-6 font-label uppercase tracking-luxe text-[8px] text-brand-muted/30 leading-relaxed"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 1.05, duration: 0.8 }}

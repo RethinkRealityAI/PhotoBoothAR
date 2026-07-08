@@ -386,6 +386,17 @@ export async function updateEventStatus(eventUuid: string, status: string): Prom
   return true;
 }
 
+export async function updateEventName(eventUuid: string, name: string): Promise<boolean> {
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  const { error } = await supabase.from('events').update({ name: trimmed }).eq('id', eventUuid);
+  if (error) {
+    console.error('[host] updateEventName', error);
+    return false;
+  }
+  return true;
+}
+
 /** Client-side availability hint for the wizard. RLS hides other orgs' drafts,
  *  so a "free" answer here isn't final — the server has the last word. */
 export async function isSlugVisiblyTaken(slug: string): Promise<boolean> {
