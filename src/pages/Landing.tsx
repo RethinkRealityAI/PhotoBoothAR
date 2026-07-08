@@ -443,6 +443,13 @@ export default function Landing() {
     return () => mm.revert();
   }, []);
 
+  // The scroller stays overflow-x-hidden; the real x-overflow guard is the
+  // overflow-x-clip on <main> below. clip on the scroller itself would be
+  // futile — CSS demotes clip to hidden when the other axis is a scroll
+  // container — and hidden still lets programmatic scrollIntoView (anchor
+  // jumps, a11y focus) shift the page sideways and strand it there, because
+  // decorative art overflows the right edge on phones. Clipping at <main>
+  // (not a scroll container) removes that overflow at the source.
   return (
     <div ref={scrollRef} className="relative h-full w-full overflow-x-hidden overflow-y-auto scroll-smooth bg-brand-bg text-brand-fg">
       {/* Fixed immersive backdrop: WebGL spectrum, parallax ghost frames, and
@@ -500,7 +507,7 @@ export default function Landing() {
             pulled up behind it and the two move at different parallax depths
             for a 3D layered feel. The copy wrapper is pointer-events-none so
             frame clicks pass through; its links opt back in. */}
-        <main className="flex flex-1 flex-col items-center text-center">
+        <main className="flex flex-1 flex-col items-center overflow-x-clip text-center">
           <section data-parallax-scope className="relative flex w-full flex-col items-center pt-14 sm:pt-16">
             <div className="pointer-events-none relative z-20 flex flex-col items-center" data-parallax-depth="-0.05">
               <span className="mb-5 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">

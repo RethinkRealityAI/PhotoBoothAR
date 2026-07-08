@@ -111,6 +111,165 @@ const PROP_ICONS: Record<string, typeof Glasses> = {
 
 const WALL_SLOTS = 6;
 
+/** The seven-hue brand spectrum, used by the beam-flight light show. */
+const SPECTRUM = ['#5B8CFF', '#22D3EE', '#34D399', '#FB923C', '#E879F9', '#7C6CF7', '#38BDF8'];
+
+interface BeamRect { left: number; top: number; width: number; height: number; }
+interface Flight { shot: string; from: BeamRect; to: BeamRect; }
+
+/**
+ * The beam-to-wall light show: the captured shot lifts off the stage, rides a
+ * multicolor spectrum beam down into its wall tile, and lands in a burst of
+ * hue sparkles. Pure Web-Animations choreography (~1.1s) in an overlay that
+ * spans the whole demo; onLand fires when the shot should materialize on the
+ * wall (as the clone touches down), onFinished once the burst has played and
+ * the overlay can unmount. Skipped under prefers-reduced-motion (caller
+ * commits directly).
+ */
+function BeamFlightFx({
+  flight, onLand, onFinished,
+}: {
+  flight: Flight;
+  onLand: () => void;
+  onFinished: () => void;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const landRef = useRef(onLand);
+  landRef.current = onLand;
+  const finishRef = useRef(onFinished);
+  finishRef.current = onFinished;
+
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    const { from, to } = flight;
+    const EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
+    const anims: Animation[] = [];
+
+    // 1 · The shot itself: energize, then dive into the tile.
+    const clone = box.querySelector<HTMLElement>('[data-fx="clone"]');
+    if (clone) {
+      anims.push(clone.animate(
+        [
+          { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px`, borderRadius: '2rem', filter: 'brightness(1) saturate(1)', opacity: 1 },
+          { left: `${from.left}px`, top: `${from.top - 14}px`, width: `${from.width}px`, height: `${from.height}px`, borderRadius: '2rem', filter: 'brightness(1.7) saturate(1.5)', opacity: 1, offset: 0.28 },
+          { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px`, borderRadius: '0.5rem', filter: 'brightness(2.4) saturate(1.8)', opacity: 0.95 },
+        ],
+        { duration: 820, easing: EASE, fill: 'forwards' },
+      ));
+    }
+
+    // 2 · Spectrum beam trail: a light column wipes from stage to tile.
+    const beam = box.querySelector<HTMLElement>('[data-fx="beam"]');
+    const core = box.querySelector<HTMLElement>('[data-fx="core"]');
+    for (const el of [beam, core]) {
+      if (!el) continue;
+      anims.push(el.animate(
+        [
+          { transform: 'scaleY(0)', opacity: 0 },
+          { transform: 'scaleY(1)', opacity: 1, offset: 0.45 },
+          { transform: 'scaleY(1)', opacity: 0 },
+        ],
+        { duration: 950, delay: 120, easing: 'ease-out', fill: 'both' },
+      ));
+    }
+    if (beam) {
+      anims.push(beam.animate(
+        [{ filter: 'blur(10px) hue-rotate(0deg)' }, { filter: 'blur(10px) hue-rotate(50deg)' }],
+        { duration: 950, delay: 120, fill: 'both' },
+      ));
+    }
+
+    // 3 · Arrival: expanding spectrum ring + hue sparkles at the tile.
+    const ring = box.querySelector<HTMLElement>('[data-fx="ring"]');
+    if (ring) {
+      anims.push(ring.animate(
+        [
+          { transform: 'translate(-50%, -50%) scale(0.35)', opacity: 0.95 },
+          { transform: 'translate(-50%, -50%) scale(1.9)', opacity: 0 },
+        ],
+        { duration: 520, delay: 760, easing: 'ease-out', fill: 'both' },
+      ));
+    }
+    box.querySelectorAll<HTMLElement>('[data-fx="spark"]').forEach((sp, i) => {
+      const angle = (i / SPECTRUM.length) * Math.PI * 2;
+      const dist = 30 + (i % 3) * 14;
+      anims.push(sp.animate(
+        [
+          { transform: 'translate(-50%, -50%) scale(0.4)', opacity: 0 },
+          { transform: `translate(calc(-50% + ${Math.cos(angle) * dist}px), calc(-50% + ${Math.sin(angle) * dist}px)) scale(1)`, opacity: 1, offset: 0.4 },
+          { transform: `translate(calc(-50% + ${Math.cos(angle) * dist * 1.6}px), calc(-50% + ${Math.sin(angle) * dist * 1.6}px)) scale(0.2)`, opacity: 0 },
+        ],
+        { duration: 560, delay: 780 + i * 24, easing: 'ease-out', fill: 'both' },
+      ));
+    });
+
+    // The shot materializes on the wall as the clone touches down so the
+    // arrival burst plays OVER the settled tile; the overlay lingers until
+    // the ring/sparkles finish. Cleanup only cancels — it must never fire
+    // onLand (StrictMode's dev double-run would double-commit the shot).
+    const landTimer = window.setTimeout(() => landRef.current(), 860);
+    const finishTimer = window.setTimeout(() => finishRef.current(), 1500);
+    return () => {
+      window.clearTimeout(landTimer);
+      window.clearTimeout(finishTimer);
+      anims.forEach((a) => a.cancel());
+    };
+  }, [flight]);
+
+  const { from, to } = flight;
+  const toCx = to.left + to.width / 2;
+  const beamTop = from.top + from.height * 0.4;
+  const beamHeight = Math.max(40, to.top + to.height / 2 - beamTop);
+  return (
+    <div ref={boxRef} className="pointer-events-none absolute inset-0 z-50" aria-hidden>
+      <img data-fx="clone" src={flight.shot} alt="" className="absolute object-cover" />
+      <span
+        data-fx="beam"
+        className="absolute origin-top"
+        style={{
+          left: toCx - 17, top: beamTop, width: 34, height: beamHeight,
+          background: `linear-gradient(180deg, ${SPECTRUM[0]}00, ${SPECTRUM[1]}AA 30%, ${SPECTRUM[5]}CC 70%, ${SPECTRUM[4]})`,
+          filter: 'blur(10px)',
+        }}
+      />
+      <span
+        data-fx="core"
+        className="absolute origin-top"
+        style={{
+          left: toCx - 2, top: beamTop, width: 4, height: beamHeight,
+          background: 'linear-gradient(180deg, transparent, rgba(238,243,255,0.95))',
+          boxShadow: '0 0 14px 3px rgba(238,243,255,0.7)',
+        }}
+      />
+      <span
+        data-fx="ring"
+        className="absolute rounded-full"
+        style={{
+          left: toCx, top: to.top + to.height / 2, width: to.width * 2.2, height: to.width * 2.2,
+          background: `conic-gradient(${SPECTRUM.join(',')}, ${SPECTRUM[0]})`,
+          // Hollow the disc into a 3px spectrum ring (interior stays see-through).
+          WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3px))',
+          mask: 'radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3px))',
+          opacity: 0,
+        }}
+      />
+      {SPECTRUM.map((hue, i) => (
+        <span
+          key={hue}
+          data-fx="spark"
+          className="absolute h-1.5 w-1.5 rounded-full"
+          style={{
+            left: toCx, top: to.top + to.height / 2,
+            background: hue, boxShadow: `0 0 8px 2px ${hue}`, opacity: 0,
+            transitionDelay: `${i}ms`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 /* ── In-camera orb (FilterOrbs idiom, beam-branded + demo-scaled) ─────── */
 
 function Orb({
@@ -187,8 +346,12 @@ export default function DemoBooth() {
   const [trackerReady, setTrackerReady] = useState(false);
   const [wallShots, setWallShots] = useState<string[]>([]);
   const [canShare, setCanShare] = useState(false);
+  const [flight, setFlight] = useState<Flight | null>(null);
 
   const stageRef = useRef<StageCanvasHandle>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const stageBoxRef = useRef<HTMLDivElement>(null);
+  const wallGridRef = useRef<HTMLDivElement>(null);
   const { videoRef, ready, error, retry, facingMode, flipCamera, canFlip } = useCameraStream(started, false);
   const mirror = facingMode === 'user';
 
@@ -225,11 +388,30 @@ export default function DemoBooth() {
     }
   }, []);
 
+  const commitToWall = useCallback((img: string) => {
+    setWallShots((prev) => [...prev, img].slice(-WALL_SLOTS));
+  }, []);
+
   const beamToWall = useCallback(() => {
     if (!shot) return;
-    setWallShots((prev) => [...prev, shot].slice(-WALL_SLOTS));
+    const root = rootRef.current;
+    const stageBox = stageBoxRef.current;
+    // The tile this shot will land in (grid shifts left once full).
+    const slot = Math.min(wallShots.length, WALL_SLOTS - 1);
+    const tile = wallGridRef.current?.children[slot] as HTMLElement | undefined;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    if (!root || !stageBox || !tile || reduceMotion || flight) {
+      commitToWall(shot);
+      setShot(null);
+      return;
+    }
+    const rootBox = root.getBoundingClientRect();
+    const rel = (r: DOMRect): BeamRect => ({
+      left: r.left - rootBox.left, top: r.top - rootBox.top, width: r.width, height: r.height,
+    });
+    setFlight({ shot, from: rel(stageBox.getBoundingClientRect()), to: rel(tile.getBoundingClientRect()) });
     setShot(null);
-  }, [shot]);
+  }, [shot, wallShots.length, flight, commitToWall]);
 
   const share = useCallback(async () => {
     if (!shot) return;
@@ -241,17 +423,17 @@ export default function DemoBooth() {
     }
   }, [shot]);
 
-  // The brand beam-in for freshly landed wall tiles (Web Animations API —
-  // runs once on mount, no CSS keyframes to register).
+  // Materialize flare for freshly landed wall tiles — the BeamFlightFx clone
+  // already did the travel, so arrival is a hot flash settling, not a drop.
   const beamTileIn = useCallback((el: HTMLDivElement | null) => {
     if (!el || el.dataset.beamed) return;
     el.dataset.beamed = '1';
     el.animate(
       [
-        { opacity: 0, transform: 'translateY(-30px) scaleY(0.55)', filter: 'brightness(2.4)' },
-        { opacity: 1, transform: 'none', filter: 'brightness(1)' },
+        { opacity: 0.4, transform: 'scale(0.9)', filter: 'brightness(2.6) saturate(1.6)' },
+        { opacity: 1, transform: 'none', filter: 'brightness(1) saturate(1)' },
       ],
-      { duration: 700, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
+      { duration: 420, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
     );
   }, []);
 
@@ -272,9 +454,10 @@ export default function DemoBooth() {
   };
 
   return (
-    <div className="flex w-full flex-col items-center">
+    <div ref={rootRef} className="relative flex w-full flex-col items-center">
       {/* Stage */}
       <div
+        ref={stageBoxRef}
         className="relative w-full max-w-[320px] overflow-hidden rounded-[2rem] sm:max-w-[360px]"
         style={{
           aspectRatio: '9 / 16',
@@ -495,7 +678,7 @@ export default function DemoBooth() {
         <p className="mb-3 text-center font-label text-[9px] uppercase tracking-luxe text-brand-muted/60">
           The live wall — your shots beam in
         </p>
-        <div className="grid grid-cols-6 gap-2">
+        <div ref={wallGridRef} className="grid grid-cols-6 gap-2">
           {Array.from({ length: WALL_SLOTS }, (_, i) => {
             const img = wallShots[i];
             return img ? (
@@ -519,6 +702,14 @@ export default function DemoBooth() {
           })}
         </div>
       </div>
+
+      {flight && (
+        <BeamFlightFx
+          flight={flight}
+          onLand={() => commitToWall(flight.shot)}
+          onFinished={() => setFlight(null)}
+        />
+      )}
     </div>
   );
 }
