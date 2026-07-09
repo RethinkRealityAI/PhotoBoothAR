@@ -22,7 +22,8 @@ GUEST EXPERIENCE (per event, at /e/<slug>):
 HOST STUDIO (/host/events/<id>, tabs):
 - Dashboard: go-live checklist (name, look, frames, test photo), live stats, Go-live button (event starts as draft; guests join once live).
 - Experiences (library): every frame/filter/3D piece; publish/unpublish; set booth default.
-- Assets, 2D/Shader creator (upload art or AI-generate frames/stickers; first 3 AI images per event are free, then credits — 1 credit per Gemini image), 3D Anchors (place 3D props on face anchor points with a live preview).
+- Studio: one unified editor for every experience. Switch between 2D (frames, stickers, shader filters), 3D (head-anchored props with a live face-tracked preview + reference-head orbit view), and Preview (see the composited result exactly as guests capture) — all sharing one camera. Browse or drag built-in art, uploads, and head pieces onto the canvas; upload art or AI-generate frames/stickers (first 3 AI images per event are free, then 1 credit each). 3D props are occluded by the real head, and a per-event "head size" slider matches props to real faces. AI Scene Director (top-bar button): describe a look and it designs a matching frame + filter + 3D piece to accept piece by piece.
+- Assets: every file uploaded to the event's asset bucket (browse, copy URL, delete).
 - Wall: moderation + wall settings (QR, leaderboard, challenges toggle).
 - Challenges: create/edit/delete photo missions (title, emoji, points, active).
 - Cards: greeting cards / video guestbook — create a card, share its contribution link (/c/<publicId>/contribute?t=<token>) so anyone can add photos/videos/notes; publish makes the card viewable at /c/<publicId>; publishing/email requires a premium+ event (or org Pro subscription); Deluxe adds a rendered MP4 keepsake film (30 credits).
@@ -42,6 +43,8 @@ COMMON HOW-TOS:
 - Show someone what Beamwall does without an account: the home page (/) has a live no-sign-in demo booth — real AR camera, frames, effects and a mini live wall.
 - Go live: finish the Dashboard checklist → Go live button. Share: Share tab → print signage (point signage at /welcome).
 - Change the booth's default frame: Experiences → publish the frame → set as default (or let the Frame Studio do it at create time).
+- Design a whole coordinated look fast: Studio → Scene Director → describe the vibe → accept the frame, filter, and head piece it proposes.
+- Make a 3D prop sit right on real faces: Studio → 3D → nudge the "Head size" slider up if props look small in Preview.
 - Add a challenge: Challenges tab → New challenge (or ask the copilot).
 - Make a greeting card: Cards tab → create card → copy the contribution link (or ask the copilot). Publish when ready to share the viewer link.
 - Day-of staff: Manager access tab → create token → share /m/<slug> link.

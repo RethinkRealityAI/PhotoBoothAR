@@ -144,13 +144,13 @@ export default function AiGeneratePanel({
   const busy = phase === 'starting' || phase === 'running';
 
   return (
-    <div className="shrink-0 border-t border-gold-700/20 px-3 py-3 flex flex-col gap-2.5">
-      <p className="font-label text-[10px] uppercase tracking-luxe text-champagne/50 flex items-center gap-1.5">
-        <Wand2 size={11} className="text-gold-400/70" /> AI Generate (Meshy)
+    <div className="shrink-0 border-t border-white/10 px-3 py-3 flex flex-col gap-2.5">
+      <p className="font-label text-[10px] uppercase tracking-widest text-brand-muted/60 flex items-center gap-1.5">
+        <Wand2 size={11} className="text-accent-2" /> AI Generate (Meshy)
       </p>
 
       {/* mode toggle */}
-      <div className="flex items-center gap-1 glass rounded-lg p-0.5">
+      <div className="flex items-center gap-1 bg-white/[0.04] rounded-lg p-0.5">
         {([
           { m: 'text' as const, icon: Box, label: 'Text' },
           { m: 'image' as const, icon: ImageIcon, label: 'Image' },
@@ -161,8 +161,8 @@ export default function AiGeneratePanel({
             disabled={busy}
             className={[
               'flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md',
-              'font-label text-[9px] uppercase tracking-luxe transition-all',
-              mode === m ? 'bg-gold-400/20 text-gold-300' : 'text-ivory/40 hover:text-ivory/70',
+              'font-label text-[9px] uppercase tracking-widest transition-all',
+              mode === m ? 'bg-accent/20 text-accent-2' : 'text-brand-muted/40 hover:text-brand-fg',
             ].join(' ')}
           >
             <Icon size={11} /> {label}
@@ -176,7 +176,7 @@ export default function AiGeneratePanel({
           onChange={(e) => setImageUrl(e.target.value)}
           disabled={busy}
           placeholder="Reference image URL (https://…)"
-          className="w-full bg-white/5 border border-gold-400/15 rounded-lg px-2.5 py-1.5 text-ivory text-[11px] placeholder-white/20 outline-none focus:border-gold-400/50"
+          className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-2.5 py-1.5 text-brand-fg text-[11px] placeholder:text-brand-muted/40 outline-none focus:border-accent/50"
         />
       )}
       <textarea
@@ -187,7 +187,7 @@ export default function AiGeneratePanel({
           ? "Describe a head piece — e.g. 'ornate gold crown with rubies'…"
           : 'Optional name / notes for the model…'}
         rows={2}
-        className="w-full bg-white/5 border border-gold-400/15 rounded-lg px-2.5 py-1.5 text-ivory text-[11px] placeholder-white/20 outline-none focus:border-gold-400/50 resize-none"
+        className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-2.5 py-1.5 text-brand-fg text-[11px] placeholder:text-brand-muted/40 outline-none focus:border-accent/50 resize-none"
       />
 
       {error && (
@@ -196,7 +196,7 @@ export default function AiGeneratePanel({
           {showBillingLink && (
             <>
               {' '}
-              <a href="/host/billing" className="underline text-gold-300 hover:text-gold-200">
+              <a href="/host/billing" className="underline text-accent-2 hover:text-accent">
                 Open billing
               </a>
             </>
@@ -206,44 +206,44 @@ export default function AiGeneratePanel({
 
       {/* job status card */}
       {phase === 'running' && (
-        <div className="glass rounded-lg px-3 py-2 flex items-center gap-2 border border-gold-400/15">
-          <Loader size={13} className="text-gold-400 animate-spin shrink-0" />
+        <div className="bg-white/[0.04] rounded-lg px-3 py-2 flex items-center gap-2 border border-accent/15">
+          <Loader size={13} className="text-accent-2 animate-spin shrink-0" />
           <div className="min-w-0">
-            <p className="font-label text-[9px] uppercase tracking-luxe text-gold-300">
+            <p className="font-label text-[9px] uppercase tracking-widest text-accent-2">
               Generating 3D model{typeof progress === 'number' ? ` · ${progress}%` : '…'}
             </p>
-            <p className="font-sans text-[9px] text-ivory/35">Usually 1–3 minutes — keep this tab open.</p>
+            <p className="font-sans text-[9px] text-brand-muted/35">Usually 1–3 minutes — keep this tab open.</p>
           </div>
         </div>
       )}
       {phase === 'timeout' && (
-        <div className="glass rounded-lg px-3 py-2 border border-gold-400/15">
-          <p className="font-sans text-[10px] text-champagne/60 leading-snug">
+        <div className="bg-white/[0.04] rounded-lg px-3 py-2 border border-accent/15">
+          <p className="font-sans text-[10px] text-brand-muted/60 leading-snug">
             Still working — the finished model will appear in your Library shortly.
           </p>
-          <button onClick={reset} className="mt-1 flex items-center gap-1 text-[9px] text-champagne/40 hover:text-gold-300 transition-colors">
+          <button onClick={reset} className="mt-1 flex items-center gap-1 text-[9px] text-brand-muted/40 hover:text-accent-2 transition-colors">
             <RotateCcw size={10} /> New generation
           </button>
         </div>
       )}
       {phase === 'done' && result && (
-        <div className="glass rounded-lg px-3 py-2 border border-emerald-400/25 flex flex-col gap-1.5">
-          <p className="font-label text-[9px] uppercase tracking-luxe text-emerald-300">
+        <div className="bg-white/[0.04] rounded-lg px-3 py-2 border border-emerald-400/25 flex flex-col gap-1.5">
+          <p className="font-label text-[9px] uppercase tracking-widest text-emerald-300">
             “{result.name}” is ready
           </p>
-          <p className="font-sans text-[9px] text-ivory/40 leading-snug">
+          <p className="font-sans text-[9px] text-brand-muted/40 leading-snug">
             Saved to your Library as a draft — open it to place it on a head anchor, then publish.
           </p>
           <button
             onClick={() => onOpenExperience(result)}
-            className="flex items-center justify-center gap-1.5 py-1.5 bg-foil text-noir-900 rounded-lg font-label text-[9px] uppercase tracking-luxe font-bold hover:scale-[1.02] transition-transform"
+            className="flex items-center justify-center gap-1.5 py-1.5 bg-foil text-white rounded-lg font-label text-[9px] uppercase tracking-widest font-bold hover:scale-[1.02] transition-transform"
           >
             <ExternalLink size={11} /> Open for anchor placement
           </button>
         </div>
       )}
       {(phase === 'failed') && (
-        <button onClick={reset} className="flex items-center gap-1 text-[9px] text-champagne/40 hover:text-gold-300 transition-colors">
+        <button onClick={reset} className="flex items-center gap-1 text-[9px] text-brand-muted/40 hover:text-accent-2 transition-colors">
           <RotateCcw size={10} /> Try again
         </button>
       )}
@@ -252,7 +252,7 @@ export default function AiGeneratePanel({
         <button
           onClick={start}
           disabled={busy || (mode === 'text' ? !prompt.trim() : !imageUrl.trim())}
-          className="flex items-center justify-center gap-1.5 py-2 bg-foil text-noir-900 rounded-xl font-bold text-[10px] font-label uppercase tracking-widest disabled:opacity-40 hover:scale-[1.02] transition-transform"
+          className="flex items-center justify-center gap-1.5 py-2 bg-foil text-white rounded-xl font-bold text-[10px] font-label uppercase tracking-widest disabled:opacity-40 glow-accent hover:scale-[1.02] transition-transform"
         >
           {phase === 'starting' ? <Loader size={13} className="animate-spin" /> : <Wand2 size={13} />}
           {phase === 'starting' ? 'Starting…' : 'Generate · 10 credits'}
@@ -260,7 +260,7 @@ export default function AiGeneratePanel({
       )}
 
       {balance !== null && (
-        <p className="text-[9px] text-champagne/35 font-sans">{balance} credit{balance === 1 ? '' : 's'} left</p>
+        <p className="text-[9px] text-brand-muted/35 font-sans">{balance} credit{balance === 1 ? '' : 's'} left</p>
       )}
     </div>
   );
