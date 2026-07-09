@@ -4,7 +4,15 @@
 Rebuild the event studio (/host/events/:id) into one unified premium editor: single camera, in-canvas 2D·3D·Preview switching, DnD assets dock, AR occlusion + head-size calibration, AI Scene Director hero feature (user-approved plan).
 
 ## Now
-STUDIO v2 (user-directed, 2026-07-09 evening): multi-object scenes within a mode + undo/redo/delete + layers panel; assets dock = built-ins + uploads + my experiences; ALL 4 extras (snapping/nudge, per-object animation, duplicate, Director's Preview QR). ORCHESTRATION MODE per user: I direct; implementation delegated to subagents (opus for complex: state core, studio UI; sonnet for high-effort: booth rendering, helpers, assets dock); then UI/UX reviewer + logic auditor agents; I review every wave. Wave 1 (parallel, disjoint files): A-opus lib/studio state+history+draftMapping; B-sonnet booth additive multi-layer+animation (StageCanvas overlays[], Overlay3D pieces[], animation.ts); C-sonnet snap.ts + assetSources.ts. Wave 2: D1-opus studio UI core (stage/props/layers/undo/snap/shell), then D2-sonnet assets dock tabs + QR test-on-phone + duplicate. Wave 3: reviewers → my fixes → gates → push PR #14.
+STUDIO v2 Wave 3 IN FLIGHT: UI/UX reviewer (sonnet, Playwright-driven) + adversarial logic auditor (opus) running in parallel over commits 31e9d3b..dfb4c61. Next: I triage their findings, fix (myself or dispatch a fix agent), final gates (tsc/test/build/harness), STATE + PR description update, push.
+
+## Studio v2 landed (all reviewed by me, per-wave commits)
+- W1-A state core (146 lib tests): objects[]/selectedId model, add-vs-replace rule, withHistory undo/redo (coalescing, cap 50), draftMapping layers↔objects with layer-0 legacy mirror (single plain object saves byte-identical). f202260.
+- W1-B booth: StageCanvas overlays[] + Overlay3D pieces[] (additive, legacy path byte-identical, one occluder max) + Booth config.layers wiring + pure animation.ts (float/pulse/spin 2D+3D). b43b3a2/a9b3904/872ddeb.
+- W1-C: snap.ts (centre/thirds guides + nudge) + assetSources.ts (DockItem from uploads/experiences + filter). 0bf5054/aa9d4ae.
+- W2-D1 studio UI: layers panel (select/reorder/delete/anim badges), undo/redo UI + Ctrl+Z/Y + Delete + arrow-nudge, snap guide lines, animation chips, Duplicate, multi-render 2D stage + both 3D views, Preview via overlays/pieces, N-blob save map. f202260.
+- W2-D2: AssetsDock Library/Uploads/Mine tabs + search; TestOnPhone QR (experience/:id deep link, save-first flow); Library Duplicate pre-existed. dfb4c61.
+- Gates at dfb4c61: tsc 0 · 309 tests · build ✓ · harness green all viewports.
 
 ## Verification harness (NEW)
 - Playwright devDep + Chromium at /opt/pw-browsers/chromium-1194/chrome-linux/chrome (pass executablePath).
