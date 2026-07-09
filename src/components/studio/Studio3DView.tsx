@@ -15,6 +15,7 @@
  */
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
+import type { ThreeEvent } from '@react-three/fiber';
 import { ANCHOR_MAP, RIG_CAMERA } from '../../lib/faceRig';
 import { FaceRig, Model } from '../ar/FaceRig';
 import AssetGizmo from '../ar/AssetGizmo';
@@ -23,20 +24,21 @@ import FaceOccluder from '../ar/FaceOccluder';
 import ReferenceBust from '../ar/ReferenceBust';
 import AnchorDots from '../admin/creator3d/AnchorDots';
 import type { AnchorConfig, HeadAnchor } from '../../types';
+import type { Object3D } from '../../lib/studio/state';
 
 interface Props {
   view: 'live' | 'orbit';
   videoId: string;
-  assetUrl: string | null;
-  proceduralId: string | null;
-  anchor: HeadAnchor;
-  anchorConfig: Partial<AnchorConfig>;
+  /** Every 3D object in the scene (ordered). */
+  objects: Object3D[];
+  selectedId: string | null;
   paused: boolean;
   headScale: number;
-  /** Opt-in occlusion (per-experience). Default off so assets always show. */
-  occlude?: boolean;
+  /** Master occlusion gate (booth source === 'db'); per-object opt-in on top. */
+  occlusionEnabled?: boolean;
   debugOcclusion?: boolean;
   matrixRef?: React.MutableRefObject<number[] | null>;
+  onSelect: (id: string) => void;
   onAnchorSelect: (a: HeadAnchor) => void;
   onTransformChange: (patch: Partial<AnchorConfig>) => void;
   onFaceVisible?: (v: boolean) => void;
@@ -44,32 +46,43 @@ interface Props {
   onGizmoDragEnd?: () => void;
 }
 
-function AssetContent({ assetUrl, proceduralId }: { assetUrl: string | null; proceduralId: string | null }) {
-  if (isHeadPiece(proceduralId)) return <HeadPiece id={proceduralId as string} />;
-  if (assetUrl) return <Model url={assetUrl} />;
+function ObjectContent({ object }: { object: Object3D }) {
+  if (object.type === 'headpiece' && isHeadPiece(object.proceduralId)) return <HeadPiece id={object.proceduralId as string} />;
+  if (object.assetUrl) return <Model url={object.assetUrl} />;
   return null;
 }
 
 export default function Studio3DView({
   view,
   videoId,
-  assetUrl,
-  proceduralId,
-  anchor,
-  anchorConfig,
+  objects,
+  selectedId,
   paused,
   headScale,
-  occlude = false,
+  occlusionEnabled = false,
   debugOcclusion = false,
   matrixRef,
+  onSelect,
   onAnchorSelect,
   onTransformChange,
   onFaceVisible,
   onGizmoDragStart,
   onGizmoDragEnd,
 }: Props) {
-  const hasAsset = !!assetUrl || isHeadPiece(proceduralId);
-  const base = ANCHOR_MAP[anchor]?.offset ?? ([0, 0, 0] as [number, number, number]);
+  const selected = objects.find((o) => o.id === selectedId) ?? null;
+  // AnchorDots highlight the SELECTED object's anchor (or crown when none).
+  const activeAnchor: HeadAnchor = selected?.anchor ?? 'crown';
+  // First object opting into occlusion wins the single (non-duplicated) occluder.
+  const occluderIdx = occlusionEnabled ? objects.findIndex((o) => o.occlusion === true) : -1;
+
+  // Clicking a non-selected piece's mesh selects it (PivotControls on the
+  // selected piece may swallow its own events — acceptable; the layers panel is
+  // always available as a fallback).
+  const selectHandler = (o: Object3D) => (e: ThreeEvent<MouseEvent>) => {
+    if (o.id === selectedId) return;
+    e.stopPropagation();
+    onSelect(o.id);
+  };
 
   if (view === 'orbit') {
     return (
@@ -88,13 +101,26 @@ export default function Studio3DView({
         <ReferenceBust />
         {/* Occluder shown faintly in orbit only when debugging placement. */}
         {debugOcclusion && <FaceOccluder scale={headScale} debug />}
-        <AnchorDots activeAnchor={anchor} onSelect={onAnchorSelect} />
+        <AnchorDots activeAnchor={activeAnchor} onSelect={onAnchorSelect} />
 
-        {hasAsset && (
-          <AssetGizmo base={base} config={anchorConfig} enabled onChange={onTransformChange}>
-            <AssetContent assetUrl={assetUrl} proceduralId={proceduralId} />
-          </AssetGizmo>
-        )}
+        {objects.map((o) => {
+          const isSel = o.id === selectedId;
+          const base = ANCHOR_MAP[o.anchor]?.offset ?? ([0, 0, 0] as [number, number, number]);
+          return (
+            <group key={o.id} onClick={selectHandler(o)}>
+              <AssetGizmo
+                base={base}
+                config={o.anchorConfig}
+                enabled={isSel}
+                onChange={isSel ? onTransformChange : undefined}
+                onDragStart={onGizmoDragStart}
+                onDragEnd={onGizmoDragEnd}
+              >
+                <ObjectContent object={o} />
+              </AssetGizmo>
+            </group>
+          );
+        })}
       </Canvas>
     );
   }
@@ -111,31 +137,42 @@ export default function Studio3DView({
       <directionalLight position={[5, 10, 8]} intensity={1.4} color="#EAF1FF" />
       <directionalLight position={[-4, 2, -4]} intensity={0.3} color="#5B8CFF" />
 
-      <FaceRig
-        videoId={videoId}
-        anchor={anchor}
-        config={anchorConfig}
-        paused={paused}
-        mirror
-        occlude={occlude && hasAsset}
-        headScale={headScale}
-        debugOcclusion={debugOcclusion}
-        matrixRef={matrixRef}
-        editable={hasAsset}
-        onVisibilityChange={onFaceVisible}
-        onTransformChange={onTransformChange}
-        onGizmoDragStart={onGizmoDragStart}
-        onGizmoDragEnd={onGizmoDragEnd}
-      >
-        {hasAsset ? (
-          <AssetContent assetUrl={assetUrl} proceduralId={proceduralId} />
-        ) : (
+      {objects.length === 0 ? (
+        // Empty 3D scene: a placeholder marker on the head so tracking feedback
+        // (onFaceVisible) still fires and the head is visible to place onto.
+        <FaceRig videoId={videoId} anchor="crown" config={{}} paused={paused} mirror headScale={headScale} matrixRef={matrixRef} onVisibilityChange={onFaceVisible}>
           <mesh>
             <sphereGeometry args={[0.8, 16, 14]} />
             <meshStandardMaterial color="#5B8CFF" emissive="#5B8CFF" emissiveIntensity={1.1} metalness={0.6} roughness={0.25} toneMapped={false} />
           </mesh>
-        )}
-      </FaceRig>
+        </FaceRig>
+      ) : (
+        objects.map((o, i) => {
+          const isSel = o.id === selectedId;
+          return (
+            <group key={o.id} onClick={selectHandler(o)}>
+              <FaceRig
+                videoId={videoId}
+                anchor={o.anchor}
+                config={o.anchorConfig}
+                paused={paused}
+                mirror
+                occlude={i === occluderIdx}
+                headScale={headScale}
+                debugOcclusion={debugOcclusion}
+                matrixRef={i === 0 ? matrixRef : undefined}
+                editable={isSel}
+                onVisibilityChange={i === 0 ? onFaceVisible : undefined}
+                onTransformChange={isSel ? onTransformChange : undefined}
+                onGizmoDragStart={onGizmoDragStart}
+                onGizmoDragEnd={onGizmoDragEnd}
+              >
+                <ObjectContent object={o} />
+              </FaceRig>
+            </group>
+          );
+        })
+      )}
     </Canvas>
   );
 }

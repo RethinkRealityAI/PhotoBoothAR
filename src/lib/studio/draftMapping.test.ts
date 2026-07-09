@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { experienceToDraft, draftToPayload, isStudioKind } from './draftMapping';
-import { initialDraft } from './state';
+import { experienceToDraft, draftToPayload, isStudioKind, type UrlResolver } from './draftMapping';
+import { initialDraft, createOverlay, createObject3D, type Overlay2D, type Object3D, type StudioDraft } from './state';
 import { defaultParams } from '../shaders';
-import type { Experience } from '../../types';
+import type { Experience, ExperienceDraft } from '../../types';
 
 const baseExp = (over: Partial<Experience>): Experience => ({
   id: 'e1',
@@ -19,6 +19,12 @@ const baseExp = (over: Partial<Experience>): Experience => ({
   ...over,
 });
 
+/** A resolver that returns each object's own id mapped through `map` (or null). */
+const resolver = (map: Record<string, string | null>): UrlResolver => (id) => map[id] ?? null;
+/** Re-hydrate a saved payload into an Experience for a full round-trip. */
+const expFromPayload = (p: ExperienceDraft): Experience =>
+  baseExp({ kind: p.kind, asset_url: p.asset_url ?? null, config: p.config! });
+
 describe('isStudioKind', () => {
   it('accepts the four editable kinds, rejects composite/junk', () => {
     for (const k of ['shader', 'border', '2d_filter', '3d_attachment']) expect(isStudioKind(k)).toBe(true);
@@ -33,10 +39,11 @@ describe('round-trip: shader', () => {
     const draft = experienceToDraft(exp)!;
     expect(draft.shaderId).toBe('champagne-sparkle');
     expect(draft.shaderParams).toEqual({ uIntensity: 0.7 });
-    const payload = draftToPayload(draft, null, null);
+    const payload = draftToPayload(draft, resolver({}), null);
     expect(payload.kind).toBe('shader');
     expect(payload.config?.shader).toEqual({ shaderId: 'champagne-sparkle', params: { uIntensity: 0.7 } });
     expect(payload.asset_url).toBeNull();
+    expect(payload.config?.layers).toBeUndefined();
   });
   it('missing params fall back to registry defaults', () => {
     const exp = baseExp({ kind: 'shader', config: { shader: { shaderId: 'champagne-sparkle' } } });
@@ -44,37 +51,77 @@ describe('round-trip: shader', () => {
   });
 });
 
-describe('round-trip: border / sticker', () => {
-  it('stored asset loads as custom (builtin sync must not overwrite it)', () => {
+describe('round-trip: single 2D (byte-identical legacy shape — no layers)', () => {
+  it('stored asset loads as custom, saves with NO layers key', () => {
     const exp = baseExp({
       kind: 'border',
       asset_url: 'https://cdn/frame.png',
       config: { transform: { scale: 1.2, x: 5, y: -3, rotation: 10 }, opacity: 1 },
     });
     const draft = experienceToDraft(exp)!;
-    expect(draft.overlayUrl).toBe('https://cdn/frame.png');
-    expect(draft.overlayIsBuiltin).toBe(false);
-    expect(draft.transform).toEqual({ scale: 1.2, x: 5, y: -3, rotation: 10 });
-    const payload = draftToPayload(draft, 'https://cdn/frame.png', null);
+    const o = draft.objects[0] as Overlay2D;
+    expect(draft.objects).toHaveLength(1);
+    expect(o.url).toBe('https://cdn/frame.png');
+    expect(o.isBuiltin).toBe(false);
+    expect(o.transform).toEqual({ scale: 1.2, x: 5, y: -3, rotation: 10 });
+
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/frame.png' }), null);
+    expect(payload.config?.layers).toBeUndefined(); // byte-identical to today
     expect(payload.config?.transform).toEqual({ scale: 1.2, x: 5, y: -3, rotation: 10 });
     expect(payload.config?.opacity).toBe(1);
     expect(payload.asset_url).toBe('https://cdn/frame.png');
   });
 });
 
-describe('round-trip: 3d_attachment', () => {
-  it('GLB attachment keeps anchor config', () => {
+describe('animation on a single object forces layers', () => {
+  it('a lone animated overlay writes config.layers (len 1) plus the legacy mirror', () => {
+    const o = createOverlay('2d_filter', { url: 'blob:s', isBuiltin: false, name: 'Sticker', animation: 'float', transform: { scale: 1, x: 2, y: 2, rotation: 0 } });
+    const draft: StudioDraft = { ...initialDraft('2d_filter'), objects: [o], selectedId: o.id, kind: '2d_filter' };
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/s.png' }), null);
+    expect(payload.config?.layers).toHaveLength(1);
+    expect(payload.config?.layers?.[0].animation).toBe('float');
+    // legacy mirror still present
+    expect(payload.config?.transform).toEqual({ scale: 1, x: 2, y: 2, rotation: 0 });
+    expect(payload.asset_url).toBe('https://cdn/s.png');
+  });
+});
+
+describe('round-trip: multi 2D (mixed border + sticker)', () => {
+  it('writes an ordered layers list, mirrors layer 0, and reloads as N objects', () => {
+    const border = createOverlay('border', { url: 'data:border', isBuiltin: true, builtinId: 'frame-classic', name: 'Frame', transform: { scale: 1, x: 0, y: 0, rotation: 0 } });
+    const sticker = createOverlay('2d_filter', { url: 'blob:s', isBuiltin: false, name: 'Sticker', transform: { scale: 0.5, x: 10, y: 20, rotation: 5 } });
+    const draft: StudioDraft = { ...initialDraft('border'), objects: [border, sticker], selectedId: border.id, kind: 'border' };
+    const urls = { [border.id]: 'https://cdn/border.png', [sticker.id]: 'https://cdn/sticker.png' };
+    const payload = draftToPayload(draft, resolver(urls), null);
+
+    expect(payload.config?.layers).toHaveLength(2);
+    expect(payload.config?.layers?.map((l) => l.kind)).toEqual(['border', '2d_filter']);
+    // layer-0 mirror
+    expect(payload.asset_url).toBe('https://cdn/border.png');
+    expect(payload.config?.transform).toEqual(border.transform);
+    expect(payload.config?.layers?.[1].asset_url).toBe('https://cdn/sticker.png');
+    expect(payload.config?.layers?.[1].transform).toEqual(sticker.transform);
+
+    const reloaded = experienceToDraft(expFromPayload(payload))!;
+    expect(reloaded.objects).toHaveLength(2);
+    expect(reloaded.objects.map((o) => (o as Overlay2D).overlayKind)).toEqual(['border', '2d_filter']);
+  });
+});
+
+describe('round-trip: single 3D', () => {
+  it('GLB attachment keeps anchor config, no layers key', () => {
     const exp = baseExp({
       kind: '3d_attachment',
       asset_url: 'https://cdn/crown.glb',
-      config: {
-        anchor: { anchor: 'forehead', offset: { x: 0, y: 1, z: 2 }, rotation: { x: 0.1, y: 0, z: 0 }, scale: 3 },
-      },
+      config: { anchor: { anchor: 'forehead', offset: { x: 0, y: 1, z: 2 }, rotation: { x: 0.1, y: 0, z: 0 }, scale: 3 } },
     });
     const draft = experienceToDraft(exp)!;
-    expect(draft.anchor).toBe('forehead');
-    expect(draft.anchorConfig.scale).toBe(3);
-    const payload = draftToPayload(draft, 'https://cdn/crown.glb', null);
+    const o = draft.objects[0] as Object3D;
+    expect(o.type).toBe('model');
+    expect(o.anchor).toBe('forehead');
+    expect(o.anchorConfig.scale).toBe(3);
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/crown.glb' }), null);
+    expect(payload.config?.layers).toBeUndefined();
     expect(payload.config?.anchor).toEqual(exp.config.anchor);
     expect(payload.config?.procedural).toBeUndefined();
     expect(payload.asset_url).toBe('https://cdn/crown.glb');
@@ -88,35 +135,87 @@ describe('round-trip: 3d_attachment', () => {
       },
     });
     const draft = experienceToDraft(exp)!;
-    expect(draft.proceduralId).toBe('hope-halo');
-    const payload = draftToPayload(draft, 'https://ignored/upload.glb', null);
+    const o = draft.objects[0] as Object3D;
+    expect(o.type).toBe('headpiece');
+    expect(o.proceduralId).toBe('hope-halo');
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://ignored/upload.glb' }), null);
     expect(payload.asset_url).toBeNull();
     expect(payload.config?.procedural).toBe('hope-halo');
   });
 });
 
+describe('round-trip: multi 3D (model + head piece, per-layer occlusion/animation)', () => {
+  it('mirrors layer 0 and preserves per-layer occlusion + animation', () => {
+    const piece = createObject3D('headpiece', {
+      proceduralId: 'royal-crown',
+      name: 'Crown',
+      anchor: 'crown',
+      anchorConfig: { offset: { x: 0, y: 3, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+      occlusion: true,
+      animation: 'spin',
+    });
+    const model = createObject3D('model', { assetUrl: 'blob:m', name: 'Model', animation: 'pulse' });
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [piece, model], selectedId: piece.id, kind: '3d_attachment' };
+    const urls = { [model.id]: 'https://cdn/model.glb' };
+    const payload = draftToPayload(draft, resolver(urls), 'thumb');
+
+    // layer-0 mirror (the procedural head piece)
+    expect(payload.asset_url).toBeNull();
+    expect(payload.config?.anchor?.anchor).toBe('crown');
+    expect(payload.config?.procedural).toBe('royal-crown');
+    expect(payload.config?.occlusion).toBe(true);
+    expect(payload.thumbnail_url).toBe('thumb');
+
+    const layers = payload.config?.layers!;
+    expect(layers).toHaveLength(2);
+    expect(layers[0].occlusion).toBe(true);
+    expect(layers[0].animation).toBe('spin');
+    expect(layers[0].asset_url).toBeNull();
+    expect(layers[0].procedural).toBe('royal-crown');
+    expect(layers[1].asset_url).toBe('https://cdn/model.glb');
+    expect(layers[1].animation).toBe('pulse');
+    expect(layers[1].procedural).toBeUndefined();
+    expect(layers[1].occlusion).toBeUndefined();
+
+    const reloaded = experienceToDraft(expFromPayload(payload))!;
+    expect(reloaded.objects).toHaveLength(2);
+    expect((reloaded.objects[0] as Object3D).occlusion).toBe(true);
+    expect((reloaded.objects[1] as Object3D).type).toBe('model');
+  });
+});
+
+describe('legacy experience with no layers loads as one object', () => {
+  it('an old single-object row rebuilds a one-object scene', () => {
+    const exp = baseExp({ kind: 'border', asset_url: 'https://cdn/f.png', config: { transform: { scale: 1, x: 0, y: 0, rotation: 0 } } });
+    const draft = experienceToDraft(exp)!;
+    expect(draft.objects).toHaveLength(1);
+    expect((draft.objects[0] as Overlay2D).url).toBe('https://cdn/f.png');
+  });
+});
+
 describe('scene tag and occlusion (opt-in)', () => {
   it('scene tag round-trips; occlusion is never written on a 2D kind', () => {
-    const draft = initialDraft('shader');
-    draft.scene = 'Neon Nights';
-    const payload = draftToPayload(draft, null, null);
+    const border = createOverlay('border', { url: 'data:b', isBuiltin: true });
+    const draft: StudioDraft = { ...initialDraft('border'), objects: [border], selectedId: border.id, kind: 'border', scene: 'Neon Nights' };
+    const payload = draftToPayload(draft, resolver({ [border.id]: 'https://cdn/b.png' }), null);
     expect(payload.config?.scene).toBe('Neon Nights');
     expect(payload.config?.occlusion).toBeUndefined();
   });
   it('occlusion is opt-in: new pieces default OFF; enabling persists true', () => {
-    // New 3D pieces default occlusion OFF so an asset is never surprise-hidden.
-    const fresh = initialDraft('3d_attachment');
-    expect(fresh.occlusion).toBe(false);
-    expect(draftToPayload(fresh, 'x', null).config?.occlusion).toBeUndefined();
+    const off = createObject3D('headpiece', { proceduralId: 'royal-crown' });
+    expect(off.occlusion).toBe(false);
+    const offDraft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [off], selectedId: off.id, kind: '3d_attachment' };
+    expect(draftToPayload(offDraft, resolver({}), null).config?.occlusion).toBeUndefined();
 
-    const on = { ...fresh, occlusion: true };
-    const onPayload = draftToPayload(on, 'x', null);
+    const on = createObject3D('headpiece', { proceduralId: 'royal-crown', occlusion: true });
+    const onDraft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [on], selectedId: on.id, kind: '3d_attachment' };
+    const onPayload = draftToPayload(onDraft, resolver({}), null);
     expect(onPayload.config?.occlusion).toBe(true);
-    expect(experienceToDraft(baseExp({ kind: '3d_attachment', config: onPayload.config! }))!.occlusion).toBe(true);
+    expect((experienceToDraft(expFromPayload(onPayload))!.objects[0] as Object3D).occlusion).toBe(true);
   });
   it('an existing experience with no occlusion flag loads as opt-in OFF (no silent change)', () => {
-    const exp = baseExp({ kind: '3d_attachment', config: { anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } } });
-    expect(experienceToDraft(exp)!.occlusion).toBe(false);
+    const exp = baseExp({ kind: '3d_attachment', asset_url: 'https://cdn/x.glb', config: { anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } } });
+    expect((experienceToDraft(exp)!.objects[0] as Object3D).occlusion).toBe(false);
   });
   it('composite kind refuses to load into the studio editor', () => {
     expect(experienceToDraft(baseExp({ kind: 'composite' }))).toBeNull();

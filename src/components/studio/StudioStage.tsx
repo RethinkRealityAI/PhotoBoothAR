@@ -12,12 +12,12 @@
  * The in-canvas segmented mode switcher lives here as a floating liquid-glass
  * pill; 3D adds a Live/Orbit + Pause sub-control.
  */
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Boxes, Eye, Layers, Pause, Play, ScanFace, Sparkles, Rotate3d, AlertTriangle } from 'lucide-react';
 import { ShaderRunner } from '../../lib/shaders';
-import { pointToTransform2D } from '../../lib/studio/dnd';
-import type { StudioState, StudioAction } from '../../lib/studio/state';
+import { snapTransform, type SnapResult } from '../../lib/studio/snap';
+import { selectedObject, type StudioState, type StudioAction, type Overlay2D, type Object3D } from '../../lib/studio/state';
 import Studio3DView from './Studio3DView';
 import StudioPreview from './StudioPreview';
 import Tooltip from '../ui/Tooltip';
@@ -70,6 +70,16 @@ export default function StudioStage({
   const rafRef = useRef<number>(0);
   const overlayBoxRef = useRef<HTMLDivElement | null>(null);
   const drag = useRef<{ startX: number; startY: number; tx: number; ty: number } | null>(null);
+  // Snap guide lines shown while dragging the selected overlay (null = free).
+  const [guides, setGuides] = useState<SnapResult['guides']>({ v: null, h: null });
+
+  // Scene objects split by family. 2D overlays render as stacked <img>s; the
+  // selected one is draggable and shows an outline.
+  const overlays = draft.objects.filter((o): o is Overlay2D => o.type === 'overlay');
+  const objects3d = draft.objects.filter((o): o is Object3D => o.type !== 'overlay');
+  const selected = selectedObject(draft);
+  const selectedOverlay = selected && selected.type === 'overlay' ? selected : null;
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
   // Shader runner — created once, disposed on unmount.
   useEffect(() => {
@@ -110,40 +120,38 @@ export default function StudioStage({
   }, [shaderActive, shaderId, shaderParams, cam.videoRef]);
 
   // 2D overlay reposition via pointer drag (border/sticker). Booth Transform2D
-  // semantics — x/y are % of the frame from centre (see StageCanvas).
+  // semantics — x/y are % of the frame from centre (see StageCanvas). Only the
+  // SELECTED overlay is draggable; clicking another selects it.
   const isOverlayKind = draft.kind === 'border' || draft.kind === '2d_filter';
-  const canDragOverlay = mode === '2d' && isOverlayKind && !!draft.overlayUrl;
 
-  const onOverlayPointerDown = useCallback((e: React.PointerEvent) => {
-    if (!canDragOverlay) return;
+  const onOverlayPointerDown = useCallback((e: React.PointerEvent, o: Overlay2D) => {
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    drag.current = { startX: e.clientX, startY: e.clientY, tx: draft.transform.x, ty: draft.transform.y };
-  }, [canDragOverlay, draft.transform.x, draft.transform.y]);
+    drag.current = { startX: e.clientX, startY: e.clientY, tx: o.transform.x, ty: o.transform.y };
+  }, []);
 
   const onOverlayPointerMove = useCallback((e: React.PointerEvent) => {
     const d = drag.current;
     const box = overlayBoxRef.current;
-    if (!d || !box) return;
+    if (!d || !box || !selectedOverlay) return;
     const rect = box.getBoundingClientRect();
     const dx = ((e.clientX - d.startX) / rect.width) * 100;
     const dy = ((e.clientY - d.startY) / rect.height) * 100;
-    dispatch({
-      type: 'SET_TRANSFORM',
-      transform: {
-        ...draft.transform,
-        x: Math.max(-100, Math.min(100, d.tx + dx)),
-        y: Math.max(-100, Math.min(100, d.ty + dy)),
-      },
-    });
-  }, [dispatch, draft.transform]);
+    const raw = { ...selectedOverlay.transform, x: clamp(d.tx + dx, -100, 100), y: clamp(d.ty + dy, -100, 100) };
+    const snapped = snapTransform(raw);
+    dispatch({ type: 'UPDATE_OBJECT', id: selectedOverlay.id, patch: { transform: snapped.transform } });
+    setGuides(snapped.guides);
+  }, [dispatch, selectedOverlay]);
 
-  const onOverlayPointerUp = useCallback(() => { drag.current = null; }, []);
+  const onOverlayPointerUp = useCallback(() => {
+    drag.current = null;
+    setGuides({ v: null, h: null });
+  }, []);
 
   const onOverlayWheel = useCallback((e: React.WheelEvent) => {
-    if (!canDragOverlay) return;
-    const next = Math.max(0.1, Math.min(5, draft.transform.scale + (e.deltaY > 0 ? -0.05 : 0.05)));
-    dispatch({ type: 'SET_TRANSFORM', transform: { ...draft.transform, scale: next } });
-  }, [canDragOverlay, dispatch, draft.transform]);
+    if (!selectedOverlay) return;
+    const next = clamp(selectedOverlay.transform.scale + (e.deltaY > 0 ? -0.05 : 0.05), 0.1, 5);
+    dispatch({ type: 'UPDATE_OBJECT', id: selectedOverlay.id, patch: { transform: { ...selectedOverlay.transform, scale: next } } });
+  }, [dispatch, selectedOverlay]);
 
   const showVideo = mode !== 'preview';
 
@@ -241,33 +249,67 @@ export default function StudioStage({
           style={{ transform: 'scaleX(-1)', opacity: shaderActive ? 1 : 0 }}
         />
 
-        {/* 2D overlay (border / sticker) with drag-to-place */}
+        {/* 2D overlay(s) (border / sticker) with drag-to-place. Every overlay
+            renders in array order; the selected one is draggable + outlined,
+            others select on click. */}
         {mode === '2d' && isOverlayKind && (
           <div
             ref={overlayBoxRef}
             className="absolute inset-0"
-            onPointerDown={onOverlayPointerDown}
             onPointerMove={onOverlayPointerMove}
             onPointerUp={onOverlayPointerUp}
-            onWheel={onOverlayWheel}
-            style={{ touchAction: 'none', cursor: canDragOverlay ? 'grab' : 'default' }}
+            style={{ touchAction: 'none' }}
           >
-            {draft.overlayUrl && (
-              <img
-                src={draft.overlayUrl}
-                alt="overlay"
-                draggable={false}
-                className="absolute select-none"
-                style={{
-                  left: `calc(50% + ${draft.transform.x}%)`,
-                  top: `calc(50% + ${draft.transform.y}%)`,
-                  width: draft.kind === '2d_filter' ? '60%' : '100%',
-                  height: draft.kind === '2d_filter' ? '60%' : '100%',
-                  transform: `translate(-50%, -50%) scale(${draft.transform.scale}) rotate(${draft.transform.rotation}deg)`,
-                  objectFit: 'contain',
-                  pointerEvents: 'none',
-                }}
-              />
+            {overlays.map((o) => {
+              const isSel = o.id === draft.selectedId;
+              return (
+                <div
+                  key={o.id}
+                  onPointerDown={(e) => {
+                    if (isSel) onOverlayPointerDown(e, o);
+                    else { e.stopPropagation(); dispatch({ type: 'SELECT_OBJECT', id: o.id }); }
+                  }}
+                  onWheel={isSel ? onOverlayWheel : undefined}
+                  className="absolute"
+                  style={{
+                    left: `calc(50% + ${o.transform.x}%)`,
+                    top: `calc(50% + ${o.transform.y}%)`,
+                    width: o.overlayKind === '2d_filter' ? '60%' : '100%',
+                    height: o.overlayKind === '2d_filter' ? '60%' : '100%',
+                    transform: `translate(-50%, -50%) scale(${o.transform.scale}) rotate(${o.transform.rotation}deg)`,
+                    touchAction: 'none',
+                    cursor: isSel ? 'grab' : 'pointer',
+                    outline: isSel ? '2px solid var(--color-accent)' : 'none',
+                    outlineOffset: '3px',
+                    borderRadius: '2px',
+                  }}
+                >
+                  {o.url && (
+                    <img
+                      src={o.url}
+                      alt={o.name}
+                      draggable={false}
+                      className="w-full h-full select-none"
+                      style={{ objectFit: 'contain', pointerEvents: 'none' }}
+                    />
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Snap guide lines (only while dragging the selected overlay). */}
+            {selectedOverlay && guides.v !== null && (
+              <div className="absolute top-0 bottom-0 w-px bg-accent/70 pointer-events-none" style={{ left: `calc(50% + ${guides.v}%)` }} />
+            )}
+            {selectedOverlay && guides.h !== null && (
+              <div className="absolute left-0 right-0 h-px bg-accent/70 pointer-events-none" style={{ top: `calc(50% + ${guides.h}%)` }} />
+            )}
+
+            {/* Empty state */}
+            {overlays.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-8 text-center">
+                <p className="font-label text-[10px] uppercase tracking-widest text-brand-muted/50">Pick a {draft.kind === '2d_filter' ? 'sticker' : 'frame'} from the left to begin</p>
+              </div>
             )}
           </div>
         )}
@@ -278,15 +320,14 @@ export default function StudioStage({
             <Studio3DView
               view={threeView}
               videoId="studio-video"
-              assetUrl={draft.assetUrl}
-              proceduralId={draft.proceduralId}
-              anchor={draft.anchor}
-              anchorConfig={draft.anchorConfig}
+              objects={objects3d}
+              selectedId={draft.selectedId}
               paused={paused}
               headScale={headScale}
-              occlude={draft.occlusion}
+              occlusionEnabled={occlusionEnabled}
               debugOcclusion={debugOcclusion}
               matrixRef={headMatrixRef}
+              onSelect={(id) => dispatch({ type: 'SELECT_OBJECT', id })}
               onAnchorSelect={(a) => dispatch({ type: 'SELECT_ANCHOR', anchor: a })}
               onTransformChange={(patch) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch })}
               onFaceVisible={onFaceVisible}
@@ -320,7 +361,7 @@ export default function StudioStage({
 
         {/* Status caption */}
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-          <StageCaption mode={mode} threeView={threeView} paused={paused} faceVisible={faceVisible} kind={draft.kind} />
+          <StageCaption mode={mode} threeView={threeView} paused={paused} faceVisible={faceVisible} kind={draft.kind} objectCount={overlays.length} />
         </div>
       </div>
     </div>
@@ -333,17 +374,20 @@ function StageCaption({
   paused,
   faceVisible,
   kind,
+  objectCount,
 }: {
   mode: string;
   threeView: string;
   paused: boolean;
   faceVisible: boolean;
   kind: string;
+  objectCount: number;
 }) {
   let text = '';
   let tone = 'text-brand-muted/60';
   if (mode === 'preview') text = 'Live preview — exactly what guests capture';
   else if (mode === '2d' && kind === 'shader') text = 'Live filter preview';
+  else if (mode === '2d' && objectCount > 0) text = `${objectCount} object${objectCount === 1 ? '' : 's'} · drag to place · scroll to scale · arrows to nudge`;
   else if (mode === '2d') text = 'Drag to place · scroll to scale';
   else if (mode === '3d' && threeView === 'orbit') text = 'Drag to orbit · click a dot to anchor · gizmo to place';
   else if (mode === '3d' && paused) { text = 'Tracking paused — adjust, then resume'; tone = 'text-accent-2'; }

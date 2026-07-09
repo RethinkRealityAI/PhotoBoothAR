@@ -18,7 +18,7 @@ import { ANCHOR_PRESETS } from '../../lib/faceRig';
 import { uploadAsset } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
-import type { StudioAction, StudioKind, StudioState } from '../../lib/studio/state';
+import { selectedObject, type StudioAction, type StudioKind, type StudioState } from '../../lib/studio/state';
 import { SectionLabel } from './StudioControls';
 import AiFramePanel from './AiFramePanel';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
@@ -48,6 +48,14 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const glbInputRef = useRef<HTMLInputElement>(null);
 
   const show3dAi = source === 'db' && entitlements.aiStudio;
+
+  // The selected object drives which library item reads as "active" (these
+  // click-to-add actions add-or-replace per the reducer's documented rule).
+  const sel = selectedObject(draft);
+  const selBuiltinId = sel && sel.type === 'overlay' && sel.isBuiltin ? sel.builtinId : undefined;
+  const selProceduralId = sel && sel.type === 'headpiece' ? sel.proceduralId : undefined;
+  const selAnchor = sel && sel.type !== 'overlay' ? sel.anchor : undefined;
+  const selModelName = sel && sel.type === 'model' ? sel.name : undefined;
 
   const onImageUpload = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -118,7 +126,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             <SectionLabel>{draft.kind === 'border' ? 'Built-in frames' : 'Built-in stickers'}</SectionLabel>
             <div className="flex flex-col gap-1">
               {BUILTIN_BORDERS.filter((b) => b.kind === draft.kind).map((b) => {
-                const active = draft.selectedBorderId === b.id && draft.overlayIsBuiltin;
+                const active = selBuiltinId === b.id;
                 const url = toDataUrl(b.svg);
                 return (
                   <button
@@ -162,7 +170,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             <SectionLabel><span className="inline-flex items-center gap-1.5"><Crown className="w-3 h-3 text-accent-2" /> Head pieces</span></SectionLabel>
             <div className="grid grid-cols-2 gap-1.5">
               {HEAD_PIECES.map((p) => {
-                const active = draft.proceduralId === p.id;
+                const active = selProceduralId === p.id;
                 return (
                   <button
                     key={p.id}
@@ -185,7 +193,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
               className="flex flex-col items-center gap-1.5 w-full px-3 py-4 rounded-xl border border-dashed border-white/15 bg-white/[0.02] hover:border-accent/40 transition-colors text-brand-muted/60"
             >
               <Upload className="w-4 h-4 text-accent-2" />
-              <span className="font-label text-[9px] uppercase tracking-widest text-center">{draft.assetName ?? 'Drop a .glb or click'}</span>
+              <span className="font-label text-[9px] uppercase tracking-widest text-center">{selModelName ?? 'Drop a .glb or click'}</span>
             </button>
             <input ref={glbInputRef} type="file" accept=".glb,.gltf" className="sr-only" onChange={onGlbUpload} />
           </div>
@@ -194,7 +202,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             <SectionLabel>Anchor point</SectionLabel>
             <div className="flex flex-col gap-0.5">
               {ANCHOR_PRESETS.map((p) => {
-                const active = p.id === draft.anchor;
+                const active = p.id === selAnchor;
                 return (
                   <button
                     key={p.id}

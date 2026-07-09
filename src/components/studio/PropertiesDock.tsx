@@ -2,19 +2,44 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * PropertiesDock — the studio's right panel. Adapts to the draft kind:
- *   • shader → effect params (from the shader registry)
- *   • border/sticker → Transform2D sliders
- *   • 3d → anchor offset/rotation/scale sliders + head-size calibration +
- *          per-experience occlusion toggle
- * Plus shared name / booth-icon / published / featured controls. Ports the
- * old Creator2D + Creator3D right panels onto platform tokens.
+ * PropertiesDock — the studio's right panel. For a shader draft it shows effect
+ * params; for a 2D/3D scene it shows a LAYERS list (the ordered objects) plus
+ * the SELECTED object's properties:
+ *   • overlay → Transform2D sliders + animation
+ *   • 3d      → anchor offset/rotation/scale sliders + head-size calibration +
+ *               per-object occlusion toggle + animation
+ * Plus shared name / booth-icon / published / featured controls. All per-object
+ * controls operate on selectedObject(draft).
  */
 import { useMemo, type ChangeEvent } from 'react';
-import { Eye, EyeOff, Image as ImageIcon, RotateCcw, Ruler, Star, Upload, X } from 'lucide-react';
+import {
+  Boxes,
+  ChevronDown,
+  ChevronUp,
+  Crown,
+  Eye,
+  EyeOff,
+  Image as ImageIcon,
+  LayoutTemplate,
+  RotateCcw,
+  Ruler,
+  Star,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import { SHADER_MAP, defaultParams } from '../../lib/shaders';
 import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
-import { DEFAULT_TRANSFORM, type StudioAction, type StudioState } from '../../lib/studio/state';
+import {
+  DEFAULT_TRANSFORM,
+  selectedObject,
+  type Object3D,
+  type Overlay2D,
+  type StudioAction,
+  type StudioObject,
+  type StudioState,
+} from '../../lib/studio/state';
+import type { LayerAnimation } from '../../types';
 import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
 import Tooltip from '../ui/Tooltip';
 
@@ -29,11 +54,54 @@ interface Props {
 
 const AXES = ['x', 'y', 'z'] as const;
 
+const ANIMATIONS: { id: LayerAnimation; label: string }[] = [
+  { id: 'none', label: 'None' },
+  { id: 'float', label: 'Float' },
+  { id: 'pulse', label: 'Pulse' },
+  { id: 'spin', label: 'Spin' },
+];
+
+function objectIcon(o: StudioObject) {
+  if (o.type === 'overlay') return o.overlayKind === 'border' ? LayoutTemplate : ImageIcon;
+  return o.type === 'headpiece' ? Crown : Boxes;
+}
+
+/** 4-chip animation picker → SET_OBJECT_ANIMATION on the object. */
+function AnimationChips({
+  value,
+  onChange,
+}: {
+  value: LayerAnimation;
+  onChange: (a: LayerAnimation) => void;
+}) {
+  return (
+    <div>
+      <SectionLabel>Animation</SectionLabel>
+      <div className="grid grid-cols-4 gap-1.5">
+        {ANIMATIONS.map((a) => {
+          const active = a.id === value;
+          return (
+            <button
+              key={a.id}
+              onClick={() => onChange(a.id)}
+              className={`py-2 rounded-lg text-[9px] font-label uppercase tracking-widest transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+            >
+              {a.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function PropertiesDock({ state, dispatch, headScale, onHeadScaleChange, onThumbUpload, onThumbClear }: Props) {
   const { draft } = state;
   const shaderDef = useMemo(() => SHADER_MAP[draft.shaderId], [draft.shaderId]);
-  const is3D = draft.kind === '3d_attachment';
-  const isOverlay = draft.kind === 'border' || draft.kind === '2d_filter';
+  const isShader = draft.kind === 'shader';
+  const selected = selectedObject(draft);
+  const selOverlay: Overlay2D | null = selected && selected.type === 'overlay' ? selected : null;
+  const sel3D: Object3D | null = selected && selected.type !== 'overlay' ? selected : null;
 
   const handleThumbInput = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -76,7 +144,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
       </div>
 
       {/* Shader params */}
-      {draft.kind === 'shader' && shaderDef && (
+      {isShader && shaderDef && (
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <p className="font-sans text-xs text-brand-fg font-medium">{shaderDef.name}</p>
@@ -108,11 +176,74 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
         </div>
       )}
 
-      {/* 2D transform */}
-      {isOverlay && (
+      {/* LAYERS — the ordered object list (2D/3D scenes only) */}
+      {!isShader && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <SectionLabel>Layers</SectionLabel>
+            <span className="font-label text-[8px] uppercase tracking-widest text-brand-muted/40">top-most first</span>
+          </div>
+          {draft.objects.length === 0 ? (
+            <p className="text-[10px] text-brand-muted/40 font-sans px-1">Add a frame, sticker or 3D piece from the left dock to start a scene.</p>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {/* Reversed so the top of the list is the top-most rendered object
+                  (objects[last] is drawn last / on top). */}
+              {[...draft.objects].map((_, i) => draft.objects[draft.objects.length - 1 - i]).map((o) => {
+                const arrayIdx = draft.objects.indexOf(o);
+                const isSel = o.id === draft.selectedId;
+                const Icon = objectIcon(o);
+                const canForward = arrayIdx < draft.objects.length - 1; // move up in list
+                const canBack = arrayIdx > 0; // move down in list
+                return (
+                  <li
+                    key={o.id}
+                    onClick={() => dispatch({ type: 'SELECT_OBJECT', id: o.id })}
+                    className={`group flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer transition-colors ${isSel ? 'bg-accent/12 ring-1 ring-accent/30' : 'bg-white/[0.03] hover:bg-white/[0.06]'}`}
+                  >
+                    <Icon className={`w-3.5 h-3.5 shrink-0 ${isSel ? 'text-accent-2' : 'text-brand-muted/50'}`} />
+                    <span className={`text-[11px] font-sans truncate flex-1 min-w-0 ${isSel ? 'text-brand-fg' : 'text-brand-muted/70'}`}>{o.name}</span>
+                    {o.animation !== 'none' && (
+                      <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">{o.animation}</span>
+                    )}
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); dispatch({ type: 'REORDER_OBJECT', id: o.id, dir: 'down' }); }}
+                        disabled={!canForward}
+                        aria-label="Move layer up"
+                        className="p-0.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-20 disabled:pointer-events-none"
+                      >
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); dispatch({ type: 'REORDER_OBJECT', id: o.id, dir: 'up' }); }}
+                        disabled={!canBack}
+                        aria-label="Move layer down"
+                        className="p-0.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-20 disabled:pointer-events-none"
+                      >
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_OBJECT', id: o.id }); }}
+                        aria-label="Delete layer"
+                        className="p-0.5 rounded text-brand-muted/40 hover:text-rose-400 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Selected 2D overlay properties */}
+      {!isShader && selOverlay && (
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <p className="font-sans text-xs text-brand-fg font-medium">{draft.kind === 'border' ? 'Frame placement' : 'Sticker transform'}</p>
+            <p className="font-sans text-xs text-brand-fg font-medium">{selOverlay.overlayKind === 'border' ? 'Frame placement' : 'Sticker transform'}</p>
             <button
               onClick={() => dispatch({ type: 'SET_TRANSFORM', transform: { ...DEFAULT_TRANSFORM } })}
               className="flex items-center gap-1 text-[9px] text-brand-muted/50 hover:text-accent-2 transition-colors"
@@ -120,15 +251,16 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
               <RotateCcw className="w-3 h-3" /> Reset
             </button>
           </div>
-          <StudioSlider label="Scale" value={draft.transform.scale} min={0.1} max={3} step={0.05} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...draft.transform, scale: v } })} />
-          <StudioSlider label="X position (%)" value={draft.transform.x} min={-100} max={100} step={0.5} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...draft.transform, x: v } })} format={(v) => v.toFixed(0)} />
-          <StudioSlider label="Y position (%)" value={draft.transform.y} min={-100} max={100} step={0.5} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...draft.transform, y: v } })} format={(v) => v.toFixed(0)} />
-          <StudioSlider label="Rotation (°)" value={draft.transform.rotation} min={-180} max={180} step={1} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...draft.transform, rotation: v } })} format={(v) => v.toFixed(0)} />
+          <StudioSlider label="Scale" value={selOverlay.transform.scale} min={0.1} max={3} step={0.05} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, scale: v } })} />
+          <StudioSlider label="X position (%)" value={selOverlay.transform.x} min={-100} max={100} step={0.5} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, x: v } })} format={(v) => v.toFixed(0)} />
+          <StudioSlider label="Y position (%)" value={selOverlay.transform.y} min={-100} max={100} step={0.5} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, y: v } })} format={(v) => v.toFixed(0)} />
+          <StudioSlider label="Rotation (°)" value={selOverlay.transform.rotation} min={-180} max={180} step={1} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, rotation: v } })} format={(v) => v.toFixed(0)} />
+          <AnimationChips value={selOverlay.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: selOverlay.id, animation: a })} />
         </div>
       )}
 
-      {/* 3D anchor transform */}
-      {is3D && (
+      {/* Selected 3D object properties */}
+      {!isShader && sel3D && (
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <p className="font-sans text-xs text-brand-fg font-medium">Placement</p>
@@ -145,12 +277,12 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
               <StudioSlider
                 key={`o${axis}`}
                 label={axis.toUpperCase()}
-                value={draft.anchorConfig.offset[axis]}
+                value={sel3D.anchorConfig.offset[axis]}
                 min={-20}
                 max={20}
                 step={0.1}
                 compact
-                onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { ...draft.anchorConfig.offset, [axis]: v } } })}
+                onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { ...sel3D.anchorConfig.offset, [axis]: v } } })}
               />
             ))}
           </div>
@@ -160,16 +292,16 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
               <StudioSlider
                 key={`r${axis}`}
                 label={axis.toUpperCase()}
-                value={draft.anchorConfig.rotation[axis]}
+                value={sel3D.anchorConfig.rotation[axis]}
                 min={-Math.PI}
                 max={Math.PI}
                 step={0.01}
                 compact
-                onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { rotation: { ...draft.anchorConfig.rotation, [axis]: v } } })}
+                onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { rotation: { ...sel3D.anchorConfig.rotation, [axis]: v } } })}
               />
             ))}
           </div>
-          <StudioSlider label="Scale" value={Math.min(draft.anchorConfig.scale, 15)} min={0.05} max={15} step={0.05} onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { scale: v } })} />
+          <StudioSlider label="Scale" value={Math.min(sel3D.anchorConfig.scale, 15)} min={0.05} max={15} step={0.05} onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { scale: v } })} />
 
           {/* Head-size calibration */}
           <div className="rounded-xl border border-accent/15 bg-accent/[0.05] p-3 flex flex-col gap-2">
@@ -195,14 +327,21 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
           <StudioToggle
             label="Occlude behind head"
             hint="Hide parts of this piece behind the real head"
-            value={draft.occlusion}
+            value={sel3D.occlusion}
             onChange={(v) => dispatch({ type: 'SET_OCCLUSION', occlusion: v })}
           />
+
+          <AnimationChips value={sel3D.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: sel3D.id, animation: a })} />
         </div>
       )}
 
+      {/* Nothing selected in a populated scene */}
+      {!isShader && draft.objects.length > 0 && !selected && (
+        <p className="text-[10px] text-brand-muted/40 font-sans px-1">Select an object above to edit its properties.</p>
+      )}
+
       {/* Booth icon */}
-      {(isOverlay || is3D) && (
+      {!isShader && (
         <div className="border-t border-white/10 pt-4">
           <SectionLabel>Booth icon (optional)</SectionLabel>
           <div className="flex items-center gap-3">

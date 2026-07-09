@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Check, Clapperboard, Layers, Loader2, Save, SlidersHorizontal, X } from 'lucide-react';
+import { ArrowLeft, Check, Clapperboard, Copy, Layers, Loader2, Redo2, Save, SlidersHorizontal, Undo2, X } from 'lucide-react';
 import { useCameraStream } from '../booth/useCameraStream';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from '../admin/studioBase';
@@ -28,9 +28,38 @@ import {
 } from '../../lib/db';
 import { BUILTIN_BORDERS } from '../../lib/borders';
 import { clampHeadScale } from '../../lib/studio/occluder';
-import { studioReducer, initialState } from '../../lib/studio/state';
+import { studioReducer, initialState, selectedObject, type StudioState, type StudioAction } from '../../lib/studio/state';
+import { withHistory, initHistory, canUndo, canRedo } from '../../lib/studio/history';
+import { nudgeTransform } from '../../lib/studio/snap';
 import { experienceToDraft, draftToPayload } from '../../lib/studio/draftMapping';
 import type { Experience } from '../../types';
+
+/* Undo/redo wiring — these predicates mirror src/lib/studio/history.test.ts
+ * (the studio integration block) so history behaves exactly as the lib tests
+ * assert: mode/view/pause/selection are pass-through (not recorded), LOAD +
+ * MARK_SAVED reset the timeline, and continuous edits coalesce per target. */
+const isDraftMutating = (a: StudioAction): boolean =>
+  a.type !== 'SET_MODE' && a.type !== 'SET_THREE_VIEW' && a.type !== 'SET_PAUSED' && a.type !== 'SELECT_OBJECT';
+const isClearing = (a: StudioAction): boolean => a.type === 'LOAD' || a.type === 'MARK_SAVED';
+const coalesceKey = (a: StudioAction, s: StudioState): string | null => {
+  switch (a.type) {
+    case 'SET_TRANSFORM':
+      return `transform:${s.draft.selectedId}`;
+    case 'PATCH_ANCHOR_CONFIG':
+      return `anchor:${s.draft.selectedId}`;
+    case 'SET_SHADER_PARAM':
+      return `shader:${a.key}`;
+    case 'UPDATE_OBJECT':
+      return `update:${a.id}`;
+    default:
+      return null;
+  }
+};
+const studioHistoryReducer = withHistory<StudioState, StudioAction>(studioReducer, {
+  record: isDraftMutating,
+  clear: isClearing,
+  coalesce: coalesceKey,
+});
 import AssetsDock from './AssetsDock';
 import StudioStage from './StudioStage';
 import PropertiesDock from './PropertiesDock';
@@ -76,7 +105,8 @@ export default function StudioShell() {
   const debugOcclusion = searchParams.get('debug') === 'occluder';
   const sceneParam = searchParams.get('scene');
 
-  const [state, dispatch] = useReducer(studioReducer, undefined, () => initialState('shader'));
+  const [history, dispatch] = useReducer(studioHistoryReducer, undefined, () => initHistory(initialState('shader')));
+  const state = history.present;
   const [loadingEdit, setLoadingEdit] = useState(!!editId);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -151,20 +181,29 @@ export default function StudioShell() {
     try {
       const draft = state.draft;
 
-      // Resolve the overlay asset URL (upload builtin SVG / custom blob, or keep
-      // an already-stored URL) — same rules the old Creator2D used.
-      let assetUrl: string | null = null;
-      if (draft.kind === 'border' || draft.kind === '2d_filter') {
-        if (draft.overlayIsBuiltin) {
-          const b = BUILTIN_BORDERS.find((x) => x.id === draft.selectedBorderId);
-          if (b) assetUrl = await uploadAsset(svgBlob(b.svg), `${b.id}.svg`);
-        } else if (draft.overlayBlob) {
-          assetUrl = await uploadAsset(draft.overlayBlob, draft.name.replace(/\s+/g, '-').toLowerCase());
-        } else if (draft.overlayUrl && (draft.overlayUrl.startsWith('http') || draft.overlayUrl.startsWith('data:'))) {
-          assetUrl = draft.overlayUrl;
+      // Resolve every object's post-upload asset URL into a Map<objectId, url|null>
+      // that draftToPayload reads. Rules per object, preserving the old Creator2D
+      // behaviour: built-in overlays upload their SVG; custom overlays upload their
+      // pending Blob; already-stored (http/data) urls pass through; 3D models keep
+      // their assetUrl and procedural head pieces resolve to null.
+      const urlMap = new Map<string, string | null>();
+      for (const obj of draft.objects) {
+        if (obj.type === 'overlay') {
+          if (obj.isBuiltin && obj.builtinId) {
+            const b = BUILTIN_BORDERS.find((x) => x.id === obj.builtinId);
+            urlMap.set(obj.id, b ? await uploadAsset(svgBlob(b.svg), `${b.id}.svg`) : (obj.url ?? null));
+          } else if (obj.blob) {
+            const base = obj.name.replace(/\s+/g, '-').toLowerCase() || 'overlay';
+            urlMap.set(obj.id, await uploadAsset(obj.blob, base));
+          } else if (obj.url && (obj.url.startsWith('http') || obj.url.startsWith('data:'))) {
+            urlMap.set(obj.id, obj.url);
+          } else {
+            urlMap.set(obj.id, null);
+          }
+        } else {
+          // Object3D — procedural pieces have no GLB; models keep their asset url.
+          urlMap.set(obj.id, obj.type === 'headpiece' && obj.proceduralId ? null : (obj.assetUrl ?? null));
         }
-      } else if (draft.kind === '3d_attachment') {
-        assetUrl = draft.assetUrl;
       }
 
       let thumbnailUrl: string | null = null;
@@ -174,7 +213,7 @@ export default function StudioShell() {
         thumbnailUrl = draft.thumbUrl;
       }
 
-      const payload = draftToPayload(draft, assetUrl, thumbnailUrl);
+      const payload = draftToPayload(draft, urlMap, thumbnailUrl);
       const result = draft.id
         ? await updateExperience(eventId, draft.id, payload)
         : await createExperience(eventId, payload);
@@ -197,6 +236,49 @@ export default function StudioShell() {
   const openExperience = useCallback((exp: Experience) => {
     navigate(`${base}/studio?id=${exp.id}`);
   }, [navigate, base]);
+
+  // Duplicate — strip the id so the current draft becomes a NEW unsaved scene,
+  // suffix the name, and LOAD it (LOAD clears the undo timeline by design).
+  const handleDuplicate = useCallback(() => {
+    const { id: _id, ...rest } = state.draft;
+    void _id;
+    dispatch({ type: 'LOAD', draft: { ...rest, name: `${state.draft.name} copy` } });
+  }, [state.draft]);
+
+  // Keyboard shortcuts on the shell. Skipped while typing in a field so undo/
+  // delete never fights text editing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        dispatch(e.shiftKey ? { type: 'REDO' } : { type: 'UNDO' });
+        return;
+      }
+      if (mod && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault();
+        dispatch({ type: 'REDO' });
+        return;
+      }
+      const draft = state.draft;
+      if ((e.key === 'Delete' || e.key === 'Backspace') && draft.selectedId) {
+        e.preventDefault();
+        dispatch({ type: 'DELETE_OBJECT', id: draft.selectedId });
+        return;
+      }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        const sel = selectedObject(draft);
+        if (sel && sel.type === 'overlay') {
+          e.preventDefault();
+          dispatch({ type: 'UPDATE_OBJECT', id: sel.id, patch: { transform: nudgeTransform(sel.transform, e.key, e.shiftKey) } });
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [state.draft]);
 
   if (loadingEdit) {
     return (
@@ -230,6 +312,40 @@ export default function StudioShell() {
           <p className="font-label text-[8px] uppercase tracking-widest text-brand-muted/50">{state.draft.id ? 'Editing experience' : 'New experience'}</p>
         </div>
         <div className="flex-1" />
+        {/* Undo / Redo / Duplicate */}
+        <div className="flex items-center gap-1">
+          <Tooltip label="Undo" hint="Ctrl/Cmd+Z" side="bottom">
+            <button
+              onClick={() => dispatch({ type: 'UNDO' })}
+              disabled={!canUndo(history)}
+              aria-label="Undo"
+              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors disabled:opacity-30 disabled:pointer-events-none"
+            >
+              <Undo2 className="w-4 h-4" />
+            </button>
+          </Tooltip>
+          <Tooltip label="Redo" hint="Ctrl/Cmd+Shift+Z" side="bottom">
+            <button
+              onClick={() => dispatch({ type: 'REDO' })}
+              disabled={!canRedo(history)}
+              aria-label="Redo"
+              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors disabled:opacity-30 disabled:pointer-events-none"
+            >
+              <Redo2 className="w-4 h-4" />
+            </button>
+          </Tooltip>
+          {state.draft.id && (
+            <Tooltip label="Duplicate" hint="Save a copy as a new experience" side="bottom">
+              <button
+                onClick={handleDuplicate}
+                aria-label="Duplicate experience"
+                className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </Tooltip>
+          )}
+        </div>
         <Tooltip label="AI Scene Director" hint="One prompt → matching frame, filter & 3D piece" side="bottom">
           <button
             onClick={() => setSceneOpen(true)}

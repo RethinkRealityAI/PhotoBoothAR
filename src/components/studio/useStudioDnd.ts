@@ -55,7 +55,18 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef }: Options)
   }, [stageBodyRef]);
 
   const resolveDrop = useCallback((p: DragPayload, x: number, y: number, rect: DOMRect) => {
+    // NOTE on add-vs-replace: the click-to-add actions (SELECT_BUILTIN,
+    // SET_OVERLAY_UPLOAD, SELECT_HEAD_PIECE, SET_MODEL_ASSET) already implement
+    // the scene's ADD-vs-REPLACE rule in the reducer (see state.ts
+    // addOrReplaceObject: a single untouched object is replaced in place;
+    // otherwise a new object is appended and selected). So a drop dispatches the
+    // SAME actions as a click, then positions the now-selected object. This
+    // preserves today's single-object swap UX while letting a populated scene
+    // grow — no dnd-specific ADD_OBJECT path needed.
     if (p.target === 'overlay') {
+      // SET_KIND switches the 2D sub-kind first (border↔sticker); with a single
+      // untouched object it resets to that kind's default, which the following
+      // SELECT_BUILTIN/SET_OVERLAY_UPLOAD then replaces in place.
       const kind = p.overlayKind ?? 'border';
       dispatch({ type: 'SET_KIND', kind });
       if (p.builtinUrl && p.builtinId) {
@@ -63,6 +74,7 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef }: Options)
       } else if (p.assetUrl) {
         dispatch({ type: 'SET_OVERLAY_UPLOAD', url: p.assetUrl, blob: null });
       }
+      // Position the just-added/replaced (now-selected) overlay at the drop point.
       dispatch({
         type: 'SET_TRANSFORM',
         transform: pointToTransform2D(x, y, { left: rect.left, top: rect.top, width: rect.width, height: rect.height }, DEFAULT_TRANSFORM),
