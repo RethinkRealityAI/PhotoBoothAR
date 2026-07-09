@@ -21,16 +21,25 @@ import {
 } from 'react';
 import { ShaderRunner, defaultParams } from '../../lib/shaders';
 import { drawScagoMark } from '../../lib/scagoMark';
-import { Transform2D } from '../../types';
+import { Transform2D, LayerAnimation } from '../../types';
 import type { EventConfig } from '../../events/types';
 import { useOptionalEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
+import { animateTransform2D } from '../../lib/studio/animation';
 
 export interface StageCanvasHandle {
   canvas: HTMLCanvasElement | null;
   runner: ShaderRunner | null;
   /** Snap a full-res 1080×1920 JPEG data-URL from the current frame. */
   capturePhoto: () => Promise<string>;
+}
+
+/** One layer of a multi-object 2D scene (studio `config.layers`). */
+export interface StageOverlaySpec {
+  url: string;
+  transform: Transform2D;
+  opacity?: number;
+  animation?: LayerAnimation;
 }
 
 interface Props {
@@ -43,6 +52,13 @@ interface Props {
   overlayUrl?: string | null;
   overlayTransform?: Transform2D;
   overlayOpacity?: number;
+  /**
+   * Multi-object 2D scene (studio `config.layers`). When provided (non-null),
+   * step 4 draws EACH overlay in array order (index 0 = bottom) instead of the
+   * single overlayUrl/overlayTransform above — the two are mutually exclusive.
+   * Undefined/null -> exactly today's single-overlay path.
+   */
+  overlays?: StageOverlaySpec[] | null;
   /** If present, drawn between shader and 2D overlay */
   threeCanvasId?: string | null; // DOM id of R3F canvas (inside #booth-3d-layer)
   active?: boolean;
@@ -203,7 +219,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   {
     videoRef, effectId, mirror, sparkles = false,
-    overlayUrl, overlayTransform, overlayOpacity,
+    overlayUrl, overlayTransform, overlayOpacity, overlays,
     threeCanvasId, active = true, watermark = true,
   },
   ref,
@@ -227,6 +243,9 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   const threeCanvasIdRef = useRef(threeCanvasId);
   const activeRef = useRef(active);
   const watermarkRef = useRef(watermark);
+  // Multi-layer path: the overlays spec array + a per-url image cache.
+  const overlaysRef = useRef<StageOverlaySpec[] | null>(overlays ?? null);
+  const overlayImgCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
 
   useEffect(() => { effectIdRef.current = effectId; }, [effectId]);
   useEffect(() => { mirrorRef.current = mirror; }, [mirror]);
@@ -247,6 +266,18 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   useEffect(() => { threeCanvasIdRef.current = threeCanvasId ?? null; }, [threeCanvasId]);
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { watermarkRef.current = watermark; }, [watermark]);
+  useEffect(() => {
+    overlaysRef.current = overlays ?? null;
+    // Preload any not-yet-cached overlay images (cache persists across renders
+    // so re-selecting a previously-used layer is instant).
+    const cache = overlayImgCacheRef.current;
+    for (const spec of overlays ?? []) {
+      if (cache.has(spec.url)) continue;
+      loadImage(spec.url)
+        .then((img) => { cache.set(spec.url, img); })
+        .catch(() => { /* skip drawing this layer until it loads/retries */ });
+    }
+  }, [overlays]);
 
   // Draw one frame onto `ctx` at given dimensions
   // `_canvas` is retained in signature for symmetry with capturePhoto
@@ -295,19 +326,42 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
       }
     }
 
-    // Step 4: 2D overlay
-    const overlayImg = overlayImgRef.current;
-    if (overlayImg) {
-      const t = overlayTransformRef.current ?? { scale: 1, x: 0, y: 0, rotation: 0 };
-      ctx.save();
-      ctx.globalAlpha = overlayOpacityRef.current;
-      const cx = w / 2 + (t.x / 100) * w;
-      const cy = h / 2 + (t.y / 100) * h;
-      ctx.translate(cx, cy);
-      ctx.rotate((t.rotation * Math.PI) / 180);
-      ctx.scale(t.scale, t.scale);
-      ctx.drawImage(overlayImg, -w / 2, -h / 2, w, h);
-      ctx.restore();
+    // Step 4: 2D overlay(s)
+    const overlaySpecs = overlaysRef.current;
+    if (overlaySpecs) {
+      // Multi-layer path: draw each layer in array order (index 0 = bottom),
+      // applying its animation preset. Mutually exclusive with the single
+      // overlayUrl/overlayTransform path below.
+      const tSec = performance.now() / 1000;
+      const cache = overlayImgCacheRef.current;
+      for (const spec of overlaySpecs) {
+        const img = cache.get(spec.url);
+        if (!img) continue;
+        const at = animateTransform2D(spec.transform, spec.animation ?? 'none', tSec);
+        ctx.save();
+        ctx.globalAlpha = spec.opacity ?? 1;
+        const cx = w / 2 + (at.x / 100) * w;
+        const cy = h / 2 + (at.y / 100) * h;
+        ctx.translate(cx, cy);
+        ctx.rotate((at.rotation * Math.PI) / 180);
+        ctx.scale(at.scale, at.scale);
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
+        ctx.restore();
+      }
+    } else {
+      const overlayImg = overlayImgRef.current;
+      if (overlayImg) {
+        const t = overlayTransformRef.current ?? { scale: 1, x: 0, y: 0, rotation: 0 };
+        ctx.save();
+        ctx.globalAlpha = overlayOpacityRef.current;
+        const cx = w / 2 + (t.x / 100) * w;
+        const cy = h / 2 + (t.y / 100) * h;
+        ctx.translate(cx, cy);
+        ctx.rotate((t.rotation * Math.PI) / 180);
+        ctx.scale(t.scale, t.scale);
+        ctx.drawImage(overlayImg, -w / 2, -h / 2, w, h);
+        ctx.restore();
+      }
     }
 
     // Step 5: Sparkles (independent additive layer — stacks with everything)
@@ -364,6 +418,19 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
       } catch {
         /* overlay failed to load — capture without it */
       }
+    }
+    // Multi-layer path: same guarantee, for every layer not yet cached.
+    const overlaySpecs = overlaysRef.current;
+    if (overlaySpecs) {
+      const cache = overlayImgCacheRef.current;
+      await Promise.all(overlaySpecs.map(async (spec) => {
+        if (cache.has(spec.url)) return;
+        try {
+          cache.set(spec.url, await loadImage(spec.url));
+        } catch {
+          /* layer failed to load — capture without it */
+        }
+      }));
     }
     const offscreen = document.createElement('canvas');
     offscreen.width = CAPTURE_W;
