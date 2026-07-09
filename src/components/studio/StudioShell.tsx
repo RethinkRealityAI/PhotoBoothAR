@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Check, Clapperboard, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, Check, Clapperboard, Layers, Loader2, Save, SlidersHorizontal, X } from 'lucide-react';
 import { useCameraStream } from '../booth/useCameraStream';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from '../admin/studioBase';
@@ -55,6 +55,18 @@ export function StudioRedirect({ to }: { to: string }) {
   return <Navigate to={`${to}${search}`} replace />;
 }
 
+/** Mobile-only drawer header with a close button (hidden at lg+). */
+function DrawerClose({ label, onClose }: { label: string; onClose: () => void }) {
+  return (
+    <div className="lg:hidden sticky top-0 z-10 flex items-center justify-between px-4 py-2.5 bg-brand-bg/90 backdrop-blur border-b border-white/10">
+      <span className="font-label uppercase tracking-widest text-[10px] text-brand-fg">{label}</span>
+      <button onClick={onClose} aria-label="Close panel" className="p-1 rounded-lg text-brand-muted/60 hover:text-brand-fg transition-colors">
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
 export default function StudioShell() {
   const navigate = useNavigate();
   const base = useStudioBase();
@@ -71,6 +83,9 @@ export default function StudioShell() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [faceVisible, setFaceVisible] = useState(false);
   const [sceneOpen, setSceneOpen] = useState(sceneParam !== null);
+  // Below lg the docks are slide-in drawers (they'd otherwise have no room);
+  // this tracks which one is open. At lg+ both are always-visible columns.
+  const [mobilePanel, setMobilePanel] = useState<'assets' | 'props' | null>(null);
 
   // Head-size calibration + occlusion master switch (per event).
   const [headScale, setHeadScale] = useState(1);
@@ -191,6 +206,14 @@ export default function StudioShell() {
             <ArrowLeft className="w-4 h-4" />
           </Link>
         </Tooltip>
+        {/* Mobile/tablet: toggle the Assets drawer (a static column at lg+). */}
+        <button
+          onClick={() => setMobilePanel((p) => (p === 'assets' ? null : 'assets'))}
+          aria-label="Toggle assets panel"
+          className={`lg:hidden flex items-center justify-center w-9 h-9 rounded-lg transition-colors ${mobilePanel === 'assets' ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg'}`}
+        >
+          <Layers className="w-4 h-4" />
+        </button>
         <div className="min-w-0 hidden sm:block">
           <p className="font-serif italic text-sm text-brand-fg leading-tight">Studio</p>
           <p className="font-label text-[8px] uppercase tracking-widest text-brand-muted/50">{state.draft.id ? 'Editing experience' : 'New experience'}</p>
@@ -214,13 +237,36 @@ export default function StudioShell() {
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
           {saving ? 'Saving…' : saved ? 'Saved' : state.draft.id ? 'Update' : 'Save'}
         </button>
+        {/* Mobile/tablet: toggle the Properties drawer (a static column at lg+). */}
+        <button
+          onClick={() => setMobilePanel((p) => (p === 'props' ? null : 'props'))}
+          aria-label="Toggle properties panel"
+          className={`lg:hidden flex items-center justify-center w-9 h-9 rounded-lg transition-colors ${mobilePanel === 'props' ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg'}`}
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+        </button>
       </header>
 
-      {/* Body — 3-pane */}
-      <div className="flex-1 min-h-0 flex">
-        <aside className="w-[19rem] shrink-0 border-r border-white/10 hidden md:block overflow-hidden">
+      {/* Body — 3-pane at lg+; the side docks become slide-in drawers below lg
+          so every control (pick/upload/transform) stays reachable on tablet
+          and phone instead of vanishing. */}
+      <div className="flex-1 min-h-0 flex relative">
+        {/* Backdrop for the mobile drawers. */}
+        {mobilePanel && (
+          <div className="fixed inset-0 top-14 z-30 bg-black/50 lg:hidden" onClick={() => setMobilePanel(null)} />
+        )}
+
+        <aside
+          data-panel="assets"
+          className={`overflow-y-auto hide-scrollbar bg-brand-bg lg:bg-transparent border-white/10
+            fixed z-40 top-14 bottom-0 left-0 w-[20rem] max-w-[86vw] border-r transition-transform duration-200
+            lg:static lg:z-auto lg:top-0 lg:w-[19rem] lg:max-w-none lg:translate-x-0 lg:shrink-0
+            ${mobilePanel === 'assets' ? 'translate-x-0' : '-translate-x-full'}`}
+        >
+          <DrawerClose label="Assets" onClose={() => setMobilePanel(null)} />
           <AssetsDock state={state} dispatch={dispatch} onOpenExperience={openExperience} beginDrag={dnd.beginDrag} consumedDrag={dnd.consumedDrag} />
         </aside>
+
         <main className="flex-1 min-w-0 relative">
           <StudioStage
             state={state}
@@ -236,7 +282,15 @@ export default function StudioShell() {
             dropActive={dnd.dragging && dnd.overStage}
           />
         </main>
-        <aside className="w-[19rem] shrink-0 border-l border-white/10 hidden lg:block overflow-hidden">
+
+        <aside
+          data-panel="props"
+          className={`overflow-y-auto hide-scrollbar bg-brand-bg lg:bg-transparent border-white/10
+            fixed z-40 top-14 bottom-0 right-0 w-[20rem] max-w-[86vw] border-l transition-transform duration-200
+            lg:static lg:z-auto lg:top-0 lg:w-[19rem] lg:max-w-none lg:translate-x-0 lg:shrink-0
+            ${mobilePanel === 'props' ? 'translate-x-0' : 'translate-x-full'}`}
+        >
+          <DrawerClose label="Properties" onClose={() => setMobilePanel(null)} />
           <PropertiesDock
             state={state}
             dispatch={dispatch}

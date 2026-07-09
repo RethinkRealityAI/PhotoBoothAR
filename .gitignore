@@ -27,3 +27,4 @@ hyperframes/studio/*/snapshots/
 .agents/
 .claude/skills/
 skills-lock.json
+scratch-shots/

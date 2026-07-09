@@ -13,6 +13,7 @@
  * Legacy mode (VITE_EVENT set): behaves exactly like the original single-event
  * build — registry event at the top-level routes, studio at /admin/*.
  */
+import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import Booth from './components/Booth';
 import GuestWelcome from './components/GuestWelcome';
@@ -26,6 +27,12 @@ import Dashboard from './components/admin/Dashboard';
 import Library from './components/admin/Library';
 import Assets from './components/admin/Assets';
 import StudioShell, { StudioRedirect } from './components/studio/StudioShell';
+
+/** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
+ *  Rollup drops it from production entirely (no auth-bypass code ships). */
+const DevStudioHarness = import.meta.env.DEV
+  ? lazy(() => import('./dev/StudioHarness'))
+  : (() => null);
 import Moderation from './components/admin/Moderation';
 import Settings from './components/admin/Settings';
 import Branding from './components/admin/Branding';
@@ -138,6 +145,9 @@ export default function App() {
           ) : (
             /* ── Runtime multi-tenant mode ── */
             <>
+              {import.meta.env.DEV && (
+                <Route path="/dev/studio" element={<Suspense fallback={null}><DevStudioHarness /></Suspense>} />
+              )}
               <Route path="/e/:slug" element={<EventProvider><Outlet /></EventProvider>}>
                 {guestRoutes()}
                 {/* /e/:slug/admin/* falls through here — the studio moved to /host */}
