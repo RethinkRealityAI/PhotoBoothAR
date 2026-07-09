@@ -33,6 +33,8 @@ interface Props {
   anchorConfig: Partial<AnchorConfig>;
   paused: boolean;
   headScale: number;
+  /** Opt-in occlusion (per-experience). Default off so assets always show. */
+  occlude?: boolean;
   debugOcclusion?: boolean;
   matrixRef?: React.MutableRefObject<number[] | null>;
   onAnchorSelect: (a: HeadAnchor) => void;
@@ -57,6 +59,7 @@ export default function Studio3DView({
   anchorConfig,
   paused,
   headScale,
+  occlude = false,
   debugOcclusion = false,
   matrixRef,
   onAnchorSelect,
@@ -114,7 +117,7 @@ export default function Studio3DView({
         config={anchorConfig}
         paused={paused}
         mirror
-        occlude={hasAsset}
+        occlude={occlude && hasAsset}
         headScale={headScale}
         debugOcclusion={debugOcclusion}
         matrixRef={matrixRef}

@@ -6,7 +6,7 @@
  * (a stand-in for the guest so anchors/props read in context). It prefers a
  * realistic head-bust GLB (vendored to public/models/reference-head.glb via
  * scripts/remote-assets.json), normalized to the tracker's centimetre head
- * space by fitBustToHeadSpace, and falls back to the procedural ReferenceHead
+ * space by computeBustFit, and falls back to the procedural ReferenceHead
  * whenever the GLB is absent or fails to load (offline dev, pre-fetch).
  *
  * The GLB is fetched by runtime URL (NOT a static import) so the build never
@@ -16,6 +16,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
 import ReferenceHead from '../admin/creator3d/ReferenceHead';
+import { computeBustFit } from '../../lib/studio/bustFit';
 
 /** Served from public/; 404s (→ procedural fallback) until CI vendors it. */
 const BUST_URL = `${import.meta.env.BASE_URL}models/reference-head.glb`;
@@ -25,15 +26,6 @@ const BUST_URL = `${import.meta.env.BASE_URL}models/reference-head.glb`;
  * space (crown y≈+8.3 to chin y≈−9.4 ⇒ ~17.7cm) and its face centre sits at the
  * origin, matching where anchors are defined.
  */
-export function fitBustToHeadSpace(bbox: { min: THREE.Vector3; max: THREE.Vector3 }): { scale: number; offset: THREE.Vector3 } {
-  const height = Math.max(1e-3, bbox.max.y - bbox.min.y);
-  const scale = 17.7 / height;
-  const center = new THREE.Vector3().addVectors(bbox.min, bbox.max).multiplyScalar(0.5);
-  // Move the mesh centre to head-space origin (face centre, slightly below mid-height).
-  const offset = center.multiplyScalar(-scale);
-  return { scale, offset };
-}
-
 let _bustPromise: Promise<THREE.Group | null> | null = null;
 function loadBust(): Promise<THREE.Group | null> {
   if (!_bustPromise) {
@@ -50,15 +42,15 @@ function loadBust(): Promise<THREE.Group | null> {
 }
 
 function GlbBust({ scene }: { scene: THREE.Group }) {
-  const { object, scale, position } = useMemo(() => {
+  const fitted = useMemo(() => {
     const obj = scene.clone(true);
-    const box = new THREE.Box3().setFromObject(obj);
-    const fit = fitBustToHeadSpace({ min: box.min, max: box.max });
-    return { object: obj, scale: fit.scale, position: fit.offset };
+    const fit = computeBustFit(obj);
+    return fit ? { object: obj, ...fit } : null;
   }, [scene]);
+  if (!fitted) return <ReferenceHead />;
   return (
-    <group scale={scale} position={position}>
-      <primitive object={object} />
+    <group scale={fitted.scale} position={fitted.position}>
+      <primitive object={fitted.object} />
     </group>
   );
 }

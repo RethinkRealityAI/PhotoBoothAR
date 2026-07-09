@@ -184,13 +184,14 @@ export default function StudioStage({
         </div>
       </div>
 
-      {/* 3D sub-controls */}
+      {/* 3D sub-controls — sit BELOW the main switcher (centred) so they never
+          overlap it on narrow screens. */}
       {mode === '3d' && (
-        <div className="absolute top-3 right-4 z-30 flex items-center gap-2">
+        <div className="absolute top-[3.35rem] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2">
           <div className="flex items-center gap-1 liquid-glass rounded-full p-1">
             {([
+              { v: 'orbit' as const, icon: Rotate3d, label: 'Model', hint: 'Reference head — drag to orbit, place with the gizmo' },
               { v: 'live' as const, icon: ScanFace, label: 'Live', hint: 'Track your real face (WYSIWYG)' },
-              { v: 'orbit' as const, icon: Rotate3d, label: 'Orbit', hint: 'Reference head — orbit to inspect' },
             ]).map(({ v, icon: Icon, label, hint }) => (
               <Tooltip key={v} label={label} hint={hint} side="bottom">
                 <button
@@ -283,6 +284,7 @@ export default function StudioStage({
               anchorConfig={draft.anchorConfig}
               paused={paused}
               headScale={headScale}
+              occlude={draft.occlusion}
               debugOcclusion={debugOcclusion}
               matrixRef={headMatrixRef}
               onAnchorSelect={(a) => dispatch({ type: 'SELECT_ANCHOR', anchor: a })}

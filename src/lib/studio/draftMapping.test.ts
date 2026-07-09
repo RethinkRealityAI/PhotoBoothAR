@@ -103,15 +103,16 @@ describe('scene tag and occlusion (opt-in)', () => {
     expect(payload.config?.scene).toBe('Neon Nights');
     expect(payload.config?.occlusion).toBeUndefined();
   });
-  it('occlusion is opt-in: enabled 3D persists true; disabled stays absent', () => {
-    const on = initialDraft('3d_attachment'); // new pieces default occlusion on
+  it('occlusion is opt-in: new pieces default OFF; enabling persists true', () => {
+    // New 3D pieces default occlusion OFF so an asset is never surprise-hidden.
+    const fresh = initialDraft('3d_attachment');
+    expect(fresh.occlusion).toBe(false);
+    expect(draftToPayload(fresh, 'x', null).config?.occlusion).toBeUndefined();
+
+    const on = { ...fresh, occlusion: true };
     const onPayload = draftToPayload(on, 'x', null);
     expect(onPayload.config?.occlusion).toBe(true);
     expect(experienceToDraft(baseExp({ kind: '3d_attachment', config: onPayload.config! }))!.occlusion).toBe(true);
-
-    const off = { ...initialDraft('3d_attachment'), occlusion: false };
-    const offPayload = draftToPayload(off, 'x', null);
-    expect(offPayload.config?.occlusion).toBeUndefined();
   });
   it('an existing experience with no occlusion flag loads as opt-in OFF (no silent change)', () => {
     const exp = baseExp({ kind: '3d_attachment', config: { anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } } });

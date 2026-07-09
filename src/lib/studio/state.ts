@@ -107,7 +107,10 @@ export function initialDraft(kind: StudioKind = 'shader'): StudioDraft {
     },
     thumbUrl: null,
     thumbBlob: null,
-    occlusion: true,
+    // Occlusion is OFF by default: it's a depth mask that can hide the very
+    // prop it sits behind if mis-tuned, so it must never surprise-hide an
+    // asset. The host turns it on per-experience and verifies in Preview.
+    occlusion: false,
   };
   if (kind === 'border' || kind === '2d_filter') {
     const def = defaultBorderFor(kind);
@@ -122,7 +125,9 @@ export function initialDraft(kind: StudioKind = 'shader'): StudioDraft {
 export function initialState(kind: StudioKind = 'shader'): StudioState {
   return {
     mode: kind === '3d_attachment' ? '3d' : '2d',
-    threeView: 'live',
+    // Default to the reference-head ("Model") view so entering 3D shows the head
+    // + anchor dots to place onto — not the camera, which needs a detected face.
+    threeView: 'orbit',
     paused: false,
     draft: initialDraft(kind),
     dirty: false,
@@ -216,7 +221,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'LOAD':
       return {
         mode: modeForKind(action.draft.kind),
-        threeView: 'live',
+        threeView: 'orbit',
         paused: false,
         draft: action.draft,
         dirty: false,
