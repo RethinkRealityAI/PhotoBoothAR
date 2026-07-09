@@ -30,8 +30,8 @@ import ShareButton from './ui/ShareButton';
 import { useCameraStream } from './booth/useCameraStream';
 import Welcome from './booth/Welcome';
 import CameraErrorScreen from './booth/CameraError';
-import StageCanvas, { StageCanvasHandle } from './booth/StageCanvas';
-import Overlay3D from './booth/Overlay3D';
+import StageCanvas, { StageCanvasHandle, StageOverlaySpec } from './booth/StageCanvas';
+import Overlay3D, { Overlay3DPiece } from './booth/Overlay3D';
 import PickerDrawer from './booth/PickerDrawer';
 import FilterOrbs from './booth/FilterOrbs';
 import Countdown from './booth/Countdown';
@@ -237,6 +237,39 @@ export default function Booth() {
     (!!attachExp.asset_url || !!attachExp.config?.procedural);
   const anchorConfig: AnchorConfig | null =
     is3D && attachExp?.config?.anchor ? (attachExp.config.anchor as AnchorConfig) : null;
+
+  // ── Multi-layer (studio) scenes ───────────────────────────────────────
+  // Additive: only built when the experience actually carries config.layers;
+  // every other code path (no layers) leaves the legacy single-object props
+  // untouched below, so frozen legacy events render byte-identically.
+  const frameLayers = frameExp?.config?.layers;
+  const stageOverlays: StageOverlaySpec[] | undefined = useMemo(() => {
+    if (!frameLayers || frameLayers.length === 0) return undefined;
+    return frameLayers
+      .filter((l) => !!l.asset_url)
+      .map((l) => ({
+        url: l.asset_url as string,
+        transform: l.transform ?? DEFAULT_TRANSFORM,
+        opacity: l.opacity ?? 1,
+        animation: l.animation,
+      }));
+  }, [frameLayers]);
+
+  const attachLayers = attachExp?.config?.layers;
+  const overlayPieces: Overlay3DPiece[] | undefined = useMemo(() => {
+    if (!attachLayers || attachLayers.length === 0) return undefined;
+    return attachLayers
+      .filter((l) => !!l.anchor)
+      .map((l) => ({
+        assetUrl: l.asset_url ?? null,
+        proceduralId: l.procedural ?? null,
+        anchor: l.anchor as AnchorConfig,
+        animation: l.animation,
+        // Same source==='db' safety gate as the single-piece occlude below —
+        // legacy/code events never carry layers, but keep the invariant explicit.
+        occlude: source === 'db' && l.occlusion === true,
+      }));
+  }, [attachLayers, source]);
 
   // ── Face-tracking hint ────────────────────────────────────────────────
   // A 3D piece is invisible until the tracker finds a face — without feedback
@@ -524,9 +557,10 @@ export default function Booth() {
                   effectId={effectId}
                   sparkles={sparkles}
                   mirror={isFront}
-                  overlayUrl={is2DOverlay ? frameExp!.asset_url : null}
+                  overlayUrl={stageOverlays ? null : (is2DOverlay ? frameExp!.asset_url : null)}
                   overlayTransform={overlayTransform}
                   overlayOpacity={frameExp?.config?.opacity}
+                  overlays={stageOverlays}
                   threeCanvasId={is3D ? 'booth-3d-layer' : null}
                   active={true}
                   watermark={entitlements.watermark}
@@ -543,6 +577,7 @@ export default function Booth() {
                     occlude={source === 'db' && attachExp!.config?.occlusion === true}
                     headScale={studioCfg.headScale}
                     onFaceVisible={setFaceVisible}
+                    pieces={overlayPieces}
                   />
                 )}
               </div>
