@@ -87,10 +87,11 @@ export default function StudioShell() {
   // this tracks which one is open. At lg+ both are always-visible columns.
   const [mobilePanel, setMobilePanel] = useState<'assets' | 'props' | null>(null);
 
-  // Head-size calibration + occlusion master switch (per event).
+  // Head-size calibration (per event). Occlusion itself is per-experience
+  // (config.occlusion), so there's no event-wide occlusion switch to track.
   const [headScale, setHeadScale] = useState(1);
-  const [occlusionEnabled, setOcclusionEnabled] = useState(true);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingHeadScale = useRef<number | null>(null);
 
   const cam = useCameraStream(true);
   const stageBodyRef = useRef<HTMLDivElement | null>(null);
@@ -100,33 +101,43 @@ export default function StudioShell() {
   // Load studio settings once.
   useEffect(() => {
     let alive = true;
-    getStudioSettings(eventId).then((s) => {
-      if (!alive) return;
-      setHeadScale(s.headScale);
-      setOcclusionEnabled(s.occlusion);
-    });
+    getStudioSettings(eventId).then((s) => { if (alive) setHeadScale(s.headScale); });
     return () => { alive = false; };
   }, [eventId]);
 
   // Load an existing experience for editing.
   useEffect(() => {
     if (!editId) return;
+    let alive = true;
     setLoadingEdit(true);
     getExperience(eventId, editId).then((exp) => {
+      if (!alive) return;
       const draft = exp ? experienceToDraft(exp) : null;
       if (draft) dispatch({ type: 'LOAD', draft });
       setLoadingEdit(false);
     });
+    return () => { alive = false; };
   }, [editId, eventId]);
 
   // Persist head-scale (debounced) — event-wide booth calibration.
   const onHeadScaleChange = useCallback((v: number) => {
     const next = clampHeadScale(v);
     setHeadScale(next);
+    pendingHeadScale.current = next;
     if (persistTimer.current) clearTimeout(persistTimer.current);
-    persistTimer.current = setTimeout(() => { setStudioSettings(eventId, { headScale: next }); }, 500);
+    persistTimer.current = setTimeout(() => {
+      setStudioSettings(eventId, { headScale: next });
+      pendingHeadScale.current = null;
+    }, 500);
   }, [eventId]);
-  useEffect(() => () => { if (persistTimer.current) clearTimeout(persistTimer.current); }, []);
+  // Flush any pending calibration on unmount so a quick slide + navigate away
+  // doesn't drop the last value.
+  useEffect(() => () => {
+    if (persistTimer.current) {
+      clearTimeout(persistTimer.current);
+      if (pendingHeadScale.current !== null) setStudioSettings(eventId, { headScale: pendingHeadScale.current });
+    }
+  }, [eventId]);
 
   const onThumbUpload = useCallback((file: File) => {
     dispatch({ type: 'SET_THUMB', url: URL.createObjectURL(file), blob: file });
@@ -273,7 +284,7 @@ export default function StudioShell() {
             dispatch={dispatch}
             cam={{ videoRef: cam.videoRef, ready: cam.ready, error: camError, retry: cam.retry }}
             headScale={headScale}
-            occlusionEnabled={source === 'db' && occlusionEnabled}
+            occlusionEnabled={source === 'db'}
             debugOcclusion={debugOcclusion}
             faceVisible={faceVisible}
             onFaceVisible={setFaceVisible}

@@ -11,7 +11,7 @@
  * A movement threshold distinguishes a drag from a plain click, so click-to-add
  * still works on the same source elements.
  */
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ANCHOR_PRESETS, RIG_CAMERA } from '../../lib/faceRig';
 import { pointToTransform2D, projectAnchorsToScreen, nearestAnchor, type AnchorPoint } from '../../lib/studio/dnd';
 import { DEFAULT_TRANSFORM, type StudioAction } from '../../lib/studio/state';
@@ -113,11 +113,26 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef }: Options)
     setOverStage(!!insideStage(e.clientX, e.clientY));
   }, [insideStage]);
 
-  const onUp = useCallback((e: PointerEvent) => {
+  const detach = useCallback((fn: (e: PointerEvent) => void) => {
     window.removeEventListener('pointermove', onMove);
-    window.removeEventListener('pointerup', onUp);
-    endDrag(e.clientX, e.clientY);
-  }, [onMove, endDrag]);
+    window.removeEventListener('pointerup', fn);
+    window.removeEventListener('pointercancel', fn);
+  }, [onMove]);
+
+  const onUp = useCallback((e: PointerEvent) => {
+    detach(onUp);
+    if (e.type === 'pointercancel') {
+      // Aborted — e.g. a touch-drag inside a scrollable dock became a scroll.
+      // Reset without resolving a drop, and never leak the window listeners.
+      active.current = false;
+      pending.current = null;
+      setPayload(null);
+      setGhost(null);
+      setOverStage(false);
+    } else {
+      endDrag(e.clientX, e.clientY);
+    }
+  }, [detach, endDrag]);
 
   const beginDrag = useCallback((p: DragPayload, e: React.PointerEvent) => {
     if (e.button !== 0) return;
@@ -125,7 +140,11 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef }: Options)
     pending.current = { payload: p, startX: e.clientX, startY: e.clientY };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   }, [onMove, onUp]);
+
+  // Never leave a drag's window listeners attached past unmount.
+  useEffect(() => () => detach(onUp), [detach, onUp]);
 
   /** True if the last pointer interaction became a drag (guards onClick). */
   const consumedDrag = useCallback(() => {

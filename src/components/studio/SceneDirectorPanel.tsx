@@ -12,7 +12,7 @@
  * Degrades honestly: when the Gemini key is missing/rejected the panel says so
  * and still lets the host build pieces by hand from the studio.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { Check, Clapperboard, Loader2, Sparkles, Wand2, X } from 'lucide-react';
 import Modal from '../ui/Modal';
@@ -148,11 +148,14 @@ export default function SceneDirectorPanel({ initialPrompt = '', onClose }: { in
     mark('headPiece', 'accepted');
   }, [eventId, eventUuid, mark, fail]);
 
+  // Synchronous guard: state-based `disabled` updates a tick late, so a fast
+  // double-click could otherwise fire two accepts → double credit charge.
+  const accepting = useRef<Record<ScenePieceKey, boolean>>({ frame: false, shader: false, headPiece: false });
   const accept = (piece: ScenePieceKey) => {
-    if (!plan) return;
-    if (piece === 'shader') acceptShader(plan);
-    else if (piece === 'frame') acceptFrame(plan);
-    else acceptHeadPiece(plan);
+    if (!plan || accepting.current[piece]) return;
+    accepting.current[piece] = true;
+    const run = piece === 'shader' ? acceptShader(plan) : piece === 'frame' ? acceptFrame(plan) : acceptHeadPiece(plan);
+    run.finally(() => { accepting.current[piece] = false; });
   };
 
   return (

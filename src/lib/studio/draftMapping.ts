@@ -28,7 +28,9 @@ export function experienceToDraft(exp: Experience): StudioDraft | null {
   draft.featured = exp.featured;
   draft.thumbUrl = exp.thumbnail_url ?? null;
   draft.scene = typeof exp.config?.scene === 'string' ? exp.config.scene : undefined;
-  draft.occlusion = exp.config?.occlusion !== false;
+  // Occlusion is opt-IN: an existing experience with no flag stays unoccluded,
+  // so this feature never silently changes how already-published pieces render.
+  draft.occlusion = exp.config?.occlusion === true;
 
   if (exp.kind === 'shader') {
     const sid = exp.config?.shader?.shaderId ?? draft.shaderId;
@@ -90,9 +92,10 @@ export function draftToPayload(
   }
 
   if (draft.scene) config.scene = draft.scene;
-  // Only persist the opt-OUT — absent means "occlude", keeping every
-  // pre-existing config valid and the booth default unchanged.
-  if (!draft.occlusion) config.occlusion = false;
+  // Occlusion is opt-IN and only meaningful for head-anchored 3D pieces:
+  // persist only when enabled on a 3D draft. Absent means "no occlusion", so
+  // every pre-overhaul experience renders exactly as it did before.
+  if (draft.kind === '3d_attachment' && draft.occlusion) config.occlusion = true;
 
   return {
     name: draft.name,

@@ -147,12 +147,20 @@ export default function StudioStage({
 
   const showVideo = mode !== 'preview';
 
+  // A saved experience is one kind. While editing it (draft.id set), lock the
+  // switcher to that experience's family + Preview so toggling the other family
+  // can't silently discard the loaded content. A brand-new draft shows all three.
+  const editingFamily = draft.kind === '3d_attachment' ? '3d' : '2d';
+  const visibleTabs = draft.id
+    ? MODE_TABS.filter((t) => t.id === editingFamily || t.id === 'preview')
+    : MODE_TABS;
+
   return (
     <div className="relative h-full w-full flex items-center justify-center p-3 md:p-5">
       {/* Mode switcher — floating pill */}
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30">
         <div className="flex items-center gap-1 liquid-glass rounded-full p-1">
-          {MODE_TABS.map((t) => {
+          {visibleTabs.map((t) => {
             const active = mode === t.id;
             return (
               <Tooltip key={t.id} label={t.label} hint={t.hint} side="bottom">

@@ -540,7 +540,7 @@ export default function Booth() {
                     anchor={anchorConfig}
                     videoId="booth-video"
                     mirror={isFront}
-                    occlude={source === 'db' && studioCfg.occlusion && attachExp!.config?.occlusion !== false}
+                    occlude={source === 'db' && attachExp!.config?.occlusion === true}
                     headScale={studioCfg.headScale}
                     onFaceVisible={setFaceVisible}
                   />

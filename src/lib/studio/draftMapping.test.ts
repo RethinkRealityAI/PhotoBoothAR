@@ -95,20 +95,26 @@ describe('round-trip: 3d_attachment', () => {
   });
 });
 
-describe('scene tag and occlusion opt-out', () => {
-  it('scene tag round-trips; occlusion true is NOT persisted (legacy-compatible)', () => {
+describe('scene tag and occlusion (opt-in)', () => {
+  it('scene tag round-trips; occlusion is never written on a 2D kind', () => {
     const draft = initialDraft('shader');
     draft.scene = 'Neon Nights';
     const payload = draftToPayload(draft, null, null);
     expect(payload.config?.scene).toBe('Neon Nights');
     expect(payload.config?.occlusion).toBeUndefined();
   });
-  it('occlusion=false persists and loads back', () => {
-    const draft = initialDraft('3d_attachment');
-    draft.occlusion = false;
-    const payload = draftToPayload(draft, null, null);
-    expect(payload.config?.occlusion).toBe(false);
-    const exp = baseExp({ kind: '3d_attachment', config: payload.config! });
+  it('occlusion is opt-in: enabled 3D persists true; disabled stays absent', () => {
+    const on = initialDraft('3d_attachment'); // new pieces default occlusion on
+    const onPayload = draftToPayload(on, 'x', null);
+    expect(onPayload.config?.occlusion).toBe(true);
+    expect(experienceToDraft(baseExp({ kind: '3d_attachment', config: onPayload.config! }))!.occlusion).toBe(true);
+
+    const off = { ...initialDraft('3d_attachment'), occlusion: false };
+    const offPayload = draftToPayload(off, 'x', null);
+    expect(offPayload.config?.occlusion).toBeUndefined();
+  });
+  it('an existing experience with no occlusion flag loads as opt-in OFF (no silent change)', () => {
+    const exp = baseExp({ kind: '3d_attachment', config: { anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } } });
     expect(experienceToDraft(exp)!.occlusion).toBe(false);
   });
   it('composite kind refuses to load into the studio editor', () => {

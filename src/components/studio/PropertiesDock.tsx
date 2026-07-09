@@ -176,7 +176,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
             <div className="flex items-center gap-1.5">
               <Ruler className="w-3.5 h-3.5 text-accent-2" />
               <span className="font-label uppercase tracking-widest text-[9px] text-accent-2">Head size calibration</span>
-              <Tooltip label="Head size" hint="Scales the whole tracked head (occluder + reference) to match a real head. Increase if props sit too small on faces in Preview." side="left">
+              <Tooltip label="Head size" hint="Sizes the invisible head occluder to match a real head, so props are hidden behind it correctly. Increase if the occluder looks smaller than real heads in Preview." side="left">
                 <span className="ml-auto text-brand-muted/50 cursor-help text-[10px]">?</span>
               </Tooltip>
             </div>
