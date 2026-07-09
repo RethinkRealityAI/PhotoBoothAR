@@ -60,6 +60,7 @@ export function FaceRig({
   occlude = false,
   headScale = 1,
   debugOcclusion = false,
+  matrixRef,
   onVisibilityChange,
   onTransformChange,
   onGizmoDragStart,
@@ -78,6 +79,9 @@ export function FaceRig({
   headScale?: number;
   /** Show the occluder faintly for tuning. */
   debugOcclusion?: boolean;
+  /** Written each visible frame with the tracked head's world matrix (16
+   *  column-major floats) so DOM-level drag-and-drop can project anchors. */
+  matrixRef?: React.MutableRefObject<number[] | null>;
   onVisibilityChange?: (visible: boolean) => void;
   onTransformChange?: (patch: Partial<AnchorConfig>) => void;
   onGizmoDragStart?: () => void;
@@ -97,6 +101,14 @@ export function FaceRig({
     const video = document.getElementById(videoId) as HTMLVideoElement | null;
     const visible = video ? updateHeadPose(group, video, mirror) : false;
     group.visible = visible;
+    if (matrixRef) {
+      if (visible) {
+        group.updateWorldMatrix(true, false);
+        matrixRef.current = group.matrixWorld.elements.slice();
+      } else {
+        matrixRef.current = null;
+      }
+    }
     if (visible !== visibleRef.current) {
       visibleRef.current = visible;
       onVisibilityChange?.(visible);

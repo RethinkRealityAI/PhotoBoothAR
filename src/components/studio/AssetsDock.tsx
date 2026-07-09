@@ -22,12 +22,15 @@ import type { StudioAction, StudioKind, StudioState } from '../../lib/studio/sta
 import { SectionLabel } from './StudioControls';
 import AiFramePanel from './AiFramePanel';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
+import type { DragPayload } from './useStudioDnd';
 import type { Experience } from '../../types';
 
 interface Props {
   state: StudioState;
   dispatch: React.Dispatch<StudioAction>;
   onOpenExperience: (exp: Experience) => void;
+  beginDrag: (payload: DragPayload, e: React.PointerEvent) => void;
+  consumedDrag: () => boolean;
 }
 
 const KIND_TABS: { id: StudioKind; label: string; icon: typeof Sparkles }[] = [
@@ -37,7 +40,7 @@ const KIND_TABS: { id: StudioKind; label: string; icon: typeof Sparkles }[] = [
   { id: '3d_attachment', label: '3D', icon: Boxes },
 ];
 
-export default function AssetsDock({ state, dispatch, onOpenExperience }: Props) {
+export default function AssetsDock({ state, dispatch, onOpenExperience, beginDrag, consumedDrag }: Props) {
   const { draft, mode } = state;
   const { source } = useEvent();
   const entitlements = useEntitlements();
@@ -116,11 +119,14 @@ export default function AssetsDock({ state, dispatch, onOpenExperience }: Props)
             <div className="flex flex-col gap-1">
               {BUILTIN_BORDERS.filter((b) => b.kind === draft.kind).map((b) => {
                 const active = draft.selectedBorderId === b.id && draft.overlayIsBuiltin;
+                const url = toDataUrl(b.svg);
                 return (
                   <button
                     key={b.id}
-                    onClick={() => dispatch({ type: 'SELECT_BUILTIN', borderId: b.id, url: toDataUrl(b.svg) })}
-                    className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors text-xs font-sans ${active ? 'bg-accent/15 ring-1 ring-accent/30 text-accent-2' : 'bg-white/[0.03] hover:bg-white/[0.06] text-brand-muted/70 hover:text-brand-fg'}`}
+                    onPointerDown={(e) => beginDrag({ target: 'overlay', label: b.name, overlayKind: b.kind, builtinId: b.id, builtinUrl: url, previewUrl: url }, e)}
+                    onClick={() => { if (consumedDrag()) return; dispatch({ type: 'SELECT_BUILTIN', borderId: b.id, url }); }}
+                    title="Click to add · drag onto the canvas to place"
+                    className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors text-xs font-sans cursor-grab active:cursor-grabbing ${active ? 'bg-accent/15 ring-1 ring-accent/30 text-accent-2' : 'bg-white/[0.03] hover:bg-white/[0.06] text-brand-muted/70 hover:text-brand-fg'}`}
                   >
                     {b.name}
                   </button>
@@ -160,8 +166,10 @@ export default function AssetsDock({ state, dispatch, onOpenExperience }: Props)
                 return (
                   <button
                     key={p.id}
-                    onClick={() => dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id })}
-                    className={`rounded-xl px-2 py-2 text-left transition-all border ${active ? 'bg-accent/15 border-accent/40 text-accent-2' : 'bg-white/[0.03] border-white/10 text-brand-muted/60 hover:text-brand-fg hover:border-accent/25'}`}
+                    onPointerDown={(e) => beginDrag({ target: 'headpiece', label: p.name, pieceId: p.id }, e)}
+                    onClick={() => { if (consumedDrag()) return; dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id }); }}
+                    title="Click to add · drag onto the head to place"
+                    className={`rounded-xl px-2 py-2 text-left transition-all border cursor-grab active:cursor-grabbing ${active ? 'bg-accent/15 border-accent/40 text-accent-2' : 'bg-white/[0.03] border-white/10 text-brand-muted/60 hover:text-brand-fg hover:border-accent/25'}`}
                   >
                     <span className="font-label text-[9px] uppercase tracking-wide leading-tight block">{p.name}</span>
                   </button>

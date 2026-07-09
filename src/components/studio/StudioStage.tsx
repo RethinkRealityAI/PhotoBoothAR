@@ -38,8 +38,11 @@ interface Props {
   debugOcclusion: boolean;
   faceVisible: boolean;
   onFaceVisible: (v: boolean) => void;
-  /** Drop-target ref registration for P3 drag-and-drop. */
+  /** Drop-target ref + live-head matrix for drag-and-drop. */
   stageBodyRef?: React.RefObject<HTMLDivElement | null>;
+  headMatrixRef?: React.MutableRefObject<number[] | null>;
+  /** True while a dock item is being dragged over the stage (drop highlight). */
+  dropActive?: boolean;
 }
 
 const MODE_TABS = [
@@ -58,6 +61,8 @@ export default function StudioStage({
   faceVisible,
   onFaceVisible,
   stageBodyRef,
+  headMatrixRef,
+  dropActive = false,
 }: Props) {
   const { mode, draft, threeView, paused } = state;
   const shaderCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -206,7 +211,7 @@ export default function StudioStage({
       {/* Stage body — 9:16 */}
       <div
         ref={stageBodyRef}
-        className="relative h-full rounded-2xl overflow-hidden liquid-glass"
+        className={`relative h-full rounded-2xl overflow-hidden liquid-glass transition-shadow ${dropActive ? 'ring-2 ring-accent shadow-[0_0_40px_-4px_var(--color-accent)]' : ''}`}
         style={{ aspectRatio: '9/16', maxWidth: '100%' }}
       >
         {/* The ONE camera element — always mounted so the stream persists. */}
@@ -271,6 +276,7 @@ export default function StudioStage({
               paused={paused}
               headScale={headScale}
               debugOcclusion={debugOcclusion}
+              matrixRef={headMatrixRef}
               onAnchorSelect={(a) => dispatch({ type: 'SELECT_ANCHOR', anchor: a })}
               onTransformChange={(patch) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch })}
               onFaceVisible={onFaceVisible}

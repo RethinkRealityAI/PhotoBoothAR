@@ -34,6 +34,8 @@ import type { Experience } from '../../types';
 import AssetsDock from './AssetsDock';
 import StudioStage from './StudioStage';
 import PropertiesDock from './PropertiesDock';
+import DragGhost from './DragGhost';
+import { useStudioDnd } from './useStudioDnd';
 import Tooltip from '../ui/Tooltip';
 
 const CAMERA_MESSAGES: Record<string, string> = {
@@ -73,6 +75,9 @@ export default function StudioShell() {
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cam = useCameraStream(true);
+  const stageBodyRef = useRef<HTMLDivElement | null>(null);
+  const headMatrixRef = useRef<number[] | null>(null);
+  const dnd = useStudioDnd({ dispatch, stageBodyRef, headMatrixRef });
 
   // Load studio settings once.
   useEffect(() => {
@@ -202,7 +207,7 @@ export default function StudioShell() {
       {/* Body — 3-pane */}
       <div className="flex-1 min-h-0 flex">
         <aside className="w-[19rem] shrink-0 border-r border-white/10 hidden md:block overflow-hidden">
-          <AssetsDock state={state} dispatch={dispatch} onOpenExperience={openExperience} />
+          <AssetsDock state={state} dispatch={dispatch} onOpenExperience={openExperience} beginDrag={dnd.beginDrag} consumedDrag={dnd.consumedDrag} />
         </aside>
         <main className="flex-1 min-w-0 relative">
           <StudioStage
@@ -214,6 +219,9 @@ export default function StudioShell() {
             debugOcclusion={debugOcclusion}
             faceVisible={faceVisible}
             onFaceVisible={setFaceVisible}
+            stageBodyRef={stageBodyRef}
+            headMatrixRef={headMatrixRef}
+            dropActive={dnd.dragging && dnd.overStage}
           />
         </main>
         <aside className="w-[19rem] shrink-0 border-l border-white/10 hidden lg:block overflow-hidden">
@@ -227,6 +235,8 @@ export default function StudioShell() {
           />
         </aside>
       </div>
+
+      <DragGhost payload={dnd.payload} ghost={dnd.ghost} />
     </div>
   );
 }

@@ -34,6 +34,7 @@ interface Props {
   paused: boolean;
   headScale: number;
   debugOcclusion?: boolean;
+  matrixRef?: React.MutableRefObject<number[] | null>;
   onAnchorSelect: (a: HeadAnchor) => void;
   onTransformChange: (patch: Partial<AnchorConfig>) => void;
   onFaceVisible?: (v: boolean) => void;
@@ -57,6 +58,7 @@ export default function Studio3DView({
   paused,
   headScale,
   debugOcclusion = false,
+  matrixRef,
   onAnchorSelect,
   onTransformChange,
   onFaceVisible,
@@ -115,6 +117,7 @@ export default function Studio3DView({
         occlude={hasAsset}
         headScale={headScale}
         debugOcclusion={debugOcclusion}
+        matrixRef={matrixRef}
         editable={hasAsset}
         onVisibilityChange={onFaceVisible}
         onTransformChange={onTransformChange}
