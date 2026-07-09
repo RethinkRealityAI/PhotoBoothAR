@@ -1,16 +1,25 @@
 /**
- * ai-event-designer — the Event Concierge (/host/new) AND the Platform
- * Copilot (floating panel across /host/**): one rate-limited brain, two modes.
+ * ai-event-designer — the Event Concierge (/host/new), the Platform Copilot
+ * (floating panel across /host/**), AND the Studio AI Scene Director: one
+ * rate-limited brain, several modes.
  *
  * POST (deployed with verify_jwt ON — requires a real user JWT in Authorization)
- *   { mode?: 'create' (default) | 'copilot',
+ *   { mode?: 'create' (default) | 'copilot' | 'scene',
  *     messages: { role: 'user' | 'assistant', content: string }[]   (1–20 turns)
  *     templates?: { id: string, vibe: string }[]   (create mode, ≤10 — the
  *       client's live template catalog; falls back to built-ins when invalid)
  *     context?: string ≤8k chars    (copilot mode — the client-built event
  *       snapshot, preformatted by src/lib/eventSnapshot.ts)
- *     docs?: string ≤12k chars }    (copilot mode — the client's platform
+ *     docs?: string ≤12k chars      (copilot mode — the client's platform
  *       guide digest; falls back to a one-liner)
+ *     shaderCatalog?: { id, params?: {key,min,max,default}[] }[]  (scene mode)
+ *     headPieceIds?: string[] }      (scene mode — built-in head-piece ids)
+ *
+ * 200 scene   → { reply, planJson } planJson = a JSON STRING (client parses +
+ *   clamps via src/lib/studio/sceneDirector.ts): { sceneName, frame:{prompt}|
+ *   null, shader:{shaderId,params}|null, headPiece:{kind,id?|prompt?}|null }.
+ *   Like copilot, the server only PROPOSES — the client spends credits only
+ *   when the host accepts each piece.
  *
  * 200 create  → { reply, plan }    plan = { name, templateId, remote, date,
  *                                  slug, accent } (client normalizes)
@@ -206,6 +215,51 @@ function buildCopilotSchema() {
   };
 }
 
+/* ── Scene Director mode (coordinated frame + filter + 3D piece) ─────── */
+
+interface SceneShaderEntry {
+  id: string;
+  params?: { key: string; min: number; max: number; default: number }[];
+}
+
+function buildScenePrompt(shaders: SceneShaderEntry[], headPieceIds: string[]): string {
+  const shaderList = shaders
+    .map((s) => {
+      const params = (s.params ?? []).map((p) => `${p.key} ${p.min}..${p.max}`).join(', ');
+      return `- ${s.id}${params ? ` (params: ${params})` : ''}`;
+    })
+    .join('\n') || '- (none available)';
+  const pieceList = headPieceIds.map((id) => `- ${id}`).join('\n') || '- (none available)';
+  return `You are the Beamwall AI Scene Director. From the host's idea, design ONE coordinated photo-booth "scene" — a matching decorative frame, camera filter, and 3D head piece that read as a single look.
+
+"reply": one warm sentence (no markdown) describing the scene you designed.
+"planJson": a JSON STRING (not an object) with EXACTLY this shape:
+{"sceneName":"2-4 word name","frame":{"prompt":"<detailed prompt for a 9:16 decorative BORDER that frames a portrait, transparent centre>"} or null,"shader":{"shaderId":"<one id from FILTER EFFECTS>","params":{<only that shader's params, each within its range>}} or null,"headPiece":{"kind":"procedural","id":"<one id from HEAD PIECES>"} or {"kind":"generate","prompt":"<text-to-3D prompt for a single head-worn accessory>"} or null}
+
+RULES:
+- Pick shaderId ONLY from the FILTER EFFECTS list; pick a procedural head-piece id ONLY from the HEAD PIECES list. Never invent an id.
+- Use headPiece "generate" ONLY when no listed procedural piece fits the theme.
+- Any element that doesn't suit the scene can be null, but include at least ONE non-null element.
+- Keep the frame prompt about a border/frame, not a full-scene photo — the guest's face fills the centre.
+
+FILTER EFFECTS:
+${shaderList}
+
+HEAD PIECES:
+${pieceList}`;
+}
+
+function buildSceneSchema() {
+  return {
+    type: 'OBJECT',
+    properties: {
+      reply: { type: 'STRING' },
+      planJson: { type: 'STRING' },
+    },
+    required: ['reply', 'planJson'],
+  };
+}
+
 /* ── Shared Gemini call (structured output; prompt+schema per mode) ──── */
 
 async function callGemini(
@@ -353,6 +407,18 @@ Deno.serve(async (req: Request) => {
         if (Array.isArray(decoded)) actions = decoded.slice(0, MAX_ACTIONS);
       } catch { /* malformed actionsJson → no actions; reply still ships */ }
       return json(200, { reply: parsed.reply, actions });
+    }
+
+    // 3a-scene. Scene Director — one coordinated frame + filter + 3D piece.
+    if (body.mode === 'scene') {
+      const shaders = Array.isArray(body.shaderCatalog)
+        ? (body.shaderCatalog as SceneShaderEntry[]).filter((s) => s && typeof s.id === 'string').slice(0, 40)
+        : [];
+      const pieceIds = Array.isArray(body.headPieceIds)
+        ? (body.headPieceIds as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 24)
+        : [];
+      const parsed = await callGemini(messages, buildScenePrompt(shaders, pieceIds), buildSceneSchema());
+      return json(200, { reply: parsed.reply, planJson: typeof parsed.planJson === 'string' ? parsed.planJson : '' });
     }
 
     // 3b. Create mode — against the client's live template catalog.

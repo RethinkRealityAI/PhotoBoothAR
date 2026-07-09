@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Check, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, Check, Clapperboard, Loader2, Save } from 'lucide-react';
 import { useCameraStream } from '../booth/useCameraStream';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from '../admin/studioBase';
@@ -35,6 +35,7 @@ import AssetsDock from './AssetsDock';
 import StudioStage from './StudioStage';
 import PropertiesDock from './PropertiesDock';
 import DragGhost from './DragGhost';
+import SceneDirectorPanel from './SceneDirectorPanel';
 import { useStudioDnd } from './useStudioDnd';
 import Tooltip from '../ui/Tooltip';
 
@@ -61,6 +62,7 @@ export default function StudioShell() {
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('id');
   const debugOcclusion = searchParams.get('debug') === 'occluder';
+  const sceneParam = searchParams.get('scene');
 
   const [state, dispatch] = useReducer(studioReducer, undefined, () => initialState('shader'));
   const [loadingEdit, setLoadingEdit] = useState(!!editId);
@@ -68,6 +70,7 @@ export default function StudioShell() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [faceVisible, setFaceVisible] = useState(false);
+  const [sceneOpen, setSceneOpen] = useState(sceneParam !== null);
 
   // Head-size calibration + occlusion master switch (per event).
   const [headScale, setHeadScale] = useState(1);
@@ -193,6 +196,15 @@ export default function StudioShell() {
           <p className="font-label text-[8px] uppercase tracking-widest text-brand-muted/50">{state.draft.id ? 'Editing experience' : 'New experience'}</p>
         </div>
         <div className="flex-1" />
+        <Tooltip label="AI Scene Director" hint="One prompt → matching frame, filter & 3D piece" side="bottom">
+          <button
+            onClick={() => setSceneOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl liquid-glass text-[10px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors"
+          >
+            <Clapperboard className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Scene Director</span>
+          </button>
+        </Tooltip>
         {saveError && <span className="text-rose-400 text-[10px] font-sans max-w-[180px] text-right">{saveError}</span>}
         <button
           onClick={handleSave}
@@ -237,6 +249,7 @@ export default function StudioShell() {
       </div>
 
       <DragGhost payload={dnd.payload} ghost={dnd.ghost} />
+      {sceneOpen && <SceneDirectorPanel initialPrompt={sceneParam ?? ''} onClose={() => setSceneOpen(false)} />}
     </div>
   );
 }
