@@ -50,7 +50,18 @@ export interface AnchorConfig {
   scale: number;
 }
 
-/** A single composable layer of a composite experience. */
+/** Per-object animation presets, rendered in both studio and booth. */
+export type LayerAnimation = 'none' | 'float' | 'pulse' | 'spin';
+
+/**
+ * A single composable layer (object) of a multi-object scene.
+ * CONTRACT: `config.layers` is the ordered full object list (index 0 = the
+ * primary object, drawn first/bottom-most). The experience's legacy singular
+ * fields (asset_url, config.transform / config.anchor / config.procedural)
+ * always MIRROR layer 0, so renderers that don't know about layers — and the
+ * frozen legacy events — keep working unchanged. A scene stays within one
+ * mode: 2D layers (border/2d_filter) or 3D layers (3d_attachment), never mixed.
+ */
 export interface ExperienceLayer {
   id: string;
   kind: Exclude<ExperienceKind, 'composite'>;
@@ -60,6 +71,14 @@ export interface ExperienceLayer {
   anchor?: AnchorConfig;
   opacity?: number;
   blendMode?: string;
+  /** Built-in procedural head-piece id (3D layers). */
+  procedural?: string;
+  /** Display name shown in the studio layers panel. */
+  name?: string;
+  /** Entrance/idle animation preset (default 'none'). */
+  animation?: LayerAnimation;
+  /** Per-layer head-occlusion opt-in (3D layers). */
+  occlusion?: boolean;
 }
 
 export interface ExperienceConfig {

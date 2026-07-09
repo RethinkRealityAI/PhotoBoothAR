@@ -4,7 +4,7 @@
 Rebuild the event studio (/host/events/:id) into one unified premium editor: single camera, in-canvas 2D·3D·Preview switching, DnD assets dock, AR occlusion + head-size calibration, AI Scene Director hero feature (user-approved plan).
 
 ## Now
-DONE + hardened. PR #14 open (draft). Panel-hidden bug FIXED + full audit done (9 findings, 7 fixed). Playwright installed + harness. Awaiting: user live camera/auth E2E (esp. glasses occlusion visual — finding #7); valid GEMINI_API_KEY for Scene Director. PR watched; ~hourly check-in armed.
+STUDIO v2 (user-directed, 2026-07-09 evening): multi-object scenes within a mode + undo/redo/delete + layers panel; assets dock = built-ins + uploads + my experiences; ALL 4 extras (snapping/nudge, per-object animation, duplicate, Director's Preview QR). ORCHESTRATION MODE per user: I direct; implementation delegated to subagents (opus for complex: state core, studio UI; sonnet for high-effort: booth rendering, helpers, assets dock); then UI/UX reviewer + logic auditor agents; I review every wave. Wave 1 (parallel, disjoint files): A-opus lib/studio state+history+draftMapping; B-sonnet booth additive multi-layer+animation (StageCanvas overlays[], Overlay3D pieces[], animation.ts); C-sonnet snap.ts + assetSources.ts. Wave 2: D1-opus studio UI core (stage/props/layers/undo/snap/shell), then D2-sonnet assets dock tabs + QR test-on-phone + duplicate. Wave 3: reviewers → my fixes → gates → push PR #14.
 
 ## Verification harness (NEW)
 - Playwright devDep + Chromium at /opt/pw-browsers/chromium-1194/chrome-linux/chrome (pass executablePath).
@@ -32,6 +32,10 @@ P5: (1) platformGuide.ts — add a Studio + Scene Director section so the copilo
 - (task) Push only to claude/studio-editing-ux-improvements-xfn36m; draft PR after push.
 
 ## Decisions
+- DECISION (user, 2026-07-09): multi-object = "multiple within a mode" (option B) + ship undo/delete; assets panel = uploads + my experiences (option B); implement ALL 4 extras; orchestrate via Sonnet/Opus subagents with UI/UX reviewer + assumptions auditor, me directing/reviewing.
+- DECISION: layers contract — config.layers[] = full ordered object list, layer 0 mirrored into legacy singular fields; booth renders layers when present else legacy path; scene never mixes 2D and 3D. Shader stays single per experience.
+- REVERSING DECISION 'never touch StageCanvas.drawFrame semantics' because the user explicitly requested multiple 2D objects — change is additive only (optional overlays[] prop; single-overlay path unchanged; legacy events safe).
+- DECISION: 3D multi-object = one FaceRig per object (tracking core untouched; detection is globally throttled/shared so N rigs is cheap).
 - DECISION: unified StudioShell replaces Creator2D/Creator3D tabs — user picked via AskUserQuestion (vs quick-switcher).
 - DECISION: occluder from vendored MediaPipe canonical_face_model.obj (metric cm = faceRig.ts anchor space) + procedural cranium ellipsoid; meshBasicMaterial colorWrite:false, depthWrite true, renderOrder −1, raycast no-op → works in booth composite with zero StageCanvas changes.
 - DECISION: headScale per-event app_settings key 'studio' {headScale} clamp 0.85–1.3; per-experience opt-out config.occlusion===false.
