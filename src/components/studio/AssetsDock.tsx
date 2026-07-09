@@ -9,13 +9,13 @@
  * Click-to-add wires each source into the reducer. (P3 adds a bucket-assets
  * tab and pointer drag-and-drop onto the stage.)
  */
-import { useCallback, useRef, type ChangeEvent } from 'react';
-import { Boxes, Crown, Image as ImageIcon, LayoutTemplate, Sparkles, Upload } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { Boxes, Crown, Image as ImageIcon, LayoutTemplate, Loader2, Search, Sparkles, Upload } from 'lucide-react';
 import { FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { HEAD_PIECES } from '../../lib/headPieces';
 import { ANCHOR_PRESETS } from '../../lib/faceRig';
-import { uploadAsset } from '../../lib/db';
+import { uploadAsset, listAssets, fetchExperiences } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
 import { selectedObject, type StudioAction, type StudioKind, type StudioState } from '../../lib/studio/state';
@@ -24,6 +24,7 @@ import AiFramePanel from './AiFramePanel';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
 import type { DragPayload } from './useStudioDnd';
 import type { Experience } from '../../types';
+import { uploadsToDockItems, experiencesToDockItems, filterDockItems, type DockItem } from '../../lib/studio/assetSources';
 
 interface Props {
   state: StudioState;
@@ -40,14 +41,133 @@ const KIND_TABS: { id: StudioKind; label: string; icon: typeof Sparkles }[] = [
   { id: '3d_attachment', label: '3D', icon: Boxes },
 ];
 
+type SourceTabId = 'library' | 'uploads' | 'mine';
+const SOURCE_TABS: { id: SourceTabId; label: string }[] = [
+  { id: 'library', label: 'Library' },
+  { id: 'uploads', label: 'Uploads' },
+  { id: 'mine', label: 'Mine' },
+];
+
+interface SourceState {
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  items: DockItem[];
+}
+const IDLE_SOURCE: SourceState = { status: 'idle', items: [] };
+
 export default function AssetsDock({ state, dispatch, onOpenExperience, beginDrag, consumedDrag }: Props) {
   const { draft, mode } = state;
-  const { source } = useEvent();
+  const { source, eventId } = useEvent();
   const entitlements = useEntitlements();
   const imgInputRef = useRef<HTMLInputElement>(null);
   const glbInputRef = useRef<HTMLInputElement>(null);
 
   const show3dAi = source === 'db' && entitlements.aiStudio;
+
+  // Source sub-tabs (Library / Uploads / Mine) — Uploads and Mine are fetched
+  // lazily on first open and cached for the life of this shell mount.
+  const [subTab, setSubTab] = useState<SourceTabId>('library');
+  const [query, setQuery] = useState('');
+  const [uploads, setUploads] = useState<SourceState>(IDLE_SOURCE);
+  const [mine, setMine] = useState<SourceState>(IDLE_SOURCE);
+  const family: '2d' | '3d' = draft.kind === '3d_attachment' ? '3d' : '2d';
+
+  const loadUploads = useCallback(() => {
+    setUploads({ status: 'loading', items: [] });
+    listAssets()
+      .then((assets) => setUploads({ status: 'ready', items: uploadsToDockItems(assets) }))
+      .catch(() => setUploads({ status: 'error', items: [] }));
+  }, []);
+  useEffect(() => {
+    if (subTab === 'uploads' && uploads.status === 'idle') loadUploads();
+  }, [subTab, uploads.status, loadUploads]);
+
+  const loadMine = useCallback(() => {
+    setMine({ status: 'loading', items: [] });
+    fetchExperiences(eventId)
+      .then((exps) => setMine({ status: 'ready', items: experiencesToDockItems(exps.filter((e) => e.id !== draft.id)) }))
+      .catch(() => setMine({ status: 'error', items: [] }));
+  }, [eventId, draft.id]);
+  useEffect(() => {
+    if (subTab === 'mine' && mine.status === 'idle') loadMine();
+  }, [subTab, mine.status, loadMine]);
+
+  // Click-to-add for an Uploads/Mine dock item — mirrors the built-in library's
+  // click handlers (SET_OVERLAY_UPLOAD / SELECT_HEAD_PIECE / SET_MODEL_ASSET),
+  // guarded by consumedDrag() exactly like every other source button here.
+  const addDockItem = useCallback((item: DockItem) => {
+    if (item.family === '2d') {
+      if (item.payload.url) dispatch({ type: 'SET_OVERLAY_UPLOAD', url: item.payload.url, blob: null });
+      return;
+    }
+    if (item.payload.proceduralId) {
+      dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: item.payload.proceduralId });
+    } else if (item.payload.assetUrl) {
+      dispatch({ type: 'SET_MODEL_ASSET', url: item.payload.assetUrl, name: item.label });
+    }
+  }, [dispatch]);
+
+  // Drag payload for an Uploads/Mine dock item — useStudioDnd's resolveDrop
+  // reads `assetUrl` (not `url`) for the non-builtin overlay branch, so a
+  // DockItem's payload.url maps onto DragPayload.assetUrl here.
+  const dragPayloadFor = useCallback((item: DockItem): DragPayload => {
+    if (item.family === '2d') {
+      return {
+        target: 'overlay',
+        label: item.label,
+        previewUrl: item.previewUrl,
+        overlayKind: item.payload.overlayKind ?? (draft.kind === 'border' || draft.kind === '2d_filter' ? draft.kind : 'border'),
+        assetUrl: item.payload.url,
+      };
+    }
+    if (item.payload.proceduralId) {
+      return { target: 'headpiece', label: item.label, previewUrl: item.previewUrl, pieceId: item.payload.proceduralId };
+    }
+    return { target: 'model', label: item.label, previewUrl: item.previewUrl, assetUrl: item.payload.assetUrl };
+  }, [draft.kind]);
+
+  const renderSourceList = (items: DockItem[], emptyText: string) => {
+    if (items.length === 0) {
+      return <p className="font-sans text-[10px] text-brand-muted/40 text-center py-8">{emptyText}</p>;
+    }
+    if (family === '2d') {
+      return (
+        <div className="grid grid-cols-3 gap-1.5">
+          {items.map((item) => (
+            <button
+              key={item.id}
+              onPointerDown={(e) => beginDrag(dragPayloadFor(item), e)}
+              onClick={() => { if (consumedDrag()) return; addDockItem(item); }}
+              title={`${item.label} · click to add · drag onto the canvas to place`}
+              className="group relative aspect-square rounded-lg overflow-hidden bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 hover:border-accent/25 cursor-grab active:cursor-grabbing transition-colors"
+            >
+              {item.previewUrl ? (
+                <img src={item.previewUrl} alt={item.label} draggable={false} className="w-full h-full object-contain p-1.5" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-4 h-4 text-brand-muted/30" /></div>
+              )}
+              <span className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-[7px] font-label uppercase tracking-wide text-white/80 truncate">{item.label}</span>
+            </button>
+          ))}
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col gap-1">
+        {items.map((item) => (
+          <button
+            key={item.id}
+            onPointerDown={(e) => beginDrag(dragPayloadFor(item), e)}
+            onClick={() => { if (consumedDrag()) return; addDockItem(item); }}
+            title={`${item.label} · click to add · drag onto the head to place`}
+            className="w-full flex items-center gap-2 text-left px-3 py-2.5 rounded-xl transition-colors text-xs font-sans cursor-grab active:cursor-grabbing bg-white/[0.03] hover:bg-white/[0.06] text-brand-muted/70 hover:text-brand-fg"
+          >
+            <Boxes className="w-3.5 h-3.5 text-accent-2 shrink-0" />
+            <span className="truncate">{item.label}</span>
+          </button>
+        ))}
+      </div>
+    );
+  };
 
   // The selected object drives which library item reads as "active" (these
   // click-to-add actions add-or-replace per the reducer's documented rule).
@@ -94,6 +214,35 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         </div>
       </div>
 
+      {/* Source sub-tabs */}
+      <div className="flex items-center gap-1 p-1 rounded-xl liquid-glass">
+        {SOURCE_TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setSubTab(t.id)}
+            className={`flex-1 py-1.5 rounded-lg text-[9px] font-label uppercase tracking-widest transition-colors ${subTab === t.id ? 'bg-accent/20 text-accent-2' : 'text-brand-muted/50 hover:text-brand-fg'}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Search — filters only the active sub-tab (Uploads / Mine) */}
+      {subTab !== 'library' && (
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 text-brand-muted/30 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search…"
+            className="w-full pl-8 pr-2.5 py-1.5 rounded-lg bg-white/[0.03] text-[11px] text-brand-fg placeholder:text-brand-muted/30 focus:outline-none focus:ring-1 focus:ring-accent/30"
+          />
+        </div>
+      )}
+
+      {subTab === 'library' && (
+      <>
       {/* SHADER list */}
       {draft.kind === 'shader' && mode === '2d' && (
         <div>
@@ -219,6 +368,52 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
 
           {show3dAi && <AiGeneratePanel onOpenExperience={onOpenExperience} />}
         </>
+      )}
+      </>
+      )}
+
+      {/* UPLOADS tab */}
+      {subTab === 'uploads' && (
+        <div>
+          <SectionLabel>Uploaded assets</SectionLabel>
+          {uploads.status === 'loading' && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-4 h-4 animate-spin text-brand-muted/40" />
+            </div>
+          )}
+          {uploads.status === 'error' && (
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <p className="font-sans text-[10px] text-brand-muted/40">Couldn't load your uploads.</p>
+              <button onClick={loadUploads} className="text-[9px] font-label uppercase tracking-widest text-brand-muted/50 hover:text-accent-2 transition-colors">Retry</button>
+            </div>
+          )}
+          {uploads.status === 'ready' && renderSourceList(
+            filterDockItems(uploads.items, family, query),
+            query ? 'No matches.' : 'No uploads yet — add files above.',
+          )}
+        </div>
+      )}
+
+      {/* MINE tab */}
+      {subTab === 'mine' && (
+        <div>
+          <SectionLabel>Your experiences</SectionLabel>
+          {mine.status === 'loading' && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-4 h-4 animate-spin text-brand-muted/40" />
+            </div>
+          )}
+          {mine.status === 'error' && (
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <p className="font-sans text-[10px] text-brand-muted/40">Couldn't load your experiences.</p>
+              <button onClick={loadMine} className="text-[9px] font-label uppercase tracking-widest text-brand-muted/50 hover:text-accent-2 transition-colors">Retry</button>
+            </div>
+          )}
+          {mine.status === 'ready' && renderSourceList(
+            filterDockItems(mine.items, family, query),
+            query ? 'No matches.' : 'No saved experiences yet.',
+          )}
+        </div>
       )}
     </div>
   );

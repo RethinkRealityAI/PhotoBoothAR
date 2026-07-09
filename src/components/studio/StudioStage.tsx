@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { Boxes, Eye, Layers, Pause, Play, ScanFace, Sparkles, Rotate3d, AlertTriangle } from 'lucide-react';
+import { Boxes, Eye, Layers, Pause, Play, ScanFace, Smartphone, Sparkles, Rotate3d, AlertTriangle } from 'lucide-react';
 import { ShaderRunner } from '../../lib/shaders';
 import { snapTransform, type SnapResult } from '../../lib/studio/snap';
 import { selectedObject, type StudioState, type StudioAction, type Overlay2D, type Object3D } from '../../lib/studio/state';
@@ -43,6 +43,8 @@ interface Props {
   headMatrixRef?: React.MutableRefObject<number[] | null>;
   /** True while a dock item is being dragged over the stage (drop highlight). */
   dropActive?: boolean;
+  /** Opens the "Test on phone" QR hand-off (Preview mode only). */
+  onTestOnPhone?: () => void;
 }
 
 const MODE_TABS = [
@@ -63,6 +65,7 @@ export default function StudioStage({
   stageBodyRef,
   headMatrixRef,
   dropActive = false,
+  onTestOnPhone,
 }: Props) {
   const { mode, draft, threeView, paused } = state;
   const shaderCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -347,6 +350,19 @@ export default function StudioStage({
               occlusionEnabled={occlusionEnabled}
               onFaceVisible={onFaceVisible}
             />
+          </div>
+        )}
+
+        {/* Test on phone — Preview mode only, floating bottom-right */}
+        {mode === 'preview' && onTestOnPhone && (
+          <div className="absolute bottom-3 right-3 z-20">
+            <button
+              onClick={onTestOnPhone}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-full liquid-glass text-[10px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors"
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>Test on phone</span>
+            </button>
           </div>
         )}
 

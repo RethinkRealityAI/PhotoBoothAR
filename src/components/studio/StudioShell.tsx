@@ -65,6 +65,7 @@ import StudioStage from './StudioStage';
 import PropertiesDock from './PropertiesDock';
 import DragGhost from './DragGhost';
 import SceneDirectorPanel from './SceneDirectorPanel';
+import TestOnPhone from './TestOnPhone';
 import { useStudioDnd } from './useStudioDnd';
 import Tooltip from '../ui/Tooltip';
 
@@ -113,6 +114,7 @@ export default function StudioShell() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [faceVisible, setFaceVisible] = useState(false);
   const [sceneOpen, setSceneOpen] = useState(sceneParam !== null);
+  const [testPhoneOpen, setTestPhoneOpen] = useState(false);
   // Below lg the docks are slide-in drawers (they'd otherwise have no room);
   // this tracks which one is open. At lg+ both are always-visible columns.
   const [mobilePanel, setMobilePanel] = useState<'assets' | 'props' | null>(null);
@@ -407,6 +409,7 @@ export default function StudioShell() {
             stageBodyRef={stageBodyRef}
             headMatrixRef={headMatrixRef}
             dropActive={dnd.dragging && dnd.overStage}
+            onTestOnPhone={() => setTestPhoneOpen(true)}
           />
         </main>
 
@@ -431,6 +434,15 @@ export default function StudioShell() {
 
       <DragGhost payload={dnd.payload} ghost={dnd.ghost} />
       {sceneOpen && <SceneDirectorPanel initialPrompt={sceneParam ?? ''} onClose={() => setSceneOpen(false)} />}
+      {testPhoneOpen && (
+        <TestOnPhone
+          experienceId={state.draft.id}
+          dirty={state.dirty}
+          saving={saving}
+          onSave={handleSave}
+          onClose={() => setTestPhoneOpen(false)}
+        />
+      )}
     </div>
   );
 }
