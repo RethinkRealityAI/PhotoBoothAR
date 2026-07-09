@@ -45,7 +45,8 @@ import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { buildCatalog } from '../lib/catalog';
 import { initializeFaceLandmarker } from '../lib/faceTracking';
-import { submitPost } from '../lib/db';
+import { submitPost, getStudioSettings } from '../lib/db';
+import { DEFAULT_STUDIO_SETTINGS, type StudioSettings } from '../lib/studio/occluder';
 import { savePhoto, addCompletedChallenge, setGuestName } from '../lib/session';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
 import { useEntitlements } from '../lib/entitlements';
@@ -73,8 +74,18 @@ const DEFAULT_TRANSFORM: Transform2D = { scale: 1, x: 0, y: 0, rotation: 0 };
 
 export default function Booth() {
   const { id: routeExperienceId } = useParams<{ id?: string }>();
-  const { eventId, config: eventConfig, basePath } = useEvent();
+  const { eventId, config: eventConfig, basePath, source } = useEvent();
   const entitlements = useEntitlements();
+
+  // Studio settings (head occlusion + size). Only platform (db) events opt in;
+  // legacy/code events keep their exact shipped rendering.
+  const [studioCfg, setStudioCfg] = useState<StudioSettings>(DEFAULT_STUDIO_SETTINGS);
+  useEffect(() => {
+    if (source !== 'db') return;
+    let alive = true;
+    getStudioSettings(eventId).then((s) => { if (alive) setStudioCfg(s); }).catch(() => {});
+    return () => { alive = false; };
+  }, [eventId, source]);
 
   // ── Store ─────────────────────────────────────────────────────────────
   const {
@@ -529,6 +540,8 @@ export default function Booth() {
                     anchor={anchorConfig}
                     videoId="booth-video"
                     mirror={isFront}
+                    occlude={source === 'db' && studioCfg.occlusion && attachExp!.config?.occlusion !== false}
+                    headScale={studioCfg.headScale}
                     onFaceVisible={setFaceVisible}
                   />
                 )}

@@ -15,11 +15,15 @@ interface Props {
   anchor: AnchorConfig;
   videoId?: string;
   mirror?: boolean;
+  /** Hide props behind the real head via a depth-only occluder. */
+  occlude?: boolean;
+  /** Head-size calibration (event studio setting). */
+  headScale?: number;
   /** Fires when face tracking acquires/loses the face (drives the booth hint). */
   onFaceVisible?: (visible: boolean) => void;
 }
 
-export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, onFaceVisible }: Props) {
+export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible }: Props) {
   return (
     <div id="booth-3d-layer" className="absolute inset-0 pointer-events-none z-20">
       <Canvas
@@ -32,7 +36,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
         <directionalLight position={[2, 4, 3]} intensity={1.8} />
         <pointLight position={[-2, 2, 2]} intensity={0.8} color="#E8C766" />
 
-        <FaceRig videoId={videoId} anchor={anchor.anchor} config={anchor} mirror={mirror} onVisibilityChange={onFaceVisible}>
+        <FaceRig videoId={videoId} anchor={anchor.anchor} config={anchor} mirror={mirror} occlude={occlude} headScale={headScale} onVisibilityChange={onFaceVisible}>
           {isHeadPiece(proceduralId) ? (
             <HeadPiece id={proceduralId as string} />
           ) : assetUrl ? (

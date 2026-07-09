@@ -17,7 +17,7 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, Boxes, Check, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
+  ArrowLeft, Check, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
   LayoutGrid, Palette, QrCode, Settings, ShieldCheck, Sparkles, Trophy, Wand2,
 } from 'lucide-react';
 import { useCopilotStore } from '../../lib/copilotStore';
@@ -28,8 +28,7 @@ import { StudioBaseContext } from '../../components/admin/studioBase';
 import Dashboard from '../../components/admin/Dashboard';
 import Library from '../../components/admin/Library';
 import Assets from '../../components/admin/Assets';
-import Creator2D from '../../components/admin/Creator2D';
-import Creator3D from '../../components/admin/Creator3D';
+import StudioShell, { StudioRedirect } from '../../components/studio/StudioShell';
 import Moderation from '../../components/admin/Moderation';
 import Challenges from '../../components/admin/Challenges';
 import Branding from '../../components/admin/Branding';
@@ -120,10 +119,9 @@ export default function EventStudio() {
 
   const tabs = [
     { to: base, label: 'Dashboard', icon: LayoutGrid, end: true },
+    { to: `${base}/studio`, label: 'Studio', icon: Wand2, end: false },
     { to: `${base}/library`, label: 'Experiences', icon: ImageIcon, end: false },
     { to: `${base}/assets`, label: 'Assets', icon: FolderOpen, end: false },
-    { to: `${base}/creator`, label: '2D / Shader', icon: Wand2, end: false },
-    { to: `${base}/creator3d`, label: '3D Anchors', icon: Boxes, end: false },
     { to: `${base}/moderation`, label: 'Wall', icon: ShieldCheck, end: false },
     { to: `${base}/challenges`, label: 'Challenges', icon: Trophy, end: false },
     { to: `${base}/cards`, label: 'Cards', icon: Gift, end: false },
@@ -195,8 +193,10 @@ export default function EventStudio() {
               />
               <Route path="library" element={<Library />} />
               <Route path="assets" element={<Assets />} />
-              <Route path="creator" element={<Creator2D />} />
-              <Route path="creator3d" element={<Creator3D />} />
+              <Route path="studio" element={<StudioShell />} />
+              {/* Retired creator tabs → unified studio (keep ?id= deep links). */}
+              <Route path="creator" element={<StudioRedirect to={`${base}/studio`} />} />
+              <Route path="creator3d" element={<StudioRedirect to={`${base}/studio`} />} />
               <Route path="moderation" element={<Moderation />} />
               <Route path="challenges" element={<Challenges />} />
               <Route path="cards" element={<CardsTab />} />

@@ -12,6 +12,7 @@ import { GLTFLoader } from 'three-stdlib';
 import { updateHeadPose, ANCHOR_MAP } from '../../lib/faceRig';
 import { AnchorConfig, HeadAnchor } from '../../types';
 import AssetGizmo from './AssetGizmo';
+import FaceOccluder from './FaceOccluder';
 
 /** Loads + caches a GLB/GLTF model from a url. */
 const _cache = new Map<string, Promise<THREE.Group>>();
@@ -56,6 +57,9 @@ export function FaceRig({
   paused = false,
   mirror = false,
   editable = false,
+  occlude = false,
+  headScale = 1,
+  debugOcclusion = false,
   onVisibilityChange,
   onTransformChange,
   onGizmoDragStart,
@@ -68,6 +72,12 @@ export function FaceRig({
   paused?: boolean;
   mirror?: boolean;
   editable?: boolean;
+  /** Render the invisible depth-only head so props behind it are hidden. */
+  occlude?: boolean;
+  /** Head-size calibration multiplier for the occluder (studio headScale). */
+  headScale?: number;
+  /** Show the occluder faintly for tuning. */
+  debugOcclusion?: boolean;
   onVisibilityChange?: (visible: boolean) => void;
   onTransformChange?: (patch: Partial<AnchorConfig>) => void;
   onGizmoDragStart?: () => void;
@@ -97,6 +107,9 @@ export function FaceRig({
 
   return (
     <group ref={head} visible={false}>
+      {/* Depth-only head: a sibling of the asset (NOT inside the gizmo) so the
+          real head occludes props regardless of the prop's placement. */}
+      {occlude && <FaceOccluder scale={headScale} debug={debugOcclusion} />}
       <AssetGizmo
         base={base}
         config={config ?? {}}

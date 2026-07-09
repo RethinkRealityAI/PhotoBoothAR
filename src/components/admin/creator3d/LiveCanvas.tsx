@@ -139,6 +139,7 @@ export default function LiveCanvas({
             config={anchorConfig}
             paused={paused || dragging}
             mirror
+            occlude={hasAsset}
             editable={gizmo && hasAsset}
             onVisibilityChange={onFaceVisible}
             onTransformChange={onTransformChange}

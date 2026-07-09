@@ -365,11 +365,13 @@ function LivePreview({
         style={{ transform: 'scaleX(-1)', pointerEvents: 'none' }}
       />
 
-      {/* Shader output canvas — always rendered, visibility via opacity layer logic */}
+      {/* Shader output canvas — element stays mounted for the ref, but it is
+          fully hidden outside shader mode: a translucent shader copy of the
+          camera over the raw video reads as a ghosted "double camera". */}
       <canvas
         ref={shaderCanvasRef as React.RefObject<HTMLCanvasElement>}
         className="absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity"
-        style={{ opacity: kind === 'shader' ? 1 : 0.35 }}
+        style={{ opacity: kind === 'shader' ? 1 : 0 }}
       />
 
       {/* 2D overlay or border image */}
@@ -528,9 +530,12 @@ export default function Creator2D() {
     };
   }, []);
 
-  /* ---- Shader render loop — always running so preview is live ---- */
+  /* ---- Shader render loop — runs only in shader mode (the canvas is hidden
+          for borders/stickers, so drawing there would waste GPU and, worse,
+          ghost a second camera image over the preview) ---- */
   useEffect(() => {
     cancelAnimationFrame(rafRef.current);
+    if (kind !== 'shader') return;
     const draw = () => {
       const video = videoRef.current;
       const canvas = shaderCanvasRef.current;

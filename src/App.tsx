@@ -25,8 +25,7 @@ import AdminGate from './components/admin/AdminGate';
 import Dashboard from './components/admin/Dashboard';
 import Library from './components/admin/Library';
 import Assets from './components/admin/Assets';
-import Creator2D from './components/admin/Creator2D';
-import Creator3D from './components/admin/Creator3D';
+import StudioShell, { StudioRedirect } from './components/studio/StudioShell';
 import Moderation from './components/admin/Moderation';
 import Settings from './components/admin/Settings';
 import Branding from './components/admin/Branding';
@@ -113,8 +112,9 @@ function adminRoutes() {
       <Route path="admin" element={<AdminGate><Dashboard /></AdminGate>} />
       <Route path="admin/library" element={<AdminGate><Library /></AdminGate>} />
       <Route path="admin/assets" element={<AdminGate><Assets /></AdminGate>} />
-      <Route path="admin/creator" element={<AdminGate><Creator2D /></AdminGate>} />
-      <Route path="admin/creator3d" element={<AdminGate><Creator3D /></AdminGate>} />
+      <Route path="admin/studio" element={<AdminGate><StudioShell /></AdminGate>} />
+      <Route path="admin/creator" element={<AdminGate><StudioRedirect to="/admin/studio" /></AdminGate>} />
+      <Route path="admin/creator3d" element={<AdminGate><StudioRedirect to="/admin/studio" /></AdminGate>} />
       <Route path="admin/moderation" element={<AdminGate><Moderation /></AdminGate>} />
       <Route path="admin/challenges" element={<AdminGate><Challenges /></AdminGate>} />
       <Route path="admin/settings" element={<AdminGate><Settings /></AdminGate>} />

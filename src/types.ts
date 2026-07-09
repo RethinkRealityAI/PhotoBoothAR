@@ -73,6 +73,10 @@ export interface ExperienceConfig {
   procedural?: string;
   /** A shader applied to the whole frame when this experience is active. */
   ambientShader?: ShaderConfig;
+  /** Scene Director grouping tag — set on every piece accepted from one scene. */
+  scene?: string;
+  /** Per-experience opt-out of head occlusion (absent/true = occlude). */
+  occlusion?: boolean;
 }
 
 export interface Experience {

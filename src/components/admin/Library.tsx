@@ -181,7 +181,7 @@ function ExperienceCard({
     setBusy(true);
     const created = await createExperience(eventId, draftFrom());
     setBusy(false);
-    if (created) navigate(created.kind === '3d_attachment' ? `${base}/creator3d?id=${created.id}` : `${base}/creator?id=${created.id}`);
+    if (created) navigate(`${base}/studio?id=${created.id}`);
   };
 
   const remove = async () => {
@@ -192,7 +192,7 @@ function ExperienceCard({
     setBusy(false);
   };
 
-  const edit = () => navigate(exp.kind === '3d_attachment' ? `${base}/creator3d?id=${exp.id}` : `${base}/creator?id=${exp.id}`);
+  const edit = () => navigate(`${base}/studio?id=${exp.id}`);
 
   const reorder = (onMoveUp || onMoveDown);
 
@@ -490,7 +490,7 @@ export default function Library() {
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
-              onClick={() => navigate(`${base}/creator`)}
+              onClick={() => navigate(`${base}/studio`)}
               className="flex items-center gap-2 px-4 py-2 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent hover:scale-[1.02] transition-transform"
             >
               <Plus className="w-4 h-4" /> New
@@ -515,13 +515,13 @@ export default function Library() {
               <p className="font-sans text-sm text-champagne/40 mb-6">Create your first 2D, border, or shader experience below.</p>
               <div className="flex items-center justify-center gap-3">
                 <button
-                  onClick={() => navigate(`${base}/creator`)}
+                  onClick={() => navigate(`${base}/studio`)}
                   className="px-6 py-3 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent"
                 >
                   Create First Experience
                 </button>
                 <button
-                  onClick={() => navigate(`${base}/creator`)}
+                  onClick={() => navigate(`${base}/studio`)}
                   title="Open the creator — the AI Generate panel lives in its left column"
                   className="flex items-center gap-1.5 px-5 py-3 glass rounded-xl text-xs font-label uppercase tracking-widest text-champagne/60 hover:text-gold-300 transition-colors"
                 >
