@@ -268,9 +268,12 @@ function LiveDot({ reduced }: { reduced: boolean }) {
 }
 
 function LiveWall({
-  shots, gridRef, reduced,
+  shots, count, gridRef, reduced,
 }: {
   shots: string[];
+  /** Photos on the wall INCLUDING a still-featured polaroid (whose shot only
+   *  files into the grid when it retires). */
+  count: number;
   gridRef: React.Ref<HTMLDivElement>;
   reduced: boolean;
 }) {
@@ -306,7 +309,7 @@ function LiveWall({
             <span className="font-label text-[10px] uppercase tracking-luxe text-brand-fg">Beamwall · Live wall</span>
           </div>
           <span className="font-label text-[10px] uppercase tracking-luxe text-brand-muted/55">
-            {shots.length} photo{shots.length === 1 ? '' : 's'}
+            {count} photo{count === 1 ? '' : 's'}
           </span>
         </div>
 
@@ -398,7 +401,6 @@ export default function InteractiveShowcase() {
 
   const openCamera = useCallback(() => setAppState('camera'), []);
   const closeCamera = useCallback(() => setAppState('idle'), []);
-  const captureAgain = useCallback(() => setAppState('camera'), []);
 
   /** Measure phone-screen → target-tile rects in scene space and start the
    *  beam; on measurement failure, commit directly (DemoBooth fallback). */
@@ -409,11 +411,12 @@ export default function InteractiveShowcase() {
     // Ensure the wall is on-screen before measuring (mobile: it sits below the
     // phone); instant + nearest = minimal jump, matching the settled layout.
     grid?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
-    const slot = Math.min(wallShots.length, TILE_COUNT - 1);
+    // A pending polaroid occupies the next slot (it files in on retire).
+    const slot = Math.min(wallShots.length + (landingRef.current !== null ? 1 : 0), TILE_COUNT - 1);
     const tile = grid?.children[slot] as HTMLElement | undefined;
     if (!scene || !screen || !tile) {
+      retireLanding();
       commitShot(shot);
-      setLanding(null);
       setAppState('wall');
       return;
     }
@@ -425,14 +428,27 @@ export default function InteractiveShowcase() {
     setAppState('beaming');
   }, [wallShots.length, commitShot]);
 
-  /** Commit a landed flight to the wall + place its polaroid. The polaroid's
-   *  centre is clamped so the whole card stays inside the wall grid (small
-   *  slack for the tilt): keeps it out of the header row and, on phones,
-   *  away from the clipped scene edges. The wall still has its BACK geometry
-   *  here (the forward spring starts on 'wall'), so these rects match the
-   *  ones the flight was measured against. */
+  // The landing polaroid IS the wall's newest photo — its shot files into a
+  // grid tile only when the polaroid RETIRES (next landing, capture-again, or
+  // auto-dismiss). Committing immediately painted the same image twice: the
+  // tile underneath plus the polaroid on top (user-reported duplicate).
+  const landingRef = useRef<Landing | null>(landing);
+  landingRef.current = landing;
+  const retireLanding = useCallback(() => {
+    const prev = landingRef.current;
+    if (prev !== null) commitShot(prev.shot);
+    setLanding(null);
+  }, [commitShot]);
+
+  /** Place a landed flight's polaroid (retiring any previous one into the
+   *  grid). The polaroid's centre is clamped so the whole card stays inside
+   *  the wall grid (small slack for the tilt): keeps it out of the header row
+   *  and, on phones, away from the clipped scene edges. The wall still has
+   *  its BACK geometry here (the forward spring starts on 'wall'), so these
+   *  rects match the ones the flight was measured against. */
   const landShot = useCallback((f: Flight, source: Landing['source']) => {
-    commitShot(f.shot);
+    const prev = landingRef.current;
+    if (prev !== null) commitShot(prev.shot);
     const index = captureCountRef.current;
     captureCountRef.current += 1;
     const width = Math.max(96, f.to.width * 1.32);
@@ -458,6 +474,11 @@ export default function InteractiveShowcase() {
     setAppState('wall');
   }, [landShot]);
 
+  const captureAgain = useCallback(() => {
+    retireLanding(); // the featured polaroid files into the grid
+    setAppState('camera');
+  }, [retireLanding]);
+
   const handleFinished = useCallback(() => setFlight(null), []);
 
   /* ── Cross-device arrivals (QR → visitor's real phone → this wall) ──── */
@@ -470,7 +491,8 @@ export default function InteractiveShowcase() {
   remoteArriveRef.current = (shot: string) => {
     const scene = sceneRef.current;
     const grid = wallGridRef.current;
-    const slot = Math.min(wallShots.length, TILE_COUNT - 1);
+    // A pending polaroid occupies the next slot (it files in on retire).
+    const slot = Math.min(wallShots.length + (landingRef.current !== null ? 1 : 0), TILE_COUNT - 1);
     const tile = grid?.children[slot] as HTMLElement | undefined;
     // Unmeasurable, or a ceremony already in flight → quiet direct commit.
     if (!scene || !tile || remoteFlightRef.current !== null || flightRef.current !== null) {
@@ -505,12 +527,13 @@ export default function InteractiveShowcase() {
   }, [wantChannel, beamChannelId]);
 
   // Remote polaroids outside the 'wall' state dismiss themselves — they are
-  // an event, not a resting state the visitor chose.
+  // an event, not a resting state the visitor chose. Retiring (not clearing)
+  // files the shot into the grid.
   useEffect(() => {
     if (landing === null || landing.source !== 'phone' || appState === 'wall') return;
-    const t = window.setTimeout(() => setLanding(null), 4600);
+    const t = window.setTimeout(() => retireLanding(), 4600);
     return () => window.clearTimeout(t);
-  }, [landing, appState]);
+  }, [landing, appState, retireLanding]);
 
   // Mobile: the collapsed phone leaves the viewport staring at empty space
   // and the wall below the fold — follow the shot down to its landing. The
@@ -778,7 +801,12 @@ export default function InteractiveShowcase() {
             animate={appState === 'wall' ? 'forward' : appState === 'beaming' || remoteFlight !== null ? 'charged' : 'back'}
             initial={false}
           >
-            <LiveWall shots={wallShots} gridRef={wallGridRef} reduced={reduced} />
+            <LiveWall
+              shots={wallShots}
+              count={wallShots.length + (landing !== null ? 1 : 0)}
+              gridRef={wallGridRef}
+              reduced={reduced}
+            />
           </motion.div>
           </motion.div>
         </div>
