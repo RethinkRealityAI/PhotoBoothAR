@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { composeAnchorMatrix, decomposeAnchorMatrix } from './faceRig';
+import { composeAnchorMatrix, decomposeAnchorMatrix, medianOf } from './faceRig';
 
 const ZERO: [number, number, number] = [0, 0, 0];
 
@@ -58,5 +58,39 @@ describe('decomposeAnchorMatrix scale clamp (studio bounds)', () => {
   });
   it('leaves an in-range dragged scale untouched', () => {
     expect(decomposeAnchorMatrix(ZERO, draggedMatrix('z', 1, 7)).scale).toBeCloseTo(7, 3);
+  });
+});
+
+describe('medianOf (head-fit estimator)', () => {
+  const scratch = () => new Float32Array(45);
+
+  it('odd count returns the middle of the sorted values (input unsorted)', () => {
+    expect(medianOf([3, 1, 2], 3, scratch())).toBeCloseTo(2, 6);
+    expect(medianOf([1.2, 0.9, 1.0, 1.1, 0.95], 5, scratch())).toBeCloseTo(1.0, 6);
+  });
+
+  it('even count averages the two middle sorted values', () => {
+    expect(medianOf([4, 1, 3, 2], 4, scratch())).toBeCloseTo(2.5, 6);
+  });
+
+  it('only considers the first n entries — stale ring tail is ignored', () => {
+    // Ring physically holds [1,1,1, 9,9], but n=3 so the 9s (unwritten/stale) don't count.
+    expect(medianOf([1, 1, 1, 9, 9], 3, scratch())).toBeCloseTo(1, 6);
+  });
+
+  it('clamps n to the buffers and returns 0 for a non-positive count', () => {
+    expect(medianOf([5, 6], 99, scratch())).toBeCloseTo(5.5, 6); // n over-length → uses both
+    expect(medianOf([5, 6], 0, scratch())).toBe(0);
+    expect(medianOf([], 0, scratch())).toBe(0);
+  });
+
+  it('does not mutate the source buffer', () => {
+    const src = new Float32Array([3, 1, 2]);
+    medianOf(src, 3, scratch());
+    expect(Array.from(src)).toEqual([3, 1, 2]);
+  });
+
+  it('a single sample is its own median', () => {
+    expect(medianOf([1.07], 1, scratch())).toBeCloseTo(1.07, 6);
   });
 });

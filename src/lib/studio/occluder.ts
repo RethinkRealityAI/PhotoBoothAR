@@ -93,12 +93,38 @@ export function clampHeadScale(v: unknown): number {
   return Math.min(HEAD_SCALE_MAX, Math.max(HEAD_SCALE_MIN, n));
 }
 
+/**
+ * Auto-fit baseline bounds. Wider than headScale (0.85–1.3) because this stores
+ * the RAW tracker-fit factor captured at the host's "Apply", not a hand-tuned
+ * calibration. `null` when unset or junk → no baseline → the booth's per-guest
+ * transfer stays off (today's behaviour).
+ */
+export const BASELINE_FIT_MIN = 0.7;
+export const BASELINE_FIT_MAX = 1.5;
+
+export function clampBaselineFit(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(BASELINE_FIT_MAX, Math.max(BASELINE_FIT_MIN, n));
+}
+
 /** Per-event studio settings (app_settings key 'studio'). */
 export interface StudioSettings {
   /** Multiplier on the tracked head size for the occluder + reference head. */
   headScale: number;
   /** Master occlusion switch for the event's booth. */
   occlusion: boolean;
+  /**
+   * Host's Apply-time tracker-fit factor (median detected head fit at
+   * calibration). Present ONLY once the host used the calibration "Apply" chip;
+   * absent = no auto-fit baseline, so the booth behaves exactly as before.
+   */
+  baselineFit?: number;
+  /**
+   * When a baseline exists, whether the booth transfers per-guest fit. Defaults
+   * true when `baselineFit` is present; meaningless (and omitted) otherwise.
+   */
+  autoHeadScale?: boolean;
 }
 
 export const DEFAULT_STUDIO_SETTINGS: StudioSettings = {
@@ -108,8 +134,17 @@ export const DEFAULT_STUDIO_SETTINGS: StudioSettings = {
 
 export function normalizeStudioSettings(raw: unknown): StudioSettings {
   const r = (raw ?? {}) as Partial<Record<keyof StudioSettings, unknown>>;
-  return {
+  const out: StudioSettings = {
     headScale: clampHeadScale(r.headScale ?? 1),
     occlusion: r.occlusion !== false,
   };
+  // Additive: the two auto-fit keys only appear once a baseline has been set, so
+  // rows written before this feature (and legacy events) normalize IDENTICALLY
+  // to before — no baselineFit, no autoHeadScale.
+  const baseline = clampBaselineFit(r.baselineFit);
+  if (baseline !== null) {
+    out.baselineFit = baseline;
+    out.autoHeadScale = r.autoHeadScale !== false; // default ON when a baseline exists
+  }
+  return out;
 }

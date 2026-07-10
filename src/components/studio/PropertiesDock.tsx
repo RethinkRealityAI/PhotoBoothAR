@@ -11,7 +11,7 @@
  * Plus shared name / booth-icon / published / featured controls. All per-object
  * controls operate on selectedObject(draft).
  */
-import { useCallback, useMemo, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import {
   ArrowBigUp,
   Boxes,
@@ -41,6 +41,7 @@ import {
 } from 'lucide-react';
 import { SHADER_MAP, FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
+import { getHeadFitEstimate } from '../../lib/faceRig';
 import {
   DEFAULT_TRANSFORM,
   MAX_OBJECTS,
@@ -64,7 +65,7 @@ import {
   type TriggerSource,
 } from '../../lib/studio/triggers';
 import { draftToPayload, existingUrlResolver } from '../../lib/studio/draftMapping';
-import { createExperience } from '../../lib/db';
+import { createExperience, getStudioSettings, setStudioSettings } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
 import type { LayerAnimation } from '../../types';
 import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
@@ -380,6 +381,123 @@ function MagicTriggers({
   );
 }
 
+/**
+ * Head-size calibration — the manual slider PLUS an "auto head size" helper.
+ *
+ * The live tracker (3D Live view) feeds a fit estimator in faceRig; while this
+ * section is mounted we poll getHeadFitEstimate() ~2×/s. When it differs from
+ * 1× we surface a one-tap suggestion. HONEST COPY by design: the matrix scale
+ * already normalizes face size (the occluder sits inside the scaled group), so
+ * this is a STARTING POINT from the tracker's fit, not a measurement — hence
+ * "Tracker estimate … fine-tune below". Apply seeds the slider AND persists a
+ * `baselineFit` so the booth can (opt-in) transfer per-guest fit as a RATIO to
+ * this baseline. `headScale`/`onHeadScaleChange` stay owned by StudioShell; the
+ * baseline + toggle are loaded/saved here directly (StudioShell only writes
+ * headScale), both through the same normalized setStudioSettings flow.
+ */
+function HeadSizeCalibration({
+  headScale,
+  onHeadScaleChange,
+}: {
+  headScale: number;
+  onHeadScaleChange: (v: number) => void;
+}) {
+  const { eventId } = useEvent();
+  const [fit, setFit] = useState<{ factor: number; samples: number } | null>(null);
+  const [baselineFit, setBaselineFit] = useState<number | null>(null);
+  const [autoFit, setAutoFit] = useState(true);
+
+  // Load the persisted baseline once (autoHeadScale defaults true when present).
+  useEffect(() => {
+    let alive = true;
+    getStudioSettings(eventId)
+      .then((s) => {
+        if (!alive) return;
+        setBaselineFit(s.baselineFit ?? null);
+        setAutoFit(s.autoHeadScale !== false);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [eventId]);
+
+  // Poll the live estimate only while this section is mounted. null until the
+  // 3D Live view has tracked a face for ~10 detections → no chip (failure path).
+  useEffect(() => {
+    setFit(getHeadFitEstimate());
+    const id = window.setInterval(() => setFit(getHeadFitEstimate()), 500);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const factor = fit?.factor ?? null;
+  // Hide the chip when there's no estimate or it's within noise of 1× (nothing
+  // to suggest). |factor − 1| < 0.03 → the tracker fit already matches 1×.
+  const suggest = factor !== null && Math.abs(factor - 1) >= 0.03;
+
+  const applyFit = useCallback(() => {
+    if (factor === null) return;
+    const clamped = Math.min(HEAD_SCALE_MAX, Math.max(HEAD_SCALE_MIN, factor));
+    onHeadScaleChange(clamped);         // seeds the slider + StudioShell persists headScale
+    setBaselineFit(factor);
+    setAutoFit(true);
+    // Persist baseline + headScale together (StudioShell writes headScale only).
+    setStudioSettings(eventId, { headScale: clamped, baselineFit: factor, autoHeadScale: true }).catch(() => {});
+  }, [factor, onHeadScaleChange, eventId]);
+
+  const toggleAuto = useCallback(
+    (v: boolean) => {
+      setAutoFit(v);
+      setStudioSettings(eventId, { autoHeadScale: v }).catch(() => {});
+    },
+    [eventId],
+  );
+
+  return (
+    <div className="rounded-xl border border-accent/15 bg-accent/[0.05] p-3 flex flex-col gap-2">
+      <div className="flex items-center gap-1.5">
+        <Ruler className="w-3.5 h-3.5 text-accent-2" />
+        <span className="font-label uppercase tracking-widest text-[9px] text-accent-2">Head size calibration</span>
+        <Tooltip label="Head size" hint="Sizes the invisible head occluder to match a real head, so props are hidden behind it correctly. Increase if the occluder looks smaller than real heads in Preview." side="left">
+          <span className="ml-auto text-brand-muted/50 cursor-help text-[10px]">?</span>
+        </Tooltip>
+      </div>
+
+      {/* Live tracker suggestion — only when the estimate meaningfully differs from 1×. */}
+      {suggest && factor !== null && (
+        <button
+          onClick={applyFit}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-label uppercase tracking-wide bg-accent/15 text-accent-2 ring-1 ring-accent/30 hover:bg-accent/25 transition-colors"
+        >
+          <Wand2 className="w-3.5 h-3.5 shrink-0" />
+          <span>Tracker estimate ×{factor.toFixed(2)} — Apply</span>
+        </button>
+      )}
+
+      <StudioSlider
+        label="Scale to real head"
+        value={headScale}
+        min={HEAD_SCALE_MIN}
+        max={HEAD_SCALE_MAX}
+        step={0.01}
+        format={(v) => `${Math.round(v * 100)}%`}
+        onChange={onHeadScaleChange}
+      />
+      <p className="font-sans text-[9px] text-brand-muted/50 leading-relaxed">
+        Tracker estimate, not exact — fine-tune below. Saved per event; applies in every guest booth.
+      </p>
+
+      {/* Per-guest auto-fit — only offered once a baseline has been captured. */}
+      {baselineFit !== null && (
+        <StudioToggle
+          label="Auto-fit each guest"
+          hint="Nudge the occluder to each guest's tracked head size, relative to your calibration. Small adjustment only."
+          value={autoFit}
+          onChange={toggleAuto}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function PropertiesDock({ state, dispatch, headScale, onHeadScaleChange, onThumbUpload, onThumbClear }: Props) {
   const { draft } = state;
   const { eventId } = useEvent();
@@ -623,26 +741,8 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
           </div>
           <StudioSlider label="Scale" value={Math.min(sel3D.anchorConfig.scale, 15)} min={0.05} max={15} step={0.05} onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { scale: v } })} />
 
-          {/* Head-size calibration */}
-          <div className="rounded-xl border border-accent/15 bg-accent/[0.05] p-3 flex flex-col gap-2">
-            <div className="flex items-center gap-1.5">
-              <Ruler className="w-3.5 h-3.5 text-accent-2" />
-              <span className="font-label uppercase tracking-widest text-[9px] text-accent-2">Head size calibration</span>
-              <Tooltip label="Head size" hint="Sizes the invisible head occluder to match a real head, so props are hidden behind it correctly. Increase if the occluder looks smaller than real heads in Preview." side="left">
-                <span className="ml-auto text-brand-muted/50 cursor-help text-[10px]">?</span>
-              </Tooltip>
-            </div>
-            <StudioSlider
-              label="Scale to real head"
-              value={headScale}
-              min={HEAD_SCALE_MIN}
-              max={HEAD_SCALE_MAX}
-              step={0.01}
-              format={(v) => `${Math.round(v * 100)}%`}
-              onChange={onHeadScaleChange}
-            />
-            <p className="font-sans text-[9px] text-brand-muted/50 leading-relaxed">Saved per event — applies in every guest booth.</p>
-          </div>
+          {/* Head-size calibration + auto head-size suggestion / per-guest transfer */}
+          <HeadSizeCalibration headScale={headScale} onHeadScaleChange={onHeadScaleChange} />
 
           <StudioToggle
             label="Occlude behind head"

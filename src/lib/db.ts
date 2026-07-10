@@ -633,8 +633,13 @@ export function subscribeToBranding(eventId: string, onChange: (b: BrandingOverr
 /**
  * Per-event studio/booth settings: `headScale` calibrates the AR head
  * occluder + reference head to the guest's real head size, and `occlusion`
- * is the event-wide master switch. Defaults preserve today's behaviour.
- * `eventId` here is the slug (app_settings.event_id = events.slug).
+ * is the event-wide master switch. Optional `baselineFit` (+ `autoHeadScale`)
+ * are written when the host uses the calibration "Apply" chip and drive the
+ * booth's opt-in per-guest head-size transfer; absent for every pre-existing
+ * row, so those behave exactly as before. Defaults preserve today's behaviour.
+ * `eventId` here is the slug (app_settings.event_id = events.slug). Both helpers
+ * route through normalizeStudioSettings, so a `baselineFit`/`autoHeadScale`
+ * patch persists and clamps without any change to these signatures.
  */
 export async function getStudioSettings(eventId: string): Promise<StudioSettings> {
   const raw = await getSetting<StudioSettings>(eventId, 'studio', DEFAULT_STUDIO_SETTINGS);

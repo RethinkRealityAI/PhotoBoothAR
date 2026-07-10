@@ -46,10 +46,10 @@ import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { buildCatalog } from '../lib/catalog';
 import { initializeFaceLandmarker } from '../lib/faceTracking';
-import { getLatestBlendshapes, detectFaceNow } from '../lib/faceRig';
+import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
 import { createTriggerEngine, parseTriggers, type TriggerConfig, type TriggerEvent } from '../lib/studio/triggers';
 import { submitPost, getStudioSettings } from '../lib/db';
-import { DEFAULT_STUDIO_SETTINGS, type StudioSettings } from '../lib/studio/occluder';
+import { DEFAULT_STUDIO_SETTINGS, HEAD_SCALE_MIN, HEAD_SCALE_MAX, type StudioSettings } from '../lib/studio/occluder';
 import { savePhoto, addCompletedChallenge, setGuestName } from '../lib/session';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
 import { useEntitlements } from '../lib/entitlements';
@@ -408,6 +408,46 @@ export default function Booth() {
         occlude: source === 'db' && l.occlusion === true,
       }));
   }, [attachLayers, source, layerVisible]);
+
+  // ── Auto head-size (per-guest transfer) ───────────────────────────────
+  // STRICTLY OPT-IN by construction: only kicks in when the occluder is actually
+  // rendering (headScale is what sizes it), the host captured a baseline via the
+  // studio "Apply" chip, AND auto-fit is left on. With no baseline — every
+  // legacy/code event (source !== 'db' → studioCfg stays DEFAULT), and every db
+  // scene whose host never used Apply — `autoFitEnabled` is false, so
+  // `effectiveHeadScale` equals `studioCfg.headScale` exactly and the occluder
+  // renders byte-identically to today (getHeadFitEstimate is never even read).
+  const occlusionActive =
+    source === 'db' &&
+    ((attachExp?.config?.occlusion === true) || (overlayPieces?.some((p) => p.occlude === true) ?? false));
+  const autoFitEnabled =
+    occlusionActive && studioCfg.baselineFit != null && studioCfg.autoHeadScale !== false;
+
+  const [effectiveHeadScale, setEffectiveHeadScale] = useState(studioCfg.headScale);
+  // Seed to the host's calibrated base whenever it (or the enable flag) changes.
+  // When auto-fit is OFF this is the final value — the interval below never runs.
+  useEffect(() => {
+    setEffectiveHeadScale(studioCfg.headScale);
+  }, [studioCfg.headScale, autoFitEnabled]);
+  // Transfer the live guest fit as a RATIO to the host's baseline (the defensible
+  // signal — see faceRig's estimator note; the absolute factor is only a
+  // heuristic). Applied at most ~1/s once the estimate has stabilized, and only
+  // re-applied when it drifts >5%, so the occluder never jitters. The booth's own
+  // FaceRig detection already feeds the estimator, so no extra detection is run.
+  useEffect(() => {
+    const baseline = studioCfg.baselineFit;
+    if (!autoFitEnabled || baseline == null || phase !== 'camera' || !ready) return;
+    const base = studioCfg.headScale;
+    const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+    const id = window.setInterval(() => {
+      const est = getHeadFitEstimate();
+      if (!est || est.samples < 20) return; // wait for the ring to stabilize (~0.7s)
+      const ratio = clamp(est.factor / baseline, 0.87, 1.15);
+      const next = clamp(base * ratio, HEAD_SCALE_MIN, HEAD_SCALE_MAX);
+      setEffectiveHeadScale((cur) => (Math.abs(next / cur - 1) > 0.05 ? next : cur));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [autoFitEnabled, studioCfg.baselineFit, studioCfg.headScale, phase, ready]);
 
   // ── Trigger runtime: particle canvas, filter pulse, detection loop ────
   const triggerFxRef = useRef<TriggerEffectsHandle>(null);
@@ -813,7 +853,7 @@ export default function Booth() {
                     videoId="booth-video"
                     mirror={isFront}
                     occlude={source === 'db' && attachExp!.config?.occlusion === true}
-                    headScale={studioCfg.headScale}
+                    headScale={effectiveHeadScale}
                     onFaceVisible={setFaceVisible}
                     pieces={overlayPieces}
                     reveal={reveal}
