@@ -9,8 +9,11 @@
  * generated head piece BEFORE approving it into the open draft.
  *
  * Every card is a small state machine (idle → generating → ready → added, with
- * failed → retry and a discard branch for a rejected 3D piece); DirectorPanel
- * owns the state and hands each card its status + artifacts + handlers.
+ * failed → retry, stalled → resume, and a reject branch: ready → rejected →
+ * {regenerate (charged) | keep → ready | discard}); DirectorPanel owns the
+ * state and hands each card its status + artifacts + handlers. Media (the 2D
+ * preview / 3D viewer) DWELLS: it stays visible through ready, rejected, AND
+ * added — the host always sees what they generated before and after adding it.
  */
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Canvas } from '@react-three/fiber';
@@ -21,7 +24,7 @@ import { Box, Check, Loader2, RotateCcw, SlidersHorizontal, Sparkles, Wand2, X }
 
 /* ── Card state machine (owned by DirectorPanel, rendered here) ───────────── */
 
-export type CardStatus = 'idle' | 'generating' | 'ready' | 'added' | 'failed' | 'discarded' | 'stalled';
+export type CardStatus = 'idle' | 'generating' | 'ready' | 'added' | 'failed' | 'discarded' | 'stalled' | 'rejected';
 
 export interface CardState {
   status: CardStatus;
@@ -39,6 +42,9 @@ export interface CardState {
    *  resume checking the SAME job for free instead of regenerating (audit C1:
    *  a slow >5min job must never cost another 11 credits to keep waiting on). */
   jobId?: string;
+  /** rejected only: the host's "what should change" revision, composed into the
+   *  next generation prompt when they hit Regenerate. */
+  feedback?: string;
 }
 
 /** Rotating verbs shown UNDER the progress bar while a Meshy job runs. They
@@ -70,21 +76,14 @@ function loadGlb(url: string): Promise<THREE.Group | null> {
 }
 
 /**
- * Loads a GLB and normalizes its longest axis to ~2 units centred at the
- * origin, so an arbitrary Meshy mesh (any native scale / off-centre pivot)
- * always frames inside the fixed mini-viewer camera. Renders null until loaded,
- * so drei <Bounds> only ever measures real geometry (never an empty box).
+ * Normalizes a loaded GLB's longest axis to ~2 units centred at the origin, so
+ * an arbitrary Meshy mesh (any native scale / off-centre pivot) always frames
+ * inside the fixed mini-viewer camera. Renders null until fit, so drei <Bounds>
+ * only ever measures real geometry (never an empty box). The load itself is
+ * owned by ModelPreview so a load failure surfaces an explicit note.
  */
-function FittedModel({ url }: { url: string }) {
-  const [scene, setScene] = useState<THREE.Group | null>(null);
-  useEffect(() => {
-    let alive = true;
-    loadGlb(url).then((s) => { if (alive) setScene(s); }).catch(() => {});
-    return () => { alive = false; };
-  }, [url]);
-
+function FittedModel({ scene }: { scene: THREE.Group }) {
   const fitted = useMemo(() => {
-    if (!scene) return null;
     const obj = scene.clone(true);
     obj.updateMatrixWorld(true); // fold node transforms in before measuring
     const box = new THREE.Box3().setFromObject(obj);
@@ -107,8 +106,32 @@ function FittedModel({ url }: { url: string }) {
   );
 }
 
-/** ~180px interactive viewer — orbit the piece before deciding. */
+/** ~180px interactive viewer — orbit the piece before deciding. loadGlb resolves
+ *  null when the browser can't fetch/parse the GLB (CORS, transient network);
+ *  the model FILE is still valid server-side, so we say so honestly and let the
+ *  host add it anyway rather than show an empty black box. */
 function ModelPreview({ url }: { url: string }) {
+  const [scene, setScene] = useState<THREE.Group | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setScene(null);
+    setFailed(false);
+    loadGlb(url)
+      .then((s) => { if (!alive) return; if (s) setScene(s); else setFailed(true); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [url]);
+
+  if (failed) {
+    return (
+      <div className="rounded-lg border border-white/10 px-3 py-4 flex items-center gap-2 text-[11px] text-brand-muted/70 leading-snug" style={{ backgroundColor: '#05060B' }}>
+        <Box className="w-4 h-4 shrink-0 text-accent-2/70" />
+        <span>3D preview unavailable — the model itself is fine; Approve to add it to your scene.</span>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg overflow-hidden border border-white/10" style={{ backgroundColor: '#05060B' }}>
       <Canvas
@@ -124,7 +147,7 @@ function ModelPreview({ url }: { url: string }) {
           <directionalLight position={[5, 10, 8]} intensity={1.3} color="#EAF1FF" />
           <directionalLight position={[-4, 2, -4]} intensity={0.35} color="#5B8CFF" />
           <Bounds fit clip observe margin={1.15}>
-            <FittedModel url={url} />
+            {scene && <FittedModel scene={scene} />}
           </Bounds>
           <OrbitControls makeDefault enableDamping dampingFactor={0.12} enablePan={false} />
         </Suspense>
@@ -141,6 +164,7 @@ function cardClass(status: CardStatus): string {
   if (status === 'discarded') return `${base} border-white/8 bg-white/[0.02] opacity-60`;
   if (status === 'failed') return `${base} border-rose-400/25 bg-rose-500/[0.04]`;
   if (status === 'stalled') return `${base} border-amber-400/25 bg-amber-500/[0.04]`;
+  if (status === 'rejected') return `${base} border-amber-400/20 bg-amber-500/[0.03]`;
   return `${base} border-white/10 bg-white/[0.03]`;
 }
 
@@ -197,7 +221,9 @@ function CardShell({ label, icon, cost, state, onRetry, onResume, children }: {
   onResume?: () => void;
   children: ReactNode;
 }) {
-  const done = state.status === 'added' || state.status === 'discarded';
+  // Hide the "this will cost N" header chip once the piece is decided or being
+  // reworked — the RejectPanel shows the regenerate cost on its own.
+  const done = state.status === 'added' || state.status === 'discarded' || state.status === 'rejected';
   return (
     <div className={cardClass(state.status)}>
       <div className="flex items-center gap-2">
@@ -230,23 +256,66 @@ function CardShell({ label, icon, cost, state, onRetry, onResume, children }: {
   );
 }
 
-/* ── Scene header (name + Add all) ────────────────────────────────────────── */
+/* ── Reject → capture-intent → charged regenerate (frame + generated piece) ── */
 
-export function SceneHeader({ sceneName, onAddAll, addAllDisabled }: {
+/** Shown when a ready 2D/3D asset is rejected: a "what should change" box plus
+ *  a clearly-priced Regenerate (charged — a rejected LOOK means the concept is
+ *  redone), Keep it (back to ready), and Discard (drop it, kept in the Library).
+ *  The preview media stays visible ABOVE this panel so the host sees what they
+ *  are revising. */
+function RejectPanel({ cost, feedback, onFeedbackChange, onRegenerate, onKeep, onDiscard }: {
+  cost: number;
+  feedback: string;
+  onFeedbackChange: (v: string) => void;
+  onRegenerate: () => void;
+  onKeep: () => void;
+  onDiscard: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <textarea
+        value={feedback}
+        onChange={(e) => onFeedbackChange(e.target.value)}
+        rows={2}
+        maxLength={300}
+        placeholder="What should change? e.g. warmer gold, thinner border, more art-deco…"
+        className="w-full rounded-lg bg-white/[0.04] border border-amber-400/20 px-3 py-2 text-[12px] text-brand-fg placeholder:text-brand-muted/40 outline-none focus:border-accent/50 resize-none"
+      />
+      <div className="flex items-center gap-2 flex-wrap">
+        <ActionButton onClick={onRegenerate}>
+          <RotateCcw className="w-3 h-3" /> Regenerate · {cost}
+        </ActionButton>
+        <ActionButton onClick={onKeep} tone="ghost">
+          <Check className="w-3 h-3" /> Keep it
+        </ActionButton>
+        <ActionButton onClick={onDiscard} tone="ghost">
+          <X className="w-3 h-3" /> Discard
+        </ActionButton>
+      </div>
+      <p className="font-sans text-[9px] text-brand-muted/40 leading-snug">
+        Regenerate spends {cost} credit{cost === 1 ? '' : 's'} on a fresh take from your notes. Discard keeps the current one in your Library.
+      </p>
+    </div>
+  );
+}
+
+/* ── Scene header (name + Generate all) ───────────────────────────────────── */
+
+export function SceneHeader({ sceneName, onGenerateAll, generateAllDisabled }: {
   sceneName: string;
-  onAddAll: () => void;
-  addAllDisabled: boolean;
+  onGenerateAll: () => void;
+  generateAllDisabled: boolean;
 }) {
   return (
     <div className="flex items-center gap-2">
       <Sparkles className="w-3.5 h-3.5 text-accent-2 shrink-0" />
       <p className="font-serif italic text-[15px] text-brand-fg leading-tight min-w-0 truncate">{sceneName}</p>
       <button
-        onClick={onAddAll}
-        disabled={addAllDisabled}
+        onClick={onGenerateAll}
+        disabled={generateAllDisabled}
         className="ml-auto shrink-0 flex items-center gap-1.5 rounded-full bg-white/[0.06] px-3 py-1.5 font-label uppercase tracking-widest text-[9px] font-bold text-brand-fg hover:bg-white/[0.1] transition disabled:opacity-40"
       >
-        <Wand2 className="w-3 h-3" /> Add all
+        <Wand2 className="w-3 h-3" /> Generate all
       </button>
     </div>
   );
@@ -254,25 +323,35 @@ export function SceneHeader({ sceneName, onAddAll, addAllDisabled }: {
 
 /* ── FILTER card (free, instant) ──────────────────────────────────────────── */
 
-export function FilterCard({ name, description, state, onApprove }: {
+export function FilterCard({ name, description, state, onApprove, onSkip }: {
   name: string;
   description: string;
   state: CardState;
   onApprove: () => void;
+  onSkip: () => void;
 }) {
+  const { status } = state;
   return (
     <CardShell label="Filter look" icon={<SlidersHorizontal className="w-3 h-3" />} cost={0} state={state}>
       <div>
         <p className="font-sans text-[12px] text-brand-fg leading-snug">{name}</p>
         <p className="font-sans text-[11px] text-brand-muted/60 leading-snug mt-0.5">{description}</p>
       </div>
-      {state.status === 'idle' && (
+      {(status === 'idle' || status === 'ready') && (
         <div className="flex items-center gap-2">
           <ActionButton onClick={onApprove}>
             <Wand2 className="w-3 h-3" /> Approve
           </ActionButton>
+          {status === 'ready' && (
+            <ActionButton onClick={onSkip} tone="ghost">
+              <X className="w-3 h-3" /> Skip
+            </ActionButton>
+          )}
           <span className="text-[10px] text-brand-muted/40 font-sans">Applies to the scene instantly</span>
         </div>
+      )}
+      {status === 'added' && (
+        <p className="font-sans text-[10px] text-emerald-300/70">In your scene · one filter per scene</p>
       )}
     </CardShell>
   );
@@ -280,15 +359,24 @@ export function FilterCard({ name, description, state, onApprove }: {
 
 /* ── FRAME card (generate 1cr → preview → approve) ────────────────────────── */
 
-export function FrameCard({ prompt, cost, state, onGenerate, onApprove, onReject }: {
+export function FrameCard({ prompt, cost, regenCost, state, onGenerate, onApprove, onReject, onImageError, onFeedbackChange, onRegenerate, onKeep, onDiscard }: {
   prompt: string;
   cost: number;
+  /** credits a reject → Regenerate spends (frame: a fresh image, 1cr). */
+  regenCost: number;
   state: CardState;
   onGenerate: () => void;
   onApprove: () => void;
   onReject: () => void;
+  onImageError: () => void;
+  onFeedbackChange: (v: string) => void;
+  onRegenerate: () => void;
+  onKeep: () => void;
+  onDiscard: () => void;
 }) {
   const { status } = state;
+  // Media dwells through ready → rejected → added (never a media-less jump).
+  const showImg = !!state.frameUrl && (status === 'ready' || status === 'rejected' || status === 'added');
   return (
     <CardShell label="Signature frame" icon={<Sparkles className="w-3 h-3" />} cost={cost} state={state} onRetry={onGenerate}>
       <p className="font-sans text-[12px] text-brand-muted/70 leading-snug line-clamp-2">{prompt}</p>
@@ -308,28 +396,44 @@ export function FrameCard({ prompt, cost, state, onGenerate, onApprove, onReject
         </p>
       )}
 
-      {status === 'ready' && state.frameUrl && (
-        <div className="flex flex-col gap-2">
-          <div
-            className="rounded-lg border border-white/10 overflow-hidden"
-            style={{
-              backgroundColor: '#0c0d12',
-              backgroundImage: 'repeating-conic-gradient(#20222b 0% 25%, #0c0d12 0% 50%)',
-              backgroundSize: '14px 14px',
-            }}
-          >
-            <img src={state.frameUrl} alt="Generated frame preview" className="w-full h-[150px] object-contain" />
-          </div>
-          <div className="flex items-center gap-2">
-            <ActionButton onClick={onApprove}>
-              <Check className="w-3 h-3" /> Approve
-            </ActionButton>
-            <ActionButton onClick={onReject} tone="ghost">
-              <X className="w-3 h-3" /> Skip
-            </ActionButton>
-            <span className="text-[10px] text-brand-muted/40 font-sans">Transparent PNG · swaps any current frame</span>
-          </div>
+      {showImg && (
+        <div
+          className="rounded-lg border border-white/10 overflow-hidden"
+          style={{
+            backgroundColor: '#0c0d12',
+            backgroundImage: 'repeating-conic-gradient(#20222b 0% 25%, #0c0d12 0% 50%)',
+            backgroundSize: '14px 14px',
+          }}
+        >
+          <img src={state.frameUrl} onError={onImageError} alt="Generated frame preview" className="w-full h-[150px] object-contain" />
         </div>
+      )}
+
+      {status === 'ready' && (
+        <div className="flex items-center gap-2">
+          <ActionButton onClick={onApprove}>
+            <Check className="w-3 h-3" /> Approve
+          </ActionButton>
+          <ActionButton onClick={onReject} tone="ghost">
+            <X className="w-3 h-3" /> Reject
+          </ActionButton>
+          <span className="text-[10px] text-brand-muted/40 font-sans">Transparent PNG · swaps any current frame</span>
+        </div>
+      )}
+
+      {status === 'added' && (
+        <p className="font-sans text-[10px] text-emerald-300/70">In your scene · swaps any current frame</p>
+      )}
+
+      {status === 'rejected' && (
+        <RejectPanel
+          cost={regenCost}
+          feedback={state.feedback ?? ''}
+          onFeedbackChange={onFeedbackChange}
+          onRegenerate={onRegenerate}
+          onKeep={onKeep}
+          onDiscard={onDiscard}
+        />
       )}
     </CardShell>
   );
@@ -337,11 +441,13 @@ export function FrameCard({ prompt, cost, state, onGenerate, onApprove, onReject
 
 /* ── HEAD PIECE card (procedural free, or generate 1+10cr → orbit → approve) ─ */
 
-export function HeadPieceCard({ mode, label, cost, note, state, onApprove, onGenerate, onReject, onResume }: {
+export function HeadPieceCard({ mode, label, cost, regenCost, note, state, onApprove, onGenerate, onReject, onResume, onSkip, onFeedbackChange, onRegenerate, onKeep, onDiscard }: {
   mode: 'procedural' | 'generate';
   /** procedural: the piece name; generate: the concept brief. */
   label: string;
   cost: number;
+  /** credits a reject → Regenerate spends (generated piece: fresh concept + 3D, 11cr). */
+  regenCost: number;
   note?: string;
   state: CardState;
   onApprove: () => void;
@@ -349,17 +455,30 @@ export function HeadPieceCard({ mode, label, cost, note, state, onApprove, onGen
   onReject: () => void;
   /** stalled only: keep polling the same Meshy job (free). */
   onResume?: () => void;
+  /** procedural: skip this built-in piece (nothing to regenerate). */
+  onSkip: () => void;
+  onFeedbackChange: (v: string) => void;
+  onRegenerate: () => void;
+  onKeep: () => void;
+  onDiscard: () => void;
 }) {
   const { status } = state;
+  // The orbit viewer dwells through ready → rejected → added.
+  const showViewer = mode === 'generate' && !!state.glbUrl && (status === 'ready' || status === 'rejected' || status === 'added');
   return (
     <CardShell label="Head piece" icon={<Box className="w-3 h-3" />} cost={cost} state={state} onRetry={onGenerate} onResume={onResume}>
       <p className="font-sans text-[12px] text-brand-muted/70 leading-snug line-clamp-2">{label}</p>
 
-      {mode === 'procedural' && status === 'idle' && (
+      {mode === 'procedural' && (status === 'idle' || status === 'ready') && (
         <div className="flex items-center gap-2">
           <ActionButton onClick={onApprove}>
             <Wand2 className="w-3 h-3" /> Approve
           </ActionButton>
+          {status === 'ready' && (
+            <ActionButton onClick={onSkip} tone="ghost">
+              <X className="w-3 h-3" /> Skip
+            </ActionButton>
+          )}
           <span className="text-[10px] text-brand-muted/40 font-sans">Built-in piece · free</span>
         </div>
       )}
@@ -390,19 +509,35 @@ export function HeadPieceCard({ mode, label, cost, note, state, onApprove, onGen
         </div>
       )}
 
-      {mode === 'generate' && status === 'ready' && state.glbUrl && (
+      {showViewer && (
         <div className="flex flex-col gap-2">
-          <ModelPreview url={state.glbUrl} />
-          <p className="font-sans text-[10px] text-brand-muted/40">Drag to orbit — inspect before you add it.</p>
-          <div className="flex items-center gap-2">
-            <ActionButton onClick={onApprove}>
-              <Check className="w-3 h-3" /> Approve
-            </ActionButton>
-            <ActionButton onClick={onReject} tone="ghost">
-              <X className="w-3 h-3" /> Reject
-            </ActionButton>
-          </div>
-          <p className="font-sans text-[9px] text-brand-muted/35">Rejecting keeps the model in your Library — it just won't join this scene.</p>
+          <ModelPreview url={state.glbUrl!} />
+          {status === 'ready' && (
+            <>
+              <p className="font-sans text-[10px] text-brand-muted/40">Drag to orbit — inspect before you add it.</p>
+              <div className="flex items-center gap-2">
+                <ActionButton onClick={onApprove}>
+                  <Check className="w-3 h-3" /> Approve
+                </ActionButton>
+                <ActionButton onClick={onReject} tone="ghost">
+                  <X className="w-3 h-3" /> Reject
+                </ActionButton>
+              </div>
+            </>
+          )}
+          {status === 'added' && (
+            <p className="font-sans text-[10px] text-emerald-300/70">In your scene</p>
+          )}
+          {status === 'rejected' && (
+            <RejectPanel
+              cost={regenCost}
+              feedback={state.feedback ?? ''}
+              onFeedbackChange={onFeedbackChange}
+              onRegenerate={onRegenerate}
+              onKeep={onKeep}
+              onDiscard={onDiscard}
+            />
+          )}
         </div>
       )}
     </CardShell>

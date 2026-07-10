@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   normalizeScenePlan,
   planFromJson,
+  parseDirectorTurn,
   pieceCreditCost,
   totalCreditCost,
   initialProgress,
@@ -71,6 +72,37 @@ describe('planFromJson (Gemini string-encoded plan)', () => {
   it('malformed JSON and non-strings return null', () => {
     expect(planFromJson('{oops', CATALOG, PIECES)).toBeNull();
     expect(planFromJson(42, CATALOG, PIECES)).toBeNull();
+  });
+});
+
+describe('parseDirectorTurn (reply + optional plan)', () => {
+  it('parses reply + plan when planJson is a valid scene', () => {
+    const turn = parseDirectorTurn({ reply: 'Here is your scene.', planJson: JSON.stringify(FULL) }, CATALOG, PIECES)!;
+    expect(turn.reply).toBe('Here is your scene.');
+    expect(turn.plan?.sceneName).toBe('Neon Nights');
+  });
+  it('reply-only ideation turn (no planJson) yields plan null, not an error', () => {
+    const turn = parseDirectorTurn({ reply: 'For a gala, deep emerald with warm gold reads elegant.' }, CATALOG, PIECES)!;
+    expect(turn.reply).toContain('emerald');
+    expect(turn.plan).toBeNull();
+  });
+  it('empty and malformed planJson stay clean (plan null) while the reply survives', () => {
+    const empty = parseDirectorTurn({ reply: 'What colours are you drawn to?', planJson: '' }, CATALOG, PIECES)!;
+    expect(empty.plan).toBeNull();
+    expect(empty.reply).toContain('colours');
+    const bad = parseDirectorTurn({ reply: 'Working on it.', planJson: '{oops' }, CATALOG, PIECES)!;
+    expect(bad.reply).toBe('Working on it.');
+    expect(bad.plan).toBeNull();
+  });
+  it('tolerates a missing reply when a plan is present', () => {
+    const turn = parseDirectorTurn({ planJson: JSON.stringify(FULL) }, CATALOG, PIECES)!;
+    expect(turn.reply).toBe('');
+    expect(turn.plan?.sceneName).toBe('Neon Nights');
+  });
+  it('returns null when there is neither a usable reply nor a plan', () => {
+    expect(parseDirectorTurn({ reply: '   ', planJson: '' }, CATALOG, PIECES)).toBeNull();
+    expect(parseDirectorTurn('nope', CATALOG, PIECES)).toBeNull();
+    expect(parseDirectorTurn(null, CATALOG, PIECES)).toBeNull();
   });
 });
 

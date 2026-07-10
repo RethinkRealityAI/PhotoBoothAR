@@ -4,27 +4,38 @@
  *
  * DirectorPanel — the studio persona of the platform's assistant, DOCKED to the
  * right of the stage (a lg+ column between the stage and the Properties dock; a
- * right slide-in drawer below lg). Replaces the old SceneDirectorPanel modal.
+ * right slide-in drawer below lg).
  *
- * One prompt designs a coordinated scene (frame + filter + head piece) via
- * ai-event-designer mode:'scene' (client-normalized + clamped by
- * sceneDirector.ts). Each piece is a composer card; approving a card dispatches
- * the asset STRAIGHT INTO THE OPEN DRAFT (SELECT_SHADER / SET_OVERLAY_UPLOAD /
- * SELECT_HEAD_PIECE / SET_MODEL_ASSET), so the host watches the scene assemble
- * in the canvas and Scene Layers. Credits are spent only on generation:
- * the frame via ai-generate-image (1), a generated head piece via a concept
- * image (1) + ai-generate-3d (10); shader + built-in pieces are free.
+ * A running chat: the host describes a look (or asks for ideas), and the
+ * Director replies — pure-ideation turns are just a reply; scene turns attach a
+ * coordinated plan (frame + filter + head piece) as composer cards inline after
+ * the reply, via ai-event-designer mode:'scene' (client-normalized + clamped by
+ * sceneDirector.ts / parseDirectorTurn).
  *
- * Degrades honestly: when the Gemini key is missing/rejected the panel says so
- * and the host can still build every piece by hand from the studio docks.
+ * GENERATE-THEN-ADD: "Generate all" runs every generatable piece IN PARALLEL,
+ * each DWELLING at a visible 'ready' preview (2D image, interactive 3D viewer)
+ * so the host inspects it BEFORE it lands. A sticky "Add N to scene" footer then
+ * approves every ready card into the OPEN DRAFT (SELECT_SHADER /
+ * SET_OVERLAY_UPLOAD / SELECT_HEAD_PIECE / SET_MODEL_ASSET); per-card
+ * Approve/Reject also work. (The old Add-all auto-approved through the only
+ * media-bearing state under React 19 batching, so previews were never seen.)
  *
- * Retry safety (ported from the modal): a generated-but-unkeyed frame reprocesses
- * for free (rawFrameRef), and a saved concept image is reused rather than
- * regenerated (conceptUrlRef) so a failed later leg never re-charges an earlier one.
+ * REJECT → capture intent → charged regenerate: rejecting a ready asset opens a
+ * "what should change" box + a clearly-priced Regenerate (frame 1cr; head piece
+ * 11cr — a rejected LOOK redoes the Gemini concept + Meshy). FAILURE retries
+ * stay free (rawFrameRef reprocess; a cached concept never re-charges).
+ *
+ * REFERENCE IMAGE: the composer's paperclip uploads an image (uploadAsset); it
+ * guides frame generation (passed to ai-generate-image as referenceImageUrl) and
+ * REPLACES the Gemini concept step for a head piece (reference → ai-generate-3d
+ * image mode directly, saving the 1cr concept → "Generate · 10").
+ *
+ * Degrades honestly: when the Gemini key is missing/rejected the Director says
+ * so (a bubble) and the host can still build every piece by hand from the docks.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import { Clapperboard, Loader2, X } from 'lucide-react';
+import { Check, Clapperboard, Loader2, Paperclip, X } from 'lucide-react';
 import { useEvent } from '../../events/EventContext';
 import { FILTER_SHADERS, SHADER_MAP } from '../../lib/shaders';
 import { HEAD_PIECES, HEAD_PIECE_MAP } from '../../lib/headPieces';
@@ -36,10 +47,11 @@ import {
   aiErrorMessage,
   type AiErrorCode,
 } from '../../lib/ai';
+import { uploadAsset } from '../../lib/db';
 import type { Experience } from '../../types';
 import { MAX_OBJECTS, sceneCounts, type StudioAction, type StudioDraft } from '../../lib/studio/state';
 import {
-  planFromJson,
+  parseDirectorTurn,
   FRAME_CREDIT_COST,
   GENERATE_3D_CREDIT_COST,
   type ScenePlan,
@@ -57,9 +69,9 @@ import {
   type CardState,
 } from './DirectorCards';
 
-// A generated head piece is two spends: a Gemini concept image (1 credit) then
-// image→3D (10 credits). sceneDirector.pieceCreditCost reports only the 3D leg,
-// so surface the honest total + breakdown here.
+// A generated head piece with NO reference is two spends: a Gemini concept
+// image (1 credit) then image→3D (10 credits). A reference REPLACES the concept
+// (image→3D directly), so it costs only the 10cr 3D leg.
 const HEAD_PIECE_GENERATE_TOTAL = FRAME_CREDIT_COST + GENERATE_3D_CREDIT_COST;
 
 // Meshy poll cadence — matches admin/creator3d/AiGeneratePanel.
@@ -67,7 +79,16 @@ const POLL_MS = 5000;
 const MAX_POLLS = 60; // ~5 minutes
 const ROTATE_MS = 2500;
 
-type Phase = 'idle' | 'planning' | 'plan' | 'error';
+type Phase = 'idle' | 'planning';
+
+/** One line of the Director chat transcript. */
+interface ChatBubble {
+  id: string;
+  role: 'user' | 'director';
+  text: string;
+  /** director error bubbles render amber and are excluded from the model convo. */
+  tone?: 'error';
+}
 
 const CATALOG: SceneShaderCatalogEntry[] = FILTER_SHADERS.map((s) => ({
   id: s.id,
@@ -107,27 +128,45 @@ export default function DirectorPanel({
   const [prompt, setPrompt] = useState(initialPrompt);
   const [phase, setPhase] = useState<Phase>('idle');
   const [plan, setPlan] = useState<ScenePlan | null>(null);
-  const [errorMsg, setErrorMsg] = useState('');
   const [cards, setCards] = useState<Record<ScenePieceKey, CardState>>(IDLE_CARDS);
+  // Chat transcript + the message id the active plan's cards render after.
+  const [messages, setMessages] = useState<ChatBubble[]>([]);
+  const [planAnchorId, setPlanAnchorId] = useState<string | null>(null);
+  // Host-uploaded reference image (guides frame gen + replaces the head-piece
+  // concept step). Lives until removed; read at generation time.
+  const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
+  const [referenceUploading, setReferenceUploading] = useState(false);
 
-  // Latest cards for async orchestration (Add-all reads current state without
-  // stale closures).
+  // Latest snapshots for async orchestration (reads current state, no stale
+  // closures): cards for the parallel generate/add, messages for the convo.
   const cardsRef = useRef(cards);
   cardsRef.current = cards;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const referenceUrlRef = useRef(referenceUrl);
+  referenceUrlRef.current = referenceUrl;
 
   // Retry caches — a failed LATER leg must never re-charge an EARLIER leg (audit:
   // retries bled 1cr each). The generated-but-unkeyed frame reprocesses for free;
   // a saved concept image is reused instead of regenerated.
   const rawFrameRef = useRef<Experience | null>(null);
   const conceptUrlRef = useRef<string | null>(null);
+  // Synchronous approve-once latch (state re-render lags a fast double-click,
+  // and SELECT_HEAD_PIECE/SET_MODEL_ASSET would append twice). Reset per plan.
+  const approvedRef = useRef<Record<string, boolean>>({});
   // Synchronous double-fire guard per action (state `disabled` lags a tick).
   const running = useRef<Record<string, boolean>>({});
   // Alive flag so an in-flight Meshy poll never setState after unmount.
   const aliveRef = useRef(true);
   const rotateTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const setCard = useCallback((piece: ScenePieceKey, patch: Partial<CardState>) => {
     setCards((c) => ({ ...c, [piece]: { ...c[piece], ...patch } }));
+  }, []);
+
+  const pushDirector = useCallback((text: string, tone?: 'error') => {
+    setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'director', text, tone }]);
   }, []);
 
   const stopRotation = useCallback(() => {
@@ -142,46 +181,69 @@ export default function DirectorPanel({
     try { await fn(); } finally { running.current[key] = false; }
   }, []);
 
-  /* ── Plan fetch (single-shot; a new Design replaces the pending plan) ────── */
-  const design = useCallback(async () => {
+  /* ── Send a chat turn — reply-only ideation OR a fresh scene plan ────────── */
+  const send = useCallback(() => guard('send', async () => {
     const brief = prompt.trim();
     if (!brief || phase === 'planning') return;
+    const userId = crypto.randomUUID();
+    setMessages((m) => [...m, { id: userId, role: 'user', text: brief }]);
+    setPrompt('');
     setPhase('planning');
-    setErrorMsg('');
-    setPlan(null);
-    setCards(IDLE_CARDS);
-    rawFrameRef.current = null;
-    conceptUrlRef.current = null;
-    approvedRef.current = {};
-    stopRotation();
     try {
+      // Multi-turn context (drop error bubbles; cap at the edge fn's 20-turn max).
+      const convo = [...messagesRef.current, { id: userId, role: 'user' as const, text: brief, tone: undefined }]
+        .filter((b) => b.tone !== 'error')
+        .map((b) => ({ role: (b.role === 'director' ? 'assistant' : 'user') as 'assistant' | 'user', content: b.text }))
+        .slice(-20);
       const { supabase } = await import('../../lib/supabase');
       const { data, error } = await supabase.functions.invoke('ai-event-designer', {
-        body: { mode: 'scene', messages: [{ role: 'user', content: brief }], shaderCatalog: CATALOG, headPieceIds: HEAD_PIECE_IDS },
+        body: { mode: 'scene', messages: convo, shaderCatalog: CATALOG, headPieceIds: HEAD_PIECE_IDS },
       });
       if (error) {
         let code: string | undefined;
         if (error instanceof FunctionsHttpError) {
           try { code = ((await error.context.json()) as { error?: string }).error; } catch { /* unreadable */ }
         }
-        setErrorMsg(KEY_HELP(code));
-        setPhase('error');
+        pushDirector(KEY_HELP(code), 'error');
         return;
       }
-      const parsed = planFromJson((data as { planJson?: string })?.planJson, CATALOG, HEAD_PIECE_IDS);
-      if (!parsed) {
-        setErrorMsg('The director could not shape a usable scene from that — try describing the vibe, colours, or occasion.');
-        setPhase('error');
-        return;
+      const turn = parseDirectorTurn(data, CATALOG, HEAD_PIECE_IDS);
+      if (!turn) { pushDirector(KEY_HELP(undefined), 'error'); return; }
+      const dirId = crypto.randomUUID();
+      setMessages((m) => [...m, { id: dirId, role: 'director', text: turn.reply || 'Here’s a scene to try.' }]);
+      if (turn.plan) {
+        // A fresh plan REPLACES the active cards (same reset the old design() did).
+        setPlan(turn.plan);
+        setCards(IDLE_CARDS);
+        rawFrameRef.current = null;
+        conceptUrlRef.current = null;
+        approvedRef.current = {};
+        stopRotation();
+        setPlanAnchorId(dirId);
       }
-      setPlan(parsed);
-      setCards(IDLE_CARDS);
-      setPhase('plan');
     } catch {
-      setErrorMsg(KEY_HELP(undefined));
-      setPhase('error');
+      pushDirector(KEY_HELP(undefined), 'error');
+    } finally {
+      setPhase('idle');
     }
-  }, [prompt, phase, stopRotation]);
+  }), [guard, prompt, phase, pushDirector, stopRotation]);
+
+  /* ── Reference image upload (paperclip) ─────────────────────────────────── */
+  const onReferenceFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    setReferenceUploading(true);
+    try {
+      const url = await uploadAsset(file, 'director-reference');
+      if (url) setReferenceUrl(url);
+      else pushDirector('That image couldn’t be uploaded — try another.', 'error');
+    } catch {
+      pushDirector('That image couldn’t be uploaded — try another.', 'error');
+    } finally {
+      setReferenceUploading(false);
+    }
+  }, [pushDirector]);
 
   /* ── FILTER: free, instant → dispatch into the draft ────────────────────── */
   const approveFilter = useCallback(() => {
@@ -191,15 +253,23 @@ export default function DirectorPanel({
   }, [plan, dispatch, setCard]);
 
   /* ── FRAME: generate (1cr) → transparent preview → approve into draft ───── */
-  // Returns the processed transparent PNG url on success (for Add-all), else null.
-  const generateFrame = useCallback(async (): Promise<string | null> => {
+  // Returns the processed transparent PNG url on success, else null.
+  const generateFrame = useCallback(async (promptOverride?: string): Promise<string | null> => {
     if (!plan?.frame) return null;
+    const framePrompt = promptOverride ?? plan.frame.prompt;
     setCard('frame', { status: 'generating', error: undefined });
     let raw = rawFrameRef.current;
     if (!raw) {
       const uuid = await resolveEventUuid(eventId, eventUuid);
       if (!uuid) { setCard('frame', { status: 'failed', error: aiErrorMessage('event_not_found') }); return null; }
-      const { data, error } = await generateImage(uuid, { prompt: plan.frame.prompt, kind: 'border', transparentBackground: false, greenScreen: true });
+      const reference = referenceUrlRef.current;
+      const { data, error } = await generateImage(uuid, {
+        prompt: framePrompt,
+        kind: 'border',
+        transparentBackground: false,
+        greenScreen: true,
+        ...(reference ? { referenceImageUrl: reference } : {}),
+      });
       if (error || !data?.experience) { setCard('frame', { status: 'failed', error: aiErrorMessage((error ?? 'internal') as AiErrorCode) }); return null; }
       raw = data.experience;
       rawFrameRef.current = raw;
@@ -225,6 +295,15 @@ export default function DirectorPanel({
     setCard('frame', { status: 'added' });
   }, [dispatch, setCard]);
 
+  // A broken preview <img> (CORS/transient) at 'ready' → surface it as a failure
+  // with Retry rather than a silent blank swatch. (Only from 'ready' — an added
+  // frame's asset already lives in the scene; a preview glitch never unwinds it.)
+  const onFrameImageError = useCallback(() => {
+    if (cardsRef.current.frame.status === 'ready') {
+      setCard('frame', { status: 'failed', error: 'The preview image failed to load — Retry to regenerate.' });
+    }
+  }, [setCard]);
+
   /* ── HEAD PIECE ─────────────────────────────────────────────────────────── */
   // Approvals append into the draft — but appendObject silently no-ops at the
   // MAX_OBJECTS cap, so check FIRST and refuse honestly instead of showing a
@@ -234,9 +313,6 @@ export default function DirectorPanel({
     const d = draftRef.current;
     return !!d && sceneCounts(d).capped >= MAX_OBJECTS;
   }, [draftRef]);
-  // Synchronous approve-once latch (state re-render lags a fast double-click,
-  // and SELECT_HEAD_PIECE/SET_MODEL_ASSET would append twice). Reset per plan.
-  const approvedRef = useRef<Record<string, boolean>>({});
 
   const approveProceduralPiece = useCallback(() => {
     if (plan?.headPiece?.kind !== 'procedural' || !plan.headPiece.id) return;
@@ -313,10 +389,17 @@ export default function DirectorPanel({
     }
   }), [guard, setCard, stopRotation, pollModel, finishModelPoll]);
 
-  // Generate (concept image 1cr → image→3D 10cr → poll). Returns the GLB or null.
-  const generatePiece = useCallback(async (): Promise<{ glbUrl: string; name: string | null } | null> => {
+  // Generate a head piece → 'ready' viewer. The image fed to image→3D is, in
+  // priority: (1) a concept cached by a previous attempt (free retry — never
+  // re-charge); (2) the host's REFERENCE image, which replaces the 1cr concept
+  // step (unless forceConcept — a reject-regen always redesigns the concept);
+  // (3) a fresh Gemini concept (1cr). Returns the GLB or null.
+  const generatePiece = useCallback(async (
+    briefOverride?: string,
+    forceConcept = false,
+  ): Promise<{ glbUrl: string; name: string | null } | null> => {
     if (plan?.headPiece?.kind !== 'generate') return null;
-    const brief = plan.headPiece.prompt ?? plan.sceneName;
+    const brief = briefOverride ?? plan.headPiece.prompt ?? plan.sceneName;
     setCard('headPiece', { status: 'generating', error: undefined, progress: null, statusLine: MESHY_STATUS_LINES[0] });
     // Rotate the status verbs while the job runs (cycle; never exceed real state).
     stopRotation();
@@ -330,10 +413,14 @@ export default function DirectorPanel({
       const uuid = await resolveEventUuid(eventId, eventUuid);
       if (!uuid) { setCard('headPiece', { status: 'failed', error: aiErrorMessage('event_not_found') }); return null; }
 
-      // Reuse a concept saved by a previous attempt — a failed 3D leg must not
-      // regenerate (and re-charge) the image leg on every retry.
       let conceptUrl = conceptUrlRef.current;
-      if (!conceptUrl) {
+      const reference = referenceUrlRef.current;
+      if (!conceptUrl && reference && !forceConcept) {
+        // Reference REPLACES the concept — skip the 1cr Gemini step (feed it to
+        // image→3D directly). Cache it so a failed 3D leg reuses it for free.
+        conceptUrl = reference;
+        conceptUrlRef.current = reference;
+      } else if (!conceptUrl) {
         // No greenScreen: image→3D wants the object on a plain background.
         const concept = await generateImage(uuid, {
           prompt: `${brief} — a single centered object, isolated on a plain neutral studio background, product shot, no frame, no border, no text`,
@@ -349,7 +436,7 @@ export default function DirectorPanel({
 
       const { data, error } = await generate3d(uuid, { mode: 'image', imageUrl: conceptUrl, prompt: brief });
       if (error || !data?.job) {
-        setCard('headPiece', { status: 'failed', error: `${aiErrorMessage((error ?? 'internal') as AiErrorCode)} (the concept image is saved — Retry does the 3D step only.)` });
+        setCard('headPiece', { status: 'failed', error: `${aiErrorMessage((error ?? 'internal') as AiErrorCode)} (the source image is saved — Retry does the 3D step only.)` });
         return null;
       }
       // Keep the concept cached until the model is actually READY — a timeout or
@@ -362,7 +449,6 @@ export default function DirectorPanel({
       stopRotation();
     }
   }, [plan, eventId, eventUuid, setCard, stopRotation, pollModel, finishModelPoll]);
-
 
   const approvePiece = useCallback((artifact?: { glbUrl: string; name: string | null }) => {
     const glbUrl = artifact?.glbUrl ?? cardsRef.current.headPiece.glbUrl;
@@ -385,43 +471,141 @@ export default function DirectorPanel({
     });
   }, [plan, dispatch, setCard, sceneFull]);
 
-  const rejectPiece = useCallback(() => setCard('headPiece', { status: 'discarded' }), [setCard]);
+  /* ── Reject → capture intent → charged regenerate ───────────────────────── */
+  const rejectFrame = useCallback(() => setCard('frame', { status: 'rejected' }), [setCard]);
+  const keepFrame = useCallback(() => setCard('frame', { status: 'ready', error: undefined }), [setCard]);
+  const discardFrame = useCallback(() => setCard('frame', { status: 'discarded' }), [setCard]);
+  const setFrameFeedback = useCallback((v: string) => setCard('frame', { feedback: v }), [setCard]);
+  const regenerateFrame = useCallback(() => guard('frame', async () => {
+    const feedback = (cardsRef.current.frame.feedback ?? '').trim();
+    // A rejected LOOK → regenerate the image (1cr): clear the free-reprocess
+    // cache so a NEW image is produced, not the old raw re-keyed.
+    rawFrameRef.current = null;
+    const base = plan?.frame?.prompt ?? '';
+    const revised = feedback ? `${base}. Revision: ${feedback}` : base;
+    await generateFrame(revised);
+  }), [guard, plan, generateFrame]);
 
-  /* ── Add all — run every unfinished piece sequentially, adding on success ── */
-  const anyGenerating = cards.frame.status === 'generating' || cards.headPiece.status === 'generating';
+  const rejectPiece = useCallback(() => setCard('headPiece', { status: 'rejected' }), [setCard]);
+  const keepPiece = useCallback(() => setCard('headPiece', { status: 'ready', error: undefined }), [setCard]);
+  const discardPiece = useCallback(() => setCard('headPiece', { status: 'discarded' }), [setCard]);
+  const skipPiece = useCallback(() => setCard('headPiece', { status: 'discarded' }), [setCard]);
+  const setPieceFeedback = useCallback((v: string) => setCard('headPiece', { feedback: v }), [setCard]);
+  const regeneratePiece = useCallback(() => guard('headPiece', async () => {
+    const feedback = (cardsRef.current.headPiece.feedback ?? '').trim();
+    // A rejected LOOK → redo the concept (1cr) AND the 3D (10cr) = 11cr, even
+    // with a reference attached: the reference produced the rejected result, so
+    // a fresh concept from the host's notes is what changes it (locked: 11cr).
+    conceptUrlRef.current = null;
+    const base = plan?.headPiece?.prompt ?? plan?.sceneName ?? '';
+    const revised = feedback ? `${base}. Revision: ${feedback}` : base;
+    await generatePiece(revised, true);
+  }), [guard, plan, generatePiece]);
 
-  const addAll = useCallback(() => guard('addAll', async () => {
+  const skipFilter = useCallback(() => setCard('shader', { status: 'discarded' }), [setCard]);
+
+  /* ── Generate all — every generatable piece IN PARALLEL, each → 'ready' ──── */
+  const generateAll = useCallback(() => guard('generateAll', async () => {
     const p = plan;
     if (!p) return;
     const c = () => cardsRef.current;
+    // Filter + built-in piece are free/instant — a "no-op generation" straight
+    // to 'ready' so "Add N to scene" approves them alongside the generated ones.
+    if (p.shader && c().shader.status === 'idle') setCard('shader', { status: 'ready' });
+    if (p.headPiece?.kind === 'procedural' && c().headPiece.status === 'idle') setCard('headPiece', { status: 'ready' });
 
-    if (p.shader && c().shader.status !== 'added') approveFilter();
-
-    if (p.frame && c().frame.status !== 'added') {
-      let url: string | null = c().frame.frameUrl ?? null;
-      if (c().frame.status !== 'ready') url = await generateFrame();
-      if (url) approveFrame(url);
+    const jobs: Promise<unknown>[] = [];
+    if (p.frame && (c().frame.status === 'idle' || c().frame.status === 'failed')) {
+      jobs.push(guard('frame', () => generateFrame()));
     }
-
-    if (p.headPiece && c().headPiece.status !== 'added' && c().headPiece.status !== 'discarded') {
-      if (p.headPiece.kind === 'procedural') {
-        approveProceduralPiece();
-      } else {
-        let artifact: { glbUrl: string; name: string | null } | null =
-          c().headPiece.glbUrl ? { glbUrl: c().headPiece.glbUrl, name: c().headPiece.glbName ?? null } : null;
-        if (c().headPiece.status !== 'ready') artifact = await generatePiece();
-        if (artifact) approvePiece(artifact);
-      }
+    if (p.headPiece?.kind === 'generate' && (c().headPiece.status === 'idle' || c().headPiece.status === 'failed')) {
+      jobs.push(guard('headPiece', () => generatePiece()));
     }
-  }), [guard, plan, approveFilter, generateFrame, approveFrame, approveProceduralPiece, generatePiece, approvePiece]);
+    await Promise.all(jobs);
+  }), [guard, plan, setCard, generateFrame, generatePiece]);
+
+  /* ── Add N to scene — approve every READY card (reuses the guarded approves) ─ */
+  const addReadyToScene = useCallback(() => {
+    const c = cardsRef.current;
+    if (plan?.shader && c.shader.status === 'ready') approveFilter();
+    if (plan?.frame && c.frame.status === 'ready') approveFrame();
+    if (plan?.headPiece && c.headPiece.status === 'ready') {
+      if (plan.headPiece.kind === 'procedural') approveProceduralPiece();
+      else approvePiece();
+    }
+  }, [plan, approveFilter, approveFrame, approveProceduralPiece, approvePiece]);
 
   /* ── Render ─────────────────────────────────────────────────────────────── */
+  const anyGenerating = cards.frame.status === 'generating' || cards.headPiece.status === 'generating';
+  const readyCount =
+    ((plan?.frame && cards.frame.status === 'ready') ? 1 : 0) +
+    ((plan?.shader && cards.shader.status === 'ready') ? 1 : 0) +
+    ((plan?.headPiece && cards.headPiece.status === 'ready') ? 1 : 0);
+
   const headKind = plan?.headPiece?.kind;
   const headLabel = plan?.headPiece
     ? plan.headPiece.kind === 'procedural'
       ? (HEAD_PIECE_MAP[plan.headPiece.id ?? '']?.name ?? plan.headPiece.id ?? '')
       : (plan.headPiece.prompt ?? 'Generated piece')
     : '';
+  // A reference replaces the 1cr concept → 10cr; without one it's 11cr.
+  const headGenerateCost = referenceUrl ? GENERATE_3D_CREDIT_COST : HEAD_PIECE_GENERATE_TOTAL;
+  const headGenerateNote = referenceUrl
+    ? `Your reference image → 3D model (${GENERATE_3D_CREDIT_COST} credits)`
+    : `Concept image (${FRAME_CREDIT_COST} credit, or one of your free generations) → 3D model (${GENERATE_3D_CREDIT_COST} credits)`;
+
+  const planBlock = plan && (
+    <div className="flex flex-col gap-3">
+      <SceneHeader sceneName={plan.sceneName} onGenerateAll={generateAll} generateAllDisabled={anyGenerating} />
+
+      {plan.frame && (
+        <FrameCard
+          prompt={plan.frame.prompt}
+          cost={FRAME_CREDIT_COST}
+          regenCost={FRAME_CREDIT_COST}
+          state={cards.frame}
+          onGenerate={() => guard('frame', () => generateFrame())}
+          onApprove={() => approveFrame()}
+          onReject={rejectFrame}
+          onImageError={onFrameImageError}
+          onFeedbackChange={setFrameFeedback}
+          onRegenerate={regenerateFrame}
+          onKeep={keepFrame}
+          onDiscard={discardFrame}
+        />
+      )}
+
+      {plan.shader && (
+        <FilterCard
+          name={SHADER_MAP[plan.shader.shaderId]?.name ?? plan.shader.shaderId}
+          description={SHADER_MAP[plan.shader.shaderId]?.description ?? 'A coordinated booth filter.'}
+          state={cards.shader}
+          onApprove={approveFilter}
+          onSkip={skipFilter}
+        />
+      )}
+
+      {plan.headPiece && headKind && (
+        <HeadPieceCard
+          mode={headKind}
+          label={headLabel}
+          cost={headKind === 'generate' ? headGenerateCost : 0}
+          regenCost={HEAD_PIECE_GENERATE_TOTAL}
+          note={headKind === 'generate' ? headGenerateNote : undefined}
+          state={cards.headPiece}
+          onApprove={headKind === 'procedural' ? approveProceduralPiece : () => approvePiece()}
+          onResume={resumePoll}
+          onGenerate={() => guard('headPiece', () => generatePiece())}
+          onReject={rejectPiece}
+          onSkip={skipPiece}
+          onFeedbackChange={setPieceFeedback}
+          onRegenerate={regeneratePiece}
+          onKeep={keepPiece}
+          onDiscard={discardPiece}
+        />
+      )}
+    </div>
+  );
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -443,90 +627,110 @@ export default function DirectorPanel({
 
       {/* Conversation column */}
       <div className="flex-1 min-h-0 overflow-y-auto hide-scrollbar px-4 py-4 flex flex-col gap-3">
-        {phase !== 'plan' && (
+        {messages.length === 0 && (
           <div className="rounded-xl border border-white/8 bg-white/[0.02] px-3.5 py-3.5">
             <p className="font-sans text-[13px] text-brand-fg/90 leading-relaxed">
               Describe a look and I'll design a matching{' '}
               <span className="text-accent-2">frame</span>,{' '}
               <span className="text-accent-2">filter</span>, and{' '}
-              <span className="text-accent-2">head piece</span> as one scene.
+              <span className="text-accent-2">head piece</span> as one scene — or ask for ideas first.
             </p>
             <p className="font-sans text-[11px] text-brand-muted/55 leading-relaxed mt-2">
-              Approved pieces land in your scene — press Save when it's yours. You only spend credits on what you generate.
+              Generate to preview each piece, then add what you love. You only spend credits on what you generate.
             </p>
           </div>
         )}
 
-        {phase === 'error' && (
-          <p role="alert" className="rounded-xl bg-amber-500/10 border border-amber-400/25 px-3.5 py-3 font-sans text-[12px] text-amber-200/90 leading-snug">{errorMsg}</p>
-        )}
-
-        {phase === 'plan' && plan && (
-          <>
-            <SceneHeader
-              sceneName={plan.sceneName}
-              onAddAll={addAll}
-              addAllDisabled={anyGenerating}
-            />
-
-            {plan.frame && (
-              <FrameCard
-                prompt={plan.frame.prompt}
-                cost={FRAME_CREDIT_COST}
-                state={cards.frame}
-                onGenerate={() => guard('frame', generateFrame)}
-                onApprove={() => approveFrame()}
-                onReject={() => setCard('frame', { status: 'discarded' })}
-              />
+        {messages.map((m) => (
+          <Fragment key={m.id}>
+            {m.role === 'user' ? (
+              <div className="self-end max-w-[85%] rounded-2xl rounded-br-sm bg-[color:var(--color-accent)]/15 border border-accent/20 px-3.5 py-2 font-sans text-[13px] text-brand-fg leading-snug whitespace-pre-wrap break-words">
+                {m.text}
+              </div>
+            ) : (
+              <div
+                role={m.tone === 'error' ? 'alert' : undefined}
+                className={`self-start max-w-[92%] rounded-2xl rounded-bl-sm border px-3.5 py-2.5 font-sans text-[13px] leading-relaxed whitespace-pre-wrap break-words ${
+                  m.tone === 'error'
+                    ? 'bg-amber-500/10 border-amber-400/25 text-amber-200/90'
+                    : 'bg-white/[0.03] border-white/8 text-brand-fg/90'
+                }`}
+              >
+                {m.text}
+              </div>
             )}
+            {m.id === planAnchorId && planBlock}
+          </Fragment>
+        ))}
 
-            {plan.shader && (
-              <FilterCard
-                name={SHADER_MAP[plan.shader.shaderId]?.name ?? plan.shader.shaderId}
-                description={SHADER_MAP[plan.shader.shaderId]?.description ?? 'A coordinated booth filter.'}
-                state={cards.shader}
-                onApprove={approveFilter}
-              />
-            )}
-
-            {plan.headPiece && headKind && (
-              <HeadPieceCard
-                mode={headKind}
-                label={headLabel}
-                cost={headKind === 'generate' ? HEAD_PIECE_GENERATE_TOTAL : 0}
-                note={headKind === 'generate' ? `Concept image (${FRAME_CREDIT_COST} credit, or one of your free generations) → 3D model (${GENERATE_3D_CREDIT_COST} credits)` : undefined}
-                state={cards.headPiece}
-                onApprove={headKind === 'procedural' ? approveProceduralPiece : () => approvePiece()}
-                onResume={resumePoll}
-                onGenerate={() => guard('headPiece', generatePiece)}
-                onReject={rejectPiece}
-              />
-            )}
-          </>
+        {phase === 'planning' && (
+          <div className="self-start flex items-center gap-2 rounded-2xl rounded-bl-sm border border-white/8 bg-white/[0.03] px-3.5 py-2.5">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-2" />
+            <span className="font-sans text-[12px] text-brand-muted/60">Thinking…</span>
+          </div>
         )}
       </div>
 
-      {/* Prompt box (bottom) */}
+      {/* Add N to scene (sticky) */}
+      {readyCount > 0 && (
+        <div className="shrink-0 border-t border-white/10 px-3 py-2.5 bg-brand-bg/70 lg:bg-white/[0.02]">
+          <button
+            onClick={addReadyToScene}
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-foil px-4 py-2.5 font-label uppercase tracking-widest text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
+          >
+            <Check className="w-3.5 h-3.5" /> Add {readyCount} to scene
+          </button>
+        </div>
+      )}
+
+      {/* Composer (bottom) */}
       <div className="shrink-0 border-t border-white/10 p-3 bg-brand-bg/60 lg:bg-transparent">
+        {(referenceUrl || referenceUploading) && (
+          <div className="mb-2 flex items-center gap-2 w-fit max-w-full rounded-lg bg-white/[0.05] border border-white/10 pl-1.5 pr-2 py-1.5">
+            {referenceUploading ? (
+              <span className="w-8 h-8 flex items-center justify-center"><Loader2 className="w-4 h-4 animate-spin text-accent-2" /></span>
+            ) : (
+              <img src={referenceUrl!} alt="Reference" className="w-8 h-8 rounded object-cover" />
+            )}
+            <span className="font-sans text-[11px] text-brand-fg/80 truncate">
+              {referenceUploading ? 'Uploading reference…' : 'Reference · guides frame + 3D'}
+            </span>
+            {referenceUrl && (
+              <button onClick={() => setReferenceUrl(null)} aria-label="Remove reference" className="p-0.5 rounded text-brand-muted/60 hover:text-brand-fg transition-colors">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
         <div className="flex items-end gap-2">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={referenceUploading}
+            aria-label="Attach a reference image"
+            title="Attach a reference image"
+            className="shrink-0 p-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-50"
+          >
+            <Paperclip className="w-4 h-4" />
+          </button>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); design(); } }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } }}
             rows={2}
             maxLength={400}
-            placeholder="Describe the scene you want…"
+            placeholder="Describe a look, or ask for ideas…"
             className="flex-1 rounded-xl bg-white/[0.04] border border-white/10 px-3.5 py-2.5 text-[13px] text-brand-fg placeholder:text-brand-muted/40 outline-none focus:border-accent/60 resize-none"
           />
           <button
-            onClick={design}
+            onClick={send}
             disabled={!prompt.trim() || phase === 'planning'}
             className="shrink-0 flex items-center gap-1.5 rounded-xl bg-foil px-4 py-2.5 font-label uppercase tracking-widest text-[10px] font-bold text-white glow-accent transition active:scale-[0.97] disabled:opacity-50"
           >
             {phase === 'planning' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clapperboard className="w-3.5 h-3.5" />}
-            {phase === 'planning' ? 'Designing…' : 'Design'}
+            {phase === 'planning' ? 'Thinking…' : 'Send'}
           </button>
         </div>
+        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onReferenceFile} />
       </div>
     </div>
   );

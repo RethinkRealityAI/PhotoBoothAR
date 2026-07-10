@@ -15,11 +15,13 @@
  *     shaderCatalog?: { id, params?: {key,min,max,default}[] }[]  (scene mode)
  *     headPieceIds?: string[] }      (scene mode — built-in head-piece ids)
  *
- * 200 scene   → { reply, planJson } planJson = a JSON STRING (client parses +
- *   clamps via src/lib/studio/sceneDirector.ts): { sceneName, frame:{prompt}|
- *   null, shader:{shaderId,params}|null, headPiece:{kind,id?|prompt?}|null }.
- *   Like copilot, the server only PROPOSES — the client spends credits only
- *   when the host accepts each piece.
+ * 200 scene   → { reply, planJson } reply = the director's chat line (always).
+ *   planJson = a JSON STRING (client parses + clamps via
+ *   src/lib/studio/sceneDirector.ts): { sceneName, frame:{prompt}|null,
+ *   shader:{shaderId,params}|null, headPiece:{kind,id?|prompt?}|null } — OR the
+ *   empty string "" on pure-ideation turns (the host is asking for advice, not
+ *   yet describing a scene to build). Like copilot, the server only PROPOSES —
+ *   the client spends credits only when the host accepts each piece.
  *
  * 200 create  → { reply, plan }    plan = { name, templateId, remote, date,
  *                                  slug, accent } (client normalizes)
@@ -230,13 +232,16 @@ function buildScenePrompt(shaders: SceneShaderEntry[], headPieceIds: string[]): 
     })
     .join('\n') || '- (none available)';
   const pieceList = headPieceIds.map((id) => `- ${id}`).join('\n') || '- (none available)';
-  return `You are the Beamwall AI Scene Director. From the host's idea, design ONE coordinated photo-booth "scene" — a matching decorative frame, camera filter, and 3D head piece that read as a single look.
+  return `You are the Beamwall Scene Director — a skilled immersive-assets creator working at the host's side, like a talented colleague. You design coordinated photo-booth "scenes": a decorative frame, a camera filter, and a 3D head piece that read as one look. Be warm, expert, and concise — NOT chatty. Give concrete, specific help; never generic filler.
 
-"reply": one warm sentence (no markdown) describing the scene you designed.
-"planJson": a JSON STRING (not an object) with EXACTLY this shape:
+Always fill "reply" (no markdown; at most 3 sentences — unless you are listing concrete suggestions, where a short list is fine):
+- If the host is ASKING for advice or thinking out loud (e.g. "what colours suit a gala?", "what vibe for a 40th?"), give a real, specific recommendation — name actual colours, motifs, or materials — plus at most one short question to move forward. Do NOT build a scene yet: set "planJson" to an empty string "".
+- If the host DESCRIBES a look, occasion, or vibe to build (or greenlights an idea you proposed), design the scene AND return it in "planJson".
+
+"planJson" (ONLY when you are designing a scene) is a JSON STRING (not an object) with EXACTLY this shape:
 {"sceneName":"2-4 word name","frame":{"prompt":"<detailed prompt for a 9:16 decorative BORDER that frames a portrait, transparent centre>"} or null,"shader":{"shaderId":"<one id from FILTER EFFECTS>","params":{<only that shader's params, each within its range>}} or null,"headPiece":{"kind":"procedural","id":"<one id from HEAD PIECES>"} or {"kind":"generate","prompt":"<text-to-3D prompt for a single head-worn accessory>"} or null}
 
-RULES:
+RULES (when a plan is present):
 - Pick shaderId ONLY from the FILTER EFFECTS list; pick a procedural head-piece id ONLY from the HEAD PIECES list. Never invent an id.
 - Use headPiece "generate" ONLY when no listed procedural piece fits the theme.
 - Any element that doesn't suit the scene can be null, but include at least ONE non-null element.
@@ -249,6 +254,9 @@ HEAD PIECES:
 ${pieceList}`;
 }
 
+/** planJson is OPTIONAL (only 'reply' is required): pure-ideation turns answer
+ *  with a reply and no plan. It stays a STRING field — an ARRAY/OBJECT plan
+ *  schema hangs gemini-2.5-flash constrained decoding (see buildCopilotSchema). */
 function buildSceneSchema() {
   return {
     type: 'OBJECT',
@@ -256,7 +264,7 @@ function buildSceneSchema() {
       reply: { type: 'STRING' },
       planJson: { type: 'STRING' },
     },
-    required: ['reply', 'planJson'],
+    required: ['reply'],
   };
 }
 

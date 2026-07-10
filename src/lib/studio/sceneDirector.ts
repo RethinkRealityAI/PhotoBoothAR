@@ -41,6 +41,14 @@ export interface ScenePlan {
   headPiece: ScenePlanHeadPiece | null;
 }
 
+/** One turn of the docked Director chat: the director's warm reply (always
+ *  present) plus an OPTIONAL scene plan. Pure-ideation turns ("what colours
+ *  suit a gala?") carry a reply and no plan; scene-descriptions carry both. */
+export interface DirectorTurn {
+  reply: string;
+  plan: ScenePlan | null;
+}
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -51,6 +59,12 @@ function cleanPrompt(v: unknown): string | null {
   if (typeof v !== 'string') return null;
   const t = v.trim();
   return t.length > 0 ? t.slice(0, 600) : null;
+}
+
+/** The director's chat line. Generous cap so concrete suggestion lists survive;
+ *  a non-string / blank reply degrades to '' (the caller decides fallback copy). */
+function cleanReply(v: unknown): string {
+  return typeof v === 'string' ? v.trim().slice(0, 1500) : '';
 }
 
 /**
@@ -122,6 +136,26 @@ export function planFromJson(
   } catch {
     return null;
   }
+}
+
+/**
+ * Normalize the edge function's scene-mode response `{ reply, planJson }` into a
+ * Director turn. `reply` is parsed loosely; `planJson` is OPTIONAL — a missing,
+ * blank, or malformed planJson yields `plan: null` (a clean, non-throwing
+ * "ideation only" turn) rather than an error, so the reply always surfaces.
+ * Returns null only when there is neither a usable reply nor a usable plan.
+ */
+export function parseDirectorTurn(
+  data: unknown,
+  catalog: readonly SceneShaderCatalogEntry[],
+  headPieceIds: readonly string[],
+): DirectorTurn | null {
+  const r = asRecord(data);
+  if (!r) return null;
+  const reply = cleanReply(r.reply);
+  const plan = planFromJson(r.planJson, catalog, headPieceIds);
+  if (!reply && !plan) return null;
+  return { reply, plan };
 }
 
 /* ---- credits ------------------------------------------------------ */

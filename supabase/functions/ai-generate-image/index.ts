@@ -6,10 +6,18 @@
  *     provider?: 'gemini' | 'higgsfield'        (default 'gemini')
  *     kind?: '2d_filter' | 'border'             (default '2d_filter')
  *     transparentBackground?: boolean
- *     greenScreen?: boolean }                   (paint a solid #00FF00 chroma-
+ *     greenScreen?: boolean                     (paint a solid #00FF00 chroma-
  *                                               key backdrop for the browser to
  *                                               key out; default false — prompt
  *                                               unchanged for other callers)
+ *     referenceImageUrl?: string }              (optional public assets URL of a
+ *                                               host-uploaded reference; gemini
+ *                                               fetches it server-side + inlines
+ *                                               it before the text prompt to
+ *                                               guide style/subject. Absent →
+ *                                               request unchanged for callers.
+ *                                               A fetch failure degrades to no
+ *                                               reference, never fails the job.)
  *
  * 200 → { job, experience }        job = ai_jobs row (succeeded),
  *                                  experience = unpublished experiences row
@@ -100,6 +108,44 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
+/** Encode bytes to base64 in 32KB chunks (a plain spread over a multi-MB image
+ *  overflows the call stack). Used only for the optional reference image. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+/** An inline image part for a Gemini generateContent request. */
+interface InlineImage {
+  mimeType: string;
+  data: string;
+}
+
+/**
+ * Fetch a host-uploaded reference image (a public assets-bucket URL) and encode
+ * it for Gemini. Degrades to null on ANY problem (fetch error, non-image type,
+ * empty or oversized payload) so a reference glitch never fails a paid
+ * generation — the frame just generates without the reference. 10MB ceiling.
+ */
+async function fetchReferenceInline(url: string): Promise<InlineImage | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) { console.warn('[ai-generate-image] reference fetch failed', res.status); return null; }
+    const mimeType = (res.headers.get('content-type') ?? '').split(';')[0].trim();
+    if (!mimeType.startsWith('image/')) { console.warn('[ai-generate-image] reference not an image', mimeType); return null; }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.length === 0 || bytes.length > 10 * 1024 * 1024) { console.warn('[ai-generate-image] reference size', bytes.length); return null; }
+    return { mimeType, data: bytesToBase64(bytes) };
+  } catch (e) {
+    console.warn('[ai-generate-image] reference fetch error', e);
+    return null;
+  }
+}
+
 /**
  * Cheap alpha probe: PNG signature + IHDR color type only (no full decode).
  * Color type 4 (gray+alpha) or 6 (RGBA) carry an alpha channel. Anything that
@@ -169,7 +215,7 @@ class AiError extends Error {
 /** Gemini image generation — REST generateContent with IMAGE modality.
  *  (Server-side move of the old browser call to generativelanguage.googleapis.com
  *  in Creator2D; the image model returns inlineData base64 instead of SVG text.) */
-async function generateGemini(prompt: string, aspectRatio?: string): Promise<Uint8Array> {
+async function generateGemini(prompt: string, aspectRatio?: string, reference?: InlineImage | null): Promise<Uint8Array> {
   // Dashboard-set secrets can arrive wrapped in quotes / with a trailing
   // newline; Google then rejects them as API_KEY_INVALID. Strip both.
   const key = Deno.env.get('GEMINI_API_KEY')?.trim().replace(/^["']|["']$/g, '');
@@ -181,13 +227,20 @@ async function generateGemini(prompt: string, aspectRatio?: string): Promise<Uin
   const generationConfig: Record<string, unknown> = { responseModalities: ['IMAGE'] };
   if (aspectRatio) generationConfig.imageConfig = { aspectRatio };
 
+  // When a reference image is present, put it BEFORE the text prompt so the
+  // model reads it as the style/subject to follow (same camelCase inlineData
+  // shape this function already parses out of the response).
+  const parts = reference
+    ? [{ inlineData: { mimeType: reference.mimeType, data: reference.data } }, { text: prompt }]
+    : [{ text: prompt }];
+
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [{ parts }],
         generationConfig,
       }),
     },
@@ -327,6 +380,12 @@ Deno.serve(async (req: Request) => {
     // Opt-in: paint a solid pure-green chroma-key backdrop for the browser to
     // key out. Absent/false → the prompt is unchanged for existing callers.
     const greenScreen = body.greenScreen === true;
+    // Optional host-uploaded reference image (public assets URL). Absent →
+    // request is byte-identical for existing callers. Only gemini uses it.
+    const referenceImageUrl =
+      typeof body.referenceImageUrl === 'string' && body.referenceImageUrl.trim()
+        ? body.referenceImageUrl.trim()
+        : null;
 
     const sb = serviceClient();
 
@@ -409,7 +468,7 @@ Deno.serve(async (req: Request) => {
         kind: 'image',
         provider,
         status: 'running',
-        input: { prompt, kind, transparentBackground, greenScreen, provider },
+        input: { prompt, kind, transparentBackground, greenScreen, provider, ...(referenceImageUrl ? { referenceImageUrl } : {}) },
         credits_charged: cost,
       })
       .select()
@@ -427,13 +486,20 @@ Deno.serve(async (req: Request) => {
 
     // 7. Everything after the spend refunds on failure.
     try {
-      const fullPrompt = buildPrompt(prompt, kind, transparentBackground, greenScreen);
+      let fullPrompt = buildPrompt(prompt, kind, transparentBackground, greenScreen);
+      // Reference image (gemini only): fetch + encode server-side and tell the
+      // model to follow it. A failed fetch degrades to null → no reference,
+      // generation still proceeds (never fail a paid job over a reference).
+      const reference = referenceImageUrl && provider === 'gemini'
+        ? await fetchReferenceInline(referenceImageUrl)
+        : null;
+      if (reference) fullPrompt = `${fullPrompt} Use the attached reference image to guide the style and subject.`;
       // Frames are full-bleed 9:16 compositions — request that aspect from the
       // model so the border art actually reaches the booth canvas's top/bottom
       // edges. Stickers stay at the model default (square subject).
       const aspect = greenScreen && kind === 'border' ? '9:16' : undefined;
       const bytes = provider === 'gemini'
-        ? await generateGemini(fullPrompt, aspect)
+        ? await generateGemini(fullPrompt, aspect, reference)
         : await generateHiggsfield(fullPrompt);
 
       // Transparency flag: requested AND the PNG actually carries alpha.
