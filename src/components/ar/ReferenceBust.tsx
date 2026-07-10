@@ -34,7 +34,14 @@ function loadBust(): Promise<THREE.Group | null> {
         BUST_URL,
         (g) => resolve(g.scene),
         undefined,
-        () => resolve(null), // missing/failed → render nothing (never the procedural head)
+        () => {
+          // Missing/failed → render nothing (never the procedural head). Drop
+          // the cached promise so the NEXT mount retries — a transient miss
+          // (CI vendors the GLB mid-session) must not blank the head until a
+          // full page reload (audit M-A13). Successful loads stay cached.
+          _bustPromise = null;
+          resolve(null);
+        },
       );
     });
   }

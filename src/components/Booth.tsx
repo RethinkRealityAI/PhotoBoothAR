@@ -424,29 +424,53 @@ export default function Booth() {
     occlusionActive && studioCfg.baselineFit != null && studioCfg.autoHeadScale !== false;
 
   const [effectiveHeadScale, setEffectiveHeadScale] = useState(studioCfg.headScale);
+  // Current value + tween handle as refs so the 1s interval below reads fresh
+  // state and an in-flight ease can be cancelled without effect churn.
+  const effHeadScaleRef = useRef(studioCfg.headScale);
+  const headScaleTweenRef = useRef<number | null>(null);
   // Seed to the host's calibrated base whenever it (or the enable flag) changes.
   // When auto-fit is OFF this is the final value — the interval below never runs.
   useEffect(() => {
+    if (headScaleTweenRef.current) { cancelAnimationFrame(headScaleTweenRef.current); headScaleTweenRef.current = null; }
+    effHeadScaleRef.current = studioCfg.headScale;
     setEffectiveHeadScale(studioCfg.headScale);
   }, [studioCfg.headScale, autoFitEnabled]);
   // Transfer the live guest fit as a RATIO to the host's baseline (the defensible
   // signal — see faceRig's estimator note; the absolute factor is only a
   // heuristic). Applied at most ~1/s once the estimate has stabilized, and only
-  // re-applied when it drifts >5%, so the occluder never jitters. The booth's own
-  // FaceRig detection already feeds the estimator, so no extra detection is run.
+  // re-applied when it drifts >5%, so the occluder never jitters. Each
+  // application EASES over ~600ms — the first one lands mid-framing and a hard
+  // snap of up to ±15% is visible on the occluder edge (audit M-A1). The booth's
+  // own FaceRig detection already feeds the estimator, so no extra detection runs.
   useEffect(() => {
     const baseline = studioCfg.baselineFit;
     if (!autoFitEnabled || baseline == null || phase !== 'camera' || !ready) return;
     const base = studioCfg.headScale;
     const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+    const easeTo = (target: number) => {
+      if (headScaleTweenRef.current) cancelAnimationFrame(headScaleTweenRef.current);
+      const from = effHeadScaleRef.current;
+      const t0 = performance.now();
+      const step = (t: number) => {
+        const k = Math.min(1, (t - t0) / 600);
+        const v = from + (target - from) * (k * (2 - k)); // easeOutQuad
+        effHeadScaleRef.current = v;
+        setEffectiveHeadScale(v);
+        headScaleTweenRef.current = k < 1 ? requestAnimationFrame(step) : null;
+      };
+      headScaleTweenRef.current = requestAnimationFrame(step);
+    };
     const id = window.setInterval(() => {
       const est = getHeadFitEstimate();
       if (!est || est.samples < 20) return; // wait for the ring to stabilize (~0.7s)
       const ratio = clamp(est.factor / baseline, 0.87, 1.15);
       const next = clamp(base * ratio, HEAD_SCALE_MIN, HEAD_SCALE_MAX);
-      setEffectiveHeadScale((cur) => (Math.abs(next / cur - 1) > 0.05 ? next : cur));
+      if (Math.abs(next / effHeadScaleRef.current - 1) > 0.05) easeTo(next);
     }, 1000);
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearInterval(id);
+      if (headScaleTweenRef.current) { cancelAnimationFrame(headScaleTweenRef.current); headScaleTweenRef.current = null; }
+    };
   }, [autoFitEnabled, studioCfg.baselineFit, studioCfg.headScale, phase, ready]);
 
   // ── Trigger runtime: particle canvas, filter pulse, detection loop ────

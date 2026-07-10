@@ -75,7 +75,7 @@ interface Props {
   state: StudioState;
   dispatch: React.Dispatch<StudioAction>;
   headScale: number;
-  onHeadScaleChange: (v: number) => void;
+  onHeadScaleChange: (v: number, persist?: boolean) => void;
   onThumbUpload: (file: File) => void;
   onThumbClear: () => void;
 }
@@ -376,7 +376,7 @@ function MagicTriggers({
         )
       )}
       {atCap && !adding && <p className="text-[9px] text-brand-muted/40 font-sans mt-1">Up to {MAX_TRIGGERS} triggers per scene.</p>}
-      <p className="text-[9px] text-brand-muted/40 font-sans mt-2 leading-relaxed">Try it in 3D Live view — the tracker runs there.</p>
+      <p className="text-[9px] text-brand-muted/40 font-sans mt-2 leading-relaxed">Try it live — the tracker runs in 2D, 3D Live, and Preview.</p>
     </div>
   );
 }
@@ -400,7 +400,8 @@ function HeadSizeCalibration({
   onHeadScaleChange,
 }: {
   headScale: number;
-  onHeadScaleChange: (v: number) => void;
+  /** persist=false seeds the slider without the shell's debounced write (M-A4). */
+  onHeadScaleChange: (v: number, persist?: boolean) => void;
 }) {
   const { eventId } = useEvent();
   const [fit, setFit] = useState<{ factor: number; samples: number } | null>(null);
@@ -436,10 +437,12 @@ function HeadSizeCalibration({
   const applyFit = useCallback(() => {
     if (factor === null) return;
     const clamped = Math.min(HEAD_SCALE_MAX, Math.max(HEAD_SCALE_MIN, factor));
-    onHeadScaleChange(clamped);         // seeds the slider + StudioShell persists headScale
+    // persist=false: seed the slider WITHOUT scheduling the shell's debounced
+    // {headScale} write — the combined write below is the single writer, so a
+    // stale debounced RMW can never land after it and drop the baseline (M-A4).
+    onHeadScaleChange(clamped, false);
     setBaselineFit(factor);
     setAutoFit(true);
-    // Persist baseline + headScale together (StudioShell writes headScale only).
     setStudioSettings(eventId, { headScale: clamped, baselineFit: factor, autoHeadScale: true }).catch(() => {});
   }, [factor, onHeadScaleChange, eventId]);
 

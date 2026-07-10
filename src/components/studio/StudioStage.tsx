@@ -25,6 +25,7 @@ import ErrorBoundary from '../ui/ErrorBoundary';
 import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
 import { createTriggerEngine, TRIGGER_SOURCE_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
+import { initializeFaceLandmarker, isFaceLandmarkerReady } from '../../lib/faceTracking';
 import { REVEAL_SHIMMER_MS } from '../../lib/studio/reveal';
 
 interface CamState {
@@ -177,6 +178,22 @@ export default function StudioStage({
   const trackerLive =
     mode === 'preview' || mode === '2d' || (mode === '3d' && threeView === 'live' && !paused);
   const triggersActive = hasTriggers && trackerLive && cam.ready;
+
+  // The landmarker is normally initialized by a mounted FaceRig (3D Live) — but
+  // 2D live and a filter-only Preview mount none, so on a fresh session nothing
+  // would ever load it and detectFaceNow would no-op silently (audit H-A8).
+  // Initialize it ourselves (idempotent) and track readiness so the indicator
+  // below never claims a live tracker that isn't.
+  const [trackerReady, setTrackerReady] = useState(false);
+  useEffect(() => {
+    if (!triggersActive) return;
+    void initializeFaceLandmarker();
+    if (isFaceLandmarkerReady()) { setTrackerReady(true); return; }
+    const id = window.setInterval(() => {
+      if (isFaceLandmarkerReady()) { setTrackerReady(true); window.clearInterval(id); }
+    }, 400);
+    return () => { window.clearInterval(id); setTrackerReady(false); };
+  }, [triggersActive]);
 
   const triggerFxRef = useRef<TriggerEffectsHandle>(null);
 
@@ -505,15 +522,17 @@ export default function StudioStage({
           </div>
         )}
 
-        {/* "Testing triggers" indicator — shown whenever a trigger scene has a
-            live tracker (2D, 3D-Live, or Preview). Consistent with the props
-            dock hint ("Try it in 3D Live view — the tracker runs there"). */}
+        {/* Trigger-testing indicator — green only once the landmarker is truly
+            ready (2D, 3D-Live, or Preview); amber while it loads so the chip
+            never claims a live tracker that isn't (audit H-A8). */}
         {triggersActive && (
           <div data-testid="studio-trigger-indicator" className="absolute top-3 left-3 z-20 pointer-events-none">
             <div className="liquid-glass rounded-full px-3 py-1.5 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${trackerReady ? 'bg-emerald-400' : 'bg-amber-400'}`} />
               <ScanFace className="w-3 h-3 text-accent-2" />
-              <span className="font-label text-[9px] uppercase tracking-widest text-brand-muted">Testing triggers</span>
+              <span className="font-label text-[9px] uppercase tracking-widest text-brand-muted">
+                {trackerReady ? 'Testing triggers' : 'Loading face tracker…'}
+              </span>
             </div>
           </div>
         )}

@@ -176,12 +176,20 @@ export default function StudioShell() {
     return () => { alive = false; };
   }, [editId, eventId]);
 
-  // Persist head-scale (debounced) — event-wide booth calibration.
-  const onHeadScaleChange = useCallback((v: number) => {
+  // Persist head-scale (debounced) — event-wide booth calibration. persist=false
+  // updates the slider/state ONLY and cancels any pending debounced write: the
+  // calibration Apply chip persists {headScale, baselineFit, autoHeadScale} in
+  // one combined write, and a stale debounced {headScale} landing after it
+  // would read-modify-write the row WITHOUT the baseline and drop it (audit M-A4).
+  const onHeadScaleChange = useCallback((v: number, persist: boolean = true) => {
     const next = clampHeadScale(v);
     setHeadScale(next);
-    pendingHeadScale.current = next;
     if (persistTimer.current) clearTimeout(persistTimer.current);
+    if (!persist) {
+      pendingHeadScale.current = null;
+      return;
+    }
+    pendingHeadScale.current = next;
     persistTimer.current = setTimeout(() => {
       setStudioSettings(eventId, { headScale: next });
       pendingHeadScale.current = null;
