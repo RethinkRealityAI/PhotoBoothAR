@@ -8,26 +8,31 @@
  * transition. Undo/redo lives in ./history.ts as a {past,present,future}
  * wrapper around this reducer.
  *
- * SCENES: a draft now holds an ORDERED list of objects within one mode.
- *   - 2D scenes (kind 'border'/'2d_filter'): objects are Overlay2D — borders and
- *     stickers freely mixable; the draft's `kind` mirrors objects[0].overlayKind.
- *   - 3D scenes (kind '3d_attachment'): objects are Object3D — GLB models or
- *     procedural head pieces, each with its own anchor/animation/occlusion.
- *   - Shader (kind 'shader'): stays exactly as before — a single frame treatment,
- *     no objects. `objects` is always [] for a shader draft.
+ * MIXED SCENES (W4): a draft holds ONE ordered list of objects that freely mixes
+ * 2D and 3D — at most ONE frame (overlayKind 'border'), any number of stickers
+ * ('2d_filter'), and any number of 3D objects (model/headpiece). A single
+ * scene-level filter slot (`shaderId`, where 'none' == empty) rides alongside.
+ * `kind` is DERIVED from the objects (see recomputeKind) and is 'composite' when
+ * both a 2D overlay and a 3D object are present. Content PERSISTS across view
+ * switches — SET_MODE ('2d'|'3d'|'preview') is a pure view flip that never
+ * touches the draft, and SET_KIND is a thin alias that only flips the view.
  *
- * Kind-switch semantics replicate the old Creator2D.handleKindChange for the
- * single-object case (border/sticker restore a built-in default; shader clears
- * the overlay), and anchor selection replicates Creator3D.handleAnchorSelect
- * (same anchor is a no-op; a new anchor resets offset/rotation but keeps scale).
+ * Anchor selection replicates Creator3D.handleAnchorSelect (same anchor is a
+ * no-op; a new anchor resets offset/rotation but keeps scale). The one-frame
+ * rule (placeFrame) always swaps the existing frame in place — preserving a
+ * TOUCHED frame's transform/animation — while stickers and 3D objects keep the
+ * browse-swap-vs-committed-add rule (addOrReplaceObject + isUntouched).
  */
 import type { ExperienceKind, HeadAnchor, LayerAnimation, Transform2D } from '../../types';
-import { BORDER_MAP, BUILTIN_BORDERS, toDataUrl } from '../borders';
+import { BORDER_MAP } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
 
 export type StudioMode = '2d' | '3d' | 'preview';
 export type ThreeView = 'live' | 'orbit';
+/** The kinds a draft can be *created* with (composite is only ever derived). */
 export type StudioKind = Exclude<ExperienceKind, 'composite'>;
+/** The DERIVED draft kind — a StudioKind, or 'composite' for a mixed 2D+3D scene. */
+export type DraftKind = ExperienceKind;
 
 export interface Vec3Obj { x: number; y: number; z: number }
 
@@ -44,8 +49,12 @@ export const DEFAULT_ANCHOR_CONFIG: StudioAnchorConfig = {
   scale: 1,
 };
 
-/** Hard cap on objects per scene — keeps the layers panel + booth render sane. */
-export const MAX_OBJECTS = 8;
+/**
+ * Soft cap on objects per scene — keeps the layers panel + booth render sane.
+ * Counts stickers + 3D objects only; the single frame ('border' overlay) is
+ * EXEMPT (a scene may hold 1 frame + MAX_OBJECTS others). See sceneCounts.
+ */
+export const MAX_OBJECTS = 20;
 
 /* — Scene objects ---------------------------------------------------------- */
 
@@ -143,17 +152,19 @@ export interface StudioDraft {
   id?: string;
   name: string;
   /**
-   * Drives the mode: 'shader'|'border'|'2d_filter' are the 2D family, and for
-   * a 2D scene this mirrors objects[0].overlayKind (recomputed on add/reorder/
-   * delete); '3d_attachment' is the 3D family.
+   * DERIVED from the scene (recomputeKind, run after every objects/filter
+   * mutation): 'composite' when a 2D overlay and a 3D object coexist; else the
+   * lone family — objects[0].overlayKind ('border'/'2d_filter') for overlays,
+   * '3d_attachment' for 3D, or 'shader' when there are no objects at all. Never
+   * set this by hand; consumers read it, the reducer computes it.
    */
-  kind: StudioKind;
+  kind: DraftKind;
   isPublished: boolean;
   featured: boolean;
-  /* — shader (single, no objects) — */
+  /* — the ONE scene-level filter slot ('none' == empty) — */
   shaderId: string;
   shaderParams: Record<string, number>;
-  /* — scene objects (empty for a shader draft) — */
+  /* — scene objects (frame + stickers + 3D, freely mixed) — */
   objects: StudioObject[];
   selectedId: string | null;
   /* — shared — */
@@ -174,39 +185,26 @@ export interface StudioState {
 
 const DEFAULT_SHADER_ID = 'golden-hour-bloom';
 
-function builtinOverlay(borderId: string, kind: 'border' | '2d_filter'): Overlay2D | null {
-  const b = BUILTIN_BORDERS.find((x) => x.id === borderId && x.kind === kind);
-  return b
-    ? createOverlay(kind, { url: toDataUrl(b.svg), isBuiltin: true, builtinId: b.id, name: b.name })
-    : null;
-}
-
-function defaultOverlayFor(kind: 'border' | '2d_filter'): Overlay2D | null {
-  const b = BUILTIN_BORDERS.find((x) => x.kind === kind);
-  return b ? builtinOverlay(b.id, kind) : null;
-}
-
+/**
+ * A brand-new draft starts EMPTY — no auto-inserted default overlay (mixed
+ * scenes make an auto-object confusing; the first dock click adds it). `kind`
+ * only picks the initial name here; the reducer derives it from then on. The
+ * filter slot starts empty ('none') EXCEPT initialDraft('shader'), which
+ * pre-selects DEFAULT_SHADER_ID so opening the shader studio shows a filter.
+ */
 export function initialDraft(kind: StudioKind = 'shader'): StudioDraft {
-  const draft: StudioDraft = {
+  return {
     name: kind === '3d_attachment' ? 'Untitled 3D Experience' : 'Untitled Experience',
     kind,
     isPublished: true,
     featured: true,
-    shaderId: DEFAULT_SHADER_ID,
+    shaderId: kind === 'shader' ? DEFAULT_SHADER_ID : 'none',
     shaderParams: {},
     objects: [],
     selectedId: null,
     thumbUrl: null,
     thumbBlob: null,
   };
-  if (kind === 'border' || kind === '2d_filter') {
-    const def = defaultOverlayFor(kind);
-    if (def) {
-      draft.objects = [def];
-      draft.selectedId = def.id;
-    }
-  }
-  return draft;
 }
 
 export function initialState(kind: StudioKind = 'shader'): StudioState {
@@ -221,10 +219,12 @@ export function initialState(kind: StudioKind = 'shader'): StudioState {
   };
 }
 
-/** Modes that need the draft to have visible content before entering. */
+/**
+ * Whether the draft has anything to preview: at least one object, OR a filter
+ * in the slot (shaderId !== 'none'). Mirrors the SET_MODE preview guard.
+ */
 export function draftHasContent(d: StudioDraft): boolean {
-  if (d.kind === 'shader') return true; // a shader is always previewable
-  return d.objects.length > 0;
+  return d.objects.length > 0 || d.shaderId !== 'none';
 }
 
 /** The currently-selected scene object, or null. */
@@ -236,14 +236,44 @@ function is3D(o: StudioObject): o is Object3D {
   return o.type !== 'overlay';
 }
 
+function isFrame(o: StudioObject): o is Overlay2D {
+  return o.type === 'overlay' && o.overlayKind === 'border';
+}
+
 /**
- * The draft `kind` for a 2D/3D scene follows its first object; a shader draft
- * (empty objects) keeps 'shader', and an empty 2D/3D scene keeps its family.
+ * Scene composition counts for the UI + cap: at most one `frame`, plus the
+ * number of `stickers` and `threeD` objects. `capped` (stickers + threeD) is
+ * the number compared against MAX_OBJECTS — the frame is exempt.
  */
-function recomputeKind(d: StudioDraft): StudioKind {
-  const first = d.objects[0];
-  if (first) return first.type === 'overlay' ? first.overlayKind : '3d_attachment';
-  return d.kind;
+export function sceneCounts(d: StudioDraft): { frame: 0 | 1; stickers: number; threeD: number; capped: number } {
+  let frame: 0 | 1 = 0;
+  let stickers = 0;
+  let threeD = 0;
+  for (const o of d.objects) {
+    if (o.type === 'overlay') {
+      if (o.overlayKind === 'border') frame = 1;
+      else stickers += 1;
+    } else {
+      threeD += 1;
+    }
+  }
+  return { frame, stickers, threeD, capped: stickers + threeD };
+}
+
+/**
+ * The DERIVED draft kind from the current objects:
+ *   • a 2D overlay AND a 3D object present → 'composite'
+ *   • only overlays → objects[0].overlayKind ('border' | '2d_filter')
+ *   • only 3D objects → '3d_attachment'
+ *   • no objects → 'shader' (regardless of the filter slot)
+ */
+function recomputeKind(d: StudioDraft): DraftKind {
+  const hasOverlay = d.objects.some((o) => o.type === 'overlay');
+  const has3D = d.objects.some((o) => o.type !== 'overlay');
+  if (hasOverlay && has3D) return 'composite';
+  if (hasOverlay) return (d.objects[0] as Overlay2D).overlayKind;
+  if (has3D) return '3d_attachment';
+  return 'shader';
 }
 
 function mapObjects(d: StudioDraft, id: string, fn: (o: StudioObject) => StudioObject): StudioObject[] {
@@ -301,8 +331,30 @@ function addOrReplaceObject(
   if (sel && sel.type === sameType && sameSubkind && isUntouched(sel)) {
     return { ...d, objects: d.objects.map((o) => (o.id === sel.id ? obj : o)), selectedId: obj.id };
   }
-  if (d.objects.length >= MAX_OBJECTS) return null;
+  // The cap counts stickers + 3D only (the frame is exempt); this helper only
+  // ever adds cappable objects, so compare against the capped count.
+  if (sceneCounts(d).capped >= MAX_OBJECTS) return null;
   return { ...d, objects: [...d.objects, obj], selectedId: obj.id };
+}
+
+/**
+ * The ONE-FRAME rule for adding a 'border' overlay: if a frame already exists it
+ * is REPLACED in place (keeping its array index), else the frame is appended.
+ * The frame is exempt from MAX_OBJECTS, so a first frame always fits. When
+ * swapping a TOUCHED frame we carry over its transform + animation (the user
+ * already placed it; they're just trying a different design). Always selects the
+ * resulting frame; callers may override selection afterwards.
+ */
+function placeFrame(d: StudioDraft, frame: Overlay2D): StudioDraft {
+  const idx = d.objects.findIndex(isFrame);
+  if (idx >= 0) {
+    const existing = d.objects[idx] as Overlay2D;
+    const merged: Overlay2D = isUntouched(existing)
+      ? frame
+      : { ...frame, transform: { ...existing.transform }, animation: existing.animation };
+    return { ...d, objects: d.objects.map((o, i) => (i === idx ? merged : o)), selectedId: merged.id };
+  }
+  return { ...d, objects: [...d.objects, frame], selectedId: frame.id };
 }
 
 /* — Actions ---------------------------------------------------------------- */
@@ -317,6 +369,7 @@ export type StudioAction =
   | { type: 'SELECT_SHADER'; shaderId: string; params: Record<string, number> }
   | { type: 'SET_SHADER_PARAM'; key: string; value: number }
   | { type: 'SET_SHADER_PARAMS'; params: Record<string, number> }
+  | { type: 'CLEAR_FILTER' }
   | { type: 'SELECT_BUILTIN'; borderId: string; url: string }
   | { type: 'SET_OVERLAY_UPLOAD'; url: string; blob: Blob | null }
   | { type: 'CLEAR_OVERLAY' }
@@ -339,64 +392,33 @@ export type StudioAction =
   | { type: 'UPDATE_OBJECT'; id: string; patch: Partial<Omit<Overlay2D, 'id' | 'type'>> | Partial<Omit<Object3D, 'id' | 'type'>> }
   | { type: 'SET_OBJECT_ANIMATION'; id: string; animation: LayerAnimation };
 
-function modeForKind(kind: StudioKind): StudioMode {
+function modeForKind(kind: DraftKind): Exclude<StudioMode, 'preview'> {
   return kind === '3d_attachment' ? '3d' : '2d';
-}
-
-function draftFamily(kind: StudioKind): '2d' | '3d' | 'shader' {
-  if (kind === '3d_attachment') return '3d';
-  if (kind === 'shader') return 'shader';
-  return '2d';
 }
 
 export function studioReducer(state: StudioState, action: StudioAction): StudioState {
   const d = state.draft;
   switch (action.type) {
     case 'SET_MODE': {
-      // Preview needs something to show; 3D↔2D switching flips the draft kind
-      // only when the current kind belongs to the other world (so toggling to
-      // 3D from a shader draft starts a 3D draft rather than showing nothing).
-      if (action.mode === 'preview' && !draftHasContent(d)) return state;
+      // Pure VIEW switch — never touches the draft (content persists across
+      // flips). Preview needs something to show: any object OR a filter slot.
+      if (action.mode === 'preview' && d.objects.length === 0 && d.shaderId === 'none') return state;
       if (action.mode === state.mode) return state;
-      let draft = d;
-      if (action.mode === '3d' && d.kind !== '3d_attachment') {
-        draft = { ...initialDraft('3d_attachment'), name: d.name, isPublished: d.isPublished, featured: d.featured };
-      } else if (action.mode === '2d' && d.kind === '3d_attachment') {
-        draft = { ...initialDraft('shader'), name: d.name, isPublished: d.isPublished, featured: d.featured };
-      }
-      return { ...state, mode: action.mode, draft };
+      return { ...state, mode: action.mode };
     }
     case 'SET_THREE_VIEW':
       return state.threeView === action.view ? state : { ...state, threeView: action.view };
     case 'SET_PAUSED':
       return state.paused === action.paused ? state : { ...state, paused: action.paused };
     case 'SET_KIND': {
-      if (action.kind === d.kind) return state;
-      // With a populated 2D scene we don't destroy the objects: switching the
-      // 2D sub-kind only changes the default overlayKind for the NEXT add.
-      if (d.objects.length > 1 && (action.kind === 'border' || action.kind === '2d_filter')) {
-        return { ...state, dirty: true, draft: { ...d, kind: action.kind } };
-      }
-      // Single-object (or family) switch: replicate the old handleKindChange reset.
-      let objects: StudioObject[] = [];
-      let selectedId: string | null = null;
-      if (action.kind === 'border' || action.kind === '2d_filter') {
-        const prev = selectedObject(d);
-        const keepId = prev && prev.type === 'overlay' ? prev.builtinId : undefined;
-        const def = (keepId && builtinOverlay(keepId, action.kind)) || defaultOverlayFor(action.kind);
-        if (def) {
-          objects = [def];
-          selectedId = def.id;
-        }
-      }
-      // shader / 3d_attachment start empty (shader has no objects; a 3D scene is
-      // populated by SELECT_HEAD_PIECE/SET_MODEL_ASSET).
-      return {
-        ...state,
-        mode: modeForKind(action.kind),
-        dirty: true,
-        draft: { ...d, kind: action.kind, objects, selectedId },
-      };
+      // The dock's category tabs are becoming pure catalog-browsing UI in a later
+      // wave; for now the dock still dispatches SET_KIND. With the new semantics
+      // it ONLY flips the view to the matching world ('3d_attachment' → '3d', else
+      // '2d') — it never creates/deletes/resets objects and never changes
+      // draft.kind (which is derived). This makes it a thin alias for SET_MODE.
+      const mode = modeForKind(action.kind);
+      if (mode === state.mode) return state;
+      return { ...state, mode };
     }
     case 'LOAD':
       return {
@@ -418,49 +440,45 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       };
     case 'SET_SHADER_PARAMS':
       return { ...state, dirty: true, draft: { ...d, shaderParams: action.params } };
+    case 'CLEAR_FILTER':
+      // Empty the single scene-level filter slot.
+      if (d.shaderId === 'none' && Object.keys(d.shaderParams).length === 0) return state;
+      return { ...state, dirty: true, draft: { ...d, shaderId: 'none', shaderParams: {} } };
     case 'SELECT_BUILTIN': {
       const info = BORDER_MAP[action.borderId];
-      const overlayKind: 'border' | '2d_filter' =
-        info?.kind ?? (d.kind === 'border' || d.kind === '2d_filter' ? d.kind : 'border');
+      const overlayKind: 'border' | '2d_filter' = info?.kind ?? 'border';
       const obj = createOverlay(overlayKind, {
         url: action.url,
         isBuiltin: true,
         builtinId: action.borderId,
         name: info?.name ?? 'Overlay',
       });
-      const nd = addOrReplaceObject(d, obj, 'overlay');
+      // The one-frame rule wins for borders (always swap the frame in place);
+      // stickers keep the browse-swap-vs-committed-add rule.
+      const nd = overlayKind === 'border' ? placeFrame(d, obj) : addOrReplaceObject(d, obj, 'overlay');
       if (!nd) return state;
       return { ...state, mode: '2d', dirty: true, draft: { ...nd, kind: recomputeKind(nd) } };
     }
     case 'SET_OVERLAY_UPLOAD': {
       const sel = selectedObject(d);
+      // Uploads inherit the selected overlay's sub-kind, else default to a frame.
       const overlayKind: 'border' | '2d_filter' =
-        sel && sel.type === 'overlay'
-          ? sel.overlayKind
-          : d.kind === 'border' || d.kind === '2d_filter'
-            ? d.kind
-            : 'border';
+        sel && sel.type === 'overlay' ? sel.overlayKind : 'border';
       const obj = createOverlay(overlayKind, {
         url: action.url,
         blob: action.blob,
         isBuiltin: false,
         name: 'Custom overlay',
       });
-      const nd = addOrReplaceObject(d, obj, 'overlay');
+      const nd = overlayKind === 'border' ? placeFrame(d, obj) : addOrReplaceObject(d, obj, 'overlay');
       if (!nd) return state;
       return { ...state, mode: '2d', dirty: true, draft: { ...nd, kind: recomputeKind(nd) } };
     }
     case 'CLEAR_OVERLAY': {
       const sel = selectedObject(d);
       if (!sel || sel.type !== 'overlay') return state;
-      if (sel.overlayKind === 'border') {
-        // Borders fall back to the current (or default) built-in, in place.
-        const def = (sel.builtinId && builtinOverlay(sel.builtinId, 'border')) || defaultOverlayFor('border');
-        if (!def) return state;
-        const objects = mapObjects(d, sel.id, () => ({ ...def, id: sel.id }));
-        return { ...state, dirty: true, draft: { ...d, objects } };
-      }
-      // Stickers clear entirely — the object is removed from the scene.
+      // With no auto-default frame anymore, clearing a border DELETES it (same as
+      // a sticker); the scene may be left frame-less.
       const objects = d.objects.filter((o) => o.id !== sel.id);
       const selectedId = objects.length ? objects[objects.length - 1].id : null;
       const nd = { ...d, objects, selectedId };
@@ -524,13 +542,13 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       // Creator UX: name a brand-new (unsaved, first-object) experience after the
       // piece; never rename when editing an existing one or adding to a scene.
       const name = !d.id && nd.objects.length === 1 ? piece.name : d.name;
-      return { ...state, mode: '3d', dirty: true, draft: { ...nd, kind: '3d_attachment', name } };
+      return { ...state, mode: '3d', dirty: true, draft: { ...nd, kind: recomputeKind(nd), name } };
     }
     case 'SET_MODEL_ASSET': {
       const obj = createObject3D('model', { assetUrl: action.url, name: action.name ?? 'Model' });
       const nd = addOrReplaceObject(d, obj, 'model');
       if (!nd) return state;
-      return { ...state, mode: '3d', dirty: true, draft: { ...nd, kind: '3d_attachment' } };
+      return { ...state, mode: '3d', dirty: true, draft: { ...nd, kind: recomputeKind(nd) } };
     }
     case 'SET_THUMB':
       return { ...state, dirty: true, draft: { ...d, thumbUrl: action.url, thumbBlob: action.blob } };
@@ -552,13 +570,20 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'MARK_SAVED':
       return { ...state, dirty: false, draft: { ...d, id: action.id } };
     case 'ADD_OBJECT': {
+      // Mixed scenes: no family-match rejection. A 'border' overlay obeys the
+      // one-frame rule (replace the existing frame in place; exempt from the
+      // cap); everything else appends subject to the MAX_OBJECTS cap.
       const obj = action.object;
-      const objFamily = obj.type === 'overlay' ? '2d' : '3d';
-      if (objFamily !== draftFamily(d.kind)) return state; // enforce mode match
-      if (d.objects.length >= MAX_OBJECTS) return state; // cap — ignore beyond
-      const objects = [...d.objects, obj];
-      const selectedId = action.select === false ? d.selectedId : obj.id;
-      const nd = { ...d, objects, selectedId };
+      let nd: StudioDraft;
+      if (isFrame(obj)) {
+        nd = placeFrame(d, obj);
+        if (action.select === false) nd = { ...nd, selectedId: d.selectedId };
+      } else {
+        if (sceneCounts(d).capped >= MAX_OBJECTS) return state; // cap — ignore beyond
+        const objects = [...d.objects, obj];
+        const selectedId = action.select === false ? d.selectedId : obj.id;
+        nd = { ...d, objects, selectedId };
+      }
       return { ...state, dirty: true, draft: { ...nd, kind: recomputeKind(nd) } };
     }
     case 'DELETE_OBJECT': {
