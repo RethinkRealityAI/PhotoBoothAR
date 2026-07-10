@@ -10,7 +10,7 @@
  * tab and pointer drag-and-drop onto the stage.)
  */
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { Boxes, Crown, Image as ImageIcon, LayoutTemplate, Loader2, Search, Sparkles, Upload } from 'lucide-react';
+import { Boxes, Crown, Image as ImageIcon, LayoutTemplate, Loader2, Search, Sparkles, Upload, X } from 'lucide-react';
 import { FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { HEAD_PIECES } from '../../lib/headPieces';
@@ -18,9 +18,8 @@ import { ANCHOR_PRESETS } from '../../lib/faceRig';
 import { uploadAsset, listAssets, fetchExperiences } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
-import { selectedObject, type StudioAction, type StudioKind, type StudioState } from '../../lib/studio/state';
+import { selectedObject, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
 import { SectionLabel } from './StudioControls';
-import Tooltip from '../ui/Tooltip';
 import AiFramePanel from './AiFramePanel';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
 import type { DragPayload } from './useStudioDnd';
@@ -35,11 +34,18 @@ interface Props {
   consumedDrag: () => boolean;
 }
 
-const KIND_TABS: { id: StudioKind; label: string; icon: typeof Sparkles }[] = [
-  { id: 'shader', label: 'Filter', icon: Sparkles },
-  { id: 'border', label: 'Frame', icon: LayoutTemplate },
-  { id: '2d_filter', label: 'Sticker', icon: ImageIcon },
-  { id: '3d_attachment', label: '3D', icon: Boxes },
+/**
+ * The dock's category tabs are pure CATALOG CATEGORIES — local UI state that
+ * only picks which library section to browse. They never touch the draft, are
+ * never locked, and nothing about them is destructive: clicking a catalog item
+ * adds/swaps per the reducer's own rules (which also flip the view to fit).
+ */
+type Category = 'filter' | 'frame' | 'sticker' | '3d';
+const CATEGORY_TABS: { id: Category; label: string; icon: typeof Sparkles }[] = [
+  { id: 'filter', label: 'Filter', icon: Sparkles },
+  { id: 'frame', label: 'Frame', icon: LayoutTemplate },
+  { id: 'sticker', label: 'Sticker', icon: ImageIcon },
+  { id: '3d', label: '3D', icon: Boxes },
 ];
 
 type SourceTabId = 'library' | 'uploads' | 'mine';
@@ -56,7 +62,7 @@ interface SourceState {
 const IDLE_SOURCE: SourceState = { status: 'idle', items: [] };
 
 export default function AssetsDock({ state, dispatch, onOpenExperience, beginDrag, consumedDrag }: Props) {
-  const { draft, mode } = state;
+  const { draft } = state;
   const { source, eventId } = useEvent();
   const entitlements = useEntitlements();
   const imgInputRef = useRef<HTMLInputElement>(null);
@@ -70,7 +76,9 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const [query, setQuery] = useState('');
   const [uploads, setUploads] = useState<SourceState>(IDLE_SOURCE);
   const [mine, setMine] = useState<SourceState>(IDLE_SOURCE);
-  const family: '2d' | '3d' = draft.kind === '3d_attachment' ? '3d' : '2d';
+  // Which catalog category the Library is browsing (pure UI — no draft coupling).
+  const [category, setCategory] = useState<Category>('frame');
+  const family: '2d' | '3d' = category === '3d' ? '3d' : '2d';
 
   const loadUploads = useCallback(() => {
     setUploads({ status: 'loading', items: [] });
@@ -97,7 +105,13 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   // guarded by consumedDrag() exactly like every other source button here.
   const addDockItem = useCallback((item: DockItem) => {
     if (item.family === '2d') {
-      if (item.payload.url) dispatch({ type: 'SET_OVERLAY_UPLOAD', url: item.payload.url, blob: null });
+      if (item.payload.url) {
+        // Explicit sub-kind: the item's own kind, else the browsing category
+        // (without it the reducer defaults to 'border' — a sticker-category
+        // upload would land as a frame).
+        const overlayKind = item.payload.overlayKind ?? (category === 'sticker' ? '2d_filter' as const : 'border' as const);
+        dispatch({ type: 'SET_OVERLAY_UPLOAD', url: item.payload.url, blob: null, overlayKind });
+      }
       return;
     }
     if (item.payload.proceduralId) {
@@ -105,7 +119,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     } else if (item.payload.assetUrl) {
       dispatch({ type: 'SET_MODEL_ASSET', url: item.payload.assetUrl, name: item.label });
     }
-  }, [dispatch]);
+  }, [dispatch, category]);
 
   // Drag payload for an Uploads/Mine dock item — useStudioDnd's resolveDrop
   // reads `assetUrl` (not `url`) for the non-builtin overlay branch, so a
@@ -116,7 +130,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         target: 'overlay',
         label: item.label,
         previewUrl: item.previewUrl,
-        overlayKind: item.payload.overlayKind ?? (draft.kind === 'border' || draft.kind === '2d_filter' ? draft.kind : 'border'),
+        overlayKind: item.payload.overlayKind ?? (category === 'sticker' ? '2d_filter' : 'border'),
         assetUrl: item.payload.url,
       };
     }
@@ -124,7 +138,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
       return { target: 'headpiece', label: item.label, previewUrl: item.previewUrl, pieceId: item.payload.proceduralId };
     }
     return { target: 'model', label: item.label, previewUrl: item.previewUrl, assetUrl: item.payload.assetUrl };
-  }, [draft.kind]);
+  }, [category]);
 
   const renderSourceList = (items: DockItem[], emptyText: string) => {
     if (items.length === 0) {
@@ -177,13 +191,21 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const selProceduralId = sel && sel.type === 'headpiece' ? sel.proceduralId : undefined;
   const selAnchor = sel && sel.type !== 'overlay' ? sel.anchor : undefined;
   const selModelName = sel && sel.type === 'model' ? sel.name : undefined;
+  // The scene's single frame (if any) — highlights the active frame in the
+  // Frame catalog regardless of which layer is currently selected.
+  const sceneFrame = draft.objects.find(
+    (o): o is Overlay2D => o.type === 'overlay' && o.overlayKind === 'border',
+  );
 
   const onImageUpload = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    dispatch({ type: 'SET_OVERLAY_UPLOAD', url: URL.createObjectURL(file), blob: file });
+    // The upload input only renders inside the visible Frame/Sticker catalog, so
+    // the browsing category IS the intended sub-kind.
+    const overlayKind = category === 'sticker' ? '2d_filter' as const : 'border' as const;
+    dispatch({ type: 'SET_OVERLAY_UPLOAD', url: URL.createObjectURL(file), blob: file, overlayKind });
     e.target.value = '';
-  }, [dispatch]);
+  }, [dispatch, category]);
 
   const onGlbUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -193,37 +215,73 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     if (url) dispatch({ type: 'SET_MODEL_ASSET', url, name: file.name });
   }, [dispatch]);
 
+  // Frame + Sticker catalogs share their layout (built-ins → upload → AI panel);
+  // only the sub-kind, the active-highlight source, and the AI kind differ. The
+  // reducer's SELECT_BUILTIN flips the view to 2D on add.
+  const renderOverlayCatalog = (kind: 'border' | '2d_filter') => (
+    <>
+      <div>
+        <SectionLabel>{kind === 'border' ? 'Built-in frames' : 'Built-in stickers'}</SectionLabel>
+        <div className="flex flex-col gap-1">
+          {BUILTIN_BORDERS.filter((b) => b.kind === kind).map((b) => {
+            // Frames: highlight the scene's frame (at most one) regardless of
+            // selection; stickers: highlight the selected sticker.
+            const active = kind === 'border' ? sceneFrame?.builtinId === b.id : selBuiltinId === b.id;
+            const url = toDataUrl(b.svg);
+            return (
+              <button
+                key={b.id}
+                onPointerDown={(e) => beginDrag({ target: 'overlay', label: b.name, overlayKind: b.kind, builtinId: b.id, builtinUrl: url, previewUrl: url }, e)}
+                onClick={() => { if (consumedDrag()) return; dispatch({ type: 'SELECT_BUILTIN', borderId: b.id, url }); }}
+                title="Click to add · drag onto the canvas to place"
+                className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors text-xs font-sans cursor-grab active:cursor-grabbing ${active ? 'bg-accent/15 ring-1 ring-accent/30 text-accent-2' : 'bg-white/[0.03] hover:bg-white/[0.06] text-brand-muted/70 hover:text-brand-fg'}`}
+              >
+                {b.name}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div>
+        <SectionLabel>Upload custom (PNG / SVG)</SectionLabel>
+        <button
+          onClick={() => imgInputRef.current?.click()}
+          className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-xs text-brand-muted/70"
+        >
+          <Upload className="w-3.5 h-3.5 text-accent-2" /> Browse file…
+        </button>
+        <input ref={imgInputRef} type="file" accept="image/png,image/svg+xml,image/webp" className="sr-only" onChange={onImageUpload} />
+      </div>
+      <AiFramePanel
+        kind={kind}
+        freeTrial={!entitlements.aiStudio}
+        onGenerated={(exp) => {
+          if (exp.asset_url) dispatch({ type: 'SET_OVERLAY_UPLOAD', url: exp.asset_url, blob: null, overlayKind: kind });
+          if (draft.name.startsWith('Untitled') && exp.name) dispatch({ type: 'SET_NAME', name: exp.name });
+        }}
+      />
+    </>
+  );
+
   return (
     <div className="h-full overflow-y-auto hide-scrollbar p-4 flex flex-col gap-5">
-      {/* Experience-type selector. While EDITING a saved experience (draft.id),
-          destructive tabs are locked — same rationale as the stage's family-
-          locked mode switcher — so one stray click can't wipe loaded objects
-          (SET_KIND across families or to 'shader' resets the scene). */}
+      {/* Catalog category tabs — pure browsing UI. Never locked, nothing
+          destructive: switching just picks which library section to show. Adds
+          happen when you click an item (which also flips the view to fit). */}
       <div>
-        <SectionLabel>Experience type</SectionLabel>
+        <SectionLabel>Add to scene</SectionLabel>
         <div className="grid grid-cols-4 gap-1.5">
-          {KIND_TABS.map((t) => {
-            const active = draft.kind === t.id;
-            const crossesFamily = (draft.kind === '3d_attachment') !== (t.id === '3d_attachment');
-            const destructive = crossesFamily || (t.id === 'shader' && draft.kind !== 'shader');
-            const locked = !!draft.id && !active && destructive;
-            const btn = (
+          {CATEGORY_TABS.map((t) => {
+            const active = category === t.id;
+            return (
               <button
-                key={locked ? undefined : t.id}
-                onClick={() => { if (!locked) dispatch({ type: 'SET_KIND', kind: t.id }); }}
-                disabled={locked}
-                className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-[8px] font-label uppercase tracking-widest transition-all w-full ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : locked ? 'bg-white/[0.02] text-brand-muted/25 cursor-not-allowed' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                key={t.id}
+                onClick={() => setCategory(t.id)}
+                className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-[8px] font-label uppercase tracking-widest transition-all w-full ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
               >
                 <t.icon className="w-3.5 h-3.5" />
                 {t.label}
               </button>
-            );
-            return locked ? (
-              <Tooltip key={t.id} label={t.label} hint="Locked while editing — duplicate this experience or start a new one to switch type">
-                {btn}
-              </Tooltip>
-            ) : (
-              <span key={t.id}>{btn}</span>
             );
           })}
         </div>
@@ -258,17 +316,25 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
 
       {subTab === 'library' && (
       <>
-      {/* SHADER list */}
-      {draft.kind === 'shader' && mode === '2d' && (
+      {/* FILTER catalog — the scene's single filter slot. Click swaps it (and
+          flips to 2D so it's visible); the top row removes it (CLEAR_FILTER). */}
+      {category === 'filter' && (
         <div>
           <SectionLabel>Filter effect</SectionLabel>
           <div className="flex flex-col gap-1">
+            <button
+              onClick={() => dispatch({ type: 'CLEAR_FILTER' })}
+              className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl transition-colors ${draft.shaderId === 'none' ? 'bg-accent/15 ring-1 ring-accent/30 text-accent-2' : 'bg-white/[0.03] hover:bg-white/[0.06] text-brand-muted/70 hover:text-brand-fg'}`}
+            >
+              <X className="w-3.5 h-3.5 shrink-0" />
+              <span className="text-xs font-sans font-medium">No filter</span>
+            </button>
             {FILTER_SHADERS.map((s) => {
               const active = draft.shaderId === s.id;
               return (
                 <button
                   key={s.id}
-                  onClick={() => dispatch({ type: 'SELECT_SHADER', shaderId: s.id, params: defaultParams(s.id) })}
+                  onClick={() => { dispatch({ type: 'SELECT_SHADER', shaderId: s.id, params: defaultParams(s.id) }); dispatch({ type: 'SET_MODE', mode: '2d' }); }}
                   className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors ${active ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.03] hover:bg-white/[0.06]'}`}
                 >
                   <div className="flex items-center justify-between">
@@ -283,52 +349,12 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         </div>
       )}
 
-      {/* BORDER / STICKER built-ins */}
-      {(draft.kind === 'border' || draft.kind === '2d_filter') && mode === '2d' && (
-        <>
-          <div>
-            <SectionLabel>{draft.kind === 'border' ? 'Built-in frames' : 'Built-in stickers'}</SectionLabel>
-            <div className="flex flex-col gap-1">
-              {BUILTIN_BORDERS.filter((b) => b.kind === draft.kind).map((b) => {
-                const active = selBuiltinId === b.id;
-                const url = toDataUrl(b.svg);
-                return (
-                  <button
-                    key={b.id}
-                    onPointerDown={(e) => beginDrag({ target: 'overlay', label: b.name, overlayKind: b.kind, builtinId: b.id, builtinUrl: url, previewUrl: url }, e)}
-                    onClick={() => { if (consumedDrag()) return; dispatch({ type: 'SELECT_BUILTIN', borderId: b.id, url }); }}
-                    title="Click to add · drag onto the canvas to place"
-                    className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors text-xs font-sans cursor-grab active:cursor-grabbing ${active ? 'bg-accent/15 ring-1 ring-accent/30 text-accent-2' : 'bg-white/[0.03] hover:bg-white/[0.06] text-brand-muted/70 hover:text-brand-fg'}`}
-                  >
-                    {b.name}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <SectionLabel>Upload custom (PNG / SVG)</SectionLabel>
-            <button
-              onClick={() => imgInputRef.current?.click()}
-              className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-xs text-brand-muted/70"
-            >
-              <Upload className="w-3.5 h-3.5 text-accent-2" /> Browse file…
-            </button>
-            <input ref={imgInputRef} type="file" accept="image/png,image/svg+xml,image/webp" className="sr-only" onChange={onImageUpload} />
-          </div>
-          <AiFramePanel
-            kind={draft.kind}
-            freeTrial={!entitlements.aiStudio}
-            onGenerated={(exp) => {
-              if (exp.asset_url) dispatch({ type: 'SET_OVERLAY_UPLOAD', url: exp.asset_url, blob: null });
-              if (draft.name.startsWith('Untitled') && exp.name) dispatch({ type: 'SET_NAME', name: exp.name });
-            }}
-          />
-        </>
-      )}
+      {/* FRAME + STICKER built-ins (shared layout, sub-kind differs) */}
+      {category === 'frame' && renderOverlayCatalog('border')}
+      {category === 'sticker' && renderOverlayCatalog('2d_filter')}
 
       {/* 3D asset + anchors */}
-      {draft.kind === '3d_attachment' && (
+      {category === '3d' && (
         <>
           <div>
             <SectionLabel><span className="inline-flex items-center gap-1.5"><Crown className="w-3 h-3 text-accent-2" /> Head pieces</span></SectionLabel>

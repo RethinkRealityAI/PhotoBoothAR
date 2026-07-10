@@ -20,17 +20,16 @@ interface Props {
 }
 
 export default function StudioPreview({ videoRef, draft, headScale, occlusionEnabled, onFaceVisible }: Props) {
-  const isShader = draft.kind === 'shader';
-
-  // Build the booth-parity spec arrays from the scene's objects (always arrays
-  // here — the studio preview is studio-only, so the multi-layer path is fine
-  // even for a single object). blob:/data: preview urls composite fine.
+  // Mixed scenes: preview EVERYTHING present simultaneously — the filter slot
+  // (effectId = shaderId, 'none' == off), any visible overlays, and any visible
+  // 3D pieces — instead of gating on the derived kind. Layers flagged `hidden`
+  // in the panel are dropped from the render (editor-only, never persisted).
   const overlaySpecs: StageOverlaySpec[] = draft.objects
-    .filter((o): o is Overlay2D => o.type === 'overlay' && !!o.url)
+    .filter((o): o is Overlay2D => o.type === 'overlay' && !!o.url && !o.hidden)
     .map((o) => ({ url: o.url as string, transform: o.transform, opacity: 1, animation: o.animation }));
 
   const pieces: Overlay3DPiece[] = draft.objects
-    .filter((o): o is Object3D => o.type !== 'overlay')
+    .filter((o): o is Object3D => o.type !== 'overlay' && !o.hidden)
     .map((o) => ({
       assetUrl: o.type === 'model' ? o.assetUrl ?? null : null,
       proceduralId: o.type === 'headpiece' ? o.proceduralId ?? null : null,
@@ -39,22 +38,22 @@ export default function StudioPreview({ videoRef, draft, headScale, occlusionEna
       occlude: occlusionEnabled && o.occlusion,
     }));
 
-  const isOverlay = (draft.kind === 'border' || draft.kind === '2d_filter') && overlaySpecs.length > 0;
-  const is3D = draft.kind === '3d_attachment' && pieces.length > 0;
+  const hasOverlays = overlaySpecs.length > 0;
+  const has3D = pieces.length > 0;
 
   return (
     <div className="relative h-full w-full flex items-center justify-center">
       <div className="relative h-full" style={{ aspectRatio: '9/16', maxWidth: '100%' }}>
         <StageCanvas
           videoRef={videoRef}
-          effectId={isShader ? draft.shaderId : 'none'}
+          effectId={draft.shaderId}
           mirror
-          overlays={isOverlay ? overlaySpecs : null}
-          threeCanvasId={is3D ? 'booth-3d-layer' : null}
+          overlays={hasOverlays ? overlaySpecs : null}
+          threeCanvasId={has3D ? 'booth-3d-layer' : null}
           active
           watermark={false}
         />
-        {is3D && (
+        {has3D && (
           <div className="absolute inset-0">
             <Overlay3D
               pieces={pieces}

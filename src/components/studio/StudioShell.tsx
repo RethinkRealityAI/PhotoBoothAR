@@ -38,8 +38,15 @@ import type { Experience } from '../../types';
  * (the studio integration block) so history behaves exactly as the lib tests
  * assert: mode/view/pause/selection are pass-through (not recorded), LOAD +
  * MARK_SAVED reset the timeline, and continuous edits coalesce per target. */
+// SET_KIND is now a pure view-flip alias (never mutates the draft) so it stays
+// OFF the undo timeline like SET_MODE; CLEAR_FILTER edits the scene's filter slot
+// so it is recorded + dirty-making (it falls through as a mutating action).
 const isDraftMutating = (a: StudioAction): boolean =>
-  a.type !== 'SET_MODE' && a.type !== 'SET_THREE_VIEW' && a.type !== 'SET_PAUSED' && a.type !== 'SELECT_OBJECT';
+  a.type !== 'SET_MODE' &&
+  a.type !== 'SET_THREE_VIEW' &&
+  a.type !== 'SET_PAUSED' &&
+  a.type !== 'SELECT_OBJECT' &&
+  a.type !== 'SET_KIND';
 const isClearing = (a: StudioAction): boolean => a.type === 'LOAD' || a.type === 'MARK_SAVED';
 const coalesceKey = (a: StudioAction, s: StudioState): string | null => {
   switch (a.type) {

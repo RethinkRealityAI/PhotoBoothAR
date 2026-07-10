@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { withHistory, initHistory, canUndo, canRedo } from './history';
 import { studioReducer, initialState, type StudioAction, type StudioState, type Overlay2D } from './state';
+import { BUILTIN_BORDERS } from '../borders';
 
 /* — Generic behaviour with a tiny counter reducer ------------------------- */
 
@@ -128,7 +129,11 @@ describe('history: generic reducer', () => {
 /* — Wired to the real studio reducer -------------------------------------- */
 
 const isDraftMutating = (a: StudioAction): boolean =>
-  a.type !== 'SET_MODE' && a.type !== 'SET_THREE_VIEW' && a.type !== 'SET_PAUSED' && a.type !== 'SELECT_OBJECT';
+  a.type !== 'SET_MODE' &&
+  a.type !== 'SET_THREE_VIEW' &&
+  a.type !== 'SET_PAUSED' &&
+  a.type !== 'SELECT_OBJECT' &&
+  a.type !== 'SET_KIND';
 const isClearing = (a: StudioAction): boolean => a.type === 'LOAD' || a.type === 'MARK_SAVED';
 const coalesceKey = (a: StudioAction, s: StudioState): string | null => {
   switch (a.type) {
@@ -153,8 +158,11 @@ const studioHistory = () =>
   });
 
 describe('history: studio reducer integration', () => {
+  // W4: SET_KIND no longer creates an overlay (it's a thin view-flip alias), so
+  // seed a real frame via SELECT_BUILTIN to give the timeline an object to edit.
+  const seedBorderId = BUILTIN_BORDERS.find((b) => b.kind === 'border')!.id;
   const seeded = () => {
-    const st = studioReducer(initialState('shader'), { type: 'SET_KIND', kind: 'border' });
+    const st = studioReducer(initialState('shader'), { type: 'SELECT_BUILTIN', borderId: seedBorderId, url: 'u' });
     return { r: studioHistory(), h: initHistory(st) };
   };
 

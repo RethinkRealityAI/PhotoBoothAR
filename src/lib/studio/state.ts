@@ -73,6 +73,13 @@ export interface Overlay2D {
   name: string;
   transform: Transform2D;
   animation: LayerAnimation;
+  /**
+   * Editor-only visibility toggle for the layers panel — hides the overlay in
+   * the stage/preview render without deleting it. Never persisted: draftMapping
+   * constructs layers explicitly (it doesn't spread this field in), so it drops
+   * out naturally on save/load. Defaults undefined (== visible).
+   */
+  hidden?: boolean;
 }
 
 /** A single 3D attachment (GLB model or procedural head piece) within a 3D scene. */
@@ -89,6 +96,12 @@ export interface Object3D {
   animation: LayerAnimation;
   /** Per-object head occlusion opt-in (opt-IN: never surprise-hides an asset). */
   occlusion: boolean;
+  /**
+   * Editor-only visibility toggle for the layers panel — hides the piece in the
+   * stage/preview render without deleting it. Never persisted (see Overlay2D.hidden):
+   * draftMapping builds layers explicitly, so it drops out on save. Defaults undefined.
+   */
+  hidden?: boolean;
 }
 
 export type StudioObject = Overlay2D | Object3D;
@@ -371,7 +384,7 @@ export type StudioAction =
   | { type: 'SET_SHADER_PARAMS'; params: Record<string, number> }
   | { type: 'CLEAR_FILTER' }
   | { type: 'SELECT_BUILTIN'; borderId: string; url: string }
-  | { type: 'SET_OVERLAY_UPLOAD'; url: string; blob: Blob | null }
+  | { type: 'SET_OVERLAY_UPLOAD'; url: string; blob: Blob | null; overlayKind?: 'border' | '2d_filter' }
   | { type: 'CLEAR_OVERLAY' }
   | { type: 'SET_TRANSFORM'; transform: Transform2D }
   | { type: 'SELECT_ANCHOR'; anchor: HeadAnchor }
@@ -461,9 +474,11 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     }
     case 'SET_OVERLAY_UPLOAD': {
       const sel = selectedObject(d);
-      // Uploads inherit the selected overlay's sub-kind, else default to a frame.
+      // The caller's browsing context (dock category / drag payload) names the
+      // sub-kind explicitly; else inherit the selected overlay's, else frame.
+      // (Without the explicit kind, uploading while browsing Stickers made a frame.)
       const overlayKind: 'border' | '2d_filter' =
-        sel && sel.type === 'overlay' ? sel.overlayKind : 'border';
+        action.overlayKind ?? (sel && sel.type === 'overlay' ? sel.overlayKind : 'border');
       const obj = createOverlay(overlayKind, {
         url: action.url,
         blob: action.blob,

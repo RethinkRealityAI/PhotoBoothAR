@@ -177,6 +177,25 @@ describe('head pieces and model assets', () => {
   });
 });
 
+describe('SET_OVERLAY_UPLOAD explicit sub-kind', () => {
+  it('honors the caller-named overlayKind over selection inheritance', () => {
+    // W4: uploading while browsing the Sticker catalog must make a sticker even
+    // when a frame is selected (and vice versa) — the action names the kind.
+    let st = studioReducer(s0(), { type: 'SELECT_BUILTIN', borderId: firstBorderId(), url: 'f' }); // frame, selected
+    st = studioReducer(st, { type: 'SET_OVERLAY_UPLOAD', url: 's1', blob: null, overlayKind: '2d_filter' });
+    const kinds = st.draft.objects.map((o) => (o as Overlay2D).overlayKind);
+    expect(kinds).toEqual(['border', '2d_filter']);
+    expect((selectedObject(st.draft) as Overlay2D).overlayKind).toBe('2d_filter');
+  });
+  it('an explicit border upload swaps the existing frame (one-frame rule)', () => {
+    let st = studioReducer(s0(), { type: 'SELECT_BUILTIN', borderId: firstBorderId(), url: 'f' });
+    st = studioReducer(st, { type: 'SET_OVERLAY_UPLOAD', url: 'custom-frame', blob: null, overlayKind: 'border' });
+    const frames = st.draft.objects.filter((o) => (o as Overlay2D).overlayKind === 'border');
+    expect(frames).toHaveLength(1);
+    expect((frames[0] as Overlay2D).url).toBe('custom-frame');
+  });
+});
+
 describe('browse-swap vs committed-add (multi-object reachability)', () => {
   it('an EDITED head piece is kept: the next pick ADDS a second object', () => {
     let st = studioReducer(s0(), { type: 'SELECT_HEAD_PIECE', pieceId: 'royal-crown' });
@@ -287,6 +306,20 @@ describe('multi-object scenes', () => {
     expect(o.type).toBe('overlay');
     expect(o.name).toBe('Renamed');
     expect(o.transform).toEqual({ scale: 2, x: 1, y: 2, rotation: 3 });
+  });
+  it('objects default to hidden === undefined (visible)', () => {
+    const st = twoOverlays();
+    expect((st.draft.objects[0] as Overlay2D).hidden).toBeUndefined();
+    expect((st.draft.objects[1] as Overlay2D).hidden).toBeUndefined();
+  });
+  it('UPDATE_OBJECT toggles the editor-only hidden flag', () => {
+    const st0 = twoOverlays();
+    const id = st0.draft.objects[1].id;
+    const shown = st0.draft.objects[1] as Overlay2D;
+    const st1 = studioReducer(st0, { type: 'UPDATE_OBJECT', id, patch: { hidden: !shown.hidden } });
+    expect((st1.draft.objects[1] as Overlay2D).hidden).toBe(true);
+    const st2 = studioReducer(st1, { type: 'UPDATE_OBJECT', id, patch: { hidden: !(st1.draft.objects[1] as Overlay2D).hidden } });
+    expect((st2.draft.objects[1] as Overlay2D).hidden).toBe(false);
   });
   it('SET_OBJECT_ANIMATION sets the per-object animation preset', () => {
     const st0 = twoOverlays();

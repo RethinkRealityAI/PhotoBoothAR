@@ -78,9 +78,13 @@ export default function StudioStage({
   const [guides, setGuides] = useState<SnapResult['guides']>({ v: null, h: null });
 
   // Scene objects split by family. 2D overlays render as stacked <img>s; the
-  // selected one is draggable and shows an outline.
-  const overlays = draft.objects.filter((o): o is Overlay2D => o.type === 'overlay');
-  const objects3d = draft.objects.filter((o): o is Object3D => o.type !== 'overlay');
+  // selected one is draggable and shows an outline. Layers flagged `hidden` in the
+  // panel are excluded from the render (editor-only, never persisted).
+  const overlays = draft.objects.filter((o): o is Overlay2D => o.type === 'overlay' && !o.hidden);
+  const objects3d = draft.objects.filter((o): o is Object3D => o.type !== 'overlay' && !o.hidden);
+  // True content presence (ignoring hidden) — drives the empty-state copy so a
+  // scene whose only object is hidden doesn't read as "add something".
+  const hasAnyOverlay = draft.objects.some((o) => o.type === 'overlay');
   const selected = selectedObject(draft);
   const selectedOverlay = selected && selected.type === 'overlay' ? selected : null;
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -95,9 +99,11 @@ export default function StudioStage({
     return () => { runnerRef.current?.dispose?.(); };
   }, []);
 
-  // Shader render loop — ONLY in 2D shader mode (avoids the ghosted double
-  // camera and needless GPU work otherwise).
-  const shaderActive = mode === '2d' && draft.kind === 'shader';
+  // Shader render loop — runs whenever the 2D view is showing AND the scene's
+  // single filter slot is filled (shaderId !== 'none'), so the live filter
+  // composites UNDER any overlays. Off otherwise (avoids the ghosted double
+  // camera and needless GPU work).
+  const shaderActive = mode === '2d' && draft.shaderId !== 'none';
   const { shaderId, shaderParams } = draft;
   useEffect(() => {
     cancelAnimationFrame(rafRef.current);
@@ -126,8 +132,6 @@ export default function StudioStage({
   // 2D overlay reposition via pointer drag (border/sticker). Booth Transform2D
   // semantics — x/y are % of the frame from centre (see StageCanvas). Only the
   // SELECTED overlay is draggable; clicking another selects it.
-  const isOverlayKind = draft.kind === 'border' || draft.kind === '2d_filter';
-
   const onOverlayPointerDown = useCallback((e: React.PointerEvent, o: Overlay2D) => {
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     drag.current = { startX: e.clientX, startY: e.clientY, tx: o.transform.x, ty: o.transform.y };
@@ -159,13 +163,9 @@ export default function StudioStage({
 
   const showVideo = mode !== 'preview';
 
-  // A saved experience is one kind. While editing it (draft.id set), lock the
-  // switcher to that experience's family + Preview so toggling the other family
-  // can't silently discard the loaded content. A brand-new draft shows all three.
-  const editingFamily = draft.kind === '3d_attachment' ? '3d' : '2d';
-  const visibleTabs = draft.id
-    ? MODE_TABS.filter((t) => t.id === editingFamily || t.id === 'preview')
-    : MODE_TABS;
+  // All three views are always available — switching can no longer destroy
+  // content (SET_MODE is a pure view flip; the scene persists across 2D/3D/Preview).
+  const visibleTabs = MODE_TABS;
 
   return (
     <div className="relative h-full w-full flex items-center justify-center p-3 md:p-5">
@@ -253,10 +253,11 @@ export default function StudioStage({
           style={{ transform: 'scaleX(-1)', opacity: shaderActive ? 1 : 0 }}
         />
 
-        {/* 2D overlay(s) (border / sticker) with drag-to-place. Every overlay
-            renders in array order; the selected one is draggable + outlined,
-            others select on click. */}
-        {mode === '2d' && isOverlayKind && (
+        {/* 2D overlay(s) (border / sticker) with drag-to-place. Every visible
+            overlay renders in array order OVER the filter canvas; the selected
+            one is draggable + outlined, others select on click. Always mounted in
+            2D so a mixed or filter-only scene still gets its overlay layer + hints. */}
+        {mode === '2d' && (
           <div
             ref={overlayBoxRef}
             className="absolute inset-0"
@@ -309,10 +310,11 @@ export default function StudioStage({
               <div className="absolute left-0 right-0 h-px bg-accent/70 pointer-events-none" style={{ top: `calc(50% + ${guides.h}%)` }} />
             )}
 
-            {/* Empty state */}
-            {overlays.length === 0 && (
+            {/* Empty state — only when the scene truly has no overlays AND no
+                filter (a filter-only scene shows the live filter instead). */}
+            {!hasAnyOverlay && draft.shaderId === 'none' && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-8 text-center">
-                <p className="font-label text-[10px] uppercase tracking-widest text-brand-muted/50">Pick a {draft.kind === '2d_filter' ? 'sticker' : 'frame'} from the left to begin</p>
+                <p className="font-label text-[10px] uppercase tracking-widest text-brand-muted/50">Pick a frame or stickers from the left</p>
               </div>
             )}
           </div>
@@ -391,7 +393,7 @@ export default function StudioStage({
             mode === 'preview' ? 'top-[3.35rem]' : 'bottom-3'
           }`}
         >
-          <StageCaption mode={mode} threeView={threeView} paused={paused} faceVisible={faceVisible} kind={draft.kind} objectCount={overlays.length} />
+          <StageCaption mode={mode} threeView={threeView} paused={paused} faceVisible={faceVisible} filterActive={draft.shaderId !== 'none'} objectCount={overlays.length} />
         </div>
       </div>
     </div>
@@ -403,21 +405,24 @@ function StageCaption({
   threeView,
   paused,
   faceVisible,
-  kind,
+  filterActive,
   objectCount,
 }: {
   mode: string;
   threeView: string;
   paused: boolean;
   faceVisible: boolean;
-  kind: string;
+  filterActive: boolean;
   objectCount: number;
 }) {
   let text = '';
   let tone = 'text-brand-muted/60';
+  // A filter now rides alongside objects, so it's a suffix on the 2D caption
+  // rather than a whole distinct mode.
+  const filterNote = filterActive ? ' · filter on' : '';
   if (mode === 'preview') text = 'Live preview — exactly what guests capture';
-  else if (mode === '2d' && kind === 'shader') text = 'Live filter preview';
-  else if (mode === '2d' && objectCount > 0) text = `${objectCount} object${objectCount === 1 ? '' : 's'} · drag to place · scroll to scale · arrows to nudge`;
+  else if (mode === '2d' && objectCount > 0) text = `${objectCount} object${objectCount === 1 ? '' : 's'} · drag to place · scroll to scale${filterNote}`;
+  else if (mode === '2d' && filterActive) text = 'Live filter preview';
   else if (mode === '2d') text = 'Drag to place · scroll to scale';
   else if (mode === '3d' && threeView === 'orbit') text = 'Drag to orbit · click a dot to anchor · gizmo to place';
   else if (mode === '3d' && paused) { text = 'Tracking paused — adjust, then resume'; tone = 'text-accent-2'; }
@@ -426,7 +431,7 @@ function StageCaption({
   if (!text) return null;
   return (
     <div className="liquid-glass rounded-full px-3.5 py-1.5 flex items-center gap-2">
-      {mode === '2d' && kind === 'shader' && <Sparkles className="w-3 h-3 text-accent-2" />}
+      {mode === '2d' && filterActive && <Sparkles className="w-3 h-3 text-accent-2" />}
       <span className={`font-label text-[9px] uppercase tracking-widest ${tone}`}>{text}</span>
     </div>
   );

@@ -32,6 +32,8 @@ import { SHADER_MAP, defaultParams } from '../../lib/shaders';
 import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
 import {
   DEFAULT_TRANSFORM,
+  MAX_OBJECTS,
+  sceneCounts,
   selectedObject,
   type Object3D,
   type Overlay2D,
@@ -66,6 +68,15 @@ function objectIcon(o: StudioObject) {
   return o.type === 'headpiece' ? Crown : Boxes;
 }
 
+/** Layers-panel groups (in paint-family order): the single frame, then stickers,
+ *  then 3D pieces. Within a group rows keep objects[] order; reorder still acts on
+ *  the flat objects[] list (which sets paint order). */
+const LAYER_GROUPS: { id: string; label: string; match: (o: StudioObject) => boolean }[] = [
+  { id: 'frame', label: 'Frame', match: (o) => o.type === 'overlay' && o.overlayKind === 'border' },
+  { id: 'stickers', label: 'Stickers', match: (o) => o.type === 'overlay' && o.overlayKind === '2d_filter' },
+  { id: '3d', label: '3D pieces', match: (o) => o.type !== 'overlay' },
+];
+
 /** 4-chip animation picker → SET_OBJECT_ANIMATION on the object. */
 function AnimationChips({
   value,
@@ -98,7 +109,12 @@ function AnimationChips({
 export default function PropertiesDock({ state, dispatch, headScale, onHeadScaleChange, onThumbUpload, onThumbClear }: Props) {
   const { draft } = state;
   const shaderDef = useMemo(() => SHADER_MAP[draft.shaderId], [draft.shaderId]);
-  const isShader = draft.kind === 'shader';
+  // Mixed scenes: the filter slot (shaderId !== 'none') and the objects list are
+  // independent — filter params show whenever a filter is set, the layers/selection/
+  // booth-icon controls show whenever the scene has objects.
+  const filterActive = draft.shaderId !== 'none';
+  const hasObjects = draft.objects.length > 0;
+  const counts = sceneCounts(draft);
   const selected = selectedObject(draft);
   const selOverlay: Overlay2D | null = selected && selected.type === 'overlay' ? selected : null;
   const sel3D: Object3D | null = selected && selected.type !== 'overlay' ? selected : null;
@@ -143,9 +159,11 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
         </Tooltip>
       </div>
 
-      {/* Shader params */}
-      {isShader && shaderDef && (
+      {/* Filter slot params — shown whenever the scene's filter slot is filled,
+          alongside any object controls below. */}
+      {filterActive && shaderDef && (
         <div className="flex flex-col gap-4">
+          <SectionLabel>Filter</SectionLabel>
           <div className="flex items-center justify-between">
             <p className="font-sans text-xs text-brand-fg font-medium">{shaderDef.name}</p>
             {shaderDef.params.length > 0 && (
@@ -176,71 +194,100 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
         </div>
       )}
 
-      {/* LAYERS — the ordered object list (2D/3D scenes only) */}
-      {!isShader && (
+      {/* LAYERS — grouped by kind (Frame · Stickers · 3D pieces). Within a group,
+          rows show top-most first; reorder acts on the flat objects[] paint order,
+          the eye toggles the editor-only hidden flag, delete removes the object. */}
+      {hasObjects ? (
         <div>
           <div className="flex items-center justify-between mb-2">
             <SectionLabel>Layers</SectionLabel>
-            <span className="font-label text-[8px] uppercase tracking-widest text-brand-muted/40">top-most first</span>
+            {counts.capped >= 15 && (
+              <Tooltip
+                label={`${counts.capped} / ${MAX_OBJECTS} objects`}
+                hint="Up to 20 stickers + 3D pieces per scene — the frame is exempt. Adds past the cap are ignored."
+                side="left"
+              >
+                <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded-full cursor-help ${counts.capped >= MAX_OBJECTS ? 'text-amber-400 bg-amber-400/10' : 'text-brand-muted/50 bg-white/[0.04]'}`}>
+                  {counts.capped}/{MAX_OBJECTS}
+                </span>
+              </Tooltip>
+            )}
           </div>
-          {draft.objects.length === 0 ? (
-            <p className="text-[10px] text-brand-muted/40 font-sans px-1">Add a frame, sticker or 3D piece from the left dock to start a scene.</p>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {/* Reversed so the top of the list is the top-most rendered object
-                  (objects[last] is drawn last / on top). */}
-              {[...draft.objects].map((_, i) => draft.objects[draft.objects.length - 1 - i]).map((o) => {
-                const arrayIdx = draft.objects.indexOf(o);
-                const isSel = o.id === draft.selectedId;
-                const Icon = objectIcon(o);
-                const canForward = arrayIdx < draft.objects.length - 1; // move up in list
-                const canBack = arrayIdx > 0; // move down in list
-                return (
-                  <li
-                    key={o.id}
-                    onClick={() => dispatch({ type: 'SELECT_OBJECT', id: o.id })}
-                    className={`group flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer transition-colors ${isSel ? 'bg-accent/12 ring-1 ring-accent/30' : 'bg-white/[0.03] hover:bg-white/[0.06]'}`}
-                  >
-                    <Icon className={`w-3.5 h-3.5 shrink-0 ${isSel ? 'text-accent-2' : 'text-brand-muted/50'}`} />
-                    <span className={`text-[11px] font-sans truncate flex-1 min-w-0 ${isSel ? 'text-brand-fg' : 'text-brand-muted/70'}`}>{o.name}</span>
-                    {o.animation !== 'none' && (
-                      <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">{o.animation}</span>
-                    )}
-                    <div className="flex items-center gap-0.5 shrink-0">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); dispatch({ type: 'REORDER_OBJECT', id: o.id, dir: 'down' }); }}
-                        disabled={!canForward}
-                        aria-label="Move layer up"
-                        className="p-0.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-20 disabled:pointer-events-none"
-                      >
-                        <ChevronUp className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); dispatch({ type: 'REORDER_OBJECT', id: o.id, dir: 'up' }); }}
-                        disabled={!canBack}
-                        aria-label="Move layer down"
-                        className="p-0.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-20 disabled:pointer-events-none"
-                      >
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_OBJECT', id: o.id }); }}
-                        aria-label="Delete layer"
-                        className="p-0.5 rounded text-brand-muted/40 hover:text-rose-400 transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          <div className="flex flex-col gap-3">
+            {LAYER_GROUPS.map((g) => {
+              const items = draft.objects.filter(g.match);
+              if (items.length === 0) return null;
+              return (
+                <div key={g.id}>
+                  <p className="font-label text-[8px] uppercase tracking-widest text-brand-muted/40 mb-1 px-1">{g.label}</p>
+                  <ul className="flex flex-col gap-1">
+                    {/* Reversed so the top of the list is the top-most rendered
+                        object (objects[last] paints last / on top). */}
+                    {[...items].reverse().map((o) => {
+                      const arrayIdx = draft.objects.indexOf(o);
+                      const isSel = o.id === draft.selectedId;
+                      const Icon = objectIcon(o);
+                      const canForward = arrayIdx < draft.objects.length - 1; // move up in list
+                      const canBack = arrayIdx > 0; // move down in list
+                      const hidden = !!o.hidden;
+                      return (
+                        <li
+                          key={o.id}
+                          onClick={() => dispatch({ type: 'SELECT_OBJECT', id: o.id })}
+                          className={`group flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer transition-colors ${isSel ? 'bg-accent/12 ring-1 ring-accent/30' : 'bg-white/[0.03] hover:bg-white/[0.06]'} ${hidden ? 'opacity-40' : ''}`}
+                        >
+                          <Icon className={`w-3.5 h-3.5 shrink-0 ${isSel ? 'text-accent-2' : 'text-brand-muted/50'}`} />
+                          <span className={`text-[11px] font-sans truncate flex-1 min-w-0 ${isSel ? 'text-brand-fg' : 'text-brand-muted/70'}`}>{o.name}</span>
+                          {o.animation !== 'none' && (
+                            <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">{o.animation}</span>
+                          )}
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'UPDATE_OBJECT', id: o.id, patch: { hidden: !hidden } }); }}
+                              aria-label={hidden ? 'Show layer' : 'Hide layer'}
+                              className="p-0.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors"
+                            >
+                              {hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'REORDER_OBJECT', id: o.id, dir: 'down' }); }}
+                              disabled={!canForward}
+                              aria-label="Move layer up"
+                              className="p-0.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-20 disabled:pointer-events-none"
+                            >
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'REORDER_OBJECT', id: o.id, dir: 'up' }); }}
+                              disabled={!canBack}
+                              aria-label="Move layer down"
+                              className="p-0.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-20 disabled:pointer-events-none"
+                            >
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_OBJECT', id: o.id }); }}
+                              aria-label="Delete layer"
+                              className="p-0.5 rounded text-brand-muted/40 hover:text-rose-400 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      )}
+      ) : !filterActive ? (
+        <p className="text-[10px] text-brand-muted/40 font-sans px-1">Add a frame, sticker or 3D piece from the left dock to start a scene.</p>
+      ) : null}
 
       {/* Selected 2D overlay properties */}
-      {!isShader && selOverlay && (
+      {selOverlay && (
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <p className="font-sans text-xs text-brand-fg font-medium">{selOverlay.overlayKind === 'border' ? 'Frame placement' : 'Sticker transform'}</p>
@@ -260,7 +307,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
       )}
 
       {/* Selected 3D object properties */}
-      {!isShader && sel3D && (
+      {sel3D && (
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <p className="font-sans text-xs text-brand-fg font-medium">Placement</p>
@@ -336,12 +383,12 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
       )}
 
       {/* Nothing selected in a populated scene */}
-      {!isShader && draft.objects.length > 0 && !selected && (
+      {hasObjects && !selected && (
         <p className="text-[10px] text-brand-muted/40 font-sans px-1">Select an object above to edit its properties.</p>
       )}
 
       {/* Booth icon */}
-      {!isShader && (
+      {hasObjects && (
         <div className="border-t border-white/10 pt-4">
           <SectionLabel>Booth icon (optional)</SectionLabel>
           <div className="flex items-center gap-3">

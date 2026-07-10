@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ANCHOR_PRESETS, RIG_CAMERA } from '../../lib/faceRig';
 import { pointToTransform2D, projectAnchorsToScreen, nearestAnchor, type AnchorPoint } from '../../lib/studio/dnd';
-import { DEFAULT_TRANSFORM, MAX_OBJECTS, type StudioAction, type StudioDraft } from '../../lib/studio/state';
+import { DEFAULT_TRANSFORM, MAX_OBJECTS, sceneCounts, type StudioAction, type StudioDraft } from '../../lib/studio/state';
 
 export interface DragPayload {
   target: 'overlay' | 'model' | 'headpiece';
@@ -60,31 +60,31 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef, draftRef }
   }, [stageBodyRef]);
 
   const resolveDrop = useCallback((p: DragPayload, x: number, y: number, rect: DOMRect) => {
-    // Cap guard: at MAX_OBJECTS the add actions no-op in the reducer, and the
-    // follow-up SET_TRANSFORM would then move the previously-selected object
-    // to the drop point — reject the whole drop instead. (Slight over-reject:
-    // a swap of an untouched selection would still fit at the cap, but a full
-    // scene being browse-swapped by DROP is a non-case worth the simplicity.)
-    const objs = draftRef.current?.objects ?? [];
-    if (objs.length >= MAX_OBJECTS) return;
+    // Cap guard: the cappable count (stickers + 3D) is what the reducer's add
+    // actions reject on — the single frame is EXEMPT, so use sceneCounts().capped
+    // rather than objects.length (which would let a frame eat a slot). At the cap
+    // the add no-ops and the follow-up SET_TRANSFORM would then relocate the
+    // previously-selected object to the drop point — reject the whole drop instead.
+    // (Slight over-reject: a frame drop or an untouched same-kind swap could still
+    // fit at the cap, but that's a non-case worth the simplicity.)
+    const cur = draftRef.current;
+    if (cur && sceneCounts(cur).capped >= MAX_OBJECTS) return;
     // NOTE on add-vs-replace: the click-to-add actions (SELECT_BUILTIN,
     // SET_OVERLAY_UPLOAD, SELECT_HEAD_PIECE, SET_MODEL_ASSET) already implement
     // the scene's browse-swap vs committed-add rule in the reducer (state.ts
     // addOrReplaceObject: an untouched same-kind selection is swapped in place;
-    // anything else appends + selects). So a drop dispatches the SAME actions
-    // as a click, then positions the now-selected object — and that positioning
-    // marks it "touched", so every subsequent drop appends. Consecutive drops
-    // therefore build multi-object scenes; no dnd-specific ADD_OBJECT needed.
+    // anything else appends + selects) AND flip the view to the right world. So a
+    // drop dispatches the SAME actions as a click, then positions the now-selected
+    // object — and that positioning marks it "touched", so every subsequent drop
+    // appends. Consecutive drops therefore build multi-object scenes; no dnd-specific
+    // ADD_OBJECT and no SET_KIND view-flip needed (the reducer derives the sub-kind).
     if (p.target === 'overlay') {
-      // SET_KIND switches the 2D sub-kind first (border↔sticker); with a single
-      // untouched object it resets to that kind's default, which the following
-      // SELECT_BUILTIN/SET_OVERLAY_UPLOAD then replaces in place.
-      const kind = p.overlayKind ?? 'border';
-      dispatch({ type: 'SET_KIND', kind });
       if (p.builtinUrl && p.builtinId) {
         dispatch({ type: 'SELECT_BUILTIN', borderId: p.builtinId, url: p.builtinUrl });
       } else if (p.assetUrl) {
-        dispatch({ type: 'SET_OVERLAY_UPLOAD', url: p.assetUrl, blob: null });
+        // Pass the drag payload's sub-kind through — a sticker dragged from the
+        // Sticker catalog must not default to 'border' in the reducer.
+        dispatch({ type: 'SET_OVERLAY_UPLOAD', url: p.assetUrl, blob: null, overlayKind: p.overlayKind });
       }
       // Position the just-added/replaced (now-selected) overlay at the drop point.
       dispatch({
