@@ -26,9 +26,13 @@
  * (copy → phone → wall) with a downward beam on mobile.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { motion, useReducedMotion, type Variants } from 'motion/react';
+import { motion, useMotionValue, useReducedMotion, useSpring, useTransform, type Variants } from 'motion/react';
+import { QRCodeSVG } from 'qrcode.react';
 import ShowcasePhone, { SPECTRUM } from './ShowcasePhone';
+import ParticleBeam from './ParticleBeam';
 import { beamPath, centerOf, polaroidTilt, type Rect } from '../../lib/beamGeometry';
+import { beamPagePath, makeBeamChannelId } from '../../lib/demoBeam';
+import { createBeamTransport } from '../../lib/demoBeamTransport';
 
 type AppState = 'idle' | 'camera' | 'beaming' | 'wall';
 
@@ -41,8 +45,11 @@ interface Flight { shot: string; from: Rect; to: Rect; }
 /** The freshest landing, kept through the 'wall' state to place the polaroid.
  *  x/y are the polaroid's centre in scene space, already clamped inside the
  *  wall grid (a raw tile centre lets the leftmost column's polaroid hang past
- *  the scene edge on phones, where Landing's overflow-x-clip cuts it off). */
-interface Landing { shot: string; x: number; y: number; width: number; index: number; }
+ *  the scene edge on phones, where Landing's overflow-x-clip cuts it off).
+ *  `source` distinguishes shots beamed from a visitor's REAL phone over the
+ *  cross-device channel — they get their own caption and never hijack the
+ *  local phone-mockup's state machine. */
+interface Landing { shot: string; x: number; y: number; width: number; index: number; source: 'local' | 'phone'; }
 
 /* ── matchMedia hook: desktop drives the 3D tilt / absolute layout ────── */
 
@@ -100,17 +107,24 @@ function BeamStrike({
     const anims: Animation[] = [];
 
     // (c) The shot itself: energise, arc slightly, then dive into the tile.
+    // Mid-flight it DIMS — the ParticleBeam stream carries the image as pure
+    // light — then rematerialises at the tile. If particles can't run (no
+    // WebGL, decode failure) the dimmed clone still reads as the flight.
     const clone = box.querySelector<HTMLElement>('[data-fx="clone"]');
     if (clone) {
-      const midLeft = from.left + (to.left - from.left) * 0.28;
-      const midTop = from.top + (to.top - from.top) * 0.28 - 14;
-      const midW = from.width + (to.width - from.width) * 0.28;
-      const midH = from.height + (to.height - from.height) * 0.28;
+      const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+      const at = (t: number, dy: number) => ({
+        left: `${lerp(from.left, to.left, t)}px`,
+        top: `${lerp(from.top, to.top, t) + dy}px`,
+        width: `${lerp(from.width, to.width, t)}px`,
+        height: `${lerp(from.height, to.height, t)}px`,
+      });
       anims.push(clone.animate(
         [
-          { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px`, borderRadius: '1.4rem', filter: 'brightness(1.7) saturate(1.5)', opacity: 1 },
-          { left: `${midLeft}px`, top: `${midTop}px`, width: `${midW}px`, height: `${midH}px`, borderRadius: '1rem', filter: 'brightness(2.1) saturate(1.7)', opacity: 1, offset: 0.28 },
-          { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px`, borderRadius: '0.5rem', filter: 'brightness(2.4) saturate(1.85)', opacity: 0.95 },
+          { ...at(0, 0), borderRadius: '1.4rem', filter: 'brightness(1.7) saturate(1.5)', opacity: 1 },
+          { ...at(0.28, -14), borderRadius: '1rem', filter: 'brightness(2.1) saturate(1.7)', opacity: 0.6, offset: 0.28 },
+          { ...at(0.62, -10), borderRadius: '0.8rem', filter: 'brightness(2.3) saturate(1.8)', opacity: 0.28, offset: 0.62 },
+          { ...at(1, 0), borderRadius: '0.5rem', filter: 'brightness(2.4) saturate(1.85)', opacity: 0.95 },
         ],
         { duration: 900, delay: 180, easing: EASE, fill: 'both' },
       ));
@@ -195,6 +209,9 @@ function BeamStrike({
         className="absolute object-cover"
         style={{ left: from.left, top: from.top, width: from.width, height: from.height, borderRadius: '1.4rem' }}
       />
+      {/* The photo as pure light: a WebGL particle stream that dissolves the
+          shot and reassembles it at the tile (times match the clone above). */}
+      <ParticleBeam from={from} to={to} shot={flight.shot} durationMs={1080} />
       <span
         data-fx="aura"
         className="absolute"
@@ -383,6 +400,15 @@ export default function InteractiveShowcase() {
   const [wallShots, setWallShots] = useState<string[]>([]);
   const [flight, setFlight] = useState<Flight | null>(null);
   const [landing, setLanding] = useState<Landing | null>(null);
+  /** A shot arriving from a visitor's REAL phone (cross-device channel) —
+   *  plays its own beam ceremony without touching the local state machine. */
+  const [remoteFlight, setRemoteFlight] = useState<Flight | null>(null);
+  const [phoneLinked, setPhoneLinked] = useState(false);
+  // One channel per page visit; ?beamlocal=1 mints a local (BroadcastChannel)
+  // id so tests/dev can run the whole flow without Supabase.
+  const [beamChannelId] = useState(() => makeBeamChannelId(
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('beamlocal'),
+  ));
 
   const sceneRef = useRef<HTMLDivElement>(null);
   const phoneScreenRef = useRef<HTMLDivElement>(null);
@@ -426,17 +452,16 @@ export default function InteractiveShowcase() {
     setAppState('beaming');
   }, [wallShots.length, commitShot]);
 
-  const handleLand = useCallback(() => {
-    const f = flightRef.current;
-    if (f === null) return;
+  /** Commit a landed flight to the wall + place its polaroid. The polaroid's
+   *  centre is clamped so the whole card stays inside the wall grid (small
+   *  slack for the tilt): keeps it out of the header row and, on phones,
+   *  away from the clipped scene edges. The wall still has its BACK geometry
+   *  here (the forward spring starts on 'wall'), so these rects match the
+   *  ones the flight was measured against. */
+  const landShot = useCallback((f: Flight, source: Landing['source']) => {
     commitShot(f.shot);
     const index = captureCountRef.current;
     captureCountRef.current += 1;
-    // Clamp the polaroid's centre so its whole card stays inside the wall
-    // grid (small slack for the tilt): keeps it out of the header row and,
-    // on phones, away from the clipped scene edges. The wall still has its
-    // BACK geometry here (the forward spring starts on 'wall'), so these
-    // rects match the ones the flight was measured against.
     const width = Math.max(96, f.to.width * 1.32);
     let { x, y } = centerOf(f.to);
     const scene = sceneRef.current;
@@ -450,11 +475,69 @@ export default function InteractiveShowcase() {
       x = Math.min(Math.max(x, g.left + halfW), g.left + g.width - halfW);
       y = Math.min(Math.max(y, g.top + height / 2 - 8), g.top + g.height - height / 2 + 16);
     }
-    setLanding({ shot: f.shot, x, y, width, index });
-    setAppState('wall');
+    setLanding({ shot: f.shot, x, y, width, index, source });
   }, [commitShot]);
 
+  const handleLand = useCallback(() => {
+    const f = flightRef.current;
+    if (f === null) return;
+    landShot(f, 'local');
+    setAppState('wall');
+  }, [landShot]);
+
   const handleFinished = useCallback(() => setFlight(null), []);
+
+  /* ── Cross-device arrivals (QR → visitor's real phone → this wall) ──── */
+
+  const remoteFlightRef = useRef<Flight | null>(remoteFlight);
+  remoteFlightRef.current = remoteFlight;
+
+  // Ref-stable arrival handler so the transport subscribes exactly once.
+  const remoteArriveRef = useRef<(shot: string) => void>(() => {});
+  remoteArriveRef.current = (shot: string) => {
+    const scene = sceneRef.current;
+    const grid = wallGridRef.current;
+    const slot = Math.min(wallShots.length, TILE_COUNT - 1);
+    const tile = grid?.children[slot] as HTMLElement | undefined;
+    // Unmeasurable, or a ceremony already in flight → quiet direct commit.
+    if (!scene || !tile || remoteFlightRef.current !== null || flightRef.current !== null) {
+      commitShot(shot);
+      return;
+    }
+    const sceneBox = scene.getBoundingClientRect();
+    const tb = tile.getBoundingClientRect();
+    const to: Rect = { left: tb.left - sceneBox.left, top: tb.top - sceneBox.top, width: tb.width, height: tb.height };
+    // The shot arrives from BEYOND the scene (another device) — synthesize an
+    // origin above the top-right edge and let the same ceremony play.
+    const from: Rect = { left: sceneBox.width * 0.86, top: -150, width: 86, height: 153 };
+    setRemoteFlight({ shot, from, to });
+  };
+
+  const handleRemoteLand = useCallback(() => {
+    const f = remoteFlightRef.current;
+    if (f === null) return;
+    landShot(f, 'phone'); // never touches appState — the local demo goes on
+  }, [landShot]);
+
+  // The channel opens only once the QR panel has actually been seen — a
+  // socket per landing visitor would burn the realtime connection budget for
+  // nothing, and on phones the panel (display:none) never triggers it.
+  const [wantChannel, setWantChannel] = useState(false);
+  useEffect(() => {
+    if (!wantChannel) return;
+    const transport = createBeamTransport(beamChannelId);
+    transport.onHello(() => setPhoneLinked(true));
+    transport.onShot((shot) => remoteArriveRef.current(shot));
+    return () => transport.close();
+  }, [wantChannel, beamChannelId]);
+
+  // Remote polaroids outside the 'wall' state dismiss themselves — they are
+  // an event, not a resting state the visitor chose.
+  useEffect(() => {
+    if (landing === null || landing.source !== 'phone' || appState === 'wall') return;
+    const t = window.setTimeout(() => setLanding(null), 4600);
+    return () => window.clearTimeout(t);
+  }, [landing, appState]);
 
   // Mobile: the collapsed phone leaves the viewport staring at empty space
   // and the wall below the fold — follow the shot down to its landing. The
@@ -464,6 +547,27 @@ export default function InteractiveShowcase() {
     if (appState !== 'wall' || isDesktop) return;
     wallGridRef.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
   }, [appState, isDesktop, reduced]);
+
+  /* Cursor parallax — the scene leans subtly toward the pointer. Ambient,
+   * so reduced-motion turns it off; frozen while the camera or a beam is
+   * live so the viewfinder and flight geometry stay rock steady. Applied to
+   * wrapper elements OUTSIDE the variant-driven divs (transforms compose
+   * across elements; sharing one element would fight the variants). */
+  const pointerX = useMotionValue(0);
+  const pointerY = useMotionValue(0);
+  const springX = useSpring(pointerX, { stiffness: 55, damping: 18 });
+  const springY = useSpring(pointerY, { stiffness: 55, damping: 18 });
+  const phonePX = useTransform(springX, [-0.5, 0.5], [9, -9]);
+  const phonePY = useTransform(springY, [-0.5, 0.5], [6, -6]);
+  const wallPX = useTransform(springX, [-0.5, 0.5], [-13, 13]);
+  const wallPY = useTransform(springY, [-0.5, 0.5], [-8, 8]);
+  const parallaxLive = isDesktop && !reduced && (appState === 'idle' || appState === 'wall');
+  useEffect(() => {
+    if (!parallaxLive) {
+      pointerX.set(0);
+      pointerY.set(0);
+    }
+  }, [parallaxLive, pointerX, pointerY]);
 
   /* Variants — 3D tilt/float only on desktop; float stilled under reduced. */
   const phoneVariants: Variants = {
@@ -603,6 +707,49 @@ export default function InteractiveShowcase() {
             </p>
           )}
         </motion.div>
+
+        {/* Cross-device: scan → YOUR phone becomes the booth, this screen the
+            wall. Desktop only — on a phone this page IS the booth already. */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.3 }}
+          onViewportEnter={() => setWantChannel(true)}
+          transition={{ duration: 0.5, delay: 0.5 }}
+          data-beam-url={typeof window !== 'undefined' ? `${window.location.origin}${beamPagePath(beamChannelId)}` : ''}
+          className="mt-10 hidden w-full max-w-md items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4 lg:flex"
+        >
+          <div className="shrink-0 rounded-xl bg-white p-2">
+            <QRCodeSVG
+              value={typeof window !== 'undefined' ? `${window.location.origin}${beamPagePath(beamChannelId)}` : ''}
+              size={92}
+              bgColor="#FFFFFF"
+              fgColor="#05060B"
+            />
+          </div>
+          <div className="flex flex-col gap-1 text-left">
+            <p className="font-label text-[10px] uppercase tracking-luxe text-brand-fg">
+              Even better — beam from <span className="text-foil-static">your</span> phone
+            </p>
+            <p className="text-[12px] leading-snug text-brand-muted/70">
+              Scan to turn your phone into the booth — this screen becomes the wall.
+              Sends just that one photo here; nothing is stored.
+            </p>
+            <p
+              className="mt-0.5 flex items-center gap-1.5 font-label text-[9px] uppercase tracking-luxe"
+              style={{ color: phoneLinked ? '#34D399' : 'rgba(169,180,204,0.6)' }}
+            >
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{
+                  background: phoneLinked ? '#34D399' : 'rgba(169,180,204,0.5)',
+                  boxShadow: phoneLinked ? '0 0 6px #34D399' : 'none',
+                }}
+              />
+              {phoneLinked ? 'Phone linked — take your shot' : 'Waiting for a phone…'}
+            </p>
+          </div>
+        </motion.div>
       </div>
 
       {/* ── Right column: the scene ───────────────────────────────────── */}
@@ -615,12 +762,23 @@ export default function InteractiveShowcase() {
       <div
         ref={sceneRef}
         className="relative flex w-full flex-col items-center gap-8 lg:block lg:h-[min(680px,72vh)] lg:gap-0"
+        onMouseMove={(e) => {
+          if (!parallaxLive) return;
+          const r = e.currentTarget.getBoundingClientRect();
+          pointerX.set((e.clientX - r.left) / r.width - 0.5);
+          pointerY.set((e.clientY - r.top) / r.height - 0.5);
+        }}
+        onMouseLeave={() => {
+          pointerX.set(0);
+          pointerY.set(0);
+        }}
       >
         {/* Phone — right/front on desktop, top on mobile. */}
-        <div
-          className="relative z-30 flex w-full justify-center lg:absolute lg:inset-y-0 lg:right-[1%] lg:w-[clamp(220px,24vw,270px)] lg:items-center lg:justify-end"
-          style={{ perspective: '1200px' }}
-        >
+        <div className="relative z-30 flex w-full justify-center lg:absolute lg:inset-y-0 lg:right-[1%] lg:w-[clamp(220px,24vw,270px)] lg:items-center lg:justify-end">
+          <motion.div
+            className="flex w-full justify-center lg:justify-end"
+            style={{ x: phonePX, y: phonePY, perspective: '1200px' }}
+          >
           <motion.div
             className="w-full max-w-[290px] lg:max-w-none"
             variants={phoneVariants}
@@ -635,25 +793,25 @@ export default function InteractiveShowcase() {
               onBeam={handleBeam}
             />
           </motion.div>
+          </motion.div>
         </div>
 
         {/* Live wall — left/back on desktop, below the phone on mobile. */}
-        <div
-          className="relative z-10 w-full lg:absolute lg:inset-y-0 lg:left-0 lg:flex lg:w-[76%] lg:items-center"
-          style={{ perspective: '1200px' }}
-        >
+        <div className="relative z-10 w-full lg:absolute lg:inset-y-0 lg:left-0 lg:flex lg:w-[76%] lg:items-center">
+          <motion.div className="w-full" style={{ x: wallPX, y: wallPY, perspective: '1200px' }}>
           <motion.div
             className="w-full"
             variants={wallVariants}
-            animate={appState === 'wall' ? 'forward' : appState === 'beaming' ? 'charged' : 'back'}
+            animate={appState === 'wall' ? 'forward' : appState === 'beaming' || remoteFlight !== null ? 'charged' : 'back'}
             initial={false}
           >
             <LiveWall shots={wallShots} gridRef={wallGridRef} reduced={reduced} />
           </motion.div>
+          </motion.div>
         </div>
 
         {/* Featured polaroid — the fresh shot drops onto the wall. */}
-        {appState === 'wall' && landing !== null && (
+        {landing !== null && (appState === 'wall' || landing.source === 'phone') && (
           <div
             className="pointer-events-none absolute z-40"
             style={{ left: landing.x, top: landing.y }}
@@ -667,7 +825,9 @@ export default function InteractiveShowcase() {
                 transition={{ type: 'spring', stiffness: 230, damping: 19 }}
               >
                 <img src={landing.shot} alt="" aria-hidden className="aspect-[9/16] w-full rounded-[2px] object-cover" />
-                <p className="mt-1.5 text-center font-label text-[8px] uppercase tracking-luxe text-void-900/70">New memory</p>
+                <p className="mt-1.5 text-center font-label text-[8px] uppercase tracking-luxe text-void-900/70">
+                  {landing.source === 'phone' ? 'From your phone' : 'New memory'}
+                </p>
               </motion.div>
             </div>
           </div>
@@ -690,9 +850,13 @@ export default function InteractiveShowcase() {
           </div>
         )}
 
-        {/* The beam ceremony overlay. */}
+        {/* The beam ceremony overlays — local capture, and cross-device
+            arrivals (which play the same show without touching appState). */}
         {flight !== null && (
           <BeamStrike flight={flight} onLand={handleLand} onFinished={handleFinished} />
+        )}
+        {remoteFlight !== null && (
+          <BeamStrike flight={remoteFlight} onLand={handleRemoteLand} onFinished={() => setRemoteFlight(null)} />
         )}
       </div>
     </div>
