@@ -5,7 +5,11 @@
  *   { eventUuid, prompt,
  *     provider?: 'gemini' | 'higgsfield'        (default 'gemini')
  *     kind?: '2d_filter' | 'border'             (default '2d_filter')
- *     transparentBackground?: boolean }
+ *     transparentBackground?: boolean
+ *     greenScreen?: boolean }                   (paint a solid #00FF00 chroma-
+ *                                               key backdrop for the browser to
+ *                                               key out; default false — prompt
+ *                                               unchanged for other callers)
  *
  * 200 → { job, experience }        job = ai_jobs row (succeeded),
  *                                  experience = unpublished experiences row
@@ -120,8 +124,25 @@ function nameFromPrompt(prompt: string): string {
   return clean.length <= 40 ? clean : `${clean.slice(0, 39)}…`;
 }
 
-/** Kind-aware prompt wrapper (mirrors the old Creator2D client-side intent). */
-function buildPrompt(prompt: string, kind: string, transparent: boolean): string {
+/** Kind-aware prompt wrapper (mirrors the old Creator2D client-side intent).
+ *  greenScreen=true switches to a solid pure-green chroma-key backdrop that the
+ *  browser keys out to transparency (the image models won't emit clean alpha).
+ *  When greenScreen is false the prompt is byte-identical to the original. */
+function buildPrompt(prompt: string, kind: string, transparent: boolean, greenScreen: boolean): string {
+  if (greenScreen) {
+    const base = kind === 'border'
+      ? 'Create a full-bleed decorative FRAME composition for a 9:16 vertical portrait canvas ' +
+        '(1080x1920). ALL decorative art must hug the four edges as a border. Fill the ENTIRE ' +
+        'central area AND the whole background with ONE solid pure green colour #00FF00 — a flat, ' +
+        'uniform chroma-key green with NO gradients, NO shadows, NO texture, NO vignette or glow on ' +
+        'the green. Do not place any art, drop-shadow, or highlight over the green region; the green ' +
+        'must read as a single exact colour so it can be keyed out.'
+      : 'Create a single centered decorative subject for an event photo-booth sticker, bold and ' +
+        'readable at small sizes. Fill the ENTIRE background behind and around the subject with ONE ' +
+        'solid pure green colour #00FF00 — a flat, uniform chroma-key green with NO gradients, NO ' +
+        'shadows, NO texture, NO glow behind the subject, so the background can be keyed out.';
+    return `${base} Design brief: ${prompt}`;
+  }
   const base = kind === 'border'
     ? 'Create a decorative full-frame border/frame overlay for a 1080x1920 portrait ' +
       'photo-booth camera frame. The ornamentation hugs the edges; the CENTER of the ' +
@@ -297,6 +318,9 @@ Deno.serve(async (req: Request) => {
     const kind = (body.kind ?? '2d_filter') as string;
     if (!KINDS.has(kind)) return json(400, { error: 'invalid_body' });
     const transparentBackground = body.transparentBackground === true;
+    // Opt-in: paint a solid pure-green chroma-key backdrop for the browser to
+    // key out. Absent/false → the prompt is unchanged for existing callers.
+    const greenScreen = body.greenScreen === true;
 
     const sb = serviceClient();
 
@@ -379,7 +403,7 @@ Deno.serve(async (req: Request) => {
         kind: 'image',
         provider,
         status: 'running',
-        input: { prompt, kind, transparentBackground, provider },
+        input: { prompt, kind, transparentBackground, greenScreen, provider },
         credits_charged: cost,
       })
       .select()
@@ -397,7 +421,7 @@ Deno.serve(async (req: Request) => {
 
     // 7. Everything after the spend refunds on failure.
     try {
-      const fullPrompt = buildPrompt(prompt, kind, transparentBackground);
+      const fullPrompt = buildPrompt(prompt, kind, transparentBackground, greenScreen);
       const bytes = provider === 'gemini'
         ? await generateGemini(fullPrompt)
         : await generateHiggsfield(fullPrompt);

@@ -19,18 +19,27 @@ import Modal from '../ui/Modal';
 import { useEvent } from '../../events/EventContext';
 import { FILTER_SHADERS, SHADER_MAP } from '../../lib/shaders';
 import { HEAD_PIECES, HEAD_PIECE_MAP } from '../../lib/headPieces';
-import { createExperience, updateExperience } from '../../lib/db';
+import { createExperience } from '../../lib/db';
 import { generateImage, generate3d, resolveEventUuid, aiErrorMessage, type AiErrorCode } from '../../lib/ai';
+import { processGeneratedFrame } from './AiFramePanel';
 import {
   planFromJson,
   pieceCreditCost,
   initialProgress,
   setPieceStatus,
+  FRAME_CREDIT_COST,
+  GENERATE_3D_CREDIT_COST,
   type ScenePlan,
   type SceneProgress,
   type ScenePieceKey,
   type SceneShaderCatalogEntry,
 } from '../../lib/studio/sceneDirector';
+
+// A generated head piece is really two spends: a Gemini concept image
+// (FRAME_CREDIT_COST — the same 1-credit gemini image) then an image→3D model
+// (GENERATE_3D_CREDIT_COST). sceneDirector.pieceCreditCost still reports only
+// the 3D leg, so surface the honest total + breakdown here.
+const HEAD_PIECE_GENERATE_TOTAL = FRAME_CREDIT_COST + GENERATE_3D_CREDIT_COST;
 
 type Phase = 'idle' | 'planning' | 'plan' | 'error';
 
@@ -118,10 +127,11 @@ export default function SceneDirectorPanel({ initialPrompt = '', onClose }: { in
     mark('frame', 'working');
     const uuid = await resolveEventUuid(eventId, eventUuid);
     if (!uuid) { fail('frame', aiErrorMessage('event_not_found')); return; }
-    const { data, error } = await generateImage(uuid, { prompt: p.frame.prompt, kind: 'border', transparentBackground: false });
+    const { data, error } = await generateImage(uuid, { prompt: p.frame.prompt, kind: 'border', transparentBackground: false, greenScreen: true });
     if (error || !data?.experience) { fail('frame', aiErrorMessage((error ?? 'internal') as AiErrorCode)); return; }
-    // Best-effort scene tag on the server-saved draft.
-    await updateExperience(eventId, data.experience.id, { config: { ...data.experience.config, scene: p.sceneName } });
+    // Chroma-key the green backdrop out (falls back to raw on failure) and tag
+    // the scene in the same persisted patch.
+    await processGeneratedFrame(data.experience, eventId, { scene: p.sceneName });
     mark('frame', 'accepted');
   }, [eventId, eventUuid, mark, fail]);
 
@@ -140,11 +150,28 @@ export default function SceneDirectorPanel({ initialPrompt = '', onClose }: { in
       exp ? mark('headPiece', 'accepted') : fail('headPiece', 'Could not save the head piece — try again.');
       return;
     }
-    // generate — kick off the async Meshy job (10 credits); it lands in Library.
+    // Generate — user-preferred pipeline: a Gemini CONCEPT IMAGE of a single
+    // centered object (1 credit), then image→3D via Meshy (10 credits). The
+    // async 3D job lands in Library on completion (poll as today).
     const uuid = await resolveEventUuid(eventId, eventUuid);
     if (!uuid) { fail('headPiece', aiErrorMessage('event_not_found')); return; }
-    const { data, error } = await generate3d(uuid, { mode: 'text', prompt: p.headPiece.prompt ?? p.sceneName });
-    if (error || !data?.job) { fail('headPiece', aiErrorMessage((error ?? 'internal') as AiErrorCode)); return; }
+    const conceptBrief = p.headPiece.prompt ?? p.sceneName;
+    // No greenScreen: image→3D wants the object on a plain background (the
+    // provider segments it). Ask for a single isolated object, NOT a frame.
+    const concept = await generateImage(uuid, {
+      prompt: `${conceptBrief} — a single centered object, isolated on a plain neutral studio background, product shot, no frame, no border, no text`,
+      kind: '2d_filter',
+    });
+    if (concept.error || !concept.data?.experience?.asset_url) {
+      fail('headPiece', aiErrorMessage((concept.error ?? 'internal') as AiErrorCode));
+      return;
+    }
+    const { data, error } = await generate3d(uuid, { mode: 'image', imageUrl: concept.data.experience.asset_url, prompt: conceptBrief });
+    if (error || !data?.job) {
+      // The concept image (1 credit) is a real saved asset — say so honestly.
+      fail('headPiece', `${aiErrorMessage((error ?? 'internal') as AiErrorCode)} (the concept image was saved to your Library.)`);
+      return;
+    }
     mark('headPiece', 'accepted');
   }, [eventId, eventUuid, mark, fail]);
 
@@ -222,7 +249,8 @@ export default function SceneDirectorPanel({ initialPrompt = '', onClose }: { in
               <PieceCard
                 title="Head piece"
                 detail={plan.headPiece.kind === 'procedural' ? (HEAD_PIECE_MAP[plan.headPiece.id ?? '']?.name ?? plan.headPiece.id ?? '') : (plan.headPiece.prompt ?? 'Generated piece')}
-                cost={pieceCreditCost(plan, 'headPiece')}
+                cost={plan.headPiece.kind === 'generate' ? HEAD_PIECE_GENERATE_TOTAL : pieceCreditCost(plan, 'headPiece')}
+                note={plan.headPiece.kind === 'generate' ? `Concept image (${FRAME_CREDIT_COST} credit) → 3D model (${GENERATE_3D_CREDIT_COST} credits)` : undefined}
                 status={progress.headPiece}
                 error={pieceError.headPiece}
                 onAccept={() => accept('headPiece')}
@@ -242,6 +270,7 @@ function PieceCard({
   title,
   detail,
   cost,
+  note,
   status,
   error,
   onAccept,
@@ -250,6 +279,7 @@ function PieceCard({
   title: string;
   detail: string;
   cost: number;
+  note?: string;
   status: SceneProgress[ScenePieceKey];
   error?: string;
   onAccept: () => void;
@@ -286,6 +316,7 @@ function PieceCard({
         </div>
       </div>
       <p className="font-sans text-[12px] text-brand-muted/70 leading-snug mt-1.5 line-clamp-2">{detail}</p>
+      {note && !done && <p className="font-sans text-[10px] text-brand-muted/45 mt-1">{note}</p>}
       {error && <p className="font-sans text-[11px] text-rose-400 mt-1">{error}</p>}
     </div>
   );

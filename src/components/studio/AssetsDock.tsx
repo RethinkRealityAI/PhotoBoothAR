@@ -10,12 +10,13 @@
  * tab and pointer drag-and-drop onto the stage.)
  */
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { Boxes, Crown, Image as ImageIcon, LayoutTemplate, Loader2, Search, Sparkles, Upload, X } from 'lucide-react';
+import { Boxes, Crown, Gem, Glasses, Image as ImageIcon, LayoutTemplate, Loader2, Search, Sparkles, Sun, Upload, X } from 'lucide-react';
 import { FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { HEAD_PIECES } from '../../lib/headPieces';
 import { ANCHOR_PRESETS } from '../../lib/faceRig';
 import { uploadAsset, listAssets, fetchExperiences } from '../../lib/db';
+import { captureGlbThumbnail } from '../../lib/studio/glbThumb';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
 import { selectedObject, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
@@ -47,6 +48,18 @@ const CATEGORY_TABS: { id: Category; label: string; icon: typeof Sparkles }[] = 
   { id: 'sticker', label: 'Sticker', icon: ImageIcon },
   { id: '3d', label: '3D', icon: Boxes },
 ];
+
+// Head pieces are procedural (no image asset) — a distinctive icon per piece
+// keeps the catalog reading as a visual grid rather than text pills, matching
+// the built-in frame/sticker tiles. Falls back to the generic 3D glyph for any
+// future piece added to headPieces.ts without an icon here.
+const HEAD_PIECE_ICONS: Record<string, typeof Crown> = {
+  'royal-crown': Crown,
+  'queen-tiara': Gem,
+  'cheek-stars': Sparkles,
+  'hope-halo': Sun,
+  'neon-shades': Glasses,
+};
 
 type SourceTabId = 'library' | 'uploads' | 'mine';
 const SOURCE_TABS: { id: SourceTabId; label: string }[] = [
@@ -81,6 +94,10 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   // panels agree at first glance.
   const [category, setCategory] = useState<Category>('filter');
   const family: '2d' | '3d' = category === '3d' ? '3d' : '2d';
+  // Auto-captured thumbnail for the most recently uploaded GLB — shown on the
+  // "Upload model" tile itself (best-effort; null while capturing/on failure,
+  // in which case the tile keeps its plain Upload-icon look).
+  const [modelThumb, setModelThumb] = useState<string | null>(null);
 
   const loadUploads = useCallback(() => {
     setUploads({ status: 'loading', items: [] });
@@ -169,17 +186,21 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
       );
     }
     return (
-      <div className="flex flex-col gap-1">
+      <div className="grid grid-cols-3 gap-1.5">
         {items.map((item) => (
           <button
             key={item.id}
             onPointerDown={(e) => beginDrag(dragPayloadFor(item), e)}
             onClick={() => { if (consumedDrag()) return; addDockItem(item); }}
             title={`${item.label} · click to add · drag onto the head to place`}
-            className="w-full flex items-center gap-2 text-left px-3 py-2.5 rounded-xl transition-colors text-xs font-sans cursor-grab active:cursor-grabbing bg-white/[0.03] hover:bg-white/[0.06] text-brand-muted/70 hover:text-brand-fg"
+            className="group relative aspect-square rounded-lg overflow-hidden bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 hover:border-accent/25 cursor-grab active:cursor-grabbing transition-colors"
           >
-            <Boxes className="w-3.5 h-3.5 text-accent-2 shrink-0" />
-            <span className="truncate">{item.label}</span>
+            {item.previewUrl ? (
+              <img src={item.previewUrl} alt={item.label} draggable={false} className="w-full h-full object-contain p-1.5" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center"><Boxes className="w-4 h-4 text-brand-muted/30" /></div>
+            )}
+            <span className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-[7px] font-label uppercase tracking-wide text-white/80 truncate">{item.label}</span>
           </button>
         ))}
       </div>
@@ -213,8 +234,21 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    setModelThumb(null);
     const url = await uploadAsset(file, file.name);
-    if (url) dispatch({ type: 'SET_MODEL_ASSET', url, name: file.name });
+    if (!url) return;
+    dispatch({ type: 'SET_MODEL_ASSET', url, name: file.name });
+    // Best-effort thumbnail capture — the model is already saved and selected
+    // above, so a capture/upload failure here must never surface as a failed
+    // model upload; it just leaves the tile on its plain Upload-icon look.
+    try {
+      const thumbBlob = await captureGlbThumbnail(url);
+      if (!thumbBlob) return;
+      const thumbUrl = await uploadAsset(thumbBlob, `${file.name}.thumb`);
+      if (thumbUrl) setModelThumb(thumbUrl);
+    } catch (err) {
+      console.error('[AssetsDock] GLB thumbnail capture failed', err);
+    }
   }, [dispatch]);
 
   // Frame + Sticker catalogs share their layout (built-ins → upload → AI panel);
@@ -224,7 +258,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     <>
       <div>
         <SectionLabel>{kind === 'border' ? 'Built-in frames' : 'Built-in stickers'}</SectionLabel>
-        <div className="flex flex-col gap-1">
+        <div className="grid grid-cols-3 gap-1.5">
           {BUILTIN_BORDERS.filter((b) => b.kind === kind).map((b) => {
             // Frames: highlight the scene's frame (at most one) regardless of
             // selection; stickers: highlight the selected sticker.
@@ -236,9 +270,10 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                 onPointerDown={(e) => beginDrag({ target: 'overlay', label: b.name, overlayKind: b.kind, builtinId: b.id, builtinUrl: url, previewUrl: url }, e)}
                 onClick={() => { if (consumedDrag()) return; dispatch({ type: 'SELECT_BUILTIN', borderId: b.id, url }); }}
                 title="Click to add · drag onto the canvas to place"
-                className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors text-xs font-sans cursor-grab active:cursor-grabbing ${active ? 'bg-accent/15 ring-1 ring-accent/30 text-accent-2' : 'bg-white/[0.03] hover:bg-white/[0.06] text-brand-muted/70 hover:text-brand-fg'}`}
+                className={`group relative aspect-square rounded-lg overflow-hidden bg-white/[0.03] hover:bg-white/[0.06] border cursor-grab active:cursor-grabbing transition-colors ${active ? 'border-accent/40 ring-1 ring-accent/30' : 'border-white/5 hover:border-accent/25'}`}
               >
-                {b.name}
+                <img src={url} alt={b.name} draggable={false} className="w-full h-full object-contain p-1.5" />
+                <span className={`absolute inset-x-0 bottom-0 px-1 py-0.5 text-[7px] font-label uppercase tracking-wide truncate ${active ? 'bg-accent/30 text-accent-2' : 'bg-black/60 text-white/80'}`}>{b.name}</span>
               </button>
             );
           })}
@@ -253,6 +288,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
           <Upload className="w-3.5 h-3.5 text-accent-2" /> Browse file…
         </button>
         <input ref={imgInputRef} type="file" accept="image/png,image/svg+xml,image/webp" className="sr-only" onChange={onImageUpload} />
+        <p className="font-sans text-[9px] text-brand-muted/35 mt-1 leading-snug">Transparent PNG, 1080×1920 for full-frame art.</p>
       </div>
       <AiFramePanel
         kind={kind}
@@ -271,7 +307,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
           destructive: switching just picks which library section to show. Adds
           happen when you click an item (which also flips the view to fit). */}
       <div>
-        <SectionLabel>Add to scene</SectionLabel>
+        <SectionLabel>Scene Type</SectionLabel>
         <div className="grid grid-cols-4 gap-1.5">
           {CATEGORY_TABS.map((t) => {
             const active = category === t.id;
@@ -367,18 +403,20 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         <>
           <div>
             <SectionLabel><span className="inline-flex items-center gap-1.5"><Crown className="w-3 h-3 text-accent-2" /> Head pieces</span></SectionLabel>
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-3 gap-1.5">
               {HEAD_PIECES.map((p) => {
                 const active = selProceduralId === p.id;
+                const Icon = HEAD_PIECE_ICONS[p.id] ?? Boxes;
                 return (
                   <button
                     key={p.id}
                     onPointerDown={(e) => beginDrag({ target: 'headpiece', label: p.name, pieceId: p.id }, e)}
                     onClick={() => { if (consumedDrag()) return; dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id }); }}
                     title="Click to add · drag onto the head to place"
-                    className={`rounded-xl px-2 py-2 text-left transition-all border cursor-grab active:cursor-grabbing ${active ? 'bg-accent/15 border-accent/40 text-accent-2' : 'bg-white/[0.03] border-white/10 text-brand-muted/60 hover:text-brand-fg hover:border-accent/25'}`}
+                    className={`aspect-square rounded-lg flex flex-col items-center justify-center gap-1 border cursor-grab active:cursor-grabbing transition-all ${active ? 'bg-accent/15 border-accent/40 text-accent-2' : 'bg-white/[0.03] border-white/10 text-brand-muted/60 hover:text-brand-fg hover:border-accent/25'}`}
                   >
-                    <span className="font-label text-[9px] uppercase tracking-wide leading-tight block">{p.name}</span>
+                    <Icon className="w-5 h-5" />
+                    <span className="font-label text-[7px] uppercase tracking-wide leading-tight text-center px-1 truncate max-w-full">{p.name}</span>
                   </button>
                 );
               })}
@@ -389,12 +427,17 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             <SectionLabel>Upload model (.glb / .gltf)</SectionLabel>
             <button
               onClick={() => glbInputRef.current?.click()}
-              className="flex flex-col items-center gap-1.5 w-full px-3 py-4 rounded-xl border border-dashed border-white/15 bg-white/[0.02] hover:border-accent/40 transition-colors text-brand-muted/60"
+              className="flex flex-col items-center gap-1.5 w-full px-3 py-4 rounded-xl border border-dashed border-white/15 bg-white/[0.02] hover:border-accent/40 transition-colors text-brand-muted/60 overflow-hidden"
             >
-              <Upload className="w-4 h-4 text-accent-2" />
-              <span className="font-label text-[9px] uppercase tracking-widest text-center">{selModelName ?? 'Drop a .glb or click'}</span>
+              {modelThumb ? (
+                <img src={modelThumb} alt={selModelName ?? 'Model thumbnail'} className="w-12 h-12 object-contain" />
+              ) : (
+                <Upload className="w-4 h-4 text-accent-2" />
+              )}
+              <span className="font-label text-[9px] uppercase tracking-widest text-center truncate max-w-full">{selModelName ?? 'Drop a .glb or click'}</span>
             </button>
             <input ref={glbInputRef} type="file" accept=".glb,.gltf" className="sr-only" onChange={onGlbUpload} />
+            <p className="font-sans text-[9px] text-brand-muted/35 mt-1 leading-snug">Auto-captures a square thumbnail (256×256+).</p>
           </div>
 
           <div>

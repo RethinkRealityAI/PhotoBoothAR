@@ -13,8 +13,100 @@ import { useCallback, useState } from 'react';
 import { Loader, Wand2 } from 'lucide-react';
 import { generateImage, resolveEventUuid, aiErrorMessage } from '../../lib/ai';
 import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
+import { uploadAsset, updateExperience } from '../../lib/db';
+import { processFrameImage, type RgbaImage } from '../../lib/studio/chromaKey';
 import { useEvent } from '../../events/EventContext';
 import type { Experience } from '../../types';
+
+/* ── Browser-side chroma-key glue (co-located; SceneDirectorPanel reuses it) ──
+ * The edge function returns a frame/sticker whose backdrop is a solid green
+ * (#00FF00) chroma-key fill (greenScreen prompt). We load that PNG, key the
+ * green out to transparency, contain-fit it onto the booth's 1080×1920 canvas,
+ * re-upload the transparent PNG, and repoint the experience at it — so the
+ * placed overlay references the PROCESSED asset, never the raw green output.
+ * Any failure (CORS taint, decode/encode error) logs a warning and falls back
+ * to the raw image so a host is never blocked. */
+
+/** Decode a public image URL into an ImageData-shaped RGBA buffer. */
+async function loadImageData(url: string): Promise<RgbaImage> {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('image_decode_failed'));
+    img.src = url;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('no_2d_context');
+  ctx.drawImage(img, 0, 0);
+  // getImageData throws (SecurityError) if the source tainted the canvas.
+  return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+/** Encode an RGBA buffer back to a PNG blob via an offscreen canvas. */
+function toPngBlob(rgba: RgbaImage): Promise<Blob> {
+  const canvas = document.createElement('canvas');
+  canvas.width = rgba.width;
+  canvas.height = rgba.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('no_2d_context');
+  ctx.putImageData(new ImageData(rgba.data, rgba.width, rgba.height), 0, 0);
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('png_encode_failed'))), 'image/png');
+  });
+}
+
+/**
+ * Chroma-key a freshly-generated frame/sticker experience and repoint it (and
+ * its persisted row) at the processed transparent PNG. `extraConfig` is merged
+ * into config and persisted even when processing is skipped, so callers can
+ * piggy-back metadata (e.g. the Scene Director's scene tag). Returns the
+ * experience the caller should hand to the studio — processed on success, the
+ * original (raw) experience on any failure.
+ */
+export async function processGeneratedFrame(
+  exp: Experience,
+  eventId: string,
+  extraConfig: Record<string, unknown> = {},
+): Promise<Experience> {
+  let processedUrl: string | null = null;
+  if (exp.asset_url) {
+    try {
+      const src = await loadImageData(exp.asset_url);
+      const out = processFrameImage(src); // keys green → transparent 1080×1920
+      const blob = await toPngBlob(out);
+      processedUrl = await uploadAsset(blob, `frame-${exp.id}`);
+      if (!processedUrl) console.warn('[studio] processed frame upload failed; using raw image');
+    } catch (e) {
+      console.warn('[studio] chroma-key processing failed; using raw image', e);
+    }
+  }
+
+  const config = {
+    ...(exp.config ?? {}),
+    ...extraConfig,
+    ...(processedUrl ? { transparent: true } : {}),
+  };
+  const patch: Parameters<typeof updateExperience>[2] = { config };
+  if (processedUrl) {
+    patch.asset_url = processedUrl;
+    patch.thumbnail_url = processedUrl;
+  }
+
+  // Persist when there's anything to persist (a processed URL and/or metadata).
+  if (processedUrl || Object.keys(extraConfig).length > 0) {
+    const saved = await updateExperience(eventId, exp.id, patch);
+    if (saved) return saved;
+  }
+  return {
+    ...exp,
+    ...(processedUrl ? { asset_url: processedUrl, thumbnail_url: processedUrl } : {}),
+    config: config as Experience['config'],
+  };
+}
 
 export default function AiFramePanel({
   kind,
@@ -52,6 +144,7 @@ export default function AiFramePanel({
         prompt: prompt.trim(),
         kind,
         transparentBackground: kind === '2d_filter',
+        greenScreen: true,
       });
       if (err || !data?.experience) {
         if (err === 'insufficient_credits') {
@@ -66,7 +159,10 @@ export default function AiFramePanel({
         }
         return;
       }
-      onGenerated(data.experience);
+      // Chroma-key the green backdrop out before handing the asset to the
+      // studio — falls back to the raw image on any processing failure.
+      const processed = await processGeneratedFrame(data.experience, eventId);
+      onGenerated(processed);
       refreshBalance();
     } finally {
       setLoading(false);

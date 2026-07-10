@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Check, Clapperboard, Copy, Layers, Loader2, Redo2, Save, SlidersHorizontal, Undo2, X } from 'lucide-react';
+import { ArrowLeft, Check, Clapperboard, Copy, Layers, Loader2, Pencil, Redo2, Save, SlidersHorizontal, Undo2, X } from 'lucide-react';
 import { useCameraStream } from '../booth/useCameraStream';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from '../admin/studioBase';
@@ -128,6 +128,17 @@ export default function StudioShell() {
   // Below lg the docks are slide-in drawers (they'd otherwise have no room);
   // this tracks which one is open. At lg+ both are always-visible columns.
   const [mobilePanel, setMobilePanel] = useState<'assets' | 'props' | null>(null);
+
+  // Experience name lives in the centered header field (moved out of the props
+  // dock). `editingName` swaps the label for an inline input; `nameDraft` holds
+  // the in-flight text so Escape can cancel without touching the draft.
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  // First-load naming dialog: only for a brand-NEW draft (no `?id=` deep link
+  // and not arriving from the Scene Director), so an existing experience or a
+  // scene-prefill never gets interrupted by it.
+  const [showNameDialog, setShowNameDialog] = useState(!editId && sceneParam === null);
+  const [dialogName, setDialogName] = useState(() => state.draft.name);
 
   // Head-size calibration (per event). Occlusion itself is per-experience
   // (config.occlusion), so there's no event-wide occlusion switch to track.
@@ -261,6 +272,25 @@ export default function StudioShell() {
     dispatch({ type: 'LOAD', draft: { ...rest, name: `${state.draft.name} copy` } });
   }, [state.draft]);
 
+  // Header inline-rename: open seeds the input from the live name; commit writes
+  // a non-empty trimmed name (SET_NAME) and closes; Escape closes without saving.
+  const startRename = useCallback(() => {
+    setNameDraft(state.draft.name);
+    setEditingName(true);
+  }, [state.draft.name]);
+  const commitName = useCallback(() => {
+    const trimmed = nameDraft.trim();
+    if (trimmed && trimmed !== state.draft.name) dispatch({ type: 'SET_NAME', name: trimmed });
+    setEditingName(false);
+  }, [nameDraft, state.draft.name]);
+  // First-load dialog: "Start creating" / Enter commits the (possibly edited)
+  // name; the X or accepting the default just closes without dirtying the draft.
+  const commitDialogName = useCallback(() => {
+    const trimmed = dialogName.trim();
+    if (trimmed && trimmed !== state.draft.name) dispatch({ type: 'SET_NAME', name: trimmed });
+    setShowNameDialog(false);
+  }, [dialogName, state.draft.name]);
+
   // Keyboard shortcuts on the shell. Skipped while typing in a field so undo/
   // delete never fights text editing.
   useEffect(() => {
@@ -309,7 +339,7 @@ export default function StudioShell() {
   return (
     <div className="absolute inset-0 flex flex-col app-bg">
       {/* Top bar */}
-      <header className="h-14 shrink-0 flex items-center gap-3 px-4 liquid-glass border-b border-white/10 z-40">
+      <header className="h-14 shrink-0 flex items-center gap-1.5 sm:gap-3 px-2.5 sm:px-4 liquid-glass border-b border-white/10 z-40">
         <Tooltip label="Library" hint="Back to your experiences" side="bottom">
           <Link to={`${base}/library`} className="p-1.5 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors">
             <ArrowLeft className="w-4 h-4" />
@@ -323,11 +353,38 @@ export default function StudioShell() {
         >
           <Layers className="w-4 h-4" />
         </button>
-        <div className="min-w-0 hidden sm:block">
+        <div className="min-w-0 hidden sm:block shrink-0">
           <p className="font-serif italic text-sm text-brand-fg leading-tight">Studio</p>
           <p className="font-label text-[8px] uppercase tracking-widest text-brand-muted/50">{state.draft.id ? 'Editing experience' : 'New experience'}</p>
         </div>
-        <div className="flex-1" />
+        {/* Centered experience name — click the pencil (or the name) to rename
+            inline. Truncates with ellipsis on phone; the pencil stays tappable. */}
+        <div className="flex-1 flex justify-center min-w-0 px-1 sm:px-2">
+          {editingName ? (
+            <input
+              autoFocus
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); commitName(); }
+                else if (e.key === 'Escape') { e.preventDefault(); setEditingName(false); }
+              }}
+              placeholder="Experience name…"
+              aria-label="Experience name"
+              className="w-full max-w-[18rem] text-center rounded-lg bg-white/[0.06] border border-accent/40 px-3 py-1.5 text-sm text-brand-fg placeholder:text-brand-muted/40 outline-none focus:border-accent/60 transition"
+            />
+          ) : (
+            <button
+              onClick={startRename}
+              aria-label="Rename experience"
+              className="group flex items-center gap-1.5 min-w-0 max-w-[18rem] px-2.5 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors"
+            >
+              <span className="font-serif italic text-sm text-brand-fg truncate">{state.draft.name || 'Untitled experience'}</span>
+              <Pencil className="w-3 h-3 text-brand-muted/40 group-hover:text-accent-2 shrink-0 transition-colors" />
+            </button>
+          )}
+        </div>
         {/* Undo / Redo / Duplicate */}
         <div className="flex items-center gap-1">
           <Tooltip label="Undo" hint="Ctrl/Cmd+Z" side="bottom">
@@ -375,10 +432,11 @@ export default function StudioShell() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-1.5 px-5 py-2 bg-foil text-white font-bold text-[10px] font-label uppercase tracking-widest rounded-xl glow-accent transition active:scale-[0.98] disabled:opacity-50"
+          aria-label={state.draft.id ? 'Update experience' : 'Save experience'}
+          className="flex items-center gap-1.5 px-3 sm:px-5 py-2 bg-foil text-white font-bold text-[10px] font-label uppercase tracking-widest rounded-xl glow-accent transition active:scale-[0.98] disabled:opacity-50"
         >
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-          {saving ? 'Saving…' : saved ? 'Saved' : state.draft.id ? 'Update' : 'Save'}
+          <span className="hidden sm:inline">{saving ? 'Saving…' : saved ? 'Saved' : state.draft.id ? 'Update' : 'Save'}</span>
         </button>
         {/* Mobile/tablet: toggle the Properties drawer (a static column at lg+). */}
         <button
@@ -447,6 +505,41 @@ export default function StudioShell() {
       </div>
 
       <DragGhost payload={dnd.payload} ghost={dnd.ghost} />
+
+      {/* First-load naming dialog — brand-new drafts only (see showNameDialog).
+          Skippable via the X or by accepting the pre-filled default. */}
+      {showNameDialog && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
+          <div className="liquid-glass rounded-2xl border border-accent/20 p-6 w-full max-w-sm relative animate-rise-in">
+            <button
+              onClick={() => setShowNameDialog(false)}
+              aria-label="Skip naming"
+              className="absolute top-3 right-3 p-1 rounded-lg text-brand-muted/50 hover:text-brand-fg transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <p className="font-label text-[9px] uppercase tracking-widest text-accent-2 mb-1">New experience</p>
+            <h2 className="font-serif italic text-xl text-brand-fg mb-4">Name your experience</h2>
+            <form onSubmit={(e) => { e.preventDefault(); commitDialogName(); }}>
+              <input
+                autoFocus
+                value={dialogName}
+                onChange={(e) => setDialogName(e.target.value)}
+                placeholder="Experience name…"
+                aria-label="Experience name"
+                className="w-full rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5 text-sm text-brand-fg placeholder:text-brand-muted/40 outline-none focus:border-accent/60 transition mb-4"
+              />
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-foil text-white font-bold text-[10px] font-label uppercase tracking-widest rounded-xl glow-accent transition active:scale-[0.98]"
+              >
+                Start creating
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {sceneOpen && <SceneDirectorPanel initialPrompt={sceneParam ?? ''} onClose={() => setSceneOpen(false)} />}
       {testPhoneOpen && (
         <TestOnPhone

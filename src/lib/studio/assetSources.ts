@@ -33,11 +33,40 @@ function labelFromFilename(name: string): string {
   return withoutUuid.replace(/\.[a-z0-9]+$/i, '');
 }
 
+// Suffix AssetsDock's GLB upload flow stamps on an auto-captured thumbnail:
+// uploadAsset(blob, `${file.name}.thumb`) → `<uid>-<file.name>.thumb.png`.
+const THUMB_SUFFIX = /\.thumb\.png$/i;
+
+/** True for a GLB-thumbnail companion file (named `<asset-name>.thumb.png` by
+ *  AssetsDock's GLB upload flow) — paired into its model's dock item instead
+ *  of being listed as its own item. */
+export function isThumbAsset(name: string): boolean {
+  return THUMB_SUFFIX.test(name);
+}
+
+/**
+ * Maps each non-thumb asset's normalized label to its paired thumbnail's
+ * public URL. Pairing is by label match after uploadAsset's uid()-prefix and
+ * extension are stripped from both sides — `<uid1>-crown.glb` pairs with
+ * `<uid2>-crown.glb.thumb.png` because both normalize to "crown".
+ */
+export function pairThumbnails(assets: StoredAsset[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const a of assets) {
+    if (!isThumbAsset(a.name)) continue;
+    const label = labelFromFilename(a.name.replace(THUMB_SUFFIX, ''));
+    map.set(label, a.url);
+  }
+  return map;
+}
+
 /** Normalize uploaded assets into dock items, classifying by extension/mimetype. */
 export function uploadsToDockItems(assets: StoredAsset[]): DockItem[] {
+  const thumbs = pairThumbnails(assets);
   const items: DockItem[] = [];
   for (const asset of assets) {
     if (asset.name.startsWith('thumb-')) continue;
+    if (isThumbAsset(asset.name)) continue; // paired into its model item below, not its own item
     const cls = classifyAsset(asset.name, asset.mimetype);
     if (cls === 'unknown') continue;
     const label = labelFromFilename(asset.name);
@@ -56,7 +85,7 @@ export function uploadsToDockItems(assets: StoredAsset[]): DockItem[] {
         label,
         source: 'upload',
         family: '3d',
-        previewUrl: null,
+        previewUrl: thumbs.get(label) ?? null,
         payload: { assetUrl: asset.url },
       });
     }

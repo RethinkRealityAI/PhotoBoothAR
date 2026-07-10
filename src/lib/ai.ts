@@ -99,6 +99,14 @@ export interface GenerateImageOpts {
   provider?: 'gemini' | 'higgsfield';
   kind?: '2d_filter' | 'border';
   transparentBackground?: boolean;
+  /**
+   * Ask the provider to paint the frame's centre + background a solid pure
+   * green (#00FF00) chroma-key backdrop instead of a real transparent PNG
+   * (which the image models don't produce cleanly). The browser keys the green
+   * out to transparency after download — see studio/chromaKey.ts. When omitted
+   * the edge function's prompt is byte-identical to before.
+   */
+  greenScreen?: boolean;
 }
 
 export function generateImage(

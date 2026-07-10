@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { uploadsToDockItems, experiencesToDockItems, filterDockItems, type DockItem } from './assetSources';
+import { uploadsToDockItems, experiencesToDockItems, filterDockItems, isThumbAsset, pairThumbnails, type DockItem } from './assetSources';
 import type { StoredAsset } from '../db';
 import type { Experience } from '../../types';
 
 const UUID = '11111111-2222-3333-4444-555555555555';
+const UUID2 = '66666666-7777-8888-9999-000000000000';
 
 function asset(overrides: Partial<StoredAsset>): StoredAsset {
   return { name: 'x.png', path: 'x.png', url: 'https://cdn/x.png', ...overrides };
@@ -58,6 +59,63 @@ describe('uploadsToDockItems', () => {
   it('id is the storage path', () => {
     const [item] = uploadsToDockItems([asset({ name: 'a.png', path: 'sub/a.png' })]);
     expect(item.id).toBe('sub/a.png');
+  });
+
+  it('excludes a paired thumbnail file and attaches it as the model item preview', () => {
+    const items = uploadsToDockItems([
+      asset({ name: `${UUID}-crown.glb`, path: `${UUID}-crown.glb`, url: 'https://cdn/crown.glb' }),
+      asset({ name: `${UUID2}-crown.glb.thumb.png`, path: `${UUID2}-crown.glb.thumb.png`, url: 'https://cdn/crown-thumb.png' }),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].family).toBe('3d');
+    expect(items[0].previewUrl).toBe('https://cdn/crown-thumb.png');
+  });
+
+  it('leaves previewUrl null when a model has no paired thumbnail', () => {
+    const items = uploadsToDockItems([
+      asset({ name: `${UUID}-crown.glb`, path: `${UUID}-crown.glb`, url: 'https://cdn/crown.glb' }),
+      asset({ name: `${UUID2}-tiara.glb.thumb.png`, path: `${UUID2}-tiara.glb.thumb.png`, url: 'https://cdn/tiara-thumb.png' }),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].previewUrl).toBeNull();
+  });
+});
+
+describe('isThumbAsset', () => {
+  it('matches the <uid>-<asset-name>.thumb.png convention', () => {
+    expect(isThumbAsset(`${UUID}-crown.glb.thumb.png`)).toBe(true);
+  });
+
+  it('is case-insensitive', () => {
+    expect(isThumbAsset('crown.glb.THUMB.PNG')).toBe(true);
+  });
+
+  it('does not match a plain model or image file', () => {
+    expect(isThumbAsset('crown.glb')).toBe(false);
+    expect(isThumbAsset('crown.png')).toBe(false);
+  });
+});
+
+describe('pairThumbnails', () => {
+  it('maps a model label to its thumbnail url', () => {
+    const map = pairThumbnails([
+      asset({ name: `${UUID}-crown.glb`, path: `${UUID}-crown.glb`, url: 'https://cdn/crown.glb' }),
+      asset({ name: `${UUID2}-crown.glb.thumb.png`, path: `${UUID2}-crown.glb.thumb.png`, url: 'https://cdn/crown-thumb.png' }),
+    ]);
+    expect(map.get('crown')).toBe('https://cdn/crown-thumb.png');
+  });
+
+  it('ignores non-thumb assets and returns an empty map', () => {
+    const map = pairThumbnails([asset({ name: `${UUID}-crown.glb` })]);
+    expect(map.size).toBe(0);
+  });
+
+  it('does not pair mismatched labels', () => {
+    const map = pairThumbnails([
+      asset({ name: `${UUID2}-tiara.glb.thumb.png`, path: `${UUID2}-tiara.glb.thumb.png`, url: 'https://cdn/tiara-thumb.png' }),
+    ]);
+    expect(map.get('crown')).toBeUndefined();
+    expect(map.get('tiara')).toBe('https://cdn/tiara-thumb.png');
   });
 });
 

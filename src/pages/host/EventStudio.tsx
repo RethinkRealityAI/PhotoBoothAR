@@ -15,7 +15,7 @@
  * same as leaving /e/:slug today.
  */
 import { useEffect, useState } from 'react';
-import { Link, Navigate, NavLink, Route, Routes, useParams } from 'react-router-dom';
+import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Check, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
   LayoutGrid, Palette, QrCode, Settings, ShieldCheck, Sparkles, Trophy, Wand2,
@@ -71,6 +71,7 @@ function GuestLinkCopy({ url }: { url: string }) {
 
 export default function EventStudio() {
   const { id = '' } = useParams<{ id: string }>();
+  const location = useLocation();
   const validId = UUID_RE.test(id);
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
 
@@ -116,6 +117,10 @@ export default function EventStudio() {
   const base = `/host/events/${id}`;
   const basePath = `/e/${event.slug}`;
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  // In Studio, the editor is full-bleed: StudioShell renders its OWN top bar
+  // (with a back arrow that exits to the Experiences/Library surface), so the
+  // event-level tab chrome + upgrade banner are hidden to avoid a double header.
+  const isStudio = location.pathname.startsWith(`${base}/studio`);
 
   const tabs = [
     { to: base, label: 'Dashboard', icon: LayoutGrid, end: true },
@@ -135,7 +140,9 @@ export default function EventStudio() {
     <StudioBaseContext.Provider value={base}>
       <EventProvider slug={event.slug} basePath={basePath}>
         <div className="absolute inset-0 flex flex-col">
-          {/* Studio top bar (adapted from AdminGate's tab strip) */}
+          {/* Event tab chrome — hidden inside Studio so its editor is full-bleed
+              and StudioShell's own header is the only top bar. */}
+          {!isStudio && (
           <nav className="h-16 shrink-0 flex items-center gap-3 px-4 liquid-glass border-b border-accent/15 z-50">
             <Link
               to="/host"
@@ -180,9 +187,10 @@ export default function EventStudio() {
             </button>
             <GuestLinkCopy url={`${origin}${basePath}`} />
           </nav>
+          )}
 
-          {/* Plan tier banner — compact upsell for non-deluxe events */}
-          <UpgradeCard eventUuid={event.id} planTier={event.plan_tier} />
+          {/* Plan tier banner — compact upsell for non-deluxe events (hidden in Studio) */}
+          {!isStudio && <UpgradeCard eventUuid={event.id} planTier={event.plan_tier} />}
 
           <main className="flex-1 relative overflow-hidden">
             <Routes>
