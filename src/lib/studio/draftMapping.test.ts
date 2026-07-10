@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { experienceToDraft, draftToPayload, isStudioKind, type UrlResolver } from './draftMapping';
+import { experienceToDraft, draftToPayload, existingUrlResolver, isStudioKind, type UrlResolver } from './draftMapping';
 import { initialDraft, createOverlay, createObject3D, type Overlay2D, type Object3D, type StudioDraft } from './state';
 import { defaultParams } from '../shaders';
 import type { Experience, ExperienceDraft } from '../../types';
@@ -319,5 +319,42 @@ describe('round-trip: composite (mixed 2D + 3D + filter slot)', () => {
     expect(payload.kind).toBe('shader');
     expect(payload.config?.shader).toEqual({ shaderId: 'champagne-sparkle', params: { uIntensity: 0.7 } });
     expect(payload.config?.ambientShader).toBeUndefined();
+  });
+});
+
+describe('existingUrlResolver (W6-C: Save as template — no re-upload)', () => {
+  it('resolves an overlay to its existing url (builtin data: url or a previously-uploaded http url)', () => {
+    const border = createOverlay('border', { url: 'data:border-svg', isBuiltin: true });
+    const sticker = createOverlay('2d_filter', { url: 'https://cdn/sticker.png', isBuiltin: false });
+    const draft: StudioDraft = { ...initialDraft('border'), objects: [border, sticker], selectedId: border.id, kind: 'border' };
+    const r = existingUrlResolver(draft);
+    expect(r).not.toBeNull();
+    expect((r as Map<string, string | null>).get(border.id)).toBe('data:border-svg');
+    expect((r as Map<string, string | null>).get(sticker.id)).toBe('https://cdn/sticker.png');
+  });
+
+  it('resolves a 3D model to its assetUrl and a procedural head piece to null', () => {
+    const model = createObject3D('model', { assetUrl: 'https://cdn/crown.glb', name: 'Model' });
+    const piece = createObject3D('headpiece', { proceduralId: 'royal-crown', name: 'Piece' });
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [model, piece], selectedId: model.id, kind: '3d_attachment' };
+    const r = existingUrlResolver(draft);
+    expect(r).not.toBeNull();
+    expect((r as Map<string, string | null>).get(model.id)).toBe('https://cdn/crown.glb');
+    expect((r as Map<string, string | null>).get(piece.id)).toBeNull();
+  });
+
+  it('returns null when any overlay carries a pending, un-uploaded blob', () => {
+    const sticker = createOverlay('2d_filter', { url: 'blob:pending', blob: new Blob(['x']), isBuiltin: false });
+    const draft: StudioDraft = { ...initialDraft('2d_filter'), objects: [sticker], selectedId: sticker.id, kind: '2d_filter' };
+    expect(existingUrlResolver(draft)).toBeNull();
+  });
+
+  it('feeds straight into draftToPayload (round-trips as a normal save would, without uploading)', () => {
+    const border = createOverlay('border', { url: 'data:border-svg', isBuiltin: true, transform: { scale: 1.1, x: 0, y: 0, rotation: 0 } });
+    const draft: StudioDraft = { ...initialDraft('border'), objects: [border], selectedId: border.id, kind: 'border' };
+    const r = existingUrlResolver(draft)!;
+    const payload = draftToPayload(draft, r, null);
+    expect(payload.asset_url).toBe('data:border-svg');
+    expect(payload.config?.transform).toEqual(border.transform);
   });
 });

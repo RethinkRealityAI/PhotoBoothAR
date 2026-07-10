@@ -18,7 +18,7 @@ import { processFrameImage, type RgbaImage } from '../../lib/studio/chromaKey';
 import { useEvent } from '../../events/EventContext';
 import type { Experience } from '../../types';
 
-/* ── Browser-side chroma-key glue (co-located; SceneDirectorPanel reuses it) ──
+/* ── Browser-side chroma-key glue (co-located; DirectorPanel reuses it) ──
  * The edge function returns a frame/sticker whose backdrop is a solid green
  * (#00FF00) chroma-key fill (greenScreen prompt). We load that PNG, key the
  * green out to transparency, contain-fit it onto the booth's 1080×1920 canvas,

@@ -66,6 +66,32 @@ function resolve(r: UrlResolver, id: string): string | null {
   return typeof r === 'function' ? r(id) : (r.get(id) ?? null);
 }
 
+/**
+ * Builds a `UrlResolver` from each object's URL ALREADY on the draft — no
+ * upload happens. Used by "Save as template" (PropertiesDock), which persists
+ * a snapshot of the CURRENT scene without re-uploading anything (unlike the
+ * shell's handleSave, which uploads builtin SVGs / pending blobs fresh on
+ * every save). Overlay objects reuse `obj.url` verbatim (a builtin's data:
+ * URL or a previously-uploaded http url); 3D objects reuse `obj.assetUrl`
+ * (null for procedural head pieces, which have no GLB asset).
+ *
+ * Returns null when any overlay still carries a pending, un-uploaded `blob`
+ * (a custom image picked but never saved) — callers should surface that as
+ * "save your experience first" rather than silently dropping the asset.
+ */
+export function existingUrlResolver(draft: StudioDraft): UrlResolver | null {
+  const map = new Map<string, string | null>();
+  for (const obj of draft.objects) {
+    if (obj.type === 'overlay') {
+      if (obj.blob) return null;
+      map.set(obj.id, obj.url ?? null);
+    } else {
+      map.set(obj.id, obj.type === 'headpiece' && obj.proceduralId ? null : (obj.assetUrl ?? null));
+    }
+  }
+  return map;
+}
+
 function anchorToStudio(a: AnchorConfig): StudioAnchorConfig {
   return {
     offset: { ...(a.offset ?? { x: 0, y: 0, z: 0 }) },

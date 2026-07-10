@@ -10,8 +10,9 @@ import { useNavigate } from 'react-router-dom';
 import {
   Pencil, Copy, Trash2, Eye, EyeOff, Star, StarOff,
   QrCode, RefreshCw, Plus, ExternalLink, Check, X,
-  ArrowUp, ArrowDown, Sparkles, Box, Globe, Minus
+  ArrowUp, ArrowDown, Sparkles, Box, Globe, Minus, FileStack
 } from 'lucide-react';
+import { isTemplate } from '../../lib/studio/assetSources';
 import { QRCodeSVG } from 'qrcode.react';
 import EventBackground from '../ui/EventBackground';
 import {
@@ -149,6 +150,10 @@ function ExperienceCard({
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { label, color } = kindLabel(exp.kind);
+  // Templates are always is_published:false by design (studio "Save as
+  // template") — showing "Unpublished" on them reads as a mistake to fix, so
+  // swap in a "Template" badge instead of that publish-state warning.
+  const isTpl = !isBuiltin && isTemplate(exp);
 
   const toggle = async (field: 'is_published' | 'featured', current: boolean) => {
     if (isBuiltin) return;
@@ -218,10 +223,17 @@ function ExperienceCard({
             </span>
           </div>
         )}
-        {!exp.is_published && !isBuiltin && !hidden && (
+        {!exp.is_published && !isBuiltin && !hidden && !isTpl && (
           <div className="absolute inset-0 flex items-center justify-center bg-noir-900/40">
             <span className="font-label text-[9px] uppercase tracking-widest text-champagne/40 bg-noir-900/60 px-2 py-1 rounded-full">
               Unpublished
+            </span>
+          </div>
+        )}
+        {isTpl && !hidden && (
+          <div className="absolute inset-0 flex items-center justify-center bg-noir-900/40">
+            <span className="font-label text-[9px] uppercase tracking-widest text-gold-300 bg-noir-900/60 px-2 py-1 rounded-full flex items-center gap-1">
+              <FileStack className="w-3 h-3" /> Template
             </span>
           </div>
         )}

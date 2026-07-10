@@ -134,3 +134,34 @@ export function filterDockItems(items: DockItem[], family: '2d' | '3d', query: s
     return item.label.toLowerCase().includes(q);
   });
 }
+
+/* -------------------------------------------------------------------- */
+/* Scene templates (W6-C) — a template is any experience saved with      */
+/* config.template:true (always is_published:false; see PropertiesDock's */
+/* "Save as template" and AssetsDock's Mine tab).                        */
+/* -------------------------------------------------------------------- */
+
+/** True for a reusable scene template (`config.template === true`). */
+export function isTemplate(exp: Experience): boolean {
+  return exp.config?.template === true;
+}
+
+/** Splits a list of experiences into templates and everything else, keeping
+ *  each group's relative order. Used by AssetsDock's Mine tab to show
+ *  templates as a distinct group ahead of the regular saved experiences. */
+export function splitTemplates(exps: Experience[]): { templates: Experience[]; rest: Experience[] } {
+  const templates: Experience[] = [];
+  const rest: Experience[] = [];
+  for (const exp of exps) (isTemplate(exp) ? templates : rest).push(exp);
+  return { templates, rest };
+}
+
+// Suffix createExperience stamps on a template's name at save time
+// (`${draft.name} (template)`) — stripped when a template is opened as a
+// fresh, untitled draft so repeated reuse doesn't pile up the suffix.
+const TEMPLATE_SUFFIX = /\s*\(template\)$/i;
+
+/** Strips a trailing " (template)" suffix (case-insensitive), if present. */
+export function stripTemplateSuffix(name: string): string {
+  return name.replace(TEMPLATE_SUFFIX, '');
+}

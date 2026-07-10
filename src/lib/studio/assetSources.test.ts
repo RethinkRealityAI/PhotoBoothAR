@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { uploadsToDockItems, experiencesToDockItems, filterDockItems, isThumbAsset, pairThumbnails, type DockItem } from './assetSources';
+import {
+  uploadsToDockItems,
+  experiencesToDockItems,
+  filterDockItems,
+  isThumbAsset,
+  pairThumbnails,
+  isTemplate,
+  splitTemplates,
+  stripTemplateSuffix,
+  type DockItem,
+} from './assetSources';
 import type { StoredAsset } from '../db';
 import type { Experience } from '../../types';
 
@@ -229,5 +239,51 @@ describe('filterDockItems', () => {
 
   it('family mismatch excludes even on label match', () => {
     expect(filterDockItems(items, '3d', 'gold')).toEqual([]);
+  });
+});
+
+describe('isTemplate', () => {
+  it('is true when config.template is exactly true', () => {
+    expect(isTemplate(experience({ config: { template: true } }))).toBe(true);
+  });
+
+  it('is false when config.template is absent, falsy, or truthy-but-not-boolean-true', () => {
+    expect(isTemplate(experience({ config: {} }))).toBe(false);
+    expect(isTemplate(experience({ config: { template: false } }))).toBe(false);
+    expect(isTemplate(experience({ config: { template: undefined } }))).toBe(false);
+  });
+});
+
+describe('splitTemplates', () => {
+  it('separates templates from regular experiences, preserving relative order', () => {
+    const t1 = experience({ id: 't1', name: 'Birthday (template)', config: { template: true } });
+    const e1 = experience({ id: 'e1', name: 'Gala Frame', config: {} });
+    const t2 = experience({ id: 't2', name: 'Wedding (template)', config: { template: true } });
+    const e2 = experience({ id: 'e2', name: 'Sticker Pack', config: {} });
+    const { templates, rest } = splitTemplates([t1, e1, t2, e2]);
+    expect(templates.map((e) => e.id)).toEqual(['t1', 't2']);
+    expect(rest.map((e) => e.id)).toEqual(['e1', 'e2']);
+  });
+
+  it('returns empty arrays for an empty input', () => {
+    expect(splitTemplates([])).toEqual({ templates: [], rest: [] });
+  });
+});
+
+describe('stripTemplateSuffix', () => {
+  it('strips a trailing " (template)" suffix', () => {
+    expect(stripTemplateSuffix('Birthday Bash (template)')).toBe('Birthday Bash');
+  });
+
+  it('is case-insensitive', () => {
+    expect(stripTemplateSuffix('Birthday Bash (TEMPLATE)')).toBe('Birthday Bash');
+  });
+
+  it('leaves a name with no suffix untouched', () => {
+    expect(stripTemplateSuffix('Birthday Bash')).toBe('Birthday Bash');
+  });
+
+  it('only strips a trailing occurrence, not one mid-name', () => {
+    expect(stripTemplateSuffix('My (template) Frame')).toBe('My (template) Frame');
   });
 });

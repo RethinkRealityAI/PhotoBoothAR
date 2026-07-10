@@ -10,7 +10,7 @@
  * tab and pointer drag-and-drop onto the stage.)
  */
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { Boxes, Crown, Gem, Glasses, Image as ImageIcon, LayoutTemplate, Loader2, Search, Sparkles, Sun, Upload, X } from 'lucide-react';
+import { Boxes, Crown, FileStack, Gem, Glasses, Image as ImageIcon, LayoutTemplate, Loader2, Search, Sparkles, Sun, Upload, X } from 'lucide-react';
 import { FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { HEAD_PIECES } from '../../lib/headPieces';
@@ -20,12 +20,20 @@ import { captureGlbThumbnail } from '../../lib/studio/glbThumb';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
 import { selectedObject, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
+import { experienceToDraft } from '../../lib/studio/draftMapping';
 import { SectionLabel } from './StudioControls';
 import AiFramePanel from './AiFramePanel';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
 import type { DragPayload } from './useStudioDnd';
 import type { Experience } from '../../types';
-import { uploadsToDockItems, experiencesToDockItems, filterDockItems, type DockItem } from '../../lib/studio/assetSources';
+import {
+  uploadsToDockItems,
+  experiencesToDockItems,
+  filterDockItems,
+  splitTemplates,
+  stripTemplateSuffix,
+  type DockItem,
+} from '../../lib/studio/assetSources';
 
 interface Props {
   state: StudioState;
@@ -89,6 +97,13 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const [query, setQuery] = useState('');
   const [uploads, setUploads] = useState<SourceState>(IDLE_SOURCE);
   const [mine, setMine] = useState<SourceState>(IDLE_SOURCE);
+  // Mine's "Templates" group — full Experience rows (not DockItems): a
+  // template can be any kind (composite/shader included), which
+  // experiencesToDockItems intentionally skips as "not placeable" — a
+  // template isn't placed as a layer, it replaces the whole draft (see
+  // useTemplate below). Kept separate from `mine` so it renders as its own
+  // group ahead of the regular (non-template) Mine items.
+  const [mineTemplates, setMineTemplates] = useState<Experience[]>([]);
   // Which catalog category the Library is browsing (pure UI — no draft coupling).
   // Starts on 'filter' to match a fresh draft's pre-selected filter, so the two
   // panels agree at first glance.
@@ -111,13 +126,32 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
 
   const loadMine = useCallback(() => {
     setMine({ status: 'loading', items: [] });
+    setMineTemplates([]);
     fetchExperiences(eventId)
-      .then((exps) => setMine({ status: 'ready', items: experiencesToDockItems(exps.filter((e) => e.id !== draft.id)) }))
+      .then((exps) => {
+        const { templates, rest } = splitTemplates(exps.filter((e) => e.id !== draft.id));
+        setMineTemplates(templates);
+        setMine({ status: 'ready', items: experiencesToDockItems(rest) });
+      })
       .catch(() => setMine({ status: 'error', items: [] }));
   }, [eventId, draft.id]);
   useEffect(() => {
     if (subTab === 'mine' && mine.status === 'idle') loadMine();
   }, [subTab, mine.status, loadMine]);
+
+  // Opens a template as a fresh, unsaved draft — NOT add-as-layer like the
+  // rest of Mine (a template can be a whole composite/shader scene, not a
+  // single placeable asset). Strips the id (LOAD clears history + `dirty`,
+  // making it a genuinely new draft) and the " (template)" name suffix
+  // PropertiesDock's "Save as template" stamped on save.
+  const useTemplate = useCallback((exp: Experience) => {
+    if (state.dirty && !window.confirm('Discard unsaved changes and start from this template?')) return;
+    const loaded = experienceToDraft(exp);
+    if (!loaded) return;
+    const { id: _id, ...rest } = loaded;
+    void _id;
+    dispatch({ type: 'LOAD', draft: { ...rest, name: stripTemplateSuffix(exp.name) } });
+  }, [state.dirty, dispatch]);
 
   // Click-to-add for an Uploads/Mine dock item — mirrors the built-in library's
   // click handlers (SET_OVERLAY_UPLOAD / SELECT_HEAD_PIECE / SET_MODEL_ASSET),
@@ -500,8 +534,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
 
       {/* MINE tab */}
       {subTab === 'mine' && (
-        <div>
-          <SectionLabel>Your experiences</SectionLabel>
+        <div className="flex flex-col gap-4">
           {mine.status === 'loading' && (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-4 h-4 animate-spin text-brand-muted/40" />
@@ -513,9 +546,48 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
               <button onClick={loadMine} className="text-[9px] font-label uppercase tracking-widest text-brand-muted/50 hover:text-accent-2 transition-colors">Retry</button>
             </div>
           )}
-          {mine.status === 'ready' && renderSourceList(
-            filterDockItems(mine.items, family, query),
-            query ? 'No matches.' : 'No saved experiences yet.',
+          {mine.status === 'ready' && (
+            <>
+              {/* Templates — always first, and never add-as-layer: clicking one
+                  starts a brand-new draft from it (see useTemplate above). */}
+              {(() => {
+                const q = query.trim().toLowerCase();
+                const templates = q ? mineTemplates.filter((t) => t.name.toLowerCase().includes(q)) : mineTemplates;
+                if (templates.length === 0) return null;
+                return (
+                  <div>
+                    <SectionLabel><span className="inline-flex items-center gap-1.5"><FileStack className="w-3 h-3 text-accent-2" /> Templates</span></SectionLabel>
+                    <div className="flex flex-col gap-1.5">
+                      {templates.map((exp) => (
+                        <button
+                          key={exp.id}
+                          onClick={() => useTemplate(exp)}
+                          title="Start a new experience from this template"
+                          className="group flex items-center gap-2 w-full rounded-lg px-2 py-1.5 bg-accent/[0.06] hover:bg-accent/[0.12] border border-accent/15 hover:border-accent/30 transition-colors text-left"
+                        >
+                          <div className="w-8 h-8 rounded-md overflow-hidden bg-white/[0.04] flex items-center justify-center shrink-0">
+                            {exp.thumbnail_url ? (
+                              <img src={exp.thumbnail_url} alt="" draggable={false} className="w-full h-full object-cover" />
+                            ) : (
+                              <FileStack className="w-3.5 h-3.5 text-accent-2/60" />
+                            )}
+                          </div>
+                          <span className="text-[11px] font-sans truncate flex-1 min-w-0 text-brand-fg">{stripTemplateSuffix(exp.name)}</span>
+                          <span className="font-label text-[7px] uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">Template</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+              <div>
+                <SectionLabel>Your experiences</SectionLabel>
+                {renderSourceList(
+                  filterDockItems(mine.items, family, query),
+                  query ? 'No matches.' : 'No saved experiences yet.',
+                )}
+              </div>
+            </>
           )}
         </div>
       )}

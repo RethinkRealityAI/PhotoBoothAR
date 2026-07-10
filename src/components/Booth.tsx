@@ -51,6 +51,8 @@ import { savePhoto, addCompletedChallenge, setGuestName } from '../lib/session';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
 import { useEntitlements } from '../lib/entitlements';
 import { dataUrlToBlob } from './booth/capture';
+import RevealShimmer from './booth/RevealShimmer';
+import { REVEAL_SHIMMER_MS } from '../lib/studio/reveal';
 import type { Transform2D, Experience, AnchorConfig, Challenge } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,6 +71,14 @@ type TimerOption = 0 | 3 | 5 | 10;
 const TIMER_OPTIONS: TimerOption[] = [0, 3, 5, 10];
 const VIDEO_MAX_MS = 30_000;
 const DEFAULT_TRANSFORM: Transform2D = { scale: 1, x: 0, y: 0, rotation: 0 };
+
+function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -261,6 +271,31 @@ export default function Booth() {
       if (outgoingAmbient) setEffectId((cur) => (cur === outgoingAmbient ? 'none' : cur));
     }
   }, [frameExp, attachExp]);
+
+  // ── Reveal moment ─────────────────────────────────────────────────────
+  // A transient ~600ms "magically appears" entrance whenever the guest's
+  // frameExp/attachExp SELECTION actually changes to a NEW db-sourced
+  // experience — never on deselection, never for a bare filter/effectId
+  // pick. Same source==='db' safety gate as the occlusion gate above
+  // (attachExp!.config?.occlusion, wired to Overlay3D below): legacy/code
+  // events never flip `reveal` true, so their rendering is byte-identical.
+  const [reveal, setReveal] = useState(false);
+  const prevSelectionRef = useRef<string | null>(null);
+  const revealTimeoutRef = useRef<number | null>(null);
+  useEffect(() => {
+    const sig = frameExp || attachExp ? `${frameExp?.id ?? ''}|${attachExp?.id ?? ''}` : null;
+    const prevSig = prevSelectionRef.current;
+    prevSelectionRef.current = sig;
+    if (source !== 'db') return;            // legacy/code events: never
+    if (!sig || sig === prevSig) return;     // deselecting, or unchanged: never
+    if (prefersReducedMotion()) return;      // a11y: apply instantly, no animated entrance
+    setReveal(true);
+    if (revealTimeoutRef.current) window.clearTimeout(revealTimeoutRef.current);
+    revealTimeoutRef.current = window.setTimeout(() => setReveal(false), REVEAL_SHIMMER_MS);
+  }, [frameExp, attachExp, source]);
+  useEffect(() => () => {
+    if (revealTimeoutRef.current) window.clearTimeout(revealTimeoutRef.current);
+  }, []);
 
   // ── Derived flags ─────────────────────────────────────────────────────
   const isFront = facingMode === 'user';
@@ -623,6 +658,7 @@ export default function Booth() {
                     headScale={studioCfg.headScale}
                     onFaceVisible={setFaceVisible}
                     pieces={overlayPieces}
+                    reveal={reveal}
                   />
                 )}
               </div>
@@ -649,6 +685,14 @@ export default function Booth() {
                 className="absolute inset-0 pointer-events-none"
                 style={{ background: 'radial-gradient(120% 90% at 50% 38%, transparent 58%, rgba(0,0,0,0.4) 100%)' }}
               />
+              {/* Reveal moment — transient DOM sibling only, never sampled by
+                  StageCanvas.drawFrame (which only reads the video/shader/
+                  three-canvas/overlay-image sources), so it cannot affect
+                  capturePhoto's pixels either way. Unmounts completely via
+                  AnimatePresence once `reveal` flips back to false. */}
+              <AnimatePresence>
+                {reveal && <RevealShimmer key="reveal-shimmer" />}
+              </AnimatePresence>
             </div>
           </div>
 

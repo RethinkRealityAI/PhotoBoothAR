@@ -3,7 +3,7 @@
  * Uses FaceRig to parent a GLB model OR a built-in procedural head piece at the
  * selected head anchor. `mirror` must match the video feed (true for selfie).
  */
-import { useRef, type ReactNode } from 'react';
+import { useRef, useEffect, type ReactNode } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import type { Group } from 'three';
 import { FaceRig, Model } from '../ar/FaceRig';
@@ -11,6 +11,7 @@ import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
 import { RIG_CAMERA } from '../../lib/faceRig';
 import { AnchorConfig, LayerAnimation } from '../../types';
 import { animate3D } from '../../lib/studio/animation';
+import { revealScaleAt } from '../../lib/studio/reveal';
 
 /** One piece of a multi-object 3D scene (studio `config.layers`). */
 export interface Overlay3DPiece {
@@ -42,6 +43,16 @@ interface Props {
    * today's single-piece path.
    */
   pieces?: Overlay3DPiece[] | null;
+  /**
+   * Booth's transient "reveal" flag: true for a short window right after the
+   * guest applies a NEW db-sourced experience selection. On the RISING EDGE
+   * (false->true, or already true on first mount of this piece), every piece
+   * plays a one-shot 0.6->1 scale-in spring that composes multiplicatively
+   * with its own animate3D preset and settles to EXACTLY 1 — capture parity
+   * is unaffected once it settles. Default false -> byte-identical to today
+   * for every call site that doesn't pass it.
+   */
+  reveal?: boolean;
 }
 
 /**
@@ -49,21 +60,41 @@ interface Props {
  * every frame — the offset composes on top of the parent FaceRig/AssetGizmo
  * group's static anchor transform, so it animates the asset around its own
  * pivot, never the tracked head group itself.
+ *
+ * When `reveal` is true, ALSO plays a one-shot 0.6->1 scale-in spring on top
+ * (multiplicative with the animation preset's own scaleMul). The spring is
+ * edge-triggered: it starts once, on the first frame `reveal` is true, and
+ * then runs to completion from its own captured start time regardless of
+ * whether the `reveal` prop later flips back to false — it self-terminates
+ * at scale 1 (see revealScaleAt), it never needs to be told to stop. `reveal`
+ * undefined/false forever -> revealStartRef never set -> revealMul is always
+ * exactly 1 -> byte-identical to the pre-reveal behavior.
  */
-function AnimatedPiece({ animation, children }: { animation?: LayerAnimation; children: ReactNode }) {
+function AnimatedPiece({ animation, reveal, children }: { animation?: LayerAnimation; reveal?: boolean; children: ReactNode }) {
   const ref = useRef<Group>(null);
+  const revealStartRef = useRef<number | null>(null);
+  const wasRevealRef = useRef(false);
+
+  useEffect(() => {
+    if (reveal && !wasRevealRef.current) revealStartRef.current = performance.now();
+    wasRevealRef.current = !!reveal;
+  }, [reveal]);
+
   useFrame(() => {
     const g = ref.current;
     if (!g) return;
     const a = animate3D(animation ?? 'none', performance.now() / 1000);
+    const start = revealStartRef.current;
+    const revealMul = start === null ? 1 : revealScaleAt(performance.now() - start);
+    const s = a.scaleMul * revealMul;
     g.position.set(a.position[0], a.position[1], a.position[2]);
     g.rotation.y = a.rotationY;
-    g.scale.set(a.scaleMul, a.scaleMul, a.scaleMul);
+    g.scale.set(s, s, s);
   });
   return <group ref={ref}>{children}</group>;
 }
 
-export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, pieces }: Props) {
+export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, pieces, reveal = false }: Props) {
   // First piece whose occlude===true wins the (single, non-duplicated) occluder.
   const occluderIdx = pieces ? pieces.findIndex((p) => p.occlude === true) : -1;
   return (
@@ -90,7 +121,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
               headScale={headScale}
               onVisibilityChange={i === 0 ? onFaceVisible : undefined}
             >
-              <AnimatedPiece animation={p.animation}>
+              <AnimatedPiece animation={p.animation} reveal={reveal}>
                 {isHeadPiece(p.proceduralId) ? (
                   <HeadPiece id={p.proceduralId as string} />
                 ) : p.assetUrl ? (
@@ -101,11 +132,18 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
           ))
         ) : (
           <FaceRig videoId={videoId} anchor={anchor.anchor} config={anchor} mirror={mirror} occlude={occlude} headScale={headScale} onVisibilityChange={onFaceVisible}>
-            {isHeadPiece(proceduralId) ? (
-              <HeadPiece id={proceduralId as string} />
-            ) : assetUrl ? (
-              <Model url={assetUrl} />
-            ) : null}
+            {/* No `animation` prop on the single-piece path (that field only
+                exists on studio `config.layers` pieces above) — this wrapper
+                exists solely to carry the reveal scale-in; with reveal=false
+                (or undefined) it is the identity transform, so this is
+                byte-identical to rendering the children unwrapped. */}
+            <AnimatedPiece reveal={reveal}>
+              {isHeadPiece(proceduralId) ? (
+                <HeadPiece id={proceduralId as string} />
+              ) : assetUrl ? (
+                <Model url={assetUrl} />
+              ) : null}
+            </AnimatedPiece>
           </FaceRig>
         )}
       </Canvas>

@@ -100,6 +100,9 @@ export interface ExperienceConfig {
   scene?: string;
   /** Per-experience head-occlusion opt-IN — only exactly `true` occludes. */
   occlusion?: boolean;
+  /** True for a reusable scene template (studio "Save as template") — always
+   *  paired with is_published:false so it never reaches the guest booth. */
+  template?: boolean;
 }
 
 export interface Experience {

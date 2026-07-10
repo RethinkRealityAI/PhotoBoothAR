@@ -11,16 +11,19 @@
  * Plus shared name / booth-icon / published / featured controls. All per-object
  * controls operate on selectedObject(draft).
  */
-import { useMemo, type ChangeEvent } from 'react';
+import { useCallback, useMemo, useState, type ChangeEvent } from 'react';
 import {
   Boxes,
+  Check,
   ChevronDown,
   ChevronUp,
   Crown,
   Eye,
   EyeOff,
+  FileStack,
   Image as ImageIcon,
   LayoutTemplate,
+  Loader2,
   RotateCcw,
   Ruler,
   Star,
@@ -41,6 +44,9 @@ import {
   type StudioObject,
   type StudioState,
 } from '../../lib/studio/state';
+import { draftToPayload, existingUrlResolver } from '../../lib/studio/draftMapping';
+import { createExperience } from '../../lib/db';
+import { useEvent } from '../../events/EventContext';
 import type { LayerAnimation } from '../../types';
 import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
 import Tooltip from '../ui/Tooltip';
@@ -120,6 +126,45 @@ function EditingCaption({ name }: { name: string }) {
 
 export default function PropertiesDock({ state, dispatch, headScale, onHeadScaleChange, onThumbUpload, onThumbClear }: Props) {
   const { draft } = state;
+  const { eventId } = useEvent();
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateSaved, setTemplateSaved] = useState(false);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+
+  // "Save as template" — persists a SNAPSHOT of the current draft as a new,
+  // always-unpublished experience with config.template:true (so it can never
+  // surface in the guest booth — see catalog.ts's is_published filter) that
+  // AssetsDock's Mine tab lists as a reusable starting point. Reuses each
+  // object's URL as-is (existingUrlResolver) rather than re-uploading, so an
+  // object with a pending un-uploaded blob blocks the save with a clear ask.
+  const handleSaveTemplate = useCallback(async () => {
+    setTemplateError(null);
+    const resolver = existingUrlResolver(draft);
+    if (!resolver) {
+      setTemplateError('Save your experience first.');
+      return;
+    }
+    setTemplateSaving(true);
+    try {
+      const thumbnailUrl = draft.thumbUrl && draft.thumbUrl.startsWith('http') ? draft.thumbUrl : null;
+      const payload = draftToPayload(draft, resolver, thumbnailUrl);
+      payload.name = `${draft.name} (template)`;
+      payload.is_published = false;
+      payload.config = { ...payload.config, template: true };
+      const result = await createExperience(eventId, payload);
+      if (!result) {
+        setTemplateError('Save failed — try again.');
+      } else {
+        setTemplateSaved(true);
+        setTimeout(() => setTemplateSaved(false), 2400);
+      }
+    } catch (err) {
+      console.error('[PropertiesDock] save template', err);
+      setTemplateError('Unexpected error — see console.');
+    } finally {
+      setTemplateSaving(false);
+    }
+  }, [draft, eventId]);
   const shaderDef = useMemo(() => SHADER_MAP[draft.shaderId], [draft.shaderId]);
   // Mixed scenes: the filter slot (shaderId !== 'none') and the objects list are
   // independent — filter params show whenever a filter is set, the layers/selection/
@@ -390,24 +435,38 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
           nothing to guests, and the empty-state hint is the only guidance the
           panel should give at that point. */}
       {(hasObjects || filterActive) && (
-      <div className="flex items-center gap-2 border-t border-white/10 pt-4">
-        <Tooltip label={draft.isPublished ? 'Live' : 'Hidden'} hint="Whether guests can pick this in the booth">
-          <button
-            onClick={() => dispatch({ type: 'TOGGLE_PUBLISHED' })}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-label uppercase tracking-widest transition-colors ${draft.isPublished ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.04] text-brand-muted/50 hover:text-brand-fg'}`}
-          >
-            {draft.isPublished ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-            {draft.isPublished ? 'Live' : 'Hidden'}
-          </button>
-        </Tooltip>
-        <Tooltip label={draft.featured ? 'Featured' : 'Not featured'} hint="Featured pieces surface first in the booth">
-          <button
-            onClick={() => dispatch({ type: 'TOGGLE_FEATURED' })}
-            className={`flex items-center justify-center w-9 h-9 rounded-xl transition-colors ${draft.featured ? 'bg-accent/15 text-accent-2' : 'bg-white/[0.04] text-brand-muted/40 hover:text-brand-fg'}`}
-          >
-            <Star className={`w-4 h-4 ${draft.featured ? 'fill-current' : ''}`} />
-          </button>
-        </Tooltip>
+      <div className="flex flex-col gap-2 border-t border-white/10 pt-4">
+        <div className="flex items-center gap-2">
+          <Tooltip label={draft.isPublished ? 'Live' : 'Hidden'} hint="Whether guests can pick this in the booth">
+            <button
+              onClick={() => dispatch({ type: 'TOGGLE_PUBLISHED' })}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-label uppercase tracking-widest transition-colors ${draft.isPublished ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.04] text-brand-muted/50 hover:text-brand-fg'}`}
+            >
+              {draft.isPublished ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+              {draft.isPublished ? 'Live' : 'Hidden'}
+            </button>
+          </Tooltip>
+          <Tooltip label={draft.featured ? 'Featured' : 'Not featured'} hint="Featured pieces surface first in the booth">
+            <button
+              onClick={() => dispatch({ type: 'TOGGLE_FEATURED' })}
+              className={`flex items-center justify-center w-9 h-9 rounded-xl transition-colors ${draft.featured ? 'bg-accent/15 text-accent-2' : 'bg-white/[0.04] text-brand-muted/40 hover:text-brand-fg'}`}
+            >
+              <Star className={`w-4 h-4 ${draft.featured ? 'fill-current' : ''}`} />
+            </button>
+          </Tooltip>
+          <Tooltip label="Save as template" hint="Saves a reusable copy of this scene to start new experiences from — never shown to guests">
+            <button
+              onClick={handleSaveTemplate}
+              disabled={templateSaving}
+              aria-label="Save as template"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-label uppercase tracking-widest bg-white/[0.04] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-50"
+            >
+              {templateSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : templateSaved ? <Check className="w-3.5 h-3.5" /> : <FileStack className="w-3.5 h-3.5" />}
+              {templateSaving ? 'Saving…' : templateSaved ? 'Saved' : 'Template'}
+            </button>
+          </Tooltip>
+        </div>
+        {templateError && <p className="text-[9px] text-rose-400 font-sans">{templateError}</p>}
       </div>
       )}
 
