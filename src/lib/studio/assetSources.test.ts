@@ -8,10 +8,20 @@ import {
   isTemplate,
   splitTemplates,
   stripTemplateSuffix,
+  isGenerated,
+  splitExperiences,
+  dockItemKind,
+  dockItemMatchesChip,
+  filterDockByChip,
   type DockItem,
+  type AssetChip,
 } from './assetSources';
 import type { StoredAsset } from '../db';
-import type { Experience } from '../../types';
+import type { Experience, ExperienceConfig } from '../../types';
+
+// `generated` is a server-set provenance flag intentionally absent from the
+// ExperienceConfig type (see isGenerated) — cast so the test can set it.
+const generatedConfig = (v: boolean): ExperienceConfig => ({ generated: v }) as ExperienceConfig;
 
 const UUID = '11111111-2222-3333-4444-555555555555';
 const UUID2 = '66666666-7777-8888-9999-000000000000';
@@ -285,5 +295,96 @@ describe('stripTemplateSuffix', () => {
 
   it('only strips a trailing occurrence, not one mid-name', () => {
     expect(stripTemplateSuffix('My (template) Frame')).toBe('My (template) Frame');
+  });
+});
+
+describe('isGenerated', () => {
+  it('is true when config.generated is exactly true', () => {
+    expect(isGenerated(experience({ config: generatedConfig(true) }))).toBe(true);
+  });
+
+  it('is false when config.generated is absent, false, or non-boolean-true', () => {
+    expect(isGenerated(experience({ config: {} }))).toBe(false);
+    expect(isGenerated(experience({ config: generatedConfig(false) }))).toBe(false);
+    expect(isGenerated(experience({ config: { generated: 1 } as unknown as ExperienceConfig }))).toBe(false);
+  });
+});
+
+describe('splitExperiences', () => {
+  it('partitions into templates, generated, and mine, preserving relative order', () => {
+    const t = experience({ id: 't', name: 'Tmpl (template)', config: { template: true } });
+    const g = experience({ id: 'g', name: 'AI Frame', config: generatedConfig(true) });
+    const m = experience({ id: 'm', name: 'Hand-made', config: {} });
+    const g2 = experience({ id: 'g2', name: 'AI Sticker', config: generatedConfig(true) });
+    const { templates, generated, mine } = splitExperiences([t, g, m, g2]);
+    expect(templates.map((e) => e.id)).toEqual(['t']);
+    expect(generated.map((e) => e.id)).toEqual(['g', 'g2']);
+    expect(mine.map((e) => e.id)).toEqual(['m']);
+  });
+
+  it('classifies a template that is also AI-generated as a template (templates win)', () => {
+    const both = experience({ id: 'b', config: { template: true, generated: true } as unknown as ExperienceConfig });
+    const { templates, generated } = splitExperiences([both]);
+    expect(templates.map((e) => e.id)).toEqual(['b']);
+    expect(generated).toEqual([]);
+  });
+
+  it('returns empty arrays for empty input', () => {
+    expect(splitExperiences([])).toEqual({ templates: [], generated: [], mine: [] });
+  });
+});
+
+describe('dockItemKind', () => {
+  const item = (family: '2d' | '3d', payload: DockItem['payload']): DockItem => ({
+    id: 'x', label: 'x', source: 'upload', family, previewUrl: null, payload,
+  });
+
+  it('is 3d for any 3D-family item', () => {
+    expect(dockItemKind(item('3d', { assetUrl: 'a.glb' }))).toBe('3d');
+    expect(dockItemKind(item('3d', { proceduralId: 'royal-crown' }))).toBe('3d');
+  });
+
+  it('reads the overlayKind for classified 2D items', () => {
+    expect(dockItemKind(item('2d', { overlayKind: 'border', url: 'u' }))).toBe('frame');
+    expect(dockItemKind(item('2d', { overlayKind: '2d_filter', url: 'u' }))).toBe('sticker');
+  });
+
+  it('is image for a bare 2D upload with no overlayKind', () => {
+    expect(dockItemKind(item('2d', { url: 'u' }))).toBe('image');
+  });
+});
+
+describe('dockItemMatchesChip / filterDockByChip', () => {
+  const items: DockItem[] = [
+    { id: 'frame', label: 'Gold Frame', source: 'experience', family: '2d', previewUrl: null, payload: { overlayKind: 'border', url: 'u' } },
+    { id: 'sticker', label: 'Confetti', source: 'experience', family: '2d', previewUrl: null, payload: { overlayKind: '2d_filter', url: 'u' } },
+    { id: 'model', label: 'Crown', source: 'upload', family: '3d', previewUrl: null, payload: { assetUrl: 'c.glb' } },
+    { id: 'image', label: 'Loose PNG', source: 'upload', family: '2d', previewUrl: null, payload: { url: 'u' } },
+  ];
+  const ids = (chip: AssetChip) => filterDockByChip(items, chip, '').map((i) => i.id).sort();
+
+  it('all keeps every item', () => {
+    expect(ids('all')).toEqual(['frame', 'image', 'model', 'sticker']);
+  });
+
+  it('filter keeps no DockItem (shaders are not dock items)', () => {
+    expect(ids('filter')).toEqual([]);
+  });
+
+  it('3d keeps only 3D-family items', () => {
+    expect(ids('3d')).toEqual(['model']);
+  });
+
+  it('frame keeps frames and bare images (an image can be a frame)', () => {
+    expect(ids('frame')).toEqual(['frame', 'image']);
+  });
+
+  it('sticker keeps stickers and bare images (an image can be a sticker)', () => {
+    expect(ids('sticker')).toEqual(['image', 'sticker']);
+  });
+
+  it('applies the case-insensitive label substring on top of the chip', () => {
+    expect(filterDockByChip(items, 'all', 'GOLD').map((i) => i.id)).toEqual(['frame']);
+    expect(filterDockByChip(items, 'frame', 'confetti')).toEqual([]); // right query, wrong chip
   });
 });

@@ -2,16 +2,31 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * AssetsDock — the studio's left panel. Mode-aware source library:
- *   • 2D → experience-type selector, built-in frames/stickers, custom upload,
- *          AI frame generation
- *   • 3D → head-piece presets, GLB upload, anchor picker, AI 3D generation
- * Click-to-add wires each source into the reducer. (P3 adds a bucket-assets
- * tab and pointer drag-and-drop onto the stage.)
+ * AssetsDock — the studio's left panel: ONE scrollable "My Assets" surface that
+ * shows the host's full breadth of placeable assets at once, no tabs. A sticky
+ * header (search + kind chips: All · Frames · Stickers · Filters · 3D) filters
+ * every section together. Sections, in order:
+ *   • Studio Library — the built-ins: frames, stickers, filters, head pieces
+ *     (collapsible sub-groups with counts, default expanded).
+ *   • Generated — AI-created experiences (config.generated, server-set marker).
+ *   • Uploads — bucket file uploads + the image/GLB upload buttons + the host's
+ *     own hand-made saved experiences ("My experiences").
+ *   • Templates — reusable scene templates (open as a fresh draft; confirm-on-dirty).
+ * Plus a collapsible "AI generate" block up top (frame/sticker via AiFramePanel,
+ * 3D via AiGeneratePanel), adapting to the active chip.
+ *
+ * Clicking any tile ADDS it to the scene instantly (the reducer selects the new
+ * object and flips the stage view to fit) AND expands a compact settings card
+ * directly below that tile's row, bound to the CURRENT selection (selectedObject)
+ * — attachment point + size + occlusion for 3D pieces, size + rotation for
+ * frames/stickers, params for filters. Full properties still live in the right
+ * dock. Drag-onto-canvas still works (beginDrag / consumedDrag guards preserved).
+ * The GLB add is async (measure-then-dispatch) — the tile shows an "adding" spinner
+ * while it's in flight and the expander binds to selection, which lands with it.
  */
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { Boxes, Crown, FileStack, Gem, Glasses, Image as ImageIcon, LayoutTemplate, Loader2, Search, Sparkles, Sun, Upload, X } from 'lucide-react';
-import { FILTER_SHADERS, defaultParams } from '../../lib/shaders';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { Boxes, ChevronDown, ChevronRight, Crown, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Search, Sparkles, Sun, Upload, Wand2, X } from 'lucide-react';
+import { FILTER_SHADERS, SHADER_MAP, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { HEAD_PIECES } from '../../lib/headPieces';
 import { ANCHOR_PRESETS } from '../../lib/faceRig';
@@ -21,7 +36,7 @@ import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
 import { selectedObject, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
 import { experienceToDraft } from '../../lib/studio/draftMapping';
-import { SectionLabel } from './StudioControls';
+import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
 import AiFramePanel from './AiFramePanel';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
 import type { DragPayload } from './useStudioDnd';
@@ -29,10 +44,11 @@ import type { Experience } from '../../types';
 import {
   uploadsToDockItems,
   experiencesToDockItems,
-  filterDockItems,
-  splitTemplates,
+  splitExperiences,
+  filterDockByChip,
   stripTemplateSuffix,
   type DockItem,
+  type AssetChip,
 } from '../../lib/studio/assetSources';
 
 interface Props {
@@ -43,24 +59,9 @@ interface Props {
   consumedDrag: () => boolean;
 }
 
-/**
- * The dock's category tabs are pure CATALOG CATEGORIES — local UI state that
- * only picks which library section to browse. They never touch the draft, are
- * never locked, and nothing about them is destructive: clicking a catalog item
- * adds/swaps per the reducer's own rules (which also flip the view to fit).
- */
-type Category = 'filter' | 'frame' | 'sticker' | '3d';
-const CATEGORY_TABS: { id: Category; label: string; icon: typeof Sparkles }[] = [
-  { id: 'filter', label: 'Filter', icon: Sparkles },
-  { id: 'frame', label: 'Frame', icon: LayoutTemplate },
-  { id: 'sticker', label: 'Sticker', icon: ImageIcon },
-  { id: '3d', label: '3D', icon: Boxes },
-];
-
 // Head pieces are procedural (no image asset) — a distinctive icon per piece
-// keeps the catalog reading as a visual grid rather than text pills, matching
-// the built-in frame/sticker tiles. Falls back to the generic 3D glyph for any
-// future piece added to headPieces.ts without an icon here.
+// keeps the catalog reading as a visual grid rather than text pills. Falls back
+// to the generic 3D glyph for any future piece added without an icon here.
 const HEAD_PIECE_ICONS: Record<string, typeof Crown> = {
   'royal-crown': Crown,
   'queen-tiara': Gem,
@@ -69,18 +70,33 @@ const HEAD_PIECE_ICONS: Record<string, typeof Crown> = {
   'neon-shades': Glasses,
 };
 
-type SourceTabId = 'library' | 'uploads' | 'mine';
-const SOURCE_TABS: { id: SourceTabId; label: string }[] = [
-  { id: 'library', label: 'Library' },
-  { id: 'uploads', label: 'Uploads' },
-  { id: 'mine', label: 'Mine' },
+// The kind filter chips across the whole surface — pure browsing UI (never
+// touches the draft). 'filter' shows only the built-in shader list.
+const KIND_CHIPS: { id: AssetChip; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'frame', label: 'Frames' },
+  { id: 'sticker', label: 'Stickers' },
+  { id: 'filter', label: 'Filters' },
+  { id: '3d', label: '3D' },
 ];
 
-interface SourceState {
-  status: 'idle' | 'loading' | 'ready' | 'error';
-  items: DockItem[];
+type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
+interface UploadsState { status: LoadStatus; items: DockItem[] }
+interface ExperiencesState { status: LoadStatus; templates: Experience[]; generated: DockItem[]; mine: DockItem[] }
+
+// A normalized tile — every grid section (built-ins, head pieces, generated,
+// uploads, mine) renders through renderTiles so the inline settings card can be
+// injected uniformly below the clicked tile's row.
+interface Tile {
+  key: string;
+  label: string;
+  previewUrl: string | null;
+  active: boolean;
+  fallbackIcon: typeof Boxes;
+  drag: DragPayload;
+  pending: boolean;
+  onAdd: () => void;
 }
-const IDLE_SOURCE: SourceState = { status: 'idle', items: [] };
 
 export default function AssetsDock({ state, dispatch, onOpenExperience, beginDrag, consumedDrag }: Props) {
   const { draft } = state;
@@ -91,89 +107,74 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
 
   const show3dAi = source === 'db' && entitlements.aiStudio;
 
-  // Source sub-tabs (Library / Uploads / Mine) — Uploads and Mine are fetched
-  // lazily on first open and cached for the life of this shell mount.
-  const [subTab, setSubTab] = useState<SourceTabId>('library');
+  const [chip, setChip] = useState<AssetChip>('all');
   const [query, setQuery] = useState('');
-  const [uploads, setUploads] = useState<SourceState>(IDLE_SOURCE);
-  const [mine, setMine] = useState<SourceState>(IDLE_SOURCE);
-  // Mine's "Templates" group — full Experience rows (not DockItems): a
-  // template can be any kind (composite/shader included), which
-  // experiencesToDockItems intentionally skips as "not placeable" — a
-  // template isn't placed as a layer, it replaces the whole draft (see
-  // useTemplate below). Kept separate from `mine` so it renders as its own
-  // group ahead of the regular (non-template) Mine items.
-  const [mineTemplates, setMineTemplates] = useState<Experience[]>([]);
-  // Which catalog category the Library is browsing (pure UI — no draft coupling).
-  // Starts on 'filter' to match a fresh draft's pre-selected filter, so the two
-  // panels agree at first glance.
-  const [category, setCategory] = useState<Category>('filter');
-  const family: '2d' | '3d' = category === '3d' ? '3d' : '2d';
+  const [aiOpen, setAiOpen] = useState(false);
+  // Which tile's inline settings card is expanded (section-prefixed key so ids
+  // never collide across sections), and a model tile whose async GLB measure is
+  // still in flight (drives the "adding" spinner on that tile).
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+  // Collapsible Studio-Library sub-groups (default all expanded → collapsed:false).
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [uploads, setUploads] = useState<UploadsState>({ status: 'idle', items: [] });
+  const [experiences, setExperiences] = useState<ExperiencesState>({ status: 'idle', templates: [], generated: [], mine: [] });
+  const [confirmTemplateId, setConfirmTemplateId] = useState<string | null>(null);
   // Auto-captured thumbnail for the most recently uploaded GLB — shown on the
-  // "Upload model" tile itself (best-effort; null while capturing/on failure,
-  // in which case the tile keeps its plain Upload-icon look).
+  // "Upload model" tile itself (best-effort; null while capturing/on failure).
   const [modelThumb, setModelThumb] = useState<string | null>(null);
 
+  // Both remote sources load eagerly on mount — the point of the single surface
+  // is to show everything at once, so there are no tabs to lazy-load behind.
   const loadUploads = useCallback(() => {
     setUploads({ status: 'loading', items: [] });
     listAssets()
       .then((assets) => setUploads({ status: 'ready', items: uploadsToDockItems(assets) }))
       .catch(() => setUploads({ status: 'error', items: [] }));
   }, []);
-  useEffect(() => {
-    if (subTab === 'uploads' && uploads.status === 'idle') loadUploads();
-  }, [subTab, uploads.status, loadUploads]);
-
-  const loadMine = useCallback(() => {
-    setMine({ status: 'loading', items: [] });
-    setMineTemplates([]);
+  const loadExperiences = useCallback(() => {
+    setExperiences({ status: 'loading', templates: [], generated: [], mine: [] });
     fetchExperiences(eventId)
       .then((exps) => {
-        const { templates, rest } = splitTemplates(exps.filter((e) => e.id !== draft.id));
-        setMineTemplates(templates);
-        setMine({ status: 'ready', items: experiencesToDockItems(rest) });
+        const { templates, generated, mine } = splitExperiences(exps.filter((e) => e.id !== draft.id));
+        setExperiences({
+          status: 'ready',
+          templates,
+          generated: experiencesToDockItems(generated),
+          mine: experiencesToDockItems(mine),
+        });
       })
-      .catch(() => setMine({ status: 'error', items: [] }));
+      .catch(() => setExperiences({ status: 'error', templates: [], generated: [], mine: [] }));
   }, [eventId, draft.id]);
-  useEffect(() => {
-    if (subTab === 'mine' && mine.status === 'idle') loadMine();
-  }, [subTab, mine.status, loadMine]);
+  useEffect(() => { loadUploads(); }, [loadUploads]);
+  useEffect(() => { loadExperiences(); }, [loadExperiences]);
 
-  // Opens a template as a fresh, unsaved draft — NOT add-as-layer like the
-  // rest of Mine (a template can be a whole composite/shader scene, not a
-  // single placeable asset). Strips the id (LOAD clears history + `dirty`,
-  // making it a genuinely new draft) and the " (template)" name suffix
-  // PropertiesDock's "Save as template" stamped on save.
-  // Dirty-draft guard renders as an inline liquid-glass confirm on the tile
-  // (the app's idiom — a native window.confirm was the one un-styled dialog
-  // in the product, W6 UI/UX review).
-  const [confirmTemplateId, setConfirmTemplateId] = useState<string | null>(null);
+  // Opens a template as a fresh, unsaved draft — NOT add-as-layer (a template can
+  // be a whole composite/shader scene). Strips the id (LOAD clears history +
+  // `dirty`) and the " (template)" name suffix. Dirty-draft guard renders as an
+  // inline liquid-glass confirm on the tile (the app's idiom — no window.confirm).
   const useTemplate = useCallback((exp: Experience, confirmed = false) => {
-    if (state.dirty && !confirmed) {
-      setConfirmTemplateId(exp.id);
-      return;
-    }
+    if (state.dirty && !confirmed) { setConfirmTemplateId(exp.id); return; }
     setConfirmTemplateId(null);
     const loaded = experienceToDraft(exp);
     if (!loaded) return;
     const { id: _id, ...rest } = loaded;
     void _id;
     // A reused template starts Live like any fresh draft — the template ROW is
-    // forced hidden (so it never reaches the booth), but that must not make
-    // every experience built FROM it silently unpublished.
+    // forced hidden, but that must not make experiences built FROM it unpublished.
     dispatch({ type: 'LOAD', draft: { ...rest, isPublished: true, name: stripTemplateSuffix(exp.name) } });
   }, [state.dirty, dispatch]);
 
-  // Click-to-add for an Uploads/Mine dock item — mirrors the built-in library's
-  // click handlers (SET_OVERLAY_UPLOAD / SELECT_HEAD_PIECE / SET_MODEL_ASSET),
-  // guarded by consumedDrag() exactly like every other source button here.
-  const addDockItem = useCallback((item: DockItem) => {
+  // Click-to-add for an Uploads/Generated/Mine dock item — mirrors the built-in
+  // library's handlers, guarded by consumedDrag() at the call site. Also opens
+  // the inline settings card for the just-added object (keyed by the tile).
+  const addDockItem = useCallback((item: DockItem, key: string) => {
+    setExpandedKey(key);
     if (item.family === '2d') {
       if (item.payload.url) {
-        // Explicit sub-kind: the item's own kind, else the browsing category
-        // (without it the reducer defaults to 'border' — a sticker-category
-        // upload would land as a frame).
-        const overlayKind = item.payload.overlayKind ?? (category === 'sticker' ? '2d_filter' as const : 'border' as const);
+        // Explicit sub-kind: the item's own kind, else the active chip (sticker),
+        // else 'border' (without it a sticker-chip upload would land as a frame).
+        const overlayKind = item.payload.overlayKind ?? (chip === 'sticker' ? '2d_filter' as const : 'border' as const);
         dispatch({ type: 'SET_OVERLAY_UPLOAD', url: item.payload.url, blob: null, overlayKind });
       }
       return;
@@ -182,25 +183,26 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
       dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: item.payload.proceduralId });
     } else if (item.payload.assetUrl) {
       // Measure-then-add: auto-fit the GLB to head-space cm at ADD time (a raw
-      // Meshy model is ~1 unit ≈ 1cm — invisible). null → legacy scale 1.
+      // Meshy model is ~1 unit ≈ 1cm — invisible). null → legacy scale 1. The
+      // tile shows an "adding" spinner until the measure resolves and dispatches.
       const url = item.payload.assetUrl;
       const label = item.label;
-      void measureGlbFitScale(url).then((fitScale) =>
-        dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined }),
-      );
+      setPendingKey(key);
+      void measureGlbFitScale(url)
+        .then((fitScale) => dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined }))
+        .finally(() => setPendingKey((k) => (k === key ? null : k)));
     }
-  }, [dispatch, category]);
+  }, [dispatch, chip]);
 
-  // Drag payload for an Uploads/Mine dock item — useStudioDnd's resolveDrop
-  // reads `assetUrl` (not `url`) for the non-builtin overlay branch, so a
-  // DockItem's payload.url maps onto DragPayload.assetUrl here.
+  // Drag payload for a dock item — useStudioDnd's resolveDrop reads `assetUrl`
+  // (not `url`) for the non-builtin overlay branch, so payload.url maps here.
   const dragPayloadFor = useCallback((item: DockItem): DragPayload => {
     if (item.family === '2d') {
       return {
         target: 'overlay',
         label: item.label,
         previewUrl: item.previewUrl,
-        overlayKind: item.payload.overlayKind ?? (category === 'sticker' ? '2d_filter' : 'border'),
+        overlayKind: item.payload.overlayKind ?? (chip === 'sticker' ? '2d_filter' : 'border'),
         assetUrl: item.payload.url,
       };
     }
@@ -208,78 +210,16 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
       return { target: 'headpiece', label: item.label, previewUrl: item.previewUrl, pieceId: item.payload.proceduralId };
     }
     return { target: 'model', label: item.label, previewUrl: item.previewUrl, assetUrl: item.payload.assetUrl };
-  }, [category]);
-
-  const renderSourceList = (items: DockItem[], emptyText: string) => {
-    if (items.length === 0) {
-      return <p className="font-sans text-[10px] text-brand-muted/40 text-center py-8">{emptyText}</p>;
-    }
-    if (family === '2d') {
-      return (
-        <div className="grid grid-cols-3 gap-1.5">
-          {items.map((item) => (
-            <button
-              key={item.id}
-              onPointerDown={(e) => beginDrag(dragPayloadFor(item), e)}
-              onClick={() => { if (consumedDrag()) return; addDockItem(item); }}
-              title={`${item.label} · click to add · drag onto the canvas to place`}
-              className="group relative aspect-square rounded-lg overflow-hidden bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 hover:border-accent/25 cursor-grab active:cursor-grabbing transition-colors"
-            >
-              {item.previewUrl ? (
-                <img src={item.previewUrl} alt={item.label} draggable={false} className="w-full h-full object-contain p-1.5" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-4 h-4 text-brand-muted/30" /></div>
-              )}
-              <span className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-[7px] font-label uppercase tracking-wide text-white/80 truncate">{item.label}</span>
-            </button>
-          ))}
-        </div>
-      );
-    }
-    return (
-      <div className="grid grid-cols-3 gap-1.5">
-        {items.map((item) => (
-          <button
-            key={item.id}
-            onPointerDown={(e) => beginDrag(dragPayloadFor(item), e)}
-            onClick={() => { if (consumedDrag()) return; addDockItem(item); }}
-            title={`${item.label} · click to add · drag onto the head to place`}
-            className="group relative aspect-square rounded-lg overflow-hidden bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 hover:border-accent/25 cursor-grab active:cursor-grabbing transition-colors"
-          >
-            {item.previewUrl ? (
-              <img src={item.previewUrl} alt={item.label} draggable={false} className="w-full h-full object-contain p-1.5" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center"><Boxes className="w-4 h-4 text-brand-muted/30" /></div>
-            )}
-            <span className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-[7px] font-label uppercase tracking-wide text-white/80 truncate">{item.label}</span>
-          </button>
-        ))}
-      </div>
-    );
-  };
-
-  // The selected object drives which library item reads as "active" (these
-  // click-to-add actions add-or-replace per the reducer's documented rule).
-  const sel = selectedObject(draft);
-  const selBuiltinId = sel && sel.type === 'overlay' && sel.isBuiltin ? sel.builtinId : undefined;
-  const selProceduralId = sel && sel.type === 'headpiece' ? sel.proceduralId : undefined;
-  const selAnchor = sel && sel.type !== 'overlay' ? sel.anchor : undefined;
-  const selModelName = sel && sel.type === 'model' ? sel.name : undefined;
-  // The scene's single frame (if any) — highlights the active frame in the
-  // Frame catalog regardless of which layer is currently selected.
-  const sceneFrame = draft.objects.find(
-    (o): o is Overlay2D => o.type === 'overlay' && o.overlayKind === 'border',
-  );
+  }, [chip]);
 
   const onImageUpload = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    // The upload input only renders inside the visible Frame/Sticker catalog, so
-    // the browsing category IS the intended sub-kind.
-    const overlayKind = category === 'sticker' ? '2d_filter' as const : 'border' as const;
+    // The active chip names the intended sub-kind (sticker → 2d_filter, else frame).
+    const overlayKind = chip === 'sticker' ? '2d_filter' as const : 'border' as const;
     dispatch({ type: 'SET_OVERLAY_UPLOAD', url: URL.createObjectURL(file), blob: file, overlayKind });
     e.target.value = '';
-  }, [dispatch, category]);
+  }, [dispatch, chip]);
 
   const onGlbUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -303,330 +243,505 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     }
   }, [dispatch]);
 
-  // Frame + Sticker catalogs share their layout (built-ins → upload → AI panel);
-  // only the sub-kind, the active-highlight source, and the AI kind differ. The
-  // reducer's SELECT_BUILTIN flips the view to 2D on add.
-  const renderOverlayCatalog = (kind: 'border' | '2d_filter') => (
-    <>
-      <div>
-        <SectionLabel>{kind === 'border' ? 'Built-in frames' : 'Built-in stickers'}</SectionLabel>
-        <div className="grid grid-cols-3 gap-1.5">
-          {BUILTIN_BORDERS.filter((b) => b.kind === kind).map((b) => {
-            // Frames: highlight the scene's frame (at most one) regardless of
-            // selection; stickers: highlight the selected sticker.
-            const active = kind === 'border' ? sceneFrame?.builtinId === b.id : selBuiltinId === b.id;
-            const url = toDataUrl(b.svg);
-            return (
-              <button
-                key={b.id}
-                onPointerDown={(e) => beginDrag({ target: 'overlay', label: b.name, overlayKind: b.kind, builtinId: b.id, builtinUrl: url, previewUrl: url }, e)}
-                onClick={() => { if (consumedDrag()) return; dispatch({ type: 'SELECT_BUILTIN', borderId: b.id, url }); }}
-                title="Click to add · drag onto the canvas to place"
-                className={`group relative ${kind === 'border' ? 'aspect-[9/16]' : 'aspect-square'} rounded-lg overflow-hidden bg-white/[0.03] hover:bg-white/[0.06] border cursor-grab active:cursor-grabbing transition-colors ${active ? 'border-accent/40 ring-1 ring-accent/30' : 'border-white/5 hover:border-accent/25'}`}
-              >
-                {/* Frames preview at the booth's own 9:16 — square tiles crushed
-                    bottom-anchored border art (JJ Equalizer et al) to a sliver. */}
-                <img src={url} alt={b.name} draggable={false} className="w-full h-full object-contain p-1.5" />
-                <span className={`absolute inset-x-0 bottom-0 px-1 py-0.5 text-[7px] font-label uppercase tracking-wide truncate ${active ? 'bg-accent/30 text-accent-2' : 'bg-black/60 text-white/80'}`}>{b.name}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      <div>
-        <SectionLabel>Upload custom (PNG / SVG)</SectionLabel>
-        <button
-          onClick={() => imgInputRef.current?.click()}
-          className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-xs text-brand-muted/70"
-        >
-          <Upload className="w-3.5 h-3.5 text-accent-2" /> Browse file…
-        </button>
-        <input ref={imgInputRef} type="file" accept="image/png,image/svg+xml,image/webp" className="sr-only" onChange={onImageUpload} />
-        <p className="font-sans text-[9px] text-brand-muted/60 mt-1 leading-snug">Transparent PNG, 1080×1920 for full-frame art.</p>
-      </div>
-      <AiFramePanel
-        kind={kind}
-        freeTrial={!entitlements.aiStudio}
-        onGenerated={(exp) => {
-          if (exp.asset_url) dispatch({ type: 'SET_OVERLAY_UPLOAD', url: exp.asset_url, blob: null, overlayKind: kind });
-          if (draft.name.startsWith('Untitled') && exp.name) dispatch({ type: 'SET_NAME', name: exp.name });
-        }}
-      />
-    </>
+  // The selected object drives which library item reads as "active" and what the
+  // inline settings card edits (the reducer selects each just-added object).
+  const sel = selectedObject(draft);
+  const selBuiltinId = sel && sel.type === 'overlay' && sel.isBuiltin ? sel.builtinId : undefined;
+  const selProceduralId = sel && sel.type === 'headpiece' ? sel.proceduralId : undefined;
+  // The scene's single frame (if any) — highlights the active frame regardless
+  // of which layer is currently selected.
+  const sceneFrame = draft.objects.find(
+    (o): o is Overlay2D => o.type === 'overlay' && o.overlayKind === 'border',
   );
 
-  return (
-    <div className="h-full overflow-y-auto hide-scrollbar p-4 flex flex-col gap-5">
-      {/* Catalog category tabs — pure browsing UI. Never locked, nothing
-          destructive: switching just picks which library section to show. Adds
-          happen when you click an item (which also flips the view to fit). */}
-      <div>
-        <SectionLabel>Scene Type</SectionLabel>
-        <div className="grid grid-cols-4 gap-1.5">
-          {CATEGORY_TABS.map((t) => {
-            const active = category === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => {
-                  setCategory(t.id);
-                  // Echo the browse choice in the stage (pure view flip, never
-                  // destructive, off the undo timeline) — the dock's "3D" tab and
-                  // the stage's "3D" view share a name, and users expect them to
-                  // move together.
-                  dispatch({ type: 'SET_MODE', mode: t.id === '3d' ? '3d' : '2d' });
-                }}
-                className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-[8px] font-label uppercase tracking-widest transition-all w-full ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
-              >
-                <t.icon className="w-3.5 h-3.5" />
-                {t.label}
-              </button>
-            );
-          })}
+  const q = query.trim().toLowerCase();
+  const matchQuery = (name: string) => !q || name.toLowerCase().includes(q);
+
+  const editingCaption = (name: string): ReactNode => (
+    <p className="flex items-baseline gap-1.5 min-w-0">
+      <span className="font-label text-[9px] uppercase tracking-widest text-brand-muted/50 shrink-0">Editing</span>
+      <span className="text-brand-muted/30 shrink-0">·</span>
+      <span className="text-xs text-brand-fg font-medium truncate">{name}</span>
+    </p>
+  );
+
+  // The compact settings card that expands under a clicked tile — a quick-reach
+  // subset of PropertiesDock, bound to the current selection (for object tiles) or
+  // the scene filter slot (for filter tiles). Full controls remain in the right dock.
+  const renderInlineSettings = (key: string): ReactNode => {
+    // Filter tiles aren't scene objects — bind to the single filter slot directly.
+    if (key.startsWith('filter:')) {
+      const def = SHADER_MAP[draft.shaderId];
+      if (!def || draft.shaderId === 'none') return null;
+      return (
+        <div className="rounded-xl liquid-glass p-3 flex flex-col gap-3">
+          {editingCaption(def.name)}
+          {def.params.length > 0 ? (
+            def.params.map((p) => (
+              <StudioSlider
+                key={p.key}
+                label={p.label}
+                value={draft.shaderParams[p.key] ?? p.default}
+                min={p.min}
+                max={p.max}
+                step={p.step}
+                onChange={(v) => dispatch({ type: 'SET_SHADER_PARAM', key: p.key, value: v })}
+              />
+            ))
+          ) : (
+            <p className="text-[10px] text-brand-muted/40 font-sans">No adjustable parameters.</p>
+          )}
         </div>
+      );
+    }
+    if (!sel) {
+      // A model tile whose async measure is still landing — hold the card open.
+      if (pendingKey === key) {
+        return (
+          <div className="rounded-xl liquid-glass p-3 flex items-center gap-2">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-2" />
+            <span className="font-sans text-[10px] text-brand-muted/60">Adding to scene…</span>
+          </div>
+        );
+      }
+      return null;
+    }
+    if (sel.type === 'overlay') {
+      return (
+        <div className="rounded-xl liquid-glass p-3 flex flex-col gap-3">
+          {editingCaption(sel.name)}
+          <StudioSlider
+            label="Size"
+            value={sel.transform.scale}
+            min={0.1}
+            max={3}
+            step={0.05}
+            onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...sel.transform, scale: v } })}
+          />
+          <StudioSlider
+            label="Rotation (°)"
+            value={sel.transform.rotation}
+            min={-180}
+            max={180}
+            step={1}
+            format={(v) => v.toFixed(0)}
+            onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...sel.transform, rotation: v } })}
+          />
+        </div>
+      );
+    }
+    // 3D piece: attachment point + size + occlusion.
+    return (
+      <div className="rounded-xl liquid-glass p-3 flex flex-col gap-3">
+        {editingCaption(sel.name)}
+        <div>
+          <SectionLabel>Attachment point</SectionLabel>
+          <div className="grid grid-cols-3 gap-1">
+            {ANCHOR_PRESETS.map((p) => {
+              const active = p.id === sel.anchor;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => dispatch({ type: 'SELECT_ANCHOR', anchor: p.id })}
+                  title={p.hint}
+                  className={`px-1 py-1.5 rounded-lg text-[8px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <StudioSlider
+          label="Size"
+          value={Math.min(sel.anchorConfig.scale, 15)}
+          min={0.05}
+          max={15}
+          step={0.05}
+          onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { scale: v } })}
+        />
+        <StudioToggle
+          label="Occlude behind head"
+          hint="Hide parts of this piece behind the real head"
+          value={sel.occlusion}
+          onChange={(v) => dispatch({ type: 'SET_OCCLUSION', occlusion: v })}
+        />
       </div>
+    );
+  };
 
-      {/* Source sub-tabs */}
-      <div className="flex items-center gap-1 p-1 rounded-xl liquid-glass">
-        {SOURCE_TABS.map((t) => (
+  // Renders a set of tiles as rows of 3 (every grid here is grid-cols-3), then
+  // injects the inline settings card as a full-width row directly BELOW the row
+  // that holds the expanded tile — "settings show below the tile you clicked".
+  const renderTiles = (tiles: Tile[], aspect: 'square' | 'frame'): ReactNode => {
+    const rows: Tile[][] = [];
+    for (let i = 0; i < tiles.length; i += 3) rows.push(tiles.slice(i, i + 3));
+    const aspectCls = aspect === 'frame' ? 'aspect-[9/16]' : 'aspect-square';
+    return (
+      <div className="flex flex-col gap-1.5">
+        {rows.map((row, ri) => {
+          const expanded = row.find((t) => t.key === expandedKey);
+          return (
+            <div key={ri} className="flex flex-col gap-1.5">
+              <div className="grid grid-cols-3 gap-1.5">
+                {row.map((t) => {
+                  const Icon = t.fallbackIcon;
+                  return (
+                    <button
+                      key={t.key}
+                      onPointerDown={(e) => beginDrag(t.drag, e)}
+                      onClick={() => { if (consumedDrag()) return; t.onAdd(); }}
+                      title={`${t.label} · click to add · drag to place`}
+                      className={`group relative ${aspectCls} rounded-lg overflow-hidden cursor-grab active:cursor-grabbing transition-colors border ${t.active ? 'border-accent/40 ring-1 ring-accent/30 bg-accent/[0.06]' : 'border-white/5 bg-white/[0.03] hover:bg-white/[0.06] hover:border-accent/25'}`}
+                    >
+                      {t.previewUrl ? (
+                        <img src={t.previewUrl} alt={t.label} draggable={false} className="w-full h-full object-contain p-1.5" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center"><Icon className="w-4 h-4 text-brand-muted/40" /></div>
+                      )}
+                      <span className={`absolute inset-x-0 bottom-0 px-1 py-0.5 text-[7px] font-label uppercase tracking-wide truncate ${t.active ? 'bg-accent/30 text-accent-2' : 'bg-black/60 text-white/80'}`}>{t.label}</span>
+                      {t.pending && (
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/50">
+                          <Loader2 className="w-4 h-4 animate-spin text-accent-2" />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {expanded && renderInlineSettings(expanded.key)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Built-in frames/stickers → SELECT_BUILTIN (the reducer swaps the one frame in
+  // place / appends stickers, and flips the view to 2D). Frames highlight the
+  // scene's frame; stickers highlight the selected sticker.
+  const builtinTiles = (kind: 'border' | '2d_filter'): Tile[] =>
+    BUILTIN_BORDERS.filter((b) => b.kind === kind && matchQuery(b.name)).map((b) => {
+      const url = toDataUrl(b.svg);
+      const active = kind === 'border' ? sceneFrame?.builtinId === b.id : selBuiltinId === b.id;
+      const key = `builtin:${b.id}`;
+      return {
+        key,
+        label: b.name,
+        previewUrl: url,
+        active,
+        fallbackIcon: ImageIcon,
+        pending: false,
+        drag: { target: 'overlay', label: b.name, overlayKind: b.kind, builtinId: b.id, builtinUrl: url, previewUrl: url },
+        onAdd: () => { dispatch({ type: 'SELECT_BUILTIN', borderId: b.id, url }); setExpandedKey(key); },
+      };
+    });
+
+  const headPieceTiles = (): Tile[] =>
+    HEAD_PIECES.filter((p) => matchQuery(p.name)).map((p) => {
+      const key = `piece:${p.id}`;
+      return {
+        key,
+        label: p.name,
+        previewUrl: null,
+        active: selProceduralId === p.id,
+        fallbackIcon: HEAD_PIECE_ICONS[p.id] ?? Boxes,
+        pending: false,
+        drag: { target: 'headpiece', label: p.name, pieceId: p.id },
+        onAdd: () => { dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id }); setExpandedKey(key); },
+      };
+    });
+
+  const dockTiles = (items: DockItem[], prefix: string): Tile[] =>
+    filterDockByChip(items, chip, query).map((item) => {
+      const key = `${prefix}:${item.id}`;
+      return {
+        key,
+        label: item.label,
+        previewUrl: item.previewUrl,
+        active: false,
+        fallbackIcon: item.family === '3d' ? Boxes : ImageIcon,
+        pending: pendingKey === key,
+        drag: dragPayloadFor(item),
+        onAdd: () => addDockItem(item, key),
+      };
+    });
+
+  // Filters are a descriptive list (no visual preview), not a tile grid — the
+  // param sliders expand right below the clicked row. Preserves CLEAR_FILTER and
+  // SELECT_SHADER + the manual SET_MODE '2d' (SELECT_SHADER alone doesn't flip view).
+  const renderFilters = (): ReactNode => {
+    const shaders = FILTER_SHADERS.filter((s) => matchQuery(s.name));
+    return (
+      <div className="flex flex-col gap-1">
+        {!q && (
           <button
-            key={t.id}
-            onClick={() => setSubTab(t.id)}
-            className={`flex-1 py-1.5 rounded-lg text-[9px] font-label uppercase tracking-widest transition-colors ${subTab === t.id ? 'bg-accent/20 text-accent-2' : 'text-brand-muted/50 hover:text-brand-fg'}`}
+            onClick={() => { dispatch({ type: 'CLEAR_FILTER' }); setExpandedKey(null); }}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl transition-colors ${draft.shaderId === 'none' ? 'bg-accent/15 ring-1 ring-accent/30 text-accent-2' : 'bg-white/[0.03] hover:bg-white/[0.06] text-brand-muted/70 hover:text-brand-fg'}`}
           >
-            {t.label}
+            <X className="w-3.5 h-3.5 shrink-0" />
+            <span className="text-xs font-sans font-medium">No filter</span>
           </button>
-        ))}
+        )}
+        {shaders.map((s) => {
+          const active = draft.shaderId === s.id;
+          const key = `filter:${s.id}`;
+          return (
+            <div key={s.id}>
+              <button
+                onClick={() => {
+                  dispatch({ type: 'SELECT_SHADER', shaderId: s.id, params: defaultParams(s.id) });
+                  dispatch({ type: 'SET_MODE', mode: '2d' });
+                  setExpandedKey(key);
+                }}
+                className={`w-full text-left px-3 py-2 rounded-xl transition-colors ${active ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.03] hover:bg-white/[0.06]'}`}
+              >
+                <div className="flex items-center justify-between">
+                  <p className={`text-xs font-sans font-medium ${active ? 'text-accent-2' : 'text-brand-fg'}`}>{s.name}</p>
+                  {s.animated && <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/60 bg-accent/10 px-1.5 py-0.5 rounded-full">Anim</span>}
+                </div>
+                <p className="text-[9px] text-brand-muted/40 mt-0.5 leading-tight">{s.description}</p>
+              </button>
+              {expandedKey === key && renderInlineSettings(key)}
+            </div>
+          );
+        })}
       </div>
+    );
+  };
 
-      {/* Search — filters only the active sub-tab (Uploads / Mine) */}
-      {subTab !== 'library' && (
+  // A collapsible Studio-Library sub-group with a count; hidden entirely at 0.
+  const subGroup = (id: string, label: string, count: number, body: ReactNode): ReactNode => {
+    if (count === 0) return null;
+    const isCollapsed = collapsed[id] ?? false;
+    return (
+      <div>
+        <button
+          onClick={() => setCollapsed((c) => ({ ...c, [id]: !isCollapsed }))}
+          className="flex items-center gap-1.5 w-full mb-1.5 text-brand-muted/60 hover:text-brand-fg transition-colors"
+        >
+          {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          <span className="font-label uppercase tracking-widest text-[9px]">{label}</span>
+          <span className="font-mono text-[8px] text-brand-muted/30">{count}</span>
+        </button>
+        {!isCollapsed && body}
+      </div>
+    );
+  };
+
+  // ── Derived section data (chip- and query-filtered) ──
+  const showFrames = chip === 'all' || chip === 'frame';
+  const showStickers = chip === 'all' || chip === 'sticker';
+  const showFilters = chip === 'all' || chip === 'filter';
+  const showHeadPieces = chip === 'all' || chip === '3d';
+
+  const frameTiles = showFrames ? builtinTiles('border') : [];
+  const stickerTiles = showStickers ? builtinTiles('2d_filter') : [];
+  const headTiles = showHeadPieces ? headPieceTiles() : [];
+  const filterCount = showFilters ? FILTER_SHADERS.filter((s) => matchQuery(s.name)).length : 0;
+  const libraryCount = frameTiles.length + stickerTiles.length + headTiles.length + filterCount;
+
+  const generatedTiles = dockTiles(experiences.generated, 'gen');
+  const uploadTiles = dockTiles(uploads.items, 'up');
+  const mineTiles = dockTiles(experiences.mine, 'mine');
+  // Templates are whole scenes, not a single kind — only under the 'all' chip.
+  const templates = (chip === 'all' ? experiences.templates : []).filter((t) => matchQuery(t.name));
+
+  const showImageUpload = chip === 'all' || chip === 'frame' || chip === 'sticker';
+  const showGlbUpload = chip === 'all' || chip === '3d';
+  const showUploadsSection = showImageUpload || showGlbUpload || uploadTiles.length > 0 || mineTiles.length > 0;
+
+  // AI generate — frame/sticker via AiFramePanel, 3D via AiGeneratePanel; nothing
+  // for the 'filter' chip (shaders aren't AI-generated).
+  const aiKind: 'border' | '2d_filter' = chip === 'sticker' ? '2d_filter' : 'border';
+  const showAi3d = chip === '3d' && show3dAi;
+  const showAiOverlay = chip !== '3d' && chip !== 'filter';
+  const showAi = showAiOverlay || showAi3d;
+
+  const anythingVisible =
+    libraryCount > 0 || generatedTiles.length > 0 || showUploadsSection || templates.length > 0 ||
+    experiences.status === 'loading' || uploads.status === 'loading';
+
+  return (
+    <div className="h-full overflow-y-auto hide-scrollbar flex flex-col">
+      {/* Sticky header — title + search + kind chips filter every section together */}
+      <div className="sticky top-0 z-10 app-bg flex flex-col gap-2.5 px-4 pt-4 pb-3 border-b border-white/5">
+        <span className="font-label uppercase tracking-widest text-[10px] text-brand-fg">My Assets</span>
         <div className="relative">
           <Search className="w-3.5 h-3.5 text-brand-muted/30 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search…"
+            placeholder="Search assets…"
             className="w-full pl-8 pr-2.5 py-1.5 rounded-lg bg-white/[0.03] text-[11px] text-brand-fg placeholder:text-brand-muted/30 focus:outline-none focus:ring-1 focus:ring-accent/30"
           />
         </div>
-      )}
-
-      {subTab === 'library' && (
-      <>
-      {/* FILTER catalog — the scene's single filter slot. Click swaps it (and
-          flips to 2D so it's visible); the top row removes it (CLEAR_FILTER). */}
-      {category === 'filter' && (
-        <div>
-          <SectionLabel>Filter effect</SectionLabel>
-          <div className="flex flex-col gap-1">
+        <div className="grid grid-cols-5 gap-1">
+          {KIND_CHIPS.map((c) => (
             <button
-              onClick={() => dispatch({ type: 'CLEAR_FILTER' })}
-              className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl transition-colors ${draft.shaderId === 'none' ? 'bg-accent/15 ring-1 ring-accent/30 text-accent-2' : 'bg-white/[0.03] hover:bg-white/[0.06] text-brand-muted/70 hover:text-brand-fg'}`}
+              key={c.id}
+              onClick={() => setChip(c.id)}
+              className={`py-1.5 rounded-lg text-[9px] font-label uppercase tracking-widest transition-colors ${chip === c.id ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg'}`}
             >
-              <X className="w-3.5 h-3.5 shrink-0" />
-              <span className="text-xs font-sans font-medium">No filter</span>
+              {c.label}
             </button>
-            {FILTER_SHADERS.map((s) => {
-              const active = draft.shaderId === s.id;
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => { dispatch({ type: 'SELECT_SHADER', shaderId: s.id, params: defaultParams(s.id) }); dispatch({ type: 'SET_MODE', mode: '2d' }); }}
-                  className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors ${active ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.03] hover:bg-white/[0.06]'}`}
-                >
-                  <div className="flex items-center justify-between">
-                    <p className={`text-xs font-sans font-medium ${active ? 'text-accent-2' : 'text-brand-fg'}`}>{s.name}</p>
-                    {s.animated && <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/60 bg-accent/10 px-1.5 py-0.5 rounded-full">Anim</span>}
-                  </div>
-                  <p className="text-[9px] text-brand-muted/40 mt-0.5 leading-tight">{s.description}</p>
-                </button>
-              );
-            })}
-          </div>
+          ))}
         </div>
-      )}
+      </div>
 
-      {/* FRAME + STICKER built-ins (shared layout, sub-kind differs) */}
-      {category === 'frame' && renderOverlayCatalog('border')}
-      {category === 'sticker' && renderOverlayCatalog('2d_filter')}
-
-      {/* 3D asset + anchors */}
-      {category === '3d' && (
-        <>
-          <div>
-            <SectionLabel><span className="inline-flex items-center gap-1.5"><Crown className="w-3 h-3 text-accent-2" /> Head pieces</span></SectionLabel>
-            <div className="grid grid-cols-3 gap-1.5">
-              {HEAD_PIECES.map((p) => {
-                const active = selProceduralId === p.id;
-                const Icon = HEAD_PIECE_ICONS[p.id] ?? Boxes;
-                return (
-                  <button
-                    key={p.id}
-                    onPointerDown={(e) => beginDrag({ target: 'headpiece', label: p.name, pieceId: p.id }, e)}
-                    onClick={() => { if (consumedDrag()) return; dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id }); }}
-                    title="Click to add · drag onto the head to place"
-                    className={`aspect-square rounded-lg flex flex-col items-center justify-center gap-1 border cursor-grab active:cursor-grabbing transition-all ${active ? 'bg-accent/15 border-accent/40 text-accent-2' : 'bg-white/[0.03] border-white/10 text-brand-muted/60 hover:text-brand-fg hover:border-accent/25'}`}
-                  >
-                    <Icon className="w-5 h-5" />
-                    <span className="font-label text-[7px] uppercase tracking-wide leading-tight text-center px-1 truncate max-w-full">{p.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <SectionLabel>Upload model (.glb / .gltf)</SectionLabel>
+      <div className="flex flex-col gap-6 px-4 pt-4 pb-8">
+        {/* AI generate — collapsible, chip-adaptive */}
+        {showAi && (
+          <div className="flex flex-col gap-2">
             <button
-              onClick={() => glbInputRef.current?.click()}
-              className="flex flex-col items-center gap-1.5 w-full px-3 py-4 rounded-xl border border-dashed border-white/15 bg-white/[0.02] hover:border-accent/40 transition-colors text-brand-muted/60 overflow-hidden"
+              onClick={() => setAiOpen((v) => !v)}
+              className="flex items-center gap-1.5 w-full px-3 py-2 rounded-xl bg-accent/[0.06] hover:bg-accent/[0.1] border border-accent/15 transition-colors"
             >
-              {modelThumb ? (
-                <img src={modelThumb} alt={selModelName ?? 'Model thumbnail'} className="w-12 h-12 object-contain" />
-              ) : (
-                <Upload className="w-4 h-4 text-accent-2" />
-              )}
-              <span className="font-label text-[9px] uppercase tracking-widest text-center truncate max-w-full">{selModelName ?? 'Drop a .glb or click'}</span>
+              <Wand2 className="w-3.5 h-3.5 text-accent-2" />
+              <span className="font-label uppercase tracking-widest text-[9px] text-accent-2 flex-1 text-left">
+                AI generate {showAi3d ? '3D piece' : aiKind === 'border' ? 'frame' : 'sticker'}
+              </span>
+              {aiOpen ? <ChevronDown className="w-3.5 h-3.5 text-accent-2/70" /> : <ChevronRight className="w-3.5 h-3.5 text-accent-2/70" />}
             </button>
-            <input ref={glbInputRef} type="file" accept=".glb,.gltf" className="sr-only" onChange={onGlbUpload} />
-            <p className="font-sans text-[9px] text-brand-muted/60 mt-1 leading-snug">Auto-captures a square thumbnail (256×256+).</p>
-          </div>
-
-          <div>
-            <SectionLabel>Anchor point</SectionLabel>
-            {/* SELECT_ANCHOR targets the SELECTED 3D piece — with none, every
-                click is a silent no-op, so say so instead of rendering a list
-                that looks live but does nothing. */}
-            {selAnchor === undefined ? (
-              <p className="font-sans text-[10px] text-brand-muted/40 px-3 py-2 leading-relaxed">
-                Select a 3D piece (or add one above) to choose where it attaches.
-              </p>
-            ) : (
-            <div className="flex flex-col gap-0.5">
-              {ANCHOR_PRESETS.map((p) => {
-                const active = p.id === selAnchor;
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => dispatch({ type: 'SELECT_ANCHOR', anchor: p.id })}
-                    className={`w-full text-left px-3 py-2 rounded-lg transition-all flex flex-col gap-0.5 ${active ? 'bg-accent/10 ring-1 ring-accent/25' : 'hover:bg-white/[0.05]'}`}
-                  >
-                    <span className={`font-label text-[10px] uppercase tracking-widest ${active ? 'text-accent-2' : 'text-brand-fg/80'}`}>{p.label}</span>
-                    <span className="font-sans text-[9px] text-brand-muted/40 leading-tight">{p.hint}</span>
-                  </button>
-                );
-              })}
-            </div>
+            {aiOpen && (
+              showAi3d ? (
+                <AiGeneratePanel onOpenExperience={onOpenExperience} />
+              ) : (
+                <AiFramePanel
+                  kind={aiKind}
+                  freeTrial={!entitlements.aiStudio}
+                  onGenerated={(exp) => {
+                    if (exp.asset_url) dispatch({ type: 'SET_OVERLAY_UPLOAD', url: exp.asset_url, blob: null, overlayKind: aiKind });
+                    if (draft.name.startsWith('Untitled') && exp.name) dispatch({ type: 'SET_NAME', name: exp.name });
+                    loadExperiences(); // surface the new asset in the Generated section
+                  }}
+                />
+              )
             )}
           </div>
+        )}
 
-          {show3dAi && <AiGeneratePanel onOpenExperience={onOpenExperience} />}
-        </>
-      )}
-      </>
-      )}
+        {/* STUDIO LIBRARY — built-ins, collapsible sub-groups */}
+        {libraryCount > 0 && (
+          <div className="flex flex-col gap-4">
+            <SectionLabel>Studio Library</SectionLabel>
+            {subGroup('lib-frames', 'Frames', frameTiles.length, renderTiles(frameTiles, 'frame'))}
+            {subGroup('lib-stickers', 'Stickers', stickerTiles.length, renderTiles(stickerTiles, 'square'))}
+            {subGroup('lib-filters', 'Filters', filterCount, renderFilters())}
+            {subGroup('lib-pieces', 'Head pieces', headTiles.length, renderTiles(headTiles, 'square'))}
+          </div>
+        )}
 
-      {/* UPLOADS tab */}
-      {subTab === 'uploads' && (
-        <div>
-          <SectionLabel>Uploaded assets</SectionLabel>
-          {uploads.status === 'loading' && (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-4 h-4 animate-spin text-brand-muted/40" />
-            </div>
-          )}
-          {uploads.status === 'error' && (
-            <div className="flex flex-col items-center gap-2 py-8 text-center">
-              <p className="font-sans text-[10px] text-brand-muted/40">Couldn't load your uploads.</p>
-              <button onClick={loadUploads} className="text-[9px] font-label uppercase tracking-widest text-brand-muted/50 hover:text-accent-2 transition-colors">Retry</button>
-            </div>
-          )}
-          {uploads.status === 'ready' && renderSourceList(
-            filterDockItems(uploads.items, family, query),
-            query ? 'No matches.' : 'No uploads yet — add files above.',
-          )}
-        </div>
-      )}
+        {/* GENERATED — AI-created assets */}
+        {experiences.status === 'error' ? (
+          <div className="flex flex-col items-center gap-2 py-4 text-center">
+            <p className="font-sans text-[10px] text-brand-muted/40">Couldn't load your experiences.</p>
+            <button onClick={loadExperiences} className="text-[9px] font-label uppercase tracking-widest text-brand-muted/50 hover:text-accent-2 transition-colors">Retry</button>
+          </div>
+        ) : generatedTiles.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            <SectionLabel>Generated</SectionLabel>
+            {renderTiles(generatedTiles, 'square')}
+          </div>
+        ) : null}
 
-      {/* MINE tab */}
-      {subTab === 'mine' && (
-        <div className="flex flex-col gap-4">
-          {mine.status === 'loading' && (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-4 h-4 animate-spin text-brand-muted/40" />
-            </div>
-          )}
-          {mine.status === 'error' && (
-            <div className="flex flex-col items-center gap-2 py-8 text-center">
-              <p className="font-sans text-[10px] text-brand-muted/40">Couldn't load your experiences.</p>
-              <button onClick={loadMine} className="text-[9px] font-label uppercase tracking-widest text-brand-muted/50 hover:text-accent-2 transition-colors">Retry</button>
-            </div>
-          )}
-          {mine.status === 'ready' && (
-            <>
-              {/* Templates — always first, and never add-as-layer: clicking one
-                  starts a brand-new draft from it (see useTemplate above). */}
-              {(() => {
-                const q = query.trim().toLowerCase();
-                const templates = q ? mineTemplates.filter((t) => t.name.toLowerCase().includes(q)) : mineTemplates;
-                if (templates.length === 0) return null;
-                return (
-                  <div>
-                    <SectionLabel><span className="inline-flex items-center gap-1.5"><FileStack className="w-3 h-3 text-accent-2" /> Templates</span></SectionLabel>
-                    <div className="flex flex-col gap-1.5">
-                      {templates.map((exp) => (
-                        <div key={exp.id}>
-                          <button
-                            onClick={() => useTemplate(exp)}
-                            title="Start a new experience from this template"
-                            className="group flex items-center gap-2 w-full rounded-lg px-2 py-1.5 bg-accent/[0.06] hover:bg-accent/[0.12] border border-accent/15 hover:border-accent/30 transition-colors text-left"
-                          >
-                            <div className="w-8 h-8 rounded-md overflow-hidden bg-white/[0.04] flex items-center justify-center shrink-0">
-                              {exp.thumbnail_url ? (
-                                <img src={exp.thumbnail_url} alt="" draggable={false} className="w-full h-full object-cover" />
-                              ) : (
-                                <FileStack className="w-3.5 h-3.5 text-accent-2/60" />
-                              )}
-                            </div>
-                            <span className="text-[11px] font-sans truncate flex-1 min-w-0 text-brand-fg">{stripTemplateSuffix(exp.name)}</span>
-                            <span className="font-label text-[7px] uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">Template</span>
-                          </button>
-                          {confirmTemplateId === exp.id && (
-                            <div className="mt-1 rounded-lg liquid-glass px-2.5 py-2 flex items-center gap-2">
-                              <span className="font-sans text-[10px] text-brand-muted/70 flex-1 leading-snug">Discard unsaved changes?</span>
-                              <button
-                                onClick={() => useTemplate(exp, true)}
-                                className="font-label text-[8px] uppercase tracking-widest text-accent-2 hover:text-accent transition-colors"
-                              >
-                                Use template
-                              </button>
-                              <button
-                                onClick={() => setConfirmTemplateId(null)}
-                                className="font-label text-[8px] uppercase tracking-widest text-brand-muted/50 hover:text-brand-fg transition-colors"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-              <div>
-                <SectionLabel>Your experiences</SectionLabel>
-                {renderSourceList(
-                  filterDockItems(mine.items, family, query),
-                  query ? 'No matches.' : 'No saved experiences yet.',
+        {/* UPLOADS — bucket files + upload buttons + hand-made experiences */}
+        {showUploadsSection && (
+          <div className="flex flex-col gap-4">
+            <SectionLabel>Uploads</SectionLabel>
+            {(showImageUpload || showGlbUpload) && (
+              <div className="flex flex-col gap-1.5">
+                {showImageUpload && (
+                  <button
+                    onClick={() => imgInputRef.current?.click()}
+                    className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-xs text-brand-muted/70"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-accent-2" /> Upload image (PNG / SVG)
+                  </button>
                 )}
+                {showGlbUpload && (
+                  <button
+                    onClick={() => glbInputRef.current?.click()}
+                    className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-xs text-brand-muted/70 overflow-hidden"
+                  >
+                    {modelThumb ? <img src={modelThumb} alt="" className="w-5 h-5 object-contain shrink-0" /> : <Upload className="w-3.5 h-3.5 text-accent-2 shrink-0" />}
+                    <span className="truncate">Upload model (.glb / .gltf)</span>
+                  </button>
+                )}
+                <input ref={imgInputRef} type="file" accept="image/png,image/svg+xml,image/webp" className="sr-only" onChange={onImageUpload} />
+                <input ref={glbInputRef} type="file" accept=".glb,.gltf" className="sr-only" onChange={onGlbUpload} />
               </div>
-            </>
-          )}
-        </div>
-      )}
+            )}
+            {uploads.status === 'loading' && (
+              <div className="flex items-center justify-center py-4"><Loader2 className="w-4 h-4 animate-spin text-brand-muted/40" /></div>
+            )}
+            {uploads.status === 'error' && (
+              <div className="flex flex-col items-center gap-2 py-4 text-center">
+                <p className="font-sans text-[10px] text-brand-muted/40">Couldn't load your uploads.</p>
+                <button onClick={loadUploads} className="text-[9px] font-label uppercase tracking-widest text-brand-muted/50 hover:text-accent-2 transition-colors">Retry</button>
+              </div>
+            )}
+            {uploadTiles.length > 0 && subGroup('up-files', 'Uploaded files', uploadTiles.length, renderTiles(uploadTiles, 'square'))}
+            {mineTiles.length > 0 && subGroup('up-mine', 'My experiences', mineTiles.length, renderTiles(mineTiles, 'square'))}
+          </div>
+        )}
+
+        {/* TEMPLATES — open as a fresh draft (not add-as-layer); confirm-on-dirty */}
+        {templates.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <SectionLabel><span className="inline-flex items-center gap-1.5"><FileStack className="w-3 h-3 text-accent-2" /> Templates</span></SectionLabel>
+            <div className="flex flex-col gap-1.5">
+              {templates.map((exp) => (
+                <div key={exp.id}>
+                  <button
+                    onClick={() => useTemplate(exp)}
+                    title="Start a new experience from this template"
+                    className="group flex items-center gap-2 w-full rounded-lg px-2 py-1.5 bg-accent/[0.06] hover:bg-accent/[0.12] border border-accent/15 hover:border-accent/30 transition-colors text-left"
+                  >
+                    <div className="w-8 h-8 rounded-md overflow-hidden bg-white/[0.04] flex items-center justify-center shrink-0">
+                      {exp.thumbnail_url ? (
+                        <img src={exp.thumbnail_url} alt="" draggable={false} className="w-full h-full object-cover" />
+                      ) : (
+                        <FileStack className="w-3.5 h-3.5 text-accent-2/60" />
+                      )}
+                    </div>
+                    <span className="text-[11px] font-sans truncate flex-1 min-w-0 text-brand-fg">{stripTemplateSuffix(exp.name)}</span>
+                    <span className="font-label text-[7px] uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">Template</span>
+                  </button>
+                  {confirmTemplateId === exp.id && (
+                    <div className="mt-1 rounded-lg liquid-glass px-2.5 py-2 flex items-center gap-2">
+                      <span className="font-sans text-[10px] text-brand-muted/70 flex-1 leading-snug">Discard unsaved changes?</span>
+                      <button
+                        onClick={() => useTemplate(exp, true)}
+                        className="font-label text-[8px] uppercase tracking-widest text-accent-2 hover:text-accent transition-colors"
+                      >
+                        Use template
+                      </button>
+                      <button
+                        onClick={() => setConfirmTemplateId(null)}
+                        className="font-label text-[8px] uppercase tracking-widest text-brand-muted/50 hover:text-brand-fg transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Loading / empty states */}
+        {experiences.status === 'loading' && generatedTiles.length === 0 && !showUploadsSection && (
+          <div className="flex items-center justify-center py-8"><Loader2 className="w-4 h-4 animate-spin text-brand-muted/40" /></div>
+        )}
+        {!anythingVisible && (
+          <p className="font-sans text-[10px] text-brand-muted/40 text-center py-8">
+            {q ? 'No assets match your search.' : 'No assets here yet.'}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
