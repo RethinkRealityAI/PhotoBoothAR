@@ -38,8 +38,11 @@ const MAX_WALL = 8;
 
 /** A beam in flight: the shot travelling from the phone screen to a wall tile. */
 interface Flight { shot: string; from: Rect; to: Rect; }
-/** The freshest landing, kept through the 'wall' state to place the polaroid. */
-interface Landing { shot: string; to: Rect; index: number; }
+/** The freshest landing, kept through the 'wall' state to place the polaroid.
+ *  x/y are the polaroid's centre in scene space, already clamped inside the
+ *  wall grid (a raw tile centre lets the leftmost column's polaroid hang past
+ *  the scene edge on phones, where Landing's overflow-x-clip cuts it off). */
+interface Landing { shot: string; x: number; y: number; width: number; index: number; }
 
 /* ── matchMedia hook: desktop drives the 3D tilt / absolute layout ────── */
 
@@ -429,7 +432,25 @@ export default function InteractiveShowcase() {
     commitShot(f.shot);
     const index = captureCountRef.current;
     captureCountRef.current += 1;
-    setLanding({ shot: f.shot, to: f.to, index });
+    // Clamp the polaroid's centre so its whole card stays inside the wall
+    // grid (small slack for the tilt): keeps it out of the header row and,
+    // on phones, away from the clipped scene edges. The wall still has its
+    // BACK geometry here (the forward spring starts on 'wall'), so these
+    // rects match the ones the flight was measured against.
+    const width = Math.max(96, f.to.width * 1.32);
+    let { x, y } = centerOf(f.to);
+    const scene = sceneRef.current;
+    const grid = wallGridRef.current;
+    if (scene !== null && grid !== null) {
+      const sb = scene.getBoundingClientRect();
+      const gb = grid.getBoundingClientRect();
+      const g: Rect = { left: gb.left - sb.left, top: gb.top - sb.top, width: gb.width, height: gb.height };
+      const halfW = width / 2 + 6;
+      const height = width * (16 / 9) + width * 0.28; // photo + caption strip
+      x = Math.min(Math.max(x, g.left + halfW), g.left + g.width - halfW);
+      y = Math.min(Math.max(y, g.top + height / 2 - 8), g.top + g.height - height / 2 + 16);
+    }
+    setLanding({ shot: f.shot, x, y, width, index });
     setAppState('wall');
   }, [commitShot]);
 
@@ -635,12 +656,12 @@ export default function InteractiveShowcase() {
         {appState === 'wall' && landing !== null && (
           <div
             className="pointer-events-none absolute z-40"
-            style={{ left: centerOf(landing.to).x, top: centerOf(landing.to).y }}
+            style={{ left: landing.x, top: landing.y }}
           >
             <div style={{ transform: 'translate(-50%, -50%)' }}>
               <motion.div
                 className="bg-white p-1.5 pb-5 shadow-2xl"
-                style={{ width: Math.max(96, landing.to.width * 1.32), borderRadius: 5, boxShadow: `0 0 44px -10px ${SPECTRUM[0]}88, 0 20px 50px -20px rgba(0,0,0,0.7)` }}
+                style={{ width: landing.width, borderRadius: 5, boxShadow: `0 0 44px -10px ${SPECTRUM[0]}88, 0 20px 50px -20px rgba(0,0,0,0.7)` }}
                 initial={{ y: -160, rotate: -9, opacity: 0 }}
                 animate={{ y: 0, rotate: polaroidTilt(landing.index), opacity: 1 }}
                 transition={{ type: 'spring', stiffness: 230, damping: 19 }}
