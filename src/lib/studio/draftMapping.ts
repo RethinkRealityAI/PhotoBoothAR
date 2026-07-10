@@ -39,6 +39,7 @@ import { defaultParams } from '../shaders';
 import {
   createObject3D,
   createOverlay,
+  deriveKind,
   initialDraft,
   type DraftKind,
   type Object3D,
@@ -80,19 +81,11 @@ function anchorToStudio(a: AnchorConfig): StudioAnchorConfig {
  * (rather than trusting a caller-supplied kind) keeps a draft/payload's
  * `kind` field always in sync with what the scene actually contains.
  */
-function deriveKind(draft: StudioDraft): DraftKind {
-  const hasOverlay = draft.objects.some((o) => o.type === 'overlay');
-  const has3D = draft.objects.some((o) => o.type !== 'overlay');
-  if (hasOverlay && has3D) return 'composite';
-  if (hasOverlay) return (draft.objects[0] as Overlay2D).overlayKind;
-  if (has3D) return '3d_attachment';
-  return 'shader';
-}
-
 /** Rebuilds a scene object from a stored `config.layers` entry (either family). */
 function layerToObject(l: ExperienceLayer): StudioObject {
+  let obj: StudioObject;
   if (l.kind === '3d_attachment') {
-    return createObject3D(l.procedural ? 'headpiece' : 'model', {
+    obj = createObject3D(l.procedural ? 'headpiece' : 'model', {
       assetUrl: l.asset_url ?? undefined,
       proceduralId: l.procedural,
       name: l.name,
@@ -102,15 +95,20 @@ function layerToObject(l: ExperienceLayer): StudioObject {
       // Occlusion is opt-IN: only an explicit `true` enables it.
       occlusion: l.occlusion === true,
     });
+  } else {
+    // Stored assets load as custom so builtin sync never overwrites them.
+    obj = createOverlay(l.kind === '2d_filter' ? '2d_filter' : 'border', {
+      url: l.asset_url ?? null,
+      isBuiltin: false,
+      name: l.name,
+      transform: l.transform,
+      animation: l.animation ?? 'none',
+    });
   }
-  // Stored assets load as custom so builtin sync never overwrites them.
-  return createOverlay(l.kind === '2d_filter' ? '2d_filter' : 'border', {
-    url: l.asset_url ?? null,
-    isBuiltin: false,
-    name: l.name,
-    transform: l.transform,
-    animation: l.animation ?? 'none',
-  });
+  // Hidden persists with the layer (kept in the scene, rendered nowhere) so a
+  // reload never silently loses — or silently re-shows — a hidden layer.
+  if (l.hidden === true) obj.hidden = true;
+  return obj;
 }
 
 /**
@@ -203,6 +201,7 @@ function overlayLayer(o: Overlay2D, r: UrlResolver): ExperienceLayer {
   };
   if (o.name) layer.name = o.name;
   if (o.animation !== 'none') layer.animation = o.animation;
+  if (o.hidden) layer.hidden = true;
   return layer;
 }
 
@@ -223,6 +222,7 @@ function object3DLayer(o: Object3D, r: UrlResolver): ExperienceLayer {
   if (o.name) layer.name = o.name;
   if (o.animation !== 'none') layer.animation = o.animation;
   if (o.occlusion) layer.occlusion = true;
+  if (o.hidden) layer.hidden = true;
   return layer;
 }
 
@@ -247,17 +247,22 @@ export function draftToPayload(
   } else if (kind === 'border' || kind === '2d_filter') {
     const objs = draft.objects.filter((o): o is Overlay2D => o.type === 'overlay');
     const anyAnim = objs.some((o) => o.animation !== 'none');
+    // A hidden object forces the layers path: the singular mirror alone can't
+    // express "kept but not rendered", so the booth must read layers to skip it.
+    const anyHidden = objs.some((o) => o.hidden === true);
     const layer0 = objs[0];
     // Legacy mirror of layer 0.
     config.transform = layer0 ? { ...layer0.transform } : { scale: 1, x: 0, y: 0, rotation: 0 };
     config.opacity = 1;
     if (layer0) assetUrl = resolve(resolvedUrls, layer0.id);
-    if (objs.length > 1 || anyAnim) config.layers = objs.map((o) => overlayLayer(o, resolvedUrls));
+    if (objs.length > 1 || anyAnim || anyHidden) config.layers = objs.map((o) => overlayLayer(o, resolvedUrls));
     // The scene-level filter slot ('none' = empty) can ride alongside any scene.
     if (draft.shaderId !== 'none') config.ambientShader = { shaderId: draft.shaderId, params: draft.shaderParams };
   } else if (kind === '3d_attachment') {
     const objs = draft.objects.filter((o): o is Object3D => o.type !== 'overlay');
     const anyAnim = objs.some((o) => o.animation !== 'none');
+    // Hidden forces the layers path — see the 2D branch note.
+    const anyHidden = objs.some((o) => o.hidden === true);
     const layer0 = objs[0];
     if (layer0) {
       // Legacy mirror of layer 0.
@@ -272,7 +277,7 @@ export function draftToPayload(
       if (layer0.occlusion) config.occlusion = true;
       assetUrl = layer0.type === 'headpiece' && layer0.proceduralId ? null : resolve(resolvedUrls, layer0.id);
     }
-    if (objs.length > 1 || anyAnim) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
+    if (objs.length > 1 || anyAnim || anyHidden) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
     // The scene-level filter slot ('none' = empty) can ride alongside any scene.
     if (draft.shaderId !== 'none') config.ambientShader = { shaderId: draft.shaderId, params: draft.shaderParams };
   } else {

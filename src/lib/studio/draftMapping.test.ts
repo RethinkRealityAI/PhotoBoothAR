@@ -268,6 +268,28 @@ describe('round-trip: composite (mixed 2D + 3D + filter slot)', () => {
     expect((reloaded.objects[4] as Object3D).proceduralId).toBe('hope-halo');
   });
 
+  it('hidden layers persist through save AND reload (kept in the scene, rendered nowhere)', () => {
+    // W4-D H1: a hidden sticker must neither ship visible to guests (the booth
+    // skips hidden layers) nor vanish from the scene on reload.
+    const frame = createOverlay('border', { url: 'data:f', isBuiltin: true, name: 'Frame' });
+    const sticker = createOverlay('2d_filter', { url: 'blob:s', isBuiltin: false, name: 'S' });
+    sticker.hidden = true;
+    const draft: StudioDraft = { ...initialDraft('border'), objects: [frame, sticker], selectedId: frame.id, kind: 'composite' };
+    const payload = draftToPayload(draft, resolver({ [frame.id]: 'https://cdn/f.png', [sticker.id]: 'https://cdn/s.png' }), null);
+    expect(payload.config?.layers?.map((l) => l.hidden)).toEqual([undefined, true]);
+    const reloaded = experienceToDraft(expFromPayload(payload))!;
+    expect(reloaded.objects.map((o) => o.hidden)).toEqual([undefined, true]);
+  });
+
+  it('a single hidden object forces the layers path (the singular mirror alone would render it)', () => {
+    const sticker = createOverlay('2d_filter', { url: 'blob:s', isBuiltin: false, name: 'S' });
+    sticker.hidden = true;
+    const draft: StudioDraft = { ...initialDraft('2d_filter'), objects: [sticker], selectedId: sticker.id };
+    const payload = draftToPayload(draft, resolver({ [sticker.id]: 'https://cdn/s.png' }), null);
+    expect(payload.config?.layers).toHaveLength(1);
+    expect(payload.config?.layers?.[0].hidden).toBe(true);
+  });
+
   it('ambientShader is omitted entirely when the filter slot is empty', () => {
     const frame = createOverlay('border', { url: 'data:f', isBuiltin: true });
     const model = createObject3D('model', { assetUrl: 'blob:m', name: 'Model' });

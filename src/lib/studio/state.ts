@@ -12,7 +12,7 @@
  * 2D and 3D — at most ONE frame (overlayKind 'border'), any number of stickers
  * ('2d_filter'), and any number of 3D objects (model/headpiece). A single
  * scene-level filter slot (`shaderId`, where 'none' == empty) rides alongside.
- * `kind` is DERIVED from the objects (see recomputeKind) and is 'composite' when
+ * `kind` is DERIVED from the objects (see deriveKind) and is 'composite' when
  * both a 2D overlay and a 3D object are present. Content PERSISTS across view
  * switches — SET_MODE ('2d'|'3d'|'preview') is a pure view flip that never
  * touches the draft, and SET_KIND is a thin alias that only flips the view.
@@ -165,7 +165,7 @@ export interface StudioDraft {
   id?: string;
   name: string;
   /**
-   * DERIVED from the scene (recomputeKind, run after every objects/filter
+   * DERIVED from the scene (deriveKind, run after every objects/filter
    * mutation): 'composite' when a 2D overlay and a 3D object coexist; else the
    * lone family — objects[0].overlayKind ('border'/'2d_filter') for overlays,
    * '3d_attachment' for 3D, or 'shader' when there are no objects at all. Never
@@ -280,7 +280,7 @@ export function sceneCounts(d: StudioDraft): { frame: 0 | 1; stickers: number; t
  *   • only 3D objects → '3d_attachment'
  *   • no objects → 'shader' (regardless of the filter slot)
  */
-function recomputeKind(d: StudioDraft): DraftKind {
+export function deriveKind(d: StudioDraft): DraftKind {
   const hasOverlay = d.objects.some((o) => o.type === 'overlay');
   const has3D = d.objects.some((o) => o.type !== 'overlay');
   if (hasOverlay && has3D) return 'composite';
@@ -470,7 +470,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       // stickers keep the browse-swap-vs-committed-add rule.
       const nd = overlayKind === 'border' ? placeFrame(d, obj) : addOrReplaceObject(d, obj, 'overlay');
       if (!nd) return state;
-      return { ...state, mode: '2d', dirty: true, draft: { ...nd, kind: recomputeKind(nd) } };
+      return { ...state, mode: '2d', dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }
     case 'SET_OVERLAY_UPLOAD': {
       const sel = selectedObject(d);
@@ -487,7 +487,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       });
       const nd = overlayKind === 'border' ? placeFrame(d, obj) : addOrReplaceObject(d, obj, 'overlay');
       if (!nd) return state;
-      return { ...state, mode: '2d', dirty: true, draft: { ...nd, kind: recomputeKind(nd) } };
+      return { ...state, mode: '2d', dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }
     case 'CLEAR_OVERLAY': {
       const sel = selectedObject(d);
@@ -497,7 +497,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       const objects = d.objects.filter((o) => o.id !== sel.id);
       const selectedId = objects.length ? objects[objects.length - 1].id : null;
       const nd = { ...d, objects, selectedId };
-      return { ...state, dirty: true, draft: { ...nd, kind: recomputeKind(nd) } };
+      return { ...state, dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }
     case 'SET_TRANSFORM': {
       const sel = selectedObject(d);
@@ -557,13 +557,13 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       // Creator UX: name a brand-new (unsaved, first-object) experience after the
       // piece; never rename when editing an existing one or adding to a scene.
       const name = !d.id && nd.objects.length === 1 ? piece.name : d.name;
-      return { ...state, mode: '3d', dirty: true, draft: { ...nd, kind: recomputeKind(nd), name } };
+      return { ...state, mode: '3d', dirty: true, draft: { ...nd, kind: deriveKind(nd), name } };
     }
     case 'SET_MODEL_ASSET': {
       const obj = createObject3D('model', { assetUrl: action.url, name: action.name ?? 'Model' });
       const nd = addOrReplaceObject(d, obj, 'model');
       if (!nd) return state;
-      return { ...state, mode: '3d', dirty: true, draft: { ...nd, kind: recomputeKind(nd) } };
+      return { ...state, mode: '3d', dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }
     case 'SET_THUMB':
       return { ...state, dirty: true, draft: { ...d, thumbUrl: action.url, thumbBlob: action.blob } };
@@ -599,7 +599,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         const selectedId = action.select === false ? d.selectedId : obj.id;
         nd = { ...d, objects, selectedId };
       }
-      return { ...state, dirty: true, draft: { ...nd, kind: recomputeKind(nd) } };
+      return { ...state, dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }
     case 'DELETE_OBJECT': {
       const idx = d.objects.findIndex((o) => o.id === action.id);
@@ -608,7 +608,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       let selectedId = d.selectedId;
       if (d.selectedId === action.id) selectedId = objects.length ? objects[Math.max(0, idx - 1)].id : null;
       const nd = { ...d, objects, selectedId };
-      return { ...state, dirty: true, draft: { ...nd, kind: recomputeKind(nd) } };
+      return { ...state, dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }
     case 'SELECT_OBJECT': {
       if (action.id !== null && !d.objects.some((o) => o.id === action.id)) return state;
@@ -624,7 +624,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       const objects = [...d.objects];
       [objects[idx], objects[swap]] = [objects[swap], objects[idx]];
       const nd = { ...d, objects };
-      return { ...state, dirty: true, draft: { ...nd, kind: recomputeKind(nd) } };
+      return { ...state, dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }
     case 'UPDATE_OBJECT': {
       const idx = d.objects.findIndex((o) => o.id === action.id);
@@ -637,7 +637,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         return { ...o, ...rest } as StudioObject;
       });
       const nd = { ...d, objects };
-      return { ...state, dirty: true, draft: { ...nd, kind: recomputeKind(nd) } };
+      return { ...state, dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }
     case 'SET_OBJECT_ANIMATION': {
       const idx = d.objects.findIndex((o) => o.id === action.id);

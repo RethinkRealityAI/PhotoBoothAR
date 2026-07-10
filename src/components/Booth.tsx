@@ -251,7 +251,15 @@ export default function Booth() {
     }
     setFrameExp(exp);
     setOverlayTransform(exp?.config?.transform ?? DEFAULT_TRANSFORM);
-    if (exp?.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
+    if (exp?.config?.ambientShader?.shaderId) {
+      setEffectId(exp.config.ambientShader.shaderId);
+    } else {
+      // Release the OUTGOING scene's ambient filter — but only if it is still
+      // the active effect (a filter the guest picked themselves is never
+      // touched). Without this the composite's filter lingered forever.
+      const outgoingAmbient = frameExp?.config?.ambientShader?.shaderId;
+      if (outgoingAmbient) setEffectId((cur) => (cur === outgoingAmbient ? 'none' : cur));
+    }
   }, [frameExp, attachExp]);
 
   // ── Derived flags ─────────────────────────────────────────────────────
@@ -281,7 +289,8 @@ export default function Booth() {
   const stageOverlays: StageOverlaySpec[] | undefined = useMemo(() => {
     if (!frameLayers || frameLayers.length === 0) return undefined;
     return frameLayers
-      .filter((l) => (l.kind === 'border' || l.kind === '2d_filter') && !!l.asset_url)
+      // `hidden` layers stay in the scene but render nowhere (studio eye toggle).
+      .filter((l) => (l.kind === 'border' || l.kind === '2d_filter') && !!l.asset_url && l.hidden !== true)
       .map((l) => ({
         url: l.asset_url as string,
         transform: l.transform ?? DEFAULT_TRANSFORM,
@@ -294,7 +303,8 @@ export default function Booth() {
   const overlayPieces: Overlay3DPiece[] | undefined = useMemo(() => {
     if (!attachLayers || attachLayers.length === 0) return undefined;
     return attachLayers
-      .filter((l) => l.kind === '3d_attachment' && !!l.anchor)
+      // Same `hidden` skip as the 2D builder above.
+      .filter((l) => l.kind === '3d_attachment' && !!l.anchor && l.hidden !== true)
       .map((l) => ({
         assetUrl: l.asset_url ?? null,
         proceduralId: l.procedural ?? null,

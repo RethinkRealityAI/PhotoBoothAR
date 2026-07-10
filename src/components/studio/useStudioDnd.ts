@@ -61,14 +61,15 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef, draftRef }
 
   const resolveDrop = useCallback((p: DragPayload, x: number, y: number, rect: DOMRect) => {
     // Cap guard: the cappable count (stickers + 3D) is what the reducer's add
-    // actions reject on — the single frame is EXEMPT, so use sceneCounts().capped
-    // rather than objects.length (which would let a frame eat a slot). At the cap
-    // the add no-ops and the follow-up SET_TRANSFORM would then relocate the
-    // previously-selected object to the drop point — reject the whole drop instead.
-    // (Slight over-reject: a frame drop or an untouched same-kind swap could still
-    // fit at the cap, but that's a non-case worth the simplicity.)
+    // actions reject on — the single frame is EXEMPT (it swaps via placeFrame,
+    // which always succeeds), so frame drops skip this guard entirely. For the
+    // rest, at the cap the add no-ops and the follow-up SET_TRANSFORM would then
+    // relocate the previously-selected object to the drop point — reject the
+    // whole drop instead. (Slight over-reject: an untouched same-kind swap could
+    // still fit at the cap, but that's a non-case worth the simplicity.)
+    const isFrameDrop = p.target === 'overlay' && (p.overlayKind ?? 'border') === 'border';
     const cur = draftRef.current;
-    if (cur && sceneCounts(cur).capped >= MAX_OBJECTS) return;
+    if (!isFrameDrop && cur && sceneCounts(cur).capped >= MAX_OBJECTS) return;
     // NOTE on add-vs-replace: the click-to-add actions (SELECT_BUILTIN,
     // SET_OVERLAY_UPLOAD, SELECT_HEAD_PIECE, SET_MODEL_ASSET) already implement
     // the scene's browse-swap vs committed-add rule in the reducer (state.ts

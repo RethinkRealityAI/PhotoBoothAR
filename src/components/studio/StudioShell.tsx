@@ -57,7 +57,10 @@ const coalesceKey = (a: StudioAction, s: StudioState): string | null => {
     case 'SET_SHADER_PARAM':
       return `shader:${a.key}`;
     case 'UPDATE_OBJECT':
-      return `update:${a.id}`;
+      // A visibility (eye) toggle is a discrete action — coalescing it with
+      // adjacent property edits (or a following re-show) would make undo skip
+      // or no-op the hide. Everything else per-object coalesces as one edit.
+      return 'hidden' in a.patch ? null : `update:${a.id}`;
     default:
       return null;
   }

@@ -59,8 +59,9 @@ export type LayerAnimation = 'none' | 'float' | 'pulse' | 'spin';
  * primary object, drawn first/bottom-most). The experience's legacy singular
  * fields (asset_url, config.transform / config.anchor / config.procedural)
  * always MIRROR layer 0, so renderers that don't know about layers — and the
- * frozen legacy events — keep working unchanged. A scene stays within one
- * mode: 2D layers (border/2d_filter) or 3D layers (3d_attachment), never mixed.
+ * frozen legacy events — keep working unchanged. Layers freely MIX 2D
+ * (border/2d_filter) and 3D (3d_attachment) kinds: a mixed scene is saved as
+ * kind 'composite' (≤1 border, any number of stickers and 3D pieces).
  */
 export interface ExperienceLayer {
   id: string;
@@ -79,6 +80,9 @@ export interface ExperienceLayer {
   animation?: LayerAnimation;
   /** Per-layer head-occlusion opt-in (3D layers). */
   occlusion?: boolean;
+  /** Layer is kept in the scene but rendered NOWHERE (studio eye toggle —
+   *  preview and guest booth both skip it; only exactly `true` hides). */
+  hidden?: boolean;
 }
 
 export interface ExperienceConfig {
