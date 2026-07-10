@@ -13,6 +13,18 @@
  * A single plain object (no animation) writes byte-identically to what the old
  * Creator2D/Creator3D handleSave produced: no `config.layers` key at all.
  *
+ * A mixed scene ('composite': both 2D overlays and 3D objects present) ALWAYS
+ * writes config.layers (every object, in order) regardless of count or
+ * animation, since kind-driven single-family renderers can't render it any
+ * other way. Its legacy singular mirror is best-effort: the first 2D overlay
+ * claims asset_url/config.transform, and the first 3D object separately
+ * mirrors into config.anchor/config.procedural.
+ *
+ * A scene-level filter slot (draft.shaderId, 'none' = empty) can ride
+ * alongside ANY scene that has objects; when occupied it is written to
+ * config.ambientShader (never config.shader, which stays reserved for
+ * filter-only 'shader' experiences that have no objects at all).
+ *
  * Pure — asset/thumbnail uploads happen in the shell, which resolves each
  * object's post-upload URL and passes it in via `resolvedUrls`.
  */
@@ -28,11 +40,13 @@ import {
   createObject3D,
   createOverlay,
   initialDraft,
+  type DraftKind,
   type Object3D,
   type Overlay2D,
   type StudioAnchorConfig,
   type StudioDraft,
   type StudioKind,
+  type StudioObject,
 } from './state';
 
 const STUDIO_KINDS: readonly StudioKind[] = ['shader', 'border', '2d_filter', '3d_attachment'];
@@ -59,10 +73,55 @@ function anchorToStudio(a: AnchorConfig): StudioAnchorConfig {
   };
 }
 
-/** Build an editing draft from a stored experience (?id= deep link). */
+/**
+ * Derives a draft's kind from its objects — mirrors state.ts's private
+ * recomputeKind exactly (composite when both families are present; else the
+ * lone family's kind; 'shader' when the scene is empty). Recomputing here
+ * (rather than trusting a caller-supplied kind) keeps a draft/payload's
+ * `kind` field always in sync with what the scene actually contains.
+ */
+function deriveKind(draft: StudioDraft): DraftKind {
+  const hasOverlay = draft.objects.some((o) => o.type === 'overlay');
+  const has3D = draft.objects.some((o) => o.type !== 'overlay');
+  if (hasOverlay && has3D) return 'composite';
+  if (hasOverlay) return (draft.objects[0] as Overlay2D).overlayKind;
+  if (has3D) return '3d_attachment';
+  return 'shader';
+}
+
+/** Rebuilds a scene object from a stored `config.layers` entry (either family). */
+function layerToObject(l: ExperienceLayer): StudioObject {
+  if (l.kind === '3d_attachment') {
+    return createObject3D(l.procedural ? 'headpiece' : 'model', {
+      assetUrl: l.asset_url ?? undefined,
+      proceduralId: l.procedural,
+      name: l.name,
+      anchor: l.anchor?.anchor,
+      anchorConfig: l.anchor ? anchorToStudio(l.anchor) : undefined,
+      animation: l.animation ?? 'none',
+      // Occlusion is opt-IN: only an explicit `true` enables it.
+      occlusion: l.occlusion === true,
+    });
+  }
+  // Stored assets load as custom so builtin sync never overwrites them.
+  return createOverlay(l.kind === '2d_filter' ? '2d_filter' : 'border', {
+    url: l.asset_url ?? null,
+    isBuiltin: false,
+    name: l.name,
+    transform: l.transform,
+    animation: l.animation ?? 'none',
+  });
+}
+
+/**
+ * Build an editing draft from a stored experience (?id= deep link). A
+ * 'composite' experience (mixed 2D + 3D layers) loads too — it has no single
+ * StudioKind of its own, so initialDraft seeds it with an arbitrary base
+ * ('border') that is fully overwritten below.
+ */
 export function experienceToDraft(exp: Experience): StudioDraft | null {
-  if (!isStudioKind(exp.kind)) return null;
-  const draft = initialDraft(exp.kind);
+  if (!isStudioKind(exp.kind) && exp.kind !== 'composite') return null;
+  const draft = initialDraft(isStudioKind(exp.kind) ? exp.kind : 'border');
   draft.id = exp.id;
   draft.name = exp.name;
   draft.isPublished = exp.is_published;
@@ -77,21 +136,26 @@ export function experienceToDraft(exp: Experience): StudioDraft | null {
     return draft;
   }
 
+  // The scene-level filter slot rides alongside any non-shader scene.
+  if (exp.config?.ambientShader) {
+    const sid = exp.config.ambientShader.shaderId;
+    draft.shaderId = sid;
+    draft.shaderParams = exp.config.ambientShader.params ?? defaultParams(sid);
+  }
+
   const layers = exp.config?.layers;
+
+  if (exp.kind === 'composite') {
+    draft.objects = (layers ?? []).map(layerToObject);
+    draft.selectedId = draft.objects[0]?.id ?? null;
+    draft.kind = deriveKind(draft);
+    return draft;
+  }
 
   if (exp.kind === 'border' || exp.kind === '2d_filter') {
     if (layers?.length) {
       // Full multi-object scene from config.layers.
-      draft.objects = layers.map((l) =>
-        createOverlay(l.kind === '2d_filter' ? '2d_filter' : 'border', {
-          // Stored assets load as custom so builtin sync never overwrites them.
-          url: l.asset_url ?? null,
-          isBuiltin: false,
-          name: l.name,
-          transform: l.transform,
-          animation: l.animation ?? 'none',
-        }),
-      );
+      draft.objects = layers.map(layerToObject);
     } else if (exp.asset_url) {
       // Legacy single overlay from the singular fields.
       draft.objects = [
@@ -110,18 +174,7 @@ export function experienceToDraft(exp: Experience): StudioDraft | null {
 
   // 3d_attachment
   if (layers?.length) {
-    draft.objects = layers.map((l) =>
-      createObject3D(l.procedural ? 'headpiece' : 'model', {
-        assetUrl: l.asset_url ?? undefined,
-        proceduralId: l.procedural,
-        name: l.name,
-        anchor: l.anchor?.anchor,
-        anchorConfig: l.anchor ? anchorToStudio(l.anchor) : undefined,
-        animation: l.animation ?? 'none',
-        // Occlusion is opt-IN: only an explicit `true` enables it.
-        occlusion: l.occlusion === true,
-      }),
-    );
+    draft.objects = layers.map(layerToObject);
   } else if (exp.asset_url || exp.config?.procedural) {
     const a = exp.config?.anchor;
     draft.objects = [
@@ -136,6 +189,7 @@ export function experienceToDraft(exp: Experience): StudioDraft | null {
   }
   // else: an empty 3D scene (no asset yet).
   draft.selectedId = draft.objects[0]?.id ?? null;
+  draft.kind = draft.objects[0] ? '3d_attachment' : exp.kind;
   return draft;
 }
 
@@ -175,7 +229,9 @@ function object3DLayer(o: Object3D, r: UrlResolver): ExperienceLayer {
 /**
  * Build the create/update payload from a draft. `resolvedUrls` maps each
  * object's id to its post-upload URL (or null); `resolvedThumbUrl` is the
- * uploaded thumbnail URL (or null).
+ * uploaded thumbnail URL (or null). The saved `kind` is recomputed from
+ * `draft.objects` (deriveKind) rather than trusted verbatim, so it always
+ * matches what the scene actually contains.
  */
 export function draftToPayload(
   draft: StudioDraft,
@@ -184,10 +240,11 @@ export function draftToPayload(
 ): ExperienceDraft {
   const config: ExperienceConfig = {};
   let assetUrl: string | null = null;
+  const kind = deriveKind(draft);
 
-  if (draft.kind === 'shader') {
+  if (kind === 'shader') {
     config.shader = { shaderId: draft.shaderId, params: draft.shaderParams };
-  } else if (draft.kind === 'border' || draft.kind === '2d_filter') {
+  } else if (kind === 'border' || kind === '2d_filter') {
     const objs = draft.objects.filter((o): o is Overlay2D => o.type === 'overlay');
     const anyAnim = objs.some((o) => o.animation !== 'none');
     const layer0 = objs[0];
@@ -196,8 +253,9 @@ export function draftToPayload(
     config.opacity = 1;
     if (layer0) assetUrl = resolve(resolvedUrls, layer0.id);
     if (objs.length > 1 || anyAnim) config.layers = objs.map((o) => overlayLayer(o, resolvedUrls));
-  } else {
-    // 3d_attachment
+    // The scene-level filter slot ('none' = empty) can ride alongside any scene.
+    if (draft.shaderId !== 'none') config.ambientShader = { shaderId: draft.shaderId, params: draft.shaderParams };
+  } else if (kind === '3d_attachment') {
     const objs = draft.objects.filter((o): o is Object3D => o.type !== 'overlay');
     const anyAnim = objs.some((o) => o.animation !== 'none');
     const layer0 = objs[0];
@@ -215,13 +273,43 @@ export function draftToPayload(
       assetUrl = layer0.type === 'headpiece' && layer0.proceduralId ? null : resolve(resolvedUrls, layer0.id);
     }
     if (objs.length > 1 || anyAnim) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
+    // The scene-level filter slot ('none' = empty) can ride alongside any scene.
+    if (draft.shaderId !== 'none') config.ambientShader = { shaderId: draft.shaderId, params: draft.shaderParams };
+  } else {
+    // composite — a mixed 2D + 3D scene: EVERY object becomes a layer, in
+    // order. The legacy singular-field mirror is best-effort (old kind-driven
+    // renderers never match kind 'composite' to begin with): the first 2D
+    // overlay wins the one asset_url/transform slot; the first 3D object
+    // separately mirrors into anchor/procedural (its own GLB asset_url has no
+    // slot left, so it's dropped from the singular mirror).
+    config.layers = draft.objects.map((o) => (o.type === 'overlay' ? overlayLayer(o, resolvedUrls) : object3DLayer(o, resolvedUrls)));
+
+    const firstOverlay = draft.objects.find((o): o is Overlay2D => o.type === 'overlay');
+    const first3D = draft.objects.find((o): o is Object3D => o.type !== 'overlay');
+    if (firstOverlay) {
+      config.transform = { ...firstOverlay.transform };
+      config.opacity = 1;
+      assetUrl = resolve(resolvedUrls, firstOverlay.id);
+    }
+    if (first3D) {
+      config.anchor = {
+        anchor: first3D.anchor,
+        offset: { ...first3D.anchorConfig.offset },
+        rotation: { ...first3D.anchorConfig.rotation },
+        scale: first3D.anchorConfig.scale,
+      };
+      if (first3D.proceduralId) config.procedural = first3D.proceduralId;
+      if (first3D.occlusion) config.occlusion = true;
+    }
+    // The scene-level filter slot ('none' = empty) can ride alongside any scene.
+    if (draft.shaderId !== 'none') config.ambientShader = { shaderId: draft.shaderId, params: draft.shaderParams };
   }
 
   if (draft.scene) config.scene = draft.scene;
 
   return {
     name: draft.name,
-    kind: draft.kind,
+    kind,
     asset_url: assetUrl,
     thumbnail_url: resolvedThumbUrl,
     config,

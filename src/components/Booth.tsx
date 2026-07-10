@@ -193,8 +193,16 @@ export default function Booth() {
       } else if (exp.kind === 'border' || exp.kind === '2d_filter') {
         setFrameExp(exp);
         setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
+        if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
       } else if (exp.kind === '3d_attachment') {
         setAttachExp(exp);
+        if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
+      } else if (exp.kind === 'composite') {
+        // A mixed scene is a full frame+3D+filter package — apply all three slots together.
+        setFrameExp(exp);
+        setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
+        setAttachExp(exp);
+        if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -216,37 +224,64 @@ export default function Booth() {
     } else if (exp.kind === 'border' || exp.kind === '2d_filter') {
       setFrameExp(exp);
       setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
+      if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
     } else if (exp.kind === '3d_attachment') {
       setAttachExp(exp);
+      if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
+    } else if (exp.kind === 'composite') {
+      // A mixed scene is a full frame+3D+filter package — apply all three slots together.
+      setFrameExp(exp);
+      setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
+      setAttachExp(exp);
+      if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
     }
     appliedDefaultRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [experiencesLoaded, wallSettings.defaultExperienceId, catalog, routeExperienceId]);
 
-  // Reset transform when frame changes
+  // Reset transform when frame changes. A composite selection is a full
+  // frame+3D+filter package: applying one populates all three slots together;
+  // deselecting/switching away from one releases the 3D slot it owned — but
+  // never touches a 3D piece the guest picked independently afterwards.
   const handleSelectFrame = useCallback((exp: Experience | null) => {
+    if (frameExp?.kind === 'composite' && attachExp === frameExp) {
+      setAttachExp(exp?.kind === 'composite' ? exp : null);
+    } else if (exp?.kind === 'composite') {
+      setAttachExp(exp);
+    }
     setFrameExp(exp);
     setOverlayTransform(exp?.config?.transform ?? DEFAULT_TRANSFORM);
-  }, []);
+    if (exp?.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
+  }, [frameExp, attachExp]);
 
   // ── Derived flags ─────────────────────────────────────────────────────
   const isFront = facingMode === 'user';
-  const is2DOverlay = frameExp !== null && !!frameExp.asset_url &&
-    (frameExp.kind === 'border' || frameExp.kind === '2d_filter');
-  const is3D = attachExp !== null && attachExp.kind === '3d_attachment' &&
-    (!!attachExp.asset_url || !!attachExp.config?.procedural);
+  // Composite carries its 2D content in config.layers (never the singular
+  // asset_url field, which the legacy mirror may repurpose for either family) —
+  // so a composite frame "lights up" 2D by actually having a 2D-kind layer.
+  const is2DOverlay = frameExp !== null && (
+    (!!frameExp.asset_url && (frameExp.kind === 'border' || frameExp.kind === '2d_filter')) ||
+    (frameExp.kind === 'composite' && !!frameExp.config?.layers?.some((l) => l.kind === 'border' || l.kind === '2d_filter'))
+  );
+  const is3D = attachExp !== null && (
+    (attachExp.kind === '3d_attachment' && (!!attachExp.asset_url || !!attachExp.config?.procedural)) ||
+    (attachExp.kind === 'composite' && !!attachExp.config?.layers?.some((l) => l.kind === '3d_attachment'))
+  );
   const anchorConfig: AnchorConfig | null =
     is3D && attachExp?.config?.anchor ? (attachExp.config.anchor as AnchorConfig) : null;
 
   // ── Multi-layer (studio) scenes ───────────────────────────────────────
   // Additive: only built when the experience actually carries config.layers;
   // every other code path (no layers) leaves the legacy single-object props
-  // untouched below, so frozen legacy events render byte-identically.
+  // untouched below, so frozen legacy events render byte-identically. A
+  // composite's config.layers mixes both families, so each builder filters to
+  // its own layer kind — single-family experiences are unaffected (every
+  // layer already matches their one kind).
   const frameLayers = frameExp?.config?.layers;
   const stageOverlays: StageOverlaySpec[] | undefined = useMemo(() => {
     if (!frameLayers || frameLayers.length === 0) return undefined;
     return frameLayers
-      .filter((l) => !!l.asset_url)
+      .filter((l) => (l.kind === 'border' || l.kind === '2d_filter') && !!l.asset_url)
       .map((l) => ({
         url: l.asset_url as string,
         transform: l.transform ?? DEFAULT_TRANSFORM,
@@ -259,7 +294,7 @@ export default function Booth() {
   const overlayPieces: Overlay3DPiece[] | undefined = useMemo(() => {
     if (!attachLayers || attachLayers.length === 0) return undefined;
     return attachLayers
-      .filter((l) => !!l.anchor)
+      .filter((l) => l.kind === '3d_attachment' && !!l.anchor)
       .map((l) => ({
         assetUrl: l.asset_url ?? null,
         proceduralId: l.procedural ?? null,

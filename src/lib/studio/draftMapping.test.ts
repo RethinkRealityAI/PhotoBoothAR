@@ -217,7 +217,85 @@ describe('scene tag and occlusion (opt-in)', () => {
     const exp = baseExp({ kind: '3d_attachment', asset_url: 'https://cdn/x.glb', config: { anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } } });
     expect((experienceToDraft(exp)!.objects[0] as Object3D).occlusion).toBe(false);
   });
-  it('composite kind refuses to load into the studio editor', () => {
-    expect(experienceToDraft(baseExp({ kind: 'composite' }))).toBeNull();
+  it('composite kind with no layers loads as an empty scene (W4-B: composite now loads)', () => {
+    const draft = experienceToDraft(baseExp({ kind: 'composite' }));
+    expect(draft).not.toBeNull();
+    expect(draft!.objects).toHaveLength(0);
+  });
+});
+
+describe('round-trip: composite (mixed 2D + 3D + filter slot)', () => {
+  it('frame + 2 stickers + 2 head pieces + filter slot round-trips as one scene', () => {
+    const frame = createOverlay('border', { url: 'data:frame', isBuiltin: true, builtinId: 'frame-classic', name: 'Frame', transform: { scale: 1, x: 0, y: 0, rotation: 0 } });
+    const sticker1 = createOverlay('2d_filter', { url: 'blob:s1', isBuiltin: false, name: 'Sticker One', transform: { scale: 0.6, x: 12, y: -8, rotation: 0 } });
+    const sticker2 = createOverlay('2d_filter', { url: 'blob:s2', isBuiltin: false, name: 'Sticker Two', transform: { scale: 0.4, x: -12, y: 8, rotation: 15 } });
+    const head1 = createObject3D('headpiece', { proceduralId: 'royal-crown', name: 'Crown', anchor: 'crown', anchorConfig: { offset: { x: 0, y: 3, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } });
+    const head2 = createObject3D('headpiece', { proceduralId: 'hope-halo', name: 'Halo', anchor: 'forehead', anchorConfig: { offset: { x: 0, y: 1, z: 0.5 }, rotation: { x: 0, y: 0, z: 0 }, scale: 0.8 } });
+
+    const draft: StudioDraft = {
+      ...initialDraft('border'),
+      objects: [frame, sticker1, sticker2, head1, head2],
+      selectedId: frame.id,
+      kind: 'composite',
+      shaderId: 'golden-hour-bloom',
+      shaderParams: { uIntensity: 0.5 },
+    };
+    const urls = {
+      [frame.id]: 'https://cdn/frame.png',
+      [sticker1.id]: 'https://cdn/sticker1.png',
+      [sticker2.id]: 'https://cdn/sticker2.png',
+    };
+    const payload = draftToPayload(draft, resolver(urls), 'thumb-url');
+
+    expect(payload.kind).toBe('composite');
+    expect(payload.config?.layers).toHaveLength(5);
+    expect(payload.config?.layers?.map((l) => l.kind)).toEqual(['border', '2d_filter', '2d_filter', '3d_attachment', '3d_attachment']);
+    expect(payload.config?.ambientShader).toEqual({ shaderId: 'golden-hour-bloom', params: { uIntensity: 0.5 } });
+    // Legacy mirror: the first 2D overlay claims asset_url/transform, the first 3D object claims anchor/procedural.
+    expect(payload.asset_url).toBe('https://cdn/frame.png');
+    expect(payload.config?.transform).toEqual(frame.transform);
+    expect(payload.config?.anchor?.anchor).toBe('crown');
+    expect(payload.config?.procedural).toBe('royal-crown');
+    expect(payload.thumbnail_url).toBe('thumb-url');
+
+    const reloaded = experienceToDraft(expFromPayload(payload))!;
+    expect(reloaded.kind).toBe('composite');
+    expect(reloaded.objects).toHaveLength(5);
+    expect(reloaded.objects.map((o) => (o.type === 'overlay' ? o.overlayKind : o.type))).toEqual(['border', '2d_filter', '2d_filter', 'headpiece', 'headpiece']);
+    expect(reloaded.shaderId).toBe('golden-hour-bloom');
+    expect(reloaded.shaderParams).toEqual({ uIntensity: 0.5 });
+    expect((reloaded.objects[3] as Object3D).proceduralId).toBe('royal-crown');
+    expect((reloaded.objects[4] as Object3D).proceduralId).toBe('hope-halo');
+  });
+
+  it('ambientShader is omitted entirely when the filter slot is empty', () => {
+    const frame = createOverlay('border', { url: 'data:f', isBuiltin: true });
+    const model = createObject3D('model', { assetUrl: 'blob:m', name: 'Model' });
+    const draft: StudioDraft = { ...initialDraft('border'), objects: [frame, model], selectedId: frame.id, kind: 'composite' };
+    const payload = draftToPayload(draft, resolver({ [frame.id]: 'https://cdn/f.png', [model.id]: 'https://cdn/m.glb' }), null);
+    expect(payload.kind).toBe('composite');
+    expect(payload.config?.ambientShader).toBeUndefined();
+  });
+
+  it('the filter slot also rides a single-family (non-composite) scene: written to ambientShader, not config.shader', () => {
+    const border = createOverlay('border', { url: 'data:b', isBuiltin: true });
+    const draft: StudioDraft = { ...initialDraft('border'), objects: [border], selectedId: border.id, kind: 'border', shaderId: 'champagne-sparkle', shaderParams: { uIntensity: 0.3 } };
+    const payload = draftToPayload(draft, resolver({ [border.id]: 'https://cdn/b.png' }), null);
+    expect(payload.kind).toBe('border');
+    expect(payload.config?.shader).toBeUndefined();
+    expect(payload.config?.ambientShader).toEqual({ shaderId: 'champagne-sparkle', params: { uIntensity: 0.3 } });
+
+    const reloaded = experienceToDraft(expFromPayload(payload))!;
+    expect(reloaded.shaderId).toBe('champagne-sparkle');
+    expect(reloaded.shaderParams).toEqual({ uIntensity: 0.3 });
+    expect(reloaded.kind).toBe('border');
+  });
+
+  it('a filter-only ("shader" kind) scene keeps writing config.shader, never config.ambientShader (byte-identical)', () => {
+    const draft: StudioDraft = { ...initialDraft('shader'), shaderId: 'champagne-sparkle', shaderParams: { uIntensity: 0.7 } };
+    const payload = draftToPayload(draft, resolver({}), null);
+    expect(payload.kind).toBe('shader');
+    expect(payload.config?.shader).toEqual({ shaderId: 'champagne-sparkle', params: { uIntensity: 0.7 } });
+    expect(payload.config?.ambientShader).toBeUndefined();
   });
 });
