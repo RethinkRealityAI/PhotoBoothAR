@@ -21,6 +21,8 @@ Pre-merge-to-main polish batch (2026-07-08, screenshot-verified): NEW /host/conc
 - (platform) Never break legacy-events sites — faceRig/Booth are shared; keep default behavior compatible.
 - (platform) No `.env.local` with VITE_EVENT during tests.
 - (task) No new npm dependencies; edge fn dir needs its own deno.json; never loosen tenant RLS.
+- User (2026-07-10, InteractiveShowcase): "While I like the frame, the UI of the camera, everything, and also maintaining our colors" — keep the current in-camera UI idiom, frame, and brand colors; amplify, don't replace.
+- User (2026-07-10): "sticking to the general premise of what the below mini PRD for this component is" — PRD (idle|camera|beaming|wall, phone collapse, beam, polaroid drop, capture-again) is the base contract.
 
 ## Decisions
 - DECISION: One-Euro filter in new src/lib/smoothing.ts (pure, node-testable) — faceRig.ts imports mediapipe, unsafe for vitest node env.
@@ -36,7 +38,10 @@ Pre-merge-to-main polish batch (2026-07-08, screenshot-verified): NEW /host/conc
 - GEMINI TRAP (2026-07-07): ARRAY-of-OBJECT in gemini-2.5-flash responseSchema can hang constrained decoding; copilot encodes actions as an actionsJson STRING and JSON.parse-es server-side. NOTE (2026-07-08): this was NOT the cause of the current 502s — see next line.
 - AI-OUTAGE ROOT CAUSE (2026-07-08, verified): edge-function logs show every ai-event-designer/ai-generate-image 502 fires in <1.1s (v4 874ms, v5 825ms, v6 1082ms) — too fast to be a decode hang. A direct POST to gemini-2.5-flash with a bad key returns 400 {reason: API_KEY_INVALID} in 0.53s, matching exactly. So callGemini hits !res.ok fast → generation_failed → 502. Fix: v7 of both fns trims/strips-quotes the key + maps 400 API_KEY_INVALID / 401 / 403 → ai_key_invalid (503). REMAINING BLOCKER: the secret's key VALUE must be valid — a user/dashboard action (no MCP secrets tool; *.supabase.co blocked from sandbox). Sandbox env GOOGLE_API_KEY is a DIFFERENT (Firebase) key, not the Gemini secret.
 - gemini-2.5-flash-image works post-billing (direct curl 200 + PNG, ~5s) — earlier frame-gen 502s were the pre-billing quota (now surfaced as ai_quota/503).
-- BASELINE: npm run lint clean; npm test 84 passed (13 files).
+- BASELINE (2026-07-10, InteractiveShowcase task): npm run lint clean; npm test 163 passed (22 files). node_modules installed with `npm install --ignore-scripts` (onnxruntime-node postinstall binary download is proxy-blocked; not needed for lint/test/build).
+- DemoBooth.tsx map (822L): DEMO_FRAME_SVGS 35-74 · FRAMES/FILTERS/PROPS 80-100 · BeamFlightFx (WAAPI flight+ring+sparks, StrictMode-safe timers) 129-273 · Orb/OrbThumb 277-336 · component 340+ (capture 383, measureFlight 400, beamToWall+reduced-motion policy 414-429, charge effect 433-485, wall grid 787).
+- Landing.tsx map (712L): FEATURES 67-134 · FilmEmbed 196 · GSAP scroll choreography (data-reveal/-stagger/-parallax, own scroller) 355-444 · demo booth section 660-683 (lazy DemoBooth at 43).
+- StageCanvas: FIXED 720×1280 preview buffer + object-cover (57-58, 333, 388), capture path 1080 — canvas buffer immune to CSS-transform measurement trap (research: getBoundingClientRect lies inside transformed ancestors; keep phone at scale 1/rotate 0 while camera live anyway for Overlay3D).
 
 ## Done
 - PR #12 merge (2026-07-08) — RESULT: beam-identity redesign (branch claude/beam-wall-redesign-fb8r0p, 21 commits: black/beam theme tokens, Landing rebuild, demo booth, HyperFrames video suite, EventProvider de-theming, gsap dep) merged into PR #13. 3 conflicts resolved (STATE.md ours; index.css their token-based ::selection + our print block; NewEvent our concierge structure + their liquid-glass). Session AI surfaces rethemed to their convention: text-white on bg-foil, liquid-glass, brand-muted/accent-2, QR pads bg-brand-fg (CopilotFab/Panel/Chat, A2uiSurface, NewEvent, FrameStudio, ShareKit); copilot select options → brand-surface/brand-fg.
@@ -59,4 +64,5 @@ Pre-merge-to-main polish batch (2026-07-08, screenshot-verified): NEW /host/conc
 - No rate limit on ai-event-designer (free JWT-gated Gemini calls once key set) — roadmap Phase 3.
 
 ## Failed attempts
-(none)
+- ATTEMPT 1 [L1] (env, npm install): plain `npm install` → `read ECONNRESET` during reify/postinstall.
+- ATTEMPT 2 [L1]: immediate retry → same ECONNRESET, log pins it at `postinstall:node_modules/onnxruntime-node` (external binary CDN reset by proxy; registry fetches fine).
