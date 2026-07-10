@@ -12,7 +12,7 @@
  * The in-canvas segmented mode switcher lives here as a floating liquid-glass
  * pill; 3D adds a Live/Orbit + Pause sub-control.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Boxes, Eye, Layers, Pause, Play, ScanFace, Smartphone, Sparkles, Rotate3d, AlertTriangle } from 'lucide-react';
 import { ShaderRunner } from '../../lib/shaders';
@@ -22,6 +22,10 @@ import Studio3DView from './Studio3DView';
 import StudioPreview from './StudioPreview';
 import Tooltip from '../ui/Tooltip';
 import ErrorBoundary from '../ui/ErrorBoundary';
+import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
+import { createTriggerEngine, TRIGGER_SOURCE_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
+import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
+import { REVEAL_SHIMMER_MS } from '../../lib/studio/reveal';
 
 interface CamState {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -162,6 +166,125 @@ export default function StudioStage({
   }, [dispatch, selectedOverlay]);
 
   const showVideo = mode !== 'preview';
+
+  // ── Trigger effects in the studio's own views ─────────────────────────────
+  // Zero cost unless the scene actually carries triggers: no engine, no rAF, no
+  // TriggerEffects canvas, and the preview simulation state stays inert.
+  const triggers = draft.triggers;
+  const hasTriggers = triggers.length > 0;
+  // The tracker is genuinely live in 2D, 3D-Live (not paused), and Preview.
+  // 3D-Orbit has no camera feed, so triggers never run there.
+  const trackerLive =
+    mode === 'preview' || mode === '2d' || (mode === '3d' && threeView === 'live' && !paused);
+  const triggersActive = hasTriggers && trackerLive && cam.ready;
+
+  const triggerFxRef = useRef<TriggerEffectsHandle>(null);
+
+  // Preview-only full simulation: reveal-target pieces stay hidden until fired,
+  // and a filterPulse temporarily swaps the preview's shader. The live editing
+  // views never mutate the scene — they surface a transient toast instead.
+  const revealTargetIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of triggers) if (t.action.type === 'reveal') s.add(t.action.objectId);
+    return s;
+  }, [triggers]);
+  const [revealedIds, setRevealedIds] = useState<Set<string>>(() => new Set());
+  const [reveal, setReveal] = useState(false);
+  const revealTimerRef = useRef<number | null>(null);
+  // Restart the simulation whenever the trigger set changes or the view leaves
+  // preview, so re-entering Preview replays every reveal from hidden.
+  useEffect(() => { setRevealedIds(new Set()); setReveal(false); }, [mode, triggers]);
+  const hiddenObjectIds = useMemo(() => {
+    if (revealTargetIds.size === 0) return revealTargetIds; // shared empty set
+    const s = new Set<string>();
+    for (const id of revealTargetIds) if (!revealedIds.has(id)) s.add(id);
+    return s;
+  }, [revealTargetIds, revealedIds]);
+
+  // filterPulse (preview): swap to the pulse shader for ~1.2s, then restore the
+  // scene's own filter. One pulse at a time; clean-cancelled on unmount / mode
+  // switch so a stale timer never stomps the next view.
+  const [pulseShaderId, setPulseShaderId] = useState<string | null>(null);
+  const pulseTimerRef = useRef<number | null>(null);
+  const endPulse = useCallback(() => {
+    if (pulseTimerRef.current) { window.clearTimeout(pulseTimerRef.current); pulseTimerRef.current = null; }
+    setPulseShaderId(null);
+  }, []);
+  const startPulse = useCallback((shaderId: string | undefined, durationMs: number | undefined) => {
+    if (pulseTimerRef.current) return;
+    const target = shaderId || draft.shaderId;
+    if (!target || target === 'none' || target === draft.shaderId) return; // nothing distinct to pulse to
+    setPulseShaderId(target);
+    const dur = durationMs && durationMs > 0 ? durationMs : 1200;
+    pulseTimerRef.current = window.setTimeout(() => { pulseTimerRef.current = null; setPulseShaderId(null); }, dur);
+  }, [draft.shaderId]);
+  useEffect(() => () => endPulse(), [mode, triggers, endPulse]);
+
+  // Live-view toast: reveal/filterPulse must NOT lie about the editing scene, so
+  // instead of applying them we flash a chip that the trigger registered.
+  const [triggerToast, setTriggerToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+  const showToast = useCallback((msg: string) => {
+    setTriggerToast(msg);
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setTriggerToast(null), 1600);
+  }, []);
+  useEffect(() => () => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    if (revealTimerRef.current) window.clearTimeout(revealTimerRef.current);
+  }, []);
+
+  // One fired trigger → its effect. Bursts fire the shared canvas in every view.
+  // Reveal/filterPulse fully simulate in Preview, and toast in the live editors.
+  const handleTriggerEvent = useCallback((e: TriggerEvent) => {
+    const a = e.action;
+    const label = TRIGGER_SOURCE_LABELS[e.source];
+    if (a.type === 'burst') {
+      triggerFxRef.current?.fire(a.style);
+      return;
+    }
+    if (a.type === 'reveal') {
+      if (mode === 'preview') {
+        setRevealedIds((prev) => (prev.has(a.objectId) ? prev : new Set(prev).add(a.objectId)));
+        setReveal(true);
+        if (revealTimerRef.current) window.clearTimeout(revealTimerRef.current);
+        revealTimerRef.current = window.setTimeout(() => setReveal(false), REVEAL_SHIMMER_MS);
+      } else {
+        const name = draft.objects.find((o) => o.id === a.objectId)?.name ?? 'piece';
+        showToast(`${label} → reveal "${name}"`);
+      }
+      return;
+    }
+    // filterPulse
+    if (mode === 'preview') startPulse(a.shaderId, a.durationMs);
+    else showToast(`${label} → filter pulse`);
+  }, [mode, draft.objects, showToast, startPulse]);
+  const handlerRef = useRef(handleTriggerEvent);
+  useEffect(() => { handlerRef.current = handleTriggerEvent; }, [handleTriggerEvent]);
+
+  // Detection + engine loop — mounted only while the tracker is live AND the
+  // scene carries triggers. Drives detection itself (detectFaceNow self-throttles
+  // and is shared with any mounted FaceRig) so blendshapes refresh even in 2D /
+  // filter-only preview, and steps the engine once per NEW detection frame.
+  // Rebuilds (cheaply) whenever the trigger set changes → no leaked rAF/engine.
+  useEffect(() => {
+    if (!triggersActive) return;
+    const engine = createTriggerEngine(triggers);
+    let raf = 0;
+    let lastT = -1;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const v = cam.videoRef.current;
+      if (!v) return;
+      detectFaceNow(v);
+      const b = getLatestBlendshapes();
+      if (!b || b.t === lastT) return;
+      lastT = b.t;
+      for (const ev of engine.step(b.scores, performance.now())) handlerRef.current(ev);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [triggersActive, triggers, cam.videoRef]);
 
   // All three views are always available — switching can no longer destroy
   // content (SET_MODE is a pure view flip; the scene persists across 2D/3D/Preview).
@@ -365,8 +488,44 @@ export default function StudioStage({
               headScale={headScale}
               occlusionEnabled={occlusionEnabled}
               onFaceVisible={onFaceVisible}
+              hiddenObjectIds={hiddenObjectIds}
+              effectIdOverride={pulseShaderId ?? undefined}
+              reveal={reveal}
             />
             </ErrorBoundary>
+          </div>
+        )}
+
+        {/* Face-trigger particle canvas — ONE instance overlaying the shared
+            stage, visible over 2D / 3D-Live / Preview alike. Mounted only for
+            trigger scenes (zero cost otherwise); it's aria-hidden internally. */}
+        {hasTriggers && (
+          <div data-testid="studio-trigger-fx" className="absolute inset-0 z-20 pointer-events-none">
+            <TriggerEffects ref={triggerFxRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+          </div>
+        )}
+
+        {/* "Testing triggers" indicator — shown whenever a trigger scene has a
+            live tracker (2D, 3D-Live, or Preview). Consistent with the props
+            dock hint ("Try it in 3D Live view — the tracker runs there"). */}
+        {triggersActive && (
+          <div data-testid="studio-trigger-indicator" className="absolute top-3 left-3 z-20 pointer-events-none">
+            <div className="liquid-glass rounded-full px-3 py-1.5 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <ScanFace className="w-3 h-3 text-accent-2" />
+              <span className="font-label text-[9px] uppercase tracking-widest text-brand-muted">Testing triggers</span>
+            </div>
+          </div>
+        )}
+
+        {/* Live-view trigger toast — reveal/filterPulse register here instead of
+            mutating the editing scene (Preview fully simulates them instead). */}
+        {triggerToast && (
+          <div data-testid="studio-trigger-toast" className="absolute bottom-12 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+            <div className="liquid-glass rounded-full px-3.5 py-1.5 flex items-center gap-1.5 animate-rise-in">
+              <Sparkles className="w-3 h-3 text-accent-2" />
+              <span className="font-label text-[9px] uppercase tracking-widest text-brand-fg whitespace-nowrap">{triggerToast}</span>
+            </div>
           </div>
         )}
 
