@@ -20,8 +20,8 @@
  * Anchor selection replicates Creator3D.handleAnchorSelect (same anchor is a
  * no-op; a new anchor resets offset/rotation but keeps scale). The one-frame
  * rule (placeFrame) always swaps the existing frame in place — preserving a
- * TOUCHED frame's transform/animation — while stickers and 3D objects keep the
- * browse-swap-vs-committed-add rule (addOrReplaceObject + isUntouched).
+ * TOUCHED frame's transform/animation — while stickers and 3D objects ALWAYS
+ * APPEND on pick (appendObject): a click never deletes or replaces content.
  */
 import type { ExperienceKind, HeadAnchor, LayerAnimation, Transform2D } from '../../types';
 import { BORDER_MAP } from '../borders';
@@ -321,29 +321,15 @@ function isUntouched(o: StudioObject): boolean {
 }
 
 /**
- * ADD-vs-REPLACE rule for the click-to-add actions (SELECT_BUILTIN,
- * SET_OVERLAY_UPLOAD, SELECT_HEAD_PIECE, SET_MODEL_ASSET):
- *   • REPLACE in place when the selected object is the same type (and, for 2D
- *     overlays, the same border/sticker sub-kind) AND still untouched — the
- *     browse-to-compare flow: click through frames or head pieces and each
- *     click swaps the one you're looking at.
- *   • ADD (and select) otherwise — once an object has been placed or edited
- *     (dragged, scaled, re-anchored, animated), the next pick grows the scene,
- *     which is how multi-object scenes are built from plain clicks and drops
- *     (a drop positions its object right after adding, marking it touched).
- * Returns null when the MAX_OBJECTS cap blocks an add.
+ * Stickers and 3D pieces ALWAYS APPEND (and select) — a click never deletes or
+ * replaces anything. An earlier "browse-swap" heuristic silently replaced an
+ * unmoved same-kind selection, which read as "my sticker just vanished" — the
+ * exact confusion multiple-objects-by-default exists to prevent. Swapping a
+ * design is now: delete (or undo) + add. Frames are the deliberate exception —
+ * placeFrame swaps THE frame, because a scene holds at most one.
+ * Returns null when the MAX_OBJECTS cap blocks the add.
  */
-function addOrReplaceObject(
-  d: StudioDraft,
-  obj: StudioObject,
-  sameType: StudioObject['type'],
-): StudioDraft | null {
-  const sel = selectedObject(d);
-  const sameSubkind =
-    sel?.type === 'overlay' && obj.type === 'overlay' ? sel.overlayKind === obj.overlayKind : true;
-  if (sel && sel.type === sameType && sameSubkind && isUntouched(sel)) {
-    return { ...d, objects: d.objects.map((o) => (o.id === sel.id ? obj : o)), selectedId: obj.id };
-  }
+function appendObject(d: StudioDraft, obj: StudioObject): StudioDraft | null {
   // The cap counts stickers + 3D only (the frame is exempt); this helper only
   // ever adds cappable objects, so compare against the capped count.
   if (sceneCounts(d).capped >= MAX_OBJECTS) return null;
@@ -468,7 +454,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       });
       // The one-frame rule wins for borders (always swap the frame in place);
       // stickers keep the browse-swap-vs-committed-add rule.
-      const nd = overlayKind === 'border' ? placeFrame(d, obj) : addOrReplaceObject(d, obj, 'overlay');
+      const nd = overlayKind === 'border' ? placeFrame(d, obj) : appendObject(d, obj);
       if (!nd) return state;
       return { ...state, mode: '2d', dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }
@@ -485,7 +471,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         isBuiltin: false,
         name: 'Custom overlay',
       });
-      const nd = overlayKind === 'border' ? placeFrame(d, obj) : addOrReplaceObject(d, obj, 'overlay');
+      const nd = overlayKind === 'border' ? placeFrame(d, obj) : appendObject(d, obj);
       if (!nd) return state;
       return { ...state, mode: '2d', dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }
@@ -552,7 +538,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         anchor: piece.config.anchor,
         anchorConfig: { offset: { ...piece.config.offset }, rotation: { ...piece.config.rotation }, scale: piece.config.scale },
       });
-      const nd = addOrReplaceObject(d, obj, 'headpiece');
+      const nd = appendObject(d, obj);
       if (!nd) return state;
       // Creator UX: name a brand-new (unsaved, first-object) experience after the
       // piece; never rename when editing an existing one or adding to a scene.
@@ -561,7 +547,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     }
     case 'SET_MODEL_ASSET': {
       const obj = createObject3D('model', { assetUrl: action.url, name: action.name ?? 'Model' });
-      const nd = addOrReplaceObject(d, obj, 'model');
+      const nd = appendObject(d, obj);
       if (!nd) return state;
       return { ...state, mode: '3d', dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }

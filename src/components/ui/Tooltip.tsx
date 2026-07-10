@@ -22,21 +22,24 @@ interface TooltipProps {
   /** Optional second line, rendered muted. */
   hint?: ReactNode;
   side?: Side;
+  /** Gap between anchor and tooltip (px). Raise it when fixed chrome sits in
+   *  the default landing zone (e.g. the stage's sub-pill/caption band). */
+  offset?: number;
   /** Disable without unwrapping (e.g. while dragging). */
   disabled?: boolean;
   children: ReactElement<Record<string, unknown>>;
 }
 
-function positionFor(rect: DOMRect, side: Side): { x: number; y: number } {
+function positionFor(rect: DOMRect, side: Side, gap: number): { x: number; y: number } {
   switch (side) {
     case 'bottom':
-      return { x: rect.left + rect.width / 2, y: rect.bottom + GAP };
+      return { x: rect.left + rect.width / 2, y: rect.bottom + gap };
     case 'left':
-      return { x: rect.left - GAP, y: rect.top + rect.height / 2 };
+      return { x: rect.left - gap, y: rect.top + rect.height / 2 };
     case 'right':
-      return { x: rect.right + GAP, y: rect.top + rect.height / 2 };
+      return { x: rect.right + gap, y: rect.top + rect.height / 2 };
     default:
-      return { x: rect.left + rect.width / 2, y: rect.top - GAP };
+      return { x: rect.left + rect.width / 2, y: rect.top - gap };
   }
 }
 
@@ -48,7 +51,7 @@ const TRANSFORMS: Record<Side, string> = {
 };
 
 
-export default function Tooltip({ label, hint, side = 'top', disabled = false, children }: TooltipProps) {
+export default function Tooltip({ label, hint, side = 'top', offset = GAP, disabled = false, children }: TooltipProps) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
@@ -68,10 +71,10 @@ export default function Tooltip({ label, hint, side = 'top', disabled = false, c
       if (timerRef.current !== null) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
         const anchor = anchorRef.current;
-        if (anchor && anchor.isConnected) setPos(positionFor(anchor.getBoundingClientRect(), side));
+        if (anchor && anchor.isConnected) setPos(positionFor(anchor.getBoundingClientRect(), side, offset));
       }, SHOW_DELAY_MS);
     },
-    [disabled, side],
+    [disabled, side, offset],
   );
 
   if (!isValidElement(children)) return children;

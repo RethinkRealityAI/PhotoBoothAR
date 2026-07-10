@@ -169,11 +169,14 @@ describe('head pieces and model assets', () => {
     expect(model.assetUrl).toBe('https://cdn/x.glb');
     expect(model.proceduralId).toBeUndefined();
   });
-  it('picking a different head piece with a single one selected REPLACES it in place', () => {
+  it('picking a second head piece ADDS it (clicks never replace — W4-D UI/UX HIGH #1)', () => {
+    // Old-expected: the tiara REPLACED a still-untouched crown (1 object).
+    // New-expected: it appends (2 objects) — "multiple 3D models" is the
+    // user-locked default and a click must never silently delete content.
     let st = studioReducer(s0(), { type: 'SELECT_HEAD_PIECE', pieceId: 'royal-crown' });
     st = studioReducer(st, { type: 'SELECT_HEAD_PIECE', pieceId: 'queen-tiara' });
-    const o = only(st.draft.objects) as Object3D;
-    expect(o.proceduralId).toBe('queen-tiara');
+    expect(st.draft.objects.map((o) => (o as Object3D).proceduralId)).toEqual(['royal-crown', 'queen-tiara']);
+    expect((selectedObject(st.draft) as Object3D).proceduralId).toBe('queen-tiara');
   });
 });
 
@@ -196,7 +199,7 @@ describe('SET_OVERLAY_UPLOAD explicit sub-kind', () => {
   });
 });
 
-describe('browse-swap vs committed-add (multi-object reachability)', () => {
+describe('append-on-pick (multi-object by default)', () => {
   it('an EDITED head piece is kept: the next pick ADDS a second object', () => {
     let st = studioReducer(s0(), { type: 'SELECT_HEAD_PIECE', pieceId: 'royal-crown' });
     st = studioReducer(st, { type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { x: 0, y: 1.5, z: 0 } } });
@@ -205,21 +208,20 @@ describe('browse-swap vs committed-add (multi-object reachability)', () => {
     expect((selectedObject(st.draft) as Object3D).proceduralId).toBe('queen-tiara');
   });
   it('a MOVED sticker is kept: the next sticker click ADDS a second sticker', () => {
-    // W4: browse-swap now applies to stickers/3D (borders follow the one-frame rule instead).
     let st = studioReducer(s0(), { type: 'SELECT_BUILTIN', borderId: stickers[0].id, url: 'u1' });
     st = studioReducer(st, { type: 'SET_TRANSFORM', transform: { scale: 1.2, x: 5, y: 0, rotation: 0 } });
     st = studioReducer(st, { type: 'SELECT_BUILTIN', borderId: stickers[1].id, url: 'u2' });
     expect(st.draft.objects).toHaveLength(2);
     expect((st.draft.objects[0] as Overlay2D).transform.x).toBe(5); // original kept
   });
-  it('an UNTOUCHED sticker swaps in place (browse-to-compare), preserving order', () => {
-    // W4: swap-in-place demonstrated with stickers.
+  it('an UNTOUCHED sticker is ALSO kept: sticker clicks always append, never swap', () => {
+    // W4-D (UI/UX HIGH #1): the old browse-swap silently replaced an unmoved
+    // sticker on the next click — the user's exact "why was my thing deleted"
+    // confusion. Stickers/3D now ALWAYS append; only the frame swaps (one-frame).
     let st = studioReducer(s0(), { type: 'SELECT_BUILTIN', borderId: stickers[0].id, url: 'u1' });
-    st = studioReducer(st, { type: 'ADD_OBJECT', object: createOverlay('2d_filter', { url: 's', isBuiltin: false, name: 'S', transform: { scale: 1, x: 10, y: 0, rotation: 0 } }) });
-    st = studioReducer(st, { type: 'SELECT_OBJECT', id: st.draft.objects[0].id }); // reselect the untouched sticker
     st = studioReducer(st, { type: 'SELECT_BUILTIN', borderId: stickers[1].id, url: 'u2' });
     expect(st.draft.objects).toHaveLength(2);
-    expect((st.draft.objects[0] as Overlay2D).builtinId).toBe(stickers[1].id); // swapped at index 0
+    expect(st.draft.objects.map((o) => (o as Overlay2D).builtinId)).toEqual([stickers[0].id, stickers[1].id]);
   });
   it('cross-sub-kind click never replaces: a sticker ADDS next to a selected frame', () => {
     const sticker = stickers[0];
@@ -227,7 +229,7 @@ describe('browse-swap vs committed-add (multi-object reachability)', () => {
     st = studioReducer(st, { type: 'SELECT_BUILTIN', borderId: sticker.id, url: 'su' });
     expect(st.draft.objects.map((o) => (o as Overlay2D).overlayKind)).toEqual(['border', '2d_filter']);
   });
-  it('an ANIMATED object counts as touched', () => {
+  it('an ANIMATED head piece is kept on the next pick too', () => {
     let st = studioReducer(s0(), { type: 'SELECT_HEAD_PIECE', pieceId: 'royal-crown' });
     st = studioReducer(st, { type: 'SET_OBJECT_ANIMATION', id: st.draft.objects[0].id, animation: 'float' });
     st = studioReducer(st, { type: 'SELECT_HEAD_PIECE', pieceId: 'queen-tiara' });

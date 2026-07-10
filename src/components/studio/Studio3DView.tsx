@@ -89,7 +89,11 @@ export default function Studio3DView({
   if (view === 'orbit') {
     return (
       <Canvas
-        camera={{ position: [0, 1.5, 32], fov: 42, near: 0.1, far: 2000 }}
+        // Pulled back + aimed lower than a tight head-shot: crown-anchored
+        // content (Royal Crown, halos) extends WELL above the bust, and the
+        // floating mode pills occupy the stage's top band — this framing keeps
+        // tall pieces fully visible below the chrome.
+        camera={{ position: [0, 2.5, 46], fov: 42, near: 0.1, far: 2000 }}
         gl={{ preserveDrawingBuffer: true, antialias: true }}
         style={{ width: '100%', height: '100%' }}
       >
@@ -98,7 +102,9 @@ export default function Studio3DView({
         <Suspense fallback={null}>
         <color attach="background" args={['#05060B']} />
         <fog attach="fog" args={['#05060B', 70, 170]} />
-        <OrbitControls makeDefault enableDamping dampingFactor={0.1} target={[0, -0.5, 2]} />
+        {/* Target slightly below head centre → the head sits low in frame,
+            leaving headroom above the crown for tall pieces + the pills. */}
+        <OrbitControls makeDefault enableDamping dampingFactor={0.1} target={[0, -3, 2]} />
         <ambientLight intensity={0.6} />
         <directionalLight position={[8, 14, 12]} intensity={1.3} color="#EAF1FF" />
         <directionalLight position={[-9, 5, -7]} intensity={0.4} color="#5B8CFF" />

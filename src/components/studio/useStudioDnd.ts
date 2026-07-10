@@ -70,15 +70,12 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef, draftRef }
     const isFrameDrop = p.target === 'overlay' && (p.overlayKind ?? 'border') === 'border';
     const cur = draftRef.current;
     if (!isFrameDrop && cur && sceneCounts(cur).capped >= MAX_OBJECTS) return;
-    // NOTE on add-vs-replace: the click-to-add actions (SELECT_BUILTIN,
-    // SET_OVERLAY_UPLOAD, SELECT_HEAD_PIECE, SET_MODEL_ASSET) already implement
-    // the scene's browse-swap vs committed-add rule in the reducer (state.ts
-    // addOrReplaceObject: an untouched same-kind selection is swapped in place;
-    // anything else appends + selects) AND flip the view to the right world. So a
-    // drop dispatches the SAME actions as a click, then positions the now-selected
-    // object — and that positioning marks it "touched", so every subsequent drop
-    // appends. Consecutive drops therefore build multi-object scenes; no dnd-specific
-    // ADD_OBJECT and no SET_KIND view-flip needed (the reducer derives the sub-kind).
+    // NOTE on add semantics: the click-to-add actions (SELECT_BUILTIN,
+    // SET_OVERLAY_UPLOAD, SELECT_HEAD_PIECE, SET_MODEL_ASSET) ALWAYS APPEND in
+    // the reducer (state.ts appendObject; the one frame swaps via placeFrame)
+    // AND flip the view to the right world. So a drop dispatches the SAME
+    // actions as a click, then positions the now-selected object — no
+    // dnd-specific ADD_OBJECT and no SET_KIND view-flip needed.
     if (p.target === 'overlay') {
       if (p.builtinUrl && p.builtinId) {
         dispatch({ type: 'SELECT_BUILTIN', borderId: p.builtinId, url: p.builtinUrl });

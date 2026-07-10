@@ -77,7 +77,9 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const [uploads, setUploads] = useState<SourceState>(IDLE_SOURCE);
   const [mine, setMine] = useState<SourceState>(IDLE_SOURCE);
   // Which catalog category the Library is browsing (pure UI — no draft coupling).
-  const [category, setCategory] = useState<Category>('frame');
+  // Starts on 'filter' to match a fresh draft's pre-selected filter, so the two
+  // panels agree at first glance.
+  const [category, setCategory] = useState<Category>('filter');
   const family: '2d' | '3d' = category === '3d' ? '3d' : '2d';
 
   const loadUploads = useCallback(() => {
@@ -276,7 +278,14 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             return (
               <button
                 key={t.id}
-                onClick={() => setCategory(t.id)}
+                onClick={() => {
+                  setCategory(t.id);
+                  // Echo the browse choice in the stage (pure view flip, never
+                  // destructive, off the undo timeline) — the dock's "3D" tab and
+                  // the stage's "3D" view share a name, and users expect them to
+                  // move together.
+                  dispatch({ type: 'SET_MODE', mode: t.id === '3d' ? '3d' : '2d' });
+                }}
                 className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-[8px] font-label uppercase tracking-widest transition-all w-full ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
               >
                 <t.icon className="w-3.5 h-3.5" />
@@ -390,6 +399,14 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
 
           <div>
             <SectionLabel>Anchor point</SectionLabel>
+            {/* SELECT_ANCHOR targets the SELECTED 3D piece — with none, every
+                click is a silent no-op, so say so instead of rendering a list
+                that looks live but does nothing. */}
+            {selAnchor === undefined ? (
+              <p className="font-sans text-[10px] text-brand-muted/40 px-3 py-2 leading-relaxed">
+                Select a 3D piece (or add one above) to choose where it attaches.
+              </p>
+            ) : (
             <div className="flex flex-col gap-0.5">
               {ANCHOR_PRESETS.map((p) => {
                 const active = p.id === selAnchor;
@@ -405,6 +422,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                 );
               })}
             </div>
+            )}
           </div>
 
           {show3dAi && <AiGeneratePanel onOpenExperience={onOpenExperience} />}

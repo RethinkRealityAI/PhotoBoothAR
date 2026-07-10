@@ -115,6 +115,20 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   const filterActive = draft.shaderId !== 'none';
   const hasObjects = draft.objects.length > 0;
   const counts = sceneCounts(draft);
+  // Display-only numbering for same-name layers ("Golden Crown 2") — adding the
+  // same catalog item twice must leave the rows tellable apart. Numbered in
+  // scene order; nothing is written back to the objects.
+  const displayNames = new Map<string, string>();
+  {
+    const totals = new Map<string, number>();
+    for (const o of draft.objects) totals.set(o.name, (totals.get(o.name) ?? 0) + 1);
+    const seen = new Map<string, number>();
+    for (const o of draft.objects) {
+      const n = (seen.get(o.name) ?? 0) + 1;
+      seen.set(o.name, n);
+      displayNames.set(o.id, (totals.get(o.name) ?? 1) > 1 ? `${o.name} ${n}` : o.name);
+    }
+  }
   const selected = selectedObject(draft);
   const selOverlay: Overlay2D | null = selected && selected.type === 'overlay' ? selected : null;
   const sel3D: Object3D | null = selected && selected.type !== 'overlay' ? selected : null;
@@ -237,7 +251,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                           className={`group flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer transition-colors ${isSel ? 'bg-accent/12 ring-1 ring-accent/30' : 'bg-white/[0.03] hover:bg-white/[0.06]'} ${hidden ? 'opacity-40' : ''}`}
                         >
                           <Icon className={`w-3.5 h-3.5 shrink-0 ${isSel ? 'text-accent-2' : 'text-brand-muted/50'}`} />
-                          <span className={`text-[11px] font-sans truncate flex-1 min-w-0 ${isSel ? 'text-brand-fg' : 'text-brand-muted/70'}`}>{o.name}</span>
+                          <span className={`text-[11px] font-sans truncate flex-1 min-w-0 ${isSel ? 'text-brand-fg' : 'text-brand-muted/70'}`}>{displayNames.get(o.id) ?? o.name}</span>
                           {o.animation !== 'none' && (
                             <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">{o.animation}</span>
                           )}

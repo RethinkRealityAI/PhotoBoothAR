@@ -174,8 +174,12 @@ export default function StudioStage({
         <div className="flex items-center gap-1 liquid-glass rounded-full p-1">
           {visibleTabs.map((t) => {
             const active = mode === t.id;
+            // In 3D/Preview a sub-pill / caption band sits right below this
+            // pill (top-[3.35rem]) — push the tooltip past it so it never
+            // covers the control it describes.
+            const tipOffset = mode === '2d' ? undefined : 56;
             return (
-              <Tooltip key={t.id} label={t.label} hint={t.hint} side="bottom">
+              <Tooltip key={t.id} label={t.label} hint={t.hint} side="bottom" offset={tipOffset}>
                 <button
                   onClick={() => dispatch({ type: 'SET_MODE', mode: t.id })}
                   className="relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors"
@@ -235,6 +239,11 @@ export default function StudioStage({
         className={`relative h-full rounded-2xl overflow-hidden liquid-glass transition-shadow ${dropActive ? 'ring-2 ring-accent shadow-[0_0_40px_-4px_var(--color-accent)]' : ''}`}
         style={{ aspectRatio: '9/16', maxWidth: '100%' }}
       >
+        {/* Legibility scrim: the floating pills/captions are translucent glass —
+            over bright frame art or dense sticker stacks they lose contrast.
+            A soft top fade keeps the chrome readable without boxing it in. */}
+        <div className="absolute inset-x-0 top-0 h-24 z-10 pointer-events-none bg-gradient-to-b from-black/45 via-black/15 to-transparent" />
+
         {/* The ONE camera element — always mounted so the stream persists. */}
         <video
           id="studio-video"
