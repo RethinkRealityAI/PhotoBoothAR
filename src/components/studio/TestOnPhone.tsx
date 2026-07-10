@@ -22,6 +22,8 @@ interface Props {
   experienceId: string | undefined;
   /** True once the draft has unsaved edits (state.dirty). */
   dirty: boolean;
+  /** The guest booth only lists LIVE pieces — a hidden one dead-ends the QR. */
+  isPublished: boolean;
   /** True while the shell's save is in flight. */
   saving: boolean;
   /** The shell's existing handleSave. */
@@ -29,11 +31,12 @@ interface Props {
   onClose: () => void;
 }
 
-export default function TestOnPhone({ experienceId, dirty, saving, onSave, onClose }: Props) {
+export default function TestOnPhone({ experienceId, dirty, isPublished, saving, onSave, onClose }: Props) {
   const { basePath } = useEvent();
   const [copied, setCopied] = useState(false);
 
   const needsSave = !experienceId || dirty;
+  const needsPublish = !needsSave && !isPublished;
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const url = experienceId ? `${origin}${basePath}/experience/${experienceId}` : '';
 
@@ -59,6 +62,14 @@ export default function TestOnPhone({ experienceId, dirty, saving, onSave, onClo
               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               {saving ? 'Saving…' : 'Save'}
             </button>
+          </>
+        ) : needsPublish ? (
+          <>
+            <Smartphone className="w-8 h-8 text-brand-muted/40" />
+            <p className="font-sans text-sm text-brand-fg leading-relaxed">
+              This piece is <span className="text-accent-2">Hidden</span> — the booth only lists Live
+              pieces, so the link would dead-end. Flip it to Live in the properties panel, save, then scan.
+            </p>
           </>
         ) : (
           <>

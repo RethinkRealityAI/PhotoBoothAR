@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ANCHOR_PRESETS, RIG_CAMERA } from '../../lib/faceRig';
 import { pointToTransform2D, projectAnchorsToScreen, nearestAnchor, type AnchorPoint } from '../../lib/studio/dnd';
-import { DEFAULT_TRANSFORM, type StudioAction } from '../../lib/studio/state';
+import { DEFAULT_TRANSFORM, MAX_OBJECTS, type StudioAction, type StudioDraft } from '../../lib/studio/state';
 
 export interface DragPayload {
   target: 'overlay' | 'model' | 'headpiece';
@@ -36,9 +36,14 @@ interface Options {
   dispatch: React.Dispatch<StudioAction>;
   stageBodyRef: React.RefObject<HTMLElement | null>;
   headMatrixRef: React.RefObject<number[] | null>;
+  /** Always-current draft (a ref, not state — window listeners must not close
+   *  over stale drops). Used to reject drops at the MAX_OBJECTS cap, where the
+   *  add would no-op and the follow-up SET_TRANSFORM would otherwise relocate
+   *  the previously-selected object to the drop point. */
+  draftRef: React.RefObject<StudioDraft | null>;
 }
 
-export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef }: Options) {
+export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef, draftRef }: Options) {
   const [payload, setPayload] = useState<DragPayload | null>(null);
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
   const [overStage, setOverStage] = useState(false);
@@ -55,14 +60,21 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef }: Options)
   }, [stageBodyRef]);
 
   const resolveDrop = useCallback((p: DragPayload, x: number, y: number, rect: DOMRect) => {
+    // Cap guard: at MAX_OBJECTS the add actions no-op in the reducer, and the
+    // follow-up SET_TRANSFORM would then move the previously-selected object
+    // to the drop point — reject the whole drop instead. (Slight over-reject:
+    // a swap of an untouched selection would still fit at the cap, but a full
+    // scene being browse-swapped by DROP is a non-case worth the simplicity.)
+    const objs = draftRef.current?.objects ?? [];
+    if (objs.length >= MAX_OBJECTS) return;
     // NOTE on add-vs-replace: the click-to-add actions (SELECT_BUILTIN,
     // SET_OVERLAY_UPLOAD, SELECT_HEAD_PIECE, SET_MODEL_ASSET) already implement
-    // the scene's ADD-vs-REPLACE rule in the reducer (see state.ts
-    // addOrReplaceObject: a single untouched object is replaced in place;
-    // otherwise a new object is appended and selected). So a drop dispatches the
-    // SAME actions as a click, then positions the now-selected object. This
-    // preserves today's single-object swap UX while letting a populated scene
-    // grow — no dnd-specific ADD_OBJECT path needed.
+    // the scene's browse-swap vs committed-add rule in the reducer (state.ts
+    // addOrReplaceObject: an untouched same-kind selection is swapped in place;
+    // anything else appends + selects). So a drop dispatches the SAME actions
+    // as a click, then positions the now-selected object — and that positioning
+    // marks it "touched", so every subsequent drop appends. Consecutive drops
+    // therefore build multi-object scenes; no dnd-specific ADD_OBJECT needed.
     if (p.target === 'overlay') {
       // SET_KIND switches the 2D sub-kind first (border↔sticker); with a single
       // untouched object it resets to that kind's default, which the following
@@ -95,7 +107,7 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef }: Options)
       const hit = nearestAnchor(projected, x - rect.left, y - rect.top, SNAP_RADIUS);
       if (hit) dispatch({ type: 'SELECT_ANCHOR', anchor: hit });
     }
-  }, [dispatch, headMatrixRef]);
+  }, [dispatch, headMatrixRef, draftRef]);
 
   const endDrag = useCallback((clientX: number, clientY: number) => {
     // Read the payload from the ref (window listeners captured at beginDrag time

@@ -175,6 +175,45 @@ describe('head pieces and model assets', () => {
   });
 });
 
+describe('browse-swap vs committed-add (multi-object reachability)', () => {
+  it('an EDITED head piece is kept: the next pick ADDS a second object', () => {
+    let st = studioReducer(s0(), { type: 'SELECT_HEAD_PIECE', pieceId: 'royal-crown' });
+    st = studioReducer(st, { type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { x: 0, y: 1.5, z: 0 } } });
+    st = studioReducer(st, { type: 'SELECT_HEAD_PIECE', pieceId: 'queen-tiara' });
+    expect(st.draft.objects.map((o) => (o as Object3D).proceduralId)).toEqual(['royal-crown', 'queen-tiara']);
+    expect((selectedObject(st.draft) as Object3D).proceduralId).toBe('queen-tiara');
+  });
+  it('a MOVED overlay is kept: the next builtin click ADDS a second overlay', () => {
+    const b0 = BUILTIN_BORDERS.filter((b) => b.kind === 'border');
+    let st = studioReducer(s0(), { type: 'SET_KIND', kind: 'border' }); // untouched default border
+    st = studioReducer(st, { type: 'SET_TRANSFORM', transform: { scale: 1.2, x: 5, y: 0, rotation: 0 } });
+    st = studioReducer(st, { type: 'SELECT_BUILTIN', borderId: b0[1].id, url: 'u2' });
+    expect(st.draft.objects).toHaveLength(2);
+    expect((st.draft.objects[0] as Overlay2D).transform.x).toBe(5); // original kept
+  });
+  it('an UNTOUCHED overlay swaps in place (browse-to-compare), preserving order', () => {
+    const b0 = BUILTIN_BORDERS.filter((b) => b.kind === 'border');
+    let st = studioReducer(s0(), { type: 'SET_KIND', kind: 'border' });
+    st = studioReducer(st, { type: 'ADD_OBJECT', object: createOverlay('2d_filter', { url: 's', isBuiltin: false, name: 'S', transform: { scale: 1, x: 10, y: 0, rotation: 0 } }) });
+    st = studioReducer(st, { type: 'SELECT_OBJECT', id: st.draft.objects[0].id }); // reselect the untouched border
+    st = studioReducer(st, { type: 'SELECT_BUILTIN', borderId: b0[1].id, url: 'u2' });
+    expect(st.draft.objects).toHaveLength(2);
+    expect((st.draft.objects[0] as Overlay2D).builtinId).toBe(b0[1].id); // swapped at index 0
+  });
+  it('cross-sub-kind click never replaces: a sticker ADDS next to an untouched border', () => {
+    const sticker = BUILTIN_BORDERS.find((b) => b.kind === '2d_filter')!;
+    let st = studioReducer(s0(), { type: 'SET_KIND', kind: 'border' }); // untouched default border selected
+    st = studioReducer(st, { type: 'SELECT_BUILTIN', borderId: sticker.id, url: 'su' });
+    expect(st.draft.objects.map((o) => (o as Overlay2D).overlayKind)).toEqual(['border', '2d_filter']);
+  });
+  it('an ANIMATED object counts as touched', () => {
+    let st = studioReducer(s0(), { type: 'SELECT_HEAD_PIECE', pieceId: 'royal-crown' });
+    st = studioReducer(st, { type: 'SET_OBJECT_ANIMATION', id: st.draft.objects[0].id, animation: 'float' });
+    st = studioReducer(st, { type: 'SELECT_HEAD_PIECE', pieceId: 'queen-tiara' });
+    expect(st.draft.objects).toHaveLength(2);
+  });
+});
+
 describe('multi-object scenes', () => {
   const twoOverlays = (): StudioState => {
     let st = studioReducer(s0(), { type: 'SET_KIND', kind: 'border' });

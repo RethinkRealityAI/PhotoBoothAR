@@ -2,7 +2,7 @@
  * Renders anchor positions as glowing gold dots with text labels.
  * The active anchor gets a bigger halo + pulsing ring.
  */
-import { useRef } from 'react';
+import { Suspense, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
@@ -69,8 +69,12 @@ function AnchorDot({
         </mesh>
       )}
 
-      {/* label always faces camera */}
+      {/* label always faces camera. drei <Text> SUSPENDS while troika fetches
+          its font (a CDN request) — the Suspense keeps that contained to the
+          label, so a slow/blocked font network never suspends the canvas (and,
+          through it, the app's route boundary: that rendered a black page). */}
       <Billboard>
+        <Suspense fallback={null}>
         <Text
           position={[0, active ? 1.6 : 1.25, 0]}
           fontSize={active ? 1.05 : 0.85}
@@ -84,6 +88,7 @@ function AnchorDot({
         >
           {preset.label}
         </Text>
+        </Suspense>
       </Billboard>
     </group>
   );

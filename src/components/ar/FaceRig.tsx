@@ -9,6 +9,7 @@ import { useRef, useEffect, useState, ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
+import { initializeFaceLandmarker } from '../../lib/faceTracking';
 import { updateHeadPose, ANCHOR_MAP } from '../../lib/faceRig';
 import { AnchorConfig, HeadAnchor } from '../../types';
 import AssetGizmo from './AssetGizmo';
@@ -93,6 +94,16 @@ export function FaceRig({
   // so a consumer mounting mid-track gets the true state immediately instead
   // of waiting for the next visibility flip.
   const visibleRef = useRef<boolean | null>(null);
+
+  // SELF-INITIALIZING tracking: the component that NEEDS the landmarker owns
+  // starting it. Idempotent (faceTracking caches the init promise), so hosts
+  // that pre-warm it (Booth, DemoBooth) pay nothing extra — and no future
+  // surface can silently ship a FaceRig that never tracks because its shell
+  // forgot the init call (exactly the regression that broke the studio's
+  // live 3D view when LiveCanvas, which used to init, was retired).
+  useEffect(() => {
+    initializeFaceLandmarker().catch((e) => console.warn('[FaceRig] face tracker init failed', e));
+  }, []);
 
   useFrame(() => {
     const group = head.current;

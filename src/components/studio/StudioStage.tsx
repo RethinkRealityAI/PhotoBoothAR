@@ -21,6 +21,7 @@ import { selectedObject, type StudioState, type StudioAction, type Overlay2D, ty
 import Studio3DView from './Studio3DView';
 import StudioPreview from './StudioPreview';
 import Tooltip from '../ui/Tooltip';
+import ErrorBoundary from '../ui/ErrorBoundary';
 
 interface CamState {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -317,9 +318,11 @@ export default function StudioStage({
           </div>
         )}
 
-        {/* 3D view */}
+        {/* 3D view — boundary so a failed 3D asset/font fetch degrades to a
+            local "try again" panel instead of blanking the whole studio. */}
         {mode === '3d' && (
           <div className="absolute inset-0">
+            <ErrorBoundary label="3D view">
             <Studio3DView
               view={threeView}
               videoId="studio-video"
@@ -337,12 +340,14 @@ export default function StudioStage({
               onGizmoDragStart={() => dispatch({ type: 'SET_PAUSED', paused: true })}
               onGizmoDragEnd={() => dispatch({ type: 'SET_PAUSED', paused: false })}
             />
+            </ErrorBoundary>
           </div>
         )}
 
         {/* Preview */}
         {mode === 'preview' && (
           <div className="absolute inset-0">
+            <ErrorBoundary label="preview">
             <StudioPreview
               videoRef={cam.videoRef}
               draft={draft}
@@ -350,10 +355,13 @@ export default function StudioStage({
               occlusionEnabled={occlusionEnabled}
               onFaceVisible={onFaceVisible}
             />
+            </ErrorBoundary>
           </div>
         )}
 
-        {/* Test on phone — Preview mode only, floating bottom-right */}
+        {/* Test on phone — Preview mode only, floating bottom-right. In preview
+            the status caption moves up under the mode pill (see below) so the
+            two never collide on narrow stages. */}
         {mode === 'preview' && onTestOnPhone && (
           <div className="absolute bottom-3 right-3 z-20">
             <button
@@ -375,8 +383,14 @@ export default function StudioStage({
           </div>
         )}
 
-        {/* Status caption */}
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+        {/* Status caption — in preview it sits under the mode pill (the 3D
+            sub-controls slot) so the bottom-right Test-on-phone button never
+            overlaps it on narrow stages. */}
+        <div
+          className={`absolute left-1/2 -translate-x-1/2 z-20 pointer-events-none ${
+            mode === 'preview' ? 'top-[3.35rem]' : 'bottom-3'
+          }`}
+        >
           <StageCaption mode={mode} threeView={threeView} paused={paused} faceVisible={faceVisible} kind={draft.kind} objectCount={overlays.length} />
         </div>
       </div>

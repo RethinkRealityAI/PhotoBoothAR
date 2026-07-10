@@ -251,13 +251,44 @@ function mapObjects(d: StudioDraft, id: string, fn: (o: StudioObject) => StudioO
 }
 
 /**
+ * True while an object is still exactly as the catalog created it — default
+ * placement and no animation. Such an object is "being browsed", not placed:
+ * the user clicked it to look, and hasn't committed to it by moving/editing it.
+ */
+function isUntouched(o: StudioObject): boolean {
+  if (o.animation !== 'none') return false;
+  if (o.type === 'overlay') {
+    const t = o.transform;
+    return t.scale === 1 && t.x === 0 && t.y === 0 && t.rotation === 0;
+  }
+  // 3D: untouched = still on the piece's own preset anchor/config (or the
+  // plain defaults for a GLB model, which has no preset).
+  const preset = o.type === 'headpiece' && o.proceduralId ? HEAD_PIECE_MAP[o.proceduralId]?.config : undefined;
+  const da = preset?.anchor ?? 'crown';
+  const doff = preset?.offset ?? DEFAULT_ANCHOR_CONFIG.offset;
+  const drot = preset?.rotation ?? DEFAULT_ANCHOR_CONFIG.rotation;
+  const dscale = preset?.scale ?? 1;
+  const c = o.anchorConfig;
+  return (
+    o.anchor === da &&
+    c.scale === dscale &&
+    c.offset.x === doff.x && c.offset.y === doff.y && c.offset.z === doff.z &&
+    c.rotation.x === drot.x && c.rotation.y === drot.y && c.rotation.z === drot.z
+  );
+}
+
+/**
  * ADD-vs-REPLACE rule for the click-to-add actions (SELECT_BUILTIN,
- * SET_OVERLAY_UPLOAD, SELECT_HEAD_PIECE, SET_MODEL_ASSET): they ADD a new
- * object (and select it) when the scene has room, EXCEPT when the currently-
- * selected object is the SAME kind AND the scene has exactly one object — then
- * they REPLACE it in place. This preserves today's single-object Creator UX
- * (clicking a second border swaps the one you have) while letting a populated
- * scene grow. Returns null when the MAX_OBJECTS cap blocks an add.
+ * SET_OVERLAY_UPLOAD, SELECT_HEAD_PIECE, SET_MODEL_ASSET):
+ *   • REPLACE in place when the selected object is the same type (and, for 2D
+ *     overlays, the same border/sticker sub-kind) AND still untouched — the
+ *     browse-to-compare flow: click through frames or head pieces and each
+ *     click swaps the one you're looking at.
+ *   • ADD (and select) otherwise — once an object has been placed or edited
+ *     (dragged, scaled, re-anchored, animated), the next pick grows the scene,
+ *     which is how multi-object scenes are built from plain clicks and drops
+ *     (a drop positions its object right after adding, marking it touched).
+ * Returns null when the MAX_OBJECTS cap blocks an add.
  */
 function addOrReplaceObject(
   d: StudioDraft,
@@ -265,8 +296,10 @@ function addOrReplaceObject(
   sameType: StudioObject['type'],
 ): StudioDraft | null {
   const sel = selectedObject(d);
-  if (sel && sel.type === sameType && d.objects.length === 1) {
-    return { ...d, objects: [obj], selectedId: obj.id };
+  const sameSubkind =
+    sel?.type === 'overlay' && obj.type === 'overlay' ? sel.overlayKind === obj.overlayKind : true;
+  if (sel && sel.type === sameType && sameSubkind && isUntouched(sel)) {
+    return { ...d, objects: d.objects.map((o) => (o.id === sel.id ? obj : o)), selectedId: obj.id };
   }
   if (d.objects.length >= MAX_OBJECTS) return null;
   return { ...d, objects: [...d.objects, obj], selectedId: obj.id };

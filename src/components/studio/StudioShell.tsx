@@ -28,7 +28,7 @@ import {
 } from '../../lib/db';
 import { BUILTIN_BORDERS } from '../../lib/borders';
 import { clampHeadScale } from '../../lib/studio/occluder';
-import { studioReducer, initialState, selectedObject, type StudioState, type StudioAction } from '../../lib/studio/state';
+import { studioReducer, initialState, selectedObject, type StudioState, type StudioAction, type StudioDraft } from '../../lib/studio/state';
 import { withHistory, initHistory, canUndo, canRedo } from '../../lib/studio/history';
 import { nudgeTransform } from '../../lib/studio/snap';
 import { experienceToDraft, draftToPayload } from '../../lib/studio/draftMapping';
@@ -128,7 +128,11 @@ export default function StudioShell() {
   const cam = useCameraStream(true);
   const stageBodyRef = useRef<HTMLDivElement | null>(null);
   const headMatrixRef = useRef<number[] | null>(null);
-  const dnd = useStudioDnd({ dispatch, stageBodyRef, headMatrixRef });
+  // Always-current draft for the DnD hook's cap guard (window listeners can't
+  // safely close over state).
+  const draftRef = useRef<StudioDraft | null>(state.draft);
+  draftRef.current = state.draft;
+  const dnd = useStudioDnd({ dispatch, stageBodyRef, headMatrixRef, draftRef });
 
   // Load studio settings once.
   useEffect(() => {
@@ -438,6 +442,7 @@ export default function StudioShell() {
         <TestOnPhone
           experienceId={state.draft.id}
           dirty={state.dirty}
+          isPublished={state.draft.isPublished}
           saving={saving}
           onSave={handleSave}
           onClose={() => setTestPhoneOpen(false)}

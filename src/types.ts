@@ -94,7 +94,7 @@ export interface ExperienceConfig {
   ambientShader?: ShaderConfig;
   /** Scene Director grouping tag — set on every piece accepted from one scene. */
   scene?: string;
-  /** Per-experience opt-out of head occlusion (absent/true = occlude). */
+  /** Per-experience head-occlusion opt-IN — only exactly `true` occludes. */
   occlusion?: boolean;
 }
 

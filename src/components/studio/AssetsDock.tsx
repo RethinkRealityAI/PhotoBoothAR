@@ -20,6 +20,7 @@ import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
 import { selectedObject, type StudioAction, type StudioKind, type StudioState } from '../../lib/studio/state';
 import { SectionLabel } from './StudioControls';
+import Tooltip from '../ui/Tooltip';
 import AiFramePanel from './AiFramePanel';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
 import type { DragPayload } from './useStudioDnd';
@@ -194,21 +195,35 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
 
   return (
     <div className="h-full overflow-y-auto hide-scrollbar p-4 flex flex-col gap-5">
-      {/* Experience-type selector */}
+      {/* Experience-type selector. While EDITING a saved experience (draft.id),
+          destructive tabs are locked — same rationale as the stage's family-
+          locked mode switcher — so one stray click can't wipe loaded objects
+          (SET_KIND across families or to 'shader' resets the scene). */}
       <div>
         <SectionLabel>Experience type</SectionLabel>
         <div className="grid grid-cols-4 gap-1.5">
           {KIND_TABS.map((t) => {
             const active = draft.kind === t.id;
-            return (
+            const crossesFamily = (draft.kind === '3d_attachment') !== (t.id === '3d_attachment');
+            const destructive = crossesFamily || (t.id === 'shader' && draft.kind !== 'shader');
+            const locked = !!draft.id && !active && destructive;
+            const btn = (
               <button
-                key={t.id}
-                onClick={() => dispatch({ type: 'SET_KIND', kind: t.id })}
-                className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-[8px] font-label uppercase tracking-widest transition-all ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                key={locked ? undefined : t.id}
+                onClick={() => { if (!locked) dispatch({ type: 'SET_KIND', kind: t.id }); }}
+                disabled={locked}
+                className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-[8px] font-label uppercase tracking-widest transition-all w-full ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : locked ? 'bg-white/[0.02] text-brand-muted/25 cursor-not-allowed' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
               >
                 <t.icon className="w-3.5 h-3.5" />
                 {t.label}
               </button>
+            );
+            return locked ? (
+              <Tooltip key={t.id} label={t.label} hint="Locked while editing — duplicate this experience or start a new one to switch type">
+                {btn}
+              </Tooltip>
+            ) : (
+              <span key={t.id}>{btn}</span>
             );
           })}
         </div>
