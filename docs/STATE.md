@@ -38,6 +38,8 @@ P5: (1) platformGuide.ts — add a Studio + Scene Director section so the copilo
 - (platform) No new npm dependencies; edge fn dir needs its own deno.json; never loosen tenant RLS.
 - (plan, user-approved) Do NOT touch: StageCanvas.drawFrame semantics/Transform2D meaning, booth capture/submitPost, RLS/migrations, experiences schema (new persistence = jsonb config + app_settings 'studio' key only).
 - (task) Push only to claude/studio-editing-ux-improvements-xfn36m; draft PR after push.
+- User (2026-07-10, verbatim): "ensure they're ketp the same and consistent" — 2D-mode editor camera vs preview camera (2D "a bit zoomed and distored").
+- User (2026-07-10): "an experience doesn't have to be just 2D or 3D... It's both." "there should only be one frame, but there can be multiple stickers. There's no limit on that. 3D models can also be multiple... that should be the default behavior." "It should persist whether it's 2D or 3D" (no deletion when switching modes).
 
 ## Decisions
 - DECISION (user, 2026-07-09): multi-object = "multiple within a mode" (option B) + ship undo/delete; assets panel = uploads + my experiences (option B); implement ALL 4 extras; orchestrate via Sonnet/Opus subagents with UI/UX reviewer + assumptions auditor, me directing/reviewing.

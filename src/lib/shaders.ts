@@ -581,12 +581,30 @@ const UNIFORM_NAMES = [
  * Renders source frames through a shader to an internal canvas.
  * Reuse one instance for live preview; call draw() per frame.
  */
+/**
+ * Centered cover-crop rect: the sub-rect of a srcW×srcH source that fills a
+ * destination of aspect `dstAspect` (w/h) without stretching — the same crop
+ * StageCanvas.coverFit and CSS object-cover perform. Pure, node-testable.
+ */
+export function coverCropRect(
+  srcW: number,
+  srcH: number,
+  dstAspect: number,
+): { sx: number; sy: number; sw: number; sh: number } {
+  let sw = srcW, sh = srcH, sx = 0, sy = 0;
+  const srcA = srcW / srcH;
+  if (srcA > dstAspect) { sw = srcH * dstAspect; sx = (srcW - sw) / 2; }
+  else if (srcA < dstAspect) { sh = srcW / dstAspect; sy = (srcH - sh) / 2; }
+  return { sx, sy, sw, sh };
+}
+
 export class ShaderRunner {
   readonly canvas: HTMLCanvasElement;
   private gl: WebGLRenderingContext | null;
   private programs = new Map<string, WebGLProgram>();
   private buffer: WebGLBuffer | null = null;
   private texture: WebGLTexture | null = null;
+  private cropCanvas: HTMLCanvasElement | null = null;
   private start = performance.now();
 
   constructor(width = 1080, height = 1920) {
@@ -676,7 +694,7 @@ export class ShaderRunner {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     try {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.aspectCropped(source));
     } catch {
       return null; // source not decodable yet
     }
@@ -693,6 +711,38 @@ export class ShaderRunner {
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     return this.canvas;
+  }
+
+  /**
+   * The vertex/fragment pipeline maps the full texture onto the full canvas,
+   * so a source whose aspect differs from the canvas would be STRETCHED (the
+   * "zoomed and distorted" live-filter view — camera feeds are 4:3/16:9, the
+   * stage is 9:16). Center-crop mismatched sources onto a scratch canvas first
+   * so every caller (studio 2D filter, preview, booth) shows the exact same
+   * cover-fit framing as the raw video. Equal-aspect sources (e.g. the capture
+   * dissolve, fed an already-9:16 canvas) pass through untouched.
+   */
+  private aspectCropped(source: TexImageSource): TexImageSource {
+    let sw = 0, sh = 0;
+    if (typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement) {
+      sw = source.videoWidth; sh = source.videoHeight;
+    } else if ('width' in source && 'height' in source) {
+      sw = Number(source.width); sh = Number(source.height);
+    }
+    if (!sw || !sh) return source;
+    if (source instanceof ImageData) return source; // not drawImage-able; no caller passes one
+    const dstA = this.canvas.width / this.canvas.height;
+    if (Math.abs(sw / sh - dstA) < 0.01) return source;
+    const { sx, sy, sw: cw, sh: ch } = coverCropRect(sw, sh, dstA);
+    if (!this.cropCanvas) this.cropCanvas = document.createElement('canvas');
+    if (this.cropCanvas.width !== this.canvas.width || this.cropCanvas.height !== this.canvas.height) {
+      this.cropCanvas.width = this.canvas.width;
+      this.cropCanvas.height = this.canvas.height;
+    }
+    const ctx = this.cropCanvas.getContext('2d');
+    if (!ctx) return source;
+    ctx.drawImage(source as CanvasImageSource, sx, sy, cw, ch, 0, 0, this.cropCanvas.width, this.cropCanvas.height);
+    return this.cropCanvas;
   }
 
   dispose() {
