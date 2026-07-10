@@ -156,7 +156,7 @@ export function splitTemplates(exps: Experience[]): { templates: Experience[]; r
   return { templates, rest };
 }
 
-// Suffix createExperience stamps on a template's name at save time
+// Suffix PropertiesDock's Save-as-template stamps on the name at save time
 // (`${draft.name} (template)`) — stripped when a template is opened as a
 // fresh, untitled draft so repeated reuse doesn't pile up the suffix.
 const TEMPLATE_SUFFIX = /\s*\(template\)$/i;

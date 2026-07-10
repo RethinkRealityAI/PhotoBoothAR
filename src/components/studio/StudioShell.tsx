@@ -386,7 +386,7 @@ export default function StudioShell() {
         </Tooltip>
         {/* Mobile/tablet: toggle the Assets drawer (a static column at lg+). */}
         <button
-          onClick={() => setMobilePanel((p) => (p === 'assets' ? null : 'assets'))}
+          onClick={() => { setSceneOpen(false); setMobilePanel((p) => (p === 'assets' ? null : 'assets')); }}
           aria-label="Toggle assets panel"
           className={`lg:hidden flex items-center justify-center w-9 h-9 rounded-lg transition-colors ${mobilePanel === 'assets' ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg'}`}
         >
@@ -435,7 +435,7 @@ export default function StudioShell() {
         </div>
         <Tooltip label="Director" hint="Docked AI assistant — designs a scene into your open draft" side="bottom">
           <button
-            onClick={() => setSceneOpen((o) => !o)}
+            onClick={() => { setMobilePanel(null); setSceneOpen((o) => !o); }}
             aria-pressed={sceneOpen}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl liquid-glass text-[10px] font-label uppercase tracking-widest transition-colors ${sceneOpen ? 'text-brand-fg bg-accent/15' : 'text-accent-2 hover:text-brand-fg'}`}
           >
@@ -455,7 +455,7 @@ export default function StudioShell() {
         </button>
         {/* Mobile/tablet: toggle the Properties drawer (a static column at lg+). */}
         <button
-          onClick={() => setMobilePanel((p) => (p === 'props' ? null : 'props'))}
+          onClick={() => { setSceneOpen(false); setMobilePanel((p) => (p === 'props' ? null : 'props')); }}
           aria-label="Toggle properties panel"
           className={`lg:hidden flex items-center justify-center w-9 h-9 rounded-lg transition-colors ${mobilePanel === 'props' ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg'}`}
         >
@@ -512,24 +512,26 @@ export default function StudioShell() {
           />
         </main>
 
-        {/* Director — docked assistant. At lg+ a column BETWEEN the stage and
+        {/* Director — docked assistant. At xl+ a column BETWEEN the stage and
             the Properties dock (chosen over overlaying the props dock so the
             Scene Layers stay visible and the host watches pieces land there too;
-            the stage stays fully visible, just reflowed narrower). Below lg it's
-            a right slide-in drawer like the assets/props docks. Kept mounted
-            (hidden when closed) so an in-flight generation survives close/reopen
-            and 2D/3D/Preview view flips. */}
+            the stage stays fully visible, just reflowed narrower). Below xl it's
+            a right slide-in drawer — at lg..xl the fourth column crushed the
+            stage to ~180px and the view pill bled across panels (W6 review),
+            so mid-width laptops get the overlay instead. Kept mounted (hidden
+            when closed) so an in-flight generation survives close/reopen and
+            2D/3D/Preview view flips. */}
         {sceneOpen && (
-          <div className="fixed inset-0 top-14 z-30 bg-black/50 lg:hidden" onClick={() => setSceneOpen(false)} />
+          <div className="fixed inset-0 top-14 z-30 bg-black/50 xl:hidden" onClick={() => setSceneOpen(false)} />
         )}
         <aside
           data-panel="director"
-          className={`overflow-hidden bg-brand-bg lg:bg-transparent border-white/10
+          className={`overflow-hidden bg-brand-bg xl:bg-transparent border-white/10
             fixed z-40 top-14 bottom-0 right-0 w-[22rem] max-w-[92vw] border-l transition-transform duration-200
-            lg:static lg:z-auto lg:top-0 lg:w-[360px] lg:max-w-none lg:shrink-0 lg:transition-none
-            ${sceneOpen ? 'translate-x-0 lg:flex lg:flex-col' : 'translate-x-full lg:hidden'}`}
+            xl:static xl:z-auto xl:top-0 xl:w-[360px] xl:max-w-none xl:shrink-0 xl:transition-none
+            ${sceneOpen ? 'translate-x-0 xl:flex xl:flex-col' : 'translate-x-full xl:hidden'}`}
         >
-          <DirectorPanel dispatch={dispatch} initialPrompt={sceneParam ?? ''} onClose={() => setSceneOpen(false)} />
+          <DirectorPanel dispatch={dispatch} draftRef={draftRef} initialPrompt={sceneParam ?? ''} onClose={() => setSceneOpen(false)} />
         </aside>
 
         <aside

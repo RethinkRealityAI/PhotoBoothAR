@@ -144,13 +144,24 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   // single placeable asset). Strips the id (LOAD clears history + `dirty`,
   // making it a genuinely new draft) and the " (template)" name suffix
   // PropertiesDock's "Save as template" stamped on save.
-  const useTemplate = useCallback((exp: Experience) => {
-    if (state.dirty && !window.confirm('Discard unsaved changes and start from this template?')) return;
+  // Dirty-draft guard renders as an inline liquid-glass confirm on the tile
+  // (the app's idiom — a native window.confirm was the one un-styled dialog
+  // in the product, W6 UI/UX review).
+  const [confirmTemplateId, setConfirmTemplateId] = useState<string | null>(null);
+  const useTemplate = useCallback((exp: Experience, confirmed = false) => {
+    if (state.dirty && !confirmed) {
+      setConfirmTemplateId(exp.id);
+      return;
+    }
+    setConfirmTemplateId(null);
     const loaded = experienceToDraft(exp);
     if (!loaded) return;
     const { id: _id, ...rest } = loaded;
     void _id;
-    dispatch({ type: 'LOAD', draft: { ...rest, name: stripTemplateSuffix(exp.name) } });
+    // A reused template starts Live like any fresh draft — the template ROW is
+    // forced hidden (so it never reaches the booth), but that must not make
+    // every experience built FROM it silently unpublished.
+    dispatch({ type: 'LOAD', draft: { ...rest, isPublished: true, name: stripTemplateSuffix(exp.name) } });
   }, [state.dirty, dispatch]);
 
   // Click-to-add for an Uploads/Mine dock item — mirrors the built-in library's
@@ -559,22 +570,40 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                     <SectionLabel><span className="inline-flex items-center gap-1.5"><FileStack className="w-3 h-3 text-accent-2" /> Templates</span></SectionLabel>
                     <div className="flex flex-col gap-1.5">
                       {templates.map((exp) => (
-                        <button
-                          key={exp.id}
-                          onClick={() => useTemplate(exp)}
-                          title="Start a new experience from this template"
-                          className="group flex items-center gap-2 w-full rounded-lg px-2 py-1.5 bg-accent/[0.06] hover:bg-accent/[0.12] border border-accent/15 hover:border-accent/30 transition-colors text-left"
-                        >
-                          <div className="w-8 h-8 rounded-md overflow-hidden bg-white/[0.04] flex items-center justify-center shrink-0">
-                            {exp.thumbnail_url ? (
-                              <img src={exp.thumbnail_url} alt="" draggable={false} className="w-full h-full object-cover" />
-                            ) : (
-                              <FileStack className="w-3.5 h-3.5 text-accent-2/60" />
-                            )}
-                          </div>
-                          <span className="text-[11px] font-sans truncate flex-1 min-w-0 text-brand-fg">{stripTemplateSuffix(exp.name)}</span>
-                          <span className="font-label text-[7px] uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">Template</span>
-                        </button>
+                        <div key={exp.id}>
+                          <button
+                            onClick={() => useTemplate(exp)}
+                            title="Start a new experience from this template"
+                            className="group flex items-center gap-2 w-full rounded-lg px-2 py-1.5 bg-accent/[0.06] hover:bg-accent/[0.12] border border-accent/15 hover:border-accent/30 transition-colors text-left"
+                          >
+                            <div className="w-8 h-8 rounded-md overflow-hidden bg-white/[0.04] flex items-center justify-center shrink-0">
+                              {exp.thumbnail_url ? (
+                                <img src={exp.thumbnail_url} alt="" draggable={false} className="w-full h-full object-cover" />
+                              ) : (
+                                <FileStack className="w-3.5 h-3.5 text-accent-2/60" />
+                              )}
+                            </div>
+                            <span className="text-[11px] font-sans truncate flex-1 min-w-0 text-brand-fg">{stripTemplateSuffix(exp.name)}</span>
+                            <span className="font-label text-[7px] uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">Template</span>
+                          </button>
+                          {confirmTemplateId === exp.id && (
+                            <div className="mt-1 rounded-lg liquid-glass px-2.5 py-2 flex items-center gap-2">
+                              <span className="font-sans text-[10px] text-brand-muted/70 flex-1 leading-snug">Discard unsaved changes?</span>
+                              <button
+                                onClick={() => useTemplate(exp, true)}
+                                className="font-label text-[8px] uppercase tracking-widest text-accent-2 hover:text-accent transition-colors"
+                              >
+                                Use template
+                              </button>
+                              <button
+                                onClick={() => setConfirmTemplateId(null)}
+                                className="font-label text-[8px] uppercase tracking-widest text-brand-muted/50 hover:text-brand-fg transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>

@@ -37,7 +37,7 @@ import {
   type AiErrorCode,
 } from '../../lib/ai';
 import type { Experience } from '../../types';
-import type { StudioAction } from '../../lib/studio/state';
+import { MAX_OBJECTS, sceneCounts, type StudioAction, type StudioDraft } from '../../lib/studio/state';
 import {
   planFromJson,
   FRAME_CREDIT_COST,
@@ -91,10 +91,14 @@ const IDLE_CARDS: Record<ScenePieceKey, CardState> = {
 
 export default function DirectorPanel({
   dispatch,
+  draftRef,
   initialPrompt = '',
   onClose,
 }: {
   dispatch: React.Dispatch<StudioAction>;
+  /** Always-current draft (StudioShell's ref) — approvals check the object cap
+   *  BEFORE claiming success (audit H1: appendObject no-ops silently at cap). */
+  draftRef: React.RefObject<StudioDraft | null>;
   initialPrompt?: string;
   onClose: () => void;
 }) {
@@ -147,6 +151,7 @@ export default function DirectorPanel({
     setCards(IDLE_CARDS);
     rawFrameRef.current = null;
     conceptUrlRef.current = null;
+    approvedRef.current = {};
     stopRotation();
     try {
       const { supabase } = await import('../../lib/supabase');
@@ -220,14 +225,32 @@ export default function DirectorPanel({
   }, [dispatch, setCard]);
 
   /* ── HEAD PIECE ─────────────────────────────────────────────────────────── */
+  // Approvals append into the draft — but appendObject silently no-ops at the
+  // MAX_OBJECTS cap, so check FIRST and refuse honestly instead of showing a
+  // false "Added" on a full scene. (Frame approvals are exempt: placeFrame
+  // always swaps the single frame.)
+  const sceneFull = useCallback((): boolean => {
+    const d = draftRef.current;
+    return !!d && sceneCounts(d).capped >= MAX_OBJECTS;
+  }, [draftRef]);
+  // Synchronous approve-once latch (state re-render lags a fast double-click,
+  // and SELECT_HEAD_PIECE/SET_MODEL_ASSET would append twice). Reset per plan.
+  const approvedRef = useRef<Record<string, boolean>>({});
+
   const approveProceduralPiece = useCallback(() => {
     if (plan?.headPiece?.kind !== 'procedural' || !plan.headPiece.id) return;
+    if (approvedRef.current.headPiece) return;
+    if (sceneFull()) {
+      setCard('headPiece', { error: 'Scene is full (20 pieces) — remove something in Scene Layers first.' });
+      return;
+    }
+    approvedRef.current.headPiece = true;
     dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: plan.headPiece.id });
-    setCard('headPiece', { status: 'added' });
-  }, [plan, dispatch, setCard]);
+    setCard('headPiece', { status: 'added', error: undefined });
+  }, [plan, dispatch, setCard, sceneFull]);
 
   // Imperative Meshy poll — drives the progress bar; resolves with the GLB.
-  const pollModel = useCallback(async (jobId: string): Promise<{ glbUrl: string; name: string | null } | { error: string }> => {
+  const pollModel = useCallback(async (jobId: string): Promise<{ glbUrl: string; name: string | null } | { error: string } | { timeout: true }> => {
     for (let i = 0; i < MAX_POLLS; i++) {
       await sleep(POLL_MS);
       if (!aliveRef.current) return { error: 'cancelled' };
@@ -245,8 +268,49 @@ export default function DirectorPanel({
         if (typeof data.progress === 'number') setCard('headPiece', { progress: data.progress });
       }
     }
-    return { error: 'Still working — the finished model will land in your Library shortly.' };
+    // Timed out, NOT failed: the Meshy job is still running server-side and the
+    // 10 credits are already spent on it — the only honest affordance is to keep
+    // polling the SAME job (free). Claiming "it will land in your Library" would
+    // be false: nothing re-polls a job once every poller has given up.
+    return { timeout: true as const };
   }, [setCard]);
+
+  /** Shared outcome handling for a Meshy poll (first run AND resumed runs). */
+  const finishModelPoll = useCallback((result: Awaited<ReturnType<typeof pollModel>>): { glbUrl: string; name: string | null } | null => {
+    if ('timeout' in result) {
+      setCard('headPiece', {
+        status: 'stalled',
+        error: 'Meshy is still working — big models can take a while. Keep waiting to check the same job (no new credits).',
+      });
+      return null;
+    }
+    if ('error' in result) {
+      if (result.error === 'cancelled') return null;
+      setCard('headPiece', { status: 'failed', error: result.error });
+      return null;
+    }
+    conceptUrlRef.current = null; // model landed; the concept has served its purpose
+    setCard('headPiece', { status: 'ready', glbUrl: result.glbUrl, glbName: result.name, progress: 100, error: undefined });
+    return result;
+  }, [setCard]);
+
+  /** Stalled → keep polling the SAME job. Free; never regenerates a leg. */
+  const resumePoll = useCallback(() => guard('headPiece', async () => {
+    const jobId = cardsRef.current.headPiece.jobId;
+    if (!jobId) return;
+    setCard('headPiece', { status: 'generating', error: undefined, statusLine: MESHY_STATUS_LINES[0] });
+    stopRotation();
+    let ri = 0;
+    rotateTimer.current = setInterval(() => {
+      ri = (ri + 1) % MESHY_STATUS_LINES.length;
+      setCard('headPiece', { statusLine: MESHY_STATUS_LINES[ri] });
+    }, ROTATE_MS);
+    try {
+      finishModelPoll(await pollModel(jobId));
+    } finally {
+      stopRotation();
+    }
+  }), [guard, setCard, stopRotation, pollModel, finishModelPoll]);
 
   // Generate (concept image 1cr → image→3D 10cr → poll). Returns the GLB or null.
   const generatePiece = useCallback(async (): Promise<{ glbUrl: string; name: string | null } | null> => {
@@ -287,28 +351,34 @@ export default function DirectorPanel({
         setCard('headPiece', { status: 'failed', error: `${aiErrorMessage((error ?? 'internal') as AiErrorCode)} (the concept image is saved — Retry does the 3D step only.)` });
         return null;
       }
-      conceptUrlRef.current = null; // 3D leg accepted the concept; don't reuse it
+      // Keep the concept cached until the model is actually READY — a timeout or
+      // Meshy failure retried later must still reuse it, never re-charge the 1cr.
+      setCard('headPiece', { jobId: data.job.id });
 
       const result = await pollModel(data.job.id);
-      if ('error' in result) {
-        if (result.error === 'cancelled') return null;
-        setCard('headPiece', { status: 'failed', error: result.error });
-        return null;
-      }
-      setCard('headPiece', { status: 'ready', glbUrl: result.glbUrl, glbName: result.name, progress: 100, error: undefined });
-      return result;
+      return finishModelPoll(result);
     } finally {
       stopRotation();
     }
-  }, [plan, eventId, eventUuid, setCard, stopRotation, pollModel]);
+  }, [plan, eventId, eventUuid, setCard, stopRotation, pollModel, finishModelPoll]);
+
 
   const approvePiece = useCallback((artifact?: { glbUrl: string; name: string | null }) => {
     const glbUrl = artifact?.glbUrl ?? cardsRef.current.headPiece.glbUrl;
     if (!glbUrl) return;
+    if (approvedRef.current.headPiece) return;
+    if (sceneFull()) {
+      setCard('headPiece', { error: 'Scene is full (20 pieces) — remove something in Scene Layers first. Your model is safe in the Library.' });
+      return;
+    }
+    approvedRef.current.headPiece = true;
     const name = artifact?.name ?? cardsRef.current.headPiece.glbName ?? plan?.headPiece?.prompt ?? plan?.sceneName ?? 'Head Piece';
+    // NOTE: this intentionally dispatches into WHATEVER draft is open right now
+    // — if the host loaded a template mid-generation, Approve means "add this
+    // piece to my current scene", which is exactly what happens.
     dispatch({ type: 'SET_MODEL_ASSET', url: glbUrl, name });
-    setCard('headPiece', { status: 'added' });
-  }, [plan, dispatch, setCard]);
+    setCard('headPiece', { status: 'added', error: undefined });
+  }, [plan, dispatch, setCard, sceneFull]);
 
   const rejectPiece = useCallback(() => setCard('headPiece', { status: 'discarded' }), [setCard]);
 
@@ -422,6 +492,7 @@ export default function DirectorPanel({
                 note={headKind === 'generate' ? `Concept image (${FRAME_CREDIT_COST} credit, or one of your free generations) → 3D model (${GENERATE_3D_CREDIT_COST} credits)` : undefined}
                 state={cards.headPiece}
                 onApprove={headKind === 'procedural' ? approveProceduralPiece : () => approvePiece()}
+                onResume={resumePoll}
                 onGenerate={() => guard('headPiece', generatePiece)}
                 onReject={rejectPiece}
               />

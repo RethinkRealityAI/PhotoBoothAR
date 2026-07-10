@@ -21,7 +21,7 @@ import { Box, Check, Loader2, RotateCcw, SlidersHorizontal, Sparkles, Wand2, X }
 
 /* ── Card state machine (owned by DirectorPanel, rendered here) ───────────── */
 
-export type CardStatus = 'idle' | 'generating' | 'ready' | 'added' | 'failed' | 'discarded';
+export type CardStatus = 'idle' | 'generating' | 'ready' | 'added' | 'failed' | 'discarded' | 'stalled';
 
 export interface CardState {
   status: CardStatus;
@@ -35,6 +35,10 @@ export interface CardState {
   progress?: number | null;
   /** head piece (generate): the current rotating status verb. */
   statusLine?: string;
+  /** head piece (generate): the Meshy job id — kept so a poll TIMEOUT can
+   *  resume checking the SAME job for free instead of regenerating (audit C1:
+   *  a slow >5min job must never cost another 11 credits to keep waiting on). */
+  jobId?: string;
 }
 
 /** Rotating verbs shown UNDER the progress bar while a Meshy job runs. They
@@ -136,6 +140,7 @@ function cardClass(status: CardStatus): string {
   if (status === 'added') return `${base} border-emerald-400/30 bg-emerald-500/[0.06]`;
   if (status === 'discarded') return `${base} border-white/8 bg-white/[0.02] opacity-60`;
   if (status === 'failed') return `${base} border-rose-400/25 bg-rose-500/[0.04]`;
+  if (status === 'stalled') return `${base} border-amber-400/25 bg-amber-500/[0.04]`;
   return `${base} border-white/10 bg-white/[0.03]`;
 }
 
@@ -150,6 +155,8 @@ function StatusBadge({ status }: { status: CardStatus }) {
     return <span className="text-[10px] font-label uppercase tracking-widest text-brand-muted/40">Kept in Library</span>;
   if (status === 'generating')
     return <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-2" />;
+  if (status === 'stalled')
+    return <span className="text-[10px] font-label uppercase tracking-widest text-amber-400/90">Still working</span>;
   return null;
 }
 
@@ -180,12 +187,14 @@ function CreditChip({ cost }: { cost: number }) {
 }
 
 /** Header row + optional error/retry footer shared by every card. */
-function CardShell({ label, icon, cost, state, onRetry, children }: {
+function CardShell({ label, icon, cost, state, onRetry, onResume, children }: {
   label: string;
   icon: ReactNode;
   cost?: number;
   state: CardState;
   onRetry?: () => void;
+  /** stalled only: resume polling the SAME Meshy job (free — never re-charges). */
+  onResume?: () => void;
   children: ReactNode;
 }) {
   const done = state.status === 'added' || state.status === 'discarded';
@@ -203,11 +212,16 @@ function CardShell({ label, icon, cost, state, onRetry, children }: {
       </div>
       {children}
       {state.error && (
-        <p className="flex items-start gap-2 text-[11px] text-rose-300/90 leading-snug">
+        <p className={`flex items-start gap-2 text-[11px] leading-snug ${state.status === 'stalled' ? 'text-amber-200/90' : 'text-rose-300/90'}`}>
           <span className="flex-1">{state.error}</span>
           {onRetry && state.status === 'failed' && (
             <button onClick={onRetry} className="shrink-0 flex items-center gap-1 text-accent-2 hover:text-accent transition-colors">
               <RotateCcw className="w-3 h-3" /> Retry
+            </button>
+          )}
+          {onResume && state.status === 'stalled' && (
+            <button onClick={onResume} className="shrink-0 flex items-center gap-1 text-amber-300 hover:text-amber-200 transition-colors">
+              <RotateCcw className="w-3 h-3" /> Keep waiting (free)
             </button>
           )}
         </p>
@@ -323,7 +337,7 @@ export function FrameCard({ prompt, cost, state, onGenerate, onApprove, onReject
 
 /* ── HEAD PIECE card (procedural free, or generate 1+10cr → orbit → approve) ─ */
 
-export function HeadPieceCard({ mode, label, cost, note, state, onApprove, onGenerate, onReject }: {
+export function HeadPieceCard({ mode, label, cost, note, state, onApprove, onGenerate, onReject, onResume }: {
   mode: 'procedural' | 'generate';
   /** procedural: the piece name; generate: the concept brief. */
   label: string;
@@ -333,10 +347,12 @@ export function HeadPieceCard({ mode, label, cost, note, state, onApprove, onGen
   onApprove: () => void;
   onGenerate: () => void;
   onReject: () => void;
+  /** stalled only: keep polling the same Meshy job (free). */
+  onResume?: () => void;
 }) {
   const { status } = state;
   return (
-    <CardShell label="Head piece" icon={<Box className="w-3 h-3" />} cost={cost} state={state} onRetry={onGenerate}>
+    <CardShell label="Head piece" icon={<Box className="w-3 h-3" />} cost={cost} state={state} onRetry={onGenerate} onResume={onResume}>
       <p className="font-sans text-[12px] text-brand-muted/70 leading-snug line-clamp-2">{label}</p>
 
       {mode === 'procedural' && status === 'idle' && (
