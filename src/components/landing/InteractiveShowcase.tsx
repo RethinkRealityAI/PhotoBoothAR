@@ -103,32 +103,12 @@ function BeamStrike({
     const { from, to } = flight;
     const path = beamPath(from, to);
     const rot = path.angleDeg;
-    const EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
     const anims: Animation[] = [];
 
-    // (c) The shot itself: energise, arc slightly, then dive into the tile.
-    // Mid-flight it DIMS — the ParticleBeam stream carries the image as pure
-    // light — then rematerialises at the tile. If particles can't run (no
-    // WebGL, decode failure) the dimmed clone still reads as the flight.
-    const clone = box.querySelector<HTMLElement>('[data-fx="clone"]');
-    if (clone) {
-      const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-      const at = (t: number, dy: number) => ({
-        left: `${lerp(from.left, to.left, t)}px`,
-        top: `${lerp(from.top, to.top, t) + dy}px`,
-        width: `${lerp(from.width, to.width, t)}px`,
-        height: `${lerp(from.height, to.height, t)}px`,
-      });
-      anims.push(clone.animate(
-        [
-          { ...at(0, 0), borderRadius: '1.4rem', filter: 'brightness(1.7) saturate(1.5)', opacity: 1 },
-          { ...at(0.28, -14), borderRadius: '1rem', filter: 'brightness(2.1) saturate(1.7)', opacity: 0.6, offset: 0.28 },
-          { ...at(0.62, -10), borderRadius: '0.8rem', filter: 'brightness(2.3) saturate(1.8)', opacity: 0.28, offset: 0.62 },
-          { ...at(1, 0), borderRadius: '0.5rem', filter: 'brightness(2.4) saturate(1.85)', opacity: 0.95 },
-        ],
-        { duration: 900, delay: 180, easing: EASE, fill: 'both' },
-      ));
-    }
+    // (c) The shot itself is carried ENTIRELY by the ParticleBeam stream —
+    // a solid clone flying alongside it doubles the photo (user-reported).
+    // On the rare WebGL-less path the flight is beam-only; the tile flare
+    // and the polaroid drop still deliver the photo reveal.
 
     // (b) The angled beam — aura, band and core wipe from phone → tile.
     for (const sel of ['aura', 'band', 'core']) {
@@ -202,15 +182,8 @@ function BeamStrike({
   const BAND_H = 12;
   return (
     <div ref={boxRef} className="pointer-events-none absolute inset-0 z-50" aria-hidden>
-      <img
-        data-fx="clone"
-        src={flight.shot}
-        alt=""
-        className="absolute object-cover"
-        style={{ left: from.left, top: from.top, width: from.width, height: from.height, borderRadius: '1.4rem' }}
-      />
       {/* The photo as pure light: a WebGL particle stream that dissolves the
-          shot and reassembles it at the tile (times match the clone above). */}
+          shot and reassembles it at the tile. */}
       <ParticleBeam from={from} to={to} shot={flight.shot} durationMs={1080} />
       <span
         data-fx="aura"

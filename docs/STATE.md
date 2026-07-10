@@ -30,6 +30,7 @@ Pre-merge-to-main polish batch (2026-07-08, screenshot-verified): NEW /host/conc
 - User (2026-07-10, InteractiveShowcase): "While I like the frame, the UI of the camera, everything, and also maintaining our colors" — keep the current in-camera UI idiom, frame, and brand colors; amplify, don't replace.
 - User (2026-07-10): "sticking to the general premise of what the below mini PRD for this component is" — PRD (idle|camera|beaming|wall, phone collapse, beam, polaroid drop, capture-again) is the base contract.
 - User (2026-07-10): "you can push once you have verified the changes and the UI/UX looks good and the animation and everything works beautifully." — push IS authorized, but only after verification (lint/test/build + visual walkthrough of the full demo flow).
+- User (2026-07-10): "Remove the old one for this new effect" — the WAAPI clone image must NOT fly alongside the particles (no doubled photo in flight); "We'll just sprinkle a little bit of our colours as well" — particles are photo-sampled PLUS a sprinkle of SPECTRUM hues.
 
 ## Decisions
 - DECISION: One-Euro filter in new src/lib/smoothing.ts (pure, node-testable) — faceRig.ts imports mediapipe, unsafe for vitest node env.

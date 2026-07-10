@@ -130,6 +130,10 @@ function buildParticles(img: HTMLImageElement, from: Rect, to: Rect): ParticleDa
   const bux = (bCx - aCx) / blen;
   const buy = (bCy - aCy) / blen;
 
+  // Brand sprinkle: ~1 in 5 particles carries a Beamwall spectrum hue, so
+  // even a white-on-white shot beams in colour instead of a plain smear.
+  const spectrumColors = SPECTRUM.map((hue) => new THREE.Color(hue));
+
   let minProj = Infinity;
   let maxProj = -Infinity;
   for (let row = 0; row < GRID_H; row += 1) {
@@ -158,6 +162,16 @@ function buildParticles(img: HTMLImageElement, from: Rect, to: Rect): ParticleDa
       const seed = h - Math.floor(h);
       seeds[i] = seed;
       sizes[i] = 1.7 + seed * 2.0; // base point size in CSS px (1.7 – 3.7)
+
+      // Spectrum sprinkle — a decorrelated second hash elects the particle,
+      // the first hash picks its hue; mixed strongly enough to read on white.
+      const sprinkle = (seed * 7.31) % 1;
+      if (sprinkle < 0.22) {
+        const hue = spectrumColors[Math.floor(seed * spectrumColors.length) % spectrumColors.length];
+        colors[i * 3] = colors[i * 3] * 0.3 + hue.r * 0.7;
+        colors[i * 3 + 1] = colors[i * 3 + 1] * 0.3 + hue.g * 0.7;
+        colors[i * 3 + 2] = colors[i * 3 + 2] * 0.3 + hue.b * 0.7;
+      }
 
       const proj = (startX - aCx) * bux + (startY - aCy) * buy;
       projs[i] = proj;
