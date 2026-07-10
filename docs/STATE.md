@@ -64,7 +64,7 @@ P5: (1) platformGuide.ts — add a Studio + Scene Director section so the copilo
 - DECISION: Higgsfield bust GLB vendored via scripts/remote-assets.json (fetch-remote-assets.yml Action has egress; sandbox does not); procedural ReferenceHead stays as fallback.
 
 ## Facts
-- Branch: claude/studio-editing-ux-improvements-xfn36m. Commands: npm run lint (tsc --noEmit) · npm test (vitest run, node env, src/**/*.test.ts only, never .tsx) · npm run build · dev :5180.
+- Branch: claude/studio-editing-ux-improvements-xfn36m. Commands: npm run lint (tsc --noEmit) · npm test (vitest run, node env, src/**/*.test.ts only, never .tsx) · npm run build · dev :5173 (`vite --host`, no port override — CLAUDE.md's ":5180" is stale, measured 2026-07-10; NOTED (not done): fix CLAUDE.md line).
 - tsconfig excludes supabase/ — edge fns not type-checked by lint.
 - Double-camera bug: src/components/admin/Creator2D.tsx:372 shader canvas `opacity: kind==='shader' ? 1 : 0.35` over raw video; shader RAF always on (532-553).
 - Camera hook: src/components/booth/useCameraStream.ts:31 `useCameraStream(enabled=true, withAudio=false)`; booth video id booth-video; Overlay3D wired at Booth.tsx~525-534.
