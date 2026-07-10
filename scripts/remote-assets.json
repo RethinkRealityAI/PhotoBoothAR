@@ -79,7 +79,7 @@
       "path": "src/assets/ar/canonical_face_model.obj"
     },
     {
-      "comment": "Higgsfield image_to_3d neutral head bust — the studio 3D orbit reference head. Normalized to head-space at load by ReferenceBust.fitBustToHeadSpace; procedural ReferenceHead is the fallback until this lands.",
+      "comment": "Higgsfield image_to_3d neutral head bust — the studio 3D orbit reference head. Normalized to head-space at load by ReferenceBust/computeBustFit; GLB-ONLY (W8): nothing renders while loading or if absent — the procedural fallback was deleted per user decision.",
       "url": "https://d3u0tzju9qaucj.cloudfront.net/7d051b5a-7bfe-49fe-a484-24e7b3a9458a/95db6f33-c463-4020-b5b3-67312bd1a1d4.glb",
       "path": "public/models/reference-head.glb"
     }

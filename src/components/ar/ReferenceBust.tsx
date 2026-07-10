@@ -3,19 +3,19 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * ReferenceBust — the visual reference head shown in the studio's 3D orbit view
- * (a stand-in for the guest so anchors/props read in context). It prefers a
+ * (a stand-in for the guest so anchors/props read in context). It renders the
  * realistic head-bust GLB (vendored to public/models/reference-head.glb via
  * scripts/remote-assets.json), normalized to the tracker's centimetre head
- * space by computeBustFit, and falls back to the procedural ReferenceHead
- * whenever the GLB is absent or fails to load (offline dev, pre-fetch).
+ * space by computeBustFit. GLB-ONLY by user decision (W8): while loading, and
+ * if the GLB is missing or fails, it renders NOTHING — the old procedural head
+ * used to flash before the GLB swapped in and must never show.
  *
  * The GLB is fetched by runtime URL (NOT a static import) so the build never
  * depends on the asset being present — the file is delivered by CI later.
  */
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
-import ReferenceHead from '../admin/creator3d/ReferenceHead';
 import { computeBustFit } from '../../lib/studio/bustFit';
 
 /** Served from public/; 404s (→ procedural fallback) until CI vendors it. */
@@ -34,7 +34,7 @@ function loadBust(): Promise<THREE.Group | null> {
         BUST_URL,
         (g) => resolve(g.scene),
         undefined,
-        () => resolve(null), // missing/failed → procedural fallback
+        () => resolve(null), // missing/failed → render nothing (never the procedural head)
       );
     });
   }
@@ -47,7 +47,7 @@ function GlbBust({ scene }: { scene: THREE.Group }) {
     const fit = computeBustFit(obj);
     return fit ? { object: obj, ...fit } : null;
   }, [scene]);
-  if (!fitted) return <ReferenceHead />;
+  if (!fitted) return null;
   return (
     <group scale={fitted.scale} position={fitted.position}>
       <primitive object={fitted.object} />
@@ -67,12 +67,8 @@ export default function ReferenceBust() {
     return () => { alive = false; };
   }, []);
 
-  if (scene && !failed) {
-    return (
-      <Suspense fallback={<ReferenceHead />}>
-        <GlbBust scene={scene} />
-      </Suspense>
-    );
-  }
-  return <ReferenceHead />;
+  if (scene && !failed) return <GlbBust scene={scene} />;
+  // Loading or failed: nothing. Anchor dots still give spatial context, and a
+  // brief empty beat beats the wrong head appearing then swapping.
+  return null;
 }
