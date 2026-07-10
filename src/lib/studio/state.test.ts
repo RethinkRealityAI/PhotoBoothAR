@@ -9,10 +9,12 @@ import {
   createOverlay,
   createObject3D,
   MAX_OBJECTS,
+  MAX_TRIGGERS,
   type StudioState,
   type Overlay2D,
   type Object3D,
 } from './state';
+import type { TriggerConfig } from './triggers';
 import { BUILTIN_BORDERS } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
 
@@ -350,6 +352,60 @@ describe('multi-object scenes', () => {
     expect((selectedObject(st.draft) as Object3D).occlusion).toBe(false);
     st = studioReducer(st, { type: 'SET_OCCLUSION', occlusion: true });
     expect((selectedObject(st.draft) as Object3D).occlusion).toBe(true);
+  });
+});
+
+describe('face-triggered effects (Magic Triggers)', () => {
+  const trig = (id: string, over: Partial<TriggerConfig> = {}): TriggerConfig => ({
+    id,
+    source: 'smile',
+    action: { type: 'burst', style: 'confetti' },
+    ...over,
+  });
+
+  it('a fresh draft starts with no triggers', () => {
+    expect(initialDraft('shader').triggers).toEqual([]);
+    expect(initialDraft('3d_attachment').triggers).toEqual([]);
+  });
+
+  it('ADD_TRIGGER appends and marks dirty; UPDATE patches (never id); REMOVE deletes', () => {
+    let st = studioReducer(s0(), { type: 'ADD_TRIGGER', trigger: trig('a') });
+    expect(st.draft.triggers).toHaveLength(1);
+    expect(st.dirty).toBe(true);
+    st = studioReducer(st, { type: 'ADD_TRIGGER', trigger: trig('b', { source: 'wink' }) });
+    expect(st.draft.triggers.map((t) => t.id)).toEqual(['a', 'b']);
+
+    st = studioReducer(st, { type: 'UPDATE_TRIGGER', id: 'a', patch: { action: { type: 'reveal', objectId: 'obj-1' } } });
+    expect(st.draft.triggers[0].action).toEqual({ type: 'reveal', objectId: 'obj-1' });
+    // Patch cannot change identity even if it tries to.
+    st = studioReducer(st, { type: 'UPDATE_TRIGGER', id: 'a', patch: { source: 'browRaise' } as Partial<TriggerConfig> });
+    expect(st.draft.triggers[0].id).toBe('a');
+    expect(st.draft.triggers[0].source).toBe('browRaise');
+
+    st = studioReducer(st, { type: 'REMOVE_TRIGGER', id: 'a' });
+    expect(st.draft.triggers.map((t) => t.id)).toEqual(['b']);
+  });
+
+  it('UPDATE_TRIGGER / REMOVE_TRIGGER on an unknown id are no-ops', () => {
+    const st = studioReducer(s0(), { type: 'ADD_TRIGGER', trigger: trig('a') });
+    expect(studioReducer(st, { type: 'UPDATE_TRIGGER', id: 'zzz', patch: { cooldownMs: 100 } })).toBe(st);
+    expect(studioReducer(st, { type: 'REMOVE_TRIGGER', id: 'zzz' })).toBe(st);
+  });
+
+  it('ADD_TRIGGER enforces the MAX_TRIGGERS cap', () => {
+    let st = s0();
+    for (let i = 0; i < MAX_TRIGGERS + 2; i++) st = studioReducer(st, { type: 'ADD_TRIGGER', trigger: trig(`t${i}`) });
+    expect(st.draft.triggers).toHaveLength(MAX_TRIGGERS);
+  });
+
+  it('deleting a scene piece drops a reveal trigger that targeted it', () => {
+    let st = studioReducer(s0(), { type: 'SELECT_HEAD_PIECE', pieceId: 'royal-crown' });
+    const pieceId = st.draft.objects[0].id;
+    st = studioReducer(st, { type: 'ADD_TRIGGER', trigger: trig('r', { action: { type: 'reveal', objectId: pieceId } }) });
+    st = studioReducer(st, { type: 'ADD_TRIGGER', trigger: trig('b', { action: { type: 'burst', style: 'confetti' } }) });
+    st = studioReducer(st, { type: 'DELETE_OBJECT', id: pieceId });
+    // The reveal is gone (its target vanished); the burst (no target) survives.
+    expect(st.draft.triggers.map((t) => t.id)).toEqual(['b']);
   });
 });
 

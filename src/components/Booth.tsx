@@ -18,7 +18,7 @@ import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   SwitchCamera, Clock, Video, Camera as CameraIcon,
-  SlidersHorizontal, Eye, EyeOff, ChevronUp, UploadCloud, ScanFace,
+  SlidersHorizontal, Eye, EyeOff, ChevronUp, UploadCloud, ScanFace, Sparkles,
 } from 'lucide-react';
 
 import EventBackground from './ui/EventBackground';
@@ -32,6 +32,7 @@ import Welcome from './booth/Welcome';
 import CameraErrorScreen from './booth/CameraError';
 import StageCanvas, { StageCanvasHandle, StageOverlaySpec } from './booth/StageCanvas';
 import Overlay3D, { Overlay3DPiece } from './booth/Overlay3D';
+import TriggerEffects, { type TriggerEffectsHandle } from './booth/TriggerEffects';
 import PickerDrawer from './booth/PickerDrawer';
 import FilterOrbs from './booth/FilterOrbs';
 import Countdown from './booth/Countdown';
@@ -45,6 +46,8 @@ import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { buildCatalog } from '../lib/catalog';
 import { initializeFaceLandmarker } from '../lib/faceTracking';
+import { getLatestBlendshapes, detectFaceNow } from '../lib/faceRig';
+import { createTriggerEngine, parseTriggers, type TriggerConfig, type TriggerEvent } from '../lib/studio/triggers';
 import { submitPost, getStudioSettings } from '../lib/db';
 import { DEFAULT_STUDIO_SETTINGS, type StudioSettings } from '../lib/studio/occluder';
 import { savePhoto, addCompletedChallenge, setGuestName } from '../lib/session';
@@ -313,6 +316,33 @@ export default function Booth() {
   const anchorConfig: AnchorConfig | null =
     is3D && attachExp?.config?.anchor ? (attachExp.config.anchor as AnchorConfig) : null;
 
+  // ── Face-triggered effects ────────────────────────────────────────────
+  // Opt-in per DB scene (config.triggers). Legacy/code events never carry them,
+  // so the whole subsystem below stays inert — empty triggers means no engine,
+  // no RAF, no reveal filtering — and the booth renders byte-identically.
+  const activeTriggerExp =
+    (attachExp?.config?.triggers ? attachExp : null) ?? (frameExp?.config?.triggers ? frameExp : null);
+  const triggers = useMemo<TriggerConfig[]>(
+    () => (source === 'db' && activeTriggerExp ? parseTriggers(activeTriggerExp.config?.triggers) : []),
+    [source, activeTriggerExp],
+  );
+  const hasTriggers = triggers.length > 0;
+  // Layer ids that a reveal trigger hides until it fires; `revealedIds` is the
+  // runtime set already fired. NEVER persisted — a fresh scene starts all hidden.
+  const revealTargetIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of triggers) if (t.action.type === 'reveal') s.add(t.action.objectId);
+    return s;
+  }, [triggers]);
+  const [revealedIds, setRevealedIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => { setRevealedIds(new Set()); }, [activeTriggerExp]);
+  // A reveal layer renders only once revealed. With no triggers revealTargetIds
+  // is empty, so this is always true → the layer builders below are unchanged.
+  const revealVisible = useCallback(
+    (id: string) => !(revealTargetIds.has(id) && !revealedIds.has(id)),
+    [revealTargetIds, revealedIds],
+  );
+
   // ── Multi-layer (studio) scenes ───────────────────────────────────────
   // Additive: only built when the experience actually carries config.layers;
   // every other code path (no layers) leaves the legacy single-object props
@@ -324,22 +354,23 @@ export default function Booth() {
   const stageOverlays: StageOverlaySpec[] | undefined = useMemo(() => {
     if (!frameLayers || frameLayers.length === 0) return undefined;
     return frameLayers
-      // `hidden` layers stay in the scene but render nowhere (studio eye toggle).
-      .filter((l) => (l.kind === 'border' || l.kind === '2d_filter') && !!l.asset_url && l.hidden !== true)
+      // `hidden` layers stay in the scene but render nowhere (studio eye toggle);
+      // reveal-target layers stay hidden until their trigger fires (revealVisible).
+      .filter((l) => (l.kind === 'border' || l.kind === '2d_filter') && !!l.asset_url && l.hidden !== true && revealVisible(l.id))
       .map((l) => ({
         url: l.asset_url as string,
         transform: l.transform ?? DEFAULT_TRANSFORM,
         opacity: l.opacity ?? 1,
         animation: l.animation,
       }));
-  }, [frameLayers]);
+  }, [frameLayers, revealVisible]);
 
   const attachLayers = attachExp?.config?.layers;
   const overlayPieces: Overlay3DPiece[] | undefined = useMemo(() => {
     if (!attachLayers || attachLayers.length === 0) return undefined;
     return attachLayers
-      // Same `hidden` skip as the 2D builder above.
-      .filter((l) => l.kind === '3d_attachment' && !!l.anchor && l.hidden !== true)
+      // Same `hidden` skip as the 2D builder above, plus the reveal-until-fired gate.
+      .filter((l) => l.kind === '3d_attachment' && !!l.anchor && l.hidden !== true && revealVisible(l.id))
       .map((l) => ({
         assetUrl: l.asset_url ?? null,
         proceduralId: l.procedural ?? null,
@@ -349,7 +380,93 @@ export default function Booth() {
         // legacy/code events never carry layers, but keep the invariant explicit.
         occlude: source === 'db' && l.occlusion === true,
       }));
-  }, [attachLayers, source]);
+  }, [attachLayers, source, revealVisible]);
+
+  // ── Trigger runtime: particle canvas, filter pulse, detection loop ────
+  const triggerFxRef = useRef<TriggerEffectsHandle>(null);
+  const [triggerFxCanvas, setTriggerFxCanvas] = useState<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    setTriggerFxCanvas(hasTriggers ? (triggerFxRef.current?.canvas ?? null) : null);
+  }, [hasTriggers]);
+
+  // filterPulse: temporarily swap the active effect to the pulse shader, then
+  // restore the EXACT prior effect after ~1.2s (default). One pulse at a time.
+  const effectIdRef = useRef(effectId);
+  useEffect(() => { effectIdRef.current = effectId; }, [effectId]);
+  const pulseRef = useRef<{ prior: string; timeout: number } | null>(null);
+  const startFilterPulse = useCallback((shaderId: string | undefined, durationMs: number | undefined) => {
+    if (pulseRef.current) return; // don't stack pulses
+    const prior = effectIdRef.current;
+    const target = shaderId || activeTriggerExp?.config?.ambientShader?.shaderId || '';
+    if (!target || target === 'none' || target === prior) return; // nothing distinct to pulse to
+    setEffectId(target);
+    const dur = durationMs && durationMs > 0 ? durationMs : 1200;
+    const timeout = window.setTimeout(() => {
+      setEffectId(pulseRef.current?.prior ?? 'none');
+      pulseRef.current = null;
+    }, dur);
+    pulseRef.current = { prior, timeout };
+  }, [activeTriggerExp]);
+  useEffect(() => () => { if (pulseRef.current) window.clearTimeout(pulseRef.current.timeout); }, []);
+
+  // One fired trigger event → an effect. Kept behind a ref so the RAF loop below
+  // never has to restart when React re-creates the callback.
+  const handleTriggerEvent = useCallback((e: TriggerEvent) => {
+    const a = e.action;
+    if (a.type === 'burst') {
+      triggerFxRef.current?.fire(a.style);
+    } else if (a.type === 'reveal') {
+      setRevealedIds((prev) => {
+        if (prev.has(a.objectId)) return prev;
+        const next = new Set(prev);
+        next.add(a.objectId);
+        return next;
+      });
+      // Reuse the booth's existing reveal shimmer + 3D scale-in entrance.
+      if (!prefersReducedMotion()) {
+        setReveal(true);
+        if (revealTimeoutRef.current) window.clearTimeout(revealTimeoutRef.current);
+        revealTimeoutRef.current = window.setTimeout(() => setReveal(false), REVEAL_SHIMMER_MS);
+      }
+    } else {
+      startFilterPulse(a.shaderId, a.durationMs);
+    }
+  }, [startFilterPulse]);
+  const handleTriggerEventRef = useRef(handleTriggerEvent);
+  useEffect(() => { handleTriggerEventRef.current = handleTriggerEvent; }, [handleTriggerEvent]);
+
+  // Detection + engine loop — only for a DB scene with triggers while the camera
+  // is live. Drives detection itself (detectFaceNow) so blendshapes refresh even
+  // with no 3D piece mounted, and steps the engine once per NEW detection frame.
+  useEffect(() => {
+    if (source !== 'db' || !hasTriggers || phase !== 'camera' || !ready) return;
+    const engine = createTriggerEngine(triggers);
+    let raf = 0;
+    let lastT = -1;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const v = videoRef.current;
+      if (!v) return;
+      detectFaceNow(v);
+      const b = getLatestBlendshapes();
+      if (!b || b.t === lastT) return;
+      lastT = b.t;
+      for (const ev of engine.step(b.scores, performance.now())) handleTriggerEventRef.current(ev);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [source, hasTriggers, phase, ready, videoRef, triggers]);
+
+  // A one-off guest hint when the scene has triggers ("Smile for a surprise").
+  const [triggerHint, setTriggerHint] = useState(false);
+  useEffect(() => {
+    if (source === 'db' && hasTriggers && phase === 'camera' && ready) {
+      setTriggerHint(true);
+      const t = window.setTimeout(() => setTriggerHint(false), 5000);
+      return () => window.clearTimeout(t);
+    }
+    setTriggerHint(false);
+  }, [source, hasTriggers, phase, ready]);
 
   // ── Face-tracking hint ────────────────────────────────────────────────
   // A 3D piece is invisible until the tracker finds a face — without feedback
@@ -644,6 +761,7 @@ export default function Booth() {
                   threeCanvasId={is3D ? 'booth-3d-layer' : null}
                   active={true}
                   watermark={entitlements.watermark}
+                  effectsCanvas={triggerFxCanvas}
                 />
               )}
               <div ref={feedContainerRef} className="absolute inset-0">
@@ -662,7 +780,11 @@ export default function Booth() {
                   />
                 )}
               </div>
-              <div className="absolute top-4 inset-x-0 z-30 flex justify-center pointer-events-none">
+              {/* Face-trigger particles — a sibling canvas over the stage. Also
+                  passed into StageCanvas.effectsCanvas so an on-screen burst is
+                  composited into the captured photo. Mounted only for trigger scenes. */}
+              {hasTriggers && <TriggerEffects ref={triggerFxRef} />}
+              <div className="absolute top-4 inset-x-0 z-30 flex flex-col items-center gap-2 pointer-events-none">
                 <AnimatePresence>
                   {faceHint && (
                     <motion.div
@@ -676,6 +798,23 @@ export default function Booth() {
                       <ScanFace className="w-4 h-4 text-gold-300 animate-pulse" />
                       <span className="font-label text-[10px] uppercase tracking-wide text-champagne/80">
                         Center your face in the frame
+                      </span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <AnimatePresence>
+                  {triggerHint && (
+                    <motion.div
+                      key="trigger-hint"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.25 }}
+                      className="flex items-center gap-2 px-3.5 py-2 rounded-full glass-strong border border-gold-400/25"
+                    >
+                      <Sparkles className="w-4 h-4 text-gold-300 animate-pulse" />
+                      <span className="font-label text-[10px] uppercase tracking-wide text-champagne/80">
+                        Smile for a surprise
                       </span>
                     </motion.div>
                   )}

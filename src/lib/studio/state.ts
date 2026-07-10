@@ -26,6 +26,7 @@
 import type { ExperienceKind, HeadAnchor, LayerAnimation, Transform2D } from '../../types';
 import { BORDER_MAP } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
+import type { TriggerConfig } from './triggers';
 
 export type StudioMode = '2d' | '3d' | 'preview';
 export type ThreeView = 'live' | 'orbit';
@@ -55,6 +56,9 @@ export const DEFAULT_ANCHOR_CONFIG: StudioAnchorConfig = {
  * EXEMPT (a scene may hold 1 frame + MAX_OBJECTS others). See sceneCounts.
  */
 export const MAX_OBJECTS = 20;
+
+/** Soft cap on face-triggered effects per scene (studio "Magic Triggers"). */
+export const MAX_TRIGGERS = 4;
 
 /* — Scene objects ---------------------------------------------------------- */
 
@@ -185,6 +189,9 @@ export interface StudioDraft {
   thumbBlob: Blob | null;
   /** Scene Director grouping tag (config.scene on save). */
   scene?: string;
+  /** Face-triggered effects (studio "Magic Triggers"). Empty for scenes with
+   *  none — draftMapping omits config.triggers so those saves stay byte-identical. */
+  triggers: TriggerConfig[];
 }
 
 export interface StudioState {
@@ -217,6 +224,7 @@ export function initialDraft(kind: StudioKind = 'shader'): StudioDraft {
     selectedId: null,
     thumbUrl: null,
     thumbBlob: null,
+    triggers: [],
   };
 }
 
@@ -389,7 +397,11 @@ export type StudioAction =
   | { type: 'SELECT_OBJECT'; id: string | null }
   | { type: 'REORDER_OBJECT'; id: string; dir: 'up' | 'down' }
   | { type: 'UPDATE_OBJECT'; id: string; patch: Partial<Omit<Overlay2D, 'id' | 'type'>> | Partial<Omit<Object3D, 'id' | 'type'>> }
-  | { type: 'SET_OBJECT_ANIMATION'; id: string; animation: LayerAnimation };
+  | { type: 'SET_OBJECT_ANIMATION'; id: string; animation: LayerAnimation }
+  /* — face-triggered effects (Magic Triggers) — */
+  | { type: 'ADD_TRIGGER'; trigger: TriggerConfig }
+  | { type: 'UPDATE_TRIGGER'; id: string; patch: Partial<Omit<TriggerConfig, 'id'>> }
+  | { type: 'REMOVE_TRIGGER'; id: string };
 
 function modeForKind(kind: DraftKind): Exclude<StudioMode, 'preview'> {
   return kind === '3d_attachment' ? '3d' : '2d';
@@ -602,7 +614,11 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       const objects = d.objects.filter((o) => o.id !== action.id);
       let selectedId = d.selectedId;
       if (d.selectedId === action.id) selectedId = objects.length ? objects[Math.max(0, idx - 1)].id : null;
-      const nd = { ...d, objects, selectedId };
+      // Drop any reveal trigger that targeted the deleted piece (no dangling refs).
+      const triggers = d.triggers.some((t) => t.action.type === 'reveal' && t.action.objectId === action.id)
+        ? d.triggers.filter((t) => !(t.action.type === 'reveal' && t.action.objectId === action.id))
+        : d.triggers;
+      const nd = { ...d, objects, selectedId, triggers };
       return { ...state, dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }
     case 'SELECT_OBJECT': {
@@ -642,6 +658,24 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         dirty: true,
         draft: { ...d, objects: mapObjects(d, action.id, (o) => ({ ...o, animation: action.animation })) },
       };
+    }
+    case 'ADD_TRIGGER': {
+      // Soft cap: adds past MAX_TRIGGERS are ignored (the dock also gates the button).
+      if (d.triggers.length >= MAX_TRIGGERS) return state;
+      return { ...state, dirty: true, draft: { ...d, triggers: [...d.triggers, action.trigger] } };
+    }
+    case 'UPDATE_TRIGGER': {
+      if (!d.triggers.some((t) => t.id === action.id)) return state;
+      // id is immutable — a patch never changes a trigger's identity.
+      return {
+        ...state,
+        dirty: true,
+        draft: { ...d, triggers: d.triggers.map((t) => (t.id === action.id ? { ...t, ...action.patch, id: t.id } : t)) },
+      };
+    }
+    case 'REMOVE_TRIGGER': {
+      if (!d.triggers.some((t) => t.id === action.id)) return state;
+      return { ...state, dirty: true, draft: { ...d, triggers: d.triggers.filter((t) => t.id !== action.id) } };
     }
   }
 }

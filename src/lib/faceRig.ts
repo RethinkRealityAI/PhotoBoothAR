@@ -17,6 +17,7 @@
  * chin y≈−9.4). The studio's live preview is the final calibration surface.
  */
 import * as THREE from 'three';
+import type { FaceLandmarkerResult } from '@mediapipe/tasks-vision';
 import { HeadAnchor } from '../types';
 import { getFaceLandmarker } from './faceTracking';
 import { OneEuroVec3, OneEuroQuat, type OneEuroConfig, type Vec3, type Quat } from './smoothing';
@@ -89,6 +90,49 @@ let _gHas = false;       // a face has been detected at least once
 let _lastDetectTs = 0;   // throttle clock for detectForVideo
 
 /**
+ * Latest face blendshape scores (categoryName → score) + timestamp, consumed by
+ * the face-triggered-effects engine (src/lib/studio/triggers.ts). Written on
+ * DETECTION frames only (~30/s); rebuilt fresh (even to {} when no face) so a
+ * lost face can't leave a stale high score latched. `null` until first detect.
+ */
+let _blendScores: Record<string, number> = {};
+let _blendT = 0;
+let _hasBlend = false;
+
+function stashBlendshapes(results: FaceLandmarkerResult | undefined, now: number): void {
+  const cats = results?.faceBlendshapes?.[0]?.categories;
+  const next: Record<string, number> = {};
+  if (cats) for (const c of cats) if (c.categoryName) next[c.categoryName] = c.score;
+  _blendScores = next;
+  _blendT = now;
+  _hasBlend = true;
+}
+
+/**
+ * Latest face blendshape scores for the trigger engine, or null before the very
+ * first detection. `t` is the performance.now() of that detection, so a caller
+ * can step its engine once per NEW detection (t change) rather than per rAF.
+ * Zero allocation on read (returns references to the module's current map).
+ */
+export function getLatestBlendshapes(): { scores: Record<string, number>; t: number } | null {
+  return _hasBlend ? { scores: _blendScores, t: _blendT } : null;
+}
+
+/**
+ * Drive the shared, throttled detection from a surface with NO FaceRig mounted
+ * (e.g. the booth trigger loop for a scene that has triggers but no 3D piece).
+ * When a FaceRig IS present its useFrame already runs this path via
+ * updateHeadPose; the DETECT_INTERVAL_MS throttle + monotonic-ts guard are
+ * module-level, so calling from both places still detects at most once per
+ * interval. No-op until the landmarker is ready and the video has data.
+ */
+export function detectFaceNow(video: HTMLVideoElement): void {
+  const fl = getFaceLandmarker();
+  if (!fl || !video || video.readyState < 2) return;
+  detectIfDue(fl, video, performance.now());
+}
+
+/**
  * One-Euro tuning (see smoothing.ts). Position/scale speeds are in cm/s
  * (MediaPipe's metric head space); rotation speed is rad/s. Low minCutoff
  * keeps a resting face rock-steady; beta raises the cutoff under motion so
@@ -126,6 +170,10 @@ function detectIfDue(fl: ReturnType<typeof getFaceLandmarker>, video: HTMLVideoE
   } catch {
     return;
   }
+  // Refresh the trigger-engine blendshape stash on every detection frame (even
+  // an empty/no-face result, so signals decay). Additive: pose consumers below
+  // are untouched, so legacy events stay byte-identical.
+  stashBlendshapes(results, now);
   const mats = results?.facialTransformationMatrixes;
   if (!mats || mats.length === 0) return;
   _mat.fromArray(mats[0].data);

@@ -68,6 +68,13 @@ interface Props {
    * pass true (LEGACY_ENTITLEMENTS keeps their watermark unconditional).
    */
   watermark?: boolean;
+  /**
+   * Optional face-trigger particle canvas (src/components/booth/TriggerEffects).
+   * Drawn as ONE additive final layer (like `sparkles`), scaled to the frame, so
+   * a burst on screen at the shutter also lands in the capture. Absent/null ->
+   * the step is skipped and output is byte-identical to before this prop existed.
+   */
+  effectsCanvas?: HTMLCanvasElement | null;
 }
 
 const PREVIEW_W = 720;
@@ -220,7 +227,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   {
     videoRef, effectId, mirror, sparkles = false,
     overlayUrl, overlayTransform, overlayOpacity, overlays,
-    threeCanvasId, active = true, watermark = true,
+    threeCanvasId, active = true, watermark = true, effectsCanvas,
   },
   ref,
 ) {
@@ -243,6 +250,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   const threeCanvasIdRef = useRef(threeCanvasId);
   const activeRef = useRef(active);
   const watermarkRef = useRef(watermark);
+  const effectsCanvasRef = useRef<HTMLCanvasElement | null>(effectsCanvas ?? null);
   // Multi-layer path: the overlays spec array + a per-url image cache.
   const overlaysRef = useRef<StageOverlaySpec[] | null>(overlays ?? null);
   const overlayImgCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -266,6 +274,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   useEffect(() => { threeCanvasIdRef.current = threeCanvasId ?? null; }, [threeCanvasId]);
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { watermarkRef.current = watermark; }, [watermark]);
+  useEffect(() => { effectsCanvasRef.current = effectsCanvas ?? null; }, [effectsCanvas]);
   useEffect(() => {
     overlaysRef.current = overlays ?? null;
     // Preload any not-yet-cached overlay images (cache persists across renders
@@ -367,6 +376,14 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     // Step 5: Sparkles (independent additive layer — stacks with everything)
     if (sparklesRef.current) {
       drawSparkles(ctx, w, h, performance.now() / 1000);
+    }
+
+    // Step 5b: Face-trigger particles (TriggerEffects). Additive optional layer,
+    // scaled from its own 9:16 buffer to w×h. Absent/empty -> skipped, so the
+    // legacy/no-triggers path is byte-identical to before this step existed.
+    const fx = effectsCanvasRef.current;
+    if (fx && fx.width > 0) {
+      try { ctx.drawImage(fx, 0, 0, w, h); } catch { /* tainted / not ready */ }
     }
 
     // Step 6: Signature (only for capture, not preview — keeps preview fast).

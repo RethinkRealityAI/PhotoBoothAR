@@ -18,8 +18,14 @@ async function create(delegate: 'GPU' | 'CPU'): Promise<FaceLandmarker> {
   const vision = await FilesetResolver.forVisionTasks(WASM_PATH);
   return FaceLandmarker.createFromOptions(vision, {
     baseOptions: { modelAssetPath: MODEL_URL, delegate },
-    // Blendshapes are unused for asset attachment — skipping them saves work.
-    outputFaceBlendshapes: false,
+    // Blendshapes power face-triggered effects (src/lib/studio/triggers.ts).
+    // With this on, FaceLandmarkerResult carries `faceBlendshapes: Classifications[]`
+    // (vision.d.ts:697), each `{ categories: Category[] }` where a Category is
+    // `{ score:number; index:number; categoryName:string; displayName:string }`
+    // (vision.d.ts:87). Pose-only consumers (updateHeadPose) read only
+    // `facialTransformationMatrixes` and ignore this extra field, so legacy
+    // events render byte-identically; the only cost is the extra head's compute.
+    outputFaceBlendshapes: true,
     outputFacialTransformationMatrixes: true,
     runningMode,
     numFaces: 1,

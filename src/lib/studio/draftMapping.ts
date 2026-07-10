@@ -49,6 +49,7 @@ import {
   type StudioKind,
   type StudioObject,
 } from './state';
+import { parseTriggers, type TriggerConfig } from './triggers';
 
 const STUDIO_KINDS: readonly StudioKind[] = ['shader', 'border', '2d_filter', '3d_attachment'];
 
@@ -98,6 +99,27 @@ function anchorToStudio(a: AnchorConfig): StudioAnchorConfig {
     rotation: { ...(a.rotation ?? { x: 0, y: 0, z: 0 }) },
     scale: a.scale ?? 1,
   };
+}
+
+/**
+ * Resolve parsed triggers against the freshly-rebuilt scene. Object ids are
+ * regenerated on load, so a `reveal` action's stored objectId is remapped
+ * through `idMap` (stored layer id → new object id) to the live piece; a reveal
+ * whose target no longer exists is DROPPED. Burst / filterPulse actions
+ * reference no object, so they always survive.
+ */
+function finalizeTriggers(raw: TriggerConfig[], idMap: Map<string, string>): TriggerConfig[] {
+  const out: TriggerConfig[] = [];
+  for (const t of raw) {
+    if (t.action.type === 'reveal') {
+      const newId = idMap.get(t.action.objectId);
+      if (!newId) continue; // target piece gone → drop
+      out.push({ ...t, action: { ...t.action, objectId: newId } });
+    } else {
+      out.push(t);
+    }
+  }
+  return out;
 }
 
 /**
@@ -153,10 +175,22 @@ export function experienceToDraft(exp: Experience): StudioDraft | null {
   draft.thumbUrl = exp.thumbnail_url ?? null;
   draft.scene = typeof exp.config?.scene === 'string' ? exp.config.scene : undefined;
 
+  const rawTriggers = parseTriggers(exp.config?.triggers);
+  // Object ids are regenerated on load; record stored-layer-id → new-object-id
+  // as layers are rebuilt so reveal triggers can be remapped to the live pieces.
+  const idMap = new Map<string, string>();
+  const fromLayers = (ls: ExperienceLayer[]): StudioObject[] =>
+    ls.map((l) => {
+      const o = layerToObject(l);
+      idMap.set(l.id, o.id);
+      return o;
+    });
+
   if (exp.kind === 'shader') {
     const sid = exp.config?.shader?.shaderId ?? draft.shaderId;
     draft.shaderId = sid;
     draft.shaderParams = exp.config?.shader?.params ?? defaultParams(sid);
+    draft.triggers = finalizeTriggers(rawTriggers, idMap);
     return draft;
   }
 
@@ -170,16 +204,17 @@ export function experienceToDraft(exp: Experience): StudioDraft | null {
   const layers = exp.config?.layers;
 
   if (exp.kind === 'composite') {
-    draft.objects = (layers ?? []).map(layerToObject);
+    draft.objects = fromLayers(layers ?? []);
     draft.selectedId = draft.objects[0]?.id ?? null;
     draft.kind = deriveKind(draft);
+    draft.triggers = finalizeTriggers(rawTriggers, idMap);
     return draft;
   }
 
   if (exp.kind === 'border' || exp.kind === '2d_filter') {
     if (layers?.length) {
       // Full multi-object scene from config.layers.
-      draft.objects = layers.map(layerToObject);
+      draft.objects = fromLayers(layers);
     } else if (exp.asset_url) {
       // Legacy single overlay from the singular fields.
       draft.objects = [
@@ -193,12 +228,13 @@ export function experienceToDraft(exp: Experience): StudioDraft | null {
     // else: keep initialDraft's default built-in overlay.
     draft.selectedId = draft.objects[0]?.id ?? null;
     draft.kind = draft.objects[0]?.type === 'overlay' ? draft.objects[0].overlayKind : exp.kind;
+    draft.triggers = finalizeTriggers(rawTriggers, idMap);
     return draft;
   }
 
   // 3d_attachment
   if (layers?.length) {
-    draft.objects = layers.map(layerToObject);
+    draft.objects = fromLayers(layers);
   } else if (exp.asset_url || exp.config?.procedural) {
     const a = exp.config?.anchor;
     draft.objects = [
@@ -214,6 +250,7 @@ export function experienceToDraft(exp: Experience): StudioDraft | null {
   // else: an empty 3D scene (no asset yet).
   draft.selectedId = draft.objects[0]?.id ?? null;
   draft.kind = draft.objects[0] ? '3d_attachment' : exp.kind;
+  draft.triggers = finalizeTriggers(rawTriggers, idMap);
   return draft;
 }
 
@@ -267,6 +304,10 @@ export function draftToPayload(
   const config: ExperienceConfig = {};
   let assetUrl: string | null = null;
   const kind = deriveKind(draft);
+  // A reveal trigger references a piece by id, so that scene must persist
+  // config.layers (each layer carries its id) even when it would otherwise take
+  // the byte-identical singular path. Scenes with no reveal are unaffected.
+  const revealActive = draft.triggers.some((t) => t.action.type === 'reveal');
 
   if (kind === 'shader') {
     config.shader = { shaderId: draft.shaderId, params: draft.shaderParams };
@@ -281,7 +322,7 @@ export function draftToPayload(
     config.transform = layer0 ? { ...layer0.transform } : { scale: 1, x: 0, y: 0, rotation: 0 };
     config.opacity = 1;
     if (layer0) assetUrl = resolve(resolvedUrls, layer0.id);
-    if (objs.length > 1 || anyAnim || anyHidden) config.layers = objs.map((o) => overlayLayer(o, resolvedUrls));
+    if (objs.length > 1 || anyAnim || anyHidden || revealActive) config.layers = objs.map((o) => overlayLayer(o, resolvedUrls));
     // The scene-level filter slot ('none' = empty) can ride alongside any scene.
     if (draft.shaderId !== 'none') config.ambientShader = { shaderId: draft.shaderId, params: draft.shaderParams };
   } else if (kind === '3d_attachment') {
@@ -303,7 +344,7 @@ export function draftToPayload(
       if (layer0.occlusion) config.occlusion = true;
       assetUrl = layer0.type === 'headpiece' && layer0.proceduralId ? null : resolve(resolvedUrls, layer0.id);
     }
-    if (objs.length > 1 || anyAnim || anyHidden) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
+    if (objs.length > 1 || anyAnim || anyHidden || revealActive) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
     // The scene-level filter slot ('none' = empty) can ride alongside any scene.
     if (draft.shaderId !== 'none') config.ambientShader = { shaderId: draft.shaderId, params: draft.shaderParams };
   } else {
@@ -337,6 +378,9 @@ export function draftToPayload(
   }
 
   if (draft.scene) config.scene = draft.scene;
+  // Face-triggered effects — omitted entirely when empty so trigger-less scenes
+  // save byte-identically (no config.triggers key at all).
+  if (draft.triggers.length) config.triggers = draft.triggers;
 
   return {
     name: draft.name,

@@ -13,6 +13,7 @@
  */
 import { useCallback, useMemo, useState, type ChangeEvent } from 'react';
 import {
+  ArrowBigUp,
   Boxes,
   Check,
   ChevronDown,
@@ -22,28 +23,46 @@ import {
   EyeOff,
   FileStack,
   Image as ImageIcon,
+  Laugh,
   LayoutTemplate,
   Loader2,
+  Palette,
+  PartyPopper,
+  Plus,
   RotateCcw,
   Ruler,
+  Smile,
   Star,
   Trash2,
   Upload,
+  Wand2,
   X,
+  type LucideIcon,
 } from 'lucide-react';
-import { SHADER_MAP, defaultParams } from '../../lib/shaders';
+import { SHADER_MAP, FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
 import {
   DEFAULT_TRANSFORM,
   MAX_OBJECTS,
+  MAX_TRIGGERS,
   sceneCounts,
   selectedObject,
   type Object3D,
   type Overlay2D,
   type StudioAction,
+  type StudioDraft,
   type StudioObject,
   type StudioState,
 } from '../../lib/studio/state';
+import {
+  BURST_STYLE_LABELS,
+  BURST_STYLES,
+  TRIGGER_SOURCE_LABELS,
+  TRIGGER_SOURCES,
+  type BurstStyle,
+  type TriggerAction,
+  type TriggerSource,
+} from '../../lib/studio/triggers';
 import { draftToPayload, existingUrlResolver } from '../../lib/studio/draftMapping';
 import { createExperience } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
@@ -121,6 +140,226 @@ function EditingCaption({ name }: { name: string }) {
       <span className="text-brand-muted/30 shrink-0">·</span>
       <span className="text-xs text-brand-fg font-medium truncate">{name}</span>
     </p>
+  );
+}
+
+/* — Magic Triggers (face-triggered effects) --------------------------------- */
+
+const SOURCE_ICON: Record<TriggerSource, LucideIcon> = {
+  smile: Smile,
+  mouthOpen: Laugh,
+  wink: Eye,
+  browRaise: ArrowBigUp,
+};
+
+type NewActionType = 'burst' | 'reveal' | 'filterPulse';
+const ACTION_CHOICES: { id: NewActionType; label: string; icon: LucideIcon }[] = [
+  { id: 'burst', label: 'Burst', icon: PartyPopper },
+  { id: 'reveal', label: 'Reveal', icon: Wand2 },
+  { id: 'filterPulse', label: 'Filter', icon: Palette },
+];
+
+function newTriggerId(): string {
+  return `trg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function triggerActionLabel(
+  a: TriggerAction,
+  pieceName: (id: string) => string,
+  shaderName: (id: string) => string,
+): string {
+  if (a.type === 'burst') return `${BURST_STYLE_LABELS[a.style]} burst`;
+  if (a.type === 'reveal') return `Reveal ${pieceName(a.objectId)}`;
+  return `${a.shaderId ? shaderName(a.shaderId) : 'Filter'} pulse`;
+}
+
+/**
+ * Scene-level face-triggered effects. Lists existing triggers (source icon +
+ * "Smile → Confetti burst" + remove) and an add flow: pick a face source, an
+ * action, and its parameter. Reveal targets a current scene piece by name;
+ * Filter pulse picks from FILTER_SHADERS (defaulting to the scene's ambient).
+ */
+function MagicTriggers({
+  draft,
+  dispatch,
+  pieceName,
+  ambientShaderId,
+}: {
+  draft: StudioDraft;
+  dispatch: React.Dispatch<StudioAction>;
+  pieceName: (id: string) => string;
+  ambientShaderId: string | null;
+}) {
+  const defaultFilter = ambientShaderId && ambientShaderId !== 'none' ? ambientShaderId : FILTER_SHADERS[0]?.id ?? '';
+  const [adding, setAdding] = useState(false);
+  const [source, setSource] = useState<TriggerSource>('smile');
+  const [actionType, setActionType] = useState<NewActionType>('burst');
+  const [burstStyle, setBurstStyle] = useState<BurstStyle>('confetti');
+  const [revealId, setRevealId] = useState<string>('');
+  const [filterId, setFilterId] = useState<string>(defaultFilter);
+
+  const pieces = draft.objects;
+  const atCap = draft.triggers.length >= MAX_TRIGGERS;
+  const shaderName = (id: string) => SHADER_MAP[id]?.name ?? id;
+
+  const resetForm = () => {
+    setAdding(false);
+    setSource('smile');
+    setActionType('burst');
+    setBurstStyle('confetti');
+    setRevealId('');
+    setFilterId(defaultFilter);
+  };
+
+  const commit = () => {
+    let action: TriggerAction;
+    if (actionType === 'burst') {
+      action = { type: 'burst', style: burstStyle };
+    } else if (actionType === 'reveal') {
+      const target = revealId || pieces[0]?.id;
+      if (!target) return; // no piece to reveal — the button is disabled anyway
+      action = { type: 'reveal', objectId: target };
+    } else {
+      action = filterId ? { type: 'filterPulse', shaderId: filterId } : { type: 'filterPulse' };
+    }
+    dispatch({ type: 'ADD_TRIGGER', trigger: { id: newTriggerId(), source, action } });
+    resetForm();
+  };
+
+  const chip = (active: boolean) =>
+    `flex flex-col items-center gap-1 py-2 rounded-lg text-[8px] font-label uppercase tracking-wide transition-colors ${
+      active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'
+    }`;
+  const selectCls = 'w-full bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-brand-fg focus:outline-none focus:border-accent/40';
+
+  return (
+    <div className="border-t border-white/10 pt-4">
+      <div className="flex items-center justify-between mb-2">
+        <SectionLabel>Magic Triggers</SectionLabel>
+        <span className="font-mono text-[9px] text-brand-muted/50">{draft.triggers.length}/{MAX_TRIGGERS}</span>
+      </div>
+
+      {draft.triggers.length > 0 ? (
+        <ul className="flex flex-col gap-1 mb-2">
+          {draft.triggers.map((t) => {
+            const Icon = SOURCE_ICON[t.source];
+            return (
+              <li key={t.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 bg-white/[0.03]">
+                <Icon className="w-3.5 h-3.5 shrink-0 text-accent-2" />
+                <span className="text-[11px] font-sans truncate flex-1 min-w-0 text-brand-muted/80">
+                  {TRIGGER_SOURCE_LABELS[t.source]} → {triggerActionLabel(t.action, pieceName, shaderName)}
+                </span>
+                <button
+                  onClick={() => dispatch({ type: 'REMOVE_TRIGGER', id: t.id })}
+                  aria-label="Remove trigger"
+                  className="p-0.5 rounded text-brand-muted/40 hover:text-rose-400 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="text-[10px] text-brand-muted/40 font-sans mb-2 px-1">
+          Guests set off effects with their face — smile, open mouth, wink, or raise brows.
+        </p>
+      )}
+
+      {adding ? (
+        <div className="rounded-xl border border-accent/15 bg-accent/[0.05] p-3 flex flex-col gap-3">
+          <div>
+            <SectionLabel>When guest…</SectionLabel>
+            <div className="grid grid-cols-4 gap-1.5">
+              {TRIGGER_SOURCES.map((s) => {
+                const Icon = SOURCE_ICON[s];
+                return (
+                  <button key={s} onClick={() => setSource(s)} title={TRIGGER_SOURCE_LABELS[s]} className={chip(s === source)}>
+                    <Icon className="w-4 h-4" />
+                    <span className="text-center leading-tight">{TRIGGER_SOURCE_LABELS[s]}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <SectionLabel>Do…</SectionLabel>
+            <div className="grid grid-cols-3 gap-1.5">
+              {ACTION_CHOICES.map(({ id, label, icon: Icon }) => (
+                <button key={id} onClick={() => setActionType(id)} className={chip(id === actionType)}>
+                  <Icon className="w-4 h-4" />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {actionType === 'burst' && (
+            <div>
+              <SectionLabel>Style</SectionLabel>
+              <div className="grid grid-cols-4 gap-1.5">
+                {BURST_STYLES.map((st) => (
+                  <button key={st} onClick={() => setBurstStyle(st)} className={chip(st === burstStyle)}>
+                    <span className="text-center leading-tight">{BURST_STYLE_LABELS[st]}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {actionType === 'reveal' && (
+            <div>
+              <SectionLabel>Reveal which piece</SectionLabel>
+              {pieces.length > 0 ? (
+                <select value={revealId || pieces[0].id} onChange={(e) => setRevealId(e.target.value)} className={selectCls}>
+                  {pieces.map((o) => (
+                    <option key={o.id} value={o.id} className="bg-noir-900">{pieceName(o.id)}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-[10px] text-brand-muted/40 font-sans">Add a scene piece first — reveal keeps it hidden until the trigger fires.</p>
+              )}
+            </div>
+          )}
+
+          {actionType === 'filterPulse' && (
+            <div>
+              <SectionLabel>Filter</SectionLabel>
+              <select value={filterId} onChange={(e) => setFilterId(e.target.value)} className={selectCls}>
+                {FILTER_SHADERS.map((s) => (
+                  <option key={s.id} value={s.id} className="bg-noir-900">{s.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={commit}
+              disabled={actionType === 'reveal' && pieces.length === 0}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-label uppercase tracking-widest bg-accent/15 text-accent-2 ring-1 ring-accent/30 hover:bg-accent/25 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+            >
+              <Check className="w-3.5 h-3.5" /> Add
+            </button>
+            <button onClick={resetForm} className="px-3 py-2 rounded-xl text-[10px] font-label uppercase tracking-widest bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        !atCap && (
+          <button
+            onClick={() => setAdding(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-label uppercase tracking-widest bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add trigger
+          </button>
+        )
+      )}
+      {atCap && !adding && <p className="text-[9px] text-brand-muted/40 font-sans mt-1">Up to {MAX_TRIGGERS} triggers per scene.</p>}
+      <p className="text-[9px] text-brand-muted/40 font-sans mt-2 leading-relaxed">Try it in 3D Live view — the tracker runs there.</p>
+    </div>
   );
 }
 
@@ -289,6 +528,17 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
       ) : !filterActive ? (
         <p className="text-[10px] text-brand-muted/40 font-sans px-1">Add a frame, sticker or 3D piece from the left dock to start a scene.</p>
       ) : null}
+
+      {/* Magic Triggers — scene-level face-triggered effects, shown once the scene
+          has content (or already carries triggers) since they ride on the scene. */}
+      {(hasObjects || filterActive || draft.triggers.length > 0) && (
+        <MagicTriggers
+          draft={draft}
+          dispatch={dispatch}
+          pieceName={(id) => displayNames.get(id) ?? draft.objects.find((o) => o.id === id)?.name ?? 'piece'}
+          ambientShaderId={filterActive ? draft.shaderId : null}
+        />
+      )}
 
       {/* Selected 2D overlay properties */}
       {selOverlay && (

@@ -358,3 +358,72 @@ describe('existingUrlResolver (W6-C: Save as template — no re-upload)', () => 
     expect(payload.config?.transform).toEqual(border.transform);
   });
 });
+
+describe('face-triggered effects (W7-D)', () => {
+  it('a scene with no triggers writes NO config.triggers key (byte-identical)', () => {
+    const border = createOverlay('border', { url: 'data:b', isBuiltin: true });
+    const draft: StudioDraft = { ...initialDraft('border'), objects: [border], selectedId: border.id, kind: 'border' };
+    const payload = draftToPayload(draft, resolver({ [border.id]: 'https://cdn/b.png' }), null);
+    expect(payload.config?.triggers).toBeUndefined();
+    expect(payload.config?.layers).toBeUndefined(); // still the singular path
+  });
+
+  it('writes config.triggers and round-trips a reveal target through regenerated object ids', () => {
+    const frame = createOverlay('border', { url: 'data:f', isBuiltin: true, name: 'Frame' });
+    const sticker = createOverlay('2d_filter', { url: 'blob:s', isBuiltin: false, name: 'S' });
+    const draft: StudioDraft = {
+      ...initialDraft('border'),
+      objects: [frame, sticker],
+      selectedId: frame.id,
+      kind: 'border',
+      triggers: [
+        { id: 'r1', source: 'smile', action: { type: 'reveal', objectId: sticker.id } },
+        { id: 'b1', source: 'wink', action: { type: 'burst', style: 'hearts' } },
+      ],
+    };
+    const payload = draftToPayload(draft, resolver({ [frame.id]: 'https://cdn/f.png', [sticker.id]: 'https://cdn/s.png' }), null);
+    expect(payload.config?.triggers).toHaveLength(2);
+    expect(payload.config?.layers).toHaveLength(2); // reveal forces the layers path
+
+    const reloaded = experienceToDraft(expFromPayload(payload))!;
+    expect(reloaded.triggers).toHaveLength(2);
+    const reveal = reloaded.triggers.find((t) => t.action.type === 'reveal')!;
+    // objectId remapped to the freshly-created sticker object (index 1)
+    expect((reveal.action as { objectId: string }).objectId).toBe(reloaded.objects[1].id);
+    expect(reloaded.triggers.some((t) => t.action.type === 'burst')).toBe(true);
+  });
+
+  it('drops a reveal whose target object no longer exists; keeps burst/filterPulse', () => {
+    const exp = baseExp({
+      kind: '2d_filter',
+      asset_url: 'https://cdn/s.png',
+      config: {
+        transform: { scale: 1, x: 0, y: 0, rotation: 0 },
+        triggers: [
+          { id: 'gone', source: 'smile', action: { type: 'reveal', objectId: 'obj-does-not-exist' } },
+          { id: 'keep', source: 'browRaise', action: { type: 'filterPulse', shaderId: 'vhs' } },
+        ],
+      },
+    });
+    const draft = experienceToDraft(exp)!;
+    expect(draft.triggers.map((t) => t.id)).toEqual(['keep']);
+  });
+
+  it('a single-object scene with a reveal forces config.layers so the target id is stable', () => {
+    const sticker = createOverlay('2d_filter', { url: 'blob:s', isBuiltin: false, name: 'S' });
+    const draft: StudioDraft = {
+      ...initialDraft('2d_filter'),
+      objects: [sticker],
+      selectedId: sticker.id,
+      triggers: [{ id: 'r', source: 'smile', action: { type: 'reveal', objectId: sticker.id } }],
+    };
+    const payload = draftToPayload(draft, resolver({ [sticker.id]: 'https://cdn/s.png' }), null);
+    expect(payload.config?.layers).toHaveLength(1);
+    expect(payload.config?.layers?.[0].id).toBe(sticker.id);
+  });
+
+  it('garbage in config.triggers is ignored (parseTriggers guard)', () => {
+    const exp = baseExp({ kind: 'shader', config: { shader: { shaderId: 'vhs' }, triggers: 'not-an-array' as unknown } });
+    expect(experienceToDraft(exp)!.triggers).toEqual([]);
+  });
+});

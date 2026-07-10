@@ -103,6 +103,11 @@ export interface ExperienceConfig {
   /** True for a reusable scene template (studio "Save as template") — always
    *  paired with is_published:false so it never reaches the guest booth. */
   template?: boolean;
+  /** Face-triggered effects (studio "Magic Triggers"). Additive + opt-in:
+   *  absent for scenes without triggers, so those rows save byte-identically.
+   *  Stored as-is (TriggerConfig[]) and validated through parseTriggers on load
+   *  (src/lib/studio/triggers.ts). */
+  triggers?: unknown;
 }
 
 export interface Experience {
