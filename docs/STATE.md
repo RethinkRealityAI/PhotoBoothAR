@@ -4,7 +4,7 @@
 Rebuild the event studio (/host/events/:id) into one unified premium editor: single camera, in-canvas 2D·3D·Preview switching, DnD assets dock, AR occlusion + head-size calibration, AI Scene Director hero feature (user-approved plan).
 
 ## Now
-W4 (mixed scenes) COMPLETE: 8 local commits ahead of origin/30501fe (camera-consistency fix, W4-A state core, W4-B mapping+booth, W4-C studio UI, logic-audit fixes, UX-review fixes, 2 docs). All gates green (tsc 0 · 337 tests · build ✓ · E2E mixed-scene harness). AWAITING USER PUSH AUTHORIZATION, then PR #14 description refresh.
+W5 COMPLETE (3 local commits past pushed 05062a6: d6ef204 wave, b9297c3 audit fixes, + reviewer-fix commit): studio chrome/naming, visual catalog + GLB thumbs, chroma-key transparent frames, Gemini→Meshy pipeline; both reviewers' HIGHs fixed and measured (0px name offset, Escape closes dialog, fringe regression tests). ai-generate-image v11 DEPLOYED (greenScreen + 9:16 aspect; code==deploy). MESHY_API_KEY set by user. Gates: tsc 0 · 357 tests · build ✓. AWAITING PUSH AUTHORIZATION, then W6 (unified studio-aware AI director — task #23, design locked in Decisions).
 
 ## Studio v2 landed (all reviewed by me, per-wave commits)
 - W1-A state core (146 lib tests): objects[]/selectedId model, add-vs-replace rule, withHistory undo/redo (coalescing, cap 50), draftMapping layers↔objects with layer-0 legacy mirror (single plain object saves byte-identical). f202260.
