@@ -80,10 +80,22 @@ export async function processGeneratedFrame(
   if (exp.asset_url) {
     try {
       const src = await loadImageData(exp.asset_url);
-      const out = processFrameImage(src); // keys green → transparent 1080×1920
-      const blob = await toPngBlob(out);
-      processedUrl = await uploadAsset(blob, `frame-${exp.id}`);
-      if (!processedUrl) console.warn('[studio] processed frame upload failed');
+      // Detect the real backdrop hue, key it out, contain-fit to 1080×1920.
+      const { image, keyedFraction, keyColor } = processFrameImage(src);
+      // A key that removed almost nothing never matched the backdrop — the
+      // asset is still effectively the raw GREEN image. Leave processedUrl null
+      // (→ keyed:false) so the free-retry UI and DirectorPanel's failed-card
+      // path fire, exactly like the CORS/decode catch below. Do NOT upload it.
+      if (keyedFraction < 0.03) {
+        console.warn('[studio] chroma-key removed too little — treating as unkeyed', {
+          keyColor,
+          keyedFraction,
+        });
+      } else {
+        const blob = await toPngBlob(image);
+        processedUrl = await uploadAsset(blob, `frame-${exp.id}`);
+        if (!processedUrl) console.warn('[studio] processed frame upload failed');
+      }
     } catch (e) {
       console.warn('[studio] chroma-key processing failed', e);
     }

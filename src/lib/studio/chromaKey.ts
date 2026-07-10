@@ -50,13 +50,24 @@ function chromaCbCr(r: number, g: number, b: number): [number, number] {
   return [cb, cr];
 }
 
+export interface KeyOutStats {
+  /** The keyed buffer (same shape as input; the input is never mutated). */
+  image: RgbaImage;
+  /**
+   * Fraction of pixels driven to alpha 0 (keepFactor === 0 — the hard-keyed
+   * backdrop) over the total pixel count. AiFramePanel uses this as an honesty
+   * gate: a key that removed almost nothing never matched the real backdrop,
+   * so the asset is still effectively the raw green image.
+   */
+  keyedFraction: number;
+}
+
 /**
- * Return a NEW same-shape buffer with pixels matching `key` made transparent.
- * Input is never mutated. Fully-keyed pixels get alpha 0; pixels in the soft
- * band get a partial alpha and are despilled; pixels far from the key are
- * untouched (rgb + original alpha preserved).
+ * Like {@link keyOutColor} but also reports what fraction of the image was
+ * fully keyed. The pixel maths is identical — keyOutColor delegates here — so
+ * the keyedFraction bookkeeping never changes an output pixel.
  */
-export function keyOutColor(img: RgbaImage, opts: KeyOutOptions = {}): RgbaImage {
+export function keyOutColorWithStats(img: RgbaImage, opts: KeyOutOptions = {}): KeyOutStats {
   const key = opts.key ?? DEFAULT_KEY;
   const tolerance = opts.tolerance ?? DEFAULT_TOLERANCE;
   const softness = opts.softness ?? DEFAULT_SOFTNESS;
@@ -65,6 +76,9 @@ export function keyOutColor(img: RgbaImage, opts: KeyOutOptions = {}): RgbaImage
   const src = img.data;
   const out = new Uint8ClampedArray(src.length);
   out.set(src);
+
+  const total = src.length / 4;
+  let keyedCount = 0;
 
   for (let i = 0; i < src.length; i += 4) {
     const r = src[i];
@@ -90,6 +104,7 @@ export function keyOutColor(img: RgbaImage, opts: KeyOutOptions = {}): RgbaImage
       out[i] = 0;
       out[i + 1] = 0;
       out[i + 2] = 0;
+      keyedCount++;
     } else if (keepFactor < 1) {
       // Despill only pixels the KEY partially ate (soft band) — gating on the
       // key factor, not the final alpha, so pre-existing semi-transparent
@@ -99,7 +114,20 @@ export function keyOutColor(img: RgbaImage, opts: KeyOutOptions = {}): RgbaImage
     }
   }
 
-  return { data: out, width: img.width, height: img.height };
+  return {
+    image: { data: out, width: img.width, height: img.height },
+    keyedFraction: total > 0 ? keyedCount / total : 0,
+  };
+}
+
+/**
+ * Return a NEW same-shape buffer with pixels matching `key` made transparent.
+ * Input is never mutated. Fully-keyed pixels get alpha 0; pixels in the soft
+ * band get a partial alpha and are despilled; pixels far from the key are
+ * untouched (rgb + original alpha preserved).
+ */
+export function keyOutColor(img: RgbaImage, opts: KeyOutOptions = {}): RgbaImage {
+  return keyOutColorWithStats(img, opts).image;
 }
 
 /**
@@ -183,15 +211,116 @@ export function fitOnCanvas(img: RgbaImage, targetW: number, targetH: number): R
 }
 
 /**
- * Full pipeline for an AI frame/sticker: key the green backdrop out, then
- * contain-fit onto the booth's transparent 1080×1920 portrait canvas.
+ * Detect the dominant green backdrop hue in a generated frame/sticker so the
+ * keyer can target the ACTUAL colour Gemini painted — image models rarely emit
+ * exact #00FF00 (e.g. #00B140 sits ~64 chroma units from pure green and the
+ * fixed key kept it, shipping green into the scene).
+ *
+ * The two layouts the edge fn produces hide their backdrop in different places:
+ *   • frames  (kind 'border')  — art hugs the edges; green fills the CENTRE + bg
+ *   • stickers (2d_filter)     — the subject is centred; green SURROUNDS it
+ * so we sample a centre patch (catches a frame's green) plus a perimeter ring
+ * and the four corners (catch a sticker's green) at a sparse stride. Green-
+ * family samples are histogrammed into coarse (Cb,Cr) bins; the densest bin +
+ * its 8 neighbours give the mean RGB returned as the key.
+ *
+ * Returns null when green-family samples are under 1% of those visited — the
+ * caller falls back to DEFAULT_KEY (and the keyedFraction gate downstream
+ * catches a genuinely green-free image).
+ */
+export function detectKeyColor(
+  img: RgbaImage,
+): { key: [number, number, number]; samples: number } | null {
+  const { data, width: w, height: h } = img;
+  if (w <= 0 || h <= 0) return null;
+
+  const STRIDE = 4; // sample every 4th px in x AND y → ~1/16 of pixels, O(n)
+  const BIN = 6; // coarse (Cb,Cr) bin size, in chroma units
+
+  // Region bounds (fractions of the image): a centre patch + an edge ring +
+  // corner patches. Their union holds the backdrop in either layout.
+  const cxLo = w * 0.35, cxHi = w * 0.65, cyLo = h * 0.35, cyHi = h * 0.65;
+  const ring = Math.max(1, Math.round(Math.min(w, h) * 0.12));
+  const corner = Math.max(1, Math.round(Math.min(w, h) * 0.15));
+
+  // bk packs the (Cb,Cr) bins into one int; +64 keeps both bytes non-negative
+  // (chroma bins span roughly ±22, so shifted values stay in [42,86] < 256).
+  const bins = new Map<number, { n: number; r: number; g: number; b: number }>();
+  let visited = 0;
+  let greenish = 0;
+
+  for (let y = 0; y < h; y += STRIDE) {
+    const inRingY = y < ring || y >= h - ring;
+    const inCornerY = y < corner || y >= h - corner;
+    const inCenterY = y >= cyLo && y < cyHi;
+    for (let x = 0; x < w; x += STRIDE) {
+      const inRing = inRingY || x < ring || x >= w - ring;
+      const inCorner = inCornerY && (x < corner || x >= w - corner);
+      const inCenter = inCenterY && x >= cxLo && x < cxHi;
+      if (!inRing && !inCorner && !inCenter) continue;
+
+      visited++;
+      const i = (y * w + x) * 4;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      // Green-family = clearly green-dominant; skips greys and the subject.
+      if (!(g > r + 20 && g > b + 20)) continue;
+      greenish++;
+
+      const [cb, cr] = chromaCbCr(r, g, b);
+      const bk = (Math.floor(cb / BIN) + 64) * 256 + (Math.floor(cr / BIN) + 64);
+      const cell = bins.get(bk);
+      if (cell) { cell.n++; cell.r += r; cell.g += g; cell.b += b; }
+      else bins.set(bk, { n: 1, r, g, b });
+    }
+  }
+
+  // Too little green sampled → no detectable backdrop.
+  if (visited === 0 || greenish < visited * 0.01) return null;
+
+  let bestN = -1;
+  let bestKey = -1;
+  for (const [bk, cell] of bins) {
+    if (cell.n > bestN) { bestN = cell.n; bestKey = bk; }
+  }
+  if (bestKey < 0) return null;
+
+  // Mean RGB over the densest bin + its 8 (Cb,Cr) neighbours.
+  const bCb = Math.floor(bestKey / 256);
+  const bCr = bestKey % 256;
+  let n = 0, sr = 0, sg = 0, sb = 0;
+  for (let dCb = -1; dCb <= 1; dCb++) {
+    for (let dCr = -1; dCr <= 1; dCr++) {
+      const cell = bins.get((bCb + dCb) * 256 + (bCr + dCr));
+      if (cell) { n += cell.n; sr += cell.r; sg += cell.g; sb += cell.b; }
+    }
+  }
+  if (n === 0) return null;
+  return { key: [Math.round(sr / n), Math.round(sg / n), Math.round(sb / n)], samples: n };
+}
+
+export interface ProcessedFrame {
+  /** Green keyed out + contain-fit onto the 1080×1920 portrait canvas. */
+  image: RgbaImage;
+  /** Fraction of the SOURCE image hard-keyed (see keyOutColorWithStats). */
+  keyedFraction: number;
+  /** The key colour actually used (detected, or DEFAULT_KEY on fallback). */
+  keyColor: readonly [number, number, number];
+}
+
+/**
+ * Full pipeline for an AI frame/sticker: detect the backdrop's green hue (fall
+ * back to DEFAULT_KEY), key it out, then contain-fit onto the booth's
+ * transparent 1080×1920 portrait canvas. `keyedFraction` lets the caller reject
+ * a key that removed almost nothing — the backdrop hue was never matched, so
+ * the image is still green. An explicit keyOpts.key overrides detection.
  */
 export function processFrameImage(
   img: RgbaImage,
   targetW: number = FRAME_W,
   targetH: number = FRAME_H,
   keyOpts: KeyOutOptions = {},
-): RgbaImage {
-  const keyed = keyOutColor(img, keyOpts);
-  return fitOnCanvas(keyed, targetW, targetH);
+): ProcessedFrame {
+  const keyColor = keyOpts.key ?? detectKeyColor(img)?.key ?? DEFAULT_KEY;
+  const { image, keyedFraction } = keyOutColorWithStats(img, { ...keyOpts, key: keyColor });
+  return { image: fitOnCanvas(image, targetW, targetH), keyedFraction, keyColor };
 }

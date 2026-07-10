@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   keyOutColor,
+  keyOutColorWithStats,
+  detectKeyColor,
   fitOnCanvas,
   processFrameImage,
+  DEFAULT_KEY,
   FRAME_W,
   FRAME_H,
   type RgbaImage,
@@ -142,7 +145,7 @@ describe('fitOnCanvas', () => {
 
 describe('processFrameImage', () => {
   it('keys green + fits onto the 1080×1920 booth canvas by default', () => {
-    const out = processFrameImage(solid(10, 10, GREEN));
+    const { image: out } = processFrameImage(solid(10, 10, GREEN));
     expect(out.width).toBe(FRAME_W);
     expect(out.height).toBe(FRAME_H);
     // All-green source → the whole canvas ends up transparent. Scan into a
@@ -152,5 +155,132 @@ describe('processFrameImage', () => {
       if (out.data[i] > maxAlpha) maxAlpha = out.data[i];
     }
     expect(maxAlpha).toBe(0);
+  });
+});
+
+/** Build an RGBA buffer from a per-pixel colour function. */
+function generate(
+  w: number,
+  h: number,
+  fn: (x: number, y: number) => [number, number, number, number],
+): RgbaImage {
+  const data = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const [r, g, b, a] = fn(x, y);
+      data[i] = r;
+      data[i + 1] = g;
+      data[i + 2] = b;
+      data[i + 3] = a;
+    }
+  }
+  return { data, width: w, height: h };
+}
+
+describe('detectKeyColor + adaptive processFrameImage', () => {
+  const OFF_GREEN: [number, number, number] = [0, 177, 64]; // #00B140
+
+  it('(a) detects an off-green (#00B140) backdrop and keys it, art intact', () => {
+    // Flat #00B140 backdrop, magenta art in the centre.
+    const img = generate(40, 40, (x, y) => {
+      const inArt = x >= 16 && x < 24 && y >= 16 && y < 24;
+      return inArt ? [255, 0, 255, 255] : [...OFF_GREEN, 255];
+    });
+    const det = detectKeyColor(img);
+    expect(det).not.toBeNull();
+    expect(det!.key[0]).toBeLessThan(30); // ≈ #00B140
+    expect(det!.key[1]).toBeGreaterThan(150);
+    expect(det!.key[2]).toBeLessThan(100);
+    const { image, keyedFraction } = keyOutColorWithStats(img, { key: det!.key });
+    expect(keyedFraction).toBeGreaterThan(0.5); // most of the backdrop keyed
+    expect(px(image, 20, 20)).toEqual([255, 0, 255, 255]); // magenta art survives
+    expect(px(image, 0, 0)[3]).toBe(0); // #00B140 corner keyed out
+  });
+
+  it('(a2) the legacy fixed #00FF00 key barely touches #00B140 — the bug the fix closes', () => {
+    // Proves the root cause: a flat off-shade green is < the 3% honesty gate
+    // under the OLD fixed key, so the panel would have shipped it green.
+    const { keyedFraction } = keyOutColorWithStats(solid(40, 40, [...OFF_GREEN, 255]));
+    expect(keyedFraction).toBeLessThan(0.03);
+  });
+
+  it('(b) keys a constant-chroma green gradient uniformly (luminance-invariant)', () => {
+    // Adding the same offset to R,G,B shifts luminance but keeps (Cb,Cr) fixed
+    // — a true shaded green screen. The whole gradient must key uniformly.
+    const img = generate(30, 30, (_x, y) => {
+      const t = -25 + Math.round((y / 29) * 60); // luminance shift only
+      return [30 + t, 180 + t, 30 + t, 255];
+    });
+    const det = detectKeyColor(img);
+    expect(det).not.toBeNull();
+    expect(det!.key[1]).toBeGreaterThan(det!.key[0]); // green-dominant
+    const { keyedFraction } = keyOutColorWithStats(img, { key: det!.key });
+    expect(keyedFraction).toBeGreaterThan(0.98); // top-to-bottom, not just one band
+  });
+
+  it('(c) exact #00FF00 backdrop keys identically to the legacy fixed-key path', () => {
+    const img = generate(40, 40, (x, y) => {
+      const inArt = x >= 16 && x < 24 && y >= 16 && y < 24;
+      return inArt ? [255, 0, 0, 255] : [0, 255, 0, 255];
+    });
+    // Detection lands exactly on pure green, so the adaptive keyer feeds the
+    // identical key to the identical pipeline as the old fixed-key path.
+    const det = detectKeyColor(img);
+    expect(det!.key).toEqual([0, 255, 0]);
+    expect(processFrameImage(img).keyColor).toEqual([0, 255, 0]);
+    // Compare the keyed buffers at SOURCE resolution (a 40×40 compare; a full
+    // 1080×1920 toEqual is ~8M elements and takes a minute). fitOnCanvas is
+    // deterministic, so identical keyed input ⇒ identical fitted output.
+    const adaptiveKeyed = keyOutColor(img, { key: det!.key });
+    const legacyKeyed = keyOutColor(img, { key: DEFAULT_KEY });
+    expect(adaptiveKeyed.data).toEqual(legacyKeyed.data);
+  });
+
+  it('(d) reports keyedFraction ≈ 0 on a green-free image (honesty gate)', () => {
+    // Blue art on white — nothing green. Detection returns null → DEFAULT_KEY →
+    // the keyer removes ~nothing → below AiFramePanel's 3% threshold.
+    const img = generate(40, 40, (x, y) => {
+      const inArt = x >= 16 && x < 24 && y >= 16 && y < 24;
+      return inArt ? [30, 60, 200, 255] : [255, 255, 255, 255];
+    });
+    expect(detectKeyColor(img)).toBeNull();
+    const { keyedFraction } = processFrameImage(img);
+    expect(keyedFraction).toBeLessThan(0.03);
+  });
+
+  it('(e) detects the key on a sticker layout (green surround, centred subject)', () => {
+    // Skin-toned subject centred; #00C846-ish green surrounds it.
+    const img = generate(40, 40, (x, y) => {
+      const inSubject = x >= 12 && x < 28 && y >= 12 && y < 28;
+      return inSubject ? [210, 170, 120, 255] : [0, 200, 70, 255];
+    });
+    const det = detectKeyColor(img);
+    expect(det).not.toBeNull();
+    expect(det!.key[1]).toBeGreaterThan(150); // green-channel dominant surround
+    const { image, keyedFraction } = keyOutColorWithStats(img, { key: det!.key });
+    expect(keyedFraction).toBeGreaterThan(0.4); // the surround keyed
+    expect(px(image, 20, 20)[3]).toBe(255); // subject survives
+  });
+
+  it('(f) locks onto the dominant backdrop hue over green-family art; distant art survives', () => {
+    // Pure #00FF00 backdrop with dark forest-green art in the centre. Forest
+    // green is green-family too, but the backdrop cluster is far denser so
+    // detection locks onto #00FF00; forest green's chroma is distant enough
+    // (far less saturated) to survive keying.
+    // LIMITATION: art whose chroma lands within `tolerance` of the detected
+    // backdrop hue IS eaten — this is the "avoid near-key art" UI tip.
+    const FOREST: [number, number, number] = [20, 70, 30];
+    const img = generate(40, 40, (x, y) => {
+      const inArt = x >= 16 && x < 24 && y >= 16 && y < 24;
+      return inArt ? [...FOREST, 255] : [0, 255, 0, 255];
+    });
+    const det = detectKeyColor(img);
+    expect(det).not.toBeNull();
+    expect(det!.key[0]).toBeLessThan(20); // ≈ pure green, not forest
+    expect(det!.key[1]).toBeGreaterThan(240);
+    const { image } = keyOutColorWithStats(img, { key: det!.key });
+    expect(px(image, 20, 20)[3]).toBeGreaterThan(0); // forest art survives
+    expect(px(image, 0, 0)[3]).toBe(0); // #00FF00 backdrop keyed
   });
 });
