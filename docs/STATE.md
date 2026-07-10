@@ -1,9 +1,12 @@
 # STATE
 
 ## Goal
-Refine AR tracking + booth UX smoothness, and add an AI agent (concierge) that designs whole events conversationally in the onboarding wizard.
+Rebuild the landing demo as the InteractiveShowcase centerpiece: two-column desktop layout (copy left; 3D scene right with live wall back-left and phone-mockup booth front-right), camera → beam → wall polaroid ceremony, amplifying the existing DemoBooth experience while keeping its camera UI and brand colors.
 
 ## Now
+DONE + verified (2026-07-10): InteractiveShowcase shipped on branch claude/interactive-ar-showcase-pinf3x. New: src/lib/beamGeometry.ts(+10 tests) · src/components/landing/ShowcasePhone.tsx (phone mockup, real booth pipeline, 9:16 letterboxed viewfinder) · src/components/landing/InteractiveShowcase.tsx (state machine idle|camera|beaming|wall, angled WAAPI BeamStrike, LiveWall w/ charged/forward variants, polaroid spring drop w/ alternating tilt, in-scene Capture-again, mobile scroll-follow). Landing.tsx demo section swapped. Per-wrapper CSS perspective (NO shared preserve-3d — depth-sort/Safari hazards), no backdrop-filter on animated 3D elements, legacy gold `.glass` avoided. Gates: lint clean · 173 tests · build ✓ · Playwright fake-camera walkthrough desktop+mobile (2 capture cycles) screenshot-verified. DemoBooth.tsx superseded, unreferenced, NOT deleted (needs user approval).
+
+## Prior goal (2026-07-08, done)
 Pre-merge-to-main polish batch (2026-07-08, screenshot-verified): NEW /host/concierge workspace (event cards w/ inline rename+status left, inline CopilotChat right; rail item → page, FAB hidden there); popup TRUE FIX — `.liquid-glass` (unlayered CSS) sets position:relative which beats Tailwind's layered `fixed` utility, so the popup was never viewport-anchored → inline style position:fixed + 88% solid bg (readable); copilot arg-extraction prompt (short titles, details→description, clarify-when-ambiguous, worked example) + client splitLongTitle salvage; NEW add_challenge_pack tool (3-6 themed challenges, one confirm card, 🎁 pill) — edge fn v9 DEPLOYED; Creator2D borders now drag/scale/rotate like stickers (generated non-9:16 frames letterboxed with no controls). Gates: lint clean · 141 tests · build ✓ · legacy build ✓. NEXT: merge PR #13 → main, then #11, evaluate #6.
 
 ## Next
