@@ -211,18 +211,32 @@ function MagicTriggers({
     setFilterId(defaultFilter);
   };
 
-  const commit = () => {
-    let action: TriggerAction;
-    if (actionType === 'burst') {
-      action = { type: 'burst', style: burstStyle };
-    } else if (actionType === 'reveal') {
+  // The action the form would commit — mirrors the branch logic in commit() so we
+  // can block an EXACT duplicate (same source + action type + style/target/shader)
+  // before dispatch. null when the form can't yet commit (reveal with no piece).
+  const pendingAction = useMemo<TriggerAction | null>(() => {
+    if (actionType === 'burst') return { type: 'burst', style: burstStyle };
+    if (actionType === 'reveal') {
       const target = revealId || pieces[0]?.id;
-      if (!target) return; // no piece to reveal — the button is disabled anyway
-      action = { type: 'reveal', objectId: target };
-    } else {
-      action = filterId ? { type: 'filterPulse', shaderId: filterId } : { type: 'filterPulse' };
+      return target ? { type: 'reveal', objectId: target } : null;
     }
-    dispatch({ type: 'ADD_TRIGGER', trigger: { id: newTriggerId(), source, action } });
+    return filterId ? { type: 'filterPulse', shaderId: filterId } : { type: 'filterPulse' };
+  }, [actionType, burstStyle, revealId, filterId, pieces]);
+
+  const sameAction = (a: TriggerAction, b: TriggerAction): boolean => {
+    if (a.type !== b.type) return false;
+    if (a.type === 'burst' && b.type === 'burst') return a.style === b.style;
+    if (a.type === 'reveal' && b.type === 'reveal') return a.objectId === b.objectId;
+    if (a.type === 'filterPulse' && b.type === 'filterPulse') return (a.shaderId ?? '') === (b.shaderId ?? '');
+    return false;
+  };
+  const isDuplicate = !!pendingAction && draft.triggers.some(
+    (t) => t.source === source && sameAction(t.action, pendingAction),
+  );
+
+  const commit = () => {
+    if (!pendingAction || isDuplicate) return;
+    dispatch({ type: 'ADD_TRIGGER', trigger: { id: newTriggerId(), source, action: pendingAction } });
     resetForm();
   };
 
@@ -334,10 +348,13 @@ function MagicTriggers({
             </div>
           )}
 
+          {isDuplicate && (
+            <p className="text-[9px] text-brand-muted/50 font-sans -mt-1">This exact trigger is already added.</p>
+          )}
           <div className="flex items-center gap-2">
             <button
               onClick={commit}
-              disabled={actionType === 'reveal' && pieces.length === 0}
+              disabled={(actionType === 'reveal' && pieces.length === 0) || isDuplicate}
               className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-label uppercase tracking-widest bg-accent/15 text-accent-2 ring-1 ring-accent/30 hover:bg-accent/25 transition-colors disabled:opacity-40 disabled:pointer-events-none"
             >
               <Check className="w-3.5 h-3.5" /> Add

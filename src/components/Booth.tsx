@@ -322,10 +322,26 @@ export default function Booth() {
   // no RAF, no reveal filtering — and the booth renders byte-identically.
   const activeTriggerExp =
     (attachExp?.config?.triggers ? attachExp : null) ?? (frameExp?.config?.triggers ? frameExp : null);
-  const triggers = useMemo<TriggerConfig[]>(
-    () => (source === 'db' && activeTriggerExp ? parseTriggers(activeTriggerExp.config?.triggers) : []),
-    [source, activeTriggerExp],
-  );
+  // Merge triggers from BOTH of the scene's experiences: a scene can pair a 3D
+  // attach and a 2D frame that EACH carry config.triggers, and reading only the
+  // primary (activeTriggerExp) silently dropped the other's. Dedupe by trigger
+  // id; a composite sets attachExp === frameExp, so parse it once (single-source
+  // scenes stay byte-identical — the one experience is the only one parsed).
+  const triggers = useMemo<TriggerConfig[]>(() => {
+    if (source !== 'db') return [];
+    const exps = attachExp === frameExp ? [attachExp] : [attachExp, frameExp];
+    const seen = new Set<string>();
+    const merged: TriggerConfig[] = [];
+    for (const exp of exps) {
+      if (!exp?.config?.triggers) continue;
+      for (const t of parseTriggers(exp.config.triggers)) {
+        if (seen.has(t.id)) continue;
+        seen.add(t.id);
+        merged.push(t);
+      }
+    }
+    return merged;
+  }, [source, attachExp, frameExp]);
   const hasTriggers = triggers.length > 0;
   // Layer ids that a reveal trigger hides until it fires; `revealedIds` is the
   // runtime set already fired. NEVER persisted — a fresh scene starts all hidden.
@@ -342,6 +358,16 @@ export default function Booth() {
     (id: string) => !(revealTargetIds.has(id) && !revealedIds.has(id)),
     [revealTargetIds, revealedIds],
   );
+  // A layer that is a reveal-trigger TARGET is hidden-until-fired BY DESIGN, so
+  // its reveal state ALONE decides visibility — an editor "hidden" (eye toggle)
+  // must not also suppress it, or the reveal could never appear. Every other
+  // (non-targeted) layer keeps the studio eye toggle (l.hidden). With no
+  // triggers the target set is empty, so this reduces to `l.hidden !== true`.
+  const layerVisible = useCallback(
+    (l: { id: string; hidden?: boolean }) =>
+      revealTargetIds.has(l.id) ? revealVisible(l.id) : l.hidden !== true,
+    [revealTargetIds, revealVisible],
+  );
 
   // ── Multi-layer (studio) scenes ───────────────────────────────────────
   // Additive: only built when the experience actually carries config.layers;
@@ -354,23 +380,24 @@ export default function Booth() {
   const stageOverlays: StageOverlaySpec[] | undefined = useMemo(() => {
     if (!frameLayers || frameLayers.length === 0) return undefined;
     return frameLayers
-      // `hidden` layers stay in the scene but render nowhere (studio eye toggle);
-      // reveal-target layers stay hidden until their trigger fires (revealVisible).
-      .filter((l) => (l.kind === 'border' || l.kind === '2d_filter') && !!l.asset_url && l.hidden !== true && revealVisible(l.id))
+      // Visibility per layerVisible: normal layers respect the studio eye toggle
+      // (`hidden`); reveal-target layers are gated only by their trigger firing.
+      .filter((l) => (l.kind === 'border' || l.kind === '2d_filter') && !!l.asset_url && layerVisible(l))
       .map((l) => ({
         url: l.asset_url as string,
         transform: l.transform ?? DEFAULT_TRANSFORM,
         opacity: l.opacity ?? 1,
         animation: l.animation,
       }));
-  }, [frameLayers, revealVisible]);
+  }, [frameLayers, layerVisible]);
 
   const attachLayers = attachExp?.config?.layers;
   const overlayPieces: Overlay3DPiece[] | undefined = useMemo(() => {
     if (!attachLayers || attachLayers.length === 0) return undefined;
     return attachLayers
-      // Same `hidden` skip as the 2D builder above, plus the reveal-until-fired gate.
-      .filter((l) => l.kind === '3d_attachment' && !!l.anchor && l.hidden !== true && revealVisible(l.id))
+      // Same layerVisible rule as the 2D builder above (eye toggle, except
+      // reveal targets which are gated only by their trigger firing).
+      .filter((l) => l.kind === '3d_attachment' && !!l.anchor && layerVisible(l))
       .map((l) => ({
         assetUrl: l.asset_url ?? null,
         proceduralId: l.procedural ?? null,
@@ -380,7 +407,7 @@ export default function Booth() {
         // legacy/code events never carry layers, but keep the invariant explicit.
         occlude: source === 'db' && l.occlusion === true,
       }));
-  }, [attachLayers, source, revealVisible]);
+  }, [attachLayers, source, layerVisible]);
 
   // ── Trigger runtime: particle canvas, filter pulse, detection loop ────
   const triggerFxRef = useRef<TriggerEffectsHandle>(null);
@@ -394,6 +421,16 @@ export default function Booth() {
   const effectIdRef = useRef(effectId);
   useEffect(() => { effectIdRef.current = effectId; }, [effectId]);
   const pulseRef = useRef<{ prior: string; timeout: number } | null>(null);
+  // End an in-flight pulse: clear its restore timer, drop the state, and only
+  // then optionally restore the pre-pulse effect. `restore` is true just on the
+  // normal same-scene timeout path; a scene switch cancels WITHOUT restoring.
+  const endFilterPulse = useCallback((restore: boolean) => {
+    const p = pulseRef.current;
+    if (!p) return;
+    window.clearTimeout(p.timeout);
+    pulseRef.current = null;
+    if (restore) setEffectId(p.prior);
+  }, []);
   const startFilterPulse = useCallback((shaderId: string | undefined, durationMs: number | undefined) => {
     if (pulseRef.current) return; // don't stack pulses
     const prior = effectIdRef.current;
@@ -401,13 +438,16 @@ export default function Booth() {
     if (!target || target === 'none' || target === prior) return; // nothing distinct to pulse to
     setEffectId(target);
     const dur = durationMs && durationMs > 0 ? durationMs : 1200;
-    const timeout = window.setTimeout(() => {
-      setEffectId(pulseRef.current?.prior ?? 'none');
-      pulseRef.current = null;
-    }, dur);
+    const timeout = window.setTimeout(() => endFilterPulse(true), dur);
     pulseRef.current = { prior, timeout };
-  }, [activeTriggerExp]);
-  useEffect(() => () => { if (pulseRef.current) window.clearTimeout(pulseRef.current.timeout); }, []);
+  }, [activeTriggerExp, endFilterPulse]);
+  // A pulse must never outlive the scene that fired it. When the active trigger
+  // scene changes (or the booth unmounts), cancel any in-flight pulse WITHOUT
+  // restoring: the incoming scene sets its own filter, so restoring scene A's
+  // pre-pulse value would stomp it. The same-scene restore is the timeout above,
+  // which can only fire while this scene is still current — this cleanup clears
+  // that timer first on any switch, so a stale pulse can't stomp the new scene.
+  useEffect(() => () => endFilterPulse(false), [activeTriggerExp, endFilterPulse]);
 
   // One fired trigger event → an effect. Kept behind a ref so the RAF loop below
   // never has to restart when React re-creates the callback.

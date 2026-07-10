@@ -278,6 +278,14 @@ export function composeAnchorMatrix(
   return out.compose(_pos, _quat, _scale);
 }
 
+// Clamp the returned uniform scale to the studio's prop-scale bounds — mirrors
+// PROP_SCALE_MIN/MAX in studio/bustFit.ts, AssetGizmo's `scaleLimits`, and the
+// PropertiesDock size slider. drei's scaleLimits only clamp the per-gesture
+// DRAG MULTIPLIER and its accumulator RESETS each gizmo mount, so an auto-fit
+// base of 14 dragged once composes to 14×15≈210 here — clamp at the source.
+const PROP_SCALE_MIN = 0.05;
+const PROP_SCALE_MAX = 15;
+
 /** Decompose an anchor-relative local matrix back into offset/rotation/scale. */
 export function decomposeAnchorMatrix(
   base: readonly [number, number, number],
@@ -296,6 +304,7 @@ export function decomposeAnchorMatrix(
   const dxz = Math.abs(sx - sz);
   const dyz = Math.abs(sy - sz);
   const uniform = dxy <= dxz && dxy <= dyz ? sz : dxz <= dyz ? sy : sx;
+  const clamped = Math.min(PROP_SCALE_MAX, Math.max(PROP_SCALE_MIN, uniform));
   return {
     offset: {
       x: parseFloat((_pos.x - base[0]).toFixed(4)),
@@ -307,6 +316,6 @@ export function decomposeAnchorMatrix(
       y: parseFloat(_euler.y.toFixed(4)),
       z: parseFloat(_euler.z.toFixed(4)),
     },
-    scale: parseFloat(uniform.toFixed(4)),
+    scale: parseFloat(clamped.toFixed(4)),
   };
 }

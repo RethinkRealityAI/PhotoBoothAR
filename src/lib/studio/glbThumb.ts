@@ -39,17 +39,41 @@ function disposeSceneResources(root: THREE.Object3D | null) {
  * measure failure — callers dispatch without a scale and keep the legacy
  * default of 1. Measure-only: no renderer or GL context is created.
  */
+/** A stalled storage/CDN response can leave GLTFLoader's XHR pending with NO
+ *  error event, so the load promise would never settle and the caller's
+ *  post-measure dispatch (e.g. the Director approve latch) would strand. Cap
+ *  the wait and resolve null so the caller always proceeds. */
+const MEASURE_TIMEOUT_MS = 15_000;
+
 export async function measureGlbFitScale(url: string): Promise<number | null> {
   let root: THREE.Object3D | null = null;
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const load = new Promise<THREE.Group>((resolve, reject) => {
+    new GLTFLoader().load(url, (g) => resolve(g.scene), undefined, reject);
+  });
+  // Late arrival: if the timeout already won, a slow-but-successful load still
+  // resolves here — dispose that orphaned scene so it can't leak GPU memory.
+  // This handler is registered BEFORE Promise.race's own, so on the fast/normal
+  // path it runs while `settled` is still false and skips (the finally disposes
+  // exactly once — no double-free). A late rejection has nothing to dispose.
+  void load.then(
+    (scene) => { if (settled) disposeSceneResources(scene); },
+    () => {},
+  );
   try {
-    root = await new Promise<THREE.Group>((resolve, reject) => {
-      new GLTFLoader().load(url, (g) => resolve(g.scene), undefined, reject);
-    });
+    root = await Promise.race([
+      load,
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), MEASURE_TIMEOUT_MS); }),
+    ]);
+    if (!root) return null; // timed out — a stall never fires reject; resolve null
     return computePropFitScale(root);
   } catch (e) {
     console.warn('[glbThumb] measureGlbFitScale failed', url, e);
     return null;
   } finally {
+    settled = true;
+    if (timer) clearTimeout(timer);
     disposeSceneResources(root);
   }
 }

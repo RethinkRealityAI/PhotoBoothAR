@@ -115,6 +115,11 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   // still in flight (drives the "adding" spinner on that tile).
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  // The object id the open inline settings card adopted (and the tile key it
+  // belongs to) — the card auto-collapses if the live selection moves off it
+  // (see the guard effect after the selection is derived below).
+  const cardObjIdRef = useRef<string | null>(null);
+  const cardKeyRef = useRef<string | null>(null);
   // Collapsible Studio-Library sub-groups (default all expanded → collapsed:false).
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [uploads, setUploads] = useState<UploadsState>({ status: 'idle', items: [] });
@@ -253,6 +258,34 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const sceneFrame = draft.objects.find(
     (o): o is Overlay2D => o.type === 'overlay' && o.overlayKind === 'border',
   );
+
+  const selId = sel?.id ?? null;
+  // Guard the inline settings card against silently RETARGETING: it edits
+  // selectedObject, so an EXTERNAL selection move (e.g. a Director add landing)
+  // would make the open card start editing the new object. Track the object id
+  // the card adopted and collapse when the live selection stops matching it.
+  // Race window: a tile click sets expandedKey a frame before its OWN add lands
+  // (immediate for sync adds; deferred through the async GLB measure for model
+  // adds, marked by pendingKey === expandedKey) — so (re)adopt when the card key
+  // changes and defer adoption while that add is still pending.
+  useEffect(() => {
+    const objectCard = !!expandedKey && !expandedKey.startsWith('filter:');
+    if (!objectCard) { cardKeyRef.current = expandedKey; cardObjIdRef.current = null; return; }
+    if (cardKeyRef.current !== expandedKey) {          // a different tile's card opened
+      cardKeyRef.current = expandedKey;
+      cardObjIdRef.current = pendingKey === expandedKey ? null : selId; // defer if its add is in flight
+      return;
+    }
+    if (cardObjIdRef.current === null) {               // deferred adoption: the add's object just landed
+      if (pendingKey !== expandedKey && selId) cardObjIdRef.current = selId;
+      return;
+    }
+    if (selId && selId !== cardObjIdRef.current) {     // selection moved to another object → collapse
+      setExpandedKey(null);
+      cardKeyRef.current = null;
+      cardObjIdRef.current = null;
+    }
+  }, [selId, expandedKey, pendingKey]);
 
   const q = query.trim().toLowerCase();
   const matchQuery = (name: string) => !q || name.toLowerCase().includes(q);
@@ -522,7 +555,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         >
           {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           <span className="font-label uppercase tracking-widest text-[9px]">{label}</span>
-          <span className="font-mono text-[8px] text-brand-muted/30">{count}</span>
+          <span className="font-mono text-[8px] text-brand-muted/50">{count}</span>
         </button>
         {!isCollapsed && body}
       </div>

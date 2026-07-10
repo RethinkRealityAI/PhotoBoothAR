@@ -86,7 +86,11 @@ export async function processGeneratedFrame(
       // asset is still effectively the raw GREEN image. Leave processedUrl null
       // (→ keyed:false) so the free-retry UI and DirectorPanel's failed-card
       // path fire, exactly like the CORS/decode catch below. Do NOT upload it.
-      if (keyedFraction < 0.03) {
+      // Threshold trade-off: thin-border / sliver-green art keys out only a few
+      // percent, so 0.015 (was 0.03) avoids false "unkeyed" rejects of legit
+      // frames; a real greenScreen output is green-DOMINANT, so 1.5% still
+      // catches a total key miss.
+      if (keyedFraction < 0.015) {
         console.warn('[studio] chroma-key removed too little — treating as unkeyed', {
           keyColor,
           keyedFraction,

@@ -154,6 +154,12 @@ export default function DirectorPanel({
   // Synchronous approve-once latch (state re-render lags a fast double-click,
   // and SELECT_HEAD_PIECE/SET_MODEL_ASSET would append twice). Reset per plan.
   const approvedRef = useRef<Record<string, boolean>>({});
+  // Plan EPOCH — bumped the instant a NEW plan takes effect (send() below, where
+  // cards reset). Every async generate/poll/approve continuation captures it at
+  // start and BAILS if it changed, so plan A's in-flight Meshy/gen never writes
+  // onto plan B's cards, poisons the shared money-safety caches, or approves A's
+  // paid asset under B's metadata (audit H1: cross-plan card contamination).
+  const planEpochRef = useRef(0);
   // Synchronous double-fire guard per action (state `disabled` lags a tick).
   const running = useRef<Record<string, boolean>>({});
   // Alive flag so an in-flight Meshy poll never setState after unmount.
@@ -185,6 +191,10 @@ export default function DirectorPanel({
   const send = useCallback(() => guard('send', async () => {
     const brief = prompt.trim();
     if (!brief || phase === 'planning') return;
+    // Belt (on top of the epoch): don't let a new plan land while a piece is mid
+    // generation — finish or discard it first (the control is also disabled).
+    const g = cardsRef.current;
+    if (g.frame.status === 'generating' || g.headPiece.status === 'generating') return;
     const userId = crypto.randomUUID();
     setMessages((m) => [...m, { id: userId, role: 'user', text: brief }]);
     setPrompt('');
@@ -213,6 +223,9 @@ export default function DirectorPanel({
       setMessages((m) => [...m, { id: dirId, role: 'director', text: turn.reply || 'Here’s a scene to try.' }]);
       if (turn.plan) {
         // A fresh plan REPLACES the active cards (same reset the old design() did).
+        // Bump the epoch FIRST so any in-flight continuation from the prior plan
+        // sees the change and bails before touching these freshly-reset cards.
+        planEpochRef.current += 1;
         setPlan(turn.plan);
         setCards(IDLE_CARDS);
         rawFrameRef.current = null;
@@ -233,6 +246,18 @@ export default function DirectorPanel({
     const file = e.target.files?.[0];
     e.target.value = ''; // allow re-selecting the same file
     if (!file) return;
+    // Gate BEFORE upload: the server silently drops a reference over its size cap
+    // (fetchReferenceInline → null) yet the host still pays for the now-unguided
+    // generation. Reject non-images and anything over 8 MB (safely under the
+    // server's 10 MB) with an honest bubble instead (audit M).
+    if (!file.type.startsWith('image/')) {
+      pushDirector('That file isn’t an image — attach a JPG, PNG, or WEBP to guide generation.', 'error');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      pushDirector('That image is over 8 MB — references that large get dropped before they can guide generation. Try a smaller or compressed image.', 'error');
+      return;
+    }
     setReferenceUploading(true);
     try {
       const url = await uploadAsset(file, 'director-reference');
@@ -256,11 +281,13 @@ export default function DirectorPanel({
   // Returns the processed transparent PNG url on success, else null.
   const generateFrame = useCallback(async (promptOverride?: string): Promise<string | null> => {
     if (!plan?.frame) return null;
+    const epoch = planEpochRef.current;
     const framePrompt = promptOverride ?? plan.frame.prompt;
     setCard('frame', { status: 'generating', error: undefined });
     let raw = rawFrameRef.current;
     if (!raw) {
       const uuid = await resolveEventUuid(eventId, eventUuid);
+      if (planEpochRef.current !== epoch) return null;
       if (!uuid) { setCard('frame', { status: 'failed', error: aiErrorMessage('event_not_found') }); return null; }
       const reference = referenceUrlRef.current;
       const { data, error } = await generateImage(uuid, {
@@ -270,6 +297,10 @@ export default function DirectorPanel({
         greenScreen: true,
         ...(reference ? { referenceImageUrl: reference } : {}),
       });
+      // Bail AFTER the charge but BEFORE caching: a stale epoch must not write the
+      // raw onto the shared cache (the next plan's generate reads it un-scoped and
+      // would reuse A's paid image for free). A is abandoned; its credit is spent.
+      if (planEpochRef.current !== epoch) return null;
       if (error || !data?.experience) { setCard('frame', { status: 'failed', error: aiErrorMessage((error ?? 'internal') as AiErrorCode) }); return null; }
       raw = data.experience;
       rawFrameRef.current = raw;
@@ -277,6 +308,7 @@ export default function DirectorPanel({
     // Chroma-key the green backdrop out. An unkeyed result is still the raw GREEN
     // image — never ship it: keep it cached and let Retry reprocess for free.
     const { experience: processed, keyed } = await processGeneratedFrame(raw, eventId, { scene: plan.sceneName });
+    if (planEpochRef.current !== epoch) return null;
     if (!keyed) {
       setCard('frame', { status: 'failed', error: 'Generated, but transparency processing failed — Retry (no new credits).' });
       return null;
@@ -328,11 +360,12 @@ export default function DirectorPanel({
 
   // Imperative Meshy poll — drives the progress bar; resolves with the GLB.
   const pollModel = useCallback(async (jobId: string): Promise<{ glbUrl: string; name: string | null } | { error: string } | { timeout: true }> => {
+    const epoch = planEpochRef.current;
     for (let i = 0; i < MAX_POLLS; i++) {
       await sleep(POLL_MS);
-      if (!aliveRef.current) return { error: 'cancelled' };
+      if (!aliveRef.current || planEpochRef.current !== epoch) return { error: 'cancelled' };
       const { data } = await pollJob(jobId);
-      if (!aliveRef.current) return { error: 'cancelled' };
+      if (!aliveRef.current || planEpochRef.current !== epoch) return { error: 'cancelled' };
       if (data?.job) {
         if (data.job.status === 'succeeded') {
           const url = data.experience?.asset_url;
@@ -353,7 +386,10 @@ export default function DirectorPanel({
   }, [setCard]);
 
   /** Shared outcome handling for a Meshy poll (first run AND resumed runs). */
-  const finishModelPoll = useCallback((result: Awaited<ReturnType<typeof pollModel>>): { glbUrl: string; name: string | null } | null => {
+  const finishModelPoll = useCallback((result: Awaited<ReturnType<typeof pollModel>>, epoch: number): { glbUrl: string; name: string | null } | null => {
+    // Plan switched while this job polled: don't flip B's card to 'ready' with A's
+    // model, and don't clear the shared concept cache B may already be using.
+    if (planEpochRef.current !== epoch) return null;
     if ('timeout' in result) {
       setCard('headPiece', {
         status: 'stalled',
@@ -375,6 +411,7 @@ export default function DirectorPanel({
   const resumePoll = useCallback(() => guard('headPiece', async () => {
     const jobId = cardsRef.current.headPiece.jobId;
     if (!jobId) return;
+    const epoch = planEpochRef.current;
     setCard('headPiece', { status: 'generating', error: undefined, statusLine: MESHY_STATUS_LINES[0] });
     stopRotation();
     let ri = 0;
@@ -383,7 +420,7 @@ export default function DirectorPanel({
       setCard('headPiece', { statusLine: MESHY_STATUS_LINES[ri] });
     }, ROTATE_MS);
     try {
-      finishModelPoll(await pollModel(jobId));
+      finishModelPoll(await pollModel(jobId), epoch);
     } finally {
       stopRotation();
     }
@@ -399,6 +436,7 @@ export default function DirectorPanel({
     forceConcept = false,
   ): Promise<{ glbUrl: string; name: string | null } | null> => {
     if (plan?.headPiece?.kind !== 'generate') return null;
+    const epoch = planEpochRef.current;
     const brief = briefOverride ?? plan.headPiece.prompt ?? plan.sceneName;
     setCard('headPiece', { status: 'generating', error: undefined, progress: null, statusLine: MESHY_STATUS_LINES[0] });
     // Rotate the status verbs while the job runs (cycle; never exceed real state).
@@ -411,6 +449,7 @@ export default function DirectorPanel({
 
     try {
       const uuid = await resolveEventUuid(eventId, eventUuid);
+      if (planEpochRef.current !== epoch) return null;
       if (!uuid) { setCard('headPiece', { status: 'failed', error: aiErrorMessage('event_not_found') }); return null; }
 
       let conceptUrl = conceptUrlRef.current;
@@ -426,6 +465,10 @@ export default function DirectorPanel({
           prompt: `${brief} — a single centered object, isolated on a plain neutral studio background, product shot, no frame, no border, no text`,
           kind: '2d_filter',
         });
+        // Bail AFTER the charge but BEFORE caching: a stale epoch must not write
+        // the concept onto the shared cache (the next plan reads it un-scoped and
+        // would build B's 3D from A's concept). A is abandoned; its credit is spent.
+        if (planEpochRef.current !== epoch) return null;
         if (concept.error || !concept.data?.experience?.asset_url) {
           setCard('headPiece', { status: 'failed', error: aiErrorMessage((concept.error ?? 'internal') as AiErrorCode) });
           return null;
@@ -435,6 +478,7 @@ export default function DirectorPanel({
       }
 
       const { data, error } = await generate3d(uuid, { mode: 'image', imageUrl: conceptUrl, prompt: brief });
+      if (planEpochRef.current !== epoch) return null;
       if (error || !data?.job) {
         setCard('headPiece', { status: 'failed', error: `${aiErrorMessage((error ?? 'internal') as AiErrorCode)} (the source image is saved — Retry does the 3D step only.)` });
         return null;
@@ -444,7 +488,7 @@ export default function DirectorPanel({
       setCard('headPiece', { jobId: data.job.id });
 
       const result = await pollModel(data.job.id);
-      return finishModelPoll(result);
+      return finishModelPoll(result, epoch);
     } finally {
       stopRotation();
     }
@@ -453,6 +497,7 @@ export default function DirectorPanel({
   const approvePiece = useCallback((artifact?: { glbUrl: string; name: string | null }) => {
     const glbUrl = artifact?.glbUrl ?? cardsRef.current.headPiece.glbUrl;
     if (!glbUrl) return;
+    const epoch = planEpochRef.current;
     if (approvedRef.current.headPiece) return;
     if (sceneFull()) {
       setCard('headPiece', { error: 'Scene is full (20 pieces) — remove something in Scene Layers first. Your model is safe in the Library.' });
@@ -466,6 +511,18 @@ export default function DirectorPanel({
     // Measure-then-add: auto-fit the Meshy GLB to head-space cm (a raw ~1-unit
     // model renders ~1cm). The "Added" badge flips only once it actually lands.
     void measureGlbFitScale(glbUrl).then((fitScale) => {
+      // A NEW Director plan landed during the async measure — bail: don't add A's
+      // model or flip B's card (audit H1). A load-template mid-generation does NOT
+      // bump the epoch, so the intentional dispatch-into-current-draft above stands.
+      if (planEpochRef.current !== epoch) return;
+      // The scene can fill during the measure gap; appendObject then no-ops, so the
+      // 'added' badge would lie (audit L: added-at-cap). Re-check BEFORE dispatch;
+      // if full, release the latch and mirror the sync cap message — never claim added.
+      if (sceneFull()) {
+        approvedRef.current.headPiece = false;
+        setCard('headPiece', { error: 'Scene is full (20 pieces) — remove something in Scene Layers first. Your model is safe in the Library.' });
+        return;
+      }
       dispatch({ type: 'SET_MODEL_ASSET', url: glbUrl, name, scale: fitScale ?? undefined });
       setCard('headPiece', { status: 'added', error: undefined });
     });
@@ -638,6 +695,9 @@ export default function DirectorPanel({
             <p className="font-sans text-[11px] text-brand-muted/55 leading-relaxed mt-2">
               Generate to preview each piece, then add what you love. You only spend credits on what you generate.
             </p>
+            <p className="font-sans text-[10px] text-brand-muted/45 leading-relaxed mt-1.5">
+              Frame {FRAME_CREDIT_COST} credit · 3D piece {HEAD_PIECE_GENERATE_TOTAL} ({GENERATE_3D_CREDIT_COST} with a reference) · filters free.
+            </p>
           </div>
         )}
 
@@ -702,6 +762,11 @@ export default function DirectorPanel({
             )}
           </div>
         )}
+        {anyGenerating && (
+          <p className="mb-2 font-sans text-[10px] text-brand-muted/50 leading-snug">
+            Finish or discard the current generation before starting a new scene.
+          </p>
+        )}
         <div className="flex items-end gap-2">
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -715,7 +780,7 @@ export default function DirectorPanel({
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!anyGenerating) send(); } }}
             rows={2}
             maxLength={400}
             placeholder="Describe a look, or ask for ideas…"
@@ -723,7 +788,7 @@ export default function DirectorPanel({
           />
           <button
             onClick={send}
-            disabled={!prompt.trim() || phase === 'planning'}
+            disabled={!prompt.trim() || phase === 'planning' || anyGenerating}
             className="shrink-0 flex items-center gap-1.5 rounded-xl bg-foil px-4 py-2.5 font-label uppercase tracking-widest text-[10px] font-bold text-white glow-accent transition active:scale-[0.97] disabled:opacity-50"
           >
             {phase === 'planning' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clapperboard className="w-3.5 h-3.5" />}
