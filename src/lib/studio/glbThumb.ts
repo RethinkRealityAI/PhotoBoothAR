@@ -72,14 +72,23 @@ export async function captureGlbThumbnail(url: string, size = 256): Promise<Blob
     console.error('[glbThumb] captureGlbThumbnail failed', url, e);
     return null;
   } finally {
-    renderer?.dispose();
     root?.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {
         obj.geometry.dispose();
-        const mat = obj.material;
-        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-        else mat.dispose();
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        for (const m of mats) {
+          // material.dispose() does NOT free its textures — a textured Meshy
+          // model would leak GPU memory per capture.
+          for (const v of Object.values(m)) {
+            if (v instanceof THREE.Texture) v.dispose();
+          }
+          m.dispose();
+        }
       }
     });
+    renderer?.dispose();
+    // dispose() alone leaves the GL context alive until GC; repeated uploads
+    // would hit the browser's ~16-context cap and could kill the live stage.
+    renderer?.forceContextLoss();
   }
 }

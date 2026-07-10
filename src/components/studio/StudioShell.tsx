@@ -274,11 +274,16 @@ export default function StudioShell() {
 
   // Header inline-rename: open seeds the input from the live name; commit writes
   // a non-empty trimmed name (SET_NAME) and closes; Escape closes without saving.
+  // Escape unmounts the input, which fires its onBlur → commitName — the ref
+  // makes that blur a no-op so Escape genuinely cancels.
+  const escapingRename = useRef(false);
   const startRename = useCallback(() => {
+    escapingRename.current = false;
     setNameDraft(state.draft.name);
     setEditingName(true);
   }, [state.draft.name]);
   const commitName = useCallback(() => {
+    if (escapingRename.current) { escapingRename.current = false; return; }
     const trimmed = nameDraft.trim();
     if (trimmed && trimmed !== state.draft.name) dispatch({ type: 'SET_NAME', name: trimmed });
     setEditingName(false);
@@ -336,10 +341,44 @@ export default function StudioShell() {
 
   const camError = cam.error ? (CAMERA_MESSAGES[cam.error] ?? CAMERA_MESSAGES.unknown) : null;
 
+  // The rename control renders in two homes: absolutely centered in the bar at
+  // sm+ (TRUE centering — flex-centering between unequal button groups sat the
+  // name visibly left of centre), and as a full-width second header row on
+  // phones (in-row it was squeezed to ~70px, truncating names to "Un…").
+  const nameControl = editingName ? (
+    <input
+      autoFocus
+      value={nameDraft}
+      onChange={(e) => setNameDraft(e.target.value)}
+      onBlur={commitName}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commitName(); }
+        else if (e.key === 'Escape') {
+          e.preventDefault();
+          escapingRename.current = true; // the unmount blur must not commit
+          setEditingName(false);
+        }
+      }}
+      placeholder="Experience name…"
+      aria-label="Experience name"
+      className="w-full max-w-[18rem] text-center rounded-lg bg-white/[0.06] border border-accent/40 px-3 py-1.5 text-sm text-brand-fg placeholder:text-brand-muted/40 outline-none focus:border-accent/60 transition"
+    />
+  ) : (
+    <button
+      onClick={startRename}
+      aria-label="Rename experience"
+      className="group flex items-center justify-center gap-1.5 min-w-0 max-w-full px-2.5 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors"
+    >
+      <span className="font-serif italic text-sm text-brand-fg truncate">{state.draft.name || 'Untitled experience'}</span>
+      <Pencil className="w-3 h-3 text-brand-muted/40 group-hover:text-accent-2 shrink-0 transition-colors" />
+    </button>
+  );
+
   return (
     <div className="absolute inset-0 flex flex-col app-bg">
       {/* Top bar */}
-      <header className="h-14 shrink-0 flex items-center gap-1.5 sm:gap-3 px-2.5 sm:px-4 liquid-glass border-b border-white/10 z-40">
+      <header className="shrink-0 liquid-glass border-b border-white/10 z-40 relative">
+      <div className="h-14 flex items-center gap-1.5 sm:gap-3 px-2.5 sm:px-4">
         <Tooltip label="Library" hint="Back to your experiences" side="bottom">
           <Link to={`${base}/library`} className="p-1.5 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors">
             <ArrowLeft className="w-4 h-4" />
@@ -357,34 +396,9 @@ export default function StudioShell() {
           <p className="font-serif italic text-sm text-brand-fg leading-tight">Studio</p>
           <p className="font-label text-[8px] uppercase tracking-widest text-brand-muted/50">{state.draft.id ? 'Editing experience' : 'New experience'}</p>
         </div>
-        {/* Centered experience name — click the pencil (or the name) to rename
-            inline. Truncates with ellipsis on phone; the pencil stays tappable. */}
-        <div className="flex-1 flex justify-center min-w-0 px-1 sm:px-2">
-          {editingName ? (
-            <input
-              autoFocus
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onBlur={commitName}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') { e.preventDefault(); commitName(); }
-                else if (e.key === 'Escape') { e.preventDefault(); setEditingName(false); }
-              }}
-              placeholder="Experience name…"
-              aria-label="Experience name"
-              className="w-full max-w-[18rem] text-center rounded-lg bg-white/[0.06] border border-accent/40 px-3 py-1.5 text-sm text-brand-fg placeholder:text-brand-muted/40 outline-none focus:border-accent/60 transition"
-            />
-          ) : (
-            <button
-              onClick={startRename}
-              aria-label="Rename experience"
-              className="group flex items-center gap-1.5 min-w-0 max-w-[18rem] px-2.5 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors"
-            >
-              <span className="font-serif italic text-sm text-brand-fg truncate">{state.draft.name || 'Untitled experience'}</span>
-              <Pencil className="w-3 h-3 text-brand-muted/40 group-hover:text-accent-2 shrink-0 transition-colors" />
-            </button>
-          )}
-        </div>
+        {/* Spacer — the name renders absolutely centered (sm+) / on its own
+            phone row below, so the flanking control groups just spread apart. */}
+        <div className="flex-1 min-w-0" />
         {/* Undo / Redo / Duplicate */}
         <div className="flex items-center gap-1">
           <Tooltip label="Undo" hint="Ctrl/Cmd+Z" side="bottom">
@@ -446,6 +460,18 @@ export default function StudioShell() {
         >
           <SlidersHorizontal className="w-4 h-4" />
         </button>
+      </div>
+      {/* sm+: the name floats truly centered over the bar (independent of the
+          unequal left/right control groups). pointer-events pass through the
+          wrapper so only the control itself is interactive. */}
+      <div className="hidden sm:flex absolute inset-y-0 left-1/2 -translate-x-1/2 items-center max-w-[24vw] lg:max-w-[18rem] pointer-events-none [&>*]:pointer-events-auto">
+        {nameControl}
+      </div>
+      {/* Phone: the name gets its own full-width row — in the control row it
+          collapsed to ~70px and truncated every name to two characters. */}
+      <div className="sm:hidden flex justify-center px-3 pb-2">
+        {nameControl}
+      </div>
       </header>
 
       {/* Body — 3-pane at lg+; the side docks become slide-in drawers below lg
@@ -509,8 +535,14 @@ export default function StudioShell() {
       {/* First-load naming dialog — brand-new drafts only (see showNameDialog).
           Skippable via the X or by accepting the pre-filled default. */}
       {showNameDialog && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
-          <div className="liquid-glass rounded-2xl border border-accent/20 p-6 w-full max-w-sm relative animate-rise-in">
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-6"
+          onClick={() => setShowNameDialog(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setShowNameDialog(false); }}
+        >
+          {/* Backdrop click + Escape both skip (matching ui/Modal conventions);
+              clicks inside the card stay inside. */}
+          <div className="liquid-glass rounded-2xl border border-accent/20 p-6 w-full max-w-sm relative animate-rise-in" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setShowNameDialog(false)}
               aria-label="Skip naming"

@@ -62,16 +62,20 @@ function toPngBlob(rgba: RgbaImage): Promise<Blob> {
 /**
  * Chroma-key a freshly-generated frame/sticker experience and repoint it (and
  * its persisted row) at the processed transparent PNG. `extraConfig` is merged
- * into config and persisted even when processing is skipped, so callers can
- * piggy-back metadata (e.g. the Scene Director's scene tag). Returns the
- * experience the caller should hand to the studio — processed on success, the
- * original (raw) experience on any failure.
+ * into config and persisted even when processing fails, so callers can
+ * piggy-back metadata (e.g. the Scene Director's scene tag).
+ *
+ * Returns { experience, keyed }: `keyed` is true only when the transparent
+ * PNG was produced AND uploaded. When false, `experience` still references the
+ * RAW GREEN output — callers must NOT place it in a scene (a solid green box
+ * over the guest is worse than an error); offer a retry instead. Reprocessing
+ * a saved raw experience costs no credits.
  */
 export async function processGeneratedFrame(
   exp: Experience,
   eventId: string,
   extraConfig: Record<string, unknown> = {},
-): Promise<Experience> {
+): Promise<{ experience: Experience; keyed: boolean }> {
   let processedUrl: string | null = null;
   if (exp.asset_url) {
     try {
@@ -79,9 +83,9 @@ export async function processGeneratedFrame(
       const out = processFrameImage(src); // keys green → transparent 1080×1920
       const blob = await toPngBlob(out);
       processedUrl = await uploadAsset(blob, `frame-${exp.id}`);
-      if (!processedUrl) console.warn('[studio] processed frame upload failed; using raw image');
+      if (!processedUrl) console.warn('[studio] processed frame upload failed');
     } catch (e) {
-      console.warn('[studio] chroma-key processing failed; using raw image', e);
+      console.warn('[studio] chroma-key processing failed', e);
     }
   }
 
@@ -99,12 +103,15 @@ export async function processGeneratedFrame(
   // Persist when there's anything to persist (a processed URL and/or metadata).
   if (processedUrl || Object.keys(extraConfig).length > 0) {
     const saved = await updateExperience(eventId, exp.id, patch);
-    if (saved) return saved;
+    if (saved) return { experience: saved, keyed: !!processedUrl };
   }
   return {
-    ...exp,
-    ...(processedUrl ? { asset_url: processedUrl, thumbnail_url: processedUrl } : {}),
-    config: config as Experience['config'],
+    experience: {
+      ...exp,
+      ...(processedUrl ? { asset_url: processedUrl, thumbnail_url: processedUrl } : {}),
+      config: config as Experience['config'],
+    },
+    keyed: !!processedUrl,
   };
 }
 
@@ -123,6 +130,9 @@ export default function AiFramePanel({
   const [error, setError] = useState('');
   const [showBillingLink, setShowBillingLink] = useState(false);
   const [balance, setBalance] = useState<number | null>(null);
+  // Generation whose chroma-key processing failed — held for a FREE retry
+  // (the raw green asset is saved server-side; reprocessing costs nothing).
+  const [pendingRaw, setPendingRaw] = useState<Experience | null>(null);
 
   const refreshBalance = useCallback(async (): Promise<number | null> => {
     const org = await fetchMyOrg();
@@ -160,10 +170,35 @@ export default function AiFramePanel({
         return;
       }
       // Chroma-key the green backdrop out before handing the asset to the
-      // studio — falls back to the raw image on any processing failure.
-      const processed = await processGeneratedFrame(data.experience, eventId);
+      // studio. A failed key means the asset is still the raw GREEN image —
+      // never place that in the scene; hold it for a free retry instead.
+      const { experience: processed, keyed } = await processGeneratedFrame(data.experience, eventId);
+      if (!keyed) {
+        setPendingRaw(data.experience);
+        setError('Generated, but transparency processing failed — retry below (no extra credits).');
+        return;
+      }
+      setPendingRaw(null);
       onGenerated(processed);
       refreshBalance();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Free retry: re-run chroma-key on the already-saved raw generation.
+  const retryProcessing = async () => {
+    if (!pendingRaw || loading) return;
+    setLoading(true);
+    setError('');
+    try {
+      const { experience: processed, keyed } = await processGeneratedFrame(pendingRaw, eventId);
+      if (!keyed) {
+        setError('Transparency processing failed again — the raw image is in your Library.');
+        return;
+      }
+      setPendingRaw(null);
+      onGenerated(processed);
     } finally {
       setLoading(false);
     }
@@ -190,6 +225,14 @@ export default function AiFramePanel({
           {showBillingLink && (
             <> <a href="/host/billing" className="underline text-accent-2 hover:text-accent">Open billing</a></>
           )}
+          {pendingRaw && (
+            <>
+              {' '}
+              <button onClick={retryProcessing} disabled={loading} className="underline text-accent-2 hover:text-accent disabled:opacity-50">
+                Retry processing
+              </button>
+            </>
+          )}
         </p>
       )}
       <button
@@ -203,6 +246,9 @@ export default function AiFramePanel({
       {balance !== null && (
         <p className="text-[9px] text-brand-muted/50 font-sans">{balance} credit{balance === 1 ? '' : 's'} left · saved to your Library as a draft</p>
       )}
+      <p className="text-[9px] text-brand-muted/40 font-sans leading-relaxed">
+        Tip: avoid pure-green art — a green screen is keyed out for transparency, so near-#00FF00 elements disappear.
+      </p>
     </div>
   );
 }

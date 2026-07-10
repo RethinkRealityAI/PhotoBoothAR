@@ -78,6 +78,42 @@ describe('keyOutColor', () => {
     keyOutColor(img);
     expect(img.data).toEqual(snapshot);
   });
+
+  it('neutralizes the RGB of fully-keyed pixels (no green retained under alpha 0)', () => {
+    // W5 audit HIGH#1: green left behind alpha 0 poisoned straight-alpha
+    // resampling into an olive fringe. Keyed pixels must be (0,0,0,0).
+    const out = keyOutColor(solid(2, 2, GREEN));
+    expect(px(out, 0, 0)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('never despills pre-existing semi-transparent content far from the key', () => {
+    // W5 audit #7: a kept teal (far from #00FF00) with inherited source alpha
+    // must keep its green channel — despill gates on the KEY factor now.
+    const img = solid(1, 1, [0, 200, 150, 128]);
+    const out = keyOutColor(img);
+    expect(px(out, 0, 0)).toEqual([0, 200, 150, 128]);
+  });
+});
+
+describe('fringe regression (audit HIGH#1 probe)', () => {
+  it('scaling a keyed image never produces olive/green seam pixels', () => {
+    // 4×4: left half red on right half green, keyed, then scaled ×1.5 (≠1 —
+    // forces interpolation across the kept/keyed seam like real Gemini output).
+    const img = solid(4, 4, GREEN);
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 2; x++) {
+      const i = (y * 4 + x) * 4;
+      img.data[i] = 255; img.data[i + 1] = 0; img.data[i + 2] = 0;
+    }
+    const keyed = keyOutColor(img);
+    const fitted = fitOnCanvas(keyed, 6, 6);
+    for (let y = 0; y < 6; y++) for (let x = 0; x < 6; x++) {
+      const [r, g, , a] = px(fitted, x, y);
+      if (a === 0) continue; // fully transparent — colour irrelevant
+      // Any visible pixel must be red-dominant — never green-tinted (olive
+      // was r≈g from blending retained green under alpha 0).
+      expect(g).toBeLessThanOrEqual(r);
+    }
+  });
 });
 
 describe('fitOnCanvas', () => {

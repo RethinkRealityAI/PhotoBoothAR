@@ -270,8 +270,10 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                 onPointerDown={(e) => beginDrag({ target: 'overlay', label: b.name, overlayKind: b.kind, builtinId: b.id, builtinUrl: url, previewUrl: url }, e)}
                 onClick={() => { if (consumedDrag()) return; dispatch({ type: 'SELECT_BUILTIN', borderId: b.id, url }); }}
                 title="Click to add · drag onto the canvas to place"
-                className={`group relative aspect-square rounded-lg overflow-hidden bg-white/[0.03] hover:bg-white/[0.06] border cursor-grab active:cursor-grabbing transition-colors ${active ? 'border-accent/40 ring-1 ring-accent/30' : 'border-white/5 hover:border-accent/25'}`}
+                className={`group relative ${kind === 'border' ? 'aspect-[9/16]' : 'aspect-square'} rounded-lg overflow-hidden bg-white/[0.03] hover:bg-white/[0.06] border cursor-grab active:cursor-grabbing transition-colors ${active ? 'border-accent/40 ring-1 ring-accent/30' : 'border-white/5 hover:border-accent/25'}`}
               >
+                {/* Frames preview at the booth's own 9:16 — square tiles crushed
+                    bottom-anchored border art (JJ Equalizer et al) to a sliver. */}
                 <img src={url} alt={b.name} draggable={false} className="w-full h-full object-contain p-1.5" />
                 <span className={`absolute inset-x-0 bottom-0 px-1 py-0.5 text-[7px] font-label uppercase tracking-wide truncate ${active ? 'bg-accent/30 text-accent-2' : 'bg-black/60 text-white/80'}`}>{b.name}</span>
               </button>
@@ -288,7 +290,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
           <Upload className="w-3.5 h-3.5 text-accent-2" /> Browse file…
         </button>
         <input ref={imgInputRef} type="file" accept="image/png,image/svg+xml,image/webp" className="sr-only" onChange={onImageUpload} />
-        <p className="font-sans text-[9px] text-brand-muted/35 mt-1 leading-snug">Transparent PNG, 1080×1920 for full-frame art.</p>
+        <p className="font-sans text-[9px] text-brand-muted/60 mt-1 leading-snug">Transparent PNG, 1080×1920 for full-frame art.</p>
       </div>
       <AiFramePanel
         kind={kind}
@@ -437,7 +439,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
               <span className="font-label text-[9px] uppercase tracking-widest text-center truncate max-w-full">{selModelName ?? 'Drop a .glb or click'}</span>
             </button>
             <input ref={glbInputRef} type="file" accept=".glb,.gltf" className="sr-only" onChange={onGlbUpload} />
-            <p className="font-sans text-[9px] text-brand-muted/35 mt-1 leading-snug">Auto-captures a square thumbnail (256×256+).</p>
+            <p className="font-sans text-[9px] text-brand-muted/60 mt-1 leading-snug">Auto-captures a square thumbnail (256×256+).</p>
           </div>
 
           <div>

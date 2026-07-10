@@ -169,11 +169,17 @@ class AiError extends Error {
 /** Gemini image generation — REST generateContent with IMAGE modality.
  *  (Server-side move of the old browser call to generativelanguage.googleapis.com
  *  in Creator2D; the image model returns inlineData base64 instead of SVG text.) */
-async function generateGemini(prompt: string): Promise<Uint8Array> {
+async function generateGemini(prompt: string, aspectRatio?: string): Promise<Uint8Array> {
   // Dashboard-set secrets can arrive wrapped in quotes / with a trailing
   // newline; Google then rejects them as API_KEY_INVALID. Strip both.
   const key = Deno.env.get('GEMINI_API_KEY')?.trim().replace(/^["']|["']$/g, '');
   if (!key) throw new AiError('ai_not_configured');
+
+  // imageConfig.aspectRatio (e.g. '9:16') — without it the model returns a
+  // ~square image, and a square "full-bleed frame" contain-fit onto the 9:16
+  // booth canvas floats in the middle with no top/bottom border art.
+  const generationConfig: Record<string, unknown> = { responseModalities: ['IMAGE'] };
+  if (aspectRatio) generationConfig.imageConfig = { aspectRatio };
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
@@ -182,7 +188,7 @@ async function generateGemini(prompt: string): Promise<Uint8Array> {
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseModalities: ['IMAGE'] },
+        generationConfig,
       }),
     },
   );
@@ -422,8 +428,12 @@ Deno.serve(async (req: Request) => {
     // 7. Everything after the spend refunds on failure.
     try {
       const fullPrompt = buildPrompt(prompt, kind, transparentBackground, greenScreen);
+      // Frames are full-bleed 9:16 compositions — request that aspect from the
+      // model so the border art actually reaches the booth canvas's top/bottom
+      // edges. Stickers stay at the model default (square subject).
+      const aspect = greenScreen && kind === 'border' ? '9:16' : undefined;
       const bytes = provider === 'gemini'
-        ? await generateGemini(fullPrompt)
+        ? await generateGemini(fullPrompt, aspect)
         : await generateHiggsfield(fullPrompt);
 
       // Transparency flag: requested AND the PNG actually carries alpha.

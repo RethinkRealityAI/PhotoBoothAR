@@ -20,6 +20,7 @@ import { useEvent } from '../../events/EventContext';
 import { FILTER_SHADERS, SHADER_MAP } from '../../lib/shaders';
 import { HEAD_PIECES, HEAD_PIECE_MAP } from '../../lib/headPieces';
 import { createExperience } from '../../lib/db';
+import type { Experience } from '../../types';
 import { generateImage, generate3d, resolveEventUuid, aiErrorMessage, type AiErrorCode } from '../../lib/ai';
 import { processGeneratedFrame } from './AiFramePanel';
 import {
@@ -122,16 +123,33 @@ export default function SceneDirectorPanel({ initialPrompt = '', onClose }: { in
     exp ? mark('shader', 'accepted') : fail('shader', 'Could not save the filter — try again.');
   }, [eventId, mark, fail]);
 
+  // Retry caches — a failed LATER leg must never re-charge an EARLIER leg:
+  // the generated-but-unkeyed frame reprocesses for free, and a saved concept
+  // image is reused instead of regenerating (audit: retries bled 1cr each).
+  const rawFrameRef = useRef<Experience | null>(null);
+  const conceptUrlRef = useRef<string | null>(null);
+
   const acceptFrame = useCallback(async (p: ScenePlan) => {
     if (!p.frame) return;
     mark('frame', 'working');
-    const uuid = await resolveEventUuid(eventId, eventUuid);
-    if (!uuid) { fail('frame', aiErrorMessage('event_not_found')); return; }
-    const { data, error } = await generateImage(uuid, { prompt: p.frame.prompt, kind: 'border', transparentBackground: false, greenScreen: true });
-    if (error || !data?.experience) { fail('frame', aiErrorMessage((error ?? 'internal') as AiErrorCode)); return; }
-    // Chroma-key the green backdrop out (falls back to raw on failure) and tag
-    // the scene in the same persisted patch.
-    await processGeneratedFrame(data.experience, eventId, { scene: p.sceneName });
+    let raw = rawFrameRef.current;
+    if (!raw) {
+      const uuid = await resolveEventUuid(eventId, eventUuid);
+      if (!uuid) { fail('frame', aiErrorMessage('event_not_found')); return; }
+      const { data, error } = await generateImage(uuid, { prompt: p.frame.prompt, kind: 'border', transparentBackground: false, greenScreen: true });
+      if (error || !data?.experience) { fail('frame', aiErrorMessage((error ?? 'internal') as AiErrorCode)); return; }
+      raw = data.experience;
+      rawFrameRef.current = raw;
+    }
+    // Chroma-key the green backdrop out and tag the scene in one persisted
+    // patch. An unkeyed result is still the raw GREEN image — never ship it:
+    // keep it cached and let Accept retry the (free) processing step.
+    const { keyed } = await processGeneratedFrame(raw, eventId, { scene: p.sceneName });
+    if (!keyed) {
+      fail('frame', 'Generated, but transparency processing failed — Accept again to retry (no new credits).');
+      return;
+    }
+    rawFrameRef.current = null;
     mark('frame', 'accepted');
   }, [eventId, eventUuid, mark, fail]);
 
@@ -156,22 +174,31 @@ export default function SceneDirectorPanel({ initialPrompt = '', onClose }: { in
     const uuid = await resolveEventUuid(eventId, eventUuid);
     if (!uuid) { fail('headPiece', aiErrorMessage('event_not_found')); return; }
     const conceptBrief = p.headPiece.prompt ?? p.sceneName;
-    // No greenScreen: image→3D wants the object on a plain background (the
-    // provider segments it). Ask for a single isolated object, NOT a frame.
-    const concept = await generateImage(uuid, {
-      prompt: `${conceptBrief} — a single centered object, isolated on a plain neutral studio background, product shot, no frame, no border, no text`,
-      kind: '2d_filter',
-    });
-    if (concept.error || !concept.data?.experience?.asset_url) {
-      fail('headPiece', aiErrorMessage((concept.error ?? 'internal') as AiErrorCode));
-      return;
+    // Reuse a concept saved by a previous attempt — a failed 3D leg must not
+    // regenerate (and re-charge) the image leg on every retry.
+    let conceptUrl = conceptUrlRef.current;
+    if (!conceptUrl) {
+      // No greenScreen: image→3D wants the object on a plain background (the
+      // provider segments it). Ask for a single isolated object, NOT a frame.
+      const concept = await generateImage(uuid, {
+        prompt: `${conceptBrief} — a single centered object, isolated on a plain neutral studio background, product shot, no frame, no border, no text`,
+        kind: '2d_filter',
+      });
+      if (concept.error || !concept.data?.experience?.asset_url) {
+        fail('headPiece', aiErrorMessage((concept.error ?? 'internal') as AiErrorCode));
+        return;
+      }
+      conceptUrl = concept.data.experience.asset_url;
+      conceptUrlRef.current = conceptUrl;
     }
-    const { data, error } = await generate3d(uuid, { mode: 'image', imageUrl: concept.data.experience.asset_url, prompt: conceptBrief });
+    const { data, error } = await generate3d(uuid, { mode: 'image', imageUrl: conceptUrl, prompt: conceptBrief });
     if (error || !data?.job) {
-      // The concept image (1 credit) is a real saved asset — say so honestly.
-      fail('headPiece', `${aiErrorMessage((error ?? 'internal') as AiErrorCode)} (the concept image was saved to your Library.)`);
+      // The concept image is a real saved asset — say so honestly, and note
+      // the retry reuses it (no second image charge).
+      fail('headPiece', `${aiErrorMessage((error ?? 'internal') as AiErrorCode)} (the concept image is saved — Accept again retries the 3D step only.)`);
       return;
     }
+    conceptUrlRef.current = null;
     mark('headPiece', 'accepted');
   }, [eventId, eventUuid, mark, fail]);
 
@@ -250,7 +277,7 @@ export default function SceneDirectorPanel({ initialPrompt = '', onClose }: { in
                 title="Head piece"
                 detail={plan.headPiece.kind === 'procedural' ? (HEAD_PIECE_MAP[plan.headPiece.id ?? '']?.name ?? plan.headPiece.id ?? '') : (plan.headPiece.prompt ?? 'Generated piece')}
                 cost={plan.headPiece.kind === 'generate' ? HEAD_PIECE_GENERATE_TOTAL : pieceCreditCost(plan, 'headPiece')}
-                note={plan.headPiece.kind === 'generate' ? `Concept image (${FRAME_CREDIT_COST} credit) → 3D model (${GENERATE_3D_CREDIT_COST} credits)` : undefined}
+                note={plan.headPiece.kind === 'generate' ? `Concept image (${FRAME_CREDIT_COST} credit, or one of your free generations) → 3D model (${GENERATE_3D_CREDIT_COST} credits)` : undefined}
                 status={progress.headPiece}
                 error={pieceError.headPiece}
                 onAccept={() => accept('headPiece')}

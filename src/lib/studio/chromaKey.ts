@@ -83,10 +83,17 @@ export function keyOutColor(img: RgbaImage, opts: KeyOutOptions = {}): RgbaImage
     const newAlpha = Math.round(a * keepFactor);
     out[i + 3] = newAlpha;
 
-    // Despill only the soft-edge band: clamp green fringe so the halo the key
-    // left behind doesn't tint the composite. Solid content (opaque) is left
-    // alone so a genuinely green foreground survives.
-    if (newAlpha > 0 && newAlpha < 255) {
+    if (keepFactor === 0) {
+      // Fully keyed: neutralize the RGB too. Leaving the original green behind
+      // alpha 0 poisons any later straight-alpha resampling (the fit's bilinear
+      // would blend it into edge pixels as an olive fringe).
+      out[i] = 0;
+      out[i + 1] = 0;
+      out[i + 2] = 0;
+    } else if (keepFactor < 1) {
+      // Despill only pixels the KEY partially ate (soft band) — gating on the
+      // key factor, not the final alpha, so pre-existing semi-transparent
+      // green-ish content far from the key is never desaturated.
       const cap = Math.max(r, b);
       if (g > cap) out[i + 1] = cap;
     }
@@ -144,11 +151,31 @@ export function fitOnCanvas(img: RgbaImage, targetW: number, targetH: number): R
       const i11 = (rowBot + x1) * 4;
       const di = (destRow + dx) * 4;
 
-      for (let c = 0; c < 4; c++) {
-        const top = src[i00 + c] * (1 - fx) + src[i10 + c] * fx;
-        const bot = src[i01 + c] * (1 - fx) + src[i11 + c] * fx;
-        out[di + c] = top * (1 - fy) + bot * fy;
+      // PREMULTIPLIED bilinear: weight each corner's color by its alpha, then
+      // divide the blended alpha back out. Straight-alpha interpolation would
+      // let transparent neighbours' RGB bleed into edge pixels (green fringe).
+      const w00 = (1 - fx) * (1 - fy);
+      const w10 = fx * (1 - fy);
+      const w01 = (1 - fx) * fy;
+      const w11 = fx * fy;
+      const a00 = src[i00 + 3];
+      const a10 = src[i10 + 3];
+      const a01 = src[i01 + 3];
+      const a11 = src[i11 + 3];
+      const outA = a00 * w00 + a10 * w10 + a01 * w01 + a11 * w11;
+      if (outA <= 0) {
+        // Fully transparent — leave the zero-filled (0,0,0,0) pixel.
+        continue;
       }
+      for (let c = 0; c < 3; c++) {
+        const pm =
+          src[i00 + c] * a00 * w00 +
+          src[i10 + c] * a10 * w10 +
+          src[i01 + c] * a01 * w01 +
+          src[i11 + c] * a11 * w11;
+        out[di + c] = pm / outA;
+      }
+      out[di + 3] = outA;
     }
   }
 

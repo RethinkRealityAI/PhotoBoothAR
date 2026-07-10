@@ -385,7 +385,11 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
       )}
 
       {/* Publish / feature — scene-level flags for how this experience surfaces
-          in the booth. Always available (moved below Scene Layers). */}
+          in the booth. Hidden while the scene is completely EMPTY (no objects,
+          no filter): flipping a blank experience to "Live" would publish
+          nothing to guests, and the empty-state hint is the only guidance the
+          panel should give at that point. */}
+      {(hasObjects || filterActive) && (
       <div className="flex items-center gap-2 border-t border-white/10 pt-4">
         <Tooltip label={draft.isPublished ? 'Live' : 'Hidden'} hint="Whether guests can pick this in the booth">
           <button
@@ -405,6 +409,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
           </button>
         </Tooltip>
       </div>
+      )}
 
       {/* Booth icon */}
       {hasObjects && (
