@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { computeBustFit, HEAD_HEIGHT_CM } from './bustFit';
+import { computeBustFit, computePropFitScale, HEAD_HEIGHT_CM, PROP_TARGET_CM } from './bustFit';
 
 /** Build a mesh like the vendored bust: a box with a tiny native size AND a
  *  90° X-axis node rotation (the case that broke the orbit view). */
@@ -53,5 +53,42 @@ describe('computeBustFit', () => {
 
   it('returns null for an empty object (→ procedural fallback)', () => {
     expect(computeBustFit(new THREE.Group())).toBeNull();
+  });
+});
+
+/** A bare box mesh of the given dimensions (world axis-aligned). */
+function makeBox(w: number, h: number, d: number): THREE.Object3D {
+  return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshBasicMaterial());
+}
+
+describe('computePropFitScale', () => {
+  it('fits a raw ~1-unit Meshy model so its largest dimension is PROP_TARGET_CM', () => {
+    const scale = computePropFitScale(makeBox(0.6, 1.0, 0.4))!;
+    expect(scale).toBeCloseTo(PROP_TARGET_CM / 1.0, 4);
+  });
+
+  it('uses the LARGEST dimension regardless of axis', () => {
+    const scale = computePropFitScale(makeBox(2.0, 0.5, 0.5))!;
+    expect(scale).toBeCloseTo(PROP_TARGET_CM / 2.0, 4);
+  });
+
+  it('leaves an already-cm-sized model near scale 1', () => {
+    const scale = computePropFitScale(makeBox(10, PROP_TARGET_CM, 6))!;
+    expect(scale).toBeCloseTo(1, 4);
+  });
+
+  it('honours node transforms when measuring (rotated tiny bust case)', () => {
+    const scale = computePropFitScale(makeRotatedBust())!;
+    // Rotated 90° about X: raw depth 1.911 becomes world height; still the max.
+    expect(scale).toBeCloseTo(PROP_TARGET_CM / 1.911, 3);
+  });
+
+  it('clamps to the studio slider range (0.05–15)', () => {
+    expect(computePropFitScale(makeBox(0.01, 0.01, 0.01))).toBe(15);
+    expect(computePropFitScale(makeBox(5000, 5000, 5000))).toBe(0.05);
+  });
+
+  it('returns null for an empty object (caller keeps legacy scale 1)', () => {
+    expect(computePropFitScale(new THREE.Group())).toBeNull();
   });
 });

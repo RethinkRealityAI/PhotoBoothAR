@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ANCHOR_PRESETS, RIG_CAMERA } from '../../lib/faceRig';
 import { pointToTransform2D, projectAnchorsToScreen, nearestAnchor, type AnchorPoint } from '../../lib/studio/dnd';
 import { DEFAULT_TRANSFORM, MAX_OBJECTS, sceneCounts, type StudioAction, type StudioDraft } from '../../lib/studio/state';
+import { measureGlbFitScale } from '../../lib/studio/glbThumb';
 
 export interface DragPayload {
   target: 'overlay' | 'model' | 'headpiece';
@@ -92,18 +93,27 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef, draftRef }
       return;
     }
 
+    // Compute the anchor snap NOW (the head matrix is live at drop time) but
+    // apply it after the add lands — the model add below is async (GLB fit
+    // measure), and SELECT_ANCHOR before it would retarget the previous object.
+    const anchorHit = (() => {
+      const matrix = headMatrixRef.current;
+      if (!matrix) return null;
+      const projected = projectAnchorsToScreen(ANCHOR_POINTS, matrix, { width: rect.width, height: rect.height }, RIG_CAMERA.fov);
+      return nearestAnchor(projected, x - rect.left, y - rect.top, SNAP_RADIUS);
+    })();
+
     if (p.target === 'headpiece' && p.pieceId) {
       dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.pieceId });
+      if (anchorHit) dispatch({ type: 'SELECT_ANCHOR', anchor: anchorHit });
     } else if (p.target === 'model' && p.assetUrl) {
-      dispatch({ type: 'SET_MODEL_ASSET', url: p.assetUrl, name: p.label });
-    }
-
-    // Snap to the nearest live-tracked anchor if the head is visible.
-    const matrix = headMatrixRef.current;
-    if (matrix) {
-      const projected = projectAnchorsToScreen(ANCHOR_POINTS, matrix, { width: rect.width, height: rect.height }, RIG_CAMERA.fov);
-      const hit = nearestAnchor(projected, x - rect.left, y - rect.top, SNAP_RADIUS);
-      if (hit) dispatch({ type: 'SELECT_ANCHOR', anchor: hit });
+      // Measure-then-add: auto-fit the GLB to head-space cm (null → scale 1).
+      const url = p.assetUrl;
+      const label = p.label;
+      void measureGlbFitScale(url).then((fitScale) => {
+        dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined });
+        if (anchorHit) dispatch({ type: 'SELECT_ANCHOR', anchor: anchorHit });
+      });
     }
   }, [dispatch, headMatrixRef, draftRef]);
 

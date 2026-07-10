@@ -237,6 +237,17 @@ export function decomposeAnchorMatrix(
 ) {
   m.decompose(_pos, _quat, _scale);
   _euler.setFromQuaternion(_quat);
+  // Uniform scale from the gizmo's per-axis scale spheres: a drag moves ONE
+  // axis, so take the outlier (the axis that differs from the closest pair).
+  // Averaging would dilute every single-axis drag to 1/3 of its motion —
+  // stacked with drei's drag damping that read as a dead scale handle.
+  const sx = _scale.x;
+  const sy = _scale.y;
+  const sz = _scale.z;
+  const dxy = Math.abs(sx - sy);
+  const dxz = Math.abs(sx - sz);
+  const dyz = Math.abs(sy - sz);
+  const uniform = dxy <= dxz && dxy <= dyz ? sz : dxz <= dyz ? sy : sx;
   return {
     offset: {
       x: parseFloat((_pos.x - base[0]).toFixed(4)),
@@ -248,6 +259,6 @@ export function decomposeAnchorMatrix(
       y: parseFloat(_euler.y.toFixed(4)),
       z: parseFloat(_euler.z.toFixed(4)),
     },
-    scale: parseFloat(((_scale.x + _scale.y + _scale.z) / 3).toFixed(4)),
+    scale: parseFloat(uniform.toFixed(4)),
   };
 }

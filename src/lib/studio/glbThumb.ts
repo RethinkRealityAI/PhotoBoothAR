@@ -10,9 +10,49 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
+import { computePropFitScale } from './bustFit';
 
 // Using three v0.184 / three-stdlib v2.36 — Box3.getBoundingSphere(target)
 // requires the target Sphere argument in this version (no bare-return overload).
+
+/** Free every geometry/material/texture under a loaded GLB scene graph.
+ *  material.dispose() does NOT free its textures — a textured Meshy model
+ *  would leak GPU memory per load. */
+function disposeSceneResources(root: THREE.Object3D | null) {
+  root?.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      obj.geometry.dispose();
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) {
+        for (const v of Object.values(m)) {
+          if (v instanceof THREE.Texture) v.dispose();
+        }
+        m.dispose();
+      }
+    }
+  });
+}
+
+/**
+ * Load `url` as a GLB and return its auto-fit head-space scale (see
+ * computePropFitScale). Resolves to `null` (never throws) on any load or
+ * measure failure — callers dispatch without a scale and keep the legacy
+ * default of 1. Measure-only: no renderer or GL context is created.
+ */
+export async function measureGlbFitScale(url: string): Promise<number | null> {
+  let root: THREE.Object3D | null = null;
+  try {
+    root = await new Promise<THREE.Group>((resolve, reject) => {
+      new GLTFLoader().load(url, (g) => resolve(g.scene), undefined, reject);
+    });
+    return computePropFitScale(root);
+  } catch (e) {
+    console.warn('[glbThumb] measureGlbFitScale failed', url, e);
+    return null;
+  } finally {
+    disposeSceneResources(root);
+  }
+}
 
 /**
  * Load `url` as a GLB/GLTF, frame it in a simple two-light scene sized to its
@@ -72,20 +112,7 @@ export async function captureGlbThumbnail(url: string, size = 256): Promise<Blob
     console.error('[glbThumb] captureGlbThumbnail failed', url, e);
     return null;
   } finally {
-    root?.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
-        obj.geometry.dispose();
-        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        for (const m of mats) {
-          // material.dispose() does NOT free its textures — a textured Meshy
-          // model would leak GPU memory per capture.
-          for (const v of Object.values(m)) {
-            if (v instanceof THREE.Texture) v.dispose();
-          }
-          m.dispose();
-        }
-      }
-    });
+    disposeSceneResources(root);
     renderer?.dispose();
     // dispose() alone leaves the GL context alive until GC; repeated uploads
     // would hit the browser's ~16-context cap and could kill the live stage.

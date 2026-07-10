@@ -47,6 +47,7 @@ import {
   type SceneShaderCatalogEntry,
 } from '../../lib/studio/sceneDirector';
 import { processGeneratedFrame } from './AiFramePanel';
+import { measureGlbFitScale } from '../../lib/studio/glbThumb';
 import {
   SceneHeader,
   FilterCard,
@@ -376,8 +377,12 @@ export default function DirectorPanel({
     // NOTE: this intentionally dispatches into WHATEVER draft is open right now
     // — if the host loaded a template mid-generation, Approve means "add this
     // piece to my current scene", which is exactly what happens.
-    dispatch({ type: 'SET_MODEL_ASSET', url: glbUrl, name });
-    setCard('headPiece', { status: 'added', error: undefined });
+    // Measure-then-add: auto-fit the Meshy GLB to head-space cm (a raw ~1-unit
+    // model renders ~1cm). The "Added" badge flips only once it actually lands.
+    void measureGlbFitScale(glbUrl).then((fitScale) => {
+      dispatch({ type: 'SET_MODEL_ASSET', url: glbUrl, name, scale: fitScale ?? undefined });
+      setCard('headPiece', { status: 'added', error: undefined });
+    });
   }, [plan, dispatch, setCard, sceneFull]);
 
   const rejectPiece = useCallback(() => setCard('headPiece', { status: 'discarded' }), [setCard]);

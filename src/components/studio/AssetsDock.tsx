@@ -16,7 +16,7 @@ import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { HEAD_PIECES } from '../../lib/headPieces';
 import { ANCHOR_PRESETS } from '../../lib/faceRig';
 import { uploadAsset, listAssets, fetchExperiences } from '../../lib/db';
-import { captureGlbThumbnail } from '../../lib/studio/glbThumb';
+import { captureGlbThumbnail, measureGlbFitScale } from '../../lib/studio/glbThumb';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
 import { selectedObject, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
@@ -181,7 +181,13 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     if (item.payload.proceduralId) {
       dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: item.payload.proceduralId });
     } else if (item.payload.assetUrl) {
-      dispatch({ type: 'SET_MODEL_ASSET', url: item.payload.assetUrl, name: item.label });
+      // Measure-then-add: auto-fit the GLB to head-space cm at ADD time (a raw
+      // Meshy model is ~1 unit ≈ 1cm — invisible). null → legacy scale 1.
+      const url = item.payload.assetUrl;
+      const label = item.label;
+      void measureGlbFitScale(url).then((fitScale) =>
+        dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined }),
+      );
     }
   }, [dispatch, category]);
 
@@ -282,7 +288,8 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     setModelThumb(null);
     const url = await uploadAsset(file, file.name);
     if (!url) return;
-    dispatch({ type: 'SET_MODEL_ASSET', url, name: file.name });
+    const fitScale = await measureGlbFitScale(url);
+    dispatch({ type: 'SET_MODEL_ASSET', url, name: file.name, scale: fitScale ?? undefined });
     // Best-effort thumbnail capture — the model is already saved and selected
     // above, so a capture/upload failure here must never surface as a failed
     // model upload; it just leaves the tile on its plain Upload-icon look.

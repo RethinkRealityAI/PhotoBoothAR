@@ -376,7 +376,7 @@ export type StudioAction =
   | { type: 'SELECT_ANCHOR'; anchor: HeadAnchor }
   | { type: 'PATCH_ANCHOR_CONFIG'; patch: Partial<StudioAnchorConfig> }
   | { type: 'SELECT_HEAD_PIECE'; pieceId: string }
-  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null }
+  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number }
   | { type: 'SET_THUMB'; url: string | null; blob: Blob | null }
   | { type: 'TOGGLE_PUBLISHED' }
   | { type: 'TOGGLE_FEATURED' }
@@ -546,7 +546,16 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return { ...state, mode: '3d', dirty: true, draft: { ...nd, kind: deriveKind(nd), name } };
     }
     case 'SET_MODEL_ASSET': {
-      const obj = createObject3D('model', { assetUrl: action.url, name: action.name ?? 'Model' });
+      // Optional auto-fit scale measured from the GLB at ADD time (head space
+      // is metric cm; a raw ~1-unit Meshy model renders ~1cm). Stored in the
+      // object's own transform so saved scenes and the booth are untouched.
+      const obj = createObject3D('model', {
+        assetUrl: action.url,
+        name: action.name ?? 'Model',
+        anchorConfig: action.scale != null
+          ? { offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: action.scale }
+          : undefined,
+      });
       const nd = appendObject(d, obj);
       if (!nd) return state;
       return { ...state, mode: '3d', dirty: true, draft: { ...nd, kind: deriveKind(nd) } };

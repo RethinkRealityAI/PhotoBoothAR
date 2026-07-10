@@ -169,6 +169,16 @@ describe('head pieces and model assets', () => {
     expect(model.assetUrl).toBe('https://cdn/x.glb');
     expect(model.proceduralId).toBeUndefined();
   });
+  it('SET_MODEL_ASSET stores the measured auto-fit scale in the new object', () => {
+    const st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x.glb', scale: 7.4 });
+    const model = selectedObject(st.draft) as Object3D;
+    expect(model.anchorConfig.scale).toBe(7.4);
+    expect(model.anchorConfig.offset).toEqual({ x: 0, y: 0, z: 0 });
+  });
+  it('SET_MODEL_ASSET without a scale keeps the legacy default of 1', () => {
+    const st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x.glb' });
+    expect((selectedObject(st.draft) as Object3D).anchorConfig.scale).toBe(1);
+  });
   it('picking a second head piece ADDS it (clicks never replace — W4-D UI/UX HIGH #1)', () => {
     // Old-expected: the tiara REPLACED a still-untouched crown (1 object).
     // New-expected: it appends (2 objects) — "multiple 3D models" is the
