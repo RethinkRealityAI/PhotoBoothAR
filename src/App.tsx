@@ -53,6 +53,7 @@ import EventStudio from './pages/host/EventStudio';
 import ManagerConsole from './pages/manager/ManagerConsole';
 import CardViewer from './pages/cards/CardViewer';
 import CardContribute from './pages/cards/CardContribute';
+import BeamDemoPhone from './pages/BeamDemoPhone';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminOverview from './pages/admin/Overview';
 import AdminCustomers from './pages/admin/Customers';
@@ -182,6 +183,10 @@ export default function App() {
               {/* Greeting cards: public viewer + token-gated contribute page */}
               <Route path="/c/:publicId" element={<CardViewer />} />
               <Route path="/c/:publicId/contribute" element={<CardContribute />} />
+
+              {/* Landing demo, cross-device: the visitor's REAL phone becomes
+                  the booth and beams to the landing page's live wall. */}
+              <Route path="/beam/:channelId" element={<BeamDemoPhone />} />
 
               {/* Day-of staff console (token-gated) */}
               <Route path="/m/:slug" element={<ManagerConsole />} />

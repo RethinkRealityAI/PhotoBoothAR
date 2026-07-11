@@ -38,9 +38,10 @@ import cardsFeaturePoster from '../assets/landing/cards-feature-poster.jpg';
 
 gsap.registerPlugin(ScrollTrigger);
 
-// Code-split: the demo booth drags in the AR stack (camera, WebGL shaders,
-// MediaPipe, Three) — loaded only when the section approaches the viewport.
-const DemoBooth = lazy(() => import('../components/landing/DemoBooth'));
+// Code-split: the interactive showcase drags in the AR stack (camera, WebGL
+// shaders, MediaPipe, Three) — loaded only when the section approaches the
+// viewport.
+const InteractiveShowcase = lazy(() => import('../components/landing/InteractiveShowcase'));
 
 /* ── Content ────────────────────────────────────────────────────────── */
 
@@ -657,27 +658,19 @@ export default function Landing() {
             </div>
           </section>
 
-          {/* Live sandbox booth — the product itself, embedded. Camera only
-              starts on an explicit tap inside DemoBooth; the heavy AR chunk
-              (MediaPipe/Three) is code-split behind React.lazy. */}
-          <section data-parallax-scope className="mt-32 w-full">
-            <div data-reveal className="flex flex-col items-center">
-              <span className="mb-4 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
-                Try it now — live
-              </span>
-              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">Step into the booth</h2>
-              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
-                This is the real thing — pick a frame, an effect and a 3D prop, and take a shot right
-                here. Runs in your browser; nothing leaves your device.
-              </p>
-            </div>
-            <div data-reveal className="mx-auto mt-10 w-full max-w-2xl">
+          {/* Interactive showcase — the product itself, embedded as a staged
+              two-column demo (copy · phone → beam → live wall). Camera only
+              starts on an explicit tap inside ShowcasePhone; the heavy AR
+              chunk (MediaPipe/Three) is code-split behind React.lazy. It owns
+              its copy, so the section has no header of its own. */}
+          <section data-parallax-scope data-showcase-root className="mt-32 w-full">
+            <div data-reveal className="w-full">
               <Suspense
                 fallback={
-                  <div className="mx-auto aspect-[9/16] w-full max-w-[320px] animate-pulse rounded-[2rem] border border-white/10 bg-white/[0.03] sm:max-w-[360px]" />
+                  <div className="mx-auto h-[420px] w-full max-w-6xl animate-pulse rounded-3xl border border-white/10 bg-white/[0.03] lg:h-[560px]" />
                 }
               >
-                <DemoBooth />
+                <InteractiveShowcase />
               </Suspense>
             </div>
           </section>
