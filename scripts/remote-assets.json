@@ -72,6 +72,16 @@
     {
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_220306_7c7e9984-9728-4dc8-a13a-f1ba21dff543.wav",
       "path": "hyperframes/studio/assets/vo-promo.wav"
+    },
+    {
+      "comment": "MediaPipe canonical face model (468 verts, metric centimetres) — the studio AR head occluder. Same coordinate space faceRig.ts anchors are calibrated against.",
+      "url": "https://raw.githubusercontent.com/google-ai-edge/mediapipe/master/mediapipe/modules/face_geometry/data/canonical_face_model.obj",
+      "path": "src/assets/ar/canonical_face_model.obj"
+    },
+    {
+      "comment": "Higgsfield image_to_3d neutral head bust — the studio 3D orbit reference head. Normalized to head-space at load by ReferenceBust/computeBustFit; GLB-ONLY (W8): nothing renders while loading or if absent — the procedural fallback was deleted per user decision.",
+      "url": "https://d3u0tzju9qaucj.cloudfront.net/7d051b5a-7bfe-49fe-a484-24e7b3a9458a/95db6f33-c463-4020-b5b3-67312bd1a1d4.glb",
+      "path": "public/models/reference-head.glb"
     }
   ]
 }

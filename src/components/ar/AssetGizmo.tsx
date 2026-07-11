@@ -67,7 +67,13 @@ export default function AssetGizmo({
         matrix={matrix}
         autoTransform
         depthTest={false}
-        scale={11}
+        // Screen-fixed sizing (px). The old world-space scale={11} also DIVIDED
+        // drei's scale-sphere drag sensitivity by 11 (translate/rotate stay 1:1)
+        // — the scale handles read as dead. `fixed` uses the raw drag offset.
+        fixed
+        scale={90}
+        // Match the properties-panel slider range so a drag can't zero/blow up.
+        scaleLimits={[[0.05, 15], [0.05, 15], [0.05, 15]]}
         lineWidth={3}
         axisColors={['#E25563', '#7CC36B', '#5B8BE0']}
         hoveredColor="#F5C842"

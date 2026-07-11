@@ -13,6 +13,7 @@
  * Legacy mode (VITE_EVENT set): behaves exactly like the original single-event
  * build — registry event at the top-level routes, studio at /admin/*.
  */
+import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import Booth from './components/Booth';
 import GuestWelcome from './components/GuestWelcome';
@@ -25,8 +26,13 @@ import AdminGate from './components/admin/AdminGate';
 import Dashboard from './components/admin/Dashboard';
 import Library from './components/admin/Library';
 import Assets from './components/admin/Assets';
-import Creator2D from './components/admin/Creator2D';
-import Creator3D from './components/admin/Creator3D';
+import StudioShell, { StudioRedirect } from './components/studio/StudioShell';
+
+/** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
+ *  Rollup drops it from production entirely (no auth-bypass code ships). */
+const DevStudioHarness = import.meta.env.DEV
+  ? lazy(() => import('./dev/StudioHarness'))
+  : (() => null);
 import Moderation from './components/admin/Moderation';
 import Settings from './components/admin/Settings';
 import Branding from './components/admin/Branding';
@@ -47,6 +53,7 @@ import EventStudio from './pages/host/EventStudio';
 import ManagerConsole from './pages/manager/ManagerConsole';
 import CardViewer from './pages/cards/CardViewer';
 import CardContribute from './pages/cards/CardContribute';
+import BeamDemoPhone from './pages/BeamDemoPhone';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminOverview from './pages/admin/Overview';
 import AdminCustomers from './pages/admin/Customers';
@@ -113,8 +120,9 @@ function adminRoutes() {
       <Route path="admin" element={<AdminGate><Dashboard /></AdminGate>} />
       <Route path="admin/library" element={<AdminGate><Library /></AdminGate>} />
       <Route path="admin/assets" element={<AdminGate><Assets /></AdminGate>} />
-      <Route path="admin/creator" element={<AdminGate><Creator2D /></AdminGate>} />
-      <Route path="admin/creator3d" element={<AdminGate><Creator3D /></AdminGate>} />
+      <Route path="admin/studio" element={<AdminGate><StudioShell /></AdminGate>} />
+      <Route path="admin/creator" element={<AdminGate><StudioRedirect to="/admin/studio" /></AdminGate>} />
+      <Route path="admin/creator3d" element={<AdminGate><StudioRedirect to="/admin/studio" /></AdminGate>} />
       <Route path="admin/moderation" element={<AdminGate><Moderation /></AdminGate>} />
       <Route path="admin/challenges" element={<AdminGate><Challenges /></AdminGate>} />
       <Route path="admin/settings" element={<AdminGate><Settings /></AdminGate>} />
@@ -138,6 +146,9 @@ export default function App() {
           ) : (
             /* ── Runtime multi-tenant mode ── */
             <>
+              {import.meta.env.DEV && (
+                <Route path="/dev/studio" element={<Suspense fallback={null}><DevStudioHarness /></Suspense>} />
+              )}
               <Route path="/e/:slug" element={<EventProvider><Outlet /></EventProvider>}>
                 {guestRoutes()}
                 {/* /e/:slug/admin/* falls through here — the studio moved to /host */}
@@ -172,6 +183,10 @@ export default function App() {
               {/* Greeting cards: public viewer + token-gated contribute page */}
               <Route path="/c/:publicId" element={<CardViewer />} />
               <Route path="/c/:publicId/contribute" element={<CardContribute />} />
+
+              {/* Landing demo, cross-device: the visitor's REAL phone becomes
+                  the booth and beams to the landing page's live wall. */}
+              <Route path="/beam/:channelId" element={<BeamDemoPhone />} />
 
               {/* Day-of staff console (token-gated) */}
               <Route path="/m/:slug" element={<ManagerConsole />} />

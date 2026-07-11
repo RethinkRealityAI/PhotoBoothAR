@@ -74,9 +74,15 @@ export default function CopilotPanel() {
     setTimeout(() => setSelectedUuid(cur), 0);
   };
 
+  // One assistant per surface: the Studio route has its own docked AI
+  // Director, so the floating copilot panel must not render there even if
+  // it was left open on another /host/** page before navigating in via
+  // client-side routing (isOpen is global state, not reset per-route).
+  const onStudio = pathname.includes('/studio');
+
   return (
     <AnimatePresence>
-      {isOpen && (
+      {isOpen && !onStudio && (
         /* Floating chat window — NO backdrop: the page stays visible and
            interactive behind it, like a premium support widget. */
         <motion.div

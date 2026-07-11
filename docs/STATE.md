@@ -1,62 +1,69 @@
 # STATE
 
 ## Goal
-Refine AR tracking + booth UX smoothness, and add an AI agent (concierge) that designs whole events conversationally in the onboarding wizard.
+Two platform overhauls converging to main: (1) unified event studio editor — single camera, mixed 2D/3D scenes, AR occlusion + auto head-size, drag-and-drop, a conversational AI Director, Magic Triggers (PR #14); (2) InteractiveShowcase — the landing page's interactive AR demo with a cross-device phone-to-wall beam (PR #15).
 
 ## Now
-Pre-merge-to-main polish batch (2026-07-08, screenshot-verified): NEW /host/concierge workspace (event cards w/ inline rename+status left, inline CopilotChat right; rail item → page, FAB hidden there); popup TRUE FIX — `.liquid-glass` (unlayered CSS) sets position:relative which beats Tailwind's layered `fixed` utility, so the popup was never viewport-anchored → inline style position:fixed + 88% solid bg (readable); copilot arg-extraction prompt (short titles, details→description, clarify-when-ambiguous, worked example) + client splitLongTitle salvage; NEW add_challenge_pack tool (3-6 themed challenges, one confirm card, 🎁 pill) — edge fn v9 DEPLOYED; Creator2D borders now drag/scale/rotate like stickers (generated non-9:16 frames letterboxed with no controls). Gates: lint clean · 141 tests · build ✓ · legacy build ✓. NEXT: merge PR #13 → main, then #11, evaluate #6.
+Merging PR #14 (studio, head b5b65eb) and PR #15 (landing, head 4bb8842) locally on the studio branch per explicit user instruction (2026-07-11, verbatim): "Pull in PR 15, merge with it, and then commit everything to main." Only two files were touched by both PRs: `src/App.tsx` (auto-merged clean — PR15 adds one new route, non-overlapping with studio's route changes) and this doc (hand-resolved, compacted below). Next: re-run gates on the merged tree, push, then merge into main.
 
 ## Next
-1. **USER ACTION — the real unblock**: set a VALID GEMINI_API_KEY in Supabase secrets (dashboard → Edge Functions → Secrets, or `supabase secrets set GEMINI_API_KEY=<key> --project-ref zrtftliozslrjomxbfrr`), no wrapping quotes. The v7 trim salvages a quote/whitespace-corrupted key automatically; a genuinely rotated/wrong key must be replaced. Then retest copilot + Frame Studio on the preview. Sandbox cannot set secrets or reach *.supabase.co.
-2. Concierge v3 remainder: draggable frame placement (edit experience transform in FrameStudio preview); post-create event-aware chat handoff (tools: challenges CRUD, event queries; widgets FramePreview/ChallengeList/EventStat per AGENT-ROADMAP).
-3. Admin Limits console = admin-suite Phase 4 (`set_event_tier`, `adjust_credits` admin-api actions + Limits screen, audited).
-4. Admin-suite Phases 2-5 on branch claude/platform-admin-suite (PR #10).
-5. Platform gates (docs/guardrails/PROJECT.md#roadmap): Stripe keys (#1), default-event redirect leak, self-serve password reset.
-6. After deploy: rotate GEMINI_API_KEY + restrict it to the Generative Language API.
-7. Merge PR #13 when reviewed; then PR #10 workstream.
+1. `npm run lint && npm test && npm run build` on the merged tree — confirm combined (studio ~444 + landing's beamGeometry/demoBeam suites) all green.
+2. Push the merged branch to origin.
+3. Merge into main: mark PR #14 ready-for-review (it's draft) and merge via GitHub — its branch now contains PR #15's commits too, so GitHub should auto-detect PR #15 as merged/closed once main contains its head commit; verify and close #15 explicitly if it doesn't.
+4. Verify CI green on main; watch the Netlify production deploy.
+5. Update this doc's `## Now` to MERGED once confirmed.
 
 ## Constraints
-- User (2026-07-07): Gemini API key shared in chat for the platform; "i'll rotate it later once we deploy" — key must NEVER be committed to the repo; it belongs in Supabase edge-function secrets (GEMINI_API_KEY) only.
-- User (2026-07-07): "Sorry by tambo, this is what I meant to use for the Generative UI framework. Implement it now https://a2ui.org/composer/" — generative UI = A2UI protocol.
-- (platform) Never break legacy-events sites — faceRig/Booth are shared; keep default behavior compatible.
+- User (2026-07-07): Gemini API key must NEVER be committed to the repo; Supabase edge-function secrets only.
+- (platform) Never break legacy-events sites — faceRig/Booth/Overlay3D are shared; keep default behavior compatible.
 - (platform) No `.env.local` with VITE_EVENT during tests.
 - (task) No new npm dependencies; edge fn dir needs its own deno.json; never loosen tenant RLS.
+- (plan, user-approved) Do NOT touch: StageCanvas.drawFrame semantics/Transform2D meaning, booth capture/submitPost, RLS/migrations, experiences schema (studio persistence = jsonb config + app_settings 'studio' key only).
+- (task, SUPERSEDED 2026-07-11 — see last line below) Push only to claude/studio-editing-ux-improvements-xfn36m; draft PR after push.
+- User (2026-07-10): "an experience doesn't have to be just 2D or 3D... It's both" — mixed scenes are the default model; content persists across 2D/3D/Preview view switches.
+- User (2026-07-10, W7 verbatim): "we just have a section called My Assets and then maybe different sections: Studio Library... 3D Generated or Generated Assets... Uploaded Assets"; Director "Not overly conversational"; rejection "should have a flow for capturing the intent again for that rejected asset"; reference uploads "Use this image to generate a frame" / "Use this image to generate a 3D model".
+- AskUserQuestion (2026-07-10 W7, locked): asset click = add instantly + settings expand below tile; trigger actions = ALL THREE (particle bursts, piece reveal, filter pulse); Director regen after reject = charged, clearly labeled (frame 1cr, 3D 11cr).
+- User (2026-07-10, InteractiveShowcase): "While I like the frame, the UI of the camera, everything, and also maintaining our colors" — keep the current in-camera UI idiom, frame, and brand colors; amplify, don't replace. "sticking to the general premise of what the below mini PRD for this component is" (idle|camera|beaming|wall, phone collapse, beam, polaroid drop, capture-again). "Remove the old one for this new effect" — no doubled photo in flight; particles are photo-sampled PLUS a sprinkle of spectrum hues.
+- User (2026-07-11, verbatim): "Pull in PR 15, merge with it, and then commit everything to main." — push to origin AND merge to main is explicitly authorized now, superseding the studio-branch-only default above.
 
 ## Decisions
-- DECISION: One-Euro filter in new src/lib/smoothing.ts (pure, node-testable) — faceRig.ts imports mediapipe, unsafe for vitest node env.
-- DECISION: AI concierge = new edge fn `ai-event-designer` (Gemini, JWT-auth, NO credit charge) + client-side keyword fallback so the flow works while GEMINI_API_KEY is unprovisioned.
-- DECISION: No Tambo/generative-UI dependency now — in-house chat panel in NewEvent.tsx; note framework option in PR body.
+- DECISION (user, 2026-07-10, W6): Scene Director folds into the Platform Copilot — one assistant, studio-aware, docked right-side panel (not modal); accepted assets dispatch into the open draft; composer cards per asset (checkerboard 2D, R3F 3D viewer, Meshy progress); scene templates; booth reveal animation.
+- DECISION (user, 2026-07-10, W5): Meshy ONLY for runtime 3D gen; Gemini concept image → ai-generate-3d image mode for head pieces; frame transparency = browser-side chroma-key (no new npm deps).
+- DECISION (user, 2026-07-10): MIXED SCENES — one experience = ≤1 frame + N stickers + N 3D pieces + one optional scene-level filter slot; soft cap 20 (frame exempt); kind 'composite' when mixed; single-family scenes keep today's kinds.
+- DECISION: occluder from vendored MediaPipe canonical_face_model.obj (metric cm = faceRig.ts anchor space) + procedural cranium ellipsoid; colorWrite:false, renderOrder −1, raycast no-op → composites in the booth with zero StageCanvas changes.
+- DECISION (W8): headScale calibration gets a live tracker-fit estimate + Apply chip storing a baseline; the booth then transfers per-guest fit by RATIO to that baseline (opt-in, zero change without a stored baseline). ReferenceBust is GLB-only — the procedural fallback head was deleted per user instruction ("make sure the old 3D one doesn't show at all").
+- DECISION: hand-rolled pointer-event DnD (no dnd-kit) — portal DragGhost + setPointerCapture; pure drop math in lib/studio/dnd.ts.
+- DECISION (2026-07-10, InteractiveShowcase): ShowcasePhone/CameraExperience runs the REAL booth pipeline (StageCanvas + Overlay3D), not a mock — the landing demo has full booth fidelity; BeamStrike/ParticleBeam are pure WAAPI/WebGL presentation with zero booth-state coupling; cross-device transport = Supabase Realtime broadcast (ephemeral, no auth/DB writes) with a BroadcastChannel test twin (`?beamlocal=1`, `L`-prefixed ids); DemoBooth.tsx is superseded and unreferenced but intentionally NOT deleted pending explicit user approval.
 
 ## Facts
-- Branch: claude/ar-agent-ai-studio-da6d0f. Commands: npm run lint (tsc), npm test (vitest, src/**/*.test.ts only, node env), dev :5180.
+- Branch: claude/studio-editing-ux-improvements-xfn36m (merging PR #15 in, then → main). Commands: npm run lint (tsc --noEmit) · npm test (vitest run, node env, src/**/*.test.ts only, never .tsx) · npm run build · dev :5173 (`vite --host`; CLAUDE.md's ":5180" is stale).
 - tsconfig excludes supabase/ — edge fns not type-checked by lint.
-- Tracking core: src/lib/faceRig.ts updateHeadPose (fixed lerp 0.45/0.5/0.4 at :182-184); detection throttle 33ms, HOLD_MS 500.
-- Templates: src/lib/eventTemplates.ts (EVENT_TEMPLATES, templateConfigPatch). Event create: src/lib/host.ts createEvent + updateEventConfig.
-- Edge fn pattern: supabase/functions/ai-generate-image/index.ts (json(), serviceClient(), user JWT auth). Gemini text model available via GEMINI_API_KEY secret (may be unprovisioned → 503 ai_not_configured).
-- GEMINI TRAP (2026-07-07): ARRAY-of-OBJECT in gemini-2.5-flash responseSchema can hang constrained decoding; copilot encodes actions as an actionsJson STRING and JSON.parse-es server-side. NOTE (2026-07-08): this was NOT the cause of the current 502s — see next line.
-- AI-OUTAGE ROOT CAUSE (2026-07-08, verified): edge-function logs show every ai-event-designer/ai-generate-image 502 fires in <1.1s (v4 874ms, v5 825ms, v6 1082ms) — too fast to be a decode hang. A direct POST to gemini-2.5-flash with a bad key returns 400 {reason: API_KEY_INVALID} in 0.53s, matching exactly. So callGemini hits !res.ok fast → generation_failed → 502. Fix: v7 of both fns trims/strips-quotes the key + maps 400 API_KEY_INVALID / 401 / 403 → ai_key_invalid (503). REMAINING BLOCKER: the secret's key VALUE must be valid — a user/dashboard action (no MCP secrets tool; *.supabase.co blocked from sandbox). Sandbox env GOOGLE_API_KEY is a DIFFERENT (Firebase) key, not the Gemini secret.
-- gemini-2.5-flash-image works post-billing (direct curl 200 + PNG, ~5s) — earlier frame-gen 502s were the pre-billing quota (now surfaced as ai_quota/503).
-- BASELINE: npm run lint clean; npm test 84 passed (13 files).
+- Camera hook: src/components/booth/useCameraStream.ts `useCameraStream(enabled, withAudio)`; booth video id booth-video; studio video id studio-video (ONE camera, shared across 2D/3D/Preview).
+- Head space: src/lib/faceRig.ts ANCHOR_PRESETS in cm (crown y+8.3, ears ±7.7, chin −9.4, noseTip z+7.6); RIG_CAMERA origin fov 63; One-Euro filtered pose (OneEuroVec3/OneEuroQuat); live head-fit ring-buffer estimator (getHeadFitEstimate, median of ~45 samples) feeds W8 auto head-size.
+- Persistence: src/lib/db.ts experiences config jsonb; getStudioSettings/setStudioSettings (app_settings key 'studio', additive {headScale, baselineFit?, autoHeadScale?}); uploadAsset→assets bucket. Deep links ?id= from Library.tsx.
+- Vendoring: scripts/remote-assets.json + .github/workflows/fetch-remote-assets.yml. canonical_face_model.obj (468v, bbox verified) + public/models/reference-head.glb (Higgsfield bust, GLB-only render — see Decisions).
+- Design tokens: src/index.css @theme (liquid-glass = premium standard, --accent-rgb); lucide-react + BeamIcons gradient idiom; motion/react; zustand; react-resizable-panels; ui/Tooltip.tsx (portal, delay).
+- GEMINI_API_KEY secret is REJECTED by Google in prod (400 API_KEY_INVALID → app reports ai_key_invalid truthfully) — v7+ of the edge fns detect this correctly; the remaining blocker is a valid key value (user/dashboard action, no MCP secrets tool).
+- GEMINI TRAP: ARRAY-of-OBJECT responseSchema hangs gemini-2.5-flash constrained decoding — encode arrays as JSON STRING fields (e.g. actionsJson, planJson patterns).
+- shaders.ts: ShaderParam/ShaderDef, SHADERS, SHADER_MAP, FILTER_SHADERS, class ShaderRunner (incl. aspectCropped cover-crop fix).
+- StageCanvas drawFrame steps: 1 video mirror · 2 shader coverFit · 3 three canvas drawImage · 4 overlay transform · 5 sparkles/trigger-fx (additive-optional) · 6 signature. Buffer: FIXED 720×1280 preview + object-cover, capture path 1080 — canvas buffer immune to the CSS-transform getBoundingClientRect measurement trap.
+- borders.ts pure: BUILTIN_BORDERS, toDataUrl, BuiltinBorder{id,name,kind,svg}. cn() at src/lib/cn.ts.
+- Edge fn pattern: supabase/functions/*/index.ts (json(), serviceClient(), user JWT auth); ai-generate-image v12, ai-event-designer v12 deployed (studio Director: reference images, reply+optional plan).
+- eventTemplates.ts (EVENT_TEMPLATES, templateConfigPatch); host.ts createEvent/updateEventConfig.
+- DemoBooth.tsx (822L, superseded/unreferenced — see Decisions): DEMO_FRAME_SVGS, FRAMES/FILTERS/PROPS, BeamFlightFx, Orb/OrbThumb, capture/measureFlight/beamToWall/wall grid.
+- Landing.tsx: FEATURES, FilmEmbed, GSAP scroll choreography, demo section now mounts InteractiveShowcase.
 
 ## Done
-- PR #12 merge (2026-07-08) — RESULT: beam-identity redesign (branch claude/beam-wall-redesign-fb8r0p, 21 commits: black/beam theme tokens, Landing rebuild, demo booth, HyperFrames video suite, EventProvider de-theming, gsap dep) merged into PR #13. 3 conflicts resolved (STATE.md ours; index.css their token-based ::selection + our print block; NewEvent our concierge structure + their liquid-glass). Session AI surfaces rethemed to their convention: text-white on bg-foil, liquid-glass, brand-muted/accent-2, QR pads bg-brand-fg (CopilotFab/Panel/Chat, A2uiSurface, NewEvent, FrameStudio, ShareKit); copilot select options → brand-surface/brand-fg.
-- Investigation — RESULT: task block posted; no "General Studio" symbol exists (user means booth + host studio overall).
-- Step 1 One-Euro smoothing — RESULT: src/lib/smoothing.ts + 9 tests green; faceRig.ts dt-aware adaptive filtering (lint clean).
-- Step 2 booth face hint — RESULT: Overlay3D onFaceVisible prop + Booth "Center your face" pill (lint clean).
-- Step 3 eventDesigner planner — RESULT: 16 tests green (template/name/date/remote extraction + normalizePlan).
-- Step 4 edge fn — RESULT: ai-event-designer deployed v1 ACTIVE (verify_jwt on) via Supabase MCP.
-- Step 5 concierge UI — RESULT: NewEvent.tsx chat mode (default) drives wizard state; lint + 109 tests + build all green.
-- Docs — RESULT: README fn list, DEPLOYMENT-CHECKLIST §2, CLAUDE.md current-state updated.
-- A2UI adoption — RESULT: src/lib/a2ui.ts (v0.9.1 core: JSON-Pointer model, reducer, bindings; 10 tests) + src/components/a2ui/A2uiSurface.tsx (themed basic-catalog renderer) + buildPlanSurface in eventDesigner.ts (3 tests); NewEvent chat renders interactive plan cards w/ confirm_plan action. lint clean, 122 tests, build green.
-- Gemini key — RESULT: validated live (200, gemini-2.5-flash replied "ok"); cannot set Supabase secret from sandbox (no MCP secrets tool, *.supabase.co blocked).
-- Platform Copilot — RESULT: shipped in commit 2756650 (FAB+panel across /host/**, ai-event-designer v5 copilot mode, 6 tools, A2UI confirm cards, 139 tests).
-- Copilot 502 diagnosis — RESULT: bisected via direct Gemini curl; ARRAY-of-OBJECT responseSchema hangs, actionsJson STRING answers in ~2s and emitted a correct add_challenge proposal.
-- AI outage re-diagnosis (2026-07-08) — RESULT: real cause is a REJECTED GEMINI_API_KEY secret (fast 400 → 502), not the schema. Both fns v7 harden the key (trim/quote-strip) + report ai_key_invalid; copilot message + UI (mobile popup, concierge viewport) fixed. Lint clean · 139 tests · build ✓. Live unblock = user sets a valid key.
+- STUDIO OVERHAUL (8 waves, 2026-07-09→11, branch head b5b65eb before this merge) — RESULT: unified StudioShell (single camera, 2D/3D/Preview pure views, mixed scenes ≤1 frame+N stickers+N 3D+1 filter slot, soft cap 20), AR occlusion + live head-size calibration with auto-fit, hand-rolled DnD, undo/redo, unified My Assets panel, docked conversational AI Director (dwell-previews, reject+feedback regen, reference images), Magic Triggers (smile/mouth/wink/brow → burst/reveal/filter-pulse, live in studio AND booth), scale-gizmo + GLB auto-fit fixes, adaptive chroma-key with an honesty gate. Every wave: build agents on disjoint files → adversarial logic audit + Playwright UI/UX review → fix → gates. Final gates: tsc 0 · 444 tests · build ✓. Full wave ledger: PR #14 description / git log.
+- INTERACTIVE SHOWCASE (branch claude/interactive-ar-showcase-pinf3x, 2026-07-10, 2 rounds) — RESULT: landing demo rebuilt as InteractiveShowcase (ShowcasePhone running the real booth pipeline, BeamStrike WAAPI ceremony, ParticleBeam 13.7k-point WebGL dissolve, LiveWall polaroid grid); cross-device /beam/:channelId (BeamDemoPhone, consent-first) via demoBeamTransport (Supabase Realtime broadcast + BroadcastChannel test twin); demoBeam.ts/beamGeometry.ts pure+tested. Gates: lint clean · 185 tests · build ✓ · 2-page cross-device E2E over the local transport, pageerror-free.
 
 ## Open items
-- Stripe/AI keys unprovisioned (platform gate, out of scope).
-- AUDIT items FIXED 2026-07-07 (all verified by lint+125 tests): (1) reviewAndCreate reads latest card plan via confirmPlan; (2) FaceRig visibleRef null-init reports first frame, Booth reset effect removed; (3) applyPlan honors DesignResult.decided flags; (4) extractName regexes fixed (+4 regression tests); (5) localOnly nudges filtered from agent history; (6) confirmPlan runs slugClientError; (7) A2uiSurface memoized. STILL OPEN (accepted/deferred): edge fn TEMPLATES duplication, 3rd FunctionsHttpError decode copy, inputClass drift — see docs/AGENT-ROADMAP.md Phase 3.
-- No rate limit on ai-event-designer (free JWT-gated Gemini calls once key set) — roadmap Phase 3.
+- Live-hardware checklist (studio, needs camera + valid keys): transparent frame generation; Director ideation→plan→dwell-previews→Add-N; reject+feedback regen; reference image→frame/→3D; Meshy piece lands ~14cm + gizmo drags 1:1; My Assets inline settings; Magic Triggers firing bursts/reveals/pulses live AND in the captured photo; tracker-estimate Apply → booth per-guest transfer.
+- Live-hardware checklist (landing): scan the `/beam/:channelId` QR on a real phone against the deploy/production URL to confirm the Supabase Realtime wire end-to-end (unverifiable from sandbox — *.supabase.co blocked).
+- DemoBooth.tsx is superseded + unreferenced — NOT deleted, pending explicit user approval to delete.
+- Minor deferred (studio, all logged non-blocking): gizmo can scroll off-frame on deep orbit zoom (cosmetic); triggers on a filter-only scene don't fire in the booth yet; revealedIds not reset on photo retake; Mine-tab fetch failures read as empty (pre-existing db.ts swallow); mobile top-bar buttons are icon-only; CLAUDE.md dev-port line says :5180 (real :5173).
+- Platform launch gates (unchanged): valid GEMINI_API_KEY in Supabase secrets (current key rejected), Stripe LIVE keys.
 
 ## Failed attempts
-(none)
+- ATTEMPT 1 [L1] (env, npm install): plain `npm install` → `read ECONNRESET` during reify/postinstall.
+- ATTEMPT 2 [L1]: immediate retry → same ECONNRESET, log pins it at `postinstall:node_modules/onnxruntime-node` (external binary CDN reset by proxy; registry fetches fine — use `npm install --ignore-scripts`, not needed for lint/test/build).

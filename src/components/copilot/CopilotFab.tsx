@@ -4,7 +4,10 @@
  *
  * The floating copilot button — a foil circle that pops in bottom-right on
  * every host-platform surface. Hidden on /host/new (the full concierge lives
- * there) and everywhere outside /host/**. Mounted once in App.tsx.
+ * there), everywhere outside /host/**, and on the Studio route (/studio) —
+ * one assistant per surface: the studio has its own docked AI Director, so
+ * the floating launcher would be a second, competing assistant there.
+ * Mounted once in App.tsx.
  */
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
@@ -30,6 +33,10 @@ export default function CopilotFab() {
     pathname.startsWith('/host') &&
     !pathname.startsWith('/host/new') &&        // full create concierge lives there
     !pathname.startsWith('/host/concierge') &&  // inline chat lives there
+    !pathname.includes('/studio') &&            // one assistant: the docked
+                                                 // AI Director owns the studio
+                                                 // surface — a second floating
+                                                 // launcher there would compete
     !isOpen;
 
   return (

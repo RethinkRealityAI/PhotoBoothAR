@@ -51,6 +51,7 @@
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "hyperframes": "^0.7.41",
+    "playwright": "^1.61.1",
     "qrcode": "^1.5.4",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

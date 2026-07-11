@@ -15,9 +15,9 @@
  * same as leaving /e/:slug today.
  */
 import { useEffect, useState } from 'react';
-import { Link, Navigate, NavLink, Route, Routes, useParams } from 'react-router-dom';
+import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, Boxes, Check, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
+  ArrowLeft, Check, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
   LayoutGrid, Palette, QrCode, Settings, ShieldCheck, Sparkles, Trophy, Wand2,
 } from 'lucide-react';
 import { useCopilotStore } from '../../lib/copilotStore';
@@ -28,8 +28,7 @@ import { StudioBaseContext } from '../../components/admin/studioBase';
 import Dashboard from '../../components/admin/Dashboard';
 import Library from '../../components/admin/Library';
 import Assets from '../../components/admin/Assets';
-import Creator2D from '../../components/admin/Creator2D';
-import Creator3D from '../../components/admin/Creator3D';
+import StudioShell, { StudioRedirect } from '../../components/studio/StudioShell';
 import Moderation from '../../components/admin/Moderation';
 import Challenges from '../../components/admin/Challenges';
 import Branding from '../../components/admin/Branding';
@@ -72,6 +71,7 @@ function GuestLinkCopy({ url }: { url: string }) {
 
 export default function EventStudio() {
   const { id = '' } = useParams<{ id: string }>();
+  const location = useLocation();
   const validId = UUID_RE.test(id);
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
 
@@ -117,13 +117,16 @@ export default function EventStudio() {
   const base = `/host/events/${id}`;
   const basePath = `/e/${event.slug}`;
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  // In Studio, the editor is full-bleed: StudioShell renders its OWN top bar
+  // (with a back arrow that exits to the Experiences/Library surface), so the
+  // event-level tab chrome + upgrade banner are hidden to avoid a double header.
+  const isStudio = location.pathname.startsWith(`${base}/studio`);
 
   const tabs = [
     { to: base, label: 'Dashboard', icon: LayoutGrid, end: true },
+    { to: `${base}/studio`, label: 'Studio', icon: Wand2, end: false },
     { to: `${base}/library`, label: 'Experiences', icon: ImageIcon, end: false },
     { to: `${base}/assets`, label: 'Assets', icon: FolderOpen, end: false },
-    { to: `${base}/creator`, label: '2D / Shader', icon: Wand2, end: false },
-    { to: `${base}/creator3d`, label: '3D Anchors', icon: Boxes, end: false },
     { to: `${base}/moderation`, label: 'Wall', icon: ShieldCheck, end: false },
     { to: `${base}/challenges`, label: 'Challenges', icon: Trophy, end: false },
     { to: `${base}/cards`, label: 'Cards', icon: Gift, end: false },
@@ -137,7 +140,9 @@ export default function EventStudio() {
     <StudioBaseContext.Provider value={base}>
       <EventProvider slug={event.slug} basePath={basePath}>
         <div className="absolute inset-0 flex flex-col">
-          {/* Studio top bar (adapted from AdminGate's tab strip) */}
+          {/* Event tab chrome — hidden inside Studio so its editor is full-bleed
+              and StudioShell's own header is the only top bar. */}
+          {!isStudio && (
           <nav className="h-16 shrink-0 flex items-center gap-3 px-4 liquid-glass border-b border-accent/15 z-50">
             <Link
               to="/host"
@@ -182,9 +187,10 @@ export default function EventStudio() {
             </button>
             <GuestLinkCopy url={`${origin}${basePath}`} />
           </nav>
+          )}
 
-          {/* Plan tier banner — compact upsell for non-deluxe events */}
-          <UpgradeCard eventUuid={event.id} planTier={event.plan_tier} />
+          {/* Plan tier banner — compact upsell for non-deluxe events (hidden in Studio) */}
+          {!isStudio && <UpgradeCard eventUuid={event.id} planTier={event.plan_tier} />}
 
           <main className="flex-1 relative overflow-hidden">
             <Routes>
@@ -195,8 +201,10 @@ export default function EventStudio() {
               />
               <Route path="library" element={<Library />} />
               <Route path="assets" element={<Assets />} />
-              <Route path="creator" element={<Creator2D />} />
-              <Route path="creator3d" element={<Creator3D />} />
+              <Route path="studio" element={<StudioShell />} />
+              {/* Retired creator tabs → unified studio (keep ?id= deep links). */}
+              <Route path="creator" element={<StudioRedirect to={`${base}/studio`} />} />
+              <Route path="creator3d" element={<StudioRedirect to={`${base}/studio`} />} />
               <Route path="moderation" element={<Moderation />} />
               <Route path="challenges" element={<Challenges />} />
               <Route path="cards" element={<CardsTab />} />

@@ -17,6 +17,7 @@
  * chin y≈−9.4). The studio's live preview is the final calibration surface.
  */
 import * as THREE from 'three';
+import type { FaceLandmarkerResult } from '@mediapipe/tasks-vision';
 import { HeadAnchor } from '../types';
 import { getFaceLandmarker } from './faceTracking';
 import { OneEuroVec3, OneEuroQuat, type OneEuroConfig, type Vec3, type Quat } from './smoothing';
@@ -89,6 +90,117 @@ let _gHas = false;       // a face has been detected at least once
 let _lastDetectTs = 0;   // throttle clock for detectForVideo
 
 /**
+ * Latest face blendshape scores (categoryName → score) + timestamp, consumed by
+ * the face-triggered-effects engine (src/lib/studio/triggers.ts). Written on
+ * DETECTION frames only (~30/s); rebuilt fresh (even to {} when no face) so a
+ * lost face can't leave a stale high score latched. `null` until first detect.
+ */
+let _blendScores: Record<string, number> = {};
+let _blendT = 0;
+let _hasBlend = false;
+
+function stashBlendshapes(results: FaceLandmarkerResult | undefined, now: number): void {
+  const cats = results?.faceBlendshapes?.[0]?.categories;
+  const next: Record<string, number> = {};
+  if (cats) for (const c of cats) if (c.categoryName) next[c.categoryName] = c.score;
+  _blendScores = next;
+  _blendT = now;
+  _hasBlend = true;
+}
+
+/**
+ * Latest face blendshape scores for the trigger engine, or null before the very
+ * first detection. `t` is the performance.now() of that detection, so a caller
+ * can step its engine once per NEW detection (t change) rather than per rAF.
+ * Zero allocation on read (returns references to the module's current map).
+ */
+export function getLatestBlendshapes(): { scores: Record<string, number>; t: number } | null {
+  return _hasBlend ? { scores: _blendScores, t: _blendT } : null;
+}
+
+/* ── Live head-fit estimator ───────────────────────────────────────────────
+ * MediaPipe's facialTransformationMatrix carries a SCALE component — the fit of
+ * the canonical head to THIS face. On every DETECTION frame we push that uniform
+ * scale magnitude ((sx+sy+sz)/3) into a small ring and getHeadFitEstimate()
+ * returns the MEDIAN over the window (~1.5s of detections).
+ *
+ * RATIONALE (do not overclaim): the matrix scale largely NORMALIZES face size
+ * already — the occluder sits INSIDE the group we scale by it — so mapping an
+ * absolute factor straight onto headScale is only a heuristic STARTING POINT,
+ * not ground truth. The defensible signal is the RATIO of a live factor to the
+ * host's calibration baseline; the booth's per-guest transfer uses exactly that.
+ * Zero per-frame allocation beyond the ring write; the read reuses a scratch buf.
+ */
+const FIT_RING_SIZE = 45;   // ~1.5s at ~30 detections/sec
+const FIT_MIN_SAMPLES = 10; // null before the window is meaningfully filled
+const _fitRing = new Float32Array(FIT_RING_SIZE);
+const _fitScratch = new Float32Array(FIT_RING_SIZE); // reused by getHeadFitEstimate (no per-read alloc)
+let _fitCount = 0;  // valid samples in the ring (caps at FIT_RING_SIZE)
+let _fitWrite = 0;  // next ring write index
+
+/** Push one head-fit sample: the detected uniform scale magnitude. Rejects
+ *  non-finite / non-positive values so a bad decompose can't poison the median. */
+function pushFitSample(sx: number, sy: number, sz: number): void {
+  const mag = (sx + sy + sz) / 3;
+  if (!Number.isFinite(mag) || mag <= 0) return;
+  _fitRing[_fitWrite] = mag;
+  _fitWrite = (_fitWrite + 1) % FIT_RING_SIZE;
+  if (_fitCount < FIT_RING_SIZE) _fitCount++;
+}
+
+/**
+ * Median of the first `n` entries of `src`, sorted into `scratch` in place so
+ * the caller allocates nothing. `n` is clamped to both buffers' lengths; n<=0
+ * returns 0. Even counts average the two middle values. Pure (exported for tests).
+ */
+export function medianOf(src: ArrayLike<number>, n: number, scratch: Float32Array): number {
+  const len = Math.min(n, src.length, scratch.length);
+  if (len <= 0) return 0;
+  for (let i = 0; i < len; i++) scratch[i] = src[i];
+  // Insertion sort of the first `len` entries — len ≤ 45, in place, zero alloc.
+  for (let i = 1; i < len; i++) {
+    const v = scratch[i];
+    let j = i - 1;
+    while (j >= 0 && scratch[j] > v) { scratch[j + 1] = scratch[j]; j--; }
+    scratch[j + 1] = v;
+  }
+  const mid = len >> 1;
+  return len % 2 ? scratch[mid] : (scratch[mid - 1] + scratch[mid]) / 2;
+}
+
+export interface HeadFitEstimate {
+  /** Median detected uniform head-fit factor over the window. */
+  factor: number;
+  /** Samples backing the estimate (≥ FIT_MIN_SAMPLES when non-null). */
+  samples: number;
+}
+
+/**
+ * Live head-fit estimate (median detected uniform scale + sample count), or null
+ * until ~10 detection samples have accrued (no face yet / just acquired). See the
+ * estimator note above: a heuristic starting point, NOT ground truth. Zero
+ * allocation on read (reuses the module scratch buffer).
+ */
+export function getHeadFitEstimate(): HeadFitEstimate | null {
+  if (_fitCount < FIT_MIN_SAMPLES) return null;
+  return { factor: medianOf(_fitRing, _fitCount, _fitScratch), samples: _fitCount };
+}
+
+/**
+ * Drive the shared, throttled detection from a surface with NO FaceRig mounted
+ * (e.g. the booth trigger loop for a scene that has triggers but no 3D piece).
+ * When a FaceRig IS present its useFrame already runs this path via
+ * updateHeadPose; the DETECT_INTERVAL_MS throttle + monotonic-ts guard are
+ * module-level, so calling from both places still detects at most once per
+ * interval. No-op until the landmarker is ready and the video has data.
+ */
+export function detectFaceNow(video: HTMLVideoElement): void {
+  const fl = getFaceLandmarker();
+  if (!fl || !video || video.readyState < 2) return;
+  detectIfDue(fl, video, performance.now());
+}
+
+/**
  * One-Euro tuning (see smoothing.ts). Position/scale speeds are in cm/s
  * (MediaPipe's metric head space); rotation speed is rad/s. Low minCutoff
  * keeps a resting face rock-steady; beta raises the cutoff under motion so
@@ -126,12 +238,21 @@ function detectIfDue(fl: ReturnType<typeof getFaceLandmarker>, video: HTMLVideoE
   } catch {
     return;
   }
+  // Refresh the trigger-engine blendshape stash on every detection frame (even
+  // an empty/no-face result, so signals decay). Additive: pose consumers below
+  // are untouched, so legacy events stay byte-identical.
+  stashBlendshapes(results, now);
   const mats = results?.facialTransformationMatrixes;
   if (!mats || mats.length === 0) return;
   _mat.fromArray(mats[0].data);
   _mat.decompose(_gPos, _gQuat, _gScale); // raw, un-mirrored
   _gSeen = now;
   _gHas = true;
+  // Feed the head-fit estimator on every detection frame (~30/s). Pure
+  // bookkeeping — a module ring write with no effect on the pose consumers
+  // below, so legacy/booth rendering is byte-identical whether or not any
+  // surface reads getHeadFitEstimate().
+  pushFitSample(_gScale.x, _gScale.y, _gScale.z);
 }
 
 /**
@@ -230,6 +351,14 @@ export function composeAnchorMatrix(
   return out.compose(_pos, _quat, _scale);
 }
 
+// Clamp the returned uniform scale to the studio's prop-scale bounds — mirrors
+// PROP_SCALE_MIN/MAX in studio/bustFit.ts, AssetGizmo's `scaleLimits`, and the
+// PropertiesDock size slider. drei's scaleLimits only clamp the per-gesture
+// DRAG MULTIPLIER and its accumulator RESETS each gizmo mount, so an auto-fit
+// base of 14 dragged once composes to 14×15≈210 here — clamp at the source.
+const PROP_SCALE_MIN = 0.05;
+const PROP_SCALE_MAX = 15;
+
 /** Decompose an anchor-relative local matrix back into offset/rotation/scale. */
 export function decomposeAnchorMatrix(
   base: readonly [number, number, number],
@@ -237,6 +366,18 @@ export function decomposeAnchorMatrix(
 ) {
   m.decompose(_pos, _quat, _scale);
   _euler.setFromQuaternion(_quat);
+  // Uniform scale from the gizmo's per-axis scale spheres: a drag moves ONE
+  // axis, so take the outlier (the axis that differs from the closest pair).
+  // Averaging would dilute every single-axis drag to 1/3 of its motion —
+  // stacked with drei's drag damping that read as a dead scale handle.
+  const sx = _scale.x;
+  const sy = _scale.y;
+  const sz = _scale.z;
+  const dxy = Math.abs(sx - sy);
+  const dxz = Math.abs(sx - sz);
+  const dyz = Math.abs(sy - sz);
+  const uniform = dxy <= dxz && dxy <= dyz ? sz : dxz <= dyz ? sy : sx;
+  const clamped = Math.min(PROP_SCALE_MAX, Math.max(PROP_SCALE_MIN, uniform));
   return {
     offset: {
       x: parseFloat((_pos.x - base[0]).toFixed(4)),
@@ -248,6 +389,6 @@ export function decomposeAnchorMatrix(
       y: parseFloat(_euler.y.toFixed(4)),
       z: parseFloat(_euler.z.toFixed(4)),
     },
-    scale: parseFloat(((_scale.x + _scale.y + _scale.z) / 3).toFixed(4)),
+    scale: parseFloat(clamped.toFixed(4)),
   };
 }

@@ -154,7 +154,9 @@ export default function PickerDrawer({
   // Effects derive from the catalog (shader experiences) so hidden/reordered
   // presets are respected — same as frames and 3D.
   const effects = catalog.filter((e) => e.kind === 'shader');
-  const frames = catalog.filter((e) => e.kind === 'border' || e.kind === '2d_filter');
+  // 'composite' (mixed 2D + 3D + filter scenes) shows in Frames — it's a full
+  // scene led by its frame, applied via handleSelectFrame in Booth.
+  const frames = catalog.filter((e) => e.kind === 'border' || e.kind === '2d_filter' || e.kind === 'composite');
   const attachments = catalog.filter((e) => e.kind === '3d_attachment');
 
   const effectName = effectId === 'none'

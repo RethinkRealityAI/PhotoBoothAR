@@ -2,15 +2,16 @@
  * Renders anchor positions as glowing gold dots with text labels.
  * The active anchor gets a bigger halo + pulsing ring.
  */
-import { useRef } from 'react';
+import { Suspense, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { ANCHOR_PRESETS, ANCHOR_MAP } from '../../../lib/faceRig';
 import { HeadAnchor } from '../../../types';
 
-const GOLD   = '#D4AF37';
-const ACTIVE = '#F5C842';
+// Beam-accent dots so the anchor picker matches the platform theme.
+const GOLD   = '#5B8CFF';
+const ACTIVE = '#A9C4FF';
 
 interface Props {
   activeAnchor: HeadAnchor;
@@ -68,21 +69,26 @@ function AnchorDot({
         </mesh>
       )}
 
-      {/* label always faces camera */}
+      {/* label always faces camera. drei <Text> SUSPENDS while troika fetches
+          its font (a CDN request) — the Suspense keeps that contained to the
+          label, so a slow/blocked font network never suspends the canvas (and,
+          through it, the app's route boundary: that rendered a black page). */}
       <Billboard>
+        <Suspense fallback={null}>
         <Text
           position={[0, active ? 1.6 : 1.25, 0]}
           fontSize={active ? 1.05 : 0.85}
-          color={active ? ACTIVE : '#C8A93A'}
+          color={active ? ACTIVE : '#9DB6E8'}
           anchorX="center"
           anchorY="bottom"
           fillOpacity={active ? 1 : 0.75}
           outlineWidth={0.07}
-          outlineColor="#1A1408"
+          outlineColor="#05060B"
           renderOrder={2}
         >
           {preset.label}
         </Text>
+        </Suspense>
       </Billboard>
     </group>
   );

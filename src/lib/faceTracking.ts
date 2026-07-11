@@ -18,8 +18,14 @@ async function create(delegate: 'GPU' | 'CPU'): Promise<FaceLandmarker> {
   const vision = await FilesetResolver.forVisionTasks(WASM_PATH);
   return FaceLandmarker.createFromOptions(vision, {
     baseOptions: { modelAssetPath: MODEL_URL, delegate },
-    // Blendshapes are unused for asset attachment — skipping them saves work.
-    outputFaceBlendshapes: false,
+    // Blendshapes power face-triggered effects (src/lib/studio/triggers.ts).
+    // With this on, FaceLandmarkerResult carries `faceBlendshapes: Classifications[]`
+    // (vision.d.ts:697), each `{ categories: Category[] }` where a Category is
+    // `{ score:number; index:number; categoryName:string; displayName:string }`
+    // (vision.d.ts:87). Pose-only consumers (updateHeadPose) read only
+    // `facialTransformationMatrixes` and ignore this extra field, so legacy
+    // events render byte-identically; the only cost is the extra head's compute.
+    outputFaceBlendshapes: true,
     outputFacialTransformationMatrixes: true,
     runningMode,
     numFaces: 1,
@@ -55,6 +61,23 @@ export async function initializeFaceLandmarker() {
   }
 }
 
+let warnedUninitialized = false;
+
 export function getFaceLandmarker() {
+  // Loud one-shot diagnostic for the silent-failure wiring bug: a caller is
+  // polling for the landmarker but NOBODY ever started initialization — every
+  // face-tracked surface would just quietly never track. (A pending
+  // initPromise is fine — that's normal loading, not a wiring bug.)
+  if (!faceLandmarker && !initPromise && !warnedUninitialized) {
+    warnedUninitialized = true;
+    console.warn(
+      '[faceTracking] getFaceLandmarker() called but initializeFaceLandmarker() was never invoked — face tracking will not work on this surface.',
+    );
+  }
   return faceLandmarker;
+}
+
+/** True once the landmarker is ready (for "loading tracker…" UI states). */
+export function isFaceLandmarkerReady(): boolean {
+  return faceLandmarker !== null;
 }

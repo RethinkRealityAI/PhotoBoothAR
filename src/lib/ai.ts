@@ -99,6 +99,21 @@ export interface GenerateImageOpts {
   provider?: 'gemini' | 'higgsfield';
   kind?: '2d_filter' | 'border';
   transparentBackground?: boolean;
+  /**
+   * Ask the provider to paint the frame's centre + background a solid pure
+   * green (#00FF00) chroma-key backdrop instead of a real transparent PNG
+   * (which the image models don't produce cleanly). The browser keys the green
+   * out to transparency after download — see studio/chromaKey.ts. When omitted
+   * the edge function's prompt is byte-identical to before.
+   */
+  greenScreen?: boolean;
+  /**
+   * Optional public assets-bucket URL of a host-uploaded reference image. The
+   * edge function fetches it server-side and passes it to Gemini as an inline
+   * image part BEFORE the text prompt, so generation is guided by the reference
+   * style/subject. Omitted → the request body is byte-identical to before.
+   */
+  referenceImageUrl?: string;
 }
 
 export function generateImage(

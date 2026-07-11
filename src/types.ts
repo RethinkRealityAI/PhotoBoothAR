@@ -50,7 +50,19 @@ export interface AnchorConfig {
   scale: number;
 }
 
-/** A single composable layer of a composite experience. */
+/** Per-object animation presets, rendered in both studio and booth. */
+export type LayerAnimation = 'none' | 'float' | 'pulse' | 'spin';
+
+/**
+ * A single composable layer (object) of a multi-object scene.
+ * CONTRACT: `config.layers` is the ordered full object list (index 0 = the
+ * primary object, drawn first/bottom-most). The experience's legacy singular
+ * fields (asset_url, config.transform / config.anchor / config.procedural)
+ * always MIRROR layer 0, so renderers that don't know about layers — and the
+ * frozen legacy events — keep working unchanged. Layers freely MIX 2D
+ * (border/2d_filter) and 3D (3d_attachment) kinds: a mixed scene is saved as
+ * kind 'composite' (≤1 border, any number of stickers and 3D pieces).
+ */
 export interface ExperienceLayer {
   id: string;
   kind: Exclude<ExperienceKind, 'composite'>;
@@ -60,6 +72,17 @@ export interface ExperienceLayer {
   anchor?: AnchorConfig;
   opacity?: number;
   blendMode?: string;
+  /** Built-in procedural head-piece id (3D layers). */
+  procedural?: string;
+  /** Display name shown in the studio layers panel. */
+  name?: string;
+  /** Entrance/idle animation preset (default 'none'). */
+  animation?: LayerAnimation;
+  /** Per-layer head-occlusion opt-in (3D layers). */
+  occlusion?: boolean;
+  /** Layer is kept in the scene but rendered NOWHERE (studio eye toggle —
+   *  preview and guest booth both skip it; only exactly `true` hides). */
+  hidden?: boolean;
 }
 
 export interface ExperienceConfig {
@@ -73,6 +96,18 @@ export interface ExperienceConfig {
   procedural?: string;
   /** A shader applied to the whole frame when this experience is active. */
   ambientShader?: ShaderConfig;
+  /** Scene Director grouping tag — set on every piece accepted from one scene. */
+  scene?: string;
+  /** Per-experience head-occlusion opt-IN — only exactly `true` occludes. */
+  occlusion?: boolean;
+  /** True for a reusable scene template (studio "Save as template") — always
+   *  paired with is_published:false so it never reaches the guest booth. */
+  template?: boolean;
+  /** Face-triggered effects (studio "Magic Triggers"). Additive + opt-in:
+   *  absent for scenes without triggers, so those rows save byte-identically.
+   *  Stored as-is (TriggerConfig[]) and validated through parseTriggers on load
+   *  (src/lib/studio/triggers.ts). */
+  triggers?: unknown;
 }
 
 export interface Experience {

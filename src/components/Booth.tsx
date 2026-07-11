@@ -18,7 +18,7 @@ import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   SwitchCamera, Clock, Video, Camera as CameraIcon,
-  SlidersHorizontal, Eye, EyeOff, ChevronUp, UploadCloud, ScanFace,
+  SlidersHorizontal, Eye, EyeOff, ChevronUp, UploadCloud, ScanFace, Sparkles,
 } from 'lucide-react';
 
 import EventBackground from './ui/EventBackground';
@@ -30,8 +30,9 @@ import ShareButton from './ui/ShareButton';
 import { useCameraStream } from './booth/useCameraStream';
 import Welcome from './booth/Welcome';
 import CameraErrorScreen from './booth/CameraError';
-import StageCanvas, { StageCanvasHandle } from './booth/StageCanvas';
-import Overlay3D from './booth/Overlay3D';
+import StageCanvas, { StageCanvasHandle, StageOverlaySpec } from './booth/StageCanvas';
+import Overlay3D, { Overlay3DPiece } from './booth/Overlay3D';
+import TriggerEffects, { type TriggerEffectsHandle } from './booth/TriggerEffects';
 import PickerDrawer from './booth/PickerDrawer';
 import FilterOrbs from './booth/FilterOrbs';
 import Countdown from './booth/Countdown';
@@ -45,11 +46,16 @@ import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { buildCatalog } from '../lib/catalog';
 import { initializeFaceLandmarker } from '../lib/faceTracking';
-import { submitPost } from '../lib/db';
+import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
+import { createTriggerEngine, parseTriggers, type TriggerConfig, type TriggerEvent } from '../lib/studio/triggers';
+import { submitPost, getStudioSettings } from '../lib/db';
+import { DEFAULT_STUDIO_SETTINGS, HEAD_SCALE_MIN, HEAD_SCALE_MAX, type StudioSettings } from '../lib/studio/occluder';
 import { savePhoto, addCompletedChallenge, setGuestName } from '../lib/session';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
 import { useEntitlements } from '../lib/entitlements';
 import { dataUrlToBlob } from './booth/capture';
+import RevealShimmer from './booth/RevealShimmer';
+import { REVEAL_SHIMMER_MS } from '../lib/studio/reveal';
 import type { Transform2D, Experience, AnchorConfig, Challenge } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,12 +75,30 @@ const TIMER_OPTIONS: TimerOption[] = [0, 3, 5, 10];
 const VIDEO_MAX_MS = 30_000;
 const DEFAULT_TRANSFORM: Transform2D = { scale: 1, x: 0, y: 0, rotation: 0 };
 
+function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function Booth() {
   const { id: routeExperienceId } = useParams<{ id?: string }>();
-  const { eventId, config: eventConfig, basePath } = useEvent();
+  const { eventId, config: eventConfig, basePath, source } = useEvent();
   const entitlements = useEntitlements();
+
+  // Studio settings (head occlusion + size). Only platform (db) events opt in;
+  // legacy/code events keep their exact shipped rendering.
+  const [studioCfg, setStudioCfg] = useState<StudioSettings>(DEFAULT_STUDIO_SETTINGS);
+  useEffect(() => {
+    if (source !== 'db') return;
+    let alive = true;
+    getStudioSettings(eventId).then((s) => { if (alive) setStudioCfg(s); }).catch(() => {});
+    return () => { alive = false; };
+  }, [eventId, source]);
 
   // ── Store ─────────────────────────────────────────────────────────────
   const {
@@ -182,8 +206,16 @@ export default function Booth() {
       } else if (exp.kind === 'border' || exp.kind === '2d_filter') {
         setFrameExp(exp);
         setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
+        if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
       } else if (exp.kind === '3d_attachment') {
         setAttachExp(exp);
+        if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
+      } else if (exp.kind === 'composite') {
+        // A mixed scene is a full frame+3D+filter package — apply all three slots together.
+        setFrameExp(exp);
+        setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
+        setAttachExp(exp);
+        if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -205,27 +237,340 @@ export default function Booth() {
     } else if (exp.kind === 'border' || exp.kind === '2d_filter') {
       setFrameExp(exp);
       setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
+      if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
     } else if (exp.kind === '3d_attachment') {
       setAttachExp(exp);
+      if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
+    } else if (exp.kind === 'composite') {
+      // A mixed scene is a full frame+3D+filter package — apply all three slots together.
+      setFrameExp(exp);
+      setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
+      setAttachExp(exp);
+      if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
     }
     appliedDefaultRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [experiencesLoaded, wallSettings.defaultExperienceId, catalog, routeExperienceId]);
 
-  // Reset transform when frame changes
+  // Reset transform when frame changes. A composite selection is a full
+  // frame+3D+filter package: applying one populates all three slots together;
+  // deselecting/switching away from one releases the 3D slot it owned — but
+  // never touches a 3D piece the guest picked independently afterwards.
   const handleSelectFrame = useCallback((exp: Experience | null) => {
+    if (frameExp?.kind === 'composite' && attachExp === frameExp) {
+      setAttachExp(exp?.kind === 'composite' ? exp : null);
+    } else if (exp?.kind === 'composite') {
+      setAttachExp(exp);
+    }
     setFrameExp(exp);
     setOverlayTransform(exp?.config?.transform ?? DEFAULT_TRANSFORM);
+    if (exp?.config?.ambientShader?.shaderId) {
+      setEffectId(exp.config.ambientShader.shaderId);
+    } else {
+      // Release the OUTGOING scene's ambient filter — but only if it is still
+      // the active effect (a filter the guest picked themselves is never
+      // touched). Without this the composite's filter lingered forever.
+      const outgoingAmbient = frameExp?.config?.ambientShader?.shaderId;
+      if (outgoingAmbient) setEffectId((cur) => (cur === outgoingAmbient ? 'none' : cur));
+    }
+  }, [frameExp, attachExp]);
+
+  // ── Reveal moment ─────────────────────────────────────────────────────
+  // A transient ~600ms "magically appears" entrance whenever the guest's
+  // frameExp/attachExp SELECTION actually changes to a NEW db-sourced
+  // experience — never on deselection, never for a bare filter/effectId
+  // pick. Same source==='db' safety gate as the occlusion gate above
+  // (attachExp!.config?.occlusion, wired to Overlay3D below): legacy/code
+  // events never flip `reveal` true, so their rendering is byte-identical.
+  const [reveal, setReveal] = useState(false);
+  const prevSelectionRef = useRef<string | null>(null);
+  const revealTimeoutRef = useRef<number | null>(null);
+  useEffect(() => {
+    const sig = frameExp || attachExp ? `${frameExp?.id ?? ''}|${attachExp?.id ?? ''}` : null;
+    const prevSig = prevSelectionRef.current;
+    prevSelectionRef.current = sig;
+    if (source !== 'db') return;            // legacy/code events: never
+    if (!sig || sig === prevSig) return;     // deselecting, or unchanged: never
+    if (prefersReducedMotion()) return;      // a11y: apply instantly, no animated entrance
+    setReveal(true);
+    if (revealTimeoutRef.current) window.clearTimeout(revealTimeoutRef.current);
+    revealTimeoutRef.current = window.setTimeout(() => setReveal(false), REVEAL_SHIMMER_MS);
+  }, [frameExp, attachExp, source]);
+  useEffect(() => () => {
+    if (revealTimeoutRef.current) window.clearTimeout(revealTimeoutRef.current);
   }, []);
 
   // ── Derived flags ─────────────────────────────────────────────────────
   const isFront = facingMode === 'user';
-  const is2DOverlay = frameExp !== null && !!frameExp.asset_url &&
-    (frameExp.kind === 'border' || frameExp.kind === '2d_filter');
-  const is3D = attachExp !== null && attachExp.kind === '3d_attachment' &&
-    (!!attachExp.asset_url || !!attachExp.config?.procedural);
+  // Composite carries its 2D content in config.layers (never the singular
+  // asset_url field, which the legacy mirror may repurpose for either family) —
+  // so a composite frame "lights up" 2D by actually having a 2D-kind layer.
+  const is2DOverlay = frameExp !== null && (
+    (!!frameExp.asset_url && (frameExp.kind === 'border' || frameExp.kind === '2d_filter')) ||
+    (frameExp.kind === 'composite' && !!frameExp.config?.layers?.some((l) => l.kind === 'border' || l.kind === '2d_filter'))
+  );
+  const is3D = attachExp !== null && (
+    (attachExp.kind === '3d_attachment' && (!!attachExp.asset_url || !!attachExp.config?.procedural)) ||
+    (attachExp.kind === 'composite' && !!attachExp.config?.layers?.some((l) => l.kind === '3d_attachment'))
+  );
   const anchorConfig: AnchorConfig | null =
     is3D && attachExp?.config?.anchor ? (attachExp.config.anchor as AnchorConfig) : null;
+
+  // ── Face-triggered effects ────────────────────────────────────────────
+  // Opt-in per DB scene (config.triggers). Legacy/code events never carry them,
+  // so the whole subsystem below stays inert — empty triggers means no engine,
+  // no RAF, no reveal filtering — and the booth renders byte-identically.
+  const activeTriggerExp =
+    (attachExp?.config?.triggers ? attachExp : null) ?? (frameExp?.config?.triggers ? frameExp : null);
+  // Merge triggers from BOTH of the scene's experiences: a scene can pair a 3D
+  // attach and a 2D frame that EACH carry config.triggers, and reading only the
+  // primary (activeTriggerExp) silently dropped the other's. Dedupe by trigger
+  // id; a composite sets attachExp === frameExp, so parse it once (single-source
+  // scenes stay byte-identical — the one experience is the only one parsed).
+  const triggers = useMemo<TriggerConfig[]>(() => {
+    if (source !== 'db') return [];
+    const exps = attachExp === frameExp ? [attachExp] : [attachExp, frameExp];
+    const seen = new Set<string>();
+    const merged: TriggerConfig[] = [];
+    for (const exp of exps) {
+      if (!exp?.config?.triggers) continue;
+      for (const t of parseTriggers(exp.config.triggers)) {
+        if (seen.has(t.id)) continue;
+        seen.add(t.id);
+        merged.push(t);
+      }
+    }
+    return merged;
+  }, [source, attachExp, frameExp]);
+  const hasTriggers = triggers.length > 0;
+  // Layer ids that a reveal trigger hides until it fires; `revealedIds` is the
+  // runtime set already fired. NEVER persisted — a fresh scene starts all hidden.
+  const revealTargetIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of triggers) if (t.action.type === 'reveal') s.add(t.action.objectId);
+    return s;
+  }, [triggers]);
+  const [revealedIds, setRevealedIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => { setRevealedIds(new Set()); }, [activeTriggerExp]);
+  // A reveal layer renders only once revealed. With no triggers revealTargetIds
+  // is empty, so this is always true → the layer builders below are unchanged.
+  const revealVisible = useCallback(
+    (id: string) => !(revealTargetIds.has(id) && !revealedIds.has(id)),
+    [revealTargetIds, revealedIds],
+  );
+  // A layer that is a reveal-trigger TARGET is hidden-until-fired BY DESIGN, so
+  // its reveal state ALONE decides visibility — an editor "hidden" (eye toggle)
+  // must not also suppress it, or the reveal could never appear. Every other
+  // (non-targeted) layer keeps the studio eye toggle (l.hidden). With no
+  // triggers the target set is empty, so this reduces to `l.hidden !== true`.
+  const layerVisible = useCallback(
+    (l: { id: string; hidden?: boolean }) =>
+      revealTargetIds.has(l.id) ? revealVisible(l.id) : l.hidden !== true,
+    [revealTargetIds, revealVisible],
+  );
+
+  // ── Multi-layer (studio) scenes ───────────────────────────────────────
+  // Additive: only built when the experience actually carries config.layers;
+  // every other code path (no layers) leaves the legacy single-object props
+  // untouched below, so frozen legacy events render byte-identically. A
+  // composite's config.layers mixes both families, so each builder filters to
+  // its own layer kind — single-family experiences are unaffected (every
+  // layer already matches their one kind).
+  const frameLayers = frameExp?.config?.layers;
+  const stageOverlays: StageOverlaySpec[] | undefined = useMemo(() => {
+    if (!frameLayers || frameLayers.length === 0) return undefined;
+    return frameLayers
+      // Visibility per layerVisible: normal layers respect the studio eye toggle
+      // (`hidden`); reveal-target layers are gated only by their trigger firing.
+      .filter((l) => (l.kind === 'border' || l.kind === '2d_filter') && !!l.asset_url && layerVisible(l))
+      .map((l) => ({
+        url: l.asset_url as string,
+        transform: l.transform ?? DEFAULT_TRANSFORM,
+        opacity: l.opacity ?? 1,
+        animation: l.animation,
+      }));
+  }, [frameLayers, layerVisible]);
+
+  const attachLayers = attachExp?.config?.layers;
+  const overlayPieces: Overlay3DPiece[] | undefined = useMemo(() => {
+    if (!attachLayers || attachLayers.length === 0) return undefined;
+    return attachLayers
+      // Same layerVisible rule as the 2D builder above (eye toggle, except
+      // reveal targets which are gated only by their trigger firing).
+      .filter((l) => l.kind === '3d_attachment' && !!l.anchor && layerVisible(l))
+      .map((l) => ({
+        assetUrl: l.asset_url ?? null,
+        proceduralId: l.procedural ?? null,
+        anchor: l.anchor as AnchorConfig,
+        animation: l.animation,
+        // Same source==='db' safety gate as the single-piece occlude below —
+        // legacy/code events never carry layers, but keep the invariant explicit.
+        occlude: source === 'db' && l.occlusion === true,
+      }));
+  }, [attachLayers, source, layerVisible]);
+
+  // ── Auto head-size (per-guest transfer) ───────────────────────────────
+  // STRICTLY OPT-IN by construction: only kicks in when the occluder is actually
+  // rendering (headScale is what sizes it), the host captured a baseline via the
+  // studio "Apply" chip, AND auto-fit is left on. With no baseline — every
+  // legacy/code event (source !== 'db' → studioCfg stays DEFAULT), and every db
+  // scene whose host never used Apply — `autoFitEnabled` is false, so
+  // `effectiveHeadScale` equals `studioCfg.headScale` exactly and the occluder
+  // renders byte-identically to today (getHeadFitEstimate is never even read).
+  const occlusionActive =
+    source === 'db' &&
+    ((attachExp?.config?.occlusion === true) || (overlayPieces?.some((p) => p.occlude === true) ?? false));
+  const autoFitEnabled =
+    occlusionActive && studioCfg.baselineFit != null && studioCfg.autoHeadScale !== false;
+
+  const [effectiveHeadScale, setEffectiveHeadScale] = useState(studioCfg.headScale);
+  // Current value + tween handle as refs so the 1s interval below reads fresh
+  // state and an in-flight ease can be cancelled without effect churn.
+  const effHeadScaleRef = useRef(studioCfg.headScale);
+  const headScaleTweenRef = useRef<number | null>(null);
+  // Seed to the host's calibrated base whenever it (or the enable flag) changes.
+  // When auto-fit is OFF this is the final value — the interval below never runs.
+  useEffect(() => {
+    if (headScaleTweenRef.current) { cancelAnimationFrame(headScaleTweenRef.current); headScaleTweenRef.current = null; }
+    effHeadScaleRef.current = studioCfg.headScale;
+    setEffectiveHeadScale(studioCfg.headScale);
+  }, [studioCfg.headScale, autoFitEnabled]);
+  // Transfer the live guest fit as a RATIO to the host's baseline (the defensible
+  // signal — see faceRig's estimator note; the absolute factor is only a
+  // heuristic). Applied at most ~1/s once the estimate has stabilized, and only
+  // re-applied when it drifts >5%, so the occluder never jitters. Each
+  // application EASES over ~600ms — the first one lands mid-framing and a hard
+  // snap of up to ±15% is visible on the occluder edge (audit M-A1). The booth's
+  // own FaceRig detection already feeds the estimator, so no extra detection runs.
+  useEffect(() => {
+    const baseline = studioCfg.baselineFit;
+    if (!autoFitEnabled || baseline == null || phase !== 'camera' || !ready) return;
+    const base = studioCfg.headScale;
+    const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+    const easeTo = (target: number) => {
+      if (headScaleTweenRef.current) cancelAnimationFrame(headScaleTweenRef.current);
+      const from = effHeadScaleRef.current;
+      const t0 = performance.now();
+      const step = (t: number) => {
+        const k = Math.min(1, (t - t0) / 600);
+        const v = from + (target - from) * (k * (2 - k)); // easeOutQuad
+        effHeadScaleRef.current = v;
+        setEffectiveHeadScale(v);
+        headScaleTweenRef.current = k < 1 ? requestAnimationFrame(step) : null;
+      };
+      headScaleTweenRef.current = requestAnimationFrame(step);
+    };
+    const id = window.setInterval(() => {
+      const est = getHeadFitEstimate();
+      if (!est || est.samples < 20) return; // wait for the ring to stabilize (~0.7s)
+      const ratio = clamp(est.factor / baseline, 0.87, 1.15);
+      const next = clamp(base * ratio, HEAD_SCALE_MIN, HEAD_SCALE_MAX);
+      if (Math.abs(next / effHeadScaleRef.current - 1) > 0.05) easeTo(next);
+    }, 1000);
+    return () => {
+      window.clearInterval(id);
+      if (headScaleTweenRef.current) { cancelAnimationFrame(headScaleTweenRef.current); headScaleTweenRef.current = null; }
+    };
+  }, [autoFitEnabled, studioCfg.baselineFit, studioCfg.headScale, phase, ready]);
+
+  // ── Trigger runtime: particle canvas, filter pulse, detection loop ────
+  const triggerFxRef = useRef<TriggerEffectsHandle>(null);
+  const [triggerFxCanvas, setTriggerFxCanvas] = useState<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    setTriggerFxCanvas(hasTriggers ? (triggerFxRef.current?.canvas ?? null) : null);
+  }, [hasTriggers]);
+
+  // filterPulse: temporarily swap the active effect to the pulse shader, then
+  // restore the EXACT prior effect after ~1.2s (default). One pulse at a time.
+  const effectIdRef = useRef(effectId);
+  useEffect(() => { effectIdRef.current = effectId; }, [effectId]);
+  const pulseRef = useRef<{ prior: string; timeout: number } | null>(null);
+  // End an in-flight pulse: clear its restore timer, drop the state, and only
+  // then optionally restore the pre-pulse effect. `restore` is true just on the
+  // normal same-scene timeout path; a scene switch cancels WITHOUT restoring.
+  const endFilterPulse = useCallback((restore: boolean) => {
+    const p = pulseRef.current;
+    if (!p) return;
+    window.clearTimeout(p.timeout);
+    pulseRef.current = null;
+    if (restore) setEffectId(p.prior);
+  }, []);
+  const startFilterPulse = useCallback((shaderId: string | undefined, durationMs: number | undefined) => {
+    if (pulseRef.current) return; // don't stack pulses
+    const prior = effectIdRef.current;
+    const target = shaderId || activeTriggerExp?.config?.ambientShader?.shaderId || '';
+    if (!target || target === 'none' || target === prior) return; // nothing distinct to pulse to
+    setEffectId(target);
+    const dur = durationMs && durationMs > 0 ? durationMs : 1200;
+    const timeout = window.setTimeout(() => endFilterPulse(true), dur);
+    pulseRef.current = { prior, timeout };
+  }, [activeTriggerExp, endFilterPulse]);
+  // A pulse must never outlive the scene that fired it. When the active trigger
+  // scene changes (or the booth unmounts), cancel any in-flight pulse WITHOUT
+  // restoring: the incoming scene sets its own filter, so restoring scene A's
+  // pre-pulse value would stomp it. The same-scene restore is the timeout above,
+  // which can only fire while this scene is still current — this cleanup clears
+  // that timer first on any switch, so a stale pulse can't stomp the new scene.
+  useEffect(() => () => endFilterPulse(false), [activeTriggerExp, endFilterPulse]);
+
+  // One fired trigger event → an effect. Kept behind a ref so the RAF loop below
+  // never has to restart when React re-creates the callback.
+  const handleTriggerEvent = useCallback((e: TriggerEvent) => {
+    const a = e.action;
+    if (a.type === 'burst') {
+      triggerFxRef.current?.fire(a.style);
+    } else if (a.type === 'reveal') {
+      setRevealedIds((prev) => {
+        if (prev.has(a.objectId)) return prev;
+        const next = new Set(prev);
+        next.add(a.objectId);
+        return next;
+      });
+      // Reuse the booth's existing reveal shimmer + 3D scale-in entrance.
+      if (!prefersReducedMotion()) {
+        setReveal(true);
+        if (revealTimeoutRef.current) window.clearTimeout(revealTimeoutRef.current);
+        revealTimeoutRef.current = window.setTimeout(() => setReveal(false), REVEAL_SHIMMER_MS);
+      }
+    } else {
+      startFilterPulse(a.shaderId, a.durationMs);
+    }
+  }, [startFilterPulse]);
+  const handleTriggerEventRef = useRef(handleTriggerEvent);
+  useEffect(() => { handleTriggerEventRef.current = handleTriggerEvent; }, [handleTriggerEvent]);
+
+  // Detection + engine loop — only for a DB scene with triggers while the camera
+  // is live. Drives detection itself (detectFaceNow) so blendshapes refresh even
+  // with no 3D piece mounted, and steps the engine once per NEW detection frame.
+  useEffect(() => {
+    if (source !== 'db' || !hasTriggers || phase !== 'camera' || !ready) return;
+    const engine = createTriggerEngine(triggers);
+    let raf = 0;
+    let lastT = -1;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const v = videoRef.current;
+      if (!v) return;
+      detectFaceNow(v);
+      const b = getLatestBlendshapes();
+      if (!b || b.t === lastT) return;
+      lastT = b.t;
+      for (const ev of engine.step(b.scores, performance.now())) handleTriggerEventRef.current(ev);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [source, hasTriggers, phase, ready, videoRef, triggers]);
+
+  // A one-off guest hint when the scene has triggers ("Smile for a surprise").
+  const [triggerHint, setTriggerHint] = useState(false);
+  useEffect(() => {
+    if (source === 'db' && hasTriggers && phase === 'camera' && ready) {
+      setTriggerHint(true);
+      const t = window.setTimeout(() => setTriggerHint(false), 5000);
+      return () => window.clearTimeout(t);
+    }
+    setTriggerHint(false);
+  }, [source, hasTriggers, phase, ready]);
 
   // ── Face-tracking hint ────────────────────────────────────────────────
   // A 3D piece is invisible until the tracker finds a face — without feedback
@@ -513,12 +858,14 @@ export default function Booth() {
                   effectId={effectId}
                   sparkles={sparkles}
                   mirror={isFront}
-                  overlayUrl={is2DOverlay ? frameExp!.asset_url : null}
+                  overlayUrl={stageOverlays ? null : (is2DOverlay ? frameExp!.asset_url : null)}
                   overlayTransform={overlayTransform}
                   overlayOpacity={frameExp?.config?.opacity}
+                  overlays={stageOverlays}
                   threeCanvasId={is3D ? 'booth-3d-layer' : null}
                   active={true}
                   watermark={entitlements.watermark}
+                  effectsCanvas={triggerFxCanvas}
                 />
               )}
               <div ref={feedContainerRef} className="absolute inset-0">
@@ -529,11 +876,19 @@ export default function Booth() {
                     anchor={anchorConfig}
                     videoId="booth-video"
                     mirror={isFront}
+                    occlude={source === 'db' && attachExp!.config?.occlusion === true}
+                    headScale={effectiveHeadScale}
                     onFaceVisible={setFaceVisible}
+                    pieces={overlayPieces}
+                    reveal={reveal}
                   />
                 )}
               </div>
-              <div className="absolute top-4 inset-x-0 z-30 flex justify-center pointer-events-none">
+              {/* Face-trigger particles — a sibling canvas over the stage. Also
+                  passed into StageCanvas.effectsCanvas so an on-screen burst is
+                  composited into the captured photo. Mounted only for trigger scenes. */}
+              {hasTriggers && <TriggerEffects ref={triggerFxRef} />}
+              <div className="absolute top-4 inset-x-0 z-30 flex flex-col items-center gap-2 pointer-events-none">
                 <AnimatePresence>
                   {faceHint && (
                     <motion.div
@@ -551,11 +906,36 @@ export default function Booth() {
                     </motion.div>
                   )}
                 </AnimatePresence>
+                <AnimatePresence>
+                  {triggerHint && (
+                    <motion.div
+                      key="trigger-hint"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.25 }}
+                      className="flex items-center gap-2 px-3.5 py-2 rounded-full glass-strong border border-gold-400/25"
+                    >
+                      <Sparkles className="w-4 h-4 text-gold-300 animate-pulse" />
+                      <span className="font-label text-[10px] uppercase tracking-wide text-champagne/80">
+                        Smile for a surprise
+                      </span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
               <div
                 className="absolute inset-0 pointer-events-none"
                 style={{ background: 'radial-gradient(120% 90% at 50% 38%, transparent 58%, rgba(0,0,0,0.4) 100%)' }}
               />
+              {/* Reveal moment — transient DOM sibling only, never sampled by
+                  StageCanvas.drawFrame (which only reads the video/shader/
+                  three-canvas/overlay-image sources), so it cannot affect
+                  capturePhoto's pixels either way. Unmounts completely via
+                  AnimatePresence once `reveal` flips back to false. */}
+              <AnimatePresence>
+                {reveal && <RevealShimmer key="reveal-shimmer" />}
+              </AnimatePresence>
             </div>
           </div>
 
