@@ -4,14 +4,10 @@
 Two platform overhauls converging to main: (1) unified event studio editor — single camera, mixed 2D/3D scenes, AR occlusion + auto head-size, drag-and-drop, a conversational AI Director, Magic Triggers (PR #14); (2) InteractiveShowcase — the landing page's interactive AR demo with a cross-device phone-to-wall beam (PR #15).
 
 ## Now
-Merging PR #14 (studio, head b5b65eb) and PR #15 (landing, head 4bb8842) locally on the studio branch per explicit user instruction (2026-07-11, verbatim): "Pull in PR 15, merge with it, and then commit everything to main." Only two files were touched by both PRs: `src/App.tsx` (auto-merged clean — PR15 adds one new route, non-overlapping with studio's route changes) and this doc (hand-resolved, compacted below). Next: re-run gates on the merged tree, push, then merge into main.
+MERGED TO MAIN (2026-07-11). PR #14 (studio) and PR #15 (landing) were combined on the studio branch (merge commit db67b37 — only src/App.tsx and this doc were touched by both PRs, both resolved cleanly: App.tsx auto-merged, App.tsx additive-only overlap; STATE.md hand-compacted), gates re-verified on the combined tree (tsc 0 · 466 tests · build ✓), pushed, PR #14 marked ready-for-review and merged via GitHub (merge commit 5e94c35 on main) — PR #15 auto-closed as merged since its commits became ancestors of main. CI green on main (`CI` + `Fetch remote assets` workflows both success on 5e94c35). Local main fast-forwarded to 5e94c35.
 
 ## Next
-1. `npm run lint && npm test && npm run build` on the merged tree — confirm combined (studio ~444 + landing's beamGeometry/demoBeam suites) all green.
-2. Push the merged branch to origin.
-3. Merge into main: mark PR #14 ready-for-review (it's draft) and merge via GitHub — its branch now contains PR #15's commits too, so GitHub should auto-detect PR #15 as merged/closed once main contains its head commit; verify and close #15 explicitly if it doesn't.
-4. Verify CI green on main; watch the Netlify production deploy.
-5. Update this doc's `## Now` to MERGED once confirmed.
+Nothing queued. Remaining work is the live-hardware checklists below (user-driven) and the platform launch gates (valid GEMINI_API_KEY, Stripe LIVE keys). DemoBooth.tsx deletion still needs explicit user approval before doing it.
 
 ## Constraints
 - User (2026-07-07): Gemini API key must NEVER be committed to the repo; Supabase edge-function secrets only.
