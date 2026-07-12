@@ -5,7 +5,7 @@
  * Individual events still override the semantic tokens below via their own
  * theme.css (see src/events/*), which is unaffected by this default.
  */
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=Pinyon+Script&family=Jost:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=Pinyon+Script&family=Jost:wght@300;400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -65,6 +65,10 @@
   --font-serif:   "Cormorant Garamond", ui-serif, Georgia, serif;
   --font-script:  "Pinyon Script", cursive;
   --font-label:   "Jost", "Inter", sans-serif;
+  /* Bold/tech display face for the Beamwall marketing landing page only —
+     Landing.tsx and FrameShowcase.tsx (its hero visual); every other surface
+     keeps --font-serif. */
+  --font-display: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 :root {

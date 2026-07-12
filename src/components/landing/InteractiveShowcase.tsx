@@ -630,7 +630,7 @@ export default function InteractiveShowcase() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.3 }}
           transition={{ duration: 0.6, delay: 0.05 }}
-          className="font-serif text-4xl leading-tight text-brand-fg sm:text-5xl"
+          className="font-display text-4xl leading-tight text-brand-fg sm:text-5xl"
         >
           Try it out. <span className="text-foil-static">Right here.</span>
         </motion.h2>

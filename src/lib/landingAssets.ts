@@ -19,7 +19,7 @@ export const HERO_BOOTH_PORTRAIT = boothPortrait;
 /** Beam-wall venue scene — glowing frames in a dark hall (has bg). */
 export const WALL_SCENE = wallScene;
 
-/** Woman taking an AR selfie, sparkles around her phone (transparent bg). */
+/** Young Black man taking an AR selfie, sparkles around his phone (transparent bg). */
 export const BOOTH_CUTOUT = boothCutout;
 
 /** Glowing glass trophy (transparent bg). */

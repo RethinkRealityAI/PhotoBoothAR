@@ -3,110 +3,137 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * FrameShowcase — the Landing hero's focal visual: a perspective ARC of tall
- * glowing glass frames standing on a reflective floor, one per Beamwall
- * pillar, each tinted its own hue from the beam spectrum (mirrors
- * SpectrumField's palette). Side frames angle inward (CSS rotateY under a
- * shared perspective), soft light beams radiate upward from each frame, and
- * a flipped, masked copy below renders the floor reflection — the "beam
- * wall" made literal.
+ * glowing glass frames standing on a reflective floor, tinted per hue from
+ * the beam spectrum. Unlike the old version (one slot per app pillar), every
+ * slot now shows a REAL frame design pulled straight from the platform's own
+ * events — Detola & Wuyi's wedding gold, SCAGO's Hope Gala black-tie border
+ * and Jenna & Jake's festival neon — the same border SVGs (src/lib/borders.ts)
+ * and compositing technique (toDataUrl over a tinted glow) TemplatePreview
+ * uses elsewhere on this page. A 6-item pool auto-rotates through the 5
+ * visible slots and can be swiped; each slot's own beam-in entrance plays
+ * once on mount, while its frame content crossfades independently.
  *
- * Frames beam in one at a time, left to right (same settle easing as the
- * booth's premium entrances — see Welcome.tsx / BeamIn.tsx). Clicking a
- * frame opens an info modal about that pillar (portalled to <body> so
- * ancestor parallax transforms can't trap it). On mobile only the middle
- * three render, large; the outer two are desktop-only.
+ * Side frames angle inward (CSS rotateY under a shared perspective), soft
+ * light beams radiate upward from each frame, and a flipped, masked copy
+ * below renders the floor reflection — the "beam wall" made literal.
+ * Clicking a frame opens an info modal (portalled to <body>). On mobile only
+ * the middle three slots render, large, inside a viewport-clamped wrapper so
+ * the arc reads as rising up from the bottom of the screen instead of
+ * spilling past the fold.
  */
-import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Link } from 'react-router-dom';
 import { Check, X } from 'lucide-react';
 import { BoothIcon, WallIcon, ChallengeIcon, CardIcon, StudioIcon, type BeamIconProps } from './BeamIcons';
-import { HERO_BOOTH_PORTRAIT, WALL_SCENE, TROPHY_CUTOUT, CARD_CUTOUT } from '../../lib/landingAssets';
+import { BORDER_MAP, toDataUrl } from '../../lib/borders';
 
 export interface ShowcaseFrame {
   id: string;
+  /** The real event this frame design comes from. */
+  event: string;
   label: string;
   caption: string;
   hue: string;
   /** "r, g, b" triplet matching `hue`, for rgba() glows. */
   rgb: string;
   Icon: ComponentType<BeamIconProps>;
-  /** Full-bleed photographic fill. */
-  image?: string;
-  /** Transparent cutout, floated over a tinted glow instead of full-bleed. */
-  cutout?: string;
-  /** Hidden below the sm breakpoint so mobile shows 3 big frames. */
-  desktopOnly?: boolean;
+  /** Built-in border id (src/lib/borders.ts) — the actual frame SVG. */
+  borderId: string;
   /** Modal copy. */
   blurb: string;
   bullets: string[];
 }
 
-/** Display order, left → right; index 2 is the arc's center. */
-export const SHOWCASE_FRAMES: ShowcaseFrame[] = [
+/** The rotating pool — 5 slots show a moving window of this array so the arc
+ *  cycles through real designs from all three events. */
+export const FRAME_POOL: ShowcaseFrame[] = [
   {
-    id: 'challenges',
-    label: 'Challenges',
-    caption: 'Get the room playing',
-    hue: '#FB923C',
-    rgb: '251, 146, 60',
-    Icon: ChallengeIcon,
-    cutout: TROPHY_CUTOUT,
-    desktopOnly: true,
-    blurb:
-      'Set photo challenges — “catch the first dance”, “selfie with a stranger” — and a live leaderboard lights the wall up while guests race to complete them.',
-    bullets: ['Custom photo challenges', 'Live leaderboard on the wall', 'Crowd-decided winners'],
-  },
-  {
-    id: 'booth',
-    label: 'AR Booth',
-    caption: 'Immersive photo booth',
-    hue: '#5B8CFF',
-    rgb: '91, 140, 255',
+    id: 'dw-monogram',
+    event: 'Detola & Wuyi',
+    label: 'Detola & Wuyi',
+    caption: 'Wedding · monogram frame',
+    hue: '#D4AF37',
+    rgb: '212, 175, 55',
     Icon: BoothIcon,
-    image: HERO_BOOTH_PORTRAIT,
+    borderId: 'dw-frame-monogram',
     blurb:
-      'One QR code drops every guest into an AR photo booth in their browser — face-tracked 3D props, live effects and your frames, with zero downloads.',
-    bullets: ['Face-tracked 3D props & frames', 'Cinematic live WebGL effects', 'Photo & video, no app needed'],
+      'A real wedding frame from the Beamwall platform — Detola & Wuyi’s monogram border in gold on a deep black-green wash, their names and date baked right in.',
+    bullets: ['Couple’s monogram + date, baked in', 'Deep green & gold wedding palette', 'One tap to apply at your own event'],
   },
   {
-    id: 'wall',
-    label: 'Live Wall',
-    caption: 'Photos beam in live',
-    hue: '#22D3EE',
-    rgb: '34, 211, 238',
+    id: 'hope-classic',
+    event: 'Hope Gala',
+    label: 'Hope Gala',
+    caption: 'Black-tie · SCAGO 2026',
+    hue: '#D4AF37',
+    rgb: '212, 175, 55',
+    Icon: ChallengeIcon,
+    borderId: 'frame-classic',
+    blurb:
+      'SCAGO’s Hope Gala & Awards frame — a full gold border with the gala’s crest and lettering, straight from a real black-tie fundraiser.',
+    bullets: ['Full gold border + gala crest', 'Baked-in event name & year', 'Built for a black-tie photo wall'],
+  },
+  {
+    id: 'jj-neon',
+    event: 'Jenna & Jake',
+    label: 'Jenna & Jake',
+    caption: 'Festival wedding · neon tubes',
+    hue: '#FF2D9B',
+    rgb: '255, 45, 155',
     Icon: WallIcon,
-    image: WALL_SCENE,
+    borderId: 'jj-neon-frame',
     blurb:
-      'Every capture beams onto a cinematic wall the whole room watches — mosaic, slideshow and marquee views, moderated from your phone in one tap.',
-    bullets: ['Realtime beam-in animations', 'Mosaic, slideshow & marquee views', 'One-tap moderation'],
+      'An EDM-festival wedding’s neon border — magenta and cyan light tubes glowing straight off the dance floor.',
+    bullets: ['Dual-tone neon tube border', 'Magenta + cyan glow', 'Matches a festival light show'],
   },
   {
-    id: 'cards',
-    label: 'Cards',
-    caption: 'Keepsakes & guestbook',
-    hue: '#E879F9',
-    rgb: '232, 121, 249',
+    id: 'dw-corners',
+    event: 'Detola & Wuyi',
+    label: 'Detola & Wuyi',
+    caption: 'Wedding · gold corners',
+    hue: '#EACB6E',
+    rgb: '234, 203, 110',
     Icon: CardIcon,
-    cutout: CARD_CUTOUT,
+    borderId: 'dw-corners',
     blurb:
-      'Guests leave short video messages and sign a collective greeting card — a keepsake you keep forever, with an overnight highlight film on premium plans.',
-    bullets: ['Video guestbook messages', 'Collaborative greeting cards', 'Keepsake highlight film'],
+      'The same wedding’s minimal corner treatment — elegant gold flourishes that frame the photo without crowding it.',
+    bullets: ['Neutral corners, no baked text', 'Layers over any photo or video', 'Pairs with the champagne-sparkle effect'],
   },
   {
-    id: 'studio',
-    label: 'AI Studio',
-    caption: 'Custom frames & effects',
-    hue: '#7C6CF7',
-    rgb: '124, 108, 247',
+    id: 'hope-crown',
+    event: 'Hope Gala',
+    label: 'Hope Gala',
+    caption: 'Black-tie · crown sticker',
+    hue: '#E8C766',
+    rgb: '232, 199, 102',
     Icon: StudioIcon,
-    desktopOnly: true,
+    borderId: 'sticker-crown',
     blurb:
-      'Describe a look and the AI studio generates custom frames, stickers and 3D props on brand for your event — then fine-tune everything by hand.',
-    bullets: ['AI-generated frames & stickers', 'Custom 3D props', 'Full manual fine-tuning'],
+      'A playful add-on from the same gala — a jeweled crown sticker guests loved stacking on top of the classic frame.',
+    bullets: ['Jeweled crown overlay', 'Stacks on top of any frame', 'A guest favorite from the night'],
+  },
+  {
+    id: 'jj-lower-third',
+    event: 'Jenna & Jake',
+    label: 'Jenna & Jake',
+    caption: 'Festival wedding · holographic type',
+    hue: '#19E3FF',
+    rgb: '25, 227, 255',
+    Icon: BoothIcon,
+    borderId: 'jj-lower-third',
+    blurb:
+      'The same wedding’s lower-third — a holographic gradient banner that stamps the couple’s names across every shot.',
+    bullets: ['Holographic couple lettering', 'Baked-in lower-third banner', 'Built for a high-energy dance floor'],
   },
 ];
+
+const SLOT_COUNT = 5;
+/** Auto-advance interval — generous enough to read a design before it moves on. */
+const ROTATE_MS = 4200;
+/** Horizontal drag distance (px) that counts as a swipe. */
+const SWIPE_THRESHOLD = 40;
 
 /** Arc geometry per slot offset from center (-2 … 2). */
 function arcStyle(offset: number): { rotateY: number; z: number; lift: number } {
@@ -121,48 +148,60 @@ function arcStyle(offset: number): { rotateY: number; z: number; lift: number } 
 /** Width per slot — center largest, tapering outward; bigger than v1. */
 const SLOT_WIDTH = ['w-40 sm:w-44', 'w-44 sm:w-52', 'w-52 sm:w-64', 'w-44 sm:w-52', 'w-40 sm:w-44'];
 
-/** The glass panel itself — rendered twice (frame + flipped reflection). */
-function FrameVisual({ frame, failed, onFail }: { frame: ShowcaseFrame; failed: boolean; onFail: () => void }) {
-  const { hue, rgb, Icon, image, cutout } = frame;
-  const showImage = Boolean(image) && !failed;
-  const showCutout = Boolean(cutout) && !failed;
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(max-width: 639px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  return isMobile;
+}
+
+/** The glass panel itself — the real border SVG composited over a tinted
+ *  glow (same technique as TemplatePreview). Crossfades on rotation/swipe;
+ *  rendered twice per slot (frame + flipped reflection). */
+function FrameVisual({ frame }: { frame: ShowcaseFrame }) {
+  const { rgb, borderId } = frame;
+  const border = BORDER_MAP[borderId];
+  const frameUrl = border ? toDataUrl(border.svg) : null;
   return (
-    <div
-      className="relative aspect-[5/8] w-full overflow-hidden rounded-2xl sm:rounded-3xl"
-      style={{
-        border: `1px solid rgba(${rgb}, 0.55)`,
-        boxShadow: `0 0 34px -6px rgba(${rgb}, 0.55), 0 0 90px -16px rgba(${rgb}, 0.4), inset 0 0 50px -10px rgba(${rgb}, 0.35)`,
-        background: showImage
-          ? undefined
-          : `radial-gradient(120% 90% at 50% 24%, rgba(${rgb}, 0.30), transparent 66%), rgba(6, 7, 13, 0.72)`,
-      }}
-    >
-      {showImage ? (
-        <img src={image} alt="" aria-hidden className="h-full w-full object-cover" onError={onFail} />
-      ) : showCutout ? (
-        <div className="absolute inset-0 flex items-end justify-center p-2">
-          <img
-            src={cutout}
-            alt=""
-            aria-hidden
-            className="max-h-[84%] w-auto object-contain drop-shadow-[0_10px_30px_rgba(0,0,0,0.6)]"
-            onError={onFail}
+    <div className="relative aspect-[5/8] w-full overflow-hidden rounded-2xl sm:rounded-3xl">
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.div
+          key={frame.id}
+          className="absolute inset-0"
+          initial={{ opacity: 0, scale: 0.94 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 1.04 }}
+          transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+          style={{
+            border: `1px solid rgba(${rgb}, 0.55)`,
+            boxShadow: `0 0 34px -6px rgba(${rgb}, 0.55), 0 0 90px -16px rgba(${rgb}, 0.4), inset 0 0 50px -10px rgba(${rgb}, 0.35)`,
+            background: `radial-gradient(120% 90% at 50% 24%, rgba(${rgb}, 0.30), transparent 66%), rgba(6, 7, 13, 0.72)`,
+            borderRadius: 'inherit',
+          }}
+        >
+          {/* soft ambient "guest" glow so the frame doesn't read empty */}
+          <div
+            className="absolute left-1/2 top-[38%] h-[46%] aspect-square -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{ background: 'radial-gradient(circle at 50% 38%, rgba(255,255,255,0.14), rgba(255,255,255,0.02) 68%)' }}
           />
-        </div>
-      ) : (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <Icon size={48} from={hue} to={hue} />
-        </div>
-      )}
-      {/* glass sheen + grounding gradient */}
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{ background: 'linear-gradient(168deg, rgba(255,255,255,0.10), transparent 30%)' }}
-      />
-      <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3"
-        style={{ background: 'linear-gradient(to top, rgba(4,5,10,0.85), transparent)' }}
-      />
+          {frameUrl && <img src={frameUrl} alt="" aria-hidden className="absolute inset-0 h-full w-full" />}
+          {/* glass sheen + grounding gradient */}
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'linear-gradient(168deg, rgba(255,255,255,0.10), transparent 30%)' }}
+          />
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3"
+            style={{ background: 'linear-gradient(to top, rgba(4,5,10,0.85), transparent)' }}
+          />
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 }
@@ -170,20 +209,24 @@ function FrameVisual({ frame, failed, onFail }: { frame: ShowcaseFrame; failed: 
 function ArcFrame({
   frame,
   index,
+  isMobile,
   onOpen,
 }: {
   frame: ShowcaseFrame;
   index: number;
+  isMobile: boolean;
   onOpen: (frame: ShowcaseFrame) => void;
 }) {
-  const { label, caption, hue, rgb, desktopOnly } = frame;
-  const [failed, setFailed] = useState(false);
+  const { label, caption, hue, rgb } = frame;
+  // Only the middle three slots show on mobile — driven by SLOT POSITION so
+  // it holds steady as the pool rotates through different frame content.
+  const desktopOnly = index === 0 || index === 4;
   const { rotateY, z, lift } = arcStyle(index - 2);
   return (
     <motion.div
       className={`${desktopOnly ? 'hidden sm:block' : ''} ${SLOT_WIDTH[index]} shrink-0`}
       style={{ transform: `translateY(-${lift}px) rotateY(${rotateY}deg) translateZ(${z}px)`, transformStyle: 'preserve-3d' }}
-      initial={{ opacity: 0, y: -80, scaleY: 0.5, filter: 'brightness(2.4) blur(8px)' }}
+      initial={{ opacity: 0, y: isMobile ? 120 : -80, scaleY: 0.5, filter: 'brightness(2.4) blur(8px)' }}
       animate={{ opacity: 1, y: 0, scaleY: 1, filter: 'brightness(1) blur(0px)' }}
       transition={{ duration: 1, delay: 0.25 + index * 0.16, ease: [0.16, 1, 0.3, 1] }}
     >
@@ -197,10 +240,10 @@ function ArcFrame({
       <button
         type="button"
         onClick={() => onOpen(frame)}
-        aria-label={`About ${label}`}
+        aria-label={`About the ${label} frame`}
         className="group block w-full cursor-pointer rounded-2xl text-left transition-transform duration-300 hover:scale-[1.03] focus-visible:scale-[1.03] focus-visible:outline-none sm:rounded-3xl"
       >
-        <FrameVisual frame={frame} failed={failed} onFail={() => setFailed(true)} />
+        <FrameVisual frame={frame} />
         <div className="mt-3 flex w-full min-w-0 flex-col items-center gap-1 text-center">
           <span
             className="w-full break-words font-label uppercase tracking-wide text-[10px] font-semibold leading-tight sm:tracking-luxe sm:text-[11px]"
@@ -224,7 +267,7 @@ function ArcFrame({
           WebkitMaskImage: 'linear-gradient(to top, rgba(0,0,0,0.5), transparent 78%)',
         }}
       >
-        <FrameVisual frame={frame} failed={failed} onFail={() => setFailed(true)} />
+        <FrameVisual frame={frame} />
       </div>
     </motion.div>
   );
@@ -233,7 +276,7 @@ function ArcFrame({
 /* ── Info modal ─────────────────────────────────────────────────────── */
 
 function FrameModal({ frame, onClose }: { frame: ShowcaseFrame; onClose: () => void }) {
-  const { label, caption, hue, rgb, Icon, blurb, bullets } = frame;
+  const { event, label, caption, hue, rgb, Icon, blurb, bullets } = frame;
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -288,9 +331,9 @@ function FrameModal({ frame, onClose }: { frame: ShowcaseFrame; onClose: () => v
           <Icon size={26} from={hue} to={hue} />
         </div>
         <p className="font-label uppercase tracking-luxe text-[10px]" style={{ color: hue }}>
-          {caption}
+          {event} · {caption}
         </p>
-        <h3 className="mt-2 font-serif text-3xl text-brand-fg">{label}</h3>
+        <h3 className="mt-2 font-display text-3xl text-brand-fg">{label}</h3>
         <p className="mt-3 text-sm leading-relaxed text-brand-muted/80">{blurb}</p>
         <ul className="mt-5 flex flex-col gap-2.5">
           {bullets.map((b) => (
@@ -316,8 +359,38 @@ function FrameModal({ frame, onClose }: { frame: ShowcaseFrame; onClose: () => v
 
 export default function FrameShowcase({ className = '' }: { className?: string }): ReactNode {
   const [openFrame, setOpenFrame] = useState<ShowcaseFrame | null>(null);
+  const [rotation, setRotation] = useState(0);
+  const isMobile = useIsMobile();
+  const reduced = useReducedMotion() ?? false;
+  const dragStartX = useRef<number | null>(null);
+
+  const shift = useCallback((dir: 1 | -1) => {
+    setRotation((r) => (r + dir + FRAME_POOL.length) % FRAME_POOL.length);
+  }, []);
+
+  // Auto-advance the carousel; pauses under reduced motion and while the
+  // info modal is open (a background rotation mid-read is disorienting).
+  useEffect(() => {
+    if (reduced || openFrame) return;
+    const t = window.setInterval(() => shift(1), ROTATE_MS);
+    return () => window.clearInterval(t);
+  }, [reduced, openFrame, shift]);
+
+  const slots = Array.from({ length: SLOT_COUNT }, (_, i) => FRAME_POOL[(rotation + i) % FRAME_POOL.length]);
+
   return (
-    <div className={`relative ${className}`}>
+    <div
+      className={`relative ${isMobile ? 'max-h-[70vh] overflow-hidden' : ''} ${className}`}
+      onPointerDown={(e) => { dragStartX.current = e.clientX; }}
+      onPointerUp={(e) => {
+        const startX = dragStartX.current;
+        dragStartX.current = null;
+        if (startX === null) return;
+        const dx = e.clientX - startX;
+        if (Math.abs(dx) > SWIPE_THRESHOLD) shift(dx < 0 ? 1 : -1);
+      }}
+      onPointerCancel={() => { dragStartX.current = null; }}
+    >
       {/* floor glow the frames stand on */}
       <div
         aria-hidden
@@ -328,10 +401,22 @@ export default function FrameShowcase({ className = '' }: { className?: string }
         className="flex items-end justify-center gap-3 sm:gap-5"
         style={{ perspective: '1400px' }}
       >
-        {SHOWCASE_FRAMES.map((frame, i) => (
-          <ArcFrame key={frame.id} frame={frame} index={i} onOpen={setOpenFrame} />
+        {slots.map((frame, i) => (
+          <ArcFrame key={i} frame={frame} index={i} isMobile={isMobile} onOpen={setOpenFrame} />
         ))}
       </div>
+
+      {/* rotation dots — a quiet hint that this cycles and can be swiped */}
+      <div className="mt-4 flex items-center justify-center gap-1.5" aria-hidden>
+        {FRAME_POOL.map((f, i) => (
+          <span
+            key={f.id}
+            className="h-1.5 rounded-full transition-all duration-300"
+            style={{ width: i === rotation ? 18 : 6, background: i === rotation ? f.hue : 'rgba(255,255,255,0.18)' }}
+          />
+        ))}
+      </div>
+
       <AnimatePresence>
         {openFrame && <FrameModal frame={openFrame} onClose={() => setOpenFrame(null)} />}
       </AnimatePresence>

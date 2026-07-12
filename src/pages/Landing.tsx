@@ -3,18 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Beamwall marketing landing page — an immersive scroll experience on the
- * platform's black "beam wall" identity. A fixed WebGL spectrum field and
- * parallax ghost-frames sit behind everything; the hero's glass frames beam
- * in on load; each product pillar (AR booth, live wall, challenges, keepsake
- * cards) gets a full feature section whose transparent-cutout artwork floats
- * and drifts with scroll (GSAP ScrollTrigger + Framer Motion). Honest and
- * dark-pattern-free: real prices, no fake urgency, every CTA leads to sign-up.
+ * platform's black "beam wall" identity. A fixed, scrim-darkened WebGL
+ * spectrum field and parallax ghost-frames sit behind everything; the hero's
+ * glass frames beam in on load and now show real Detola & Wuyi / Hope Gala /
+ * Jenna & Jake frame designs (FrameShowcase's rotating FRAME_POOL) instead of
+ * app-pillar art. Each product pillar (AR booth, live wall, challenges,
+ * keepsake cards) gets a full feature section whose art + feature film pair
+ * up as a single tilted `MediaDuo` (phone-and-wall-style), alternating sides
+ * per pillar; the image fades in via a converging particle burst
+ * (ImageParticles) while the video rises and settles into its tilt — both
+ * driven by GSAP ScrollTrigger alongside the rest of the page's scroll
+ * choreography. Honest and dark-pattern-free: real prices, no fake urgency,
+ * every CTA leads to sign-up.
  *
  * Scroll architecture: App's shell is h-screen overflow-hidden, so THIS
  * component owns scrolling via its root (h-full overflow-y-auto). All
  * ScrollTriggers therefore pass that root as their `scroller`.
  */
-import { lazy, Suspense, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
+import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
 import { Check } from 'lucide-react';
 import gsap from 'gsap';
@@ -224,27 +230,71 @@ function FilmEmbed({ src, poster, label }: { src: string; poster: string; label:
   );
 }
 
-/** Transparent-cutout artwork that floats over a tinted glow. */
-function CutoutArt({ feature }: { feature: Feature }) {
+/** A small burst of hue-tinted sparks that converge toward the image as it
+ *  reveals, then dissolve — the "particle effect" fade-in. Positions are
+ *  memoized per mount (stable, not re-rolled on re-render); the scroll
+ *  choreography effect below reads each dot's --dx/--dy via data attributes. */
+function ImageParticles({ rgb }: { rgb: string }) {
+  const particles = useMemo(
+    () =>
+      Array.from({ length: 10 }, (_, i) => {
+        const angle = (i / 10) * Math.PI * 2 + (i % 2 ? 0.3 : -0.2);
+        const dist = 58 + (i % 4) * 24;
+        return { id: i, dx: Math.round(Math.cos(angle) * dist), dy: Math.round(Math.sin(angle) * dist), size: 3 + (i % 3) * 2 };
+      }),
+    [],
+  );
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+      {particles.map((p) => (
+        <span
+          key={p.id}
+          data-particle
+          data-dx={p.dx}
+          data-dy={p.dy}
+          className="absolute rounded-full opacity-0"
+          style={{
+            width: p.size,
+            height: p.size,
+            background: `rgba(${rgb}, 0.95)`,
+            boxShadow: `0 0 8px 2px rgba(${rgb}, 0.65)`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Transparent-cutout artwork that floats over a tinted glow. `rotate` tilts
+ *  the whole piece (set by MediaDuo, opposite the paired video); the bob
+ *  animation lives on an inner wrapper so it composes with that static tilt
+ *  instead of the CSS keyframe overwriting it every frame. */
+function CutoutArt({ feature, rotate = 0 }: { feature: Feature; rotate?: number }) {
   const [failed, setFailed] = useState(false);
   return (
-    <div className="relative mx-auto flex aspect-square w-full max-w-[19rem] items-center justify-center sm:max-w-[26rem]" data-parallax-depth="0.14">
+    <div
+      className="relative mx-auto flex aspect-square w-full max-w-[18rem] items-center justify-center sm:max-w-[22rem]"
+      style={{ transform: `rotate(${rotate}deg)` }}
+    >
       <div
         className="absolute inset-[8%] rounded-full blur-3xl"
         style={{ background: `radial-gradient(circle, rgba(${feature.rgb}, 0.32), transparent 68%)` }}
       />
-      {!failed ? (
-        <img
-          src={feature.image}
-          alt=""
-          aria-hidden
-          className="animate-float relative max-h-full w-auto max-w-full object-contain drop-shadow-[0_24px_60px_rgba(0,0,0,0.55)]"
-          loading="lazy"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <feature.Icon size={96} from={feature.from} to={feature.to} className="relative" />
-      )}
+      <div data-particle-target className="animate-float relative flex h-full w-full items-center justify-center">
+        {!failed ? (
+          <img
+            src={feature.image}
+            alt=""
+            aria-hidden
+            className="relative max-h-full w-auto max-w-full object-contain drop-shadow-[0_24px_60px_rgba(0,0,0,0.55)]"
+            loading="lazy"
+            onError={() => setFailed(true)}
+          />
+        ) : (
+          <feature.Icon size={96} from={feature.from} to={feature.to} className="relative" />
+        )}
+      </div>
+      <ImageParticles rgb={feature.rgb} />
       {/* grounding glow puddle */}
       <div
         className="absolute bottom-[6%] left-1/2 h-6 w-3/5 -translate-x-1/2 rounded-full blur-2xl"
@@ -254,17 +304,18 @@ function CutoutArt({ feature }: { feature: Feature }) {
   );
 }
 
-/** Photographic artwork inside a glowing glass frame. */
-function FramedArt({ feature }: { feature: Feature }) {
+/** Photographic artwork inside a glowing glass frame. Same rotate/particle
+ *  contract as CutoutArt. */
+function FramedArt({ feature, rotate = 0 }: { feature: Feature; rotate?: number }) {
   const [failed, setFailed] = useState(false);
   return (
-    <div className="relative mx-auto w-full max-w-[19rem] sm:max-w-[24rem]" data-parallax-depth="0.14">
+    <div className="relative mx-auto w-full max-w-[18rem] sm:max-w-[20rem]" style={{ transform: `rotate(${rotate}deg)` }}>
       <div
+        data-particle-target
         className="animate-float relative aspect-[4/5] overflow-hidden rounded-3xl"
         style={{
           border: `1px solid rgba(${feature.rgb}, 0.5)`,
           boxShadow: `0 0 46px -8px rgba(${feature.rgb}, 0.5), 0 30px 80px -30px rgba(0,0,0,0.8)`,
-          transform: 'rotate(2deg)',
         }}
       >
         {!failed ? (
@@ -289,15 +340,59 @@ function FramedArt({ feature }: { feature: Feature }) {
           style={{ background: 'linear-gradient(165deg, rgba(255,255,255,0.12), transparent 32%)' }}
         />
       </div>
+      <ImageParticles rgb={feature.rgb} />
+    </div>
+  );
+}
+
+/** Image + video paired like the hero demo's phone-and-wall: the photographic
+ *  cutout/frame and the feature film sit side by side, each tilted the
+ *  opposite way, the video overlapping toward the text column. Stacks on
+ *  mobile. `data-reveal-video`'s tilt is read from `data-tilt` by the page's
+ *  scroll choreography (rises then settles into its angle); the image's
+ *  entrance is driven by ImageParticles + `data-particle-target` above. */
+function MediaDuo({ feature }: { feature: Feature }) {
+  const rotArt = feature.flip ? 5 : -5;
+  const rotVideo = feature.flip ? -4 : 4;
+  const edge = feature.flip ? 'right' : 'left';
+  const innerEdge = feature.flip ? 'left' : 'right';
+  return (
+    <div
+      data-parallax-depth="0.14"
+      className="relative mx-auto flex w-full max-w-sm flex-col items-center gap-8 sm:block sm:h-[420px] sm:max-w-none md:h-[460px]"
+    >
+      <div className="relative z-10 w-[80%] sm:absolute sm:top-0 sm:w-[66%]" style={{ [edge]: '0%' }}>
+        {feature.imageStyle === 'cutout' ? (
+          <CutoutArt feature={feature} rotate={rotArt} />
+        ) : (
+          <FramedArt feature={feature} rotate={rotArt} />
+        )}
+      </div>
+      <div
+        data-reveal-video
+        data-tilt={rotVideo}
+        className="relative z-20 w-[70%] sm:absolute sm:bottom-0 sm:w-[52%]"
+        style={{ [innerEdge]: '4%' }}
+      >
+        <div
+          className="overflow-hidden rounded-2xl"
+          style={{
+            border: `1px solid rgba(${feature.rgb}, 0.4)`,
+            boxShadow: `0 0 34px -10px rgba(${feature.rgb}, 0.5), 0 20px 60px -24px rgba(0,0,0,0.8)`,
+          }}
+        >
+          <FilmEmbed src={feature.video} poster={feature.videoPoster} label={`${feature.title} — feature film`} />
+        </div>
+      </div>
     </div>
   );
 }
 
 function FeatureSection({ feature }: { feature: Feature }) {
-  const art = feature.imageStyle === 'cutout' ? <CutoutArt feature={feature} /> : <FramedArt feature={feature} />;
   return (
     <section data-parallax-scope className="grid w-full items-center gap-10 sm:grid-cols-2 sm:gap-14">
-      {/* Text slides in from its own side; artwork from the opposite side. */}
+      {/* Text slides in from its own side; the image+video duo from the
+          opposite side — alternates per feature via `feature.flip`. */}
       <div data-reveal={feature.flip ? 'right' : 'left'} className={`text-left ${feature.flip ? 'sm:order-2' : ''}`}>
         <div
           className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-2xl"
@@ -312,7 +407,7 @@ function FeatureSection({ feature }: { feature: Feature }) {
         <p className="font-label uppercase tracking-luxe text-[10px]" style={{ color: feature.from }}>
           {feature.eyebrow}
         </p>
-        <h2 className="mt-3 font-serif text-3xl leading-tight text-brand-fg sm:text-4xl">{feature.title}</h2>
+        <h2 className="mt-3 font-display text-3xl leading-tight text-brand-fg sm:text-4xl">{feature.title}</h2>
         <p className="mt-4 max-w-md text-[15px] leading-relaxed text-brand-muted/80">{feature.copy}</p>
         <ul data-reveal-stagger className="mt-6 flex flex-col gap-2.5">
           {feature.bullets.map((b) => (
@@ -322,19 +417,9 @@ function FeatureSection({ feature }: { feature: Feature }) {
             </li>
           ))}
         </ul>
-        <div
-          data-reveal
-          className="relative mt-8 max-w-md overflow-hidden rounded-2xl"
-          style={{
-            border: `1px solid rgba(${feature.rgb}, 0.4)`,
-            boxShadow: `0 0 34px -10px rgba(${feature.rgb}, 0.5), 0 20px 60px -24px rgba(0,0,0,0.8)`,
-          }}
-        >
-          <FilmEmbed src={feature.video} poster={feature.videoPoster} label={`${feature.title} — feature film`} />
-        </div>
       </div>
-      <div data-reveal={feature.flip ? 'left' : 'right'} className={feature.flip ? 'sm:order-1' : ''}>
-        {art}
+      <div className={feature.flip ? 'sm:order-1' : ''}>
+        <MediaDuo feature={feature} />
       </div>
     </section>
   );
@@ -415,6 +500,46 @@ export default function Landing() {
           scrollTrigger: { trigger: content, scroller, scrub: 1.2, start: 'top top', end: 'bottom bottom' },
         });
       });
+      // Feature-section image reveal: hue sparks converge toward the image
+      // while it unblurs and scales in, then dissolve away — the "particle
+      // effect" fade-in (ImageParticles renders the dots as a sibling of the
+      // [data-particle-target] wrapper inside CutoutArt/FramedArt).
+      gsap.utils.toArray<HTMLElement>('[data-particle-target]', content).forEach((img) => {
+        const wrap = img.parentElement;
+        if (!wrap) return;
+        const dots = wrap.querySelectorAll<HTMLElement>('[data-particle]');
+        const tl = gsap.timeline({ scrollTrigger: { trigger: wrap, scroller, start: 'top 85%' } });
+        tl.fromTo(img, { opacity: 0, scale: 0.85, filter: 'blur(6px)' }, { opacity: 1, scale: 1, filter: 'blur(0px)', duration: 0.9, ease: 'power2.out' }, 0);
+        dots.forEach((d, i) => {
+          const dx = parseFloat(d.dataset.dx ?? '0');
+          const dy = parseFloat(d.dataset.dy ?? '0');
+          tl.fromTo(
+            d,
+            { x: dx, y: dy, opacity: 0, scale: 0.4 },
+            { x: dx * 0.3, y: dy * 0.3, opacity: 1, scale: 1, duration: 0.4, ease: 'power2.out' },
+            i * 0.02,
+          ).to(d, { opacity: 0, scale: 0.3, duration: 0.5, ease: 'power1.in' }, '>-0.05');
+        });
+      });
+      // Feature-section video: rises up from below the fold, then settles
+      // into its paired tilt (opposite the image's — set by MediaDuo via
+      // data-tilt) as it locks into place.
+      gsap.utils.toArray<HTMLElement>('[data-reveal-video]', content).forEach((el) => {
+        const tilt = parseFloat(el.dataset.tilt ?? '0');
+        gsap.fromTo(
+          el,
+          { y: 90, opacity: 0, rotate: 0, scale: 0.94 },
+          {
+            y: 0,
+            opacity: 1,
+            rotate: tilt,
+            scale: 1,
+            duration: 1,
+            ease: 'power3.out',
+            scrollTrigger: { trigger: el, scroller, start: 'top 88%' },
+          },
+        );
+      });
       // The frame cluster sweeps from the right edge toward center-left and
       // downward across the whole page — a slow, deep background traveler.
       const cluster = document.querySelector('[data-cluster]');
@@ -433,7 +558,7 @@ export default function Landing() {
       }
     });
     mm.add('(prefers-reduced-motion: reduce)', () => {
-      gsap.utils.toArray<HTMLElement>('[data-reveal], [data-reveal-stagger]', content).forEach((el) => {
+      gsap.utils.toArray<HTMLElement>('[data-reveal], [data-reveal-stagger], [data-reveal-video], [data-particle-target]', content).forEach((el) => {
         gsap.fromTo(
           el,
           { opacity: 0 },
@@ -463,7 +588,7 @@ export default function Landing() {
           alt=""
           aria-hidden
           loading="lazy"
-          className="absolute top-[14%] hidden w-[28rem] opacity-[0.15] blur-[2px] md:block"
+          className="absolute top-[14%] hidden w-[28rem] opacity-[0.09] blur-[2px] md:block"
           style={{ right: '-12%' }}
           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
         />
@@ -471,7 +596,7 @@ export default function Landing() {
           <div
             key={i}
             data-ghost-depth={g.depth}
-            className="absolute rounded-2xl opacity-30"
+            className="absolute rounded-2xl opacity-[0.16]"
             style={{
               left: g.left,
               top: g.top,
@@ -485,12 +610,23 @@ export default function Landing() {
             }}
           />
         ))}
+        {/* Dimming scrim — sits above the shader/ghosts/cluster so the beams
+            read as ambient depth instead of competing with the copy; darkest
+            at top/bottom where headings and body text sit. */}
+        <div
+          aria-hidden
+          className="absolute inset-0"
+          style={{
+            background:
+              'linear-gradient(180deg, rgba(3,4,9,0.58) 0%, rgba(3,4,9,0.34) 24%, rgba(3,4,9,0.46) 58%, rgba(3,4,9,0.7) 100%), radial-gradient(120% 65% at 50% 34%, rgba(3,4,9,0.12), rgba(3,4,9,0.6) 80%)',
+          }}
+        />
       </div>
 
       <div ref={contentRef} className="relative z-10 mx-auto flex w-full max-w-6xl flex-col px-6 py-8">
         {/* Top bar */}
         <header className="flex items-center justify-between">
-          <span className="font-serif text-2xl font-semibold tracking-wide text-foil-static">Beamwall</span>
+          <span className="font-display text-2xl font-semibold tracking-wide text-foil-static">Beamwall</span>
           <nav className="flex items-center gap-2.5">
             <a href="#pricing" className="hidden sm:inline rounded-full px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors">
               Pricing
@@ -511,10 +647,7 @@ export default function Landing() {
         <main className="flex flex-1 flex-col items-center overflow-x-clip text-center">
           <section data-parallax-scope className="relative flex w-full flex-col items-center pt-14 sm:pt-16">
             <div className="pointer-events-none relative z-20 flex flex-col items-center" data-parallax-depth="-0.05">
-              <span className="mb-5 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
-                AR photo booth &amp; live wall for events
-              </span>
-              <h1 className="max-w-3xl font-serif text-5xl leading-[1.05] text-shadow-lux sm:text-6xl">
+              <h1 className="mt-2 max-w-3xl font-display text-5xl leading-[1.05] text-shadow-lux sm:text-6xl">
                 Your event, in <span className="text-foil-static">augmented reality</span>.
               </h1>
               <p className="mt-6 max-w-2xl text-base leading-relaxed text-brand-muted/85 sm:text-lg">
@@ -562,7 +695,7 @@ export default function Landing() {
               playsInline so mobile browsers allow the autoplay loop. */}
           <section data-parallax-scope className="mt-32 w-full">
             <div data-reveal className="flex flex-col items-center">
-              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">The full experience</h2>
+              <h2 className="font-display text-3xl text-foil-static sm:text-4xl">The full experience</h2>
               <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
                 One minute of what your guests experience — booth, wall, challenges and keepsakes.
               </p>
@@ -583,7 +716,7 @@ export default function Landing() {
           {/* Live themed showcase */}
           <section data-parallax-scope className="mt-32 w-full">
             <div data-reveal className="relative flex flex-col items-center">
-              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">Pick a style, in one tap</h2>
+              <h2 className="font-display text-3xl text-foil-static sm:text-4xl">Pick a style, in one tap</h2>
               <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
                 Wedding, gala, birthday, corporate or party — booth, frames and wall recolor instantly, then
                 fine-tune everything in the studio.
@@ -606,7 +739,7 @@ export default function Landing() {
           {/* Pricing */}
           <section id="pricing" className="mt-32 w-full scroll-mt-8">
             <div data-reveal>
-              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">Simple pricing, per event</h2>
+              <h2 className="font-display text-3xl text-foil-static sm:text-4xl">Simple pricing, per event</h2>
               <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
                 Pay only for the events you host — no subscription required. Start free, upgrade an event
                 whenever you like. Frequent host? Beamwall Pro is <span className="text-brand-fg">$79/month</span> for
@@ -631,7 +764,7 @@ export default function Landing() {
                   )}
                   <h3 className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">{t.name}</h3>
                   <div className="mt-2 flex items-baseline gap-1.5">
-                    <span className="font-serif text-4xl text-foil-static">{t.price}</span>
+                    <span className="font-display text-4xl text-foil-static">{t.price}</span>
                     <span className="font-sans text-xs text-brand-muted/50">{t.unit}</span>
                   </div>
                   <p className="mt-2 font-sans text-[12px] leading-relaxed text-brand-muted/60">{t.blurb}</p>
@@ -677,7 +810,7 @@ export default function Landing() {
 
           {/* Closing CTA */}
           <div data-reveal className="mt-32 flex w-full max-w-2xl flex-col items-center rounded-3xl liquid-glass px-8 py-12 text-center">
-            <h2 className="font-serif text-3xl text-foil-static">Ready in minutes.</h2>
+            <h2 className="font-display text-3xl text-foil-static">Ready in minutes.</h2>
             <p className="mt-3 max-w-md text-sm leading-relaxed text-brand-muted/75">
               Create your event, pick a style, and share the QR code. Your guests bring the moments; the
               wall brings the magic.
@@ -693,7 +826,7 @@ export default function Landing() {
 
         {/* Footer */}
         <footer className="flex flex-col items-center gap-2 pb-6 pt-20 text-center">
-          <span className="font-serif text-lg text-foil-static">Beamwall</span>
+          <span className="font-display text-lg text-foil-static">Beamwall</span>
           <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
             Loved at weddings, galas &amp; milestone birthdays.
           </p>

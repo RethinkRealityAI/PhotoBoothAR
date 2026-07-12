@@ -56,6 +56,12 @@ jobs:
             ffmpeg -y -i "$f" -c:v libx264 -preset slow -crf 27 -pix_fmt yuv420p -movflags +faststart -an "$tmp"
             mv "$tmp" "$f"
           done
+          # Landing-page hero art → the app imports the .webp sibling, never
+          # the raw fetched PNG (src/lib/landingAssets.ts); re-derive it on
+          # every fetch so a regenerated PNG always reaches the app.
+          for f in src/assets/landing/*.png; do
+            ffmpeg -y -i "$f" -quality 85 "${f%.png}.webp"
+          done
 
       - name: Commit vendored assets
         run: |

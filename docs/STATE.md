@@ -10,6 +10,7 @@ MERGED TO MAIN (2026-07-11). PR #14 (studio) and PR #15 (landing) were combined 
 Nothing queued. Remaining work is the live-hardware checklists below (user-driven) and the platform launch gates (valid GEMINI_API_KEY, Stripe LIVE keys). DemoBooth.tsx deletion still needs explicit user approval before doing it.
 
 ## Constraints
+- User (2026-07-12, home-page-refinement-xzh4pg): "Keep everything else exactly the same: how they're kind of angled and staggered below the main text and that they are large" — re: the hero FrameShowcase arc, while swapping its content for real event frames.
 - User (2026-07-07): Gemini API key must NEVER be committed to the repo; Supabase edge-function secrets only.
 - (platform) Never break legacy-events sites — faceRig/Booth/Overlay3D are shared; keep default behavior compatible.
 - (platform) No `.env.local` with VITE_EVENT during tests.
