@@ -224,80 +224,88 @@ function FilmEmbed({ src, poster, label }: { src: string; poster: string; label:
   );
 }
 
-/** Transparent-cutout artwork that floats over a tinted glow. */
-function CutoutArt({ feature }: { feature: Feature }) {
+/**
+ * The feature's media as ONE overlapping composition: its looping film in a
+ * glass card tilted to face the viewer, with the pillar's cutout art floating
+ * over the inner corner (toward the copy). Replaces the old small in-text video
+ * + separate art column — on mobile the film now reads large and the cutout
+ * layers over it (the two float out of phase for a live, dimensional feel).
+ */
+function FeatureMedia({ feature }: { feature: Feature }) {
   const [failed, setFailed] = useState(false);
+  const tilt = feature.flip ? 7 : -7; // lean toward the viewer / page centre
+  const framed = feature.imageStyle === 'framed'; // a scene → little frame; cutout → floats free
+  const innerSide = feature.flip ? 'right-[-8%]' : 'left-[-8%]'; // overlap toward the copy
   return (
-    <div className="relative mx-auto flex aspect-square w-full max-w-[19rem] items-center justify-center sm:max-w-[26rem]" data-parallax-depth="0.14">
+    <div
+      className="relative mx-auto w-full max-w-[23rem] sm:max-w-[27rem]"
+      data-parallax-depth="0.1"
+      style={{ perspective: '1200px' }}
+    >
+      {/* tinted glow behind the media */}
       <div
-        className="absolute inset-[8%] rounded-full blur-3xl"
-        style={{ background: `radial-gradient(circle, rgba(${feature.rgb}, 0.32), transparent 68%)` }}
+        aria-hidden
+        className="absolute -inset-6 -z-10 rounded-[3rem] blur-3xl"
+        style={{ background: `radial-gradient(circle at 50% 42%, rgba(${feature.rgb}, 0.30), transparent 70%)` }}
       />
-      {!failed ? (
-        <img
-          src={feature.image}
-          alt=""
-          aria-hidden
-          className="animate-float relative max-h-full w-auto max-w-full object-contain drop-shadow-[0_24px_60px_rgba(0,0,0,0.55)]"
-          loading="lazy"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <feature.Icon size={96} from={feature.from} to={feature.to} className="relative" />
-      )}
-      {/* grounding glow puddle */}
+      {/* the film, in a tilted glass frame */}
       <div
-        className="absolute bottom-[6%] left-1/2 h-6 w-3/5 -translate-x-1/2 rounded-full blur-2xl"
-        style={{ background: `rgba(${feature.rgb}, 0.35)` }}
-      />
-    </div>
-  );
-}
-
-/** Photographic artwork inside a glowing glass frame. */
-function FramedArt({ feature }: { feature: Feature }) {
-  const [failed, setFailed] = useState(false);
-  return (
-    <div className="relative mx-auto w-full max-w-[19rem] sm:max-w-[24rem]" data-parallax-depth="0.14">
-      <div
-        className="animate-float relative aspect-[4/5] overflow-hidden rounded-3xl"
+        className="animate-float relative overflow-hidden rounded-3xl"
         style={{
+          transform: `rotateY(${tilt}deg)`,
+          transformStyle: 'preserve-3d',
           border: `1px solid rgba(${feature.rgb}, 0.5)`,
-          boxShadow: `0 0 46px -8px rgba(${feature.rgb}, 0.5), 0 30px 80px -30px rgba(0,0,0,0.8)`,
-          transform: 'rotate(2deg)',
+          boxShadow: `0 0 46px -8px rgba(${feature.rgb}, 0.5), 0 40px 92px -34px rgba(0,0,0,0.85)`,
         }}
       >
-        {!failed ? (
+        <FilmEmbed src={feature.video} poster={feature.videoPoster} label={`${feature.title} — feature film`} />
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{ background: 'linear-gradient(155deg, rgba(255,255,255,0.12), transparent 34%)' }}
+        />
+      </div>
+      {/* overlapping floating art — offset animation phase so it drifts against
+          the film rather than in lockstep. */}
+      <div className={`absolute bottom-[-9%] w-[46%] animate-float ${innerSide}`} style={{ animationDelay: '-3s' }}>
+        {failed ? (
+          <feature.Icon size={72} from={feature.from} to={feature.to} className="mx-auto drop-shadow-[0_12px_30px_rgba(0,0,0,0.6)]" />
+        ) : framed ? (
+          <div
+            className="overflow-hidden rounded-2xl"
+            style={{
+              transform: 'rotate(-4deg)',
+              border: `1px solid rgba(${feature.rgb}, 0.55)`,
+              boxShadow: `0 0 30px -8px rgba(${feature.rgb}, 0.55), 0 22px 50px -20px rgba(0,0,0,0.85)`,
+            }}
+          >
+            <img
+              src={feature.image}
+              alt=""
+              aria-hidden
+              className="aspect-[4/5] w-full object-cover"
+              loading="lazy"
+              onError={() => setFailed(true)}
+            />
+          </div>
+        ) : (
           <img
             src={feature.image}
             alt=""
             aria-hidden
-            className="h-full w-full object-cover"
+            className="w-full object-contain drop-shadow-[0_18px_44px_rgba(0,0,0,0.6)]"
             loading="lazy"
             onError={() => setFailed(true)}
           />
-        ) : (
-          <div
-            className="flex h-full w-full items-center justify-center"
-            style={{ background: `radial-gradient(120% 90% at 50% 25%, rgba(${feature.rgb}, 0.3), rgba(6,7,13,0.8) 70%)` }}
-          >
-            <feature.Icon size={80} from={feature.from} to={feature.to} />
-          </div>
         )}
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{ background: 'linear-gradient(165deg, rgba(255,255,255,0.12), transparent 32%)' }}
-        />
       </div>
     </div>
   );
 }
 
 function FeatureSection({ feature }: { feature: Feature }) {
-  const art = feature.imageStyle === 'cutout' ? <CutoutArt feature={feature} /> : <FramedArt feature={feature} />;
   return (
-    <section data-parallax-scope className="grid w-full items-center gap-10 sm:grid-cols-2 sm:gap-14">
-      {/* Text slides in from its own side; artwork from the opposite side. */}
+    <section data-parallax-scope className="grid w-full items-center gap-12 sm:grid-cols-2 sm:gap-14">
+      {/* Text slides in from its own side; media from the opposite side. */}
       <div data-reveal={feature.flip ? 'right' : 'left'} className={`text-left ${feature.flip ? 'sm:order-2' : ''}`}>
         <div
           className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-2xl"
@@ -322,19 +330,12 @@ function FeatureSection({ feature }: { feature: Feature }) {
             </li>
           ))}
         </ul>
-        <div
-          data-reveal
-          className="relative mt-8 max-w-md overflow-hidden rounded-2xl"
-          style={{
-            border: `1px solid rgba(${feature.rgb}, 0.4)`,
-            boxShadow: `0 0 34px -10px rgba(${feature.rgb}, 0.5), 0 20px 60px -24px rgba(0,0,0,0.8)`,
-          }}
-        >
-          <FilmEmbed src={feature.video} poster={feature.videoPoster} label={`${feature.title} — feature film`} />
-        </div>
       </div>
-      <div data-reveal={feature.flip ? 'left' : 'right'} className={feature.flip ? 'sm:order-1' : ''}>
-        {art}
+      <div
+        data-reveal={feature.flip ? 'left' : 'right'}
+        className={`mt-2 sm:mt-0 ${feature.flip ? 'sm:order-1' : ''}`}
+      >
+        <FeatureMedia feature={feature} />
       </div>
     </section>
   );

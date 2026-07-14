@@ -23,6 +23,19 @@ import { Link } from 'react-router-dom';
 import { Check, X } from 'lucide-react';
 import { BoothIcon, WallIcon, ChallengeIcon, CardIcon, StudioIcon, type BeamIconProps } from './BeamIcons';
 import { HERO_BOOTH_PORTRAIT, WALL_SCENE, TROPHY_CUTOUT, CARD_CUTOUT } from '../../lib/landingAssets';
+import boothFeatureVideo from '../../assets/landing/booth-feature.mp4';
+import boothFeaturePoster from '../../assets/landing/booth-feature-poster.jpg';
+import wallFeatureVideo from '../../assets/landing/wall-feature.mp4';
+import wallFeaturePoster from '../../assets/landing/wall-feature-poster.jpg';
+import challengesFeatureVideo from '../../assets/landing/challenges-feature.mp4';
+import challengesFeaturePoster from '../../assets/landing/challenges-feature-poster.jpg';
+import cardsFeatureVideo from '../../assets/landing/cards-feature.mp4';
+import cardsFeaturePoster from '../../assets/landing/cards-feature-poster.jpg';
+
+/** The luxe "designed frame" accent — emerald green + foil gold on black,
+ *  showcasing what the AI Studio can craft. Used by the studio frame only. */
+const LUXE_GREEN = '31, 169, 113';
+const LUXE_GOLD = '231, 200, 115';
 
 export interface ShowcaseFrame {
   id: string;
@@ -34,8 +47,14 @@ export interface ShowcaseFrame {
   Icon: ComponentType<BeamIconProps>;
   /** Full-bleed photographic fill. */
   image?: string;
+  /** Looping feature footage played inside the frame (managed play/pause). */
+  video?: string;
+  /** Poster still for `video` (shown before play + in the floor reflection). */
+  videoPoster?: string;
   /** Transparent cutout, floated over a tinted glow instead of full-bleed. */
   cutout?: string;
+  /** Renders the ornate green/black/gold "designed frame" treatment. */
+  luxe?: boolean;
   /** Hidden below the sm breakpoint so mobile shows 3 big frames. */
   desktopOnly?: boolean;
   /** Modal copy. */
@@ -53,6 +72,8 @@ export const SHOWCASE_FRAMES: ShowcaseFrame[] = [
     rgb: '251, 146, 60',
     Icon: ChallengeIcon,
     cutout: TROPHY_CUTOUT,
+    video: challengesFeatureVideo,
+    videoPoster: challengesFeaturePoster,
     desktopOnly: true,
     blurb:
       'Set photo challenges — “catch the first dance”, “selfie with a stranger” — and a live leaderboard lights the wall up while guests race to complete them.',
@@ -66,6 +87,8 @@ export const SHOWCASE_FRAMES: ShowcaseFrame[] = [
     rgb: '91, 140, 255',
     Icon: BoothIcon,
     image: HERO_BOOTH_PORTRAIT,
+    video: boothFeatureVideo,
+    videoPoster: boothFeaturePoster,
     blurb:
       'One QR code drops every guest into an AR photo booth in their browser — face-tracked 3D props, live effects and your frames, with zero downloads.',
     bullets: ['Face-tracked 3D props & frames', 'Cinematic live WebGL effects', 'Photo & video, no app needed'],
@@ -78,6 +101,8 @@ export const SHOWCASE_FRAMES: ShowcaseFrame[] = [
     rgb: '34, 211, 238',
     Icon: WallIcon,
     image: WALL_SCENE,
+    video: wallFeatureVideo,
+    videoPoster: wallFeaturePoster,
     blurb:
       'Every capture beams onto a cinematic wall the whole room watches — mosaic, slideshow and marquee views, moderated from your phone in one tap.',
     bullets: ['Realtime beam-in animations', 'Mosaic, slideshow & marquee views', 'One-tap moderation'],
@@ -90,6 +115,8 @@ export const SHOWCASE_FRAMES: ShowcaseFrame[] = [
     rgb: '232, 121, 249',
     Icon: CardIcon,
     cutout: CARD_CUTOUT,
+    video: cardsFeatureVideo,
+    videoPoster: cardsFeaturePoster,
     blurb:
       'Guests leave short video messages and sign a collective greeting card — a keepsake you keep forever, with an overnight highlight film on premium plans.',
     bullets: ['Video guestbook messages', 'Collaborative greeting cards', 'Keepsake highlight film'],
@@ -98,9 +125,11 @@ export const SHOWCASE_FRAMES: ShowcaseFrame[] = [
     id: 'studio',
     label: 'AI Studio',
     caption: 'Custom frames & effects',
-    hue: '#7C6CF7',
-    rgb: '124, 108, 247',
+    // Gold label + gold/green ornate border make this the "designed frame".
+    hue: '#E7C873',
+    rgb: LUXE_GOLD,
     Icon: StudioIcon,
+    luxe: true,
     desktopOnly: true,
     blurb:
       'Describe a look and the AI studio generates custom frames, stickers and 3D props on brand for your event — then fine-tune everything by hand.',
@@ -121,24 +150,107 @@ function arcStyle(offset: number): { rotateY: number; z: number; lift: number } 
 /** Width per slot — center largest, tapering outward; bigger than v1. */
 const SLOT_WIDTH = ['w-40 sm:w-44', 'w-44 sm:w-52', 'w-52 sm:w-64', 'w-44 sm:w-52', 'w-40 sm:w-44'];
 
-/** The glass panel itself — rendered twice (frame + flipped reflection). */
-function FrameVisual({ frame, failed, onFail }: { frame: ShowcaseFrame; failed: boolean; onFail: () => void }) {
-  const { hue, rgb, Icon, image, cutout } = frame;
-  const showImage = Boolean(image) && !failed;
-  const showCutout = Boolean(cutout) && !failed;
+/** Looping feature footage inside a frame — plays only while ~in view and
+ *  pauses offscreen (iOS caps concurrent video pipelines; five hero frames
+ *  decoding at once would silently freeze some). Mirrors Landing's FilmEmbed. */
+function FrameFilm({ src, poster, onError }: { src: string; poster?: string; onError: () => void }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) el.play().catch(() => { /* autoplay blocked — poster stays */ });
+        else el.pause();
+      },
+      { threshold: 0.25 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <video
+      ref={ref}
+      src={src}
+      poster={poster}
+      muted
+      loop
+      playsInline
+      preload="metadata"
+      className="h-full w-full object-cover"
+      onError={onError}
+      aria-hidden
+    />
+  );
+}
+
+/** The ornate green/black/gold "designed frame" fill — a rotating emerald↔gold
+ *  conic sheen leaves a thin jewelled ring around a black interior, with a gold
+ *  hairline double-rule and the studio mark. Reflections render it still. */
+function LuxeFrameFill({ frame, reflection }: { frame: ShowcaseFrame; reflection: boolean }) {
+  const { Icon } = frame;
+  return (
+    <>
+      <div
+        className="absolute left-1/2 top-1/2 h-[220%] w-[220%] -translate-x-1/2 -translate-y-1/2"
+        style={{
+          background: `conic-gradient(from 0deg, rgba(${LUXE_GOLD}, 0.95), rgba(${LUXE_GREEN}, 0.85) 20%, rgba(3,5,9,0.35) 33%, rgba(${LUXE_GOLD}, 0.98) 50%, rgba(${LUXE_GREEN}, 0.85) 68%, rgba(3,5,9,0.35) 82%, rgba(${LUXE_GOLD}, 0.95))`,
+          animation: reflection ? 'none' : 'slow-spin 11s linear infinite',
+        }}
+      />
+      {/* black interior leaving a ~3px jewelled ring */}
+      <div
+        className="absolute inset-[3px] rounded-[inherit]"
+        style={{ background: `radial-gradient(120% 90% at 50% 22%, rgba(${LUXE_GREEN}, 0.16), rgba(5,6,11,0.97) 60%)` }}
+      />
+      {/* gold hairline double-rule */}
+      <div className="pointer-events-none absolute inset-[10px] rounded-2xl" style={{ border: `1px solid rgba(${LUXE_GOLD}, 0.4)` }} />
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5">
+        <Icon size={52} from="#E7C873" to="#1FA971" />
+        <span className="font-label uppercase tracking-luxe text-[8px]" style={{ color: `rgba(${LUXE_GOLD}, 0.85)` }}>
+          Designed for you
+        </span>
+      </div>
+    </>
+  );
+}
+
+/** The glass panel itself — rendered twice (frame + flipped reflection).
+ *  `reflection` swaps the live video for its still poster and stills the luxe
+ *  sheen (a second decoding video / spinning gradient beneath is wasteful). */
+function FrameVisual({
+  frame, failed, onFail, reflection = false,
+}: {
+  frame: ShowcaseFrame;
+  failed: boolean;
+  onFail: () => void;
+  reflection?: boolean;
+}) {
+  const { hue, rgb, Icon, image, cutout, video, videoPoster, luxe } = frame;
+  // A video that can't decode (e.g. a browser without H.264) falls back to its
+  // poster still — a real frame of the footage — never straight to the icon.
+  const [videoFailed, setVideoFailed] = useState(false);
+  const showVideo = Boolean(video) && !reflection && !failed && !videoFailed;
+  const still = image ?? videoPoster; // full-bleed still: reflections + video fallbacks
+  const showImage = !luxe && !showVideo && Boolean(still) && !failed;
+  const showCutout = !luxe && !showVideo && !showImage && Boolean(cutout) && !failed;
   return (
     <div
       className="relative aspect-[5/8] w-full overflow-hidden rounded-2xl sm:rounded-3xl"
       style={{
         border: `1px solid rgba(${rgb}, 0.55)`,
         boxShadow: `0 0 34px -6px rgba(${rgb}, 0.55), 0 0 90px -16px rgba(${rgb}, 0.4), inset 0 0 50px -10px rgba(${rgb}, 0.35)`,
-        background: showImage
+        background: showImage || showVideo || luxe
           ? undefined
           : `radial-gradient(120% 90% at 50% 24%, rgba(${rgb}, 0.30), transparent 66%), rgba(6, 7, 13, 0.72)`,
       }}
     >
-      {showImage ? (
-        <img src={image} alt="" aria-hidden className="h-full w-full object-cover" onError={onFail} />
+      {luxe ? (
+        <LuxeFrameFill frame={frame} reflection={reflection} />
+      ) : showVideo ? (
+        <FrameFilm src={video!} poster={videoPoster} onError={() => setVideoFailed(true)} />
+      ) : showImage ? (
+        <img src={still} alt="" aria-hidden className="h-full w-full object-cover" onError={onFail} />
       ) : showCutout ? (
         <div className="absolute inset-0 flex items-end justify-center p-2">
           <img
@@ -224,7 +336,7 @@ function ArcFrame({
           WebkitMaskImage: 'linear-gradient(to top, rgba(0,0,0,0.5), transparent 78%)',
         }}
       >
-        <FrameVisual frame={frame} failed={failed} onFail={() => setFailed(true)} />
+        <FrameVisual frame={frame} failed={failed} onFail={() => setFailed(true)} reflection />
       </div>
     </motion.div>
   );

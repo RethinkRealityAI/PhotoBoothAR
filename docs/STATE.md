@@ -1,13 +1,17 @@
 # STATE
 
 ## Goal
-Two platform overhauls converging to main: (1) unified event studio editor — single camera, mixed 2D/3D scenes, AR occlusion + auto head-size, drag-and-drop, a conversational AI Director, Magic Triggers (PR #14); (2) InteractiveShowcase — the landing page's interactive AR demo with a cross-device phone-to-wall beam (PR #15).
+Beta-release landing polish (branch claude/beta-release-polish-z58r57): (1) put feature footage inside the hero FrameShowcase frames; (2) make the last hero frame a green/black/gold luxe frame; (3) on mobile enlarge FeatureSection videos + overlap the cutout art tilted toward the viewer. Verify all UI with desktop+mobile screenshots; animations must work.
 
 ## Now
-MERGED TO MAIN (2026-07-11). PR #14 (studio) and PR #15 (landing) were combined on the studio branch (merge commit db67b37 — only src/App.tsx and this doc were touched by both PRs, both resolved cleanly: App.tsx auto-merged, App.tsx additive-only overlap; STATE.md hand-compacted), gates re-verified on the combined tree (tsc 0 · 466 tests · build ✓), pushed, PR #14 marked ready-for-review and merged via GitHub (merge commit 5e94c35 on main) — PR #15 auto-closed as merged since its commits became ancestors of main. CI green on main (`CI` + `Fetch remote assets` workflows both success on 5e94c35). Local main fast-forwarded to 5e94c35.
+Landing polish DONE + committed locally on claude/beta-release-polish-z58r57. Awaiting user OK to push + open draft PR (CLAUDE.md hard-stop: no push unless the user asked in-conversation; they said "make these changes" but not "push").
 
 ## Next
-Nothing queued. Remaining work is the live-hardware checklists below (user-driven) and the platform launch gates (valid GEMINI_API_KEY, Stripe LIVE keys). DemoBooth.tsx deletion still needs explicit user approval before doing it.
+1. Ask user to confirm push + draft PR. 2. On confirm: git push -u origin claude/beta-release-polish-z58r57; open draft PR; subscribe_pr_activity.
+
+## Done (this session)
+- LANDING BETA POLISH — RESULT: (1) hero FrameShowcase frames now play our feature footage — managed <video> (IntersectionObserver play/pause, mirrors FilmEmbed) in challenges/booth/wall/cards; H.264-less browsers fall back to the poster STILL, not the icon (new videoFailed state). (2) Last hero frame (AI Studio) is now a green/black/gold ornate "designed frame" — rotating emerald↔gold conic sheen (GoldFrameCard idiom) around a black interior, "Designed for you"; reflection renders it still. (3) Landing FeatureSection rebuilt as FeatureMedia composite: the film in a larger rotateY-tilted glass card facing the viewer, with the pillar cutout floating over the inner corner (out-of-phase float), replacing the old small in-text video + separate art column — fixes the "mobile videos too small / cutouts not overlapping / not tilted" report. Gates: tsc 0 · 466 tests · build ✓. Verified via Playwright/Chromium screenshots at 1440 + 390 (hero, all 4 feature sections both widths, interactive demo) — footage visible in frames, green/gold frame reads, tilted media + overlapping cutouts on mobile, InteractiveShowcase intact, zero pageerrors (only harmless fake-Supabase connection reset in sandbox).
+- Note: headless Chromium lacks H.264 so frame/feature videos show POSTER STILLS in screenshots; the mp4s serve HTTP 200 and play in real browsers (same assets the shipped FilmEmbed already relies on).
 
 ## Constraints
 - User (2026-07-07): Gemini API key must NEVER be committed to the repo; Supabase edge-function secrets only.
