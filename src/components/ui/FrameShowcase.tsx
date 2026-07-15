@@ -117,6 +117,9 @@ export const SHOWCASE_FRAMES: ShowcaseFrame[] = [
     cutout: CARD_CUTOUT,
     video: cardsFeatureVideo,
     videoPoster: cardsFeaturePoster,
+    // On mobile we show 3 frames; Cards keeps its own full feature section
+    // below, so it yields its hero slot to the green/gold AI Studio frame.
+    desktopOnly: true,
     blurb:
       'Guests leave short video messages and sign a collective greeting card — a keepsake you keep forever, with an overnight highlight film on premium plans.',
     bullets: ['Video guestbook messages', 'Collaborative greeting cards', 'Keepsake highlight film'],
@@ -126,11 +129,11 @@ export const SHOWCASE_FRAMES: ShowcaseFrame[] = [
     label: 'AI Studio',
     caption: 'Custom frames & effects',
     // Gold label + gold/green ornate border make this the "designed frame".
+    // Shown on mobile too (it's the signature visual).
     hue: '#E7C873',
     rgb: LUXE_GOLD,
     Icon: StudioIcon,
     luxe: true,
-    desktopOnly: true,
     blurb:
       'Describe a look and the AI studio generates custom frames, stickers and 3D props on brand for your event — then fine-tune everything by hand.',
     bullets: ['AI-generated frames & stickers', 'Custom 3D props', 'Full manual fine-tuning'],
@@ -147,8 +150,30 @@ function arcStyle(offset: number): { rotateY: number; z: number; lift: number } 
   };
 }
 
-/** Width per slot — center largest, tapering outward; bigger than v1. */
-const SLOT_WIDTH = ['w-40 sm:w-44', 'w-44 sm:w-52', 'w-52 sm:w-64', 'w-44 sm:w-52', 'w-40 sm:w-44'];
+/** Width by absolute distance from centre — center largest, tapering outward.
+ *  Keyed on the offset (not array index) so the mobile trio stays a balanced
+ *  arc once the desktop-only frames drop out. */
+function slotWidth(offset: number): string {
+  const abs = Math.abs(offset);
+  return abs === 0 ? 'w-52 sm:w-64' : abs === 1 ? 'w-44 sm:w-52' : 'w-40 sm:w-44';
+}
+
+/** True below the `sm` breakpoint (640px), where the arc drops its desktop-only
+ *  frames to the three that fit. Kept in JS (not just CSS) so the arc geometry
+ *  re-centres on the frames actually shown. */
+function useIsMobile(): boolean {
+  const query = '(max-width: 639px)';
+  const [mobile, setMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const onChange = () => setMobile(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return mobile;
+}
 
 /** Looping feature footage inside a frame — plays only while ~in view and
  *  pauses offscreen (iOS caps concurrent video pipelines; five hero frames
@@ -281,23 +306,27 @@ function FrameVisual({
 
 function ArcFrame({
   frame,
-  index,
+  offset,
+  delayIndex,
   onOpen,
 }: {
   frame: ShowcaseFrame;
-  index: number;
+  /** Signed distance from the arc centre (drives tilt, depth and width). */
+  offset: number;
+  /** Position in render order, for the staggered beam-in delay. */
+  delayIndex: number;
   onOpen: (frame: ShowcaseFrame) => void;
 }) {
-  const { label, caption, hue, rgb, desktopOnly } = frame;
+  const { label, caption, hue, rgb } = frame;
   const [failed, setFailed] = useState(false);
-  const { rotateY, z, lift } = arcStyle(index - 2);
+  const { rotateY, z, lift } = arcStyle(offset);
   return (
     <motion.div
-      className={`${desktopOnly ? 'hidden sm:block' : ''} ${SLOT_WIDTH[index]} shrink-0`}
+      className={`${slotWidth(offset)} shrink-0`}
       style={{ transform: `translateY(-${lift}px) rotateY(${rotateY}deg) translateZ(${z}px)`, transformStyle: 'preserve-3d' }}
       initial={{ opacity: 0, y: -80, scaleY: 0.5, filter: 'brightness(2.4) blur(8px)' }}
       animate={{ opacity: 1, y: 0, scaleY: 1, filter: 'brightness(1) blur(0px)' }}
-      transition={{ duration: 1, delay: 0.25 + index * 0.16, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 1, delay: 0.25 + delayIndex * 0.16, ease: [0.16, 1, 0.3, 1] }}
     >
       {/* light beaming up from the frame into the sky — subtle */}
       <div
@@ -428,6 +457,12 @@ function FrameModal({ frame, onClose }: { frame: ShowcaseFrame; onClose: () => v
 
 export default function FrameShowcase({ className = '' }: { className?: string }): ReactNode {
   const [openFrame, setOpenFrame] = useState<ShowcaseFrame | null>(null);
+  const isMobile = useIsMobile();
+  // Mobile drops the desktop-only frames to the three that fit; the arc then
+  // re-centres on those (offsets −1, 0, +1) instead of sampling the desktop
+  // five, so the green/gold Studio frame sits as a balanced side panel.
+  const frames = SHOWCASE_FRAMES.filter((f) => !f.desktopOnly || !isMobile);
+  const center = Math.floor(frames.length / 2);
   return (
     <div className={`relative ${className}`}>
       {/* floor glow the frames stand on */}
@@ -440,8 +475,8 @@ export default function FrameShowcase({ className = '' }: { className?: string }
         className="flex items-end justify-center gap-3 sm:gap-5"
         style={{ perspective: '1400px' }}
       >
-        {SHOWCASE_FRAMES.map((frame, i) => (
-          <ArcFrame key={frame.id} frame={frame} index={i} onOpen={setOpenFrame} />
+        {frames.map((frame, i) => (
+          <ArcFrame key={frame.id} frame={frame} offset={i - center} delayIndex={i} onOpen={setOpenFrame} />
         ))}
       </div>
       <AnimatePresence>
