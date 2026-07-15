@@ -7,7 +7,13 @@ Beta-release landing polish (branch claude/beta-release-polish-z58r57): (1) put 
 Draft PR #17 open + watched (https://github.com/RethinkRealityAI/PhotoBoothAR/pull/17). Pushed 5 commits: landing polish (6829c09), beta-readiness S1-S4 (219b05b), green/gold-on-mobile balanced arc (1c64980), studio first-run onboarding tour (0f7ca46). Gemini key WORKING per user.
 
 ## Next
-Deliver pre-launch gap analysis to user (their ask). Then await direction. Remaining USER-side gates: Stripe LIVE keys, real-hardware E2E, confirm legal entity/contact/jurisdiction. Optional: Higgsfield marketing hero art (user asked; I used real /dev/studio screenshots instead — more authentic; offered swap).
+Awaiting beamwall-video agent (background) = 2 Higgsfield intro videos (narrated explainer + sizzle, 16:9, logo ending from hyperframes/studio/promo). On completion: review, push, note sizzle placement. Remaining USER-side gates: Stripe LIVE keys, real-hardware E2E, legal entity/contact confirm, + Supabase advisor fixes (public-bucket listing, leaked-password toggle). VERIFY live hero content on deploy-preview-17 (sandbox can't reach *.supabase.co).
+
+## Done (this session, cont. 3) — round 4 user asks (2026-07-15)
+- 4 decisions locked (AskUserQuestion): live content = pull LIVE from real events (user has marketing permission; approved+non-hidden only); real frames = HERO CAROUSEL ONLY; motion = continuous smooth auto-scroll; video = narrated explainer + sizzle, 16:9, logo ending from current promo.
+- HERO REBUILT (be9f1ff) → src/components/ui/LiveHeroCarousel.tsx: angled coverflow (rotateY -24deg) auto-scroll marquee (rAF, seamless 2x loop, pause-on-hover, pointer drag, reduced-motion=drag-only) of REAL event frames (jenna-jake jj-neon-frame/jj-lower-third, hope-gala frame-classic/frame-deco, detola-wuyi dw-frame-monogram/dw-frame-classic via BORDER_MAP+toDataUrl) each streaming fetchPosts(slug,{limit:24}) media (image/video), branded fallback when no data. Landing.tsx swapped FrameShowcase→LiveHeroCarousel (FrameShowcase.tsx now UNUSED — delete pending approval). Verified frames+motion+fallback in sandbox; LIVE content only verifiable on deploy preview.
+- STUDIO ONBOARDING +2D/3D/Preview step (e7b5be2): new modes step (Layers/Box/Eye tri-panel) explaining the three canvas views.
+- GAP ANALYSIS delivered to user, grounded in Supabase security advisors: WARN public-bucket listing (posts/assets enumerable cross-event — privacy), WARN leaked-password protection off, WARN anon/authed SECURITY DEFINER RPCs; + email deliverability for password reset, no error monitoring (Sentry), no analytics, Stripe Tax, rate limits, account self-delete.
 
 ## Done (this session, cont. 2)
 - GREEN/GOLD ON MOBILE (1c64980) — FrameShowcase arc geometry now derives tilt/depth/width from position among VISIBLE frames (useIsMobile + slotWidth(offset)); mobile shows booth/wall/green-gold-studio at −1/0/+1, desktop unchanged (all 5). Verified desktop+mobile screenshots.
