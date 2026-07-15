@@ -22,7 +22,7 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { EVENT_TEMPLATES } from '../lib/eventTemplates';
 import TemplatePreview from '../components/ui/TemplatePreview';
 import SpectrumField from '../components/ui/SpectrumField';
-import FrameShowcase from '../components/ui/FrameShowcase';
+import LiveHeroCarousel from '../components/ui/LiveHeroCarousel';
 import { BoothIcon, WallIcon, ChallengeIcon, CardIcon, type BeamIconProps } from '../components/ui/BeamIcons';
 import { BOOTH_CUTOUT, WALL_SCENE, TROPHY_CUTOUT, CARD_CUTOUT, FRAME_CLUSTER_CUTOUT } from '../lib/landingAssets';
 import promoVideo from '../assets/landing/beamwall-promo.mp4';
@@ -540,13 +540,11 @@ export default function Landing() {
               <p className="mt-4 font-sans text-xs text-brand-muted/50">Free to start · no credit card to create your event.</p>
             </div>
 
-            {/* Focal visual — the beam wall itself: tall glowing frames in a
-                perspective arc, beams rising behind the copy, reflections on
-                the floor. Tap a frame to learn about that pillar. mt-12 on
-                mobile keeps the arc clear of the hero fine print (they overlap
-                at mt-2 on narrow screens). */}
-            <div className="relative z-10 mt-12 w-full max-w-5xl sm:-mt-12" data-parallax-depth="0.08">
-              <FrameShowcase className="w-full" />
+            {/* Focal visual — a live, auto-scrolling coverflow of real event
+                frames streaming actual moderated moments from those events'
+                walls. mt-12 on mobile keeps it clear of the hero fine print. */}
+            <div className="relative z-10 mt-10 w-full max-w-6xl sm:mt-4" data-parallax-depth="0.08">
+              <LiveHeroCarousel className="w-full" />
             </div>
           </section>
 
