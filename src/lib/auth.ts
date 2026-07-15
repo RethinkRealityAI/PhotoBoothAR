@@ -47,6 +47,22 @@ export function signOut() {
   return supabase.auth.signOut();
 }
 
+/**
+ * Send a password-reset email. The link returns the user to /reset-password
+ * with a short-lived recovery session (implicit flow, detectSessionInUrl),
+ * where they set a new password via `updatePassword`.
+ */
+export function sendPasswordReset(email: string) {
+  return supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/reset-password`,
+  });
+}
+
+/** Set a new password for the currently-authenticated (or recovery) session. */
+export function updatePassword(password: string) {
+  return supabase.auth.updateUser({ password });
+}
+
 /** Current session, or null when signed out. */
 export async function getSession(): Promise<Session | null> {
   const { data } = await supabase.auth.getSession();

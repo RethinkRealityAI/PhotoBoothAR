@@ -103,6 +103,13 @@ export default function Login() {
               />
             </label>
 
+            <Link
+              to="/forgot-password"
+              className="-mt-1 self-end text-xs text-brand-muted/60 underline-offset-4 transition hover:text-brand-fg hover:underline"
+            >
+              Forgot password?
+            </Link>
+
             {error && (
               <p role="alert" className="text-sm text-red-400">
                 {error}

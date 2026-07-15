@@ -14,6 +14,10 @@ import { AlertTriangle, RotateCcw } from 'lucide-react';
 interface Props {
   /** Short label for what failed, e.g. "3D view" (shown in the fallback). */
   label: string;
+  /** Full-screen variant for the app-root boundary: centered on its own dark
+   *  backdrop, and offers a hard page reload in addition to a remount (a
+   *  whole-app crash usually can't be recovered by remounting alone). */
+  fullScreen?: boolean;
   children: ReactNode;
 }
 
@@ -34,11 +38,38 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (!this.state.error) return this.props.children;
+    const { label, fullScreen } = this.props;
+    if (fullScreen) {
+      return (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-brand-bg px-8 text-center">
+          <AlertTriangle className="h-8 w-8 text-amber-400" />
+          <p className="max-w-xs font-serif text-xl text-brand-fg">Something went wrong.</p>
+          <p className="max-w-xs text-sm leading-relaxed text-brand-muted/70">
+            The {label} hit an unexpected error. Reloading usually fixes it — nothing you saved is lost.
+          </p>
+          <div className="mt-2 flex items-center gap-3">
+            <button
+              onClick={() => window.location.reload()}
+              className="flex items-center gap-1.5 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Reload
+            </button>
+            <button
+              onClick={() => this.setState({ error: null })}
+              className="rounded-full border border-white/15 bg-white/[0.04] px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg transition hover:bg-white/[0.08]"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center">
         <AlertTriangle className="w-7 h-7 text-amber-400" />
         <p className="font-label text-[10px] uppercase tracking-widest text-brand-muted">
-          The {this.props.label} hit a snag — your work is safe.
+          The {label} hit a snag — your work is safe.
         </p>
         <button
           onClick={() => this.setState({ error: null })}

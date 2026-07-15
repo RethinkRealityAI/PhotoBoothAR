@@ -693,11 +693,16 @@ export default function Landing() {
         </main>
 
         {/* Footer */}
-        <footer className="flex flex-col items-center gap-2 pb-6 pt-20 text-center">
+        <footer className="flex flex-col items-center gap-3 pb-6 pt-20 text-center">
           <span className="font-serif text-lg text-foil-static">Beamwall</span>
           <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
             Loved at weddings, galas &amp; milestone birthdays.
           </p>
+          <nav className="flex items-center gap-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
+            <Link to="/privacy" className="transition hover:text-brand-fg">Privacy</Link>
+            <span className="text-brand-muted/25">·</span>
+            <Link to="/terms" className="transition hover:text-brand-fg">Terms</Link>
+          </nav>
         </footer>
       </div>
     </div>
