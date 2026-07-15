@@ -10,10 +10,17 @@
  */
 import { useState, type ComponentType } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, ChevronRight, ChevronLeft, QrCode } from 'lucide-react';
+import { X, ChevronRight, ChevronLeft, QrCode, Layers, Box, Eye } from 'lucide-react';
 import libraryImg from '../../assets/studio/studio-library.jpg';
 import directorImg from '../../assets/studio/studio-director.jpg';
 import triggersImg from '../../assets/studio/studio-triggers.jpg';
+
+/** The studio's three canvas modes, explained in their own onboarding step. */
+const MODES = [
+  { Icon: Layers, label: '2D', caption: 'Lay out frames, stickers & filters flat on the photo.' },
+  { Icon: Box, label: '3D', caption: 'Place face-tracked props in the live 3D scene.' },
+  { Icon: Eye, label: 'Preview', caption: 'See exactly what a guest sees, all layers combined.' },
+];
 
 const ONBOARDED_KEY = 'beamwall.studio.onboarded';
 
@@ -44,6 +51,8 @@ interface Step {
   image?: string;
   /** Fallback icon when there's no representative screenshot (e.g. Go live). */
   Icon?: ComponentType<{ className?: string }>;
+  /** Renders the 2D / 3D / Preview explainer instead of an image. */
+  modes?: boolean;
 }
 
 const STEPS: Step[] = [
@@ -52,6 +61,12 @@ const STEPS: Step[] = [
     title: 'Design your look',
     body: 'Every frame, sticker, filter and 3D prop lives in one library — drop any onto your scene, or tap “AI Generate Frame” to create a new one, on brand, in seconds.',
     image: libraryImg,
+  },
+  {
+    eyebrow: 'One scene, three views',
+    title: '2D, 3D & Preview',
+    body: 'Switch the canvas between modes at the top: 2D for flat frames & filters, 3D to place face-tracked props, and Preview to see the finished result exactly as a guest will — all one scene.',
+    modes: true,
   },
   {
     eyebrow: 'AI Director',
@@ -144,6 +159,19 @@ export default function StudioOnboarding({ onDismiss }: { onDismiss: () => void 
             >
               {current.image ? (
                 <img src={current.image} alt="" aria-hidden className="h-full w-full object-cover object-top" draggable={false} />
+              ) : current.modes ? (
+                <div className="flex h-full w-full items-center justify-center gap-2.5 bg-[radial-gradient(120%_100%_at_50%_0%,color-mix(in_srgb,var(--color-accent)_16%,transparent),transparent_62%)] px-4">
+                  {MODES.map((m) => (
+                    <div
+                      key={m.label}
+                      className="flex flex-1 flex-col items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-2 py-4 text-center"
+                    >
+                      <m.Icon className="h-7 w-7 text-accent" />
+                      <span className="font-label uppercase tracking-luxe text-[10px] text-brand-fg">{m.label}</span>
+                      <span className="text-[10px] leading-snug text-brand-muted/70">{m.caption}</span>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(120%_100%_at_50%_0%,color-mix(in_srgb,var(--color-accent)_18%,transparent),transparent_60%)]">
                   {current.Icon && <current.Icon className="h-16 w-16 text-accent" />}
