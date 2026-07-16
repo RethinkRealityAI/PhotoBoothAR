@@ -29,6 +29,7 @@ import {
   generateImage, generate3d, pollJob, resolveEventUuid, aiErrorMessage, type AiErrorCode,
 } from '../../lib/ai';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
+import { measureGlbFitScale } from '../../lib/studio/glbThumb';
 import { boothUrl } from '../../lib/copilotBooth';
 import { FILTER_SHADERS } from '../../lib/shaders';
 import { HEAD_PIECES } from '../../lib/headPieces';
@@ -269,13 +270,19 @@ export default function CopilotChat({
       setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] The generated asset was lost — please generate it again.' }]);
       return;
     }
-    const result = kind === 'frame'
-      ? await applyGeneratedFrame(ctx(), g?.experience ?? { id: experienceId }, {
-          scale: Number((event.context.transform as { scale?: number })?.scale ?? 1),
-          x: Number((event.context.transform as { x?: number })?.x ?? 0),
-          y: Number((event.context.transform as { y?: number })?.y ?? 0),
-        })
-      : await applyGeneratedPiece(ctx(), experienceId);
+    let result;
+    if (kind === 'frame') {
+      result = await applyGeneratedFrame(ctx(), experienceId);
+    } else {
+      // Fit the raw Meshy GLB to head size (scale 1 renders ~1cm) — same as the
+      // studio Director's measure-then-add. Best-effort: an unmeasurable model
+      // (or a post-refresh apply with no cached asset) still applies at its baked
+      // scale; the host can fine-tune placement in the studio 3D editor.
+      let fitScale: number | null = null;
+      const glbUrl = g?.experience?.asset_url;
+      if (glbUrl) { try { fitScale = await measureGlbFitScale(glbUrl); } catch { /* best-effort fit */ } }
+      result = await applyGeneratedPiece(ctx(), experienceId, fitScale);
+    }
     setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: `[tool_result] ${result.summary}` }]);
     if (result.ok) onMutated();
   };

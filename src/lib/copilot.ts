@@ -240,64 +240,64 @@ async function pinDefault(ctx: CopilotCtx, experienceId: string): Promise<boolea
 }
 
 /**
- * Apply a generated frame the host approved in the preview card: publish the
- * (server-created, unpublished) experience with the placement baked into
- * config.transform, then pin it as the booth default — the exact two writes
- * FrameStudio does. NEVER re-generates (no credit spend); the row already exists.
+ * Apply a generated FRAME the host approved: publish the (server-created,
+ * unpublished) experience and pin it as the booth default. NEVER re-generates
+ * (no credit spend). Publish-only: the chat has no placement UI, so the booth
+ * uses the default (identity) transform — writing config here is avoided so the
+ * row's own config (e.g. the chroma-key `transparent` flag) is never clobbered,
+ * which mattered on the refresh path where the caller has no config to spread.
  */
-export async function applyGeneratedFrame(
-  ctx: CopilotCtx,
-  experience: { id: string; config?: unknown },
-  transform: { scale: number; x: number; y: number },
-): Promise<ExecResult> {
-  try {
-    const { supabase } = await import('./supabase');
-    const { error: pubErr } = await supabase
-      .from('experiences')
-      .update({
-        is_published: true,
-        config: {
-          ...((experience.config ?? {}) as Record<string, unknown>),
-          transform: { scale: transform.scale, x: transform.x, y: transform.y, rotation: 0 },
-        },
-      })
-      .eq('id', experience.id)
-      .eq('event_id', ctx.slug);
-    if (pubErr) {
-      return { ok: false, summary: 'The frame was generated but could not be published — publish it from your studio Library.' };
-    }
-    const pinned = await pinDefault(ctx, experience.id);
-    return pinned
-      ? { ok: true, summary: 'Your frame is live and set as the booth default.' }
-      : { ok: true, summary: 'Your frame is published, but setting it as the booth default failed — set it in the studio Library.' };
-  } catch (e) {
-    console.error('[copilot] applyGeneratedFrame', e);
-    return { ok: false, summary: 'Applying the frame failed unexpectedly.' };
-  }
+export async function applyGeneratedFrame(ctx: CopilotCtx, experienceId: string): Promise<ExecResult> {
+  return publishAndPin(ctx, experienceId, undefined, 'frame');
 }
 
 /**
- * Apply a generated 3D prop the host approved: publish the (server-created,
- * unpublished) experience and pin it as the booth default. NEVER re-generates.
+ * Apply a generated 3D PROP the host approved: publish + pin. `fitScale` (from
+ * the browser-side GLB measure) is baked into config.anchor.scale so a raw
+ * Meshy model — which renders ~1cm at scale 1 — sits at head size in the booth,
+ * exactly as the studio Director's measure-then-add does. NEVER re-generates.
  */
-export async function applyGeneratedPiece(ctx: CopilotCtx, experienceId: string): Promise<ExecResult> {
+export async function applyGeneratedPiece(
+  ctx: CopilotCtx,
+  experienceId: string,
+  fitScale: number | null,
+): Promise<ExecResult> {
+  return publishAndPin(ctx, experienceId, fitScale ?? undefined, 'piece');
+}
+
+/** Shared publish + pin. When `fitScale` is given, read the row's config and
+ *  override anchor.scale (preserving every other config key). */
+async function publishAndPin(
+  ctx: CopilotCtx,
+  experienceId: string,
+  fitScale: number | undefined,
+  kind: 'frame' | 'piece',
+): Promise<ExecResult> {
+  const noun = kind === 'frame' ? 'frame' : '3D prop';
   try {
     const { supabase } = await import('./supabase');
+    const patch: Record<string, unknown> = { is_published: true };
+    if (fitScale !== undefined) {
+      const { data } = await supabase.from('experiences').select('config').eq('id', experienceId).maybeSingle();
+      const config = (data?.config ?? {}) as Record<string, unknown>;
+      const anchor = (config.anchor ?? {}) as Record<string, unknown>;
+      patch.config = { ...config, anchor: { ...anchor, scale: fitScale } };
+    }
     const { error: pubErr } = await supabase
       .from('experiences')
-      .update({ is_published: true })
+      .update(patch)
       .eq('id', experienceId)
       .eq('event_id', ctx.slug);
     if (pubErr) {
-      return { ok: false, summary: 'The 3D prop was generated but could not be published — publish it from your studio Library.' };
+      return { ok: false, summary: `The ${noun} was generated but could not be published — publish it from your studio Library.` };
     }
     const pinned = await pinDefault(ctx, experienceId);
     return pinned
-      ? { ok: true, summary: 'Your 3D prop is live and set as the booth default.' }
-      : { ok: true, summary: 'Your 3D prop is published, but setting it as the booth default failed — set it in the studio Library.' };
+      ? { ok: true, summary: `Your ${noun} is live and set as the booth default.` }
+      : { ok: true, summary: `Your ${noun} is published, but setting it as the booth default failed — set it in the studio Library.` };
   } catch (e) {
-    console.error('[copilot] applyGeneratedPiece', e);
-    return { ok: false, summary: 'Applying the 3D prop failed unexpectedly.' };
+    console.error('[copilot] publishAndPin', kind, e);
+    return { ok: false, summary: `Applying the ${noun} failed unexpectedly.` };
   }
 }
 
