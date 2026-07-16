@@ -12,9 +12,11 @@ import { A2UI_VERSION, BEAMWALL_CATALOG_ID, type A2uiComponent, type A2uiMessage
 import type { CopilotAction } from './copilot';
 import { FILTER_SHADERS } from './shaders';
 import { HEAD_PIECES } from './headPieces';
+import { GENERIC_FRAMES } from './borders';
 
 const FILTER_OPTIONS = FILTER_SHADERS.filter((s) => s.id !== 'none').map((s) => ({ label: s.name, value: s.id }));
 const PIECE_OPTIONS = HEAD_PIECES.map((p) => ({ label: p.name, value: p.id }));
+const FRAME_OPTIONS = GENERIC_FRAMES.map((f) => ({ label: f.name, value: f.id }));
 
 function surface(
   surfaceId: string,
@@ -192,6 +194,18 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
         ...confirm.components,
       ]);
     }
+    case 'add_frame': {
+      const confirm = confirmRow('Add frame');
+      // Picker of generic (no event-locked text) built-in frames.
+      return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
+        { id: 'root', component: 'Card', child: 'body' },
+        { id: 'body', component: 'Column', children: ['heading', 'picker', 'desc', ...confirm.ids] },
+        { id: 'heading', component: 'Text', text: 'Add a ready-made frame', variant: 'h5' },
+        { id: 'picker', component: 'ChoicePicker', label: 'Frame', options: FRAME_OPTIONS, value: { path: '/proposal/borderId' } },
+        { id: 'desc', component: 'Text', variant: 'caption', text: 'A clean, event-neutral frame — set as the booth default. Want it personalised? Ask me to generate one instead.' },
+        ...confirm.components,
+      ]);
+    }
     case 'set_default_experience': {
       const confirm = confirmRow('Set as default');
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
@@ -199,6 +213,26 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
         { id: 'body', component: 'Column', children: ['heading', 'desc', ...confirm.ids] },
         { id: 'heading', component: 'Text', text: 'Set the booth default', variant: 'h5' },
         { id: 'desc', component: 'Text', variant: 'caption', text: 'This is what the booth opens with when guests scan in.' },
+        ...confirm.components,
+      ]);
+    }
+    case 'set_event_date': {
+      const confirm = confirmRow('Update date');
+      return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
+        { id: 'root', component: 'Card', child: 'body' },
+        { id: 'body', component: 'Column', children: ['heading', 'dateField', ...confirm.ids] },
+        { id: 'heading', component: 'Text', text: 'Update the event date', variant: 'h5' },
+        { id: 'dateField', component: 'DateTimeInput', label: 'Event date', enableDate: true, enableTime: false, value: { path: '/proposal/date' } },
+        ...confirm.components,
+      ]);
+    }
+    case 'rename_event': {
+      const confirm = confirmRow('Rename');
+      return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
+        { id: 'root', component: 'Card', child: 'body' },
+        { id: 'body', component: 'Column', children: ['heading', 'nameField', ...confirm.ids] },
+        { id: 'heading', component: 'Text', text: 'Rename the event', variant: 'h5' },
+        textField('nameField', 'Event name', '/proposal/name'),
         ...confirm.components,
       ]);
     }
@@ -219,13 +253,18 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
 
 /* ── Generation two-phase surfaces (frame / 3D prop) ─────────────────── */
 
-/** Phase 2: a spinner-less "working" card while generation runs. */
+/** Phase 2: a "working" card while generation runs. Carries a Dismiss so a card
+ *  orphaned by a page refresh (its in-flight promise gone) is never stuck. */
 export function buildGeneratingSurface(surfaceId: string, label: string): A2uiMessage[] {
   return surface(surfaceId, {}, [
     { id: 'root', component: 'Card', child: 'body' },
-    { id: 'body', component: 'Row', justify: 'start', children: ['icon', 'label'] },
+    { id: 'body', component: 'Column', children: ['statusRow', 'actionsRow'] },
+    { id: 'statusRow', component: 'Row', justify: 'start', children: ['icon', 'label'] },
     { id: 'icon', component: 'Icon', name: 'sparkles' },
     { id: 'label', component: 'Text', text: label },
+    { id: 'actionsRow', component: 'Row', justify: 'end', children: ['dismissBtn'] },
+    { id: 'dismissBtn', component: 'Button', variant: 'borderless', child: 'dismissLabel', action: { event: { name: 'cancel_action', context: {} } } },
+    { id: 'dismissLabel', component: 'Text', text: 'Dismiss' },
   ]);
 }
 

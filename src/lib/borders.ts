@@ -312,3 +312,21 @@ export const BUILTIN_BORDERS: BuiltinBorder[] = [
 export const BORDER_MAP: Record<string, BuiltinBorder> = Object.fromEntries(
   BUILTIN_BORDERS.map((b) => [b.id, b]),
 );
+
+/**
+ * The subset of built-ins with NO event-locked text (no "Hope Gala", "Detola &
+ * Wuyi", etc.) — safe to offer as-is for ANY event, or to riff on as a style
+ * template. Curated display names keep the picker clean (the legacy ids carry
+ * event-specific prefixes). The others stay available in the studio; they're
+ * only excluded from the concierge's "add as-is" so a guest never sees another
+ * event's name on their frame.
+ */
+export const GENERIC_FRAMES: { id: string; name: string }[] = [
+  { id: 'dw-frame-classic', name: 'Classic Gold Border' },
+  { id: 'dw-corners', name: 'Gold Corner Flourishes' },
+  { id: 'jj-neon-frame', name: 'Neon Tube Frame' },
+  { id: 'jj-equalizer', name: 'Neon Equalizer' },
+  { id: 'overlay-confetti', name: 'Gold Confetti' },
+];
+
+export const GENERIC_FRAME_IDS = new Set(GENERIC_FRAMES.map((f) => f.id));

@@ -19,6 +19,7 @@ import { PLATFORM_GUIDE } from './platformGuide';
 import type { EventSnapshot } from './eventSnapshot';
 import { FILTER_SHADERS } from './shaders';
 import { HEAD_PIECE_MAP, HEAD_PIECES } from './headPieces';
+import { BORDER_MAP, GENERIC_FRAMES, GENERIC_FRAME_IDS } from './borders';
 
 /* ── Action types (post-normalization) ───────────────────────────────── */
 
@@ -37,9 +38,12 @@ export type CopilotAction =
   | { tool: 'create_card'; proposal: { cardTitle: string; recipientName: string; cardTemplate: 'storybook' | 'filmstrip'; deadline: string } }
   // Experience-building tools (Event Concierge post-create build phase).
   | { tool: 'generate_frame'; proposal: { prompt: string } }
+  | { tool: 'add_frame'; proposal: { borderId: string } }
   | { tool: 'set_filter'; proposal: { shaderId: string } }
   | { tool: 'add_head_piece'; proposal: { source: 'builtin'; pieceId: string } | { source: 'generate'; prompt: string } }
   | { tool: 'set_default_experience'; proposal: { experienceId: string } }
+  | { tool: 'set_event_date'; proposal: { date: string } }
+  | { tool: 'rename_event'; proposal: { name: string } }
   | { tool: 'go_live' }
   | { tool: 'test_experience' }
   | { tool: 'get_stats' }
@@ -150,6 +154,25 @@ export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): 
         const prompt = str(a.prompt, 500);
         if (!prompt) break;
         out.push({ tool: 'generate_frame', proposal: { prompt } });
+        break;
+      }
+      case 'add_frame': {
+        // Only the generic (no event-locked text) built-ins may be added as-is.
+        const borderId = str(a.borderId, 40);
+        if (!borderId || !GENERIC_FRAME_IDS.has(borderId)) break;
+        out.push({ tool: 'add_frame', proposal: { borderId } });
+        break;
+      }
+      case 'set_event_date': {
+        const date = str(a.date, 10);
+        if (!DATE_RE.test(date)) break;
+        out.push({ tool: 'set_event_date', proposal: { date } });
+        break;
+      }
+      case 'rename_event': {
+        const name = str(a.name, 80);
+        if (!name) break;
+        out.push({ tool: 'rename_event', proposal: { name } });
         break;
       }
       case 'set_filter': {
@@ -392,9 +415,36 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
           summary: `3D piece "${exp.name}" added${pinned ? ' and set as the booth default' : ' (set it as the booth default in the studio Library)'}.`,
         };
       }
+      case 'add_frame': {
+        const border = BORDER_MAP[action.proposal.borderId];
+        if (!border || !GENERIC_FRAME_IDS.has(border.id)) return { ok: false, summary: 'That frame isn’t available.' };
+        const { uploadAsset, createExperience } = await import('./db');
+        const url = await uploadAsset(new Blob([border.svg], { type: 'image/svg+xml' }), `${border.id}.svg`);
+        if (!url) return { ok: false, summary: 'Adding the frame failed.' };
+        const exp = await createExperience(ctx.slug, {
+          name: border.name, kind: border.kind, asset_url: url,
+          config: {}, is_published: true, featured: true, sort_order: 0,
+        });
+        if (!exp) return { ok: false, summary: 'Adding the frame failed.' };
+        const pinned = await pinDefault(ctx, exp.id);
+        return {
+          ok: true,
+          summary: `Frame "${border.name}" added${pinned ? ' and set as the booth default' : ' (set it as the booth default in the studio Library)'}.`,
+        };
+      }
       case 'set_default_experience': {
         const ok = await pinDefault(ctx, action.proposal.experienceId);
         return { ok, summary: ok ? 'Booth default updated.' : 'Setting the booth default failed.' };
+      }
+      case 'set_event_date': {
+        const { updateEventDate } = await import('./host');
+        const ok = await updateEventDate(ctx.eventUuid, action.proposal.date);
+        return { ok, summary: ok ? `Event date set to ${action.proposal.date}.` : 'Updating the date failed.' };
+      }
+      case 'rename_event': {
+        const { updateEventName } = await import('./host');
+        const ok = await updateEventName(ctx.eventUuid, action.proposal.name);
+        return { ok, summary: ok ? `Event renamed to "${action.proposal.name}".` : 'Renaming the event failed.' };
       }
       case 'go_live': {
         const { updateEventStatus } = await import('./host');
@@ -459,6 +509,7 @@ export async function askCopilot(
         // (the client normalizer still validates and drops anything invalid).
         filters: FILTER_SHADERS.filter((s) => s.id !== 'none').map((s) => ({ id: s.id, name: s.name })),
         headPieces: HEAD_PIECES.map((p) => ({ id: p.id, name: p.name })),
+        frames: GENERIC_FRAMES,
       },
     });
     if (error) {

@@ -132,6 +132,23 @@ describe('normalizeActions — experience-building tools', () => {
     expect(normalizeActions([{ tool: 'go_live' }, { tool: 'test_experience' }], snapshot))
       .toEqual([{ tool: 'go_live' }, { tool: 'test_experience' }]);
   });
+
+  it('add_frame accepts only generic (event-neutral) built-in ids', () => {
+    expect(normalizeActions([{ tool: 'add_frame', borderId: 'dw-frame-classic' }], snapshot))
+      .toEqual([{ tool: 'add_frame', proposal: { borderId: 'dw-frame-classic' } }]);
+    // A real built-in that carries event-locked text (frame-classic → "HOPE GALA") is refused.
+    expect(normalizeActions([{ tool: 'add_frame', borderId: 'frame-classic' }], snapshot)).toEqual([]);
+    expect(normalizeActions([{ tool: 'add_frame', borderId: 'made-up' }], snapshot)).toEqual([]);
+  });
+
+  it('set_event_date requires YYYY-MM-DD; rename_event needs a name', () => {
+    expect(normalizeActions([{ tool: 'set_event_date', date: '2026-09-12' }], snapshot))
+      .toEqual([{ tool: 'set_event_date', proposal: { date: '2026-09-12' } }]);
+    expect(normalizeActions([{ tool: 'set_event_date', date: 'next friday' }], snapshot)).toEqual([]);
+    expect(normalizeActions([{ tool: 'rename_event', name: '  Gala 2.0 ' }], snapshot))
+      .toEqual([{ tool: 'rename_event', proposal: { name: 'Gala 2.0' } }]);
+    expect(normalizeActions([{ tool: 'rename_event', name: '' }], snapshot)).toEqual([]);
+  });
 });
 
 describe('mergeWireTurns', () => {

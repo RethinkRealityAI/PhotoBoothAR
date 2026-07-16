@@ -99,6 +99,9 @@ export default function CopilotChat({
   // apply). Each generation card is independent — no shared plan/epoch needed.
   const genState = useRef<Record<string, { kind: 'frame' | 'headpiece'; prompt: string; experience?: Experience }>>({});
   const runningGen = useRef<Set<string>>(new Set());
+  // Surfaces the host dismissed mid-generation — a late async continuation must
+  // NOT re-materialise a card the host already closed (F2).
+  const dismissedGen = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -128,6 +131,8 @@ export default function CopilotChat({
    *  proposal → working → preview → error phases. */
   const replaceSurface = (sid: string, msgs: A2uiMessage[]) => setSurfaces((s) => applySurfaceMessages(s, msgs));
   const dropSurfaceById = (sid: string) => setSurfaces((s) => applySurfaceMessages(s, [{ deleteSurface: { surfaceId: sid } }]));
+  /** Guarded phase swap for a generation card — a no-op once the host dismissed it. */
+  const placeGen = (sid: string, msgs: A2uiMessage[]) => { if (!dismissedGen.current.has(sid)) replaceSurface(sid, msgs); };
 
   /** Read-only tools run instantly from the snapshot — no confirm, no wire. */
   const runReadOnly = (action: CopilotAction) => {
@@ -161,25 +166,28 @@ export default function CopilotChat({
   const showChecklist = () => {
     if (!snapshot) return;
     const sid = `chk_${++seqRef.current}`;
+    // Count only PUBLISHED experiences — an unapproved/dismissed generation
+    // leaves an unpublished row that must not tick the checklist (F7).
     addSurface(buildChecklistSurface(sid, [
-      { label: 'Add a frame', done: snapshot.experiences.some((e) => e.kind === 'border') },
-      { label: 'Add a filter', done: snapshot.experiences.some((e) => e.kind === 'shader') },
-      { label: 'Add a 3D prop', done: snapshot.experiences.some((e) => e.kind === '3d_attachment') },
+      { label: 'Add a frame', done: snapshot.experiences.some((e) => e.kind === 'border' && e.published) },
+      { label: 'Add a filter', done: snapshot.experiences.some((e) => e.kind === 'shader' && e.published) },
+      { label: 'Add a 3D prop', done: snapshot.experiences.some((e) => e.kind === '3d_attachment' && e.published) },
       { label: 'Add challenges', done: snapshot.challenges.length > 0 },
       { label: 'Go live', done: snapshot.status === 'live' },
     ]), sid);
   };
 
   const showGenError = (sid: string, kind: 'frame' | 'headpiece', message: string, retryable: boolean) =>
-    replaceSurface(sid, buildGenErrorSurface(sid, message, { kind, retryable }));
+    placeGen(sid, buildGenErrorSurface(sid, message, { kind, retryable }));
 
   /** FRAME: generate (greenScreen) → chroma-key → preview. Charge happens once
    *  in generateImage (server-metered, first 3 free); apply never re-generates. */
   const startFrameGen = async (sid: string, prompt: string) => {
     if (!snapshot || runningGen.current.has(sid)) return;
     runningGen.current.add(sid);
+    dismissedGen.current.delete(sid);
     genState.current[sid] = { kind: 'frame', prompt };
-    replaceSurface(sid, buildGeneratingSurface(sid, 'Designing your frame…'));
+    placeGen(sid, buildGeneratingSurface(sid, 'Designing your frame…'));
     try {
       const uuid = await resolveEventUuid(snapshot.slug, snapshot.eventUuid);
       if (!uuid) { showGenError(sid, 'frame', aiErrorMessage('event_not_found'), false); return; }
@@ -195,7 +203,7 @@ export default function CopilotChat({
         showGenError(sid, 'frame', 'Generated, but the transparent cutout didn’t come through cleanly — Regenerate for a fresh version.', true);
         return;
       }
-      replaceSurface(sid, buildFramePreviewSurface(sid, { experienceId: experience.id, assetUrl: experience.asset_url ?? '' }));
+      placeGen(sid, buildFramePreviewSurface(sid, { experienceId: experience.id, assetUrl: experience.asset_url ?? '' }));
     } catch (e) {
       console.error('[copilot] startFrameGen', e);
       showGenError(sid, 'frame', 'Frame generation failed — try again.', true);
@@ -209,8 +217,9 @@ export default function CopilotChat({
   const startPieceGen = async (sid: string, prompt: string) => {
     if (!snapshot || runningGen.current.has(sid)) return;
     runningGen.current.add(sid);
+    dismissedGen.current.delete(sid);
     genState.current[sid] = { kind: 'headpiece', prompt };
-    replaceSurface(sid, buildGeneratingSurface(sid, 'Sculpting your 3D prop… this can take a minute.'));
+    placeGen(sid, buildGeneratingSurface(sid, 'Sculpting your 3D prop… this can take a minute.'));
     try {
       const uuid = await resolveEventUuid(snapshot.slug, snapshot.eventUuid);
       if (!uuid) { showGenError(sid, 'headpiece', aiErrorMessage('event_not_found'), false); return; }
@@ -241,11 +250,14 @@ export default function CopilotChat({
         }
       }
       if (!experience) {
-        showGenError(sid, 'headpiece', 'The 3D model is still processing — try again shortly.', true);
+        // Client-side poll timeout — the Meshy job usually still finishes
+        // server-side, so DON'T offer a retry (it would re-spend ~11 credits on
+        // a fresh job); point the host to the Library where it'll land (F5).
+        showGenError(sid, 'headpiece', 'Your 3D model is taking longer than usual — it will finish and appear in your studio Library shortly.', false);
         return;
       }
       genState.current[sid] = { kind: 'headpiece', prompt, experience };
-      replaceSurface(sid, buildHeadPiecePreviewSurface(sid, {
+      placeGen(sid, buildHeadPiecePreviewSurface(sid, {
         experienceId: experience.id,
         thumbUrl: experience.thumbnail_url ?? null,
         label: prompt,
@@ -279,7 +291,15 @@ export default function CopilotChat({
       // (or a post-refresh apply with no cached asset) still applies at its baked
       // scale; the host can fine-tune placement in the studio 3D editor.
       let fitScale: number | null = null;
-      const glbUrl = g?.experience?.asset_url;
+      let glbUrl = g?.experience?.asset_url ?? null;
+      if (!glbUrl) {
+        // Post-refresh: genState is gone — re-read the row so we can still fit.
+        try {
+          const { supabase } = await import('../../lib/supabase');
+          const { data } = await supabase.from('experiences').select('asset_url').eq('id', experienceId).maybeSingle();
+          glbUrl = (data?.asset_url as string | null) ?? null;
+        } catch { /* best-effort */ }
+      }
       if (glbUrl) { try { fitScale = await measureGlbFitScale(glbUrl); } catch { /* best-effort fit */ } }
       result = await applyGeneratedPiece(ctx(), experienceId, fitScale);
     }
@@ -290,7 +310,13 @@ export default function CopilotChat({
   /** Regenerate the same surface with its stored prompt (an explicit new spend). */
   const regenerate = (event: A2uiActionEvent) => {
     const g = genState.current[event.surfaceId];
-    if (!g) return;
+    if (!g) {
+      // genState is a ref (not persisted) — after a refresh the prompt is gone,
+      // so a restored card's Regenerate/Try-again would be a dead button (F1).
+      dropSurfaceById(event.surfaceId);
+      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] I lost the details for that one — tell me what to make and I’ll generate a fresh version.' }]);
+      return;
+    }
     if (g.kind === 'frame') void startFrameGen(event.surfaceId, g.prompt);
     else void startPieceGen(event.surfaceId, g.prompt);
   };
@@ -319,6 +345,7 @@ export default function CopilotChat({
   const handleSurfaceAction = async (event: A2uiActionEvent) => {
     if (event.name === 'cancel_action') {
       dropSurfaceById(event.surfaceId);
+      dismissedGen.current.add(event.surfaceId); // keep a late gen continuation from re-opening it (F2)
       delete genState.current[event.surfaceId];
       return;
     }
