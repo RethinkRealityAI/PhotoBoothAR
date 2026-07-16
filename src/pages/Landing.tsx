@@ -16,7 +16,7 @@
  */
 import { lazy, Suspense, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
-import { Check } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { EVENT_TEMPLATES } from '../lib/eventTemplates';
@@ -176,6 +176,23 @@ const TIERS: Tier[] = [
 ];
 
 const SHOWCASE = ['wedding', 'party', 'gala'];
+
+/** Dead-simple "how it works" — three steps from sign-up to a full wall. */
+const HOW_STEPS = [
+  { n: '1', title: 'Create your event', body: 'Sign up free, pick a style, and tune your frames, effects and 3D props in the studio — minutes, not hours.' },
+  { n: '2', title: 'Share one QR code', body: 'Put your code on tables, screens or the invite. Guests scan it and they’re in — no app to download, nothing to install.' },
+  { n: '3', title: 'The room lights up', body: 'Guests snap AR photos and videos that beam onto your live wall in real time, for the whole room to watch.' },
+];
+
+/** Honest objection-handling FAQ (no fluff, no fake urgency). */
+const FAQS: { q: string; a: string }[] = [
+  { q: 'Do my guests need to download an app?', a: 'No. The booth runs right in the phone browser — guests scan your QR code and they’re in. Nothing to install.' },
+  { q: 'Will it work on my guests’ phones?', a: 'Yes — it runs in modern mobile browsers (iOS Safari, Android Chrome). The camera stays on their device; nothing leaves it until they choose to share a photo.' },
+  { q: 'How long does it take to set up?', a: 'Minutes. Pick a style, tweak your frames and effects in the studio, and share the QR — you can have a booth live well before your event.' },
+  { q: 'What if the venue wifi is patchy?', a: 'The AR runs on each guest’s device, so only the finished photo needs to upload — it works on cellular data, and you moderate what hits the wall from your phone.' },
+  { q: 'What does it cost?', a: 'Start free — one event, up to 25 photos. Paid event packages start at $49, and Beamwall Pro is $79/month for frequent hosts. You only pay for events you run.' },
+  { q: 'Is our event private?', a: 'You control it. Guests’ captures appear on your wall by design and you can moderate or remove any of them at any time; see our Privacy Policy for the full details.' },
+];
 
 /** Ghost frames drifting at different depths behind the whole page. */
 const GHOST_FRAMES = [
@@ -489,8 +506,10 @@ export default function Landing() {
       </div>
 
       <div ref={contentRef} className="relative z-10 mx-auto flex w-full max-w-6xl flex-col px-6 py-8">
-        {/* Top bar */}
-        <header className="flex items-center justify-between">
+        {/* Top bar — sticky so the primary CTA stays reachable down the whole
+            page (a long scroll should never leave a visitor without a way to
+            convert). Blurred glass so content reads as it passes underneath. */}
+        <header className="sticky top-0 z-40 -mx-6 flex items-center justify-between border-b border-white/5 bg-brand-bg/70 px-6 py-3 backdrop-blur-md">
           <span className="font-serif text-2xl font-semibold tracking-wide text-foil-static">Beamwall</span>
           <nav className="flex items-center gap-2.5">
             <a href="#pricing" className="hidden sm:inline rounded-full px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors">
@@ -498,9 +517,15 @@ export default function Landing() {
             </a>
             <Link
               to="/login"
-              className="rounded-full border border-white/15 bg-white/[0.04] px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg transition hover:bg-white/[0.08]"
+              className="hidden sm:inline-flex rounded-full border border-white/15 bg-white/[0.04] px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg transition hover:bg-white/[0.08]"
             >
               Sign in
+            </Link>
+            <Link
+              to="/signup"
+              className="rounded-full bg-foil px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
+            >
+              Create your event
             </Link>
           </nav>
         </header>
@@ -512,9 +537,6 @@ export default function Landing() {
         <main className="flex flex-1 flex-col items-center overflow-x-clip text-center">
           <section data-parallax-scope className="relative flex w-full flex-col items-center pt-14 sm:pt-16">
             <div className="pointer-events-none relative z-20 flex flex-col items-center" data-parallax-depth="-0.05">
-              <span className="mb-5 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
-                AR photo booth &amp; live wall for events
-              </span>
               <h1 className="max-w-3xl font-serif text-5xl leading-[1.05] text-shadow-lux sm:text-6xl">
                 Your event, in <span className="text-foil-static">augmented reality</span>.
               </h1>
@@ -523,21 +545,15 @@ export default function Landing() {
                 onto a live wall styled with frames and 3D magic you set up in minutes.
               </p>
 
-              <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row">
+              <div className="mt-9 flex flex-col items-center gap-3">
                 <Link
                   to="/signup"
-                  className="pointer-events-auto rounded-full bg-foil px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
+                  className="pointer-events-auto rounded-full bg-foil px-10 py-4 font-label uppercase tracking-luxe text-[12px] font-bold text-white glow-accent transition active:scale-[0.98]"
                 >
                   Create your event
                 </Link>
-                <a
-                  href="#pricing"
-                  className="pointer-events-auto rounded-full border border-white/15 bg-white/[0.04] px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98]"
-                >
-                  See pricing
-                </a>
+                <p className="font-sans text-xs text-brand-muted/50">Free to start · no credit card to create your event.</p>
               </div>
-              <p className="mt-4 font-sans text-xs text-brand-muted/50">Free to start · no credit card to create your event.</p>
             </div>
 
             {/* Focal visual — a live, auto-scrolling coverflow of real event
@@ -545,6 +561,31 @@ export default function Landing() {
                 walls. mt-12 on mobile keeps it clear of the hero fine print. */}
             <div className="relative z-10 mt-10 w-full max-w-6xl sm:mt-4" data-parallax-depth="0.08">
               <LiveHeroCarousel className="w-full" />
+            </div>
+            <p className="mt-6 font-label uppercase tracking-luxe text-[9px] text-brand-muted/45">
+              Live moments from real Beamwall events
+            </p>
+          </section>
+
+          {/* How it works — three plain steps, up high, so a first-time
+              visitor grasps the whole loop before scrolling the details. */}
+          <section data-parallax-scope className="mt-24 w-full sm:mt-28">
+            <div data-reveal className="flex flex-col items-center text-center">
+              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">How it works</h2>
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
+                From sign-up to a wall full of moments — three steps, no app, no queue.
+              </p>
+            </div>
+            <div data-reveal-stagger className="mx-auto mt-12 grid w-full max-w-4xl gap-6 sm:grid-cols-3">
+              {HOW_STEPS.map((s) => (
+                <div key={s.n} className="flex flex-col items-center rounded-3xl border border-white/10 bg-white/[0.02] px-6 py-8 text-center">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-full bg-foil font-serif text-lg font-bold text-white glow-accent">
+                    {s.n}
+                  </span>
+                  <h3 className="mt-5 font-serif text-xl text-brand-fg">{s.title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-brand-muted/75">{s.body}</p>
+                </div>
+              ))}
             </div>
           </section>
 
@@ -599,6 +640,24 @@ export default function Landing() {
                   </span>
                 </div>
               ))}
+            </div>
+          </section>
+
+          {/* Interactive showcase — the product itself, embedded as a staged
+              two-column demo (copy · phone → beam → live wall). Placed BEFORE
+              pricing so a visitor experiences the magic before they see a price.
+              Camera only starts on an explicit tap inside ShowcasePhone; the
+              heavy AR chunk (MediaPipe/Three) is code-split behind React.lazy.
+              It owns its copy, so the section has no header of its own. */}
+          <section data-parallax-scope data-showcase-root className="mt-32 w-full">
+            <div data-reveal className="w-full">
+              <Suspense
+                fallback={
+                  <div className="mx-auto h-[420px] w-full max-w-6xl animate-pulse rounded-3xl border border-white/10 bg-white/[0.03] lg:h-[560px]" />
+                }
+              >
+                <InteractiveShowcase />
+              </Suspense>
             </div>
           </section>
 
@@ -657,20 +716,25 @@ export default function Landing() {
             </div>
           </section>
 
-          {/* Interactive showcase — the product itself, embedded as a staged
-              two-column demo (copy · phone → beam → live wall). Camera only
-              starts on an explicit tap inside ShowcasePhone; the heavy AR
-              chunk (MediaPipe/Three) is code-split behind React.lazy. It owns
-              its copy, so the section has no header of its own. */}
-          <section data-parallax-scope data-showcase-root className="mt-32 w-full">
-            <div data-reveal className="w-full">
-              <Suspense
-                fallback={
-                  <div className="mx-auto h-[420px] w-full max-w-6xl animate-pulse rounded-3xl border border-white/10 bg-white/[0.03] lg:h-[560px]" />
-                }
-              >
-                <InteractiveShowcase />
-              </Suspense>
+          {/* FAQ — honest objection handling, native details/summary so it
+              needs no JS and stays accessible + keyboard-friendly. */}
+          <section className="mx-auto mt-32 w-full max-w-3xl">
+            <div data-reveal className="text-center">
+              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">Questions, answered</h2>
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
+                The things hosts ask before their first event.
+              </p>
+            </div>
+            <div data-reveal className="mt-10 flex flex-col gap-3">
+              {FAQS.map((f) => (
+                <details key={f.q} className="group rounded-2xl border border-white/10 bg-white/[0.02] px-5 py-4 transition open:bg-white/[0.03]">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-left font-serif text-base text-brand-fg">
+                    {f.q}
+                    <ChevronDown className="h-4 w-4 shrink-0 text-brand-muted/60 transition-transform group-open:rotate-180" />
+                  </summary>
+                  <p className="mt-3 text-sm leading-relaxed text-brand-muted/75">{f.a}</p>
+                </details>
+              ))}
             </div>
           </section>
 
