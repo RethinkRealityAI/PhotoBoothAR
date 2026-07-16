@@ -58,7 +58,7 @@ import {
   type ScenePieceKey,
   type SceneShaderCatalogEntry,
 } from '../../lib/studio/sceneDirector';
-import { processGeneratedFrame } from './AiFramePanel';
+import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { measureGlbFitScale } from '../../lib/studio/glbThumb';
 import {
   SceneHeader,

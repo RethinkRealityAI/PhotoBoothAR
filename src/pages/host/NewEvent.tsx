@@ -16,10 +16,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { ArrowLeft, ArrowRight, Check, Copy, Loader2, PartyPopper, Send, Sparkles } from 'lucide-react';
 import { slugify, SLUG_RE, RESERVED_SLUGS } from '../../lib/slug';
-import { createEvent, updateEventConfig, isSlugVisiblyTaken, type CreateEventError, type HostEventRow } from '../../lib/host';
+import { createEvent, updateEventConfig, fetchEventStatus, isSlugVisiblyTaken, type CreateEventError, type HostEventRow } from '../../lib/host';
 import { accentThemePatch, EVENT_TEMPLATES, templateById, templateConfigPatch } from '../../lib/eventTemplates';
 import { designEvent, normalizePlan, type ChatMessage, type EventPlan } from '../../lib/eventDesigner';
-import FrameStudio from './FrameStudio';
+import CopilotChat from '../../components/copilot/CopilotChat';
+import { loadEventSnapshot, type EventSnapshot } from '../../lib/eventSnapshot';
 import { applySurfaceMessages, getPath, setPath, type A2uiActionEvent, type SurfaceState } from '../../lib/a2ui';
 import A2uiSurface from '../../components/a2ui/A2uiSurface';
 import TemplatePreview from '../../components/ui/TemplatePreview';
@@ -48,6 +49,11 @@ const CHAT_STORE_KEY = 'beamwall:concierge:v1';
 const CHAT_GREETING =
   "Tell me about your event — who or what are we celebrating? I'll design the whole thing: " +
   'the look, the name, the guest link. You can fine-tune every detail afterwards.';
+
+const BUILD_GREETING =
+  'Your event is created — in draft for now. The moment you go live, guests can scan in, take ' +
+  'pictures, and beam them to your wall. Want to add a frame, a filter, a 3D prop, or some ' +
+  'challenges? Tap a chip below or just tell me — and I can test it or take you live right here.';
 
 const CHAT_SUGGESTIONS = [
   "Jenna and Jake's wedding on 2026-09-12",
@@ -88,6 +94,10 @@ export default function NewEvent() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [created, setCreated] = useState<HostEventRow | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // ── Post-create build phase: the same chat continues, now event-aware, so
+  //    the host adds frame/filter/3D/challenges, tests, and goes live inline. ──
+  const [buildSnapshot, setBuildSnapshot] = useState<EventSnapshot | null>(null);
 
   // ── Concierge chat (default path; the greeting lives outside the
   //    transcript so the edge fn always sees a user-first conversation) ──
@@ -260,6 +270,24 @@ export default function NewEvent() {
     return () => clearTimeout(tid);
   }, [slug, step]);
 
+  /** Reload the new event's snapshot for the build chat — re-reads status so an
+   *  in-chat "go live" flips the Test card + checklist to live. */
+  const reloadBuild = useCallback(async () => {
+    if (!created) return;
+    const status = (await fetchEventStatus(created.id)) ?? created.status;
+    const snap = await loadEventSnapshot({
+      eventUuid: created.id,
+      slug: created.slug,
+      name: created.name,
+      status,
+      planTier: created.plan_tier,
+      eventType: created.event_type,
+    });
+    setBuildSnapshot(snap);
+  }, [created]);
+
+  useEffect(() => { if (created) void reloadBuild(); }, [created, reloadBuild]);
+
   const doCreate = async () => {
     setCreating(true);
     setCreateError(null);
@@ -308,51 +336,67 @@ export default function NewEvent() {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const guestUrl = created ? `${origin}/e/${created.slug}` : '';
 
-  /* ── Success screen ── */
+  /* ── Post-create build phase: the concierge conversation continues, now
+        event-aware, so the host builds the whole experience inline. ── */
   if (created) {
     return (
-      <div className="p-6 md:p-10 max-w-lg mx-auto">
-        <div className="liquid-glass rounded-3xl p-10 text-center flex flex-col items-center gap-5 animate-rise-in">
-          <div className="w-14 h-14 rounded-full bg-foil glow-accent flex items-center justify-center">
-            <PartyPopper className="w-6 h-6 text-white" />
+      <div className="h-full flex flex-col p-4 md:p-6 max-w-3xl mx-auto w-full min-h-0">
+        {/* Celebratory header + instant share, kept compact above the chat. */}
+        <div className="shrink-0 liquid-glass rounded-2xl p-3.5 md:p-4 mb-3 flex items-center gap-3 md:gap-4 animate-rise-in">
+          <div className="w-10 h-10 rounded-full bg-foil glow-accent flex items-center justify-center shrink-0">
+            <PartyPopper className="w-5 h-5 text-white" />
           </div>
-          <div>
-            <h1 className="font-serif text-3xl text-foil-static">{created.name}</h1>
-            <p className="mt-1 font-sans text-xs text-brand-muted/60">Your event is ready, in draft. Open the studio to finish the go-live checklist — then share it with one tap.</p>
+          <div className="min-w-0 flex-1">
+            <h1 className="font-serif text-lg md:text-xl text-foil-static truncate">{created.name}</h1>
+            <div className="flex items-center gap-1.5">
+              <p className="font-mono text-[11px] text-brand-muted/70 truncate">{guestUrl.replace(/^https?:\/\//, '')}</p>
+              <button
+                onClick={() => navigator.clipboard.writeText(guestUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
+                className="p-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors shrink-0"
+                title="Copy guest link"
+              >
+                {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+              </button>
+            </div>
           </div>
-          <div className="rounded-xl p-3 bg-brand-fg/95 shadow-lg">
-            <QRCodeSVG value={guestUrl} size={160} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
+          <div className="hidden sm:block rounded-lg p-1.5 bg-brand-fg/95 shrink-0">
+            <QRCodeSVG value={guestUrl} size={56} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
           </div>
-          {/* Concierge v3: finish the frame right here — generated at 9:16,
-              published + pinned as the booth default in one tap. */}
-          <FrameStudio
-            eventUuid={created.id}
-            suggestion={`An elegant ${template.label.toLowerCase()} border frame for "${created.name}" — refined ornament hugging the edges, centre fully clear`}
-          />
-          <div className="flex items-center gap-1.5 w-full justify-center">
-            <p className="font-mono text-[11px] text-brand-muted/70 truncate">{guestUrl}</p>
-            <button
-              onClick={() => navigator.clipboard.writeText(guestUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
-              className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
-              title="Copy guest link"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3 w-full pt-2">
+          <div className="shrink-0 flex flex-col gap-1.5">
             <button
               onClick={() => navigate(`/host/events/${created.id}`)}
-              className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
+              className="rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3.5 py-1.5 font-label uppercase tracking-luxe text-[9px] font-bold text-brand-fg/90 transition-colors"
             >
               Open studio
             </button>
             <Link
               to="/host"
-              className="flex-1 rounded-full border border-white/15 bg-white/[0.04] px-6 py-3.5 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg transition hover:bg-white/[0.08] text-center"
+              className="rounded-full border border-white/15 px-3.5 py-1.5 font-label uppercase tracking-luxe text-[9px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors text-center"
             >
-              Back to events
+              Events
             </Link>
           </div>
+        </div>
+
+        {/* The build conversation — event-aware copilot with the experience tools. */}
+        <div
+          className="flex-1 min-h-0 liquid-glass rounded-3xl border border-white/10 flex flex-col overflow-hidden"
+          style={{ backgroundColor: 'color-mix(in srgb, var(--color-brand-bg) 72%, transparent)' }}
+        >
+          {buildSnapshot ? (
+            <CopilotChat
+              key={created.id}
+              snapshot={buildSnapshot}
+              onMutated={reloadBuild}
+              mode="build"
+              greeting={BUILD_GREETING}
+            />
+          ) : (
+            <div className="flex-1 flex items-center justify-center gap-2 text-brand-muted/60">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="font-sans text-xs">Preparing your build studio…</span>
+            </div>
+          )}
         </div>
       </div>
     );

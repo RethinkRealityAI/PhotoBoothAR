@@ -13,18 +13,40 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Send } from 'lucide-react';
 import {
-  askCopilot, executeAction, type CopilotAction, type CopilotCtx,
+  askCopilot, executeAction, applyGeneratedFrame, applyGeneratedPiece,
+  type CopilotAction, type CopilotCtx,
 } from '../../lib/copilot';
 import {
   buildCardLinkSurface, buildLinksSurface, buildProposalSurface, buildStatsSurface,
+  buildGeneratingSurface, buildFramePreviewSurface, buildHeadPiecePreviewSurface,
+  buildGenErrorSurface, buildBoothTestSurface, buildChecklistSurface,
 } from '../../lib/copilotSurfaces';
 import {
   applySurfaceMessages, setPath,
   type A2uiActionEvent, type A2uiMessage, type SurfaceState,
 } from '../../lib/a2ui';
+import {
+  generateImage, generate3d, pollJob, resolveEventUuid, aiErrorMessage, type AiErrorCode,
+} from '../../lib/ai';
+import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
+import { boothUrl } from '../../lib/copilotBooth';
+import { FILTER_SHADERS } from '../../lib/shaders';
+import { HEAD_PIECES } from '../../lib/headPieces';
 import type { ChatMessage } from '../../lib/eventDesigner';
 import type { EventSnapshot } from '../../lib/eventSnapshot';
+import type { Experience } from '../../types';
 import A2uiSurface from '../a2ui/A2uiSurface';
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const POLL_MS = 5000;
+const MAX_POLLS = 60; // ~5 minutes — matches the studio Director's Meshy poll
+const DEFAULT_FILTER_ID = FILTER_SHADERS.find((s) => s.id !== 'none')?.id ?? 'none';
+const DEFAULT_PIECE_ID = HEAD_PIECES[0]?.id ?? '';
+
+/** A retry is pointless (and unfair) for these hard, non-transient failures. */
+function retryableGenError(code: AiErrorCode): boolean {
+  return code !== 'insufficient_credits' && code !== 'upgrade_required' && code !== 'unauthorized' && code !== 'forbidden';
+}
 
 interface ChatItem extends ChatMessage {
   surfaceId?: string;
@@ -53,9 +75,15 @@ function loadSaved(key: string): { chat: ChatItem[]; surfaces: Record<string, Su
 export default function CopilotChat({
   snapshot,
   onMutated,
+  greeting,
+  mode = 'default',
 }: {
   snapshot: EventSnapshot | null;
   onMutated: () => void;
+  /** Opening bubble override (the build phase greets differently). */
+  greeting?: string;
+  /** 'build' swaps the quick-action chips to the experience-building set. */
+  mode?: 'default' | 'build';
 }) {
   const storeKey = snapshot?.eventUuid ?? 'platform';
   const [messages, setMessages] = useState<ChatItem[]>(() => loadSaved(storeKey).chat);
@@ -64,6 +92,12 @@ export default function CopilotChat({
   const [busy, setBusy] = useState(false);
   const seqRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Per-surface generation state (async frame/3D). `runningGen` is a synchronous
+  // double-fire latch so a fast double-click on Generate can never double-charge;
+  // `genState` holds the prompt (for regenerate) + the generated experience (for
+  // apply). Each generation card is independent — no shared plan/epoch needed.
+  const genState = useRef<Record<string, { kind: 'frame' | 'headpiece'; prompt: string; experience?: Experience }>>({});
+  const runningGen = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -88,6 +122,12 @@ export default function CopilotChat({
     setMessages((m) => [...m, { role: 'assistant', content: '', surfaceId: sid }]);
   };
 
+  /** Swap the CONTENT of an existing surface in place (the chat message that
+   *  references it stays put) — used to drive a generation card through its
+   *  proposal → working → preview → error phases. */
+  const replaceSurface = (sid: string, msgs: A2uiMessage[]) => setSurfaces((s) => applySurfaceMessages(s, msgs));
+  const dropSurfaceById = (sid: string) => setSurfaces((s) => applySurfaceMessages(s, [{ deleteSurface: { surfaceId: sid } }]));
+
   /** Read-only tools run instantly from the snapshot — no confirm, no wire. */
   const runReadOnly = (action: CopilotAction) => {
     if (!snapshot) return;
@@ -107,7 +147,145 @@ export default function CopilotChat({
         { title: 'Wall', url: `${base}/wall` },
         { title: 'Upload', url: `${base}/upload` },
       ], sid), sid);
+    } else if (action.tool === 'test_experience') {
+      addSurface(buildBoothTestSurface(sid, {
+        slug: snapshot.slug,
+        status: snapshot.status,
+        boothUrl: boothUrl(window.location.origin, snapshot.slug),
+      }), sid);
     }
+  };
+
+  /** Build-mode "beam-ready" checklist, computed from the live snapshot. */
+  const showChecklist = () => {
+    if (!snapshot) return;
+    const sid = `chk_${++seqRef.current}`;
+    addSurface(buildChecklistSurface(sid, [
+      { label: 'Add a frame', done: snapshot.experiences.some((e) => e.kind === 'border') },
+      { label: 'Add a filter', done: snapshot.experiences.some((e) => e.kind === 'shader') },
+      { label: 'Add a 3D prop', done: snapshot.experiences.some((e) => e.kind === '3d_attachment') },
+      { label: 'Add challenges', done: snapshot.challenges.length > 0 },
+      { label: 'Go live', done: snapshot.status === 'live' },
+    ]), sid);
+  };
+
+  const showGenError = (sid: string, kind: 'frame' | 'headpiece', message: string, retryable: boolean) =>
+    replaceSurface(sid, buildGenErrorSurface(sid, message, { kind, retryable }));
+
+  /** FRAME: generate (greenScreen) → chroma-key → preview. Charge happens once
+   *  in generateImage (server-metered, first 3 free); apply never re-generates. */
+  const startFrameGen = async (sid: string, prompt: string) => {
+    if (!snapshot || runningGen.current.has(sid)) return;
+    runningGen.current.add(sid);
+    genState.current[sid] = { kind: 'frame', prompt };
+    replaceSurface(sid, buildGeneratingSurface(sid, 'Designing your frame…'));
+    try {
+      const uuid = await resolveEventUuid(snapshot.slug, snapshot.eventUuid);
+      if (!uuid) { showGenError(sid, 'frame', aiErrorMessage('event_not_found'), false); return; }
+      const res = await generateImage(uuid, { prompt, kind: 'border', transparentBackground: false, greenScreen: true });
+      if (res.error || !res.data?.experience) {
+        const code = (res.error ?? 'internal') as AiErrorCode;
+        showGenError(sid, 'frame', aiErrorMessage(code), retryableGenError(code));
+        return;
+      }
+      const { experience, keyed } = await processGeneratedFrame(res.data.experience, snapshot.slug);
+      genState.current[sid] = { kind: 'frame', prompt, experience };
+      if (!keyed) {
+        showGenError(sid, 'frame', 'Generated, but the transparent cutout didn’t come through cleanly — Regenerate for a fresh version.', true);
+        return;
+      }
+      replaceSurface(sid, buildFramePreviewSurface(sid, { experienceId: experience.id, assetUrl: experience.asset_url ?? '' }));
+    } catch (e) {
+      console.error('[copilot] startFrameGen', e);
+      showGenError(sid, 'frame', 'Frame generation failed — try again.', true);
+    } finally {
+      runningGen.current.delete(sid);
+    }
+  };
+
+  /** 3D PROP: Gemini concept image (1cr) → image→3D (10cr) → poll → preview.
+   *  The same two-step the studio Director uses; apply never re-generates. */
+  const startPieceGen = async (sid: string, prompt: string) => {
+    if (!snapshot || runningGen.current.has(sid)) return;
+    runningGen.current.add(sid);
+    genState.current[sid] = { kind: 'headpiece', prompt };
+    replaceSurface(sid, buildGeneratingSurface(sid, 'Sculpting your 3D prop… this can take a minute.'));
+    try {
+      const uuid = await resolveEventUuid(snapshot.slug, snapshot.eventUuid);
+      if (!uuid) { showGenError(sid, 'headpiece', aiErrorMessage('event_not_found'), false); return; }
+      const concept = await generateImage(uuid, {
+        prompt: `${prompt} — a single centered object, isolated on a plain neutral studio background, product shot, no frame, no border, no text`,
+        kind: '2d_filter',
+      });
+      if (concept.error || !concept.data?.experience?.asset_url) {
+        const code = (concept.error ?? 'internal') as AiErrorCode;
+        showGenError(sid, 'headpiece', aiErrorMessage(code), retryableGenError(code));
+        return;
+      }
+      const g = await generate3d(uuid, { mode: 'image', imageUrl: concept.data.experience.asset_url, prompt });
+      if (g.error || !g.data?.job) {
+        const code = (g.error ?? 'internal') as AiErrorCode;
+        showGenError(sid, 'headpiece', aiErrorMessage(code), retryableGenError(code));
+        return;
+      }
+      let experience: Experience | undefined;
+      for (let i = 0; i < MAX_POLLS; i++) {
+        await sleep(POLL_MS);
+        const p = await pollJob(g.data.job.id);
+        const job = p.data?.job;
+        if (job?.status === 'succeeded') { experience = p.data?.experience; break; }
+        if (job?.status === 'failed' || job?.status === 'refunded') {
+          showGenError(sid, 'headpiece', job.error ? `Generation failed — credits refunded. (${job.error})` : 'Generation failed — credits refunded.', true);
+          return;
+        }
+      }
+      if (!experience) {
+        showGenError(sid, 'headpiece', 'The 3D model is still processing — try again shortly.', true);
+        return;
+      }
+      genState.current[sid] = { kind: 'headpiece', prompt, experience };
+      replaceSurface(sid, buildHeadPiecePreviewSurface(sid, {
+        experienceId: experience.id,
+        thumbUrl: experience.thumbnail_url ?? null,
+        label: prompt,
+      }));
+    } catch (e) {
+      console.error('[copilot] startPieceGen', e);
+      showGenError(sid, 'headpiece', '3D generation failed — try again.', true);
+    } finally {
+      runningGen.current.delete(sid);
+    }
+  };
+
+  /** Approve a generated asset: publish + pin as booth default (NO regen). */
+  const applyGenerated = async (event: A2uiActionEvent) => {
+    const sid = event.surfaceId;
+    const g = genState.current[sid];
+    const kind = event.context.kind === 'headpiece' ? 'headpiece' : 'frame';
+    const experienceId = String(event.context.experienceId ?? g?.experience?.id ?? '');
+    dropSurfaceById(sid);
+    delete genState.current[sid];
+    if (!experienceId) {
+      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] The generated asset was lost — please generate it again.' }]);
+      return;
+    }
+    const result = kind === 'frame'
+      ? await applyGeneratedFrame(ctx(), g?.experience ?? { id: experienceId }, {
+          scale: Number((event.context.transform as { scale?: number })?.scale ?? 1),
+          x: Number((event.context.transform as { x?: number })?.x ?? 0),
+          y: Number((event.context.transform as { y?: number })?.y ?? 0),
+        })
+      : await applyGeneratedPiece(ctx(), experienceId);
+    setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: `[tool_result] ${result.summary}` }]);
+    if (result.ok) onMutated();
+  };
+
+  /** Regenerate the same surface with its stored prompt (an explicit new spend). */
+  const regenerate = (event: A2uiActionEvent) => {
+    const g = genState.current[event.surfaceId];
+    if (!g) return;
+    if (g.kind === 'frame') void startFrameGen(event.surfaceId, g.prompt);
+    else void startPieceGen(event.surfaceId, g.prompt);
   };
 
   const send = async (text: string) => {
@@ -121,7 +299,7 @@ export default function CopilotChat({
     const res = await askCopilot(wire, snapshot); // never throws
     setMessages((m) => [...m, { role: 'assistant', content: res.reply }]);
     for (const action of res.actions) {
-      if (action.tool === 'get_stats' || action.tool === 'share_links') {
+      if (action.tool === 'get_stats' || action.tool === 'share_links' || action.tool === 'test_experience') {
         runReadOnly(action);
       } else {
         const sid = `prop_${++seqRef.current}`;
@@ -132,21 +310,30 @@ export default function CopilotChat({
   };
 
   const handleSurfaceAction = async (event: A2uiActionEvent) => {
-    const dropSurface = () =>
-      setSurfaces((s) => applySurfaceMessages(s, [{ deleteSurface: { surfaceId: event.surfaceId } }]));
-
     if (event.name === 'cancel_action') {
-      dropSurface();
+      dropSurfaceById(event.surfaceId);
+      delete genState.current[event.surfaceId];
       return;
     }
+    if (event.name === 'apply_generated') { await applyGenerated(event); return; }
+    if (event.name === 'regenerate_generated') { regenerate(event); return; }
     if (event.name !== 'confirm_action') return;
 
     const proposal = (event.context.proposal ?? {}) as Record<string, unknown> & { tool?: string };
     const tool = proposal.tool;
     if (typeof tool !== 'string') return;
-    const action = { tool, proposal } as unknown as CopilotAction;
 
-    dropSurface();
+    // Generation tools DON'T execute a mutation — they kick off async generation
+    // IN PLACE (the same surface swaps proposal → working → preview), so the
+    // charge point stays single and apply never re-generates.
+    if (tool === 'generate_frame') { void startFrameGen(event.surfaceId, String(proposal.prompt ?? '')); return; }
+    if (tool === 'add_head_piece' && proposal.source === 'generate') {
+      void startPieceGen(event.surfaceId, String(proposal.prompt ?? ''));
+      return;
+    }
+
+    const action = { tool, proposal } as unknown as CopilotAction;
+    dropSurfaceById(event.surfaceId);
     const result = await executeAction(action, ctx());
     setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: `[tool_result] ${result.summary}` }]);
     if (result.ok && result.card) {
@@ -169,11 +356,49 @@ export default function CopilotChat({
     });
   };
 
+  /** Inject a client-built proposal card (no AI round-trip) — the build-mode
+   *  chips use this so the whole flow works even before the edge-fn redeploy. */
+  const openProposal = (action: CopilotAction) => {
+    const sid = `prop_${++seqRef.current}`;
+    addSurface(buildProposalSurface(action, sid), sid);
+  };
+
+  /** Quick-action chips: the experience-building set in build mode, else the
+   *  original platform-copilot set. */
+  const quickChips = (): { label: string; run: () => void }[] => {
+    if (!snapshot) return [];
+    if (mode === 'build') {
+      const chips: { label: string; run: () => void }[] = [
+        { label: '🖼 Frame', run: () => openProposal({ tool: 'generate_frame', proposal: { prompt: `An elegant frame for "${snapshot.name}" — refined ornament hugging the edges, centre fully clear` } }) },
+        { label: '🎨 Filter', run: () => openProposal({ tool: 'set_filter', proposal: { shaderId: DEFAULT_FILTER_ID } }) },
+        { label: '👑 3D prop', run: () => openProposal({ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId: DEFAULT_PIECE_ID } }) },
+        { label: '🏆 Challenge', run: () => openProposal({ tool: 'add_challenge', proposal: { title: 'New photo mission', emoji: '⭐', points: 10, description: '' } }) },
+        { label: '🎁 Pack', run: () => send('Design a themed pack of 5 photo challenges that fit this event.') },
+        { label: '📱 Test', run: () => runReadOnly({ tool: 'test_experience' }) },
+        { label: '📋 Checklist', run: showChecklist },
+        { label: '✨ Recommend', run: () => send('Recommend a frame and a filter that fit this event, and propose them.') },
+      ];
+      if (snapshot.status !== 'live') {
+        chips.splice(6, 0, { label: '🚀 Go live', run: () => openProposal({ tool: 'go_live' }) });
+      }
+      return chips;
+    }
+    return [
+      { label: '📊 Stats', run: () => runReadOnly({ tool: 'get_stats' }) },
+      { label: '🔗 Share links', run: () => runReadOnly({ tool: 'share_links' }) },
+      { label: '🏆 New challenge', run: () => openProposal({ tool: 'add_challenge', proposal: { title: 'New photo mission', emoji: '⭐', points: 10, description: '' } }) },
+      { label: '💌 New card', run: () => openProposal({ tool: 'create_card', proposal: { cardTitle: `Memories for ${snapshot.name}`, recipientName: '', cardTemplate: 'storybook', deadline: '' } }) },
+      // AI round-trip on purpose: the model designs a THEMED set from the live
+      // event snapshot, then it arrives as one confirm card.
+      { label: '🎁 Challenge pack', run: () => send('Design a themed pack of 5 photo challenges that fit this event.') },
+    ];
+  };
+
   return (
     <div className="flex-1 min-h-0 flex flex-col px-4 pb-4 pt-3 gap-2.5">
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto rounded-2xl bg-white/[0.02] border border-white/10 p-3.5 flex flex-col gap-2.5">
         <div className="max-w-[90%] self-start rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg/90">
-          {GREETING}
+          {greeting ?? GREETING}
         </div>
         {messages.map((m, i) => {
           if (m.kind === 'tool_result') {
@@ -219,36 +444,7 @@ export default function CopilotChat({
       {/* Quick actions — launch widgets instantly, no AI round-trip. */}
       {snapshot && (
         <div className="shrink-0 flex flex-wrap gap-1.5">
-          {([
-            { label: '📊 Stats', run: () => runReadOnly({ tool: 'get_stats' }) },
-            { label: '🔗 Share links', run: () => runReadOnly({ tool: 'share_links' }) },
-            {
-              label: '🏆 New challenge',
-              run: () => {
-                const sid = `prop_${++seqRef.current}`;
-                addSurface(buildProposalSurface({
-                  tool: 'add_challenge',
-                  proposal: { title: 'New photo mission', emoji: '⭐', points: 10, description: '' },
-                }, sid), sid);
-              },
-            },
-            {
-              label: '💌 New card',
-              run: () => {
-                const sid = `prop_${++seqRef.current}`;
-                addSurface(buildProposalSurface({
-                  tool: 'create_card',
-                  proposal: { cardTitle: `Memories for ${snapshot.name}`, recipientName: '', cardTemplate: 'storybook', deadline: '' },
-                }, sid), sid);
-              },
-            },
-            {
-              // AI round-trip on purpose: the model designs a THEMED set from
-              // the live event snapshot, then it arrives as one confirm card.
-              label: '🎁 Challenge pack',
-              run: () => send('Design a themed pack of 5 photo challenges that fit this event.'),
-            },
-          ] as { label: string; run: () => void }[]).map((q) => (
+          {quickChips().map((q) => (
             <button
               key={q.label}
               onClick={q.run}

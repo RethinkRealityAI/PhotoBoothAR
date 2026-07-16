@@ -171,7 +171,23 @@ const MAX_ACTIONS = 3;
 const FALLBACK_DOCS =
   'Beamwall: self-serve AR photo-booth, live photo-wall, and greeting-card platform for events.';
 
-function buildCopilotPrompt(docs: string, context: string): string {
+interface CatalogEntry {
+  id: string;
+  name: string;
+}
+
+function buildCopilotPrompt(
+  docs: string,
+  context: string,
+  filters: CatalogEntry[],
+  headPieces: CatalogEntry[],
+): string {
+  const filterList = filters.length
+    ? filters.map((f) => `"${f.id}" (${f.name})`).join('; ')
+    : '(none available)';
+  const pieceList = headPieces.length
+    ? headPieces.map((p) => `"${p.id}" (${p.name})`).join('; ')
+    : '(none available)';
   return `You are the Beamwall Platform Copilot — the host's guide to the whole platform and to their event. Warm, concise (2-4 sentences), no markdown, at most one follow-up question per reply.
 
 PLATFORM GUIDE:
@@ -181,12 +197,18 @@ ${context
     ? `CURRENT EVENT (live data — quote real names/numbers/ids from here):\n${context}`
     : 'No event is selected. Answer platform questions; for event-specific actions ask the host to pick an event in the panel.'}
 
-When the host wants something changed that you have a tool for, put it in "actionsJson": a compact JSON array string of at most ${MAX_ACTIONS} tool objects, e.g. "[{\\"tool\\":\\"add_challenge\\",\\"title\\":\\"Scavenger hunt\\",\\"emoji\\":\\"🎈\\",\\"points\\":20}]" — or exactly "[]" when there is nothing to do. NEVER claim you already did it: the card shown below your reply lets them review and confirm. For update/delete, copy challengeId EXACTLY from the event data. Tools:
+When the host wants something changed that you have a tool for, put it in "actionsJson": a compact JSON array string of at most ${MAX_ACTIONS} tool objects, e.g. "[{\\"tool\\":\\"add_challenge\\",\\"title\\":\\"Scavenger hunt\\",\\"emoji\\":\\"🎈\\",\\"points\\":20}]" — or exactly "[]" when there is nothing to do. NEVER claim you already did it: the card shown below your reply lets them review and confirm. For update/delete/set_default, copy the id EXACTLY from the event data. Tools:
 - add_challenge { title, emoji?, points?, description? } — new photo mission
 - add_challenge_pack { theme, challenges: [{ title, emoji?, points?, description? }] } — 3-6 challenges added together as a themed set; use when the host wants several at once or asks you to design a set
 - update_challenge { challengeId, title?, emoji?, points?, active?, description? }
 - delete_challenge { challengeId }
 - create_card { cardTitle, recipientName?, cardTemplate: 'storybook'|'filmstrip'?, deadline? YYYY-MM-DD } — greeting card + contribution link
+- generate_frame { prompt } — AI-generate a decorative 9:16 booth FRAME from a described look (the host previews + approves; first 3 free). Put the visual brief in "prompt" (e.g. "art-deco gold border with basketball motifs in the corners, centre clear").
+- set_filter { shaderId } — apply a whole-booth colour FILTER. shaderId MUST be one of: ${filterList}. Pick the closest to the vibe; never invent an id.
+- add_head_piece { source, pieceId?, prompt? } — add a face-tracked 3D PROP guests wear. Built-in (free): source:"builtin", pieceId one of: ${pieceList}. AI-generated (~11 credits): source:"generate", prompt describing ONE head-worn accessory. Prefer a built-in when one fits.
+- set_default_experience { experienceId } — make an EXISTING experience the booth's default (experienceId copied EXACTLY from the EXPERIENCES list).
+- go_live {} — take the event LIVE so guests can join and post to the wall. Propose ONLY when the host explicitly asks to go live / open / launch.
+- test_experience {} — show a QR code / link to test the booth on a phone.
 - get_stats {} — show the event's live numbers
 - share_links {} — QR codes / links for every guest surface
 
@@ -215,6 +237,22 @@ function buildCopilotSchema() {
     },
     required: ['reply', 'actionsJson'],
   };
+}
+
+/** Validate a client-sent {id,name}[] catalog (filters / head pieces) into the
+ *  prompt list. Anything malformed is dropped — the client normalizer is the
+ *  authoritative gate on whatever the model ends up proposing. */
+function resolveCatalog(raw: unknown, max: number): CatalogEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CatalogEntry[] = [];
+  for (const e of raw.slice(0, max)) {
+    const id = (e as Record<string, unknown>)?.id;
+    const name = (e as Record<string, unknown>)?.name;
+    if (typeof id === 'string' && id && typeof name === 'string' && name) {
+      out.push({ id: id.slice(0, 40), name: name.slice(0, 60) });
+    }
+  }
+  return out;
 }
 
 /* ── Scene Director mode (coordinated frame + filter + 3D piece) ─────── */
@@ -408,7 +446,11 @@ Deno.serve(async (req: Request) => {
       if (context.length > MAX_CONTEXT_CHARS) return json(400, { error: 'invalid_body' });
       const docsRaw = typeof body.docs === 'string' ? body.docs.trim() : '';
       const docs = docsRaw && docsRaw.length <= MAX_DOCS_CHARS ? docsRaw : FALLBACK_DOCS;
-      const parsed = await callGemini(messages, buildCopilotPrompt(docs, context), buildCopilotSchema());
+      // Live filter + head-piece catalogs (client-sent); the client normalizer
+      // is the real gate, so an empty/invalid list just narrows the prompt.
+      const filters = resolveCatalog(body.filters, 40);
+      const headPieces = resolveCatalog(body.headPieces, 24);
+      const parsed = await callGemini(messages, buildCopilotPrompt(docs, context, filters, headPieces), buildCopilotSchema());
       let actions: unknown[] = [];
       try {
         const decoded = JSON.parse(typeof parsed.actionsJson === 'string' ? parsed.actionsJson : '[]');

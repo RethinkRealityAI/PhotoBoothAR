@@ -17,6 +17,8 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import type { ChatMessage } from './eventDesigner';
 import { PLATFORM_GUIDE } from './platformGuide';
 import type { EventSnapshot } from './eventSnapshot';
+import { FILTER_SHADERS } from './shaders';
+import { HEAD_PIECE_MAP, HEAD_PIECES } from './headPieces';
 
 /* ── Action types (post-normalization) ───────────────────────────────── */
 
@@ -33,11 +35,21 @@ export type CopilotAction =
   | { tool: 'update_challenge'; proposal: { challengeId: string; title?: string; emoji?: string; points?: number; active?: boolean } }
   | { tool: 'delete_challenge'; proposal: { challengeId: string } }
   | { tool: 'create_card'; proposal: { cardTitle: string; recipientName: string; cardTemplate: 'storybook' | 'filmstrip'; deadline: string } }
+  // Experience-building tools (Event Concierge post-create build phase).
+  | { tool: 'generate_frame'; proposal: { prompt: string } }
+  | { tool: 'set_filter'; proposal: { shaderId: string } }
+  | { tool: 'add_head_piece'; proposal: { source: 'builtin'; pieceId: string } | { source: 'generate'; prompt: string } }
+  | { tool: 'set_default_experience'; proposal: { experienceId: string } }
+  | { tool: 'go_live' }
+  | { tool: 'test_experience' }
   | { tool: 'get_stats' }
   | { tool: 'share_links' };
 
 const MAX_ACTIONS = 3;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** The filter ids the model may pick from (the same list the studio Director
+ *  is given). 'none' is excluded — an empty filter is never worth an action. */
+const FILTER_IDS = new Set(FILTER_SHADERS.map((s) => s.id).filter((id) => id !== 'none'));
 
 const str = (v: unknown, max = 120): string => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const points = (v: unknown): number => {
@@ -79,6 +91,7 @@ function challengeDraft(raw: unknown): ChallengeDraft | null {
 export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): CopilotAction[] {
   if (!Array.isArray(raw)) return [];
   const knownIds = new Set((snapshot?.challenges ?? []).map((c) => c.id));
+  const expIds = new Set((snapshot?.experiences ?? []).map((e) => e.id));
   const out: CopilotAction[] = [];
   for (const item of raw) {
     if (out.length >= MAX_ACTIONS) break;
@@ -133,6 +146,38 @@ export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): 
         });
         break;
       }
+      case 'generate_frame': {
+        const prompt = str(a.prompt, 500);
+        if (!prompt) break;
+        out.push({ tool: 'generate_frame', proposal: { prompt } });
+        break;
+      }
+      case 'set_filter': {
+        const shaderId = str(a.shaderId, 40);
+        if (!shaderId || !FILTER_IDS.has(shaderId)) break;
+        out.push({ tool: 'set_filter', proposal: { shaderId } });
+        break;
+      }
+      case 'add_head_piece': {
+        if (a.source === 'generate') {
+          const prompt = str(a.prompt, 300);
+          if (!prompt) break;
+          out.push({ tool: 'add_head_piece', proposal: { source: 'generate', prompt } });
+        } else {
+          const pieceId = str(a.pieceId, 40);
+          if (!pieceId || !HEAD_PIECE_MAP[pieceId]) break;
+          out.push({ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId } });
+        }
+        break;
+      }
+      case 'set_default_experience': {
+        const experienceId = str(a.experienceId, 64);
+        if (!experienceId || !expIds.has(experienceId)) break;
+        out.push({ tool: 'set_default_experience', proposal: { experienceId } });
+        break;
+      }
+      case 'go_live':
+      case 'test_experience':
       case 'get_stats':
       case 'share_links':
         out.push({ tool: a.tool });
@@ -175,6 +220,85 @@ export interface ExecResult {
   summary: string;
   /** create_card success payload — the chat renders it as a QR link card. */
   card?: { title: string; contributeUrl: string; viewerUrl: string };
+  /** go_live success → the event's new lifecycle status ('live'). */
+  status?: string;
+}
+
+/**
+ * Pin an experience as the booth default. The booth reads
+ * `wallSettings.defaultExperienceId ?? eventConfig.defaultExperienceId`
+ * (Booth.tsx), so the AUTHORITATIVE store is app_settings 'wall' (by slug);
+ * we also mirror into events.config (by uuid) for parity with FrameStudio and
+ * to override any `builtin:*` id the template seeded there. Best-effort: the
+ * events.config write returns the real health signal (same RLS as the wall
+ * upsert), so we surface that.
+ */
+async function pinDefault(ctx: CopilotCtx, experienceId: string): Promise<boolean> {
+  const [{ setWallSettings }, { updateEventConfig }] = await Promise.all([import('./db'), import('./host')]);
+  await setWallSettings(ctx.slug, { defaultExperienceId: experienceId });
+  return updateEventConfig(ctx.eventUuid, { defaultExperienceId: experienceId });
+}
+
+/**
+ * Apply a generated frame the host approved in the preview card: publish the
+ * (server-created, unpublished) experience with the placement baked into
+ * config.transform, then pin it as the booth default — the exact two writes
+ * FrameStudio does. NEVER re-generates (no credit spend); the row already exists.
+ */
+export async function applyGeneratedFrame(
+  ctx: CopilotCtx,
+  experience: { id: string; config?: unknown },
+  transform: { scale: number; x: number; y: number },
+): Promise<ExecResult> {
+  try {
+    const { supabase } = await import('./supabase');
+    const { error: pubErr } = await supabase
+      .from('experiences')
+      .update({
+        is_published: true,
+        config: {
+          ...((experience.config ?? {}) as Record<string, unknown>),
+          transform: { scale: transform.scale, x: transform.x, y: transform.y, rotation: 0 },
+        },
+      })
+      .eq('id', experience.id)
+      .eq('event_id', ctx.slug);
+    if (pubErr) {
+      return { ok: false, summary: 'The frame was generated but could not be published — publish it from your studio Library.' };
+    }
+    const pinned = await pinDefault(ctx, experience.id);
+    return pinned
+      ? { ok: true, summary: 'Your frame is live and set as the booth default.' }
+      : { ok: true, summary: 'Your frame is published, but setting it as the booth default failed — set it in the studio Library.' };
+  } catch (e) {
+    console.error('[copilot] applyGeneratedFrame', e);
+    return { ok: false, summary: 'Applying the frame failed unexpectedly.' };
+  }
+}
+
+/**
+ * Apply a generated 3D prop the host approved: publish the (server-created,
+ * unpublished) experience and pin it as the booth default. NEVER re-generates.
+ */
+export async function applyGeneratedPiece(ctx: CopilotCtx, experienceId: string): Promise<ExecResult> {
+  try {
+    const { supabase } = await import('./supabase');
+    const { error: pubErr } = await supabase
+      .from('experiences')
+      .update({ is_published: true })
+      .eq('id', experienceId)
+      .eq('event_id', ctx.slug);
+    if (pubErr) {
+      return { ok: false, summary: 'The 3D prop was generated but could not be published — publish it from your studio Library.' };
+    }
+    const pinned = await pinDefault(ctx, experienceId);
+    return pinned
+      ? { ok: true, summary: 'Your 3D prop is live and set as the booth default.' }
+      : { ok: true, summary: 'Your 3D prop is published, but setting it as the booth default failed — set it in the studio Library.' };
+  } catch (e) {
+    console.error('[copilot] applyGeneratedPiece', e);
+    return { ok: false, summary: 'Applying the 3D prop failed unexpectedly.' };
+  }
 }
 
 export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Promise<ExecResult> {
@@ -238,6 +362,47 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
           card: { title: card.title, contributeUrl: cUrl, viewerUrl: vUrl },
         };
       }
+      case 'set_filter': {
+        const { buildFilterExperienceDraft } = await import('./studio/copilotExperience');
+        const { createExperience } = await import('./db');
+        const draft = buildFilterExperienceDraft(action.proposal.shaderId);
+        if (!draft) return { ok: false, summary: 'That filter isn’t available.' };
+        const exp = await createExperience(ctx.slug, draft);
+        if (!exp) return { ok: false, summary: 'Adding the filter failed.' };
+        const pinned = await pinDefault(ctx, exp.id);
+        return {
+          ok: true,
+          summary: `Filter "${exp.name}" added${pinned ? ' and set as the booth default' : ' (set it as the booth default in the studio Library)'}.`,
+        };
+      }
+      case 'add_head_piece': {
+        // Generated pieces run through the async preview card, not here.
+        if (action.proposal.source !== 'builtin') {
+          return { ok: false, summary: 'That 3D piece needs generating first.' };
+        }
+        const { buildHeadPieceExperienceDraft } = await import('./studio/copilotExperience');
+        const { createExperience } = await import('./db');
+        const draft = buildHeadPieceExperienceDraft(action.proposal.pieceId);
+        if (!draft) return { ok: false, summary: 'That 3D piece isn’t available.' };
+        const exp = await createExperience(ctx.slug, draft);
+        if (!exp) return { ok: false, summary: 'Adding the 3D piece failed.' };
+        const pinned = await pinDefault(ctx, exp.id);
+        return {
+          ok: true,
+          summary: `3D piece "${exp.name}" added${pinned ? ' and set as the booth default' : ' (set it as the booth default in the studio Library)'}.`,
+        };
+      }
+      case 'set_default_experience': {
+        const ok = await pinDefault(ctx, action.proposal.experienceId);
+        return { ok, summary: ok ? 'Booth default updated.' : 'Setting the booth default failed.' };
+      }
+      case 'go_live': {
+        const { updateEventStatus } = await import('./host');
+        const ok = await updateEventStatus(ctx.eventUuid, 'live');
+        return ok
+          ? { ok: true, summary: 'Your event is LIVE — guests can now take pictures and post to the wall.', status: 'live' }
+          : { ok: false, summary: 'Going live failed — try again in a moment.' };
+      }
       default:
         return { ok: false, summary: 'Nothing to execute.' };
     }
@@ -290,6 +455,10 @@ export async function askCopilot(
         messages: mergeWireTurns(messages),
         context: snapshot ? formatSnapshot(snapshot) : '',
         docs: PLATFORM_GUIDE,
+        // The live catalogs ride along so the model proposes only real ids
+        // (the client normalizer still validates and drops anything invalid).
+        filters: FILTER_SHADERS.filter((s) => s.id !== 'none').map((s) => ({ id: s.id, name: s.name })),
+        headPieces: HEAD_PIECES.map((p) => ({ id: p.id, name: p.name })),
       },
     });
     if (error) {

@@ -386,6 +386,17 @@ export async function updateEventStatus(eventUuid: string, status: string): Prom
   return true;
 }
 
+/** Current lifecycle status of an event (draft/live/ended/archived), or null.
+ *  Used to re-snapshot after an in-chat "go live" flips the status. */
+export async function fetchEventStatus(eventUuid: string): Promise<string | null> {
+  const { data, error } = await supabase.from('events').select('status').eq('id', eventUuid).maybeSingle();
+  if (error || !data) {
+    if (error) console.error('[host] fetchEventStatus', error);
+    return null;
+  }
+  return (data.status as string) ?? null;
+}
+
 export async function updateEventName(eventUuid: string, name: string): Promise<boolean> {
   const trimmed = name.trim();
   if (!trimmed) return false;

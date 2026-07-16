@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { normalizeActions, mergeWireTurns } from './copilot';
 import type { EventSnapshot } from './eventSnapshot';
 import type { ChatMessage } from './eventDesigner';
+import { FILTER_SHADERS } from './shaders';
+import { HEAD_PIECES } from './headPieces';
 
 const snapshot = {
   eventUuid: 'u-1', slug: 'daps-35th', name: "Dapo's 35th", status: 'live',
@@ -86,6 +88,49 @@ describe('normalizeActions', () => {
     expect(p.challenges[0]).toEqual({ title: 'First dance', emoji: '💃', points: 20, description: '' });
     // A pack with zero usable challenges is dropped entirely.
     expect(normalizeActions([{ tool: 'add_challenge_pack', challenges: [{}, null] }], snapshot)).toEqual([]);
+  });
+});
+
+describe('normalizeActions — experience-building tools', () => {
+  const filterId = FILTER_SHADERS.find((s) => s.id !== 'none')!.id;
+  const pieceId = HEAD_PIECES[0].id;
+  const withExp = {
+    ...snapshot,
+    experiences: [{ id: 'exp-real', name: 'Gold frame', kind: 'border', published: true }],
+  } satisfies EventSnapshot;
+
+  it('accepts generate_frame with a prompt, drops it without one', () => {
+    expect(normalizeActions([{ tool: 'generate_frame', prompt: 'art-deco gold border' }], snapshot))
+      .toEqual([{ tool: 'generate_frame', proposal: { prompt: 'art-deco gold border' } }]);
+    expect(normalizeActions([{ tool: 'generate_frame' }], snapshot)).toEqual([]);
+  });
+
+  it('accepts a known filter id, drops unknown ids and none', () => {
+    expect(normalizeActions([{ tool: 'set_filter', shaderId: filterId }], snapshot))
+      .toEqual([{ tool: 'set_filter', proposal: { shaderId: filterId } }]);
+    expect(normalizeActions([{ tool: 'set_filter', shaderId: 'made-up' }], snapshot)).toEqual([]);
+    expect(normalizeActions([{ tool: 'set_filter', shaderId: 'none' }], snapshot)).toEqual([]);
+  });
+
+  it('validates head pieces: builtin id must exist, generate needs a prompt', () => {
+    expect(normalizeActions([{ tool: 'add_head_piece', source: 'builtin', pieceId }], snapshot))
+      .toEqual([{ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId } }]);
+    expect(normalizeActions([{ tool: 'add_head_piece', source: 'builtin', pieceId: 'nope' }], snapshot)).toEqual([]);
+    expect(normalizeActions([{ tool: 'add_head_piece', source: 'generate', prompt: 'a foam crown' }], snapshot))
+      .toEqual([{ tool: 'add_head_piece', proposal: { source: 'generate', prompt: 'a foam crown' } }]);
+    expect(normalizeActions([{ tool: 'add_head_piece', source: 'generate' }], snapshot)).toEqual([]);
+  });
+
+  it('set_default_experience must reference a real experience id', () => {
+    expect(normalizeActions([{ tool: 'set_default_experience', experienceId: 'exp-real' }], withExp))
+      .toEqual([{ tool: 'set_default_experience', proposal: { experienceId: 'exp-real' } }]);
+    expect(normalizeActions([{ tool: 'set_default_experience', experienceId: 'exp-fake' }], withExp)).toEqual([]);
+    expect(normalizeActions([{ tool: 'set_default_experience', experienceId: 'exp-real' }], snapshot)).toEqual([]);
+  });
+
+  it('passes no-arg go_live and test_experience through', () => {
+    expect(normalizeActions([{ tool: 'go_live' }, { tool: 'test_experience' }], snapshot))
+      .toEqual([{ tool: 'go_live' }, { tool: 'test_experience' }]);
   });
 });
 
