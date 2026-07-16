@@ -29,6 +29,39 @@ export default function CopilotPanel() {
   const navigate = useNavigate();
 
   const routeUuid = useMemo(() => UUID_RE.exec(pathname)?.[1] ?? null, [pathname]);
+
+  // Mobile soft-keyboard: when the keyboard opens, the *visual* viewport shrinks
+  // but a position:fixed panel is laid out against the *layout* viewport (the
+  // ICB, unchanged by the keyboard on iOS Safari where interactive-widget is
+  // ignored). So the bottom-anchored input hides behind the keyboard. Track how
+  // much the keyboard occludes and lift the panel's bottom edge above it; the
+  // flex-1 chat scroll region shrinks so the input row stays visible. Desktop
+  // has no soft keyboard (kbInset stays 0), so its md: bottom-6 anchor is
+  // untouched. On browsers honoring interactive-widget=resizes-content the
+  // layout viewport itself shrinks (innerHeight drops), so kbInset ≈ 0 and this
+  // simply composes without double-adjusting.
+  const [kbInset, setKbInset] = useState(0);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const isMobile = !window.matchMedia('(min-width: 768px)').matches;
+      const occluded = isMobile
+        ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+        : 0;
+      // Ignore sub-keyboard jitter (URL-bar collapse is a few px); real
+      // keyboards occupy far more than 60px.
+      setKbInset(occluded > 60 ? occluded : 0);
+    };
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+
   const [events, setEvents] = useState<HostEventRow[] | null>(null);
   const [selectedUuid, setSelectedUuid] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<EventSnapshot | null>(null);
@@ -102,7 +135,14 @@ export default function CopilotPanel() {
              position:relative, which beats the layered Tailwind `fixed`
              utility — that collision stranded the popup at the page's static
              position instead of anchoring it to the viewport. */
-          style={{ position: 'fixed', backgroundColor: 'color-mix(in srgb, var(--color-brand-bg) 88%, transparent)' }}
+          style={{
+            position: 'fixed',
+            backgroundColor: 'color-mix(in srgb, var(--color-brand-bg) 88%, transparent)',
+            // When the mobile keyboard is up, override the bottom-3 (0.75rem)
+            // anchor to sit above it. Only set inline when open so desktop's
+            // md: bottom-6 class keeps winning at rest.
+            ...(kbInset > 0 ? { bottom: `calc(0.75rem + ${kbInset}px)` } : null),
+          }}
         >
             {/* Header */}
             <div className="shrink-0 flex items-center gap-2.5 px-4 py-3 border-b border-white/10">

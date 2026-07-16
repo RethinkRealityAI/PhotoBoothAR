@@ -490,7 +490,14 @@ Deno.serve(async (req: Request) => {
       // Reference image (gemini only): fetch + encode server-side and tell the
       // model to follow it. A failed fetch degrades to null → no reference,
       // generation still proceeds (never fail a paid job over a reference).
-      const reference = referenceImageUrl && provider === 'gemini'
+      // SSRF guard: only fetch URLs inside THIS project's public assets bucket
+      // (where uploadAsset writes) — never an attacker-chosen internal address.
+      const assetsPrefix = `${Deno.env.get('SUPABASE_URL') ?? ''}/storage/v1/object/public/assets/`;
+      const refAllowed = !!referenceImageUrl && referenceImageUrl.startsWith(assetsPrefix);
+      if (referenceImageUrl && !refAllowed) {
+        console.warn('[ai-generate-image] reference URL outside the assets bucket — ignored (ssrf guard)');
+      }
+      const reference = refAllowed && provider === 'gemini'
         ? await fetchReferenceInline(referenceImageUrl)
         : null;
       if (reference) fullPrompt = `${fullPrompt} Use the attached reference image to guide the style and subject.`;

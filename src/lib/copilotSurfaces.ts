@@ -65,13 +65,17 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
         { id: 'root', component: 'Card', child: 'body' },
         {
           id: 'body', component: 'Column',
-          children: ['heading', 'titleField', 'emojiField', 'pointsField', 'descField', ...confirm.ids],
+          children: ['heading', 'titleField', 'emojiField', 'pointsField', 'descField', 'checkField', 'checkHint', ...confirm.ids],
         },
         { id: 'heading', component: 'Text', text: 'New photo challenge', variant: 'h5' },
         textField('titleField', 'Title', '/proposal/title'),
         textField('emojiField', 'Emoji', '/proposal/emoji'),
         textField('pointsField', 'Points', '/proposal/points'),
         textField('descField', 'Description (optional)', '/proposal/description'),
+        // AI photo check — filled when the host's request implies a visual test
+        // ("find someone in red"); editable, and leaving it blank = no check.
+        textField('checkField', 'AI photo check (optional)', '/proposal/validationPrompt'),
+        { id: 'checkHint', component: 'Text', variant: 'caption', text: 'If set, the AI verifies each guest photo matches this before it counts.' },
         ...confirm.components,
       ]);
     }

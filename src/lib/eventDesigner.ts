@@ -290,7 +290,14 @@ export function surfaceIdOf(messages: A2uiMessage[]): string | null {
 
 /* ── Edge-function client with local fallback ────────────────────────── */
 
-export async function designEvent(messages: ChatMessage[]): Promise<DesignResult> {
+/** An optional host photo (invitation / mood board / venue) for Gemini vision
+ *  to seed the plan from. See src/lib/imageInput.ts. */
+export interface DesignImage {
+  data: string;
+  mimeType: string;
+}
+
+export async function designEvent(messages: ChatMessage[], image?: DesignImage): Promise<DesignResult> {
   // One surface per conversation turn, so the chat history keeps every card.
   const sid = `plan_${messages.length}`;
   const withUi = (
@@ -322,6 +329,9 @@ export async function designEvent(messages: ChatMessage[]): Promise<DesignResult
         // can never drift from the app's real templates (edge fn validates
         // and falls back to its built-in list).
         templates: EVENT_TEMPLATES.map((t) => ({ id: t.id, vibe: `${t.label} — ${t.blurb}` })),
+        // A host photo (invitation / mood board / venue) → Gemini vision seeds
+        // the plan. Omitted → byte-identical to the text-only request.
+        ...(image ? { image } : {}),
       },
     });
     if (error) {

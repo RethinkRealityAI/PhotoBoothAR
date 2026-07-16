@@ -155,6 +155,18 @@ export interface Post {
   height: number | null;
 }
 
+/**
+ * Optional AI photo-check for a challenge. When `enabled`, the guest's captured
+ * photo is run past a Gemini vision check (`prompt` = what to look for) before
+ * the shot counts for the challenge. `referenceImageUrl` (a public assets-bucket
+ * URL) lets the host show the AI a target the photo should resemble.
+ */
+export interface ChallengeValidation {
+  enabled: boolean;
+  prompt: string;
+  referenceImageUrl?: string | null;
+}
+
 /** A gala engagement challenge guests can complete in the booth. */
 export interface Challenge {
   id: string;
@@ -165,6 +177,8 @@ export interface Challenge {
   points: number;
   sort_order: number;
   active: boolean;
+  /** AI photo-check config; null / absent = no check (default). */
+  validation?: ChallengeValidation | null;
 }
 
 /** Wall/feature settings, synced live from app_settings (key='wall'). */

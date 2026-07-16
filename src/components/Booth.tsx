@@ -37,6 +37,7 @@ import PickerDrawer from './booth/PickerDrawer';
 import FilterOrbs from './booth/FilterOrbs';
 import Countdown from './booth/Countdown';
 import ReviewPanel from './booth/ReviewPanel';
+import ChallengeCheck from './booth/ChallengeCheck';
 import SendOff from './booth/SendOff';
 import Onboarding, { useOnboarding } from './booth/Onboarding';
 import ChallengeSelector from './booth/ChallengeSelector';
@@ -54,6 +55,8 @@ import { savePhoto, addCompletedChallenge, setGuestName } from '../lib/session';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
 import { useEntitlements } from '../lib/entitlements';
 import { dataUrlToBlob } from './booth/capture';
+import { challengeNeedsCheck, validateChallengePhoto } from '../lib/challengeValidation';
+import { fileToImagePart } from '../lib/imageInput';
 import RevealShimmer from './booth/RevealShimmer';
 import { REVEAL_SHIMMER_MS } from '../lib/studio/reveal';
 import type { Transform2D, Experience, AnchorConfig, Challenge } from '../types';
@@ -65,6 +68,8 @@ type BoothPhase =
   | 'countdown'
   | 'flash'
   | 'review'
+  | 'checking'      // AI photo-check running (challenge validation)
+  | 'checkFailed'   // photo didn't match the challenge — retake or post anyway
   | 'sending'
   | 'success';
 
@@ -181,6 +186,10 @@ export default function Booth() {
   const [capturedBlobRef, setCapturedBlobRef] = useState<Blob | null>(null);
   const [capturedDurationMs, setCapturedDurationMs] = useState<number | undefined>();
   const capturedMediaTypeRef = useRef<'image' | 'video'>('image');
+  // AI challenge photo-check: the reason shown on a failed check, and the
+  // name/message the guest already entered (so "post anyway" can go straight through).
+  const [checkReason, setCheckReason] = useState('');
+  const pendingSendRef = useRef<{ guestName: string; message: string } | null>(null);
 
   // ── Recording ─────────────────────────────────────────────────────────
   const recorderRef = useRef<StreamRecorder | null>(null);
@@ -675,8 +684,10 @@ export default function Booth() {
   }, []);
 
   // ── Send to wall ──────────────────────────────────────────────────────
-  const handleSend = useCallback(
-    async (guestName: string, message: string) => {
+  /** The actual upload. `withChallenge=false` posts WITHOUT tagging the
+   *  challenge (used by "post anyway" after a failed AI check → no points). */
+  const doSubmit = useCallback(
+    async (guestName: string, message: string, withChallenge: boolean) => {
       if (!capturedDataUrl) return;
       setPhase('sending');
 
@@ -686,6 +697,7 @@ export default function Booth() {
         : dataUrlToBlob(capturedDataUrl);
 
       const expId = attachExp?.id ?? frameExp?.id ?? (effectId !== 'none' ? `builtin:shader:${effectId}` : undefined);
+      const taggedChallenge = withChallenge ? selectedChallenge : null;
 
       const post = await submitPost(eventId, {
         blob,
@@ -694,7 +706,7 @@ export default function Booth() {
         message: message || undefined,
         guestName: guestName || undefined,
         experienceId: expId ?? null,
-        challengeId: selectedChallenge?.id ?? null,
+        challengeId: taggedChallenge?.id ?? null,
         width: 1080,
         height: 1920,
       });
@@ -710,8 +722,8 @@ export default function Booth() {
         // Remember the name (so challenge mode doesn't re-ask) + mark the
         // challenge complete so it drops off this guest's list.
         if (guestName) setGuestName(eventId, guestName);
-        if (selectedChallenge) {
-          addCompletedChallenge(eventId, selectedChallenge.id);
+        if (taggedChallenge) {
+          addCompletedChallenge(eventId, taggedChallenge.id);
           setSelectedChallenge(null); // done — don't re-tag the next shot
         }
       }
@@ -719,6 +731,32 @@ export default function Booth() {
       setPhase('success');
     },
     [capturedDataUrl, capturedBlobRef, capturedDurationMs, attachExp, frameExp, effectId, selectedChallenge, eventId],
+  );
+
+  const handleSend = useCallback(
+    async (guestName: string, message: string) => {
+      if (!capturedDataUrl) return;
+      const isVideo = capturedMediaTypeRef.current === 'video';
+
+      // AI photo-check gate — only for photo captures on a challenge that
+      // requires one. Fails OPEN (any error → the shot still posts): a booth
+      // must never trap a guest on an AI hiccup.
+      if (!isVideo && challengeNeedsCheck(selectedChallenge) && selectedChallenge) {
+        pendingSendRef.current = { guestName, message };
+        setPhase('checking');
+        const part = await fileToImagePart(dataUrlToBlob(capturedDataUrl));
+        const outcome = part
+          ? await validateChallengePhoto(eventId, selectedChallenge.id, part)
+          : { pass: true, reason: '' };
+        if (!outcome.pass) {
+          setCheckReason(outcome.reason);
+          setPhase('checkFailed');
+          return;
+        }
+      }
+      await doSubmit(guestName, message, true);
+    },
+    [capturedDataUrl, selectedChallenge, eventId, doSubmit],
   );
 
   const handleRetake = useCallback(() => {
@@ -1111,6 +1149,21 @@ export default function Booth() {
           onSend={handleSend}
           sending={false}
           selectedChallenge={selectedChallenge}
+        />
+      )}
+
+      {/* ── AI challenge photo-check ──────────────────────────────────── */}
+      {(phase === 'checking' || phase === 'checkFailed') && capturedDataUrl && (
+        <ChallengeCheck
+          dataUrl={capturedDataUrl}
+          phase={phase === 'checking' ? 'checking' : 'failed'}
+          challengeTitle={selectedChallenge?.title}
+          reason={checkReason}
+          onRetake={handleRetake}
+          onPostAnyway={() => {
+            const p = pendingSendRef.current;
+            doSubmit(p?.guestName ?? '', p?.message ?? '', false);
+          }}
         />
       )}
 

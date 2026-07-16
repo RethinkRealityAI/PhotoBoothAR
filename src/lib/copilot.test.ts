@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeActions, mergeWireTurns } from './copilot';
+import { normalizeActions, mergeWireTurns, executeAction } from './copilot';
 import type { EventSnapshot } from './eventSnapshot';
 import type { ChatMessage } from './eventDesigner';
 import { FILTER_SHADERS } from './shaders';
@@ -89,6 +89,21 @@ describe('normalizeActions', () => {
     // A pack with zero usable challenges is dropped entirely.
     expect(normalizeActions([{ tool: 'add_challenge_pack', challenges: [{}, null] }], snapshot)).toEqual([]);
   });
+
+  it('carries an optional AI-check validationPrompt on challenges (present → kept, absent → omitted)', () => {
+    const withCheck = normalizeActions(
+      [{ tool: 'add_challenge', title: 'Spot the red', validationPrompt: '  Someone clearly wearing red  ' }],
+      snapshot,
+    );
+    expect((withCheck[0] as { proposal: { validationPrompt?: string } }).proposal.validationPrompt)
+      .toBe('Someone clearly wearing red');
+    // No validationPrompt key at all when the model doesn't ask for a check.
+    const plain = normalizeActions([{ tool: 'add_challenge', title: 'Best dance move' }], snapshot);
+    expect('validationPrompt' in (plain[0] as { proposal: object }).proposal).toBe(false);
+    // A blank/whitespace prompt is treated as no check.
+    const blank = normalizeActions([{ tool: 'add_challenge', title: 'x', validationPrompt: '   ' }], snapshot);
+    expect('validationPrompt' in (blank[0] as { proposal: object }).proposal).toBe(false);
+  });
 });
 
 describe('normalizeActions — experience-building tools', () => {
@@ -148,6 +163,20 @@ describe('normalizeActions — experience-building tools', () => {
     expect(normalizeActions([{ tool: 'rename_event', name: '  Gala 2.0 ' }], snapshot))
       .toEqual([{ tool: 'rename_event', proposal: { name: 'Gala 2.0' } }]);
     expect(normalizeActions([{ tool: 'rename_event', name: '' }], snapshot)).toEqual([]);
+  });
+});
+
+describe('executeAction — no-event guard', () => {
+  it('refuses an event-scoped action when no event is selected (empty slug), without touching the DB', async () => {
+    // Regression: a null snapshot → ctx.slug='' → INSERT event_id='' → RLS 403
+    // → "Adding the challenge failed". The guard short-circuits with a clear
+    // "pick an event" message before any supabase import.
+    const res = await executeAction(
+      { tool: 'add_challenge', proposal: { title: 'Spot the red', emoji: '🔴', points: 10, description: '' } },
+      { slug: '', eventUuid: '', origin: 'http://localhost' },
+    );
+    expect(res.ok).toBe(false);
+    expect(res.summary).toMatch(/pick one|pick an event|not pointed at an event/i);
   });
 });
 
