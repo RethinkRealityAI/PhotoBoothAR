@@ -7,7 +7,18 @@ Beta-release landing polish (branch claude/beta-release-polish-z58r57): (1) put 
 Draft PR #17 open + watched (https://github.com/RethinkRealityAI/PhotoBoothAR/pull/17). Pushed 5 commits: landing polish (6829c09), beta-readiness S1-S4 (219b05b), green/gold-on-mobile balanced arc (1c64980), studio first-run onboarding tour (0f7ca46). Gemini key WORKING per user.
 
 ## Next
-Round-4 all 4 asks DONE + pushed (PR #17, tip f2d8fd8, CI was green on prior tip). Awaiting user decisions: (a) sizzle placement — off-page/OG [agent rec] vs on-page teaser band (new section, needs approval); (b) delete orphaned src/assets/landing/beamwall-promo.mp4+poster (now unreferenced); (c) delete unused FrameShowcase.tsx. Remaining USER-side gates: Stripe LIVE keys, real-hardware E2E, legal confirm, Supabase advisor fixes (public-bucket listing, leaked-password toggle), Higgsfield narrated cut assembly (Track-2 jobs in user's workspace). VERIFY live hero content + video H.264 playback on deploy-preview-17.
+Round-5/6 DONE + pushed (PR #17, tip 1fe3f68). Awaiting user: swap in the 3 Higgsfield how-it-works images (jobs 9119b609/5f0b51dd/0e0cf9ee in user's workspace, black-bg → remove_background or screen-blend); sizzle placement; delete orphaned beamwall-promo.mp4 + unused FrameShowcase.tsx. USER-side gates unchanged (Stripe LIVE, real-hardware E2E, legal, Supabase advisor fixes). Test the credits flow with a real signup on the deployed site.
+
+## Done (this session, cont. 5) — landing conversion + how-it-works art
+- LANDING CONVERSION (be75519): removed hero AR eyebrow pill + "See pricing" (single CTA); sticky glass header w/ persistent Create-your-event CTA; added How-it-works 3-step + honest FAQ (details/summary); moved InteractiveShowcase ABOVE pricing; "Live moments from real Beamwall events" trust line. No fabricated social proof (flagged as user-content).
+- HOW-IT-WORKS ART (50c4b0d): 3D-tilted/floating/parallax transparent cutouts per step (StepArt; parallax on wrapper, rotateY tilt on middle layer, float on img). 3 Higgsfield nano-banana images generated to user's workspace for swap.
+
+## Done (this session, cont. 6) — CREDITS + PROMO SYSTEM (Ask: free signup credits, admin credit control, promo codes)
+- Existing (pre-built): org-scoped credit_ledger/credit_balances, grant_credits/spend_credits, audited admin adjust_credits (admin_adjust_credits RPC). Credits are ORG-scoped (solo host = own org).
+- MIGRATION 011 (applied LIVE zrtftliozslrjomxbfrr + committed): platform_config (signup_bonus_credits=25, admin-editable), profiles.pending_promo_code, promo_codes + promo_redemptions (caps+expiry, 1/org), redeem_promo() SECURITY DEFINER (never raises), handle_new_org now grants welcome credits (config-driven) + redeems pending promo, handle_new_user captures raw_user_meta_data.promo_code. Verified live: triggers carry new logic.
+- admin-api DEPLOYED v11: +get_platform_config/set_signup_credits/list_promos/create_promo/set_promo_active (audited, behind platform-admin gate).
+- Client (1fe3f68): auth.signUpWithEmail(promoCode) → metadata; Signup promo field (verified screenshot); admin.ts helpers; NEW /admin/credits screen (welcome-amount + promo CRUD) + Coins nav + route; Grant/adjust-credits control on CustomerDetail. Gates tsc0/466/build✓.
+- NOTE: org (and thus welcome bonus/promo redemption) is created LAZILY in create-event edge fn on first event — so bonus/promo apply on first event creation, not raw auth signup. Admin Credits screen not screenshot-verified (needs platform-admin auth; sandbox has fake supabase).
 
 ## Done (this session, cont. 4) — intro videos (hybrid path)
 - VIDEO AGENT (beamwall-video, background) delivered BOTH tracks. Hard constraint confirmed: Higgsfield generates fine but its CloudFront result hosts 403 through the org egress proxy — cannot retrieve bytes into sandbox (logged in agent learnings). User chose Hybrid + kling3_0.
