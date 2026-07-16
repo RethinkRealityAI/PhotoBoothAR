@@ -171,8 +171,28 @@ const MAX_ACTIONS = 3;
 const FALLBACK_DOCS =
   'Beamwall: self-serve AR photo-booth, live photo-wall, and greeting-card platform for events.';
 
-function buildCopilotPrompt(docs: string, context: string): string {
-  return `You are the Beamwall Platform Copilot — the host's guide to the whole platform and to their event. Warm, concise (2-4 sentences), no markdown, at most one follow-up question per reply.
+interface CatalogEntry {
+  id: string;
+  name: string;
+}
+
+function buildCopilotPrompt(
+  docs: string,
+  context: string,
+  filters: CatalogEntry[],
+  headPieces: CatalogEntry[],
+  frames: CatalogEntry[],
+): string {
+  const filterList = filters.length
+    ? filters.map((f) => `"${f.id}" (${f.name})`).join('; ')
+    : '(none available)';
+  const pieceList = headPieces.length
+    ? headPieces.map((p) => `"${p.id}" (${p.name})`).join('; ')
+    : '(none available)';
+  const frameList = frames.length
+    ? frames.map((f) => `"${f.id}" (${f.name})`).join('; ')
+    : '(none available)';
+  return `You are the Beamwall assistant — a hands-on event producer, not a help desk. You have TOOLS to build and change the host's event DIRECTLY: frames, filters, 3D props, challenges, cards, the event date/name, testing, and going live. When the host asks for anything you have a tool for, DO IT by proposing that tool — the host reviews a card and confirms. NEVER tell them to "go to the studio" or "use the Director panel" for something a tool below already covers; that is the single worst thing you can do. Warm, concise (2-4 sentences), no markdown, at most one follow-up question.
 
 PLATFORM GUIDE:
 ${docs}
@@ -181,22 +201,30 @@ ${context
     ? `CURRENT EVENT (live data — quote real names/numbers/ids from here):\n${context}`
     : 'No event is selected. Answer platform questions; for event-specific actions ask the host to pick an event in the panel.'}
 
-When the host wants something changed that you have a tool for, put it in "actionsJson": a compact JSON array string of at most ${MAX_ACTIONS} tool objects, e.g. "[{\\"tool\\":\\"add_challenge\\",\\"title\\":\\"Scavenger hunt\\",\\"emoji\\":\\"🎈\\",\\"points\\":20}]" — or exactly "[]" when there is nothing to do. NEVER claim you already did it: the card shown below your reply lets them review and confirm. For update/delete, copy challengeId EXACTLY from the event data. Tools:
-- add_challenge { title, emoji?, points?, description? } — new photo mission
-- add_challenge_pack { theme, challenges: [{ title, emoji?, points?, description? }] } — 3-6 challenges added together as a themed set; use when the host wants several at once or asks you to design a set
-- update_challenge { challengeId, title?, emoji?, points?, active?, description? }
-- delete_challenge { challengeId }
-- create_card { cardTitle, recipientName?, cardTemplate: 'storybook'|'filmstrip'?, deadline? YYYY-MM-DD } — greeting card + contribution link
-- get_stats {} — show the event's live numbers
-- share_links {} — QR codes / links for every guest surface
+Put actions in "actionsJson": a compact JSON array string of at most ${MAX_ACTIONS} tool objects, e.g. "[{\\"tool\\":\\"generate_frame\\",\\"prompt\\":\\"art-deco gold border, centre clear\\"}]" — or exactly "[]" when there's nothing to do. NEVER claim you already did it (the confirm card does that). For update/delete/set_default, copy the id EXACTLY from the event data. Tools:
+- generate_frame { prompt } — AI-generate a NEW custom 9:16 booth FRAME from a described look (first 3 free). Put the visual brief in "prompt". Use this whenever the host wants something personalised to THEIR event.
+- add_frame { borderId } — add a ready-made, event-NEUTRAL frame as-is. borderId MUST be one of: ${frameList}. Use when the host wants a quick standard frame, not a custom one.
+- set_filter { shaderId } — apply a whole-booth colour FILTER. shaderId MUST be one of: ${filterList}. Never invent an id.
+- add_head_piece { source, pieceId?, prompt? } — a face-tracked 3D PROP guests wear. Built-in (free): source:"builtin", pieceId one of: ${pieceList}. Custom (AI, ~11 credits): source:"generate", prompt describing ONE head-worn accessory.
+- set_default_experience { experienceId } — make an EXISTING experience the booth default (experienceId from the EXPERIENCES list).
+- set_event_date { date } — change the event date. date is YYYY-MM-DD (normalise whatever the host says).
+- rename_event { name } — rename the event.
+- add_challenge { title, emoji?, points?, description? } · add_challenge_pack { theme, challenges:[...] } (3-6) · update_challenge { challengeId, ... } · delete_challenge { challengeId } — photo missions.
+- create_card { cardTitle, recipientName?, cardTemplate:'storybook'|'filmstrip'?, deadline? } — greeting card.
+- go_live {} — take the event LIVE. Propose ONLY when the host explicitly asks to go live / open / launch.
+- test_experience {} — QR / link to test the booth on a phone.
+- get_stats {} · share_links {} — live numbers / guest-surface links.
 
-EXTRACTING TOOL ARGUMENTS — never dump the host's whole sentence into one field:
-- title / cardTitle: a short punchy NAME you write, 2-6 words ("Dance floor cam", not "add a challenge where guests take a picture of people dancing").
-- description: the instruction to guests, in a full sentence — put the host's details here, rephrased for guests.
-- points: only a number the host stated, else omit (default applies). deadline: only a date the host stated.
-- Example: host says "add a challenge to snap the bride and groom kissing, 30 points" → {"tool":"add_challenge","title":"Caught kissing","emoji":"💋","points":30,"description":"Snap the bride and groom sharing a kiss."}
-- If the request is AMBIGUOUS (you can't tell what to name it, which challenge they mean, or what they actually want changed), propose NOTHING: return "[]" and ask ONE short clarifying question in "reply" instead. A wrong guess wastes the host's confirm.
-Anything without a tool: point the host to the exact studio tab (guide above). Never invent event data.`;
+CHOOSING FRAMES & PROPS — always give the host the choice, matched to intent:
+- "add / recommend a frame" → offer BOTH: generate a custom one (generate_frame) AND/OR a ready-made (add_frame). If they describe a look or want it personalised → generate_frame. If they just want something quick/standard → add_frame.
+- "make one like <a built-in>" or "use <X> as a template/base" → generate_frame with a prompt that describes THAT style, re-themed for this event (the built-ins carry other events' names/text, so a personalised generate is usually better than adding them as-is).
+- Same logic for 3D props: built-in (add_head_piece source:builtin) for speed, source:"generate" for custom or "like <X>".
+- You may propose up to ${MAX_ACTIONS} at once (e.g. a frame AND a filter) when the host asks for a coordinated look.
+
+EXTRACTING ARGUMENTS — never dump the host's whole sentence into one field:
+- title/cardTitle: a short punchy NAME you write (2-6 words). description: the guest instruction as a full sentence. points/deadline: only if the host stated them.
+- If a request is genuinely AMBIGUOUS, propose NOTHING ("[]") and ask ONE short clarifying question instead.
+Only for something you truly have NO tool for (fine 3D placement, billing, branding uploads) do you briefly point to the right studio tab. Otherwise, act. Never invent event data.`;
 }
 
 /**
@@ -215,6 +243,22 @@ function buildCopilotSchema() {
     },
     required: ['reply', 'actionsJson'],
   };
+}
+
+/** Validate a client-sent {id,name}[] catalog (filters / head pieces) into the
+ *  prompt list. Anything malformed is dropped — the client normalizer is the
+ *  authoritative gate on whatever the model ends up proposing. */
+function resolveCatalog(raw: unknown, max: number): CatalogEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CatalogEntry[] = [];
+  for (const e of raw.slice(0, max)) {
+    const id = (e as Record<string, unknown>)?.id;
+    const name = (e as Record<string, unknown>)?.name;
+    if (typeof id === 'string' && id && typeof name === 'string' && name) {
+      out.push({ id: id.slice(0, 40), name: name.slice(0, 60) });
+    }
+  }
+  return out;
 }
 
 /* ── Scene Director mode (coordinated frame + filter + 3D piece) ─────── */
@@ -408,7 +452,12 @@ Deno.serve(async (req: Request) => {
       if (context.length > MAX_CONTEXT_CHARS) return json(400, { error: 'invalid_body' });
       const docsRaw = typeof body.docs === 'string' ? body.docs.trim() : '';
       const docs = docsRaw && docsRaw.length <= MAX_DOCS_CHARS ? docsRaw : FALLBACK_DOCS;
-      const parsed = await callGemini(messages, buildCopilotPrompt(docs, context), buildCopilotSchema());
+      // Live filter + head-piece catalogs (client-sent); the client normalizer
+      // is the real gate, so an empty/invalid list just narrows the prompt.
+      const filters = resolveCatalog(body.filters, 40);
+      const headPieces = resolveCatalog(body.headPieces, 24);
+      const frames = resolveCatalog(body.frames, 20);
+      const parsed = await callGemini(messages, buildCopilotPrompt(docs, context, filters, headPieces, frames), buildCopilotSchema());
       let actions: unknown[] = [];
       try {
         const decoded = JSON.parse(typeof parsed.actionsJson === 'string' ? parsed.actionsJson : '[]');

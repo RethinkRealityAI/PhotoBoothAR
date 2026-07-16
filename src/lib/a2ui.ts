@@ -77,6 +77,8 @@ export const BASIC_CATALOG_ID =
  *    TemplatePreview { templateId, eventName }  — live event-look preview
  *    QrCode          { value, caption? }        — scannable link chip
  *    EventStat       { label, value }           — one stat tile
+ *    FramePreview    { assetUrl, transform }    — generated frame over a face
+ *    BoothTest       { url, status }            — device-aware booth test (QR/open)
  *  Local functions (Button action.functionCall): openUrl, copyToClipboard.
  *  Grow this list as the studio copilot gains tools (see AGENT-ROADMAP.md). */
 export const BEAMWALL_CATALOG_ID = 'https://beamwall.app/a2ui/catalogs/v1';

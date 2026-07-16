@@ -386,6 +386,29 @@ export async function updateEventStatus(eventUuid: string, status: string): Prom
   return true;
 }
 
+/** Set an event's date (YYYY-MM-DD → start-of-day ISO, same as createEvent).
+ *  An empty string clears it. Returns false on error. */
+export async function updateEventDate(eventUuid: string, date: string): Promise<boolean> {
+  const startsAt = date ? new Date(`${date}T00:00:00`).toISOString() : null;
+  const { error } = await supabase.from('events').update({ starts_at: startsAt }).eq('id', eventUuid);
+  if (error) {
+    console.error('[host] updateEventDate', error);
+    return false;
+  }
+  return true;
+}
+
+/** Current lifecycle status of an event (draft/live/ended/archived), or null.
+ *  Used to re-snapshot after an in-chat "go live" flips the status. */
+export async function fetchEventStatus(eventUuid: string): Promise<string | null> {
+  const { data, error } = await supabase.from('events').select('status').eq('id', eventUuid).maybeSingle();
+  if (error || !data) {
+    if (error) console.error('[host] fetchEventStatus', error);
+    return null;
+  }
+  return (data.status as string) ?? null;
+}
+
 export async function updateEventName(eventUuid: string, name: string): Promise<boolean> {
   const trimmed = name.trim();
   if (!trimmed) return false;

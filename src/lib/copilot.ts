@@ -17,6 +17,9 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import type { ChatMessage } from './eventDesigner';
 import { PLATFORM_GUIDE } from './platformGuide';
 import type { EventSnapshot } from './eventSnapshot';
+import { FILTER_SHADERS } from './shaders';
+import { HEAD_PIECE_MAP, HEAD_PIECES } from './headPieces';
+import { BORDER_MAP, GENERIC_FRAMES, GENERIC_FRAME_IDS } from './borders';
 
 /* ── Action types (post-normalization) ───────────────────────────────── */
 
@@ -33,11 +36,24 @@ export type CopilotAction =
   | { tool: 'update_challenge'; proposal: { challengeId: string; title?: string; emoji?: string; points?: number; active?: boolean } }
   | { tool: 'delete_challenge'; proposal: { challengeId: string } }
   | { tool: 'create_card'; proposal: { cardTitle: string; recipientName: string; cardTemplate: 'storybook' | 'filmstrip'; deadline: string } }
+  // Experience-building tools (Event Concierge post-create build phase).
+  | { tool: 'generate_frame'; proposal: { prompt: string } }
+  | { tool: 'add_frame'; proposal: { borderId: string } }
+  | { tool: 'set_filter'; proposal: { shaderId: string } }
+  | { tool: 'add_head_piece'; proposal: { source: 'builtin'; pieceId: string } | { source: 'generate'; prompt: string } }
+  | { tool: 'set_default_experience'; proposal: { experienceId: string } }
+  | { tool: 'set_event_date'; proposal: { date: string } }
+  | { tool: 'rename_event'; proposal: { name: string } }
+  | { tool: 'go_live' }
+  | { tool: 'test_experience' }
   | { tool: 'get_stats' }
   | { tool: 'share_links' };
 
 const MAX_ACTIONS = 3;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** The filter ids the model may pick from (the same list the studio Director
+ *  is given). 'none' is excluded — an empty filter is never worth an action. */
+const FILTER_IDS = new Set(FILTER_SHADERS.map((s) => s.id).filter((id) => id !== 'none'));
 
 const str = (v: unknown, max = 120): string => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const points = (v: unknown): number => {
@@ -79,6 +95,7 @@ function challengeDraft(raw: unknown): ChallengeDraft | null {
 export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): CopilotAction[] {
   if (!Array.isArray(raw)) return [];
   const knownIds = new Set((snapshot?.challenges ?? []).map((c) => c.id));
+  const expIds = new Set((snapshot?.experiences ?? []).map((e) => e.id));
   const out: CopilotAction[] = [];
   for (const item of raw) {
     if (out.length >= MAX_ACTIONS) break;
@@ -133,6 +150,57 @@ export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): 
         });
         break;
       }
+      case 'generate_frame': {
+        const prompt = str(a.prompt, 500);
+        if (!prompt) break;
+        out.push({ tool: 'generate_frame', proposal: { prompt } });
+        break;
+      }
+      case 'add_frame': {
+        // Only the generic (no event-locked text) built-ins may be added as-is.
+        const borderId = str(a.borderId, 40);
+        if (!borderId || !GENERIC_FRAME_IDS.has(borderId)) break;
+        out.push({ tool: 'add_frame', proposal: { borderId } });
+        break;
+      }
+      case 'set_event_date': {
+        const date = str(a.date, 10);
+        if (!DATE_RE.test(date)) break;
+        out.push({ tool: 'set_event_date', proposal: { date } });
+        break;
+      }
+      case 'rename_event': {
+        const name = str(a.name, 80);
+        if (!name) break;
+        out.push({ tool: 'rename_event', proposal: { name } });
+        break;
+      }
+      case 'set_filter': {
+        const shaderId = str(a.shaderId, 40);
+        if (!shaderId || !FILTER_IDS.has(shaderId)) break;
+        out.push({ tool: 'set_filter', proposal: { shaderId } });
+        break;
+      }
+      case 'add_head_piece': {
+        if (a.source === 'generate') {
+          const prompt = str(a.prompt, 300);
+          if (!prompt) break;
+          out.push({ tool: 'add_head_piece', proposal: { source: 'generate', prompt } });
+        } else {
+          const pieceId = str(a.pieceId, 40);
+          if (!pieceId || !HEAD_PIECE_MAP[pieceId]) break;
+          out.push({ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId } });
+        }
+        break;
+      }
+      case 'set_default_experience': {
+        const experienceId = str(a.experienceId, 64);
+        if (!experienceId || !expIds.has(experienceId)) break;
+        out.push({ tool: 'set_default_experience', proposal: { experienceId } });
+        break;
+      }
+      case 'go_live':
+      case 'test_experience':
       case 'get_stats':
       case 'share_links':
         out.push({ tool: a.tool });
@@ -175,6 +243,85 @@ export interface ExecResult {
   summary: string;
   /** create_card success payload — the chat renders it as a QR link card. */
   card?: { title: string; contributeUrl: string; viewerUrl: string };
+  /** go_live success → the event's new lifecycle status ('live'). */
+  status?: string;
+}
+
+/**
+ * Pin an experience as the booth default. The booth reads
+ * `wallSettings.defaultExperienceId ?? eventConfig.defaultExperienceId`
+ * (Booth.tsx), so the AUTHORITATIVE store is app_settings 'wall' (by slug);
+ * we also mirror into events.config (by uuid) for parity with FrameStudio and
+ * to override any `builtin:*` id the template seeded there. Best-effort: the
+ * events.config write returns the real health signal (same RLS as the wall
+ * upsert), so we surface that.
+ */
+async function pinDefault(ctx: CopilotCtx, experienceId: string): Promise<boolean> {
+  const [{ setWallSettings }, { updateEventConfig }] = await Promise.all([import('./db'), import('./host')]);
+  await setWallSettings(ctx.slug, { defaultExperienceId: experienceId });
+  return updateEventConfig(ctx.eventUuid, { defaultExperienceId: experienceId });
+}
+
+/**
+ * Apply a generated FRAME the host approved: publish the (server-created,
+ * unpublished) experience and pin it as the booth default. NEVER re-generates
+ * (no credit spend). Publish-only: the chat has no placement UI, so the booth
+ * uses the default (identity) transform — writing config here is avoided so the
+ * row's own config (e.g. the chroma-key `transparent` flag) is never clobbered,
+ * which mattered on the refresh path where the caller has no config to spread.
+ */
+export async function applyGeneratedFrame(ctx: CopilotCtx, experienceId: string): Promise<ExecResult> {
+  return publishAndPin(ctx, experienceId, undefined, 'frame');
+}
+
+/**
+ * Apply a generated 3D PROP the host approved: publish + pin. `fitScale` (from
+ * the browser-side GLB measure) is baked into config.anchor.scale so a raw
+ * Meshy model — which renders ~1cm at scale 1 — sits at head size in the booth,
+ * exactly as the studio Director's measure-then-add does. NEVER re-generates.
+ */
+export async function applyGeneratedPiece(
+  ctx: CopilotCtx,
+  experienceId: string,
+  fitScale: number | null,
+): Promise<ExecResult> {
+  return publishAndPin(ctx, experienceId, fitScale ?? undefined, 'piece');
+}
+
+/** Shared publish + pin. When `fitScale` is given, read the row's config and
+ *  override anchor.scale (preserving every other config key). */
+async function publishAndPin(
+  ctx: CopilotCtx,
+  experienceId: string,
+  fitScale: number | undefined,
+  kind: 'frame' | 'piece',
+): Promise<ExecResult> {
+  const noun = kind === 'frame' ? 'frame' : '3D prop';
+  try {
+    const { supabase } = await import('./supabase');
+    const patch: Record<string, unknown> = { is_published: true };
+    if (fitScale !== undefined) {
+      const { data } = await supabase.from('experiences').select('config').eq('id', experienceId).maybeSingle();
+      const config = (data?.config ?? {}) as Record<string, unknown>;
+      const anchor = (config.anchor ?? {}) as Record<string, unknown>;
+      patch.config = { ...config, anchor: { ...anchor, scale: fitScale } };
+    }
+    const { error: pubErr } = await supabase
+      .from('experiences')
+      .update(patch)
+      .eq('id', experienceId)
+      .eq('event_id', ctx.slug);
+    if (pubErr) {
+      return { ok: false, summary: `The ${noun} was generated but could not be published — publish it from your studio Library.` };
+    }
+    const pinned = await pinDefault(ctx, experienceId);
+    return pinned
+      ? { ok: true, summary: `Your ${noun} is live and set as the booth default.` }
+      : { ok: true, summary: `Your ${noun} is published, but setting it as the booth default failed — set it in the studio Library.` };
+  } catch (e) {
+    console.error('[copilot] publishAndPin', kind, e);
+    return { ok: false, summary: `Applying the ${noun} failed unexpectedly.` };
+  }
 }
 
 export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Promise<ExecResult> {
@@ -238,6 +385,74 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
           card: { title: card.title, contributeUrl: cUrl, viewerUrl: vUrl },
         };
       }
+      case 'set_filter': {
+        const { buildFilterExperienceDraft } = await import('./studio/copilotExperience');
+        const { createExperience } = await import('./db');
+        const draft = buildFilterExperienceDraft(action.proposal.shaderId);
+        if (!draft) return { ok: false, summary: 'That filter isn’t available.' };
+        const exp = await createExperience(ctx.slug, draft);
+        if (!exp) return { ok: false, summary: 'Adding the filter failed.' };
+        const pinned = await pinDefault(ctx, exp.id);
+        return {
+          ok: true,
+          summary: `Filter "${exp.name}" added${pinned ? ' and set as the booth default' : ' (set it as the booth default in the studio Library)'}.`,
+        };
+      }
+      case 'add_head_piece': {
+        // Generated pieces run through the async preview card, not here.
+        if (action.proposal.source !== 'builtin') {
+          return { ok: false, summary: 'That 3D piece needs generating first.' };
+        }
+        const { buildHeadPieceExperienceDraft } = await import('./studio/copilotExperience');
+        const { createExperience } = await import('./db');
+        const draft = buildHeadPieceExperienceDraft(action.proposal.pieceId);
+        if (!draft) return { ok: false, summary: 'That 3D piece isn’t available.' };
+        const exp = await createExperience(ctx.slug, draft);
+        if (!exp) return { ok: false, summary: 'Adding the 3D piece failed.' };
+        const pinned = await pinDefault(ctx, exp.id);
+        return {
+          ok: true,
+          summary: `3D piece "${exp.name}" added${pinned ? ' and set as the booth default' : ' (set it as the booth default in the studio Library)'}.`,
+        };
+      }
+      case 'add_frame': {
+        const border = BORDER_MAP[action.proposal.borderId];
+        if (!border || !GENERIC_FRAME_IDS.has(border.id)) return { ok: false, summary: 'That frame isn’t available.' };
+        const { uploadAsset, createExperience } = await import('./db');
+        const url = await uploadAsset(new Blob([border.svg], { type: 'image/svg+xml' }), `${border.id}.svg`);
+        if (!url) return { ok: false, summary: 'Adding the frame failed.' };
+        const exp = await createExperience(ctx.slug, {
+          name: border.name, kind: border.kind, asset_url: url,
+          config: {}, is_published: true, featured: true, sort_order: 0,
+        });
+        if (!exp) return { ok: false, summary: 'Adding the frame failed.' };
+        const pinned = await pinDefault(ctx, exp.id);
+        return {
+          ok: true,
+          summary: `Frame "${border.name}" added${pinned ? ' and set as the booth default' : ' (set it as the booth default in the studio Library)'}.`,
+        };
+      }
+      case 'set_default_experience': {
+        const ok = await pinDefault(ctx, action.proposal.experienceId);
+        return { ok, summary: ok ? 'Booth default updated.' : 'Setting the booth default failed.' };
+      }
+      case 'set_event_date': {
+        const { updateEventDate } = await import('./host');
+        const ok = await updateEventDate(ctx.eventUuid, action.proposal.date);
+        return { ok, summary: ok ? `Event date set to ${action.proposal.date}.` : 'Updating the date failed.' };
+      }
+      case 'rename_event': {
+        const { updateEventName } = await import('./host');
+        const ok = await updateEventName(ctx.eventUuid, action.proposal.name);
+        return { ok, summary: ok ? `Event renamed to "${action.proposal.name}".` : 'Renaming the event failed.' };
+      }
+      case 'go_live': {
+        const { updateEventStatus } = await import('./host');
+        const ok = await updateEventStatus(ctx.eventUuid, 'live');
+        return ok
+          ? { ok: true, summary: 'Your event is LIVE — guests can now take pictures and post to the wall.', status: 'live' }
+          : { ok: false, summary: 'Going live failed — try again in a moment.' };
+      }
       default:
         return { ok: false, summary: 'Nothing to execute.' };
     }
@@ -290,6 +505,11 @@ export async function askCopilot(
         messages: mergeWireTurns(messages),
         context: snapshot ? formatSnapshot(snapshot) : '',
         docs: PLATFORM_GUIDE,
+        // The live catalogs ride along so the model proposes only real ids
+        // (the client normalizer still validates and drops anything invalid).
+        filters: FILTER_SHADERS.filter((s) => s.id !== 'none').map((s) => ({ id: s.id, name: s.name })),
+        headPieces: HEAD_PIECES.map((p) => ({ id: p.id, name: p.name })),
+        frames: GENERIC_FRAMES,
       },
     });
     if (error) {

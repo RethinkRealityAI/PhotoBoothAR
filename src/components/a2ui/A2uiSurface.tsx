@@ -362,6 +362,57 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
         );
       }
 
+      case 'FramePreview': {
+        // Beamwall custom widget: a generated frame previewed over a sample
+        // face at the booth's 9:16 ratio (matches FrameStudio's stand-in).
+        const url = str(c.assetUrl, scope);
+        if (!url) return null;
+        const t = resolveDynamic(c.transform, dataModel, scope);
+        const tf = (t && typeof t === 'object' ? t : {}) as { scale?: number; x?: number; y?: number };
+        return (
+          <div key={key} className="w-32 aspect-[9/16] rounded-xl overflow-hidden border border-white/15 bg-brand-bg relative mx-auto">
+            <div className="absolute inset-0 bg-[radial-gradient(80%_60%_at_50%_45%,rgba(255,255,255,0.14),transparent_70%)]" />
+            <img
+              src={url}
+              alt="Generated frame preview"
+              className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+              style={{ transform: `translate(${Number(tf.x ?? 0)}%, ${Number(tf.y ?? 0)}%) scale(${Number(tf.scale ?? 1)})` }}
+            />
+          </div>
+        );
+      }
+
+      case 'BoothTest': {
+        // Beamwall custom widget: device-aware booth test. Coarse pointer
+        // (phone/tablet) → an Open button; a real pointer → a scannable QR the
+        // host opens on their own signed-in device.
+        const url = str(c.url, scope);
+        if (!url) return null;
+        const coarse = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)')?.matches;
+        return (
+          <div key={key} className="flex flex-col items-center gap-2">
+            {coarse ? (
+              <button
+                onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
+                className="rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.97]"
+              >
+                Open booth
+              </button>
+            ) : (
+              <div className="rounded-xl p-2 bg-brand-fg/95">
+                <QRCodeSVG value={url} size={120} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
+              </div>
+            )}
+            <button
+              onClick={() => navigator.clipboard?.writeText(url).catch(() => { /* denied — ignore */ })}
+              className="font-mono text-[10px] text-brand-muted/50 hover:text-brand-fg transition-colors break-all max-w-full text-center"
+            >
+              {url.replace(/^https?:\/\//, '')}
+            </button>
+          </div>
+        );
+      }
+
       default:
         if (!warned.has(c.component)) {
           warned.add(c.component);
