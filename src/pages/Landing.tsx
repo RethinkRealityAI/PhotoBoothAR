@@ -177,11 +177,13 @@ const TIERS: Tier[] = [
 
 const SHOWCASE = ['wedding', 'party', 'gala'];
 
-/** Dead-simple "how it works" — three steps from sign-up to a full wall. */
+/** Dead-simple "how it works" — three steps, each with a transparent-cutout
+ *  hero that floats, tilts in 3D and drifts on scroll (parallax). `image` is the
+ *  current brand cutout — swappable for the Higgsfield renders once handed off. */
 const HOW_STEPS = [
-  { n: '1', title: 'Create your event', body: 'Sign up free, pick a style, and tune your frames, effects and 3D props in the studio — minutes, not hours.' },
-  { n: '2', title: 'Share one QR code', body: 'Put your code on tables, screens or the invite. Guests scan it and they’re in — no app to download, nothing to install.' },
-  { n: '3', title: 'The room lights up', body: 'Guests snap AR photos and videos that beam onto your live wall in real time, for the whole room to watch.' },
+  { n: '1', title: 'Create your event', body: 'Sign up free, pick a style, and tune your frames, effects and 3D props in the studio — minutes, not hours.', image: FRAME_CLUSTER_CUTOUT, rgb: '91, 140, 255', tilt: 11, depth: 0.1 },
+  { n: '2', title: 'Share one QR code', body: 'Put your code on tables, screens or the invite. Guests scan it and they’re in — no app to download, nothing to install.', image: BOOTH_CUTOUT, rgb: '34, 211, 238', tilt: -9, depth: 0.16 },
+  { n: '3', title: 'The room lights up', body: 'Guests snap AR photos and videos that beam onto your live wall in real time, for the whole room to watch.', image: CARD_CUTOUT, rgb: '232, 121, 249', tilt: 11, depth: 0.1 },
 ];
 
 /** Honest objection-handling FAQ (no fluff, no fake urgency). */
@@ -237,6 +239,32 @@ function FilmEmbed({ src, poster, label }: { src: string; poster: string; label:
       preload="metadata"
       className="block h-auto w-full"
       aria-label={label}
+    />
+  );
+}
+
+/** The floating cutout inside a "how it works" step. Tiny by design — its
+ *  parent owns the 3D tilt and the scroll parallax; this just floats (with a
+ *  per-step phase offset) and degrades to a soft glow if the art fails to load. */
+function StepArt({ src, rgb, delay }: { src: string; rgb: string; delay: number }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div
+        className="animate-float h-40 w-32 rounded-3xl"
+        style={{ background: `radial-gradient(circle, rgba(${rgb}, 0.28), transparent 70%)`, animationDelay: `${delay}s` }}
+      />
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      aria-hidden
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="animate-float max-h-44 w-auto max-w-full object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.6)]"
+      style={{ animationDelay: `${delay}s` }}
     />
   );
 }
@@ -576,14 +604,40 @@ export default function Landing() {
                 From sign-up to a wall full of moments — three steps, no app, no queue.
               </p>
             </div>
-            <div data-reveal-stagger className="mx-auto mt-12 grid w-full max-w-4xl gap-6 sm:grid-cols-3">
-              {HOW_STEPS.map((s) => (
-                <div key={s.n} className="flex flex-col items-center rounded-3xl border border-white/10 bg-white/[0.02] px-6 py-8 text-center">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-full bg-foil font-serif text-lg font-bold text-white glow-accent">
-                    {s.n}
-                  </span>
-                  <h3 className="mt-5 font-serif text-xl text-brand-fg">{s.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-brand-muted/75">{s.body}</p>
+            <div data-reveal-stagger className="mx-auto mt-14 grid w-full max-w-5xl gap-10 sm:grid-cols-3 sm:gap-8">
+              {HOW_STEPS.map((s, i) => (
+                <div key={s.n} className="flex flex-col items-center text-center">
+                  {/* Floating, 3D-tilted, parallax hero. The parallax drift lives
+                      on the wrapper (GSAP yPercent); the 3D tilt on the middle
+                      layer; the float on the image itself — three separate
+                      elements so none of the transforms fight each other. */}
+                  <div
+                    className="relative mb-6 flex h-44 w-full items-center justify-center sm:h-52"
+                    data-parallax-depth={s.depth}
+                    style={{ perspective: '1000px' }}
+                  >
+                    <div
+                      aria-hidden
+                      className="absolute inset-6 rounded-full blur-3xl"
+                      style={{ background: `radial-gradient(circle, rgba(${s.rgb}, 0.34), transparent 68%)` }}
+                    />
+                    <div style={{ transform: `rotateY(${s.tilt}deg) rotateX(6deg)`, transformStyle: 'preserve-3d' }}>
+                      <StepArt src={s.image} rgb={s.rgb} delay={i * -1.6} />
+                    </div>
+                    {/* grounding shadow puddle */}
+                    <div
+                      aria-hidden
+                      className="absolute bottom-1 left-1/2 h-4 w-2/5 -translate-x-1/2 rounded-full blur-xl"
+                      style={{ background: `rgba(${s.rgb}, 0.4)` }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-foil font-serif text-[13px] font-bold text-white glow-accent">
+                      {s.n}
+                    </span>
+                    <h3 className="font-serif text-xl text-brand-fg">{s.title}</h3>
+                  </div>
+                  <p className="mt-3 max-w-xs text-sm leading-relaxed text-brand-muted/75">{s.body}</p>
                 </div>
               ))}
             </div>
