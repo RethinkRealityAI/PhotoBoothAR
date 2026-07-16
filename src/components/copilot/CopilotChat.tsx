@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Send } from 'lucide-react';
 import {
-  askCopilot, executeAction, applyGeneratedFrame, applyGeneratedPiece,
+  askCopilot, executeAction, normalizeActions, applyGeneratedFrame, applyGeneratedPiece,
   type CopilotAction, type CopilotCtx,
 } from '../../lib/copilot';
 import {
@@ -366,9 +366,16 @@ export default function CopilotChat({
       return;
     }
 
-    const action = { tool, proposal } as unknown as CopilotAction;
+    // Re-validate the (host-editable) proposal through the SAME gate as the
+    // propose path before executing — the confirm card's data model is
+    // two-way-bound and must not be trusted verbatim (defense in depth).
+    const [validated] = normalizeActions([proposal], snapshot);
     dropSurfaceById(event.surfaceId);
-    const result = await executeAction(action, ctx());
+    if (!validated) {
+      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] That didn’t look valid, so nothing changed — tell me again and I’ll redo it.' }]);
+      return;
+    }
+    const result = await executeAction(validated, ctx());
     setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: `[tool_result] ${result.summary}` }]);
     if (result.ok && result.card) {
       const sid = `card_${++seqRef.current}`;

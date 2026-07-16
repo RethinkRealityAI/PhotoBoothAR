@@ -14,11 +14,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { ArrowLeft, ArrowRight, Check, Copy, Loader2, PartyPopper, Send, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Copy, ImagePlus, Loader2, PartyPopper, Send, Sparkles } from 'lucide-react';
 import { slugify, SLUG_RE, RESERVED_SLUGS } from '../../lib/slug';
 import { createEvent, updateEventConfig, fetchEventStatus, isSlugVisiblyTaken, type CreateEventError, type HostEventRow } from '../../lib/host';
 import { accentThemePatch, EVENT_TEMPLATES, templateById, templateConfigPatch } from '../../lib/eventTemplates';
-import { designEvent, normalizePlan, type ChatMessage, type EventPlan } from '../../lib/eventDesigner';
+import { designEvent, normalizePlan, type ChatMessage, type DesignImage, type EventPlan } from '../../lib/eventDesigner';
+import { fileToImagePart } from '../../lib/imageInput';
 import CopilotChat from '../../components/copilot/CopilotChat';
 import { loadEventSnapshot, type EventSnapshot } from '../../lib/eventSnapshot';
 import { applySurfaceMessages, getPath, setPath, type A2uiActionEvent, type SurfaceState } from '../../lib/a2ui';
@@ -105,7 +106,9 @@ export default function NewEvent() {
   const [chatMessages, setChatMessages] = useState<ChatItem[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   // ── A2UI surfaces (generative UI): each concierge turn streams an A2UI
   //    plan-editor card; the reducer folds the messages into surface state
@@ -201,10 +204,11 @@ export default function NewEvent() {
     }
   };
 
-  const sendChat = async (text: string) => {
+  const sendChat = async (text: string, image?: DesignImage) => {
     const content = text.trim();
-    if (!content || chatBusy) return;
-    const next: ChatItem[] = [...chatMessages, { role: 'user', content }];
+    if ((!content && !image) || chatBusy) return;
+    const userContent = content || 'Design my event from this photo.';
+    const next: ChatItem[] = [...chatMessages, { role: 'user', content: userContent }];
     setChatMessages(next);
     setChatInput('');
     setChatBusy(true);
@@ -213,7 +217,7 @@ export default function NewEvent() {
     const history: ChatMessage[] = next
       .filter((m) => !m.localOnly)
       .map(({ role, content: c }) => ({ role, content: c }));
-    const res = await designEvent(history); // never throws — falls back to the local planner
+    const res = await designEvent(history, image); // never throws — falls back to the local planner
     applyPlan(res.plan, res.decided);
     setSurfaces((s) => {
       let merged = applySurfaceMessages(s, res.a2ui);
@@ -233,6 +237,26 @@ export default function NewEvent() {
     });
     setChatMessages([...next, { role: 'assistant', content: res.reply, surfaceId: res.surfaceId }]);
     setChatBusy(false);
+  };
+
+  /** "Design from a photo": downscale the picked image and let Gemini vision
+   *  read the invitation / mood board / venue to seed the whole plan. */
+  const onPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (!file || chatBusy || photoBusy) return;
+    if (!file.type.startsWith('image/')) {
+      nudge('That file isn’t an image — share a JPG or PNG of your invitation, mood board, or venue.');
+      return;
+    }
+    setPhotoBusy(true);
+    const part = await fileToImagePart(file);
+    setPhotoBusy(false);
+    if (!part) {
+      nudge('I couldn’t read that image — try a JPG or PNG (HEIC photos sometimes don’t decode).');
+      return;
+    }
+    await sendChat(chatInput.trim() || 'Design my event from this photo.', part);
   };
 
   /** Bottom "Review & create": prefer the LATEST card's (possibly edited)
@@ -483,6 +507,13 @@ export default function NewEvent() {
 
             {chatMessages.length === 0 && (
               <div className="flex flex-wrap gap-2 shrink-0">
+                <button
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={photoBusy}
+                  className="rounded-full border border-[color:var(--color-accent)]/30 bg-[color:var(--color-accent)]/10 px-3 py-1.5 font-sans text-[11px] text-brand-fg hover:bg-[color:var(--color-accent)]/15 transition-colors inline-flex items-center gap-1.5 disabled:opacity-40"
+                >
+                  <ImagePlus className="w-3 h-3" /> Start from your invitation
+                </button>
                 {CHAT_SUGGESTIONS.map((s) => (
                   <button
                     key={s}
@@ -496,6 +527,15 @@ export default function NewEvent() {
             )}
 
             <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => photoInputRef.current?.click()}
+                disabled={chatBusy || photoBusy}
+                aria-label="Design from a photo"
+                title="Design from a photo — invitation, mood board, or venue"
+                className="shrink-0 w-11 h-11 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center text-brand-muted/70 hover:text-brand-fg transition active:scale-95 disabled:opacity-40"
+              >
+                {photoBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+              </button>
               <input
                 autoFocus
                 value={chatInput}
@@ -504,7 +544,7 @@ export default function NewEvent() {
                   if (e.key === 'Enter') sendChat(chatInput);
                 }}
                 maxLength={2000}
-                placeholder="e.g. A rooftop engagement party for Priya and Sam in May…"
+                placeholder="Describe your event, or add a photo of your invitation…"
                 className={inputClass}
               />
               <button
@@ -515,6 +555,7 @@ export default function NewEvent() {
               >
                 <Send className="w-4 h-4" />
               </button>
+              <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={onPhoto} />
             </div>
 
             <button
