@@ -89,6 +89,21 @@ describe('normalizeActions', () => {
     // A pack with zero usable challenges is dropped entirely.
     expect(normalizeActions([{ tool: 'add_challenge_pack', challenges: [{}, null] }], snapshot)).toEqual([]);
   });
+
+  it('carries an optional AI-check validationPrompt on challenges (present → kept, absent → omitted)', () => {
+    const withCheck = normalizeActions(
+      [{ tool: 'add_challenge', title: 'Spot the red', validationPrompt: '  Someone clearly wearing red  ' }],
+      snapshot,
+    );
+    expect((withCheck[0] as { proposal: { validationPrompt?: string } }).proposal.validationPrompt)
+      .toBe('Someone clearly wearing red');
+    // No validationPrompt key at all when the model doesn't ask for a check.
+    const plain = normalizeActions([{ tool: 'add_challenge', title: 'Best dance move' }], snapshot);
+    expect('validationPrompt' in (plain[0] as { proposal: object }).proposal).toBe(false);
+    // A blank/whitespace prompt is treated as no check.
+    const blank = normalizeActions([{ tool: 'add_challenge', title: 'x', validationPrompt: '   ' }], snapshot);
+    expect('validationPrompt' in (blank[0] as { proposal: object }).proposal).toBe(false);
+  });
 });
 
 describe('normalizeActions — experience-building tools', () => {

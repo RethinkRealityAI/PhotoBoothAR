@@ -1,9 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   inferTemplate, extractName, extractDate, detectRemote, localDesign, normalizePlan,
-  buildPlanSurface, surfaceIdOf, type EventPlan,
+  buildPlanSurface, surfaceIdOf, designEvent, type EventPlan,
 } from './eventDesigner';
 import { applySurfaceMessages, getPath, resolveContext } from './a2ui';
+
+// The vision wire: designEvent lazy-imports ./supabase and calls
+// functions.invoke. Mock it so we can assert the request body shape without a
+// live client (the rest of this file tests pure planners that never touch it).
+const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+vi.mock('./supabase', () => ({ supabase: { functions: { invoke: invokeMock } } }));
 
 describe('inferTemplate', () => {
   it('maps occasion keywords to templates', () => {
@@ -198,5 +204,25 @@ describe('buildPlanSurface (A2UI generative UI)', () => {
     const ctx = resolveContext(action.context, edited.dataModel);
     expect((ctx.plan as EventPlan).name).toBe('Renamed');
     expect((ctx.plan as EventPlan).slug).toBe('jenna-jakes-wedding');
+  });
+});
+
+describe('designEvent — vision wire body', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue({ data: { reply: 'ok', plan: {} }, error: null });
+  });
+
+  it('omits image from the request body when none is given', async () => {
+    await designEvent([{ role: 'user', content: 'a wedding in June' }]);
+    const body = (invokeMock.mock.calls[0][1] as { body: Record<string, unknown> }).body;
+    expect('image' in body).toBe(false);
+    expect(body.messages).toBeDefined();
+  });
+
+  it('includes the image verbatim when provided', async () => {
+    await designEvent([{ role: 'user', content: 'design from this' }], { data: 'AAAA', mimeType: 'image/jpeg' });
+    const body = (invokeMock.mock.calls[0][1] as { body: Record<string, unknown> }).body;
+    expect(body.image).toEqual({ data: 'AAAA', mimeType: 'image/jpeg' });
   });
 });

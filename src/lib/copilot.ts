@@ -20,6 +20,7 @@ import type { EventSnapshot } from './eventSnapshot';
 import { FILTER_SHADERS } from './shaders';
 import { HEAD_PIECE_MAP, HEAD_PIECES } from './headPieces';
 import { BORDER_MAP, GENERIC_FRAMES, GENERIC_FRAME_IDS } from './borders';
+import { normalizeValidation } from './challengeValidation';
 
 /* ── Action types (post-normalization) ───────────────────────────────── */
 
@@ -28,6 +29,8 @@ export interface ChallengeDraft {
   emoji: string;
   points: number;
   description: string;
+  /** Optional AI photo-check: what the guest's photo must contain to count. */
+  validationPrompt?: string;
 }
 
 export type CopilotAction =
@@ -83,7 +86,17 @@ function challengeDraft(raw: unknown): ChallengeDraft | null {
   const rawTitle = str(a.title, 200);
   if (!rawTitle) return null;
   const { title, description } = splitLongTitle(rawTitle, str(a.description, 300));
-  return { title, emoji: str(a.emoji, 8) || '⭐', points: points(a.points), description };
+  const validationPrompt = str(a.validationPrompt, 500);
+  return {
+    title, emoji: str(a.emoji, 8) || '⭐', points: points(a.points), description,
+    ...(validationPrompt ? { validationPrompt } : {}),
+  };
+}
+
+/** Build a challenge's stored validation config from a draft's optional
+ *  validationPrompt (present → enabled). Shared by add_challenge + pack. */
+function draftValidation(d: ChallengeDraft) {
+  return normalizeValidation({ enabled: !!d.validationPrompt, prompt: d.validationPrompt ?? '' });
 }
 
 /**
@@ -332,9 +345,10 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
         const p = action.proposal;
         const row = await createChallenge(ctx.slug, {
           title: p.title, emoji: p.emoji, points: points(p.points), description: p.description || null, active: true,
+          validation: draftValidation(p),
         });
         return row
-          ? { ok: true, summary: `Challenge "${row.title}" added (id ${row.id}).` }
+          ? { ok: true, summary: `Challenge "${row.title}" added (id ${row.id})${p.validationPrompt ? ' with an AI photo check' : ''}.` }
           : { ok: false, summary: 'Adding the challenge failed.' };
       }
       case 'add_challenge_pack': {
@@ -349,6 +363,7 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
         for (const d of drafts) {
           const row = await createChallenge(ctx.slug, {
             title: d.title, emoji: d.emoji, points: points(d.points), description: d.description || null, active: true,
+            validation: draftValidation(d),
           });
           if (row) added++;
         }

@@ -450,6 +450,9 @@ export async function createChallenge(eventId: string, c: Partial<Challenge>): P
     points: c.points ?? 10,
     sort_order: c.sort_order ?? 0,
     active: c.active ?? true,
+    // AI photo-check config (jsonb); absent → null (no check). updateChallenge
+    // spreads its patch, so it carries `validation` through automatically.
+    validation: c.validation ?? null,
     event_id: eventId,
   };
   const { data, error } = await supabase.from('challenges').insert(row).select().single();

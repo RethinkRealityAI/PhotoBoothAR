@@ -8,7 +8,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Plus, Pencil, Trash2, Check, X, RefreshCw,
-  ChevronUp, ChevronDown, ToggleLeft, ToggleRight
+  ChevronUp, ChevronDown, ToggleLeft, ToggleRight,
+  Sparkles, ImagePlus, Loader2, ScanEye,
 } from 'lucide-react';
 import EventBackground from '../ui/EventBackground';
 import {
@@ -16,7 +17,9 @@ import {
   createChallenge,
   updateChallenge,
   deleteChallenge,
+  uploadAsset,
 } from '../../lib/db';
+import { normalizeValidation } from '../../lib/challengeValidation';
 import { useEvent } from '../../events/EventContext';
 import type { Challenge } from '../../types';
 
@@ -37,9 +40,25 @@ function EditForm({ initial, onSave, onCancel, saving }: EditFormProps) {
   const [description, setDescription] = useState(initial.description ?? '');
   const [points, setPoints] = useState(String(initial.points ?? 10));
   const [active, setActive] = useState(initial.active ?? true);
+  // AI photo check (challenges.validation jsonb).
+  const [checkOn, setCheckOn] = useState(initial.validation?.enabled ?? false);
+  const [checkPrompt, setCheckPrompt] = useState(initial.validation?.prompt ?? '');
+  const [refUrl, setRefUrl] = useState(initial.validation?.referenceImageUrl ?? '');
+  const [refUploading, setRefUploading] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
+  const refInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { titleRef.current?.focus(); }, []);
+
+  const onPickRef = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (!file) return;
+    setRefUploading(true);
+    const url = await uploadAsset(file, `challenge-ref-${Date.now()}`);
+    if (url) setRefUrl(url);
+    setRefUploading(false);
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +69,8 @@ function EditForm({ initial, onSave, onCancel, saving }: EditFormProps) {
       description: description.trim() || null,
       points: isNaN(pts) ? 10 : pts,
       active,
+      // null when off / no prompt — the executor and edge fn read null as "no check".
+      validation: normalizeValidation({ enabled: checkOn, prompt: checkPrompt, referenceImageUrl: refUrl }),
     } as Partial<Challenge>);
   };
 
@@ -81,6 +102,84 @@ function EditForm({ initial, onSave, onCancel, saving }: EditFormProps) {
         rows={2}
         className={`${inputCls} resize-none`}
       />
+
+      {/* AI photo check — validates each guest's photo against a requirement. */}
+      <div className="rounded-xl border border-gold-400/15 bg-white/[0.02] flex flex-col">
+        <button
+          type="button"
+          onClick={() => setCheckOn((v) => !v)}
+          className="flex items-center justify-between gap-2 px-3 py-2.5 text-left"
+        >
+          <span className="flex items-center gap-2 min-w-0">
+            <ScanEye className={`w-4 h-4 shrink-0 ${checkOn ? 'text-gold-300' : 'text-champagne/40'}`} />
+            <span className="flex flex-col">
+              <span className="font-label uppercase tracking-widest text-[9px] text-champagne/60">AI photo check</span>
+              <span className="text-[10px] text-champagne/40 leading-tight">Verify each guest photo matches</span>
+            </span>
+          </span>
+          <span
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-label uppercase tracking-widest transition-colors shrink-0 ${
+              checkOn ? 'bg-emerald-500/20 text-emerald-400' : 'glass text-champagne/40'
+            }`}
+          >
+            {checkOn ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+            {checkOn ? 'On' : 'Off'}
+          </span>
+        </button>
+
+        {checkOn && (
+          <div className="flex flex-col gap-2.5 px-3 pb-3 animate-rise-in">
+            <div className="flex flex-col gap-1">
+              <label className="font-label uppercase tracking-widest text-[9px] text-champagne/50">
+                What must the photo contain?
+              </label>
+              <textarea
+                value={checkPrompt}
+                onChange={(e) => setCheckPrompt(e.target.value)}
+                placeholder="e.g. At least one person clearly wearing something red"
+                rows={2}
+                className={`${inputCls} resize-none`}
+              />
+              <p className="text-[10px] text-champagne/40 leading-relaxed">
+                The AI checks each guest photo against this before it counts. Guests who don't match can retake or post without the challenge.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="font-label uppercase tracking-widest text-[9px] text-champagne/50">
+                Reference image (optional)
+              </label>
+              <input ref={refInputRef} type="file" accept="image/*" onChange={onPickRef} className="hidden" />
+              {refUrl ? (
+                <div className="flex items-center gap-3">
+                  <img src={refUrl} alt="Reference" className="w-14 h-14 rounded-lg object-cover border border-gold-400/25" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] text-champagne/50 leading-tight">The AI compares each photo to this image.</p>
+                    <button
+                      type="button"
+                      onClick={() => setRefUrl('')}
+                      className="mt-1 flex items-center gap-1 text-[10px] text-red-400/80 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="w-3 h-3" /> Remove
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => refInputRef.current?.click()}
+                  disabled={refUploading}
+                  className="flex items-center gap-2 self-start px-3 py-2 glass rounded-xl text-[11px] text-champagne/60 hover:text-gold-300 border border-gold-400/15 transition-colors disabled:opacity-40"
+                >
+                  {refUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
+                  {refUploading ? 'Uploading…' : 'Upload a reference'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="flex gap-3 items-center">
         <div className="flex-1 flex items-center gap-2">
           <label className="font-label uppercase tracking-widest text-[9px] text-champagne/50 shrink-0">Points</label>
@@ -168,6 +267,14 @@ function ChallengeRow({
           {!challenge.active && (
             <span className="font-label uppercase tracking-widest text-[8px] px-2 py-0.5 rounded-full bg-noir-700 text-champagne/30">
               Inactive
+            </span>
+          )}
+          {challenge.validation?.enabled && (
+            <span
+              title={challenge.validation.prompt}
+              className="inline-flex items-center gap-1 font-label uppercase tracking-widest text-[8px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300"
+            >
+              <ScanEye className="w-2.5 h-2.5" /> AI check
             </span>
           )}
         </div>

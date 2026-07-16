@@ -15,7 +15,7 @@ export interface ImagePart {
 }
 
 export async function fileToImagePart(
-  file: File,
+  file: Blob,
   maxDim = 1024,
   quality = 0.85,
 ): Promise<ImagePart | null> {

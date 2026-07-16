@@ -5,7 +5,9 @@ import {
   buildBoothTestSurface, buildChecklistSurface,
 } from './copilotSurfaces';
 import { applySurfaceMessages, getPath, resolveContext, type SurfaceState } from './a2ui';
-import type { CopilotAction } from './copilot';
+import { normalizeActions, type CopilotAction } from './copilot';
+import type { EventSnapshot } from './eventSnapshot';
+import { FILTER_SHADERS } from './shaders';
 
 /** Every child/children id a component references must exist in the surface. */
 function assertReducerValid(s: SurfaceState) {
@@ -42,6 +44,21 @@ describe('buildProposalSurface', () => {
     const ctx = resolveContext(action.context, edited.dataModel);
     expect((ctx.proposal as { title: string }).title).toBe('Renamed');
     expect(getPath(s.dataModel, '/proposal/tool')).toBe('add_challenge');
+  });
+
+  it('add_challenge card exposes an editable AI-check field bound to /proposal/validationPrompt', () => {
+    const withCheck: CopilotAction = {
+      tool: 'add_challenge',
+      proposal: { title: 'Spot the red', emoji: '🔴', points: 20, description: '', validationPrompt: 'Someone wearing red' },
+    };
+    const s = applySurfaceMessages({}, buildProposalSurface(withCheck, 'pc'))!.pc;
+    assertReducerValid(s);
+    expect(getPath(s.dataModel, '/proposal/validationPrompt')).toBe('Someone wearing red');
+    // The confirm resolves an EDITED validationPrompt.
+    const ev = (s.components.confirmBtn.action as { event: { name: string; context: Record<string, unknown> } }).event;
+    const edited = { ...s, dataModel: { proposal: { ...(s.dataModel as { proposal: object }).proposal, validationPrompt: 'A dog is visible' } } };
+    const ctx = resolveContext(ev.context, edited.dataModel);
+    expect((ctx.proposal as { validationPrompt: string }).validationPrompt).toBe('A dog is visible');
   });
 
   it('delete card carries a warning and a cancel path', () => {
@@ -81,6 +98,55 @@ describe('buildProposalSurface', () => {
     const edited = { ...s, dataModel: { proposal: { tool: 'generate_frame', prompt: 'art deco silver' } } };
     const ctx = resolveContext(ev.context, edited.dataModel);
     expect((ctx.proposal as { prompt: string; tool: string })).toMatchObject({ tool: 'generate_frame', prompt: 'art deco silver' });
+  });
+});
+
+/**
+ * CONTRACT: CopilotChat re-validates on confirm by feeding the surface's
+ * `/proposal` data model back through normalizeActions([proposal], snapshot).
+ * That silently depends on buildProposalSurface emitting the exact flat
+ * `{ tool, ...args }` shape normalizeActions reads. This test locks that
+ * round-trip so a future surface refactor (e.g. re-nesting `proposal`) can't
+ * break every confirm with no failing test.
+ */
+describe('proposal round-trip: surface /proposal survives normalizeActions', () => {
+  const filterId = FILTER_SHADERS.find((s) => s.id !== 'none')!.id;
+  const snap = {
+    eventUuid: 'u-1', slug: 'e', name: 'E', status: 'draft', planTier: 'free', eventType: 'party',
+    postCount: 0, showChallenges: true,
+    challenges: [{ id: 'ch-1', title: 'C', emoji: '⭐', points: 10, active: true }],
+    experiences: [{ id: 'exp-1', name: 'Frame', kind: 'border', published: true }],
+    cards: [],
+  } satisfies EventSnapshot;
+
+  const cases: CopilotAction[] = [
+    { tool: 'add_challenge', proposal: { title: 'Best pose', emoji: '🏆', points: 20, description: '', validationPrompt: 'Someone jumping' } },
+    { tool: 'add_frame', proposal: { borderId: 'dw-frame-classic' } },
+    { tool: 'set_filter', proposal: { shaderId: filterId } },
+    { tool: 'set_event_date', proposal: { date: '2026-09-12' } },
+    { tool: 'rename_event', proposal: { name: 'Renamed' } },
+    { tool: 'set_default_experience', proposal: { experienceId: 'exp-1' } },
+    { tool: 'go_live' },
+  ];
+
+  cases.forEach((action) => {
+    it(`${action.tool} confirm re-validates to the same tool`, () => {
+      const s = applySurfaceMessages({}, buildProposalSurface(action, 'r'))!.r;
+      const proposal = getPath(s.dataModel, '/proposal');
+      const [revalidated] = normalizeActions([proposal], snap);
+      expect(revalidated, `${action.tool} was dropped by re-validation`).toBeDefined();
+      expect(revalidated.tool).toBe(action.tool);
+    });
+  });
+
+  it('preserves the edited validationPrompt through the round-trip', () => {
+    const s = applySurfaceMessages({}, buildProposalSurface(
+      { tool: 'add_challenge', proposal: { title: 'x', emoji: '⭐', points: 5, description: '', validationPrompt: 'red' } }, 'r2',
+    ))!.r2;
+    // simulate a host edit of the field, then confirm
+    const edited = { proposal: { ...(getPath(s.dataModel, '/proposal') as object), validationPrompt: 'a balloon is visible' } };
+    const [act] = normalizeActions([edited.proposal], snap);
+    expect((act as { proposal: { validationPrompt?: string } }).proposal.validationPrompt).toBe('a balloon is visible');
   });
 });
 

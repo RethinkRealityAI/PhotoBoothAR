@@ -208,7 +208,7 @@ Put actions in "actionsJson": a compact JSON array string of at most ${MAX_ACTIO
 - set_default_experience { experienceId } — make an EXISTING experience the booth default (experienceId from the EXPERIENCES list).
 - set_event_date { date } — change the event date. date is YYYY-MM-DD (normalise whatever the host says).
 - rename_event { name } — rename the event.
-- add_challenge { title, emoji?, points?, description? } · add_challenge_pack { theme, challenges:[...] } (3-6) · update_challenge { challengeId, ... } · delete_challenge { challengeId } — photo missions.
+- add_challenge { title, emoji?, points?, description?, validationPrompt? } · add_challenge_pack { theme, challenges:[...] } (3-6) · update_challenge { challengeId, ... } · delete_challenge { challengeId } — photo missions. validationPrompt turns on an AI photo-check: set it (ONE sentence describing what a guest's photo must visibly contain) WHENEVER the mission implies a visual test — e.g. "a challenge to find people wearing red" → validationPrompt:"At least one person clearly wearing red clothing is visible". Omit it for open-ended fun missions. Pack entries may each carry their own validationPrompt.
 - create_card { cardTitle, recipientName?, cardTemplate:'storybook'|'filmstrip'?, deadline? } — greeting card.
 - go_live {} — take the event LIVE. Propose ONLY when the host explicitly asks to go live / open / launch.
 - test_experience {} — QR / link to test the booth on a phone.
@@ -513,7 +513,11 @@ Deno.serve(async (req: Request) => {
       const headPieces = resolveCatalog(body.headPieces, 24);
       const frames = resolveCatalog(body.frames, 20);
       // Proposals = structured extraction → low temp + no thinking (cheap, reliable).
-      const parsed = await callGemini(messages, buildCopilotPrompt(docs, context, filters, headPieces, frames), buildCopilotSchema(), { temperature: 0.2, thinkingBudget: 0 });
+      // maxOutputTokens is lifted above the 2048 default: a reply plus an
+      // actionsJson STRING carrying a 6-challenge pack (each with a
+      // validationPrompt), doubly escaped, can approach 2048 and truncate →
+      // invalid JSON → the whole turn falls back to the offline reply.
+      const parsed = await callGemini(messages, buildCopilotPrompt(docs, context, filters, headPieces, frames), buildCopilotSchema(), { temperature: 0.2, thinkingBudget: 0, maxOutputTokens: 3072 });
       let actions: unknown[] = [];
       try {
         const decoded = JSON.parse(typeof parsed.actionsJson === 'string' ? parsed.actionsJson : '[]');
