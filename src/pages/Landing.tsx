@@ -25,8 +25,8 @@ import SpectrumField from '../components/ui/SpectrumField';
 import LiveHeroCarousel from '../components/ui/LiveHeroCarousel';
 import { BoothIcon, WallIcon, ChallengeIcon, CardIcon, type BeamIconProps } from '../components/ui/BeamIcons';
 import { BOOTH_CUTOUT, WALL_SCENE, TROPHY_CUTOUT, CARD_CUTOUT, FRAME_CLUSTER_CUTOUT } from '../lib/landingAssets';
-import promoVideo from '../assets/landing/beamwall-promo.mp4';
-import promoPoster from '../assets/landing/beamwall-promo-poster.jpg';
+import promoVideo from '../assets/landing/beamwall-intro.mp4';
+import promoPoster from '../assets/landing/beamwall-intro-poster.jpg';
 import boothFeatureVideo from '../assets/landing/booth-feature.mp4';
 import boothFeaturePoster from '../assets/landing/booth-feature-poster.jpg';
 import wallFeatureVideo from '../assets/landing/wall-feature.mp4';
@@ -563,7 +563,7 @@ export default function Landing() {
             <div data-reveal className="flex flex-col items-center">
               <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">The full experience</h2>
               <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
-                One minute of what your guests experience — booth, wall, challenges and keepsakes.
+                Thirty seconds of what your guests experience — booth, wall, challenges and keepsakes.
               </p>
             </div>
             <div data-reveal className="mx-auto mt-10 w-full max-w-4xl">
@@ -574,7 +574,7 @@ export default function Landing() {
                   boxShadow: '0 0 60px -12px rgba(91, 140, 255, 0.45), 0 30px 90px -30px rgba(0,0,0,0.85)',
                 }}
               >
-                <FilmEmbed src={promoVideo} poster={promoPoster} label="Beamwall promo video" />
+                <FilmEmbed src={promoVideo} poster={promoPoster} label="Beamwall intro film" />
               </div>
             </div>
           </section>

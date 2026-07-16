@@ -1,0 +1,212 @@
+<!doctype html>
+<!--
+  Beamwall · Sizzle Reel — ~22s high-energy vibe cut (HyperFrames composition
+  "sizzle"). No narration: big foil text overlays + flash-cut transitions over
+  the vendored event footage and the beam backdrop, closing on the EXACT promo
+  logo ending (venue footage under scrim → foil wordmark, CTA pill, QR — held).
+  Designed to carry the ambient music-bed (muxed at encode time); ships as a
+  standalone committed asset (placement suggested, not wired).
+    Z1 0.0–3.4   TITLE — beamline strike, foil headline
+    Z2 3.2–6.7   BOOTH — portrait selfie footage, "Step into the booth"
+    Z3 6.5–9.9   WALL — 3×3 grid fills live, "Every shot beams to the wall"
+    Z4 9.7–13.1  CHALLENGES — portrait group footage, "Play · Compete · Celebrate"
+    Z5 12.9–16.3 VENUE — full-frame hall footage, "One room. Every memory."
+    Z6 16.1–22.0 FINALE — venue footage under scrim → wordmark, CTA, QR (held)
+  Contract: root omits data-duration (timeline pins 22.0); scenes alternate
+  tracks 1/2; all <video> are direct root children on tracks 3/4, windows
+  chosen so no two clips overlap on a track. No <audio> — rendered silent.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Beamwall · Sizzle</title>
+    <link rel="stylesheet" href="assets/kit.css" />
+    <script src="assets/gsap.min.js"></script>
+    <script src="assets/kit.js"></script>
+    <style>
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+      #root { width: 1920px; height: 1080px; }
+
+      /* Z1 title */
+      #sz-beamline { width: 5px; height: 1080px; position: absolute; left: 50%; top: 0; margin-left: -2.5px; background: linear-gradient(to bottom, transparent, #dbe6ff 30%, var(--blue) 60%, transparent); opacity: 0; z-index: 8; }
+      #z1-eyebrow { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.44em; font-size: 24px; color: var(--muted); margin: 0 0 30px; }
+      #z1-title { font-weight: 600; font-size: 132px; line-height: 1.02; margin: 0; }
+
+      /* Portrait footage frames (booth / group) — glowing, no chrome */
+      #sz-clip-booth { position: absolute; left: 340px; top: 172px; width: 360px; height: 736px; object-fit: cover; border-radius: 40px; border: 2.5px solid rgba(91,140,255,0.6); box-shadow: 0 0 70px -10px rgba(91,140,255,0.6), 0 40px 90px -30px rgba(0,0,0,0.9); z-index: 12; }
+      #sz-clip-group { position: absolute; left: 1220px; top: 172px; width: 360px; height: 736px; object-fit: cover; border-radius: 40px; border: 2.5px solid rgba(251,146,60,0.6); box-shadow: 0 0 70px -10px rgba(251,146,60,0.6), 0 40px 90px -30px rgba(0,0,0,0.9); z-index: 12; }
+
+      /* Full-frame venue footage (hall) */
+      #sz-clip-hall { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; object-fit: cover; z-index: 6; }
+      #sz-clip-hall-end { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; object-fit: cover; z-index: 6; }
+
+      /* Side captions (Z2 booth / Z4 challenges) */
+      .sz-side { position: absolute; top: 384px; width: 760px; }
+      #z2-copy { left: 812px; text-align: left; }
+      #z4-copy { left: 168px; text-align: right; }
+      .sz-side .lbl { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3em; font-size: 26px; margin: 22px 0 0; }
+
+      /* Z3 wall */
+      #z3-grid { position: absolute; right: 250px; top: 260px; display: grid; grid-template-columns: repeat(3, 190px); grid-template-rows: repeat(3, 190px); gap: 24px; }
+      .skel { border: 2px dashed rgba(169,196,255,0.28); border-radius: 20px; background: rgba(9,11,20,0.5); position: relative; }
+      .cellfill { position: absolute; inset: 0; border-radius: 18px; opacity: 0; }
+      #z3-cap { position: absolute; left: 260px; top: 430px; width: 620px; text-align: left; }
+
+      /* Centered captions over venue footage (Z5) */
+      .sz-scrim { position: absolute; inset: 0; background: linear-gradient(to top, rgba(4,5,10,0.9) 10%, rgba(4,5,10,0.35) 50%, rgba(4,5,10,0.6)); z-index: 9; }
+      #z5-cap { position: absolute; left: 0; right: 0; top: 400px; text-align: center; z-index: 12; }
+
+      /* Z6 finale */
+      #z6 .stack { position: relative; z-index: 12; }
+      #z6-qr { width: 124px; height: 124px; border-radius: 22px; border: 1.5px solid rgba(169,196,255,0.55); box-shadow: 0 0 36px -6px rgba(91,140,255,0.6); padding: 12px; background: rgba(8,10,20,0.9); margin-top: 48px; }
+      #z6-qr img { display: block; width: 100%; height: 100%; }
+      .fine { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 22px; color: var(--muted); margin-top: 28px; letter-spacing: 0.05em; }
+
+      .cap-eyebrow { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4em; font-size: 22px; margin: 0 0 22px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" class="bw-root" data-composition-id="sizzle" data-start="0" data-width="1920" data-height="1080">
+      <!-- footage windows (root children; tracks 3/4 never overlap) -->
+      <video id="sz-clip-booth" src="assets/clip-booth-selfie.mp4" data-start="3.3" data-duration="3.2" data-track-index="3" data-volume="0" muted></video>
+      <video id="sz-clip-group" src="assets/clip-group-selfie.mp4" data-start="9.7" data-duration="3.2" data-track-index="4" data-volume="0" muted></video>
+      <video id="sz-clip-hall" src="assets/clip-wall-hall.mp4" data-start="12.9" data-duration="3.2" data-track-index="3" data-volume="0" muted></video>
+      <video id="sz-clip-hall-end" src="assets/clip-wall-hall.mp4" data-start="16.2" data-duration="5.0" data-track-index="4" data-volume="0" muted></video>
+
+      <!-- Z1 title -->
+      <div id="z1" class="clip scene" data-start="0" data-duration="3.4" data-track-index="1">
+        <div id="sz-beamline"></div>
+        <div class="stack">
+          <p id="z1-eyebrow">AR photo booth · live wall</p>
+          <h1 id="z1-title" class="foil"><span style="display: block">Your event,</span><span style="display: block">amplified.</span></h1>
+        </div>
+      </div>
+
+      <!-- Z2 booth -->
+      <div id="z2" class="clip scene" data-start="3.2" data-duration="3.5" data-track-index="2">
+        <div id="z2-copy" class="sz-side">
+          <h2 class="title-md">Step into <em class="foil" style="font-style: normal">the booth.</em></h2>
+          <p class="lbl" style="color: var(--blue)">One QR code · no app</p>
+        </div>
+      </div>
+
+      <!-- Z3 wall -->
+      <div id="z3" class="clip scene" data-start="6.5" data-duration="3.4" data-track-index="1">
+        <div id="z3-cap">
+          <p class="cap-eyebrow" style="color: var(--teal)">The live wall</p>
+          <h2 class="title-md">Every shot <em class="foil" style="font-style: normal">beams</em> in.</h2>
+        </div>
+        <div id="z3-grid"></div>
+      </div>
+
+      <!-- Z4 challenges -->
+      <div id="z4" class="clip scene" data-start="9.7" data-duration="3.4" data-track-index="2">
+        <div id="z4-copy" class="sz-side">
+          <h2 class="title-md">Play. Compete. <em class="foil" style="font-style: normal">Celebrate.</em></h2>
+          <p class="lbl" style="color: var(--orange)">Challenges · live leaderboard</p>
+        </div>
+      </div>
+
+      <!-- Z5 venue -->
+      <div id="z5" class="clip scene" data-start="12.9" data-duration="3.4" data-track-index="1">
+        <div class="sz-scrim"></div>
+        <div id="z5-cap">
+          <p class="cap-eyebrow" style="color: var(--violet)">Keepsake for everyone</p>
+          <h2 class="title-lg foil" style="font-size: 88px">One room. Every memory.</h2>
+        </div>
+      </div>
+
+      <!-- Z6 finale -->
+      <div id="z6" class="clip scene" data-start="16.1" data-duration="5.9" data-track-index="2">
+        <div class="sz-scrim"></div>
+        <div class="stack">
+          <h2 class="title-xl foil" id="z6-wordmark" style="font-size: 160px">Beamwall</h2>
+          <div class="pill" id="z6-pill" style="margin-top: 50px">Create your event</div>
+          <div id="z6-qr"><img src="assets/qr.svg" alt="" /></div>
+          <p class="fine" id="z6-fine">Create your event in minutes · free to start · beamwall</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+        var root = document.getElementById("root");
+        BW.buildBackdrop(root, "sz");
+
+        /* wall grid */
+        var grid = document.getElementById("z3-grid");
+        var FILLS = ["blue", "magenta", "orange", "teal", "violet", "green", "cyan", "blue", "magenta"];
+        for (var i = 0; i < 9; i++) {
+          var cell = document.createElement("div");
+          cell.className = "skel";
+          cell.id = "cell-" + i;
+          var fill = document.createElement("div");
+          fill.className = "cellfill";
+          fill.id = "fill-" + i;
+          var h = BW.hue(FILLS[i]);
+          fill.style.background = "linear-gradient(150deg, rgba(" + h.rgb + ",0.9), rgba(" + h.rgb + ",0.45))";
+          fill.style.boxShadow = "inset 0 0 40px -10px rgba(255,255,255,0.35)";
+          cell.appendChild(fill);
+          grid.appendChild(cell);
+        }
+
+        /* ── timeline ── */
+        var EASE = "power3.out";
+        var END = 22.0;
+        var tl = gsap.timeline({ paused: true });
+        BW.animateBackdrop(tl, "sz", END);
+
+        /* Z1 title */
+        tl.fromTo("#sz-beamline", { opacity: 0, scaleY: 0 }, { opacity: 1, scaleY: 1, duration: 0.4, ease: "power4.in" }, 0.2);
+        tl.to("#sz-beamline", { opacity: 0, duration: 0.6, ease: "power2.out" }, 0.7);
+        BW.flashAt(tl, "sz", 0.6, 1);
+        tl.fromTo("#z1-title", { opacity: 0, y: -70, scaleY: 0.5 }, { opacity: 1, y: 0, scaleY: 1, duration: 0.8, ease: EASE }, 0.6);
+        tl.fromTo("#z1-eyebrow", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 1.0);
+        tl.to("#z1 .stack", { opacity: 0, y: -40, duration: 0.35, ease: "power2.in" }, 2.95);
+
+        /* Z2 booth (footage cuts in on its window) */
+        BW.flashAt(tl, "sz", 3.25, 0.9);
+        tl.fromTo("#z2-copy", { opacity: 0, x: 60 }, { opacity: 1, x: 0, duration: 0.7, ease: EASE }, 3.5);
+        tl.to("#z2-copy", { opacity: 0, duration: 0.3, ease: "power2.in" }, 6.35);
+
+        /* Z3 wall — rapid fill */
+        BW.flashAt(tl, "sz", 6.55, 0.9);
+        tl.fromTo("#z3-cap", { opacity: 0, x: -60 }, { opacity: 1, x: 0, duration: 0.6, ease: EASE }, 6.7);
+        tl.fromTo("#z3-grid", { opacity: 0, x: 60 }, { opacity: 1, x: 0, duration: 0.6, ease: EASE }, 6.9);
+        var order = [4, 0, 8, 2, 6, 1, 5, 3, 7];
+        order.forEach(function (idx, n) {
+          tl.fromTo("#fill-" + idx, { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1, duration: 0.32, ease: "back.out(1.6)" }, 7.4 + n * 0.17);
+        });
+        tl.to("#z3", { opacity: 0, duration: 0.3, ease: "power2.in" }, 9.55);
+
+        /* Z4 challenges */
+        BW.flashAt(tl, "sz", 9.75, 0.9);
+        tl.fromTo("#z4-copy", { opacity: 0, x: -60 }, { opacity: 1, x: 0, duration: 0.7, ease: EASE }, 10.0);
+        tl.to("#z4-copy", { opacity: 0, duration: 0.3, ease: "power2.in" }, 12.75);
+
+        /* Z5 venue */
+        BW.flashAt(tl, "sz", 12.95, 0.9);
+        tl.fromTo("#z5-cap", { opacity: 0, scale: 0.94 }, { opacity: 1, scale: 1, duration: 0.75, ease: EASE }, 13.15);
+        tl.to("#z5-cap", { opacity: 0, duration: 0.3, ease: "power2.in" }, 15.95);
+
+        /* Z6 finale — logo card held to the end */
+        BW.flashAt(tl, "sz", 16.15, 0.95);
+        tl.fromTo("#z6-wordmark", { opacity: 0, y: -60, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 0.9, ease: EASE }, 16.4);
+        tl.fromTo("#z6-pill", { opacity: 0, y: 30, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.65, ease: "back.out(1.6)" }, 17.1);
+        tl.fromTo("#z6-qr", { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: 0.55, ease: "back.out(1.5)" }, 17.5);
+        tl.fromTo("#z6-fine", { opacity: 0 }, { opacity: 1, duration: 0.55 }, 17.9);
+        tl.to("#sz-beam-blue, #sz-beam-teal, #sz-beam-orange, #sz-beam-green, #sz-beam-magenta, #sz-beam-violet, #sz-beam-cyan", { opacity: 0.28, duration: 1.2, ease: "sine.inOut" }, 20.4);
+
+        /* pin duration */
+        tl.set("#sz-bg", { opacity: 1 }, END);
+        window.__timelines = window.__timelines || {};
+        window.__timelines["sizzle"] = tl;
+      })();
+    </script>
+  </body>
+</html>
