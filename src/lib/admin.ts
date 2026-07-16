@@ -223,6 +223,44 @@ export function adjustCredits(
   return adminApi('adjust_credits', { orgId, delta, reason });
 }
 
+/* ── Signup welcome credits (platform config) + promo codes ────────────── */
+
+export function fetchPlatformConfig(): Promise<AdminResult<{ signupBonusCredits: number }>> {
+  return adminApi('get_platform_config');
+}
+
+export function setSignupCredits(amount: number): Promise<AdminResult<{ signupBonusCredits: number }>> {
+  return adminApi('set_signup_credits', { amount });
+}
+
+export interface PromoCode {
+  id: string;
+  code: string;
+  credits: number;
+  max_redemptions: number | null;
+  redemptions: number;
+  expires_at: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+export function fetchPromos(): Promise<AdminResult<PromoCode[]>> {
+  return adminApi('list_promos');
+}
+
+export function createPromo(args: {
+  code: string;
+  credits: number;
+  maxRedemptions?: number | null;
+  expiresAt?: string | null;
+}): Promise<AdminResult<PromoCode>> {
+  return adminApi('create_promo', args);
+}
+
+export function setPromoActive(id: string, active: boolean): Promise<AdminResult<{ id: string; active: boolean }>> {
+  return adminApi('set_promo_active', { id, active });
+}
+
 export interface AuditEntry {
   id: number;
   actor_user_id: string | null;

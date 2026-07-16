@@ -15,54 +15,68 @@
  */
 import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
-import Booth from './components/Booth';
-import GuestWelcome from './components/GuestWelcome';
-import Wall from './components/Wall';
-import MyPhotos from './components/MyPhotos';
-import ChallengesPage from './components/ChallengesPage';
-import JoinBooth from './components/JoinBooth';
-import UploadToWall from './components/UploadToWall';
-import AdminGate from './components/admin/AdminGate';
-import Dashboard from './components/admin/Dashboard';
-import Library from './components/admin/Library';
-import Assets from './components/admin/Assets';
-import StudioShell, { StudioRedirect } from './components/studio/StudioShell';
+// Eager: the marketing entry + auth/legal surfaces a first-time visitor hits.
+// Kept in the initial bundle so first paint doesn't wait on a chunk fetch.
+import EventProvider, { useEvent } from './events/EventContext';
+import { EVENT_ID } from './events/active';
+import ErrorBoundary from './components/ui/ErrorBoundary';
+import CopilotFab from './components/copilot/CopilotFab';
+import CopilotPanel from './components/copilot/CopilotPanel';
+import Landing from './pages/Landing';
+import Login from './pages/auth/Login';
+import Signup from './pages/auth/Signup';
+import ForgotPassword from './pages/auth/ForgotPassword';
+import ResetPassword from './pages/auth/ResetPassword';
+import Legal from './pages/legal/Legal';
+
+// Code-split: everything below loads on first navigation behind the Routes
+// Suspense boundary, so the AR/3D (Booth, studio), guest, host and admin
+// bundles never ship to someone who only lands on the marketing page.
+const Booth = lazy(() => import('./components/Booth'));
+const GuestWelcome = lazy(() => import('./components/GuestWelcome'));
+const Wall = lazy(() => import('./components/Wall'));
+const MyPhotos = lazy(() => import('./components/MyPhotos'));
+const ChallengesPage = lazy(() => import('./components/ChallengesPage'));
+const JoinBooth = lazy(() => import('./components/JoinBooth'));
+const UploadToWall = lazy(() => import('./components/UploadToWall'));
+const AdminGate = lazy(() => import('./components/admin/AdminGate'));
+const Dashboard = lazy(() => import('./components/admin/Dashboard'));
+const Library = lazy(() => import('./components/admin/Library'));
+const Assets = lazy(() => import('./components/admin/Assets'));
+const StudioShell = lazy(() => import('./components/studio/StudioShell'));
+const StudioRedirect = lazy(() =>
+  import('./components/studio/StudioShell').then((m) => ({ default: m.StudioRedirect })),
+);
+const Moderation = lazy(() => import('./components/admin/Moderation'));
+const Settings = lazy(() => import('./components/admin/Settings'));
+const Branding = lazy(() => import('./components/admin/Branding'));
+const Challenges = lazy(() => import('./components/admin/Challenges'));
+const HostLayout = lazy(() => import('./pages/host/HostLayout'));
+const EventsList = lazy(() => import('./pages/host/EventsList'));
+const NewEvent = lazy(() => import('./pages/host/NewEvent'));
+const Concierge = lazy(() => import('./pages/host/Concierge'));
+const Billing = lazy(() => import('./pages/host/Billing'));
+const EventStudio = lazy(() => import('./pages/host/EventStudio'));
+const ManagerConsole = lazy(() => import('./pages/manager/ManagerConsole'));
+const CardViewer = lazy(() => import('./pages/cards/CardViewer'));
+const CardContribute = lazy(() => import('./pages/cards/CardContribute'));
+const BeamDemoPhone = lazy(() => import('./pages/BeamDemoPhone'));
+const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'));
+const AdminOverview = lazy(() => import('./pages/admin/Overview'));
+const AdminCustomers = lazy(() => import('./pages/admin/Customers'));
+const AdminCustomerDetail = lazy(() => import('./pages/admin/CustomerDetail'));
+const AdminEvents = lazy(() => import('./pages/admin/Events'));
+const AdminPayments = lazy(() => import('./pages/admin/Payments'));
+const AdminCredits = lazy(() => import('./pages/admin/Credits'));
+const AdminUsers = lazy(() => import('./pages/admin/Users'));
+const AdminAudit = lazy(() => import('./pages/admin/Audit'));
+const AdminAdmins = lazy(() => import('./pages/admin/Admins'));
 
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
 const DevStudioHarness = import.meta.env.DEV
   ? lazy(() => import('./dev/StudioHarness'))
   : (() => null);
-import Moderation from './components/admin/Moderation';
-import Settings from './components/admin/Settings';
-import Branding from './components/admin/Branding';
-import Challenges from './components/admin/Challenges';
-import EventProvider, { useEvent } from './events/EventContext';
-import { EVENT_ID } from './events/active';
-import CopilotFab from './components/copilot/CopilotFab';
-import CopilotPanel from './components/copilot/CopilotPanel';
-import Landing from './pages/Landing';
-import Login from './pages/auth/Login';
-import Signup from './pages/auth/Signup';
-import HostLayout from './pages/host/HostLayout';
-import EventsList from './pages/host/EventsList';
-import NewEvent from './pages/host/NewEvent';
-import Concierge from './pages/host/Concierge';
-import Billing from './pages/host/Billing';
-import EventStudio from './pages/host/EventStudio';
-import ManagerConsole from './pages/manager/ManagerConsole';
-import CardViewer from './pages/cards/CardViewer';
-import CardContribute from './pages/cards/CardContribute';
-import BeamDemoPhone from './pages/BeamDemoPhone';
-import AdminLayout from './pages/admin/AdminLayout';
-import AdminOverview from './pages/admin/Overview';
-import AdminCustomers from './pages/admin/Customers';
-import AdminCustomerDetail from './pages/admin/CustomerDetail';
-import AdminEvents from './pages/admin/Events';
-import AdminPayments from './pages/admin/Payments';
-import AdminUsers from './pages/admin/Users';
-import AdminAudit from './pages/admin/Audit';
-import AdminAdmins from './pages/admin/Admins';
 
 /** Set at build time for the legacy single-event deploys. */
 const LEGACY_EVENT = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim();
@@ -135,6 +149,14 @@ export default function App() {
   return (
     <Router>
       <div className="min-h-screen h-screen w-screen bg-brand-bg text-ivory font-sans overflow-hidden select-none">
+        <ErrorBoundary label="app" fullScreen>
+        <Suspense
+          fallback={
+            <div className="flex h-full w-full items-center justify-center app-bg">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-[color:var(--color-accent)]" />
+            </div>
+          }
+        >
         <Routes>
           {LEGACY_EVENT ? (
             /* ── Legacy single-event build: registry event at "/" ── */
@@ -158,6 +180,10 @@ export default function App() {
               <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/privacy" element={<Legal doc="privacy" />} />
+              <Route path="/terms" element={<Legal doc="terms" />} />
 
               {/* Host platform (session-gated) */}
               <Route path="/host" element={<HostLayout />}>
@@ -175,6 +201,7 @@ export default function App() {
                 <Route path="customers/:orgId" element={<AdminCustomerDetail />} />
                 <Route path="events" element={<AdminEvents />} />
                 <Route path="payments" element={<AdminPayments />} />
+                <Route path="credits" element={<AdminCredits />} />
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="audit" element={<AdminAudit />} />
                 <Route path="admins" element={<AdminAdmins />} />
@@ -204,6 +231,7 @@ export default function App() {
             </>
           )}
         </Routes>
+        </Suspense>
         {/* Platform Copilot — one global mount so it persists across the
             /host rail pages AND the event studio (sibling route trees).
             Runtime mode only; visibility is gated inside the components. */}
@@ -213,6 +241,7 @@ export default function App() {
             <CopilotPanel />
           </>
         )}
+        </ErrorBoundary>
       </div>
     </Router>
   );

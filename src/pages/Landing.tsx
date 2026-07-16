@@ -16,17 +16,17 @@
  */
 import { lazy, Suspense, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
-import { Check } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { EVENT_TEMPLATES } from '../lib/eventTemplates';
 import TemplatePreview from '../components/ui/TemplatePreview';
 import SpectrumField from '../components/ui/SpectrumField';
-import FrameShowcase from '../components/ui/FrameShowcase';
+import LiveHeroCarousel from '../components/ui/LiveHeroCarousel';
 import { BoothIcon, WallIcon, ChallengeIcon, CardIcon, type BeamIconProps } from '../components/ui/BeamIcons';
 import { BOOTH_CUTOUT, WALL_SCENE, TROPHY_CUTOUT, CARD_CUTOUT, FRAME_CLUSTER_CUTOUT } from '../lib/landingAssets';
-import promoVideo from '../assets/landing/beamwall-promo.mp4';
-import promoPoster from '../assets/landing/beamwall-promo-poster.jpg';
+import promoVideo from '../assets/landing/beamwall-intro.mp4';
+import promoPoster from '../assets/landing/beamwall-intro-poster.jpg';
 import boothFeatureVideo from '../assets/landing/booth-feature.mp4';
 import boothFeaturePoster from '../assets/landing/booth-feature-poster.jpg';
 import wallFeatureVideo from '../assets/landing/wall-feature.mp4';
@@ -177,6 +177,25 @@ const TIERS: Tier[] = [
 
 const SHOWCASE = ['wedding', 'party', 'gala'];
 
+/** Dead-simple "how it works" — three steps, each with a transparent-cutout
+ *  hero that floats, tilts in 3D and drifts on scroll (parallax). `image` is the
+ *  current brand cutout — swappable for the Higgsfield renders once handed off. */
+const HOW_STEPS = [
+  { n: '1', title: 'Create your event', body: 'Sign up free, pick a style, and tune your frames, effects and 3D props in the studio — minutes, not hours.', image: FRAME_CLUSTER_CUTOUT, rgb: '91, 140, 255', tilt: 11, depth: 0.1 },
+  { n: '2', title: 'Share one QR code', body: 'Put your code on tables, screens or the invite. Guests scan it and they’re in — no app to download, nothing to install.', image: BOOTH_CUTOUT, rgb: '34, 211, 238', tilt: -9, depth: 0.16 },
+  { n: '3', title: 'The room lights up', body: 'Guests snap AR photos and videos that beam onto your live wall in real time, for the whole room to watch.', image: CARD_CUTOUT, rgb: '232, 121, 249', tilt: 11, depth: 0.1 },
+];
+
+/** Honest objection-handling FAQ (no fluff, no fake urgency). */
+const FAQS: { q: string; a: string }[] = [
+  { q: 'Do my guests need to download an app?', a: 'No. The booth runs right in the phone browser — guests scan your QR code and they’re in. Nothing to install.' },
+  { q: 'Will it work on my guests’ phones?', a: 'Yes — it runs in modern mobile browsers (iOS Safari, Android Chrome). The camera stays on their device; nothing leaves it until they choose to share a photo.' },
+  { q: 'How long does it take to set up?', a: 'Minutes. Pick a style, tweak your frames and effects in the studio, and share the QR — you can have a booth live well before your event.' },
+  { q: 'What if the venue wifi is patchy?', a: 'The AR runs on each guest’s device, so only the finished photo needs to upload — it works on cellular data, and you moderate what hits the wall from your phone.' },
+  { q: 'What does it cost?', a: 'Start free — one event, up to 25 photos. Paid event packages start at $49, and Beamwall Pro is $79/month for frequent hosts. You only pay for events you run.' },
+  { q: 'Is our event private?', a: 'You control it. Guests’ captures appear on your wall by design and you can moderate or remove any of them at any time; see our Privacy Policy for the full details.' },
+];
+
 /** Ghost frames drifting at different depths behind the whole page. */
 const GHOST_FRAMES = [
   { left: '6%', top: '18%', w: 110, h: 165, rgb: '91, 140, 255', depth: 0.35, rot: -8 },
@@ -224,80 +243,114 @@ function FilmEmbed({ src, poster, label }: { src: string; poster: string; label:
   );
 }
 
-/** Transparent-cutout artwork that floats over a tinted glow. */
-function CutoutArt({ feature }: { feature: Feature }) {
+/** The floating cutout inside a "how it works" step. Tiny by design — its
+ *  parent owns the 3D tilt and the scroll parallax; this just floats (with a
+ *  per-step phase offset) and degrades to a soft glow if the art fails to load. */
+function StepArt({ src, rgb, delay }: { src: string; rgb: string; delay: number }) {
   const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div
+        className="animate-float h-40 w-32 rounded-3xl"
+        style={{ background: `radial-gradient(circle, rgba(${rgb}, 0.28), transparent 70%)`, animationDelay: `${delay}s` }}
+      />
+    );
+  }
   return (
-    <div className="relative mx-auto flex aspect-square w-full max-w-[19rem] items-center justify-center sm:max-w-[26rem]" data-parallax-depth="0.14">
-      <div
-        className="absolute inset-[8%] rounded-full blur-3xl"
-        style={{ background: `radial-gradient(circle, rgba(${feature.rgb}, 0.32), transparent 68%)` }}
-      />
-      {!failed ? (
-        <img
-          src={feature.image}
-          alt=""
-          aria-hidden
-          className="animate-float relative max-h-full w-auto max-w-full object-contain drop-shadow-[0_24px_60px_rgba(0,0,0,0.55)]"
-          loading="lazy"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <feature.Icon size={96} from={feature.from} to={feature.to} className="relative" />
-      )}
-      {/* grounding glow puddle */}
-      <div
-        className="absolute bottom-[6%] left-1/2 h-6 w-3/5 -translate-x-1/2 rounded-full blur-2xl"
-        style={{ background: `rgba(${feature.rgb}, 0.35)` }}
-      />
-    </div>
+    <img
+      src={src}
+      alt=""
+      aria-hidden
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="animate-float max-h-44 w-auto max-w-full object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.6)]"
+      style={{ animationDelay: `${delay}s` }}
+    />
   );
 }
 
-/** Photographic artwork inside a glowing glass frame. */
-function FramedArt({ feature }: { feature: Feature }) {
+/**
+ * The feature's media as ONE overlapping composition: its looping film in a
+ * glass card tilted to face the viewer, with the pillar's cutout art floating
+ * over the inner corner (toward the copy). Replaces the old small in-text video
+ * + separate art column — on mobile the film now reads large and the cutout
+ * layers over it (the two float out of phase for a live, dimensional feel).
+ */
+function FeatureMedia({ feature }: { feature: Feature }) {
   const [failed, setFailed] = useState(false);
+  const tilt = feature.flip ? 7 : -7; // lean toward the viewer / page centre
+  const framed = feature.imageStyle === 'framed'; // a scene → little frame; cutout → floats free
+  const innerSide = feature.flip ? 'right-[-8%]' : 'left-[-8%]'; // overlap toward the copy
   return (
-    <div className="relative mx-auto w-full max-w-[19rem] sm:max-w-[24rem]" data-parallax-depth="0.14">
+    <div
+      className="relative mx-auto w-full max-w-[23rem] sm:max-w-[27rem]"
+      data-parallax-depth="0.1"
+      style={{ perspective: '1200px' }}
+    >
+      {/* tinted glow behind the media */}
       <div
-        className="animate-float relative aspect-[4/5] overflow-hidden rounded-3xl"
+        aria-hidden
+        className="absolute -inset-6 -z-10 rounded-[3rem] blur-3xl"
+        style={{ background: `radial-gradient(circle at 50% 42%, rgba(${feature.rgb}, 0.30), transparent 70%)` }}
+      />
+      {/* the film, in a tilted glass frame */}
+      <div
+        className="animate-float relative overflow-hidden rounded-3xl"
         style={{
+          transform: `rotateY(${tilt}deg)`,
+          transformStyle: 'preserve-3d',
           border: `1px solid rgba(${feature.rgb}, 0.5)`,
-          boxShadow: `0 0 46px -8px rgba(${feature.rgb}, 0.5), 0 30px 80px -30px rgba(0,0,0,0.8)`,
-          transform: 'rotate(2deg)',
+          boxShadow: `0 0 46px -8px rgba(${feature.rgb}, 0.5), 0 40px 92px -34px rgba(0,0,0,0.85)`,
         }}
       >
-        {!failed ? (
+        <FilmEmbed src={feature.video} poster={feature.videoPoster} label={`${feature.title} — feature film`} />
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{ background: 'linear-gradient(155deg, rgba(255,255,255,0.12), transparent 34%)' }}
+        />
+      </div>
+      {/* overlapping floating art — offset animation phase so it drifts against
+          the film rather than in lockstep. */}
+      <div className={`absolute bottom-[-9%] w-[46%] animate-float ${innerSide}`} style={{ animationDelay: '-3s' }}>
+        {failed ? (
+          <feature.Icon size={72} from={feature.from} to={feature.to} className="mx-auto drop-shadow-[0_12px_30px_rgba(0,0,0,0.6)]" />
+        ) : framed ? (
+          <div
+            className="overflow-hidden rounded-2xl"
+            style={{
+              transform: 'rotate(-4deg)',
+              border: `1px solid rgba(${feature.rgb}, 0.55)`,
+              boxShadow: `0 0 30px -8px rgba(${feature.rgb}, 0.55), 0 22px 50px -20px rgba(0,0,0,0.85)`,
+            }}
+          >
+            <img
+              src={feature.image}
+              alt=""
+              aria-hidden
+              className="aspect-[4/5] w-full object-cover"
+              loading="lazy"
+              onError={() => setFailed(true)}
+            />
+          </div>
+        ) : (
           <img
             src={feature.image}
             alt=""
             aria-hidden
-            className="h-full w-full object-cover"
+            className="w-full object-contain drop-shadow-[0_18px_44px_rgba(0,0,0,0.6)]"
             loading="lazy"
             onError={() => setFailed(true)}
           />
-        ) : (
-          <div
-            className="flex h-full w-full items-center justify-center"
-            style={{ background: `radial-gradient(120% 90% at 50% 25%, rgba(${feature.rgb}, 0.3), rgba(6,7,13,0.8) 70%)` }}
-          >
-            <feature.Icon size={80} from={feature.from} to={feature.to} />
-          </div>
         )}
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{ background: 'linear-gradient(165deg, rgba(255,255,255,0.12), transparent 32%)' }}
-        />
       </div>
     </div>
   );
 }
 
 function FeatureSection({ feature }: { feature: Feature }) {
-  const art = feature.imageStyle === 'cutout' ? <CutoutArt feature={feature} /> : <FramedArt feature={feature} />;
   return (
-    <section data-parallax-scope className="grid w-full items-center gap-10 sm:grid-cols-2 sm:gap-14">
-      {/* Text slides in from its own side; artwork from the opposite side. */}
+    <section data-parallax-scope className="grid w-full items-center gap-12 sm:grid-cols-2 sm:gap-14">
+      {/* Text slides in from its own side; media from the opposite side. */}
       <div data-reveal={feature.flip ? 'right' : 'left'} className={`text-left ${feature.flip ? 'sm:order-2' : ''}`}>
         <div
           className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-2xl"
@@ -322,19 +375,12 @@ function FeatureSection({ feature }: { feature: Feature }) {
             </li>
           ))}
         </ul>
-        <div
-          data-reveal
-          className="relative mt-8 max-w-md overflow-hidden rounded-2xl"
-          style={{
-            border: `1px solid rgba(${feature.rgb}, 0.4)`,
-            boxShadow: `0 0 34px -10px rgba(${feature.rgb}, 0.5), 0 20px 60px -24px rgba(0,0,0,0.8)`,
-          }}
-        >
-          <FilmEmbed src={feature.video} poster={feature.videoPoster} label={`${feature.title} — feature film`} />
-        </div>
       </div>
-      <div data-reveal={feature.flip ? 'left' : 'right'} className={feature.flip ? 'sm:order-1' : ''}>
-        {art}
+      <div
+        data-reveal={feature.flip ? 'left' : 'right'}
+        className={`mt-2 sm:mt-0 ${feature.flip ? 'sm:order-1' : ''}`}
+      >
+        <FeatureMedia feature={feature} />
       </div>
     </section>
   );
@@ -488,8 +534,10 @@ export default function Landing() {
       </div>
 
       <div ref={contentRef} className="relative z-10 mx-auto flex w-full max-w-6xl flex-col px-6 py-8">
-        {/* Top bar */}
-        <header className="flex items-center justify-between">
+        {/* Top bar — sticky so the primary CTA stays reachable down the whole
+            page (a long scroll should never leave a visitor without a way to
+            convert). Blurred glass so content reads as it passes underneath. */}
+        <header className="sticky top-0 z-40 -mx-6 flex items-center justify-between border-b border-white/5 bg-brand-bg/70 px-6 py-3 backdrop-blur-md">
           <span className="font-serif text-2xl font-semibold tracking-wide text-foil-static">Beamwall</span>
           <nav className="flex items-center gap-2.5">
             <a href="#pricing" className="hidden sm:inline rounded-full px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors">
@@ -497,9 +545,15 @@ export default function Landing() {
             </a>
             <Link
               to="/login"
-              className="rounded-full border border-white/15 bg-white/[0.04] px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg transition hover:bg-white/[0.08]"
+              className="hidden sm:inline-flex rounded-full border border-white/15 bg-white/[0.04] px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg transition hover:bg-white/[0.08]"
             >
               Sign in
+            </Link>
+            <Link
+              to="/signup"
+              className="rounded-full bg-foil px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
+            >
+              Create your event
             </Link>
           </nav>
         </header>
@@ -511,9 +565,6 @@ export default function Landing() {
         <main className="flex flex-1 flex-col items-center overflow-x-clip text-center">
           <section data-parallax-scope className="relative flex w-full flex-col items-center pt-14 sm:pt-16">
             <div className="pointer-events-none relative z-20 flex flex-col items-center" data-parallax-depth="-0.05">
-              <span className="mb-5 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
-                AR photo booth &amp; live wall for events
-              </span>
               <h1 className="max-w-3xl font-serif text-5xl leading-[1.05] text-shadow-lux sm:text-6xl">
                 Your event, in <span className="text-foil-static">augmented reality</span>.
               </h1>
@@ -522,30 +573,73 @@ export default function Landing() {
                 onto a live wall styled with frames and 3D magic you set up in minutes.
               </p>
 
-              <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row">
+              <div className="mt-9 flex flex-col items-center gap-3">
                 <Link
                   to="/signup"
-                  className="pointer-events-auto rounded-full bg-foil px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
+                  className="pointer-events-auto rounded-full bg-foil px-10 py-4 font-label uppercase tracking-luxe text-[12px] font-bold text-white glow-accent transition active:scale-[0.98]"
                 >
                   Create your event
                 </Link>
-                <a
-                  href="#pricing"
-                  className="pointer-events-auto rounded-full border border-white/15 bg-white/[0.04] px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98]"
-                >
-                  See pricing
-                </a>
+                <p className="font-sans text-xs text-brand-muted/50">Free to start · no credit card to create your event.</p>
               </div>
-              <p className="mt-4 font-sans text-xs text-brand-muted/50">Free to start · no credit card to create your event.</p>
             </div>
 
-            {/* Focal visual — the beam wall itself: tall glowing frames in a
-                perspective arc, beams rising behind the copy, reflections on
-                the floor. Tap a frame to learn about that pillar. mt-12 on
-                mobile keeps the arc clear of the hero fine print (they overlap
-                at mt-2 on narrow screens). */}
-            <div className="relative z-10 mt-12 w-full max-w-5xl sm:-mt-12" data-parallax-depth="0.08">
-              <FrameShowcase className="w-full" />
+            {/* Focal visual — a live, auto-scrolling coverflow of real event
+                frames streaming actual moderated moments from those events'
+                walls. mt-12 on mobile keeps it clear of the hero fine print. */}
+            <div className="relative z-10 mt-10 w-full max-w-6xl sm:mt-4" data-parallax-depth="0.08">
+              <LiveHeroCarousel className="w-full" />
+            </div>
+            <p className="mt-6 font-label uppercase tracking-luxe text-[9px] text-brand-muted/45">
+              Live moments from real Beamwall events
+            </p>
+          </section>
+
+          {/* How it works — three plain steps, up high, so a first-time
+              visitor grasps the whole loop before scrolling the details. */}
+          <section data-parallax-scope className="mt-24 w-full sm:mt-28">
+            <div data-reveal className="flex flex-col items-center text-center">
+              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">How it works</h2>
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
+                From sign-up to a wall full of moments — three steps, no app, no queue.
+              </p>
+            </div>
+            <div data-reveal-stagger className="mx-auto mt-14 grid w-full max-w-5xl gap-10 sm:grid-cols-3 sm:gap-8">
+              {HOW_STEPS.map((s, i) => (
+                <div key={s.n} className="flex flex-col items-center text-center">
+                  {/* Floating, 3D-tilted, parallax hero. The parallax drift lives
+                      on the wrapper (GSAP yPercent); the 3D tilt on the middle
+                      layer; the float on the image itself — three separate
+                      elements so none of the transforms fight each other. */}
+                  <div
+                    className="relative mb-6 flex h-44 w-full items-center justify-center sm:h-52"
+                    data-parallax-depth={s.depth}
+                    style={{ perspective: '1000px' }}
+                  >
+                    <div
+                      aria-hidden
+                      className="absolute inset-6 rounded-full blur-3xl"
+                      style={{ background: `radial-gradient(circle, rgba(${s.rgb}, 0.34), transparent 68%)` }}
+                    />
+                    <div style={{ transform: `rotateY(${s.tilt}deg) rotateX(6deg)`, transformStyle: 'preserve-3d' }}>
+                      <StepArt src={s.image} rgb={s.rgb} delay={i * -1.6} />
+                    </div>
+                    {/* grounding shadow puddle */}
+                    <div
+                      aria-hidden
+                      className="absolute bottom-1 left-1/2 h-4 w-2/5 -translate-x-1/2 rounded-full blur-xl"
+                      style={{ background: `rgba(${s.rgb}, 0.4)` }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-foil font-serif text-[13px] font-bold text-white glow-accent">
+                      {s.n}
+                    </span>
+                    <h3 className="font-serif text-xl text-brand-fg">{s.title}</h3>
+                  </div>
+                  <p className="mt-3 max-w-xs text-sm leading-relaxed text-brand-muted/75">{s.body}</p>
+                </div>
+              ))}
             </div>
           </section>
 
@@ -564,7 +658,7 @@ export default function Landing() {
             <div data-reveal className="flex flex-col items-center">
               <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">The full experience</h2>
               <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
-                One minute of what your guests experience — booth, wall, challenges and keepsakes.
+                Thirty seconds of what your guests experience — booth, wall, challenges and keepsakes.
               </p>
             </div>
             <div data-reveal className="mx-auto mt-10 w-full max-w-4xl">
@@ -575,7 +669,7 @@ export default function Landing() {
                   boxShadow: '0 0 60px -12px rgba(91, 140, 255, 0.45), 0 30px 90px -30px rgba(0,0,0,0.85)',
                 }}
               >
-                <FilmEmbed src={promoVideo} poster={promoPoster} label="Beamwall promo video" />
+                <FilmEmbed src={promoVideo} poster={promoPoster} label="Beamwall intro film" />
               </div>
             </div>
           </section>
@@ -600,6 +694,24 @@ export default function Landing() {
                   </span>
                 </div>
               ))}
+            </div>
+          </section>
+
+          {/* Interactive showcase — the product itself, embedded as a staged
+              two-column demo (copy · phone → beam → live wall). Placed BEFORE
+              pricing so a visitor experiences the magic before they see a price.
+              Camera only starts on an explicit tap inside ShowcasePhone; the
+              heavy AR chunk (MediaPipe/Three) is code-split behind React.lazy.
+              It owns its copy, so the section has no header of its own. */}
+          <section data-parallax-scope data-showcase-root className="mt-32 w-full">
+            <div data-reveal className="w-full">
+              <Suspense
+                fallback={
+                  <div className="mx-auto h-[420px] w-full max-w-6xl animate-pulse rounded-3xl border border-white/10 bg-white/[0.03] lg:h-[560px]" />
+                }
+              >
+                <InteractiveShowcase />
+              </Suspense>
             </div>
           </section>
 
@@ -658,20 +770,25 @@ export default function Landing() {
             </div>
           </section>
 
-          {/* Interactive showcase — the product itself, embedded as a staged
-              two-column demo (copy · phone → beam → live wall). Camera only
-              starts on an explicit tap inside ShowcasePhone; the heavy AR
-              chunk (MediaPipe/Three) is code-split behind React.lazy. It owns
-              its copy, so the section has no header of its own. */}
-          <section data-parallax-scope data-showcase-root className="mt-32 w-full">
-            <div data-reveal className="w-full">
-              <Suspense
-                fallback={
-                  <div className="mx-auto h-[420px] w-full max-w-6xl animate-pulse rounded-3xl border border-white/10 bg-white/[0.03] lg:h-[560px]" />
-                }
-              >
-                <InteractiveShowcase />
-              </Suspense>
+          {/* FAQ — honest objection handling, native details/summary so it
+              needs no JS and stays accessible + keyboard-friendly. */}
+          <section className="mx-auto mt-32 w-full max-w-3xl">
+            <div data-reveal className="text-center">
+              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">Questions, answered</h2>
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
+                The things hosts ask before their first event.
+              </p>
+            </div>
+            <div data-reveal className="mt-10 flex flex-col gap-3">
+              {FAQS.map((f) => (
+                <details key={f.q} className="group rounded-2xl border border-white/10 bg-white/[0.02] px-5 py-4 transition open:bg-white/[0.03]">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-left font-serif text-base text-brand-fg">
+                    {f.q}
+                    <ChevronDown className="h-4 w-4 shrink-0 text-brand-muted/60 transition-transform group-open:rotate-180" />
+                  </summary>
+                  <p className="mt-3 text-sm leading-relaxed text-brand-muted/75">{f.a}</p>
+                </details>
+              ))}
             </div>
           </section>
 
@@ -692,11 +809,16 @@ export default function Landing() {
         </main>
 
         {/* Footer */}
-        <footer className="flex flex-col items-center gap-2 pb-6 pt-20 text-center">
+        <footer className="flex flex-col items-center gap-3 pb-6 pt-20 text-center">
           <span className="font-serif text-lg text-foil-static">Beamwall</span>
           <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
             Loved at weddings, galas &amp; milestone birthdays.
           </p>
+          <nav className="flex items-center gap-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
+            <Link to="/privacy" className="transition hover:text-brand-fg">Privacy</Link>
+            <span className="text-brand-muted/25">·</span>
+            <Link to="/terms" className="transition hover:text-brand-fg">Terms</Link>
+          </nav>
         </footer>
       </div>
     </div>

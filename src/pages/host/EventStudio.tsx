@@ -29,6 +29,8 @@ import Dashboard from '../../components/admin/Dashboard';
 import Library from '../../components/admin/Library';
 import Assets from '../../components/admin/Assets';
 import StudioShell, { StudioRedirect } from '../../components/studio/StudioShell';
+import StudioOnboarding, { useStudioOnboarding } from '../../components/studio/StudioOnboarding';
+import { AnimatePresence } from 'motion/react';
 import Moderation from '../../components/admin/Moderation';
 import Challenges from '../../components/admin/Challenges';
 import Branding from '../../components/admin/Branding';
@@ -74,6 +76,9 @@ export default function EventStudio() {
   const location = useLocation();
   const validId = UUID_RE.test(id);
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
+  // First-run studio tour — shown once per browser, on the first studio entry.
+  const { show: showIntro, dismiss: dismissIntro } = useStudioOnboarding();
+  const [introOpen, setIntroOpen] = useState(showIntro);
 
   useEffect(() => {
     if (!validId) return;
@@ -139,6 +144,17 @@ export default function EventStudio() {
   return (
     <StudioBaseContext.Provider value={base}>
       <EventProvider slug={event.slug} basePath={basePath}>
+        <AnimatePresence>
+          {introOpen && (
+            <StudioOnboarding
+              key="studio-intro"
+              onDismiss={() => {
+                dismissIntro();
+                setIntroOpen(false);
+              }}
+            />
+          )}
+        </AnimatePresence>
         <div className="absolute inset-0 flex flex-col">
           {/* Event tab chrome — hidden inside Studio so its editor is full-bleed
               and StudioShell's own header is the only top bar. */}
