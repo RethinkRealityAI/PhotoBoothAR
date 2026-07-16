@@ -24,14 +24,18 @@ const CREDIT_PACKS: { pack: '50' | '120' | '300'; credits: number; price: string
 ];
 
 const REASON_BADGES: Record<string, { label: string; cls: string }> = {
-  signup_grant: { label: 'Signup', cls: 'bg-sky-500/15 text-sky-300' },
+  signup_bonus: { label: 'Welcome', cls: 'bg-sky-500/15 text-sky-300' },
+  signup_grant: { label: 'Signup', cls: 'bg-sky-500/15 text-sky-300' }, // legacy pre-011 rows
   plan_grant: { label: 'Package', cls: 'bg-accent/15 text-accent-2' },
   pack: { label: 'Pack', cls: 'bg-emerald-500/15 text-emerald-400' },
   pro_grant: { label: 'Pro', cls: 'bg-purple-500/15 text-purple-300' },
+  promo: { label: 'Promo', cls: 'bg-pink-500/15 text-pink-300' },
 };
 
 function ReasonBadge({ reason }: { reason: string }) {
-  const badge = REASON_BADGES[reason] ?? {
+  // Promo grants use a `promo:<code>` reason (migration 011 redeem_promo).
+  const key = reason.startsWith('promo:') ? 'promo' : reason;
+  const badge = REASON_BADGES[key] ?? {
     label: reason.replace(/_/g, ' '),
     cls: 'bg-white/[0.08] text-brand-muted/70',
   };
