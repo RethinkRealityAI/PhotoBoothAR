@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeActions, mergeWireTurns } from './copilot';
+import { normalizeActions, mergeWireTurns, executeAction } from './copilot';
 import type { EventSnapshot } from './eventSnapshot';
 import type { ChatMessage } from './eventDesigner';
 import { FILTER_SHADERS } from './shaders';
@@ -163,6 +163,20 @@ describe('normalizeActions — experience-building tools', () => {
     expect(normalizeActions([{ tool: 'rename_event', name: '  Gala 2.0 ' }], snapshot))
       .toEqual([{ tool: 'rename_event', proposal: { name: 'Gala 2.0' } }]);
     expect(normalizeActions([{ tool: 'rename_event', name: '' }], snapshot)).toEqual([]);
+  });
+});
+
+describe('executeAction — no-event guard', () => {
+  it('refuses an event-scoped action when no event is selected (empty slug), without touching the DB', async () => {
+    // Regression: a null snapshot → ctx.slug='' → INSERT event_id='' → RLS 403
+    // → "Adding the challenge failed". The guard short-circuits with a clear
+    // "pick an event" message before any supabase import.
+    const res = await executeAction(
+      { tool: 'add_challenge', proposal: { title: 'Spot the red', emoji: '🔴', points: 10, description: '' } },
+      { slug: '', eventUuid: '', origin: 'http://localhost' },
+    );
+    expect(res.ok).toBe(false);
+    expect(res.summary).toMatch(/pick one|pick an event|not pointed at an event/i);
   });
 });
 

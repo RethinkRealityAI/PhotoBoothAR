@@ -357,6 +357,16 @@ export default function CopilotChat({
     const tool = proposal.tool;
     if (typeof tool !== 'string') return;
 
+    // Every tool here acts on the selected event; with none selected ctx().slug
+    // is empty and any write hits the tenant RLS wall (403). Guard the whole
+    // confirm path — including async generation, which runs before executeAction
+    // — with one clear prompt to pick an event first.
+    if (!snapshot) {
+      dropSurfaceById(event.surfaceId);
+      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] Pick an event in the panel above first, then I’ll set that up for you.' }]);
+      return;
+    }
+
     // Generation tools DON'T execute a mutation — they kick off async generation
     // IN PLACE (the same surface swaps proposal → working → preview), so the
     // charge point stays single and apply never re-generates.

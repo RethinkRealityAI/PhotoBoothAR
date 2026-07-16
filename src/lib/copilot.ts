@@ -338,6 +338,15 @@ async function publishAndPin(
 }
 
 export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Promise<ExecResult> {
+  // Every copilot tool acts on a specific event. With no event selected, ctx.slug
+  // (and eventUuid) are empty, and any write hits the tenant RLS wall — an INSERT
+  // with event_id='' gives event_org('')=null → is_org_member(null)=false → 403
+  // "new row violates row-level security policy". Bail early with a clear message
+  // instead of a bare "…failed". (The floating panel leaves no event selected for
+  // hosts with more than one event until they pick one.)
+  if (!ctx.slug) {
+    return { ok: false, summary: 'I’m not pointed at an event yet — pick one in the panel above and I’ll set it up right away.' };
+  }
   try {
     switch (action.tool) {
       case 'add_challenge': {
