@@ -6,10 +6,10 @@
  * events, one-time event-plan purchases, Pro subscription, credit balance +
  * recent ledger. Read-only in Phase 2 (mutations land in Phase 4's Users screen).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
-import { fetchOrg, type OrgDetail } from '../../lib/admin';
+import { fetchOrg, adjustCredits, type OrgDetail } from '../../lib/admin';
 import { formatCount, formatDate } from '../../lib/adminFormat';
 import StatusPill from '../../components/ui/StatusPill';
 
@@ -17,6 +17,10 @@ export default function CustomerDetail() {
   const { orgId = '' } = useParams<{ orgId: string }>();
   const [detail, setDetail] = useState<OrgDetail | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [grantAmt, setGrantAmt] = useState('');
+  const [grantReason, setGrantReason] = useState('');
+  const [granting, setGranting] = useState(false);
+  const [grantMsg, setGrantMsg] = useState<string | null>(null);
 
   const load = async () => {
     setState('loading');
@@ -27,6 +31,19 @@ export default function CustomerDetail() {
   };
 
   useEffect(() => { load(); }, [orgId]);
+
+  async function grant(e: FormEvent) {
+    e.preventDefault();
+    const delta = Math.trunc(Number(grantAmt));
+    const reason = grantReason.trim();
+    if (!Number.isFinite(delta) || delta === 0 || !reason) { setGrantMsg('Enter a non-zero amount and a reason.'); return; }
+    setGranting(true); setGrantMsg(null);
+    const { error } = await adjustCredits(orgId, delta, reason);
+    setGranting(false);
+    if (error) { setGrantMsg('Failed — try again.'); return; }
+    setGrantAmt(''); setGrantReason(''); setGrantMsg('Applied.');
+    load();
+  }
 
   if (state === 'loading') {
     return (
@@ -148,6 +165,33 @@ export default function CustomerDetail() {
             })
           )}
         </div>
+      </section>
+
+      <section className="mb-8">
+        <h2 className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/50 mb-3">Grant / adjust credits</h2>
+        <form onSubmit={grant} className="glass rounded-2xl p-5 flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">Amount (+ / −)</span>
+            <input
+              type="number" value={grantAmt} onChange={(e) => setGrantAmt(e.target.value)} placeholder="50 or -10"
+              className="w-32 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2 text-sm text-brand-fg outline-none focus:border-[color:var(--color-accent)]/60"
+            />
+          </label>
+          <label className="flex flex-1 min-w-[10rem] flex-col gap-1">
+            <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">Reason</span>
+            <input
+              value={grantReason} onChange={(e) => setGrantReason(e.target.value)} placeholder="e.g. goodwill credit"
+              className="w-full rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2 text-sm text-brand-fg outline-none focus:border-[color:var(--color-accent)]/60"
+            />
+          </label>
+          <button
+            type="submit" disabled={granting}
+            className="rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-60"
+          >
+            {granting ? 'Applying…' : 'Apply'}
+          </button>
+          {grantMsg && <span className="text-xs text-brand-muted/70">{grantMsg}</span>}
+        </form>
       </section>
 
       <section>
