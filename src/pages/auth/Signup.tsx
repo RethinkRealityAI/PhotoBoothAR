@@ -18,6 +18,7 @@ export default function Signup() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [promoCode, setPromoCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -28,7 +29,7 @@ export default function Signup() {
     setError(null);
     setSubmitting(true);
     try {
-      const { error: err } = await signUpWithEmail(email.trim(), password, displayName.trim());
+      const { error: err } = await signUpWithEmail(email.trim(), password, displayName.trim(), promoCode);
       if (err) {
         setError(err.message);
         return;
@@ -121,6 +122,21 @@ export default function Signup() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="At least 8 characters"
+                    className={inputClass}
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1.5">
+                  <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
+                    Promo code <span className="text-brand-muted/40">(optional)</span>
+                  </span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    maxLength={40}
+                    value={promoCode}
+                    onChange={(e) => setPromoCode(e.target.value)}
+                    placeholder="Have a code? Enter it for bonus credits"
                     className={inputClass}
                   />
                 </label>

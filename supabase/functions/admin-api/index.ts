@@ -443,6 +443,67 @@ async function adjustCredits(sb: Client, actorUserId: string, args: Record<strin
   return json(200, { data: { orgId, balance: data } });
 }
 
+/* ── Platform config: the admin-editable welcome-credit amount ─────────── */
+async function getPlatformConfig(sb: Client): Promise<Response> {
+  const { data, error } = await sb.from('platform_config').select('key, int_value');
+  if (error) throw error;
+  const cfg: Record<string, number | null> = {};
+  for (const row of (data ?? []) as { key: string; int_value: number | null }[]) cfg[row.key] = row.int_value;
+  return json(200, { data: { signupBonusCredits: cfg['signup_bonus_credits'] ?? 25 } });
+}
+
+async function setSignupCredits(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const amount = typeof args.amount === 'number' && Number.isFinite(args.amount) ? Math.trunc(args.amount) : null;
+  if (amount === null || amount < 0 || amount > 100000) return json(400, { error: 'invalid_args' });
+  const { error } = await sb.from('platform_config').upsert({
+    key: 'signup_bonus_credits', int_value: amount, updated_at: new Date().toISOString(), updated_by: actorUserId,
+  });
+  if (error) throw error;
+  await auditLog(sb, actorUserId, 'set_signup_credits', 'config', 'signup_bonus_credits', { amount });
+  return json(200, { data: { signupBonusCredits: amount } });
+}
+
+/* ── Promo codes ───────────────────────────────────────────────────────── */
+async function listPromos(sb: Client): Promise<Response> {
+  const { data, error } = await sb.from('promo_codes')
+    .select('id, code, credits, max_redemptions, redemptions, expires_at, active, created_at')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return json(200, { data: data ?? [] });
+}
+
+async function createPromo(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const code = typeof args.code === 'string' ? args.code.trim() : '';
+  const credits = typeof args.credits === 'number' && Number.isFinite(args.credits) ? Math.trunc(args.credits) : 0;
+  const maxRedemptions = typeof args.maxRedemptions === 'number' && Number.isFinite(args.maxRedemptions)
+    ? Math.trunc(args.maxRedemptions) : null;
+  const expiresAt = typeof args.expiresAt === 'string' && args.expiresAt ? args.expiresAt : null;
+  if (!/^[A-Za-z0-9_-]{3,40}$/.test(code) || credits <= 0 || credits > 100000) return json(400, { error: 'invalid_args' });
+  if (maxRedemptions !== null && maxRedemptions <= 0) return json(400, { error: 'invalid_args' });
+
+  const { data, error } = await sb.from('promo_codes').insert({
+    code, credits, max_redemptions: maxRedemptions, expires_at: expiresAt, created_by: actorUserId,
+  }).select('id, code, credits, max_redemptions, redemptions, expires_at, active, created_at').maybeSingle();
+  if (error) {
+    if ((error as { code?: string }).code === '23505') return json(409, { error: 'code_exists' });
+    throw error;
+  }
+  await auditLog(sb, actorUserId, 'create_promo', 'promo', String(data?.id ?? code), { code, credits, maxRedemptions, expiresAt });
+  return json(200, { data });
+}
+
+async function setPromoActive(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const id = typeof args.id === 'string' ? args.id : '';
+  const active = args.active === true;
+  if (!id) return json(400, { error: 'invalid_args' });
+  const { data, error } = await sb.from('promo_codes').update({ active }).eq('id', id)
+    .select('id, active').maybeSingle();
+  if (error) throw error;
+  if (!data) return json(404, { error: 'not_found' });
+  await auditLog(sb, actorUserId, 'set_promo_active', 'promo', id, { active });
+  return json(200, { data });
+}
+
 const EVENT_TIERS = new Set(['free', 'essentials', 'premium', 'deluxe']);
 
 async function setEventTier(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
@@ -638,6 +699,16 @@ Deno.serve(async (req: Request) => {
         return await setUserBanned(sb, user.id, args);
       case 'adjust_credits':
         return await adjustCredits(sb, user.id, args);
+      case 'get_platform_config':
+        return await getPlatformConfig(sb);
+      case 'set_signup_credits':
+        return await setSignupCredits(sb, user.id, args);
+      case 'list_promos':
+        return await listPromos(sb);
+      case 'create_promo':
+        return await createPromo(sb, user.id, args);
+      case 'set_promo_active':
+        return await setPromoActive(sb, user.id, args);
       case 'set_event_tier':
         return await setEventTier(sb, user.id, args);
       case 'list_audit':

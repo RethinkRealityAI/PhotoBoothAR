@@ -18,12 +18,15 @@ const HOST_REDIRECT = () => `${window.location.origin}/host`;
  * With Supabase's default email confirmation on, the returned session is null
  * until the user clicks the confirmation link.
  */
-export function signUpWithEmail(email: string, password: string, displayName: string) {
+export function signUpWithEmail(email: string, password: string, displayName: string, promoCode?: string) {
+  const code = promoCode?.trim();
   return supabase.auth.signUp({
     email,
     password,
     options: {
-      data: { display_name: displayName },
+      // promo_code rides in user metadata → handle_new_user copies it to the
+      // profile → handle_new_org redeems it when the org is created.
+      data: { display_name: displayName, ...(code ? { promo_code: code } : {}) },
       emailRedirectTo: HOST_REDIRECT(),
     },
   });
@@ -45,6 +48,22 @@ export function signInWithGoogle() {
 /** Sign out of the current session. */
 export function signOut() {
   return supabase.auth.signOut();
+}
+
+/**
+ * Send a password-reset email. The link returns the user to /reset-password
+ * with a short-lived recovery session (implicit flow, detectSessionInUrl),
+ * where they set a new password via `updatePassword`.
+ */
+export function sendPasswordReset(email: string) {
+  return supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/reset-password`,
+  });
+}
+
+/** Set a new password for the currently-authenticated (or recovery) session. */
+export function updatePassword(password: string) {
+  return supabase.auth.updateUser({ password });
 }
 
 /** Current session, or null when signed out. */
