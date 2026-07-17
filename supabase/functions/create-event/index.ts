@@ -42,7 +42,6 @@ const RESERVED_SLUGS = new Set([
 ]);
 
 const EVENT_TYPES = new Set(['wedding', 'gala', 'birthday', 'party', 'remote']);
-const SIGNUP_CREDITS = 10;
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -154,20 +153,13 @@ Deno.serve(async (req: Request) => {
         .single();
       if (orgErr || !org) throw orgErr ?? new Error('org_insert_failed');
       orgId = org.id as string;
-      // (A DB trigger enrolls the owner into org_members.)
-
-      // Signup credit grant — idempotent on the balance row.
-      const { error: balErr } = await sb
-        .from('credit_balances')
-        .upsert(
-          { org_id: orgId, balance: SIGNUP_CREDITS },
-          { onConflict: 'org_id', ignoreDuplicates: true },
-        );
-      if (balErr) throw balErr;
-      const { error: ledgerErr } = await sb
-        .from('credit_ledger')
-        .insert({ org_id: orgId, delta: SIGNUP_CREDITS, reason: 'signup_grant' });
-      if (ledgerErr) throw ledgerErr;
+      // A DB trigger (on_org_created → handle_new_org, migration 011) runs inside
+      // this INSERT's transaction: it enrols the owner into org_members, grants
+      // the admin-configurable welcome credits (platform_config.signup_bonus_credits),
+      // and redeems any promo code captured at signup — via grant_credits, which
+      // writes credit_balances AND credit_ledger together. Granting again here
+      // would leave the ledger out of lockstep with the balance, so create-event
+      // deliberately does not touch credits.
     }
 
     // 3b. Platform admins run limit-free: any event an admin creates lands as
