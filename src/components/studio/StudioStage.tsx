@@ -589,11 +589,11 @@ export default function StudioStage({
         )}
 
         {/* Status caption — in preview it sits under the mode pill (the 3D
-            sub-controls slot) so the bottom-right Test-on-phone button never
-            overlaps it on narrow stages. */}
+            sub-controls slot); in 2D/3D it sits at the bottom, lifted above the
+            Test-on-phone pill on narrow stages (sm-) so the two never overlap. */}
         <div
           className={`absolute left-1/2 -translate-x-1/2 z-20 pointer-events-none ${
-            mode === 'preview' ? 'top-[3.35rem]' : 'bottom-3'
+            mode === 'preview' ? 'top-[3.35rem]' : 'bottom-16 sm:bottom-3'
           }`}
         >
           <StageCaption mode={mode} threeView={threeView} paused={paused} faceVisible={faceVisible} filterActive={draft.shaderId !== 'none'} objectCount={overlays.length} />
