@@ -105,7 +105,7 @@ const FEATURES: Feature[] = [
     title: 'Turn the room into the game',
     copy:
       'Set photo challenges — “catch the first dance”, “selfie with a stranger” — and watch the leaderboard light the wall up. Guests play, the wall fills, the room comes alive.',
-    bullets: ['Custom photo challenges', 'Live leaderboard on the wall', 'Prizes decided by the crowd'],
+    bullets: ['Custom photo challenges', 'Live leaderboard on the wall', 'AI checks the winning shots really nail the challenge'],
     Icon: ChallengeIcon,
     from: '#FB923C',
     to: '#F59E0B',
@@ -120,7 +120,7 @@ const FEATURES: Feature[] = [
     eyebrow: 'Keepsake cards & guestbook',
     title: 'The morning-after keepsake',
     copy:
-      'Guests leave short video messages and sign a collective greeting card. It all becomes a keepsake you keep forever — with a highlight film rendered overnight on premium plans.',
+      'Guests leave short video messages and sign a collective greeting card. It all becomes a keepsake you keep forever — with a highlight film rendered overnight on the Deluxe plan.',
     bullets: ['Video guestbook messages', 'Collaborative greeting cards', 'Keepsake highlight film'],
     Icon: CardIcon,
     from: '#E879F9',
@@ -392,6 +392,9 @@ export default function Landing() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const showcase = SHOWCASE.map((id) => EVENT_TEMPLATES.find((t) => t.id === id)!).filter(Boolean);
+  // Assume live media until the carousel's pools resolve, so the caption
+  // never overclaims once we know every card is an empty branded frame.
+  const [hasLiveMedia, setHasLiveMedia] = useState(true);
 
   // Scroll choreography. [data-reveal="up|left|right"] slide in on entry,
   // [data-reveal-stagger] cascades its children, [data-parallax-depth] drifts
@@ -540,6 +543,9 @@ export default function Landing() {
         <header className="sticky top-0 z-40 -mx-6 flex items-center justify-between border-b border-white/5 bg-brand-bg/70 px-6 py-3 backdrop-blur-md">
           <span className="font-serif text-2xl font-semibold tracking-wide text-foil-static">Beamwall</span>
           <nav className="flex items-center gap-2.5">
+            <a href="#demo" className="hidden sm:inline rounded-full px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors">
+              Demo
+            </a>
             <a href="#pricing" className="hidden sm:inline rounded-full px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors">
               Pricing
             </a>
@@ -574,12 +580,20 @@ export default function Landing() {
               </p>
 
               <div className="mt-9 flex flex-col items-center gap-3">
-                <Link
-                  to="/signup"
-                  className="pointer-events-auto rounded-full bg-foil px-10 py-4 font-label uppercase tracking-luxe text-[12px] font-bold text-white glow-accent transition active:scale-[0.98]"
-                >
-                  Create your event
-                </Link>
+                <div className="flex flex-col items-center gap-3 sm:flex-row">
+                  <Link
+                    to="/signup"
+                    className="pointer-events-auto rounded-full bg-foil px-10 py-4 font-label uppercase tracking-luxe text-[12px] font-bold text-white glow-accent transition active:scale-[0.98]"
+                  >
+                    Create your event
+                  </Link>
+                  <a
+                    href="#demo"
+                    className="pointer-events-auto rounded-full border border-white/15 bg-white/[0.04] px-10 py-4 font-label uppercase tracking-luxe text-[12px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98]"
+                  >
+                    Try the live demo
+                  </a>
+                </div>
                 <p className="font-sans text-xs text-brand-muted/50">Free to start · no credit card to create your event.</p>
               </div>
             </div>
@@ -588,10 +602,10 @@ export default function Landing() {
                 frames streaming actual moderated moments from those events'
                 walls. mt-12 on mobile keeps it clear of the hero fine print. */}
             <div className="relative z-10 mt-10 w-full max-w-6xl sm:mt-4" data-parallax-depth="0.08">
-              <LiveHeroCarousel className="w-full" />
+              <LiveHeroCarousel className="w-full" onHasMedia={setHasLiveMedia} />
             </div>
             <p className="mt-6 font-label uppercase tracking-luxe text-[9px] text-brand-muted/45">
-              Live moments from real Beamwall events
+              {hasLiveMedia ? 'Live moments from real Beamwall events' : 'Frame styles from real Beamwall events'}
             </p>
           </section>
 
@@ -703,7 +717,7 @@ export default function Landing() {
               Camera only starts on an explicit tap inside ShowcasePhone; the
               heavy AR chunk (MediaPipe/Three) is code-split behind React.lazy.
               It owns its copy, so the section has no header of its own. */}
-          <section data-parallax-scope data-showcase-root className="mt-32 w-full">
+          <section id="demo" data-parallax-scope data-showcase-root className="mt-32 w-full scroll-mt-24">
             <div data-reveal className="w-full">
               <Suspense
                 fallback={

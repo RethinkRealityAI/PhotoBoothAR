@@ -42,7 +42,6 @@ const SLOTS: Slot[] = [
 
 interface Media {
   url: string;
-  video: boolean;
 }
 
 /** One framed card that cycles its event's live media. */
@@ -73,22 +72,11 @@ function FrameCard({ slot, pool, seed }: { slot: Slot; pool: Media[]; seed: numb
           background: `radial-gradient(120% 90% at 50% 24%, rgba(${slot.rgb}, 0.32), transparent 66%), rgba(6, 7, 13, 0.82)`,
         }}
       >
-        {/* live moment (or branded fallback) */}
+        {/* live moment (or branded fallback) — photos only: this card is
+            ~160-208px wide and up to 12 mount at once, so an unmanaged
+            <video autoPlay> here would be an iOS decode-pipeline hazard. */}
         {media ? (
-          media.video ? (
-            <video
-              key={media.url}
-              src={media.url}
-              muted
-              loop
-              playsInline
-              autoPlay
-              preload="metadata"
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-          ) : (
-            <img key={media.url} src={media.url} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />
-          )
+          <img key={media.url} src={media.url} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />
         ) : (
           <div className="absolute inset-0 flex items-end justify-center pb-6">
             <span className="font-label uppercase tracking-luxe text-[9px] text-white/50">{slot.label}</span>
@@ -109,7 +97,16 @@ function FrameCard({ slot, pool, seed }: { slot: Slot; pool: Media[]; seed: numb
   );
 }
 
-export default function LiveHeroCarousel({ className = '' }: { className?: string }): ReactNode {
+export default function LiveHeroCarousel({
+  className = '',
+  onHasMedia,
+}: {
+  className?: string;
+  /** Fired once, after the live pools resolve, with whether any event had media —
+   *  so the caller can caption the strip honestly instead of always claiming
+   *  "live moments" over what may be empty branded frames. */
+  onHasMedia?: (hasMedia: boolean) => void;
+}): ReactNode {
   // Live media pools keyed by event slug.
   const [pools, setPools] = useState<Record<string, Media[]>>({});
 
@@ -119,13 +116,16 @@ export default function LiveHeroCarousel({ className = '' }: { className?: strin
     Promise.all(
       events.map(async (slug) => {
         const posts = await fetchPosts(slug, { limit: 24 }).catch(() => [] as Post[]);
+        // Photos only — video posts are dropped here (see FrameCard note).
         const media: Media[] = posts
-          .filter((p) => p.image_url)
-          .map((p) => ({ url: p.image_url, video: p.media_type === 'video' }));
+          .filter((p) => p.image_url && p.media_type !== 'video')
+          .map((p) => ({ url: p.image_url }));
         return [slug, media] as const;
       }),
     ).then((entries) => {
-      if (alive) setPools(Object.fromEntries(entries));
+      if (!alive) return;
+      setPools(Object.fromEntries(entries));
+      onHasMedia?.(entries.some(([, media]) => media.length > 0));
     });
     return () => { alive = false; };
   }, []);
@@ -136,6 +136,12 @@ export default function LiveHeroCarousel({ className = '' }: { className?: strin
   const dragging = useRef(false);
   const paused = useRef(false);
   const lastX = useRef(0);
+  // Hover-pause is a mouse affordance only — touch devices report no hover
+  // capability, so a tap (which fires pointerenter too) never latches a pause
+  // that only a pointerleave (which touch may never send) could clear.
+  const hoverCapable = useRef(
+    typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches,
+  );
 
   useEffect(() => {
     const track = trackRef.current;
@@ -163,7 +169,7 @@ export default function LiveHeroCarousel({ className = '' }: { className?: strin
   return (
     <div
       className={`relative ${className}`}
-      onPointerEnter={() => { paused.current = true; }}
+      onPointerEnter={() => { if (hoverCapable.current) paused.current = true; }}
       onPointerLeave={() => { paused.current = false; dragging.current = false; }}
     >
       {/* floor glow the frames stand on */}
@@ -183,7 +189,8 @@ export default function LiveHeroCarousel({ className = '' }: { className?: strin
           style={{ willChange: 'transform' }}
           onPointerDown={(e) => { dragging.current = true; lastX.current = e.clientX; e.currentTarget.setPointerCapture(e.pointerId); }}
           onPointerMove={(e) => { if (dragging.current) { offset.current += e.clientX - lastX.current; lastX.current = e.clientX; } }}
-          onPointerUp={(e) => { dragging.current = false; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
+          onPointerUp={(e) => { dragging.current = false; paused.current = false; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
+          onPointerCancel={(e) => { dragging.current = false; paused.current = false; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
         >
           {cards.map((slot, i) => (
             <FrameCard key={`${slot.event}-${slot.frameId}-${i}`} slot={slot} pool={pools[slot.event] ?? []} seed={i} />
