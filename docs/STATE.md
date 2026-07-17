@@ -58,6 +58,8 @@ Round-5/6 DONE + pushed (PR #17, tip 1fe3f68). Awaiting user: swap in the 3 Higg
 - Note: headless Chromium lacks H.264 so frame/feature videos show POSTER STILLS in screenshots; the mp4s serve HTTP 200 and play in real browsers (same assets the shipped FilmEmbed already relies on).
 
 ## Constraints
+- User (2026-07-17, verbatim): "make sure we remove all the hard-coded templates, like the SCAGO gala or any that have specific branding for any of the legacy events. We're just on generic frames and assets that will be part of the template library that all users will have access to." (Remove from the self-serve template library only — legacy-events sites themselves must keep working.)
+- User (2026-07-17): first-run host journey = agentic-first, "not overwhelming or adding to the bandwidth, just easy to set up a new event. They can just share the QR code immediately" — experiences are optional after that.
 - User (2026-07-07): Gemini API key must NEVER be committed to the repo; Supabase edge-function secrets only.
 - (platform) Never break legacy-events sites — faceRig/Booth/Overlay3D are shared; keep default behavior compatible.
 - (platform) No `.env.local` with VITE_EVENT during tests.
