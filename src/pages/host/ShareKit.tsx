@@ -11,10 +11,12 @@
  * instructions rather than a camera-permission prompt.
  */
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { Camera, Check, Copy, Images, Info, Printer, Trophy, UploadCloud } from 'lucide-react';
+import { Camera, Check, Copy, Images, Info, Printer, TriangleAlert, Trophy, UploadCloud } from 'lucide-react';
 import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
+import { useStudioBase } from '../../components/admin/studioBase';
 import EventBackground from '../../components/ui/EventBackground';
 
 interface Surface {
@@ -38,7 +40,11 @@ function CopyLink({ url }: { url: string }) {
 }
 
 export default function ShareKit() {
-  const { config, basePath } = useEvent();
+  const { config, basePath, status } = useEvent();
+  // Dashboard lives at the studio base (same way the sibling admin screens
+  // derive their links — /host/events/<uuid>, or /admin on legacy builds).
+  const studioBase = useStudioBase();
+  const notLive = status !== 'live';
   const { wallSettings, fetchWallSettings } = useStore();
   useEffect(() => {
     fetchWallSettings();
@@ -62,6 +68,21 @@ export default function ShareKit() {
       <EventBackground density={30} />
       <div className="relative z-10 min-h-full p-6 md:p-10 flex flex-col gap-6 max-w-5xl mx-auto w-full">
 
+        {notLive && (
+          <div className="print:hidden flex flex-wrap items-center gap-3 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-5 py-4">
+            <TriangleAlert className="w-5 h-5 text-amber-400 shrink-0" />
+            <p className="flex-1 min-w-[14rem] font-sans text-sm leading-snug text-amber-200/90">
+              This event is in draft — these codes will show guests "Event not found" until you go live.
+            </p>
+            <Link
+              to={studioBase}
+              className="shrink-0 rounded-full bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/40 px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-amber-300 transition-colors"
+            >
+              Go to Dashboard
+            </Link>
+          </div>
+        )}
+
         <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
           <div>
             <h1 className="font-serif text-2xl text-foil-static">Share &amp; Print kit</h1>
@@ -83,8 +104,13 @@ export default function ShareKit() {
           {surfaces.map((s) => (
             <div
               key={s.path}
-              className="share-card liquid-glass rounded-3xl border border-accent/20 p-5 flex flex-col items-center text-center gap-3"
+              className="share-card relative liquid-glass rounded-3xl border border-accent/20 p-5 flex flex-col items-center text-center gap-3"
             >
+              {notLive && (
+                <span className="absolute top-3 right-3 rounded-md border border-amber-400/50 bg-amber-500/15 px-1.5 py-0.5 font-label uppercase tracking-luxe text-[8px] text-amber-400 print:border-amber-700 print:bg-transparent print:text-amber-700">
+                  DRAFT
+                </span>
+              )}
               <div className="flex items-center gap-2">
                 <s.icon className="w-4 h-4 text-accent-2" />
                 <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/80">{s.title}</p>

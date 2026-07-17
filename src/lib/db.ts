@@ -11,6 +11,7 @@
  * Runtime tenancy: every helper that stamps or filters `event_id` takes the
  * eventId (slug) as its FIRST parameter — components obtain it via useEvent().
  */
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase, POSTS_BUCKET, ASSETS_BUCKET, publicUrl } from './supabase';
 import type { EventCopy } from '../events/types';
 import {
@@ -371,12 +372,35 @@ async function submitPostDirect(eventId: string, input: SubmitPostInput): Promis
   return data as Post;
 }
 
+/** Result of a wall submission attempt. `error` is present iff `post` is null:
+ *  a server code passed through verbatim ('event_not_live', 'post_limit_reached',
+ *  'video_not_allowed', 'rate_limited', …) or 'network' when the failure kind
+ *  couldn't be decoded (offline, storage upload error, malformed body). */
+export interface SubmitPostResult {
+  post: Post | null;
+  error?: string;
+}
+
+/** Decode the `{ error }` body of a submit-post FunctionsHttpError, same idiom
+ *  as managerApi.ts; anything unreadable is reported as 'network'. */
+async function decodeSubmitPostError(e: unknown): Promise<string> {
+  if (e instanceof FunctionsHttpError) {
+    try {
+      const body = (await e.context.json()) as { error?: string };
+      if (body.error) return body.error;
+    } catch { /* unreadable body */ }
+  }
+  return 'network';
+}
+
 /**
  * Upload a captured photo/video and create the wall post via the `submit-post`
- * edge function (init → signed upload → finalize). Returns the created Post.
+ * edge function (init → signed upload → finalize). Returns the created Post
+ * plus the failure kind when it didn't go through — callers with UI for it
+ * (the booth) branch their copy on `error`; others can use submitPost below.
  * Legacy events fall back to the direct path on any function error.
  */
-export async function submitPost(eventId: string, input: SubmitPostInput): Promise<Post | null> {
+export async function submitPostDetailed(eventId: string, input: SubmitPostInput): Promise<SubmitPostResult> {
   const isVideo = input.mediaType === 'video';
   const mediaType: MediaType = input.mediaType ?? 'image';
   const ext = extFor(input.blob, isVideo ? 'webm' : 'jpg');
@@ -416,15 +440,22 @@ export async function submitPost(eventId: string, input: SubmitPostInput): Promi
     if (finErr) throw finErr;
     const post = ((fin as { post?: Post } | null)?.post ?? fin) as Post | null;
     if (!post?.id) throw new Error('submit-post finalize returned no post');
-    return post;
+    return { post };
   } catch (e) {
     if (LEGACY_EVENT_IDS.has(eventId)) {
       console.warn('[db] submitPost edge function failed — falling back to direct upload', e);
-      return submitPostDirect(eventId, input);
+      const post = await submitPostDirect(eventId, input);
+      return post ? { post } : { post: null, error: 'network' };
     }
     console.error('[db] submitPost', e);
-    return null;
+    return { post: null, error: await decodeSubmitPostError(e) };
   }
+}
+
+/** Back-compat wrapper: same signature as before SubmitPostResult existed —
+ *  null on any failure. Kept so existing callers (UploadToWall) stay as-is. */
+export async function submitPost(eventId: string, input: SubmitPostInput): Promise<Post | null> {
+  return (await submitPostDetailed(eventId, input)).post;
 }
 
 /* ------------------------------------------------------------------ */

@@ -212,7 +212,7 @@ export default function EventStudio() {
             >
               <Sparkles className="w-4 h-4" />
             </button>
-            <GuestLinkCopy url={`${origin}${basePath}`} />
+            <GuestLinkCopy url={`${origin}${basePath}/welcome`} />
           </nav>
           )}
 

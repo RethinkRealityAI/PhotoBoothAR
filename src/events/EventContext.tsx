@@ -242,7 +242,7 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
       <CenterScreen
         eyebrow="Photo Booth"
         title="Event not found"
-        body="We couldn't find an event at this address. Double-check the link or QR code you were given."
+        body="We couldn't find an event at this address. Double-check the link or QR code you were given, or the event may not have gone live yet — ask your host."
       />
     );
   }

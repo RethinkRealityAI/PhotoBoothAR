@@ -43,6 +43,9 @@ function EventCard({
   const inputRef = useRef<HTMLInputElement>(null);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const guestUrl = `${origin}/e/${ev.slug}`;
+  // Copy-link hands out the welcome page — the product's own recommended
+  // guest entry (matches EventsList + the ShareKit guidance).
+  const welcomeUrl = `${origin}/e/${ev.slug}/welcome`;
 
   useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
 
@@ -105,7 +108,7 @@ function EventCard({
       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
         <p className="flex-1 font-mono text-[10px] text-brand-muted/60 truncate">/e/{ev.slug}</p>
         <button
-          onClick={() => navigator.clipboard.writeText(guestUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
+          onClick={() => navigator.clipboard.writeText(welcomeUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
           title="Copy guest link"
           className="p-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
         >
