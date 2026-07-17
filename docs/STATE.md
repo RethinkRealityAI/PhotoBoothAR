@@ -58,6 +58,8 @@ Round-5/6 DONE + pushed (PR #17, tip 1fe3f68). Awaiting user: swap in the 3 Higg
 - Note: headless Chromium lacks H.264 so frame/feature videos show POSTER STILLS in screenshots; the mp4s serve HTTP 200 and play in real browsers (same assets the shipped FilmEmbed already relies on).
 
 ## Constraints
+- User (2026-07-17, verbatim): "Make sure that things are generated properly and the intent is explicitly followed from the user's prompts in any of the ways we access our agents" (reported bug: asked general agent for a 3D model, got a sticker).
+- User (2026-07-17, verbatim): "if we do generate stickers or images, the background is also being removed from them"; "We still need to fix the sizing of 3D models. They are way too small"; "the current head of the 3D mode with the attachment points is still too small compared to a human head, so we need to make it twice as big by default."
 - User (2026-07-17, verbatim): "make sure we remove all the hard-coded templates, like the SCAGO gala or any that have specific branding for any of the legacy events. We're just on generic frames and assets that will be part of the template library that all users will have access to." (Remove from the self-serve template library only — legacy-events sites themselves must keep working.)
 - User (2026-07-17): first-run host journey = agentic-first, "not overwhelming or adding to the bandwidth, just easy to set up a new event. They can just share the QR code immediately" — experiences are optional after that.
 - User (2026-07-07): Gemini API key must NEVER be committed to the repo; Supabase edge-function secrets only.
