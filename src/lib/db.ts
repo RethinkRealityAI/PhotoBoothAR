@@ -486,12 +486,14 @@ export async function deleteChallenge(eventId: string, id: string): Promise<bool
 /* ------------------------------------------------------------------ */
 
 const DEFAULT_WALL_SETTINGS: WallSettings = {
-  showQR: false,           // off by default — admin/operator turns it on
+  showQR: true,            // on by default — stored rows keep their persisted value
   showLeaderboard: true,
   showChallenges: true,
   galleryScroll: false,    // static masonry grid (clickable, no duplicates)
   galleryScrollSpeed: 1,
   slideshowInterval: 6,
+  featuredSpotlight: true,
+  featuredIntervalSec: 45,
   defaultExperienceId: null,
 };
 

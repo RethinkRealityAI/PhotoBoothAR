@@ -192,6 +192,10 @@ export interface WallSettings {
   galleryScrollSpeed: number;
   /** Seconds each slide is shown in Slideshow mode. */
   slideshowInterval: number;
+  /** Gallery mode: periodically spotlight one photo (or a join-QR / leaderboard / challenge card) full-screen. */
+  featuredSpotlight: boolean;
+  /** Seconds between Featured Spotlight appearances (each shows for ~8 s). */
+  featuredIntervalSec: number;
   /** Experience id pre-selected when the booth opens (catalog id, or null for none). */
   defaultExperienceId: string | null;
 }

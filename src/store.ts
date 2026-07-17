@@ -16,12 +16,14 @@ import { mergeCopy, brandingCssVars, MANAGED_CSS_VARS } from './lib/branding';
 const LEGACY_EVENT = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim();
 
 const DEFAULT_WALL_SETTINGS: WallSettings = {
-  showQR: false,
+  showQR: true,
   showLeaderboard: true,
   showChallenges: true,
   galleryScroll: false,
   galleryScrollSpeed: 1,
   slideshowInterval: 6,
+  featuredSpotlight: true,
+  featuredIntervalSec: 45,
   defaultExperienceId: null,
 };
 
@@ -153,7 +155,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({ challenges, challengesLoaded: true });
   },
 
-  wallSettings: { showQR: false, showLeaderboard: true, showChallenges: true, galleryScroll: false, galleryScrollSpeed: 1, slideshowInterval: 6, defaultExperienceId: null },
+  wallSettings: { ...DEFAULT_WALL_SETTINGS },
   fetchWallSettings: async () => {
     const wallSettings = await db.getWallSettings(get().eventId);
     set({ wallSettings });

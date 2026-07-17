@@ -9,7 +9,7 @@ interface Props {
   origin: string;
 }
 
-function QRPanel({ url, label }: { url: string; label: string }) {
+export function QRPanel({ url, label, size = 108 }: { url: string; label: string; size?: number }) {
   return (
     <div
       className="glass flex flex-col items-center gap-3 px-5 py-5 rounded-2xl"
@@ -24,7 +24,7 @@ function QRPanel({ url, label }: { url: string; label: string }) {
       >
         <QRCodeSVG
           value={url}
-          size={108}
+          size={size}
           bgColor="#FBF3D9"
           fgColor="#1a1207"
           level="M"

@@ -22,12 +22,14 @@ const storageKey = (slug: string) => `pbar.mgr.${slug}`;
 
 /** Mirrors db.ts DEFAULT_WALL_SETTINGS so saves send a full merged object. */
 const DEFAULT_WALL_SETTINGS: WallSettings = {
-  showQR: false,
+  showQR: true,
   showLeaderboard: true,
   showChallenges: true,
   galleryScroll: false,
   galleryScrollSpeed: 1,
   slideshowInterval: 6,
+  featuredSpotlight: true,
+  featuredIntervalSec: 45,
   defaultExperienceId: null,
 };
 
@@ -199,6 +201,7 @@ function WallSettingsDrawer({
           <>
             <div>
               <Toggle label="Show QR code" checked={settings.showQR} onChange={(v) => patch({ showQR: v })} />
+              <Toggle label="Featured spotlight" checked={settings.featuredSpotlight} onChange={(v) => patch({ featuredSpotlight: v })} />
               <Toggle label="Show leaderboard" checked={settings.showLeaderboard} onChange={(v) => patch({ showLeaderboard: v })} />
               <Toggle label="Challenges mode" checked={settings.showChallenges} onChange={(v) => patch({ showChallenges: v })} />
               <Toggle label="Scrolling rows (marquee)" checked={settings.galleryScroll} onChange={(v) => patch({ galleryScroll: v })} />

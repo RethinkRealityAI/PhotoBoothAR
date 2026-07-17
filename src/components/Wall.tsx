@@ -2,18 +2,24 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Wall — the projected live photo wall for the Hope Gala 2026.
+ * Wall — the projected live photo wall for any Beamwall event (multi-tenant;
+ * themed per event via EventProvider/branding).
  *
  * Four modes:
  *   Gallery    — responsive masonry grid, newest first, gentle entrance.
  *   Slideshow  — full-bleed single post, Ken-Burns drift (images), auto-advance 6 s.
- *   Leaderboard — gorgeous gold gala leaderboard (shown only when wallSettings.showLeaderboard).
- *   Projection — kiosk/projector mode: hides ALL chrome; shows only content + dust.
+ *   Leaderboard — points leaderboard (shown only when wallSettings.showLeaderboard).
+ *   Projection — kiosk/projector mode: hides ALL chrome; shows only content + dust
+ *                (plus a compact join-QR chip when showQR is on).
  *
  * Settings (live via subscribeToSettings):
- *   showQR          — hides/shows the two bottom QR panels instantly.
- *   showLeaderboard — enables the Leaderboard tab in the mode picker.
- *   showChallenges  — shows/hides the challenges ticker strip.
+ *   showQR            — hides/shows the QR panels instantly.
+ *   showLeaderboard   — enables the Leaderboard tab in the mode picker.
+ *   showChallenges    — shows/hides the challenges ticker strip.
+ *   featuredSpotlight — periodic full-screen photo/CTA spotlight in Gallery mode.
+ *
+ * `mode` + `projectionMode` persist to localStorage (beamwall:wall:<eventId>)
+ * so a projector refresh restores the wall.
  *
  * Realtime: subscribeToPosts; fallback poll every ~20 s.
  * Beam-in: fires <BeamIn/> overlay on every onInsert event.
@@ -34,11 +40,28 @@ import MosaicGrid from './wall/MosaicGrid';
 import MarqueeGrid from './wall/MarqueeGrid';
 import SlideshowView from './wall/SlideshowView';
 import LeaderboardView from './wall/LeaderboardView';
-import WallQRCodes from './wall/WallQRCodes';
+import WallQRCodes, { QRPanel } from './wall/WallQRCodes';
 import ChallengesTicker from './wall/ChallengesTicker';
 import WallLightbox from './wall/WallLightbox';
+import FeaturedSpotlight from './wall/FeaturedSpotlight';
+import EmptyWall from './wall/EmptyWall';
 
 type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard';
+
+/** Restore persisted { mode, projectionMode } for a projector refresh. */
+function readPersistedWallState(eventId: string): { mode?: ViewMode; projectionMode?: boolean } {
+  try {
+    const raw = localStorage.getItem(`beamwall:wall:${eventId}`);
+    if (!raw) return {};
+    const v = JSON.parse(raw) as { mode?: unknown; projectionMode?: unknown };
+    return {
+      mode: v.mode === 'mosaic' || v.mode === 'slideshow' || v.mode === 'leaderboard' ? v.mode : undefined,
+      projectionMode: typeof v.projectionMode === 'boolean' ? v.projectionMode : undefined,
+    };
+  } catch {
+    return {}; // unavailable/corrupt storage — fall back to defaults
+  }
+}
 
 export default function Wall() {
   const { eventId, basePath } = useEvent();
@@ -54,11 +77,25 @@ export default function Wall() {
     setWallSettings,
   } = useStore();
 
-  // View state — default to Gallery (static masonry grid: clickable, no duplicates).
-  const [mode, setMode] = useState<ViewMode>('mosaic');
-  const [projectionMode, setProjectionMode] = useState(false);
+  // View state — default to Gallery (static masonry grid: clickable, no
+  // duplicates); restored from localStorage so a projector refresh recovers.
+  const [mode, setMode] = useState<ViewMode>(() => readPersistedWallState(eventId).mode ?? 'mosaic');
+  const [projectionMode, setProjectionMode] = useState(
+    () => readPersistedWallState(eventId).projectionMode ?? false,
+  );
   const [lightboxPost, setLightboxPost] = useState<Post | null>(null);
   const [slideshowIndex, setSlideshowIndex] = useState(0);
+  // Freshly beamed-in post the Featured Spotlight should feature next.
+  const [pendingFeatureId, setPendingFeatureId] = useState<string | null>(null);
+
+  // Persist { mode, projectionMode } for this event.
+  useEffect(() => {
+    try {
+      localStorage.setItem(`beamwall:wall:${eventId}`, JSON.stringify({ mode, projectionMode }));
+    } catch {
+      // storage unavailable (private mode/quota) — persistence is best-effort
+    }
+  }, [eventId, mode, projectionMode]);
 
   // Controls auto-hide (projection mode hides the toggle bar after 4 s idle)
   const [showChrome, setShowChrome] = useState(true);
@@ -122,6 +159,8 @@ export default function Wall() {
     (post: Post) => {
       prependPost(post);
       setBeamQueue((q) => [...q, { id: post.id, guestName: post.guest_name }]);
+      // Feature the newest arrival in the spotlight once the beam-in clears
+      setPendingFeatureId(post.id);
       // Mark fresh for 5 s
       setFreshIds((s) => new Set(s).add(post.id));
       const timer = setTimeout(() => {
@@ -229,7 +268,9 @@ export default function Wall() {
       {/* ── Gallery: Marquee (scrolling rows) or Mosaic (masonry grid) ── */}
       {mode === 'mosaic' && (
         <div className="absolute inset-0" style={{ paddingTop: projectionMode ? 0 : headerH }}>
-          {wallSettings.galleryScroll ? (
+          {posts.length === 0 ? (
+            <EmptyWall origin={`${origin}${basePath}`} />
+          ) : wallSettings.galleryScroll ? (
             <MarqueeGrid
               posts={posts}
               scrollSpeed={wallSettings.galleryScrollSpeed ?? 1}
@@ -238,19 +279,40 @@ export default function Wall() {
           ) : (
             <MosaicGrid posts={posts} freshIds={freshIds} onSelect={setLightboxPost} />
           )}
+
+          {/* Featured Spotlight — content, not chrome: stays on in projection mode */}
+          {wallSettings.featuredSpotlight && posts.length >= 3 && (
+            <FeaturedSpotlight
+              posts={posts}
+              enabled={wallSettings.featuredSpotlight}
+              intervalSec={wallSettings.featuredIntervalSec ?? 45}
+              pendingFeatureId={pendingFeatureId}
+              onConsumePending={() => setPendingFeatureId(null)}
+              suspended={beamQueue.length > 0 || lightboxPost !== null}
+              onSelect={setLightboxPost}
+              showQR={wallSettings.showQR}
+              showLeaderboard={wallSettings.showLeaderboard}
+              showChallenges={wallSettings.showChallenges}
+              origin={`${origin}${basePath}`}
+            />
+          )}
         </div>
       )}
 
       {/* ── Slideshow ── */}
       {mode === 'slideshow' && (
         <div className="absolute inset-0">
-          <SlideshowView
-            posts={posts}
-            projectionMode={projectionMode}
-            currentIndex={slideshowIndex}
-            onIndexChange={setSlideshowIndex}
-            slideshowInterval={wallSettings.slideshowInterval ?? 6}
-          />
+          {posts.length === 0 ? (
+            <EmptyWall origin={`${origin}${basePath}`} />
+          ) : (
+            <SlideshowView
+              posts={posts}
+              projectionMode={projectionMode}
+              currentIndex={slideshowIndex}
+              onIndexChange={setSlideshowIndex}
+              slideshowInterval={wallSettings.slideshowInterval ?? 6}
+            />
+          )}
         </div>
       )}
 
@@ -261,9 +323,10 @@ export default function Wall() {
         </div>
       )}
 
-      {/* ── Challenges ticker — floats above footer, gated by setting ── */}
-      {!projectionMode && wallSettings.showChallenges && (
-        <ChallengesTicker bottomOffset={96} />
+      {/* ── Challenges ticker — floats above footer, gated by setting;
+             stays up in projection mode with a small bottom offset ── */}
+      {wallSettings.showChallenges && (
+        <ChallengesTicker bottomOffset={projectionMode ? 12 : 96} />
       )}
 
       {/* ── Chrome header ── centered, viewport-contained, hidden in projection ── */}
@@ -400,6 +463,14 @@ export default function Wall() {
           </motion.footer>
         )}
       </AnimatePresence>
+
+      {/* ── Projection-mode: compact persistent join-QR chip (outside the
+             auto-hiding chrome — guests can always join) ── */}
+      {projectionMode && wallSettings.showQR && (
+        <div className="fixed bottom-4 right-4 z-30" style={{ opacity: 0.55 }}>
+          <QRPanel url={`${origin}${basePath}/`} label="Scan to join" size={84} />
+        </div>
+      )}
 
       {/* ── Projection-mode: tiny exit button that fades in on mouse move ── */}
       <AnimatePresence>
