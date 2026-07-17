@@ -15,6 +15,7 @@ import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Loader2, Move, RefreshCw, Sparkles, Wand2 } from 'lucide-react';
 import { generateImage, aiErrorMessage, type AiErrorCode } from '../../lib/ai';
+import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { updateEventConfig } from '../../lib/host';
 import type { Experience } from '../../types';
 
@@ -62,14 +63,35 @@ export default function FrameStudio({
     const res = await generateImage(eventUuid, {
       prompt: brief,
       kind: 'border',
-      transparentBackground: true,
+      // The image models don't produce clean real transparency — request a
+      // solid green backdrop and chroma-key it out client-side, the exact
+      // pipeline the studio surfaces use (AiFramePanel / DirectorPanel /
+      // CopilotChat via processGeneratedFrame).
+      transparentBackground: false,
+      greenScreen: true,
     });
     if (res.error !== null || !res.data) {
       const code = (res.error ?? 'internal') as AiErrorCode;
       setPhase({ kind: 'error', message: aiErrorMessage(code), code });
       return;
     }
-    setPhase({ kind: 'preview', experience: res.data.experience });
+    // experiences.event_id is the event SLUG (key trap), and this component
+    // only receives the uuid — resolve the slug so the processed transparent
+    // PNG is persisted onto the experience row, not just previewed.
+    const { supabase } = await import('../../lib/supabase');
+    const { data: ev } = await supabase.from('events').select('slug').eq('id', eventUuid).maybeSingle();
+    const slug = typeof ev?.slug === 'string' ? ev.slug : '';
+    // keyed:false means the asset is still the RAW GREEN image — never show or
+    // ship it (a solid green box over the guest is worse than an error).
+    const keyed = slug ? await processGeneratedFrame(res.data.experience, slug) : null;
+    if (!keyed?.keyed) {
+      setPhase({
+        kind: 'error',
+        message: 'Generated, but the transparent cutout didn’t come through cleanly — generate again for a fresh version.',
+      });
+      return;
+    }
+    setPhase({ kind: 'preview', experience: keyed.experience });
   };
 
   const useAsFrame = async (experience: Experience) => {

@@ -22,6 +22,15 @@ import { computeBustFit } from '../../lib/studio/bustFit';
 const BUST_URL = `${import.meta.env.BASE_URL}models/reference-head.glb`;
 
 /**
+ * Studio-orbit-only VISUAL magnifier: the strictly head-sized (17.7cm) bust
+ * read too small next to props, so render it 2x. Applied to both the fitted
+ * scale AND the centring offset (the offset is -center·scale, so it must
+ * scale by the same factor to keep the bust centred at the origin). Purely
+ * cosmetic — booth tracking, prop fit, and the occluder never read this.
+ */
+const REFERENCE_HEAD_SCALE = 2;
+
+/**
  * Scale + centre a raw bust mesh so its crown-to-chin height matches the head
  * space (crown y≈+8.3 to chin y≈−9.4 ⇒ ~17.7cm) and its face centre sits at the
  * origin, matching where anchors are defined.
@@ -56,7 +65,10 @@ function GlbBust({ scene }: { scene: THREE.Group }) {
   }, [scene]);
   if (!fitted) return null;
   return (
-    <group scale={fitted.scale} position={fitted.position}>
+    <group
+      scale={fitted.scale * REFERENCE_HEAD_SCALE}
+      position={fitted.position.map((p) => p * REFERENCE_HEAD_SCALE) as [number, number, number]}
+    >
       <primitive object={fitted.object} />
     </group>
   );

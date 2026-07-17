@@ -136,6 +136,18 @@ describe('normalizeActions — experience-building tools', () => {
     expect(normalizeActions([{ tool: 'add_head_piece', source: 'generate' }], snapshot)).toEqual([]);
   });
 
+  it('coerces add_head_piece with a usable prompt but no/hallucinated pieceId to generate (never silently dropped)', () => {
+    // No source and no pieceId — just a prompt (common model output for "make me a 3D X").
+    expect(normalizeActions([{ tool: 'add_head_piece', prompt: 'a golden basketball trophy' }], snapshot))
+      .toEqual([{ tool: 'add_head_piece', proposal: { source: 'generate', prompt: 'a golden basketball trophy' } }]);
+    // Hallucinated builtin id WITH a usable prompt — degrade to generate, don't drop.
+    expect(normalizeActions(
+      [{ tool: 'add_head_piece', source: 'builtin', pieceId: 'made-up', prompt: 'a foam crown' }], snapshot,
+    )).toEqual([{ tool: 'add_head_piece', proposal: { source: 'generate', prompt: 'a foam crown' } }]);
+    // Neither a valid pieceId nor a prompt — still dropped.
+    expect(normalizeActions([{ tool: 'add_head_piece' }], snapshot)).toEqual([]);
+  });
+
   it('set_default_experience must reference a real experience id', () => {
     expect(normalizeActions([{ tool: 'set_default_experience', experienceId: 'exp-real' }], withExp))
       .toEqual([{ tool: 'set_default_experience', proposal: { experienceId: 'exp-real' } }]);

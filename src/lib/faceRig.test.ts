@@ -48,10 +48,11 @@ describe('decomposeAnchorMatrix scale (gizmo drag)', () => {
 
 describe('decomposeAnchorMatrix scale clamp (studio bounds)', () => {
   // drei's scaleLimits clamp the per-drag MULTIPLIER, not the absolute scale,
-  // and its accumulator resets each gizmo mount — so an auto-fit base (~14)
-  // dragged once composes to base×15 ≈ 210. Clamp to [0.05, 15] at the source.
-  it('clamps a runaway dragged scale down to the studio max (15)', () => {
-    expect(decomposeAnchorMatrix(ZERO, draggedMatrix('y', 14, 210)).scale).toBeCloseTo(15, 3);
+  // and its accumulator resets each gizmo mount — so an auto-fit base (~24)
+  // dragged once composes to base×15 ≈ 360. Clamp to [0.05, 50] at the source
+  // (max raised 15→50 with PROP_TARGET_CM=24, mirroring studio/bustFit.ts).
+  it('clamps a runaway dragged scale down to the prop-scale max (50)', () => {
+    expect(decomposeAnchorMatrix(ZERO, draggedMatrix('y', 24, 360)).scale).toBeCloseTo(50, 3);
   });
   it('clamps a collapsed dragged scale up to the studio min (0.05)', () => {
     expect(decomposeAnchorMatrix(ZERO, draggedMatrix('x', 1, 0.001)).scale).toBeCloseTo(0.05, 3);

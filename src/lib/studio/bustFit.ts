@@ -21,20 +21,23 @@ export interface BustFit {
 }
 
 /**
- * Target size for an auto-fitted user prop (crown / hat / glasses class):
- * largest world dimension lands at ~14cm — roughly head width in the
- * tracker's centimetre space — always adjustable afterwards.
+ * Target size for an auto-fitted user prop (crown / hat / trophy class):
+ * largest world dimension lands at ~24cm — deliberately LARGER than head
+ * width (~14cm) because user testing found head-width props read far too
+ * small next to a real face — always adjustable afterwards.
  */
-export const PROP_TARGET_CM = 14;
-/** Clamp bounds matching the studio scale slider (PropertiesDock 0.05–15). */
+export const PROP_TARGET_CM = 24;
+/** Clamp bounds mirrored by the booth's decompose clamp (faceRig.ts
+ *  PROP_SCALE_MIN/MAX). MAX must let a small ~0.5-unit Meshy model reach
+ *  PROP_TARGET_CM (24/0.5 = 48), hence 50. */
 const PROP_SCALE_MIN = 0.05;
-const PROP_SCALE_MAX = 15;
+const PROP_SCALE_MAX = 50;
 
 /**
  * Auto-fit scale for a placed 3D prop. Meshy/uploaded GLBs are commonly ~1
  * unit tall, which renders ~1cm in head space — invisible. Returns the scale
- * that puts the largest dimension at PROP_TARGET_CM, clamped to the slider
- * range, or null when the object has no measurable extent.
+ * that puts the largest dimension at PROP_TARGET_CM, clamped to the prop-scale
+ * bounds above, or null when the object has no measurable extent.
  */
 export function computePropFitScale(root: THREE.Object3D): number | null {
   root.updateMatrixWorld(true);

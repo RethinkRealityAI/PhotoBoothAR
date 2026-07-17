@@ -352,12 +352,14 @@ export function composeAnchorMatrix(
 }
 
 // Clamp the returned uniform scale to the studio's prop-scale bounds — mirrors
-// PROP_SCALE_MIN/MAX in studio/bustFit.ts, AssetGizmo's `scaleLimits`, and the
-// PropertiesDock size slider. drei's scaleLimits only clamp the per-gesture
-// DRAG MULTIPLIER and its accumulator RESETS each gizmo mount, so an auto-fit
-// base of 14 dragged once composes to 14×15≈210 here — clamp at the source.
+// PROP_SCALE_MIN/MAX in studio/bustFit.ts (MAX 50 so a small ~0.5-unit Meshy
+// model can auto-fit to PROP_TARGET_CM=24). drei's scaleLimits only clamp the
+// per-gesture DRAG MULTIPLIER and its accumulator RESETS each gizmo mount, so
+// an auto-fit base dragged once can compose to base×15 here — clamp at the
+// source. (AssetGizmo scaleLimits / PropertiesDock slider still stop at 15 —
+// they bound GESTURES, not the auto-fit base.)
 const PROP_SCALE_MIN = 0.05;
-const PROP_SCALE_MAX = 15;
+const PROP_SCALE_MAX = 50;
 
 /** Decompose an anchor-relative local matrix back into offset/rotation/scale. */
 export function decomposeAnchorMatrix(

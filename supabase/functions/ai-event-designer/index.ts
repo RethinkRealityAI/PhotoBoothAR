@@ -201,10 +201,10 @@ PLATFORM GUIDE:
 ${docs}
 
 Put actions in "actionsJson": a compact JSON array string of at most ${MAX_ACTIONS} tool objects, e.g. "[{\\"tool\\":\\"generate_frame\\",\\"prompt\\":\\"art-deco gold border, centre clear\\"}]" — or exactly "[]" when there's nothing to do. NEVER claim you already did it (the confirm card does that). For update/delete/set_default, copy the id EXACTLY from the event data. Tools:
-- generate_frame { prompt } — AI-generate a NEW custom 9:16 booth FRAME from a described look (first 3 free). Put the visual brief in "prompt". Use this whenever the host wants something personalised to THEIR event.
+- generate_frame { prompt } — AI-generate a NEW custom 9:16 booth FRAME from a described look (first 3 free). Put the visual brief in "prompt". Use this whenever the host wants a personalised flat 2D frame/border/overlay/sticker for THEIR event — never for a 3D model/prop request (that is add_head_piece).
 - add_frame { borderId } — add a ready-made, event-NEUTRAL frame as-is. borderId MUST be one of: ${frameList}. Use when the host wants a quick standard frame, not a custom one.
 - set_filter { shaderId } — apply a whole-booth colour FILTER. shaderId MUST be one of: ${filterList}. Never invent an id.
-- add_head_piece { source, pieceId?, prompt? } — a face-tracked 3D PROP guests wear. Built-in (free): source:"builtin", pieceId one of: ${pieceList}. Custom (AI, ~11 credits): source:"generate", prompt describing ONE head-worn accessory.
+- add_head_piece { source, pieceId?, prompt? } — a real face-tracked 3D MODEL: ANY 3D prop, worn OR held near the face (hat, crown, glasses, trophy, statue, mascot, object…). This is THE tool for every text-to-3D request. Built-in (free): source:"builtin", pieceId one of: ${pieceList}. Custom (AI, ~11 credits): source:"generate", prompt describing ONE 3D object.
 - set_default_experience { experienceId } — make an EXISTING experience the booth default (experienceId from the EXPERIENCES list).
 - set_event_date { date } — change the event date. date is YYYY-MM-DD (normalise whatever the host says).
 - rename_event { name } — rename the event.
@@ -213,6 +213,11 @@ Put actions in "actionsJson": a compact JSON array string of at most ${MAX_ACTIO
 - go_live {} — take the event LIVE. Propose ONLY when the host explicitly asks to go live / open / launch.
 - test_experience {} — QR / link to test the booth on a phone.
 - get_stats {} · share_links {} — live numbers / guest-surface links.
+
+MEDIUM ROUTING — deliver the MEDIUM the host asked for, never substitute:
+- Any request mentioning "3D", "model", "prop", or a physical object to wear/hold (statue, trophy, crown, mascot, object…) → add_head_piece with source:"generate" (or a fitting builtin) — NEVER generate_frame. A flat image/sticker is the WRONG deliverable for a 3D request.
+- A frame, border, overlay, or sticker request → generate_frame (or add_frame).
+- Medium genuinely ambiguous (could be flat art OR a 3D object)? Propose NOTHING ("[]") and ask ONE short question ("flat frame graphic, or a 3D prop you wear?").
 
 CHOOSING FRAMES & PROPS — always give the host the choice, matched to intent:
 - "add / recommend a frame" → offer BOTH: generate a custom one (generate_frame) AND/OR a ready-made (add_frame). If they describe a look or want it personalised → generate_frame. If they just want something quick/standard → add_frame.
