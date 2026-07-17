@@ -35,7 +35,10 @@ type Phase =
   | { kind: 'preview'; experience: Experience }
   | { kind: 'applying'; experience: Experience }
   | { kind: 'done' }
-  | { kind: 'error'; message: string; code?: AiErrorCode };
+  | { kind: 'error'; message: string; code?: AiErrorCode }
+  // Chroma-key processing missed on an already-generated (and already-charged)
+  // raw green asset — retry reprocessing it for free, never regenerate.
+  | { kind: 'keyfail'; message: string };
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-3.5 py-2.5 text-[13px] text-brand-fg ' +
@@ -52,6 +55,11 @@ export default function FrameStudio({
   const [prompt, setPrompt] = useState(suggestion);
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const [tf, setTf] = useState<FrameTransform>(IDENTITY);
+  // A generated (and already-charged) raw green asset whose chroma-key missed —
+  // held with its resolved slug so a retry reprocesses it for FREE, never
+  // re-calling generateImage (frameProcessing: reprocessing a saved raw
+  // experience costs no credits — mirrors AiFramePanel.pendingRaw).
+  const [rawFrame, setRawFrame] = useState<{ experience: Experience; slug: string } | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
 
@@ -59,7 +67,22 @@ export default function FrameStudio({
     const brief = prompt.trim();
     if (!brief || phase.kind === 'generating') return;
     setTf(IDENTITY);
+    setRawFrame(null);
     setPhase({ kind: 'generating' });
+    // experiences.event_id is the event SLUG (key trap), and this component
+    // only receives the uuid — resolve the slug UP FRONT, before spending a
+    // credit, so a slug-lookup miss fails with no charge (and never lands the
+    // host on a retry that regenerates).
+    const { supabase } = await import('../../lib/supabase');
+    const { data: ev } = await supabase.from('events').select('slug').eq('id', eventUuid).maybeSingle();
+    const slug = typeof ev?.slug === 'string' ? ev.slug : '';
+    if (!slug) {
+      setPhase({
+        kind: 'error',
+        message: 'Couldn’t load this event to save the frame — try again in a moment.',
+      });
+      return;
+    }
     const res = await generateImage(eventUuid, {
       prompt: brief,
       kind: 'border',
@@ -75,22 +98,37 @@ export default function FrameStudio({
       setPhase({ kind: 'error', message: aiErrorMessage(code), code });
       return;
     }
-    // experiences.event_id is the event SLUG (key trap), and this component
-    // only receives the uuid — resolve the slug so the processed transparent
-    // PNG is persisted onto the experience row, not just previewed.
-    const { supabase } = await import('../../lib/supabase');
-    const { data: ev } = await supabase.from('events').select('slug').eq('id', eventUuid).maybeSingle();
-    const slug = typeof ev?.slug === 'string' ? ev.slug : '';
     // keyed:false means the asset is still the RAW GREEN image — never show or
-    // ship it (a solid green box over the guest is worse than an error).
-    const keyed = slug ? await processGeneratedFrame(res.data.experience, slug) : null;
+    // ship it (a solid green box over the guest is worse than an error). The
+    // raw row is persisted server-side, so hold it for a no-credit reprocess.
+    const raw = res.data.experience;
+    const keyed = await processGeneratedFrame(raw, slug);
     if (!keyed?.keyed) {
+      setRawFrame({ experience: raw, slug });
       setPhase({
-        kind: 'error',
-        message: 'Generated, but the transparent cutout didn’t come through cleanly — generate again for a fresh version.',
+        kind: 'keyfail',
+        message: 'Generated, but the transparent cutout didn’t come through cleanly — retry the cutout below (no extra credit).',
       });
       return;
     }
+    setRawFrame(null);
+    setPhase({ kind: 'preview', experience: keyed.experience });
+  };
+
+  // Free retry: re-run the chroma-key on the already-saved raw generation —
+  // no generateImage, so no second credit.
+  const retryProcessing = async () => {
+    if (!rawFrame || phase.kind === 'generating') return;
+    setPhase({ kind: 'generating' });
+    const keyed = await processGeneratedFrame(rawFrame.experience, rawFrame.slug);
+    if (!keyed?.keyed) {
+      setPhase({
+        kind: 'keyfail',
+        message: 'The transparent cutout still didn’t come through — the raw frame is saved in your studio Library.',
+      });
+      return;
+    }
+    setRawFrame(null);
     setPhase({ kind: 'preview', experience: keyed.experience });
   };
 
@@ -231,6 +269,18 @@ export default function FrameStudio({
                 </>
               )}
             </p>
+          )}
+
+          {phase.kind === 'keyfail' && (
+            <div className="flex flex-col gap-2">
+              <p role="alert" className="font-sans text-[12px] text-red-400 leading-snug">{phase.message}</p>
+              <button
+                onClick={retryProcessing}
+                className="self-start flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition hover:bg-white/[0.08]"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Retry — no extra credits
+              </button>
+            </div>
           )}
 
           {(phase.kind === 'idle' || phase.kind === 'generating' || phase.kind === 'error') && (

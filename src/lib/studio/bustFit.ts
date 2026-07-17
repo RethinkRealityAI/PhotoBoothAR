@@ -31,7 +31,7 @@ export const PROP_TARGET_CM = 24;
  *  PROP_SCALE_MIN/MAX). MAX must let a small ~0.5-unit Meshy model reach
  *  PROP_TARGET_CM (24/0.5 = 48), hence 50. */
 const PROP_SCALE_MIN = 0.05;
-const PROP_SCALE_MAX = 50;
+export const PROP_SCALE_MAX = 50;
 
 /**
  * Auto-fit scale for a placed 3D prop. Meshy/uploaded GLBs are commonly ~1

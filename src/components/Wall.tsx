@@ -236,6 +236,10 @@ export default function Wall() {
     setBeamQueue((q) => q.slice(1));
   }, []);
 
+  // Stable identity so FeaturedSpotlight's pending-payoff effect (which lists it
+  // as a dep) doesn't re-arm its 2.5 s timer on every Wall re-render.
+  const consumePending = useCallback(() => setPendingFeatureId(null), []);
+
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
   // Toggle the QR codes from the wall itself (persists + live-syncs to all screens).
@@ -287,7 +291,7 @@ export default function Wall() {
               enabled={wallSettings.featuredSpotlight}
               intervalSec={wallSettings.featuredIntervalSec ?? 45}
               pendingFeatureId={pendingFeatureId}
-              onConsumePending={() => setPendingFeatureId(null)}
+              onConsumePending={consumePending}
               suspended={beamQueue.length > 0 || lightboxPost !== null}
               onSelect={setLightboxPost}
               showQR={wallSettings.showQR}

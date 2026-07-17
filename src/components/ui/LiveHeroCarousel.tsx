@@ -201,8 +201,8 @@ export default function LiveHeroCarousel({
           style={{ willChange: 'transform' }}
           onPointerDown={(e) => { dragging.current = true; lastX.current = e.clientX; e.currentTarget.setPointerCapture(e.pointerId); }}
           onPointerMove={(e) => { if (dragging.current) { offset.current += e.clientX - lastX.current; lastX.current = e.clientX; } }}
-          onPointerUp={(e) => { dragging.current = false; paused.current = false; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
-          onPointerCancel={(e) => { dragging.current = false; paused.current = false; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
+          onPointerUp={(e) => { dragging.current = false; paused.current = hoverCapable.current; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
+          onPointerCancel={(e) => { dragging.current = false; paused.current = hoverCapable.current; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
         >
           {cards.map((slot, i) => (
             <FrameCard key={`${slot.event}-${slot.frameId}-${i}`} slot={slot} pool={pools[slot.event] ?? []} seed={i} />

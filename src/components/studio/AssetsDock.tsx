@@ -33,6 +33,7 @@ import { HEAD_PIECES } from '../../lib/headPieces';
 import { ANCHOR_PRESETS } from '../../lib/faceRig';
 import { uploadAsset, listAssets, fetchExperiences } from '../../lib/db';
 import { captureGlbThumbnail, measureGlbFitScale } from '../../lib/studio/glbThumb';
+import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
 import { selectedObject, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
@@ -409,9 +410,9 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         </div>
         <StudioSlider
           label="Size"
-          value={Math.min(sel.anchorConfig.scale, 15)}
+          value={Math.min(sel.anchorConfig.scale, PROP_SCALE_MAX)}
           min={0.05}
-          max={15}
+          max={PROP_SCALE_MAX}
           step={0.05}
           onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { scale: v } })}
         />

@@ -20,20 +20,37 @@ export interface HostOrg {
   role: 'owner' | 'editor';
 }
 
-/** The caller's org membership (first one; Phase 2a assumes a single org). */
-export async function fetchMyOrg(): Promise<HostOrg | null> {
+export interface MyOrgResult {
+  org: HostOrg | null;
+  /** True ONLY on a genuine query FAILURE (network/RLS) — distinct from a
+   *  successful fetch that found no membership (org null, failed false). Lets
+   *  callers show a retry state instead of false "create your first event". */
+  failed: boolean;
+}
+
+/** Like {@link fetchMyOrg} but distinguishes a query failure from a genuine
+ *  no-org result. Mirrors fetchMyEvents' null-vs-[] contract. */
+export async function fetchMyOrgResult(): Promise<MyOrgResult> {
   const { data, error } = await supabase
     .from('org_members')
     .select('role, orgs(id, name)')
     .limit(1)
     .maybeSingle();
-  if (error || !data) {
-    if (error) console.error('[host] fetchMyOrg', error);
-    return null;
+  if (error) {
+    console.error('[host] fetchMyOrg', error);
+    return { org: null, failed: true };
   }
+  if (!data) return { org: null, failed: false };
   const org = (Array.isArray(data.orgs) ? data.orgs[0] : data.orgs) as { id: string; name: string } | null;
-  if (!org) return null;
-  return { orgId: org.id, name: org.name, role: data.role as 'owner' | 'editor' };
+  if (!org) return { org: null, failed: false };
+  return { org: { orgId: org.id, name: org.name, role: data.role as 'owner' | 'editor' }, failed: false };
+}
+
+/** The caller's org membership (first one; Phase 2a assumes a single org).
+ *  Returns null on BOTH failure and no-org — use fetchMyOrgResult when the
+ *  distinction matters. */
+export async function fetchMyOrg(): Promise<HostOrg | null> {
+  return (await fetchMyOrgResult()).org;
 }
 
 export async function fetchCreditBalance(orgId: string): Promise<number | null> {

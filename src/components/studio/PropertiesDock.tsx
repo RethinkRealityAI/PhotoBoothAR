@@ -47,6 +47,7 @@ import {
 import { SHADER_MAP, FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
 import { getHeadFitEstimate } from '../../lib/faceRig';
+import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
 import {
   DEFAULT_TRANSFORM,
   MAX_OBJECTS,
@@ -838,7 +839,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                     />
                   ))}
                 </div>
-                <StudioSlider label="Size" value={Math.min(sel3D.anchorConfig.scale, 15)} min={0.05} max={15} step={0.05} onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { scale: v } })} />
+                <StudioSlider label="Size" value={Math.min(sel3D.anchorConfig.scale, PROP_SCALE_MAX)} min={0.05} max={PROP_SCALE_MAX} step={0.05} onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { scale: v } })} />
                 <StudioToggle
                   label="Occlude behind head"
                   hint="Hide parts of this piece behind the real head"

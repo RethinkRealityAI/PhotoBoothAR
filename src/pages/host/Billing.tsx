@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Coins, CreditCard, ExternalLink, RefreshCw, Sparkles } from 'lucide-react';
 import {
-  fetchMyOrg, fetchCreditBalance, fetchSubscription, fetchLedger,
+  fetchMyOrgResult, fetchCreditBalance, fetchSubscription, fetchLedger,
   startCheckout, openPortal, invalidateProSubscriptionCache,
   type HostOrg, type SubscriptionRow, type LedgerRow, type CheckoutBody,
 } from '../../lib/host';
@@ -71,6 +71,7 @@ function subStatusPill(status: string): string {
 export default function Billing() {
   const [searchParams] = useSearchParams();
   const [org, setOrg] = useState<HostOrg | null>(null);
+  const [orgLoadFailed, setOrgLoadFailed] = useState(false);
   const [balance, setBalance] = useState<number | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionRow | null>(null);
   const [ledger, setLedger] = useState<LedgerRow[]>([]);
@@ -82,7 +83,8 @@ export default function Billing() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const myOrg = await fetchMyOrg();
+    const { org: myOrg, failed } = await fetchMyOrgResult();
+    setOrgLoadFailed(failed);
     setOrg(myOrg);
     if (myOrg) {
       const [bal, sub, rows] = await Promise.all([
@@ -135,7 +137,9 @@ export default function Billing() {
   const subActive = subscription?.status === 'active';
   // The org is created lazily with the first event — until then purchases have
   // nothing to attach to, so point at event creation instead of dead buttons.
-  const noOrg = !loading && !org;
+  // A transient fetch FAILURE is NOT no-org: don't tell an established host to
+  // "create your first event" — show the retry notice below instead.
+  const noOrg = !loading && !org && !orgLoadFailed;
 
   return (
     <div className="p-6 md:p-10 max-w-4xl mx-auto">
@@ -143,7 +147,7 @@ export default function Billing() {
         <div>
           <h1 className="font-serif text-3xl text-foil-static">Billing</h1>
           <p className="mt-1 font-sans text-xs text-brand-muted/60">
-            {org ? org.name : loading ? 'Loading…' : 'No organization yet — create your first event to get started.'}
+            {org ? org.name : loading ? 'Loading…' : orgLoadFailed ? 'Couldn’t load your billing.' : 'No organization yet — create your first event to get started.'}
           </p>
         </div>
         <button
@@ -156,6 +160,17 @@ export default function Billing() {
         </button>
       </header>
 
+      {!loading && orgLoadFailed && (
+        <div className="mb-5 flex items-start gap-2.5 rounded-xl bg-red-500/10 border border-red-500/25 px-4 py-3">
+          <p className="flex-1 font-sans text-xs text-red-300">Couldn’t load your billing — check your connection and try again.</p>
+          <button
+            onClick={load}
+            className="shrink-0 flex items-center gap-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors"
+          >
+            <RefreshCw className="w-3 h-3" /> Retry
+          </button>
+        </div>
+      )}
       {notice === 'pending' && (
         <div className="mb-5"><BillingPendingNotice onDismiss={() => setNotice(null)} /></div>
       )}

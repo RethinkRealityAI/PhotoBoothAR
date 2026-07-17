@@ -25,14 +25,23 @@ function failureCopy(errorKind?: string): string {
       return "This event isn't accepting photos right now — ask your host!";
     case 'post_limit_reached':
       return 'The wall is full for this plan.';
+    case 'video_not_allowed':
+      return "This event's plan doesn't allow video — try a photo instead.";
+    case 'quota_exceeded':
+      return 'The wall has hit its limit for now.';
     default:
       return "Connection hiccup — your photo didn't reach the wall.";
   }
 }
 
+/** Failure kinds a retry can only re-trigger deterministically (plan caps, not
+ *  transient/network) — the same submit will fail again, so hide "Try again". */
+const PERMANENT_KINDS = new Set(['video_not_allowed', 'quota_exceeded']);
+
 export default function SendFailed({ dataUrl, mediaType = 'image', errorKind, onRetry }: Props) {
   const { config } = useEvent();
   const [saved, setSaved] = useState(false);
+  const permanent = errorKind !== undefined && PERMANENT_KINDS.has(errorKind);
 
   // Same download affordance as ReviewPanel: resolve the real container from
   // the blob so the saved file's extension matches its bytes.
@@ -104,16 +113,19 @@ export default function SendFailed({ dataUrl, mediaType = 'image', errorKind, on
           </p>
         </div>
         <div className="flex w-full flex-col gap-2.5">
-          <button
-            onClick={onRetry}
-            className="flex items-center justify-center gap-2 rounded-xl bg-foil px-6 py-3.5 font-label text-xs uppercase tracking-luxe text-noir-900 glow-accent transition-all hover:brightness-110 active:scale-95"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Try again
-          </button>
+          {/* A plan-cap failure will re-fail on the same submit — no retry. */}
+          {!permanent && (
+            <button
+              onClick={onRetry}
+              className="flex items-center justify-center gap-2 rounded-xl bg-foil px-6 py-3.5 font-label text-xs uppercase tracking-luxe text-noir-900 glow-accent transition-all hover:brightness-110 active:scale-95"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Try again
+            </button>
+          )}
           <button
             onClick={handleSave}
-            className="glass flex items-center justify-center gap-2 rounded-xl px-6 py-3 font-label text-[11px] uppercase tracking-wide text-champagne/60 transition-colors hover:text-ivory"
+            className={`glass flex items-center justify-center gap-2 rounded-xl px-6 ${permanent ? 'py-3.5' : 'py-3'} font-label text-[11px] uppercase tracking-wide text-champagne/60 transition-colors hover:text-ivory`}
           >
             {saved ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Download className="h-3.5 w-3.5" />}
             {saved ? 'Saved' : 'Save to my phone'}
