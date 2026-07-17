@@ -82,6 +82,15 @@ interface Props {
 
 const AXES = ['x', 'y', 'z'] as const;
 
+/** Offset-axis labels with plain-language direction hints (head space). */
+const AXIS_OFFSET_LABELS: Record<(typeof AXES)[number], string> = {
+  x: 'X · left/right',
+  y: 'Y · up/down',
+  z: 'Z · forward/back',
+};
+
+const RAD_TO_DEG = 180 / Math.PI;
+
 const ANIMATIONS: { id: LayerAnimation; label: string }[] = [
   { id: 'none', label: 'None' },
   { id: 'float', label: 'Float' },
@@ -459,7 +468,7 @@ function HeadSizeCalibration({
       <div className="flex items-center gap-1.5">
         <Ruler className="w-3.5 h-3.5 text-accent-2" />
         <span className="font-label uppercase tracking-widest text-[9px] text-accent-2">Head size calibration</span>
-        <Tooltip label="Head size" hint="Sizes the invisible head occluder to match a real head, so props are hidden behind it correctly. Increase if the occluder looks smaller than real heads in Preview." side="left">
+        <Tooltip label="Head size" hint="An invisible stand-in head hides props behind the guest's real head. Increase if props peek through where the head should block them." side="left">
           <span className="ml-auto text-brand-muted/50 cursor-help text-[10px]">?</span>
         </Tooltip>
       </div>
@@ -717,7 +726,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
             {AXES.map((axis) => (
               <StudioSlider
                 key={`o${axis}`}
-                label={axis.toUpperCase()}
+                label={AXIS_OFFSET_LABELS[axis]}
                 value={sel3D.anchorConfig.offset[axis]}
                 min={-20}
                 max={20}
@@ -728,17 +737,20 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
             ))}
           </div>
           <div className="flex flex-col gap-2">
-            <SectionLabel>Rotation (rad)</SectionLabel>
+            {/* State stays radians (anchorConfig contract); the slider converts
+                deg↔rad at its boundary so hosts see familiar degrees. */}
+            <SectionLabel>Rotation (°)</SectionLabel>
             {AXES.map((axis) => (
               <StudioSlider
                 key={`r${axis}`}
                 label={axis.toUpperCase()}
-                value={sel3D.anchorConfig.rotation[axis]}
-                min={-Math.PI}
-                max={Math.PI}
-                step={0.01}
+                value={sel3D.anchorConfig.rotation[axis] * RAD_TO_DEG}
+                min={-180}
+                max={180}
+                step={1}
                 compact
-                onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { rotation: { ...sel3D.anchorConfig.rotation, [axis]: v } } })}
+                format={(v) => v.toFixed(0)}
+                onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { rotation: { ...sel3D.anchorConfig.rotation, [axis]: v / RAD_TO_DEG } } })}
               />
             ))}
           </div>

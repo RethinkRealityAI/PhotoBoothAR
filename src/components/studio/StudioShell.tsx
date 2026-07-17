@@ -392,13 +392,15 @@ export default function StudioShell() {
             <ArrowLeft className="w-4 h-4" />
           </Link>
         </Tooltip>
-        {/* Mobile/tablet: toggle the Assets drawer (a static column at lg+). */}
+        {/* Mobile/tablet: toggle the Assets drawer (a static column at lg+).
+            A tiny text label keeps the icon-only toggle discoverable. */}
         <button
           onClick={() => { setSceneOpen(false); setMobilePanel((p) => (p === 'assets' ? null : 'assets')); }}
           aria-label="Toggle assets panel"
-          className={`lg:hidden flex items-center justify-center w-9 h-9 rounded-lg transition-colors ${mobilePanel === 'assets' ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg'}`}
+          className={`lg:hidden flex flex-col items-center justify-center gap-0.5 w-11 h-11 rounded-lg transition-colors ${mobilePanel === 'assets' ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg'}`}
         >
           <Layers className="w-4 h-4" />
+          <span className="font-label text-[7px] uppercase tracking-wide leading-none">Assets</span>
         </button>
         <div className="min-w-0 hidden sm:block shrink-0">
           <p className="font-serif italic text-sm text-brand-fg leading-tight">Studio</p>
@@ -452,6 +454,16 @@ export default function StudioShell() {
           </button>
         </Tooltip>
         {saveError && <span className="text-rose-400 text-[10px] font-sans max-w-[180px] text-right">{saveError}</span>}
+        {/* Post-save nudge — the QR/share kit lives on the event's Share tab
+            (same base path derivation as the back-to-Library link above). */}
+        {saved && (
+          <Link
+            to={`${base}/share`}
+            className="hidden sm:inline text-[9px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors whitespace-nowrap"
+          >
+            Get your QR in Share
+          </Link>
+        )}
         <button
           onClick={handleSave}
           disabled={saving}
@@ -461,13 +473,15 @@ export default function StudioShell() {
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
           <span className="hidden sm:inline">{saving ? 'Saving…' : saved ? 'Saved' : state.draft.id ? 'Update' : 'Save'}</span>
         </button>
-        {/* Mobile/tablet: toggle the Properties drawer (a static column at lg+). */}
+        {/* Mobile/tablet: toggle the Properties drawer (a static column at lg+).
+            A tiny text label keeps the icon-only toggle discoverable. */}
         <button
           onClick={() => { setSceneOpen(false); setMobilePanel((p) => (p === 'props' ? null : 'props')); }}
           aria-label="Toggle properties panel"
-          className={`lg:hidden flex items-center justify-center w-9 h-9 rounded-lg transition-colors ${mobilePanel === 'props' ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg'}`}
+          className={`lg:hidden flex flex-col items-center justify-center gap-0.5 w-11 h-11 rounded-lg transition-colors ${mobilePanel === 'props' ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg'}`}
         >
           <SlidersHorizontal className="w-4 h-4" />
+          <span className="font-label text-[7px] uppercase tracking-wide leading-none">Edit</span>
         </button>
       </div>
       {/* sm+: the name floats truly centered over the bar (independent of the
@@ -517,6 +531,7 @@ export default function StudioShell() {
             headMatrixRef={headMatrixRef}
             dropActive={dnd.dragging && dnd.overStage}
             onTestOnPhone={() => setTestPhoneOpen(true)}
+            onOpenAssets={() => { setSceneOpen(false); setMobilePanel('assets'); }}
           />
         </main>
 

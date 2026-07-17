@@ -452,9 +452,12 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
 
   // Built-in frames/stickers → SELECT_BUILTIN (the reducer swaps the one frame in
   // place / appends stickers, and flips the view to 2D). Frames highlight the
-  // scene's frame; stickers highlight the selected sticker.
+  // scene's frame; stickers highlight the selected sticker. Legacy-branded
+  // built-ins (baked event text — see BuiltinBorder.legacy) never surface here:
+  // self-serve hosts only see the generic library. Legacy events still resolve
+  // them by id through their event config (catalog.ts / BORDER_MAP).
   const builtinTiles = (kind: 'border' | '2d_filter'): Tile[] =>
-    BUILTIN_BORDERS.filter((b) => b.kind === kind && matchQuery(b.name)).map((b) => {
+    BUILTIN_BORDERS.filter((b) => !b.legacy && b.kind === kind && matchQuery(b.name)).map((b) => {
       const url = toDataUrl(b.svg);
       const active = kind === 'border' ? sceneFrame?.builtinId === b.id : selBuiltinId === b.id;
       const key = `builtin:${b.id}`;
@@ -633,10 +636,13 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             >
               <Wand2 className="w-3.5 h-3.5 text-accent-2" />
               <span className="font-label uppercase tracking-widest text-[9px] text-accent-2 flex-1 text-left">
-                AI generate {showAi3d ? '3D piece' : aiKind === 'border' ? 'frame' : 'sticker'}
+                Quick AI — single {showAi3d ? '3D piece' : aiKind === 'border' ? 'frame' : 'sticker'}
               </span>
               {aiOpen ? <ChevronDown className="w-3.5 h-3.5 text-accent-2/70" /> : <ChevronRight className="w-3.5 h-3.5 text-accent-2/70" />}
             </button>
+            <p className="font-sans text-[9px] text-brand-muted/40 leading-relaxed px-1">
+              Want a whole matching scene? Open the Director above.
+            </p>
             {aiOpen && (
               showAi3d ? (
                 <AiGeneratePanel onOpenExperience={onOpenExperience} />
@@ -690,7 +696,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                     onClick={() => imgInputRef.current?.click()}
                     className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-xs text-brand-muted/70"
                   >
-                    <Upload className="w-3.5 h-3.5 text-accent-2" /> Upload image (PNG / SVG)
+                    <Upload className="w-3.5 h-3.5 text-accent-2" /> Upload image (PNG / JPG / SVG)
                   </button>
                 )}
                 {showGlbUpload && (
@@ -702,8 +708,11 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                     <span className="truncate">Upload model (.glb / .gltf)</span>
                   </button>
                 )}
-                <input ref={imgInputRef} type="file" accept="image/png,image/svg+xml,image/webp" className="sr-only" onChange={onImageUpload} />
+                <input ref={imgInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="sr-only" onChange={onImageUpload} />
                 <input ref={glbInputRef} type="file" accept=".glb,.gltf" className="sr-only" onChange={onGlbUpload} />
+                <p className="font-sans text-[9px] text-brand-muted/40 leading-relaxed px-1">
+                  Transparent PNGs work best for frames — your upload drops straight into the scene.
+                </p>
               </div>
             )}
             {uploads.status === 'loading' && (

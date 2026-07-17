@@ -49,8 +49,11 @@ interface Props {
   headMatrixRef?: React.MutableRefObject<number[] | null>;
   /** True while a dock item is being dragged over the stage (drop highlight). */
   dropActive?: boolean;
-  /** Opens the "Test on phone" QR hand-off (Preview mode only). */
+  /** Opens the "Test on phone" QR hand-off (shown in every mode). */
   onTestOnPhone?: () => void;
+  /** Opens the mobile Assets drawer (<lg the docks are drawers, so the
+      empty-state hint becomes a tappable CTA instead of dead-end copy). */
+  onOpenAssets?: () => void;
 }
 
 const MODE_TABS = [
@@ -72,6 +75,7 @@ export default function StudioStage({
   headMatrixRef,
   dropActive = false,
   onTestOnPhone,
+  onOpenAssets,
 }: Props) {
   const { mode, draft, threeView, paused } = state;
   const shaderCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -460,10 +464,21 @@ export default function StudioStage({
             )}
 
             {/* Empty state — only when the scene truly has no overlays AND no
-                filter (a filter-only scene shows the live filter instead). */}
+                filter (a filter-only scene shows the live filter instead).
+                Below lg the docks are drawers, so "from the left" is a dead
+                end — the caption becomes a tappable CTA that opens the Assets
+                drawer instead. lg+ keeps the pointer-through caption. */}
             {!hasAnyOverlay && draft.shaderId === 'none' && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-8 text-center">
-                <p className="font-label text-[10px] uppercase tracking-widest text-brand-muted/50">Pick a frame or stickers from the left</p>
+                <p className={`${onOpenAssets ? 'hidden lg:block' : ''} font-label text-[10px] uppercase tracking-widest text-brand-muted/50`}>Pick a frame or stickers from the left</p>
+                {onOpenAssets && (
+                  <button
+                    onClick={onOpenAssets}
+                    className="lg:hidden pointer-events-auto px-4 py-2.5 rounded-full liquid-glass text-[10px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors"
+                  >
+                    Pick a frame or sticker
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -548,10 +563,11 @@ export default function StudioStage({
           </div>
         )}
 
-        {/* Test on phone — Preview mode only, floating bottom-right. In preview
-            the status caption moves up under the mode pill (see below) so the
-            two never collide on narrow stages. */}
-        {mode === 'preview' && onTestOnPhone && (
+        {/* Test on phone — every mode, floating bottom-right (the modal itself
+            handles unsaved/hidden drafts). In preview the status caption moves
+            up under the mode pill (see below); in 2D/3D the caption is
+            pointer-through, so the pill stays tappable on narrow stages. */}
+        {onTestOnPhone && (
           <div className="absolute bottom-3 right-3 z-20">
             <button
               onClick={onTestOnPhone}
