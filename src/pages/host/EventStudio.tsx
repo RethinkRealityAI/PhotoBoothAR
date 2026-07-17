@@ -14,7 +14,7 @@
  * (data-event attr, document title) lingers when navigating back to /host —
  * same as leaving /e/:slug today.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Check, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
@@ -76,9 +76,23 @@ export default function EventStudio() {
   const location = useLocation();
   const validId = UUID_RE.test(id);
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
-  // First-run studio tour — shown once per browser, on the first studio entry.
-  const { show: showIntro, dismiss: dismissIntro } = useStudioOnboarding();
-  const [introOpen, setIntroOpen] = useState(showIntro);
+  // In Studio, the editor is full-bleed: StudioShell renders its OWN top bar
+  // (with a back arrow that exits to the Experiences/Library surface), so the
+  // event-level tab chrome + upgrade banner are hidden to avoid a double header.
+  const isStudio = location.pathname.startsWith(`/host/events/${id}/studio`);
+  // First-run studio tour — shown once per browser, and only when the host is
+  // actually IN the Studio editor (not Dashboard/other tabs) on a non-remote
+  // event; introSeenRef stops a same-mount re-open after dismiss.
+  const { show: introAvailable, dismiss: dismissIntro } = useStudioOnboarding();
+  const [introOpen, setIntroOpen] = useState(false);
+  const introSeenRef = useRef(false);
+
+  useEffect(() => {
+    if (!introAvailable || introSeenRef.current || !isStudio) return;
+    if (state.phase !== 'ready' || state.event.event_type === 'remote') return;
+    introSeenRef.current = true;
+    setIntroOpen(true);
+  }, [introAvailable, isStudio, state]);
 
   useEffect(() => {
     if (!validId) return;
@@ -108,7 +122,8 @@ export default function EventStudio() {
   }, [id, validId]);
 
   if (!validId || state.phase === 'missing') {
-    return <Navigate to="/host" replace />;
+    // EventsList reads this flag and shows a "couldn't open that studio" notice.
+    return <Navigate to="/host" replace state={{ studioError: true }} />;
   }
   if (state.phase === 'loading') {
     return (
@@ -122,10 +137,6 @@ export default function EventStudio() {
   const base = `/host/events/${id}`;
   const basePath = `/e/${event.slug}`;
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  // In Studio, the editor is full-bleed: StudioShell renders its OWN top bar
-  // (with a back arrow that exits to the Experiences/Library surface), so the
-  // event-level tab chrome + upgrade banner are hidden to avoid a double header.
-  const isStudio = location.pathname.startsWith(`${base}/studio`);
 
   const tabs = [
     { to: base, label: 'Dashboard', icon: LayoutGrid, end: true },

@@ -325,21 +325,34 @@ export function buildHeadPiecePreviewSurface(
 }
 
 /** Generation error card: a message + optional retry (retries respect the same
- *  regenerate_generated action so a failed leg is re-run, never double-applied). */
+ *  regenerate_generated action so a failed leg is re-run, never double-applied).
+ *  `topUpUrl` (absolute, e.g. `${origin}/host/billing`) adds a "Top up credits"
+ *  button for insufficient_credits — openUrl only accepts http(s) URLs. */
 export function buildGenErrorSurface(
   surfaceId: string,
   message: string,
-  opts: { kind: 'frame' | 'headpiece'; retryable: boolean },
+  opts: { kind: 'frame' | 'headpiece'; retryable: boolean; topUpUrl?: string },
 ): A2uiMessage[] {
   const children = ['heading', 'msg', 'actionsRow'];
+  const actionIds = [
+    'dismissBtn',
+    ...(opts.topUpUrl ? ['topUpBtn'] : []),
+    ...(opts.retryable ? ['retryBtn'] : []),
+  ];
   return surface(surfaceId, { gen: { kind: opts.kind } }, [
     { id: 'root', component: 'Card', child: 'body' },
     { id: 'body', component: 'Column', children },
     { id: 'heading', component: 'Text', text: 'That didn’t work', variant: 'h5' },
     { id: 'msg', component: 'Text', variant: 'caption', text: message },
-    { id: 'actionsRow', component: 'Row', justify: 'end', children: opts.retryable ? ['dismissBtn', 'retryBtn'] : ['dismissBtn'] },
+    { id: 'actionsRow', component: 'Row', justify: 'end', children: actionIds },
     { id: 'dismissBtn', component: 'Button', variant: 'borderless', child: 'dismissLabel', action: { event: { name: 'cancel_action', context: {} } } },
     { id: 'dismissLabel', component: 'Text', text: 'Dismiss' },
+    ...(opts.topUpUrl
+      ? [
+          { id: 'topUpBtn', component: 'Button', variant: 'primary', child: 'topUpLabel', action: { functionCall: { call: 'openUrl', args: { url: opts.topUpUrl } } } } as A2uiComponent,
+          { id: 'topUpLabel', component: 'Text', text: 'Top up credits' } as A2uiComponent,
+        ]
+      : []),
     ...(opts.retryable
       ? [
           { id: 'retryBtn', component: 'Button', variant: 'primary', child: 'retryLabel', action: { event: { name: 'regenerate_generated', context: { kind: { path: '/gen/kind' } } } } } as A2uiComponent,

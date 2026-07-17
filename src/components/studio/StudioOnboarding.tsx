@@ -19,7 +19,7 @@ import triggersImg from '../../assets/studio/studio-triggers.jpg';
 const MODES = [
   { Icon: Layers, label: '2D', caption: 'Lay out frames, stickers & filters flat on the photo.' },
   { Icon: Box, label: '3D', caption: 'Place face-tracked props in the live 3D scene.' },
-  { Icon: Eye, label: 'Preview', caption: 'See exactly what a guest sees, all layers combined.' },
+  { Icon: Eye, label: 'Preview', caption: 'See what a guest sees — then tap Test on phone to try it with your own face.' },
 ];
 
 const ONBOARDED_KEY = 'beamwall.studio.onboarded';
@@ -59,7 +59,7 @@ const STEPS: Step[] = [
   {
     eyebrow: 'Your studio',
     title: 'Design your look',
-    body: 'Every frame, sticker, filter and 3D prop lives in one library — drop any onto your scene, or tap “AI Generate Frame” to create a new one, on brand, in seconds.',
+    body: 'Every frame, sticker, filter and 3D prop lives in one library — drop any onto your scene, or upload your own — PNG/SVG frames & stickers, GLB 3D props — from the Uploads section, or tap “AI Generate Frame” to create a new one, on brand, in seconds.',
     image: libraryImg,
   },
   {
@@ -83,7 +83,7 @@ const STEPS: Step[] = [
   {
     eyebrow: 'Go live',
     title: 'Share one QR code',
-    body: 'When it looks perfect, hit Save, then share your event’s QR from the Share tab. Guests scan and step straight into your AR booth — no app to download.',
+    body: 'When it looks perfect, hit Save, press Go live on your Dashboard, then share your event’s QR from the Share tab. Guests scan and step straight into your AR booth — no app to download.',
     Icon: QrCode,
   },
 ];

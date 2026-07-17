@@ -12,6 +12,7 @@
  * (enforced server-side in ai-generate-image).
  */
 import { useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Check, Loader2, Move, RefreshCw, Sparkles, Wand2 } from 'lucide-react';
 import { generateImage, aiErrorMessage, type AiErrorCode } from '../../lib/ai';
 import { updateEventConfig } from '../../lib/host';
@@ -33,7 +34,7 @@ type Phase =
   | { kind: 'preview'; experience: Experience }
   | { kind: 'applying'; experience: Experience }
   | { kind: 'done' }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string; code?: AiErrorCode };
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-3.5 py-2.5 text-[13px] text-brand-fg ' +
@@ -64,7 +65,8 @@ export default function FrameStudio({
       transparentBackground: true,
     });
     if (res.error !== null || !res.data) {
-      setPhase({ kind: 'error', message: aiErrorMessage((res.error ?? 'internal') as AiErrorCode) });
+      const code = (res.error ?? 'internal') as AiErrorCode;
+      setPhase({ kind: 'error', message: aiErrorMessage(code), code });
       return;
     }
     setPhase({ kind: 'preview', experience: res.data.experience });
@@ -198,7 +200,15 @@ export default function FrameStudio({
           )}
 
           {phase.kind === 'error' && (
-            <p role="alert" className="font-sans text-[12px] text-red-400 leading-snug">{phase.message}</p>
+            <p role="alert" className="font-sans text-[12px] text-red-400 leading-snug">
+              {phase.message}
+              {phase.code === 'insufficient_credits' && (
+                <>
+                  {' '}
+                  <Link to="/host/billing" className="text-accent-2 hover:underline">Top up</Link>
+                </>
+              )}
+            </p>
           )}
 
           {(phase.kind === 'idle' || phase.kind === 'generating' || phase.kind === 'error') && (

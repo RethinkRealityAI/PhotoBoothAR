@@ -73,8 +73,9 @@ export default function CopilotPanel() {
     let alive = true;
     fetchMyEvents().then((rows) => {
       if (!alive) return;
-      setEvents(rows);
-      setSelectedUuid((cur) => cur ?? routeUuid ?? (rows.length === 1 ? rows[0].id : null));
+      const list = rows ?? []; // null = load failure; the popup degrades to no picker rows
+      setEvents(list);
+      setSelectedUuid((cur) => cur ?? routeUuid ?? (list.length === 1 ? list[0].id : null));
     });
     return () => { alive = false; };
   }, [isOpen, routeUuid]);

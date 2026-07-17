@@ -177,8 +177,13 @@ export default function CopilotChat({
     ]), sid);
   };
 
-  const showGenError = (sid: string, kind: 'frame' | 'headpiece', message: string, retryable: boolean) =>
-    placeGen(sid, buildGenErrorSurface(sid, message, { kind, retryable }));
+  /** `topUp` adds a "Top up credits" button (absolute URL — openUrl is http(s)-only). */
+  const showGenError = (sid: string, kind: 'frame' | 'headpiece', message: string, retryable: boolean, topUp = false) =>
+    placeGen(sid, buildGenErrorSurface(sid, message, {
+      kind,
+      retryable,
+      topUpUrl: topUp ? `${window.location.origin}/host/billing` : undefined,
+    }));
 
   /** FRAME: generate (greenScreen) → chroma-key → preview. Charge happens once
    *  in generateImage (server-metered, first 3 free); apply never re-generates. */
@@ -194,7 +199,7 @@ export default function CopilotChat({
       const res = await generateImage(uuid, { prompt, kind: 'border', transparentBackground: false, greenScreen: true });
       if (res.error || !res.data?.experience) {
         const code = (res.error ?? 'internal') as AiErrorCode;
-        showGenError(sid, 'frame', aiErrorMessage(code), retryableGenError(code));
+        showGenError(sid, 'frame', aiErrorMessage(code), retryableGenError(code), code === 'insufficient_credits');
         return;
       }
       const { experience, keyed } = await processGeneratedFrame(res.data.experience, snapshot.slug);
@@ -229,13 +234,13 @@ export default function CopilotChat({
       });
       if (concept.error || !concept.data?.experience?.asset_url) {
         const code = (concept.error ?? 'internal') as AiErrorCode;
-        showGenError(sid, 'headpiece', aiErrorMessage(code), retryableGenError(code));
+        showGenError(sid, 'headpiece', aiErrorMessage(code), retryableGenError(code), code === 'insufficient_credits');
         return;
       }
       const g = await generate3d(uuid, { mode: 'image', imageUrl: concept.data.experience.asset_url, prompt });
       if (g.error || !g.data?.job) {
         const code = (g.error ?? 'internal') as AiErrorCode;
-        showGenError(sid, 'headpiece', aiErrorMessage(code), retryableGenError(code));
+        showGenError(sid, 'headpiece', aiErrorMessage(code), retryableGenError(code), code === 'insufficient_credits');
         return;
       }
       let experience: Experience | undefined;
@@ -363,7 +368,7 @@ export default function CopilotChat({
     // — with one clear prompt to pick an event first.
     if (!snapshot) {
       dropSurfaceById(event.surfaceId);
-      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] Pick an event in the panel above first, then I’ll set that up for you.' }]);
+      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] Pick which event this is for first — select one of your events, then ask me again.' }]);
       return;
     }
 

@@ -241,10 +241,13 @@ async function fetchMyOrgIds(): Promise<string[] | null> {
  * would see every customer's events on their own dashboard. Optionally also
  * surfaces the demo event for orgs with none of their own, gated by
  * SHOW_DEMO_EVENT (off by default).
+ *
+ * Returns null on QUERY FAILURE (network/RLS error) so callers can show a
+ * retry state; [] strictly means the caller genuinely has no events.
  */
-export async function fetchMyEvents(): Promise<HostEventRow[]> {
+export async function fetchMyEvents(): Promise<HostEventRow[] | null> {
   const orgIds = await fetchMyOrgIds();
-  if (orgIds === null) return [];
+  if (orgIds === null) return null;
 
   if (orgIds.length === 0) {
     if (!SHOW_DEMO_EVENT) return [];
@@ -253,8 +256,11 @@ export async function fetchMyEvents(): Promise<HostEventRow[]> {
       .select(EVENT_COLUMNS)
       .eq('slug', DEMO_EVENT_SLUG)
       .maybeSingle();
-    if (demoErr || !demo) return [];
-    return [demo as HostEventRow];
+    if (demoErr) {
+      console.error('[host] fetchMyEvents (demo)', demoErr);
+      return null;
+    }
+    return demo ? [demo as HostEventRow] : [];
   }
 
   const { data, error } = await supabase
@@ -264,7 +270,7 @@ export async function fetchMyEvents(): Promise<HostEventRow[]> {
     .order('created_at', { ascending: false });
   if (error) {
     console.error('[host] fetchMyEvents', error);
-    return [];
+    return null;
   }
   return (data as HostEventRow[]) ?? [];
 }
