@@ -11,13 +11,15 @@
  * Plus shared name / booth-icon / published / featured controls. All per-object
  * controls operate on selectedObject(draft).
  */
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   ArrowBigUp,
   Boxes,
   Check,
   ChevronDown,
   ChevronUp,
+  Clapperboard,
   Crown,
   Eye,
   EyeOff,
@@ -25,13 +27,16 @@ import {
   Image as ImageIcon,
   Laugh,
   LayoutTemplate,
+  Layers,
   Loader2,
+  MousePointerClick,
   Palette,
   PartyPopper,
   Plus,
   RotateCcw,
   Ruler,
   Smile,
+  Sparkles,
   Star,
   Trash2,
   Upload,
@@ -89,7 +94,108 @@ const AXIS_OFFSET_LABELS: Record<(typeof AXES)[number], string> = {
   z: 'Z · forward/back',
 };
 
+/** Rotation-axis labels with the same plain-language hint idiom. */
+const AXIS_ROTATION_LABELS: Record<(typeof AXES)[number], string> = {
+  x: 'X · tilt up/down',
+  y: 'Y · turn left/right',
+  z: 'Z · lean sideways',
+};
+
 const RAD_TO_DEG = 180 / Math.PI;
+
+/**
+ * Collapsible dock section — the one header idiom every group in this panel
+ * shares: icon + name + chevron. Expand/collapse animates height/opacity via
+ * the PickerDrawer motion idiom (a fixed-width column, so no layout-critical
+ * width ever animates); prefers-reduced-motion collapses instantly. Children
+ * mount only while open (progressive disclosure + no hidden polling).
+ */
+function DockSection({
+  icon: Icon,
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  icon: LucideIcon;
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  const reduced = useReducedMotion() ?? false;
+  return (
+    <section className="border-b border-white/5 pb-4 last:border-b-0 last:pb-0">
+      <button
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex items-center gap-2 w-full py-1 text-left group"
+      >
+        <Icon className={`w-3.5 h-3.5 shrink-0 transition-colors ${open ? 'text-accent-2' : 'text-brand-muted/50 group-hover:text-brand-fg'}`} />
+        <span className={`flex-1 font-label uppercase tracking-widest text-[10px] transition-colors ${open ? 'text-brand-fg' : 'text-brand-muted/60 group-hover:text-brand-fg'}`}>
+          {title}
+        </span>
+        <ChevronDown className={`w-3.5 h-3.5 shrink-0 text-brand-muted/40 transition-transform ${open ? '' : '-rotate-90'}`} />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={reduced ? { duration: 0 } : { duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="pt-3 flex flex-col gap-4">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
+  );
+}
+
+/**
+ * StudioSlider + a small per-row reset affordance (shown wherever a default
+ * exists). The reset sits beside the slider track, dims to near-invisible while
+ * the value is already at its default, and never reflows the row.
+ */
+function SliderRow({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  format,
+  defaultValue,
+}: {
+  label: ReactNode;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+  format?: (v: number) => string;
+  defaultValue: number;
+}) {
+  const atDefault = Math.abs(value - defaultValue) < step / 2;
+  return (
+    <div className="flex items-end gap-1.5">
+      <div className="flex-1 min-w-0">
+        <StudioSlider label={label} value={value} min={min} max={max} step={step} onChange={onChange} format={format} />
+      </div>
+      <button
+        onClick={() => onChange(defaultValue)}
+        disabled={atDefault}
+        aria-label="Reset to default"
+        title="Reset to default"
+        className="shrink-0 p-1 -mb-0.5 rounded text-brand-muted/40 hover:text-accent-2 transition-colors disabled:opacity-15 disabled:pointer-events-none"
+      >
+        <RotateCcw className="w-3 h-3" />
+      </button>
+    </div>
+  );
+}
 
 const ANIMATIONS: { id: LayerAnimation; label: string }[] = [
   { id: 'none', label: 'None' },
@@ -257,9 +363,10 @@ function MagicTriggers({
   const selectCls = 'w-full bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-brand-fg focus:outline-none focus:border-accent/40';
 
   return (
-    <div className="border-t border-white/10 pt-4">
-      <div className="flex items-center justify-between mb-2">
-        <SectionLabel>Magic Triggers</SectionLabel>
+    <div>
+      {/* The section header (DockSection) already names this group — only the
+          count rides inside. */}
+      <div className="flex items-center justify-end mb-2">
         <span className="font-mono text-[9px] text-brand-muted/50">{draft.triggers.length}/{MAX_TRIGGERS}</span>
       </div>
 
@@ -582,16 +689,183 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
     e.target.value = '';
   };
 
+  // Any 3D piece in the scene → the Head & fit section applies (head-size
+  // calibration is scene/event-level, not per-selection).
+  const has3D = draft.objects.some((o) => o.type !== 'overlay');
+
+  // Collapsible-section state — Selected item + Layers open by default (the
+  // first is the editing surface, the second is how you select); everything
+  // else starts collapsed (progressive disclosure).
+  const [open, setOpen] = useState<Record<string, boolean>>({
+    selected: true,
+    layers: true,
+    triggers: false,
+    scene: false,
+    booth: false,
+    headfit: false,
+  });
+  const toggleSection = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }));
+
+  const reduced = useReducedMotion() ?? false;
+  const selectedSectionRef = useRef<HTMLDivElement>(null);
+
+  // Picking an object on the stage (or in Layers) auto-opens the Selected-item
+  // section and brings it into view — the host immediately sees what they can
+  // edit, without hunting.
+  useEffect(() => {
+    if (!draft.selectedId) return;
+    setOpen((o) => (o.selected ? o : { ...o, selected: true }));
+    const t = window.setTimeout(() => {
+      selectedSectionRef.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [draft.selectedId, reduced]);
+
+  /** Filter-slot params — rendered in "Selected item" when nothing is selected
+   *  (the filter IS the thing being edited) or under "Scene" otherwise. */
+  const filterParams = (withCaption: boolean): ReactNode =>
+    filterActive && shaderDef ? (
+      <div className="flex flex-col gap-4">
+        {withCaption ? <EditingCaption name={shaderDef.name} /> : null}
+        <div className="flex items-center justify-between">
+          <p className="font-sans text-xs text-brand-fg font-medium">{shaderDef.name}</p>
+          {shaderDef.params.length > 0 && (
+            <button
+              onClick={() => dispatch({ type: 'SET_SHADER_PARAMS', params: defaultParams(draft.shaderId) })}
+              className="flex items-center gap-1 text-[9px] text-brand-muted/50 hover:text-accent-2 transition-colors"
+            >
+              <RotateCcw className="w-3 h-3" /> Reset all
+            </button>
+          )}
+        </div>
+        {shaderDef.params.length > 0 ? (
+          shaderDef.params.map((p) => (
+            <SliderRow
+              key={p.key}
+              label={p.label}
+              value={draft.shaderParams[p.key] ?? p.default}
+              min={p.min}
+              max={p.max}
+              step={p.step}
+              defaultValue={p.default}
+              onChange={(v) => dispatch({ type: 'SET_SHADER_PARAM', key: p.key, value: v })}
+            />
+          ))
+        ) : (
+          <p className="text-[10px] text-brand-muted/40 font-sans">No adjustable parameters.</p>
+        )}
+        <p className="text-[9px] text-brand-muted/40 font-sans leading-relaxed">{shaderDef.description}</p>
+      </div>
+    ) : null;
+
   return (
-    <div className="h-full overflow-y-auto hide-scrollbar p-4 flex flex-col gap-5">
-      {/* SCENE LAYERS — grouped by kind (Frame · Stickers · 3D pieces). Within a group,
+    <div className="h-full overflow-y-auto hide-scrollbar p-4 flex flex-col gap-4">
+      {/* Empty scene + empty filter slot — the hint is the panel's only guidance. */}
+      {!hasObjects && !filterActive && (
+        <p className="text-[10px] text-brand-muted/40 font-sans px-1">Add a frame, sticker or 3D piece from the left dock to start a scene.</p>
+      )}
+
+      {/* SELECTED ITEM — always the first section; auto-opens + scrolls into
+          view whenever the host picks an object on the stage or in Layers. */}
+      {(hasObjects || filterActive) && (
+        <div ref={selectedSectionRef}>
+          <DockSection icon={MousePointerClick} title="Selected item" open={!!open.selected} onToggle={() => toggleSection('selected')}>
+            {/* Selected 2D overlay properties */}
+            {selOverlay && (
+              <div className="flex flex-col gap-4">
+                <EditingCaption name={displayNames.get(selOverlay.id) ?? selOverlay.name} />
+                <div className="flex items-center justify-between">
+                  <p className="font-sans text-xs text-brand-fg font-medium">{selOverlay.overlayKind === 'border' ? 'Frame placement' : 'Sticker placement'}</p>
+                  <button
+                    onClick={() => dispatch({ type: 'SET_TRANSFORM', transform: { ...DEFAULT_TRANSFORM } })}
+                    className="flex items-center gap-1 text-[9px] text-brand-muted/50 hover:text-accent-2 transition-colors"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Reset all
+                  </button>
+                </div>
+                <SliderRow label="Size" value={selOverlay.transform.scale} min={0.1} max={3} step={0.05} defaultValue={DEFAULT_TRANSFORM.scale} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, scale: v } })} />
+                <SliderRow label="Position · left/right" value={selOverlay.transform.x} min={-100} max={100} step={0.5} defaultValue={DEFAULT_TRANSFORM.x} format={(v) => `${v.toFixed(0)}%`} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, x: v } })} />
+                <SliderRow label="Position · up/down" value={selOverlay.transform.y} min={-100} max={100} step={0.5} defaultValue={DEFAULT_TRANSFORM.y} format={(v) => `${v.toFixed(0)}%`} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, y: v } })} />
+                <SliderRow label="Rotation" value={selOverlay.transform.rotation} min={-180} max={180} step={1} defaultValue={DEFAULT_TRANSFORM.rotation} format={(v) => `${v.toFixed(0)}°`} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, rotation: v } })} />
+                <AnimationChips value={selOverlay.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: selOverlay.id, animation: a })} />
+              </div>
+            )}
+
+            {/* Selected 3D object properties */}
+            {sel3D && (
+              <div className="flex flex-col gap-4">
+                <EditingCaption name={displayNames.get(sel3D.id) ?? sel3D.name} />
+                <div className="flex items-center justify-between">
+                  <p className="font-sans text-xs text-brand-fg font-medium">Placement</p>
+                  <button
+                    onClick={() => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } } })}
+                    className="flex items-center gap-1 text-[9px] text-brand-muted/50 hover:text-accent-2 transition-colors"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Reset all
+                  </button>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <SectionLabel>Nudge position (cm)</SectionLabel>
+                  {AXES.map((axis) => (
+                    <SliderRow
+                      key={`o${axis}`}
+                      label={AXIS_OFFSET_LABELS[axis]}
+                      value={sel3D.anchorConfig.offset[axis]}
+                      min={-20}
+                      max={20}
+                      step={0.1}
+                      defaultValue={0}
+                      format={(v) => `${v.toFixed(1)} cm`}
+                      onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { ...sel3D.anchorConfig.offset, [axis]: v } } })}
+                    />
+                  ))}
+                </div>
+                <div className="flex flex-col gap-2">
+                  {/* State stays radians (anchorConfig contract); the slider converts
+                      deg↔rad at its boundary so hosts see familiar degrees. */}
+                  <SectionLabel>Rotation (°)</SectionLabel>
+                  {AXES.map((axis) => (
+                    <SliderRow
+                      key={`r${axis}`}
+                      label={AXIS_ROTATION_LABELS[axis]}
+                      value={sel3D.anchorConfig.rotation[axis] * RAD_TO_DEG}
+                      min={-180}
+                      max={180}
+                      step={1}
+                      defaultValue={0}
+                      format={(v) => `${v.toFixed(0)}°`}
+                      onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { rotation: { ...sel3D.anchorConfig.rotation, [axis]: v / RAD_TO_DEG } } })}
+                    />
+                  ))}
+                </div>
+                <StudioSlider label="Size" value={Math.min(sel3D.anchorConfig.scale, 15)} min={0.05} max={15} step={0.05} onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { scale: v } })} />
+                <StudioToggle
+                  label="Occlude behind head"
+                  hint="Hide parts of this piece behind the real head"
+                  value={sel3D.occlusion}
+                  onChange={(v) => dispatch({ type: 'SET_OCCLUSION', occlusion: v })}
+                />
+                <AnimationChips value={sel3D.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: sel3D.id, animation: a })} />
+              </div>
+            )}
+
+            {/* No object selected: the filter (when set) IS the thing being
+                edited — otherwise a plain how-to-select hint. */}
+            {!selected && filterParams(true)}
+            {hasObjects && !selected && !filterActive && (
+              <p className="text-[10px] text-brand-muted/40 font-sans px-1">Tap an object on the stage — or pick a layer below — to edit it.</p>
+            )}
+          </DockSection>
+        </div>
+      )}
+
+      {/* LAYERS — grouped by kind (Frame · Stickers · 3D pieces). Within a group,
           rows show top-most first; reorder acts on the flat objects[] paint order,
           the eye toggles the editor-only hidden flag, delete removes the object. */}
-      {hasObjects ? (
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <SectionLabel>Scene Layers</SectionLabel>
-            {counts.capped >= 15 && (
+      {hasObjects && (
+        <DockSection icon={Layers} title="Layers" open={!!open.layers} onToggle={() => toggleSection('layers')}>
+          {counts.capped >= 15 && (
+            <div className="flex items-center justify-end -mb-2">
               <Tooltip
                 label={`${counts.capped} / ${MAX_OBJECTS} objects`}
                 hint="Up to 20 stickers + 3D pieces per scene — the frame is exempt. Adds past the cap are ignored."
@@ -601,8 +875,8 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                   {counts.capped}/{MAX_OBJECTS}
                 </span>
               </Tooltip>
-            )}
-          </div>
+            </div>
+          )}
           <div className="flex flex-col gap-3">
             {LAYER_GROUPS.map((g) => {
               const items = draft.objects.filter(g.match);
@@ -671,154 +945,34 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
               );
             })}
           </div>
-        </div>
-      ) : !filterActive ? (
-        <p className="text-[10px] text-brand-muted/40 font-sans px-1">Add a frame, sticker or 3D piece from the left dock to start a scene.</p>
-      ) : null}
+        </DockSection>
+      )}
 
-      {/* Magic Triggers — scene-level face-triggered effects, shown once the scene
+      {/* MAGIC TRIGGERS — scene-level face-triggered effects, shown once the scene
           has content (or already carries triggers) since they ride on the scene. */}
       {(hasObjects || filterActive || draft.triggers.length > 0) && (
-        <MagicTriggers
-          draft={draft}
-          dispatch={dispatch}
-          pieceName={(id) => displayNames.get(id) ?? draft.objects.find((o) => o.id === id)?.name ?? 'piece'}
-          ambientShaderId={filterActive ? draft.shaderId : null}
-        />
-      )}
-
-      {/* Selected 2D overlay properties */}
-      {selOverlay && (
-        <div className="flex flex-col gap-4">
-          <EditingCaption name={displayNames.get(selOverlay.id) ?? selOverlay.name} />
-          <div className="flex items-center justify-between">
-            <p className="font-sans text-xs text-brand-fg font-medium">{selOverlay.overlayKind === 'border' ? 'Frame placement' : 'Sticker transform'}</p>
-            <button
-              onClick={() => dispatch({ type: 'SET_TRANSFORM', transform: { ...DEFAULT_TRANSFORM } })}
-              className="flex items-center gap-1 text-[9px] text-brand-muted/50 hover:text-accent-2 transition-colors"
-            >
-              <RotateCcw className="w-3 h-3" /> Reset
-            </button>
-          </div>
-          <StudioSlider label="Scale" value={selOverlay.transform.scale} min={0.1} max={3} step={0.05} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, scale: v } })} />
-          <StudioSlider label="X position (%)" value={selOverlay.transform.x} min={-100} max={100} step={0.5} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, x: v } })} format={(v) => v.toFixed(0)} />
-          <StudioSlider label="Y position (%)" value={selOverlay.transform.y} min={-100} max={100} step={0.5} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, y: v } })} format={(v) => v.toFixed(0)} />
-          <StudioSlider label="Rotation (°)" value={selOverlay.transform.rotation} min={-180} max={180} step={1} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, rotation: v } })} format={(v) => v.toFixed(0)} />
-          <AnimationChips value={selOverlay.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: selOverlay.id, animation: a })} />
-        </div>
-      )}
-
-      {/* Selected 3D object properties */}
-      {sel3D && (
-        <div className="flex flex-col gap-4">
-          <EditingCaption name={displayNames.get(sel3D.id) ?? sel3D.name} />
-          <div className="flex items-center justify-between">
-            <p className="font-sans text-xs text-brand-fg font-medium">Placement</p>
-            <button
-              onClick={() => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } } })}
-              className="flex items-center gap-1 text-[9px] text-brand-muted/50 hover:text-accent-2 transition-colors"
-            >
-              <RotateCcw className="w-3 h-3" /> Reset
-            </button>
-          </div>
-          <div className="flex flex-col gap-2">
-            <SectionLabel>Offset (cm)</SectionLabel>
-            {AXES.map((axis) => (
-              <StudioSlider
-                key={`o${axis}`}
-                label={AXIS_OFFSET_LABELS[axis]}
-                value={sel3D.anchorConfig.offset[axis]}
-                min={-20}
-                max={20}
-                step={0.1}
-                compact
-                onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { ...sel3D.anchorConfig.offset, [axis]: v } } })}
-              />
-            ))}
-          </div>
-          <div className="flex flex-col gap-2">
-            {/* State stays radians (anchorConfig contract); the slider converts
-                deg↔rad at its boundary so hosts see familiar degrees. */}
-            <SectionLabel>Rotation (°)</SectionLabel>
-            {AXES.map((axis) => (
-              <StudioSlider
-                key={`r${axis}`}
-                label={axis.toUpperCase()}
-                value={sel3D.anchorConfig.rotation[axis] * RAD_TO_DEG}
-                min={-180}
-                max={180}
-                step={1}
-                compact
-                format={(v) => v.toFixed(0)}
-                onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { rotation: { ...sel3D.anchorConfig.rotation, [axis]: v / RAD_TO_DEG } } })}
-              />
-            ))}
-          </div>
-          <StudioSlider label="Scale" value={Math.min(sel3D.anchorConfig.scale, 15)} min={0.05} max={15} step={0.05} onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { scale: v } })} />
-
-          {/* Head-size calibration + auto head-size suggestion / per-guest transfer */}
-          <HeadSizeCalibration headScale={headScale} onHeadScaleChange={onHeadScaleChange} />
-
-          <StudioToggle
-            label="Occlude behind head"
-            hint="Hide parts of this piece behind the real head"
-            value={sel3D.occlusion}
-            onChange={(v) => dispatch({ type: 'SET_OCCLUSION', occlusion: v })}
+        <DockSection icon={Sparkles} title="Magic Triggers" open={!!open.triggers} onToggle={() => toggleSection('triggers')}>
+          <MagicTriggers
+            draft={draft}
+            dispatch={dispatch}
+            pieceName={(id) => displayNames.get(id) ?? draft.objects.find((o) => o.id === id)?.name ?? 'piece'}
+            ambientShaderId={filterActive ? draft.shaderId : null}
           />
-
-          <AnimationChips value={sel3D.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: sel3D.id, animation: a })} />
-        </div>
+        </DockSection>
       )}
 
-      {/* Nothing selected in a populated scene */}
-      {hasObjects && !selected && (
-        <p className="text-[10px] text-brand-muted/40 font-sans px-1">Select an object above to edit its properties.</p>
-      )}
-
-      {/* Filter slot params — shown whenever the scene's filter slot is filled.
-          When no object is selected, the filter IS the thing being edited, so it
-          gets the same EDITING · <name> caption as a selected layer. */}
-      {filterActive && shaderDef && (
-        <div className="flex flex-col gap-4">
-          {selected ? <SectionLabel>Filter</SectionLabel> : <EditingCaption name={shaderDef.name} />}
-          <div className="flex items-center justify-between">
-            <p className="font-sans text-xs text-brand-fg font-medium">{shaderDef.name}</p>
-            {shaderDef.params.length > 0 && (
-              <button
-                onClick={() => dispatch({ type: 'SET_SHADER_PARAMS', params: defaultParams(draft.shaderId) })}
-                className="flex items-center gap-1 text-[9px] text-brand-muted/50 hover:text-accent-2 transition-colors"
-              >
-                <RotateCcw className="w-3 h-3" /> Reset
-              </button>
-            )}
-          </div>
-          {shaderDef.params.length > 0 ? (
-            shaderDef.params.map((p) => (
-              <StudioSlider
-                key={p.key}
-                label={p.label}
-                value={draft.shaderParams[p.key] ?? p.default}
-                min={p.min}
-                max={p.max}
-                step={p.step}
-                onChange={(v) => dispatch({ type: 'SET_SHADER_PARAM', key: p.key, value: v })}
-              />
-            ))
-          ) : (
-            <p className="text-[10px] text-brand-muted/40 font-sans">No adjustable parameters.</p>
-          )}
-          <p className="text-[9px] text-brand-muted/40 font-sans leading-relaxed">{shaderDef.description}</p>
-        </div>
-      )}
-
-      {/* Publish / feature — scene-level flags for how this experience surfaces
-          in the booth. Hidden while the scene is completely EMPTY (no objects,
-          no filter): flipping a blank experience to "Live" would publish
-          nothing to guests, and the empty-state hint is the only guidance the
-          panel should give at that point. */}
+      {/* SCENE — the filter slot (surfaced here only while an object is
+          selected; otherwise it lives in Selected item) + how this experience
+          surfaces in the booth: Live/Hidden, Featured, Save-as-template.
+          Hidden while the scene is completely EMPTY (no objects, no filter):
+          flipping a blank experience to "Live" would publish nothing to
+          guests, and the empty-state hint is the only guidance the panel
+          should give at that point. */}
       {(hasObjects || filterActive) && (
-      <div className="flex flex-col gap-2 border-t border-white/10 pt-4">
-        <div className="flex items-center gap-2">
+        <DockSection icon={Clapperboard} title="Scene" open={!!open.scene} onToggle={() => toggleSection('scene')}>
+          {selected ? filterParams(false) : null}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
           <Tooltip label={draft.isPublished ? 'Live' : 'Hidden'} hint="Whether guests can pick this in the booth">
             <button
               onClick={() => dispatch({ type: 'TOGGLE_PUBLISHED' })}
@@ -848,14 +1002,16 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
             </button>
           </Tooltip>
         </div>
-        {templateError && <p className="text-[9px] text-rose-400 font-sans">{templateError}</p>}
-      </div>
+            {templateError && <p className="text-[9px] text-rose-400 font-sans">{templateError}</p>}
+          </div>
+        </DockSection>
       )}
 
-      {/* Booth icon */}
+      {/* BOOTH LOOK — how this experience presents in the guest booth picker. */}
       {hasObjects && (
-        <div className="border-t border-white/10 pt-4">
-          <SectionLabel>Booth icon (optional)</SectionLabel>
+        <DockSection icon={Palette} title="Booth look" open={!!open.booth} onToggle={() => toggleSection('booth')}>
+          <div>
+            <SectionLabel>Booth icon (optional)</SectionLabel>
           <div className="flex items-center gap-3">
             <div className="w-14 h-14 rounded-xl overflow-hidden bg-white/[0.04] border border-white/10 flex items-center justify-center shrink-0">
               {draft.thumbUrl ? <img src={draft.thumbUrl} alt="icon" className="w-full h-full object-cover" /> : <ImageIcon className="w-5 h-5 text-brand-muted/40" />}
@@ -873,7 +1029,17 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
               )}
             </div>
           </div>
-        </div>
+          </div>
+        </DockSection>
+      )}
+
+      {/* HEAD & FIT — scene-level head-size calibration + per-guest auto-fit.
+          Offered whenever the scene has a 3D piece; mounted only while open so
+          the tracker-estimate polling runs only while the host is calibrating. */}
+      {has3D && (
+        <DockSection icon={Ruler} title="Head & fit" open={!!open.headfit} onToggle={() => toggleSection('headfit')}>
+          <HeadSizeCalibration headScale={headScale} onHeadScaleChange={onHeadScaleChange} />
+        </DockSection>
       )}
     </div>
   );

@@ -25,6 +25,7 @@
  * while it's in flight and the expander binds to selection, which lands with it.
  */
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Boxes, ChevronDown, ChevronRight, Crown, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Search, Sparkles, Sun, Upload, Wand2, X } from 'lucide-react';
 import { FILTER_SHADERS, SHADER_MAP, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
@@ -96,6 +97,27 @@ interface Tile {
   drag: DragPayload;
   pending: boolean;
   onAdd: () => void;
+}
+
+/** Smooth expand/collapse for dock sub-groups and inline settings cards —
+ *  the PickerDrawer height/opacity idiom; prefers-reduced-motion snaps. */
+function Collapse({ show, children }: { show: boolean; children: ReactNode }) {
+  const reduced = useReducedMotion() ?? false;
+  return (
+    <AnimatePresence initial={false}>
+      {show && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={reduced ? { duration: 0 } : { duration: 0.24, ease: [0.4, 0, 0.2, 1] }}
+          className="overflow-hidden"
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 }
 
 export default function AssetsDock({ state, dispatch, onOpenExperience, beginDrag, consumedDrag }: Props) {
@@ -442,7 +464,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                   );
                 })}
               </div>
-              {expanded && renderInlineSettings(expanded.key)}
+              <Collapse show={!!expanded}>{expanded ? renderInlineSettings(expanded.key) : null}</Collapse>
             </div>
           );
         })}
@@ -538,7 +560,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                 </div>
                 <p className="text-[9px] text-brand-muted/40 mt-0.5 leading-tight">{s.description}</p>
               </button>
-              {expandedKey === key && renderInlineSettings(key)}
+              <Collapse show={expandedKey === key}>{expandedKey === key ? renderInlineSettings(key) : null}</Collapse>
             </div>
           );
         })}
@@ -560,7 +582,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
           <span className="font-label uppercase tracking-widest text-[9px]">{label}</span>
           <span className="font-mono text-[8px] text-brand-muted/50">{count}</span>
         </button>
-        {!isCollapsed && body}
+        <Collapse show={!isCollapsed}>{body}</Collapse>
       </div>
     );
   };
@@ -643,21 +665,23 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             <p className="font-sans text-[9px] text-brand-muted/40 leading-relaxed px-1">
               Want a whole matching scene? Open the Director above.
             </p>
-            {aiOpen && (
-              showAi3d ? (
-                <AiGeneratePanel onOpenExperience={onOpenExperience} />
-              ) : (
-                <AiFramePanel
-                  kind={aiKind}
-                  freeTrial={!entitlements.aiStudio}
-                  onGenerated={(exp) => {
-                    if (exp.asset_url) dispatch({ type: 'SET_OVERLAY_UPLOAD', url: exp.asset_url, blob: null, overlayKind: aiKind });
-                    if (draft.name.startsWith('Untitled') && exp.name) dispatch({ type: 'SET_NAME', name: exp.name });
-                    loadExperiences(); // surface the new asset in the Generated section
-                  }}
-                />
-              )
-            )}
+            <Collapse show={aiOpen}>
+              {aiOpen ? (
+                showAi3d ? (
+                  <AiGeneratePanel onOpenExperience={onOpenExperience} />
+                ) : (
+                  <AiFramePanel
+                    kind={aiKind}
+                    freeTrial={!entitlements.aiStudio}
+                    onGenerated={(exp) => {
+                      if (exp.asset_url) dispatch({ type: 'SET_OVERLAY_UPLOAD', url: exp.asset_url, blob: null, overlayKind: aiKind });
+                      if (draft.name.startsWith('Untitled') && exp.name) dispatch({ type: 'SET_NAME', name: exp.name });
+                      loadExperiences(); // surface the new asset in the Generated section
+                    }}
+                  />
+                )
+              ) : null}
+            </Collapse>
           </div>
         )}
 
