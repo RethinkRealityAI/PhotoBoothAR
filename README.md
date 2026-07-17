@@ -58,7 +58,7 @@ Legacy single-event builds set `VITE_EVENT=<slug>` and render exactly as before.
 
 - **Multi-tenant data** — Supabase Postgres with real RLS. `orgs → events`
   tenancy; `event_id` (= `events.slug`) partitions the existing content tables.
-  Migrations are checked in under `supabase/migrations/` (001–010) and mirror
+  Migrations are checked in under `supabase/migrations/` (001–012) and mirror
   what's applied to the live project. The three legacy slugs keep working via
   **grandfather RLS policies**.
 - **Runtime tenancy** — `src/events/runtime.ts` + `EventContext.tsx` resolve an
@@ -67,10 +67,14 @@ Legacy single-event builds set `VITE_EVENT=<slug>` and render exactly as before.
 - **Server layer** — Supabase Edge Functions under `supabase/functions/`:
   `submit-post` · `create-event` · `admin-api` (platform super-admin) · `manager-api` · `stripe-checkout`/`-portal`/
   `-webhook` · `ai-generate-image` · `ai-generate-3d` · `ai-job-status` ·
-  `ai-event-designer` (conversational event concierge for `/host/new`; falls
-  back to a client-side keyword planner when unprovisioned; replies render as
-  interactive **A2UI v0.9.1** generative-UI cards — protocol core in
-  `src/lib/a2ui.ts`, themed renderer in `src/components/a2ui/`) ·
+  `ai-event-designer` (conversational event concierge for `/host/new` **and** the
+  Platform Copilot's tool proposals; falls back to a client-side keyword planner
+  when unprovisioned; replies render as interactive **A2UI v0.9.1** generative-UI
+  cards — protocol core in `src/lib/a2ui.ts`, themed renderer in
+  `src/components/a2ui/`) · `validate-challenge-photo` (anonymous guest photo
+  check for challenges that require an AI visual match — reads the requirement
+  server-side from the challenge's `validation` config, SSRF-guards any reference
+  image to the public `assets` bucket, and treats the guest photo as data-only) ·
   `card-contribute`/`-view`/`-publish` · `card-render`/`-render-status`. All AI
   and payment keys live here, never in the client.
 - **Billing & credits** — Stripe (per-event packages + Pro subscription + credit
