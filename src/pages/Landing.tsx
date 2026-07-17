@@ -534,6 +534,18 @@ export default function Landing() {
             }}
           />
         ))}
+        {/* Readability scrim — a soft dark veil over the spectrum so copy reads
+            cleanly. Pools a little deeper behind the top-centre hero headline,
+            never fully clears (≥0.30) so text stays legible the whole scroll,
+            yet keeps the beams visible so the identity survives. */}
+        <div
+          aria-hidden
+          className="absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(135% 105% at 50% 16%, rgba(3,4,10,0.62) 0%, rgba(3,4,10,0.36) 46%, rgba(3,4,10,0.30) 100%)',
+          }}
+        />
       </div>
 
       <div ref={contentRef} className="relative z-10 mx-auto flex w-full max-w-6xl flex-col px-6 py-8">

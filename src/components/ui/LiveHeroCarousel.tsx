@@ -178,11 +178,23 @@ export default function LiveHeroCarousel({
         className="pointer-events-none absolute inset-x-[6%] bottom-10 h-24 rounded-[100%] blur-3xl"
         style={{ background: 'linear-gradient(90deg, rgba(236,72,153,0.14), rgba(212,175,55,0.16), rgba(31,169,113,0.14))' }}
       />
-      {/* edge fades so cards flow off-screen rather than hard-cut */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-16 bg-gradient-to-r from-[color:var(--color-brand-bg)] to-transparent sm:w-28" />
-      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-[color:var(--color-brand-bg)] to-transparent sm:w-28" />
 
-      <div className="overflow-hidden" style={{ perspective: '1600px' }}>
+      {/*
+        overflow-x-clip (not overflow-hidden) contains the wide track horizontally
+        WITHOUT clipping vertically — so each card's drop-shadow / glow spills
+        above and below, keeping the "floating over the page" 3D read. The
+        horizontal edges dissolve via a mask that fades the cards to TRANSPARENT
+        (not to a solid brand-bg wedge), so the strip melts seamlessly into
+        whatever colourful backdrop sits behind it instead of showing a box.
+      */}
+      <div
+        className="overflow-x-clip"
+        style={{
+          perspective: '1600px',
+          WebkitMaskImage: 'linear-gradient(90deg, transparent 0, #000 10%, #000 90%, transparent 100%)',
+          maskImage: 'linear-gradient(90deg, transparent 0, #000 10%, #000 90%, transparent 100%)',
+        }}
+      >
         <div
           ref={trackRef}
           className="flex w-max cursor-grab items-start gap-5 py-6 active:cursor-grabbing sm:gap-7"
