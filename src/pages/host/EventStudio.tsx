@@ -147,10 +147,16 @@ export default function EventStudio() {
     { to: `${base}/challenges`, label: 'Challenges', icon: Trophy, end: false },
     { to: `${base}/cards`, label: 'Cards', icon: Gift, end: false },
     { to: `${base}/share`, label: 'Share', icon: QrCode, end: false },
-    { to: `${base}/branding`, label: 'Branding', icon: Palette, end: false },
-    { to: `${base}/settings`, label: 'Settings', icon: Settings, end: false },
-    { to: `${base}/access`, label: 'Manager access', icon: KeyRound, end: false },
   ];
+  // Settings / Branding / Manager access consolidate into ONE "Settings" tab
+  // (routes stay flat — the group entry lands on /settings and a sub-row keeps
+  // the two siblings one tap away while inside the group).
+  const settingsTabs = [
+    { to: `${base}/settings`, label: 'General', icon: Settings },
+    { to: `${base}/branding`, label: 'Branding', icon: Palette },
+    { to: `${base}/access`, label: 'Manager access', icon: KeyRound },
+  ];
+  const inSettingsGroup = settingsTabs.some((t) => location.pathname.startsWith(t.to));
 
   return (
     <StudioBaseContext.Provider value={base}>
@@ -170,11 +176,14 @@ export default function EventStudio() {
           {/* Event tab chrome — hidden inside Studio so its editor is full-bleed
               and StudioShell's own header is the only top bar. */}
           {!isStudio && (
-          <nav className="h-16 shrink-0 flex items-center gap-3 px-4 liquid-glass border-b border-accent/15 z-50">
+          <nav
+            className="min-h-16 shrink-0 flex items-center gap-3 px-4 liquid-glass border-b border-accent/15 z-50"
+            style={{ paddingTop: 'env(safe-area-inset-top)' }}
+          >
             <Link
               to="/host"
               title="Back to events"
-              className="p-1.5 liquid-glass rounded-lg text-brand-muted/50 hover:text-brand-fg transition-colors shrink-0"
+              className="p-2.5 liquid-glass rounded-lg text-brand-muted/50 hover:text-brand-fg transition-colors shrink-0"
             >
               <ArrowLeft className="w-4 h-4" />
             </Link>
@@ -185,15 +194,22 @@ export default function EventStudio() {
                 <StatusPill status={event.status} />
               </div>
             </div>
-            <div className="flex-1 overflow-x-auto hide-scrollbar">
-              <div className="flex items-center gap-1 min-w-max">
+            {/* Tab scroller — horizontal scroll with soft edge fades on overflow. */}
+            <div
+              className="flex-1 overflow-x-auto hide-scrollbar"
+              style={{
+                maskImage: 'linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent)',
+                WebkitMaskImage: 'linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent)',
+              }}
+            >
+              <div className="flex items-center gap-1 min-w-max px-1">
                 {tabs.map((t) => (
                   <NavLink
                     key={t.to}
                     to={t.to}
                     end={t.end}
                     className={({ isActive }) =>
-                      `flex items-center gap-1.5 px-2.5 md:px-3.5 py-2 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors whitespace-nowrap ${
+                      `flex items-center gap-1.5 px-3 md:px-3.5 py-2 min-h-10 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors whitespace-nowrap ${
                         isActive ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'text-brand-muted/50 hover:text-brand-fg'
                       }`
                     }
@@ -202,6 +218,19 @@ export default function EventStudio() {
                     <span className="hidden md:inline">{t.label}</span>
                   </NavLink>
                 ))}
+                {/* Consolidated Settings group — active for /settings, /branding
+                    and /access; the sub-row below exposes the siblings. */}
+                <NavLink
+                  to={`${base}/settings`}
+                  className={() =>
+                    `flex items-center gap-1.5 px-3 md:px-3.5 py-2 min-h-10 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors whitespace-nowrap ${
+                      inSettingsGroup ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'text-brand-muted/50 hover:text-brand-fg'
+                    }`
+                  }
+                >
+                  <Settings className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden md:inline">Settings</span>
+                </NavLink>
               </div>
             </div>
             <button
@@ -214,6 +243,27 @@ export default function EventStudio() {
             </button>
             <GuestLinkCopy url={`${origin}${basePath}/welcome`} />
           </nav>
+          )}
+
+          {/* Settings group sub-nav — the consolidated tab's three flat routes,
+              one tap apart. Labels always visible (only three entries). */}
+          {!isStudio && inSettingsGroup && (
+          <div className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 border-b border-white/10 bg-white/[0.02] overflow-x-auto hide-scrollbar z-40">
+            {settingsTabs.map((t) => (
+              <NavLink
+                key={t.to}
+                to={t.to}
+                className={({ isActive }) =>
+                  `flex items-center gap-1.5 px-3 py-2 min-h-10 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors whitespace-nowrap ${
+                    isActive ? 'bg-white/[0.07] text-brand-fg ring-1 ring-white/15' : 'text-brand-muted/50 hover:text-brand-fg'
+                  }`
+                }
+              >
+                <t.icon className="w-3.5 h-3.5 shrink-0" />
+                <span>{t.label}</span>
+              </NavLink>
+            ))}
+          </div>
           )}
 
           {/* Plan tier banner — compact upsell for non-deluxe events (hidden in Studio) */}
