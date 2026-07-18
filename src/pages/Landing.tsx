@@ -24,7 +24,7 @@ import TemplatePreview from '../components/ui/TemplatePreview';
 import SpectrumField from '../components/ui/SpectrumField';
 import LiveHeroCarousel from '../components/ui/LiveHeroCarousel';
 import { BoothIcon, WallIcon, ChallengeIcon, CardIcon, type BeamIconProps } from '../components/ui/BeamIcons';
-import { BOOTH_CUTOUT, WALL_SCENE, TROPHY_CUTOUT, CARD_CUTOUT, FRAME_CLUSTER_CUTOUT } from '../lib/landingAssets';
+import { BOOTH_CUTOUT, WALL_SCENE, TROPHY_CUTOUT, CARD_CUTOUT, FRAME_CLUSTER_CUTOUT, STEP_CREATE_CUTOUT, STEP_QR_CUTOUT, STEP_WALL_CUTOUT } from '../lib/landingAssets';
 import promoVideo from '../assets/landing/beamwall-intro.mp4';
 import promoPoster from '../assets/landing/beamwall-intro-poster.jpg';
 import boothFeatureVideo from '../assets/landing/booth-feature.mp4';
@@ -68,10 +68,10 @@ interface Feature {
 const FEATURES: Feature[] = [
   {
     id: 'booth',
-    eyebrow: 'Immersive AR booth',
+    eyebrow: 'Immersive booth',
     title: 'A photo booth that lives in every pocket',
     copy:
-      'Guests scan one QR code and step straight into an AR photo booth in their browser — no app, no queue. Face-tracked 3D props, live WebGL effects and your event’s frames follow every smile.',
+      'Guests scan one QR code and step straight into an immersive photo booth in their browser — no app, no queue. Face-tracked 3D props, live WebGL effects and your event’s frames follow every smile.',
     bullets: ['Face-tracked 3D props & frames', 'Cinematic live effects', 'Photo & video capture, no app'],
     Icon: BoothIcon,
     from: '#5B8CFF',
@@ -149,7 +149,7 @@ const TIERS: Tier[] = [
     price: '$0',
     unit: 'to try it',
     blurb: 'Spin up a booth and see the magic.',
-    features: ['1 live event', 'Up to 25 photos', 'AR booth + live wall', 'A subtle Beamwall credit'],
+    features: ['1 live event', 'Up to 25 photos', 'Photo booth + live wall', 'A subtle Beamwall credit'],
   },
   {
     name: 'Essentials',
@@ -181,9 +181,9 @@ const SHOWCASE = ['wedding', 'party', 'gala'];
  *  hero that floats, tilts in 3D and drifts on scroll (parallax). `image` is the
  *  current brand cutout — swappable for the Higgsfield renders once handed off. */
 const HOW_STEPS = [
-  { n: '1', title: 'Create your event', body: 'Sign up free, pick a style, and tune your frames, effects and 3D props in the studio — minutes, not hours.', image: FRAME_CLUSTER_CUTOUT, rgb: '91, 140, 255', tilt: 11, depth: 0.1 },
-  { n: '2', title: 'Share one QR code', body: 'Put your code on tables, screens or the invite. Guests scan it and they’re in — no app to download, nothing to install.', image: BOOTH_CUTOUT, rgb: '34, 211, 238', tilt: -9, depth: 0.16 },
-  { n: '3', title: 'The room lights up', body: 'Guests snap AR photos and videos that beam onto your live wall in real time, for the whole room to watch.', image: CARD_CUTOUT, rgb: '232, 121, 249', tilt: 11, depth: 0.1 },
+  { n: '1', title: 'Create your event', body: 'Sign up free, pick a style, and tune your frames, effects and 3D props in the studio — minutes, not hours.', image: STEP_CREATE_CUTOUT, rgb: '91, 140, 255', tilt: 11, depth: 0.1 },
+  { n: '2', title: 'Share one QR code', body: 'Put your code on tables, screens or the invite. Guests scan it and they’re in — no app to download, nothing to install.', image: STEP_QR_CUTOUT, rgb: '34, 211, 238', tilt: -9, depth: 0.16 },
+  { n: '3', title: 'The room lights up', body: 'Guests snap magical photos and videos that beam onto your live wall in real time, for the whole room to watch.', image: STEP_WALL_CUTOUT, rgb: '232, 121, 249', tilt: 11, depth: 0.1 },
 ];
 
 /** Honest objection-handling FAQ (no fluff, no fake urgency). */
@@ -191,7 +191,7 @@ const FAQS: { q: string; a: string }[] = [
   { q: 'Do my guests need to download an app?', a: 'No. The booth runs right in the phone browser — guests scan your QR code and they’re in. Nothing to install.' },
   { q: 'Will it work on my guests’ phones?', a: 'Yes — it runs in modern mobile browsers (iOS Safari, Android Chrome). The camera stays on their device; nothing leaves it until they choose to share a photo.' },
   { q: 'How long does it take to set up?', a: 'Minutes. Pick a style, tweak your frames and effects in the studio, and share the QR — you can have a booth live well before your event.' },
-  { q: 'What if the venue wifi is patchy?', a: 'The AR runs on each guest’s device, so only the finished photo needs to upload — it works on cellular data, and you moderate what hits the wall from your phone.' },
+  { q: 'What if the venue wifi is patchy?', a: 'The magic runs on each guest’s device, so only the finished photo needs to upload — it works on cellular data, and you moderate what hits the wall from your phone.' },
   { q: 'What does it cost?', a: 'Start free — one event, up to 25 photos. Paid event packages start at $49, and Beamwall Pro is $79/month for frequent hosts. You only pay for events you run.' },
   { q: 'Is our event private?', a: 'You control it. Guests’ captures appear on your wall by design and you can moderate or remove any of them at any time; see our Privacy Policy for the full details.' },
 ];
@@ -534,16 +534,16 @@ export default function Landing() {
             }}
           />
         ))}
-        {/* Readability scrim — a soft dark veil over the spectrum so copy reads
-            cleanly. Pools a little deeper behind the top-centre hero headline,
-            never fully clears (≥0.30) so text stays legible the whole scroll,
-            yet keeps the beams visible so the identity survives. */}
+        {/* Readability scrim — a deep dark veil over the spectrum so copy reads
+            cleanly and section content pops. Pools deeper behind the top-centre
+            hero headline, never fully clears (≥0.48) so text stays legible the
+            whole scroll; the beams survive as a subtle ambience. */}
         <div
           aria-hidden
           className="absolute inset-0"
           style={{
             background:
-              'radial-gradient(135% 105% at 50% 16%, rgba(3,4,10,0.62) 0%, rgba(3,4,10,0.36) 46%, rgba(3,4,10,0.30) 100%)',
+              'radial-gradient(135% 105% at 50% 16%, rgba(3,4,10,0.72) 0%, rgba(3,4,10,0.55) 46%, rgba(3,4,10,0.48) 100%)',
           }}
         />
       </div>
@@ -584,10 +584,10 @@ export default function Landing() {
           <section data-parallax-scope className="relative flex w-full flex-col items-center pt-14 sm:pt-16">
             <div className="pointer-events-none relative z-20 flex flex-col items-center" data-parallax-depth="-0.05">
               <h1 className="max-w-3xl font-serif text-5xl leading-[1.05] text-shadow-lux sm:text-6xl">
-                Your event, in <span className="text-foil-static">augmented reality</span>.
+                Your <span className="text-foil-static">Immersive</span> Virtual Photobooth
               </h1>
               <p className="mt-6 max-w-2xl text-base leading-relaxed text-brand-muted/85 sm:text-lg">
-                Give every guest a magical AR photo booth in their pocket — no app to download. Photos beam
+                Give every guest a magical photo booth in their pocket — no app to download. Photos beam
                 onto a live wall styled with frames and 3D magic you set up in minutes.
               </p>
 
@@ -613,7 +613,9 @@ export default function Landing() {
             {/* Focal visual — a live, auto-scrolling coverflow of real event
                 frames streaming actual moderated moments from those events'
                 walls. mt-12 on mobile keeps it clear of the hero fine print. */}
-            <div className="relative z-10 mt-10 w-full max-w-6xl sm:mt-4" data-parallax-depth="0.08">
+            {/* sm:mt-12 clears the hero fine print — the coverflow's focal card
+                scales up + lifts, so its top edge rises above the strip. */}
+            <div className="relative z-10 mt-10 w-full max-w-6xl sm:mt-12" data-parallax-depth="0.08">
               <LiveHeroCarousel className="w-full" onHasMedia={setHasLiveMedia} />
             </div>
             <p className="mt-6 font-label uppercase tracking-luxe text-[9px] text-brand-muted/45">
@@ -687,7 +689,7 @@ export default function Landing() {
                 Thirty seconds of what your guests experience — booth, wall, challenges and keepsakes.
               </p>
             </div>
-            <div data-reveal className="mx-auto mt-10 w-full max-w-4xl">
+            <div data-reveal data-parallax-depth="0.06" className="mx-auto mt-10 w-full max-w-4xl">
               <div
                 className="relative overflow-hidden rounded-3xl"
                 style={{
@@ -752,7 +754,7 @@ export default function Landing() {
               </p>
             </div>
 
-            <div data-reveal className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div data-reveal-stagger className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {TIERS.map((t) => (
                 <div
                   key={t.name}
@@ -805,7 +807,7 @@ export default function Landing() {
                 The things hosts ask before their first event.
               </p>
             </div>
-            <div data-reveal className="mt-10 flex flex-col gap-3">
+            <div data-reveal-stagger className="mt-10 flex flex-col gap-3">
               {FAQS.map((f) => (
                 <details key={f.q} className="group rounded-2xl border border-white/10 bg-white/[0.02] px-5 py-4 transition open:bg-white/[0.03]">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-left font-serif text-base text-brand-fg">

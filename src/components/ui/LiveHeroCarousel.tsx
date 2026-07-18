@@ -44,6 +44,18 @@ interface Media {
   url: string;
 }
 
+/**
+ * The frame SVGs (1080×1920) inset their art from the artboard edges, so drawn
+ * 1:1 they leave a visible margin ring inside the card. Scaling the overlay up
+ * slightly (clipped by the card's rounded overflow-hidden) pushes the frame art
+ * out to the card edges so the card reads as a free-floating framed photo.
+ */
+const FRAME_OVERSCAN = 1.07;
+
+/** Small viewports get a single, cheaper glow (two-layer shadows × 12 cards jank mobile GPUs). */
+const COMPACT_VIEWPORT =
+  typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches;
+
 /** One framed card that cycles its event's live media. */
 function FrameCard({ slot, pool, seed }: { slot: Slot; pool: Media[]; seed: number }) {
   const frameUrl = useMemo(() => {
@@ -64,12 +76,24 @@ function FrameCard({ slot, pool, seed }: { slot: Slot; pool: Media[]; seed: numb
   const media = pool.length ? pool[(idx + seed) % pool.length] : undefined;
 
   return (
-    <div className="w-40 shrink-0 sm:w-52" style={{ transform: 'rotateY(-24deg)', transformStyle: 'preserve-3d' }}>
+    // Transform is driven imperatively, per frame, by the marquee rAF loop
+    // (coverflow: scale/rotateY/lift by distance from the strip centre).
+    <div
+      className="w-40 shrink-0 sm:w-52"
+      style={{ transformStyle: 'preserve-3d', willChange: 'transform' }}
+    >
       <div
         className="relative aspect-[9/16] w-full overflow-hidden rounded-2xl sm:rounded-3xl"
         style={{
-          boxShadow: `0 0 34px -6px rgba(${slot.rgb}, 0.5), 0 30px 70px -28px rgba(0,0,0,0.85)`,
-          background: `radial-gradient(120% 90% at 50% 24%, rgba(${slot.rgb}, 0.32), transparent 66%), rgba(6, 7, 13, 0.82)`,
+          boxShadow: COMPACT_VIEWPORT
+            ? `0 18px 44px -18px rgba(${slot.rgb}, 0.45)`
+            : `0 0 34px -6px rgba(${slot.rgb}, 0.5), 0 30px 70px -28px rgba(0,0,0,0.85)`,
+          // With live media the photo fills the card edge-to-edge — no backdrop,
+          // so no dark ring ever shows around the frame art. The branded glow
+          // fill only paints the no-media fallback.
+          background: media
+            ? undefined
+            : `radial-gradient(120% 90% at 50% 24%, rgba(${slot.rgb}, 0.34), rgba(${slot.rgb}, 0.08) 58%, transparent 80%), linear-gradient(180deg, rgba(24, 26, 38, 0.92), rgba(8, 9, 15, 0.94))`,
         }}
       >
         {/* live moment (or branded fallback) — photos only: this card is
@@ -82,9 +106,16 @@ function FrameCard({ slot, pool, seed }: { slot: Slot; pool: Media[]; seed: numb
             <span className="font-label uppercase tracking-luxe text-[9px] text-white/50">{slot.label}</span>
           </div>
         )}
-        {/* the event's real frame, on top */}
+        {/* the event's real frame, on top — overscanned so its art reaches the card edges */}
         {frameUrl && (
-          <img src={frameUrl} alt="" aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" draggable={false} />
+          <img
+            src={frameUrl}
+            alt=""
+            aria-hidden
+            className="pointer-events-none absolute inset-0 h-full w-full"
+            style={{ transform: `scale(${FRAME_OVERSCAN})`, transformOrigin: 'center' }}
+            draggable={false}
+          />
         )}
         {/* glass sheen */}
         <div
@@ -136,6 +167,12 @@ export default function LiveHeroCarousel({
   const dragging = useRef(false);
   const paused = useRef(false);
   const lastX = useRef(0);
+  // Drag-intent gate: a pointer sequence only becomes a drag after ~8px of
+  // mostly-horizontal travel — so a tap, or a vertical page-scroll that starts
+  // over the strip, never grabs the track or pauses the marquee.
+  const pendingPointer = useRef<number | null>(null);
+  const startX = useRef(0);
+  const startY = useRef(0);
   // Hover-pause is a mouse affordance only — touch devices report no hover
   // capability, so a tap (which fires pointerenter too) never latches a pause
   // that only a pointerleave (which touch may never send) could clear.
@@ -150,6 +187,15 @@ export default function LiveHeroCarousel({
       typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let raf = 0;
     const speed = 0.35; // px/frame — a slow, smooth drift
+    // Coverflow tuning: centre card grows to CENTER_SCALE facing the viewer,
+    // falling off (raised cosine over FALLOFF_SLOTS card-widths) to EDGE_SCALE
+    // and ±EDGE_ROTATE_DEG (left cards face right, right cards face left).
+    const CENTER_SCALE = 1.22;
+    const EDGE_SCALE = 0.86;
+    const EDGE_ROTATE_DEG = 26;
+    const FALLOFF_SLOTS = 1.5;
+    const CENTER_LIFT_PX = 12; // slight upward translateY for the focal card
+    const CENTER_Z_PX = 90; // slight translateZ toward the viewer (perspective is on the container)
     const step = () => {
       if (!reduced && !dragging.current && !paused.current) offset.current -= speed;
       const half = track.scrollWidth / 2;
@@ -158,6 +204,32 @@ export default function LiveHeroCarousel({
         else if (offset.current > 0) offset.current -= half;
       }
       track.style.transform = `translateX(${offset.current}px)`;
+
+      // Per-card coverflow transforms, from the track offset + fixed slot width
+      // (cards are fixed-width flex items — no getBoundingClientRect per card).
+      const viewport = track.parentElement;
+      const kids = track.children;
+      if (viewport !== null && kids.length > 1) {
+        const first = kids[0] as HTMLElement;
+        const cardW = first.offsetWidth;
+        const slotW = (kids[1] as HTMLElement).offsetLeft - first.offsetLeft; // card + gap
+        if (slotW > 0) {
+          const centerX = viewport.clientWidth / 2;
+          const falloffPx = slotW * FALLOFF_SLOTS;
+          for (let i = 0; i < kids.length; i++) {
+            const el = kids[i] as HTMLElement;
+            // Card i's centre in viewport coords: track is left-aligned in the
+            // viewport and translated by offset.current.
+            const dx = offset.current + i * slotW + cardW / 2 - centerX;
+            const t = Math.min(Math.abs(dx) / falloffPx, 1); // 0 at centre → 1 at ≥1.5 slots out
+            const f = 0.5 * (1 + Math.cos(Math.PI * t)); // raised cosine: 1 at centre → 0 at edges
+            const scale = EDGE_SCALE + (CENTER_SCALE - EDGE_SCALE) * f;
+            const rot = (dx < 0 ? 1 : -1) * EDGE_ROTATE_DEG * (1 - f);
+            el.style.transform = `translate3d(0, ${-CENTER_LIFT_PX * f}px, ${CENTER_Z_PX * f}px) rotateY(${rot}deg) scale(${scale})`;
+            el.style.zIndex = String(1 + Math.round(f * 10)); // focal card overlaps its neighbours
+          }
+        }
+      }
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
@@ -170,7 +242,7 @@ export default function LiveHeroCarousel({
     <div
       className={`relative ${className}`}
       onPointerEnter={() => { if (hoverCapable.current) paused.current = true; }}
-      onPointerLeave={() => { paused.current = false; dragging.current = false; }}
+      onPointerLeave={() => { paused.current = false; dragging.current = false; pendingPointer.current = null; }}
     >
       {/* floor glow the frames stand on */}
       <div
@@ -197,12 +269,35 @@ export default function LiveHeroCarousel({
       >
         <div
           ref={trackRef}
-          className="flex w-max cursor-grab items-start gap-5 py-6 active:cursor-grabbing sm:gap-7"
-          style={{ willChange: 'transform' }}
-          onPointerDown={(e) => { dragging.current = true; lastX.current = e.clientX; e.currentTarget.setPointerCapture(e.pointerId); }}
-          onPointerMove={(e) => { if (dragging.current) { offset.current += e.clientX - lastX.current; lastX.current = e.clientX; } }}
-          onPointerUp={(e) => { dragging.current = false; paused.current = hoverCapable.current; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
-          onPointerCancel={(e) => { dragging.current = false; paused.current = hoverCapable.current; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
+          // touch-pan-y: vertical page-scrolls over the strip stay with the
+          // browser; only horizontal gestures reach the drag logic. py gives
+          // the enlarged focal card (1.22×, lifted) room to grow without
+          // crowding neighbouring page content.
+          className="flex w-max cursor-grab touch-pan-y items-start gap-5 py-14 active:cursor-grabbing sm:gap-7 sm:py-16"
+          style={{ willChange: 'transform', transformStyle: 'preserve-3d' }}
+          onPointerDown={(e) => {
+            pendingPointer.current = e.pointerId;
+            startX.current = e.clientX;
+            startY.current = e.clientY;
+            lastX.current = e.clientX;
+          }}
+          onPointerMove={(e) => {
+            if (dragging.current) {
+              offset.current += e.clientX - lastX.current;
+              lastX.current = e.clientX;
+            } else if (pendingPointer.current === e.pointerId) {
+              const dx = e.clientX - startX.current;
+              const dy = e.clientY - startY.current;
+              // Horizontal intent only: >8px travelled, mostly sideways.
+              if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+                dragging.current = true;
+                lastX.current = e.clientX;
+                try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+              }
+            }
+          }}
+          onPointerUp={(e) => { pendingPointer.current = null; dragging.current = false; paused.current = hoverCapable.current; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
+          onPointerCancel={(e) => { pendingPointer.current = null; dragging.current = false; paused.current = hoverCapable.current; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
         >
           {cards.map((slot, i) => (
             <FrameCard key={`${slot.event}-${slot.frameId}-${i}`} slot={slot} pool={pools[slot.event] ?? []} seed={i} />

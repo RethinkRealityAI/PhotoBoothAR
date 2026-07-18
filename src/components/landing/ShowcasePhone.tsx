@@ -5,7 +5,8 @@
  * ShowcasePhone — a modern-smartphone mockup whose screen runs the REAL booth
  * camera pipeline (CameraExperience). It is the interactive half of the
  * landing page's InteractiveShowcase centerpiece, driven by the parent's
- * `appState` machine: idle shows a glowing Open Camera screen with an AR HUD;
+ * `appState` machine: idle shows a glowing shutter CTA ("Tap to try it live",
+ * the demo's single entry point) over an AR HUD;
  * camera hands the screen to CameraExperience; beaming/wall darken the screen
  * while the parent collapses the phone into the beam ceremony.
  *
@@ -104,34 +105,59 @@ export default function ShowcasePhone({
             className="relative h-full w-full overflow-hidden rounded-[2.2rem]"
             style={{ background: 'radial-gradient(120% 90% at 50% 20%, rgba(91,140,255,0.14), rgba(5,6,11,0.97) 65%)' }}
           >
-            {/* Idle — glowing Open Camera screen + privacy line + AR HUD. */}
+            {/* Idle — the demo's single entry point: a glowing, softly pulsing
+                shutter with a foil "Tap to try it live" pill, over the AR HUD.
+                The pulse + breathing halo are ambient, so they still under
+                prefers-reduced-motion; the tap response always plays. */}
             {appState === 'idle' && (
-              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 px-6 text-center">
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 px-6 text-center">
                 <ArHud reduced={reduced} />
                 <motion.button
                   type="button"
                   onClick={onOpenCamera}
-                  className="group relative z-20 flex h-[76px] w-[76px] items-center justify-center rounded-full"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(91,140,255,0.28), rgba(124,108,247,0.12))',
-                    border: '1px solid rgba(91,140,255,0.6)',
-                  }}
-                  animate={reduced ? undefined : { boxShadow: [
-                    '0 0 26px -8px rgba(91,140,255,0.7)',
-                    '0 0 46px -4px rgba(91,140,255,0.95)',
-                    '0 0 26px -8px rgba(91,140,255,0.7)',
-                  ] }}
-                  transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
-                  whileTap={{ scale: 0.94 }}
+                  aria-label="Open the camera and try the live demo"
+                  className="group relative z-20 flex flex-col items-center gap-5"
+                  whileTap={{ scale: 0.95 }}
                 >
-                  <BoothIcon size={36} from="#5B8CFF" to="#7C6CF7" />
-                </motion.button>
-                <div className="relative z-20 flex flex-col items-center gap-2">
-                  <span className="font-label text-[11px] uppercase tracking-luxe text-brand-fg">Open Camera</span>
-                  <span className="max-w-[210px] text-[11px] leading-relaxed text-brand-muted/70">
-                    Your camera stays on your device — nothing is uploaded.
+                  {/* Shutter — concentric glowing rings around the booth mark. */}
+                  <motion.span
+                    className="relative flex h-[88px] w-[88px] items-center justify-center rounded-full"
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(91,140,255,0.30), rgba(124,108,247,0.14))',
+                      border: '1px solid rgba(91,140,255,0.65)',
+                      boxShadow: '0 0 32px -8px rgba(91,140,255,0.8)',
+                    }}
+                    animate={reduced ? undefined : {
+                      scale: [1, 1.04, 1],
+                      boxShadow: [
+                        '0 0 26px -8px rgba(91,140,255,0.7)',
+                        '0 0 54px -2px rgba(91,140,255,0.95)',
+                        '0 0 26px -8px rgba(91,140,255,0.7)',
+                      ],
+                    }}
+                    transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+                  >
+                    {/* Breathing halo ring — radiates outward like a shutter charge. */}
+                    {!reduced && (
+                      <motion.span
+                        aria-hidden
+                        className="absolute inset-0 rounded-full"
+                        style={{ border: '1.5px solid rgba(91,140,255,0.55)' }}
+                        animate={{ scale: [1, 1.5], opacity: [0.7, 0] }}
+                        transition={{ duration: 2.4, repeat: Infinity, ease: 'easeOut' }}
+                      />
+                    )}
+                    <span aria-hidden className="absolute inset-[7px] rounded-full border border-white/25" />
+                    <BoothIcon size={38} from="#5B8CFF" to="#7C6CF7" />
+                  </motion.span>
+                  {/* Foil pill label — the inviting call to action. */}
+                  <span className="bg-foil glow-accent rounded-full px-6 py-2.5 font-label text-[10px] font-bold uppercase tracking-luxe text-white">
+                    Tap to try it live
                   </span>
-                </div>
+                </motion.button>
+                <span className="relative z-20 max-w-[210px] text-[11px] leading-relaxed text-brand-muted/70">
+                  Your camera stays on your device — nothing is uploaded.
+                </span>
               </div>
             )}
 

@@ -358,14 +358,6 @@ function LiveWall({
   );
 }
 
-/* ── The 3-step how-it-works list, hued from the spectrum ─────────────── */
-
-const STEPS: { n: number; hue: string; title: string; body: string }[] = [
-  { n: 1, hue: SPECTRUM[0], title: 'Activate the camera', body: 'One tap — it runs right in your browser, on your device.' },
-  { n: 2, hue: SPECTRUM[2], title: 'Frame your shot', body: 'Pick a frame, an effect and a 3D prop, then hit the shutter.' },
-  { n: 3, hue: SPECTRUM[4], title: 'Watch the live wall', body: 'Beam it up and watch it land, in real time, on the wall.' },
-];
-
 /* ── Component ────────────────────────────────────────────────────────── */
 
 export default function InteractiveShowcase() {
@@ -641,49 +633,25 @@ export default function InteractiveShowcase() {
           transition={{ duration: 0.6, delay: 0.1 }}
           className="mt-4 max-w-md text-sm leading-relaxed text-brand-muted/75"
         >
-          Activate the camera, take a shot, and watch it beam onto the live wall — the exact loop
+          Tap the phone, take a shot, and watch it beam onto the live wall — the exact loop
           your guests get at the event. It all runs in your browser; nothing leaves your device.
         </motion.p>
 
-        <ol className="mt-8 flex w-full max-w-md flex-col gap-4">
-          {STEPS.map((step, i) => (
-            <motion.li
-              key={step.n}
-              initial={{ opacity: 0, x: -14 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true, amount: 0.3 }}
-              transition={{ duration: 0.5, delay: 0.15 + i * 0.08 }}
-              className="flex items-start gap-3.5"
-            >
-              <span
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-label text-[13px] font-semibold"
-                style={{ border: `1.5px solid ${step.hue}`, color: step.hue, boxShadow: `0 0 16px -6px ${step.hue}` }}
-              >
-                {step.n}
-              </span>
-              <div className="pt-0.5">
-                <p className="font-label text-[12px] uppercase tracking-wide text-brand-fg">{step.title}</p>
-                <p className="mt-0.5 text-[12.5px] leading-snug text-brand-muted/60">{step.body}</p>
-              </div>
-            </motion.li>
-          ))}
-        </ol>
-
+        {/* Status line — the single entry point is the glowing shutter ON the
+            phone itself; in idle this just points the visitor at it. */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.3 }}
-          transition={{ duration: 0.5, delay: 0.4 }}
+          transition={{ duration: 0.5, delay: 0.25 }}
           className="mt-9"
         >
           {appState === 'idle' && (
-            <button
-              type="button"
-              onClick={openCamera}
-              className="bg-foil rounded-full px-8 py-3.5 font-label text-[11px] font-bold uppercase tracking-luxe text-white glow-accent transition active:scale-[0.98]"
-            >
-              Open Camera
-            </button>
+            <p className="font-label text-[11px] uppercase tracking-luxe text-brand-muted/65">
+              Tap the phone to start
+              <span aria-hidden className="ml-1.5 lg:hidden">↓</span>
+              <span aria-hidden className="ml-1.5 hidden lg:inline">→</span>
+            </p>
           )}
           {appState === 'camera' && (
             <p className="flex items-center justify-center gap-2 font-label text-[11px] uppercase tracking-luxe text-brand-fg lg:justify-start">
