@@ -293,13 +293,26 @@ function LiveWall({
 
   return (
     <div className="relative">
+      {/* Ambient bloom bleeding a few px past the rounded edges — softens the
+          hard-edged "isolated black card" look into glowing glass, echoing
+          the carousel's "let it breathe" treatment without touching it. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -inset-3 rounded-[28px] opacity-80 blur-xl"
+        style={{
+          background: 'linear-gradient(160deg, rgba(91,140,255,0.20), rgba(34,211,238,0.10) 45%, transparent 75%)',
+        }}
+      />
       {/* Inline beam-dark surface (not .glass-strong: legacy gold tint, and
-          backdrop-filter under an animated 3D transform is a Safari hazard). */}
+          backdrop-filter under an animated 3D transform is a Safari hazard).
+          Border softened + a faint inner glow layered under the gradient so
+          the wall reads as glowing glass, not a flat plate. */}
       <div
         className="relative rounded-3xl p-4 sm:p-5"
         style={{
-          border: '1px solid rgba(91,140,255,0.28)',
-          background: 'linear-gradient(160deg, rgba(13,16,28,0.92), rgba(5,6,11,0.96))',
+          border: '1px solid rgba(91,140,255,0.22)',
+          boxShadow: 'inset 0 0 40px -10px rgba(91,140,255,0.18)',
+          background: 'linear-gradient(160deg, rgba(15,19,32,0.90), rgba(6,8,14,0.94))',
         }}
       >
         {/* Header */}
@@ -761,7 +774,7 @@ export default function InteractiveShowcase() {
         </div>
 
         {/* Live wall — left/back on desktop, below the phone on mobile. */}
-        <div className="relative z-10 w-full lg:absolute lg:inset-y-0 lg:left-0 lg:flex lg:w-[76%] lg:items-center">
+        <div className="relative z-10 w-full lg:absolute lg:inset-y-0 lg:left-0 lg:flex lg:w-[84%] lg:items-center">
           <motion.div className="w-full" style={{ x: wallPX, y: wallPY, perspective: '1200px' }}>
           <motion.div
             className="w-full"
@@ -812,7 +825,7 @@ export default function InteractiveShowcase() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.55, duration: 0.4 }}
-              className="rounded-full border border-white/15 bg-white/[0.05] px-8 py-3.5 font-label text-[11px] font-bold uppercase tracking-luxe text-brand-fg backdrop-blur-sm transition hover:bg-white/[0.09] active:scale-[0.98]"
+              className="rounded-full bg-foil glow-accent px-8 py-3.5 font-label text-[11px] font-bold uppercase tracking-luxe text-white transition hover:brightness-110 active:scale-[0.98]"
             >
               Capture again
             </motion.button>

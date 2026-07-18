@@ -19,8 +19,6 @@ import { Link } from 'react-router-dom';
 import { Check, ChevronDown } from 'lucide-react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { EVENT_TEMPLATES } from '../lib/eventTemplates';
-import TemplatePreview from '../components/ui/TemplatePreview';
 import SpectrumField from '../components/ui/SpectrumField';
 import LiveHeroCarousel from '../components/ui/LiveHeroCarousel';
 import { BoothIcon, WallIcon, ChallengeIcon, CardIcon, type BeamIconProps } from '../components/ui/BeamIcons';
@@ -72,7 +70,12 @@ const FEATURES: Feature[] = [
     title: 'A photo booth that lives in every pocket',
     copy:
       'Guests scan one QR code and step straight into an immersive photo booth in their browser — no app, no queue. Face-tracked 3D props, live WebGL effects and your event’s frames follow every smile.',
-    bullets: ['Face-tracked 3D props & frames', 'Cinematic live effects', 'Photo & video capture, no app'],
+    bullets: [
+      'Face-tracked 3D props & frames',
+      'Cinematic live effects',
+      'Photo & video capture, no app',
+      'Wedding to gala in one tap — then fine-tune every detail in the studio',
+    ],
     Icon: BoothIcon,
     from: '#5B8CFF',
     to: '#7C6CF7',
@@ -175,8 +178,6 @@ const TIERS: Tier[] = [
   },
 ];
 
-const SHOWCASE = ['wedding', 'party', 'gala'];
-
 /** Dead-simple "how it works" — three steps, each with a transparent-cutout
  *  hero that floats, tilts in 3D and drifts on scroll (parallax). `image` is the
  *  current brand cutout — swappable for the Higgsfield renders once handed off. */
@@ -251,7 +252,7 @@ function StepArt({ src, rgb, delay }: { src: string; rgb: string; delay: number 
   if (failed) {
     return (
       <div
-        className="animate-float h-40 w-32 rounded-3xl"
+        className="animate-float h-48 w-40 rounded-3xl"
         style={{ background: `radial-gradient(circle, rgba(${rgb}, 0.28), transparent 70%)`, animationDelay: `${delay}s` }}
       />
     );
@@ -263,7 +264,7 @@ function StepArt({ src, rgb, delay }: { src: string; rgb: string; delay: number 
       aria-hidden
       loading="lazy"
       onError={() => setFailed(true)}
-      className="animate-float max-h-44 w-auto max-w-full object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.6)]"
+      className="animate-float max-h-56 w-auto max-w-full object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.6)] sm:max-h-64"
       style={{ animationDelay: `${delay}s` }}
     />
   );
@@ -391,7 +392,6 @@ function FeatureSection({ feature }: { feature: Feature }) {
 export default function Landing() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const showcase = SHOWCASE.map((id) => EVENT_TEMPLATES.find((t) => t.id === id)!).filter(Boolean);
   // Assume live media until the carousel's pools resolve, so the caption
   // never overclaims once we know every card is an empty branded frame.
   const [hasLiveMedia, setHasLiveMedia] = useState(true);
@@ -442,6 +442,24 @@ export default function Landing() {
           },
         );
       });
+      // How-it-works steps get their own, punchier stagger (bigger rise +
+      // wider gap between steps) than the generic [data-reveal-stagger] used
+      // for bullet lists / pricing tiers, so the three steps read as a
+      // deliberate sequence rather than the page's default cascade.
+      gsap.utils.toArray<HTMLElement>('[data-steps-reveal]', content).forEach((group) => {
+        gsap.fromTo(
+          group.children,
+          { y: 56, opacity: 0 },
+          {
+            y: 0,
+            opacity: 1,
+            duration: 0.9,
+            stagger: 0.16,
+            ease: 'power3.out',
+            scrollTrigger: { trigger: group, scroller, start: 'top 85%' },
+          },
+        );
+      });
       gsap.utils.toArray<HTMLElement>('[data-parallax-depth]', content).forEach((el) => {
         const depth = parseFloat(el.dataset.parallaxDepth ?? '0.15');
         gsap.to(el, {
@@ -482,7 +500,7 @@ export default function Landing() {
       }
     });
     mm.add('(prefers-reduced-motion: reduce)', () => {
-      gsap.utils.toArray<HTMLElement>('[data-reveal], [data-reveal-stagger]', content).forEach((el) => {
+      gsap.utils.toArray<HTMLElement>('[data-reveal], [data-reveal-stagger], [data-steps-reveal]', content).forEach((el) => {
         gsap.fromTo(
           el,
           { opacity: 0 },
@@ -554,7 +572,7 @@ export default function Landing() {
             convert). Blurred glass so content reads as it passes underneath. */}
         <header className="sticky top-0 z-40 -mx-6 flex items-center justify-between border-b border-white/5 bg-brand-bg/70 px-6 py-3 backdrop-blur-md">
           <span className="font-serif text-2xl font-semibold tracking-wide text-foil-static">Beamwall</span>
-          <nav className="flex items-center gap-2.5">
+          <nav className="liquid-glass flex items-center gap-1.5 rounded-full p-1.5">
             <a href="#demo" className="hidden sm:inline rounded-full px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors">
               Demo
             </a>
@@ -581,7 +599,7 @@ export default function Landing() {
             for a 3D layered feel. The copy wrapper is pointer-events-none so
             frame clicks pass through; its links opt back in. */}
         <main className="flex flex-1 flex-col items-center overflow-x-clip text-center">
-          <section data-parallax-scope className="relative flex w-full flex-col items-center pt-14 sm:pt-16">
+          <section data-parallax-scope className="relative flex w-full flex-col items-center pt-8 sm:pt-10">
             <div className="pointer-events-none relative z-20 flex flex-col items-center" data-parallax-depth="-0.05">
               <h1 className="max-w-3xl font-serif text-5xl leading-[1.05] text-shadow-lux sm:text-6xl">
                 Your <span className="text-foil-static">Immersive</span> Virtual Photobooth
@@ -591,7 +609,7 @@ export default function Landing() {
                 onto a live wall styled with frames and 3D magic you set up in minutes.
               </p>
 
-              <div className="mt-9 flex flex-col items-center gap-3">
+              <div className="mt-6 flex flex-col items-center gap-3">
                 <div className="flex flex-col items-center gap-3 sm:flex-row">
                   <Link
                     to="/signup"
@@ -632,7 +650,7 @@ export default function Landing() {
                 From sign-up to a wall full of moments — three steps, no app, no queue.
               </p>
             </div>
-            <div data-reveal-stagger className="mx-auto mt-14 grid w-full max-w-5xl gap-10 sm:grid-cols-3 sm:gap-8">
+            <div data-steps-reveal className="mx-auto mt-14 grid w-full max-w-5xl gap-10 sm:grid-cols-3 sm:gap-8">
               {HOW_STEPS.map((s, i) => (
                 <div key={s.n} className="flex flex-col items-center text-center">
                   {/* Floating, 3D-tilted, parallax hero. The parallax drift lives
@@ -640,7 +658,7 @@ export default function Landing() {
                       layer; the float on the image itself — three separate
                       elements so none of the transforms fight each other. */}
                   <div
-                    className="relative mb-6 flex h-44 w-full items-center justify-center sm:h-52"
+                    className="relative mb-6 flex h-56 w-full items-center justify-center sm:h-64"
                     data-parallax-depth={s.depth}
                     style={{ perspective: '1000px' }}
                   >
@@ -699,29 +717,6 @@ export default function Landing() {
               >
                 <FilmEmbed src={promoVideo} poster={promoPoster} label="Beamwall intro film" />
               </div>
-            </div>
-          </section>
-
-          {/* Live themed showcase */}
-          <section data-parallax-scope className="mt-32 w-full">
-            <div data-reveal className="relative flex flex-col items-center">
-              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">Pick a style, in one tap</h2>
-              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
-                Wedding, gala, birthday, corporate or party — booth, frames and wall recolor instantly, then
-                fine-tune everything in the studio.
-              </p>
-            </div>
-            <div data-reveal-stagger className="mt-10 grid w-full grid-cols-3 gap-4 sm:gap-6 mx-auto max-w-3xl">
-              {showcase.map((t, i) => (
-                <div key={t.id} className={`flex flex-col items-center gap-2.5 ${i === 1 ? 'sm:-translate-y-4' : ''}`}>
-                  <div className="w-full">
-                    <TemplatePreview template={t} />
-                  </div>
-                  <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">
-                    {t.emoji} {t.label}
-                  </span>
-                </div>
-              ))}
             </div>
           </section>
 

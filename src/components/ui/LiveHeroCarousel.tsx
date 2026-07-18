@@ -33,10 +33,10 @@ interface Slot {
 /** Base strip — real events × their real frames; duplicated for the loop. */
 const SLOTS: Slot[] = [
   { event: 'jenna-jake', label: 'Jenna & Jake', frameId: 'jj-neon-frame', rgb: '236, 72, 153' },
-  { event: 'hope-gala', label: 'Hope Gala', frameId: 'frame-classic', rgb: '212, 175, 55' },
-  { event: 'detola-wuyi', label: 'Detola & Wuyi', frameId: 'dw-frame-monogram', rgb: '31, 169, 113' },
-  { event: 'jenna-jake', label: 'Jenna & Jake', frameId: 'jj-lower-third', rgb: '167, 139, 250' },
-  { event: 'hope-gala', label: 'Hope Gala', frameId: 'frame-deco', rgb: '212, 175, 55' },
+  { event: 'hope-gala', label: 'Hope Gala', frameId: 'frame-classic-gold', rgb: '212, 175, 55' },
+  { event: 'detola-wuyi', label: 'Detola & Wuyi', frameId: 'frame-hexagon-plain', rgb: '31, 169, 113' },
+  { event: 'jenna-jake', label: 'Jenna & Jake', frameId: 'jj-equalizer', rgb: '167, 139, 250' },
+  { event: 'hope-gala', label: 'Hope Gala', frameId: 'frame-deco-plain', rgb: '212, 175, 55' },
   { event: 'detola-wuyi', label: 'Detola & Wuyi', frameId: 'dw-frame-classic', rgb: '212, 175, 55' },
 ];
 
@@ -123,7 +123,6 @@ function FrameCard({ slot, pool, seed }: { slot: Slot; pool: Media[]; seed: numb
           style={{ background: 'linear-gradient(168deg, rgba(255,255,255,0.10), transparent 30%)' }}
         />
       </div>
-      <p className="mt-3 text-center font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">{slot.label}</p>
     </div>
   );
 }
