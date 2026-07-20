@@ -3,14 +3,17 @@
   Beamwall · Live Wall — 30s feature film (HyperFrames composition "wall").
   Scene map (VO: assets/vo-wall.m4a, 24.9s, starts at 0.8s):
     S1 0.0–4.6   sting — real venue footage full-bleed, title over scrim
-    S2 4.4–17.6  HOW IT WORKS — figure captures in a phone (real selfie clip
-                 on the phone screen), flash, the photo flies to a wall grid
-                 of skeleton frames, then other photos beam in live
-    S3 17.4–23.6 view modes — mosaic band morphs, mode labels cycle
-    S4 23.4–30.0 outro — wordmark, CTA pill, QR
+    S2 4.4–15.4  HOW IT WORKS — a real capture photo on the phone screen
+                 (assets/photos/cells/wall-phone.jpg — NO selfie clips in
+                 this film), flash, the photo flies to the wall grid, then
+                 other real gala photos (wall-gala cells) beam in live
+    S3 15.2–20.6 view modes — wedding-photo band drifts, Mosaic/Slideshow/
+                 Marquee chips cycle
+    S3b 20.4–25.6 one-tap moderation — phone with a pending photo,
+                 Approve/Hide pills, tap ring, "On the wall" toast
+    S4 25.4–30.0 outro — wordmark, CTA pill, QR
   Contract: root omits data-duration (timeline pins 30.0); scenes alternate
-  tracks 1/2; <video>/<audio> are direct root children (framework-owned),
-  positioned to coincide with in-scene chrome (the phone screen rect).
+  tracks 1/2; <audio> are direct root children (framework-owned).
 -->
 <html lang="en">
   <head>
@@ -35,18 +38,29 @@
       /* S2 how-it-works */
       #s2 { text-align: left; }
       #s2-phone-wrap { position: absolute; left: 300px; top: 250px; }
-      /* the selfie <video> is a root child positioned exactly over the phone screen */
-      #wl-clip-selfie { position: absolute; left: 316px; top: 266px; width: 308px; height: 665px; object-fit: cover; border-radius: 42px; z-index: 12; }
-      #s2-phone-wrap .bw-phone { position: relative; z-index: 13; background: transparent; }
-      #s2-phone-wrap .bw-phone .screen { background: transparent; }
+      #s2-phone-wrap .bw-phone { position: relative; z-index: 13; }
       #s2-steps { position: absolute; left: 300px; top: 100px; }
-      .step-lbl { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.32em; font-size: 26px; opacity: 0; }
+      .step-lbl { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3em; font-size: 31px; opacity: 0; }
       #s2-step1 { color: var(--blue); }
-      #s2-step2 { color: var(--teal); position: absolute; left: 690px; top: 0; width: 600px; }
+      #s2-step2 { color: var(--teal); position: absolute; left: 690px; top: 0; width: 760px; }
       #s2-grid { position: absolute; right: 210px; top: 240px; display: grid; grid-template-columns: repeat(3, 210px); grid-template-rows: repeat(3, 210px); gap: 26px; }
       .skel { border: 2px dashed rgba(169, 196, 255, 0.28); border-radius: 22px; background: rgba(9, 11, 20, 0.5); }
-      .cellfill { position: absolute; inset: 0; border-radius: 20px; opacity: 0; }
-      #s2-flycard { position: absolute; left: 400px; top: 480px; width: 160px; height: 213px; border-radius: 16px; background: linear-gradient(150deg, #5b8cff, #38bdf8); box-shadow: 0 0 44px -6px rgba(238,243,255,0.55); opacity: 0; z-index: 20; }
+      .cellfill { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 20px; opacity: 0; }
+      #s2-flycard { position: absolute; left: 400px; top: 480px; width: 160px; height: 213px; border-radius: 16px; background-size: cover; background-position: 50% 22%; box-shadow: 0 0 44px -6px rgba(238,243,255,0.55); opacity: 0; z-index: 20; }
+
+      /* S3b one-tap moderation */
+      #s3b { text-align: left; }
+      #s3b-phone-wrap { position: absolute; left: 430px; top: 220px; }
+      #s3b-phone-wrap .bw-phone { position: relative; }
+      .mod-btns { position: absolute; left: 16px; right: 16px; bottom: 26px; display: flex; gap: 14px; z-index: 4; }
+      .mod-btn { flex: 1; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; font-size: 19px; padding: 16px 0; border-radius: 999px; background: rgba(5, 6, 11, 0.72); border: 1.5px solid rgba(169, 196, 255, 0.4); color: var(--fg); }
+      #mod-approve { border-color: rgba(52, 211, 153, 0.8); color: var(--green); }
+      #mod-tap { position: absolute; left: 50%; bottom: 30px; margin-left: -86px; width: 44px; height: 44px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 30px rgba(255, 255, 255, 0.8); opacity: 0; z-index: 5; }
+      #mod-check { position: absolute; left: 50%; top: 40%; width: 96px; height: 96px; margin: -48px 0 0 -48px; border-radius: 50%; background: rgba(5, 20, 14, 0.82); border: 2px solid var(--green); box-shadow: 0 0 50px -6px rgba(52, 211, 153, 0.8); display: grid; place-items: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 52px; color: var(--green); opacity: 0; z-index: 5; }
+      #mod-toast { position: absolute; left: 430px; top: 140px; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.22em; font-size: 22px; color: #06130c; padding: 16px 36px; border-radius: 999px; background: linear-gradient(115deg, #34d399, #6ee7b7 55%, #34d399); box-shadow: 0 0 50px -8px rgba(52, 211, 153, 0.8); opacity: 0; z-index: 14; }
+      #s3b-copy { position: absolute; left: 1010px; top: 400px; width: 700px; }
+      #s3b-copy .title-md { text-align: left; }
+      #s3b-sub { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3em; font-size: 26px; color: var(--green); margin: 34px 0 0; }
 
       /* S3 modes */
       #s3-band { position: absolute; left: -60px; right: -60px; top: 380px; display: flex; gap: 30px; }
@@ -77,20 +91,17 @@
         </div>
       </div>
 
-      <!-- S2 selfie footage inside the phone (root child; window matches S2 capture beat) -->
-      <video id="wl-clip-selfie" src="assets/clip-booth-selfie.mp4" data-start="4.4" data-duration="5.2" data-track-index="4" data-volume="0" muted></video>
-
-      <div id="s2" class="clip scene" data-start="4.4" data-duration="13.2" data-track-index="2">
+      <div id="s2" class="clip scene" data-start="4.4" data-duration="11.0" data-track-index="2">
         <div id="s2-steps">
           <span class="step-lbl" id="s2-step1">1 · Guest captures</span>
-          <span class="step-lbl" id="s2-step2">2 · It beams onto the wall — live</span>
+          <span class="step-lbl" id="s2-step2">2 · Every shot beams in — live</span>
         </div>
         <div id="s2-phone-wrap"></div>
         <div id="s2-grid"></div>
         <div id="s2-flycard"></div>
       </div>
 
-      <div id="s3" class="clip scene" data-start="17.4" data-duration="6.2" data-track-index="1">
+      <div id="s3" class="clip scene" data-start="15.2" data-duration="5.4" data-track-index="1">
         <div id="s3-inner">
           <div id="s3-modes">
             <span class="mode-chip" id="mode-mosaic">Mosaic</span>
@@ -101,7 +112,18 @@
         </div>
       </div>
 
-      <div id="s4" class="clip scene" data-start="23.4" data-duration="6.6" data-track-index="2">
+      <div id="s3b" class="clip scene" data-start="20.4" data-duration="5.2" data-track-index="2">
+        <div id="s3b-inner">
+          <div id="s3b-phone-wrap"></div>
+          <div id="mod-toast">On the wall ✓</div>
+          <div id="s3b-copy">
+            <h2 class="title-md">One-tap <em class="foil" style="font-style: normal">moderation</em>.</h2>
+            <p id="s3b-sub">Right from your phone</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="s4" class="clip scene" data-start="25.4" data-duration="4.6" data-track-index="1">
         <div class="stack">
           <h2 class="title-xl foil" id="s4-wordmark" style="font-size: 150px">Beamwall</h2>
           <div class="pill" id="s4-pill" style="margin-top: 54px">Create your event</div>
@@ -117,39 +139,80 @@
         var root = document.getElementById("root");
         BW.buildBackdrop(root, "wl");
 
-        /* phone chrome (screen left transparent; the real <video> sits over it) */
+        /* phone chrome — the captured photo lives INSIDE the screen */
         var ph = BW.phone("s2-phone", 340);
+        var shot = document.createElement("img");
+        shot.id = "s2-shot";
+        shot.src = "assets/photos/cells/wall-phone.jpg";
+        shot.alt = "";
+        ph.screen.appendChild(shot);
         document.getElementById("s2-phone-wrap").appendChild(ph.el);
 
-        /* wall grid: 9 skeleton cells; each gets a hidden colored fill */
+        /* wall grid: 9 skeleton cells; each gets a hidden REAL photo fill.
+           Center cell (4) receives the very shot that flew off the phone. */
         var grid = document.getElementById("s2-grid");
-        var FILLS = ["blue", "magenta", "orange", "teal", "violet", "green", "cyan", "blue", "magenta"];
+        var CELLS = [
+          "wall-gala-r1c1", "wall-gala-r1c2", "wall-gala-r1c3",
+          "wall-gala-r2c1", "wall-phone", "wall-gala-r2c3",
+          "wall-gala-r3c1", "wall-gala-r3c2", "wall-gala-r3c3",
+        ];
         for (var i = 0; i < 9; i++) {
           var cell = document.createElement("div");
           cell.className = "skel";
           cell.id = "cell-" + i;
           cell.style.position = "relative";
-          var fill = document.createElement("div");
+          var fill = document.createElement("img");
           fill.className = "cellfill";
           fill.id = "fill-" + i;
-          var h = BW.hue(FILLS[i]);
-          fill.style.background = "linear-gradient(150deg, rgba(" + h.rgb + ",0.9), rgba(" + h.rgb + ",0.45))";
-          fill.style.boxShadow = "inset 0 0 40px -10px rgba(255,255,255,0.35)";
+          fill.src = "assets/photos/cells/" + CELLS[i] + ".jpg";
+          fill.alt = "";
+          if (i === 4) fill.style.objectPosition = "50% 22%";
           cell.appendChild(fill);
           grid.appendChild(cell);
         }
 
-        /* S3 marquee band of frames */
+        /* S3 marquee band of frames — real wedding photos */
         var band = document.getElementById("s3-band");
-        for (var b = 0; b < 8; b++) {
+        var BAND = ["r1c1", "r1c2", "r1c3", "r2c1", "r2c2", "r2c3", "r3c1", "r3c2"];
+        BAND.forEach(function (pos, b) {
           var hue = BW.HUES[b % 7];
           var fr = BW.frame("band-" + b, hue, 250, 330);
-          var f2 = document.createElement("div");
-          f2.className = "fill";
-          f2.style.background = "linear-gradient(150deg, rgba(" + hue.rgb + ",0.75), rgba(" + hue.rgb + ",0.3))";
+          var f2 = document.createElement("img");
+          f2.src = "assets/photos/cells/wall-wed-" + pos + ".jpg";
+          f2.alt = "";
           fr.insertBefore(f2, fr.firstChild);
           band.appendChild(fr);
-        }
+        });
+
+        /* S3b moderation phone — pending photo + Approve/Hide pills in-screen */
+        var mph = BW.phone("s3b-phone", 310);
+        var pend = document.createElement("img");
+        pend.id = "s3b-pend";
+        pend.src = "assets/photos/cells/wall-wed-r3c3.jpg";
+        pend.alt = "";
+        mph.screen.appendChild(pend);
+        var btns = document.createElement("div");
+        btns.className = "mod-btns";
+        var bApprove = document.createElement("div");
+        bApprove.className = "mod-btn";
+        bApprove.id = "mod-approve";
+        bApprove.textContent = "Approve";
+        var bHide = document.createElement("div");
+        bHide.className = "mod-btn";
+        bHide.id = "mod-hide";
+        bHide.textContent = "Hide";
+        btns.appendChild(bApprove);
+        btns.appendChild(bHide);
+        mph.screen.appendChild(btns);
+        var tap = document.createElement("div");
+        tap.id = "mod-tap";
+        mph.screen.appendChild(tap);
+        var chk = document.createElement("div");
+        chk.id = "mod-check";
+        chk.textContent = "✓";
+        mph.screen.appendChild(chk);
+        document.getElementById("s3b-phone-wrap").appendChild(mph.el);
+        document.getElementById("s2-flycard").style.backgroundImage = "url(assets/photos/cells/wall-phone.jpg)";
 
         /* ── timeline ── */
         var EASE = "power3.out";
@@ -164,19 +227,20 @@
 
         /* S2 — capture → beam → fill */
         tl.fromTo("#s2-phone-wrap", { opacity: 0, y: 90 }, { opacity: 1, y: 0, duration: 0.9, ease: EASE }, 4.7);
+        tl.fromTo("#s2-shot", { scale: 1.12 }, { scale: 1.0, duration: 3.4, ease: "sine.out" }, 4.7);
         tl.fromTo("#s2-step1", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 5.1);
         tl.fromTo("#s2-grid", { opacity: 0, x: 80 }, { opacity: 1, x: 0, duration: 0.9, ease: EASE }, 5.4);
-        BW.flashAt(tl, "wl", 8.7, 0.9); /* the capture moment */
+        BW.flashAt(tl, "wl", 7.6, 0.9); /* the capture moment */
         /* photo flies from the phone into the center cell (right ≈ +860px, up ≈ -60px) */
         tl.fromTo(
           "#s2-flycard",
           { opacity: 0, x: 0, y: 0, scale: 0.6, rotation: -6 },
           { opacity: 1, x: 862, y: -47, scale: 1.31, rotation: 0, duration: 1.0, ease: "power2.inOut" },
-          8.95
+          7.85
         );
-        tl.to("#s2-flycard", { opacity: 0, duration: 0.3 }, 10.05);
-        tl.fromTo("#fill-4", { opacity: 0 }, { opacity: 1, duration: 0.35 }, 10.0);
-        tl.fromTo("#s2-step2", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 10.2);
+        tl.to("#s2-flycard", { opacity: 0, duration: 0.3 }, 8.95);
+        tl.fromTo("#fill-4", { opacity: 0 }, { opacity: 1, duration: 0.35 }, 8.9);
+        tl.fromTo("#s2-step2", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 9.1);
         /* other guests' photos beam in one by one — the wall is alive */
         var order = [0, 8, 2, 6, 1, 5, 3, 7];
         order.forEach(function (idx, n) {
@@ -184,29 +248,41 @@
             "#fill-" + idx,
             { opacity: 0, scale: 0.7 },
             { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.6)" },
-            11.0 + n * 0.62
+            9.8 + n * 0.52
           );
         });
-        tl.to("#s2", { opacity: 0, duration: 0.55, ease: "power2.in" }, 17.0);
+        tl.to("#s2", { opacity: 0, duration: 0.55, ease: "power2.in" }, 14.8);
+        tl.set("#s2", { opacity: 0 }, 15.4);
 
         /* S3 — modes cycle while the band drifts */
-        tl.fromTo("#s3-band", { x: 120, opacity: 0 }, { opacity: 1, duration: 0.8, ease: EASE }, 17.7);
-        tl.to("#s3-band", { x: -420, duration: 5.4, ease: "none" }, 17.7);
+        tl.fromTo("#s3-band", { x: 120, opacity: 0 }, { opacity: 1, duration: 0.8, ease: EASE }, 15.5);
+        tl.to("#s3-band", { x: -420, duration: 4.6, ease: "none" }, 15.5);
         var modes = ["mosaic", "slideshow", "marquee"];
         modes.forEach(function (m, n) {
-          var at = 17.9 + n * 1.7;
+          var at = 15.7 + n * 1.5;
           tl.fromTo("#mode-" + m, { opacity: 0.55 }, { opacity: 1, duration: 0.3 }, at);
           tl.to("#mode-" + m, { color: "#ffffff", borderColor: "rgba(91,140,255,0.7)", boxShadow: "0 0 40px -8px rgba(91,140,255,0.6)", duration: 0.3 }, at);
-          if (n < 2) tl.to("#mode-" + m, { opacity: 0.55, color: "#a9b4cc", borderColor: "rgba(169,196,255,0.25)", boxShadow: "none", duration: 0.3 }, at + 1.7);
+          if (n < 2) tl.to("#mode-" + m, { opacity: 0.55, color: "#a9b4cc", borderColor: "rgba(169,196,255,0.25)", boxShadow: "none", duration: 0.3 }, at + 1.5);
         });
-        tl.to("#s3-inner", { opacity: 0, duration: 0.5, ease: "power2.in" }, 22.9);
-        tl.set("#s3-inner", { opacity: 0 }, 23.4);
+        tl.to("#s3-inner", { opacity: 0, duration: 0.5, ease: "power2.in" }, 20.0);
+        tl.set("#s3-inner", { opacity: 0 }, 20.6);
+
+        /* S3b — one-tap moderation */
+        tl.fromTo("#s3b-phone-wrap", { opacity: 0, y: 90 }, { opacity: 1, y: 0, duration: 0.9, ease: EASE }, 20.7);
+        tl.fromTo("#s3b-copy", { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.9, ease: EASE }, 21.2);
+        tl.fromTo("#mod-tap", { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.35, ease: "power2.out" }, 22.7);
+        tl.to("#mod-tap", { opacity: 0, scale: 1.9, duration: 0.5, ease: "power2.out" }, 23.05);
+        tl.to("#mod-approve", { boxShadow: "0 0 40px -4px rgba(52,211,153,0.9)", background: "rgba(9,40,28,0.9)", duration: 0.3 }, 23.0);
+        tl.fromTo("#mod-check", { opacity: 0, scale: 0.5 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.8)" }, 23.3);
+        tl.fromTo("#mod-toast", { opacity: 0, y: 24, scale: 0.7 }, { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "back.out(1.7)" }, 23.7);
+        tl.to("#s3b-inner", { opacity: 0, duration: 0.5, ease: "power2.in" }, 25.0);
+        tl.set("#s3b-inner", { opacity: 0 }, 25.6);
 
         /* S4 — outro */
-        tl.fromTo("#s4-wordmark", { opacity: 0, y: -70, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 1.0, ease: EASE }, 23.8);
-        tl.fromTo("#s4-pill", { opacity: 0, y: 34, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: "back.out(1.6)" }, 24.5);
-        tl.fromTo("#s4-qr", { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.5)" }, 24.9);
-        tl.fromTo("#s4-fine", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 25.3);
+        tl.fromTo("#s4-wordmark", { opacity: 0, y: -70, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 1.0, ease: EASE }, 25.8);
+        tl.fromTo("#s4-pill", { opacity: 0, y: 34, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: "back.out(1.6)" }, 26.4);
+        tl.fromTo("#s4-qr", { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.5)" }, 26.8);
+        tl.fromTo("#s4-fine", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 27.1);
         tl.to("#s4 .stack", { opacity: 0, duration: 0.6, ease: "power2.in" }, 29.2);
 
         /* pin duration */

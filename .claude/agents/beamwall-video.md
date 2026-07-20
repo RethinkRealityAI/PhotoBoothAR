@@ -350,3 +350,40 @@ re-encoded → file size sane (<2MB for landing embeds) → embedded/committed �
   wiring cells, Read each vendored grid PNG and check the 3x3 gutters are
   clean; slice with ffmpeg crop (2048/3≈683px cells) or CSS
   background-size:300%/background-position.
+- 2026-07-20 (same task, phase 3): Full rebuild of the four feature films
+  SHIPPED (booth/wall/challenges/cards → src/assets/landing/*-feature.mp4 +
+  posters, 30.00s exactly, 0.65-1.27MB each). Findings:
+  1. **Check execute bits before rendering in a restored workspace.** The
+     @ffprobe-installer binary came back -rw-r--r-- (no +x) while the
+     @ffmpeg-installer one kept its bit; render dies instantly with
+     `spawn ... ffprobe EACCES` + a misleading "Try --docker" hint.
+     `chmod +x node_modules/@ffprobe-installer/linux-x64/ffprobe` fixes it.
+  2. **Static imgs INSIDE `BW.phone(...).screen` beat the root-child video
+     overlay pattern.** kit.css already styles `.bw-phone .screen > img`
+     (inset 0, cover) — only framework-owned <video>/<audio> must be root
+     children with page-coord overlay math. Wall/challenges phone screens +
+     the wall moderation phone (photo + Approve/Hide pills + tap ring, all
+     appended into screen) needed zero absolute page coordinates.
+  3. nano_banana_pro 3x3 grids sliced perfectly at 683px cell offsets with a
+     26px inset (95px for cards-grid, which came back matted on charcoal
+     with inset cells). "Vertical smartphone photo" prompts LOVE painting
+     fake phone UI chrome (garbled mode labels, FaceTime End Call, bezels) —
+     crop it out at derive time and re-eyeball: wall-phone crop
+     (337,180,866x1870), cards-msg crop (245,335,810x1273) inside the bezel.
+     Derived composition-facing jpgs live in assets/photos/cells/ (~2.4MB,
+     49 files, q:v 4, 512px squares / 512-420px portraits); 2k sources
+     untouched and never referenced by compositions.
+  4. Booth's 5.04s clip-booth-selfie window now ends at 9.4s and hard-cuts
+     to `booth-capture.jpg` (the clip's own last frame, extracted with
+     `-sseof -0.2`) + a "Saved" chip — no dark-screen tail inside the phone,
+     continuity kept, and the girl-selfie clip stays at exactly ONE use
+     across the whole studio (booth S2; wall/challenges/cards have zero).
+  5. Timing: ~9min/film render at 1920x1080/--workers 4 (948+31 frames);
+     encode `-t 30.0 -vf scale=1280:720 crf 27 -an` lands 178-338kb/s files
+     that end mid-outro-fade → clean loop into the bg-only opening ramp.
+  6. Full verification loop used: lint 0 errors x4 (booth keeps the known
+     duplicate_media_discovery_risk false positive) → validate 0 errors x4
+     (bed/clip duration-probe warning = known headless limitation) →
+     snapshot contact sheets eyeballed per scene → render → encode → poster
+     frames (booth 16.2s wall 13.5s challenges 16.8s cards 10.4s, all
+     photo-rich with legible callouts) → end-frame loop check → tsc + build.

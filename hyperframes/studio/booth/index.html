@@ -5,10 +5,13 @@
     S1 0.0–4.4   sting — glowing glass frame beams in with the booth
                  portrait; eyebrow + headline
     S2 4.2–12.6  the booth in action — phone with real selfie footage on
-                 its screen, AR sparkles popping around it, caption chips
-                 cascading in on the right
-    S3 12.4–23.8 point/play/capture montage — three glass frames rise
-                 staggered (Frames / Effects / Props), a QR chip appears
+                 its screen (the ONE permitted clip-booth-selfie use across
+                 the studio), AR sparkles popping, callout chips cascade:
+                 face-tracked 3D props & frames / cinematic live effects /
+                 photo & video, no app
+    S3 12.4–23.8 "Wedding to gala — in one tap": three themed glass frames
+                 rise with real event photos (assets/photos/cells/booth-*),
+                 a QR chip appears
     S4 23.6–30.0 outro — wordmark, CTA pill, QR
   Contract: root omits data-duration (timeline pins 30.0); scenes alternate
   tracks 1/2; <video> is a direct root child (framework-owned), positioned
@@ -40,9 +43,11 @@
       #s2-phone-wrap .bw-phone { position: relative; z-index: 13; background: transparent; }
       #s2-phone-wrap .bw-phone .screen { background: transparent; }
       #bt-clip-selfie { position: absolute; left: 659px; top: 259px; width: 302px; height: 659px; object-fit: cover; border-radius: 42px; z-index: 12; }
+      #bt-capture { position: absolute; left: 659px; top: 259px; width: 302px; height: 659px; object-fit: cover; border-radius: 42px; z-index: 14; opacity: 0; }
+      #bt-saved { position: absolute; left: 686px; top: 830px; width: 248px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.2em; font-size: 19px; color: #06130c; padding: 12px 0; border-radius: 999px; background: linear-gradient(115deg, #34d399, #6ee7b7 55%, #34d399); box-shadow: 0 0 40px -6px rgba(52, 211, 153, 0.85); opacity: 0; z-index: 15; }
       .spark { position: absolute; opacity: 0; z-index: 14; }
-      #s2-chips { position: absolute; left: 1180px; top: 330px; width: 560px; text-align: left; display: flex; flex-direction: column; gap: 26px; }
-      .chip { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 26px; padding: 22px 34px; opacity: 0; }
+      #s2-chips { position: absolute; left: 1120px; top: 310px; width: 660px; text-align: left; display: flex; flex-direction: column; gap: 28px; }
+      .chip { font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 31px; padding: 24px 36px; opacity: 0; }
 
       /* S3 montage */
       #s3-cap { position: absolute; left: 0; right: 0; top: 128px; }
@@ -66,7 +71,7 @@
       <audio id="bt-bed" src="assets/music-bed.m4a" data-start="0" data-duration="30" data-volume="0.16" data-track-index="9"></audio>
 
       <!-- S2 selfie footage (root child; window matches the capture beat) -->
-      <video id="bt-clip-selfie" src="assets/clip-booth-selfie.mp4" data-start="4.4" data-duration="5.2" data-track-index="4" data-volume="0" muted></video>
+      <video id="bt-clip-selfie" src="assets/clip-booth-selfie.mp4" data-start="4.4" data-duration="5.0" data-track-index="4" data-volume="0" muted></video>
 
       <div id="s1" class="clip scene" data-start="0" data-duration="4.4" data-track-index="1">
         <div id="s1-copy">
@@ -78,15 +83,17 @@
 
       <div id="s2" class="clip scene" data-start="4.2" data-duration="8.4" data-track-index="2">
         <div id="s2-phone-wrap"></div>
+        <img id="bt-capture" src="assets/photos/cells/booth-capture.jpg" alt="" />
+        <div id="bt-saved">Saved ✓</div>
         <div id="s2-chips">
-          <div class="chip glass-card" id="chip-0" style="color: var(--blue)">Face-tracked 3D props</div>
+          <div class="chip glass-card" id="chip-0" style="color: var(--blue)">Face-tracked 3D props &amp; frames</div>
           <div class="chip glass-card" id="chip-1" style="color: var(--teal)">Cinematic live effects</div>
-          <div class="chip glass-card" id="chip-2" style="color: var(--violet)">Frames styled to your event</div>
+          <div class="chip glass-card" id="chip-2" style="color: var(--violet)">Photo &amp; video — no app needed</div>
         </div>
       </div>
 
       <div id="s3" class="clip scene" data-start="12.4" data-duration="11.4" data-track-index="1">
-        <h2 class="title-md" id="s3-cap">Point. Play. <em class="foil" style="font-style: normal">Capture.</em></h2>
+        <h2 class="title-md" id="s3-cap">Wedding to gala — in <em class="foil" style="font-style: normal">one tap</em>.</h2>
         <div id="s3-frames"></div>
         <div id="s3-qr">
           <div class="qr"><img src="assets/qr.svg" alt="" /></div>
@@ -131,21 +138,21 @@
           document.getElementById("s2").appendChild(el);
         });
 
-        /* S3 montage frames */
+        /* S3 themed frames — real event photos, one theme per frame */
         var MFRAMES = [
-          { id: "frames", hue: BW.hue("blue"), label: "Frames" },
-          { id: "effects", hue: BW.hue("violet"), label: "Effects" },
-          { id: "props", hue: BW.hue("cyan"), label: "Props" },
+          { id: "wed", hue: BW.hue("blue"), label: "Wedding", img: "assets/photos/cells/booth-r1c1.jpg" },
+          { id: "gala", hue: BW.hue("violet"), label: "Gala", img: "assets/photos/cells/booth-r2c1.jpg" },
+          { id: "bday", hue: BW.hue("cyan"), label: "Birthday", img: "assets/photos/cells/booth-r2c2.jpg" },
         ];
         var wrap = document.getElementById("s3-frames");
         MFRAMES.forEach(function (m) {
           var col = document.createElement("div");
           col.className = "mflame";
           var fr = BW.frame("mf-" + m.id, m.hue, 300, 400);
-          var fill = document.createElement("div");
-          fill.className = "fill";
-          fill.style.background = "linear-gradient(150deg, rgba(" + m.hue.rgb + ",0.85), rgba(" + m.hue.rgb + ",0.35))";
-          fr.insertBefore(fill, fr.firstChild);
+          var ph = document.createElement("img");
+          ph.src = m.img;
+          ph.alt = "";
+          fr.insertBefore(ph, fr.firstChild);
           var lbl = document.createElement("span");
           lbl.className = "label";
           lbl.id = "lbl-" + m.id;
@@ -176,8 +183,12 @@
           tl.to("#spark-" + i, { opacity: 0.25, scale: 0.85, duration: 0.9, ease: "sine.inOut" }, at + 0.6);
         });
         ["chip-0", "chip-1", "chip-2"].forEach(function (id, i) {
-          tl.fromTo("#" + id, { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.6, ease: EASE }, 6.0 + i * 0.5);
+          tl.fromTo("#" + id, { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.6, ease: EASE }, 6.0 + i * 0.7);
         });
+        /* the capture moment — flash, the live feed freezes into the shot */
+        BW.flashAt(tl, "bt", 9.35, 0.8);
+        tl.fromTo("#bt-capture", { opacity: 0, scale: 1.05 }, { opacity: 1, scale: 1, duration: 0.45, ease: "power2.out" }, 9.4);
+        tl.fromTo("#bt-saved", { opacity: 0, y: 18, scale: 0.7 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.7)" }, 9.9);
         tl.to("#s2", { opacity: 0, duration: 0.5, ease: "power2.in" }, 12.2);
 
         /* S3 — montage */
