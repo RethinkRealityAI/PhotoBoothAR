@@ -18,6 +18,7 @@
  * prefers-reduced-motion the auto-scroll is off and the strip is drag-only.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { fetchPosts } from '../../lib/db';
 import { BORDER_MAP, toDataUrl } from '../../lib/borders';
 import type { Post } from '../../types';
@@ -178,6 +179,19 @@ export default function LiveHeroCarousel({
   const hoverCapable = useRef(
     typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches,
   );
+  // Arrow-button glide: remaining px the strip still owes an eased nudge. The
+  // rAF loop consumes a fraction each frame — works under reduced motion too
+  // (an explicit user action, not ambient animation).
+  const glide = useRef(0);
+
+  /** Nudge the strip by one card-slot; dir 1 = show previous (strip moves right). */
+  const nudge = (dir: 1 | -1) => {
+    const track = trackRef.current;
+    const kids = track?.children;
+    if (!kids || kids.length < 2) return;
+    const slotW = (kids[1] as HTMLElement).offsetLeft - (kids[0] as HTMLElement).offsetLeft;
+    if (slotW > 0) glide.current += dir * slotW;
+  };
 
   useEffect(() => {
     const track = trackRef.current;
@@ -196,6 +210,13 @@ export default function LiveHeroCarousel({
     const CENTER_LIFT_PX = 12; // slight upward translateY for the focal card
     const CENTER_Z_PX = 90; // slight translateZ toward the viewer (perspective is on the container)
     const step = () => {
+      if (glide.current !== 0) {
+        // Ease out the owed nudge: 14%/frame, snapping shut under half a px.
+        const d = glide.current * 0.14;
+        offset.current += d;
+        glide.current -= d;
+        if (Math.abs(glide.current) < 0.5) glide.current = 0;
+      }
       if (!reduced && !dragging.current && !paused.current) offset.current -= speed;
       const half = track.scrollWidth / 2;
       if (half > 0) {
@@ -302,6 +323,32 @@ export default function LiveHeroCarousel({
             <FrameCard key={`${slot.event}-${slot.frameId}-${i}`} slot={slot} pool={pools[slot.event] ?? []} seed={i} />
           ))}
         </div>
+      </div>
+
+      {/* Side arrows — manual scrub for visitors who want to browse rather
+          than wait on the drift. Placed OUTSIDE the masked strip so the edge
+          fade never dims them; z-20 keeps them above the lifted focal card. */}
+      {/* .liquid-glass pins position:relative on itself, so the absolute
+          placement lives on a wrapper div, not on the buttons. */}
+      <div className="absolute left-1 top-1/2 z-20 -translate-y-1/2 sm:left-2">
+        <button
+          type="button"
+          onClick={() => nudge(1)}
+          aria-label="Previous frames"
+          className="flex h-10 w-10 items-center justify-center rounded-full liquid-glass text-brand-fg/80 transition hover:text-brand-fg active:scale-95 sm:h-11 sm:w-11"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+      </div>
+      <div className="absolute right-1 top-1/2 z-20 -translate-y-1/2 sm:right-2">
+        <button
+          type="button"
+          onClick={() => nudge(-1)}
+          aria-label="Next frames"
+          className="flex h-10 w-10 items-center justify-center rounded-full liquid-glass text-brand-fg/80 transition hover:text-brand-fg active:scale-95 sm:h-11 sm:w-11"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
       </div>
     </div>
   );

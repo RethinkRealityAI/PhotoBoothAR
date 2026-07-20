@@ -16,7 +16,7 @@
  */
 import { lazy, Suspense, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, Play } from 'lucide-react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import SpectrumField from '../components/ui/SpectrumField';
@@ -47,8 +47,9 @@ interface Feature {
   id: string;
   eyebrow: string;
   title: string;
+  /** ONE succinct line — the detail (old bullet lists) now lives INSIDE each
+   *  film as animated callouts, so the page copy stays scannable. */
   copy: string;
-  bullets: string[];
   Icon: ComponentType<BeamIconProps>;
   from: string;
   to: string;
@@ -57,8 +58,10 @@ interface Feature {
   image: string;
   /** Cutouts float free over a glow; scenes render inside a glass frame. */
   imageStyle: 'cutout' | 'framed';
+  /** Which corner the small decor art peeks from behind the film. */
   flip?: boolean;
-  /** 30s feature film — rendered by the HyperFrames video studio (hyperframes/studio/<id>). */
+  /** Feature film — rendered by the HyperFrames video studio (hyperframes/studio/<id>).
+   *  Carries the feature's full story (incl. the old bullets) as text callouts. */
   video: string;
   videoPoster: string;
 }
@@ -68,14 +71,7 @@ const FEATURES: Feature[] = [
     id: 'booth',
     eyebrow: 'Immersive booth',
     title: 'A photo booth that lives in every pocket',
-    copy:
-      'Guests scan one QR code and step straight into an immersive photo booth in their browser — no app, no queue. Face-tracked 3D props, live WebGL effects and your event’s frames follow every smile.',
-    bullets: [
-      'Face-tracked 3D props & frames',
-      'Cinematic live effects',
-      'Photo & video capture, no app',
-      'Wedding to gala in one tap — then fine-tune every detail in the studio',
-    ],
+    copy: 'One scan drops every guest into a magical, face-tracked booth — right in their browser.',
     Icon: BoothIcon,
     from: '#5B8CFF',
     to: '#7C6CF7',
@@ -89,9 +85,7 @@ const FEATURES: Feature[] = [
     id: 'wall',
     eyebrow: 'Live photo wall',
     title: 'Every shot beams onto the wall, live',
-    copy:
-      'The moment a guest captures a photo it beams onto a cinematic wall the whole room watches — mosaic, slideshow and marquee views with moderation you control from your phone.',
-    bullets: ['Realtime beam-in animations', 'Mosaic, slideshow & marquee views', 'One-tap moderation'],
+    copy: 'The moment a guest captures, it beams onto a cinematic wall the whole room watches.',
     Icon: WallIcon,
     from: '#22D3EE',
     to: '#38BDF8',
@@ -106,9 +100,7 @@ const FEATURES: Feature[] = [
     id: 'challenges',
     eyebrow: 'Challenges',
     title: 'Turn the room into the game',
-    copy:
-      'Set photo challenges — “catch the first dance”, “selfie with a stranger” — and watch the leaderboard light the wall up. Guests play, the wall fills, the room comes alive.',
-    bullets: ['Custom photo challenges', 'Live leaderboard on the wall', 'AI checks the winning shots really nail the challenge'],
+    copy: 'Set photo missions — “catch the first dance” — and the leaderboard lights the wall up.',
     Icon: ChallengeIcon,
     from: '#FB923C',
     to: '#F59E0B',
@@ -122,9 +114,7 @@ const FEATURES: Feature[] = [
     id: 'cards',
     eyebrow: 'Keepsake cards & guestbook',
     title: 'The morning-after keepsake',
-    copy:
-      'Guests leave short video messages and sign a collective greeting card. It all becomes a keepsake you keep forever — with a highlight film rendered overnight on the Deluxe plan.',
-    bullets: ['Video guestbook messages', 'Collaborative greeting cards', 'Keepsake highlight film'],
+    copy: 'Video messages and a card everyone signs — a keepsake that outlives the night.',
     Icon: CardIcon,
     from: '#E879F9',
     to: '#C084FC',
@@ -271,88 +261,22 @@ function StepArt({ src, rgb, delay }: { src: string; rgb: string; delay: number 
 }
 
 /**
- * The feature's media as ONE overlapping composition: its looping film in a
- * glass card tilted to face the viewer, with the pillar's cutout art floating
- * over the inner corner (toward the copy). Replaces the old small in-text video
- * + separate art column — on mobile the film now reads large and the cutout
- * layers over it (the two float out of phase for a live, dimensional feel).
+ * One feature pillar as a stacked cinematic block: centred heading (icon →
+ * eyebrow → title → ONE succinct line), then the feature film at
+ * full-experience width, leaning back like a screen as it scrolls in
+ * ([data-screen-tilt], scrubbed by the page's GSAP choreography). The film
+ * itself carries the detail (the old bullet lists) as in-video callouts.
+ * The pillar's cutout art now peeks small and angled from BEHIND a top
+ * corner of the film ([data-decor-pop] — pops in on scroll; z-0 under the
+ * film's z-10 so it decorates without distracting).
  */
-function FeatureMedia({ feature }: { feature: Feature }) {
-  const [failed, setFailed] = useState(false);
-  const tilt = feature.flip ? 7 : -7; // lean toward the viewer / page centre
-  const framed = feature.imageStyle === 'framed'; // a scene → little frame; cutout → floats free
-  const innerSide = feature.flip ? 'right-[-8%]' : 'left-[-8%]'; // overlap toward the copy
-  return (
-    <div
-      className="relative mx-auto w-full max-w-[23rem] sm:max-w-[27rem]"
-      data-parallax-depth="0.1"
-      style={{ perspective: '1200px' }}
-    >
-      {/* tinted glow behind the media */}
-      <div
-        aria-hidden
-        className="absolute -inset-6 -z-10 rounded-[3rem] blur-3xl"
-        style={{ background: `radial-gradient(circle at 50% 42%, rgba(${feature.rgb}, 0.30), transparent 70%)` }}
-      />
-      {/* the film, in a tilted glass frame */}
-      <div
-        className="animate-float relative overflow-hidden rounded-3xl"
-        style={{
-          transform: `rotateY(${tilt}deg)`,
-          transformStyle: 'preserve-3d',
-          border: `1px solid rgba(${feature.rgb}, 0.5)`,
-          boxShadow: `0 0 46px -8px rgba(${feature.rgb}, 0.5), 0 40px 92px -34px rgba(0,0,0,0.85)`,
-        }}
-      >
-        <FilmEmbed src={feature.video} poster={feature.videoPoster} label={`${feature.title} — feature film`} />
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{ background: 'linear-gradient(155deg, rgba(255,255,255,0.12), transparent 34%)' }}
-        />
-      </div>
-      {/* overlapping floating art — offset animation phase so it drifts against
-          the film rather than in lockstep. */}
-      <div className={`absolute bottom-[-9%] w-[46%] animate-float ${innerSide}`} style={{ animationDelay: '-3s' }}>
-        {failed ? (
-          <feature.Icon size={72} from={feature.from} to={feature.to} className="mx-auto drop-shadow-[0_12px_30px_rgba(0,0,0,0.6)]" />
-        ) : framed ? (
-          <div
-            className="overflow-hidden rounded-2xl"
-            style={{
-              transform: 'rotate(-4deg)',
-              border: `1px solid rgba(${feature.rgb}, 0.55)`,
-              boxShadow: `0 0 30px -8px rgba(${feature.rgb}, 0.55), 0 22px 50px -20px rgba(0,0,0,0.85)`,
-            }}
-          >
-            <img
-              src={feature.image}
-              alt=""
-              aria-hidden
-              className="aspect-[4/5] w-full object-cover"
-              loading="lazy"
-              onError={() => setFailed(true)}
-            />
-          </div>
-        ) : (
-          <img
-            src={feature.image}
-            alt=""
-            aria-hidden
-            className="w-full object-contain drop-shadow-[0_18px_44px_rgba(0,0,0,0.6)]"
-            loading="lazy"
-            onError={() => setFailed(true)}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
 function FeatureSection({ feature }: { feature: Feature }) {
+  const [artFailed, setArtFailed] = useState(false);
+  const framed = feature.imageStyle === 'framed'; // a scene → tiny glass frame; cutout → floats free
+  const left = !feature.flip; // which top corner the decor art peeks from
   return (
-    <section data-parallax-scope className="grid w-full items-center gap-12 sm:grid-cols-2 sm:gap-14">
-      {/* Text slides in from its own side; media from the opposite side. */}
-      <div data-reveal={feature.flip ? 'right' : 'left'} className={`text-left ${feature.flip ? 'sm:order-2' : ''}`}>
+    <section data-parallax-scope className="w-full">
+      <div data-reveal className="flex flex-col items-center text-center">
         <div
           className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-2xl"
           style={{
@@ -367,21 +291,84 @@ function FeatureSection({ feature }: { feature: Feature }) {
           {feature.eyebrow}
         </p>
         <h2 className="mt-3 font-serif text-3xl leading-tight text-brand-fg sm:text-4xl">{feature.title}</h2>
-        <p className="mt-4 max-w-md text-[15px] leading-relaxed text-brand-muted/80">{feature.copy}</p>
-        <ul data-reveal-stagger className="mt-6 flex flex-col gap-2.5">
-          {feature.bullets.map((b) => (
-            <li key={b} className="flex items-start gap-2.5 text-sm text-brand-fg/90">
-              <Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: feature.from }} />
-              <span>{b}</span>
-            </li>
-          ))}
-        </ul>
+        <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-brand-muted/80">{feature.copy}</p>
       </div>
+
       <div
-        data-reveal={feature.flip ? 'left' : 'right'}
-        className={`mt-2 sm:mt-0 ${feature.flip ? 'sm:order-1' : ''}`}
+        className="relative mx-auto mt-10 w-full max-w-4xl"
+        style={{ perspective: '1400px' }}
+        data-parallax-depth="0.06"
       >
-        <FeatureMedia feature={feature} />
+        {/* tinted glow the film floats over */}
+        <div
+          aria-hidden
+          className="absolute -inset-8 -z-10 rounded-[4rem] blur-3xl"
+          style={{ background: `radial-gradient(circle at 50% 42%, rgba(${feature.rgb}, 0.26), transparent 70%)` }}
+        />
+
+        {/* corner decor art — behind the film, small, angled; hidden entirely
+            if the asset fails (a fallback icon back there would read as a bug). */}
+        {!artFailed && (
+          <div
+            data-decor-pop
+            aria-hidden
+            className={`absolute -top-10 z-0 w-24 sm:w-32 ${left ? '-left-4 sm:-left-12' : '-right-4 sm:-right-12'}`}
+          >
+            {/* Static 3D angle on this wrapper; the float lives on a CHILD so
+                the float-y keyframes (which write `transform`) can't stomp it. */}
+            <div
+              style={{
+                transform: `rotate(${left ? -12 : 12}deg) rotateY(${left ? 24 : -24}deg)`,
+                transformStyle: 'preserve-3d',
+              }}
+            >
+              <div className="animate-float" style={{ animationDelay: '-2.5s' }}>
+              {framed ? (
+                <div
+                  className="overflow-hidden rounded-xl"
+                  style={{
+                    border: `1px solid rgba(${feature.rgb}, 0.55)`,
+                    boxShadow: `0 0 24px -8px rgba(${feature.rgb}, 0.55), 0 18px 40px -18px rgba(0,0,0,0.85)`,
+                  }}
+                >
+                  <img
+                    src={feature.image}
+                    alt=""
+                    className="aspect-[4/5] w-full object-cover"
+                    loading="lazy"
+                    onError={() => setArtFailed(true)}
+                  />
+                </div>
+              ) : (
+                <img
+                  src={feature.image}
+                  alt=""
+                  className="w-full object-contain drop-shadow-[0_18px_44px_rgba(0,0,0,0.6)]"
+                  loading="lazy"
+                  onError={() => setArtFailed(true)}
+                />
+              )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* the film — full-experience width, screen-tilt scrubbed on scroll */}
+        <div
+          data-screen-tilt
+          className="relative z-10 overflow-hidden rounded-3xl"
+          style={{
+            border: `1px solid rgba(${feature.rgb}, 0.45)`,
+            boxShadow: `0 0 56px -12px rgba(${feature.rgb}, 0.45), 0 34px 90px -32px rgba(0,0,0,0.85)`,
+            transformStyle: 'preserve-3d',
+          }}
+        >
+          <FilmEmbed src={feature.video} poster={feature.videoPoster} label={`${feature.title} — feature film`} />
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'linear-gradient(155deg, rgba(255,255,255,0.10), transparent 34%)' }}
+          />
+        </div>
       </div>
     </section>
   );
@@ -460,6 +447,37 @@ export default function Landing() {
           },
         );
       });
+      // Feature films lean back like a screen settling upright: a scrubbed
+      // rotateX from a deep recline to a slight resting tilt as the film
+      // scrolls up into view (perspective lives on the film's wrapper).
+      gsap.utils.toArray<HTMLElement>('[data-screen-tilt]', content).forEach((el) => {
+        gsap.fromTo(
+          el,
+          { rotateX: 22, scale: 0.94, transformOrigin: 'center 85%' },
+          {
+            rotateX: 5,
+            scale: 1,
+            ease: 'power2.out',
+            scrollTrigger: { trigger: el, scroller, scrub: 0.6, start: 'top 95%', end: 'top 40%' },
+          },
+        );
+      });
+      // Corner decor art pops from behind the film — small overshoot so it
+      // reads as arriving, then the CSS float keeps it alive.
+      gsap.utils.toArray<HTMLElement>('[data-decor-pop]', content).forEach((el) => {
+        gsap.fromTo(
+          el,
+          { opacity: 0, scale: 0.4, y: 26 },
+          {
+            opacity: 1,
+            scale: 1,
+            y: 0,
+            duration: 0.8,
+            ease: 'back.out(1.7)',
+            scrollTrigger: { trigger: el, scroller, start: 'top 88%' },
+          },
+        );
+      });
       gsap.utils.toArray<HTMLElement>('[data-parallax-depth]', content).forEach((el) => {
         const depth = parseFloat(el.dataset.parallaxDepth ?? '0.15');
         gsap.to(el, {
@@ -500,12 +518,16 @@ export default function Landing() {
       }
     });
     mm.add('(prefers-reduced-motion: reduce)', () => {
-      gsap.utils.toArray<HTMLElement>('[data-reveal], [data-reveal-stagger], [data-steps-reveal]', content).forEach((el) => {
+      gsap.utils.toArray<HTMLElement>('[data-reveal], [data-reveal-stagger], [data-steps-reveal], [data-decor-pop]', content).forEach((el) => {
         gsap.fromTo(
           el,
           { opacity: 0 },
           { opacity: 1, duration: 0.5, scrollTrigger: { trigger: el, scroller, start: 'top 90%' } },
         );
+      });
+      // Screens rest at their settled tilt — no scrubbed motion.
+      gsap.utils.toArray<HTMLElement>('[data-screen-tilt]', content).forEach((el) => {
+        gsap.set(el, { rotateX: 5, transformOrigin: 'center 85%' });
       });
     });
     return () => mm.revert();
@@ -601,8 +623,15 @@ export default function Landing() {
         <main className="flex flex-1 flex-col items-center overflow-x-clip text-center">
           <section data-parallax-scope className="relative flex w-full flex-col items-center pt-8 sm:pt-10">
             <div className="pointer-events-none relative z-20 flex flex-col items-center" data-parallax-depth="-0.05">
+              {/* Free badge — the "it costs nothing to try" promise, front and centre. */}
+              <div className="mb-5 flex items-center gap-2 rounded-full liquid-glass px-4 py-1.5">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" aria-hidden />
+                <span className="font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg">
+                  Free to start — no credit card
+                </span>
+              </div>
               <h1 className="max-w-3xl font-serif text-5xl leading-[1.05] text-shadow-lux sm:text-6xl">
-                Your <span className="text-foil-static">Immersive</span> Virtual Photobooth
+                Your <span className="text-foil-static">Immersive Virtual Photobooth</span>
               </h1>
               <p className="mt-6 max-w-2xl text-base leading-relaxed text-brand-muted/85 sm:text-lg">
                 Give every guest a magical photo booth in their pocket — no app to download. Photos beam
@@ -615,16 +644,30 @@ export default function Landing() {
                     to="/signup"
                     className="pointer-events-auto rounded-full bg-foil px-10 py-4 font-label uppercase tracking-luxe text-[12px] font-bold text-white glow-accent transition active:scale-[0.98]"
                   >
-                    Create your event
+                    Start free
                   </Link>
+                  {/* Demo CTA — promoted to a first-class button: play chip,
+                      accent ring + glow, so "see it now" reads as inviting as
+                      "sign up" without stealing the primary's job. */}
                   <a
                     href="#demo"
-                    className="pointer-events-auto rounded-full border border-white/15 bg-white/[0.04] px-10 py-4 font-label uppercase tracking-luxe text-[12px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98]"
+                    className="group pointer-events-auto flex items-center gap-2.5 rounded-full border px-8 py-3.5 font-label uppercase tracking-luxe text-[12px] font-semibold text-brand-fg transition active:scale-[0.98]"
+                    style={{
+                      borderColor: 'color-mix(in srgb, var(--color-accent) 45%, transparent)',
+                      background: 'color-mix(in srgb, var(--color-accent) 10%, transparent)',
+                      boxShadow: '0 0 26px -8px color-mix(in srgb, var(--color-accent) 65%, transparent)',
+                    }}
                   >
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-foil transition group-hover:scale-110">
+                      <Play className="ml-0.5 h-3 w-3 fill-current text-white" />
+                    </span>
                     Try the live demo
                   </a>
                 </div>
-                <p className="font-sans text-xs text-brand-muted/50">Free to start · no credit card to create your event.</p>
+                <p className="font-sans text-xs text-brand-muted/60">
+                  <span className="font-semibold text-emerald-300/90">Free to start</span> · no credit card to
+                  create your event.
+                </p>
               </div>
             </div>
 
@@ -636,14 +679,24 @@ export default function Landing() {
             <div className="relative z-10 mt-10 w-full max-w-6xl sm:mt-12" data-parallax-depth="0.08">
               <LiveHeroCarousel className="w-full" onHasMedia={setHasLiveMedia} />
             </div>
-            <p className="mt-6 font-label uppercase tracking-luxe text-[9px] text-brand-muted/45">
-              {hasLiveMedia ? 'Live moments from real Beamwall events' : 'Frame styles from real Beamwall events'}
-            </p>
+            {/* Prominent proof line — this strip is real events, not stock. */}
+            <div className="mt-5 flex items-center justify-center">
+              <p className="flex items-center gap-2.5 rounded-full liquid-glass px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg/85 sm:text-[11px]">
+                {hasLiveMedia && (
+                  <span className="relative flex h-2 w-2" aria-hidden>
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-60" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-400" />
+                  </span>
+                )}
+                {hasLiveMedia ? 'Live moments from real Beamwall events' : 'Frame styles from real Beamwall events'}
+              </p>
+            </div>
           </section>
 
           {/* How it works — three plain steps, up high, so a first-time
-              visitor grasps the whole loop before scrolling the details. */}
-          <section data-parallax-scope className="mt-24 w-full sm:mt-28">
+              visitor grasps the whole loop before scrolling the details.
+              Tight gap to the hero: the carousel's own py already pads it. */}
+          <section data-parallax-scope className="mt-12 w-full sm:mt-14">
             <div data-reveal className="flex flex-col items-center text-center">
               <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">How it works</h2>
               <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
@@ -677,13 +730,13 @@ export default function Landing() {
                       style={{ background: `rgba(${s.rgb}, 0.4)` }}
                     />
                   </div>
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-foil font-serif text-[13px] font-bold text-white glow-accent">
-                      {s.n}
-                    </span>
-                    <h3 className="font-serif text-xl text-brand-fg">{s.title}</h3>
-                  </div>
-                  <p className="mt-3 max-w-xs text-sm leading-relaxed text-brand-muted/75">{s.body}</p>
+                  {/* "STEP N" chip — a labelled pill instead of a bare number
+                      squeezed in a small circle, so the sequence reads at a glance. */}
+                  <span className="rounded-full bg-foil px-4 py-1.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent">
+                    Step {s.n}
+                  </span>
+                  <h3 className="mt-3 font-serif text-2xl text-brand-fg">{s.title}</h3>
+                  <p className="mt-2.5 max-w-xs text-sm leading-relaxed text-brand-muted/75">{s.body}</p>
                 </div>
               ))}
             </div>

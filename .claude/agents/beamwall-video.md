@@ -309,3 +309,28 @@ re-encoded → file size sane (<2MB for landing embeds) → embedded/committed �
      `src/assets/landing/`. The old `beamwall-promo.mp4`/poster are now
      orphaned (unreferenced after the slot swap) but left in place — deleting
      committed files needs explicit user approval.
+- 2026-07-20: Feature-film rebuild (booth/wall/challenges/cards with animated
+  callouts + Higgsfield imagery) ABORTED at the mandated download gate — no
+  composition edits made. Findings:
+  1. Higgsfield CDN egress re-verified BLOCKED (third confirmation, now with
+     proxy-level evidence): `curl` to `d8j0ntlcm91z4.cloudfront.net` fails
+     `CONNECT tunnel failed, response 403`; `$HTTPS_PROXY/__agentproxy/status`
+     logs it as `connect_rejected — "gateway answered 403 to CONNECT (policy
+     denial or upstream failure)"`, and /root/.ccr/README.md's policy is
+     explicit: "Do not retry or route around it — report the blocked host."
+     Generation itself still works fine (job completed in ~60s, landed in the
+     user's workspace). Don't re-test this gate with more than ONE image.
+  2. nano_banana_pro pricing here: 2 credits/image at BOTH 1k and 2k
+     resolution (get_cost preflight said 2 @1k default; actual 2k spend was
+     also exactly 2 — balance 1389.85→1387.85). `resolution:"2k"` gives
+     2048×2048 for `aspect_ratio:"1:1"`; model id resolves to `nano_banana_2`.
+  3. Planned (unexecuted) imagery pattern for when egress is available, to
+     keep generation count ~8 instead of ~30: generate 3x3 "contact sheet"
+     grids (one themed 1:1 2k image = 9 distinct event photos, slice with
+     ffmpeg crop into 683px cells) for wall-grid/band/filmstrip fills, plus
+     dedicated 9:16 singles only for phone-screen rects (wall 308×665,
+     challenges 282×618) where a grid cell's crop would be too soft.
+  4. The only sanctioned byte-delivery path for Higgsfield media into this
+     repo remains the `scripts/remote-assets.json` push-triggered CI workflow
+     — which requires a git push and therefore explicit user authorization;
+     a task that forbids git commands cannot vendor Higgsfield output at all.
