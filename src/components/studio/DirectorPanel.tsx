@@ -60,6 +60,7 @@ import {
 } from '../../lib/studio/sceneDirector';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { measureGlbFitScale } from '../../lib/studio/glbThumb';
+import { PROP_TARGET_CM } from '../../lib/studio/bustFit';
 import {
   SceneHeader,
   FilterCard,
@@ -523,7 +524,10 @@ export default function DirectorPanel({
         setCard('headPiece', { error: 'Scene is full (20 pieces) — remove something in Scene Layers first. Your model is safe in the Library.' });
         return;
       }
-      dispatch({ type: 'SET_MODEL_ASSET', url: glbUrl, name, scale: fitScale ?? undefined });
+      // A null fit (unmeasurable GLB) must not fall back to the implicit scale
+      // 1 — a raw ~1-unit Meshy model renders ~1cm, an invisible speck. Assume
+      // ~1 unit and use PROP_TARGET_CM so the prop lands at a visible size.
+      dispatch({ type: 'SET_MODEL_ASSET', url: glbUrl, name, scale: fitScale ?? PROP_TARGET_CM });
       setCard('headPiece', { status: 'added', error: undefined });
     });
   }, [plan, dispatch, setCard, sceneFull]);

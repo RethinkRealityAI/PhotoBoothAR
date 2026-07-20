@@ -68,7 +68,7 @@ export default function TestOnPhone({ experienceId, dirty, isPublished, saving, 
             <Smartphone className="w-8 h-8 text-brand-muted/40" />
             <p className="font-sans text-sm text-brand-fg leading-relaxed">
               This piece is <span className="text-accent-2">Hidden</span> — the booth only lists Live
-              pieces, so the link would dead-end. Flip it to Live in the properties panel, save, then scan.
+              pieces, so the link would dead-end. Flip it to Live (eye button in the Properties panel), save, then scan.
             </p>
           </>
         ) : (

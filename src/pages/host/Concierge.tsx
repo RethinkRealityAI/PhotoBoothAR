@@ -43,6 +43,9 @@ function EventCard({
   const inputRef = useRef<HTMLInputElement>(null);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const guestUrl = `${origin}/e/${ev.slug}`;
+  // Copy-link hands out the welcome page — the product's own recommended
+  // guest entry (matches EventsList + the ShareKit guidance).
+  const welcomeUrl = `${origin}/e/${ev.slug}/welcome`;
 
   useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
 
@@ -105,7 +108,7 @@ function EventCard({
       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
         <p className="flex-1 font-mono text-[10px] text-brand-muted/60 truncate">/e/{ev.slug}</p>
         <button
-          onClick={() => navigator.clipboard.writeText(guestUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
+          onClick={() => navigator.clipboard.writeText(welcomeUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
           title="Copy guest link"
           className="p-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
         >
@@ -157,9 +160,13 @@ export default function Concierge() {
   const [snapshot, setSnapshot] = useState<EventSnapshot | null>(null);
   const [snapLoading, setSnapLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const rows = await fetchMyEvents();
+    if (rows === null) { setLoadFailed(true); return; } // query failure — retry state below
+    setLoadFailed(false);
     setEvents(rows);
     setSelectedId((cur) => cur && rows.some((r) => r.id === cur) ? cur : (rows[0]?.id ?? null));
   }, []);
@@ -198,7 +205,10 @@ export default function Concierge() {
     const prev = ev.name;
     setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, name } : e))); // optimistic
     const ok = await updateEventName(ev.id, name);
-    if (!ok) setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, name: prev } : e)));
+    if (!ok) {
+      setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, name: prev } : e)));
+      setNotice(`Couldn’t update “${prev}” — check your connection and try again.`);
+    }
     setBusyId(null);
   };
 
@@ -207,7 +217,10 @@ export default function Concierge() {
     const prev = ev.status;
     setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, status } : e))); // optimistic
     const ok = await updateEventStatus(ev.id, status);
-    if (!ok) setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, status: prev } : e)));
+    if (!ok) {
+      setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, status: prev } : e)));
+      setNotice(`Couldn’t update “${ev.name}” — check your connection and try again.`);
+    }
     setBusyId(null);
   };
 
@@ -230,7 +243,26 @@ export default function Concierge() {
         </Link>
       </header>
 
-      {events !== null && events.length === 0 ? (
+      {notice && (
+        <div className="shrink-0 mb-4 flex items-start gap-2.5 rounded-xl bg-red-500/10 border border-red-500/25 px-4 py-3">
+          <p className="flex-1 font-sans text-xs text-red-300">{notice}</p>
+          <button onClick={() => setNotice(null)} className="text-red-300/60 hover:text-red-300 text-xs" aria-label="Dismiss">✕</button>
+        </div>
+      )}
+
+      {loadFailed ? (
+        <div className="liquid-glass rounded-3xl p-12 text-center max-w-lg mx-auto my-auto">
+          <p className="font-sans text-sm text-brand-muted/70 leading-relaxed mb-6">
+            Couldn’t load your events — check your connection and try again.
+          </p>
+          <button
+            onClick={load}
+            className="inline-flex items-center gap-2 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-6 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      ) : events !== null && events.length === 0 ? (
         <div className="liquid-glass rounded-3xl p-12 text-center max-w-lg mx-auto my-auto">
           <h2 className="font-serif text-2xl text-foil-static mb-2">No events yet</h2>
           <p className="font-sans text-sm text-brand-muted/70 leading-relaxed mb-8">

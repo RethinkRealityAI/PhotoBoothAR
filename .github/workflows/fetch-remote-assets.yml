@@ -32,6 +32,20 @@ jobs:
           for i in $(seq 0 $((count - 1))); do
             url=$(jq -r ".assets[$i].url" scripts/remote-assets.json)
             path=$(jq -r ".assets[$i].path" scripts/remote-assets.json)
+            # Vendor-once: source URLs are often short-lived (presigned CDN links
+            # that 403 after expiry), so an asset already committed to the repo is
+            # never re-fetched — one dead old URL must not block new assets.
+            # To re-vendor a file, delete it (or change its manifest path) first.
+            if [ -f "$path" ]; then
+              echo "✓ $path (already vendored — skipping)"
+              continue
+            fi
+            # The compress step converts vendored .wav → .m4a and deletes the
+            # original, so the converted sibling also counts as vendored.
+            if [ "${path%.wav}" != "$path" ] && [ -f "${path%.wav}.m4a" ]; then
+              echo "✓ ${path%.wav}.m4a (already vendored as m4a — skipping)"
+              continue
+            fi
             mkdir -p "$(dirname "$path")"
             echo "→ $path"
             curl -fSL --retry 3 --retry-delay 2 -o "$path" "$url"

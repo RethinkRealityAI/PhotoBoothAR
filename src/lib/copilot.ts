@@ -21,6 +21,7 @@ import { FILTER_SHADERS } from './shaders';
 import { HEAD_PIECE_MAP, HEAD_PIECES } from './headPieces';
 import { BORDER_MAP, GENERIC_FRAMES, GENERIC_FRAME_IDS } from './borders';
 import { normalizeValidation } from './challengeValidation';
+import { PROP_TARGET_CM } from './studio/bustFit';
 
 /* ── Action types (post-normalization) ───────────────────────────────── */
 
@@ -195,14 +196,20 @@ export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): 
         break;
       }
       case 'add_head_piece': {
+        const prompt = str(a.prompt, 300);
         if (a.source === 'generate') {
-          const prompt = str(a.prompt, 300);
           if (!prompt) break;
           out.push({ tool: 'add_head_piece', proposal: { source: 'generate', prompt } });
-        } else {
-          const pieceId = str(a.pieceId, 40);
-          if (!pieceId || !HEAD_PIECE_MAP[pieceId]) break;
+          break;
+        }
+        const pieceId = str(a.pieceId, 40);
+        if (pieceId && HEAD_PIECE_MAP[pieceId]) {
           out.push({ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId } });
+        } else if (prompt) {
+          // Hallucinated/absent pieceId but a usable prompt → degrade to a
+          // generate proposal instead of silently dropping the host's request
+          // (mirrors sceneDirector.ts's forgiving coercion).
+          out.push({ tool: 'add_head_piece', proposal: { source: 'generate', prompt } });
         }
         break;
       }
@@ -298,7 +305,11 @@ export async function applyGeneratedPiece(
   experienceId: string,
   fitScale: number | null,
 ): Promise<ExecResult> {
-  return publishAndPin(ctx, experienceId, fitScale ?? undefined, 'piece');
+  // An unmeasurable GLB (null fit) must NOT fall through to the implicit
+  // scale 1 — a raw ~1-unit Meshy model renders ~1cm in head space, an
+  // invisible speck. Assume ~1 unit and bake PROP_TARGET_CM so the prop
+  // lands at head size; the host can fine-tune in the studio 3D editor.
+  return publishAndPin(ctx, experienceId, fitScale ?? PROP_TARGET_CM, 'piece');
 }
 
 /** Shared publish + pin. When `fitScale` is given, read the row's config and

@@ -74,6 +74,21 @@
       "path": "hyperframes/studio/assets/vo-promo.wav"
     },
     {
+      "comment": "How-it-works step 1 cutout — frame-design cluster (nano_banana_2 b05a0d1b + bg-removed cb02e769).",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260718_104706_cb02e769-24d3-4da9-8672-c60e40628c9d.png",
+      "path": "src/assets/landing/step-create-cutout.png"
+    },
+    {
+      "comment": "How-it-works step 2 cutout — gold-framed QR table card (nano_banana_2 a73549a5 + bg-removed a33393d2).",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260718_104707_a33393d2-b6a9-47e9-ba28-0065c37bc132.png",
+      "path": "src/assets/landing/step-qr-cutout.png"
+    },
+    {
+      "comment": "How-it-works step 3 cutout — glowing live photo wall (nano_banana_2 ec0a8bd9 + bg-removed 8aedf46a).",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260718_104708_8aedf46a-9d46-4fac-a859-71db80e69891.png",
+      "path": "src/assets/landing/step-wall-cutout.png"
+    },
+    {
       "comment": "MediaPipe canonical face model (468 verts, metric centimetres) — the studio AR head occluder. Same coordinate space faceRig.ts anchors are calibrated against.",
       "url": "https://raw.githubusercontent.com/google-ai-edge/mediapipe/master/mediapipe/modules/face_geometry/data/canonical_face_model.obj",
       "path": "src/assets/ar/canonical_face_model.obj"

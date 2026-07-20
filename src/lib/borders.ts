@@ -52,6 +52,13 @@ export interface BuiltinBorder {
   name: string;
   kind: 'border' | '2d_filter';
   svg: string;
+  /**
+   * Carries baked legacy-event branding (SCAGO / Hope Gala / Jenna & Jake /
+   * Detola & Wuyi text or marks). Legacy events' configs still resolve these
+   * by id (catalog.ts / BORDER_MAP — never remove or rename them), but the
+   * self-serve studio library hides them (AssetsDock filters on this flag).
+   */
+  legacy?: true;
 }
 
 /* ---- Borders / frames -------------------------------------------- */
@@ -291,22 +298,81 @@ const dwCorners = svg(`
   ${FLEUR(540, 1808, 0.58)}
 `);
 
+/* ---- Generic (de-branded) variants of the gala art — no event text ------- */
+
+const classicGoldPlainFrame = svg(`
+  <rect x="46" y="46" width="988" height="1828" rx="28" fill="none" stroke="url(#gold)" stroke-width="9"/>
+  <rect x="70" y="70" width="940" height="1780" rx="20" fill="none" stroke="url(#gold)" stroke-width="2.5"/>
+  ${CORNER(70, 70, 1, 1)}
+  ${CORNER(1010, 70, -1, 1)}
+  ${CORNER(70, 1850, 1, -1)}
+  ${CORNER(1010, 1850, -1, -1)}
+  ${FLEUR(540, 1790, 0.7)}
+`);
+
+const hexPlainFrame = svg(`
+  <g fill="none" stroke="url(#gold)">
+    <polygon points="540,70 980,330 980,1590 540,1850 100,1590 100,330" stroke-width="8"/>
+    <polygon points="540,110 940,348 940,1572 540,1810 140,1572 140,348" stroke-width="2"/>
+  </g>
+  ${FLEUR(540, 250, 0.8)}
+  ${FLEUR(540, 1670, 0.7)}
+`);
+
+const decoPlainFrame = svg(`
+  <g fill="none" stroke="url(#gold)" stroke-width="4">
+    <rect x="60" y="60" width="960" height="1800" />
+    <line x1="60" y1="150" x2="1020" y2="150"/>
+    <line x1="60" y1="1770" x2="1020" y2="1770"/>
+    <path d="M60,60 L200,60 L200,120 M1020,60 L880,60 L880,120 M60,1860 L200,1860 L200,1800 M1020,1860 L880,1860 L880,1800"/>
+    <g stroke-width="2">
+      <path d="M540,70 l30,40 l-30,40 l-30,-40 z"/>
+      <path d="M540,1850 l30,-40 l-30,-40 l-30,40 z"/>
+    </g>
+  </g>
+`);
+
+const minimalPlainFrame = svg(`
+  <rect x="38" y="38" width="1004" height="1844" rx="22" fill="none" stroke="url(#gold)" stroke-width="3"/>
+`);
+
+const crownPlainSticker = svg(`
+  <g transform="translate(540, 250)">
+    <path d="M -180 60 L -185 -50 L -90 28 L 0 -78 L 90 28 L 185 -50 L 180 60 Z" fill="url(#gold)" stroke="#7E5C14" stroke-width="3"/>
+    <rect x="-192" y="58" width="384" height="46" rx="10" fill="url(#gold)" stroke="#7E5C14" stroke-width="3"/>
+    <circle cx="-185" cy="-50" r="15" fill="#FBF3D9"/>
+    <circle cx="0" cy="-78" r="18" fill="#FBF3D9"/>
+    <circle cx="185" cy="-50" r="15" fill="#FBF3D9"/>
+    <circle cx="-95" cy="82" r="11" fill="#9C1B33"/>
+    <circle cx="0" cy="82" r="12" fill="#1E4D8C"/>
+    <circle cx="95" cy="82" r="11" fill="#1E7A4D"/>
+    ${star(0, -150, 1.6, 'url(#gold)', 0.95)}
+  </g>
+`);
+
 export const BUILTIN_BORDERS: BuiltinBorder[] = [
-  { id: 'frame-classic', name: 'Classic Gold', kind: 'border', svg: classicFrame },
-  { id: 'frame-hexagon', name: 'Hexagon (Invitation)', kind: 'border', svg: hexFrame },
-  { id: 'frame-deco', name: 'Art Deco', kind: 'border', svg: decoFrame },
-  { id: 'frame-minimal', name: 'Minimal Inset', kind: 'border', svg: minimalFrame },
-  { id: 'sticker-hopegala', name: 'Hope Gala & Awards', kind: '2d_filter', svg: hopeGalaBanner },
-  { id: 'sticker-hopegala-top', name: 'Gala Header', kind: '2d_filter', svg: hopeGalaTop },
-  { id: 'sticker-crown', name: 'Golden Crown', kind: '2d_filter', svg: crownSticker },
+  { id: 'frame-classic', name: 'Classic Gold', kind: 'border', svg: classicFrame, legacy: true },
+  { id: 'frame-hexagon', name: 'Hexagon (Invitation)', kind: 'border', svg: hexFrame, legacy: true },
+  { id: 'frame-deco', name: 'Art Deco', kind: 'border', svg: decoFrame, legacy: true },
+  { id: 'frame-minimal', name: 'Minimal Inset', kind: 'border', svg: minimalFrame, legacy: true },
+  { id: 'sticker-hopegala', name: 'Hope Gala & Awards', kind: '2d_filter', svg: hopeGalaBanner, legacy: true },
+  { id: 'sticker-hopegala-top', name: 'Gala Header', kind: '2d_filter', svg: hopeGalaTop, legacy: true },
+  { id: 'sticker-crown', name: 'Golden Crown', kind: '2d_filter', svg: crownSticker, legacy: true },
   { id: 'overlay-confetti', name: 'Gold Confetti', kind: '2d_filter', svg: confettiBottom },
-  { id: 'jj-neon-frame', name: 'JJ Neon Frame', kind: 'border', svg: jjNeonFrame },
-  { id: 'jj-lower-third', name: 'JJ Lower Third', kind: 'border', svg: jjLowerThird },
-  { id: 'jj-equalizer', name: 'JJ Equalizer', kind: 'border', svg: jjEqualizer },
-  { id: 'dw-frame-monogram', name: 'Detola & Wuyi Frame', kind: 'border', svg: dwMonogramFrame },
-  { id: 'dw-banner', name: 'Detola & Wuyi Banner', kind: '2d_filter', svg: dwBanner },
+  { id: 'jj-neon-frame', name: 'Neon Tube Frame', kind: 'border', svg: jjNeonFrame },
+  { id: 'jj-lower-third', name: 'JJ Lower Third', kind: 'border', svg: jjLowerThird, legacy: true },
+  { id: 'jj-equalizer', name: 'Neon Equalizer', kind: 'border', svg: jjEqualizer },
+  { id: 'dw-frame-monogram', name: 'Detola & Wuyi Frame', kind: 'border', svg: dwMonogramFrame, legacy: true },
+  { id: 'dw-banner', name: 'Detola & Wuyi Banner', kind: '2d_filter', svg: dwBanner, legacy: true },
   { id: 'dw-frame-classic', name: 'Gold Border', kind: 'border', svg: dwClassicFrame },
   { id: 'dw-corners', name: 'Gold Corners', kind: '2d_filter', svg: dwCorners },
+  // Generic de-branded variants of the flagged gala art — same gold language,
+  // zero event text; these ARE the self-serve template library additions.
+  { id: 'frame-classic-gold', name: 'Classic Gold', kind: 'border', svg: classicGoldPlainFrame },
+  { id: 'frame-hexagon-plain', name: 'Hexagon', kind: 'border', svg: hexPlainFrame },
+  { id: 'frame-deco-plain', name: 'Art Deco', kind: 'border', svg: decoPlainFrame },
+  { id: 'frame-minimal-plain', name: 'Minimal Inset', kind: 'border', svg: minimalPlainFrame },
+  { id: 'sticker-crown-plain', name: 'Golden Crown', kind: '2d_filter', svg: crownPlainSticker },
 ];
 
 export const BORDER_MAP: Record<string, BuiltinBorder> = Object.fromEntries(
@@ -327,6 +393,11 @@ export const GENERIC_FRAMES: { id: string; name: string }[] = [
   { id: 'jj-neon-frame', name: 'Neon Tube Frame' },
   { id: 'jj-equalizer', name: 'Neon Equalizer' },
   { id: 'overlay-confetti', name: 'Gold Confetti' },
+  { id: 'frame-classic-gold', name: 'Classic Gold' },
+  { id: 'frame-hexagon-plain', name: 'Hexagon' },
+  { id: 'frame-deco-plain', name: 'Art Deco' },
+  { id: 'frame-minimal-plain', name: 'Minimal Inset' },
+  { id: 'sticker-crown-plain', name: 'Golden Crown' },
 ];
 
 export const GENERIC_FRAME_IDS = new Set(GENERIC_FRAMES.map((f) => f.id));

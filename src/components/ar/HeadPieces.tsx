@@ -205,40 +205,82 @@ function HopeHalo() {
 function NeonShades() {
   // Local units × HEAD_PIECE_UNIT (1.9) ≈ centimetres.
   // Lens centres at x=±1.4 → ±2.66 cm apart (eye spacing).
-  // Lenses: 2.2 wide × 1.3 tall × 0.2 deep; bridge bar; temple arms.
+  // Each lens layers a larger, near-transparent "glow" pane just behind a
+  // smaller, semi-transparent "lens" pane, so it reads as ONE tinted lens
+  // with a soft neon rim rather than an opaque slab — the previous fully
+  // opaque box read as two disconnected solid magenta blocks over the
+  // guest's face (user-reported "double 3D props"). Bridge + temple arms
+  // (below) tie the two lenses into a single glasses silhouette.
   return (
     <group>
-      {/* Left lens */}
-      <mesh position={[-1.4, 0, 0]}>
-        <boxGeometry args={[2.2, 1.3, 0.2]} />
-        <meshStandardMaterial
-          color="#0B0220"
-          emissive="#FF2D9B"
-          emissiveIntensity={1.2}
-          metalness={0.6}
-          roughness={0.2}
-          toneMapped={false}
-        />
-      </mesh>
-      {/* Right lens */}
-      <mesh position={[1.4, 0, 0]}>
-        <boxGeometry args={[2.2, 1.3, 0.2]} />
-        <meshStandardMaterial
-          color="#0B0220"
-          emissive="#FF2D9B"
-          emissiveIntensity={1.2}
-          metalness={0.6}
-          roughness={0.2}
-          toneMapped={false}
-        />
-      </mesh>
-      {/* Bridge bar connecting the two lenses */}
+      {/* Left lens: glow pane + sharper inner pane */}
+      <group position={[-1.4, 0, 0]}>
+        <mesh position={[0, 0, -0.05]}>
+          <boxGeometry args={[2.5, 1.55, 0.12]} />
+          <meshStandardMaterial
+            color="#0B0220"
+            emissive="#FF2D9B"
+            emissiveIntensity={1.6}
+            metalness={0.4}
+            roughness={0.4}
+            transparent
+            opacity={0.22}
+            depthWrite={false}
+            toneMapped={false}
+          />
+        </mesh>
+        <mesh>
+          <boxGeometry args={[2.0, 1.15, 0.22]} />
+          <meshStandardMaterial
+            color="#0B0220"
+            emissive="#FF2D9B"
+            emissiveIntensity={1.0}
+            metalness={0.6}
+            roughness={0.2}
+            transparent
+            opacity={0.58}
+            toneMapped={false}
+          />
+        </mesh>
+      </group>
+      {/* Right lens: glow pane + sharper inner pane */}
+      <group position={[1.4, 0, 0]}>
+        <mesh position={[0, 0, -0.05]}>
+          <boxGeometry args={[2.5, 1.55, 0.12]} />
+          <meshStandardMaterial
+            color="#0B0220"
+            emissive="#FF2D9B"
+            emissiveIntensity={1.6}
+            metalness={0.4}
+            roughness={0.4}
+            transparent
+            opacity={0.22}
+            depthWrite={false}
+            toneMapped={false}
+          />
+        </mesh>
+        <mesh>
+          <boxGeometry args={[2.0, 1.15, 0.22]} />
+          <meshStandardMaterial
+            color="#0B0220"
+            emissive="#FF2D9B"
+            emissiveIntensity={1.0}
+            metalness={0.6}
+            roughness={0.2}
+            transparent
+            opacity={0.58}
+            toneMapped={false}
+          />
+        </mesh>
+      </group>
+      {/* Bridge bar connecting the two lenses — brightened slightly so it
+          still reads clearly now that the lenses are translucent. */}
       <mesh position={[0, 0, 0]}>
         <boxGeometry args={[0.6, 0.22, 0.18]} />
         <meshStandardMaterial
           color="#0B0220"
           emissive="#19E3FF"
-          emissiveIntensity={1.4}
+          emissiveIntensity={1.5}
           metalness={0.7}
           roughness={0.15}
           toneMapped={false}

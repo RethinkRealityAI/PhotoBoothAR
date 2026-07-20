@@ -25,6 +25,7 @@
  * while it's in flight and the expander binds to selection, which lands with it.
  */
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Boxes, ChevronDown, ChevronRight, Crown, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Search, Sparkles, Sun, Upload, Wand2, X } from 'lucide-react';
 import { FILTER_SHADERS, SHADER_MAP, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
@@ -32,6 +33,7 @@ import { HEAD_PIECES } from '../../lib/headPieces';
 import { ANCHOR_PRESETS } from '../../lib/faceRig';
 import { uploadAsset, listAssets, fetchExperiences } from '../../lib/db';
 import { captureGlbThumbnail, measureGlbFitScale } from '../../lib/studio/glbThumb';
+import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
 import { selectedObject, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
@@ -39,6 +41,7 @@ import { experienceToDraft } from '../../lib/studio/draftMapping';
 import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
 import AiFramePanel from './AiFramePanel';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
+import HelpButton from './HelpButton';
 import type { DragPayload } from './useStudioDnd';
 import type { Experience } from '../../types';
 import {
@@ -96,6 +99,27 @@ interface Tile {
   drag: DragPayload;
   pending: boolean;
   onAdd: () => void;
+}
+
+/** Smooth expand/collapse for dock sub-groups and inline settings cards —
+ *  the PickerDrawer height/opacity idiom; prefers-reduced-motion snaps. */
+function Collapse({ show, children }: { show: boolean; children: ReactNode }) {
+  const reduced = useReducedMotion() ?? false;
+  return (
+    <AnimatePresence initial={false}>
+      {show && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={reduced ? { duration: 0 } : { duration: 0.24, ease: [0.4, 0, 0.2, 1] }}
+          className="overflow-hidden"
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 }
 
 export default function AssetsDock({ state, dispatch, onOpenExperience, beginDrag, consumedDrag }: Props) {
@@ -387,9 +411,9 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         </div>
         <StudioSlider
           label="Size"
-          value={Math.min(sel.anchorConfig.scale, 15)}
+          value={Math.min(sel.anchorConfig.scale, PROP_SCALE_MAX)}
           min={0.05}
-          max={15}
+          max={PROP_SCALE_MAX}
           step={0.05}
           onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { scale: v } })}
         />
@@ -442,7 +466,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                   );
                 })}
               </div>
-              {expanded && renderInlineSettings(expanded.key)}
+              <Collapse show={!!expanded}>{expanded ? renderInlineSettings(expanded.key) : null}</Collapse>
             </div>
           );
         })}
@@ -452,9 +476,12 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
 
   // Built-in frames/stickers → SELECT_BUILTIN (the reducer swaps the one frame in
   // place / appends stickers, and flips the view to 2D). Frames highlight the
-  // scene's frame; stickers highlight the selected sticker.
+  // scene's frame; stickers highlight the selected sticker. Legacy-branded
+  // built-ins (baked event text — see BuiltinBorder.legacy) never surface here:
+  // self-serve hosts only see the generic library. Legacy events still resolve
+  // them by id through their event config (catalog.ts / BORDER_MAP).
   const builtinTiles = (kind: 'border' | '2d_filter'): Tile[] =>
-    BUILTIN_BORDERS.filter((b) => b.kind === kind && matchQuery(b.name)).map((b) => {
+    BUILTIN_BORDERS.filter((b) => !b.legacy && b.kind === kind && matchQuery(b.name)).map((b) => {
       const url = toDataUrl(b.svg);
       const active = kind === 'border' ? sceneFrame?.builtinId === b.id : selBuiltinId === b.id;
       const key = `builtin:${b.id}`;
@@ -535,7 +562,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                 </div>
                 <p className="text-[9px] text-brand-muted/40 mt-0.5 leading-tight">{s.description}</p>
               </button>
-              {expandedKey === key && renderInlineSettings(key)}
+              <Collapse show={expandedKey === key}>{expandedKey === key ? renderInlineSettings(key) : null}</Collapse>
             </div>
           );
         })}
@@ -557,7 +584,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
           <span className="font-label uppercase tracking-widest text-[9px]">{label}</span>
           <span className="font-mono text-[8px] text-brand-muted/50">{count}</span>
         </button>
-        {!isCollapsed && body}
+        <Collapse show={!isCollapsed}>{body}</Collapse>
       </div>
     );
   };
@@ -599,7 +626,10 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     <div className="h-full overflow-y-auto hide-scrollbar flex flex-col">
       {/* Sticky header — title + search + kind chips filter every section together */}
       <div className="sticky top-0 z-10 app-bg flex flex-col gap-2.5 px-4 pt-4 pb-3 border-b border-white/5">
-        <span className="font-label uppercase tracking-widest text-[10px] text-brand-fg">My Assets</span>
+        <div className="flex items-center gap-1.5">
+          <span className="font-label uppercase tracking-widest text-[10px] text-brand-fg">My Assets</span>
+          <HelpButton topic="library" label="How the studio library works" side="right" />
+        </div>
         <div className="relative">
           <Search className="w-3.5 h-3.5 text-brand-muted/30 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
@@ -633,25 +663,30 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             >
               <Wand2 className="w-3.5 h-3.5 text-accent-2" />
               <span className="font-label uppercase tracking-widest text-[9px] text-accent-2 flex-1 text-left">
-                AI generate {showAi3d ? '3D piece' : aiKind === 'border' ? 'frame' : 'sticker'}
+                Quick AI — single {showAi3d ? '3D piece' : aiKind === 'border' ? 'frame' : 'sticker'}
               </span>
               {aiOpen ? <ChevronDown className="w-3.5 h-3.5 text-accent-2/70" /> : <ChevronRight className="w-3.5 h-3.5 text-accent-2/70" />}
             </button>
-            {aiOpen && (
-              showAi3d ? (
-                <AiGeneratePanel onOpenExperience={onOpenExperience} />
-              ) : (
-                <AiFramePanel
-                  kind={aiKind}
-                  freeTrial={!entitlements.aiStudio}
-                  onGenerated={(exp) => {
-                    if (exp.asset_url) dispatch({ type: 'SET_OVERLAY_UPLOAD', url: exp.asset_url, blob: null, overlayKind: aiKind });
-                    if (draft.name.startsWith('Untitled') && exp.name) dispatch({ type: 'SET_NAME', name: exp.name });
-                    loadExperiences(); // surface the new asset in the Generated section
-                  }}
-                />
-              )
-            )}
+            <p className="font-sans text-[9px] text-brand-muted/40 leading-relaxed px-1">
+              Want a whole matching scene? Open the Director above.
+            </p>
+            <Collapse show={aiOpen}>
+              {aiOpen ? (
+                showAi3d ? (
+                  <AiGeneratePanel onOpenExperience={onOpenExperience} />
+                ) : (
+                  <AiFramePanel
+                    kind={aiKind}
+                    freeTrial={!entitlements.aiStudio}
+                    onGenerated={(exp) => {
+                      if (exp.asset_url) dispatch({ type: 'SET_OVERLAY_UPLOAD', url: exp.asset_url, blob: null, overlayKind: aiKind });
+                      if (draft.name.startsWith('Untitled') && exp.name) dispatch({ type: 'SET_NAME', name: exp.name });
+                      loadExperiences(); // surface the new asset in the Generated section
+                    }}
+                  />
+                )
+              ) : null}
+            </Collapse>
           </div>
         )}
 
@@ -690,7 +725,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                     onClick={() => imgInputRef.current?.click()}
                     className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-xs text-brand-muted/70"
                   >
-                    <Upload className="w-3.5 h-3.5 text-accent-2" /> Upload image (PNG / SVG)
+                    <Upload className="w-3.5 h-3.5 text-accent-2" /> Upload image (PNG / JPG / SVG)
                   </button>
                 )}
                 {showGlbUpload && (
@@ -702,8 +737,11 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                     <span className="truncate">Upload model (.glb / .gltf)</span>
                   </button>
                 )}
-                <input ref={imgInputRef} type="file" accept="image/png,image/svg+xml,image/webp" className="sr-only" onChange={onImageUpload} />
+                <input ref={imgInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="sr-only" onChange={onImageUpload} />
                 <input ref={glbInputRef} type="file" accept=".glb,.gltf" className="sr-only" onChange={onGlbUpload} />
+                <p className="font-sans text-[9px] text-brand-muted/40 leading-relaxed px-1">
+                  Transparent PNGs work best for frames — your upload drops straight into the scene.
+                </p>
               </div>
             )}
             {uploads.status === 'loading' && (

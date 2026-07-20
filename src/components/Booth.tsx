@@ -39,6 +39,7 @@ import Countdown from './booth/Countdown';
 import ReviewPanel from './booth/ReviewPanel';
 import ChallengeCheck from './booth/ChallengeCheck';
 import SendOff from './booth/SendOff';
+import SendFailed from './booth/SendFailed';
 import Onboarding, { useOnboarding } from './booth/Onboarding';
 import ChallengeSelector from './booth/ChallengeSelector';
 
@@ -49,7 +50,7 @@ import { buildCatalog } from '../lib/catalog';
 import { initializeFaceLandmarker } from '../lib/faceTracking';
 import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
 import { createTriggerEngine, parseTriggers, type TriggerConfig, type TriggerEvent } from '../lib/studio/triggers';
-import { submitPost, getStudioSettings } from '../lib/db';
+import { submitPostDetailed, getStudioSettings } from '../lib/db';
 import { DEFAULT_STUDIO_SETTINGS, HEAD_SCALE_MIN, HEAD_SCALE_MAX, type StudioSettings } from '../lib/studio/occluder';
 import { savePhoto, addCompletedChallenge, setGuestName } from '../lib/session';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
@@ -71,7 +72,8 @@ type BoothPhase =
   | 'checking'      // AI photo-check running (challenge validation)
   | 'checkFailed'   // photo didn't match the challenge — retake or post anyway
   | 'sending'
-  | 'success';
+  | 'success'
+  | 'sendFailed';  // upload failed — honest retry/save screen, never fake confetti
 
 type MediaMode = 'photo' | 'video';
 type TimerOption = 0 | 3 | 5 | 10;
@@ -190,6 +192,10 @@ export default function Booth() {
   // name/message the guest already entered (so "post anyway" can go straight through).
   const [checkReason, setCheckReason] = useState('');
   const pendingSendRef = useRef<{ guestName: string; message: string } | null>(null);
+  // Failed-send handling: the failure kind (drives the SendFailed copy) and the
+  // last submit args so "Try again" re-runs the exact same upload.
+  const [sendError, setSendError] = useState<string | undefined>(undefined);
+  const lastSubmitRef = useRef<{ guestName: string; message: string; withChallenge: boolean } | null>(null);
 
   // ── Recording ─────────────────────────────────────────────────────────
   const recorderRef = useRef<StreamRecorder | null>(null);
@@ -689,6 +695,7 @@ export default function Booth() {
   const doSubmit = useCallback(
     async (guestName: string, message: string, withChallenge: boolean) => {
       if (!capturedDataUrl) return;
+      lastSubmitRef.current = { guestName, message, withChallenge };
       setPhase('sending');
 
       const isVideo = capturedMediaTypeRef.current === 'video';
@@ -699,7 +706,7 @@ export default function Booth() {
       const expId = attachExp?.id ?? frameExp?.id ?? (effectId !== 'none' ? `builtin:shader:${effectId}` : undefined);
       const taggedChallenge = withChallenge ? selectedChallenge : null;
 
-      const post = await submitPost(eventId, {
+      const { post, error } = await submitPostDetailed(eventId, {
         blob,
         mediaType: isVideo ? 'video' : 'image',
         durationMs: capturedDurationMs,
@@ -711,21 +718,27 @@ export default function Booth() {
         height: 1920,
       });
 
-      if (post) {
-        savePhoto(eventId, {
-          id: post.id,
-          image_url: post.image_url,
-          media_type: isVideo ? 'video' : 'image',
-          message: message || undefined,
-          createdAt: Date.now(),
-        });
-        // Remember the name (so challenge mode doesn't re-ask) + mark the
-        // challenge complete so it drops off this guest's list.
-        if (guestName) setGuestName(eventId, guestName);
-        if (taggedChallenge) {
-          addCompletedChallenge(eventId, taggedChallenge.id);
-          setSelectedChallenge(null); // done — don't re-tag the next shot
-        }
+      if (!post) {
+        // Honest failure: the capture stays in state — the guest can retry the
+        // upload or save the file locally. Never a fake "Sent!".
+        setSendError(error);
+        setPhase('sendFailed');
+        return;
+      }
+
+      savePhoto(eventId, {
+        id: post.id,
+        image_url: post.image_url,
+        media_type: isVideo ? 'video' : 'image',
+        message: message || undefined,
+        createdAt: Date.now(),
+      });
+      // Remember the name (so challenge mode doesn't re-ask) + mark the
+      // challenge complete so it drops off this guest's list.
+      if (guestName) setGuestName(eventId, guestName);
+      if (taggedChallenge) {
+        addCompletedChallenge(eventId, taggedChallenge.id);
+        setSelectedChallenge(null); // done — don't re-tag the next shot
       }
 
       setPhase('success');
@@ -1175,6 +1188,19 @@ export default function Booth() {
           uploading={phase === 'sending'}
           success={phase === 'success'}
           onTakeAnother={handleTakeAnother}
+        />
+      )}
+
+      {/* ── Send failed — retry or save locally, never silently lost ──── */}
+      {phase === 'sendFailed' && capturedDataUrl && (
+        <SendFailed
+          dataUrl={capturedDataUrl}
+          mediaType={capturedMediaTypeRef.current}
+          errorKind={sendError}
+          onRetry={() => {
+            const p = lastSubmitRef.current;
+            if (p) doSubmit(p.guestName, p.message, p.withChallenge);
+          }}
         />
       )}
     </div>

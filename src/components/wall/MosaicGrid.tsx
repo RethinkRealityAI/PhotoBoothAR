@@ -73,7 +73,7 @@ function PostCard({ post, isFresh, onSelect }: { post: Post; isFresh: boolean; o
       ) : (
         <img
           src={post.image_url}
-          alt={post.guest_name ?? 'Gala moment'}
+          alt={post.guest_name ?? 'Event moment'}
           loading="lazy"
           decoding="async"
           className="w-full block object-cover"
@@ -107,21 +107,7 @@ function PostCard({ post, isFresh, onSelect }: { post: Post; isFresh: boolean; o
 }
 
 export default function MosaicGrid({ posts, freshIds, onSelect }: Props) {
-  if (posts.length === 0) {
-    return (
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="text-center animate-rise-in">
-          <p className="font-serif italic text-4xl text-foil-static mb-4">
-            Be the first to capture a moment…
-          </p>
-          <p className="font-label uppercase tracking-luxe text-champagne/50 text-xs">
-            Step into the booth and share your story
-          </p>
-        </div>
-      </div>
-    );
-  }
-
+  // Empty state lives in Wall.tsx (<EmptyWall/>) — shared across all modes.
   return (
     <div
       className="w-full h-full overflow-y-auto hide-scrollbar px-4 pt-4 pb-24 sm:pb-4"

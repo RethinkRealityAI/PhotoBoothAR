@@ -150,7 +150,7 @@ export function pollJob(
 export function aiErrorMessage(code: AiErrorCode): string {
   switch (code) {
     case 'insufficient_credits':
-      return 'Not enough credits.';
+      return 'Not enough credits — top up in Billing.';
     case 'upgrade_required':
       return 'AI Studio is a paid feature — upgrade this event to unlock it.';
     case 'ai_not_configured':

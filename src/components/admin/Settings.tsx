@@ -193,6 +193,8 @@ export default function Settings() {
     galleryScroll: true,
     galleryScrollSpeed: 1,
     slideshowInterval: 6,
+    featuredSpotlight: true,
+    featuredIntervalSec: 45,
     defaultExperienceId: null,
   });
   const [loading, setLoading] = useState(true);
@@ -441,6 +443,26 @@ export default function Settings() {
                 step={1}
                 displayValue={`${settings.slideshowInterval ?? 6}s`}
                 onChange={(v) => setNumeric('slideshowInterval', v)}
+                busy={busy}
+              />
+              <ToggleRow
+                icon={<Sparkles className="w-4 h-4" />}
+                label="Featured Spotlight"
+                helper="Every so often, Gallery mode spotlights one photo (or a join-QR, leaderboard or challenge card) full-screen for a few seconds."
+                checked={settings.featuredSpotlight}
+                onChange={(v) => toggle('featuredSpotlight', v)}
+                busy={busy}
+              />
+              <SliderRow
+                icon={<Timer className="w-4 h-4" />}
+                label="Spotlight every"
+                helper="Seconds between Featured Spotlight appearances — each spotlight shows for about 8 seconds."
+                value={settings.featuredIntervalSec ?? 45}
+                min={15}
+                max={120}
+                step={5}
+                displayValue={`${settings.featuredIntervalSec ?? 45}s`}
+                onChange={(v) => setNumeric('featuredIntervalSec', v)}
                 busy={busy}
               />
             </div>

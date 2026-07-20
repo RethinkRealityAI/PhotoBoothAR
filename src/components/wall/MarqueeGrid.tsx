@@ -2,7 +2,8 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * MarqueeGrid — animated infinite-scrolling rows gallery for the Hope Gala wall.
+ * MarqueeGrid — animated infinite-scrolling rows gallery for the event wall
+ * (multi-tenant; themed per event via the accent CSS variables).
  *
  * Layout:
  *   Posts are distributed into N rows (3 rows for <24 posts, 4 rows for 24+).
@@ -143,7 +144,7 @@ function PostCard({ post, onSelect }: CardProps) {
       ) : (
         <img
           src={post.image_url}
-          alt={post.guest_name ?? 'Gala moment'}
+          alt={post.guest_name ?? 'Event moment'}
           loading="lazy"
           decoding="async"
           className="absolute inset-0 w-full h-full object-cover"
@@ -293,21 +294,7 @@ export default function MarqueeGrid({ posts, scrollSpeed, onSelect }: MarqueeGri
     [rows],
   );
 
-  if (posts.length === 0) {
-    return (
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="text-center animate-rise-in">
-          <p className="font-serif italic text-4xl text-foil-static mb-4">
-            Be the first to capture a moment…
-          </p>
-          <p className="font-label uppercase tracking-luxe text-champagne/50 text-xs">
-            Step into the booth and share your story
-          </p>
-        </div>
-      </div>
-    );
-  }
-
+  // Empty state lives in Wall.tsx (<EmptyWall/>) — shared across all modes.
   return (
     <div
       ref={containerRef}

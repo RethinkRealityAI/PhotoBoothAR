@@ -83,9 +83,14 @@ describe('computePropFitScale', () => {
     expect(scale).toBeCloseTo(PROP_TARGET_CM / 1.911, 3);
   });
 
-  it('clamps to the studio slider range (0.05–15)', () => {
-    expect(computePropFitScale(makeBox(0.01, 0.01, 0.01))).toBe(15);
+  it('clamps to the prop-scale bounds (0.05–50, mirrored in faceRig.ts)', () => {
+    expect(computePropFitScale(makeBox(0.01, 0.01, 0.01))).toBe(50);
     expect(computePropFitScale(makeBox(5000, 5000, 5000))).toBe(0.05);
+  });
+
+  it('lets a small ~0.5-unit Meshy model reach the full PROP_TARGET_CM', () => {
+    const scale = computePropFitScale(makeBox(0.5, 0.3, 0.2))!;
+    expect(scale).toBeCloseTo(PROP_TARGET_CM / 0.5, 4); // 48 — must NOT be clamped
   });
 
   it('returns null for an empty object (caller keeps legacy scale 1)', () => {

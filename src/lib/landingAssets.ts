@@ -12,6 +12,9 @@ import boothCutout from '../assets/landing/booth-cutout.webp';
 import trophyCutout from '../assets/landing/trophy-cutout.webp';
 import cardCutout from '../assets/landing/card-cutout.webp';
 import frameClusterCutout from '../assets/landing/frame-cluster-cutout.webp';
+import stepCreateCutout from '../assets/landing/step-create-cutout.webp';
+import stepQrCutout from '../assets/landing/step-qr-cutout.webp';
+import stepWallCutout from '../assets/landing/step-wall-cutout.webp';
 
 /** Editorial portrait — person with AR glasses in beam lighting (has bg). */
 export const HERO_BOOTH_PORTRAIT = boothPortrait;
@@ -30,3 +33,12 @@ export const CARD_CUTOUT = cardCutout;
 
 /** Floating cluster of multi-color glass frames (transparent bg). */
 export const FRAME_CLUSTER_CUTOUT = frameClusterCutout;
+
+/** How-it-works step 1 — frame-design cluster with color swatches (transparent bg). */
+export const STEP_CREATE_CUTOUT = stepCreateCutout;
+
+/** How-it-works step 2 — gold-framed QR table card (transparent bg). */
+export const STEP_QR_CUTOUT = stepQrCutout;
+
+/** How-it-works step 3 — glowing live photo wall with a beaming-in shot (transparent bg). */
+export const STEP_WALL_CUTOUT = stepWallCutout;

@@ -78,6 +78,8 @@ import DirectorPanel from './DirectorPanel';
 import TestOnPhone from './TestOnPhone';
 import { useStudioDnd } from './useStudioDnd';
 import Tooltip from '../ui/Tooltip';
+import HelpButton from './HelpButton';
+import { FeatureHelpProvider } from './FeatureHelpContext';
 
 const CAMERA_MESSAGES: Record<string, string> = {
   NotAllowedError: 'Camera permission denied — grant access and retry.',
@@ -349,10 +351,11 @@ export default function StudioShell() {
 
   const camError = cam.error ? (CAMERA_MESSAGES[cam.error] ?? CAMERA_MESSAGES.unknown) : null;
 
-  // The rename control renders in two homes: absolutely centered in the bar at
-  // sm+ (TRUE centering — flex-centering between unequal button groups sat the
-  // name visibly left of centre), and as a full-width second header row on
-  // phones (in-row it was squeezed to ~70px, truncating names to "Un…").
+  // The rename control renders in two homes, both IN FLEX FLOW (the old
+  // absolutely-centered copy could sit on top of the undo cluster at mid
+  // widths): the large left-aligned anchor of the bar at sm+, and a
+  // full-width second header row on phones. Being a flex-1 min-w-0 item it
+  // truncates under pressure but can never overlap a neighbour.
   const nameControl = editingName ? (
     <input
       autoFocus
@@ -369,118 +372,146 @@ export default function StudioShell() {
       }}
       placeholder="Experience name…"
       aria-label="Experience name"
-      className="w-full max-w-[18rem] text-center rounded-lg bg-white/[0.06] border border-accent/40 px-3 py-1.5 text-sm text-brand-fg placeholder:text-brand-muted/40 outline-none focus:border-accent/60 transition"
+      className="w-full max-w-[24rem] rounded-lg bg-white/[0.06] border border-accent/40 px-3 py-1 font-serif italic text-lg lg:text-xl text-brand-fg placeholder:text-brand-muted/40 outline-none focus:border-accent/60 transition"
     />
   ) : (
     <button
       onClick={startRename}
       aria-label="Rename experience"
-      className="group flex items-center justify-center gap-1.5 min-w-0 max-w-full px-2.5 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors"
+      className="group flex items-center gap-1.5 min-w-0 max-w-full px-2.5 py-1 rounded-lg hover:bg-white/[0.04] transition-colors"
     >
-      <span className="font-serif italic text-sm text-brand-fg truncate">{state.draft.name || 'Untitled experience'}</span>
-      <Pencil className="w-3 h-3 text-brand-muted/40 group-hover:text-accent-2 shrink-0 transition-colors" />
+      <span className="font-serif italic text-lg lg:text-xl text-brand-fg leading-tight truncate">{state.draft.name || 'Untitled experience'}</span>
+      <Pencil className="w-3.5 h-3.5 text-brand-muted/40 group-hover:text-accent-2 shrink-0 transition-colors" />
     </button>
   );
 
+  // Undo / Redo / Duplicate — one grouped cluster (≥40px targets), rendered in
+  // the main row at sm+ and beside the name on the phone's second row.
+  const historyControls = (
+    <div className="flex items-center gap-1 shrink-0">
+      <Tooltip label="Undo" hint="Ctrl/Cmd+Z" side="bottom">
+        <button
+          onClick={() => dispatch({ type: 'UNDO' })}
+          disabled={!canUndo(history)}
+          aria-label="Undo"
+          className="flex items-center justify-center w-10 h-10 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors disabled:opacity-30 disabled:pointer-events-none"
+        >
+          <Undo2 className="w-4 h-4" />
+        </button>
+      </Tooltip>
+      <Tooltip label="Redo" hint="Ctrl/Cmd+Shift+Z" side="bottom">
+        <button
+          onClick={() => dispatch({ type: 'REDO' })}
+          disabled={!canRedo(history)}
+          aria-label="Redo"
+          className="flex items-center justify-center w-10 h-10 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors disabled:opacity-30 disabled:pointer-events-none"
+        >
+          <Redo2 className="w-4 h-4" />
+        </button>
+      </Tooltip>
+      {state.draft.id && (
+        <Tooltip label="Duplicate" hint="Save a copy as a new experience" side="bottom">
+          <button
+            onClick={handleDuplicate}
+            aria-label="Duplicate experience"
+            className="flex items-center justify-center w-10 h-10 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors"
+          >
+            <Copy className="w-4 h-4" />
+          </button>
+        </Tooltip>
+      )}
+    </div>
+  );
+
   return (
+    <FeatureHelpProvider>
     <div className="absolute inset-0 flex flex-col app-bg">
-      {/* Top bar */}
-      <header className="shrink-0 liquid-glass border-b border-white/10 z-40 relative">
-      <div className="h-14 flex items-center gap-1.5 sm:gap-3 px-2.5 sm:px-4">
+      {/* Top bar — every control is IN FLOW (no absolute positioning), so at
+          any width items truncate or wrap to the phone name-row; nothing can
+          overlap or hide behind another toggle. */}
+      <header className="shrink-0 liquid-glass border-b border-white/10 z-40">
+      <div className="h-14 flex items-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-4">
         <Tooltip label="Library" hint="Back to your experiences" side="bottom">
-          <Link to={`${base}/library`} className="p-1.5 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors">
+          <Link to={`${base}/library`} className="flex items-center justify-center w-10 h-10 shrink-0 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors">
             <ArrowLeft className="w-4 h-4" />
           </Link>
         </Tooltip>
-        {/* Mobile/tablet: toggle the Assets drawer (a static column at lg+). */}
+        {/* Mobile/tablet: toggle the Assets drawer (a static column at lg+).
+            A tiny text label keeps the icon-only toggle discoverable. */}
         <button
           onClick={() => { setSceneOpen(false); setMobilePanel((p) => (p === 'assets' ? null : 'assets')); }}
           aria-label="Toggle assets panel"
-          className={`lg:hidden flex items-center justify-center w-9 h-9 rounded-lg transition-colors ${mobilePanel === 'assets' ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg'}`}
+          className={`lg:hidden flex flex-col items-center justify-center gap-0.5 w-11 h-11 shrink-0 rounded-lg transition-colors ${mobilePanel === 'assets' ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg'}`}
         >
           <Layers className="w-4 h-4" />
+          <span className="font-label text-[7px] uppercase tracking-wide leading-none">Assets</span>
         </button>
-        <div className="min-w-0 hidden sm:block shrink-0">
-          <p className="font-serif italic text-sm text-brand-fg leading-tight">Studio</p>
-          <p className="font-label text-[8px] uppercase tracking-widest text-brand-muted/50">{state.draft.id ? 'Editing experience' : 'New experience'}</p>
+        {/* sm+: the experience NAME is the bar's visual anchor — large, inline-
+            renameable, flex-1 so it takes all slack and truncates first. */}
+        <div className="hidden sm:flex flex-col justify-center min-w-0 flex-1">
+          {nameControl}
+          <p className="font-label text-[8px] uppercase tracking-widest text-brand-muted/50 px-2.5">
+            Studio · {state.draft.id ? 'Editing experience' : 'New experience'}
+          </p>
         </div>
-        {/* Spacer — the name renders absolutely centered (sm+) / on its own
-            phone row below, so the flanking control groups just spread apart. */}
-        <div className="flex-1 min-w-0" />
-        {/* Undo / Redo / Duplicate */}
-        <div className="flex items-center gap-1">
-          <Tooltip label="Undo" hint="Ctrl/Cmd+Z" side="bottom">
+        {/* Phone: the name lives on its own row below; this spacer spreads the
+            control groups apart. */}
+        <div className="flex-1 sm:hidden" />
+        <div className="hidden sm:block">{historyControls}</div>
+        <div className="flex items-center shrink-0">
+          <Tooltip label="Director" hint="Docked AI assistant — designs a scene into your open draft" side="bottom">
             <button
-              onClick={() => dispatch({ type: 'UNDO' })}
-              disabled={!canUndo(history)}
-              aria-label="Undo"
-              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors disabled:opacity-30 disabled:pointer-events-none"
+              onClick={() => { setMobilePanel(null); setSceneOpen((o) => !o); }}
+              aria-pressed={sceneOpen}
+              className={`flex items-center gap-1.5 px-3 py-2 min-h-10 shrink-0 rounded-xl liquid-glass text-[10px] font-label uppercase tracking-widest transition-colors ${sceneOpen ? 'text-brand-fg bg-accent/15' : 'text-accent-2 hover:text-brand-fg'}`}
             >
-              <Undo2 className="w-4 h-4" />
+              <Clapperboard className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Director</span>
             </button>
           </Tooltip>
-          <Tooltip label="Redo" hint="Ctrl/Cmd+Shift+Z" side="bottom">
-            <button
-              onClick={() => dispatch({ type: 'REDO' })}
-              disabled={!canRedo(history)}
-              aria-label="Redo"
-              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors disabled:opacity-30 disabled:pointer-events-none"
-            >
-              <Redo2 className="w-4 h-4" />
-            </button>
-          </Tooltip>
-          {state.draft.id && (
-            <Tooltip label="Duplicate" hint="Save a copy as a new experience" side="bottom">
-              <button
-                onClick={handleDuplicate}
-                aria-label="Duplicate experience"
-                className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors"
-              >
-                <Copy className="w-4 h-4" />
-              </button>
-            </Tooltip>
-          )}
+          <HelpButton topic="director" label="How the Director works" side="bottom" />
         </div>
-        <Tooltip label="Director" hint="Docked AI assistant — designs a scene into your open draft" side="bottom">
-          <button
-            onClick={() => { setMobilePanel(null); setSceneOpen((o) => !o); }}
-            aria-pressed={sceneOpen}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl liquid-glass text-[10px] font-label uppercase tracking-widest transition-colors ${sceneOpen ? 'text-brand-fg bg-accent/15' : 'text-accent-2 hover:text-brand-fg'}`}
+        {saveError && <span className="hidden sm:inline text-rose-400 text-[10px] font-sans max-w-[180px] text-right">{saveError}</span>}
+        {/* Post-save nudge — the QR/share kit lives on the event's Share tab
+            (same base path derivation as the back-to-Library link above). */}
+        {saved && (
+          <Link
+            to={`${base}/share`}
+            className="hidden sm:inline text-[9px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors whitespace-nowrap"
           >
-            <Clapperboard className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Director</span>
-          </button>
-        </Tooltip>
-        {saveError && <span className="text-rose-400 text-[10px] font-sans max-w-[180px] text-right">{saveError}</span>}
+            Get your QR in Share
+          </Link>
+        )}
         <button
           onClick={handleSave}
           disabled={saving}
           aria-label={state.draft.id ? 'Update experience' : 'Save experience'}
-          className="flex items-center gap-1.5 px-3 sm:px-5 py-2 bg-foil text-white font-bold text-[10px] font-label uppercase tracking-widest rounded-xl glow-accent transition active:scale-[0.98] disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3 sm:px-5 py-2 min-h-10 shrink-0 bg-foil text-white font-bold text-[10px] font-label uppercase tracking-widest rounded-xl glow-accent transition active:scale-[0.98] disabled:opacity-50"
         >
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-          <span className="hidden sm:inline">{saving ? 'Saving…' : saved ? 'Saved' : state.draft.id ? 'Update' : 'Save'}</span>
+          <span>{saving ? 'Saving…' : saved ? 'Saved' : state.draft.id ? 'Update' : 'Save'}</span>
         </button>
-        {/* Mobile/tablet: toggle the Properties drawer (a static column at lg+). */}
+        {/* Mobile/tablet: toggle the Properties drawer (a static column at lg+).
+            A tiny text label keeps the icon-only toggle discoverable. */}
         <button
           onClick={() => { setSceneOpen(false); setMobilePanel((p) => (p === 'props' ? null : 'props')); }}
           aria-label="Toggle properties panel"
-          className={`lg:hidden flex items-center justify-center w-9 h-9 rounded-lg transition-colors ${mobilePanel === 'props' ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg'}`}
+          className={`lg:hidden flex flex-col items-center justify-center gap-0.5 w-11 h-11 shrink-0 rounded-lg transition-colors ${mobilePanel === 'props' ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg'}`}
         >
           <SlidersHorizontal className="w-4 h-4" />
+          <span className="font-label text-[7px] uppercase tracking-wide leading-none">Edit</span>
         </button>
       </div>
-      {/* sm+: the name floats truly centered over the bar (independent of the
-          unequal left/right control groups). pointer-events pass through the
-          wrapper so only the control itself is interactive. */}
-      <div className="hidden sm:flex absolute inset-y-0 left-1/2 -translate-x-1/2 items-center max-w-[24vw] lg:max-w-[18rem] pointer-events-none [&>*]:pointer-events-auto">
-        {nameControl}
+      {/* Phone: the large name gets its own full-width row (it collapsed to
+          ~70px in the control row), with undo/redo/duplicate beside it — off
+          the packed first row so nothing hides behind the drawer toggles. */}
+      <div className="sm:hidden flex items-center gap-2 px-2.5 pb-2">
+        <div className="min-w-0 flex-1">{nameControl}</div>
+        {historyControls}
       </div>
-      {/* Phone: the name gets its own full-width row — in the control row it
-          collapsed to ~70px and truncated every name to two characters. */}
-      <div className="sm:hidden flex justify-center px-3 pb-2">
-        {nameControl}
-      </div>
+      {/* Phone: save errors get their own row — inline they overflowed the
+          packed control row. */}
+      {saveError && <p className="sm:hidden px-3 pb-2 text-rose-400 text-[10px] font-sans">{saveError}</p>}
       </header>
 
       {/* Body — 3-pane at lg+; the side docks become slide-in drawers below lg
@@ -517,6 +548,7 @@ export default function StudioShell() {
             headMatrixRef={headMatrixRef}
             dropActive={dnd.dragging && dnd.overStage}
             onTestOnPhone={() => setTestPhoneOpen(true)}
+            onOpenAssets={() => { setSceneOpen(false); setMobilePanel('assets'); }}
           />
         </main>
 
@@ -614,5 +646,6 @@ export default function StudioShell() {
         />
       )}
     </div>
+    </FeatureHelpProvider>
   );
 }

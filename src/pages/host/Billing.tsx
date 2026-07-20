@@ -8,10 +8,10 @@
  * dismissable "Billing setup pending" notice is shown instead.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Coins, CreditCard, ExternalLink, RefreshCw, Sparkles } from 'lucide-react';
 import {
-  fetchMyOrg, fetchCreditBalance, fetchSubscription, fetchLedger,
+  fetchMyOrgResult, fetchCreditBalance, fetchSubscription, fetchLedger,
   startCheckout, openPortal, invalidateProSubscriptionCache,
   type HostOrg, type SubscriptionRow, type LedgerRow, type CheckoutBody,
 } from '../../lib/host';
@@ -46,6 +46,19 @@ function ReasonBadge({ reason }: { reason: string }) {
   );
 }
 
+/** Raw checkout/portal error codes → human sentences (the code itself goes to
+ *  console.error for support). billing_not_configured is handled separately. */
+function checkoutErrorMessage(code: string | null): string {
+  switch (code) {
+    case 'network':
+      return 'Couldn’t reach Beamwall — check your connection and try again.';
+    case 'unauthorized':
+      return 'Your session has expired — sign in again, then retry.';
+    default:
+      return 'Something went wrong on our side — try again in a moment.';
+  }
+}
+
 function subStatusPill(status: string): string {
   switch (status) {
     case 'active': return 'bg-emerald-500/15 text-emerald-400';
@@ -58,6 +71,7 @@ function subStatusPill(status: string): string {
 export default function Billing() {
   const [searchParams] = useSearchParams();
   const [org, setOrg] = useState<HostOrg | null>(null);
+  const [orgLoadFailed, setOrgLoadFailed] = useState(false);
   const [balance, setBalance] = useState<number | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionRow | null>(null);
   const [ledger, setLedger] = useState<LedgerRow[]>([]);
@@ -69,7 +83,8 @@ export default function Billing() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const myOrg = await fetchMyOrg();
+    const { org: myOrg, failed } = await fetchMyOrgResult();
+    setOrgLoadFailed(failed);
     setOrg(myOrg);
     if (myOrg) {
       const [bal, sub, rows] = await Promise.all([
@@ -99,7 +114,9 @@ export default function Billing() {
       return;
     }
     setBusy(null);
-    setNotice(error === 'billing_not_configured' ? 'pending' : `Couldn't start checkout (${error}).`);
+    if (error === 'billing_not_configured') { setNotice('pending'); return; }
+    console.error('[billing] checkout failed:', error);
+    setNotice(checkoutErrorMessage(error));
   };
 
   const portal = async () => {
@@ -111,11 +128,18 @@ export default function Billing() {
       return;
     }
     setBusy(null);
-    setNotice(error === 'billing_not_configured' ? 'pending' : `Couldn't open the billing portal (${error}).`);
+    if (error === 'billing_not_configured') { setNotice('pending'); return; }
+    console.error('[billing] portal failed:', error);
+    setNotice(checkoutErrorMessage(error));
   };
 
   const returnUrl = typeof window !== 'undefined' ? `${window.location.origin}/host/billing` : '';
   const subActive = subscription?.status === 'active';
+  // The org is created lazily with the first event — until then purchases have
+  // nothing to attach to, so point at event creation instead of dead buttons.
+  // A transient fetch FAILURE is NOT no-org: don't tell an established host to
+  // "create your first event" — show the retry notice below instead.
+  const noOrg = !loading && !org && !orgLoadFailed;
 
   return (
     <div className="p-6 md:p-10 max-w-4xl mx-auto">
@@ -123,7 +147,7 @@ export default function Billing() {
         <div>
           <h1 className="font-serif text-3xl text-foil-static">Billing</h1>
           <p className="mt-1 font-sans text-xs text-brand-muted/60">
-            {org ? org.name : loading ? 'Loading…' : 'No organization yet — create your first event to get started.'}
+            {org ? org.name : loading ? 'Loading…' : orgLoadFailed ? 'Couldn’t load your billing.' : 'No organization yet — create your first event to get started.'}
           </p>
         </div>
         <button
@@ -136,6 +160,17 @@ export default function Billing() {
         </button>
       </header>
 
+      {!loading && orgLoadFailed && (
+        <div className="mb-5 flex items-start gap-2.5 rounded-xl bg-red-500/10 border border-red-500/25 px-4 py-3">
+          <p className="flex-1 font-sans text-xs text-red-300">Couldn’t load your billing — check your connection and try again.</p>
+          <button
+            onClick={load}
+            className="shrink-0 flex items-center gap-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors"
+          >
+            <RefreshCw className="w-3 h-3" /> Retry
+          </button>
+        </div>
+      )}
       {notice === 'pending' && (
         <div className="mb-5"><BillingPendingNotice onDismiss={() => setNotice(null)} /></div>
       )}
@@ -161,25 +196,35 @@ export default function Billing() {
             <Coins className="w-4 h-4 text-accent/80" />
             <span className="font-label uppercase tracking-luxe text-[10px]">Credits</span>
           </div>
+          <p className="font-sans text-[11px] text-brand-muted/50 leading-snug -mt-2">
+            Credits power the AI studio — an AI frame is 1 credit, a 3D prop about 11, and the keepsake film render 30.
+          </p>
           <p className="font-serif text-4xl text-brand-fg">
             {balance ?? 0}
             <span className="ml-2 font-sans text-xs text-brand-muted/50">credits</span>
           </p>
           <div>
             <p className="font-sans text-[10px] uppercase tracking-widest text-brand-muted/40 mb-2">Top up</p>
-            <div className="flex flex-wrap gap-2">
-              {CREDIT_PACKS.map((p) => (
-                <button
-                  key={p.pack}
-                  onClick={() => checkout(p.pack, { kind: 'credit_pack', pack: p.pack, returnUrl })}
-                  disabled={busy !== null || !org}
-                  className="flex-1 min-w-[6rem] rounded-xl bg-white/[0.06] hover:bg-white/[0.1] px-3 py-2.5 text-center transition-colors disabled:opacity-40"
-                >
-                  <span className="block font-serif text-lg text-brand-fg">{busy === p.pack ? '…' : p.credits}</span>
-                  <span className="block font-sans text-[10px] text-brand-muted/60">credits · {p.price}</span>
-                </button>
-              ))}
-            </div>
+            {noOrg ? (
+              <p className="font-sans text-[11px] text-brand-muted/60 leading-relaxed">
+                <Link to="/host/new" className="text-accent-2 hover:underline">Create your first event</Link>{' '}
+                to set up your organization — then you can top up credits here.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {CREDIT_PACKS.map((p) => (
+                  <button
+                    key={p.pack}
+                    onClick={() => checkout(p.pack, { kind: 'credit_pack', pack: p.pack, returnUrl })}
+                    disabled={busy !== null || !org}
+                    className="flex-1 min-w-[6rem] rounded-xl bg-white/[0.06] hover:bg-white/[0.1] px-3 py-2.5 text-center transition-colors disabled:opacity-40"
+                  >
+                    <span className="block font-serif text-lg text-brand-fg">{busy === p.pack ? '…' : p.credits}</span>
+                    <span className="block font-sans text-[10px] text-brand-muted/60">credits · {p.price}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -210,7 +255,12 @@ export default function Billing() {
             </p>
           )}
           <div className="mt-auto flex gap-2">
-            {!subActive && (
+            {noOrg ? (
+              <p className="font-sans text-[11px] text-brand-muted/60 leading-relaxed">
+                <Link to="/host/new" className="text-accent-2 hover:underline">Create your first event</Link>{' '}
+                to set up your organization — then you can subscribe here.
+              </p>
+            ) : !subActive && (
               <button
                 onClick={() => checkout('pro', { kind: 'pro_subscription', returnUrl })}
                 disabled={busy !== null || !org}

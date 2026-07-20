@@ -22,6 +22,7 @@ import Studio3DView from './Studio3DView';
 import StudioPreview from './StudioPreview';
 import Tooltip from '../ui/Tooltip';
 import ErrorBoundary from '../ui/ErrorBoundary';
+import HelpButton from './HelpButton';
 import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
 import { createTriggerEngine, TRIGGER_SOURCE_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
@@ -49,8 +50,11 @@ interface Props {
   headMatrixRef?: React.MutableRefObject<number[] | null>;
   /** True while a dock item is being dragged over the stage (drop highlight). */
   dropActive?: boolean;
-  /** Opens the "Test on phone" QR hand-off (Preview mode only). */
+  /** Opens the "Test on phone" QR hand-off (shown in every mode). */
   onTestOnPhone?: () => void;
+  /** Opens the mobile Assets drawer (<lg the docks are drawers, so the
+      empty-state hint becomes a tappable CTA instead of dead-end copy). */
+  onOpenAssets?: () => void;
 }
 
 const MODE_TABS = [
@@ -72,6 +76,7 @@ export default function StudioStage({
   headMatrixRef,
   dropActive = false,
   onTestOnPhone,
+  onOpenAssets,
 }: Props) {
   const { mode, draft, threeView, paused } = state;
   const shaderCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -310,7 +315,7 @@ export default function StudioStage({
   return (
     <div className="relative h-full w-full flex items-center justify-center p-3 md:p-5">
       {/* Mode switcher — floating pill */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30">
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5">
         <div className="flex items-center gap-1 liquid-glass rounded-full p-1">
           {visibleTabs.map((t) => {
             const active = mode === t.id;
@@ -338,6 +343,7 @@ export default function StudioStage({
             );
           })}
         </div>
+        <HelpButton topic="modes" label="How 2D, 3D & Preview work" side="bottom" offset={mode === '2d' ? undefined : 56} variant="floating" />
       </div>
 
       {/* 3D sub-controls — sit BELOW the main switcher (centred) so they never
@@ -460,10 +466,21 @@ export default function StudioStage({
             )}
 
             {/* Empty state — only when the scene truly has no overlays AND no
-                filter (a filter-only scene shows the live filter instead). */}
+                filter (a filter-only scene shows the live filter instead).
+                Below lg the docks are drawers, so "from the left" is a dead
+                end — the caption becomes a tappable CTA that opens the Assets
+                drawer instead. lg+ keeps the pointer-through caption. */}
             {!hasAnyOverlay && draft.shaderId === 'none' && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-8 text-center">
-                <p className="font-label text-[10px] uppercase tracking-widest text-brand-muted/50">Pick a frame or stickers from the left</p>
+                <p className={`${onOpenAssets ? 'hidden lg:block' : ''} font-label text-[10px] uppercase tracking-widest text-brand-muted/50`}>Pick a frame or stickers from the left</p>
+                {onOpenAssets && (
+                  <button
+                    onClick={onOpenAssets}
+                    className="lg:hidden pointer-events-auto px-4 py-2.5 rounded-full liquid-glass text-[10px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors"
+                  >
+                    Pick a frame or sticker
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -548,10 +565,11 @@ export default function StudioStage({
           </div>
         )}
 
-        {/* Test on phone — Preview mode only, floating bottom-right. In preview
-            the status caption moves up under the mode pill (see below) so the
-            two never collide on narrow stages. */}
-        {mode === 'preview' && onTestOnPhone && (
+        {/* Test on phone — every mode, floating bottom-right (the modal itself
+            handles unsaved/hidden drafts). In preview the status caption moves
+            up under the mode pill (see below); in 2D/3D the caption is
+            pointer-through, so the pill stays tappable on narrow stages. */}
+        {onTestOnPhone && (
           <div className="absolute bottom-3 right-3 z-20">
             <button
               onClick={onTestOnPhone}
@@ -573,11 +591,11 @@ export default function StudioStage({
         )}
 
         {/* Status caption — in preview it sits under the mode pill (the 3D
-            sub-controls slot) so the bottom-right Test-on-phone button never
-            overlaps it on narrow stages. */}
+            sub-controls slot); in 2D/3D it sits at the bottom, lifted above the
+            Test-on-phone pill on narrow stages (sm-) so the two never overlap. */}
         <div
           className={`absolute left-1/2 -translate-x-1/2 z-20 pointer-events-none ${
-            mode === 'preview' ? 'top-[3.35rem]' : 'bottom-3'
+            mode === 'preview' ? 'top-[3.35rem]' : 'bottom-16 sm:bottom-3'
           }`}
         >
           <StageCaption mode={mode} threeView={threeView} paused={paused} faceVisible={faceVisible} filterActive={draft.shaderId !== 'none'} objectCount={overlays.length} />

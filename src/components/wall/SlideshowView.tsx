@@ -130,17 +130,9 @@ export default function SlideshowView({
     resetAuto();
   };
 
-  if (!post) {
-    return (
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="text-center animate-rise-in">
-          <p className="font-serif italic text-5xl text-foil-static mb-4">
-            Be the first to capture a moment…
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // Empty state lives in Wall.tsx (<EmptyWall/>); a transiently out-of-range
+  // index (post deleted mid-show) renders nothing until the index resets.
+  if (!post) return null;
 
   return (
     <div
@@ -177,12 +169,13 @@ export default function SlideshowView({
               className="absolute inset-0"
               initial={kbCfg.from}
               animate={kbCfg.to}
-              transition={{ duration: 7, ease: 'linear' }}
+              // Drift spans the full dwell time of the slide
+              transition={{ duration: advanceMs / 1000, ease: 'linear' }}
               style={{ transformOrigin: 'center center' }}
             >
               <img
                 src={post.image_url}
-                alt={post.guest_name ?? 'Gala moment'}
+                alt={post.guest_name ?? 'Event moment'}
                 className="w-full h-full object-contain"
                 style={{ background: '#0a0703' }}
                 draggable={false}
