@@ -8,8 +8,8 @@
  * column — so desktop width actually gets used instead of one tall stack.
  * `detail` renders as short icon+label+blurb chips (a scan, not a paragraph).
  */
-import { useRef } from 'react';
-import { motion } from 'motion/react';
+import { useEffect, useRef } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import { X } from 'lucide-react';
 import { FEATURE_HELP, type FeatureHelpTopic } from '../../lib/studio/featureHelp';
 import { MODES } from './StudioOnboarding';
@@ -35,6 +35,17 @@ export default function FeatureHelpModal({ topic, onClose }: { topic: FeatureHel
   const content = FEATURE_HELP[topic];
   const media = content.media;
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Reduced-motion users get the poster frame, not an autoplaying loop (the
+  // poster is a representative still, so nothing is lost).
+  const reduced = useReducedMotion() ?? false;
+
+  // Escape closes the modal — standard dialog affordance alongside the X,
+  // backdrop click and the "Got it" button.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   // Every loop after the first skips straight past the recording's own
   // app-load moment — only the very first play shows it, same as a guest
@@ -83,9 +94,10 @@ export default function FeatureHelpModal({ topic, onClose }: { topic: FeatureHel
               ref={videoRef}
               src={media.src}
               poster={media.poster}
+              aria-hidden
               className="h-full w-full object-cover object-top"
-              autoPlay
-              onEnded={loopPastIntro}
+              autoPlay={!reduced}
+              onEnded={reduced ? undefined : loopPastIntro}
               muted
               playsInline
               preload="metadata"
