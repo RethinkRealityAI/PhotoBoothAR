@@ -41,6 +41,7 @@ import { experienceToDraft } from '../../lib/studio/draftMapping';
 import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
 import AiFramePanel from './AiFramePanel';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
+import HelpButton from './HelpButton';
 import type { DragPayload } from './useStudioDnd';
 import type { Experience } from '../../types';
 import {
@@ -625,7 +626,10 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     <div className="h-full overflow-y-auto hide-scrollbar flex flex-col">
       {/* Sticky header — title + search + kind chips filter every section together */}
       <div className="sticky top-0 z-10 app-bg flex flex-col gap-2.5 px-4 pt-4 pb-3 border-b border-white/5">
-        <span className="font-label uppercase tracking-widest text-[10px] text-brand-fg">My Assets</span>
+        <div className="flex items-center gap-1.5">
+          <span className="font-label uppercase tracking-widest text-[10px] text-brand-fg">My Assets</span>
+          <HelpButton topic="library" label="How the studio library works" side="right" />
+        </div>
         <div className="relative">
           <Search className="w-3.5 h-3.5 text-brand-muted/30 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input

@@ -15,8 +15,10 @@ import libraryImg from '../../assets/studio/studio-library.jpg';
 import directorImg from '../../assets/studio/studio-director.jpg';
 import triggersImg from '../../assets/studio/studio-triggers.jpg';
 
-/** The studio's three canvas modes, explained in their own onboarding step. */
-const MODES = [
+/** The studio's three canvas modes, explained in their own onboarding step
+ *  (also reused by FeatureHelpModal's "modes" topic — no single screenshot
+ *  can represent all three views, so both surfaces use this icon card set). */
+export const MODES = [
   { Icon: Layers, label: '2D', caption: 'Lay out frames, stickers & filters flat on the photo.' },
   { Icon: Box, label: '3D', caption: 'Place face-tracked props in the live 3D scene.' },
   { Icon: Eye, label: 'Preview', caption: 'See what a guest sees — then tap Test on phone to try it with your own face.' },

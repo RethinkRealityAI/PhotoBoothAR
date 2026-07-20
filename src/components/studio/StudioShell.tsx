@@ -78,6 +78,8 @@ import DirectorPanel from './DirectorPanel';
 import TestOnPhone from './TestOnPhone';
 import { useStudioDnd } from './useStudioDnd';
 import Tooltip from '../ui/Tooltip';
+import HelpButton from './HelpButton';
+import { FeatureHelpProvider } from './FeatureHelpContext';
 
 const CAMERA_MESSAGES: Record<string, string> = {
   NotAllowedError: 'Camera permission denied — grant access and retry.',
@@ -422,6 +424,7 @@ export default function StudioShell() {
   );
 
   return (
+    <FeatureHelpProvider>
     <div className="absolute inset-0 flex flex-col app-bg">
       {/* Top bar — every control is IN FLOW (no absolute positioning), so at
           any width items truncate or wrap to the phone name-row; nothing can
@@ -455,16 +458,19 @@ export default function StudioShell() {
             control groups apart. */}
         <div className="flex-1 sm:hidden" />
         <div className="hidden sm:block">{historyControls}</div>
-        <Tooltip label="Director" hint="Docked AI assistant — designs a scene into your open draft" side="bottom">
-          <button
-            onClick={() => { setMobilePanel(null); setSceneOpen((o) => !o); }}
-            aria-pressed={sceneOpen}
-            className={`flex items-center gap-1.5 px-3 py-2 min-h-10 shrink-0 rounded-xl liquid-glass text-[10px] font-label uppercase tracking-widest transition-colors ${sceneOpen ? 'text-brand-fg bg-accent/15' : 'text-accent-2 hover:text-brand-fg'}`}
-          >
-            <Clapperboard className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Director</span>
-          </button>
-        </Tooltip>
+        <div className="flex items-center shrink-0">
+          <Tooltip label="Director" hint="Docked AI assistant — designs a scene into your open draft" side="bottom">
+            <button
+              onClick={() => { setMobilePanel(null); setSceneOpen((o) => !o); }}
+              aria-pressed={sceneOpen}
+              className={`flex items-center gap-1.5 px-3 py-2 min-h-10 shrink-0 rounded-xl liquid-glass text-[10px] font-label uppercase tracking-widest transition-colors ${sceneOpen ? 'text-brand-fg bg-accent/15' : 'text-accent-2 hover:text-brand-fg'}`}
+            >
+              <Clapperboard className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Director</span>
+            </button>
+          </Tooltip>
+          <HelpButton topic="director" label="How the Director works" side="bottom" />
+        </div>
         {saveError && <span className="hidden sm:inline text-rose-400 text-[10px] font-sans max-w-[180px] text-right">{saveError}</span>}
         {/* Post-save nudge — the QR/share kit lives on the event's Share tab
             (same base path derivation as the back-to-Library link above). */}
@@ -640,5 +646,6 @@ export default function StudioShell() {
         />
       )}
     </div>
+    </FeatureHelpProvider>
   );
 }

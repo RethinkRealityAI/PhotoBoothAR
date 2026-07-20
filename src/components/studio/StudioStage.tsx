@@ -22,6 +22,7 @@ import Studio3DView from './Studio3DView';
 import StudioPreview from './StudioPreview';
 import Tooltip from '../ui/Tooltip';
 import ErrorBoundary from '../ui/ErrorBoundary';
+import HelpButton from './HelpButton';
 import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
 import { createTriggerEngine, TRIGGER_SOURCE_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
@@ -314,7 +315,7 @@ export default function StudioStage({
   return (
     <div className="relative h-full w-full flex items-center justify-center p-3 md:p-5">
       {/* Mode switcher — floating pill */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30">
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5">
         <div className="flex items-center gap-1 liquid-glass rounded-full p-1">
           {visibleTabs.map((t) => {
             const active = mode === t.id;
@@ -342,6 +343,7 @@ export default function StudioStage({
             );
           })}
         </div>
+        <HelpButton topic="modes" label="How 2D, 3D & Preview work" side="bottom" offset={mode === '2d' ? undefined : 56} variant="floating" />
       </div>
 
       {/* 3D sub-controls — sit BELOW the main switcher (centred) so they never

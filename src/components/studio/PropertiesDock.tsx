@@ -76,6 +76,8 @@ import { useEvent } from '../../events/EventContext';
 import type { LayerAnimation } from '../../types';
 import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
 import Tooltip from '../ui/Tooltip';
+import HelpButton from './HelpButton';
+import type { FeatureHelpTopic } from '../../lib/studio/featureHelp';
 
 interface Props {
   state: StudioState;
@@ -116,28 +118,36 @@ function DockSection({
   title,
   open,
   onToggle,
+  help,
   children,
 }: {
   icon: LucideIcon;
   title: string;
   open: boolean;
   onToggle: () => void;
+  /** Feature-help topic — shows a small "?" affordance beside the title. */
+  help?: FeatureHelpTopic;
   children: ReactNode;
 }) {
   const reduced = useReducedMotion() ?? false;
   return (
     <section className="border-b border-white/5 pb-4 last:border-b-0 last:pb-0">
-      <button
-        onClick={onToggle}
-        aria-expanded={open}
-        className="flex items-center gap-2 w-full py-1 text-left group"
-      >
-        <Icon className={`w-3.5 h-3.5 shrink-0 transition-colors ${open ? 'text-accent-2' : 'text-brand-muted/50 group-hover:text-brand-fg'}`} />
-        <span className={`flex-1 font-label uppercase tracking-widest text-[10px] transition-colors ${open ? 'text-brand-fg' : 'text-brand-muted/60 group-hover:text-brand-fg'}`}>
-          {title}
-        </span>
-        <ChevronDown className={`w-3.5 h-3.5 shrink-0 text-brand-muted/40 transition-transform ${open ? '' : '-rotate-90'}`} />
-      </button>
+      <div className="group flex items-center gap-2 w-full py-1">
+        <button
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex flex-1 min-w-0 items-center gap-2 text-left"
+        >
+          <Icon className={`w-3.5 h-3.5 shrink-0 transition-colors ${open ? 'text-accent-2' : 'text-brand-muted/50 group-hover:text-brand-fg'}`} />
+          <span className={`flex-1 min-w-0 truncate font-label uppercase tracking-widest text-[10px] transition-colors ${open ? 'text-brand-fg' : 'text-brand-muted/60 group-hover:text-brand-fg'}`}>
+            {title}
+          </span>
+        </button>
+        {help && <HelpButton topic={help} label={`How ${title} works`} side="bottom" />}
+        <button onClick={onToggle} aria-label={open ? `Collapse ${title}` : `Expand ${title}`} className="shrink-0 p-0.5">
+          <ChevronDown className={`w-3.5 h-3.5 shrink-0 text-brand-muted/40 transition-transform ${open ? '' : '-rotate-90'}`} />
+        </button>
+      </div>
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
@@ -952,7 +962,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
       {/* MAGIC TRIGGERS — scene-level face-triggered effects, shown once the scene
           has content (or already carries triggers) since they ride on the scene. */}
       {(hasObjects || filterActive || draft.triggers.length > 0) && (
-        <DockSection icon={Sparkles} title="Magic Triggers" open={!!open.triggers} onToggle={() => toggleSection('triggers')}>
+        <DockSection icon={Sparkles} title="Magic Triggers" open={!!open.triggers} onToggle={() => toggleSection('triggers')} help="triggers">
           <MagicTriggers
             draft={draft}
             dispatch={dispatch}
