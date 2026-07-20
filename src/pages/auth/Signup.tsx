@@ -22,6 +22,7 @@ export default function Signup() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [alreadyRegistered, setAlreadyRegistered] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -29,12 +30,20 @@ export default function Signup() {
     setError(null);
     setSubmitting(true);
     try {
-      const { error: err } = await signUpWithEmail(email.trim(), password, displayName.trim(), promoCode);
+      const { data, error: err } = await signUpWithEmail(email.trim(), password, displayName.trim(), promoCode);
       if (err) {
         setError(err.message);
         return;
       }
-      setSubmitted(true);
+      // Supabase's anti-enumeration behavior: signing up again with an email
+      // that already has a CONFIRMED account returns 200/no error but an
+      // obfuscated user object with an empty `identities` array, and sends
+      // no email. A populated `identities` array means a real new signup.
+      if (data.user && data.user.identities?.length === 0) {
+        setAlreadyRegistered(true);
+      } else {
+        setSubmitted(true);
+      }
     } catch {
       setError('Something went wrong. Please try again.');
     } finally {
@@ -53,7 +62,32 @@ export default function Signup() {
             Beamwall
           </Link>
 
-          {submitted ? (
+          {alreadyRegistered ? (
+            <div className="mt-8 text-center">
+              <p className="font-label uppercase tracking-luxe text-[10px] text-accent">
+                Already have an account
+              </p>
+              <h2 className="mt-3 font-serif text-2xl text-brand-fg">
+                That email&rsquo;s already confirmed
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-brand-muted/80">
+                <span className="text-brand-fg">{email.trim()}</span> already has an account —
+                we didn&rsquo;t send a new email. Sign in below, or reset your password if you
+                don&rsquo;t remember it.
+              </p>
+              <div className="mt-6 flex flex-col items-center gap-2 text-sm">
+                <Link to="/login" className="text-accent underline-offset-4 hover:underline">
+                  Sign in
+                </Link>
+                <Link
+                  to="/forgot-password"
+                  className="text-brand-muted/60 underline-offset-4 hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+            </div>
+          ) : submitted ? (
             <div className="mt-8 text-center">
               <p className="font-label uppercase tracking-luxe text-[10px] text-accent">
                 One last step
