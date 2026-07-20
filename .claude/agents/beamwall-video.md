@@ -334,3 +334,19 @@ re-encoded → file size sane (<2MB for landing embeds) → embedded/committed �
      repo remains the `scripts/remote-assets.json` push-triggered CI workflow
      — which requires a git push and therefore explicit user authorization;
      a task that forbids git commands cannot vendor Higgsfield output at all.
+- 2026-07-20 (same task, phase 2): Generated the full 9-image set for the
+  feature-film rebuild (5x 3x3 contact-sheet grids + 3x 9:16 phone portraits
+  + the earlier 1:1 gala test shot), handed {url,path} manifest to the
+  coordinator for the remote-assets CI vendoring path. Notes: 8 parallel
+  nano_banana_pro generate_image calls in two batches of 4 hit NO rate limit
+  (unlike seed_audio); each completed in ~60-120s; 2k 9:16 = 1536x2752;
+  2k 1:1 = 2048x2048; every image cost exactly 2 credits (16 total this
+  batch, balance 1387.85->1371.85). Target vendor paths chosen:
+  hyperframes/studio/assets/photos/{booth-grid,wall-grid-gala,
+  wall-grid-wedding,challenges-grid,cards-grid,wall-phone-capture,
+  challenges-phone-group,cards-video-message,challenges-gala-laugh}.png.
+  IMPORTANT for the composition phase: grid-cell layout accuracy is
+  UNVERIFIED until the files land (CDN blocked -> could not eyeball); before
+  wiring cells, Read each vendored grid PNG and check the 3x3 gutters are
+  clean; slice with ffmpeg crop (2048/3≈683px cells) or CSS
+  background-size:300%/background-position.
