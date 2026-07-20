@@ -97,6 +97,43 @@
       "comment": "Higgsfield image_to_3d neutral head bust — the studio 3D orbit reference head. Normalized to head-space at load by ReferenceBust/computeBustFit; GLB-ONLY (W8): nothing renders while loading or if absent — the procedural fallback was deleted per user decision.",
       "url": "https://d3u0tzju9qaucj.cloudfront.net/7d051b5a-7bfe-49fe-a484-24e7b3a9458a/95db6f33-c463-4020-b5b3-67312bd1a1d4.glb",
       "path": "public/models/reference-head.glb"
+    },
+    {
+      "comment": "Feature-film rebuild imagery (2026-07-20, nano_banana_pro) — 3x3 contact sheets + 9:16 phone shots, one set per film so no image repeats across films.",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260720_170202_6192cdb0-86f0-4a8f-ba45-2026f0804362.png",
+      "path": "hyperframes/studio/assets/photos/booth-grid.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260720_170206_2915ddd4-25a6-488d-9887-dcb7a52acaa7.png",
+      "path": "hyperframes/studio/assets/photos/wall-grid-gala.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260720_170211_410b0dcd-23be-4052-93f1-bd4350cde36d.png",
+      "path": "hyperframes/studio/assets/photos/wall-grid-wedding.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260720_170215_d3638d72-ed04-42e2-ad2c-600eb11ce97a.png",
+      "path": "hyperframes/studio/assets/photos/challenges-grid.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260720_170227_5456724b-b3b7-400b-b7db-99c645d5aa17.png",
+      "path": "hyperframes/studio/assets/photos/cards-grid.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260720_170230_5d540a15-5a1e-44e0-b7f5-0136e5f51538.png",
+      "path": "hyperframes/studio/assets/photos/wall-phone-capture.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260720_170232_b3c8cbed-1ffb-4089-a9d1-2609545a3026.png",
+      "path": "hyperframes/studio/assets/photos/challenges-phone-group.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260720_170234_8b35ace0-7872-41df-b117-8fc955f552b7.png",
+      "path": "hyperframes/studio/assets/photos/cards-video-message.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260720_163856_9b276318-672c-4938-b661-4f1f8d79b4de.png",
+      "path": "hyperframes/studio/assets/photos/challenges-gala-laugh.png"
     }
   ]
 }
