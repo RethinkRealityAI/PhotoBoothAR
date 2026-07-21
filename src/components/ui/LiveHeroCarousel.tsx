@@ -18,7 +18,7 @@
  * prefers-reduced-motion the auto-scroll is off and the strip is drag-only.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 import { fetchPosts } from '../../lib/db';
 import { BORDER_MAP, toDataUrl } from '../../lib/borders';
 import type { Post } from '../../types';
@@ -168,6 +168,17 @@ export default function LiveHeroCarousel({
   const offset = useRef(0);
   const dragging = useRef(false);
   const paused = useRef(false);
+  // Explicit user pause (the visible toggle) — unlike the ambient hover pause
+  // above, this persists until toggled again, works for touch + keyboard, and
+  // stops BOTH the desktop drift and the compact stepper. State drives the
+  // button UI (icon/aria-pressed); the ref is what the rAF closures read.
+  const [userPaused, setUserPaused] = useState(false);
+  const userPausedRef = useRef(false);
+  const toggleUserPaused = () => {
+    const next = !userPausedRef.current;
+    userPausedRef.current = next;
+    setUserPaused(next);
+  };
   const lastX = useRef(0);
   // Drag-intent gate: a pointer sequence only becomes a drag after ~8px of
   // mostly-horizontal travel — so a tap, or a vertical page-scroll that starts
@@ -227,7 +238,9 @@ export default function LiveHeroCarousel({
       // Desktop drifts continuously; compact viewports STEP instead (below) —
       // a drifting strip at phone width spends most of its time with two
       // half-cards on screen, while stepping holds one focal card centred.
-      if (!reduced && !COMPACT_VIEWPORT && !dragging.current && !paused.current) offset.current -= speed;
+      if (!reduced && !COMPACT_VIEWPORT && !dragging.current && !paused.current && !userPausedRef.current) {
+        offset.current -= speed;
+      }
       const half = track.scrollWidth / 2;
       if (half > 0) {
         if (offset.current <= -half) offset.current += half;
@@ -275,7 +288,7 @@ export default function LiveHeroCarousel({
     let stepTimer: ReturnType<typeof setInterval> | undefined;
     if (COMPACT_VIEWPORT && !reduced) {
       stepTimer = setInterval(() => {
-        if (dragging.current || paused.current) return;
+        if (dragging.current || paused.current || userPausedRef.current) return;
         const kids = track.children;
         if (kids.length < 2) return;
         const slotW = (kids[1] as HTMLElement).offsetLeft - (kids[0] as HTMLElement).offsetLeft;
@@ -367,7 +380,7 @@ export default function LiveHeroCarousel({
           type="button"
           onClick={() => nudge(1)}
           aria-label="Previous frames"
-          className="flex h-10 w-10 items-center justify-center rounded-full liquid-glass text-brand-fg/80 transition hover:text-brand-fg active:scale-95 sm:h-11 sm:w-11"
+          className="flex h-10 w-10 items-center justify-center rounded-full liquid-glass text-brand-fg/80 transition hover:text-brand-fg active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:h-11 sm:w-11"
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
@@ -377,9 +390,23 @@ export default function LiveHeroCarousel({
           type="button"
           onClick={() => nudge(-1)}
           aria-label="Next frames"
-          className="flex h-10 w-10 items-center justify-center rounded-full liquid-glass text-brand-fg/80 transition hover:text-brand-fg active:scale-95 sm:h-11 sm:w-11"
+          className="flex h-10 w-10 items-center justify-center rounded-full liquid-glass text-brand-fg/80 transition hover:text-brand-fg active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:h-11 sm:w-11"
         >
           <ChevronRight className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Visible pause/play for the auto-advancing strip (WCAG 2.2.2) —
+          persists until toggled, unlike the ambient hover pause. */}
+      <div className="absolute bottom-2 right-1 z-20 sm:right-2">
+        <button
+          type="button"
+          onClick={toggleUserPaused}
+          aria-pressed={userPaused}
+          aria-label={userPaused ? 'Play the frame carousel' : 'Pause the frame carousel'}
+          className="flex h-9 w-9 items-center justify-center rounded-full liquid-glass text-brand-fg/80 transition hover:text-brand-fg active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
+        >
+          {userPaused ? <Play className="ml-0.5 h-4 w-4" /> : <Pause className="h-4 w-4" />}
         </button>
       </div>
     </div>

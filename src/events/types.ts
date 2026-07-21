@@ -58,6 +58,11 @@ export interface EventConfig {
   Mark: ComponentType;
   /** Bare event emblem icon (no text) — used wherever a small brand mark appears. */
   Emblem: ComponentType<{ size?: number; className?: string }>;
+  /** Ambient background. Coded events supply this as a `React.lazy` component
+   *  (their Background modules can pull heavy deps — jenna-jake's imports
+   *  three/R3F — which must stay OUT of the eager marketing bundle); the sole
+   *  render site, ui/EventBackground, wraps it in its own Suspense. Runtime DB
+   *  events pass a plain template component, which Suspense passes through. */
   Background: ComponentType<{ density?: number; className?: string; sparkle?: number }>;
   /** Registry id of the background template that produced `Background` (DB
    *  events only — set by buildRuntimeConfig from config.background_template

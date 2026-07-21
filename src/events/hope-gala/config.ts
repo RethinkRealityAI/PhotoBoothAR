@@ -1,8 +1,12 @@
+import { lazy } from 'react';
 import type { EventConfig } from '../types';
 import { HopeGalaWordmark, HopeGalaMark, HopeGalaEmblem } from '../../components/ui/Logo';
-import GalaBackground from '../../components/ui/GalaBackground';
 import { scagoMarkDataUrl } from '../../lib/scagoMark';
 import { hopeGalaCopy } from './copy';
+
+// Lazy (matches jenna-jake/detola-wuyi): event Backgrounds load on first
+// render inside ui/EventBackground's Suspense, not in the eager registry graph.
+const GalaBackground = lazy(() => import('../../components/ui/GalaBackground'));
 
 export const hopeGala: EventConfig = {
   id: 'hope-gala',

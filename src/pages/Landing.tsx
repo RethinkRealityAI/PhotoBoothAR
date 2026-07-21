@@ -38,6 +38,7 @@ import {
   EVENT_ACTIVATION,
 } from '../lib/landingAssets';
 import { BORDER_MAP, toDataUrl } from '../lib/borders';
+import { usePageTitle } from '../lib/usePageTitle';
 import boothFeatureVideo from '../assets/landing/booth-feature.mp4';
 import boothFeaturePoster from '../assets/landing/booth-feature-poster.jpg';
 import wallFeatureVideo from '../assets/landing/wall-feature.mp4';
@@ -63,6 +64,9 @@ interface Feature {
   /** ONE succinct line — the detail (old bullet lists) now lives INSIDE each
    *  film as animated callouts, so the page copy stays scannable. */
   copy: string;
+  /** Compact keyword row under the one-liner — a visible text alternative to
+   *  the film's in-video callouts (and honest SEO copy). Keep it one line. */
+  highlights: string;
   Icon: ComponentType<BeamIconProps>;
   from: string;
   to: string;
@@ -86,6 +90,7 @@ const FEATURES: Feature[] = [
     eyebrow: 'Immersive booth',
     title: 'A photo booth that lives in every pocket',
     copy: 'One scan drops every guest into a magical, face-tracked booth — right in their browser.',
+    highlights: 'Face-tracked 3D props · Live effects & frames · Photo or video · No app to download',
     Icon: BoothIcon,
     from: '#5B8CFF',
     to: '#7C6CF7',
@@ -100,6 +105,7 @@ const FEATURES: Feature[] = [
     eyebrow: 'Live photo wall',
     title: 'Every shot beams onto the wall, live',
     copy: 'The moment a guest captures, it beams onto a cinematic wall the whole room watches.',
+    highlights: 'Real-time beam · Cinematic projection · Your frame designs · Host moderation',
     Icon: WallIcon,
     from: '#22D3EE',
     to: '#38BDF8',
@@ -114,6 +120,7 @@ const FEATURES: Feature[] = [
     eyebrow: 'Challenges',
     title: 'Turn the room into the game',
     copy: 'Set photo missions — “catch the first dance” — and the leaderboard lights the wall up.',
+    highlights: 'Photo missions · Points & leaderboard · Lights up the wall',
     Icon: ChallengeIcon,
     from: '#FB923C',
     to: '#F59E0B',
@@ -128,6 +135,7 @@ const FEATURES: Feature[] = [
     eyebrow: 'Keepsake cards & guestbook',
     title: 'The morning-after keepsake',
     copy: 'Video messages and a card everyone signs — a keepsake that outlives the night.',
+    highlights: 'Video guestbook · A card everyone signs · Keepsake after the event',
     Icon: CardIcon,
     from: '#E879F9',
     to: '#C084FC',
@@ -283,7 +291,13 @@ const GHOST_FRAMES = [
  */
 function FilmEmbed({ src, poster, label }: { src: string; poster: string; label: string }) {
   const ref = useRef<HTMLVideoElement>(null);
+  // prefers-reduced-motion: never autoplay — the poster stays, and native
+  // controls let the visitor play the film deliberately instead.
+  const [reducedMotion] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  );
   useLayoutEffect(() => {
+    if (reducedMotion) return;
     const el = ref.current;
     if (!el || typeof IntersectionObserver === 'undefined') return;
     const io = new IntersectionObserver(
@@ -297,7 +311,7 @@ function FilmEmbed({ src, poster, label }: { src: string; poster: string; label:
     );
     io.observe(el);
     return () => io.disconnect();
-  }, []);
+  }, [reducedMotion]);
   return (
     <video
       ref={ref}
@@ -306,6 +320,7 @@ function FilmEmbed({ src, poster, label }: { src: string; poster: string; label:
       muted
       loop
       playsInline
+      controls={reducedMotion}
       preload="metadata"
       className="block h-auto w-full"
       aria-label={label}
@@ -398,6 +413,10 @@ function FeatureSection({ feature }: { feature: Feature }) {
         </p>
         <h2 className="mt-3 font-serif text-3xl leading-tight text-brand-fg sm:text-4xl">{feature.title}</h2>
         <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-brand-muted/80">{feature.copy}</p>
+        {/* Compact visible text alternative to the film's in-video callouts. */}
+        <p className="mt-2 max-w-xl font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
+          {feature.highlights}
+        </p>
       </div>
 
       <div
@@ -475,6 +494,7 @@ function FeatureSection({ feature }: { feature: Feature }) {
 /* ── Page ───────────────────────────────────────────────────────────── */
 
 export default function Landing() {
+  usePageTitle('Beamwall · AR photo booth & live wall for events');
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   // Assume live media until the carousel's pools resolve, so the caption
@@ -694,25 +714,30 @@ export default function Landing() {
             page (a long scroll should never leave a visitor without a way to
             convert). Blurred glass so content reads as it passes underneath. */}
         <header className="sticky top-0 z-40 -mx-6 flex items-center justify-between border-b border-white/5 bg-brand-bg/70 px-6 py-3 backdrop-blur-md">
-          <span className="font-serif text-2xl font-semibold tracking-wide text-foil-static">Beamwall</span>
+          <span className="font-serif text-xl sm:text-2xl font-semibold tracking-wide text-foil-static">Beamwall</span>
           <nav className="liquid-glass flex items-center gap-1.5 rounded-full p-1.5">
-            <a href="#demo" className="hidden sm:inline rounded-full px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors">
+            <a href="#demo" className="hidden sm:inline rounded-full px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]">
               Demo
             </a>
-            <a href="#pricing" className="hidden sm:inline rounded-full px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors">
+            <a href="#pricing" className="hidden sm:inline rounded-full px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]">
               Pricing
             </a>
+            {/* Sign in stays reachable on phones too (tighter padding <sm);
+                Create your event keeps the primary treatment. Both pills are
+                nowrap with a short signup label <sm — at 390px the wrapped
+                two-line pills collided with the wordmark. */}
             <Link
               to="/login"
-              className="hidden sm:inline-flex rounded-full border border-white/15 bg-white/[0.04] px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg transition hover:bg-white/[0.08]"
+              className="inline-flex whitespace-nowrap rounded-full border border-white/15 bg-white/[0.04] px-3 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg transition hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:px-5"
             >
               Sign in
             </Link>
             <Link
               to="/signup"
-              className="rounded-full bg-foil px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
+              className="whitespace-nowrap rounded-full bg-foil px-3 py-2 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:px-5"
             >
-              Create your event
+              <span className="sm:hidden">Create event</span>
+              <span className="hidden sm:inline">Create your event</span>
             </Link>
           </nav>
         </header>
@@ -726,7 +751,7 @@ export default function Landing() {
             <div className="pointer-events-none relative z-20 flex flex-col items-center" data-parallax-depth="-0.05">
               {/* Free badge — the "it costs nothing to try" promise, front and centre. */}
               <div className="mb-5 flex items-center gap-2 rounded-full liquid-glass px-4 py-1.5">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" aria-hidden />
+                <span className="h-1.5 w-1.5 motion-safe:animate-pulse rounded-full bg-emerald-400" aria-hidden />
                 <span className="font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg">
                   Free to start — no credit card
                 </span>
@@ -743,7 +768,7 @@ export default function Landing() {
                 <div className="flex flex-col items-center gap-3 sm:flex-row">
                   <Link
                     to="/signup"
-                    className="pointer-events-auto rounded-full bg-foil px-10 py-4 font-label uppercase tracking-luxe text-[12px] font-bold text-white glow-accent transition active:scale-[0.98]"
+                    className="pointer-events-auto rounded-full bg-foil px-10 py-4 font-label uppercase tracking-luxe text-[12px] font-bold text-white glow-accent transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
                   >
                     Start free
                   </Link>
@@ -752,7 +777,7 @@ export default function Landing() {
                       "sign up" without stealing the primary's job. */}
                   <a
                     href="#demo"
-                    className="group pointer-events-auto flex items-center gap-2.5 rounded-full border px-8 py-3.5 font-label uppercase tracking-luxe text-[12px] font-semibold text-brand-fg transition active:scale-[0.98]"
+                    className="group pointer-events-auto flex items-center gap-2.5 rounded-full border px-8 py-3.5 font-label uppercase tracking-luxe text-[12px] font-semibold text-brand-fg transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
                     style={{
                       borderColor: 'color-mix(in srgb, var(--color-accent) 45%, transparent)',
                       background: 'color-mix(in srgb, var(--color-accent) 10%, transparent)',
@@ -783,7 +808,7 @@ export default function Landing() {
               <p className="flex items-center gap-2.5 rounded-full liquid-glass px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg/85 sm:text-[11px]">
                 {hasLiveMedia && (
                   <span className="relative flex h-2 w-2" aria-hidden>
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-60" />
+                    <span className="absolute inline-flex h-full w-full motion-safe:animate-ping rounded-full bg-rose-400 opacity-60" />
                     <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-400" />
                   </span>
                 )}
@@ -889,7 +914,7 @@ export default function Landing() {
             <div data-reveal className="w-full">
               <Suspense
                 fallback={
-                  <div className="mx-auto h-[420px] w-full max-w-6xl animate-pulse rounded-3xl border border-white/10 bg-white/[0.03] lg:h-[560px]" />
+                  <div className="mx-auto h-[420px] w-full max-w-6xl motion-safe:animate-pulse rounded-3xl border border-white/10 bg-white/[0.03] lg:h-[560px]" />
                 }
               >
                 <InteractiveShowcase />
@@ -926,9 +951,9 @@ export default function Landing() {
                   <h3 className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">{t.name}</h3>
                   <div className="mt-2 flex items-baseline gap-1.5">
                     <span className="font-serif text-4xl text-foil-static">{t.price}</span>
-                    <span className="font-sans text-xs text-brand-muted/50">{t.unit}</span>
+                    <span className="font-sans text-xs text-brand-muted/70">{t.unit}</span>
                   </div>
-                  <p className="mt-2 font-sans text-[12px] leading-relaxed text-brand-muted/60">{t.blurb}</p>
+                  <p className="mt-2 font-sans text-[12px] leading-relaxed text-brand-muted/70">{t.blurb}</p>
                   <ul className="mt-5 flex flex-1 flex-col gap-2.5">
                     {t.features.map((f) => (
                       <li key={f} className="flex items-start gap-2 text-[13px] text-brand-fg/90">
@@ -939,7 +964,7 @@ export default function Landing() {
                   </ul>
                   <Link
                     to="/signup"
-                    className={`mt-6 rounded-full px-5 py-3 text-center font-label uppercase tracking-luxe text-[10px] font-bold transition active:scale-[0.98] ${
+                    className={`mt-6 rounded-full px-5 py-3 text-center font-label uppercase tracking-luxe text-[10px] font-bold transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] ${
                       t.popular
                         ? 'bg-foil text-white glow-accent'
                         : 'border border-white/15 bg-white/[0.04] text-brand-fg hover:bg-white/[0.08]'
@@ -983,7 +1008,7 @@ export default function Landing() {
             </p>
             <Link
               to="/signup"
-              className="mt-7 rounded-full bg-foil px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
+              className="mt-7 rounded-full bg-foil px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
             >
               Create your event
             </Link>
@@ -993,13 +1018,13 @@ export default function Landing() {
         {/* Footer */}
         <footer className="flex flex-col items-center gap-3 pb-6 pt-20 text-center">
           <span className="font-serif text-lg text-foil-static">Beamwall</span>
-          <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
+          <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
             Loved at weddings, galas &amp; milestone birthdays.
           </p>
-          <nav className="flex items-center gap-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
-            <Link to="/privacy" className="transition hover:text-brand-fg">Privacy</Link>
-            <span className="text-brand-muted/25">·</span>
-            <Link to="/terms" className="transition hover:text-brand-fg">Terms</Link>
+          <nav className="flex items-center gap-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
+            <Link to="/privacy" className="rounded transition hover:text-brand-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]">Privacy</Link>
+            <span className="text-brand-muted/25" aria-hidden>·</span>
+            <Link to="/terms" className="rounded transition hover:text-brand-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]">Terms</Link>
           </nav>
         </footer>
       </div>
