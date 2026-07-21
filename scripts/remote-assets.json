@@ -134,6 +134,16 @@
     {
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260720_163856_9b276318-672c-4938-b661-4f1f8d79b4de.png",
       "path": "hyperframes/studio/assets/photos/challenges-gala-laugh.png"
+    },
+    {
+      "comment": "Landing round 6 — booth section decor: young man taking an AR selfie (soul_v2 ddb4166a + bg-removed c8ae7e14); converted to webp locally after vendoring.",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260721_022703_c8ae7e14-0360-4fff-97f0-5168911d708d.png",
+      "path": "src/assets/landing/booth-guy-cutout.png"
+    },
+    {
+      "comment": "Landing round 6 — Who-it's-for section: 3x2 contact sheet of six event types (nano_banana 2k cbace9db); sliced to per-event webp cells locally after vendoring.",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260721_023255_cbace9db-a892-413e-9705-77956f2ebf9d.png",
+      "path": "src/assets/landing/event-types-grid.png"
     }
   ]
 }
