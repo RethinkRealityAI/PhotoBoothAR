@@ -22,9 +22,22 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import SpectrumField from '../components/ui/SpectrumField';
 import LiveHeroCarousel from '../components/ui/LiveHeroCarousel';
 import { BoothIcon, WallIcon, ChallengeIcon, CardIcon, type BeamIconProps } from '../components/ui/BeamIcons';
-import { BOOTH_CUTOUT, WALL_SCENE, TROPHY_CUTOUT, CARD_CUTOUT, FRAME_CLUSTER_CUTOUT, STEP_CREATE_CUTOUT, STEP_QR_CUTOUT, STEP_WALL_CUTOUT } from '../lib/landingAssets';
-import promoVideo from '../assets/landing/beamwall-intro.mp4';
-import promoPoster from '../assets/landing/beamwall-intro-poster.jpg';
+import {
+  BOOTH_GUY_CUTOUT,
+  TROPHY_CUTOUT,
+  CARD_CUTOUT,
+  FRAME_CLUSTER_CUTOUT,
+  STEP_CREATE_CUTOUT,
+  STEP_QR_CUTOUT,
+  STEP_WALL_CUTOUT,
+  EVENT_CONFERENCE,
+  EVENT_TRADESHOW,
+  EVENT_WEDDING,
+  EVENT_GALA,
+  EVENT_BIRTHDAY,
+  EVENT_ACTIVATION,
+} from '../lib/landingAssets';
+import { BORDER_MAP, toDataUrl } from '../lib/borders';
 import boothFeatureVideo from '../assets/landing/booth-feature.mp4';
 import boothFeaturePoster from '../assets/landing/booth-feature-poster.jpg';
 import wallFeatureVideo from '../assets/landing/wall-feature.mp4';
@@ -55,10 +68,11 @@ interface Feature {
   to: string;
   /** "r, g, b" of `from`, for glows. */
   rgb: string;
-  image: string;
-  /** Cutouts float free over a glow; scenes render inside a glass frame. */
-  imageStyle: 'cutout' | 'framed';
-  /** Which corner the small decor art peeks from behind the film. */
+  /** Decor art behind the film: a transparent cutout image, or (for the wall)
+   *  a fanned pair of REAL frame designs rendered from their SVGs. */
+  decor: 'cutout' | 'frames';
+  image?: string;
+  /** Which corner the decor art leans out from behind the film. */
   flip?: boolean;
   /** Feature film — rendered by the HyperFrames video studio (hyperframes/studio/<id>).
    *  Carries the feature's full story (incl. the old bullets) as text callouts. */
@@ -76,8 +90,8 @@ const FEATURES: Feature[] = [
     from: '#5B8CFF',
     to: '#7C6CF7',
     rgb: '91, 140, 255',
-    image: BOOTH_CUTOUT,
-    imageStyle: 'cutout',
+    image: BOOTH_GUY_CUTOUT,
+    decor: 'cutout',
     video: boothFeatureVideo,
     videoPoster: boothFeaturePoster,
   },
@@ -90,8 +104,7 @@ const FEATURES: Feature[] = [
     from: '#22D3EE',
     to: '#38BDF8',
     rgb: '34, 211, 238',
-    image: WALL_SCENE,
-    imageStyle: 'framed',
+    decor: 'frames',
     flip: true,
     video: wallFeatureVideo,
     videoPoster: wallFeaturePoster,
@@ -106,7 +119,7 @@ const FEATURES: Feature[] = [
     to: '#F59E0B',
     rgb: '251, 146, 60',
     image: TROPHY_CUTOUT,
-    imageStyle: 'cutout',
+    decor: 'cutout',
     video: challengesFeatureVideo,
     videoPoster: challengesFeaturePoster,
   },
@@ -120,7 +133,7 @@ const FEATURES: Feature[] = [
     to: '#C084FC',
     rgb: '232, 121, 249',
     image: CARD_CUTOUT,
-    imageStyle: 'cutout',
+    decor: 'cutout',
     flip: true,
     video: cardsFeatureVideo,
     videoPoster: cardsFeaturePoster,
@@ -177,6 +190,70 @@ const HOW_STEPS = [
   { n: '3', title: 'The room lights up', body: 'Guests snap magical photos and videos that beam onto your live wall in real time, for the whole room to watch.', image: STEP_WALL_CUTOUT, rgb: '232, 121, 249', tilt: 11, depth: 0.1 },
 ];
 
+/** Who-it's-for: the people who run events… */
+const AUDIENCES = [
+  'Event planners & organizers',
+  'Corporate & marketing teams',
+  'Couples & wedding parties',
+  'Party hosts',
+  'Venues & agencies',
+];
+
+/** …and the events they run. `image` is a Higgsfield-generated scene card
+ *  (vendored via remote-assets); a tinted glow paints the card until it loads
+ *  or if it ever fails. */
+interface EventType {
+  label: string;
+  blurb: string;
+  rgb: string;
+  image?: string;
+}
+const EVENT_TYPES: EventType[] = [
+  { label: 'Conferences', blurb: 'Networking made playful', rgb: '91, 140, 255', image: EVENT_CONFERENCE },
+  { label: 'Trade shows & conventions', blurb: 'A booth that draws the floor', rgb: '34, 211, 238', image: EVENT_TRADESHOW },
+  { label: 'Weddings', blurb: 'Every guest, one keepsake', rgb: '232, 121, 249', image: EVENT_WEDDING },
+  { label: 'Galas & fundraisers', blurb: 'Black-tie, full glamour', rgb: '212, 175, 55', image: EVENT_GALA },
+  { label: 'Birthdays & parties', blurb: 'The room joins the fun', rgb: '251, 146, 60', image: EVENT_BIRTHDAY },
+  { label: 'Brand activations', blurb: 'Shareable by design', rgb: '124, 108, 247', image: EVENT_ACTIVATION },
+];
+
+/** One event-type photo card — image cover + dark gradient + label; degrades
+ *  to a branded glow card when there's no image (or it fails to load). */
+function EventTypeCard({ event }: { event: EventType }) {
+  const [failed, setFailed] = useState(false);
+  const showImage = event.image !== undefined && !failed;
+  return (
+    <div
+      className="group relative aspect-[4/3] overflow-hidden rounded-2xl border border-white/10"
+      style={{ boxShadow: `0 0 30px -10px rgba(${event.rgb}, 0.4), 0 18px 44px -20px rgba(0,0,0,0.7)` }}
+    >
+      {showImage ? (
+        <img
+          src={event.image}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-105"
+        />
+      ) : (
+        <div
+          aria-hidden
+          className="absolute inset-0"
+          style={{
+            background: `radial-gradient(120% 90% at 50% 20%, rgba(${event.rgb}, 0.32), rgba(${event.rgb}, 0.08) 55%, transparent 80%), linear-gradient(180deg, rgba(24,26,38,0.9), rgba(8,9,15,0.95))`,
+          }}
+        />
+      )}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
+      <div className="absolute inset-x-0 bottom-0 p-3.5 sm:p-4">
+        <p className="font-serif text-base leading-tight text-brand-fg sm:text-lg">{event.label}</p>
+        <p className="mt-0.5 text-[11px] text-brand-muted/80 sm:text-xs">{event.blurb}</p>
+      </div>
+    </div>
+  );
+}
+
 /** Honest objection-handling FAQ (no fluff, no fake urgency). */
 const FAQS: { q: string; a: string }[] = [
   { q: 'Do my guests need to download an app?', a: 'No. The booth runs right in the phone browser — guests scan your QR code and they’re in. Nothing to install.' },
@@ -214,7 +291,9 @@ function FilmEmbed({ src, poster, label }: { src: string; poster: string; label:
         if (entry.isIntersecting) el.play().catch(() => { /* autoplay blocked — poster stays */ });
         else el.pause();
       },
-      { threshold: 0.4 },
+      // 0.25 (was 0.4): the film starts playing DURING its screen-tilt
+      // entrance rather than after it settles — "the video plays as it tilts".
+      { threshold: 0.25 },
     );
     io.observe(el);
     return () => io.disconnect();
@@ -270,10 +349,37 @@ function StepArt({ src, rgb, delay }: { src: string; rgb: string; delay: number 
  * corner of the film ([data-decor-pop] — pops in on scroll; z-0 under the
  * film's z-10 so it decorates without distracting).
  */
+/** The wall section's decor: two REAL frame designs (their actual SVGs,
+ *  transparent) fanned like a hand of cards — frames poking out from behind
+ *  the film instead of a boxed scene photo. */
+function FramePairDecor() {
+  const neon = BORDER_MAP['jj-neon-frame'];
+  const gold = BORDER_MAP['frame-classic-gold'];
+  return (
+    <div className="relative aspect-[9/14]">
+      {gold && (
+        <img
+          src={toDataUrl(gold.svg)}
+          alt=""
+          draggable={false}
+          className="absolute left-[30%] top-[8%] w-[72%] rotate-[13deg] opacity-95 drop-shadow-[0_18px_44px_rgba(0,0,0,0.6)]"
+        />
+      )}
+      {neon && (
+        <img
+          src={toDataUrl(neon.svg)}
+          alt=""
+          draggable={false}
+          className="absolute left-0 top-0 w-[78%] -rotate-6 drop-shadow-[0_18px_44px_rgba(0,0,0,0.65)]"
+        />
+      )}
+    </div>
+  );
+}
+
 function FeatureSection({ feature }: { feature: Feature }) {
   const [artFailed, setArtFailed] = useState(false);
-  const framed = feature.imageStyle === 'framed'; // a scene → tiny glass frame; cutout → floats free
-  const left = !feature.flip; // which top corner the decor art peeks from
+  const left = !feature.flip; // which side the decor art leans out from
   return (
     <section data-parallax-scope className="w-full">
       <div data-reveal className="flex flex-col items-center text-center">
@@ -295,7 +401,7 @@ function FeatureSection({ feature }: { feature: Feature }) {
       </div>
 
       <div
-        className="relative mx-auto mt-10 w-full max-w-4xl"
+        className="relative mx-auto mt-10 w-full max-w-5xl"
         style={{ perspective: '1400px' }}
         data-parallax-depth="0.06"
       >
@@ -306,48 +412,40 @@ function FeatureSection({ feature }: { feature: Feature }) {
           style={{ background: `radial-gradient(circle at 50% 42%, rgba(${feature.rgb}, 0.26), transparent 70%)` }}
         />
 
-        {/* corner decor art — behind the film, small, angled; hidden entirely
-            if the asset fails (a fallback icon back there would read as a bug). */}
+        {/* decor art — a large angled piece leaning out from BEHIND the film
+            (z-0 under the film's z-10) so the two read as one composition;
+            hidden entirely if the asset fails (a fallback icon back there
+            would read as a bug). Corners alternate left/right per section. */}
         {!artFailed && (
           <div
             data-decor-pop
             aria-hidden
-            className={`absolute -top-10 z-0 w-24 sm:w-32 ${left ? '-left-4 sm:-left-12' : '-right-4 sm:-right-12'}`}
+            className={`absolute z-0 w-36 sm:w-52 lg:w-60 ${
+              left
+                ? '-left-8 -top-14 sm:-left-20 sm:-top-20'
+                : '-right-8 -top-14 sm:-right-20 sm:-top-20'
+            }`}
           >
             {/* Static 3D angle on this wrapper; the float lives on a CHILD so
                 the float-y keyframes (which write `transform`) can't stomp it. */}
             <div
               style={{
-                transform: `rotate(${left ? -12 : 12}deg) rotateY(${left ? 24 : -24}deg)`,
+                transform: `rotate(${left ? -10 : 10}deg) rotateY(${left ? 20 : -20}deg)`,
                 transformStyle: 'preserve-3d',
               }}
             >
               <div className="animate-float" style={{ animationDelay: '-2.5s' }}>
-              {framed ? (
-                <div
-                  className="overflow-hidden rounded-xl"
-                  style={{
-                    border: `1px solid rgba(${feature.rgb}, 0.55)`,
-                    boxShadow: `0 0 24px -8px rgba(${feature.rgb}, 0.55), 0 18px 40px -18px rgba(0,0,0,0.85)`,
-                  }}
-                >
+                {feature.decor === 'frames' ? (
+                  <FramePairDecor />
+                ) : (
                   <img
                     src={feature.image}
                     alt=""
-                    className="aspect-[4/5] w-full object-cover"
+                    className="w-full object-contain drop-shadow-[0_18px_44px_rgba(0,0,0,0.6)]"
                     loading="lazy"
                     onError={() => setArtFailed(true)}
                   />
-                </div>
-              ) : (
-                <img
-                  src={feature.image}
-                  alt=""
-                  className="w-full object-contain drop-shadow-[0_18px_44px_rgba(0,0,0,0.6)]"
-                  loading="lazy"
-                  onError={() => setArtFailed(true)}
-                />
-              )}
+                )}
               </div>
             </div>
           </div>
@@ -453,12 +551,15 @@ export default function Landing() {
       gsap.utils.toArray<HTMLElement>('[data-screen-tilt]', content).forEach((el) => {
         gsap.fromTo(
           el,
-          { rotateX: 22, scale: 0.94, transformOrigin: 'center 85%' },
+          // Deeper entry + a longer scrub window (98%→35%) + snappier scrub:
+          // on phones a fast flick used to blow through the old 95→40 range
+          // before a frame rendered, so the tilt was never seen on mobile.
+          { rotateX: 24, scale: 0.93, transformOrigin: 'center 85%' },
           {
             rotateX: 5,
             scale: 1,
             ease: 'power2.out',
-            scrollTrigger: { trigger: el, scroller, scrub: 0.6, start: 'top 95%', end: 'top 40%' },
+            scrollTrigger: { trigger: el, scroller, scrub: 0.35, start: 'top 98%', end: 'top 35%' },
           },
         );
       });
@@ -664,10 +765,8 @@ export default function Landing() {
                     Try the live demo
                   </a>
                 </div>
-                <p className="font-sans text-xs text-brand-muted/60">
-                  <span className="font-semibold text-emerald-300/90">Free to start</span> · no credit card to
-                  create your event.
-                </p>
+                {/* The free promise lives ONCE, in the badge above the title —
+                    the old fine-print line here repeated it word for word. */}
               </div>
             </div>
 
@@ -750,26 +849,33 @@ export default function Landing() {
             ))}
           </div>
 
-          {/* Master promo film — rendered from hyperframes/studio/promo via the
-              HyperFrames CLI; committed as a self-hosted asset. Muted +
-              playsInline so mobile browsers allow the autoplay loop. */}
+          {/* Who it's for — replaces the retired promo-film section (the intro
+              film is archived for socials; see hyperframes/studio/intro).
+              Audiences as glass chips, event types as photo cards. */}
           <section data-parallax-scope className="mt-32 w-full">
-            <div data-reveal className="flex flex-col items-center">
-              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">The full experience</h2>
+            <div data-reveal className="flex flex-col items-center text-center">
+              <p className="font-label uppercase tracking-luxe text-[10px] text-accent">Who it&rsquo;s for</p>
+              <h2 className="mt-3 font-serif text-3xl text-foil-static sm:text-4xl">
+                Made for every room worth remembering
+              </h2>
               <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
-                Thirty seconds of what your guests experience — booth, wall, challenges and keepsakes.
+                Built for the people who bring events to life — and the events they dream up.
               </p>
             </div>
-            <div data-reveal data-parallax-depth="0.06" className="mx-auto mt-10 w-full max-w-4xl">
-              <div
-                className="relative overflow-hidden rounded-3xl"
-                style={{
-                  border: '1px solid rgba(91, 140, 255, 0.4)',
-                  boxShadow: '0 0 60px -12px rgba(91, 140, 255, 0.45), 0 30px 90px -30px rgba(0,0,0,0.85)',
-                }}
-              >
-                <FilmEmbed src={promoVideo} poster={promoPoster} label="Beamwall intro film" />
-              </div>
+            <div data-reveal-stagger className="mx-auto mt-8 flex max-w-3xl flex-wrap items-center justify-center gap-2.5">
+              {AUDIENCES.map((a) => (
+                <span
+                  key={a}
+                  className="rounded-full liquid-glass px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg/85"
+                >
+                  {a}
+                </span>
+              ))}
+            </div>
+            <div data-reveal-stagger className="mx-auto mt-10 grid w-full max-w-5xl grid-cols-2 gap-4 sm:grid-cols-3">
+              {EVENT_TYPES.map((e) => (
+                <EventTypeCard key={e.label} event={e} />
+              ))}
             </div>
           </section>
 

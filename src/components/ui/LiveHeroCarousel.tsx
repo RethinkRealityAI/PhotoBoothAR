@@ -80,7 +80,9 @@ function FrameCard({ slot, pool, seed }: { slot: Slot; pool: Media[]; seed: numb
     // Transform is driven imperatively, per frame, by the marquee rAF loop
     // (coverflow: scale/rotateY/lift by distance from the strip centre).
     <div
-      className="w-40 shrink-0 sm:w-52"
+      // w-36 on phones: at ~390px this leaves room for the focal card plus a
+      // visible peek of BOTH neighbours — the desktop coverflow read.
+      className="w-36 shrink-0 sm:w-52"
       style={{ transformStyle: 'preserve-3d', willChange: 'transform' }}
     >
       <div
@@ -183,6 +185,8 @@ export default function LiveHeroCarousel({
   // rAF loop consumes a fraction each frame — works under reduced motion too
   // (an explicit user action, not ambient animation).
   const glide = useRef(0);
+  // One-shot: the first rAF frame with real layout snaps a card dead-centre.
+  const centered = useRef(false);
 
   /** Nudge the strip by one card-slot; dir 1 = show previous (strip moves right). */
   const nudge = (dir: 1 | -1) => {
@@ -206,7 +210,10 @@ export default function LiveHeroCarousel({
     const CENTER_SCALE = 1.22;
     const EDGE_SCALE = 0.86;
     const EDGE_ROTATE_DEG = 26;
-    const FALLOFF_SLOTS = 1.5;
+    // Compact viewports fall off faster so the strip reads as ONE dominant
+    // focal card with smaller neighbours peeking in from the sides (desktop's
+    // coverflow look) instead of two near-equal cards side by side.
+    const FALLOFF_SLOTS = COMPACT_VIEWPORT ? 1.1 : 1.5;
     const CENTER_LIFT_PX = 12; // slight upward translateY for the focal card
     const CENTER_Z_PX = 90; // slight translateZ toward the viewer (perspective is on the container)
     const step = () => {
@@ -217,7 +224,10 @@ export default function LiveHeroCarousel({
         glide.current -= d;
         if (Math.abs(glide.current) < 0.5) glide.current = 0;
       }
-      if (!reduced && !dragging.current && !paused.current) offset.current -= speed;
+      // Desktop drifts continuously; compact viewports STEP instead (below) —
+      // a drifting strip at phone width spends most of its time with two
+      // half-cards on screen, while stepping holds one focal card centred.
+      if (!reduced && !COMPACT_VIEWPORT && !dragging.current && !paused.current) offset.current -= speed;
       const half = track.scrollWidth / 2;
       if (half > 0) {
         if (offset.current <= -half) offset.current += half;
@@ -235,6 +245,13 @@ export default function LiveHeroCarousel({
         const slotW = (kids[1] as HTMLElement).offsetLeft - first.offsetLeft; // card + gap
         if (slotW > 0) {
           const centerX = viewport.clientWidth / 2;
+          // First laid-out frame: snap a card dead-centre so the strip OPENS
+          // as one focal card with side peeks (matters most on phones, where
+          // the natural left-aligned start showed two half cards instead).
+          if (!centered.current) {
+            centered.current = true;
+            offset.current = centerX - cardW / 2 - slotW;
+          }
           const falloffPx = slotW * FALLOFF_SLOTS;
           for (let i = 0; i < kids.length; i++) {
             const el = kids[i] as HTMLElement;
@@ -253,7 +270,22 @@ export default function LiveHeroCarousel({
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
+    // Compact auto-advance: hold each focal card, then glide one slot (the
+    // same eased glide the arrow buttons use).
+    let stepTimer: ReturnType<typeof setInterval> | undefined;
+    if (COMPACT_VIEWPORT && !reduced) {
+      stepTimer = setInterval(() => {
+        if (dragging.current || paused.current) return;
+        const kids = track.children;
+        if (kids.length < 2) return;
+        const slotW = (kids[1] as HTMLElement).offsetLeft - (kids[0] as HTMLElement).offsetLeft;
+        if (slotW > 0) glide.current -= slotW;
+      }, 3600);
+    }
+    return () => {
+      cancelAnimationFrame(raf);
+      if (stepTimer !== undefined) clearInterval(stepTimer);
+    };
   }, []);
 
   const cards = [...SLOTS, ...SLOTS]; // duplicate for the seamless wrap
