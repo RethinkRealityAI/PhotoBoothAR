@@ -16,7 +16,11 @@ import { SUPPORT_EMAIL } from '../../lib/errorReport';
 import { usePageTitle } from '../../lib/usePageTitle';
 
 export default function HostLayout() {
-  // Layout-level default for every /host screen (child pages may override).
+  // Layout-level title for every /host screen. NOTE: a child page adopting
+  // usePageTitle would NOT reliably override this — child effects run before
+  // parent effects on mount, so the layout's title wins on a cold load. If
+  // per-page /host titles are ever wanted, set them from this layout (e.g.
+  // route-keyed), not from the children.
   usePageTitle('Host studio — Beamwall');
   const navigate = useNavigate();
   const { session, loading } = useSession();

@@ -227,6 +227,8 @@ export async function deletePost(eventId: string, id: string): Promise<boolean> 
  * removes it from the wall instantly. Default (moderation surfaces) is the raw
  * pass-through, exactly as before.
  */
+let postsStreamSeq = 0;
+
 export function subscribeToPosts(eventId: string, handlers: {
   onInsert?: (post: Post) => void;
   onUpdate?: (post: Post) => void;
@@ -235,7 +237,12 @@ export function subscribeToPosts(eventId: string, handlers: {
   const visibleOnly = opts?.visibleOnly === true;
   const isVisible = (p: Post) => p.approved && !p.hidden;
   const channel = supabase
-    .channel(`posts-stream:${eventId}`)
+    // Topic must be unique PER SUBSCRIBER: supabase-js reuses the channel
+    // instance for a duplicate topic, so two same-topic subscribers on one
+    // page (e.g. EventStudio's ModerationTab + the admin Moderation grid)
+    // stack their bindings onto one channel whose join reply then mismatches
+    // positionally and errors the channel — killing realtime for BOTH.
+    .channel(`posts-stream:${eventId}:${++postsStreamSeq}`)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `event_id=eq.${eventId}` }, (payload) => {
       const post = payload.new as Post;
       if (visibleOnly && !isVisible(post)) return;

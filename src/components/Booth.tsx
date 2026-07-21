@@ -85,6 +85,15 @@ const DEFAULT_TRANSFORM: Transform2D = { scale: 1, x: 0, y: 0, rotation: 0 };
  *  can never spin forever on a stalled connection. */
 const SEND_TIMEOUT_MS = 45_000;
 
+/** Sends scale the timeout with payload size: a 30 s clip at 5 Mbps is ~18 MB,
+ *  which legitimately needs >45 s on a slow venue uplink. Timing out while the
+ *  upload is still succeeding server-side shows a false failure whose Retry
+ *  then duplicates the post — so grant ~1 s per 250 kB on top of the base,
+ *  bounded so a truly stalled connection still fails. */
+function sendTimeoutFor(blob: Blob): number {
+  return Math.min(SEND_TIMEOUT_MS + Math.ceil(blob.size / 250_000) * 1000, 240_000);
+}
+
 /** Resolve with `fallback` if `p` hasn't settled within `ms` (or rejects) —
  *  the db/validation layers own the fetches, so the timeout lives here at the
  *  call-site. The late-settling promise is ignored, never unhandled. */
@@ -779,7 +788,7 @@ export default function Booth() {
           width: 1080,
           height: 1920,
         }),
-        SEND_TIMEOUT_MS,
+        sendTimeoutFor(blob),
         { post: null, error: 'network' },
       );
 

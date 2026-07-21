@@ -195,7 +195,11 @@ export default function DirectorPanel({
     const uuid = await resolveEventUuid(eventId, eventUuid);
     if (!uuid || !aliveRef.current) return;
     const bal = await fetchEventCreditBalance(uuid);
-    if (aliveRef.current) setBalance(bal);
+    if (aliveRef.current) {
+      setBalance(bal);
+      // A top-up happened (e.g. in the Billing tab) — retire the nudge.
+      if (bal !== null && bal > 0) setLowCredits(false);
+    }
   }, [eventId, eventUuid]);
 
   useEffect(() => { void refreshBalance(); }, [refreshBalance]);
@@ -808,7 +812,9 @@ export default function DirectorPanel({
             {lowCredits && (
               <>
                 {balance !== null && ' · '}
-                <a href="/host/billing" className="underline text-accent-2 hover:text-accent">Top up in Billing</a>
+                {/* New tab: an in-place navigation would unmount the studio
+                    and lose the host's unsaved scene work. */}
+                <a href="/host/billing" target="_blank" rel="noopener" className="underline text-accent-2 hover:text-accent">Top up in Billing</a>
               </>
             )}
           </p>

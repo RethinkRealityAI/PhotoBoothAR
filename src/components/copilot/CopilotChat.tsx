@@ -55,7 +55,7 @@ const retryableGenError = aiErrorRetryable;
 function costNoteFor(action: CopilotAction): string | null {
   if (action.tool === 'generate_frame') return '1 credit (your event’s first 3 AI images are free)';
   if (action.tool === 'add_head_piece' && action.proposal.source === 'generate') {
-    return '~11 credits (1 concept image + 10 for the 3D model)';
+    return 'up to 11 credits (concept image + 10 for the 3D model — the image is free while your event has free AI images left)';
   }
   return null;
 }

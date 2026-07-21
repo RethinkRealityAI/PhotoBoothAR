@@ -185,7 +185,17 @@ export default function Wall() {
     // unapprove arrives as onDelete → removed instantly (no 20 s poll wait).
     const unsubscribe = subscribeToPosts(eventId, {
       onInsert: handleInsert,
-      onUpdate: updatePost,
+      onUpdate: (post) => {
+        // A pre-moderation post approved just now arrives as an UPDATE the
+        // wall has never seen — give it the full new-arrival ceremony (beam,
+        // fresh badge, spotlight) instead of silently prepending.
+        const known = useStore.getState().posts.some((p) => p.id === post.id);
+        if (!known && post.approved && !post.hidden) {
+          handleInsert(post);
+        } else {
+          updatePost(post);
+        }
+      },
       onDelete: removePost,
     }, { visibleOnly: true });
     return unsubscribe;
