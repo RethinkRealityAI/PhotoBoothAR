@@ -27,7 +27,8 @@ import {
   type A2uiActionEvent, type A2uiMessage, type SurfaceState,
 } from '../../lib/a2ui';
 import {
-  generateImage, generate3d, pollJob, resolveEventUuid, aiErrorMessage, type AiErrorCode,
+  generateImage, generate3d, pollJob, resolveEventUuid, aiErrorMessage, aiErrorRetryable,
+  fetchEventCreditBalance, type AiErrorCode,
 } from '../../lib/ai';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { measureGlbFitScale } from '../../lib/studio/glbThumb';
@@ -45,9 +46,18 @@ const MAX_POLLS = 60; // ~5 minutes — matches the studio Director's Meshy poll
 const DEFAULT_FILTER_ID = FILTER_SHADERS.find((s) => s.id !== 'none')?.id ?? 'none';
 const DEFAULT_PIECE_ID = HEAD_PIECES[0]?.id ?? '';
 
-/** A retry is pointless (and unfair) for these hard, non-transient failures. */
-function retryableGenError(code: AiErrorCode): boolean {
-  return code !== 'insufficient_credits' && code !== 'upgrade_required' && code !== 'unauthorized' && code !== 'forbidden';
+/** A retry is pointless (and unfair) for hard, non-transient failures —
+ *  including a missing/rejected provider key (shared list in lib/ai.ts). */
+const retryableGenError = aiErrorRetryable;
+
+/** Cost caption for paid-generation proposal cards (real server prices:
+ *  ai-generate-image 1cr + 3 free/event; concept 1cr + ai-generate-3d 10cr). */
+function costNoteFor(action: CopilotAction): string | null {
+  if (action.tool === 'generate_frame') return '1 credit (your event’s first 3 AI images are free)';
+  if (action.tool === 'add_head_piece' && action.proposal.source === 'generate') {
+    return '~11 credits (1 concept image + 10 for the 3D model)';
+  }
+  return null;
 }
 
 interface ChatItem extends ChatMessage {
@@ -130,6 +140,24 @@ export default function CopilotChat({
   // Surfaces the host dismissed mid-generation — a late async continuation must
   // NOT re-materialise a card the host already closed (F2).
   const dismissedGen = useRef<Set<string>>(new Set());
+  // Live credit balance of THIS event's org (the org generation charges) —
+  // shown beside paid-generation proposal cards; refreshed after each spend.
+  const [balance, setBalance] = useState<number | null>(null);
+  // sid → cost caption for paid-generation proposals (set when the card lands).
+  const genCostNote = useRef<Record<string, string>>({});
+
+  const refreshBalance = async (uuid: string) => {
+    const b = await fetchEventCreditBalance(uuid);
+    setBalance(b);
+  };
+
+  useEffect(() => {
+    const uuid = snapshot?.eventUuid;
+    if (!uuid) { setBalance(null); return; }
+    let alive = true;
+    fetchEventCreditBalance(uuid).then((b) => { if (alive) setBalance(b); });
+    return () => { alive = false; };
+  }, [snapshot?.eventUuid]);
 
   useEffect(() => {
     if (!nearBottomRef.current) return;
@@ -264,6 +292,7 @@ export default function CopilotChat({
       showGenError(sid, 'frame', 'Frame generation failed — try again.', true);
     } finally {
       runningGen.current.delete(sid);
+      if (snapshot?.eventUuid) void refreshBalance(snapshot.eventUuid);
     }
   };
 
@@ -322,6 +351,7 @@ export default function CopilotChat({
       showGenError(sid, 'headpiece', '3D generation failed — try again.', true);
     } finally {
       runningGen.current.delete(sid);
+      if (snapshot?.eventUuid) void refreshBalance(snapshot.eventUuid);
     }
   };
 
@@ -391,6 +421,8 @@ export default function CopilotChat({
         runReadOnly(action);
       } else {
         const sid = `prop_${++seqRef.current}`;
+        const note = costNoteFor(action);
+        if (note) genCostNote.current[sid] = note;
         addSurface(buildProposalSurface(action, sid), sid);
       }
     }
@@ -468,6 +500,8 @@ export default function CopilotChat({
    *  chips use this so the whole flow works even before the edge-fn redeploy. */
   const openProposal = (action: CopilotAction) => {
     const sid = `prop_${++seqRef.current}`;
+    const note = costNoteFor(action);
+    if (note) genCostNote.current[sid] = note;
     addSurface(buildProposalSurface(action, sid), sid);
   };
 
@@ -565,6 +599,14 @@ export default function CopilotChat({
                 <div className="rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg/90">
                   {m.content}
                 </div>
+              )}
+              {m.surfaceId && surfaces[m.surfaceId] && genCostNote.current[m.surfaceId] && (
+                <p className="font-sans text-[10px] text-brand-muted/55 px-1">
+                  {genCostNote.current[m.surfaceId]}
+                  {balance !== null && (
+                    <> · you have {balance} credit{balance === 1 ? '' : 's'}</>
+                  )}
+                </p>
               )}
               {m.surfaceId && surfaces[m.surfaceId] && (
                 <div className={`relative ${flash[m.surfaceId] ? 'pointer-events-none' : ''}`}>

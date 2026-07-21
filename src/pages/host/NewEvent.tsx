@@ -218,6 +218,11 @@ export default function NewEvent() {
       .filter((m) => !m.localOnly)
       .map(({ role, content: c }) => ({ role, content: c }));
     const res = await designEvent(history, image); // never throws — falls back to the local planner
+    // Honesty: when the AI was unreachable and the local keyword planner answered,
+    // say so instead of passing the template match off as the AI designer.
+    const reply = res.source === 'local'
+      ? `${res.reply}\n\n(Heads up: our AI designer is offline right now, so I used a quick template match instead — you can restyle everything in the studio.)`
+      : res.reply;
     applyPlan(res.plan, res.decided);
     setSurfaces((s) => {
       let merged = applySurfaceMessages(s, res.a2ui);
@@ -235,7 +240,7 @@ export default function NewEvent() {
       }
       return merged;
     });
-    setChatMessages([...next, { role: 'assistant', content: res.reply, surfaceId: res.surfaceId }]);
+    setChatMessages([...next, { role: 'assistant', content: reply, surfaceId: res.surfaceId }]);
     setChatBusy(false);
   };
 
