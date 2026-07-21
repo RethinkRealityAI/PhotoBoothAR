@@ -78,7 +78,35 @@ card email in §4, so one account covers both):
       **under a minute**, from your sender address, not spam-foldered. Also
       trigger **Forgot password** once and confirm that email arrives too.
 
-Until every box above is checked, treat beta invites as **blocked**.
+**Owner note (2026-07-21): Resend SMTP settings are wired** — remaining boxes
+are the rate-limit bump and the live delivery check above.
+
+### Branded email templates (paste-in — there is no API/MCP path for these)
+
+The six on-brand HTML templates live in **`supabase/email-templates/`**
+(dark void background, beam-gradient button, serif wordmark — table-layout +
+inline styles, safe in Gmail/Outlook/Apple Mail; Supabase `{{ .X }}` variables
+already in place). The Supabase MCP server exposes no auth-config tool, so
+they must be pasted once by hand:
+
+Supabase Dashboard → **Authentication → Emails** (project
+`zrtftliozslrjomxbfrr`) → for each template below, paste the file's full
+contents into **Message body (HTML)** and set the subject:
+
+| Dashboard template | Repo file | Subject line |
+|---|---|---|
+| Confirm signup | `confirm-signup.html` | Confirm your email — Beamwall |
+| Invite user | `invite.html` | You're invited to Beamwall |
+| Magic link | `magic-link.html` | Your Beamwall sign-in link |
+| Change email address | `change-email.html` | Confirm your new email — Beamwall |
+| Reset password | `reset-password.html` | Reset your Beamwall password |
+| Reauthentication | `reauthentication.html` | Your Beamwall verification code |
+
+- [ ] All six pasted + subjects set
+- [ ] Send yourself one of each (signup + forgot-password at minimum) and
+      confirm they render with the dark card + gradient button intact.
+
+Until the remaining boxes are checked, treat beta invites as **blocked**.
 
 ## 2. AI generation — Gemini (default), then Meshy / Higgsfield
 
