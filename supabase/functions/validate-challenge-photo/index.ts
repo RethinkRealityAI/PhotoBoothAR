@@ -8,9 +8,14 @@
  * challenge row (never trusted from the client), and the guest image is treated
  * as data-only (never as instructions) to resist prompt injection via image text.
  *
- * POST { eventSlug, challengeId, image: { data: base64, mimeType } }
+ * POST { eventSlug, challengeId, image: { data: base64, mimeType }, sessionId? }
  *   -> 200 { pass: boolean, reason: string, confidence?: number }
  *      (pass:true with no check when the challenge has no validation enabled)
+ *   -> 429 { error: 'rate_limited' } when a session/IP/event rate bucket is
+ *      exhausted — deliberate rejection, distinct from infrastructure errors,
+ *      though the guest-side caller fails open on it too (guests are never
+ *      hard-blocked; the check is a gamification gate, and the 429 protects
+ *      the Gemini budget, not the wall).
  *   -> 502 { error } on a generation failure — the caller FAILS OPEN (a party
  *      booth must never hard-block a guest on an AI hiccup).
  */
@@ -27,6 +32,16 @@ const GEMINI_MODEL = 'gemini-2.5-flash';
 const MAX_IMAGE_B64 = 7_000_000; // ~5MB decoded — a downscaled 1024px JPEG is far under
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MIME_RE = /^image\/(png|jpe?g|webp|heic|heif)$/i;
+const SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+// Rate limits (fixed-window buckets in guest_quota, keyed with ':' prefixes so
+// they can never collide with real session ids — see migration 014's comment).
+const VC_SESSION_MAX = 10;              // per guest session
+const VC_SESSION_WINDOW_MS = 60 * 1000; // ... per minute
+const VC_IP_MAX = 60;                   // per client IP (venue-NAT shared!)
+const VC_IP_WINDOW_MS = 60 * 60 * 1000; // ... per hour
+const VC_DAY_MAX = 1000;                // per event, absolute daily ceiling
+const VC_DAY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -41,6 +56,62 @@ function serviceClient() {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     { auth: { persistSession: false } },
   );
+}
+
+type Client = ReturnType<typeof serviceClient>;
+
+/** First hop of x-forwarded-for (the client, per Supabase edge routing). */
+function clientIp(req: Request): string {
+  const first = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim();
+  return first && first.length <= 64 ? first : 'unknown';
+}
+
+/**
+ * Fixed-window counter in guest_quota, keyed (event_id, key) — same pattern as
+ * submit-post's bumpQuota. Returns true when the bump stayed within `max`.
+ */
+async function bumpQuota(
+  sb: Client,
+  eventSlug: string,
+  key: string,
+  windowMs: number,
+  max: number,
+): Promise<boolean> {
+  const { data: quota, error } = await sb
+    .from('guest_quota')
+    .select('window_start, post_count')
+    .eq('event_id', eventSlug)
+    .eq('session_id', key)
+    .maybeSingle();
+  if (error) throw error;
+
+  if (!quota) {
+    const { error: insErr } = await sb
+      .from('guest_quota')
+      .upsert(
+        { event_id: eventSlug, session_id: key, window_start: new Date().toISOString(), post_count: 1 },
+        { onConflict: 'event_id,session_id' },
+      );
+    if (insErr) throw insErr;
+    return true;
+  }
+  if (Date.now() - new Date(quota.window_start).getTime() > windowMs) {
+    const { error: resetErr } = await sb
+      .from('guest_quota')
+      .update({ window_start: new Date().toISOString(), post_count: 1 })
+      .eq('event_id', eventSlug)
+      .eq('session_id', key);
+    if (resetErr) throw resetErr;
+    return true;
+  }
+  if (quota.post_count >= max) return false;
+  const { error: bumpErr } = await sb
+    .from('guest_quota')
+    .update({ post_count: quota.post_count + 1 })
+    .eq('event_id', eventSlug)
+    .eq('session_id', key);
+  if (bumpErr) throw bumpErr;
+  return true;
 }
 
 interface InlineImage { mimeType: string; data: string }
@@ -215,6 +286,35 @@ Deno.serve(async (req: Request) => {
   const requirement = typeof v?.prompt === 'string' ? v.prompt.trim() : '';
   // No check configured → nothing to fail. Never block the guest.
   if (!v || v.enabled !== true || !requirement) return json(200, { pass: true, reason: '' });
+
+  // Rate limits — checked only once a real Gemini call is imminent (the
+  // challenge row exists, so the event slug satisfies guest_quota's FK).
+  // 429 = deliberate rejection; the client fails open on it (guests are never
+  // blocked from posting — this protects the AI budget). `sessionId` is
+  // optional in the body (current booth builds don't send it yet); when absent
+  // the per-session bucket falls back to the IP bucket key.
+  const ip = clientIp(req);
+  const sessionId =
+    typeof body.sessionId === 'string' && SESSION_ID_RE.test(body.sessionId) ? body.sessionId : null;
+  try {
+    // Distinct fallback prefix ('vsip:') — sharing the 'vip:' row would mix a
+    // 1-minute and a 1-hour window on the same counter and corrupt both.
+    const sessionKey = sessionId ? `vs:${sessionId}` : `vsip:${ip}`;
+    if (!(await bumpQuota(sb, eventSlug, sessionKey, VC_SESSION_WINDOW_MS, VC_SESSION_MAX))) {
+      return json(429, { error: 'rate_limited' });
+    }
+    if (!(await bumpQuota(sb, eventSlug, `vip:${ip}`, VC_IP_WINDOW_MS, VC_IP_MAX))) {
+      return json(429, { error: 'rate_limited' });
+    }
+    const day = new Date().toISOString().slice(0, 10);
+    if (!(await bumpQuota(sb, eventSlug, `vday:${day}`, VC_DAY_WINDOW_MS, VC_DAY_MAX))) {
+      return json(429, { error: 'rate_limited' });
+    }
+  } catch (e) {
+    // Rate-limit BOOKKEEPING failure is an infrastructure error, not a
+    // rejection — log and continue unmetered rather than blocking the guest.
+    console.error('[validate-challenge-photo] rate-limit bookkeeping failed', e);
+  }
 
   const reference = await fetchReferenceInline(v.referenceImageUrl);
 

@@ -14,16 +14,18 @@
  * (data-event attr, document title) lingers when navigating back to /host —
  * same as leaving /e/:slug today.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Check, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
-  LayoutGrid, Palette, QrCode, Settings, ShieldCheck, Sparkles, Trophy, Wand2,
+  LayoutGrid, Palette, QrCode, Settings, ShieldCheck, Sparkles, Trophy, Wand2, X,
 } from 'lucide-react';
 import { useCopilotStore } from '../../lib/copilotStore';
 import { supabase } from '../../lib/supabase';
 import { canEnterStudio } from '../../lib/host';
-import EventProvider from '../../events/EventContext';
+import { subscribeToPosts } from '../../lib/db';
+import type { Post } from '../../types';
+import EventProvider, { useEvent } from '../../events/EventContext';
 import { StudioBaseContext } from '../../components/admin/studioBase';
 import Dashboard from '../../components/admin/Dashboard';
 import Library from '../../components/admin/Library';
@@ -68,6 +70,171 @@ function GuestLinkCopy({ url }: { url: string }) {
       {copied ? <Check className="w-3 h-3 text-emerald-400 shrink-0" /> : <Copy className="w-3 h-3 shrink-0" />}
       <span className="truncate hidden sm:inline">{url.replace(/^https?:\/\//, '')}</span>
     </button>
+  );
+}
+
+type ModerationMode = 'post' | 'pre';
+
+/**
+ * Wall tab wrapper: the per-event moderation-mode toggle (events.config
+ * .moderation, migration 014) plus a live pending-approval queue for 'pre'
+ * events, stacked above the existing Moderation screen. Rendered inside
+ * EventProvider, so useEvent()/event theming work as in the admin screens.
+ */
+function ModerationTab({ eventUuid }: { eventUuid: string }) {
+  const { eventId } = useEvent(); // slug — posts.event_id = events.slug
+  const [mode, setModeState] = useState<ModerationMode | null>(null); // null = loading
+  const [saving, setSaving] = useState(false);
+  const [pending, setPending] = useState<Post[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const loadPending = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .eq('event_id', eventId)
+      .eq('approved', false)
+      .eq('hidden', false)
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('[ModerationTab] pending fetch', error);
+      return;
+    }
+    setPending((data as Post[]) ?? []);
+  }, [eventId]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data, error } = await supabase.from('events').select('config').eq('id', eventUuid).maybeSingle();
+      if (!alive) return;
+      if (error) console.error('[ModerationTab] config fetch', error);
+      const m = ((data?.config ?? {}) as Record<string, unknown>).moderation;
+      setModeState(m === 'pre' ? 'pre' : 'post');
+    })();
+    loadPending();
+    // Raw subscription (no visibleOnly): this queue exists precisely to see
+    // unapproved posts arrive live.
+    const unsub = subscribeToPosts(eventId, {
+      onInsert: (p) => {
+        if (p.approved || p.hidden) return;
+        setPending((prev) => (prev.some((x) => x.id === p.id) ? prev : [p, ...prev]));
+      },
+      onUpdate: (p) => {
+        setPending((prev) => {
+          if (p.approved || p.hidden) return prev.filter((x) => x.id !== p.id);
+          return prev.some((x) => x.id === p.id) ? prev.map((x) => (x.id === p.id ? p : x)) : [p, ...prev];
+        });
+      },
+      onDelete: (id) => setPending((prev) => prev.filter((x) => x.id !== id)),
+    });
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [eventUuid, eventId, loadPending]);
+
+  const setMode = async (next: ModerationMode) => {
+    if (saving || mode === null || mode === next) return;
+    const prev = mode;
+    setSaving(true);
+    setModeState(next); // optimistic
+    // Read-merge-write on events.config — same idiom as primary_card (CardsTab).
+    const { data, error: readErr } = await supabase.from('events').select('config').eq('id', eventUuid).maybeSingle();
+    const cfg = { ...((data?.config ?? {}) as Record<string, unknown>), moderation: next };
+    const { error } = readErr ? { error: readErr } : await supabase.from('events').update({ config: cfg }).eq('id', eventUuid);
+    if (error) {
+      console.error('[ModerationTab] moderation mode save', error);
+      setModeState(prev);
+    }
+    setSaving(false);
+  };
+
+  /** Approve (approved=true → beams onto the wall) or reject (hidden=true). */
+  const decide = async (id: string, approve: boolean) => {
+    setBusyId(id);
+    const patch = approve ? { approved: true } : { hidden: true };
+    const { error } = await supabase.from('posts').update(patch).eq('id', id).eq('event_id', eventId);
+    if (error) console.error('[ModerationTab] decide', error);
+    else setPending((prev) => prev.filter((x) => x.id !== id));
+    setBusyId(null);
+  };
+
+  return (
+    <div className="absolute inset-0 flex flex-col">
+      <div className="shrink-0 z-20 px-6 md:px-8 pt-4 flex flex-col gap-3">
+        {/* Mode toggle */}
+        <div className="glass rounded-2xl border border-gold-400/10 px-4 py-3 flex flex-wrap items-center gap-3">
+          <div className="min-w-0">
+            <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/70">Moderation mode</p>
+            <p className="font-sans text-[10px] text-champagne/40">
+              {mode === 'pre'
+                ? 'New posts wait below for your approval before they hit the wall.'
+                : 'New posts hit the wall instantly; hide anything after the fact.'}
+            </p>
+          </div>
+          <div className="glass flex rounded-full p-0.5 ml-auto" style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}>
+            {(['post', 'pre'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                disabled={mode === null || saving}
+                className={`px-3.5 py-1.5 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
+                  mode === m ? 'bg-foil text-noir-900 glow-accent' : 'text-champagne/60 hover:text-champagne'
+                } disabled:opacity-50`}
+              >
+                {m === 'post' ? 'Instant' : 'Approve first'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Pending queue — shown whenever unapproved posts exist (they can
+            linger after switching back to instant mode). */}
+        {pending.length > 0 && (
+          <div className="glass rounded-2xl border border-amber-400/20 px-4 py-3">
+            <p className="font-label uppercase tracking-luxe text-[10px] text-amber-300 mb-2">
+              Awaiting approval · {pending.length}
+            </p>
+            <div className="flex gap-3 overflow-x-auto hide-scrollbar pb-1">
+              {pending.map((p) => (
+                <div key={p.id} className="shrink-0 w-24 flex flex-col gap-1.5">
+                  {p.media_type === 'video' ? (
+                    <video src={p.image_url} muted playsInline preload="metadata" className="w-24 h-32 object-cover rounded-xl" />
+                  ) : (
+                    <img src={p.image_url} alt={p.guest_name ?? 'Pending post'} className="w-24 h-32 object-cover rounded-xl" loading="lazy" />
+                  )}
+                  <p className="font-sans text-[9px] text-champagne/50 truncate">{p.guest_name ?? 'Anonymous'}</p>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => decide(p.id, true)}
+                      disabled={busyId === p.id}
+                      title="Approve — beams onto the wall"
+                      className="flex-1 flex items-center justify-center py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-40"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => decide(p.id, false)}
+                      disabled={busyId === p.id}
+                      title="Reject (hide)"
+                      className="flex-1 flex items-center justify-center py-1.5 rounded-lg bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors disabled:opacity-40"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* The existing show/hide/delete moderation grid, unchanged. */}
+      <div className="flex-1 relative overflow-hidden">
+        <Moderation />
+      </div>
+    </div>
   );
 }
 
@@ -282,7 +449,7 @@ export default function EventStudio() {
               {/* Retired creator tabs → unified studio (keep ?id= deep links). */}
               <Route path="creator" element={<StudioRedirect to={`${base}/studio`} />} />
               <Route path="creator3d" element={<StudioRedirect to={`${base}/studio`} />} />
-              <Route path="moderation" element={<Moderation />} />
+              <Route path="moderation" element={<ModerationTab eventUuid={event.id} />} />
               <Route path="challenges" element={<Challenges />} />
               <Route path="cards" element={<CardsTab />} />
               <Route path="share" element={<ShareKit />} />

@@ -140,13 +140,30 @@ export const useStore = create<AppState>((set, get) => ({
     const posts = await db.fetchPosts(get().eventId, { includeHidden });
     set({ posts, postsLoaded: true });
   },
+  // The store's posts back the guest-facing wall, so only wall-visible posts
+  // (approved && !hidden) may enter or stay — pre-moderation events must never
+  // flash unapproved posts, and a hide/unapprove must remove instantly.
   prependPost: (p) => {
+    if (!p.approved || p.hidden) return;
     const posts = get().posts;
     if (posts.some((x) => x.id === p.id)) return;
     set({ posts: [p, ...posts] });
   },
   removePost: (id) => set({ posts: get().posts.filter((p) => p.id !== id) }),
-  updatePost: (p) => set({ posts: get().posts.map((x) => (x.id === p.id ? p : x)) }),
+  updatePost: (p) => {
+    const posts = get().posts;
+    if (!p.approved || p.hidden) {
+      set({ posts: posts.filter((x) => x.id !== p.id) });
+      return;
+    }
+    // A post approved just now (pre-moderation) won't be in the list yet —
+    // surface it; otherwise replace in place.
+    set({
+      posts: posts.some((x) => x.id === p.id)
+        ? posts.map((x) => (x.id === p.id ? p : x))
+        : [p, ...posts],
+    });
+  },
 
   challenges: [],
   challengesLoaded: false,

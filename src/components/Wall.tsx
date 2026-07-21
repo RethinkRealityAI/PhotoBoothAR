@@ -157,6 +157,9 @@ export default function Wall() {
   // ----------------------------------------------------------------
   const handleInsert = useCallback(
     (post: Post) => {
+      // visibleOnly subscription already filters; keep a guard so a beam-in
+      // can never fire for a post the wall won't show (pre-moderation).
+      if (!post.approved || post.hidden) return;
       prependPost(post);
       setBeamQueue((q) => [...q, { id: post.id, guestName: post.guest_name }]);
       // Feature the newest arrival in the spotlight once the beam-in clears
@@ -178,11 +181,13 @@ export default function Wall() {
   );
 
   useEffect(() => {
+    // visibleOnly: unapproved/hidden posts never reach the wall, and a hide/
+    // unapprove arrives as onDelete → removed instantly (no 20 s poll wait).
     const unsubscribe = subscribeToPosts(eventId, {
       onInsert: handleInsert,
       onUpdate: updatePost,
       onDelete: removePost,
-    });
+    }, { visibleOnly: true });
     return unsubscribe;
   }, [eventId, handleInsert, updatePost, removePost]);
 

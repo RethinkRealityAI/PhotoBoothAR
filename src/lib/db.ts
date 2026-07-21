@@ -219,19 +219,35 @@ export async function deletePost(eventId: string, id: string): Promise<boolean> 
 /**
  * Realtime subscription to new posts on the wall.
  * Returns an unsubscribe function. `onInsert` fires for each newly created post.
+ *
+ * `opts.visibleOnly` (guest walls): only wall-visible posts (approved &&
+ * !hidden) are delivered — an INSERT of an unapproved/hidden post is dropped
+ * (pre-moderation events never flash unapproved posts), and an UPDATE that
+ * makes a post non-visible arrives as `onDelete` so a host "hide"/"unapprove"
+ * removes it from the wall instantly. Default (moderation surfaces) is the raw
+ * pass-through, exactly as before.
  */
 export function subscribeToPosts(eventId: string, handlers: {
   onInsert?: (post: Post) => void;
   onUpdate?: (post: Post) => void;
   onDelete?: (id: string) => void;
-}): () => void {
+}, opts?: { visibleOnly?: boolean }): () => void {
+  const visibleOnly = opts?.visibleOnly === true;
+  const isVisible = (p: Post) => p.approved && !p.hidden;
   const channel = supabase
     .channel(`posts-stream:${eventId}`)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `event_id=eq.${eventId}` }, (payload) => {
-      handlers.onInsert?.(payload.new as Post);
+      const post = payload.new as Post;
+      if (visibleOnly && !isVisible(post)) return;
+      handlers.onInsert?.(post);
     })
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'posts', filter: `event_id=eq.${eventId}` }, (payload) => {
-      handlers.onUpdate?.(payload.new as Post);
+      const post = payload.new as Post;
+      if (visibleOnly && !isVisible(post)) {
+        handlers.onDelete?.(post.id);
+        return;
+      }
+      handlers.onUpdate?.(post);
     })
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'posts' }, (payload) => {
       handlers.onDelete?.((payload.old as { id: string }).id);
