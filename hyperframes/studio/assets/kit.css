@@ -223,6 +223,22 @@ body {
   object-fit: cover;
 }
 
+/* Transition beam sweep (BW.buildSweep / BW.sweepAt) — additive; only
+ * compositions that call buildSweep get the element. */
+.bw-sweep {
+  position: absolute;
+  top: -12%;
+  left: -340px;
+  height: 124%;
+  width: 240px;
+  transform: rotate(9deg);
+  background: linear-gradient(90deg, transparent, rgba(124, 108, 247, 0.35) 20%, rgba(238, 243, 255, 0.85) 50%, rgba(91, 140, 255, 0.35) 80%, transparent);
+  filter: blur(22px);
+  opacity: 0;
+  z-index: 52;
+  pointer-events: none;
+}
+
 /* Glowing gallery frame (BW.frame) */
 .bw-frame {
   position: relative;

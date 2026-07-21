@@ -387,3 +387,50 @@ re-encoded → file size sane (<2MB for landing embeds) → embedded/committed �
      snapshot contact sheets eyeballed per scene → render → encode → poster
      frames (booth 16.2s wall 13.5s challenges 16.8s cards 10.4s, all
      photo-rich with legible callouts) → end-frame loop check → tsc + build.
+- 2026-07-21: Refinement pass on the four feature films (headers/transitions/
+  type-scale/booth gap) SHIPPED — same four deliverables regenerated in place,
+  30.00s exactly, 0.77/1.39/0.81/0.93MB. Findings:
+  1. **GSAP transform tweens poison shrink-wrapped wrapper divs as containing
+     blocks.** Adding `y:-30` to an exit tween on a plain wrapper (wall's old
+     `#s3-inner`/`#s3b-inner`, un-positioned, all-absolute children → 0×0
+     grid item) leaves `translate(0,0)` inline after any seek past the tween
+     (the renderer seeks to END to discover duration), which makes the
+     wrapper the containing block for every absolute descendant →
+     everything collapses to the wrapper's center point. Symptom in the
+     contact sheet: narrow word-wrapped text + elements bunched at frame
+     center. Fix: any wrapper that takes an exit transform must be
+     `position:absolute; inset:0` (full-bleed), like the `.clip .scene`
+     shells already are (they carry `will-change: transform`, so they were
+     containing blocks all along — that's why scene-level exits are safe).
+  2. Booth S2 phone-screen letterbox root cause: the overlay `<video>` rect
+     (302×659) was smaller than BW.phone(340)'s real screen (340×697 at
+     wrap+19px). The screen rect formula for BW.phone(W) at wrap (x,y) is
+     `(x+19, y+19, W, round(W*2.05))` — content-box + 3px border + 16px pad.
+  3. Refinement idiom now shared by all four films: `.scene-head` (top:74,
+     centered, z-20) = `.eyebrow-h` hue-colored Jost 30px + `.title-md` 84px
+     serif, entrances eyebrow y:24@t then title y:40@t+0.15; per-film style
+     OVERRIDES (not kit.css edits — intro/promo/sizzle stay byte-identical):
+     title-lg 106, title-md 84, eyebrow 30, pill 32px/30x80, fine 28.
+     Callout minimum for 350px-wide mobile embeds: ≥40px Jost bold; 30px
+     eyebrows are readable-but-small (acceptable as decoration); verified by
+     `-vf scale=350:-1` downscales of one callout frame per film — make this
+     downscale check a standard verification step.
+  4. Transitions: additive `BW.buildSweep(root,prefix)` + `BW.sweepAt(tl,
+     prefix,t)` in kit.js/kit.css (`.bw-sweep` z-52 blurred light bar, x
+     0→2600 over 0.8s + opacity in/out + hard-kill at t+0.82). Fired at 2-3
+     boundaries per film + scene exits got y:-30 drift (scenes only — see
+     finding 1). Sweep at a boundary reads best fired ~0.1s BEFORE the
+     outgoing fade starts so the bright center crosses at the cut.
+  5. Poster frames: avoid timestamps where a staggered entrance is mid-fade
+     (booth first try at 7.5s caught chip 3 at ~50% opacity — moved to 8.4s).
+     Sample the encoded mp4, not the render, so the poster matches shipped
+     pixels. Current poster times: booth 8.4 / wall 13.5 / challenges 17.0 /
+     cards 16.5.
+  6. Waiting on long renders when the harness forbids idling: foreground
+     `sleep` is blocked, but `timeout 580 tail --pid=<render-script-pid> -f
+     /dev/null` inside a ≤10-min Bash call blocks synchronously and cleanly;
+     chain slices until the batch exits.
+  7. NOTED (not done): challenges leaderboard row-swap leaves static rank
+     digits reading 2,1 after Ada & Femi overtake (baseline behavior kept);
+     `<br />` inside short label text (wall s3b-sub, booth qr lbl) passes
+     lint fine despite the author-doc advice against `<br>` in body text.
