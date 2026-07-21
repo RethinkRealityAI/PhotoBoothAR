@@ -8,8 +8,20 @@
  * view whose CDN-hosted asset/font fetch throws inside the R3F tree).
  * Renders a liquid-glass fallback with a Try-again that remounts the children.
  */
-import { Component, type ReactNode } from 'react';
-import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { AlertTriangle, Mail, RotateCcw } from 'lucide-react';
+import { reportError, SUPPORT_EMAIL } from '../../lib/errorReport';
+
+/** "Something broke — tell us" mailto with the error message prefilled. */
+function supportMailto(label: string, error: Error): string {
+  const subject = `Beamwall problem report — ${label}`;
+  const body =
+    `Hi — something broke in the ${label}.\n\n` +
+    `Error: ${String(error.message || error).slice(0, 500)}\n` +
+    `Page: ${window.location.href.slice(0, 300)}\n\n` +
+    `What I was doing:\n`;
+  return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
 
 interface Props {
   /** Short label for what failed, e.g. "3D view" (shown in the fallback). */
@@ -32,8 +44,13 @@ export default class ErrorBoundary extends Component<Props, State> {
     return { error };
   }
 
-  componentDidCatch(error: Error) {
+  componentDidCatch(error: Error, info: ErrorInfo) {
     console.error(`[ErrorBoundary] ${this.props.label} crashed`, error);
+    reportError(error, {
+      source: 'error-boundary',
+      boundary: this.props.label,
+      componentStack: info.componentStack?.slice(0, 2_000) ?? null,
+    });
   }
 
   render() {
@@ -62,6 +79,13 @@ export default class ErrorBoundary extends Component<Props, State> {
               Try again
             </button>
           </div>
+          <a
+            href={supportMailto(label, this.state.error)}
+            className="mt-1 flex items-center gap-1.5 text-[11px] text-brand-muted/70 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
+          >
+            <Mail className="h-3 w-3" />
+            Something broke — tell us
+          </a>
         </div>
       );
     }
@@ -78,6 +102,12 @@ export default class ErrorBoundary extends Component<Props, State> {
           <RotateCcw className="w-3 h-3" />
           Try again
         </button>
+        <a
+          href={supportMailto(label, this.state.error)}
+          className="text-[10px] text-brand-muted/60 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
+        >
+          Something broke — tell us
+        </a>
       </div>
     );
   }

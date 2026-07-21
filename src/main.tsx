@@ -26,3 +26,23 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
+
+// ── Global error telemetry (keep this block isolated at the end of the file).
+// reportError never throws, rate-limits itself, and its insert promise handles
+// both outcomes, so these handlers can't feed errors back into themselves.
+import { reportError } from './lib/errorReport';
+
+window.addEventListener('error', (e) => {
+  try {
+    reportError(e.error ?? e.message, { source: 'window.onerror' });
+  } catch {
+    /* telemetry must never break the app */
+  }
+});
+window.addEventListener('unhandledrejection', (e) => {
+  try {
+    reportError(e.reason, { source: 'unhandledrejection' });
+  } catch {
+    /* telemetry must never break the app */
+  }
+});

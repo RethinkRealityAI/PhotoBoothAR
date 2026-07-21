@@ -9,11 +9,15 @@
  */
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
-import { CalendarRange, Coins, CreditCard, LogOut, Sparkles } from 'lucide-react';
+import { CalendarRange, Coins, CreditCard, LifeBuoy, LogOut, Sparkles } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
 import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
+import { SUPPORT_EMAIL } from '../../lib/errorReport';
+import { usePageTitle } from '../../lib/usePageTitle';
 
 export default function HostLayout() {
+  // Layout-level default for every /host screen (child pages may override).
+  usePageTitle('Host studio — Beamwall');
   const navigate = useNavigate();
   const { session, loading } = useSession();
   const [orgName, setOrgName] = useState<string | null>(null);
@@ -107,6 +111,13 @@ export default function HostLayout() {
                 </span>
               </Link>
             )}
+            <a
+              href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Beamwall support')}`}
+              className={`${railLink} ${railState(false)}`}
+            >
+              <LifeBuoy className="w-[18px] h-[18px] shrink-0" />
+              <span className="hidden sm:inline">Support</span>
+            </a>
             <button onClick={handleSignOut} className={`${railLink} ${railState(false)}`}>
               <LogOut className="w-[18px] h-[18px] shrink-0" />
               <span className="hidden sm:inline">Sign out</span>
