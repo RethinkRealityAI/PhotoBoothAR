@@ -772,6 +772,9 @@ export async function fetchLeaderboard(eventId: string, limit = 20): Promise<Lea
       .from('posts')
       .select('session_id, guest_name, challenge_id, created_at')
       .eq('hidden', false)
+      // Pre-moderation ('pre') events insert approved=false — a pending post
+      // must not score photos/challenge points before a host approves it.
+      .eq('approved', true)
       .eq('event_id', eventId),
     fetchChallenges(eventId, { activeOnly: true }),
   ]);

@@ -220,6 +220,9 @@ export default function Booth() {
   // Failed-send handling: the failure kind (drives the SendFailed copy) and the
   // last submit args so "Try again" re-runs the exact same upload.
   const [sendError, setSendError] = useState<string | undefined>(undefined);
+  // True when the accepted post is awaiting host approval (pre-moderation
+  // events) — drives the honest "sent for review" success copy.
+  const [pendingApproval, setPendingApproval] = useState(false);
   const lastSubmitRef = useRef<{ guestName: string; message: string; withChallenge: boolean } | null>(null);
 
   // ── Transient booth hint (capture/recording failures) ─────────────────
@@ -800,6 +803,10 @@ export default function Booth() {
         return;
       }
 
+      // Pre-moderation events return the post with approved=false — the
+      // success screen must say "sent for review", not promise the wall.
+      setPendingApproval(post.approved === false);
+
       savePhoto(eventId, {
         id: post.id,
         image_url: post.image_url,
@@ -1284,6 +1291,7 @@ export default function Booth() {
           mediaType={capturedMediaTypeRef.current}
           uploading={phase === 'sending'}
           success={phase === 'success'}
+          pendingApproval={pendingApproval}
           onTakeAnother={handleTakeAnother}
         />
       )}

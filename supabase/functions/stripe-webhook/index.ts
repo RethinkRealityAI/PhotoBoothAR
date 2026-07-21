@@ -280,7 +280,10 @@ async function handleCheckoutCompleted(
       .eq('id', eventUuid);
     if (tierErr) throw tierErr;
 
-    await grantCredits(sb, orgId, credits, 'plan_grant', { ...ref, tier, event_uuid: eventUuid });
+    // Credit grant deliberately LAST (mirrors handleInvoicePaymentSucceeded):
+    // grant_credits is additive with no ref-dedup, so if a later write failed
+    // the Stripe retry would re-run the handler and grant AGAIN. With the
+    // grant last, a retry only repeats idempotent/reconcilable writes.
     await insertOrder(sb, {
       org_id: orgId,
       event_id: eventUuid,
@@ -290,10 +293,11 @@ async function handleCheckoutCompleted(
       currency,
       stripe_ref: (session.payment_intent as string) ?? (session.id as string),
     });
+    await grantCredits(sb, orgId, credits, 'plan_grant', { ...ref, tier, event_uuid: eventUuid });
   } else if (kind === 'credit_pack') {
     const credits = PACK_CREDITS[meta.pack];
     if (!credits) throw new Error(`invalid credit_pack metadata on ${session.id}`);
-    await grantCredits(sb, orgId, credits, 'pack', { ...ref, pack: meta.pack });
+    // Grant last — see event_package note above.
     await insertOrder(sb, {
       org_id: orgId,
       event_id: null,
@@ -303,6 +307,7 @@ async function handleCheckoutCompleted(
       currency,
       stripe_ref: (session.payment_intent as string) ?? (session.id as string),
     });
+    await grantCredits(sb, orgId, credits, 'pack', { ...ref, pack: meta.pack });
   } else if (kind === 'pro_subscription') {
     const subscriptionId = (session.subscription as string) ?? null;
     const periodEnd = subscriptionId ? await fetchPeriodEnd(subscriptionId) : null;
@@ -317,7 +322,7 @@ async function handleCheckoutCompleted(
       { onConflict: 'org_id' },
     );
     if (subErr) throw subErr;
-    await grantCredits(sb, orgId, PRO_MONTHLY_CREDITS, 'pro_grant', { ...ref, subscription: subscriptionId });
+    // Grant last — see event_package note above.
     await insertOrder(sb, {
       org_id: orgId,
       event_id: null,
@@ -327,6 +332,7 @@ async function handleCheckoutCompleted(
       currency,
       stripe_ref: subscriptionId ?? (session.id as string),
     });
+    await grantCredits(sb, orgId, PRO_MONTHLY_CREDITS, 'pro_grant', { ...ref, subscription: subscriptionId });
   } else {
     console.warn('[stripe-webhook] unknown checkout kind', kind, session.id);
   }
@@ -400,7 +406,14 @@ async function handleChargeRefunded(
     return;
   }
 
-  const order = await findOrderByRefs(sb, [charge.payment_intent, chargeId, charge.invoice]);
+  let order = await findOrderByRefs(sb, [charge.payment_intent, chargeId, charge.invoice]);
+  if (!order && typeof charge.invoice === 'string') {
+    // Initial Pro charges: the order's stripe_ref is the SUBSCRIPTION id, but
+    // the charge only carries payment_intent/invoice — resolve the invoice to
+    // its subscription and retry the match.
+    const subId = await fetchInvoiceSubscription(charge.invoice);
+    if (subId) order = await findOrderByRefs(sb, [subId]);
+  }
   if (!order) {
     console.error(
       `[stripe-webhook] REFUND unmatched: charge ${chargeId} (stripe event ${eventId}) has no orders row — no clawback applied, review manually`,
@@ -408,41 +421,83 @@ async function handleChargeRefunded(
     return;
   }
   if (order.status === 'refunded') {
-    // Already processed (e.g. a second charge.refunded for the same charge).
+    // Already fully processed (status is set LAST below) — e.g. a second,
+    // distinct charge.refunded event for the same charge.
     return;
   }
 
-  // 1. Mark the order — idempotent, safe if a mid-handler failure retries us.
-  const { error: updErr } = await sb.from('orders').update({ status: 'refunded' }).eq('id', order.id);
-  if (updErr) throw updErr;
-
-  // 2. event_package tier: not recoverable from the order row — operator log.
+  // 1. event_package tier: not recoverable from the order row — operator log.
   if (order.kind === 'event_package' && order.event_id !== null) {
     console.error(
       `[stripe-webhook] REFUND tier-revert needed: order ${order.id} (event ${order.event_id}, tier ${order.tier}) refunded, but the prior plan_tier is not recorded — revert events.plan_tier manually`,
     );
   }
 
-  // 3. Claw back the granted credits — deliberately LAST (sole non-idempotent
-  //    op; a retry after failure only repeats the harmless status update).
+  // 2. Claw back the granted credits BEFORE marking the order refunded: if
+  //    the status were set first and the clawback then failed, the Stripe
+  //    retry would hit the status guard above and the clawback would be lost
+  //    forever. The ledger-existence check below makes the clawback itself
+  //    retry-safe (retry after clawback-ok/status-fail skips re-clawing).
   const credits = creditsGrantedFor(order);
   if (credits === null) {
     console.error(
       `[stripe-webhook] REFUND: cannot derive granted credits for order ${order.id} (kind=${order.kind}, tier=${order.tier}) — no clawback applied, review manually`,
     );
-    return;
+  } else {
+    const { data: prior, error: priorErr } = await sb
+      .from('credit_ledger')
+      .select('id')
+      .eq('org_id', order.org_id)
+      .eq('reason', 'refund_clawback')
+      .eq('ref->>order_id', order.id)
+      .limit(1);
+    if (priorErr) throw priorErr;
+    if (prior && prior.length > 0) {
+      console.warn(`[stripe-webhook] REFUND clawback already recorded for order ${order.id} — skipping re-claw`);
+    } else {
+      const { data: clawed, error: clawErr } = await sb.rpc('clawback_credits', {
+        p_org: order.org_id,
+        p_amount: credits,
+        p_reason: 'refund_clawback',
+        p_ref: { stripe_event: eventId, charge: chargeId, order_id: order.id, granted: credits },
+      });
+      if (clawErr) throw clawErr;
+      if (typeof clawed === 'number' && clawed < credits) {
+        console.error(
+          `[stripe-webhook] REFUND clawback shortfall: org ${order.org_id} had only ${clawed}/${credits} credits left (charge ${chargeId}) — balance floored at 0`,
+        );
+      }
+    }
   }
-  const { data: clawed, error: clawErr } = await sb.rpc('clawback_credits', {
-    p_org: order.org_id,
-    p_amount: credits,
-    p_reason: 'refund_clawback',
-    p_ref: { stripe_event: eventId, charge: chargeId, order_id: order.id, granted: credits },
-  });
-  if (clawErr) throw clawErr;
-  if (typeof clawed === 'number' && clawed < credits) {
-    console.error(
-      `[stripe-webhook] REFUND clawback shortfall: org ${order.org_id} had only ${clawed}/${credits} credits left (charge ${chargeId}) — balance floored at 0`,
-    );
+
+  // 3. Mark the order — LAST, so an incomplete run never short-circuits the
+  //    retry via the refunded-status guard.
+  const { error: updErr } = await sb.from('orders').update({ status: 'refunded' }).eq('id', order.id);
+  if (updErr) throw updErr;
+}
+
+/** Resolve an invoice id to its subscription id via the Stripe API (used to
+ *  match refunds of initial Pro charges, whose orders row is keyed by
+ *  subscription id). Null on any failure — the caller logs unmatched. */
+async function fetchInvoiceSubscription(invoiceId: string): Promise<string | null> {
+  const key = Deno.env.get('STRIPE_SECRET_KEY');
+  if (!key) {
+    console.error(`[stripe-webhook] fetchInvoiceSubscription: STRIPE_SECRET_KEY not set — cannot resolve ${invoiceId}`);
+    return null;
+  }
+  try {
+    const res = await fetch(`https://api.stripe.com/v1/invoices/${invoiceId}`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (!res.ok) {
+      console.error(`[stripe-webhook] fetchInvoiceSubscription: Stripe API ${res.status} for ${invoiceId}`);
+      return null;
+    }
+    const invoice = (await res.json()) as Record<string, unknown>;
+    return typeof invoice.subscription === 'string' ? invoice.subscription : null;
+  } catch (err) {
+    console.error(`[stripe-webhook] fetchInvoiceSubscription: request failed for ${invoiceId}`, err);
+    return null;
   }
 }
 
