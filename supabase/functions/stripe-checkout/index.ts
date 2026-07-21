@@ -13,13 +13,18 @@
  * 404 → { error: 'event_not_found' }
  * 500 → { error: 'internal' | 'stripe_error' }
  * 503 → { error: 'billing_not_configured' }  STRIPE_SECRET_KEY not set yet
+ * 503 → { error: 'billing_test_mode' }       STRIPE_SECRET_KEY is a test key
+ *        (not sk_live_) and ALLOW_TEST_BILLING !== 'true' — prevents test-card
+ *        checkouts from minting real entitlements; set ALLOW_TEST_BILLING=true
+ *        in the function secrets to deliberately sandbox-test end-to-end.
  *
  * Prices are inline price_data (no pre-created Stripe products). All amounts
  * in cents, usd. Metadata {org_id, kind, tier?/pack?, event_uuid?} is read
  * back by stripe-webhook on checkout.session.completed.
  *
  * Env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY (injected),
- *      STRIPE_SECRET_KEY (secret — absent until keys are provisioned).
+ *      STRIPE_SECRET_KEY (secret — absent until keys are provisioned),
+ *      ALLOW_TEST_BILLING (optional — 'true' permits checkout on a test key).
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
@@ -101,6 +106,13 @@ Deno.serve(async (req: Request) => {
 
   const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
   if (!stripeKey) return json(503, { error: 'billing_not_configured' });
+  // Refuse checkout on a non-live key: test-card sessions would otherwise mint
+  // real entitlements via the webhook. ALLOW_TEST_BILLING='true' opts back in
+  // for deliberate sandbox end-to-end testing.
+  if (!stripeKey.startsWith('sk_live_') && Deno.env.get('ALLOW_TEST_BILLING') !== 'true') {
+    console.warn('[stripe-checkout] refused: STRIPE_SECRET_KEY is not sk_live_ and ALLOW_TEST_BILLING is not "true"');
+    return json(503, { error: 'billing_test_mode' });
+  }
 
   let body: Record<string, unknown>;
   try {

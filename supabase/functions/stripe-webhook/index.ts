@@ -20,8 +20,16 @@
  *     session — never recomputed from PRICES) for the admin Payments screen.
  *   invoice.payment_succeeded (billing_reason='subscription_cycle' only — the
  *     first period is already recorded via checkout.session.completed above)
- *     → insert an `orders` row for the Pro renewal.
+ *     → insert an `orders` row for the Pro renewal
+ *       + grant_credits(300, 'pro_grant') — the monthly credit re-grant.
+ *   charge.refunded (full refunds only) → orders.status='refunded'
+ *       + clawback_credits(<granted amount>, 'refund_clawback') (floors at 0);
+ *       event_package tier is NOT auto-reverted (prior tier unrecorded) —
+ *       an operator error line is logged instead. Partial refunds: log only.
+ *   charge.dispute.created → orders.status='disputed' + operator error line.
  *   customer.subscription.updated → subscriptions.status/current_period_end sync
+ *     (period end backfilled via the Stripe API when absent from the payload;
+ *     a stored value is never overwritten with null)
  *   customer.subscription.deleted → subscriptions.status = 'canceled'
  *   (anything else → 200 {received:true, ignored:true})
  *
@@ -30,8 +38,9 @@
  * If fulfilment fails after that insert, the row is deleted and 500 returned
  * so Stripe retries.
  *
- * Requires migration 006_grant_credits.sql (public.grant_credits) to be
- * applied BEFORE this function is deployed.
+ * Requires migrations 006_grant_credits.sql (public.grant_credits) and
+ * 016_orders_status.sql (public.clawback_credits + orders.status 'disputed')
+ * to be applied BEFORE this function is deployed.
  *
  * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (injected),
  *      STRIPE_WEBHOOK_SECRET (secret — absent until keys are provisioned),
@@ -149,19 +158,33 @@ function epochToIso(seconds: unknown): string | null {
 
 /** current_period_end for a subscription id via the Stripe REST API.
  *  Newer API versions moved it onto the subscription items — check both.
- *  Best-effort: null when the key is missing or the call fails. */
+ *  Best-effort: null when the key is missing or the call fails, but every
+ *  null path logs at error level (a silently-null period end previously left
+ *  subscriptions rows with no expiry; customer.subscription.updated backfills
+ *  it — see handleSubscriptionChange). */
 async function fetchPeriodEnd(subscriptionId: string): Promise<string | null> {
   const key = Deno.env.get('STRIPE_SECRET_KEY');
-  if (!key) return null;
+  if (!key) {
+    console.error(`[stripe-webhook] fetchPeriodEnd: STRIPE_SECRET_KEY not set — current_period_end unknown for ${subscriptionId}`);
+    return null;
+  }
   try {
     const res = await fetch(`https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
       headers: { Authorization: `Bearer ${key}` },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`[stripe-webhook] fetchPeriodEnd: Stripe API ${res.status} for ${subscriptionId}`);
+      return null;
+    }
     const sub = (await res.json()) as Record<string, unknown>;
     const items = (sub.items as { data?: Record<string, unknown>[] } | undefined)?.data;
-    return epochToIso(sub.current_period_end) ?? epochToIso(items?.[0]?.current_period_end);
-  } catch {
+    const end = epochToIso(sub.current_period_end) ?? epochToIso(items?.[0]?.current_period_end);
+    if (end === null) {
+      console.error(`[stripe-webhook] fetchPeriodEnd: no current_period_end on subscription or items for ${subscriptionId}`);
+    }
+    return end;
+  } catch (err) {
+    console.error(`[stripe-webhook] fetchPeriodEnd: request failed for ${subscriptionId}`, err);
     return null;
   }
 }
@@ -179,6 +202,43 @@ interface OrderInsert {
 async function insertOrder(sb: SupabaseClient, order: OrderInsert): Promise<void> {
   const { error } = await sb.from('orders').insert({ ...order, status: 'paid' });
   if (error) throw error;
+}
+
+interface OrderRow {
+  id: number;
+  org_id: string;
+  event_id: string | null;
+  kind: string;
+  tier: string | null;
+  status: string;
+}
+
+/** Locate the orders row a charge/dispute belongs to. `stripe_ref` holds the
+ *  payment_intent (one-time checkouts), the subscription id (initial Pro
+ *  checkout), or the invoice id (Pro renewals) — match on every identifier
+ *  the Stripe object carries. Newest row wins if several match. */
+async function findOrderByRefs(sb: SupabaseClient, refs: unknown[]): Promise<OrderRow | null> {
+  const clean = refs.filter((v): v is string => typeof v === 'string' && v.length > 0);
+  if (clean.length === 0) return null;
+  const { data, error } = await sb
+    .from('orders')
+    .select('id, org_id, event_id, kind, tier, status')
+    .in('stripe_ref', clean)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as OrderRow | null) ?? null;
+}
+
+/** Credits the original purchase granted, derived from the order row —
+ *  mirrors the grant amounts in handleCheckoutCompleted/renewals above.
+ *  null when the kind/tier no longer maps to a known grant. */
+function creditsGrantedFor(order: OrderRow): number | null {
+  if (order.kind === 'pro_subscription') return PRO_MONTHLY_CREDITS;
+  if (order.kind === 'event_package') return PACKAGE_CREDITS[order.tier ?? ''] ?? null;
+  if (order.kind === 'credit_pack') return PACK_CREDITS[order.tier ?? ''] ?? null;
+  return null;
 }
 
 /* ── Event handlers ─────────────────────────────────────────────────── */
@@ -272,11 +332,16 @@ async function handleCheckoutCompleted(
   }
 }
 
-/** Pro renewals only — the subscription's first period is already recorded as
- *  an `orders` row by handleCheckoutCompleted above, so this is gated on
- *  billing_reason='subscription_cycle' to avoid double-counting it. */
+/** Pro renewals only — the subscription's first period is already recorded
+ *  (orders row + credit grant) by handleCheckoutCompleted above, so this is
+ *  gated on billing_reason='subscription_cycle' to avoid double-counting it.
+ *  Each renewal re-grants the monthly Pro credits. Webhook replay is safe:
+ *  the entry point claims the Stripe event id in stripe_webhook_events BEFORE
+ *  this runs, so a redelivered event returns {duplicate:true} without
+ *  re-granting. */
 async function handleInvoicePaymentSucceeded(
   sb: SupabaseClient,
+  eventId: string,
   invoice: Record<string, unknown>,
 ): Promise<void> {
   if (invoice.billing_reason !== 'subscription_cycle') return;
@@ -294,6 +359,7 @@ async function handleInvoicePaymentSucceeded(
     return;
   }
 
+  const invoiceId = typeof invoice.id === 'string' ? invoice.id : null;
   await insertOrder(sb, {
     org_id: sub.org_id as string,
     event_id: null,
@@ -301,8 +367,106 @@ async function handleInvoicePaymentSucceeded(
     tier: 'pro',
     amount_total: typeof invoice.amount_paid === 'number' ? invoice.amount_paid : 0,
     currency: (invoice.currency as string) ?? 'usd',
-    stripe_ref: typeof invoice.id === 'string' ? invoice.id : null,
+    stripe_ref: invoiceId,
   });
+  // Monthly credit re-grant — deliberately LAST: if the grant fails mid-handler
+  // the Stripe retry re-runs everything, and the op that can double-apply is
+  // then the visible/reconcilable orders row, never spendable credits.
+  await grantCredits(sb, sub.org_id as string, PRO_MONTHLY_CREDITS, 'pro_grant', {
+    stripe_event: eventId,
+    invoice: invoiceId,
+    subscription: subscriptionId,
+    billing_reason: 'subscription_cycle',
+  });
+}
+
+/** Full refunds: mark the orders row 'refunded' and claw back the credits the
+ *  purchase granted (negative credit_ledger entry, reason 'refund_clawback',
+ *  balance floored at 0 by clawback_credits — a shortfall is logged). The
+ *  events.plan_tier of a refunded event_package is NOT auto-reverted: the
+ *  prior tier is not recorded on the orders row, so an operator error line is
+ *  logged instead. Partial refunds (charge.refunded !== true): log only. */
+async function handleChargeRefunded(
+  sb: SupabaseClient,
+  eventId: string,
+  charge: Record<string, unknown>,
+): Promise<void> {
+  const chargeId = typeof charge.id === 'string' ? charge.id : null;
+  if (!chargeId) return;
+  if (charge.refunded !== true) {
+    console.error(
+      `[stripe-webhook] REFUND partial: charge ${chargeId} amount_refunded=${charge.amount_refunded} — no automatic clawback, review manually`,
+    );
+    return;
+  }
+
+  const order = await findOrderByRefs(sb, [charge.payment_intent, chargeId, charge.invoice]);
+  if (!order) {
+    console.error(
+      `[stripe-webhook] REFUND unmatched: charge ${chargeId} (stripe event ${eventId}) has no orders row — no clawback applied, review manually`,
+    );
+    return;
+  }
+  if (order.status === 'refunded') {
+    // Already processed (e.g. a second charge.refunded for the same charge).
+    return;
+  }
+
+  // 1. Mark the order — idempotent, safe if a mid-handler failure retries us.
+  const { error: updErr } = await sb.from('orders').update({ status: 'refunded' }).eq('id', order.id);
+  if (updErr) throw updErr;
+
+  // 2. event_package tier: not recoverable from the order row — operator log.
+  if (order.kind === 'event_package' && order.event_id !== null) {
+    console.error(
+      `[stripe-webhook] REFUND tier-revert needed: order ${order.id} (event ${order.event_id}, tier ${order.tier}) refunded, but the prior plan_tier is not recorded — revert events.plan_tier manually`,
+    );
+  }
+
+  // 3. Claw back the granted credits — deliberately LAST (sole non-idempotent
+  //    op; a retry after failure only repeats the harmless status update).
+  const credits = creditsGrantedFor(order);
+  if (credits === null) {
+    console.error(
+      `[stripe-webhook] REFUND: cannot derive granted credits for order ${order.id} (kind=${order.kind}, tier=${order.tier}) — no clawback applied, review manually`,
+    );
+    return;
+  }
+  const { data: clawed, error: clawErr } = await sb.rpc('clawback_credits', {
+    p_org: order.org_id,
+    p_amount: credits,
+    p_reason: 'refund_clawback',
+    p_ref: { stripe_event: eventId, charge: chargeId, order_id: order.id, granted: credits },
+  });
+  if (clawErr) throw clawErr;
+  if (typeof clawed === 'number' && clawed < credits) {
+    console.error(
+      `[stripe-webhook] REFUND clawback shortfall: org ${order.org_id} had only ${clawed}/${credits} credits left (charge ${chargeId}) — balance floored at 0`,
+    );
+  }
+}
+
+/** Disputes: mark the orders row 'disputed' and alert the operator. No
+ *  automatic credit or tier changes — the dispute may still be won; outcomes
+ *  are handled manually (a lost dispute later arrives as charge.refunded). */
+async function handleDisputeCreated(
+  sb: SupabaseClient,
+  eventId: string,
+  dispute: Record<string, unknown>,
+): Promise<void> {
+  const disputeId = typeof dispute.id === 'string' ? dispute.id : '(no id)';
+  const order = await findOrderByRefs(sb, [dispute.payment_intent, dispute.charge]);
+  if (!order) {
+    console.error(
+      `[stripe-webhook] DISPUTE unmatched: ${disputeId} (charge ${dispute.charge}, stripe event ${eventId}) has no orders row — review manually`,
+    );
+    return;
+  }
+  const { error } = await sb.from('orders').update({ status: 'disputed' }).eq('id', order.id);
+  if (error) throw error;
+  console.error(
+    `[stripe-webhook] DISPUTE opened: order ${order.id} (org ${order.org_id}, kind ${order.kind}, tier ${order.tier}) marked disputed — dispute ${disputeId}, charge ${dispute.charge}, reason ${dispute.reason} — respond in the Stripe dashboard`,
+  );
 }
 
 async function handleSubscriptionChange(
@@ -313,7 +477,12 @@ async function handleSubscriptionChange(
   const subscriptionId = sub.id as string;
   const status = type === 'customer.subscription.deleted' ? 'canceled' : ((sub.status as string) ?? 'active');
   const items = (sub.items as { data?: Record<string, unknown>[] } | undefined)?.data;
-  const periodEnd = epochToIso(sub.current_period_end) ?? epochToIso(items?.[0]?.current_period_end);
+  let periodEnd = epochToIso(sub.current_period_end) ?? epochToIso(items?.[0]?.current_period_end);
+  if (periodEnd === null) {
+    // Backfill: the event payload lacked a period end (e.g. the checkout-time
+    // fetch failed earlier, or a partial payload) — re-fetch from the API.
+    periodEnd = await fetchPeriodEnd(subscriptionId);
+  }
 
   // Resolve the org: by known subscription id, then subscription metadata
   // (stamped by stripe-checkout), then the org's stripe_customer_id.
@@ -342,16 +511,17 @@ async function handleSubscriptionChange(
     return;
   }
 
-  const { error } = await sb.from('subscriptions').upsert(
-    {
-      org_id: orgId,
-      stripe_subscription_id: subscriptionId,
-      status,
-      tier: 'pro',
-      current_period_end: periodEnd,
-    },
-    { onConflict: 'org_id' },
-  );
+  const row: Record<string, unknown> = {
+    org_id: orgId,
+    stripe_subscription_id: subscriptionId,
+    status,
+    tier: 'pro',
+  };
+  // Only write current_period_end when known — never clobber a stored value
+  // with null just because this payload/fetch could not resolve it (upsert
+  // updates only the columns present in the payload).
+  if (periodEnd !== null) row.current_period_end = periodEnd;
+  const { error } = await sb.from('subscriptions').upsert(row, { onConflict: 'org_id' });
   if (error) throw error;
 }
 
@@ -394,7 +564,11 @@ Deno.serve(async (req: Request) => {
     if (type === 'checkout.session.completed') {
       await handleCheckoutCompleted(sb, eventId, object);
     } else if (type === 'invoice.payment_succeeded') {
-      await handleInvoicePaymentSucceeded(sb, object);
+      await handleInvoicePaymentSucceeded(sb, eventId, object);
+    } else if (type === 'charge.refunded') {
+      await handleChargeRefunded(sb, eventId, object);
+    } else if (type === 'charge.dispute.created') {
+      await handleDisputeCreated(sb, eventId, object);
     } else if (type === 'customer.subscription.updated' || type === 'customer.subscription.deleted') {
       await handleSubscriptionChange(sb, type, object);
     } else {
