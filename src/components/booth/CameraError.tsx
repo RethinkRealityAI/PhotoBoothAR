@@ -10,10 +10,25 @@ interface Props {
   onRetry: () => void;
 }
 
+/** iOS (incl. iPadOS, which reports as "Macintosh" but is touch-capable) has no
+ *  address-bar camera icon — permission re-grant lives behind the aA menu or
+ *  Settings → Safari, so the instructions must say that path. */
+function isIOS(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  return (
+    /iPad|iPhone|iPod/.test(ua) ||
+    (/Macintosh/.test(ua) && typeof document !== 'undefined' && 'ontouchend' in document)
+  );
+}
+
 export default function CameraErrorScreen({ error, onRetry }: Props) {
   const copy = useStore((s) => s.copy);
   const isPermission = error === 'NotAllowedError';
   const isNotFound = error === 'NotFoundError';
+  const permissionHelp = isIOS()
+    ? 'Please allow camera access to use the photo booth. Tap the “aA” button in Safari’s address bar, choose Website Settings → Camera → Allow (or go to Settings → Safari → Camera), then try again.'
+    : 'Please allow camera access to use the photo booth. Tap the camera icon in your browser’s address bar and refresh.';
 
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center">
@@ -34,7 +49,7 @@ export default function CameraErrorScreen({ error, onRetry }: Props) {
           </h2>
           <p className="font-sans text-sm text-champagne/70 leading-relaxed">
             {isPermission
-              ? 'Please allow camera access to use the photo booth. Tap the camera icon in your browser\'s address bar and refresh.'
+              ? permissionHelp
               : isNotFound
               ? 'No camera was detected on this device. Please connect a camera and try again.'
               : 'Unable to access the camera. Please check your device settings and try again.'}

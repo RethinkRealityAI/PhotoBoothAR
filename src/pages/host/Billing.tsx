@@ -114,7 +114,7 @@ export default function Billing() {
       return;
     }
     setBusy(null);
-    if (error === 'billing_not_configured') { setNotice('pending'); return; }
+    if (error === 'billing_not_configured' || error === 'billing_test_mode') { setNotice('pending'); return; }
     console.error('[billing] checkout failed:', error);
     setNotice(checkoutErrorMessage(error));
   };
@@ -128,7 +128,7 @@ export default function Billing() {
       return;
     }
     setBusy(null);
-    if (error === 'billing_not_configured') { setNotice('pending'); return; }
+    if (error === 'billing_not_configured' || error === 'billing_test_mode') { setNotice('pending'); return; }
     console.error('[billing] portal failed:', error);
     setNotice(checkoutErrorMessage(error));
   };
@@ -199,10 +199,20 @@ export default function Billing() {
           <p className="font-sans text-[11px] text-brand-muted/50 leading-snug -mt-2">
             Credits power the AI studio — an AI frame is 1 credit, a 3D prop about 11, and the keepsake film render 30.
           </p>
+          {/* fetchCreditBalance returns null on query failure (a real zero
+              comes back as 0) — never render that null as a false "0". */}
           <p className="font-serif text-4xl text-brand-fg">
-            {balance ?? 0}
+            {balance !== null ? balance : loading ? '…' : '—'}
             <span className="ml-2 font-sans text-xs text-brand-muted/50">credits</span>
           </p>
+          {balance === null && !loading && org && (
+            <button
+              onClick={load}
+              className="self-start -mt-2 flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg/80 transition-colors"
+            >
+              <RefreshCw className="w-3 h-3" /> Couldn’t load — retry
+            </button>
+          )}
           <div>
             <p className="font-sans text-[10px] uppercase tracking-widest text-brand-muted/40 mb-2">Top up</p>
             {noOrg ? (

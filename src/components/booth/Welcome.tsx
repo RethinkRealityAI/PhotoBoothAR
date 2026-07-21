@@ -7,8 +7,14 @@
  */
 import { motion } from 'motion/react';
 import { Camera } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Wordmark } from '../ui/EventLogo';
 import GoldFrameCard from '../ui/GoldFrameCard';
+
+/** Platform legal routes (/privacy, /terms) only exist in runtime multi-tenant
+ *  builds — legacy single-event builds (VITE_EVENT set) keep their microcopy
+ *  byte-identical and never link to a route that would redirect to "/". */
+const IS_LEGACY_BUILD = (((import.meta.env.VITE_EVENT as string | undefined) ?? '')).trim() !== '';
 
 export default function Welcome({ onStart }: { onStart: () => void }) {
   return (
@@ -61,6 +67,14 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
             transition={{ delay: 1.05, duration: 0.8 }}
           >
             Camera access required · your photo is only shared when you choose
+            {!IS_LEGACY_BUILD && (
+              <>
+                {' '}· by continuing you agree to our{' '}
+                <Link to="/privacy" className="underline underline-offset-2 hover:text-brand-muted/60">
+                  privacy policy
+                </Link>
+              </>
+            )}
           </motion.p>
         </GoldFrameCard>
       </motion.div>

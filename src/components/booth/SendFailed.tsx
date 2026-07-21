@@ -24,7 +24,7 @@ function failureCopy(errorKind?: string): string {
     case 'event_not_live':
       return "This event isn't accepting photos right now — ask your host!";
     case 'post_limit_reached':
-      return 'The wall is full for this plan.';
+      return "This event's wall is full — it has reached its photo limit. You can still save your shot below.";
     case 'video_not_allowed':
       return "This event's plan doesn't allow video — try a photo instead.";
     case 'quota_exceeded':
@@ -36,7 +36,7 @@ function failureCopy(errorKind?: string): string {
 
 /** Failure kinds a retry can only re-trigger deterministically (plan caps, not
  *  transient/network) — the same submit will fail again, so hide "Try again". */
-const PERMANENT_KINDS = new Set(['video_not_allowed', 'quota_exceeded']);
+const PERMANENT_KINDS = new Set(['video_not_allowed', 'quota_exceeded', 'post_limit_reached']);
 
 export default function SendFailed({ dataUrl, mediaType = 'image', errorKind, onRetry }: Props) {
   const { config } = useEvent();

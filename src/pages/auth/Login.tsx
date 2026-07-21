@@ -8,6 +8,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signInWithEmail, signInWithGoogle } from '../../lib/auth';
+import { usePageTitle } from '../../lib/usePageTitle';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-brand-fg ' +
@@ -15,6 +16,7 @@ const inputClass =
   'focus:bg-white/[0.06]';
 
 export default function Login() {
+  usePageTitle('Sign in — Beamwall');
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -147,6 +149,18 @@ export default function Login() {
             <Link to="/signup" className="text-accent underline-offset-4 hover:underline">
               Create your event
             </Link>
+          </p>
+
+          <p className="mt-4 text-center text-[11px] leading-relaxed text-brand-muted/50">
+            By continuing you agree to the{' '}
+            <Link to="/terms" className="underline underline-offset-2 hover:text-brand-fg">
+              Terms of Service
+            </Link>{' '}
+            and{' '}
+            <Link to="/privacy" className="underline underline-offset-2 hover:text-brand-fg">
+              Privacy Policy
+            </Link>
+            .
           </p>
         </div>
       </div>

@@ -4,6 +4,7 @@
  * Supports both mediaType='image' and mediaType='video'.
  */
 import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Download, Share2, RefreshCw, Send, Upload } from 'lucide-react';
 import { GalleryIcon, MediaStackIcon } from '../ui/MediaIcons';
@@ -26,12 +27,18 @@ export default function ReviewPanel({
   dataUrl, mediaType = 'image', durationMs,
   onRetake, onSend, sending, selectedChallenge,
 }: Props) {
-  const { eventId, config } = useEvent();
+  const { eventId, config, basePath } = useEvent();
+  const navigate = useNavigate();
   const copy = useStore((s) => s.copy);
   const [guestName, setGuestName] = useState(() => getGuestName(eventId));
   const [message, setMessage] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // "Or explore" leave-confirm: the capture in review is un-sent, so leaving
+  // destroys it — intercept the link and ask first (client-side navigation via
+  // react-router, event-scoped by basePath; the old raw hrefs full-reloaded
+  // onto the default event and lost the shot).
+  const [leaveTarget, setLeaveTarget] = useState<string | null>(null);
 
   // Challenge photos must carry a name so the leaderboard can crown winners.
   const nameRequired = !!selectedChallenge;
@@ -193,27 +200,25 @@ export default function ReviewPanel({
             <span className="h-px flex-1 bg-gold-400/15" />
           </div>
           <div className="flex gap-3">
-            <a
-              href="/wall"
-              className="flex-1 glass rounded-xl px-4 py-2.5 flex items-center justify-center gap-2 text-champagne/70 hover:text-gold-300 border border-gold-400/15 hover:border-gold-400/35 transition-colors"
-            >
-              <GalleryIcon size={16} />
-              <span className="font-label uppercase tracking-wide text-[10px]">Live Photo Wall</span>
-            </a>
-            <a
-              href="/me"
-              className="flex-1 glass rounded-xl px-4 py-2.5 flex items-center justify-center gap-2 text-champagne/70 hover:text-gold-300 border border-gold-400/15 hover:border-gold-400/35 transition-colors"
-            >
-              <MediaStackIcon size={16} />
-              <span className="font-label uppercase tracking-wide text-[10px]">My Media</span>
-            </a>
-            <a
-              href="/upload"
-              className="flex-1 glass rounded-xl px-4 py-2.5 flex items-center justify-center gap-2 text-champagne/70 hover:text-gold-300 border border-gold-400/15 hover:border-gold-400/35 transition-colors"
-            >
-              <Upload size={16} />
-              <span className="font-label uppercase tracking-wide text-[10px]">Upload</span>
-            </a>
+            {([
+              { to: `${basePath}/wall`, icon: <GalleryIcon size={16} />, label: 'Live Photo Wall' },
+              { to: `${basePath}/me`, icon: <MediaStackIcon size={16} />, label: 'My Media' },
+              { to: `${basePath}/upload`, icon: <Upload size={16} />, label: 'Upload' },
+            ] as const).map((l) => (
+              <Link
+                key={l.to}
+                to={l.to}
+                onClick={(e) => {
+                  // The capture on screen is un-sent — confirm before leaving.
+                  e.preventDefault();
+                  setLeaveTarget(l.to);
+                }}
+                className="flex-1 glass rounded-xl px-4 py-2.5 flex items-center justify-center gap-2 text-champagne/70 hover:text-gold-300 border border-gold-400/15 hover:border-gold-400/35 transition-colors"
+              >
+                {l.icon}
+                <span className="font-label uppercase tracking-wide text-[10px]">{l.label}</span>
+              </Link>
+            ))}
           </div>
         </div>
       </div>
@@ -257,6 +262,47 @@ export default function ReviewPanel({
                   className="flex-1 bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 flex items-center justify-center gap-2 hover:brightness-110 transition-all active:scale-95 disabled:opacity-60 disabled:pointer-events-none"
                 >
                   {sending || submitted ? 'Sending…' : 'Yes, send'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Leave-confirm dialog — the un-sent capture would be lost */}
+      <AnimatePresence>
+        {leaveTarget && (
+          <motion.div
+            className="absolute inset-0 z-50 flex items-center justify-center p-6 bg-noir-900/80 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setLeaveTarget(null)}
+          >
+            <motion.div
+              className="glass-strong rounded-3xl border border-gold-400/20 p-7 w-full max-w-xs text-center"
+              initial={{ scale: 0.9, y: 16 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 16 }}
+              transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="font-serif text-2xl text-ivory mb-1.5">Leave the booth?</h3>
+              <p className="font-sans text-[13px] text-champagne/65 leading-relaxed mb-6">
+                Your {mediaType === 'video' ? 'video' : 'photo'} hasn&rsquo;t been sent — leave anyway? You can save it to your device first.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setLeaveTarget(null)}
+                  className="flex-1 bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 hover:brightness-110 transition-all active:scale-95"
+                >
+                  Stay
+                </button>
+                <button
+                  onClick={() => navigate(leaveTarget)}
+                  className="flex-1 glass rounded-xl px-4 py-3 font-label uppercase tracking-luxe text-[11px] text-champagne/70 hover:text-ivory transition-colors"
+                >
+                  Leave anyway
                 </button>
               </div>
             </motion.div>
