@@ -18,6 +18,7 @@
  * prefers-reduced-motion the auto-scroll is off and the strip is drag-only.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 import { fetchPosts } from '../../lib/db';
 import { BORDER_MAP, toDataUrl } from '../../lib/borders';
 import type { Post } from '../../types';
@@ -79,7 +80,9 @@ function FrameCard({ slot, pool, seed }: { slot: Slot; pool: Media[]; seed: numb
     // Transform is driven imperatively, per frame, by the marquee rAF loop
     // (coverflow: scale/rotateY/lift by distance from the strip centre).
     <div
-      className="w-40 shrink-0 sm:w-52"
+      // w-36 on phones: at ~390px this leaves room for the focal card plus a
+      // visible peek of BOTH neighbours — the desktop coverflow read.
+      className="w-36 shrink-0 sm:w-52"
       style={{ transformStyle: 'preserve-3d', willChange: 'transform' }}
     >
       <div
@@ -165,6 +168,17 @@ export default function LiveHeroCarousel({
   const offset = useRef(0);
   const dragging = useRef(false);
   const paused = useRef(false);
+  // Explicit user pause (the visible toggle) — unlike the ambient hover pause
+  // above, this persists until toggled again, works for touch + keyboard, and
+  // stops BOTH the desktop drift and the compact stepper. State drives the
+  // button UI (icon/aria-pressed); the ref is what the rAF closures read.
+  const [userPaused, setUserPaused] = useState(false);
+  const userPausedRef = useRef(false);
+  const toggleUserPaused = () => {
+    const next = !userPausedRef.current;
+    userPausedRef.current = next;
+    setUserPaused(next);
+  };
   const lastX = useRef(0);
   // Drag-intent gate: a pointer sequence only becomes a drag after ~8px of
   // mostly-horizontal travel — so a tap, or a vertical page-scroll that starts
@@ -178,6 +192,21 @@ export default function LiveHeroCarousel({
   const hoverCapable = useRef(
     typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches,
   );
+  // Arrow-button glide: remaining px the strip still owes an eased nudge. The
+  // rAF loop consumes a fraction each frame — works under reduced motion too
+  // (an explicit user action, not ambient animation).
+  const glide = useRef(0);
+  // One-shot: the first rAF frame with real layout snaps a card dead-centre.
+  const centered = useRef(false);
+
+  /** Nudge the strip by one card-slot; dir 1 = show previous (strip moves right). */
+  const nudge = (dir: 1 | -1) => {
+    const track = trackRef.current;
+    const kids = track?.children;
+    if (!kids || kids.length < 2) return;
+    const slotW = (kids[1] as HTMLElement).offsetLeft - (kids[0] as HTMLElement).offsetLeft;
+    if (slotW > 0) glide.current += dir * slotW;
+  };
 
   useEffect(() => {
     const track = trackRef.current;
@@ -192,11 +221,26 @@ export default function LiveHeroCarousel({
     const CENTER_SCALE = 1.22;
     const EDGE_SCALE = 0.86;
     const EDGE_ROTATE_DEG = 26;
-    const FALLOFF_SLOTS = 1.5;
+    // Compact viewports fall off faster so the strip reads as ONE dominant
+    // focal card with smaller neighbours peeking in from the sides (desktop's
+    // coverflow look) instead of two near-equal cards side by side.
+    const FALLOFF_SLOTS = COMPACT_VIEWPORT ? 1.1 : 1.5;
     const CENTER_LIFT_PX = 12; // slight upward translateY for the focal card
     const CENTER_Z_PX = 90; // slight translateZ toward the viewer (perspective is on the container)
     const step = () => {
-      if (!reduced && !dragging.current && !paused.current) offset.current -= speed;
+      if (glide.current !== 0) {
+        // Ease out the owed nudge: 14%/frame, snapping shut under half a px.
+        const d = glide.current * 0.14;
+        offset.current += d;
+        glide.current -= d;
+        if (Math.abs(glide.current) < 0.5) glide.current = 0;
+      }
+      // Desktop drifts continuously; compact viewports STEP instead (below) —
+      // a drifting strip at phone width spends most of its time with two
+      // half-cards on screen, while stepping holds one focal card centred.
+      if (!reduced && !COMPACT_VIEWPORT && !dragging.current && !paused.current && !userPausedRef.current) {
+        offset.current -= speed;
+      }
       const half = track.scrollWidth / 2;
       if (half > 0) {
         if (offset.current <= -half) offset.current += half;
@@ -214,6 +258,13 @@ export default function LiveHeroCarousel({
         const slotW = (kids[1] as HTMLElement).offsetLeft - first.offsetLeft; // card + gap
         if (slotW > 0) {
           const centerX = viewport.clientWidth / 2;
+          // First laid-out frame: snap a card dead-centre so the strip OPENS
+          // as one focal card with side peeks (matters most on phones, where
+          // the natural left-aligned start showed two half cards instead).
+          if (!centered.current) {
+            centered.current = true;
+            offset.current = centerX - cardW / 2 - slotW;
+          }
           const falloffPx = slotW * FALLOFF_SLOTS;
           for (let i = 0; i < kids.length; i++) {
             const el = kids[i] as HTMLElement;
@@ -232,7 +283,22 @@ export default function LiveHeroCarousel({
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
+    // Compact auto-advance: hold each focal card, then glide one slot (the
+    // same eased glide the arrow buttons use).
+    let stepTimer: ReturnType<typeof setInterval> | undefined;
+    if (COMPACT_VIEWPORT && !reduced) {
+      stepTimer = setInterval(() => {
+        if (dragging.current || paused.current || userPausedRef.current) return;
+        const kids = track.children;
+        if (kids.length < 2) return;
+        const slotW = (kids[1] as HTMLElement).offsetLeft - (kids[0] as HTMLElement).offsetLeft;
+        if (slotW > 0) glide.current -= slotW;
+      }, 3600);
+    }
+    return () => {
+      cancelAnimationFrame(raf);
+      if (stepTimer !== undefined) clearInterval(stepTimer);
+    };
   }, []);
 
   const cards = [...SLOTS, ...SLOTS]; // duplicate for the seamless wrap
@@ -302,6 +368,46 @@ export default function LiveHeroCarousel({
             <FrameCard key={`${slot.event}-${slot.frameId}-${i}`} slot={slot} pool={pools[slot.event] ?? []} seed={i} />
           ))}
         </div>
+      </div>
+
+      {/* Side arrows — manual scrub for visitors who want to browse rather
+          than wait on the drift. Placed OUTSIDE the masked strip so the edge
+          fade never dims them; z-20 keeps them above the lifted focal card. */}
+      {/* .liquid-glass pins position:relative on itself, so the absolute
+          placement lives on a wrapper div, not on the buttons. */}
+      <div className="absolute left-1 top-1/2 z-20 -translate-y-1/2 sm:left-2">
+        <button
+          type="button"
+          onClick={() => nudge(1)}
+          aria-label="Previous frames"
+          className="flex h-10 w-10 items-center justify-center rounded-full liquid-glass text-brand-fg/80 transition hover:text-brand-fg active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:h-11 sm:w-11"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+      </div>
+      <div className="absolute right-1 top-1/2 z-20 -translate-y-1/2 sm:right-2">
+        <button
+          type="button"
+          onClick={() => nudge(-1)}
+          aria-label="Next frames"
+          className="flex h-10 w-10 items-center justify-center rounded-full liquid-glass text-brand-fg/80 transition hover:text-brand-fg active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:h-11 sm:w-11"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Visible pause/play for the auto-advancing strip (WCAG 2.2.2) —
+          persists until toggled, unlike the ambient hover pause. */}
+      <div className="absolute bottom-2 right-1 z-20 sm:right-2">
+        <button
+          type="button"
+          onClick={toggleUserPaused}
+          aria-pressed={userPaused}
+          aria-label={userPaused ? 'Play the frame carousel' : 'Pause the frame carousel'}
+          className="flex h-9 w-9 items-center justify-center rounded-full liquid-glass text-brand-fg/80 transition hover:text-brand-fg active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
+        >
+          {userPaused ? <Play className="ml-0.5 h-4 w-4" /> : <Pause className="h-4 w-4" />}
+        </button>
       </div>
     </div>
   );

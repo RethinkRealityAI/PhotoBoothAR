@@ -17,7 +17,7 @@ import {
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  SwitchCamera, Clock, Video, Camera as CameraIcon,
+  SwitchCamera, Clock, Video, Camera as CameraIcon, AlertCircle,
   SlidersHorizontal, Eye, EyeOff, ChevronUp, UploadCloud, ScanFace, Sparkles,
 } from 'lucide-react';
 
@@ -81,6 +81,31 @@ type TimerOption = 0 | 3 | 5 | 10;
 const TIMER_OPTIONS: TimerOption[] = [0, 3, 5, 10];
 const VIDEO_MAX_MS = 30_000;
 const DEFAULT_TRANSFORM: Transform2D = { scale: 1, x: 0, y: 0, rotation: 0 };
+/** Upper bound on the send + challenge-check awaits so "Beaming…"/"Checking…"
+ *  can never spin forever on a stalled connection. */
+const SEND_TIMEOUT_MS = 45_000;
+
+/** Sends scale the timeout with payload size: a 30 s clip at 5 Mbps is ~18 MB,
+ *  which legitimately needs >45 s on a slow venue uplink. Timing out while the
+ *  upload is still succeeding server-side shows a false failure whose Retry
+ *  then duplicates the post — so grant ~1 s per 250 kB on top of the base,
+ *  bounded so a truly stalled connection still fails. */
+function sendTimeoutFor(blob: Blob): number {
+  return Math.min(SEND_TIMEOUT_MS + Math.ceil(blob.size / 250_000) * 1000, 240_000);
+}
+
+/** Resolve with `fallback` if `p` hasn't settled within `ms` (or rejects) —
+ *  the db/validation layers own the fetches, so the timeout lives here at the
+ *  call-site. The late-settling promise is ignored, never unhandled. */
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      () => { clearTimeout(timer); resolve(fallback); },
+    );
+  });
+}
 
 function prefersReducedMotion(): boolean {
   try {
@@ -195,7 +220,24 @@ export default function Booth() {
   // Failed-send handling: the failure kind (drives the SendFailed copy) and the
   // last submit args so "Try again" re-runs the exact same upload.
   const [sendError, setSendError] = useState<string | undefined>(undefined);
+  // True when the accepted post is awaiting host approval (pre-moderation
+  // events) — drives the honest "sent for review" success copy.
+  const [pendingApproval, setPendingApproval] = useState(false);
   const lastSubmitRef = useRef<{ guestName: string; message: string; withChallenge: boolean } | null>(null);
+
+  // ── Transient booth hint (capture/recording failures) ─────────────────
+  // The booth's own pill idiom (same as faceHint/triggerHint) instead of a
+  // bare alert(): auto-dismisses, never blocks the camera.
+  const [boothHint, setBoothHint] = useState<string | null>(null);
+  const boothHintTimerRef = useRef<number | null>(null);
+  const showBoothHint = useCallback((msg: string) => {
+    setBoothHint(msg);
+    if (boothHintTimerRef.current) window.clearTimeout(boothHintTimerRef.current);
+    boothHintTimerRef.current = window.setTimeout(() => setBoothHint(null), 3000);
+  }, []);
+  useEffect(() => () => {
+    if (boothHintTimerRef.current) window.clearTimeout(boothHintTimerRef.current);
+  }, []);
 
   // ── Recording ─────────────────────────────────────────────────────────
   const recorderRef = useRef<StreamRecorder | null>(null);
@@ -639,12 +681,16 @@ export default function Booth() {
     } catch (e) {
       console.error('[Booth] capture failed', e);
       setPhase('camera');
+      showBoothHint('Capture failed — try again');
     }
   }
 
   // ── Video recording ───────────────────────────────────────────────────
   function startRecording() {
-    if (!recordingSupported()) { alert('Video recording is not supported in this browser.'); return; }
+    if (!recordingSupported()) {
+      showBoothHint('Video recording isn’t supported in this browser');
+      return;
+    }
     const canvas = stageRef.current?.canvas;
     if (!canvas) return;
 
@@ -653,14 +699,39 @@ export default function Booth() {
     setRecordingMs(0);
     recordStartRef.current = performance.now();
 
-    const recStream = buildRecordStream(canvas, streamRef.current ?? undefined, 30);
-    const rec = new StreamRecorder({
-      maxMs: VIDEO_MAX_MS,
-      onTick: (ms) => setRecordingMs(ms),
-      onMaxReached: () => stopRecording(rec),
-    });
-    recorderRef.current = rec;
-    rec.start(recStream);
+    /** Any start/mid-recording failure: drop the recorder, reset the recording
+     *  state and tell the guest — never a stuck red ring or silent truncation. */
+    const failRecording = (rec: StreamRecorder, e: unknown) => {
+      console.error('[Booth] recording failed', e);
+      rec.dispose();
+      if (recorderRef.current === rec) recorderRef.current = null;
+      setRecording(false);
+      setRecordingMs(0);
+      setPhase('camera');
+      showBoothHint('Recording failed — try again');
+    };
+
+    try {
+      const recStream = buildRecordStream(canvas, streamRef.current ?? undefined, 30);
+      const rec = new StreamRecorder({
+        maxMs: VIDEO_MAX_MS,
+        onTick: (ms) => setRecordingMs(ms),
+        onMaxReached: () => stopRecording(rec),
+        onError: (e) => failRecording(rec, e),
+      });
+      recorderRef.current = rec;
+      rec.start(recStream);
+    } catch (e) {
+      const rec = recorderRef.current;
+      if (rec) {
+        failRecording(rec, e);
+      } else {
+        console.error('[Booth] recording failed to start', e);
+        setRecording(false);
+        setRecordingMs(0);
+        showBoothHint('Recording failed — try again');
+      }
+    }
   }
 
   async function stopRecording(recOverride?: StreamRecorder) {
@@ -706,17 +777,23 @@ export default function Booth() {
       const expId = attachExp?.id ?? frameExp?.id ?? (effectId !== 'none' ? `builtin:shader:${effectId}` : undefined);
       const taggedChallenge = withChallenge ? selectedChallenge : null;
 
-      const { post, error } = await submitPostDetailed(eventId, {
-        blob,
-        mediaType: isVideo ? 'video' : 'image',
-        durationMs: capturedDurationMs,
-        message: message || undefined,
-        guestName: guestName || undefined,
-        experienceId: expId ?? null,
-        challengeId: taggedChallenge?.id ?? null,
-        width: 1080,
-        height: 1920,
-      });
+      // Bounded wait: a stalled upload resolves as a 'network' failure (the
+      // honest SendFailed screen with Retry) instead of "Beaming…" forever.
+      const { post, error } = await withTimeout(
+        submitPostDetailed(eventId, {
+          blob,
+          mediaType: isVideo ? 'video' : 'image',
+          durationMs: capturedDurationMs,
+          message: message || undefined,
+          guestName: guestName || undefined,
+          experienceId: expId ?? null,
+          challengeId: taggedChallenge?.id ?? null,
+          width: 1080,
+          height: 1920,
+        }),
+        sendTimeoutFor(blob),
+        { post: null, error: 'network' },
+      );
 
       if (!post) {
         // Honest failure: the capture stays in state — the guest can retry the
@@ -725,6 +802,10 @@ export default function Booth() {
         setPhase('sendFailed');
         return;
       }
+
+      // Pre-moderation events return the post with approved=false — the
+      // success screen must say "sent for review", not promise the wall.
+      setPendingApproval(post.approved === false);
 
       savePhoto(eventId, {
         id: post.id,
@@ -758,8 +839,14 @@ export default function Booth() {
         pendingSendRef.current = { guestName, message };
         setPhase('checking');
         const part = await fileToImagePart(dataUrlToBlob(capturedDataUrl));
+        // Bounded wait, same fail-OPEN contract as validateChallengePhoto: a
+        // stalled check passes the shot through rather than spinning forever.
         const outcome = part
-          ? await validateChallengePhoto(eventId, selectedChallenge.id, part)
+          ? await withTimeout(
+              validateChallengePhoto(eventId, selectedChallenge.id, part),
+              SEND_TIMEOUT_MS,
+              { pass: true, reason: '' },
+            )
           : { pass: true, reason: '' };
         if (!outcome.pass) {
           setCheckReason(outcome.reason);
@@ -940,6 +1027,23 @@ export default function Booth() {
                   composited into the captured photo. Mounted only for trigger scenes. */}
               {hasTriggers && <TriggerEffects ref={triggerFxRef} />}
               <div className="absolute top-4 inset-x-0 z-30 flex flex-col items-center gap-2 pointer-events-none">
+                <AnimatePresence>
+                  {boothHint && (
+                    <motion.div
+                      key="booth-hint"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.25 }}
+                      className="flex items-center gap-2 px-3.5 py-2 rounded-full glass-strong border border-gold-400/25"
+                    >
+                      <AlertCircle className="w-4 h-4 text-gold-300" />
+                      <span className="font-label text-[10px] uppercase tracking-wide text-champagne/80">
+                        {boothHint}
+                      </span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
                 <AnimatePresence>
                   {faceHint && (
                     <motion.div
@@ -1187,6 +1291,7 @@ export default function Booth() {
           mediaType={capturedMediaTypeRef.current}
           uploading={phase === 'sending'}
           success={phase === 'success'}
+          pendingApproval={pendingApproval}
           onTakeAnother={handleTakeAnother}
         />
       )}

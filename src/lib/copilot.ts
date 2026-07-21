@@ -509,19 +509,19 @@ const OFFLINE_REPLY =
   'I can’t reach the AI service right now, so I can answer from the built-in guide only: ' +
   'use the studio tabs for changes (Challenges, Cards, Share), and try me again in a moment.';
 
-/** Turn the edge fn's error code into an honest, owner-actionable message —
- *  a rejected key is a config problem, not a flaky connection. */
+/** Turn the edge fn's error code into an honest, CUSTOMER-SAFE message.
+ *  The technical cause (rejected key, provider quota) is a platform config
+ *  problem — it goes to console.error for the operator, never into chat. */
 function offlineReplyFor(reason?: string): string {
   switch (reason) {
     case 'ai_not_configured':
     case 'ai_key_invalid':
-      return 'The AI isn’t reachable because its API key is missing or being rejected by Google. ' +
-        'A platform admin needs to set a valid GEMINI_API_KEY in the Supabase secrets. ' +
-        'Until then I can still point you to the studio tabs (Challenges, Cards, Share).';
+      return 'Our AI service is temporarily unavailable — all the manual tools still work. ' +
+        'Use the studio tabs (Challenges, Cards, Share) to make changes yourself, and I’ll be back once service is restored.';
     case 'rate_limited':
       return 'You’ve hit the hourly AI limit — give it a few minutes and ask me again.';
     case 'ai_quota':
-      return 'The AI plan’s quota is exhausted right now. Try again later, or check billing in Google AI Studio.';
+      return 'Our AI service is over capacity right now — try me again in a little while. All the manual tools still work in the meantime.';
     default:
       return OFFLINE_REPLY;
   }
@@ -539,6 +539,9 @@ export async function askCopilot(
         mode: 'copilot',
         messages: mergeWireTurns(messages),
         context: snapshot ? formatSnapshot(snapshot) : '',
+        // Credits awareness: the fn resolves this event's org balance + free-image
+        // allowance server-side and injects it into the model context.
+        ...(snapshot?.eventUuid ? { eventUuid: snapshot.eventUuid } : {}),
         docs: PLATFORM_GUIDE,
         // The live catalogs ride along so the model proposes only real ids
         // (the client normalizer still validates and drops anything invalid).
@@ -553,7 +556,11 @@ export async function askCopilot(
         try {
           const res = (await error.context.json()) as { error?: string };
           reason = res.error;
-          console.warn('[copilot] edge fn error:', reason);
+          // Operator detail stays in the console — the chat gets customer copy.
+          console.error('[copilot] ai-event-designer error:', reason,
+            reason === 'ai_key_invalid' || reason === 'ai_not_configured'
+              ? '(GEMINI_API_KEY missing/rejected — fix in Supabase secrets)'
+              : '');
         } catch { /* body unreadable */ }
       }
       return { reply: offlineReplyFor(reason), actions: [], source: 'offline' };

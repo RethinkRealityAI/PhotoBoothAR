@@ -4,12 +4,18 @@
   Scene map (VO: assets/vo-booth.m4a, 22.97s, starts at 0.8s):
     S1 0.0–4.4   sting — glowing glass frame beams in with the booth
                  portrait; eyebrow + headline
-    S2 4.2–12.6  the booth in action — phone with real selfie footage on
-                 its screen, AR sparkles popping around it, caption chips
-                 cascading in on the right
-    S3 12.4–23.8 point/play/capture montage — three glass frames rise
-                 staggered (Frames / Effects / Props), a QR chip appears
+    S2 4.2–12.6  the booth in action — header "Step inside the booth / AR
+                 magic on their phone", phone with real selfie footage
+                 cover-filling the full 340×697 screen (the ONE permitted
+                 clip-booth-selfie use across the studio), AR sparkles,
+                 callout chips cascade
+    S3 12.4–23.8 header "One booth · every theme / Wedding to gala — in one
+                 tap": three themed glass frames rise with real event photos
+                 (assets/photos/cells/booth-*), a QR chip appears
     S4 23.6–30.0 outro — wordmark, CTA pill, QR
+  Refinement 2026-07-21: consistent scene-head idiom (eyebrow + serif title,
+  top-center), BW.sweepAt beam wipes at scene boundaries, type scale bumped
+  for ~350px-wide mobile embeds, S2 video letterbox gap fixed.
   Contract: root omits data-duration (timeline pins 30.0); scenes alternate
   tracks 1/2; <video> is a direct root child (framework-owned), positioned
   to coincide with the phone screen rect in S2.
@@ -29,30 +35,41 @@
       @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
       #root { width: 1920px; height: 1080px; }
 
+      /* Refinement pass: consistent scene headers + mobile-legible type scale */
+      .scene-head { position: absolute; left: 0; right: 0; top: 74px; text-align: center; z-index: 20; }
+      .eyebrow-h { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4em; font-size: 30px; margin: 0 0 22px; opacity: 0; }
+      .eyebrow { font-size: 30px; }
+      .title-lg { font-size: 106px; }
+      .title-md { font-size: 84px; }
+      .pill { font-size: 32px; padding: 30px 80px; letter-spacing: 0.3em; }
+      .fine { font-size: 28px; }
+
       /* S1 sting */
       #s1 { text-align: left; }
-      #s1-copy { position: absolute; left: 220px; top: 380px; width: 720px; }
+      #s1-copy { position: absolute; left: 200px; top: 360px; width: 800px; }
       #s1-frame { position: absolute; right: 300px; top: 260px; width: 420px; height: 560px; }
       #s1-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 
       /* S2 booth in action */
-      #s2-phone-wrap { position: absolute; left: 640px; top: 240px; }
+      #s2-phone-wrap { position: absolute; left: 640px; top: 285px; }
       #s2-phone-wrap .bw-phone { position: relative; z-index: 13; background: transparent; }
       #s2-phone-wrap .bw-phone .screen { background: transparent; }
-      #bt-clip-selfie { position: absolute; left: 659px; top: 259px; width: 302px; height: 659px; object-fit: cover; border-radius: 42px; z-index: 12; }
+      /* screen rect = wrap(640,285) + 3px border + 16px padding, 340×697 (full screen, no gap) */
+      #bt-clip-selfie { position: absolute; left: 659px; top: 304px; width: 340px; height: 697px; object-fit: cover; border-radius: 42px; z-index: 12; }
+      #bt-capture { position: absolute; left: 659px; top: 304px; width: 340px; height: 697px; object-fit: cover; border-radius: 42px; z-index: 14; opacity: 0; }
+      #bt-saved { position: absolute; left: 705px; top: 895px; width: 248px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.2em; font-size: 21px; color: #06130c; padding: 13px 0; border-radius: 999px; background: linear-gradient(115deg, #34d399, #6ee7b7 55%, #34d399); box-shadow: 0 0 40px -6px rgba(52, 211, 153, 0.85); opacity: 0; z-index: 15; }
       .spark { position: absolute; opacity: 0; z-index: 14; }
-      #s2-chips { position: absolute; left: 1180px; top: 330px; width: 560px; text-align: left; display: flex; flex-direction: column; gap: 26px; }
-      .chip { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 26px; padding: 22px 34px; opacity: 0; }
+      #s2-chips { position: absolute; left: 1110px; top: 400px; width: 700px; text-align: left; display: flex; flex-direction: column; gap: 32px; }
+      .chip { font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 44px; line-height: 1.25; padding: 26px 40px; opacity: 0; }
 
       /* S3 montage */
-      #s3-cap { position: absolute; left: 0; right: 0; top: 128px; }
       #s3-frames { position: absolute; left: 0; right: 0; bottom: 170px; display: flex; align-items: flex-end; justify-content: center; gap: 60px; }
       .mflame { display: flex; flex-direction: column; align-items: center; gap: 20px; }
-      .mflame .label { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3em; font-size: 22px; }
-      #s3-qr { position: absolute; right: 260px; top: 300px; display: flex; flex-direction: column; align-items: center; gap: 20px; opacity: 0; }
+      .mflame .label { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3em; font-size: 30px; }
+      #s3-qr { position: absolute; right: 240px; top: 320px; display: flex; flex-direction: column; align-items: center; gap: 20px; opacity: 0; }
       #s3-qr .qr { width: 120px; height: 120px; border-radius: 20px; border: 1.5px solid rgba(169,196,255,0.55); box-shadow: 0 0 36px -6px rgba(91,140,255,0.6); padding: 12px; background: rgba(8,10,20,0.9); }
       #s3-qr .qr img { display: block; width: 100%; height: 100%; }
-      #s3-qr .lbl { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 24px; color: var(--fg); text-align: center; }
+      #s3-qr .lbl { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 30px; color: var(--fg); text-align: center; }
 
       /* S4 outro */
       #s4-qr { width: 128px; height: 128px; border-radius: 22px; border: 1.5px solid rgba(169,196,255,0.55); box-shadow: 0 0 36px -6px rgba(91,140,255,0.6); padding: 12px; background: rgba(8,10,20,0.9); margin-top: 52px; }
@@ -66,7 +83,7 @@
       <audio id="bt-bed" src="assets/music-bed.m4a" data-start="0" data-duration="30" data-volume="0.16" data-track-index="9"></audio>
 
       <!-- S2 selfie footage (root child; window matches the capture beat) -->
-      <video id="bt-clip-selfie" src="assets/clip-booth-selfie.mp4" data-start="4.4" data-duration="5.2" data-track-index="4" data-volume="0" muted></video>
+      <video id="bt-clip-selfie" src="assets/clip-booth-selfie.mp4" data-start="4.4" data-duration="5.0" data-track-index="4" data-volume="0" muted></video>
 
       <div id="s1" class="clip scene" data-start="0" data-duration="4.4" data-track-index="1">
         <div id="s1-copy">
@@ -77,16 +94,25 @@
       </div>
 
       <div id="s2" class="clip scene" data-start="4.2" data-duration="8.4" data-track-index="2">
+        <div class="scene-head" id="s2-head">
+          <p class="eyebrow-h" id="s2-eyebrow" style="color: var(--blue)">Step inside the booth</p>
+          <h2 class="title-md" id="s2-title">AR magic on <em class="foil" style="font-style: normal">their phone</em>.</h2>
+        </div>
         <div id="s2-phone-wrap"></div>
+        <img id="bt-capture" src="assets/photos/cells/booth-capture.jpg" alt="" />
+        <div id="bt-saved">Saved ✓</div>
         <div id="s2-chips">
-          <div class="chip glass-card" id="chip-0" style="color: var(--blue)">Face-tracked 3D props</div>
+          <div class="chip glass-card" id="chip-0" style="color: var(--blue)">Face-tracked 3D props &amp; frames</div>
           <div class="chip glass-card" id="chip-1" style="color: var(--teal)">Cinematic live effects</div>
-          <div class="chip glass-card" id="chip-2" style="color: var(--violet)">Frames styled to your event</div>
+          <div class="chip glass-card" id="chip-2" style="color: var(--violet)">Photo &amp; video — no app</div>
         </div>
       </div>
 
       <div id="s3" class="clip scene" data-start="12.4" data-duration="11.4" data-track-index="1">
-        <h2 class="title-md" id="s3-cap">Point. Play. <em class="foil" style="font-style: normal">Capture.</em></h2>
+        <div class="scene-head" id="s3-headwrap">
+          <p class="eyebrow-h" id="s3-eyebrow" style="color: var(--violet)">One booth · every theme</p>
+          <h2 class="title-md" id="s3-cap">Wedding to gala — in <em class="foil" style="font-style: normal">one tap</em>.</h2>
+        </div>
         <div id="s3-frames"></div>
         <div id="s3-qr">
           <div class="qr"><img src="assets/qr.svg" alt="" /></div>
@@ -109,6 +135,7 @@
         "use strict";
         var root = document.getElementById("root");
         BW.buildBackdrop(root, "bt");
+        BW.buildSweep(root, "bt");
 
         /* phone chrome (screen transparent; the real <video> sits over it) */
         var ph = BW.phone("s2-phone", 340);
@@ -116,10 +143,10 @@
 
         /* AR sparkles around the phone */
         var SPARKS = [
-          { x: 560, y: 210, h: "blue", s: 44 },
-          { x: 1040, y: 300, h: "cyan", s: 34 },
-          { x: 550, y: 660, h: "violet", s: 30 },
-          { x: 1020, y: 760, h: "teal", s: 40 },
+          { x: 560, y: 255, h: "blue", s: 44 },
+          { x: 1040, y: 345, h: "cyan", s: 34 },
+          { x: 550, y: 705, h: "violet", s: 30 },
+          { x: 1020, y: 805, h: "teal", s: 40 },
         ];
         SPARKS.forEach(function (sp, i) {
           var el = document.createElement("div");
@@ -131,21 +158,21 @@
           document.getElementById("s2").appendChild(el);
         });
 
-        /* S3 montage frames */
+        /* S3 themed frames — real event photos, one theme per frame */
         var MFRAMES = [
-          { id: "frames", hue: BW.hue("blue"), label: "Frames" },
-          { id: "effects", hue: BW.hue("violet"), label: "Effects" },
-          { id: "props", hue: BW.hue("cyan"), label: "Props" },
+          { id: "wed", hue: BW.hue("blue"), label: "Wedding", img: "assets/photos/cells/booth-r1c1.jpg" },
+          { id: "gala", hue: BW.hue("violet"), label: "Gala", img: "assets/photos/cells/booth-r2c1.jpg" },
+          { id: "bday", hue: BW.hue("cyan"), label: "Birthday", img: "assets/photos/cells/booth-r2c2.jpg" },
         ];
         var wrap = document.getElementById("s3-frames");
         MFRAMES.forEach(function (m) {
           var col = document.createElement("div");
           col.className = "mflame";
           var fr = BW.frame("mf-" + m.id, m.hue, 300, 400);
-          var fill = document.createElement("div");
-          fill.className = "fill";
-          fill.style.background = "linear-gradient(150deg, rgba(" + m.hue.rgb + ",0.85), rgba(" + m.hue.rgb + ",0.35))";
-          fr.insertBefore(fill, fr.firstChild);
+          var ph = document.createElement("img");
+          ph.src = m.img;
+          ph.alt = "";
+          fr.insertBefore(ph, fr.firstChild);
           var lbl = document.createElement("span");
           lbl.className = "label";
           lbl.id = "lbl-" + m.id;
@@ -166,9 +193,12 @@
         tl.fromTo("#s1-copy", { opacity: 0, x: -70 }, { opacity: 1, x: 0, duration: 0.9, ease: EASE }, 0.4);
         tl.fromTo("#s1-frame", { opacity: 0, y: -110, scaleY: 0.55 }, { opacity: 1, y: 0, scaleY: 1, duration: 1.0, ease: EASE }, 0.6);
         tl.to("#s1-copy", { opacity: 0, y: -30, duration: 0.5, ease: "power2.in" }, 3.9);
-        tl.to("#s1-frame", { opacity: 0, duration: 0.5, ease: "power2.in" }, 3.9);
+        tl.to("#s1-frame", { opacity: 0, y: -40, scale: 0.98, duration: 0.5, ease: "power2.in" }, 3.9);
+        BW.sweepAt(tl, "bt", 3.8); /* beam wipe into S2 */
 
         /* S2 — booth in action */
+        tl.fromTo("#s2-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 4.5);
+        tl.fromTo("#s2-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.8, ease: EASE }, 4.65);
         tl.fromTo("#s2-phone-wrap", { opacity: 0, y: 90 }, { opacity: 1, y: 0, duration: 0.9, ease: EASE }, 4.5);
         SPARKS.forEach(function (_sp, i) {
           var at = 5.4 + i * 0.55;
@@ -176,12 +206,18 @@
           tl.to("#spark-" + i, { opacity: 0.25, scale: 0.85, duration: 0.9, ease: "sine.inOut" }, at + 0.6);
         });
         ["chip-0", "chip-1", "chip-2"].forEach(function (id, i) {
-          tl.fromTo("#" + id, { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.6, ease: EASE }, 6.0 + i * 0.5);
+          tl.fromTo("#" + id, { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.6, ease: EASE }, 6.0 + i * 0.7);
         });
-        tl.to("#s2", { opacity: 0, duration: 0.5, ease: "power2.in" }, 12.2);
+        /* the capture moment — flash, the live feed freezes into the shot */
+        BW.flashAt(tl, "bt", 9.35, 0.8);
+        tl.fromTo("#bt-capture", { opacity: 0, scale: 1.05 }, { opacity: 1, scale: 1, duration: 0.45, ease: "power2.out" }, 9.4);
+        tl.fromTo("#bt-saved", { opacity: 0, y: 18, scale: 0.7 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.7)" }, 9.9);
+        tl.to("#s2", { opacity: 0, y: -30, duration: 0.5, ease: "power2.in" }, 12.2);
+        BW.sweepAt(tl, "bt", 12.1); /* beam wipe into S3 */
 
         /* S3 — montage */
-        tl.fromTo("#s3-cap", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.8, ease: EASE }, 12.8);
+        tl.fromTo("#s3-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 12.8);
+        tl.fromTo("#s3-cap", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.8, ease: EASE }, 12.95);
         MFRAMES.forEach(function (m, i) {
           tl.fromTo(
             "#mf-" + m.id,
@@ -193,7 +229,8 @@
         });
         BW.flashAt(tl, "bt", 20.2, 0.5);
         tl.fromTo("#s3-qr", { opacity: 0, y: 30, scale: 0.9 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: "back.out(1.6)" }, 19.5);
-        tl.to("#s3", { opacity: 0, duration: 0.5, ease: "power2.in" }, 23.4);
+        tl.to("#s3", { opacity: 0, y: -30, duration: 0.5, ease: "power2.in" }, 23.4);
+        BW.sweepAt(tl, "bt", 23.3); /* beam wipe into the outro */
 
         /* S4 — outro */
         tl.fromTo("#s4-wordmark", { opacity: 0, y: -70, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 1.0, ease: EASE }, 24.0);

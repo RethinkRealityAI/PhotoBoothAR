@@ -9,11 +9,19 @@
  */
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
-import { CalendarRange, Coins, CreditCard, LogOut, Sparkles } from 'lucide-react';
+import { CalendarRange, Coins, CreditCard, LifeBuoy, LogOut, Sparkles } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
 import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
+import { SUPPORT_EMAIL } from '../../lib/errorReport';
+import { usePageTitle } from '../../lib/usePageTitle';
 
 export default function HostLayout() {
+  // Layout-level title for every /host screen. NOTE: a child page adopting
+  // usePageTitle would NOT reliably override this — child effects run before
+  // parent effects on mount, so the layout's title wins on a cold load. If
+  // per-page /host titles are ever wanted, set them from this layout (e.g.
+  // route-keyed), not from the children.
+  usePageTitle('Host studio — Beamwall');
   const navigate = useNavigate();
   const { session, loading } = useSession();
   const [orgName, setOrgName] = useState<string | null>(null);
@@ -107,6 +115,13 @@ export default function HostLayout() {
                 </span>
               </Link>
             )}
+            <a
+              href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Beamwall support')}`}
+              className={`${railLink} ${railState(false)}`}
+            >
+              <LifeBuoy className="w-[18px] h-[18px] shrink-0" />
+              <span className="hidden sm:inline">Support</span>
+            </a>
             <button onClick={handleSignOut} className={`${railLink} ${railState(false)}`}>
               <LogOut className="w-[18px] h-[18px] shrink-0" />
               <span className="hidden sm:inline">Sign out</span>

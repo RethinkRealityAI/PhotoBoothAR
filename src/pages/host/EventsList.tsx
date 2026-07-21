@@ -9,9 +9,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { ArrowUpRight, Check, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2 } from 'lucide-react';
-import { fetchMyEvents, updateEventStatus, type HostEventRow } from '../../lib/host';
+import { fetchMyEvents, updateEventStatus, eventOrgHasActivePro, type HostEventRow } from '../../lib/host';
 import { TierPill, UpgradeModal } from './UpgradeCard';
-import { normalizeTier } from '../../lib/entitlements';
+import { entitlementsFor, normalizeTier } from '../../lib/entitlements';
+import { supabase } from '../../lib/supabase';
 import StatusPill from '../../components/ui/StatusPill';
 
 function CopyLinkButton({ text }: { text: string }) {
@@ -61,6 +62,69 @@ function QRModal({ url, name, draft, onClose }: { url: string; name: string; dra
 /** First-run guide gate — mirrors useStudioOnboarding's localStorage pattern. */
 const HOST_ONBOARDED_KEY = 'beamwall.host.onboarded';
 
+/** The event's post cap from its plan tier (null = unlimited → no meter). */
+function capFor(ev: HostEventRow): number | null {
+  return entitlementsFor(normalizeTier(ev.plan_tier)).maxPosts;
+}
+
+/**
+ * Posts-used counts for the capped events, keyed by event id. One head-only
+ * count query per capped event, fired once per list load (no polling) — the
+ * same count the submit-post edge fn caps on (all posts for the slug; RLS may
+ * hide a few hidden posts from this session, close enough for a meter). An
+ * active org Pro subscription lifts the cap to unlimited (mirrors submit-post),
+ * so those events are skipped. Failures are simply omitted — no meter beats a
+ * wrong one.
+ */
+async function fetchPostCounts(list: HostEventRow[]): Promise<Record<string, number>> {
+  const capped = list.filter((ev) => capFor(ev) !== null);
+  const entries = await Promise.all(
+    capped.map(async (ev) => {
+      try {
+        if (await eventOrgHasActivePro(ev.id)) return null;
+        const { count, error } = await supabase
+          .from('posts')
+          .select('id', { count: 'exact', head: true })
+          .eq('event_id', ev.slug);
+        if (error || count === null) return null;
+        return [ev.id, count] as const;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return Object.fromEntries(entries.filter((e): e is readonly [string, number] => e !== null));
+}
+
+/** Compact posts-used / cap meter with an upgrade nudge from 80% full. */
+function CapMeter({ used, cap, onUpgrade }: { used: number; cap: number; onUpgrade: () => void }) {
+  const nearCap = cap > 0 && used / cap >= 0.8;
+  const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 100;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className={`font-sans text-[10px] ${nearCap ? 'text-amber-400/90' : 'text-brand-muted/50'}`}>
+          {used} / {cap} posts on this plan
+        </span>
+        {nearCap && (
+          <button
+            onClick={onUpgrade}
+            className="font-label uppercase tracking-luxe text-[9px] text-accent-2 hover:underline underline-offset-2"
+          >
+            {used >= cap ? 'Wall full — upgrade' : 'Almost full — upgrade'}
+          </button>
+        )}
+      </div>
+      <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
+        <div
+          className={`h-full rounded-full ${nearCap ? 'bg-amber-400/80' : 'bg-accent/60'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function EventsList() {
   const [events, setEvents] = useState<HostEventRow[] | null>([]);
   const [loading, setLoading] = useState(true);
@@ -68,6 +132,7 @@ export default function EventsList() {
   const [upgradeTarget, setUpgradeTarget] = useState<HostEventRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [postCounts, setPostCounts] = useState<Record<string, number>>({});
   const [showGuide, setShowGuide] = useState(() => {
     try { return !localStorage.getItem(HOST_ONBOARDED_KEY); } catch { return false; }
   });
@@ -91,8 +156,15 @@ export default function EventsList() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setEvents(await fetchMyEvents()); // null = load failure → retry state below
+    const list = await fetchMyEvents(); // null = load failure → retry state below
+    setEvents(list);
     setLoading(false);
+    // Cap meters fill in after the cards render — one shot per load, no polling.
+    if (list && list.length > 0) {
+      setPostCounts(await fetchPostCounts(list));
+    } else {
+      setPostCounts({});
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -250,6 +322,15 @@ export default function EventsList() {
                   <p className="font-sans text-[10px] text-amber-400/90 leading-snug">
                     Guests can’t open this link until you Go live.
                   </p>
+                )}
+                {/* Posts-used / plan-cap meter — only for capped tiers whose
+                    count actually loaded (0 is a real count, keep !== undefined). */}
+                {capFor(ev) !== null && postCounts[ev.id] !== undefined && (
+                  <CapMeter
+                    used={postCounts[ev.id]}
+                    cap={capFor(ev) as number}
+                    onUpgrade={() => setUpgradeTarget(ev)}
+                  />
                 )}
 
                 <div className="mt-auto flex items-center gap-2 pt-1">

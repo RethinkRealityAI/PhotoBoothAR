@@ -5,10 +5,13 @@
  *   { action: 'init', eventSlug, sessionId, mediaType, contentType, ext }
  *     -> validates event is live, enforces the plan-tier post cap
  *        (403 { error: 'post_limit_reached' } when at/over), rate-limits per
- *        (event, session), and returns a signed upload URL token: { path, token }.
+ *        (event, session) [429 quota_exceeded], per (event, IP)
+ *        [429 rate_limited] and per event/day [429 event_daily_cap], and
+ *        returns a signed upload URL token: { path, token }.
  *   { action: 'finalize', eventSlug, sessionId, path, mediaType, ... }
  *     -> verifies the uploaded object (tenant-scoped path, size cap) and
- *        inserts the public.posts row via service role: { post }.
+ *        inserts the public.posts row via service role: { post }. Honors
+ *        events.config.moderation: 'pre' inserts approved=false.
  *
  * Anonymous guests never get direct write access to posts/storage; this
  * function is the only write path and enforces tenancy + quotas.
@@ -25,6 +28,14 @@ const corsHeaders = {
 const POSTS_BUCKET = 'posts';
 const QUOTA_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const QUOTA_MAX_POSTS = 30;
+/** Per-IP hourly cap. Deliberately well above the per-session cap: an event
+ *  venue's guests usually share ONE NAT'd public IP, so this must hold a whole
+ *  party, while still bounding a single abusive IP rotating session ids. */
+const IP_QUOTA_MAX = 150;
+/** Absolute per-event daily ceiling — applies to EVERY tier, including
+ *  unlimited ones (an abuse backstop, not a plan limit). */
+const EVENT_DAILY_MAX = 2000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8MB
 const MAX_VIDEO_BYTES = 60 * 1024 * 1024; // 60MB
 
@@ -61,12 +72,70 @@ async function getLiveEvent(sb: Client, eventSlug: unknown) {
   if (typeof eventSlug !== 'string' || !eventSlug) return null;
   const { data, error } = await sb
     .from('events')
-    .select('id, slug, status, org_id, plan_tier')
+    .select('id, slug, status, org_id, plan_tier, config')
     .eq('slug', eventSlug)
     .maybeSingle();
   if (error) throw error;
   if (!data || data.status !== 'live') return null;
   return data;
+}
+
+/** First hop of x-forwarded-for (the client, per Supabase edge routing). */
+function clientIp(req: Request): string {
+  const first = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim();
+  return first && first.length <= 64 ? first : 'unknown';
+}
+
+/**
+ * Sliding-ish window counter in guest_quota, keyed (event_id, key). Returns
+ * true when the bump stayed within `max`, false when over. `key` is either a
+ * raw guest session id (the original quota) or a ':'-prefixed bucket
+ * ('ip:<addr>', 'day:<YYYY-MM-DD>') — SESSION_ID_RE forbids ':' so buckets can
+ * never collide with real sessions. Same read-then-write pattern as before
+ * (races can miscount by a hair; acceptable for abuse control).
+ */
+async function bumpQuota(
+  sb: Client,
+  eventSlug: string,
+  key: string,
+  windowMs: number,
+  max: number,
+): Promise<boolean> {
+  const { data: quota, error } = await sb
+    .from('guest_quota')
+    .select('window_start, post_count')
+    .eq('event_id', eventSlug)
+    .eq('session_id', key)
+    .maybeSingle();
+  if (error) throw error;
+
+  if (!quota) {
+    const { error: insErr } = await sb
+      .from('guest_quota')
+      .upsert(
+        { event_id: eventSlug, session_id: key, window_start: new Date().toISOString(), post_count: 1 },
+        { onConflict: 'event_id,session_id' },
+      );
+    if (insErr) throw insErr;
+    return true;
+  }
+  if (Date.now() - new Date(quota.window_start).getTime() > windowMs) {
+    const { error: resetErr } = await sb
+      .from('guest_quota')
+      .update({ window_start: new Date().toISOString(), post_count: 1 })
+      .eq('event_id', eventSlug)
+      .eq('session_id', key);
+    if (resetErr) throw resetErr;
+    return true;
+  }
+  if (quota.post_count >= max) return false;
+  const { error: bumpErr } = await sb
+    .from('guest_quota')
+    .update({ post_count: quota.post_count + 1 })
+    .eq('event_id', eventSlug)
+    .eq('session_id', key);
+  if (bumpErr) throw bumpErr;
+  return true;
 }
 
 function asUuidOrNull(value: unknown): string | null {
@@ -86,7 +155,7 @@ function trimmedOrNull(value: unknown, maxLen: number): string | null {
 // ---------------------------------------------------------------------------
 // init
 // ---------------------------------------------------------------------------
-async function handleInit(sb: Client, body: Record<string, unknown>): Promise<Response> {
+async function handleInit(sb: Client, body: Record<string, unknown>, ip: string): Promise<Response> {
   const { eventSlug, sessionId, mediaType, contentType, ext } = body;
 
   const event = await getLiveEvent(sb, eventSlug);
@@ -148,41 +217,21 @@ async function handleInit(sb: Client, body: Record<string, unknown>): Promise<Re
     }
   }
 
-  // Quota: sliding-ish window of 1h per (event, session). Counted at INIT —
-  // signed URLs are the gate to storage, so init spam can't fill the bucket
-  // unmetered (a failed upload still consumes quota; acceptable).
-  const { data: quota, error: quotaErr } = await sb
-    .from('guest_quota')
-    .select('window_start, post_count')
-    .eq('event_id', event.slug)
-    .eq('session_id', sessionId)
-    .maybeSingle();
-  if (quotaErr) throw quotaErr;
-
-  if (!quota) {
-    const { error: insErr } = await sb
-      .from('guest_quota')
-      .upsert(
-        { event_id: event.slug, session_id: sessionId, window_start: new Date().toISOString(), post_count: 1 },
-        { onConflict: 'event_id,session_id' },
-      );
-    if (insErr) throw insErr;
-  } else if (Date.now() - new Date(quota.window_start).getTime() > QUOTA_WINDOW_MS) {
-    const { error: resetErr } = await sb
-      .from('guest_quota')
-      .update({ window_start: new Date().toISOString(), post_count: 1 })
-      .eq('event_id', event.slug)
-      .eq('session_id', sessionId);
-    if (resetErr) throw resetErr;
-  } else if (quota.post_count >= QUOTA_MAX_POSTS) {
+  // Quotas: counted at INIT — signed URLs are the gate to storage, so init
+  // spam can't fill the bucket unmetered (a failed upload still consumes
+  // quota; acceptable). Three layers, all in guest_quota:
+  //   1. per (event, session): 30/h  — the original quota, same keys as before.
+  //   2. per (event, IP):     150/h  — 'ip:*' bucket; stops session-id rotation.
+  //   3. per event/day:      2000/d  — 'day:*' bucket; absolute ceiling, ALL tiers.
+  if (!(await bumpQuota(sb, event.slug, sessionId, QUOTA_WINDOW_MS, QUOTA_MAX_POSTS))) {
     return json(429, { error: 'quota_exceeded' });
-  } else {
-    const { error: bumpErr } = await sb
-      .from('guest_quota')
-      .update({ post_count: quota.post_count + 1 })
-      .eq('event_id', event.slug)
-      .eq('session_id', sessionId);
-    if (bumpErr) throw bumpErr;
+  }
+  if (!(await bumpQuota(sb, event.slug, `ip:${ip}`, QUOTA_WINDOW_MS, IP_QUOTA_MAX))) {
+    return json(429, { error: 'rate_limited' });
+  }
+  const day = new Date().toISOString().slice(0, 10);
+  if (!(await bumpQuota(sb, event.slug, `day:${day}`, DAY_MS, EVENT_DAILY_MAX))) {
+    return json(429, { error: 'event_daily_cap' });
   }
 
   const path = `${event.slug}/${sessionId}/${crypto.randomUUID()}.${ext.toLowerCase()}`;
@@ -255,6 +304,11 @@ async function handleFinalize(sb: Client, body: Record<string, unknown>): Promis
   const experience_id = asUuidOrNull(experienceId);
   const challenge_id = asUuidOrNull(challengeId);
 
+  // Moderation mode (events.config.moderation, migration 014): 'pre' events
+  // insert unapproved — the post reaches the wall only after a host/manager
+  // approves. Absent / 'post' (default) keeps today's behavior.
+  const moderation = (event.config as Record<string, unknown> | null)?.['moderation'];
+
   const { data: post, error: insertErr } = await sb
     .from('posts')
     .insert({
@@ -269,7 +323,7 @@ async function handleFinalize(sb: Client, body: Record<string, unknown>): Promis
       session_id: sessionId,
       width: asIntOrNull(width),
       height: asIntOrNull(height),
-      approved: true,
+      approved: moderation !== 'pre',
       hidden: false,
     })
     .select()
@@ -300,7 +354,7 @@ Deno.serve(async (req: Request) => {
     const sb = serviceClient();
     switch (body.action) {
       case 'init':
-        return await handleInit(sb, body);
+        return await handleInit(sb, body, clientIp(req));
       case 'finalize':
         return await handleFinalize(sb, body);
       default:

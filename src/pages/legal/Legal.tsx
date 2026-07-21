@@ -11,6 +11,7 @@
  */
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
+import { usePageTitle } from '../../lib/usePageTitle';
 
 /** Confirm these before launch. */
 const OPERATOR = 'Beamwall, operated by RethinkReality';
@@ -150,6 +151,7 @@ const TERMS: Section[] = [
 
 export default function Legal({ doc }: { doc: 'privacy' | 'terms' }) {
   const isPrivacy = doc === 'privacy';
+  usePageTitle(isPrivacy ? 'Privacy — Beamwall' : 'Terms — Beamwall');
   const title = isPrivacy ? 'Privacy Policy' : 'Terms of Service';
   const sections = isPrivacy ? PRIVACY : TERMS;
   return (

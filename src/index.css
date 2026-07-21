@@ -5,7 +5,10 @@
  * Individual events still override the semantic tokens below via their own
  * theme.css (see src/events/*), which is unaffected by this default.
  */
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=Pinyon+Script&family=Jost:wght@300;400;500;600&display=swap');
+/* Platform fonts (Cormorant Garamond / Inter / Jost) load via preconnect +
+   <link rel="stylesheet"> in index.html — a render-blocking @import chain here
+   serialized behind the CSS bundle. Legacy/coded events keep injecting their
+   own fontHref (incl. Pinyon Script for the gala events) at runtime. */
 @import "tailwindcss";
 
 @theme {

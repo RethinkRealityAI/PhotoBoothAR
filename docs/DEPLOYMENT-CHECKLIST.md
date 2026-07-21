@@ -46,6 +46,68 @@ today all three legacy Netlify sites build from `main`.
       add/remove of other admins ships with the admin suite (PR #10, Phase 5); until
       then grant one by inserting into `platform_admins`. See [ADMIN-SUITE.md](ADMIN-SUITE.md).
 
+## 1b. Auth email / SMTP  ⚠️ LAUNCH GATE — blocks beta invites
+
+Supabase's **built-in SMTP is best-effort and rate-limited to roughly 2–4
+emails per hour** (shared infra, no deliverability guarantees). Every signup
+confirmation, magic link, and password reset goes through it — at beta scale
+invites will silently stall in the queue. **Do not send beta invites until a
+custom SMTP provider is wired.**
+
+Steps (recommended provider: **Resend** — we already plan `RESEND_API_KEY` for
+card email in §4, so one account covers both):
+
+- [ ] In Resend: **Domains → Add domain** for your sender domain (e.g.
+      `rethinkreality.ai` or `beamwall.app`) and add the DKIM/SPF DNS records it
+      shows; wait for the domain to read **Verified**.
+- [ ] In Resend: create an **API key**. For SMTP, the key doubles as the
+      password.
+- [ ] Supabase Dashboard → **Project Settings → Auth → SMTP Settings** (project
+      `zrtftliozslrjomxbfrr`): enable **Custom SMTP** with
+      - Host: `smtp.resend.com`
+      - Port: `465` (or `587` STARTTLS)
+      - Username: `resend`
+      - Password: *the Resend API key*
+      - Sender address: a verified-domain address, e.g.
+        `Beamwall <auth@beamwall.app>` (must match the verified domain)
+- [ ] Same page: raise the **email rate limit** from the default to a sane beta
+      value (e.g. 100/hour) — the default cap stays low even after custom SMTP
+      until you change it.
+- [ ] **Verify delivery**: sign up on the deployed site with a fresh address
+      (e.g. a `+smtp-test` alias) and confirm the confirmation email lands in
+      **under a minute**, from your sender address, not spam-foldered. Also
+      trigger **Forgot password** once and confirm that email arrives too.
+
+**Owner note (2026-07-21): Resend SMTP settings are wired** — remaining boxes
+are the rate-limit bump and the live delivery check above.
+
+### Branded email templates (paste-in — there is no API/MCP path for these)
+
+The six on-brand HTML templates live in **`supabase/email-templates/`**
+(dark void background, beam-gradient button, serif wordmark — table-layout +
+inline styles, safe in Gmail/Outlook/Apple Mail; Supabase `{{ .X }}` variables
+already in place). The Supabase MCP server exposes no auth-config tool, so
+they must be pasted once by hand:
+
+Supabase Dashboard → **Authentication → Emails** (project
+`zrtftliozslrjomxbfrr`) → for each template below, paste the file's full
+contents into **Message body (HTML)** and set the subject:
+
+| Dashboard template | Repo file | Subject line |
+|---|---|---|
+| Confirm signup | `confirm-signup.html` | Confirm your email — Beamwall |
+| Invite user | `invite.html` | You're invited to Beamwall |
+| Magic link | `magic-link.html` | Your Beamwall sign-in link |
+| Change email address | `change-email.html` | Confirm your new email — Beamwall |
+| Reset password | `reset-password.html` | Reset your Beamwall password |
+| Reauthentication | `reauthentication.html` | Your Beamwall verification code |
+
+- [ ] All six pasted + subjects set
+- [ ] Send yourself one of each (signup + forgot-password at minimum) and
+      confirm they render with the dark card + gradient button intact.
+
+Until the remaining boxes are checked, treat beta invites as **blocked**.
+
 ## 2. AI generation — Gemini (default), then Meshy / Higgsfield
 
 - [x] `GEMINI_API_KEY` — **SET (2026-07-07)**; rotate post-deploy and restrict

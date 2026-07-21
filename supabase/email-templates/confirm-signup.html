@@ -1,0 +1,59 @@
+<!-- Beamwall auth email — generated, keep in sync across the six templates.
+     Paste into Supabase Dashboard -> Authentication -> Emails (see docs/DEPLOYMENT-CHECKLIST.md §1b). -->
+<html>
+<body style="margin:0;padding:0;background-color:#05060B;">
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">One tap to activate your Beamwall studio.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#05060B" style="background-color:#05060B;">
+    <tr>
+      <td align="center" style="padding:40px 16px 48px;">
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:560px;max-width:100%;">
+
+          <!-- Wordmark -->
+          <tr>
+            <td align="center" style="padding:0 0 24px;">
+              <span style="font-family:'Cormorant Garamond', Georgia, 'Times New Roman', serif;font-size:30px;font-weight:600;letter-spacing:1px;color:#A9C4FF;">Beam<span style="color:#EEF3FF;">wall</span></span>
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td bgcolor="#0A0C15" style="background-color:#0A0C15;border:1px solid #1B2030;border-radius:24px;padding:40px 36px 36px;">
+              <!-- beam accent line -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 26px;"><tr>
+                <td width="56" height="3" bgcolor="#5B8CFF" style="background:#5B8CFF;background-image:linear-gradient(90deg,#7C6CF7,#A9C4FF);border-radius:3px;font-size:0;line-height:0;">&nbsp;</td>
+              </tr></table>
+              <p style="margin:0;text-align:center;font-family:'Inter', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#5B8CFF;">One last step</p>
+              <h1 style="margin:14px 0 0;text-align:center;font-family:'Cormorant Garamond', Georgia, 'Times New Roman', serif;font-size:30px;line-height:1.25;font-weight:600;color:#EEF3FF;">Confirm your email</h1>
+              
+<p style="margin:18px 0 0;text-align:center;font-family:'Inter', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:14px;line-height:1.75;color:#A9B4CC;">Welcome to Beamwall &mdash; your event studio is almost ready. Confirm
+         <span style="color:#EEF3FF;">{{ .Email }}</span> and you&rsquo;ll land straight in your studio,
+         where your first event is minutes away.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:28px auto 0;">
+  <tr>
+    <td align="center" bgcolor="#5B8CFF" style="border-radius:999px;background:#5B8CFF;background-image:linear-gradient(120deg,#7C6CF7,#5B8CFF 45%,#A9C4FF 60%,#5B8CFF 75%,#7C6CF7);box-shadow:0 0 32px rgba(91,140,255,0.35);">
+      <a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block;padding:14px 36px;font-family:'Inter', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:12px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:#ffffff;text-decoration:none;border-radius:999px;">Activate my studio</a>
+    </td>
+  </tr>
+</table>
+<p style="margin:26px 0 0;font-family:'Inter', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:11px;line-height:1.7;color:#7C87A3;">
+  If the button doesn&rsquo;t work, copy and paste this link into your browser:<br>
+  <a href="{{ .ConfirmationURL }}" style="color:#5B8CFF;text-decoration:underline;word-break:break-all;">{{ .ConfirmationURL }}</a>
+</p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding:26px 24px 0;">
+              <p style="margin:0;font-family:'Inter', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:11px;line-height:1.8;color:#7C87A3;">You&rsquo;re receiving this because someone signed up for Beamwall with this address.
+               If it wasn&rsquo;t you, you can safely ignore this email &mdash; nothing was created.</p>
+              <p style="margin:10px 0 0;font-family:'Inter', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#525C74;">Beamwall &middot; The immersive virtual photobooth</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

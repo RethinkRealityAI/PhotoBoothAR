@@ -15,6 +15,13 @@ import frameClusterCutout from '../assets/landing/frame-cluster-cutout.webp';
 import stepCreateCutout from '../assets/landing/step-create-cutout.webp';
 import stepQrCutout from '../assets/landing/step-qr-cutout.webp';
 import stepWallCutout from '../assets/landing/step-wall-cutout.webp';
+import boothGuyCutout from '../assets/landing/booth-guy-cutout.webp';
+import eventConference from '../assets/landing/event-conference.webp';
+import eventTradeshow from '../assets/landing/event-tradeshow.webp';
+import eventWedding from '../assets/landing/event-wedding.webp';
+import eventGala from '../assets/landing/event-gala.webp';
+import eventBirthday from '../assets/landing/event-birthday.webp';
+import eventActivation from '../assets/landing/event-activation.webp';
 
 /** Editorial portrait — person with AR glasses in beam lighting (has bg). */
 export const HERO_BOOTH_PORTRAIT = boothPortrait;
@@ -42,3 +49,14 @@ export const STEP_QR_CUTOUT = stepQrCutout;
 
 /** How-it-works step 3 — glowing live photo wall with a beaming-in shot (transparent bg). */
 export const STEP_WALL_CUTOUT = stepWallCutout;
+
+/** Young man mid-AR-selfie, sparkles at his phone (transparent bg) — the booth section's decor. */
+export const BOOTH_GUY_CUTOUT = boothGuyCutout;
+
+/** Who-it's-for event-type cards (sliced from one Higgsfield contact sheet). */
+export const EVENT_CONFERENCE = eventConference;
+export const EVENT_TRADESHOW = eventTradeshow;
+export const EVENT_WEDDING = eventWedding;
+export const EVENT_GALA = eventGala;
+export const EVENT_BIRTHDAY = eventBirthday;
+export const EVENT_ACTIVATION = eventActivation;

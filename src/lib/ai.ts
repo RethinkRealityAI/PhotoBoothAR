@@ -24,8 +24,23 @@ export type AiErrorCode =
   | 'generation_failed'
   | 'ai_quota'
   | 'ai_not_configured'
+  | 'ai_key_invalid'
+  | 'rate_limited'
   | 'internal'
   | 'network';
+
+/** Hard failures a retry cannot fix (bad/rejected provider key, missing config,
+ *  no credits, tier gate, auth) — surfaces should NOT offer "try again". */
+export function aiErrorRetryable(code: AiErrorCode): boolean {
+  return (
+    code !== 'ai_key_invalid' &&
+    code !== 'ai_not_configured' &&
+    code !== 'insufficient_credits' &&
+    code !== 'upgrade_required' &&
+    code !== 'unauthorized' &&
+    code !== 'forbidden'
+  );
+}
 
 export interface AiJob {
   id: string;
@@ -145,6 +160,41 @@ export function pollJob(
   return invokeAi('ai-job-status', { jobId });
 }
 
+/* ── Credits (balance of the org that generation actually charges) ───── */
+
+/**
+ * The credit balance of the EVENT's org — the org ai-generate-image /
+ * ai-generate-3d actually charge (event.org_id), which for multi-org members
+ * can differ from `fetchMyOrg()`'s first membership. Null when unknown
+ * (query failure or no balance row) — a real balance of 0 returns 0.
+ */
+export async function fetchEventCreditBalance(eventUuid: string): Promise<number | null> {
+  try {
+    const { data: ev, error: evErr } = await supabase
+      .from('events')
+      .select('org_id')
+      .eq('id', eventUuid)
+      .maybeSingle();
+    if (evErr || ev?.org_id === null || ev?.org_id === undefined) {
+      if (evErr) console.error('[ai] fetchEventCreditBalance event', evErr);
+      return null;
+    }
+    const { data, error } = await supabase
+      .from('credit_balances')
+      .select('balance')
+      .eq('org_id', ev.org_id as string)
+      .maybeSingle();
+    if (error || data === null || data === undefined) {
+      if (error) console.error('[ai] fetchEventCreditBalance balance', error);
+      return null;
+    }
+    return typeof data.balance === 'number' ? data.balance : null;
+  } catch (e) {
+    console.error('[ai] fetchEventCreditBalance', e);
+    return null;
+  }
+}
+
 /* ── Shared UI copy for the studio panels ────────────────────────────── */
 
 export function aiErrorMessage(code: AiErrorCode): string {
@@ -154,7 +204,12 @@ export function aiErrorMessage(code: AiErrorCode): string {
     case 'upgrade_required':
       return 'AI Studio is a paid feature — upgrade this event to unlock it.';
     case 'ai_not_configured':
-      return 'AI not configured yet.';
+    case 'ai_key_invalid':
+      // Customer-safe: the real cause (missing/rejected GEMINI_API_KEY) is a
+      // platform config problem — surfaces log the code; retrying can't fix it.
+      return 'Our AI service is temporarily unavailable — all the manual tools still work. Retrying won’t help until it’s restored.';
+    case 'rate_limited':
+      return 'You’ve hit the hourly AI limit — give it a few minutes and try again.';
     case 'unauthorized':
       return 'Sign in to your host account to use AI generation.';
     case 'forbidden':
@@ -164,7 +219,8 @@ export function aiErrorMessage(code: AiErrorCode): string {
     case 'generation_failed':
       return 'Generation failed — credits were refunded. Try a different prompt.';
     case 'ai_quota':
-      return 'The AI provider is out of quota — the Gemini API key’s Google project needs billing enabled (the image model has no free tier). Credits were refunded.';
+      // Customer-safe (the provider-billing detail lives in the server logs).
+      return 'The AI service is over capacity right now — any credits were refunded. Please try again in a little while.';
     case 'network':
       return 'Network error — check your connection and try again.';
     default:

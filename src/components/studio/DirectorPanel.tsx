@@ -45,6 +45,7 @@ import {
   pollJob,
   resolveEventUuid,
   aiErrorMessage,
+  fetchEventCreditBalance,
   type AiErrorCode,
 } from '../../lib/ai';
 import { uploadAsset } from '../../lib/db';
@@ -97,9 +98,12 @@ const CATALOG: SceneShaderCatalogEntry[] = FILTER_SHADERS.map((s) => ({
 }));
 const HEAD_PIECE_IDS = HEAD_PIECES.map((p) => p.id);
 
+/** Customer-safe copy per edge-fn error code — the technical cause (rejected /
+ *  missing GEMINI_API_KEY) is an operator problem and goes to console.error. */
 function KEY_HELP(code: string | undefined): string {
-  if (code === 'ai_key_invalid') return 'The AI key was rejected by Google — a platform admin needs to set a valid GEMINI_API_KEY. You can still build each piece by hand in the studio.';
-  if (code === 'ai_not_configured') return 'AI is not configured yet — a platform admin needs to add a GEMINI_API_KEY. Build pieces by hand in the meantime.';
+  if (code === 'ai_key_invalid' || code === 'ai_not_configured') {
+    return 'Our AI service is temporarily unavailable — all the manual tools still work: build each piece by hand from the studio docks, and try me again later.';
+  }
   if (code === 'rate_limited') return 'Too many AI requests this hour — try again shortly.';
   return 'The scene could not be designed right now — try again, or build each piece by hand.';
 }
@@ -137,6 +141,10 @@ export default function DirectorPanel({
   // concept step). Lives until removed; read at generation time.
   const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
   const [referenceUploading, setReferenceUploading] = useState(false);
+  // Live credit balance of the EVENT's org (the org generation charges) + a
+  // flag that the last generation failed for lack of credits (→ Billing link).
+  const [balance, setBalance] = useState<number | null>(null);
+  const [lowCredits, setLowCredits] = useState(false);
 
   // Latest snapshots for async orchestration (reads current state, no stale
   // closures): cards for the parallel generate/add, messages for the convo.
@@ -182,6 +190,20 @@ export default function DirectorPanel({
 
   useEffect(() => () => { aliveRef.current = false; stopRotation(); }, [stopRotation]);
 
+  // Balance chip: load on mount and refresh after every charged generation.
+  const refreshBalance = useCallback(async () => {
+    const uuid = await resolveEventUuid(eventId, eventUuid);
+    if (!uuid || !aliveRef.current) return;
+    const bal = await fetchEventCreditBalance(uuid);
+    if (aliveRef.current) {
+      setBalance(bal);
+      // A top-up happened (e.g. in the Billing tab) — retire the nudge.
+      if (bal !== null && bal > 0) setLowCredits(false);
+    }
+  }, [eventId, eventUuid]);
+
+  useEffect(() => { void refreshBalance(); }, [refreshBalance]);
+
   const guard = useCallback(async (key: string, fn: () => Promise<unknown>) => {
     if (running.current[key]) return;
     running.current[key] = true;
@@ -208,13 +230,17 @@ export default function DirectorPanel({
         .slice(-20);
       const { supabase } = await import('../../lib/supabase');
       const { data, error } = await supabase.functions.invoke('ai-event-designer', {
-        body: { mode: 'scene', messages: convo, shaderCatalog: CATALOG, headPieceIds: HEAD_PIECE_IDS },
+        // eventUuid → the fn injects this event's live credit balance + free-image
+        // allowance into the Director's context (credits-aware proposals).
+        body: { mode: 'scene', messages: convo, shaderCatalog: CATALOG, headPieceIds: HEAD_PIECE_IDS, ...(eventUuid ? { eventUuid } : {}) },
       });
       if (error) {
         let code: string | undefined;
         if (error instanceof FunctionsHttpError) {
           try { code = ((await error.context.json()) as { error?: string }).error; } catch { /* unreadable */ }
         }
+        // Operator detail stays in the console; the chat gets customer copy.
+        console.error('[director] ai-event-designer error', code ?? '(no code)');
         pushDirector(KEY_HELP(code), 'error');
         return;
       }
@@ -240,7 +266,7 @@ export default function DirectorPanel({
     } finally {
       setPhase('idle');
     }
-  }), [guard, prompt, phase, pushDirector, stopRotation]);
+  }), [guard, prompt, phase, pushDirector, stopRotation, eventUuid]);
 
   /* ── Reference image upload (paperclip) ─────────────────────────────────── */
   const onReferenceFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -302,7 +328,12 @@ export default function DirectorPanel({
       // raw onto the shared cache (the next plan's generate reads it un-scoped and
       // would reuse A's paid image for free). A is abandoned; its credit is spent.
       if (planEpochRef.current !== epoch) return null;
-      if (error || !data?.experience) { setCard('frame', { status: 'failed', error: aiErrorMessage((error ?? 'internal') as AiErrorCode) }); return null; }
+      void refreshBalance();
+      if (error || !data?.experience) {
+        if (error === 'insufficient_credits') setLowCredits(true);
+        setCard('frame', { status: 'failed', error: aiErrorMessage((error ?? 'internal') as AiErrorCode) });
+        return null;
+      }
       raw = data.experience;
       rawFrameRef.current = raw;
     }
@@ -318,7 +349,7 @@ export default function DirectorPanel({
     const url = processed.asset_url ?? undefined;
     setCard('frame', { status: 'ready', frameUrl: url, error: undefined });
     return url ?? null;
-  }, [plan, eventId, eventUuid, setCard]);
+  }, [plan, eventId, eventUuid, setCard, refreshBalance]);
 
   const approveFrame = useCallback((url?: string) => {
     const target = url ?? cardsRef.current.frame.frameUrl;
@@ -470,7 +501,9 @@ export default function DirectorPanel({
         // the concept onto the shared cache (the next plan reads it un-scoped and
         // would build B's 3D from A's concept). A is abandoned; its credit is spent.
         if (planEpochRef.current !== epoch) return null;
+        void refreshBalance();
         if (concept.error || !concept.data?.experience?.asset_url) {
+          if (concept.error === 'insufficient_credits') setLowCredits(true);
           setCard('headPiece', { status: 'failed', error: aiErrorMessage((concept.error ?? 'internal') as AiErrorCode) });
           return null;
         }
@@ -480,7 +513,9 @@ export default function DirectorPanel({
 
       const { data, error } = await generate3d(uuid, { mode: 'image', imageUrl: conceptUrl, prompt: brief });
       if (planEpochRef.current !== epoch) return null;
+      void refreshBalance();
       if (error || !data?.job) {
+        if (error === 'insufficient_credits') setLowCredits(true);
         setCard('headPiece', { status: 'failed', error: `${aiErrorMessage((error ?? 'internal') as AiErrorCode)} (the source image is saved — Retry does the 3D step only.)` });
         return null;
       }
@@ -493,7 +528,7 @@ export default function DirectorPanel({
     } finally {
       stopRotation();
     }
-  }, [plan, eventId, eventUuid, setCard, stopRotation, pollModel, finishModelPoll]);
+  }, [plan, eventId, eventUuid, setCard, stopRotation, pollModel, finishModelPoll, refreshBalance]);
 
   const approvePiece = useCallback((artifact?: { glbUrl: string; name: string | null }) => {
     const glbUrl = artifact?.glbUrl ?? cardsRef.current.headPiece.glbUrl;
@@ -769,6 +804,19 @@ export default function DirectorPanel({
         {anyGenerating && (
           <p className="mb-2 font-sans text-[10px] text-brand-muted/50 leading-snug">
             Finish or discard the current generation before starting a new scene.
+          </p>
+        )}
+        {(balance !== null || lowCredits) && (
+          <p className="mb-2 font-sans text-[10px] text-brand-muted/50 leading-snug">
+            {balance !== null && <>Balance: {balance} credit{balance === 1 ? '' : 's'}</>}
+            {lowCredits && (
+              <>
+                {balance !== null && ' · '}
+                {/* New tab: an in-place navigation would unmount the studio
+                    and lose the host's unsaved scene work. */}
+                <a href="/host/billing" target="_blank" rel="noopener" className="underline text-accent-2 hover:text-accent">Top up in Billing</a>
+              </>
+            )}
           </p>
         )}
         <div className="flex items-end gap-2">

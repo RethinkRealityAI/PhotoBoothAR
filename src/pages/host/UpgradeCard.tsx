@@ -149,10 +149,10 @@ export function UpgradeModal({
           One-time purchase for this event only. Current plan: <TierPill tier={current} />
         </p>
 
-        {error === 'billing_not_configured' && (
+        {(error === 'billing_not_configured' || error === 'billing_test_mode') && (
           <div className="mb-4"><BillingPendingNotice onDismiss={() => setError(null)} /></div>
         )}
-        {error && error !== 'billing_not_configured' && (
+        {error && error !== 'billing_not_configured' && error !== 'billing_test_mode' && (
           <p className="mb-4 font-sans text-xs text-red-400">Couldn't start checkout ({error}). Please try again.</p>
         )}
 

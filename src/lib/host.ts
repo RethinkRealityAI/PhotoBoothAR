@@ -161,7 +161,9 @@ export type CheckoutBody =
 export interface BillingSessionResult {
   /** Stripe-hosted URL to redirect to; null on error. */
   url: string | null;
-  /** 'billing_not_configured' while Stripe keys are pending, else edge-fn error code. */
+  /** 'billing_not_configured' while Stripe keys are pending, 'billing_test_mode'
+   *  while the key is a test key (guests see the same "pending" notice for
+   *  both), else edge-fn error code. */
   error: string | null;
 }
 
