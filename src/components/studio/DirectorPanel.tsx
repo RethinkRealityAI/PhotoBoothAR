@@ -288,7 +288,7 @@ export default function DirectorPanel({
     }
     setReferenceUploading(true);
     try {
-      const url = await uploadAsset(file, 'director-reference');
+      const url = await uploadAsset(eventId, file, 'director-reference');
       if (url) setReferenceUrl(url);
       else pushDirector('That image couldn’t be uploaded — try another.', 'error');
     } catch {

@@ -88,7 +88,7 @@ export async function processGeneratedFrame(
         });
       } else {
         const blob = await toPngBlob(image);
-        processedUrl = await uploadAsset(blob, `frame-${exp.id}`);
+        processedUrl = await uploadAsset(eventId, blob, `frame-${exp.id}`);
         if (!processedUrl) console.warn('[studio] processed frame upload failed');
       }
     } catch (e) {

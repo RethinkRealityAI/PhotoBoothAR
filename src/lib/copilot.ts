@@ -454,7 +454,7 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
         const border = BORDER_MAP[action.proposal.borderId];
         if (!border || !GENERIC_FRAME_IDS.has(border.id)) return { ok: false, summary: 'That frame isn’t available.' };
         const { uploadAsset, createExperience } = await import('./db');
-        const url = await uploadAsset(new Blob([border.svg], { type: 'image/svg+xml' }), `${border.id}.svg`);
+        const url = await uploadAsset(ctx.slug, new Blob([border.svg], { type: 'image/svg+xml' }), `${border.id}.svg`);
         if (!url) return { ok: false, summary: 'Adding the frame failed.' };
         const exp = await createExperience(ctx.slug, {
           name: border.name, kind: border.kind, asset_url: url,

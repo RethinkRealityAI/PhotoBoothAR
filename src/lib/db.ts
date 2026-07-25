@@ -322,9 +322,22 @@ function uid(): string {
   return crypto.randomUUID?.() ?? `${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
-/** Upload a studio asset (PNG/SVG/GLB). Returns its public URL. */
-export async function uploadAsset(file: Blob, name?: string): Promise<string | null> {
-  const path = `${uid()}-${(name ?? 'asset').replace(/[^a-z0-9.\-_]/gi, '_')}.${extFor(file, 'png')}`;
+/**
+ * Upload a studio asset (PNG/SVG/GLB) into THIS event's folder. Public URL back.
+ *
+ * `eventId` (the event SLUG) is first and required on purpose. Uploads used to
+ * land flat at the bucket root — `<uid>-name.png` with no tenant in the path —
+ * which made per-tenant storage rules impossible to express and meant
+ * `listAssets` handed every host every other host's files. Making it required
+ * turns the compiler into the reference sweep: no call site can forget it.
+ *
+ * The shape matches what the edge functions already write (`<slug>/ai/<id>.png`),
+ * so one storage policy covers uploads and generated assets alike — see
+ * migration 017.
+ */
+export async function uploadAsset(eventId: string, file: Blob, name?: string): Promise<string | null> {
+  const safe = (name ?? 'asset').replace(/[^a-z0-9.\-_]/gi, '_');
+  const path = `${eventId}/uploads/${uid()}-${safe}.${extFor(file, 'png')}`;
   const { error } = await supabase.storage.from(ASSETS_BUCKET).upload(path, file, {
     upsert: true,
     contentType: file.type || undefined,
@@ -345,11 +358,20 @@ export interface StoredAsset {
   created_at?: string;
 }
 
-/** List every file in the assets bucket (newest first) — powers the Assets library. */
-export async function listAssets(): Promise<StoredAsset[]> {
+/**
+ * This event's uploaded assets, newest first — powers the Assets library.
+ *
+ * Scoped to `<eventId>/uploads`. It used to list the bucket ROOT, so every host
+ * saw every other host's uploads in their studio, with a delete button next to
+ * them. Files uploaded before namespacing still serve from their public URLs
+ * (nothing on a live event breaks); they simply no longer appear in anyone's
+ * library, and platform admins retain full read for support (migration 017).
+ */
+export async function listAssets(eventId: string): Promise<StoredAsset[]> {
+  const prefix = `${eventId}/uploads`;
   const { data, error } = await supabase.storage
     .from(ASSETS_BUCKET)
-    .list('', { limit: 1000, sortBy: { column: 'created_at', order: 'desc' } });
+    .list(prefix, { limit: 1000, sortBy: { column: 'created_at', order: 'desc' } });
   if (error || !data) {
     if (error) console.error('[db] listAssets', error);
     return [];
@@ -358,10 +380,13 @@ export async function listAssets(): Promise<StoredAsset[]> {
     .filter((f) => f.name && !f.name.startsWith('.'))
     .map((f) => {
       const meta = (f.metadata ?? null) as { size?: number; mimetype?: string } | null;
+      // `list` returns names relative to the prefix; every consumer (delete,
+      // public URL) needs the FULL object path.
+      const path = `${prefix}/${f.name}`;
       return {
         name: f.name,
-        path: f.name,
-        url: publicUrl(ASSETS_BUCKET, f.name),
+        path,
+        url: publicUrl(ASSETS_BUCKET, path),
         size: meta?.size,
         mimetype: meta?.mimetype,
         created_at: f.created_at ?? undefined,

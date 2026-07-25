@@ -248,10 +248,10 @@ export default function StudioShell() {
         if (obj.type === 'overlay') {
           if (obj.isBuiltin && obj.builtinId) {
             const b = BUILTIN_BORDERS.find((x) => x.id === obj.builtinId);
-            urlMap.set(obj.id, b ? await uploadAsset(svgBlob(b.svg), `${b.id}.svg`) : (obj.url ?? null));
+            urlMap.set(obj.id, b ? await uploadAsset(eventId, svgBlob(b.svg), `${b.id}.svg`) : (obj.url ?? null));
           } else if (obj.blob) {
             const base = obj.name.replace(/\s+/g, '-').toLowerCase() || 'overlay';
-            urlMap.set(obj.id, await uploadAsset(obj.blob, base));
+            urlMap.set(obj.id, await uploadAsset(eventId, obj.blob, base));
           } else if (obj.url && (obj.url.startsWith('http') || obj.url.startsWith('data:'))) {
             urlMap.set(obj.id, obj.url);
           } else {
@@ -265,7 +265,7 @@ export default function StudioShell() {
 
       let thumbnailUrl: string | null = null;
       if (draft.thumbBlob) {
-        thumbnailUrl = await uploadAsset(draft.thumbBlob, `icon-${draft.name.replace(/\s+/g, '-').toLowerCase()}`);
+        thumbnailUrl = await uploadAsset(eventId, draft.thumbBlob, `icon-${draft.name.replace(/\s+/g, '-').toLowerCase()}`);
       } else if (draft.thumbUrl && draft.thumbUrl.startsWith('http')) {
         thumbnailUrl = draft.thumbUrl;
       }

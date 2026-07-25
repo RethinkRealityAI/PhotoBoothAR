@@ -11,6 +11,7 @@ import {
   RefreshCw, Upload, Copy, Check, Trash2, X, Image as ImageIcon, Box, FileQuestion,
 } from 'lucide-react';
 import { listAssets, uploadAsset, deleteAsset, type StoredAsset } from '../../lib/db';
+import { useEvent } from '../../events/EventContext';
 import { classifyAsset } from '../../lib/studio/dnd';
 
 function prettySize(bytes?: number): string {
@@ -88,6 +89,9 @@ function AssetCard({ asset, onDeleted }: { asset: StoredAsset; onDeleted: () => 
 }
 
 export default function Assets() {
+  // Assets are scoped to THIS event's folder — the library used to list the
+  // whole bucket, so every host saw (and could delete) every other host's files.
+  const { eventId } = useEvent();
   const [assets, setAssets] = useState<StoredAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -96,9 +100,9 @@ export default function Assets() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setAssets(await listAssets());
+    setAssets(await listAssets(eventId));
     setLoading(false);
-  }, []);
+  }, [eventId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -107,7 +111,7 @@ export default function Assets() {
     if (!files?.length) return;
     setUploading(true);
     for (const file of Array.from(files)) {
-      await uploadAsset(file, file.name.replace(/\.[^.]+$/, ''));
+      await uploadAsset(eventId, file, file.name.replace(/\.[^.]+$/, ''));
     }
     setUploading(false);
     if (inputRef.current) inputRef.current.value = '';
