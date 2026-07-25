@@ -3,11 +3,26 @@ import { ENTITLEMENTS, formatPostCap, formatRetention } from './plans';
 
 describe('plan copy formatters', () => {
   it('describes an unlimited cap without a number', () => {
-    expect(formatPostCap(null)).toBe('Unlimited photos');
+    expect(formatPostCap(null)).toBe('Unlimited photos & videos');
   });
 
   it('describes a finite cap', () => {
-    expect(formatPostCap(500)).toBe('Up to 500 photos');
+    expect(formatPostCap(500)).toBe('Up to 500 photos & videos');
+  });
+
+  it('omits video on a tier that does not include it', () => {
+    // free.videoEnabled is false — the cap counts posts, but saying "& videos"
+    // on Free would advertise something the tier does not grant.
+    expect(formatPostCap(25, false)).toBe('Up to 25 photos');
+    expect(formatPostCap(ENTITLEMENTS.free.maxPosts, ENTITLEMENTS.free.videoEnabled)).toBe(
+      'Up to 25 photos',
+    );
+  });
+
+  it('names video on the paid tiers, whose cap covers both', () => {
+    expect(
+      formatPostCap(ENTITLEMENTS.essentials.maxPosts, ENTITLEMENTS.essentials.videoEnabled),
+    ).toBe('Up to 500 photos & videos');
   });
 
   it('describes indefinite retention', () => {

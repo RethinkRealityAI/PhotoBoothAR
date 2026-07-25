@@ -159,7 +159,7 @@ function CenterScreen({
         {onRetry && (
           <button
             onClick={onRetry}
-            className="mt-2 min-h-11 rounded-full bg-foil px-6 font-label uppercase tracking-luxe text-[11px] text-noir-900"
+            className="mt-2 min-h-11 rounded-full bg-foil px-6 font-label uppercase tracking-luxe text-[11px] text-[color:var(--on-accent)]"
           >
             Try again
           </button>

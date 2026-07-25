@@ -14,6 +14,7 @@ import { Check, Plus, Ticket } from 'lucide-react';
 import {
   fetchPlatformConfig, setSignupCredits, fetchPromos, createPromo, setPromoActive, type PromoCode,
 } from '../../lib/admin';
+import ConfirmModal from '../../components/ui/ConfirmModal';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-3.5 py-2.5 text-sm text-brand-fg ' +
@@ -33,6 +34,8 @@ export default function Credits() {
   const [bonusMsg, setBonusMsg] = useState<string | null>(null);
   /** The current welcome-credit value could not be read. */
   const [configFailed, setConfigFailed] = useState(false);
+  /** A welcome-bonus REDUCTION awaiting confirmation (it hits every new account). */
+  const [pendingBonus, setPendingBonus] = useState<number | null>(null);
 
   /* Promo codes */
   const [promos, setPromos] = useState<PromoCode[]>([]);
@@ -76,12 +79,14 @@ export default function Credits() {
     if (configFailed) { setBonusMsg('Reload before changing this — the current value could not be read.'); return; }
     // Every new account is affected, so a reduction is confirmed explicitly.
     if (bonus !== null && amount < bonus) {
-      const ok = window.confirm(
-        `Lower the welcome bonus from ${bonus} to ${amount} credit${amount === 1 ? '' : 's'}?\n\n` +
-          'This applies to every account created from now on.',
-      );
-      if (!ok) return;
+      setPendingBonus(amount);
+      return;
     }
+    await writeBonus(amount);
+  }
+
+  async function writeBonus(amount: number) {
+    setPendingBonus(null);
     setSavingBonus(true);
     setBonusMsg(null);
     const r = await setSignupCredits(amount);
@@ -229,6 +234,27 @@ export default function Credits() {
           )}
         </div>
       </section>
+
+      {pendingBonus !== null && (
+        <ConfirmModal
+          tone="danger"
+          title="Lower the welcome bonus?"
+          confirmLabel="Lower it"
+          busy={savingBonus}
+          onCancel={() => setPendingBonus(null)}
+          onConfirm={() => writeBonus(pendingBonus)}
+          body={
+            <>
+              <p>
+                From <span className="text-brand-fg">{bonus}</span> to{' '}
+                <span className="text-brand-fg">{pendingBonus}</span> credit
+                {pendingBonus === 1 ? '' : 's'}.
+              </p>
+              <p className="mt-2">This applies to every account created from now on.</p>
+            </>
+          }
+        />
+      )}
     </div>
   );
 }

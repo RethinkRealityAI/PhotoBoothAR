@@ -87,6 +87,8 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState<Post[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  /** The pending read failed — distinct from an empty approval queue. */
+  const [pendingFailed, setPendingFailed] = useState(false);
 
   const loadPending = useCallback(async () => {
     const { data, error } = await supabase
@@ -97,9 +99,14 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
       .eq('hidden', false)
       .order('created_at', { ascending: false });
     if (error) {
+      // This used to `return` with `pending` left at [], and the queue below
+      // only renders when pending.length > 0 — so a failed read showed the host
+      // NOTHING, and guest photos waiting on approval never went live.
       console.error('[ModerationTab] pending fetch', error);
+      setPendingFailed(true);
       return;
     }
+    setPendingFailed(false);
     setPending((data as Post[]) ?? []);
   }, [eventId]);
 
@@ -188,6 +195,24 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
             ))}
           </div>
         </div>
+
+        {/* A failed read is reported, never left silent: an invisible queue and
+            an empty queue look identical to a host, and the difference is
+            whether guests' photos are stuck. */}
+        {pendingFailed && pending.length === 0 && (
+          <div role="alert" className="glass rounded-2xl border border-amber-400/30 px-4 py-3">
+            <p className="font-sans text-xs text-amber-200/90 leading-relaxed">
+              We couldn’t load the approval queue — if guests have posted, their photos may
+              be waiting. This is not confirmation that the queue is empty.
+            </p>
+            <button
+              onClick={loadPending}
+              className="mt-2 min-h-11 rounded-lg px-4 bg-white/[0.06] font-label uppercase tracking-luxe text-[10px] text-brand-fg"
+            >
+              Try again
+            </button>
+          </div>
+        )}
 
         {/* Pending queue — shown whenever unapproved posts exist (they can
             linger after switching back to instant mode). */}

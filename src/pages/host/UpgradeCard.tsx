@@ -32,7 +32,7 @@ export const PACKAGES: { tier: PaidTier; price: string; credits: number; tagline
     credits: 20,
     tagline: 'The must-haves',
     bullets: [
-      fmtPosts(ENTITLEMENTS.essentials.maxPosts),
+      fmtPosts(ENTITLEMENTS.essentials.maxPosts, ENTITLEMENTS.essentials.videoEnabled),
       'No watermark',
       'Video capture',
       'AI studio (basic)',
@@ -47,7 +47,7 @@ export const PACKAGES: { tier: PaidTier; price: string; credits: number; tagline
     tagline: 'Most popular',
     bullets: [
       'Everything in Essentials',
-      fmtPosts(ENTITLEMENTS.premium.maxPosts),
+      fmtPosts(ENTITLEMENTS.premium.maxPosts, ENTITLEMENTS.premium.videoEnabled),
       'Standard photo cards',
       fmtRetention(ENTITLEMENTS.premium.retentionDays),
       '100 credits included',

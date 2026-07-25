@@ -122,9 +122,17 @@ export function entitlementsFor(tier: PlanTier, hasProSubscription = false): Ent
  * only after they were inside. Both surfaces now format the same values
  * through these, so the two cannot drift apart again. */
 
-/** "Unlimited photos" / "Up to 500 photos". */
-export function formatPostCap(maxPosts: number | null): string {
-  return maxPosts === null ? 'Unlimited photos' : `Up to ${maxPosts} photos`;
+/**
+ * "Up to 500 photos & videos" / "Up to 25 photos" / "Unlimited photos & videos".
+ *
+ * The cap counts POSTS, not photos, so on a tier with video it has to say so —
+ * calling it a photo allowance understates what the tier grants. Free has
+ * videoEnabled: false, so it must NOT say "& videos"; hence the second argument
+ * rather than one blanket wording.
+ */
+export function formatPostCap(maxPosts: number | null, videoEnabled = true): string {
+  const what = videoEnabled ? 'photos & videos' : 'photos';
+  return maxPosts === null ? `Unlimited ${what}` : `Up to ${maxPosts} ${what}`;
 }
 
 /** "Photos kept forever" / "Photos kept for 90 days". */

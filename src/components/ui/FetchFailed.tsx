@@ -32,7 +32,7 @@ export default function FetchFailed({ what, onRetry, retrying = false }: Props) 
       <button
         onClick={onRetry}
         disabled={retrying}
-        className="mt-7 inline-flex items-center gap-2 min-h-11 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-8 rounded-xl glow-accent disabled:opacity-60"
+        className="mt-7 inline-flex items-center gap-2 min-h-11 bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] px-8 rounded-xl glow-accent disabled:opacity-60"
       >
         <RotateCw className={`w-4 h-4 ${retrying ? 'animate-spin' : ''}`} />
         {retrying ? 'Trying…' : 'Try again'}

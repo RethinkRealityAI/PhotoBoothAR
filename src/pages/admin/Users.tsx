@@ -57,6 +57,8 @@ function AdjustCreditsModal({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  /** Second-press confirmation state for the adjustment. */
+  const [confirming, setConfirming] = useState(false);
 
   const submit = async () => {
     const n = Number(delta);
@@ -66,14 +68,13 @@ function AdjustCreditsModal({
     if (!user.orgId) { setFormError('This user has no organization, so there is no balance to adjust.'); return; }
     if (!Number.isFinite(n) || n === 0) { setFormError('Enter a non-zero whole number, e.g. 50 or -20.'); return; }
     if (!reason.trim()) { setFormError('Give a reason — it is written to the audit log.'); return; }
-    // Money moves on confirm, not on a keystroke: "500" typed for "50" is only
-    // reversible by a second manual adjustment.
+    // Money moves on a deliberate confirm, not on one keystroke: "500" typed
+    // for "50" is only reversible by a second manual adjustment. Confirmed
+    // INLINE rather than in a nested dialog — this component is already a
+    // Modal, and stacking two focus traps is its own bug.
     const rounded = Math.trunc(n);
-    const ok = window.confirm(
-      `${rounded > 0 ? 'Grant' : 'Remove'} ${Math.abs(rounded)} credit${Math.abs(rounded) === 1 ? '' : 's'} ` +
-        `${rounded > 0 ? 'to' : 'from'} ${user.orgName ?? 'this org'}?\n\nReason: ${reason.trim()}`,
-    );
-    if (!ok) return;
+    if (!confirming) { setFormError(null); setConfirming(true); return; }
+    setConfirming(false);
     setFormError(null);
     setBusy(true);
     const { data, error } = await adjustCredits(user.orgId, rounded, reason.trim());
@@ -108,13 +109,31 @@ function AdjustCreditsModal({
         {formError && (
           <p role="alert" className="font-sans text-xs text-amber-300/90 leading-relaxed">{formError}</p>
         )}
-        <button
-          onClick={submit}
-          disabled={busy || !delta.trim() || !reason.trim()}
-          className="mt-1 min-h-11 rounded-full bg-foil px-6 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40"
-        >
-          Apply
-        </button>
+        {confirming && (
+          <p role="alert" className="font-sans text-xs text-amber-300/90 leading-relaxed">
+            {Number(delta) > 0 ? 'Grant' : 'Remove'} {Math.abs(Math.trunc(Number(delta)))} credit
+            {Math.abs(Math.trunc(Number(delta))) === 1 ? '' : 's'}{' '}
+            {Number(delta) > 0 ? 'to' : 'from'} {user.orgName ?? 'this org'}? Reversible only by a
+            second manual adjustment. Press again to confirm.
+          </p>
+        )}
+        <div className="flex gap-2">
+          <button
+            onClick={submit}
+            disabled={busy || !delta.trim() || !reason.trim()}
+            className="mt-1 flex-1 min-h-11 rounded-full bg-foil px-6 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-40"
+          >
+            {confirming ? 'Confirm' : 'Apply'}
+          </button>
+          {confirming && (
+            <button
+              onClick={() => setConfirming(false)}
+              className="mt-1 min-h-11 rounded-full bg-white/[0.06] px-5 font-label uppercase tracking-luxe text-[10px] text-brand-fg/80"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </div>
     </Modal>
   );

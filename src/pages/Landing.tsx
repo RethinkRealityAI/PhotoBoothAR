@@ -158,12 +158,17 @@ interface Tier {
   popular?: boolean;
 }
 
-/* Features are written against ENTITLEMENTS, not from memory. Two things were
-   wrong here before: Essentials advertised a "Video guestbook" while
-   ENTITLEMENTS.essentials.cardsStandard is false (the in-app card calls the
-   same thing "Video capture"), and no tier disclosed retention at all — so a
-   prospect chose Free without being told photos expire after a week, and only
-   met "7-day storage" once they were already inside. */
+/* Features are written against ENTITLEMENTS, not from memory.
+ *
+ * Two things were wrong here originally: Essentials advertised a "Video
+ * guestbook" while ENTITLEMENTS.essentials.cardsStandard is false, and no tier
+ * disclosed retention at all — so a prospect chose Free without being told
+ * photos expire after a week, and only met "7-day storage" once inside.
+ *
+ * Two service promises are deliberately absent: "Priority support" (Premium)
+ * and "White-glove setup" (Deluxe). There is no contact or support route
+ * anywhere on the marketing surface, so both were claims we cannot currently
+ * honour. Put them back the day a support channel exists, not before. */
 const TIERS: Tier[] = [
   {
     name: 'Free',
@@ -172,7 +177,8 @@ const TIERS: Tier[] = [
     blurb: 'Spin up a booth and see the magic.',
     features: [
       '1 live event',
-      formatPostCap(ENTITLEMENTS.free.maxPosts),
+      'Photo booth + live wall',
+      formatPostCap(ENTITLEMENTS.free.maxPosts, ENTITLEMENTS.free.videoEnabled),
       formatRetention(ENTITLEMENTS.free.retentionDays),
       'A subtle Beamwall credit',
     ],
@@ -183,8 +189,8 @@ const TIERS: Tier[] = [
     unit: 'per event',
     blurb: 'Everything a small celebration needs.',
     features: [
-      formatPostCap(ENTITLEMENTS.essentials.maxPosts),
-      'Video capture',
+      formatPostCap(ENTITLEMENTS.essentials.maxPosts, ENTITLEMENTS.essentials.videoEnabled),
+      'Every frame & effect',
       'No watermark',
       formatRetention(ENTITLEMENTS.essentials.retentionDays),
     ],

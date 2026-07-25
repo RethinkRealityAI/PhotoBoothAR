@@ -18,8 +18,9 @@
  *   showChallenges    — shows/hides the challenges ticker strip.
  *   featuredSpotlight — periodic full-screen photo/CTA spotlight in Gallery mode.
  *
- * `mode` + `projectionMode` persist to localStorage (beamwall:wall:<eventId>)
- * so a projector refresh restores the wall.
+ * `mode`, `projectionMode` and the per-device QR override persist to
+ * localStorage (beamwall:wall:<eventId>) so a projector refresh restores the
+ * wall exactly as the operator left it.
  *
  * Realtime: subscribeToPosts; fallback poll every ~20 s.
  * Beam-in: fires <BeamIn/> overlay on every onInsert event.
@@ -50,15 +51,22 @@ import { listState } from '../lib/listState';
 
 type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard';
 
-/** Restore persisted { mode, projectionMode } for a projector refresh. */
-function readPersistedWallState(eventId: string): { mode?: ViewMode; projectionMode?: boolean } {
+/** Restore persisted { mode, projectionMode, qrOverride } for a projector refresh. */
+function readPersistedWallState(eventId: string): {
+  mode?: ViewMode;
+  projectionMode?: boolean;
+  qrOverride?: boolean | null;
+} {
   try {
     const raw = localStorage.getItem(`beamwall:wall:${eventId}`);
     if (!raw) return {};
-    const v = JSON.parse(raw) as { mode?: unknown; projectionMode?: unknown };
+    const v = JSON.parse(raw) as { mode?: unknown; projectionMode?: unknown; qrOverride?: unknown };
     return {
       mode: v.mode === 'mosaic' || v.mode === 'slideshow' || v.mode === 'leaderboard' ? v.mode : undefined,
       projectionMode: typeof v.projectionMode === 'boolean' ? v.projectionMode : undefined,
+      // Explicitly null-vs-undefined: null is a stored "follow the host's
+      // setting", undefined is "nothing stored". Truthiness would merge them.
+      qrOverride: typeof v.qrOverride === 'boolean' ? v.qrOverride : null,
     };
   } catch {
     return {}; // unavailable/corrupt storage — fall back to defaults
@@ -86,21 +94,29 @@ export default function Wall() {
   const [projectionMode, setProjectionMode] = useState(
     () => readPersistedWallState(eventId).projectionMode ?? false,
   );
-  /** Per-device QR visibility override; null = follow the host's setting. */
-  const [qrOverride, setQrOverride] = useState<boolean | null>(null);
+  /** Per-device QR visibility override; null = follow the host's setting.
+   *  Persisted beside mode/projectionMode: this replaced a value that lived in
+   *  the database, so leaving it in memory only would have meant the venue
+   *  operator lost their choice on every projector refresh. */
+  const [qrOverride, setQrOverride] = useState<boolean | null>(
+    () => readPersistedWallState(eventId).qrOverride ?? null,
+  );
   const [lightboxPost, setLightboxPost] = useState<Post | null>(null);
   const [slideshowIndex, setSlideshowIndex] = useState(0);
   // Freshly beamed-in post the Featured Spotlight should feature next.
   const [pendingFeatureId, setPendingFeatureId] = useState<string | null>(null);
 
-  // Persist { mode, projectionMode } for this event.
+  // Persist { mode, projectionMode, qrOverride } for this event.
   useEffect(() => {
     try {
-      localStorage.setItem(`beamwall:wall:${eventId}`, JSON.stringify({ mode, projectionMode }));
+      localStorage.setItem(
+        `beamwall:wall:${eventId}`,
+        JSON.stringify({ mode, projectionMode, qrOverride }),
+      );
     } catch {
       // storage unavailable (private mode/quota) — persistence is best-effort
     }
-  }, [eventId, mode, projectionMode]);
+  }, [eventId, mode, projectionMode, qrOverride]);
 
   // Controls auto-hide (projection mode hides the toggle bar after 4 s idle)
   const [showChrome, setShowChrome] = useState(true);

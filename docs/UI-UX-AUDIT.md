@@ -258,13 +258,27 @@ Six gated packages landed on this branch (each: tsc 0 · vitest green · build �
 | `fix(admin)` money paths | Promo toggle failure surfaced · empty welcome-credits field can no longer write 0 · five list screens surface load errors (probed) · credit adjustments validate and confirm · `Modal` is a real dialog with Escape/focus-trap/restore (probed) · toasts are a live region, errors persist |
 | `fix(marketing)` | Essentials no longer sells a feature it lacks · retention disclosed on every tier and in JSON-LD, from shared tested helpers · unearned social proof removed · privacy clause for marketing use of event photos · resend-confirmation path · auth `h1`s and top-anchored cards |
 
-**Still open** — everything above not named in that table, notably: `/host/events/:id/*`
-mounted outside `HostLayout` (the sidebar vanishes in the studio); `StudioShell`'s
-unsaved-work guard and its silent duplicate-fork on a failed load; the remaining
-~14 ad-hoc overlays that should route through the now-fixed `Modal`; sub-44px tap
-targets across booth/wall/host/admin; admin list screens fetching every row with
-client-side filtering; the wall shipping full-resolution originals to phones; and
-the copy/token cleanups marked P2. Each row above carries its `file:line`.
+**A self-audit of these fixes** (2026-07-25) found ten further defects, including a
+regression the fixes themselves introduced — the global focus ring carried
+`border-radius: inherit`, which does not shape an outline but *replaces* the focused
+element's radius, squaring off every pill button in the app on keyboard focus (probed on
+/login: 3.35544e+07px → 0px). It also found four audited P0s that the packages had missed.
+All are now fixed; see the `fix(audit)` commit.
+
+**Still open.** P0 first — this list previously led with P1/P2 items while leaving P0s
+unnamed, which read as though the P0s were all handled:
+
+- *(none of the P0s in this document remain open)*
+- P1 `src/App.tsx` — `/host/events/:id/*` is mounted outside `HostLayout`, so opening any
+  event drops the whole sidebar on the screen hosts use most.
+- P1 `src/components/studio/StudioShell.tsx:435` — `state.dirty` guards nothing: one tap
+  discards an unsaved scene. And `:174` still forks a duplicate event when a load fails.
+- P1 — ~14 ad-hoc overlays still don't route through the now-fixed `Modal`
+  (`EventsList.tsx:34`, `UpgradeCard.tsx:137`, `WallLightbox.tsx:51`, `MyPhotos.tsx:269`, …).
+- P1 — sub-44px tap targets across booth, wall, host and admin.
+- P1 `src/lib/admin.ts` — the admin lists fetch every row and filter client-side.
+- P1 `src/lib/db.ts:174` — the wall ships full-resolution originals to phones.
+- P2 — the copy and token cleanups listed per surface above.
 
 **Product decisions deliberately not taken unilaterally**
 
