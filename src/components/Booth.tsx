@@ -16,15 +16,10 @@ import {
 } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import {
-  SwitchCamera, Clock, Video, Camera as CameraIcon, AlertCircle,
-  SlidersHorizontal, Eye, EyeOff, ChevronUp, UploadCloud, ScanFace, Sparkles,
-} from 'lucide-react';
+import { AlertCircle, ChevronUp, ScanFace, Sparkles } from 'lucide-react';
 
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
-import { GalleryIcon, MediaStackIcon } from './ui/MediaIcons';
-import ShareButton from './ui/ShareButton';
 
 // Booth sub-components
 import { useCameraStream } from './booth/useCameraStream';
@@ -34,7 +29,12 @@ import StageCanvas, { StageCanvasHandle, StageOverlaySpec } from './booth/StageC
 import Overlay3D, { Overlay3DPiece } from './booth/Overlay3D';
 import TriggerEffects, { type TriggerEffectsHandle } from './booth/TriggerEffects';
 import PickerDrawer from './booth/PickerDrawer';
-import FilterOrbs from './booth/FilterOrbs';
+import BoothControlDeck from './booth/BoothControlDeck';
+import BoothTopBar from './booth/BoothTopBar';
+import {
+  buildDeck, initialCategory, type DeckCategory, type DeckSelection,
+} from '../lib/boothDeck';
+import { haptic } from '../lib/haptics';
 import Countdown from './booth/Countdown';
 import ReviewPanel from './booth/ReviewPanel';
 import ChallengeCheck from './booth/ChallengeCheck';
@@ -883,8 +883,82 @@ export default function Booth() {
   }, []);
 
   // ── Recording progress ring ───────────────────────────────────────────
+  const reducedMotionPref = prefersReducedMotion();
   const recordProgress = Math.min(recordingMs / VIDEO_MAX_MS, 1);
   const ringCircumference = 2 * Math.PI * 28; // r=28 for a 60px button
+
+  // ── Control deck ──────────────────────────────────────────────────────
+  const deckSections = useMemo(() => buildDeck(catalog), [catalog]);
+  const deckSelection: DeckSelection = {
+    effectId,
+    frameId: frameExp?.id ?? null,
+    attachmentId: attachExp?.id ?? null,
+  };
+  const [deckCategory, setDeckCategory] = useState<DeckCategory | null>(null);
+  // Open on whatever is already applied (an /experience/:id link or the
+  // event's default), else the first category — but only once the catalog has
+  // actually arrived, and never overriding a tab the guest chose themselves.
+  const deckCatSetRef = useRef(false);
+  useEffect(() => {
+    if (deckCatSetRef.current || deckSections.length === 0) return;
+    setDeckCategory(initialCategory(deckSections, deckSelection));
+    deckCatSetRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deckSections]);
+
+  /* The shutter lives here, not in the deck: it owns capture, recording and
+     the progress ring. Extracted so the deck and the chrome-hidden view render
+     the SAME control rather than two copies that drift apart. */
+  const shutterNode = (
+    <div className="relative flex items-center justify-center">
+      {mediaMode === 'photo' ? (
+        <motion.button
+          onClick={() => { haptic('capture'); handleShutterPress(); }}
+          whileTap={reducedMotionPref ? undefined : { scale: 0.88 }}
+          className="relative h-[74px] w-[74px] rounded-full bg-foil glow-accent flex items-center justify-center"
+          style={{ boxShadow: '0 0 34px -6px rgba(var(--accent-rgb),0.85), inset 0 1px 0 rgba(255,255,255,0.4)' }}
+          aria-label="Take photo"
+        >
+          <span className="absolute inset-2 rounded-full border-2 border-ivory/60" />
+          <span className="h-5 w-5 rounded-full bg-ivory/85" />
+        </motion.button>
+      ) : recording ? (
+        <div className="relative">
+          <svg className="absolute inset-0 -rotate-90" width="74" height="74" viewBox="0 0 74 74">
+            <circle cx="37" cy="37" r="28" fill="none" stroke="rgba(var(--accent-rgb),0.2)" strokeWidth="3" />
+            <circle
+              cx="37" cy="37" r="28" fill="none" stroke="var(--color-accent)" strokeWidth="3" strokeLinecap="round"
+              strokeDasharray={ringCircumference}
+              strokeDashoffset={ringCircumference * (1 - recordProgress)}
+              style={{ transition: 'stroke-dashoffset 0.1s linear' }}
+            />
+          </svg>
+          <button
+            onClick={() => { haptic('toggle'); stopRecording(); }}
+            className="pressable relative flex h-[74px] w-[74px] items-center justify-center rounded-full"
+            aria-label="Stop recording"
+          >
+            <span className="h-8 w-8 rounded-lg bg-red-500 glow-soft" />
+          </button>
+        </div>
+      ) : (
+        <motion.button
+          onClick={() => { haptic('capture'); handleShutterPress(); }}
+          whileTap={reducedMotionPref ? undefined : { scale: 0.88 }}
+          className="relative flex h-[74px] w-[74px] items-center justify-center rounded-full border-4 border-red-500"
+          style={{ background: 'rgba(239,68,68,0.15)' }}
+          aria-label="Start recording"
+        >
+          <span className="h-6 w-6 rounded-full bg-red-500" />
+        </motion.button>
+      )}
+      {mediaMode === 'video' && recording && (
+        <span className="absolute -bottom-5 font-label text-[8px] uppercase tracking-wide text-brand-muted/60">
+          {Math.ceil((VIDEO_MAX_MS - recordingMs) / 1000)}s left
+        </span>
+      )}
+    </div>
+  );
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
@@ -930,51 +1004,28 @@ export default function Booth() {
       {!error && (
         <div className="relative z-0 flex-1 flex flex-col min-h-0">
 
-          {/* Header */}
+          {/* Floating chrome — the old header was a wrapping row of five
+              labelled pills above the viewfinder, which on a phone took two
+              rows and hid the top of the very frame the guest was choosing.
+              It now floats OVER the stage, camera-app style. */}
           {phase === 'camera' && ready && (
-            <div className="relative z-20 flex items-center justify-between gap-2 px-4 pt-safe-top [--safe-top:0.75rem] pb-2 shrink-0">
-              <Emblem size={34} className="shrink-0 drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.35)]" />
-              <div className="flex flex-wrap items-center justify-end gap-1.5">
-                {wallSettings.showChallenges && (
-                  <ChallengeSelector selectedChallenge={selectedChallenge} onSelect={setSelectedChallenge} />
-                )}
-                {recording ? (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full glass border border-red-500/40">
-                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                    <span className="font-label text-[9px] uppercase tracking-wide text-red-400">{Math.floor(recordingMs / 1000)}s</span>
-                  </div>
-                ) : (
-                  <>
-                    <a href={`${basePath}/wall`} title="Live Photo Wall" aria-label="Live Photo Wall" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
-                      <GalleryIcon size={15} />
-                      <span className="font-label text-[9px] uppercase tracking-wide">Wall</span>
-                    </a>
-                    <a href={`${basePath}/me`} title="My Media" aria-label="My Media" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
-                      <MediaStackIcon size={15} />
-                      <span className="font-label text-[9px] uppercase tracking-wide">Photos</span>
-                    </a>
-                    <a href={`${basePath}/upload`} title="Upload to the wall" aria-label="Upload to the wall" className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95">
-                      <UploadCloud className="w-[15px] h-[15px]" strokeWidth={1.7} />
-                      <span className="font-label text-[9px] uppercase tracking-wide">Upload</span>
-                    </a>
-                    <ShareButton
-                      label="Share"
-                      iconSize={15}
-                      className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/70 hover:text-gold-300 transition-colors active:scale-95 font-label text-[9px] uppercase tracking-wide"
-                    />
-                  </>
-                )}
-                <button
-                  onClick={() => setUiHidden((h) => !h)}
-                  title={uiHidden ? 'Show controls' : 'Hide controls — see the full frame'}
-                  className="flex items-center gap-1.5 h-9 px-3 glass rounded-full text-champagne/60 hover:text-ivory border border-transparent hover:border-gold-400/30 transition-all active:scale-95"
-                  aria-label="Toggle controls"
-                >
-                  {uiHidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                  <span className="font-label text-[9px] uppercase tracking-wide">{uiHidden ? 'Show' : 'Hide'}</span>
-                </button>
-              </div>
-            </div>
+            <BoothTopBar
+              basePath={basePath}
+              uiHidden={uiHidden}
+              onToggleUi={() => setUiHidden((h) => !h)}
+              recording={recording}
+              recordingMs={recordingMs}
+              canFlip={canFlip}
+              onFlip={() => { if (!recording) flipCamera(); }}
+              leading={
+                <>
+                  <Emblem size={30} className="shrink-0 drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.35)]" />
+                  {wallSettings.showChallenges && !recording && (
+                    <ChallengeSelector selectedChallenge={selectedChallenge} onSelect={setSelectedChallenge} />
+                  )}
+                </>
+              }
+            />
           )}
 
           {/* Stage — the full 9:16 capture frame, centred & letterboxed so the whole frame/border is visible */}
@@ -1094,118 +1145,54 @@ export default function Booth() {
             </div>
           </div>
 
-          {/* Controls (camera phase, panel shown) */}
+          {/* Control deck — the demo's shape: category tabs, one orb row,
+              shutter. Replaces the four-group FilterOrbs rail plus the
+              left/right clusters; the mode toggle and timer moved into the tab
+              row so there is no third cluster to scan. */}
           {phase === 'camera' && ready && !uiHidden && (
-            <div className="relative z-20 shrink-0 pb-safe-bottom">
-              <div className="glass-strong rounded-t-3xl pt-2.5 pb-5">
-                <FilterOrbs
-                  catalog={catalog}
-                  effectId={effectId}
-                  sparkles={sparkles}
-                  frameId={frameExp?.id ?? null}
-                  attachmentId={attachExp?.id ?? null}
-                  onSelectEffect={setEffectId}
-                  onToggleSparkles={setSparkles}
-                  onSelectFrame={handleSelectFrame}
-                  onSelectAttachment={setAttachExp}
-                />
-
-                <div className="flex items-center justify-between px-6 pt-2">
-                  {/* Left: mode + timer */}
-                  <div className="flex flex-col items-center gap-2 w-[88px]">
-                    <div className="flex items-center gap-1 glass rounded-full p-1">
-                      <button onClick={() => { if (!recording) setMediaMode('photo'); }} disabled={recording} aria-label="Photo mode" className={`flex items-center justify-center px-2.5 py-1.5 rounded-full transition-all ${mediaMode === 'photo' ? 'bg-foil text-noir-900' : 'text-champagne/50 hover:text-ivory'}`}>
-                        <CameraIcon className="w-3.5 h-3.5" />
-                      </button>
-                      {videoAllowed && (
-                        <button onClick={() => { if (!recording) setMediaMode('video'); }} disabled={recording} aria-label="Video mode" className={`flex items-center justify-center px-2.5 py-1.5 rounded-full transition-all ${mediaMode === 'video' ? 'bg-foil text-noir-900' : 'text-champagne/50 hover:text-ivory'}`}>
-                          <Video className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                    {mediaMode === 'photo' && !recording && (
-                      <div className="relative">
-                        <button onClick={() => setTimerPickerOpen((o) => !o)} className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-label uppercase tracking-wide transition-all glass border ${timerSec > 0 ? 'border-gold-400/40 text-gold-300' : 'border-transparent text-champagne/40 hover:text-champagne/70'}`}>
-                          <Clock className="w-3 h-3" />{timerSec === 0 ? 'Timer' : `${timerSec}s`}
-                        </button>
-                        <AnimatePresence>
-                          {timerPickerOpen && (
-                            <motion.div initial={{ opacity: 0, y: 6, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.95 }} transition={{ duration: 0.15 }} className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 glass-strong rounded-xl p-2 flex gap-1.5 z-30 shadow-xl">
-                              {TIMER_OPTIONS.map((t) => (
-                                <button key={t} onClick={() => { setTimerSec(t); setTimerPickerOpen(false); }} className={`w-10 h-8 rounded-lg font-label text-[10px] uppercase tracking-wide transition-all ${timerSec === t ? 'bg-foil text-noir-900' : 'text-champagne/60 hover:text-ivory hover:glass'}`}>{t === 0 ? 'Off' : `${t}s`}</button>
-                              ))}
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Center: shutter / record / stop */}
-                  <div className="relative flex items-center justify-center">
-                    {mediaMode === 'photo' ? (
-                      <motion.button onClick={handleShutterPress} whileTap={{ scale: 0.88 }} className="relative w-[72px] h-[72px] rounded-full bg-foil glow-accent animate-pulse-glow flex items-center justify-center focus:outline-none" aria-label="Take photo">
-                        <div className="absolute inset-2 rounded-full border-2 border-ivory/60" />
-                        <div className="w-5 h-5 rounded-full bg-ivory/80" />
-                      </motion.button>
-                    ) : recording ? (
-                      <div className="relative">
-                        <svg className="absolute inset-0 -rotate-90" width="72" height="72" viewBox="0 0 72 72">
-                          <circle cx="36" cy="36" r="28" fill="none" stroke="rgba(var(--accent-rgb),0.2)" strokeWidth="3" />
-                          <circle cx="36" cy="36" r="28" fill="none" stroke="#D4AF37" strokeWidth="3" strokeLinecap="round" strokeDasharray={ringCircumference} strokeDashoffset={ringCircumference * (1 - recordProgress)} style={{ transition: 'stroke-dashoffset 0.1s linear' }} />
-                        </svg>
-                        <button onClick={() => stopRecording()} className="relative w-[72px] h-[72px] rounded-full flex items-center justify-center focus:outline-none" aria-label="Stop recording">
-                          <div className="w-8 h-8 rounded-lg bg-red-500 glow-soft" />
-                        </button>
-                      </div>
-                    ) : (
-                      <motion.button onClick={handleShutterPress} whileTap={{ scale: 0.88 }} className="relative w-[72px] h-[72px] rounded-full border-4 border-red-500 flex items-center justify-center focus:outline-none" style={{ background: 'rgba(239,68,68,0.15)' }} aria-label="Start recording">
-                        <div className="w-6 h-6 rounded-full bg-red-500" />
-                      </motion.button>
-                    )}
-                    {mediaMode === 'video' && recording && (
-                      <div className="absolute -bottom-5 font-label text-[8px] uppercase tracking-wide text-champagne/50">{Math.ceil((VIDEO_MAX_MS - recordingMs) / 1000)}s left</div>
-                    )}
-                  </div>
-
-                  {/* Right: flip + more */}
-                  <div className="flex flex-col items-center gap-2 w-[88px]">
-                    {canFlip ? (
-                      <button onClick={() => { if (!recording) flipCamera(); }} disabled={recording} title="Switch camera (front / back)" className="w-11 h-11 glass rounded-full flex items-center justify-center text-champagne/70 hover:text-ivory hover:border-gold-400/30 border border-transparent transition-all active:scale-90 disabled:opacity-30" aria-label="Switch camera">
-                        <SwitchCamera className="w-5 h-5" />
-                      </button>
-                    ) : <div className="w-11 h-11" />}
-                    <button onClick={() => setMoreOpen(true)} className="flex items-center gap-1 px-2.5 py-1 rounded-full glass text-[9px] font-label uppercase tracking-wide text-champagne/50 hover:text-gold-300 transition-colors">
-                      <SlidersHorizontal className="w-3 h-3" /> All Filters
-                    </button>
-                  </div>
-                </div>
-              </div>
+            <div className="absolute inset-x-0 bottom-0 z-20">
+              <BoothControlDeck
+                sections={deckSections}
+                selection={deckSelection}
+                category={deckCategory}
+                onCategory={setDeckCategory}
+                sparkles={sparkles}
+                onToggleSparkles={setSparkles}
+                onSelectEffect={setEffectId}
+                onSelectFrame={handleSelectFrame}
+                onSelectAttachment={setAttachExp}
+                onClearAll={() => {
+                  setEffectId('none');
+                  setSparkles(false);
+                  handleSelectFrame(null);
+                  setAttachExp(null);
+                }}
+                onOpenAll={() => setMoreOpen(true)}
+                mediaMode={mediaMode}
+                onMediaMode={setMediaMode}
+                videoAllowed={videoAllowed}
+                timerSec={timerSec}
+                onTimerSec={(t) => setTimerSec(t)}
+                timerOptions={TIMER_OPTIONS}
+                recording={recording}
+                shutter={shutterNode}
+              />
             </div>
           )}
 
-          {/* Floating shutter when chrome is hidden (full-frame preview) */}
+          {/* Chrome hidden — just the shutter and a way back. */}
           {phase === 'camera' && ready && uiHidden && (
-            <div className="absolute bottom-0 left-0 right-0 z-20 pb-safe-bottom [--safe-bottom:1.75rem] flex flex-col items-center gap-3 pointer-events-none">
-              {mediaMode === 'photo' ? (
-                <motion.button onClick={handleShutterPress} whileTap={{ scale: 0.88 }} className="pointer-events-auto relative w-[72px] h-[72px] rounded-full bg-foil glow-accent animate-pulse-glow flex items-center justify-center" aria-label="Take photo">
-                  <div className="absolute inset-2 rounded-full border-2 border-ivory/60" />
-                  <div className="w-5 h-5 rounded-full bg-ivory/80" />
-                </motion.button>
-              ) : recording ? (
-                <button onClick={() => stopRecording()} className="pointer-events-auto w-[72px] h-[72px] rounded-full flex items-center justify-center glass" aria-label="Stop recording">
-                  <div className="w-8 h-8 rounded-lg bg-red-500 glow-soft" />
-                </button>
-              ) : (
-                <motion.button onClick={handleShutterPress} whileTap={{ scale: 0.88 }} className="pointer-events-auto relative w-[72px] h-[72px] rounded-full border-4 border-red-500 flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.15)' }} aria-label="Start recording">
-                  <div className="w-6 h-6 rounded-full bg-red-500" />
-                </motion.button>
-              )}
-              <button onClick={() => setUiHidden(false)} className="pointer-events-auto flex items-center gap-1 px-3 py-1 rounded-full glass text-[9px] font-label uppercase tracking-wide text-champagne/50 hover:text-gold-300 transition-colors">
+            <div className="absolute bottom-0 left-0 right-0 z-20 pb-safe-bottom [--safe-bottom:1.75rem] flex flex-col items-center gap-3">
+              {shutterNode}
+              <button
+                onClick={() => { haptic('toggle'); setUiHidden(false); }}
+                className="pressable liquid-glass-raised flex min-h-11 items-center gap-1 rounded-full px-4 font-label text-[10px] uppercase tracking-wide text-brand-fg/70"
+              >
                 <ChevronUp className="w-3 h-3" /> Controls
               </button>
             </div>
           )}
+
         </div>
       )}
 
