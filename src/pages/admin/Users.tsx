@@ -7,20 +7,28 @@
  * band (never logged/audited — see admin-api's reset_password). Disable is
  * always a ban, never a delete (deleting cascades profiles/org_members and
  * orphans the org). Adjust credits only applies to users with an org.
+ *
+ * Searched and paged on the server. It used to ask GoTrue for a flat 1000
+ * accounts and filter them in the browser — so past a thousand users, the
+ * account an operator was looking for could simply not be on the page, with
+ * nothing saying so. GoTrue's admin list API has no search parameter at all,
+ * which is why the rows now come from the admin_list_users function (migration
+ * 020) instead.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Search, RefreshCw, Copy, Check } from 'lucide-react';
 import { fetchUsers, resetPassword, setUserBanned, adjustCredits, type UserRow } from '../../lib/admin';
 import { formatDate, formatCount } from '../../lib/adminFormat';
-import { searchRows, sortRows, paginateRows } from '../../lib/adminFilters';
+import { listFootnote, type ListQuery } from '../../lib/serverList';
+import { useServerList } from '../../lib/useServerList';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import LoadError from '../../components/ui/LoadError';
-import Pagination from '../../components/ui/Pagination';
+import ListMore from '../../components/ui/ListMore';
 import Modal from '../../components/ui/Modal';
 import StatusPill from '../../components/ui/StatusPill';
 import { useToast } from '../../components/ui/Toast';
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 50;
 
 function ResetLinkModal({ link, onClose }: { link: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
@@ -141,34 +149,18 @@ function AdjustCreditsModal({
 
 export default function Users() {
   const { push } = useToast();
-  const [users, setUsers] = useState<UserRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  /** Non-null when the last load failed — the list below is then not
-   *  "no results", it is an unknown. */
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [page, setPage] = useState(1);
   const [resetLink, setResetLink] = useState<string | null>(null);
   const [banTarget, setBanTarget] = useState<UserRow | null>(null);
   const [creditsTarget, setCreditsTarget] = useState<UserRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const load = async () => {
-    setLoading(true);
-    const { data, error } = await fetchUsers();
-    setLoadError(error);
-    setUsers(data?.users ?? []);
-    setLoading(false);
-  };
-
-  useEffect(() => { load(); }, []);
-  useEffect(() => { setPage(1); }, [query]);
-
-  const filtered = useMemo(
-    () => sortRows(searchRows(users, query, ['email', 'displayName', 'orgName']), 'createdAt', 'desc'),
-    [users, query],
-  );
-  const paged = useMemo(() => paginateRows(filtered, page, PAGE_SIZE), [filtered, page]);
+  // Server-side search across email, display name and organization name — the
+  // same three fields the browser used to filter on, so nothing narrowed here.
+  const fetchPage = useCallback(async (q: ListQuery) => {
+    const { data, error } = await fetchUsers(q);
+    return { rows: data?.users ?? [], hasMore: data?.hasMore ?? false, error };
+  }, []);
+  const list = useServerList<UserRow>(fetchPage, PAGE_SIZE);
 
   const doResetPassword = async (u: UserRow) => {
     setBusyId(u.id);
@@ -183,7 +175,10 @@ export default function Users() {
     const { error } = await setUserBanned(u.id, false);
     setBusyId(null);
     if (error) { push('Could not unban this user.', 'error'); return; }
-    setUsers((list) => list.map((x) => (x.id === u.id ? { ...x, banned: false } : x)));
+    // Patched in place rather than reloaded: a reload would throw away every
+    // page the operator has loaded past the first and scroll them back to the
+    // top of a list they were working through.
+    list.patchRows((rows) => rows.map((x) => (x.id === u.id ? { ...x, banned: false } : x)));
     push('User unbanned.', 'success');
   };
 
@@ -193,7 +188,7 @@ export default function Users() {
     const { error } = await setUserBanned(banTarget.id, true);
     setBusyId(null);
     if (error) { push('Could not ban this user.', 'error'); return; }
-    setUsers((list) => list.map((x) => (x.id === banTarget.id ? { ...x, banned: true } : x)));
+    list.patchRows((rows) => rows.map((x) => (x.id === banTarget.id ? { ...x, banned: true } : x)));
     push('User banned.', 'success');
     setBanTarget(null);
   };
@@ -281,31 +276,38 @@ export default function Users() {
       <header className="flex items-center justify-between mb-6 gap-4">
         <div>
           <h1 className="font-serif text-3xl text-foil-static">Users</h1>
-          <p className="mt-1 font-sans text-xs text-brand-muted/60">{formatCount(users.length)} accounts on the platform</p>
+          <p className="mt-1 font-sans text-xs text-brand-muted/60">
+            {listFootnote(list.rows.length, list.hasMore, 'account') || 'Loading…'}
+          </p>
         </div>
         <button
-          onClick={load}
-          disabled={loading}
+          onClick={list.reload}
+          disabled={list.loading}
           className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-4 h-4 ${list.loading ? 'animate-spin' : ''}`} />
         </button>
       </header>
 
-      {loadError && <LoadError what="users" code={loadError} onRetry={load} />}
+      {list.error && <LoadError what="users" code={list.error} onRetry={list.reload} />}
 
       <div className="relative mb-4 max-w-xs">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted/40" />
         <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search users…"
+          value={list.query}
+          onChange={(e) => list.setQuery(e.target.value)}
+          placeholder="Search name, email or org…"
           className="w-full pl-9 pr-3 min-h-11 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
         />
       </div>
 
-      <DataTable columns={columns} rows={paged.rows} getRowKey={(u) => u.id} loading={loading} emptyMessage="No users match." />
-      <Pagination page={paged.page} totalPages={paged.totalPages} total={paged.total} onPageChange={setPage} />
+      <DataTable columns={columns} rows={list.rows} getRowKey={(u) => u.id} loading={list.loading} emptyMessage="No users match." />
+      <ListMore
+        hasMore={list.hasMore}
+        loading={list.loadingMore}
+        onMore={list.loadMore}
+        note={listFootnote(list.rows.length, list.hasMore, 'account')}
+      />
 
       {resetLink && <ResetLinkModal link={resetLink} onClose={() => setResetLink(null)} />}
 

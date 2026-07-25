@@ -15,15 +15,20 @@
  * Actions:
  *   overview_metrics → { data: { orgs, users, events{…}, activeSubscriptions,
  *                                outstandingCredits, engagement{…}, revenueCents } }
- *   list_orgs        → { data: { orgs: [...] } }
+ * Every list_* action below takes the same optional paging args —
+ * { search?, limit?, offset? } — and answers with `hasMore` beside its rows.
+ * See the `paging` block for why, and ListMore.tsx for how it is surfaced.
+ *
+ *   list_orgs        → { data: { orgs: [...], hasMore } }
  *   get_org          → { data: { org, members, events, eventPlans, subscription,
  *                                creditBalance, ledger } } (args: { orgId })
- *   list_events      → { data: { events: [...] } }
+ *   list_events      → { data: { events: [...], hasMore } }
  *   set_event_status → { data: { id, status } } (args: { eventId, status }) — audited
- *   list_orders      → { data: { orders: [...] } }
+ *   list_orders      → { data: { orders: [...], hasMore } }
  *   revenue_summary  → { data: { totalsByCurrency, oneTimeByCurrency,
  *                                subscriptionByCurrency, orderCount } }
- *   list_users       → { data: { users: [...] } }
+ *   list_users       → { data: { users: [...], hasMore } } — via admin_list_users (020),
+ *                       NOT auth.admin.listUsers, which cannot search
  *   reset_password   → { data: { link } } (args: { userId }) — generateLink,
  *                       NEVER stored in admin_audit.meta (session-granting secret)
  *   set_user_banned  → { data: { id, banned } } (args: { userId, banned }) — audited;
@@ -31,7 +36,7 @@
  *   adjust_credits   → { data: { orgId, balance } } (args: { orgId, delta, reason }) — audited
  *   set_event_tier   → { data: { id, plan_tier } } (args: { eventId, tier }) — audited;
  *                       admin comp, does not insert an event_plans purchase row
- *   list_audit       → { data: { entries: [...] } } (most recent 200)
+ *   list_audit       → { data: { entries: [...], hasMore } }
  *   list_admins      → { data: { admins: [...] } }
  *   add_admin        → { data: { userId, email, invited } } (args: { email }) — audited;
  *                       resolves an existing user by email, else invites one
@@ -415,10 +420,34 @@ function isBanned(user: { banned_until?: string | null }): boolean {
   return Number.isFinite(t) && t > Date.now();
 }
 
-async function listUsers(sb: Client): Promise<Response> {
-  const { data, error } = await sb.auth.admin.listUsers({ page: 1, perPage: 1000 });
+interface AuthUserRow {
+  id: string;
+  email: string | null;
+  created_at: string;
+  last_sign_in_at: string | null;
+  banned_until: string | null;
+}
+
+/**
+ * The Users screen, searched and paged on the server.
+ *
+ * This does NOT use `auth.admin.listUsers`, and that is the point: GoTrue's
+ * admin list API takes only `page`/`perPage` — there is no search parameter to
+ * pass — so the old call fetched a flat 1000 accounts and let the browser filter
+ * them. Past 1000 users the 1001st was simply absent, with nothing on screen
+ * saying so. `admin_list_users` (migration 020) reads the same five fields
+ * straight out of `auth.users`, searchable across email, display name and org
+ * name, and honest about there being more.
+ */
+async function listUsers(sb: Client, args: Record<string, unknown>): Promise<Response> {
+  const { limit, offset, search } = paging(args);
+  const { data: raw, error } = await sb.rpc('admin_list_users', {
+    p_search: search,
+    p_limit: limit + 1, // +1 sentinel, same as the other lists
+    p_offset: offset,
+  });
   if (error) throw error;
-  const users = data.users;
+  const { rows: users, hasMore } = page((raw ?? []) as AuthUserRow[], limit);
   const userIds = users.map((u) => u.id);
 
   const [{ data: profiles, error: profErr }, { data: memberships, error: memErr }, { data: admins, error: admErr }] =
@@ -459,7 +488,7 @@ async function listUsers(sb: Client): Promise<Response> {
       isPlatformAdmin: adminSet.has(u.id),
     };
   });
-  return json(200, { data: { users: rows } });
+  return json(200, { data: { users: rows, hasMore } });
 }
 
 /** Recovery link is a session-granting secret — returned once, NEVER logged
@@ -589,13 +618,32 @@ async function setEventTier(sb: Client, actorUserId: string, args: Record<string
   return json(200, { data });
 }
 
-async function listAudit(sb: Client): Promise<Response> {
-  const { data: entries, error } = await sb
+/**
+ * The audit trail, searched and paged on the server.
+ *
+ * Was a flat `.limit(200)` with client-side filtering, which quietly made the
+ * screen useless for the thing an audit log is FOR: "what happened to this org
+ * last month" only ever searched the most recent 200 rows, so on a busy platform
+ * the answer was always "nothing" — indistinguishable from a clean record.
+ *
+ * Search covers action, target type and target id. Actor EMAIL is deliberately
+ * not searchable here: it lives in `auth.users`, not on the row, so matching it
+ * would mean resolving every actor before filtering — the whole-table read this
+ * change exists to remove. Emails are still resolved for the rows returned.
+ */
+async function listAudit(sb: Client, args: Record<string, unknown>): Promise<Response> {
+  const { limit, offset, search } = paging(args);
+  let q = sb
     .from('admin_audit')
     .select('id, actor_user_id, action, target_type, target_id, meta, created_at')
-    .order('created_at', { ascending: false })
-    .limit(200);
+    .order('created_at', { ascending: false });
+  if (search) {
+    const term = likeTerm(search);
+    q = q.or(`action.ilike.${term},target_type.ilike.${term},target_id.ilike.${term}`);
+  }
+  const { data: rawEntries, error } = await q.range(offset, offset + limit); // +1 sentinel
   if (error) throw error;
+  const { rows: entries, hasMore } = page(rawEntries ?? [], limit);
 
   const actorIds = [...new Set((entries ?? []).map((e) => e.actor_user_id as string).filter(Boolean))];
   const { data: emails, error: emailErr } = actorIds.length
@@ -604,8 +652,8 @@ async function listAudit(sb: Client): Promise<Response> {
   if (emailErr) throw emailErr;
   const emailById = new Map((emails ?? []).map((e) => [e.id as string, e.email as string | null]));
 
-  const rows = (entries ?? []).map((e) => ({ ...e, actorEmail: emailById.get(e.actor_user_id as string) ?? null }));
-  return json(200, { data: { entries: rows } });
+  const rows = entries.map((e) => ({ ...e, actorEmail: emailById.get(e.actor_user_id as string) ?? null }));
+  return json(200, { data: { entries: rows, hasMore } });
 }
 
 async function listAdmins(sb: Client): Promise<Response> {
@@ -761,7 +809,7 @@ Deno.serve(async (req: Request) => {
       case 'revenue_summary':
         return await revenueSummary(sb);
       case 'list_users':
-        return await listUsers(sb);
+        return await listUsers(sb, args);
       case 'reset_password':
         return await resetPassword(sb, user.id, args);
       case 'set_user_banned':
@@ -781,7 +829,7 @@ Deno.serve(async (req: Request) => {
       case 'set_event_tier':
         return await setEventTier(sb, user.id, args);
       case 'list_audit':
-        return await listAudit(sb);
+        return await listAudit(sb, args);
       case 'list_admins':
         return await listAdmins(sb);
       case 'add_admin':

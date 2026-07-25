@@ -218,8 +218,8 @@ export interface UserRow {
   isPlatformAdmin: boolean;
 }
 
-export function fetchUsers(): Promise<AdminResult<{ users: UserRow[] }>> {
-  return adminApi('list_users');
+export function fetchUsers(q: ListQuery = {}): Promise<AdminResult<{ users: UserRow[]; hasMore: boolean }>> {
+  return adminApi('list_users', listArgs(q));
 }
 
 /** Returns the recovery link once — a session-granting secret. Never log,
@@ -289,9 +289,15 @@ export interface AuditEntry {
   created_at: string;
 }
 
-/** Most recent 200 entries — the audit log is operational, not archival. */
-export function fetchAudit(): Promise<AdminResult<{ entries: AuditEntry[] }>> {
-  return adminApi('list_audit');
+/**
+ * Newest first, searched and paged on the server.
+ *
+ * Search matches the action, target type and target id. It does NOT match the
+ * actor's email — that lives in auth.users rather than on the row, so filtering
+ * by it would mean resolving every actor on the platform before paging.
+ */
+export function fetchAudit(q: ListQuery = {}): Promise<AdminResult<{ entries: AuditEntry[]; hasMore: boolean }>> {
+  return adminApi('list_audit', listArgs(q));
 }
 
 export interface AdminRow {
