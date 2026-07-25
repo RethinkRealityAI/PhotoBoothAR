@@ -22,6 +22,7 @@ import {
   buildGeneratingSurface, buildFramePreviewSurface, buildHeadPiecePreviewSurface,
   buildGenErrorSurface, buildBoothTestSurface, buildChecklistSurface,
 } from '../../lib/copilotSurfaces';
+import { gapPrompt, proposalGaps, requiredGaps } from '../../lib/proposalGaps';
 import {
   applySurfaceMessages, setPath,
   type A2uiActionEvent, type A2uiMessage, type SurfaceState,
@@ -146,6 +147,11 @@ export default function CopilotChat({
   // Surfaces the host dismissed mid-generation — a late async continuation must
   // NOT re-materialise a card the host already closed (F2).
   const dismissedGen = useRef<Set<string>>(new Set());
+  // Surfaces we have already asked a QUALITY question about (a brief that is
+  // real but vague). A host who presses the button again has seen the question
+  // and chosen to go ahead — asking twice is arguing, not helping. Required
+  // fields are never in here: those block every time.
+  const askedGaps = useRef<Set<string>>(new Set());
   // Live credit balance of THIS event's org (the org generation charges) —
   // shown beside paid-generation proposal cards; refreshed after each spend.
   const [balance, setBalance] = useState<number | null>(null);
@@ -448,6 +454,7 @@ export default function CopilotChat({
       dropSurfaceById(event.surfaceId);
       dismissedGen.current.add(event.surfaceId); // keep a late gen continuation from re-opening it (F2)
       delete genState.current[event.surfaceId];
+      askedGaps.current.delete(event.surfaceId);
       return;
     }
     if (event.name === 'apply_generated') { await applyGenerated(event); return; }
@@ -466,6 +473,29 @@ export default function CopilotChat({
       dropSurfaceById(event.surfaceId);
       setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] Pick which event this is for first — select one of your events, then ask me again.' }]);
       return;
+    }
+
+    // Does the card actually carry everything the action needs? The fields are
+    // host-editable, and the generation tools below skip normalizeActions
+    // entirely, so without this a cleared box became a flat "that didn't look
+    // valid" and a two-word brief became a paid-for generic frame.
+    //
+    // A REQUIRED gap always stops us. A quality gap (a real but vague brief) is
+    // asked once — press again and the host gets what they asked for. The card
+    // stays mounted either way, because their typing is in it.
+    const gaps = proposalGaps(tool, proposal);
+    if (gaps.length > 0) {
+      const spending = tool === 'generate_frame' || (tool === 'add_head_piece' && proposal.source === 'generate');
+      const hard = requiredGaps(gaps);
+      const alreadyAsked = askedGaps.current.has(event.surfaceId);
+      if (hard.length > 0 || !alreadyAsked) {
+        askedGaps.current.add(event.surfaceId);
+        setMessages((m) => [...m, {
+          role: 'user', kind: 'tool_result', ok: false,
+          content: `[tool_result] ${gapPrompt(hard.length > 0 ? hard : gaps, { spending, canProceed: hard.length === 0 })}`,
+        }]);
+        return;
+      }
     }
 
     // Generation tools DON'T execute a mutation — they kick off async generation

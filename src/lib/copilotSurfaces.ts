@@ -55,15 +55,19 @@ function confirmRow(confirmLabel: string): { ids: string[]; components: A2uiComp
  * A generation card used to say the same thing whatever the brief was, so a
  * card offering to spend a credit on "gold" looked identical to one with a
  * real brief. These name what is still missing, in the caption, before the
- * host spends anything. The field stays editable — this informs, it does not
- * block, because a host who knows what they want should not be argued with. */
+ * host spends anything.
+ *
+ * The caption is only half of it: CopilotChat's confirm handler runs
+ * proposalGaps() on the CURRENT (host-edited) field values and asks the
+ * question instead of generating. It asks once for a vague brief and every
+ * time for an absent one — see src/lib/proposalGaps.ts. */
 
 function frameHint(prompt: unknown): string {
   const brief = typeof prompt === 'string' ? prompt : '';
   const gaps = frameBriefGaps(brief);
   const base = 'Generated at 9:16 with a clear centre for faces. Your first 3 frames are free.';
   const summary = gapSummary(gaps);
-  return summary ? `${summary} ${base}` : base;
+  return summary ? `${summary} I’ll check before spending anything. ${base}` : base;
 }
 
 function pieceHint(prompt: unknown): string {
@@ -71,7 +75,7 @@ function pieceHint(prompt: unknown): string {
   const gaps = pieceBriefGaps(brief);
   const base = 'A head-worn 3D piece from your description (~11 credits — a concept image then a 3D model).';
   const summary = gapSummary(gaps);
-  return summary ? `${summary} ${base}` : base;
+  return summary ? `${summary} I’ll check before spending anything. ${base}` : base;
 }
 
 function textField(id: string, label: string, path: string): A2uiComponent {
