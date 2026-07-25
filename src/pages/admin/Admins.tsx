@@ -15,19 +15,24 @@ import { useSession } from '../../lib/auth';
 import { formatDate } from '../../lib/adminFormat';
 import { canRemoveAdmin } from '../../lib/adminAuth';
 import { useToast } from '../../components/ui/Toast';
+import LoadError from '../../components/ui/LoadError';
 
 export default function Admins() {
   const { session } = useSession();
   const { push } = useToast();
   const [admins, setAdmins] = useState<AdminRow[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Non-null when the last load failed — the list below is then not
+   *  "no results", it is an unknown. */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
-    const { data } = await fetchAdmins();
+    const { data, error } = await fetchAdmins();
+    setLoadError(error);
     setAdmins(data?.admins ?? []);
     setLoading(false);
   };
@@ -85,6 +90,8 @@ export default function Admins() {
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </header>
+
+      {loadError && <LoadError what="platform admins" code={loadError} onRetry={load} />}
 
       <div className="flex items-center gap-2 mb-6">
         <input

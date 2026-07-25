@@ -14,6 +14,7 @@ import { fetchUsers, resetPassword, setUserBanned, adjustCredits, type UserRow }
 import { formatDate, formatCount } from '../../lib/adminFormat';
 import { searchRows, sortRows, paginateRows } from '../../lib/adminFilters';
 import DataTable, { type Column } from '../../components/ui/DataTable';
+import LoadError from '../../components/ui/LoadError';
 import Pagination from '../../components/ui/Pagination';
 import Modal from '../../components/ui/Modal';
 import StatusPill from '../../components/ui/StatusPill';
@@ -55,12 +56,27 @@ function AdjustCreditsModal({
   const [delta, setDelta] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const submit = async () => {
     const n = Number(delta);
-    if (!Number.isFinite(n) || n === 0 || !reason.trim() || !user.orgId) return;
+    // These used to be a bare `return`, while the button stayed enabled for any
+    // two non-blank fields — so "Apply" on a delta of 0, or on a user with no
+    // org, did nothing and said nothing.
+    if (!user.orgId) { setFormError('This user has no organization, so there is no balance to adjust.'); return; }
+    if (!Number.isFinite(n) || n === 0) { setFormError('Enter a non-zero whole number, e.g. 50 or -20.'); return; }
+    if (!reason.trim()) { setFormError('Give a reason — it is written to the audit log.'); return; }
+    // Money moves on confirm, not on a keystroke: "500" typed for "50" is only
+    // reversible by a second manual adjustment.
+    const rounded = Math.trunc(n);
+    const ok = window.confirm(
+      `${rounded > 0 ? 'Grant' : 'Remove'} ${Math.abs(rounded)} credit${Math.abs(rounded) === 1 ? '' : 's'} ` +
+        `${rounded > 0 ? 'to' : 'from'} ${user.orgName ?? 'this org'}?\n\nReason: ${reason.trim()}`,
+    );
+    if (!ok) return;
+    setFormError(null);
     setBusy(true);
-    const { data, error } = await adjustCredits(user.orgId, Math.trunc(n), reason.trim());
+    const { data, error } = await adjustCredits(user.orgId, rounded, reason.trim());
     setBusy(false);
     if (error || !data) { push('Could not adjust credits.', 'error'); return; }
     push(`${user.orgName ?? 'Org'} credits now ${formatCount(data.balance)}.`, 'success');
@@ -68,7 +84,7 @@ function AdjustCreditsModal({
   };
 
   return (
-    <Modal title={`Adjust credits — ${user.orgName ?? 'org'}`} onClose={onClose} maxWidthClass="max-w-sm">
+    <Modal title={`Adjust credits — ${user.orgName ?? 'org'}`} onClose={onClose} maxWidthClass="max-w-sm" dismissOnScrim={false}>
       <div className="flex flex-col gap-3">
         <label className="flex flex-col gap-1">
           <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">Delta (+/-)</span>
@@ -89,10 +105,13 @@ function AdjustCreditsModal({
             className="rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2 font-sans text-sm text-brand-fg outline-none focus:border-white/20"
           />
         </label>
+        {formError && (
+          <p role="alert" className="font-sans text-xs text-amber-300/90 leading-relaxed">{formError}</p>
+        )}
         <button
           onClick={submit}
           disabled={busy || !delta.trim() || !reason.trim()}
-          className="mt-1 rounded-full bg-foil px-6 py-2.5 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40"
+          className="mt-1 min-h-11 rounded-full bg-foil px-6 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40"
         >
           Apply
         </button>
@@ -105,6 +124,9 @@ export default function Users() {
   const { push } = useToast();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Non-null when the last load failed — the list below is then not
+   *  "no results", it is an unknown. */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [resetLink, setResetLink] = useState<string | null>(null);
@@ -114,7 +136,8 @@ export default function Users() {
 
   const load = async () => {
     setLoading(true);
-    const { data } = await fetchUsers();
+    const { data, error } = await fetchUsers();
+    setLoadError(error);
     setUsers(data?.users ?? []);
     setLoading(false);
   };
@@ -249,6 +272,8 @@ export default function Users() {
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </header>
+
+      {loadError && <LoadError what="users" code={loadError} onRetry={load} />}
 
       <div className="relative mb-4 max-w-xs">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted/40" />

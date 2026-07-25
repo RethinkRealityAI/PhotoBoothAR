@@ -37,6 +37,16 @@ export default function CustomerDetail() {
     const delta = Math.trunc(Number(grantAmt));
     const reason = grantReason.trim();
     if (!Number.isFinite(delta) || delta === 0 || !reason) { setGrantMsg('Enter a non-zero amount and a reason.'); return; }
+    // This is a bare <form>, so Enter in either field submitted it — and the
+    // adjustment applied instantly, with "500" typed for "50" only reversible
+    // by a second manual grant. Confirm the amount, the org and the result.
+    const balanceNow = detail?.creditBalance ?? 0;
+    const ok = window.confirm(
+      `${delta > 0 ? 'Grant' : 'Remove'} ${Math.abs(delta)} credit${Math.abs(delta) === 1 ? '' : 's'} ` +
+        `${delta > 0 ? 'to' : 'from'} ${detail?.org.name ?? 'this organization'}?\n\n` +
+        `Balance ${balanceNow} → ${balanceNow + delta}\nReason: ${reason}`,
+    );
+    if (!ok) return;
     setGranting(true); setGrantMsg(null);
     const { error } = await adjustCredits(orgId, delta, reason);
     setGranting(false);

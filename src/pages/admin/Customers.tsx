@@ -12,6 +12,7 @@ import { fetchOrgs, type OrgRow } from '../../lib/admin';
 import { formatCount, formatDate } from '../../lib/adminFormat';
 import { searchRows, sortRows, paginateRows } from '../../lib/adminFilters';
 import DataTable, { type Column } from '../../components/ui/DataTable';
+import LoadError from '../../components/ui/LoadError';
 import Pagination from '../../components/ui/Pagination';
 import StatusPill from '../../components/ui/StatusPill';
 
@@ -21,12 +22,16 @@ export default function Customers() {
   const navigate = useNavigate();
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Non-null when the last load failed — the list below is then not
+   *  "no results", it is an unknown. */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
 
   const load = async () => {
     setLoading(true);
-    const { data } = await fetchOrgs();
+    const { data, error } = await fetchOrgs();
+    setLoadError(error);
     setOrgs(data?.orgs ?? []);
     setLoading(false);
   };
@@ -65,6 +70,8 @@ export default function Customers() {
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </header>
+
+      {loadError && <LoadError what="customers" code={loadError} onRetry={load} />}
 
       <div className="relative mb-4 max-w-xs">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted/40" />

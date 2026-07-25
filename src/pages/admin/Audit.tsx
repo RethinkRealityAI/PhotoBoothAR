@@ -11,6 +11,7 @@ import { fetchAudit, type AuditEntry } from '../../lib/admin';
 import { formatDate } from '../../lib/adminFormat';
 import { searchRows, sortRows, paginateRows } from '../../lib/adminFilters';
 import DataTable, { type Column } from '../../components/ui/DataTable';
+import LoadError from '../../components/ui/LoadError';
 import Pagination from '../../components/ui/Pagination';
 
 const PAGE_SIZE = 15;
@@ -18,12 +19,16 @@ const PAGE_SIZE = 15;
 export default function Audit() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Non-null when the last load failed — the list below is then not
+   *  "no results", it is an unknown. */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
 
   const load = async () => {
     setLoading(true);
-    const { data } = await fetchAudit();
+    const { data, error } = await fetchAudit();
+    setLoadError(error);
     setEntries(data?.entries ?? []);
     setLoading(false);
   };
@@ -72,6 +77,8 @@ export default function Audit() {
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </header>
+
+      {loadError && <LoadError what="the audit log" code={loadError} onRetry={load} />}
 
       <div className="relative mb-4 max-w-xs">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted/40" />
