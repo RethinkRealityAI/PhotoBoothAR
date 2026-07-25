@@ -60,19 +60,28 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
             Step Inside
           </motion.button>
 
+          {/* The pre-camera disclosure. This was 8px uppercase at 30% opacity
+              with 0.28em tracking — not a legible disclosure by any measure,
+              on the one screen where a guest decides whether to turn on their
+              camera. Now sentence case at a readable size and contrast.
+              The claim itself was also softened from "only shared when you
+              choose": on a photo challenge the shot is uploaded for an
+              automatic check as soon as the guest presses send, so "leaves
+              this device when you send it" is what actually happens. */}
           <motion.p
-            className="mt-6 font-label uppercase tracking-luxe text-[8px] text-brand-muted/30 leading-relaxed"
+            className="mt-6 max-w-xs font-sans text-[13px] text-brand-muted/75 leading-relaxed"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 1.05, duration: 0.8 }}
           >
-            Camera access required · your photo is only shared when you choose
+            The camera runs on your device. Your photo only leaves it when you send it to the wall.
             {!IS_LEGACY_BUILD && (
               <>
-                {' '}· by continuing you agree to our{' '}
-                <Link to="/privacy" className="underline underline-offset-2 hover:text-brand-muted/60">
+                {' '}By continuing you agree to our{' '}
+                <Link to="/privacy" className="underline underline-offset-2 text-brand-fg/80 hover:text-brand-fg">
                   privacy policy
                 </Link>
+                .
               </>
             )}
           </motion.p>

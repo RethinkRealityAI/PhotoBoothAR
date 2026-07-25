@@ -1306,6 +1306,7 @@ export default function Booth() {
             const p = lastSubmitRef.current;
             if (p) doSubmit(p.guestName, p.message, p.withChallenge);
           }}
+          onBackToBooth={handleTakeAnother}
         />
       )}
     </div>
