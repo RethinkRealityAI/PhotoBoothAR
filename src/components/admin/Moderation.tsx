@@ -8,7 +8,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Eye, EyeOff, Trash2, RefreshCw, Check, X, Wifi, Play } from 'lucide-react';
 import EventBackground from '../ui/EventBackground';
-import { fetchPosts, setPostHidden, deletePost, subscribeToPosts } from '../../lib/db';
+import { fetchPostsResult, setPostHidden, deletePost, subscribeToPosts } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
 import type { Post } from '../../types';
 
@@ -177,13 +177,18 @@ export default function Moderation() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
+  /** The post read failed — distinct from an event with nothing to moderate. */
+  const [loadFailed, setLoadFailed] = useState(false);
   const unsubRef = useRef<(() => void) | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const data = await fetchPosts(eventId, { includeHidden: true });
+    // fetchPosts returns [] on error; this screen moderates guest content, so
+    // "the query failed" must not render as "no posts to review".
+    const { rows, failed } = await fetchPostsResult(eventId, { includeHidden: true });
+    setLoadFailed(failed);
     // Newest first
-    setPosts(data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+    setPosts(rows.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
     setLoading(false);
   }, [eventId]);
 
@@ -304,6 +309,19 @@ export default function Moderation() {
             {Array.from({ length: 10 }).map((_, i) => (
               <div key={i} className="glass rounded-2xl border border-gold-400/10 aspect-[9/16] animate-pulse" />
             ))}
+          </div>
+        ) : posts.length === 0 && loadFailed ? (
+          <div role="alert" className="glass rounded-2xl border border-amber-400/30 p-16 text-center">
+            <p className="font-serif italic text-2xl text-foil-static mb-2">Couldn’t load the posts</p>
+            <p className="font-sans text-sm text-champagne/60">
+              This is not confirmation that guests haven’t posted — the query failed.
+            </p>
+            <button
+              onClick={load}
+              className="mt-5 min-h-11 rounded-xl px-5 bg-white/[0.06] font-label uppercase tracking-luxe text-[10px] text-brand-fg"
+            >
+              Try again
+            </button>
           </div>
         ) : posts.length === 0 ? (
           <div className="glass rounded-2xl border border-gold-400/10 p-16 text-center">

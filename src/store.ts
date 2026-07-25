@@ -60,6 +60,9 @@ interface AppState {
   // Posts (wall)
   posts: Post[];
   postsLoaded: boolean;
+  /** The last fetch failed. Distinct from an empty list, so the wall can say
+   *  "we couldn't reach the wall" instead of "nobody has posted yet". */
+  postsFailed: boolean;
   fetchPosts: (includeHidden?: boolean) => Promise<void>;
   prependPost: (p: Post) => void;
   removePost: (id: string) => void;
@@ -68,6 +71,9 @@ interface AppState {
   // Challenges
   challenges: Challenge[];
   challengesLoaded: boolean;
+  /** As postsFailed — "this event added no challenges" is a very different
+   *  message from "we couldn't load them". */
+  challengesFailed: boolean;
   fetchChallenges: (activeOnly?: boolean) => Promise<void>;
 
   // Wall / feature settings (live-synced)
@@ -107,8 +113,10 @@ export const useStore = create<AppState>((set, get) => ({
       currentFilter: null,
       posts: [],
       postsLoaded: false,
+      postsFailed: false,
       challenges: [],
       challengesLoaded: false,
+      challengesFailed: false,
       wallSettings: { ...DEFAULT_WALL_SETTINGS },
       leaderboard: [],
       presetOverrides: { hidden: [], order: [] },
@@ -136,23 +144,52 @@ export const useStore = create<AppState>((set, get) => ({
 
   posts: [],
   postsLoaded: false,
+  postsFailed: false,
   fetchPosts: async (includeHidden = false) => {
-    const posts = await db.fetchPosts(get().eventId, { includeHidden });
-    set({ posts, postsLoaded: true });
+    const { rows, failed } = await db.fetchPostsResult(get().eventId, { includeHidden });
+    // Keep whatever we already had on a failed refresh — dropping a populated
+    // wall to empty because one poll failed is the same lie in slower motion.
+    if (failed) {
+      set({ postsFailed: true, postsLoaded: true });
+      return;
+    }
+    set({ posts: rows, postsLoaded: true, postsFailed: false });
   },
+  // The store's posts back the guest-facing wall, so only wall-visible posts
+  // (approved && !hidden) may enter or stay — pre-moderation events must never
+  // flash unapproved posts, and a hide/unapprove must remove instantly.
   prependPost: (p) => {
+    if (!p.approved || p.hidden) return;
     const posts = get().posts;
     if (posts.some((x) => x.id === p.id)) return;
     set({ posts: [p, ...posts] });
   },
   removePost: (id) => set({ posts: get().posts.filter((p) => p.id !== id) }),
-  updatePost: (p) => set({ posts: get().posts.map((x) => (x.id === p.id ? p : x)) }),
+  updatePost: (p) => {
+    const posts = get().posts;
+    if (!p.approved || p.hidden) {
+      set({ posts: posts.filter((x) => x.id !== p.id) });
+      return;
+    }
+    // A post approved just now (pre-moderation) won't be in the list yet —
+    // surface it; otherwise replace in place.
+    set({
+      posts: posts.some((x) => x.id === p.id)
+        ? posts.map((x) => (x.id === p.id ? p : x))
+        : [p, ...posts],
+    });
+  },
 
   challenges: [],
   challengesLoaded: false,
+  challengesFailed: false,
   fetchChallenges: async (activeOnly = false) => {
-    const challenges = await db.fetchChallenges(get().eventId, { activeOnly });
-    set({ challenges, challengesLoaded: true });
+    const { rows, failed } = await db.fetchChallengesResult(get().eventId, { activeOnly });
+    if (failed) {
+      set({ challengesFailed: true, challengesLoaded: true });
+      return;
+    }
+    set({ challenges: rows, challengesLoaded: true, challengesFailed: false });
   },
 
   wallSettings: { ...DEFAULT_WALL_SETTINGS },

@@ -5,7 +5,10 @@
  * Individual events still override the semantic tokens below via their own
  * theme.css (see src/events/*), which is unaffected by this default.
  */
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=Pinyon+Script&family=Jost:wght@300;400;500;600&display=swap');
+/* Platform fonts (Cormorant Garamond / Inter / Jost) load via preconnect +
+   <link rel="stylesheet"> in index.html — a render-blocking @import chain here
+   serialized behind the CSS bundle. Legacy/coded events keep injecting their
+   own fontHref (incl. Pinyon Script for the gala events) at runtime. */
 @import "tailwindcss";
 
 @theme {
@@ -72,6 +75,10 @@
   /* Accent as a raw "r, g, b" triplet for inline rgba(var(--accent-rgb), a)
      usages. Events override this in their theme.css. Default = beam blue. */
   --accent-rgb: 91, 140, 255;
+  /* Readable ink for text sitting ON the accent (.bg-foil). Recomputed from
+     the host's accent luminance by branding.ts; this is the default-theme
+     value. Event theme.css files may override it alongside --color-accent. */
+  --on-accent: #0A0806;
 }
 
 html, body, #root {
@@ -190,6 +197,93 @@ body {
   .hide-scrollbar::-webkit-scrollbar { display: none; }
   .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+  /* ── Elevation system ────────────────────────────────────────────────
+     What makes a surface read as FLOATING rather than painted on is two
+     shadows, not one: a tight contact shadow that anchors it just above the
+     canvas, plus a wide soft ambient shadow for the room light. The bevel is
+     the other half — a hairline white top-light and a dark bottom-shade on
+     the inside edge, which is how a real chamfered edge catches light.
+     Every colour derives from the active theme tokens, so an event's own
+     palette drives it (a gold event gets a gold bloom, not a blue one). */
+  .liquid-glass-raised {
+    position: relative;
+    isolation: isolate;
+    background:
+      linear-gradient(160deg, rgba(255,255,255,0.13) 0%, rgba(255,255,255,0.03) 40%, rgba(0,0,0,0.16) 100%),
+      radial-gradient(120% 100% at 50% 0%, rgba(var(--accent-rgb),0.16), transparent 60%),
+      rgba(14, 12, 20, 0.52);
+    backdrop-filter: blur(30px) saturate(190%);
+    -webkit-backdrop-filter: blur(30px) saturate(190%);
+    border: 1px solid rgba(255,255,255,0.14);
+    box-shadow:
+      /* contact */      0 2px 6px -1px rgba(0,0,0,0.55),
+      /* ambient */      0 24px 60px -18px rgba(0,0,0,0.78),
+      /* accent bloom */ 0 8px 40px -24px rgba(var(--accent-rgb),0.55),
+      /* bevel: top-light + bottom-shade */
+      inset 0 1px 0 rgba(255,255,255,0.34),
+      inset 0 -1px 0 rgba(0,0,0,0.45);
+  }
+
+  /* Recessed counterpart — input wells and incoming message bubbles, which
+     should sit INTO the surface rather than on top of it. */
+  .liquid-glass-inset {
+    background:
+      linear-gradient(180deg, rgba(0,0,0,0.22), rgba(255,255,255,0.03));
+    border: 1px solid rgba(255,255,255,0.09);
+    box-shadow:
+      inset 0 2px 6px -2px rgba(0,0,0,0.65),
+      inset 0 -1px 0 rgba(255,255,255,0.07);
+  }
+
+  /* ── Press micro-interaction ─────────────────────────────────────────
+     A control should visibly depress: it scales down AND its shadow
+     collapses, so it appears to move toward the canvas rather than just
+     shrink. Paired with lib/haptics.ts — the vibration is the enhancement,
+     this is the feedback every device gets (iOS Safari has no vibrate API). */
+  .pressable {
+    transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1),
+                box-shadow 140ms cubic-bezier(0.16, 1, 0.3, 1),
+                filter 140ms ease;
+    will-change: transform;
+  }
+  .pressable:active {
+    transform: translateY(1px) scale(0.965);
+    filter: brightness(1.06);
+  }
+  .pressable.liquid-glass-raised:active {
+    box-shadow:
+      0 1px 3px -1px rgba(0,0,0,0.5),
+      0 8px 20px -14px rgba(0,0,0,0.7),
+      inset 0 1px 0 rgba(255,255,255,0.22),
+      inset 0 -1px 0 rgba(0,0,0,0.4);
+  }
+
+  /* Slow specular sweep for hero-level surfaces. Hover-only, so it never
+     fires on touch, and it is switched off entirely under reduced motion. */
+  .sheen { position: relative; overflow: hidden; }
+  .sheen::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(105deg, transparent 38%, rgba(255,255,255,0.13) 48%, transparent 58%);
+    transform: translateX(-120%);
+    transition: transform 900ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .sheen:hover::after { transform: translateX(120%); }
+
+  /* Safe-area padding for notched phones. These were referenced in the booth,
+     onboarding and welcome markup long before they existed, so every notch
+     allowance in the app was silently inert.
+     They ADD to a base padding rather than replacing it, because a plain
+     `padding-*: env(...)` would win the cascade over the Tailwind class beside
+     it and collapse the design padding to zero on every non-notch device.
+     Usage: `class="pt-safe-top [--safe-top:0.75rem]"`. */
+  .pt-safe-top    { padding-top:    calc(env(safe-area-inset-top, 0px)    + var(--safe-top, 0px)); }
+  .pb-safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--safe-bottom, 0px)); }
+  .pl-safe-left   { padding-left:   calc(env(safe-area-inset-left, 0px)   + var(--safe-left, 0px)); }
+  .pr-safe-right  { padding-right:  calc(env(safe-area-inset-right, 0px)  + var(--safe-right, 0px)); }
+
   .tracking-luxe { letter-spacing: 0.28em; }
 
   /* Semantic decorative utilities (event-themable) */
@@ -249,8 +343,60 @@ body {
 .animate-rise-in { animation: rise-in 0.7s cubic-bezier(0.16,1,0.3,1) both; }
 .animate-pulse-glow { animation: pulse-glow 3.2s ease-in-out infinite; }
 .animate-float { animation: float-y 6s ease-in-out infinite; }
+/* Reduced motion. Decorative movement — levitation, glow pulses, the foil
+   shimmer and the rise-in translate — is switched off entirely. Spinners and
+   opacity-only skeleton pulses are deliberately kept: they communicate that
+   work is in progress, and a frozen spinner reads as a hung app. `rise-in`
+   degrades to a plain fade rather than disappearing, so entrances still land. */
 @media (prefers-reduced-motion: reduce) {
-  .animate-float { animation: none; }
+  .animate-float,
+  .animate-pulse-glow,
+  .text-foil,
+  .gold-foil {
+    animation: none;
+  }
+  .animate-rise-in { animation: rise-in-reduced 0.2s ease-out both; }
+  /* The press feedback stays — it is a direct response to the user's own
+     touch, not ambient motion — but it stops moving and only changes
+     brightness, and the specular sweep is switched off entirely. */
+  .pressable { transition: filter 120ms ease; }
+  .pressable:active { transform: none; }
+  .sheen::after { display: none; }
+}
+@keyframes rise-in-reduced {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Keyboard focus. No global focus style existed, and the booth shutter, the
+   auth inputs and several host controls set `outline-none` with no
+   replacement — so keyboard and switch-control users had no indicator at all
+   on the app's most important controls. Scoped to :focus-visible so pointer
+   users never see it. */
+/* No `border-radius` here. It does NOT shape the outline — browsers already
+   draw the outline following the element's own border-radius — it REPLACES the
+   focused element's radius with its parent's. Because this rule is unlayered
+   (which is how it beats the existing `outline-none` utilities) it also beats
+   `rounded-full`, so every pill button in the app squared off to 0px the moment
+   it took keyboard focus. Probed on /login: 3.35544e+07px -> 0px on focus. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Windows High Contrast / forced-colors: the foil text utilities paint their
+   colour through a clipped gradient, which forced-colors discards — leaving
+   every headline, price and the wordmark invisible. Restore a real colour. */
+@media (forced-colors: active) {
+  .text-foil,
+  .text-foil-static,
+  .gold-foil,
+  .gold-foil-static {
+    background: none;
+    -webkit-text-fill-color: CanvasText;
+    color: CanvasText;
+    animation: none;
+  }
 }
 
 /* Range inputs styled to the active accent */

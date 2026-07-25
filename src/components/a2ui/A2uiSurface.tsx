@@ -146,7 +146,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
     switch (c.component) {
       case 'Card':
         return (
-          <div key={key} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div key={key} className="liquid-glass-raised rounded-2xl p-4">
             {typeof c.child === 'string' && render(c.child, scope)}
           </div>
         );

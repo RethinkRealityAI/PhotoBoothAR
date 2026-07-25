@@ -14,13 +14,16 @@
  */
 import { useState } from 'react';
 import { ArrowUpRight, Check, Sparkles, X } from 'lucide-react';
-import { ENTITLEMENTS, normalizeTier, type PlanTier } from '../../lib/entitlements';
+import { ENTITLEMENTS, formatPostCap, formatRetention, normalizeTier, type PlanTier } from '../../lib/plans';
 import { startCheckout } from '../../lib/host';
+import Modal from '../../components/ui/Modal';
 
 type PaidTier = 'essentials' | 'premium' | 'deluxe';
 
-const fmtPosts = (n: number | null) => (n === null ? 'Unlimited posts' : `${n} posts`);
-const fmtRetention = (d: number | null) => (d === null ? 'Storage forever' : `${d}-day storage`);
+/* Shared with the landing pricing table (src/lib/entitlements.ts) so the two
+   descriptions of the same plan cannot drift apart again. */
+const fmtPosts = formatPostCap;
+const fmtRetention = formatRetention;
 
 /** Price + credit grant + entitlement-derived bullets per package. */
 export const PACKAGES: { tier: PaidTier; price: string; credits: number; tagline: string; bullets: string[] }[] = [
@@ -30,7 +33,7 @@ export const PACKAGES: { tier: PaidTier; price: string; credits: number; tagline
     credits: 20,
     tagline: 'The must-haves',
     bullets: [
-      fmtPosts(ENTITLEMENTS.essentials.maxPosts),
+      fmtPosts(ENTITLEMENTS.essentials.maxPosts, ENTITLEMENTS.essentials.videoEnabled),
       'No watermark',
       'Video capture',
       'AI studio (basic)',
@@ -45,7 +48,7 @@ export const PACKAGES: { tier: PaidTier; price: string; credits: number; tagline
     tagline: 'Most popular',
     bullets: [
       'Everything in Essentials',
-      fmtPosts(ENTITLEMENTS.premium.maxPosts),
+      fmtPosts(ENTITLEMENTS.premium.maxPosts, ENTITLEMENTS.premium.videoEnabled),
       'Standard photo cards',
       fmtRetention(ENTITLEMENTS.premium.retentionDays),
       '100 credits included',
@@ -134,25 +137,19 @@ export function UpgradeModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto" onClick={onClose}>
-      <div
-        className="liquid-glass rounded-3xl p-6 md:p-8 w-full max-w-3xl animate-rise-in my-8"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-4 mb-1">
-          <h2 className="font-serif text-2xl text-foil-static">Upgrade this event</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors" aria-label="Close">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    // A dialog that takes MONEY had no Escape, no focus trap and no focus
+    // restore. dismissOnScrim stays on (nothing is typed here, so a stray click
+    // costs nothing) but the keyboard now works.
+    <Modal title="Upgrade this event" onClose={onClose} maxWidthClass="max-w-3xl">
+      <div>
         <p className="font-sans text-xs text-brand-muted/60 mb-5">
           One-time purchase for this event only. Current plan: <TierPill tier={current} />
         </p>
 
-        {error === 'billing_not_configured' && (
+        {(error === 'billing_not_configured' || error === 'billing_test_mode') && (
           <div className="mb-4"><BillingPendingNotice onDismiss={() => setError(null)} /></div>
         )}
-        {error && error !== 'billing_not_configured' && (
+        {error && error !== 'billing_not_configured' && error !== 'billing_test_mode' && (
           <p className="mb-4 font-sans text-xs text-red-400">Couldn't start checkout ({error}). Please try again.</p>
         )}
 
@@ -196,7 +193,7 @@ export function UpgradeModal({
           })}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

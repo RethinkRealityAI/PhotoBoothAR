@@ -141,13 +141,22 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
 }
 
 /**
- * Resolve a slug to a runtime event: coded registry first, then the `events`
- * table. Returns null when the slug matches neither (caller shows a
- * "not found" screen).
+ * Outcome of resolving a slug. `missing` means the lookup succeeded and there
+ * is genuinely no such event; `unreachable` means we never got an answer.
+ * They are kept apart deliberately: collapsing both to null told a guest on
+ * bad venue wifi that the QR code in their hand was wrong.
  */
-export async function loadEventConfig(slug: string): Promise<RuntimeEvent | null> {
+export type EventLoad =
+  | { event: RuntimeEvent; error: null }
+  | { event: null; error: 'missing' | 'unreachable' };
+
+/**
+ * Resolve a slug to a runtime event: coded registry first, then the `events`
+ * table.
+ */
+export async function loadEventConfig(slug: string): Promise<EventLoad> {
   const code = getRegisteredEvent(slug);
-  if (code) return codeRuntimeEvent(slug, code);
+  if (code) return { event: codeRuntimeEvent(slug, code), error: null };
 
   const { data, error } = await supabase
     .from('events')
@@ -156,17 +165,20 @@ export async function loadEventConfig(slug: string): Promise<RuntimeEvent | null
     .maybeSingle();
   if (error) {
     console.error('[events] loadEventConfig', error);
-    return null;
+    return { event: null, error: 'unreachable' };
   }
-  if (!data) return null;
+  if (!data) return { event: null, error: 'missing' };
 
   const row = data as EventRow;
   return {
-    eventId: row.slug,
-    eventUuid: row.id,
-    status: row.status,
-    planTier: row.plan_tier ?? 'free',
-    config: buildRuntimeConfig(row),
-    source: 'db',
+    event: {
+      eventId: row.slug,
+      eventUuid: row.id,
+      status: row.status,
+      planTier: row.plan_tier ?? 'free',
+      config: buildRuntimeConfig(row),
+      source: 'db',
+    },
+    error: null,
   };
 }

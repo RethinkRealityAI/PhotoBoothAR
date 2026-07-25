@@ -66,6 +66,8 @@ export default function CopilotPanel() {
   const [selectedUuid, setSelectedUuid] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<EventSnapshot | null>(null);
   const [snapLoading, setSnapLoading] = useState(false);
+  /** The event list read failed — distinct from an account with no events. */
+  const [eventsFailed, setEventsFailed] = useState(false);
 
   // Load the host's events when the panel opens; auto-select the route event.
   useEffect(() => {
@@ -73,7 +75,11 @@ export default function CopilotPanel() {
     let alive = true;
     fetchMyEvents().then((rows) => {
       if (!alive) return;
-      const list = rows ?? []; // null = load failure; the popup degrades to no picker rows
+      // rows === null means the read FAILED. Collapsing that to [] showed a host
+      // with a dozen events an empty picker, which then made every copilot tool
+      // answer "pick an event first" with nothing to pick.
+      setEventsFailed(rows === null);
+      const list = rows ?? [];
       setEvents(list);
       setSelectedUuid((cur) => cur ?? routeUuid ?? (list.length === 1 ? list[0].id : null));
     });
@@ -131,7 +137,7 @@ export default function CopilotPanel() {
              shorthand's md: override lost the ordering fight and stranded the
              window top-left). The inline background re-solidifies the glass:
              liquid-glass alone is too transparent to read chat over a page. */
-          className="fixed z-[80] left-3 right-3 top-3 bottom-3 md:left-auto md:top-auto md:right-6 md:bottom-6 md:w-[420px] md:h-[680px] md:max-h-[calc(100dvh-3rem)] rounded-3xl overflow-hidden liquid-glass border border-white/10 shadow-[0_30px_90px_-20px_rgba(0,0,0,0.85)] flex flex-col"
+          className="fixed z-[80] left-3 right-3 top-3 bottom-3 md:left-auto md:top-auto md:right-6 md:bottom-6 md:w-[420px] md:h-[680px] md:max-h-[calc(100dvh-3rem)] rounded-3xl overflow-hidden liquid-glass-raised flex flex-col"
           /* position INLINE because .liquid-glass (unlayered CSS) declares
              position:relative, which beats the layered Tailwind `fixed`
              utility — that collision stranded the popup at the page's static
@@ -184,7 +190,9 @@ export default function CopilotPanel() {
                     style={{ colorScheme: 'dark' }}
                     className="w-full appearance-none rounded-xl bg-white/[0.04] border border-white/10 pl-3 pr-8 py-2 text-[12px] text-brand-fg outline-none focus:border-[color:var(--color-accent)]/60 [&>option]:bg-brand-surface [&>option]:text-brand-fg"
                   >
-                    <option value="">Just the platform (no event)</option>
+                    <option value="">
+                      {eventsFailed ? 'Couldn’t load your events' : 'Just the platform (no event)'}
+                    </option>
                     {(events ?? []).map((e) => (
                       <option key={e.id} value={e.id}>{e.name} · {e.status}</option>
                     ))}

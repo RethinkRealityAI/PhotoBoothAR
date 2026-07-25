@@ -11,6 +11,7 @@
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import type { ListQuery } from './serverList';
 import type { RevenueSummary } from './revenue';
 
 /** Is the current session a platform admin? UX gate only. */
@@ -92,8 +93,24 @@ export interface OrgRow {
   creditBalance: number;
 }
 
-export function fetchOrgs(): Promise<AdminResult<{ orgs: OrgRow[] }>> {
-  return adminApi('list_orgs');
+
+/**
+ * These three lists used to be fetched WHOLE — every org, every event, every
+ * order — and searched and paginated in the browser. That is a payload that
+ * grows without limit while the screen it feeds shows twenty rows. The server
+ * searches and pages now; `hasMore` says whether anything was left behind, so
+ * the screen can say so instead of implying it showed everything.
+ *
+ * `args` is spread into an explicit literal rather than passed through: ListQuery
+ * has no index signature, and widening it with a cast would hide a real mismatch
+ * if the shape ever diverges.
+ */
+function listArgs(q: ListQuery): Record<string, unknown> {
+  return { search: q.search, limit: q.limit, offset: q.offset };
+}
+
+export function fetchOrgs(q: ListQuery = {}): Promise<AdminResult<{ orgs: OrgRow[]; hasMore: boolean }>> {
+  return adminApi('list_orgs', listArgs(q));
 }
 
 export interface OrgMember {
@@ -154,8 +171,8 @@ export interface AdminEventRow {
   created_at: string;
 }
 
-export function fetchEvents(): Promise<AdminResult<{ events: AdminEventRow[] }>> {
-  return adminApi('list_events');
+export function fetchEvents(q: ListQuery = {}): Promise<AdminResult<{ events: AdminEventRow[]; hasMore: boolean }>> {
+  return adminApi('list_events', listArgs(q));
 }
 
 export function setEventStatus(eventId: string, status: string): Promise<AdminResult<{ id: string; status: string }>> {
@@ -180,8 +197,8 @@ export interface OrderRow {
   orgName: string;
 }
 
-export function fetchOrders(): Promise<AdminResult<{ orders: OrderRow[] }>> {
-  return adminApi('list_orders');
+export function fetchOrders(q: ListQuery = {}): Promise<AdminResult<{ orders: OrderRow[]; hasMore: boolean }>> {
+  return adminApi('list_orders', listArgs(q));
 }
 
 export function fetchRevenueSummary(): Promise<AdminResult<RevenueSummary>> {
@@ -201,8 +218,8 @@ export interface UserRow {
   isPlatformAdmin: boolean;
 }
 
-export function fetchUsers(): Promise<AdminResult<{ users: UserRow[] }>> {
-  return adminApi('list_users');
+export function fetchUsers(q: ListQuery = {}): Promise<AdminResult<{ users: UserRow[]; hasMore: boolean }>> {
+  return adminApi('list_users', listArgs(q));
 }
 
 /** Returns the recovery link once — a session-granting secret. Never log,
@@ -272,9 +289,15 @@ export interface AuditEntry {
   created_at: string;
 }
 
-/** Most recent 200 entries — the audit log is operational, not archival. */
-export function fetchAudit(): Promise<AdminResult<{ entries: AuditEntry[] }>> {
-  return adminApi('list_audit');
+/**
+ * Newest first, searched and paged on the server.
+ *
+ * Search matches the action, target type and target id. It does NOT match the
+ * actor's email — that lives in auth.users rather than on the row, so filtering
+ * by it would mean resolving every actor on the platform before paging.
+ */
+export function fetchAudit(q: ListQuery = {}): Promise<AdminResult<{ entries: AuditEntry[]; hasMore: boolean }>> {
+  return adminApi('list_audit', listArgs(q));
 }
 
 export interface AdminRow {

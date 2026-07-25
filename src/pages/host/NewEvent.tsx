@@ -218,6 +218,11 @@ export default function NewEvent() {
       .filter((m) => !m.localOnly)
       .map(({ role, content: c }) => ({ role, content: c }));
     const res = await designEvent(history, image); // never throws — falls back to the local planner
+    // Honesty: when the AI was unreachable and the local keyword planner answered,
+    // say so instead of passing the template match off as the AI designer.
+    const reply = res.source === 'local'
+      ? `${res.reply}\n\n(Heads up: our AI designer is offline right now, so I used a quick template match instead — you can restyle everything in the studio.)`
+      : res.reply;
     applyPlan(res.plan, res.decided);
     setSurfaces((s) => {
       let merged = applySurfaceMessages(s, res.a2ui);
@@ -235,7 +240,7 @@ export default function NewEvent() {
       }
       return merged;
     });
-    setChatMessages([...next, { role: 'assistant', content: res.reply, surfaceId: res.surfaceId }]);
+    setChatMessages([...next, { role: 'assistant', content: reply, surfaceId: res.surfaceId }]);
     setChatBusy(false);
   };
 
@@ -358,7 +363,9 @@ export default function NewEvent() {
   };
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const guestUrl = created ? `${origin}/e/${created.slug}` : '';
+  // Same shape as the link EventsList hands out — two different "guest links"
+  // for one event is how a host ends up printing the wrong QR.
+  const guestUrl = created ? `${origin}/e/${created.slug}/welcome` : '';
 
   /* ── Post-create build phase: the concierge conversation continues, now
         event-aware, so the host builds the whole experience inline. ── */
@@ -382,8 +389,16 @@ export default function NewEvent() {
                 {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
               </button>
             </div>
+            {/* Events are always created as drafts, but this screen hands over
+                a link and a QR with no hint that guests can't open them yet —
+                exactly the thing a host would print. EventsList already warns. */}
+            <p className="mt-0.5 font-sans text-[11px] text-amber-300/80 leading-snug">
+              Draft — this link won’t open for guests until you go live.
+            </p>
           </div>
-          <div className="hidden sm:block rounded-lg p-1.5 bg-brand-fg/95 shrink-0">
+          {/* Shown on phones too: this is the screen a host reaches straight
+              after creating an event, and it exists to hand over the QR. */}
+          <div className="rounded-lg p-1.5 bg-brand-fg/95 shrink-0">
             <QRCodeSVG value={guestUrl} size={56} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
           </div>
           <div className="shrink-0 flex flex-col gap-1.5">

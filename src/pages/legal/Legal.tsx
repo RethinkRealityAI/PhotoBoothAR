@@ -11,6 +11,7 @@
  */
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
+import { usePageTitle } from '../../lib/usePageTitle';
 
 /** Confirm these before launch. */
 const OPERATOR = 'Beamwall, operated by RethinkReality';
@@ -60,6 +61,18 @@ const PRIVACY: Section[] = [
       'Service providers who process data on our behalf under contract: Supabase (authentication, database and media storage), Stripe (payments), and the AI providers that generate optional frames, images and 3D props when a host uses those studio features. These providers may only use the data to provide their service to us.',
       'At an event, captures and messages a guest submits are shown publicly on that event’s wall by design, and are visible to the event’s host and staff.',
       'We may disclose information if required by law, or to protect the rights and safety of our users and the service.',
+    ],
+  },
+  {
+    // The public homepage streams approved captures from real events into its
+    // hero strip. That use was not covered by any clause here — this states it
+    // plainly, and states how to opt out. FLAGGED FOR COUNSEL alongside the
+    // rest of this document.
+    heading: 'Showing event photos on our own site',
+    body: [
+      'We may feature approved captures from real events on our marketing pages, including the live strip on our homepage, to show what the product does. Only captures a host has approved and not hidden are ever eligible.',
+      `Hosts can ask us to exclude their event from this at any time, and guests can ask for a specific capture to be removed, by emailing ${CONTACT}. We remove it from our marketing surfaces on request.`,
+      'We do not sell event content.',
     ],
   },
   {
@@ -150,6 +163,7 @@ const TERMS: Section[] = [
 
 export default function Legal({ doc }: { doc: 'privacy' | 'terms' }) {
   const isPrivacy = doc === 'privacy';
+  usePageTitle(isPrivacy ? 'Privacy — Beamwall' : 'Terms — Beamwall');
   const title = isPrivacy ? 'Privacy Policy' : 'Terms of Service';
   const sections = isPrivacy ? PRIVACY : TERMS;
   return (

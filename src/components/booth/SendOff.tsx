@@ -29,6 +29,10 @@ interface Props {
   mediaType?: 'image' | 'video';
   uploading: boolean;
   success: boolean;
+  /** Pre-moderation events insert approved=false — the success copy must say
+   *  "sent for review", not promise the wall. Optional so legacy builds
+   *  (always approved) are untouched. */
+  pendingApproval?: boolean;
   onTakeAnother: () => void;
 }
 
@@ -154,7 +158,7 @@ function GoldMotes({ play }: { play: boolean }) {
   );
 }
 
-export default function SendOff({ dataUrl, mediaType = 'image', uploading, success, onTakeAnother }: Props) {
+export default function SendOff({ dataUrl, mediaType = 'image', uploading, success, pendingApproval = false, onTakeAnother }: Props) {
   const { config, basePath } = useEvent();
   const copy = useStore((s) => s.copy);
   const GOLD_COLORS = config.accentHexes.slice(0, 3);
@@ -404,7 +408,9 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
                 transition={{ delay: 0.55, duration: 0.6 }}
                 className="mx-auto max-w-xs font-sans text-sm leading-relaxed text-champagne/70"
               >
-                Your {isVideo ? 'video' : 'photo'} is on its way to the live wall.
+                {pendingApproval
+                  ? `Your ${isVideo ? 'video' : 'photo'} was sent to the hosts for review — it joins the live wall once approved.`
+                  : `Your ${isVideo ? 'video' : 'photo'} is on its way to the live wall.`}
                 {copy.thankYou}
               </motion.p>
             </div>

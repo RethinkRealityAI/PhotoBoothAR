@@ -170,6 +170,22 @@
     return el;
   }
 
+  /* Transition beam: a soft light bar that wipes across the frame at a
+   * scene boundary. Build once per composition, fire with sweepAt. */
+  function buildSweep(root, prefix) {
+    var sw = document.createElement("div");
+    sw.className = "bw-sweep";
+    sw.id = prefix + "-sweep";
+    root.appendChild(sw);
+  }
+  function sweepAt(tl, prefix, t) {
+    var sel = "#" + prefix + "-sweep";
+    tl.fromTo(sel, { x: 0 }, { x: 2600, duration: 0.8, ease: "power2.inOut" }, t);
+    tl.fromTo(sel, { opacity: 0 }, { opacity: 1, duration: 0.25, ease: "power1.in" }, t);
+    tl.to(sel, { opacity: 0, duration: 0.3, ease: "power1.out" }, t + 0.5);
+    tl.set(sel, { opacity: 0 }, t + 0.82);
+  }
+
   /* Register the composition's paused timeline under its id. */
   function register(id, tl) {
     window.__timelines = window.__timelines || {};
@@ -186,6 +202,8 @@
     buildBackdrop: buildBackdrop,
     animateBackdrop: animateBackdrop,
     flashAt: flashAt,
+    buildSweep: buildSweep,
+    sweepAt: sweepAt,
     icon: icon,
     phone: phone,
     frame: frame,

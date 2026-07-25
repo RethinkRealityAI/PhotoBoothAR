@@ -4,11 +4,17 @@
  *
  * Jenna & Jake — EDM festival wedding event.
  */
+import { lazy } from 'react';
 import type { EventConfig } from '../types';
 import { jennaJakeCopy } from './copy';
 import { jennaJakeAR } from './arContent';
 import { JennaJakeWordmark, JennaJakeMark, JennaJakeEmblem } from './Logo';
-import FestivalBackground from './Background';
+
+// Lazy: Background imports three/R3F/drei — keeping it out of this module's
+// eager graph keeps the whole 3D stack out of the marketing entry bundle
+// (main.tsx → events/active → registry → this config). Rendered inside
+// ui/EventBackground's Suspense.
+const FestivalBackground = lazy(() => import('./Background'));
 
 export const jennaJake: EventConfig = {
   id: 'jenna-jake',

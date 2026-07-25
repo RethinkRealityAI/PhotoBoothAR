@@ -9,10 +9,9 @@
  * unpublished experience — we load its asset into the current draft for
  * placement + publish.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Loader, Wand2 } from 'lucide-react';
-import { generateImage, resolveEventUuid, aiErrorMessage } from '../../lib/ai';
-import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
+import { generateImage, resolveEventUuid, aiErrorMessage, fetchEventCreditBalance } from '../../lib/ai';
 import { useEvent } from '../../events/EventContext';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import type { Experience } from '../../types';
@@ -36,13 +35,19 @@ export default function AiFramePanel({
   // (the raw green asset is saved server-side; reprocessing costs nothing).
   const [pendingRaw, setPendingRaw] = useState<Experience | null>(null);
 
+  // Balance of the EVENT's org — the org ai-generate-image actually charges
+  // (event.org_id), not the caller's first org membership (they can differ
+  // for multi-org members; the old fetchMyOrg() showed the wrong wallet).
   const refreshBalance = useCallback(async (): Promise<number | null> => {
-    const org = await fetchMyOrg();
-    if (!org) return null;
-    const bal = await fetchCreditBalance(org.orgId);
+    const uuid = await resolveEventUuid(eventId, eventUuid);
+    if (!uuid) return null;
+    const bal = await fetchEventCreditBalance(uuid);
     setBalance(bal);
     return bal;
-  }, []);
+  }, [eventId, eventUuid]);
+
+  // Show the live balance where generation is offered — not only after a spend.
+  useEffect(() => { void refreshBalance(); }, [refreshBalance]);
 
   const generate = async () => {
     if (!prompt.trim() || loading) return;

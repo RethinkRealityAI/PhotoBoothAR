@@ -139,7 +139,7 @@ export default function Branding() {
 
   const handleLogo = async (file: File) => {
     setUploading(true);
-    const url = await uploadAsset(file, `logo-${eventId}`);
+    const url = await uploadAsset(eventId, file, `logo-${eventId}`);
     setUploading(false);
     if (url) patch({ logoUrl: url });
   };

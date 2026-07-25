@@ -21,11 +21,16 @@
  * Meshy REST endpoints used:
  *   text  → POST https://api.meshy.ai/openapi/v2/text-to-3d
  *             { mode: 'preview', prompt, art_style: 'realistic',
- *               topology: 'triangle', target_polycount }
+ *               topology: 'triangle', should_remesh, target_polycount }
  *   image → POST https://api.meshy.ai/openapi/v1/image-to-3d
- *             { image_url, should_texture: true,
- *               target_polycount: min(input ?? 30000, 50000), topology: 'triangle' }
+ *             { image_url, should_texture: true, texture_prompt?,
+ *               topology: 'triangle', should_remesh, target_polycount }
  * Both return { result: '<task-id>' }; completion is handled by ai-job-status.
+ *
+ * TEXT IS TWO-STAGE. `mode: 'preview'` returns geometry ONLY — an untextured
+ * grey mesh. ai-job-status starts the second (`mode: 'refine'`) task when the
+ * preview succeeds, and falls back to shipping the preview if refine can't run.
+ * Image→3D is single-stage: `should_texture: true` textures it in one pass.
  *
  * Credits: 10 per job (strategy doc), spent FIRST via spend_credits
  * (reason 'ai_3d'); any failure before the task is accepted refunds via
@@ -84,6 +89,85 @@ class AiError extends Error {
   }
 }
 
+/* ── Wearability guard ───────────────────────────────────────────────────
+ * MIRRORED from src/lib/assetPrompt.ts (buildMeshyPrompt). Edge functions
+ * cannot import from src/, so the two carry the same rules — change one,
+ * change the other.
+ *
+ * Meshy was being handed the host's raw brief with art_style 'realistic' and
+ * nothing else, so it returned exactly what that asks for: a closed, solid
+ * object. A mask came back as a face-shaped lump with no cavity, a hat as a
+ * dome with no opening. The geometry has to be stated or it does not happen.
+ *
+ * Applied server-side so EVERY caller is covered, not just the Director panel.
+ * It used to skip enrichment when the prompt already contained "Geometry:", to
+ * avoid stating the rules twice — but no caller sends an enriched prompt (every
+ * one passes the host's raw brief, because ai-job-status names the experience
+ * from it), so the only thing that check could still do was let a host disable
+ * the geometry rules by typing "Geometry:" into their brief. */
+
+const KIND_GEOMETRY: { re: RegExp; text: string }[] = [
+  {
+    re: /\b(glasses|sunglasses|shades|spectacles|goggles|monocle|visor)\b/i,
+    text: 'an eyewear frame — two rims joined by a bridge with temple arms folding back, the lens area ' +
+      'empty or a thin transparent sheet, NOT solid blocks. No face, no head, no mannequin',
+  },
+  // Helmet BEFORE mask: the mask rules ask for "cut-through eye openings and an
+  // open lower edge", which is right for a face mask and wrong for a helmet.
+  {
+    re: /\b(helmet|hardhat|hard ?hat|astronaut|space ?suit|diving ?bell)\b/i,
+    text: 'a HOLLOW helmet shell a whole head fits inside — concave inside, a large open neck opening ' +
+      'at the bottom and an open face gap at the front (not two small eye holes), wall roughly 5-8mm. ' +
+      'No head, no face, no mannequin, no solid interior filling the cavity',
+  },
+  {
+    re: /\b(mask|masquerade|balaclava|face ?cover|respirator)\b/i,
+    text: 'a HOLLOW curved shell that fits over a human face — concave inside, open at the back, with ' +
+      'cut-through eye openings and an open lower edge, wall roughly 3-5mm. No face, no head, no ' +
+      'mannequin, no solid interior filling the cavity',
+  },
+  {
+    re: /\b(crown|tiara|diadem|coronet|halo|laurel)\b/i,
+    text: 'an OPEN circular band — a ring hollow through the middle with the decorative points rising ' +
+      'from it, the centre empty air rather than a solid disc or dome. No head, no bust, no stand',
+  },
+  {
+    re: /\b(hat|cap|beanie|fedora|top ?hat|sombrero|beret|headdress|turban|bonnet|hood)\b/i,
+    text: 'a HOLLOW hat with an open underside — the crown a shell with an empty cavity where a head ' +
+      'would go, the brim a thin surface, wall roughly 4-6mm. No head, no mannequin, no stand',
+  },
+  {
+    re: /\b(ears?|antlers?|horns?|antennae|headband)\b/i,
+    text: 'a thin headband arc with the shapes rising from it — an open arc, not a closed ring and not ' +
+      'a solid cap, the space under the arc empty. No head, no hair, no mannequin',
+  },
+];
+
+const GENERIC_GEOMETRY =
+  'a single object built to be worn on or near the head. Any part that encloses the head or face must ' +
+  'be a HOLLOW shell with an opening where the head goes, roughly 4-6mm thick — never a solid mass. ' +
+  'No head, no face, no mannequin, no bust, no stand';
+
+/**
+ * Wrap a raw brief with the geometry rules for whatever it appears to be.
+ *
+ * Applied ONLY to what Meshy receives. The job's `input.prompt` keeps the raw
+ * brief, because ai-job-status names the resulting experience from it
+ * (nameFromPrompt, truncated to 40 chars) — enriching before storing would
+ * name the piece "a venetian mask. Geometry: a HOLLOW cu...".
+ */
+function withWearability(prompt: string): string {
+  const geometry = KIND_GEOMETRY.find((k) => k.re.test(prompt))?.text ?? GENERIC_GEOMETRY;
+  return [
+    `${prompt.trim()}.`,
+    `Geometry: ${geometry}.`,
+    'ONE single connected object, centred, facing forward, left-right symmetric unless deliberately ' +
+      'asymmetric. No scene, no background objects, no text, no logos, no packaging.',
+    'Watertight where it is solid, genuinely open where it should be open. No interpenetrating parts, ' +
+      'no floating disconnected pieces.',
+  ].join(' ');
+}
+
 /** Create the Meshy task; returns the provider task id. */
 async function createMeshyTask(
   mode: 'text' | 'image',
@@ -95,19 +179,30 @@ async function createMeshyTask(
   if (!key) throw new AiError('ai_not_configured');
 
   const url = mode === 'text' ? MESHY_TEXT_URL : MESHY_IMAGE_URL;
+  // should_remesh is explicit because it defaults to FALSE on Meshy's current
+  // models — without it target_polycount is silently ignored and we ship a
+  // ~300k-triangle mesh to a phone that is already running a camera feed, a
+  // WebGL shader and face tracking. topology stays 'triangle' (right for
+  // runtime; quad is for DCC round-tripping).
   const reqBody = mode === 'text'
     ? {
         mode: 'preview',
-        prompt,
+        prompt: withWearability(prompt ?? ''),
         art_style: 'realistic',
         topology: 'triangle',
+        should_remesh: true,
         target_polycount: targetPolycount,
       }
     : {
         image_url: imageUrl,
         should_texture: true,
-        target_polycount: targetPolycount,
+        // Image->3D does accept texture guidance even though it takes no
+        // geometry prompt — this is where the brief's material language
+        // ("brushed gold", "matte black with neon trim") earns its keep.
+        ...(prompt ? { texture_prompt: prompt.slice(0, 600) } : {}),
         topology: 'triangle',
+        should_remesh: true,
+        target_polycount: targetPolycount,
       };
 
   const res = await fetch(url, {
@@ -255,7 +350,11 @@ Deno.serve(async (req: Request) => {
         kind: 'model3d',
         provider: 'meshy',
         status: 'running',
-        input: { mode, prompt, imageUrl, targetPolycount, ref },
+        // `stage` drives ai-job-status's two-stage hand-off: a text job's
+        // preview task returns untextured geometry, so when it succeeds
+        // ai-job-status starts the refine pass and flips this to 'refine'.
+        // Image→3D is single-stage and stays on 'preview' forever.
+        input: { mode, prompt, imageUrl, targetPolycount, ref, stage: 'preview' },
         credits_charged: COST_3D,
       })
       .select()

@@ -21,9 +21,9 @@ Ordered path to real paying customers:
 3. ~~**Kill the default-event redirect leak**~~ — done: bare runtime paths (`/booth`,
    `/wall`, …) now redirect to `/e/demo` (the neutral Demo Sandbox org's event), not a
    real customer's live gala. `VITE_DEFAULT_EVENT` still overrides if ever needed.
-4. **In-app password reset** — there is no self-serve "forgot password" screen
-   (`src/pages/auth/*`). Admin-mediated reset (`generateLink`, admin Phase 4) is live for
-   platform admins; a guest self-serve reset is still a gap.
+4. ~~**In-app password reset**~~ — done (PR #17): self-serve `/forgot-password` +
+   `/reset-password` (`src/pages/auth/ForgotPassword.tsx` / `ResetPassword.tsx`), plus the
+   admin-mediated reset (`generateLink`, admin Phase 4) for platform admins.
 5. **Remaining go-live keys** — AI (Gemini/Meshy), Resend email, HeyGen film, custom
    domain (all optional / degrade gracefully; `DEPLOYMENT-CHECKLIST.md` §2,4,5,6).
 

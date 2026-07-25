@@ -80,5 +80,14 @@ jobs:
             echo "No changes — assets already vendored."
           else
             git commit -m "chore: vendor remote assets from manifest"
+            # The branch may have moved while this job downloaded (another
+            # session pushing) — a plain push then rejects as non-fast-forward
+            # and the whole fetch is lost. Rebase-retry a few times; vendored
+            # files are brand-new paths, so the rebase never conflicts.
+            for i in 1 2 3; do
+              git push && exit 0
+              echo "push rejected (attempt $i) — rebasing onto the moved branch"
+              git pull --rebase
+            done
             git push
           fi

@@ -18,8 +18,9 @@
  *   showChallenges    — shows/hides the challenges ticker strip.
  *   featuredSpotlight — periodic full-screen photo/CTA spotlight in Gallery mode.
  *
- * `mode` + `projectionMode` persist to localStorage (beamwall:wall:<eventId>)
- * so a projector refresh restores the wall.
+ * `mode`, `projectionMode` and the per-device QR override persist to
+ * localStorage (beamwall:wall:<eventId>) so a projector refresh restores the
+ * wall exactly as the operator left it.
  *
  * Realtime: subscribeToPosts; fallback poll every ~20 s.
  * Beam-in: fires <BeamIn/> overlay on every onInsert event.
@@ -29,7 +30,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { QrCode } from 'lucide-react';
 import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
-import { subscribeToPosts, subscribeToSettings, setWallSettings as dbSetWallSettings } from '../lib/db';
+import { subscribeToPosts, subscribeToSettings } from '../lib/db';
 import { Post } from '../types';
 import EventBackground from './ui/EventBackground';
 import { Wordmark } from './ui/EventLogo';
@@ -45,18 +46,27 @@ import ChallengesTicker from './wall/ChallengesTicker';
 import WallLightbox from './wall/WallLightbox';
 import FeaturedSpotlight from './wall/FeaturedSpotlight';
 import EmptyWall from './wall/EmptyWall';
+import FetchFailed from './ui/FetchFailed';
+import { listState } from '../lib/listState';
 
 type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard';
 
-/** Restore persisted { mode, projectionMode } for a projector refresh. */
-function readPersistedWallState(eventId: string): { mode?: ViewMode; projectionMode?: boolean } {
+/** Restore persisted { mode, projectionMode, qrOverride } for a projector refresh. */
+function readPersistedWallState(eventId: string): {
+  mode?: ViewMode;
+  projectionMode?: boolean;
+  qrOverride?: boolean | null;
+} {
   try {
     const raw = localStorage.getItem(`beamwall:wall:${eventId}`);
     if (!raw) return {};
-    const v = JSON.parse(raw) as { mode?: unknown; projectionMode?: unknown };
+    const v = JSON.parse(raw) as { mode?: unknown; projectionMode?: unknown; qrOverride?: unknown };
     return {
       mode: v.mode === 'mosaic' || v.mode === 'slideshow' || v.mode === 'leaderboard' ? v.mode : undefined,
       projectionMode: typeof v.projectionMode === 'boolean' ? v.projectionMode : undefined,
+      // Explicitly null-vs-undefined: null is a stored "follow the host's
+      // setting", undefined is "nothing stored". Truthiness would merge them.
+      qrOverride: typeof v.qrOverride === 'boolean' ? v.qrOverride : null,
     };
   } catch {
     return {}; // unavailable/corrupt storage — fall back to defaults
@@ -68,6 +78,7 @@ export default function Wall() {
   const {
     posts,
     postsLoaded,
+    postsFailed,
     fetchPosts,
     prependPost,
     removePost,
@@ -83,19 +94,29 @@ export default function Wall() {
   const [projectionMode, setProjectionMode] = useState(
     () => readPersistedWallState(eventId).projectionMode ?? false,
   );
+  /** Per-device QR visibility override; null = follow the host's setting.
+   *  Persisted beside mode/projectionMode: this replaced a value that lived in
+   *  the database, so leaving it in memory only would have meant the venue
+   *  operator lost their choice on every projector refresh. */
+  const [qrOverride, setQrOverride] = useState<boolean | null>(
+    () => readPersistedWallState(eventId).qrOverride ?? null,
+  );
   const [lightboxPost, setLightboxPost] = useState<Post | null>(null);
   const [slideshowIndex, setSlideshowIndex] = useState(0);
   // Freshly beamed-in post the Featured Spotlight should feature next.
   const [pendingFeatureId, setPendingFeatureId] = useState<string | null>(null);
 
-  // Persist { mode, projectionMode } for this event.
+  // Persist { mode, projectionMode, qrOverride } for this event.
   useEffect(() => {
     try {
-      localStorage.setItem(`beamwall:wall:${eventId}`, JSON.stringify({ mode, projectionMode }));
+      localStorage.setItem(
+        `beamwall:wall:${eventId}`,
+        JSON.stringify({ mode, projectionMode, qrOverride }),
+      );
     } catch {
       // storage unavailable (private mode/quota) — persistence is best-effort
     }
-  }, [eventId, mode, projectionMode]);
+  }, [eventId, mode, projectionMode, qrOverride]);
 
   // Controls auto-hide (projection mode hides the toggle bar after 4 s idle)
   const [showChrome, setShowChrome] = useState(true);
@@ -131,6 +152,20 @@ export default function Wall() {
     if (!postsLoaded) fetchPosts();
   }, [postsLoaded, fetchPosts]);
 
+  // What the gallery area should show. Previously this was just
+  // `posts.length === 0`, which conflated three different situations: the
+  // first fetch still in flight (so "Be the first to capture a moment"
+  // flashed before the grid popped in), a fetch that failed (the wall
+  // claiming nobody had posted), and a genuinely empty wall.
+  const galleryState = listState({ count: posts.length, loaded: postsLoaded, failed: postsFailed });
+
+  const [retrying, setRetrying] = useState(false);
+  const retryPosts = useCallback(async () => {
+    setRetrying(true);
+    await fetchPosts();
+    setRetrying(false);
+  }, [fetchPosts]);
+
   useEffect(() => {
     fetchWallSettings();
   }, [fetchWallSettings]);
@@ -157,6 +192,9 @@ export default function Wall() {
   // ----------------------------------------------------------------
   const handleInsert = useCallback(
     (post: Post) => {
+      // visibleOnly subscription already filters; keep a guard so a beam-in
+      // can never fire for a post the wall won't show (pre-moderation).
+      if (!post.approved || post.hidden) return;
       prependPost(post);
       setBeamQueue((q) => [...q, { id: post.id, guestName: post.guest_name }]);
       // Feature the newest arrival in the spotlight once the beam-in clears
@@ -178,11 +216,23 @@ export default function Wall() {
   );
 
   useEffect(() => {
+    // visibleOnly: unapproved/hidden posts never reach the wall, and a hide/
+    // unapprove arrives as onDelete → removed instantly (no 20 s poll wait).
     const unsubscribe = subscribeToPosts(eventId, {
       onInsert: handleInsert,
-      onUpdate: updatePost,
+      onUpdate: (post) => {
+        // A pre-moderation post approved just now arrives as an UPDATE the
+        // wall has never seen — give it the full new-arrival ceremony (beam,
+        // fresh badge, spotlight) instead of silently prepending.
+        const known = useStore.getState().posts.some((p) => p.id === post.id);
+        if (!known && post.approved && !post.hidden) {
+          handleInsert(post);
+        } else {
+          updatePost(post);
+        }
+      },
       onDelete: removePost,
-    });
+    }, { visibleOnly: true });
     return unsubscribe;
   }, [eventId, handleInsert, updatePost, removePost]);
 
@@ -242,12 +292,34 @@ export default function Wall() {
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
-  // Toggle the QR codes from the wall itself (persists + live-syncs to all screens).
+  /** The placeholder shown in place of the grid when there is nothing to draw.
+   *  Declared after `origin` because EmptyWall needs it. */
+  const galleryPlaceholder =
+    galleryState === 'failed' ? (
+      <FetchFailed what="the wall" onRetry={retryPosts} retrying={retrying} />
+    ) : galleryState === 'loading' ? (
+      <div className="flex h-full items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-white/15 border-t-[color:var(--color-accent)] animate-spin" />
+      </div>
+    ) : (
+      <EmptyWall origin={`${origin}${basePath}`} />
+    );
+
+  // Show/hide the QR codes on THIS screen only.
+  //
+  // This used to write wallSettings for the whole event and live-sync it to
+  // every other screen — but /e/:slug/wall is a guest-reachable route with no
+  // auth, so any guest could hide the join QR that every other guest needs,
+  // on the projector, from their phone. (The write also swallowed its own
+  // failure, so a denied write still flipped the button.) The event-wide
+  // value stays where it belongs, under the host's control in Settings; this
+  // is now a local override for the device you are looking at.
   const toggleQR = useCallback(() => {
-    const next = !wallSettings.showQR;
-    setWallSettings({ ...wallSettings, showQR: next }); // optimistic
-    dbSetWallSettings(eventId, { showQR: next }).catch(() => {});
-  }, [eventId, wallSettings, setWallSettings]);
+    setQrOverride((prev) => !(prev ?? wallSettings.showQR));
+  }, [wallSettings.showQR]);
+
+  /** Effective QR visibility: this device's override, else the host's setting. */
+  const showQR = qrOverride ?? wallSettings.showQR;
 
   // Available mode tabs (leaderboard gated by setting)
   const modeTabs: { id: ViewMode; label: string }[] = [
@@ -265,6 +337,10 @@ export default function Wall() {
     <div
       className="absolute inset-0 flex flex-col overflow-hidden bg-noir-900"
       onMouseMove={handleMouseMove}
+      // Projection mode hides all chrome and its only escape used to be bound
+      // to onMouseMove, which never fires on a phone — a guest who tapped
+      // Project was trapped, and the flag persists across reloads.
+      onTouchStart={handleMouseMove}
     >
       {/* Background — always rendered */}
       <EventBackground density={projectionMode ? 90 : 70} />
@@ -272,8 +348,8 @@ export default function Wall() {
       {/* ── Gallery: Marquee (scrolling rows) or Mosaic (masonry grid) ── */}
       {mode === 'mosaic' && (
         <div className="absolute inset-0" style={{ paddingTop: projectionMode ? 0 : headerH }}>
-          {posts.length === 0 ? (
-            <EmptyWall origin={`${origin}${basePath}`} />
+          {galleryState !== 'ready' ? (
+            galleryPlaceholder
           ) : wallSettings.galleryScroll ? (
             <MarqueeGrid
               posts={posts}
@@ -294,7 +370,7 @@ export default function Wall() {
               onConsumePending={consumePending}
               suspended={beamQueue.length > 0 || lightboxPost !== null}
               onSelect={setLightboxPost}
-              showQR={wallSettings.showQR}
+              showQR={showQR}
               showLeaderboard={wallSettings.showLeaderboard}
               showChallenges={wallSettings.showChallenges}
               origin={`${origin}${basePath}`}
@@ -306,8 +382,8 @@ export default function Wall() {
       {/* ── Slideshow ── */}
       {mode === 'slideshow' && (
         <div className="absolute inset-0">
-          {posts.length === 0 ? (
-            <EmptyWall origin={`${origin}${basePath}`} />
+          {galleryState !== 'ready' ? (
+            galleryPlaceholder
           ) : (
             <SlideshowView
               posts={posts}
@@ -372,7 +448,7 @@ export default function Wall() {
                   <button
                     key={tab.id}
                     onClick={() => setMode(tab.id)}
-                    className={`px-3.5 py-1.5 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
+                    className={`pressable px-3.5 min-h-11 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
                       mode === tab.id
                         ? 'bg-foil text-noir-900 glow-accent'
                         : 'text-champagne/60 hover:text-champagne'
@@ -387,26 +463,28 @@ export default function Wall() {
                 {/* QR codes on/off */}
                 <button
                   onClick={toggleQR}
-                  className={`glass flex items-center gap-1.5 px-3 py-2 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all ${wallSettings.showQR ? 'text-gold-200' : 'text-champagne/55 hover:text-champagne'}`}
+                  className={`pressable glass flex items-center gap-1.5 px-3 min-h-11 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all ${showQR ? 'text-gold-200' : 'text-champagne/55 hover:text-champagne'}`}
                   style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
-                  title={wallSettings.showQR ? 'Hide QR codes' : 'Show QR codes'}
+                  title={showQR ? 'Hide QR codes on this screen' : 'Show QR codes on this screen'}
                 >
-                  <QrCode className="w-3.5 h-3.5" /> QR {wallSettings.showQR ? 'On' : 'Off'}
+                  <QrCode className="w-3.5 h-3.5" /> QR {showQR ? 'On' : 'Off'}
                 </button>
 
                 {/* Share the booth link */}
                 <ShareButton
                   label="Share"
                   iconSize={14}
-                  className="glass flex items-center gap-1.5 px-3 py-2 rounded-full font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
+                  className="pressable glass flex items-center gap-1.5 px-3 min-h-11 rounded-full font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
                 />
 
-                {/* Projection mode toggle */}
+                {/* Projection mode toggle — hidden below sm. This is a control
+                    for whoever is driving the venue screen, and on a phone it
+                    only ever produced a chrome-less dead end for a guest. */}
                 <button
                   onClick={() => setProjectionMode((p) => !p)}
-                  className="glass px-3 py-2 rounded-full font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
+                  className="pressable hidden sm:flex items-center glass px-3 min-h-11 rounded-full font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
                   style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
-                  title="Projection mode (hides all chrome)"
+                  title="Full screen — hides everything except the photos"
                 >
                   ⊡ Project
                 </button>
@@ -437,7 +515,7 @@ export default function Wall() {
             {/* QR codes centred — gated by wallSettings.showQR */}
             <div className="flex-1 flex justify-center">
               <AnimatePresence>
-                {wallSettings.showQR && (
+                {showQR && (
                   <motion.div
                     key="qr"
                     initial={{ opacity: 0, scale: 0.92, y: 8 }}
@@ -470,7 +548,7 @@ export default function Wall() {
 
       {/* ── Projection-mode: compact persistent join-QR chip (outside the
              auto-hiding chrome — guests can always join) ── */}
-      {projectionMode && wallSettings.showQR && (
+      {projectionMode && showQR && (
         <div className="fixed bottom-4 right-4 z-30" style={{ opacity: 0.55 }}>
           <QRPanel url={`${origin}${basePath}/`} label="Scan to join" size={84} />
         </div>

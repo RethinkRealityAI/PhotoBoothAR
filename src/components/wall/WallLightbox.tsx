@@ -10,9 +10,11 @@ import { motion } from 'motion/react';
 import { Download, Share2, X, Check } from 'lucide-react';
 import { Post } from '../../types';
 import { useEvent } from '../../events/EventContext';
+import { useDialog } from '../../lib/useDialog';
 import { useStore } from '../../store';
 
 export default function WallLightbox({ post, onClose }: { post: Post; onClose: () => void }) {
+  const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, 'Moment');
   const { config } = useEvent();
   const copy = useStore((s) => s.copy);
   const [busy, setBusy] = useState(false);
@@ -55,8 +57,13 @@ export default function WallLightbox({ post, onClose }: { post: Post; onClose: (
       exit={{ opacity: 0 }}
       onClick={onClose}
     >
+      {/* A full-bleed photo viewer, so not Modal-shaped — but it is a dialog,
+          and it had no Escape (the only way out on a keyboard) and no focus
+          trap. Mounted only while open, so the hook needs no enabled flag. */}
       <motion.div
-        className="relative max-w-[92vw] max-h-[78vh] flex flex-col items-center"
+        ref={panelRef}
+        {...dialogProps}
+        className="relative max-w-[92vw] max-h-[78vh] flex flex-col items-center outline-none"
         initial={{ scale: 0.92, y: 16 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.92, y: 16 }}

@@ -15,6 +15,7 @@ import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Loader2, Move, RefreshCw, Sparkles, Wand2 } from 'lucide-react';
 import { generateImage, aiErrorMessage, type AiErrorCode } from '../../lib/ai';
+import { frameBriefGaps, gapSummary } from '../../lib/assetBrief';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { updateEventConfig } from '../../lib/host';
 import type { Experience } from '../../types';
@@ -62,6 +63,9 @@ export default function FrameStudio({
   const [rawFrame, setRawFrame] = useState<{ experience: Experience; slug: string } | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+  // Live read of what the brief is still missing (colour / style / any brief at
+  // all). Cheap enough to compute per keystroke — two regexes on ≤500 chars.
+  const briefHint = gapSummary(frameBriefGaps(prompt));
 
   const generate = async () => {
     const brief = prompt.trim();
@@ -185,6 +189,15 @@ export default function FrameStudio({
             className={`${inputClass} resize-none`}
             placeholder="e.g. art-deco gold border with subtle basketball motifs in the corners"
           />
+
+          {/* What the brief still doesn't say. A frame generated from "gold" is
+              a generic gold frame, and the host paid for it — naming the gap
+              before they press the button is far kinder than after. Advisory
+              here: the button stays live, because a host who means it should
+              not have to argue with us. */}
+          {phase.kind !== 'generating' && briefHint && (
+            <p className="font-sans text-[11px] text-brand-muted/60 leading-snug">{briefHint}</p>
+          )}
 
           {(phase.kind === 'preview' || phase.kind === 'applying') && (
             <div className="flex items-start gap-4">

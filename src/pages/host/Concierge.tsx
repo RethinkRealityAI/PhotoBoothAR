@@ -159,6 +159,8 @@ export default function Concierge() {
   const [selectedId, setSelectedId] = useState<string | null>(params.get('event'));
   const [snapshot, setSnapshot] = useState<EventSnapshot | null>(null);
   const [snapLoading, setSnapLoading] = useState(false);
+  /** The snapshot load failed — the copilot is unscoped even though an event is picked. */
+  const [snapFailed, setSnapFailed] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -193,8 +195,10 @@ export default function Concierge() {
       planTier: selected.plan_tier,
       eventType: selected.event_type,
     })
-      .then(setSnapshot)
-      .catch(() => setSnapshot(null))
+      .then((snap) => { setSnapshot(snap); setSnapFailed(false); })
+      // Nulling the snapshot on failure left the header still naming the event
+      // while every tool proposal answered "pick which event this is for first".
+      .catch(() => { setSnapshot(null); setSnapFailed(true); })
       .finally(() => setSnapLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, selected?.name, selected?.status]);
@@ -309,8 +313,14 @@ export default function Concierge() {
                 <p className="font-serif text-sm text-foil-static leading-tight truncate">
                   {selected ? selected.name : 'Pick an event'}
                 </p>
-                <p className="font-sans text-[10px] text-brand-muted/60 truncate">
-                  {selected ? `/e/${selected.slug} · ${selected.status}` : 'Select a card on the left to begin'}
+                <p className={`font-sans text-[10px] truncate ${snapFailed ? 'text-amber-300/90' : 'text-brand-muted/60'}`}>
+                  {/* When the snapshot fails the header used to keep naming the
+                      event while every tool answered "pick an event first". */}
+                  {snapFailed
+                    ? 'Couldn’t load this event — the assistant can’t act on it yet'
+                    : selected
+                    ? `/e/${selected.slug} · ${selected.status}`
+                    : 'Select a card on the left to begin'}
                 </p>
               </div>
               {snapLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-muted/50 shrink-0" />}

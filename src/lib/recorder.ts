@@ -42,9 +42,15 @@ export function recordingSupported(): boolean {
 
 export interface RecorderOptions {
   maxMs?: number;          // hard cap (default 30s)
-  videoBitsPerSecond?: number; // default ~10 Mbps for high quality
+  /** Default 5 Mbps — quality/size balance (~18 MB per 30s clip; 10 Mbps
+   *  doubled that, painful on guests' cellular uploads). */
+  videoBitsPerSecond?: number;
   onTick?: (elapsedMs: number) => void;
   onMaxReached?: () => void;
+  /** MediaRecorder emitted an error mid-recording — without this the recording
+   *  just silently truncates. Optional and additive: callers that don't pass it
+   *  keep the old behavior. */
+  onError?: (e: Event) => void;
 }
 
 /**
@@ -72,12 +78,17 @@ export class StreamRecorder {
     if (!recordingSupported()) throw new Error('Recording not supported in this browser');
     this.chunks = [];
     const options: MediaRecorderOptions = {
-      videoBitsPerSecond: this.opts.videoBitsPerSecond ?? 10_000_000,
+      videoBitsPerSecond: this.opts.videoBitsPerSecond ?? 5_000_000,
     };
     if (this.mimeType) options.mimeType = this.mimeType;
     this.rec = new MediaRecorder(stream, options);
     this.rec.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) this.chunks.push(e.data);
+    };
+    // Surface mid-recording failures (disk, codec, stream death) — otherwise
+    // the recorder just stops emitting chunks and the clip silently truncates.
+    this.rec.onerror = (e) => {
+      this.opts.onError?.(e);
     };
     this.rec.start(250); // gather chunks periodically so we never lose data
     this.startTs = performance.now();

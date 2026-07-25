@@ -54,7 +54,7 @@ export default function Onboarding({ onDismiss }: Props) {
       exit={{ opacity: 0 }}
     >
       <motion.div
-        className="w-full max-w-md glass-strong rounded-t-3xl px-7 pt-7 pb-safe-bottom pb-10 relative overflow-hidden"
+        className="w-full max-w-md glass-strong rounded-t-3xl px-7 pt-7 pb-safe-bottom [--safe-bottom:2.5rem] relative overflow-hidden"
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         exit={{ y: '100%' }}

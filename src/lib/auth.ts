@@ -32,6 +32,24 @@ export function signUpWithEmail(email: string, password: string, displayName: st
   });
 }
 
+/**
+ * Re-send the signup confirmation email.
+ *
+ * There was no resend anywhere in the app, so an account that was created but
+ * never confirmed had no in-app way forward: signing up again is answered by
+ * Supabase's anti-enumeration path, and signing in returns "Email not
+ * confirmed". Supabase only resends when an initial signup request actually
+ * exists, and its response is enumeration-safe, so this is callable from the
+ * unauthenticated screens.
+ */
+export function resendConfirmation(email: string) {
+  return supabase.auth.resend({
+    type: 'signup',
+    email,
+    options: { emailRedirectTo: HOST_REDIRECT() },
+  });
+}
+
 /** Email + password sign-in. */
 export function signInWithEmail(email: string, password: string) {
   return supabase.auth.signInWithPassword({ email, password });

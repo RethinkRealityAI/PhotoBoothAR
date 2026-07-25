@@ -12,6 +12,7 @@ import { Send, Film } from 'lucide-react';
 import { Experience } from '../../types';
 import { UploadItem } from './types';
 import FramedThumb from './FramedThumb';
+import { useDialog } from '../../lib/useDialog';
 
 export interface PostProgress {
   done: number;
@@ -34,6 +35,14 @@ export default function DetailsAndPost({
   items, frames, guestName, onGuestName, onUpdate, onPost, posting, progress,
 }: Props) {
   const [confirming, setConfirming] = useState(false);
+  // Dialog behaviour for the confirm sheet, enabled only while it is shown.
+  // Closing is blocked while posting — Escape must not abandon an upload that
+  // is already in flight, exactly as the scrim click already refused to.
+  const { panelRef, dialogProps } = useDialog<HTMLDivElement>(
+    () => { if (!posting) setConfirming(false); },
+    'Post to the wall',
+    confirming,
+  );
   const [sharedMsg, setSharedMsg] = useState('');
 
   const applyMsgToAll = () => {
@@ -117,8 +126,12 @@ export default function DetailsAndPost({
             exit={{ opacity: 0 }}
             onClick={() => !posting && setConfirming(false)}
           >
+            {/* The post-to-wall confirmation: irreversible for a guest, and it
+                had no Escape and no focus trap. */}
             <motion.div
-              className="glass-strong rounded-3xl border border-gold-400/20 p-7 w-full max-w-xs text-center"
+              ref={panelRef}
+              {...dialogProps}
+              className="glass-strong rounded-3xl border border-gold-400/20 p-7 w-full max-w-xs text-center outline-none"
               initial={{ scale: 0.9, y: 16 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 16 }}

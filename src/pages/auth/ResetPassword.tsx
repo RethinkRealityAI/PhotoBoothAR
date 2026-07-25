@@ -11,6 +11,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { updatePassword } from '../../lib/auth';
+import { usePageTitle } from '../../lib/usePageTitle';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-brand-fg ' +
@@ -20,6 +21,7 @@ const inputClass =
 const MIN_LENGTH = 8;
 
 export default function ResetPassword() {
+  usePageTitle('Set a new password — Beamwall');
   const navigate = useNavigate();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');

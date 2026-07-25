@@ -19,13 +19,14 @@ import { useCameraStream } from '../booth/useCameraStream';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from '../admin/studioBase';
 import {
-  getExperience,
+  getExperienceResult,
   createExperience,
   updateExperience,
   uploadAsset,
   getStudioSettings,
   setStudioSettings,
 } from '../../lib/db';
+import ConfirmModal from '../ui/ConfirmModal';
 import { BUILTIN_BORDERS } from '../../lib/borders';
 import { clampHeadScale } from '../../lib/studio/occluder';
 import { studioReducer, initialState, selectedObject, type StudioState, type StudioAction, type StudioDraft } from '../../lib/studio/state';
@@ -121,6 +122,12 @@ export default function StudioShell() {
   const [history, dispatch] = useReducer(studioHistoryReducer, undefined, () => initHistory(initialState('shader')));
   const state = history.present;
   const [loadingEdit, setLoadingEdit] = useState(!!editId);
+  // Why the requested experience did not load. 'unreachable' is retryable (the
+  // network or the database); 'missing' is not (the row is gone). Either way we
+  // must NOT open a blank editor pointed at that id — see the load effect.
+  const [loadError, setLoadError] = useState<'unreachable' | 'missing' | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -165,18 +172,29 @@ export default function StudioShell() {
   }, [eventId]);
 
   // Load an existing experience for editing.
+  //
+  // A failed read used to fall through to the blank starter draft, and saving
+  // THAT created a second experience rather than updating the one the host
+  // opened — their edits forked into a duplicate and the original kept its old
+  // content. So the two outcomes are now separated: nothing loaded means we
+  // refuse to edit rather than quietly become a "new experience" screen.
   useEffect(() => {
     if (!editId) return;
     let alive = true;
     setLoadingEdit(true);
-    getExperience(eventId, editId).then((exp) => {
+    setLoadError(null);
+    getExperienceResult(eventId, editId).then(({ experience, failed }) => {
       if (!alive) return;
-      const draft = exp ? experienceToDraft(exp) : null;
-      if (draft) dispatch({ type: 'LOAD', draft });
+      const draft = experience ? experienceToDraft(experience) : null;
+      if (draft) {
+        dispatch({ type: 'LOAD', draft });
+      } else {
+        setLoadError(failed ? 'unreachable' : 'missing');
+      }
       setLoadingEdit(false);
     });
     return () => { alive = false; };
-  }, [editId, eventId]);
+  }, [editId, eventId, loadAttempt]);
 
   // Persist head-scale (debounced) — event-wide booth calibration. persist=false
   // updates the slider/state ONLY and cancels any pending debounced write: the
@@ -211,7 +229,9 @@ export default function StudioShell() {
   }, []);
   const onThumbClear = useCallback(() => dispatch({ type: 'SET_THUMB', url: null, blob: null }), []);
 
-  const handleSave = useCallback(async () => {
+  /** Returns true only when the row actually landed — the save-and-leave path
+   *  must not navigate away from work that failed to persist. */
+  const handleSave = useCallback(async (): Promise<boolean> => {
     setSaving(true);
     setSaveError(null);
     setSaved(false);
@@ -228,10 +248,10 @@ export default function StudioShell() {
         if (obj.type === 'overlay') {
           if (obj.isBuiltin && obj.builtinId) {
             const b = BUILTIN_BORDERS.find((x) => x.id === obj.builtinId);
-            urlMap.set(obj.id, b ? await uploadAsset(svgBlob(b.svg), `${b.id}.svg`) : (obj.url ?? null));
+            urlMap.set(obj.id, b ? await uploadAsset(eventId, svgBlob(b.svg), `${b.id}.svg`) : (obj.url ?? null));
           } else if (obj.blob) {
             const base = obj.name.replace(/\s+/g, '-').toLowerCase() || 'overlay';
-            urlMap.set(obj.id, await uploadAsset(obj.blob, base));
+            urlMap.set(obj.id, await uploadAsset(eventId, obj.blob, base));
           } else if (obj.url && (obj.url.startsWith('http') || obj.url.startsWith('data:'))) {
             urlMap.set(obj.id, obj.url);
           } else {
@@ -245,7 +265,7 @@ export default function StudioShell() {
 
       let thumbnailUrl: string | null = null;
       if (draft.thumbBlob) {
-        thumbnailUrl = await uploadAsset(draft.thumbBlob, `icon-${draft.name.replace(/\s+/g, '-').toLowerCase()}`);
+        thumbnailUrl = await uploadAsset(eventId, draft.thumbBlob, `icon-${draft.name.replace(/\s+/g, '-').toLowerCase()}`);
       } else if (draft.thumbUrl && draft.thumbUrl.startsWith('http')) {
         thumbnailUrl = draft.thumbUrl;
       }
@@ -257,14 +277,16 @@ export default function StudioShell() {
 
       if (!result) {
         setSaveError('Save failed — check your connection and try again.');
-      } else {
-        dispatch({ type: 'MARK_SAVED', id: result.id });
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2400);
+        return false;
       }
+      dispatch({ type: 'MARK_SAVED', id: result.id });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2400);
+      return true;
     } catch (err) {
       console.error('[studio] save', err);
       setSaveError('Unexpected error — see console.');
+      return false;
     } finally {
       setSaving(false);
     }
@@ -345,6 +367,41 @@ export default function StudioShell() {
     return (
       <div className="absolute inset-0 app-bg flex items-center justify-center">
         <div className="w-10 h-10 rounded-full border-2 border-white/10 border-t-[color:var(--color-accent)] animate-spin" />
+      </div>
+    );
+  }
+
+  // Refuse to edit rather than fork a duplicate. Retry is offered only when
+  // retrying could help — a deleted experience will not come back.
+  if (loadError) {
+    return (
+      <div className="absolute inset-0 app-bg flex items-center justify-center p-6">
+        <div className="liquid-glass-raised max-w-sm rounded-2xl p-6 flex flex-col gap-3 text-center">
+          <h1 className="font-serif text-lg text-brand-fg">
+            {loadError === 'unreachable' ? 'Couldn’t open that experience' : 'That experience is gone'}
+          </h1>
+          <p className="font-sans text-[12px] text-brand-muted/70 leading-relaxed">
+            {loadError === 'unreachable'
+              ? 'We couldn’t load it just now, so the editor stayed closed — opening a blank one would have saved your work as a duplicate and left the original untouched. Nothing has changed.'
+              : 'It may have been deleted. Nothing has changed — pick another from your Library, or start a new experience.'}
+          </p>
+          <div className="flex items-center justify-center gap-2">
+            {loadError === 'unreachable' && (
+              <button
+                onClick={() => setLoadAttempt((n) => n + 1)}
+                className="pressable rounded-full bg-foil px-4 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold text-[color:var(--on-accent)]"
+              >
+                Try again
+              </button>
+            )}
+            <Link
+              to={`${base}/library`}
+              className="pressable liquid-glass rounded-full px-4 min-h-11 flex items-center font-label uppercase tracking-luxe text-[10px] text-brand-fg"
+            >
+              Back to Library
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }
@@ -431,8 +488,17 @@ export default function StudioShell() {
           overlap or hide behind another toggle. */}
       <header className="shrink-0 liquid-glass border-b border-white/10 z-40">
       <div className="h-14 flex items-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-4">
+        {/* Leaving with unsaved work. `state.dirty` was already tracked and
+            already correct — it simply guarded nothing here, so one tap on this
+            arrow discarded a whole scene with no prompt. AssetsDock:186 has
+            confirmed on dirty for template-opening all along; this is the same
+            rule applied to the one control that actually leaves the editor. */}
         <Tooltip label="Library" hint="Back to your experiences" side="bottom">
-          <Link to={`${base}/library`} className="flex items-center justify-center w-10 h-10 shrink-0 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors">
+          <Link
+            to={`${base}/library`}
+            onClick={(e) => { if (state.dirty) { e.preventDefault(); setConfirmLeave(true); } }}
+            className="pressable flex items-center justify-center w-11 h-11 shrink-0 rounded-lg bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors"
+          >
             <ArrowLeft className="w-4 h-4" />
           </Link>
         </Tooltip>
@@ -643,6 +709,28 @@ export default function StudioShell() {
           saving={saving}
           onSave={handleSave}
           onClose={() => setTestPhoneOpen(false)}
+        />
+      )}
+
+      {/* Unsaved work. The primary action SAVES rather than discards: the host
+          pressed "back", not "throw this away", and the scene they built is
+          worth more than the click they meant to make. Leaving without saving
+          is still one tap, just a labelled one. */}
+      {confirmLeave && (
+        <ConfirmModal
+          title="Save before you go?"
+          body="This scene has changes you haven’t saved yet. Leaving now loses them."
+          confirmLabel={saving ? 'Saving…' : 'Save and leave'}
+          busy={saving}
+          onConfirm={async () => {
+            const ok = await handleSave();
+            if (ok) { setConfirmLeave(false); navigate(`${base}/library`); }
+          }}
+          onCancel={() => setConfirmLeave(false)}
+          extraAction={{
+            label: 'Leave without saving',
+            onClick: () => { setConfirmLeave(false); navigate(`${base}/library`); },
+          }}
         />
       )}
     </div>

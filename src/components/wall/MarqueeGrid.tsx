@@ -27,6 +27,7 @@
 
 import { useEffect, useRef, useMemo, useCallback } from 'react';
 import { Post } from '../../types';
+import PostImage from '../ui/PostImage';
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                            */
@@ -142,11 +143,10 @@ function PostCard({ post, onSelect }: CardProps) {
           <PlayBadge />
         </>
       ) : (
-        <img
+        <PostImage
           src={post.image_url}
           alt={post.guest_name ?? 'Event moment'}
-          loading="lazy"
-          decoding="async"
+          displayWidth={480}
           className="absolute inset-0 w-full h-full object-cover"
           draggable={false}
         />

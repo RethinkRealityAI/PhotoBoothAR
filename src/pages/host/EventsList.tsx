@@ -8,10 +8,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
+import Modal from '../../components/ui/Modal';
 import { ArrowUpRight, Check, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2 } from 'lucide-react';
-import { fetchMyEvents, updateEventStatus, type HostEventRow } from '../../lib/host';
+import { fetchMyEvents, updateEventStatus, eventOrgHasActivePro, type HostEventRow } from '../../lib/host';
 import { TierPill, UpgradeModal } from './UpgradeCard';
-import { normalizeTier } from '../../lib/entitlements';
+import { entitlementsFor, normalizeTier } from '../../lib/entitlements';
+import { supabase } from '../../lib/supabase';
 import StatusPill from '../../components/ui/StatusPill';
 
 function CopyLinkButton({ text }: { text: string }) {
@@ -20,7 +22,7 @@ function CopyLinkButton({ text }: { text: string }) {
     <button
       onClick={() => navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
       title="Copy guest link"
-      className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
+      className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
     >
       {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
@@ -30,12 +32,11 @@ function CopyLinkButton({ text }: { text: string }) {
 function QRModal({ url, name, draft, onClose }: { url: string; name: string; draft: boolean; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={onClose}>
-      <div
-        className="liquid-glass rounded-3xl p-8 w-full max-w-xs text-center animate-rise-in flex flex-col items-center gap-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <p className="font-serif text-xl text-foil-static">{name}</p>
+    // Modal, not a bare overlay: this was openable but not dismissable or
+    // operable from a keyboard, and Tab walked straight through it into the page
+    // behind. Modal supplies Escape, the focus trap and focus restore.
+    <Modal title={name} onClose={onClose} maxWidthClass="max-w-xs">
+      <div className="text-center flex flex-col items-center gap-4">
         <div className="rounded-xl p-3 bg-brand-fg/95 shadow-lg">
           <QRCodeSVG value={url} size={160} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
         </div>
@@ -52,14 +53,76 @@ function QRModal({ url, name, draft, onClose }: { url: string; name: string; dra
           {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <QrCode className="w-3.5 h-3.5" />}
           {copied ? 'Copied!' : 'Copy link'}
         </button>
-        <button onClick={onClose} className="text-brand-muted/50 hover:text-brand-fg text-xs transition-colors">Close</button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
 /** First-run guide gate — mirrors useStudioOnboarding's localStorage pattern. */
 const HOST_ONBOARDED_KEY = 'beamwall.host.onboarded';
+
+/** The event's post cap from its plan tier (null = unlimited → no meter). */
+function capFor(ev: HostEventRow): number | null {
+  return entitlementsFor(normalizeTier(ev.plan_tier)).maxPosts;
+}
+
+/**
+ * Posts-used counts for the capped events, keyed by event id. One head-only
+ * count query per capped event, fired once per list load (no polling) — the
+ * same count the submit-post edge fn caps on (all posts for the slug; RLS may
+ * hide a few hidden posts from this session, close enough for a meter). An
+ * active org Pro subscription lifts the cap to unlimited (mirrors submit-post),
+ * so those events are skipped. Failures are simply omitted — no meter beats a
+ * wrong one.
+ */
+async function fetchPostCounts(list: HostEventRow[]): Promise<Record<string, number>> {
+  const capped = list.filter((ev) => capFor(ev) !== null);
+  const entries = await Promise.all(
+    capped.map(async (ev) => {
+      try {
+        if (await eventOrgHasActivePro(ev.id)) return null;
+        const { count, error } = await supabase
+          .from('posts')
+          .select('id', { count: 'exact', head: true })
+          .eq('event_id', ev.slug);
+        if (error || count === null) return null;
+        return [ev.id, count] as const;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return Object.fromEntries(entries.filter((e): e is readonly [string, number] => e !== null));
+}
+
+/** Compact posts-used / cap meter with an upgrade nudge from 80% full. */
+function CapMeter({ used, cap, onUpgrade }: { used: number; cap: number; onUpgrade: () => void }) {
+  const nearCap = cap > 0 && used / cap >= 0.8;
+  const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 100;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className={`font-sans text-[10px] ${nearCap ? 'text-amber-400/90' : 'text-brand-muted/50'}`}>
+          {used} / {cap} posts on this plan
+        </span>
+        {nearCap && (
+          <button
+            onClick={onUpgrade}
+            className="font-label uppercase tracking-luxe text-[9px] text-accent-2 hover:underline underline-offset-2"
+          >
+            {used >= cap ? 'Wall full — upgrade' : 'Almost full — upgrade'}
+          </button>
+        )}
+      </div>
+      <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
+        <div
+          className={`h-full rounded-full ${nearCap ? 'bg-amber-400/80' : 'bg-accent/60'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
 
 export default function EventsList() {
   const [events, setEvents] = useState<HostEventRow[] | null>([]);
@@ -68,6 +131,7 @@ export default function EventsList() {
   const [upgradeTarget, setUpgradeTarget] = useState<HostEventRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [postCounts, setPostCounts] = useState<Record<string, number>>({});
   const [showGuide, setShowGuide] = useState(() => {
     try { return !localStorage.getItem(HOST_ONBOARDED_KEY); } catch { return false; }
   });
@@ -91,8 +155,15 @@ export default function EventsList() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setEvents(await fetchMyEvents()); // null = load failure → retry state below
+    const list = await fetchMyEvents(); // null = load failure → retry state below
+    setEvents(list);
     setLoading(false);
+    // Cap meters fill in after the cards render — one shot per load, no polling.
+    if (list && list.length > 0) {
+      setPostCounts(await fetchPostCounts(list));
+    } else {
+      setPostCounts({});
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -122,13 +193,14 @@ export default function EventsList() {
           <button
             onClick={load}
             disabled={loading}
-            className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
+            aria-label="Refresh events"
+            className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
           <Link
             to="/host/new"
-            className="flex items-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
+            className="pressable flex items-center gap-2 rounded-full bg-foil px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition"
           >
             <Plus className="w-4 h-4" /> New event
           </Link>
@@ -138,7 +210,7 @@ export default function EventsList() {
       {notice && (
         <div className="mb-5 flex items-start gap-2.5 rounded-xl bg-red-500/10 border border-red-500/25 px-4 py-3">
           <p className="flex-1 font-sans text-xs text-red-300">{notice}</p>
-          <button onClick={() => setNotice(null)} className="text-red-300/60 hover:text-red-300 text-xs" aria-label="Dismiss">✕</button>
+          <button onClick={() => setNotice(null)} className="pressable min-h-11 min-w-11 flex items-center justify-center rounded-lg text-red-300/60 hover:text-red-300 text-xs" aria-label="Dismiss">✕</button>
         </div>
       )}
 
@@ -147,7 +219,7 @@ export default function EventsList() {
           <button
             onClick={dismissGuide}
             aria-label="Dismiss guide"
-            className="absolute top-3 right-3 text-brand-muted/50 hover:text-brand-fg text-xs transition-colors"
+            className="pressable absolute top-1.5 right-1.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg text-brand-muted/50 hover:text-brand-fg text-xs transition-colors"
           >
             ✕
           </button>
@@ -232,7 +304,7 @@ export default function EventsList() {
                   <button
                     onClick={() => setQrTarget(ev)}
                     title="QR code"
-                    className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
+                    className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
                   >
                     <QrCode className="w-3.5 h-3.5" />
                   </button>
@@ -241,7 +313,7 @@ export default function EventsList() {
                     target="_blank"
                     rel="noopener noreferrer"
                     title="Open guest view"
-                    className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
+                    className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
@@ -251,11 +323,20 @@ export default function EventsList() {
                     Guests can’t open this link until you Go live.
                   </p>
                 )}
+                {/* Posts-used / plan-cap meter — only for capped tiers whose
+                    count actually loaded (0 is a real count, keep !== undefined). */}
+                {capFor(ev) !== null && postCounts[ev.id] !== undefined && (
+                  <CapMeter
+                    used={postCounts[ev.id]}
+                    cap={capFor(ev) as number}
+                    onUpgrade={() => setUpgradeTarget(ev)}
+                  />
+                )}
 
                 <div className="mt-auto flex items-center gap-2 pt-1">
                   <Link
                     to={`/host/events/${ev.id}`}
-                    className="flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors"
+                    className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors"
                   >
                     <Settings2 className="w-3.5 h-3.5" /> Open studio
                   </Link>
@@ -263,7 +344,7 @@ export default function EventsList() {
                     <button
                       onClick={() => setStatus(ev, 'live')}
                       disabled={busy}
-                      className="rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-emerald-400 transition-colors disabled:opacity-40"
+                      className="rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-emerald-400 transition-colors disabled:opacity-40"
                     >
                       Go live
                     </button>
@@ -272,7 +353,7 @@ export default function EventsList() {
                     <button
                       onClick={() => setStatus(ev, 'ended')}
                       disabled={busy}
-                      className="rounded-full bg-amber-500/15 hover:bg-amber-500/25 px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-amber-400 transition-colors disabled:opacity-40"
+                      className="rounded-full bg-amber-500/15 hover:bg-amber-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-amber-400 transition-colors disabled:opacity-40"
                     >
                       End
                     </button>
@@ -280,7 +361,7 @@ export default function EventsList() {
                   {normalizeTier(ev.plan_tier) !== 'deluxe' && (
                     <button
                       onClick={() => setUpgradeTarget(ev)}
-                      className="ml-auto flex items-center gap-1 rounded-full bg-accent/10 hover:bg-accent/20 px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-accent-2 transition-colors"
+                      className="ml-auto flex items-center gap-1 rounded-full bg-accent/10 hover:bg-accent/20 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-accent-2 transition-colors"
                     >
                       Upgrade <ArrowUpRight className="w-3 h-3" />
                     </button>

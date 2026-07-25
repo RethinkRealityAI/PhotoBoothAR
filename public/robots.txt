@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://beamwall.netlify.app/sitemap.xml

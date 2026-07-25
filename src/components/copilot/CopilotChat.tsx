@@ -22,12 +22,14 @@ import {
   buildGeneratingSurface, buildFramePreviewSurface, buildHeadPiecePreviewSurface,
   buildGenErrorSurface, buildBoothTestSurface, buildChecklistSurface,
 } from '../../lib/copilotSurfaces';
+import { gapPrompt, proposalGaps, requiredGaps } from '../../lib/proposalGaps';
 import {
   applySurfaceMessages, setPath,
   type A2uiActionEvent, type A2uiMessage, type SurfaceState,
 } from '../../lib/a2ui';
 import {
-  generateImage, generate3d, pollJob, resolveEventUuid, aiErrorMessage, type AiErrorCode,
+  generateImage, generate3d, pollJob, resolveEventUuid, aiErrorMessage, aiErrorRetryable,
+  fetchEventCreditBalance, type AiErrorCode,
 } from '../../lib/ai';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { measureGlbFitScale } from '../../lib/studio/glbThumb';
@@ -38,6 +40,8 @@ import type { ChatMessage } from '../../lib/eventDesigner';
 import type { EventSnapshot } from '../../lib/eventSnapshot';
 import type { Experience } from '../../types';
 import A2uiSurface from '../a2ui/A2uiSurface';
+import { haptic } from '../../lib/haptics';
+import { buildConceptPrompt } from '../../lib/assetPrompt';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const POLL_MS = 5000;
@@ -45,14 +49,27 @@ const MAX_POLLS = 60; // ~5 minutes — matches the studio Director's Meshy poll
 const DEFAULT_FILTER_ID = FILTER_SHADERS.find((s) => s.id !== 'none')?.id ?? 'none';
 const DEFAULT_PIECE_ID = HEAD_PIECES[0]?.id ?? '';
 
-/** A retry is pointless (and unfair) for these hard, non-transient failures. */
-function retryableGenError(code: AiErrorCode): boolean {
-  return code !== 'insufficient_credits' && code !== 'upgrade_required' && code !== 'unauthorized' && code !== 'forbidden';
+/** A retry is pointless (and unfair) for hard, non-transient failures —
+ *  including a missing/rejected provider key (shared list in lib/ai.ts). */
+const retryableGenError = aiErrorRetryable;
+
+/** Cost caption for paid-generation proposal cards (real server prices:
+ *  ai-generate-image 1cr + 3 free/event; concept 1cr + ai-generate-3d 10cr). */
+function costNoteFor(action: CopilotAction): string | null {
+  if (action.tool === 'generate_frame') return '1 credit (your event’s first 3 AI images are free)';
+  if (action.tool === 'add_head_piece' && action.proposal.source === 'generate') {
+    return 'up to 11 credits (concept image + 10 for the 3D model — the image is free while your event has free AI images left)';
+  }
+  return null;
 }
 
 interface ChatItem extends ChatMessage {
   surfaceId?: string;
   kind?: 'tool_result';
+  /** Did the action this result reports actually succeed? Absent on older
+   *  persisted transcripts, which are then rendered neutrally rather than
+   *  being retro-labelled as successes. */
+  ok?: boolean;
 }
 
 const STORE_KEY = 'beamwall:copilot:v1';
@@ -130,6 +147,29 @@ export default function CopilotChat({
   // Surfaces the host dismissed mid-generation — a late async continuation must
   // NOT re-materialise a card the host already closed (F2).
   const dismissedGen = useRef<Set<string>>(new Set());
+  // Surfaces we have already asked a QUALITY question about (a brief that is
+  // real but vague). A host who presses the button again has seen the question
+  // and chosen to go ahead — asking twice is arguing, not helping. Required
+  // fields are never in here: those block every time.
+  const askedGaps = useRef<Set<string>>(new Set());
+  // Live credit balance of THIS event's org (the org generation charges) —
+  // shown beside paid-generation proposal cards; refreshed after each spend.
+  const [balance, setBalance] = useState<number | null>(null);
+  // sid → cost caption for paid-generation proposals (set when the card lands).
+  const genCostNote = useRef<Record<string, string>>({});
+
+  const refreshBalance = async (uuid: string) => {
+    const b = await fetchEventCreditBalance(uuid);
+    setBalance(b);
+  };
+
+  useEffect(() => {
+    const uuid = snapshot?.eventUuid;
+    if (!uuid) { setBalance(null); return; }
+    let alive = true;
+    fetchEventCreditBalance(uuid).then((b) => { if (alive) setBalance(b); });
+    return () => { alive = false; };
+  }, [snapshot?.eventUuid]);
 
   useEffect(() => {
     if (!nearBottomRef.current) return;
@@ -264,6 +304,7 @@ export default function CopilotChat({
       showGenError(sid, 'frame', 'Frame generation failed — try again.', true);
     } finally {
       runningGen.current.delete(sid);
+      if (snapshot?.eventUuid) void refreshBalance(snapshot.eventUuid);
     }
   };
 
@@ -278,15 +319,23 @@ export default function CopilotChat({
     try {
       const uuid = await resolveEventUuid(snapshot.slug, snapshot.eventUuid);
       if (!uuid) { showGenError(sid, 'headpiece', aiErrorMessage('event_not_found'), false); return; }
+      // Wearable geometry lives in the CONCEPT, because Meshy's image->3D copies
+      // what it sees: a concept showing the piece on a face produces a mesh with
+      // a face fused into it. The old prompt said only "a single centered
+      // object … product shot", which is how masks came back as solid lumps.
       const concept = await generateImage(uuid, {
-        prompt: `${prompt} — a single centered object, isolated on a plain neutral studio background, product shot, no frame, no border, no text`,
+        prompt: buildConceptPrompt(prompt),
         kind: '2d_filter',
+        artDirection: false, // buildConceptPrompt is already complete + 3D-specific
+        nameHint: prompt,    // …and far too long to name the Library row after
       });
       if (concept.error || !concept.data?.experience?.asset_url) {
         const code = (concept.error ?? 'internal') as AiErrorCode;
         showGenError(sid, 'headpiece', aiErrorMessage(code), retryableGenError(code), code === 'insufficient_credits');
         return;
       }
+      // Raw brief: image->3D takes no text prompt, so this only names the
+      // experience (ai-job-status truncates it to 40 chars).
       const g = await generate3d(uuid, { mode: 'image', imageUrl: concept.data.experience.asset_url, prompt });
       if (g.error || !g.data?.job) {
         const code = (g.error ?? 'internal') as AiErrorCode;
@@ -322,6 +371,7 @@ export default function CopilotChat({
       showGenError(sid, 'headpiece', '3D generation failed — try again.', true);
     } finally {
       runningGen.current.delete(sid);
+      if (snapshot?.eventUuid) void refreshBalance(snapshot.eventUuid);
     }
   };
 
@@ -334,7 +384,7 @@ export default function CopilotChat({
     if (experienceId) flashThenDrop(sid); else dropSurfaceById(sid);
     delete genState.current[sid];
     if (!experienceId) {
-      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] The generated asset was lost — please generate it again.' }]);
+      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] The generated asset was lost — please generate it again.' }]);
       return;
     }
     let result;
@@ -358,7 +408,7 @@ export default function CopilotChat({
       if (glbUrl) { try { fitScale = await measureGlbFitScale(glbUrl); } catch { /* best-effort fit */ } }
       result = await applyGeneratedPiece(ctx(), experienceId, fitScale);
     }
-    setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: `[tool_result] ${result.summary}` }]);
+    setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: result.ok, content: `[tool_result] ${result.summary}` }]);
     if (result.ok) onMutated();
   };
 
@@ -369,7 +419,7 @@ export default function CopilotChat({
       // genState is a ref (not persisted) — after a refresh the prompt is gone,
       // so a restored card's Regenerate/Try-again would be a dead button (F1).
       dropSurfaceById(event.surfaceId);
-      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] I lost the details for that one — tell me what to make and I’ll generate a fresh version.' }]);
+      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] I lost the details for that one — tell me what to make and I’ll generate a fresh version.' }]);
       return;
     }
     if (g.kind === 'frame') void startFrameGen(event.surfaceId, g.prompt);
@@ -391,6 +441,8 @@ export default function CopilotChat({
         runReadOnly(action);
       } else {
         const sid = `prop_${++seqRef.current}`;
+        const note = costNoteFor(action);
+        if (note) genCostNote.current[sid] = note;
         addSurface(buildProposalSurface(action, sid), sid);
       }
     }
@@ -403,6 +455,7 @@ export default function CopilotChat({
       dropSurfaceById(event.surfaceId);
       dismissedGen.current.add(event.surfaceId); // keep a late gen continuation from re-opening it (F2)
       delete genState.current[event.surfaceId];
+      askedGaps.current.delete(event.surfaceId);
       return;
     }
     if (event.name === 'apply_generated') { await applyGenerated(event); return; }
@@ -419,8 +472,31 @@ export default function CopilotChat({
     // — with one clear prompt to pick an event first.
     if (!snapshot) {
       dropSurfaceById(event.surfaceId);
-      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] Pick which event this is for first — select one of your events, then ask me again.' }]);
+      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] Pick which event this is for first — select one of your events, then ask me again.' }]);
       return;
+    }
+
+    // Does the card actually carry everything the action needs? The fields are
+    // host-editable, and the generation tools below skip normalizeActions
+    // entirely, so without this a cleared box became a flat "that didn't look
+    // valid" and a two-word brief became a paid-for generic frame.
+    //
+    // A REQUIRED gap always stops us. A quality gap (a real but vague brief) is
+    // asked once — press again and the host gets what they asked for. The card
+    // stays mounted either way, because their typing is in it.
+    const gaps = proposalGaps(tool, proposal);
+    if (gaps.length > 0) {
+      const spending = tool === 'generate_frame' || (tool === 'add_head_piece' && proposal.source === 'generate');
+      const hard = requiredGaps(gaps);
+      const alreadyAsked = askedGaps.current.has(event.surfaceId);
+      if (hard.length > 0 || !alreadyAsked) {
+        askedGaps.current.add(event.surfaceId);
+        setMessages((m) => [...m, {
+          role: 'user', kind: 'tool_result', ok: false,
+          content: `[tool_result] ${gapPrompt(hard.length > 0 ? hard : gaps, { spending, canProceed: hard.length === 0 })}`,
+        }]);
+        return;
+      }
     }
 
     // Generation tools DON'T execute a mutation — they kick off async generation
@@ -438,12 +514,15 @@ export default function CopilotChat({
     const [validated] = normalizeActions([proposal], snapshot);
     if (!validated) {
       dropSurfaceById(event.surfaceId);
-      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] That didn’t look valid, so nothing changed — tell me again and I’ll redo it.' }]);
+      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] That didn’t look valid, so nothing changed — tell me again and I’ll redo it.' }]);
       return;
     }
-    flashThenDrop(event.surfaceId);
+    // The success flash used to fire here, BEFORE executeAction — so a failing
+    // action still played its confirmation animation. Drop the card now, and
+    // let the result message carry the outcome.
+    dropSurfaceById(event.surfaceId);
     const result = await executeAction(validated, ctx());
-    setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: `[tool_result] ${result.summary}` }]);
+    setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: result.ok, content: `[tool_result] ${result.summary}` }]);
     if (result.ok && result.card) {
       const sid = `card_${++seqRef.current}`;
       addSurface(buildCardLinkSurface(result.card, sid), sid);
@@ -468,6 +547,8 @@ export default function CopilotChat({
    *  chips use this so the whole flow works even before the edge-fn redeploy. */
   const openProposal = (action: CopilotAction) => {
     const sid = `prop_${++seqRef.current}`;
+    const note = costNoteFor(action);
+    if (note) genCostNote.current[sid] = note;
     addSurface(buildProposalSurface(action, sid), sid);
   };
 
@@ -534,9 +615,18 @@ export default function CopilotChat({
                 initial={entrance}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                className="self-center rounded-full bg-white/[0.04] border border-white/10 px-3 py-1 font-mono text-[10px] text-brand-muted/70"
+                className={`self-center rounded-full px-3 py-1 font-mono text-[10px] ${
+                  m.ok === false
+                    ? 'bg-amber-400/10 border border-amber-300/30 text-amber-200/90'
+                    : 'bg-white/[0.04] border border-white/10 text-brand-muted/70'
+                }`}
               >
-                {m.content.replace(/^\[tool_result\]\s*/, '✓ ')}
+                {/* Every tool result used to be prefixed "✓ " regardless of
+                    whether it worked, so a failed action read as a success. */}
+                {m.content.replace(
+                  /^\[tool_result\]\s*/,
+                  m.ok === false ? '✕ ' : m.ok === true ? '✓ ' : '',
+                )}
               </motion.div>
             );
           }
@@ -548,6 +638,7 @@ export default function CopilotChat({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
                 className="max-w-[90%] self-end rounded-2xl rounded-tr-md bg-[color:var(--color-accent)]/15 border border-[color:var(--color-accent)]/30 px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg"
+                style={{ boxShadow: '0 2px 6px -2px rgba(0,0,0,0.5), 0 10px 26px -18px rgba(var(--accent-rgb),0.8), inset 0 1px 0 rgba(255,255,255,0.18)' }}
               >
                 {m.content}
               </motion.div>
@@ -562,9 +653,17 @@ export default function CopilotChat({
               className="max-w-[92%] self-start flex flex-col gap-2"
             >
               {m.content && (
-                <div className="rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg/90">
+                <div className="liquid-glass-inset rounded-2xl rounded-tl-md px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg/90">
                   {m.content}
                 </div>
+              )}
+              {m.surfaceId && surfaces[m.surfaceId] && genCostNote.current[m.surfaceId] && (
+                <p className="font-sans text-[10px] text-brand-muted/55 px-1">
+                  {genCostNote.current[m.surfaceId]}
+                  {balance !== null && (
+                    <> · you have {balance} credit{balance === 1 ? '' : 's'}</>
+                  )}
+                </p>
               )}
               {m.surfaceId && surfaces[m.surfaceId] && (
                 <div className={`relative ${flash[m.surfaceId] ? 'pointer-events-none' : ''}`}>
@@ -606,9 +705,20 @@ export default function CopilotChat({
             initial={reduced ? false : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-            className="self-start flex items-center gap-1.5 rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5"
+            className="liquid-glass-inset self-start flex items-center gap-2 rounded-2xl rounded-tl-md px-3.5 py-3"
           >
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-muted/60" />
+            {/* Three dots breathing in sequence reads as "composing" in a way a
+                spinner never does. Static under reduced motion. */}
+            <span className="flex items-center gap-1">
+              {[0, 1, 2].map((i) => (
+                <motion.span
+                  key={i}
+                  className="block h-1.5 w-1.5 rounded-full bg-[color:var(--color-accent)]"
+                  animate={reduced ? { opacity: 0.6 } : { opacity: [0.25, 1, 0.25], y: [0, -2, 0] }}
+                  transition={reduced ? { duration: 0 } : { duration: 1.1, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
+                />
+              ))}
+            </span>
             <span className="font-sans text-[11px] text-brand-muted/60">Thinking…</span>
           </motion.div>
         )}
@@ -620,9 +730,9 @@ export default function CopilotChat({
           {quickChips().map((q) => (
             <button
               key={q.label}
-              onClick={q.run}
+              onClick={() => { haptic('tap'); q.run(); }}
               disabled={busy}
-              className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 font-sans text-[10.5px] text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.07] transition-colors disabled:opacity-40"
+              className="pressable liquid-glass-inset rounded-full px-3 min-h-9 font-sans text-[10.5px] text-brand-muted/80 hover:text-brand-fg transition-colors disabled:opacity-40"
             >
               {q.label}
             </button>
@@ -638,16 +748,25 @@ export default function CopilotChat({
           value={input}
           rows={1}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              // The Enter key is the "enter button" — it gets the same
+              // acknowledgement as tapping send.
+              if (input.trim() && !busy) haptic('tap');
+              send(input);
+            }
+          }}
           maxLength={2000}
           placeholder={snapshot ? `Ask about “${snapshot.name}” or tell me what to change…` : 'Ask how Beamwall works…'}
-          className="flex-1 resize-none hide-scrollbar rounded-xl bg-white/[0.04] border border-white/10 px-3.5 py-2.5 text-[13px] leading-snug text-brand-fg placeholder:text-brand-muted/40 outline-none transition focus:border-[color:var(--color-accent)]/60"
+          className="liquid-glass-inset flex-1 resize-none hide-scrollbar rounded-2xl px-3.5 py-2.5 text-[13px] leading-snug text-brand-fg placeholder:text-brand-muted/40 outline-none transition-shadow focus:shadow-[0_0_0_1px_var(--color-accent),0_0_18px_-6px_rgba(var(--accent-rgb),0.9)]"
         />
         <button
-          onClick={() => send(input)}
+          onClick={() => { if (input.trim() && !busy) haptic('tap'); send(input); }}
           disabled={!input.trim() || busy}
           aria-label={busy ? 'Waiting for reply' : 'Send'}
-          className="shrink-0 w-10 h-10 rounded-full bg-foil glow-accent flex items-center justify-center text-white transition active:scale-95 disabled:opacity-40"
+          className="pressable shrink-0 w-11 h-11 rounded-full bg-foil glow-accent flex items-center justify-center text-[color:var(--on-accent)] disabled:opacity-40"
+          style={{ boxShadow: '0 4px 16px -6px rgba(var(--accent-rgb),0.9), inset 0 1px 0 rgba(255,255,255,0.4)' }}
         >
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         </button>

@@ -10,7 +10,18 @@
   status = 200
 
 # Camera/AR needs HTTPS (Netlify provides it). Allow camera in this origin.
+# Security headers (no CSP yet — the app's inline/eval surface is unaudited).
 [[headers]]
   for = "/*"
   [headers.values]
     Permissions-Policy = "camera=(self), microphone=(self)"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+
+# Vite emits content-hashed filenames under /assets — safe to cache forever.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

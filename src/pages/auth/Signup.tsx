@@ -8,6 +8,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { signUpWithEmail } from '../../lib/auth';
+import { usePageTitle } from '../../lib/usePageTitle';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-brand-fg ' +
@@ -15,6 +16,7 @@ const inputClass =
   'focus:bg-white/[0.06]';
 
 export default function Signup() {
+  usePageTitle('Create your account — Beamwall');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -51,9 +53,11 @@ export default function Signup() {
     }
   }
 
+  // See Login: a centred card taller than the viewport loses its own top.
+  // This one has four fields, so it is the likelier of the two to overflow.
   return (
-    <div className="h-full w-full app-bg flex items-center justify-center px-5 py-12 overflow-y-auto">
-      <div className="w-full max-w-sm animate-rise-in">
+    <div className="h-full w-full app-bg flex items-start justify-center px-5 py-12 overflow-y-auto">
+      <div className="w-full max-w-sm my-auto animate-rise-in">
         <div className="glass-strong rounded-3xl px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
           <Link
             to="/"
@@ -108,9 +112,12 @@ export default function Signup() {
             </div>
           ) : (
             <>
-              <p className="mt-2 text-center font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">
-                Create your event studio
-              </p>
+              {/* The page had no h1; its first heading was an h2. The wording
+                  also matches the CTA that brings people here — this action was
+                  called four different things across the funnel. */}
+              <h1 className="mt-2 text-center font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
+                Create your event
+              </h1>
 
               <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
                 <label className="flex flex-col gap-1.5">
@@ -190,7 +197,19 @@ export default function Signup() {
                 </button>
               </form>
 
-              <p className="mt-7 text-center text-sm text-brand-muted/70">
+              <p className="mt-4 text-center text-[11px] leading-relaxed text-brand-muted/50">
+                By continuing you agree to the{' '}
+                <Link to="/terms" className="underline underline-offset-2 hover:text-brand-fg">
+                  Terms of Service
+                </Link>{' '}
+                and{' '}
+                <Link to="/privacy" className="underline underline-offset-2 hover:text-brand-fg">
+                  Privacy Policy
+                </Link>
+                .
+              </p>
+
+              <p className="mt-5 text-center text-sm text-brand-muted/70">
                 Already have an account?{' '}
                 <Link to="/login" className="text-accent underline-offset-4 hover:underline">
                   Sign in

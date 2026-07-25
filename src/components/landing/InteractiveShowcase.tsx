@@ -647,7 +647,8 @@ export default function InteractiveShowcase() {
           className="mt-4 max-w-md text-sm leading-relaxed text-brand-muted/75"
         >
           Tap the phone, take a shot, and watch it beam onto the live wall — the exact loop
-          your guests get at the event. It all runs in your browser; nothing leaves your device.
+          your guests get at the event. This demo runs entirely in your browser — nothing is
+          uploaded, and nothing is saved.
         </motion.p>
 
         {/* Status line — the single entry point is the glowing shutter ON the

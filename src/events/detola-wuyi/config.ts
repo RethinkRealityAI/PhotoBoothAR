@@ -4,12 +4,16 @@
  *
  * Detola & Wuyi — black & green wedding with gold accents.
  */
+import { lazy } from 'react';
 import type { EventConfig } from '../types';
 import { detolaWuyiCopy } from './copy';
 import { detolaWuyiAR } from './arContent';
 import { DetolaWuyiWordmark, DetolaWuyiMark, DetolaWuyiEmblem } from './Logo';
-import DetolaWuyiBackground from './Background';
 import dwEmblem from './dw-emblem.png';
+
+// Lazy (matches jenna-jake/hope-gala): loads on first render inside
+// ui/EventBackground's Suspense, keeping the registry graph lean.
+const DetolaWuyiBackground = lazy(() => import('./Background'));
 
 export const detolaWuyi: EventConfig = {
   id: 'detola-wuyi',

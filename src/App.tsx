@@ -13,15 +13,13 @@
  * Legacy mode (VITE_EVENT set): behaves exactly like the original single-event
  * build — registry event at the top-level routes, studio at /admin/*.
  */
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 // Eager: the marketing entry + auth/legal surfaces a first-time visitor hits.
 // Kept in the initial bundle so first paint doesn't wait on a chunk fetch.
 import EventProvider, { useEvent } from './events/EventContext';
 import { EVENT_ID } from './events/active';
 import ErrorBoundary from './components/ui/ErrorBoundary';
-import CopilotFab from './components/copilot/CopilotFab';
-import CopilotPanel from './components/copilot/CopilotPanel';
 import Landing from './pages/Landing';
 import Login from './pages/auth/Login';
 import Signup from './pages/auth/Signup';
@@ -31,7 +29,9 @@ import Legal from './pages/legal/Legal';
 
 // Code-split: everything below loads on first navigation behind the Routes
 // Suspense boundary, so the AR/3D (Booth, studio), guest, host and admin
-// bundles never ship to someone who only lands on the marketing page.
+// bundles never ship to someone who only lands on the marketing page. The
+// other eager path into three (events registry → coded-event Background) is
+// cut too: those configs mark Background as React.lazy (see events/types.ts).
 const Booth = lazy(() => import('./components/Booth'));
 const GuestWelcome = lazy(() => import('./components/GuestWelcome'));
 const Wall = lazy(() => import('./components/Wall'));
@@ -71,6 +71,11 @@ const AdminCredits = lazy(() => import('./pages/admin/Credits'));
 const AdminUsers = lazy(() => import('./pages/admin/Users'));
 const AdminAudit = lazy(() => import('./pages/admin/Audit'));
 const AdminAdmins = lazy(() => import('./pages/admin/Admins'));
+// Lazy: the Copilot tree (CopilotChat → studio glb helpers) statically pulls
+// the three/R3F stack — eager imports here would ship it to every marketing
+// visitor. Both components gate their own visibility to /host surfaces.
+const CopilotFab = lazy(() => import('./components/copilot/CopilotFab'));
+const CopilotPanel = lazy(() => import('./components/copilot/CopilotPanel'));
 
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
@@ -145,10 +150,29 @@ function adminRoutes() {
   );
 }
 
+/** App chrome. `select-none` was aimed at the guest capture surfaces (booth,
+ *  wall, cards, manager console — stray long-press text selection during AR
+ *  interaction); on the marketing/auth/host/admin pages it blocked normal
+ *  text copying, so it now applies only to event-scoped guest routes — and to
+ *  whole legacy builds, which are guest surfaces end to end. */
+function AppShell({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
+  const guestSurface = LEGACY_EVENT !== '' || /^\/(e|c|m|beam)(\/|$)/.test(pathname);
+  return (
+    <div
+      className={`min-h-screen h-screen w-screen bg-brand-bg text-ivory font-sans overflow-hidden${
+        guestSurface ? ' select-none' : ''
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <Router>
-      <div className="min-h-screen h-screen w-screen bg-brand-bg text-ivory font-sans overflow-hidden select-none">
+      <AppShell>
         <ErrorBoundary label="app" fullScreen>
         <Suspense
           fallback={
@@ -236,13 +260,13 @@ export default function App() {
             /host rail pages AND the event studio (sibling route trees).
             Runtime mode only; visibility is gated inside the components. */}
         {!LEGACY_EVENT && (
-          <>
+          <Suspense fallback={null}>
             <CopilotFab />
             <CopilotPanel />
-          </>
+          </Suspense>
         )}
         </ErrorBoundary>
-      </div>
+      </AppShell>
     </Router>
   );
 }

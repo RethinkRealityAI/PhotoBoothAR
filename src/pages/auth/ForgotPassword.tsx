@@ -11,6 +11,7 @@ import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { MailCheck } from 'lucide-react';
 import { sendPasswordReset } from '../../lib/auth';
+import { usePageTitle } from '../../lib/usePageTitle';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-brand-fg ' +
@@ -18,6 +19,7 @@ const inputClass =
   'focus:bg-white/[0.06]';
 
 export default function ForgotPassword() {
+  usePageTitle('Reset your password — Beamwall');
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);

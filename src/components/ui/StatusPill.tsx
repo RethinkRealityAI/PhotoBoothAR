@@ -5,14 +5,14 @@
  * Shared status pill. Styling comes from the pure `pillStyles` tone map so the
  * host studio and the admin suite render statuses identically.
  */
-import { pillClass } from './pillStyles';
+import { pillClass, statusLabel } from './pillStyles';
 
 export default function StatusPill({ status, className = '' }: { status: string; className?: string }) {
   return (
     <span
       className={`inline-block shrink-0 px-2.5 py-1 rounded-full text-[9px] font-label uppercase tracking-widest ${pillClass(status)} ${className}`}
     >
-      {status}
+      {statusLabel(status)}
     </span>
   );
 }
