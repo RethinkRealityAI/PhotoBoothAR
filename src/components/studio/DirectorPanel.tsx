@@ -506,6 +506,8 @@ export default function DirectorPanel({
           // buildConceptPrompt is already complete and 3D-specific; the edge
           // function's sticker art direction would fight its geometry rules.
           artDirection: false,
+          // …and it is far too long to name the Library row after.
+          nameHint: brief,
         });
         // Bail AFTER the charge but BEFORE caching: a stale epoch must not write
         // the concept onto the shared cache (the next plan reads it un-scoped and

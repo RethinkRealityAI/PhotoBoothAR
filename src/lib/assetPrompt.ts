@@ -32,11 +32,16 @@
  * needs an open face cavity, a hat needs an open crown, glasses need a bridge
  * and temples and mostly empty lenses.
  */
-export type PieceKind = 'mask' | 'hat' | 'crown' | 'glasses' | 'ears' | 'held' | 'generic';
+export type PieceKind = 'mask' | 'helmet' | 'hat' | 'crown' | 'glasses' | 'ears' | 'held' | 'generic';
 
 const KIND_PATTERNS: { kind: PieceKind; re: RegExp }[] = [
   { kind: 'glasses', re: /\b(glasses|sunglasses|shades|spectacles|goggles|monocle|visor)\b/i },
-  { kind: 'mask', re: /\b(mask|masquerade|helmet|balaclava|face ?cover|respirator)\b/i },
+  // Helmet BEFORE mask: a helmet was being given the mask spec, which asks for
+  // "cut-through eye openings and an open lower edge" — right for a face mask,
+  // wrong for a helmet, which opens at the NECK and usually has a face gap
+  // rather than two eye holes.
+  { kind: 'helmet', re: /\b(helmet|hardhat|hard ?hat|astronaut|space ?suit|diving ?bell)\b/i },
+  { kind: 'mask', re: /\b(mask|masquerade|balaclava|face ?cover|respirator)\b/i },
   { kind: 'crown', re: /\b(crown|tiara|diadem|coronet|halo|laurel)\b/i },
   { kind: 'hat', re: /\b(hat|cap|beanie|fedora|top ?hat|sombrero|beret|headdress|turban|bonnet|hood)\b/i },
   { kind: 'ears', re: /\b(ears?|antlers?|horns?|antennae|headband)\b/i },
@@ -74,6 +79,15 @@ const KIND_SPEC: Record<PieceKind, KindSpec> = {
       'interior filling the cavity',
     scale: 'about 18cm tall and 14cm wide — real human face proportions',
     view: 'a three-quarter view, tilted so the hollow inside of the shell and the cut-through eye holes are clearly visible',
+  },
+  helmet: {
+    geometry:
+      'a HOLLOW helmet shell that a whole head fits inside — concave on the inside with a large open ' +
+      'neck opening at the bottom, and an open face gap at the front (not two small eye holes). Wall ' +
+      'thickness roughly 5-8mm, uniform. It is an empty shell: there must be NO head, NO face, NO ' +
+      'mannequin, NO bust and NO solid interior filling the cavity',
+    scale: 'about 26cm tall and 22cm wide — sized to fit over a real adult head',
+    view: 'a three-quarter view tilted so both the open face gap and the hollow inside of the shell are visible',
   },
   hat: {
     geometry:

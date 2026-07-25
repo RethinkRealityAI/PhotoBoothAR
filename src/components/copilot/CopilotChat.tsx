@@ -327,6 +327,7 @@ export default function CopilotChat({
         prompt: buildConceptPrompt(prompt),
         kind: '2d_filter',
         artDirection: false, // buildConceptPrompt is already complete + 3D-specific
+        nameHint: prompt,    // …and far too long to name the Library row after
       });
       if (concept.error || !concept.data?.experience?.asset_url) {
         const code = (concept.error ?? 'internal') as AiErrorCode;

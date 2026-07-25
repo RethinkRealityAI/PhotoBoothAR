@@ -99,11 +99,12 @@ class AiError extends Error {
  * object. A mask came back as a face-shaped lump with no cavity, a hat as a
  * dome with no opening. The geometry has to be stated or it does not happen.
  *
- * Applied server-side so EVERY caller is covered, not just the Director panel
- * — and skipped when the client already enriched, so the rules are not
- * duplicated into the prompt twice. */
-
-const GEOMETRY_MARKER = 'Geometry:';
+ * Applied server-side so EVERY caller is covered, not just the Director panel.
+ * It used to skip enrichment when the prompt already contained "Geometry:", to
+ * avoid stating the rules twice — but no caller sends an enriched prompt (every
+ * one passes the host's raw brief, because ai-job-status names the experience
+ * from it), so the only thing that check could still do was let a host disable
+ * the geometry rules by typing "Geometry:" into their brief. */
 
 const KIND_GEOMETRY: { re: RegExp; text: string }[] = [
   {
@@ -111,8 +112,16 @@ const KIND_GEOMETRY: { re: RegExp; text: string }[] = [
     text: 'an eyewear frame — two rims joined by a bridge with temple arms folding back, the lens area ' +
       'empty or a thin transparent sheet, NOT solid blocks. No face, no head, no mannequin',
   },
+  // Helmet BEFORE mask: the mask rules ask for "cut-through eye openings and an
+  // open lower edge", which is right for a face mask and wrong for a helmet.
   {
-    re: /\b(mask|masquerade|helmet|balaclava|face ?cover|respirator)\b/i,
+    re: /\b(helmet|hardhat|hard ?hat|astronaut|space ?suit|diving ?bell)\b/i,
+    text: 'a HOLLOW helmet shell a whole head fits inside — concave inside, a large open neck opening ' +
+      'at the bottom and an open face gap at the front (not two small eye holes), wall roughly 5-8mm. ' +
+      'No head, no face, no mannequin, no solid interior filling the cavity',
+  },
+  {
+    re: /\b(mask|masquerade|balaclava|face ?cover|respirator)\b/i,
     text: 'a HOLLOW curved shell that fits over a human face — concave inside, open at the back, with ' +
       'cut-through eye openings and an open lower edge, wall roughly 3-5mm. No face, no head, no ' +
       'mannequin, no solid interior filling the cavity',
@@ -148,12 +157,10 @@ const GENERIC_GEOMETRY =
  * name the piece "a venetian mask. Geometry: a HOLLOW cu...".
  */
 function withWearability(prompt: string): string {
-  // Already enriched by the client — do not state the rules twice.
-  if (prompt.includes(GEOMETRY_MARKER)) return prompt;
   const geometry = KIND_GEOMETRY.find((k) => k.re.test(prompt))?.text ?? GENERIC_GEOMETRY;
   return [
     `${prompt.trim()}.`,
-    `${GEOMETRY_MARKER} ${geometry}.`,
+    `Geometry: ${geometry}.`,
     'ONE single connected object, centred, facing forward, left-right symmetric unless deliberately ' +
       'asymmetric. No scene, no background objects, no text, no logos, no packaging.',
     'Watertight where it is solid, genuinely open where it should be open. No interpenetrating parts, ' +

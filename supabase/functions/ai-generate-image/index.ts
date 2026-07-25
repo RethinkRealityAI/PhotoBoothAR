@@ -360,12 +360,16 @@ async function generateGemini(prompt: string, aspectRatio: string, reference?: I
   let res = await post(fullConfig);
   if (!res.ok) {
     let bodyText = await res.text().catch(() => '');
-    // A 400 naming one of the generation-config fields means this model build
-    // doesn't accept it. Retry ONCE with the minimal config rather than failing
-    // the host's generation over a knob — degraded output beats no output.
-    if (res.status === 400 && /imageConfig|image_config|imageSize|image_size|responseModalities|response_modalities/i.test(bodyText)) {
-      console.warn('[ai-generate-image] gemini rejected imageConfig — retrying without it', bodyText.slice(0, 300));
-      res = await post({ responseModalities: ['TEXT', 'IMAGE'] });
+    // 2K output and TEXT+IMAGE are both newer than this model, and the API
+    // returns 400 for an unsupported generationConfig — sometimes naming the
+    // field, sometimes not. So ANY 400 that isn't a rejected key falls back to
+    // the EXACT shape that has been running in production, rather than trying
+    // to pattern-match Google's error prose: a knob we added must never be able
+    // to take image generation down.
+    const looksLikeKeyProblem = /API_KEY_INVALID|api key not valid|PERMISSION_DENIED/i.test(bodyText);
+    if (res.status === 400 && !looksLikeKeyProblem) {
+      console.warn('[ai-generate-image] gemini rejected the generation config — falling back', bodyText.slice(0, 300));
+      res = await post({ responseModalities: ['IMAGE'], imageConfig: { aspectRatio } });
       if (!res.ok) bodyText = await res.text().catch(() => '');
     }
     if (!res.ok) {
@@ -525,6 +529,12 @@ Deno.serve(async (req: Request) => {
       typeof body.referenceImageUrl === 'string' && body.referenceImageUrl.trim()
         ? body.referenceImageUrl.trim()
         : null;
+    // What to CALL the resulting experience, when the prompt itself is a poor
+    // name. The 3D concept image sends a fully-built geometry brief, so naming
+    // the Library row after it produced "Product concept art of ONE object f…".
+    // Absent → the prompt names it, exactly as before.
+    const nameHint =
+      typeof body.nameHint === 'string' && body.nameHint.trim() ? body.nameHint.trim() : null;
 
     const sb = serviceClient();
 
@@ -689,7 +699,7 @@ Deno.serve(async (req: Request) => {
         .insert({
           event_id: eventSlug,
           org_id: orgId,
-          name: nameFromPrompt(prompt),
+          name: nameFromPrompt(nameHint ?? prompt),
           kind,
           asset_url: assetUrl,
           thumbnail_url: assetUrl,

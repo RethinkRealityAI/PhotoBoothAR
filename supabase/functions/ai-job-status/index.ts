@@ -112,10 +112,16 @@ async function startRefine(previewTaskId: string, key: string): Promise<string |
   return null;
 }
 
-/** Preview owns the first half of the progress bar, refine the second — so the
- *  bar never jumps back to 0 when the job hands over between stages. */
-function stagedProgress(stage: string, raw: number): number {
+/**
+ * Preview owns the first half of the progress bar, refine the second — so the
+ * bar never jumps back to 0 when a text job hands over between stages.
+ *
+ * `twoStage` is essential: image→3D is a SINGLE task, and scaling its progress
+ * would leave its bar stuck at 50% for a job that had actually finished.
+ */
+function stagedProgress(twoStage: boolean, stage: string, raw: number): number {
   const p = Math.max(0, Math.min(100, raw));
+  if (!twoStage) return Math.round(p);
   return stage === 'refine' ? 50 + Math.round(p / 2) : Math.round(p / 2);
 }
 
@@ -349,12 +355,13 @@ Deno.serve(async (req: Request) => {
 
     // Which half of the text→3D pipeline this task belongs to. Image→3D is
     // single-stage, so it stays on 'preview' and never hands over.
+    const twoStage = input.mode !== 'image';
     const stage = typeof input.stage === 'string' ? input.stage : 'preview';
     const previewGlbUrl = typeof input.previewGlbUrl === 'string' ? input.previewGlbUrl : null;
 
     // 5a. Still working → report progress.
     if (task.status === 'PENDING' || task.status === 'IN_PROGRESS') {
-      return json(200, { job, progress: stagedProgress(stage, task.progress ?? 0) });
+      return json(200, { job, progress: stagedProgress(twoStage, stage, task.progress ?? 0) });
     }
 
     // 5b. Failed / canceled → refund + mark failed (single claimant).
@@ -384,11 +391,19 @@ Deno.serve(async (req: Request) => {
       // Text→3D hands over here: the finished PREVIEW is untextured geometry,
       // so start the refine pass and stay 'running' rather than shipping a bare
       // grey mesh. Image→3D is single-stage (should_texture: true) and skips it.
-      if (input.mode !== 'image' && stage === 'preview') {
+      if (twoStage && stage === 'preview') {
         const refineId = await startRefine(job.provider_job_id as string, meshyKey);
         if (refineId) {
           // Single claimant: matching the CURRENT provider_job_id means only one
           // concurrent poll can move the job onto the refine task.
+          //
+          // KNOWN, BOUNDED RACE: two polls landing inside the same ~1s window
+          // (two studio tabs open on the same job) both create a refine task at
+          // Meshy, and only one is ever polled — so we pay Meshy for one wasted
+          // refine. Claiming BEFORE the call would need a sentinel
+          // provider_job_id, which a concurrent poll would then GET as a 404 and
+          // refund a job that was fine. Correctness (no double-materialize, no
+          // double-refund) is guarded here; the cost is ours, small, and rare.
           const { data: moved } = await sb
             .from('ai_jobs')
             .update({

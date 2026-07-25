@@ -21,7 +21,11 @@ describe('inferPieceKind', () => {
   it('prefers the more specific kind when a brief could match two', () => {
     // "cat ear headband" is ears, not a hat; "welding helmet" is a mask shell.
     expect(inferPieceKind('bunny ears on a headband')).toBe('ears');
-    expect(inferPieceKind('a chrome helmet')).toBe('mask');
+    // A helmet is NOT a mask: it opens at the neck and has a face gap, where
+    // the mask rules ask for cut-through eye holes and an open lower edge.
+    expect(inferPieceKind('a chrome helmet')).toBe('helmet');
+    expect(inferPieceKind('an astronaut helmet')).toBe('helmet');
+    expect(inferPieceKind('a venetian mask')).toBe('mask');
     // Glasses wins over mask for "masquerade glasses" because eyewear geometry
     // (rims + bridge + arms) is the harder constraint to get right.
     expect(inferPieceKind('masquerade glasses')).toBe('glasses');
@@ -33,7 +37,7 @@ describe('inferPieceKind', () => {
 });
 
 describe('buildConceptPrompt', () => {
-  const HOLLOW_KINDS: PieceKind[] = ['mask', 'hat', 'crown', 'glasses', 'ears', 'generic'];
+  const HOLLOW_KINDS: PieceKind[] = ['mask', 'helmet', 'hat', 'crown', 'glasses', 'ears', 'generic'];
 
   it('forbids a head, face or mannequin on every head-worn kind', () => {
     // The exact failure this exists to prevent: a concept showing the piece ON
@@ -53,6 +57,13 @@ describe('buildConceptPrompt', () => {
 
   it('states a real-world scale so proportions are anchored', () => {
     expect(buildConceptPrompt('a top hat')).toMatch(/cm/);
+  });
+
+  it('opens a helmet at the neck with a face gap, not with eye holes', () => {
+    const p = buildConceptPrompt('a chrome motorcycle helmet');
+    expect(p).toMatch(/neck opening/i);
+    expect(p).toMatch(/face gap/i);
+    expect(p).not.toMatch(/cut-through eye openings/i);
   });
 
   it('keeps the host brief verbatim in the prompt', () => {

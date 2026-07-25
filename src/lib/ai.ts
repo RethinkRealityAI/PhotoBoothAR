@@ -145,6 +145,14 @@ export interface GenerateImageOpts {
    * style/subject. Omitted → the request body is byte-identical to before.
    */
   referenceImageUrl?: string;
+  /**
+   * What to name the resulting experiences row when the prompt is a poor name
+   * for it. The 3D concept image passes the host's raw brief here, because its
+   * `prompt` is a full geometry specification and naming a Library row after
+   * that reads as "Product concept art of ONE object f…". Omitted → the prompt
+   * names it, as before.
+   */
+  nameHint?: string;
 }
 
 export function generateImage(
