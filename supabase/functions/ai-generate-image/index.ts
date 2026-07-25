@@ -190,17 +190,31 @@ const EVENT_REGISTER: Record<string, string> = {
   corporate: 'clean and premium — minimal rules, subtle metallic hairlines, plenty of negative space',
 };
 
+/** Palette sentence for 0, 1 or many known accent colours. Mirrors
+ *  `paletteDirection` in src/lib/assetPrompt.ts. Only the first two hexes are
+ *  used: handing a model four produces a muddy rainbow, the opposite of the
+ *  disciplined palette the rest of this direction asks for. */
+function paletteDirection(accentHexes: string[]): string {
+  const hexes = accentHexes.filter((h) => typeof h === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(h));
+  if (hexes.length === 0) {
+    return 'Use a disciplined palette: one dominant colour, one supporting metallic or neutral, at most one accent.';
+  }
+  if (hexes.length === 1) {
+    return `Build the palette around ${hexes[0]} — use it plus one supporting metallic or neutral, and ` +
+      'at most one accent hue. Do not use every colour.';
+  }
+  return `Build the palette around ${hexes[0]} as the dominant colour with ${hexes[1]} supporting, ` +
+    'plus at most one neutral. Do not use every colour.';
+}
+
 function artDirectionFor(
   brief: string,
   kind: string,
-  accentHex: string | null,
+  accentHexes: string[],
   eventType: string | null,
 ): string {
   const register = eventType ? EVENT_REGISTER[eventType.toLowerCase()] : undefined;
-  const palette = accentHex
-    ? `Build the palette around ${accentHex} — use it plus one supporting metallic or neutral, and ` +
-      'at most one accent hue. Do not use every colour.'
-    : 'Use a disciplined palette: one dominant colour, one supporting metallic or neutral, at most one accent.';
+  const palette = paletteDirection(accentHexes);
   // Frame composition language is WRONG for a sticker (and for the 3D concept
   // image, which also arrives as a sticker kind) — a sticker has one subject,
   // not four edges.
@@ -234,7 +248,7 @@ function buildPrompt(
   kind: string,
   transparent: boolean,
   greenScreen: boolean,
-  accentHex: string | null = null,
+  accentHexes: string[] = [],
   eventType: string | null = null,
   /** false when the caller already built a complete, purpose-specific prompt —
    *  the 3D concept image does this, and layering sticker art direction on top
@@ -242,7 +256,7 @@ function buildPrompt(
   artDirection = true,
 ): string {
   const art = artDirection
-    ? artDirectionFor(prompt, kind, accentHex, eventType)
+    ? artDirectionFor(prompt, kind, accentHexes, eventType)
     : `Design brief: ${prompt.trim()}`;
   if (greenScreen) {
     const base = kind === 'border'
@@ -251,11 +265,15 @@ function buildPrompt(
         'central area AND the whole background with ONE solid pure green colour #00FF00 — a flat, ' +
         'uniform chroma-key green with NO gradients, NO shadows, NO texture, NO vignette or glow on ' +
         'the green. Do not place any art, drop-shadow, or highlight over the green region; the green ' +
-        'must read as a single exact colour so it can be keyed out.'
+        'must read as a single exact colour so it can be keyed out. Use NO green anywhere in the ' +
+        'border artwork itself, and give it no green tint, green reflection or green rim-light — ' +
+        'anything green in the art will be punched out as a hole.'
       : 'Create a single centered decorative subject for an event photo-booth sticker, bold and ' +
         'readable at small sizes. Fill the ENTIRE background behind and around the subject with ONE ' +
         'solid pure green colour #00FF00 — a flat, uniform chroma-key green with NO gradients, NO ' +
-        'shadows, NO texture, NO glow behind the subject, so the background can be keyed out.';
+        'shadows, NO texture, NO glow behind the subject, so the background can be keyed out. Use NO ' +
+        'green anywhere on the subject, and give it no green tint, green reflection or green ' +
+        'rim-light — anything green on the subject will be punched out as a hole.';
     return `${base} ${art}`;
   }
   const base = kind === 'border'
@@ -274,27 +292,54 @@ function buildPrompt(
 
 class AiError extends Error {
   constructor(
-    public code: 'ai_not_configured' | 'ai_key_invalid' | 'generation_failed' | 'ai_quota',
+    public code: 'ai_not_configured' | 'ai_key_invalid' | 'generation_failed' | 'ai_quota' | 'content_blocked',
     detail?: string,
   ) {
     super(detail ?? code);
   }
 }
 
+/**
+ * Finish/block reasons that mean "the model refused", not "the model failed".
+ * They arrive on HTTP **200** with an empty candidate, so without this set they
+ * were all reported as `generation_failed` ("try a different prompt") with no
+ * hint that the prompt itself was the problem.
+ * Enum values from the v1beta discovery document (FinishReason, BlockReason).
+ */
+const BLOCKED_REASONS = new Set([
+  'IMAGE_SAFETY', 'IMAGE_PROHIBITED_CONTENT', 'IMAGE_RECITATION',
+  'SAFETY', 'PROHIBITED_CONTENT', 'RECITATION', 'BLOCKLIST', 'SPII',
+]);
+
+/** Output resolution. The default is 1K, which is BELOW the booth's 1080×1920
+ *  capture buffer — every frame was being upscaled before it reached the
+ *  canvas. 2K clears it with headroom; 4K would cost more for detail the booth
+ *  throws away. Enum: 512 | 1K | 2K | 4K. */
+const GEMINI_IMAGE_SIZE = '2K';
+
 /** Gemini image generation — REST generateContent with IMAGE modality.
  *  (Server-side move of the old browser call to generativelanguage.googleapis.com
  *  in Creator2D; the image model returns inlineData base64 instead of SVG text.) */
-async function generateGemini(prompt: string, aspectRatio?: string, reference?: InlineImage | null): Promise<Uint8Array> {
+async function generateGemini(prompt: string, aspectRatio: string, reference?: InlineImage | null): Promise<Uint8Array> {
   // Dashboard-set secrets can arrive wrapped in quotes / with a trailing
   // newline; Google then rejects them as API_KEY_INVALID. Strip both.
   const key = Deno.env.get('GEMINI_API_KEY')?.trim().replace(/^["']|["']$/g, '');
   if (!key) throw new AiError('ai_not_configured');
 
-  // imageConfig.aspectRatio (e.g. '9:16') — without it the model returns a
-  // ~square image, and a square "full-bleed frame" contain-fit onto the 9:16
-  // booth canvas floats in the middle with no top/bottom border art.
-  const generationConfig: Record<string, unknown> = { responseModalities: ['IMAGE'] };
-  if (aspectRatio) generationConfig.imageConfig = { aspectRatio };
+  // responseModalities is TEXT+IMAGE, not IMAGE alone: the API rejects
+  // modality combinations it doesn't support, and every first-party sample for
+  // these models asks for both (the model emits a short text part alongside
+  // the image). We simply ignore the text part when reading the response.
+  //
+  // imageConfig.aspectRatio is sent on EVERY call. Without it the model's
+  // documented behaviour is to match the size of an input image, falling back
+  // to 1:1 — so before this, attaching a reference image silently dictated the
+  // frame's aspect, and a square "full-bleed frame" contain-fit onto the 9:16
+  // booth canvas floated in the middle with no top/bottom border art.
+  const fullConfig: Record<string, unknown> = {
+    responseModalities: ['TEXT', 'IMAGE'],
+    imageConfig: { aspectRatio, imageSize: GEMINI_IMAGE_SIZE },
+  };
 
   // When a reference image is present, put it BEFORE the text prompt so the
   // model reads it as the style/subject to follow (same camelCase inlineData
@@ -303,36 +348,56 @@ async function generateGemini(prompt: string, aspectRatio?: string, reference?: 
     ? [{ inlineData: { mimeType: reference.mimeType, data: reference.data } }, { text: prompt }]
     : [{ text: prompt }];
 
-  const res = await fetch(
+  const post = (generationConfig: Record<string, unknown>) => fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig,
-      }),
+      body: JSON.stringify({ contents: [{ parts }], generationConfig }),
     },
   );
+
+  let res = await post(fullConfig);
   if (!res.ok) {
-    const bodyText = await res.text().catch(() => '');
-    console.error('[ai-generate-image] gemini error', res.status, bodyText);
-    // 429 from Gemini = plan/billing quota (flash-image has NO free tier) —
-    // a distinct, actionable error, not a "bad prompt". 400 API_KEY_INVALID /
-    // 401 / 403 = the key itself is rejected (rotated / wrong / restricted).
-    const keyRejected =
-      res.status === 401 ||
-      res.status === 403 ||
-      (res.status === 400 && /API_KEY_INVALID|api key not valid|PERMISSION_DENIED/i.test(bodyText));
-    const code = res.status === 429 ? 'ai_quota' : keyRejected ? 'ai_key_invalid' : 'generation_failed';
-    throw new AiError(code, `gemini_http_${res.status}`);
+    let bodyText = await res.text().catch(() => '');
+    // A 400 naming one of the generation-config fields means this model build
+    // doesn't accept it. Retry ONCE with the minimal config rather than failing
+    // the host's generation over a knob — degraded output beats no output.
+    if (res.status === 400 && /imageConfig|image_config|imageSize|image_size|responseModalities|response_modalities/i.test(bodyText)) {
+      console.warn('[ai-generate-image] gemini rejected imageConfig — retrying without it', bodyText.slice(0, 300));
+      res = await post({ responseModalities: ['TEXT', 'IMAGE'] });
+      if (!res.ok) bodyText = await res.text().catch(() => '');
+    }
+    if (!res.ok) {
+      console.error('[ai-generate-image] gemini error', res.status, bodyText);
+      // 429 from Gemini = plan/billing quota (flash-image has NO free tier) —
+      // a distinct, actionable error, not a "bad prompt". 400 API_KEY_INVALID /
+      // 401 / 403 = the key itself is rejected (rotated / wrong / restricted).
+      const keyRejected =
+        res.status === 401 ||
+        res.status === 403 ||
+        (res.status === 400 && /API_KEY_INVALID|api key not valid|PERMISSION_DENIED/i.test(bodyText));
+      const code = res.status === 429 ? 'ai_quota' : keyRejected ? 'ai_key_invalid' : 'generation_failed';
+      throw new AiError(code, `gemini_http_${res.status}`);
+    }
   }
   const body = (await res.json()) as {
-    candidates?: { content?: { parts?: { inlineData?: { mimeType?: string; data?: string } }[] } }[];
+    promptFeedback?: { blockReason?: string };
+    candidates?: {
+      finishReason?: string;
+      content?: { parts?: { inlineData?: { mimeType?: string; data?: string } }[] };
+    }[];
   };
   const part = body.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
-  if (!part?.inlineData?.data) throw new AiError('generation_failed', 'gemini_no_image');
-  return base64ToBytes(part.inlineData.data);
+  if (part?.inlineData?.data) return base64ToBytes(part.inlineData.data);
+
+  // No image — say WHY. All of these are HTTP 200 responses.
+  const blockReason = body.promptFeedback?.blockReason;
+  const finishReason = body.candidates?.[0]?.finishReason;
+  const reason = blockReason ?? finishReason ?? 'NO_CANDIDATE';
+  console.error('[ai-generate-image] gemini returned no image', { blockReason, finishReason });
+  if (BLOCKED_REASONS.has(reason)) throw new AiError('content_blocked', `gemini_${reason.toLowerCase()}`);
+  throw new AiError('generation_failed', `gemini_no_image_${reason.toLowerCase()}`);
 }
 
 /** Typed Higgsfield request scaffold — keys are not provisioned yet, so this
@@ -564,14 +629,20 @@ Deno.serve(async (req: Request) => {
       // theme instead of a generic palette. Both are optional — a missing
       // config simply falls back to the disciplined-palette wording.
       const cfg = (event.config ?? {}) as Record<string, unknown>;
-      const accentHex = typeof cfg.accent === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(cfg.accent)
-        ? cfg.accent
-        : null;
+      // events.config stores the palette as `accentHexes: string[]` (ordered,
+      // [0] dominant) — see buildRuntimeConfig in src/events/runtime.ts and the
+      // templates in src/lib/eventTemplates.ts that write it. An earlier version
+      // read `cfg.accent`, which does not exist on this row at all (the single
+      // `accent` colour lives in the app_settings 'branding' value, keyed by
+      // slug), so the palette line NEVER fired with the event's real colour.
+      const accentHexes = Array.isArray(cfg.accentHexes)
+        ? (cfg.accentHexes as unknown[]).filter((h): h is string => typeof h === 'string')
+        : [];
       const eventType = typeof event.event_type === 'string' && event.event_type.trim()
         ? event.event_type
         : null;
       let fullPrompt = buildPrompt(
-        prompt, kind, transparentBackground, greenScreen, accentHex, eventType, artDirection,
+        prompt, kind, transparentBackground, greenScreen, accentHexes, eventType, artDirection,
       );
       // Reference image (gemini only): fetch + encode server-side and tell the
       // model to follow it. A failed fetch degrades to null → no reference,
@@ -587,10 +658,14 @@ Deno.serve(async (req: Request) => {
         ? await fetchReferenceInline(referenceImageUrl)
         : null;
       if (reference) fullPrompt = `${fullPrompt} Use the attached reference image to guide the style and subject.`;
-      // Frames are full-bleed 9:16 compositions — request that aspect from the
-      // model so the border art actually reaches the booth canvas's top/bottom
-      // edges. Stickers stay at the model default (square subject).
-      const aspect = greenScreen && kind === 'border' ? '9:16' : undefined;
+      // Aspect is decided by WHAT WE ARE MAKING and always sent. Frames are
+      // full-bleed 9:16 compositions so the border art reaches the booth
+      // canvas's top/bottom edges; a sticker (and the 3D concept image, which
+      // also arrives as '2d_filter') is a single centred subject, so 1:1.
+      // Previously this was only set for green-screen frames, which left every
+      // other call at the model's "match the input image, else 1:1" default —
+      // meaning a host's reference image silently chose the aspect.
+      const aspect = kind === 'border' ? '9:16' : '1:1';
       const bytes = provider === 'gemini'
         ? await generateGemini(fullPrompt, aspect, reference)
         : await generateHiggsfield(fullPrompt);
@@ -653,6 +728,7 @@ Deno.serve(async (req: Request) => {
       if (code === 'ai_not_configured') return json(503, { error: 'ai_not_configured' });
       if (code === 'ai_key_invalid') return json(503, { error: 'ai_key_invalid' });
       if (code === 'ai_quota') return json(503, { error: 'ai_quota' });
+      if (code === 'content_blocked') return json(502, { error: 'content_blocked' });
       if (code === 'generation_failed') return json(502, { error: 'generation_failed' });
       console.error('[ai-generate-image] internal error after spend', err);
       return json(500, { error: 'internal' });

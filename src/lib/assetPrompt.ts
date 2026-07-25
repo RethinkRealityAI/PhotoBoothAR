@@ -175,10 +175,32 @@ export function buildMeshyPrompt(brief: string, kind: PieceKind = inferPieceKind
 /* ── Frames ───────────────────────────────────────────────────────────── */
 
 export interface FrameArtOptions {
-  /** Event accent colour, when known — grounds the palette in the real theme. */
-  accentHex?: string | null;
+  /**
+   * The event's own palette, when known — grounds the art in the real theme
+   * instead of a generic one. This is `events.config.accentHexes` (see
+   * `buildRuntimeConfig` in src/events/runtime.ts), an ORDERED array where [0]
+   * is the dominant accent: `['#D4AF37', '#EACB6E', '#FBF3D9', '#A87C1F']`.
+   * Only the first two are used — handing a model four hexes produces a muddy
+   * rainbow, which is the opposite of the disciplined palette we ask for.
+   */
+  accentHexes?: string[] | null;
   /** e.g. "wedding", "gala" — sets the register. */
   eventType?: string | null;
+}
+
+/** Palette sentence for 0, 1 or many known accent colours. Exported so the
+ *  edge-function mirror can be diffed against it directly. */
+export function paletteDirection(accentHexes?: string[] | null): string {
+  const hexes = (accentHexes ?? []).filter((h) => typeof h === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(h));
+  if (hexes.length === 0) {
+    return 'Use a disciplined palette: one dominant colour, one supporting metallic or neutral, at most one accent.';
+  }
+  if (hexes.length === 1) {
+    return `Build the palette around ${hexes[0]} — use it plus one supporting metallic or neutral, ` +
+      'and at most one accent hue. Do not use every colour.';
+  }
+  return `Build the palette around ${hexes[0]} as the dominant colour with ${hexes[1]} supporting, ` +
+    'plus at most one neutral. Do not use every colour.';
 }
 
 /** Register hints per event type. Deliberately concrete: "elegant" is not art direction. */
@@ -204,10 +226,7 @@ export function buildFrameArtDirection(brief: string, opts: FrameArtOptions = {}
   const parts = [
     `Design brief: ${brief.trim()}.`,
     register ? `Register: ${register}.` : '',
-    opts.accentHex
-      ? `Build the palette around ${opts.accentHex} — use it plus one supporting metallic or neutral, ` +
-        'and at most one accent hue. Do not use every colour.'
-      : 'Use a disciplined palette: one dominant colour, one supporting metallic or neutral, at most one accent.',
+    paletteDirection(opts.accentHexes),
     // Composition is what separates a designed frame from a generated one.
     'Composition: treat the four edges as a deliberate composition, not a repeating stamp. Anchor the ' +
       'design with heavier ornament in two opposite corners and let it thin out along the long edges, ' +

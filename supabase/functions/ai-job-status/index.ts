@@ -66,11 +66,181 @@ interface MeshyTask {
   task_error?: { message?: string } | null;
 }
 
+/**
+ * Start the REFINE half of Meshy's two-stage text→3D.
+ *
+ * `mode: 'preview'` (what ai-generate-3d creates) returns GEOMETRY ONLY — a
+ * bare grey mesh with no texture at all. Refine takes that task id and paints
+ * it. We were shipping previews, which is why text-generated props looked
+ * unfinished next to the image→3D ones (image→3D is single-stage and already
+ * carries `should_texture: true`).
+ *
+ * Returns the refine task id, or null if refine could not be started for ANY
+ * reason — the caller then ships the preview mesh. A missing texture is a much
+ * smaller failure than losing a paid job, so this never throws.
+ */
+async function startRefine(previewTaskId: string, key: string): Promise<string | null> {
+  // enable_pbr asks for the PBR map set; it is the newer of the two fields, so
+  // a rejected body is retried WITHOUT it before giving up.
+  const bodies: Record<string, unknown>[] = [
+    { mode: 'refine', preview_task_id: previewTaskId, enable_pbr: true },
+    { mode: 'refine', preview_task_id: previewTaskId },
+  ];
+  for (const body of bodies) {
+    try {
+      const res = await fetch(MESHY_TEXT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const parsed = (await res.json()) as { result?: string };
+        if (typeof parsed.result === 'string' && parsed.result) return parsed.result;
+        console.warn('[ai-job-status] refine returned no task id');
+        return null;
+      }
+      const detail = await res.text().catch(() => '');
+      console.warn('[ai-job-status] refine rejected', res.status, detail.slice(0, 300));
+      // Only a 4xx is worth re-trying with a smaller body (an unknown field);
+      // a 5xx or an auth failure will reject the minimal body just the same.
+      if (res.status < 400 || res.status >= 500) return null;
+    } catch (e) {
+      console.warn('[ai-job-status] refine request failed', e);
+      return null;
+    }
+  }
+  return null;
+}
+
+/** Preview owns the first half of the progress bar, refine the second — so the
+ *  bar never jumps back to 0 when the job hands over between stages. */
+function stagedProgress(stage: string, raw: number): number {
+  const p = Math.max(0, Math.min(100, raw));
+  return stage === 'refine' ? 50 + Math.round(p / 2) : Math.round(p / 2);
+}
+
 /** Experience name derived from the job's prompt (≤40 chars). */
 function nameFromPrompt(prompt: unknown): string {
   if (typeof prompt !== 'string' || !prompt.trim()) return 'AI 3D Model';
   const clean = prompt.trim().replace(/\s+/g, ' ');
   return clean.length <= 40 ? clean : `${clean.slice(0, 39)}…`;
+}
+
+/**
+ * Claim the job, re-host the GLB and create the experiences row.
+ *
+ * Extracted because THREE paths now reach it: a finished single-stage image
+ * job, a finished refine, and a refine that failed after a good preview (we
+ * ship the untextured preview rather than refunding a mesh we actually have).
+ * The claim is conditional on `status = 'running'` so concurrent polls can
+ * never double-create the experience or double-refund.
+ */
+async function materializeModel(
+  sb: Client,
+  job: Record<string, unknown>,
+  jobId: string,
+  glbUrl: string | null,
+  input: Record<string, unknown>,
+  ref: unknown,
+): Promise<Response> {
+  const { data: claimed } = await sb
+    .from('ai_jobs')
+    .update({ updated_at: new Date().toISOString(), status: 'succeeded' })
+    .eq('id', jobId)
+    .eq('status', 'running')
+    .select()
+    .maybeSingle();
+  if (!claimed) {
+    // Another poll won the race — return whatever state it left behind.
+    const { data: fresh } = await sb.from('ai_jobs').select('*').eq('id', jobId).maybeSingle();
+    return json(200, { job: fresh ?? job });
+  }
+
+  try {
+    if (!glbUrl) throw new Error('meshy_no_model_url');
+
+    // Event slug for the storage path + experiences.event_id (text = slug).
+    const { data: event, error: evErr } = await sb
+      .from('events')
+      .select('slug')
+      .eq('id', job.event_id as string)
+      .maybeSingle();
+    if (evErr) throw evErr;
+    if (!event) throw new Error('event_missing');
+    const eventSlug = event.slug as string;
+
+    // Re-host the GLB (Meshy asset URLs expire — assets are kept 3 days) in the
+    // public assets bucket.
+    const dl = await fetch(glbUrl);
+    if (!dl.ok) throw new Error(`glb_download_${dl.status}`);
+    const bytes = new Uint8Array(await dl.arrayBuffer());
+    const path = `${eventSlug}/ai/${jobId}.glb`;
+    const { error: upErr } = await sb.storage
+      .from(ASSETS_BUCKET)
+      .upload(path, bytes, { contentType: 'model/gltf-binary', upsert: true });
+    if (upErr) throw upErr;
+    const { data: pub } = sb.storage.from(ASSETS_BUCKET).getPublicUrl(path);
+    const assetUrl = pub.publicUrl;
+
+    // Experience config MUST match what Creator3D saves / the booth reads:
+    // config.anchor = AnchorConfig { anchor, offset, rotation, scale }.
+    // 'crown' is the top-of-head anchor (see src/lib/faceRig.ts) — the
+    // host fine-tunes placement in the 3D anchor editor afterwards.
+    const prompt = input.prompt ?? null;
+    const { data: experience, error: expErr } = await sb
+      .from('experiences')
+      .insert({
+        event_id: eventSlug,
+        org_id: job.org_id as string,
+        name: nameFromPrompt(prompt),
+        kind: '3d_attachment',
+        asset_url: assetUrl,
+        thumbnail_url: null,
+        config: {
+          anchor: {
+            anchor: 'crown',
+            offset: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: 1,
+          },
+          generated: true,
+          prompt,
+          // Honest provenance: `false` means the texture pass did not run or did
+          // not finish, so the host is looking at bare geometry.
+          textured: input.mode === 'image' || input.stage === 'refine',
+        },
+        is_published: false,
+        featured: false,
+        sort_order: 0,
+        source: 'ai_meshy',
+      })
+      .select()
+      .single();
+    if (expErr || !experience) throw expErr ?? new Error('experience_insert_failed');
+
+    const { data: doneJob, error: updErr } = await sb
+      .from('ai_jobs')
+      .update({ result_url: assetUrl, updated_at: new Date().toISOString() })
+      .eq('id', jobId)
+      .select()
+      .single();
+    if (updErr) throw updErr;
+
+    return json(200, { job: doneJob ?? claimed, experience });
+  } catch (err) {
+    // Materialization failed AFTER the claim — refund + flip to failed so
+    // credits are never left spent on a job with no asset.
+    console.error('[ai-job-status] materialize error', jobId, err);
+    const detail = err instanceof Error ? err.message : String(err);
+    const { data: failedJob } = await sb
+      .from('ai_jobs')
+      .update({ status: 'failed', error: detail, updated_at: new Date().toISOString() })
+      .eq('id', jobId)
+      .select()
+      .single();
+    await refund(sb, job.org_id as string, job.credits_charged as number, ref);
+    return json(200, { job: failedJob ?? claimed });
+  }
 }
 
 async function refund(sb: Client, orgId: string, amount: number, ref: unknown): Promise<void> {
@@ -177,13 +347,24 @@ Deno.serve(async (req: Request) => {
     }
     const task = (await res.json()) as MeshyTask;
 
+    // Which half of the text→3D pipeline this task belongs to. Image→3D is
+    // single-stage, so it stays on 'preview' and never hands over.
+    const stage = typeof input.stage === 'string' ? input.stage : 'preview';
+    const previewGlbUrl = typeof input.previewGlbUrl === 'string' ? input.previewGlbUrl : null;
+
     // 5a. Still working → report progress.
     if (task.status === 'PENDING' || task.status === 'IN_PROGRESS') {
-      return json(200, { job, progress: task.progress ?? 0 });
+      return json(200, { job, progress: stagedProgress(stage, task.progress ?? 0) });
     }
 
     // 5b. Failed / canceled → refund + mark failed (single claimant).
     if (task.status === 'FAILED' || task.status === 'CANCELED') {
+      // A refine that failed after a good preview is NOT a lost job — we have a
+      // real (untextured) mesh. Ship it rather than refunding something usable.
+      if (stage === 'refine' && previewGlbUrl) {
+        console.warn('[ai-job-status] refine failed — shipping the untextured preview', jobId);
+        return await materializeModel(sb, job, jobId, previewGlbUrl, { ...input, stage: 'preview' }, ref);
+      }
       const msg = task.task_error?.message || `meshy_${(task.status ?? 'failed').toLowerCase()}`;
       const { data: claimed } = await sb
         .from('ai_jobs')
@@ -196,105 +377,40 @@ Deno.serve(async (req: Request) => {
       return json(200, { job: claimed ?? job });
     }
 
-    // 5c. Succeeded → claim the job, then materialize the asset + experience.
+    // 5c. Succeeded.
     if (task.status === 'SUCCEEDED') {
-      const glbUrl = task.model_urls?.glb;
+      const glbUrl = task.model_urls?.glb ?? null;
 
-      // Claim first so concurrent polls can't double-create the experience.
-      const { data: claimed } = await sb
-        .from('ai_jobs')
-        .update({ updated_at: new Date().toISOString(), status: 'succeeded' })
-        .eq('id', jobId)
-        .eq('status', 'running')
-        .select()
-        .maybeSingle();
-      if (!claimed) {
-        // Another poll won the race — return whatever state it left behind.
-        const { data: fresh } = await sb.from('ai_jobs').select('*').eq('id', jobId).maybeSingle();
-        return json(200, { job: fresh ?? job });
+      // Text→3D hands over here: the finished PREVIEW is untextured geometry,
+      // so start the refine pass and stay 'running' rather than shipping a bare
+      // grey mesh. Image→3D is single-stage (should_texture: true) and skips it.
+      if (input.mode !== 'image' && stage === 'preview') {
+        const refineId = await startRefine(job.provider_job_id as string, meshyKey);
+        if (refineId) {
+          // Single claimant: matching the CURRENT provider_job_id means only one
+          // concurrent poll can move the job onto the refine task.
+          const { data: moved } = await sb
+            .from('ai_jobs')
+            .update({
+              provider_job_id: refineId,
+              input: { ...input, stage: 'refine', previewGlbUrl: glbUrl },
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', jobId)
+            .eq('status', 'running')
+            .eq('provider_job_id', job.provider_job_id as string)
+            .select()
+            .maybeSingle();
+          if (moved) return json(200, { job: moved, progress: 50 });
+          const { data: fresh } = await sb.from('ai_jobs').select('*').eq('id', jobId).maybeSingle();
+          return json(200, { job: fresh ?? job, progress: 50 });
+        }
+        // Refine could not be started (key rejected, unknown field, network).
+        // Ship the untextured preview — a plain mesh beats a failed paid job.
+        console.warn('[ai-job-status] refine unavailable — shipping the preview mesh', jobId);
       }
 
-      try {
-        if (!glbUrl) throw new Error('meshy_no_model_url');
-
-        // Event slug for the storage path + experiences.event_id (text = slug).
-        const { data: event, error: evErr } = await sb
-          .from('events')
-          .select('slug')
-          .eq('id', job.event_id as string)
-          .maybeSingle();
-        if (evErr) throw evErr;
-        if (!event) throw new Error('event_missing');
-        const eventSlug = event.slug as string;
-
-        // Re-host the GLB (Meshy asset URLs expire) in the public assets bucket.
-        const dl = await fetch(glbUrl);
-        if (!dl.ok) throw new Error(`glb_download_${dl.status}`);
-        const bytes = new Uint8Array(await dl.arrayBuffer());
-        const path = `${eventSlug}/ai/${jobId}.glb`;
-        const { error: upErr } = await sb.storage
-          .from(ASSETS_BUCKET)
-          .upload(path, bytes, { contentType: 'model/gltf-binary', upsert: true });
-        if (upErr) throw upErr;
-        const { data: pub } = sb.storage.from(ASSETS_BUCKET).getPublicUrl(path);
-        const assetUrl = pub.publicUrl;
-
-        // Experience config MUST match what Creator3D saves / the booth reads:
-        // config.anchor = AnchorConfig { anchor, offset, rotation, scale }.
-        // 'crown' is the top-of-head anchor (see src/lib/faceRig.ts) — the
-        // host fine-tunes placement in the 3D anchor editor afterwards.
-        const prompt = input.prompt ?? null;
-        const { data: experience, error: expErr } = await sb
-          .from('experiences')
-          .insert({
-            event_id: eventSlug,
-            org_id: job.org_id as string,
-            name: nameFromPrompt(prompt),
-            kind: '3d_attachment',
-            asset_url: assetUrl,
-            thumbnail_url: null,
-            config: {
-              anchor: {
-                anchor: 'crown',
-                offset: { x: 0, y: 0, z: 0 },
-                rotation: { x: 0, y: 0, z: 0 },
-                scale: 1,
-              },
-              generated: true,
-              prompt,
-            },
-            is_published: false,
-            featured: false,
-            sort_order: 0,
-            source: 'ai_meshy',
-          })
-          .select()
-          .single();
-        if (expErr || !experience) throw expErr ?? new Error('experience_insert_failed');
-
-        const { data: doneJob, error: updErr } = await sb
-          .from('ai_jobs')
-          .update({ result_url: assetUrl, updated_at: new Date().toISOString() })
-          .eq('id', jobId)
-          .select()
-          .single();
-        if (updErr) throw updErr;
-
-        return json(200, { job: doneJob ?? claimed, experience });
-      } catch (err) {
-        // Materialization failed AFTER the claim — refund + flip to failed so
-        // credits are never left spent on a job with no asset.
-        console.error('[ai-job-status] materialize error', jobId, err);
-        const detail = err instanceof Error ? err.message : String(err);
-        const { data: failedJob } = await sb
-          .from('ai_jobs')
-          .update({ status: 'failed', error: detail, updated_at: new Date().toISOString() })
-          .eq('id', jobId)
-          .select()
-          .single();
-        await refund(sb, job.org_id as string, job.credits_charged as number, ref);
-        return json(200, { job: failedJob ?? claimed });
-      }
+      return await materializeModel(sb, job, jobId, glbUrl ?? previewGlbUrl, input, ref);
     }
 
     // Unknown provider status — leave running; the client keeps polling.

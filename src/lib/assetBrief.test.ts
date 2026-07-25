@@ -29,6 +29,18 @@ describe('frameBriefGaps', () => {
   it('accepts a hex colour as a colour answer', () => {
     expect(frameBriefGaps('#D4AF37 art-deco border')).toEqual([]);
   });
+
+  it('does not accept the word "frame" as a motif', () => {
+    // Regression: MOTIF used to list `frame` and `border` — the noun of the
+    // artefact itself — so this exact brief passed with no gaps and the card
+    // offered to spend a credit on it.
+    expect(frameBriefGaps('a gold frame').map((g) => g.id)).toEqual(['style']);
+    expect(frameBriefGaps('a gold border').map((g) => g.id)).toEqual(['style']);
+  });
+
+  it('does not accept a shade word like "light" as a motif', () => {
+    expect(frameBriefGaps('a light gold frame').map((g) => g.id)).toEqual(['style']);
+  });
 });
 
 describe('pieceBriefGaps', () => {

@@ -21,11 +21,16 @@
  * Meshy REST endpoints used:
  *   text  → POST https://api.meshy.ai/openapi/v2/text-to-3d
  *             { mode: 'preview', prompt, art_style: 'realistic',
- *               topology: 'triangle', target_polycount }
+ *               topology: 'triangle', should_remesh, target_polycount }
  *   image → POST https://api.meshy.ai/openapi/v1/image-to-3d
- *             { image_url, should_texture: true,
- *               target_polycount: min(input ?? 30000, 50000), topology: 'triangle' }
+ *             { image_url, should_texture: true, texture_prompt?,
+ *               topology: 'triangle', should_remesh, target_polycount }
  * Both return { result: '<task-id>' }; completion is handled by ai-job-status.
+ *
+ * TEXT IS TWO-STAGE. `mode: 'preview'` returns geometry ONLY — an untextured
+ * grey mesh. ai-job-status starts the second (`mode: 'refine'`) task when the
+ * preview succeeds, and falls back to shipping the preview if refine can't run.
+ * Image→3D is single-stage: `should_texture: true` textures it in one pass.
  *
  * Credits: 10 per job (strategy doc), spent FIRST via spend_credits
  * (reason 'ai_3d'); any failure before the task is accepted refunds via
@@ -338,7 +343,11 @@ Deno.serve(async (req: Request) => {
         kind: 'model3d',
         provider: 'meshy',
         status: 'running',
-        input: { mode, prompt, imageUrl, targetPolycount, ref },
+        // `stage` drives ai-job-status's two-stage hand-off: a text job's
+        // preview task returns untextured geometry, so when it succeeds
+        // ai-job-status starts the refine pass and flips this to 'refine'.
+        // Image→3D is single-stage and stays on 'preview' forever.
+        input: { mode, prompt, imageUrl, targetPolycount, ref, stage: 'preview' },
         credits_charged: COST_3D,
       })
       .select()

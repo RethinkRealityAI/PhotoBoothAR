@@ -4,6 +4,7 @@ import {
   buildFrameArtDirection,
   buildMeshyPrompt,
   inferPieceKind,
+  paletteDirection,
   type PieceKind,
 } from './assetPrompt';
 
@@ -103,12 +104,41 @@ describe('buildFrameArtDirection', () => {
   });
 
   it('builds the palette around the event accent when there is one', () => {
-    expect(buildFrameArtDirection('a frame', { accentHex: '#D4AF37' })).toContain('#D4AF37');
+    expect(buildFrameArtDirection('a frame', { accentHexes: ['#D4AF37'] })).toContain('#D4AF37');
   });
 
   it('still constrains the palette when no accent is known', () => {
     const p = buildFrameArtDirection('a frame');
     expect(p).toMatch(/disciplined palette/i);
+    expect(p).not.toContain('undefined');
+  });
+});
+
+describe('paletteDirection', () => {
+  it('names a dominant and a supporting colour when the event has a palette', () => {
+    // events.config.accentHexes is ordered, [0] dominant — the real shape
+    // (src/events/runtime.ts:106), not the `config.accent` key that never existed.
+    const p = paletteDirection(['#D4AF37', '#EACB6E', '#FBF3D9', '#A87C1F']);
+    expect(p).toContain('#D4AF37');
+    expect(p).toContain('#EACB6E');
+  });
+
+  it('uses at most two colours — four hexes in a prompt produce a muddy rainbow', () => {
+    const p = paletteDirection(['#D4AF37', '#EACB6E', '#FBF3D9', '#A87C1F']);
+    expect(p).not.toContain('#FBF3D9');
+    expect(p).not.toContain('#A87C1F');
+  });
+
+  it('falls back to the disciplined wording for an empty or unusable palette', () => {
+    expect(paletteDirection([])).toMatch(/disciplined palette/i);
+    expect(paletteDirection(null)).toMatch(/disciplined palette/i);
+    // A config written by hand can carry junk; a non-hex must not reach the model.
+    expect(paletteDirection(['gold', ''])).toMatch(/disciplined palette/i);
+  });
+
+  it('handles a single-colour palette without inventing a second', () => {
+    const p = paletteDirection(['#D4AF37']);
+    expect(p).toContain('#D4AF37');
     expect(p).not.toContain('undefined');
   });
 

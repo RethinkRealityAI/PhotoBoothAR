@@ -31,8 +31,15 @@ const COLOUR = /#[0-9a-f]{3,8}\b|\b(gold|golden|silver|brass|bronze|copper|chrom
 /** Answered when the brief names a style, era, or aesthetic. */
 const STYLE = /\b(art[- ]?deco|art[- ]?nouveau|minimal|minimalist|modern|vintage|retro|classic|classical|baroque|rococo|gothic|victorian|bohemian|boho|rustic|industrial|futuristic|cyberpunk|vaporwave|y2k|90s|80s|70s|tropical|botanical|floral|geometric|abstract|hand[- ]?drawn|watercolou?r|neon|glam|elegant|whimsical|playful|festive|nautical|celestial|cosmic|winter|autumn|spring|summer)\b/i;
 
-/** Answered when the brief names a motif — the actual subject matter. */
-const MOTIF = /\b(flower|floral|rose|leaf|leaves|vine|palm|fern|star|stars|moon|sun|sunburst|heart|hearts|confetti|balloon|ribbon|bow|lace|filigree|scroll|feather|butterfly|bird|crown|diamond|gem|marble|wave|chevron|stripe|dot|polka|geometric|arch|column|frame|border|glitter|sparkle|light|beam|smoke|cloud|firework|snow|tree|mountain|city|skyline)\b/i;
+/** Answered when the brief names a motif — the actual subject matter.
+ *
+ *  Deliberately EXCLUDES `frame` and `border`: they are the noun of the thing
+ *  being made, not a motif, and including them made the style check trivially
+ *  satisfiable — `frameBriefGaps('a gold frame')` returned [] and the card
+ *  offered to spend a credit on the exact two-word brief this module exists to
+ *  catch. `light` is out for the same reason: "light gold" is a shade, not a
+ *  subject (`beam`, `glitter` and `sparkle` still cover real light motifs). */
+const MOTIF = /\b(flower|floral|rose|leaf|leaves|vine|palm|fern|star|stars|moon|sun|sunburst|heart|hearts|confetti|balloon|ribbon|bow|lace|filigree|scroll|feather|butterfly|bird|crown|diamond|gem|marble|wave|chevron|stripe|dot|polka|geometric|arch|column|glitter|sparkle|beam|smoke|cloud|firework|snow|tree|mountain|city|skyline)\b/i;
 
 /** Answered when a 3D brief says what the object physically IS. */
 const OBJECT = /\b(mask|helmet|hat|cap|crown|tiara|glasses|sunglasses|shades|goggles|ears?|antlers?|horns?|headband|halo|wig|trophy|cup|statue|figurine|bouquet|wand|sword|balloon|sign)\b/i;

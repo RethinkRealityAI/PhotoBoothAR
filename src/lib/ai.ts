@@ -22,6 +22,10 @@ export type AiErrorCode =
   | 'event_not_found'
   | 'job_not_found'
   | 'generation_failed'
+  /** The provider refused the prompt (safety / recitation / prohibited
+   *  content). Distinct from generation_failed because the fix is different:
+   *  rewording works, retrying the same words never will. */
+  | 'content_blocked'
   | 'ai_quota'
   | 'ai_not_configured'
   | 'ai_key_invalid'
@@ -30,11 +34,15 @@ export type AiErrorCode =
   | 'network';
 
 /** Hard failures a retry cannot fix (bad/rejected provider key, missing config,
- *  no credits, tier gate, auth) — surfaces should NOT offer "try again". */
+ *  no credits, tier gate, auth) — surfaces should NOT offer "try again".
+ *  `content_blocked` is in the list because every retry path re-runs the SAME
+ *  stored prompt, and a prompt the provider refused will be refused again — the
+ *  host has to reword it, which the error copy asks for. */
 export function aiErrorRetryable(code: AiErrorCode): boolean {
   return (
     code !== 'ai_key_invalid' &&
     code !== 'ai_not_configured' &&
+    code !== 'content_blocked' &&
     code !== 'insufficient_credits' &&
     code !== 'upgrade_required' &&
     code !== 'unauthorized' &&
@@ -226,6 +234,9 @@ export function aiErrorMessage(code: AiErrorCode): string {
       return 'This event is not registered on the platform.';
     case 'generation_failed':
       return 'Generation failed — credits were refunded. Try a different prompt.';
+    case 'content_blocked':
+      // Retrying the same words is guaranteed to fail again, so say what to change.
+      return 'The AI wouldn’t make that one — credits were refunded. Try describing it differently (real people, brands and logos are usually the blocker).';
     case 'ai_quota':
       // Customer-safe (the provider-billing detail lives in the server logs).
       return 'The AI service is over capacity right now — any credits were refunded. Please try again in a little while.';

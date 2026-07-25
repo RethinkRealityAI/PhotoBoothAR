@@ -18,7 +18,12 @@ import { useEvent } from '../../../events/EventContext';
 import type { Experience } from '../../../types';
 
 const POLL_MS = 5000;
-const MAX_POLLS = 60; // ~5 minutes
+// ~10 minutes. This is the only caller that can run text→3D, which is TWO
+// Meshy tasks back to back (preview geometry, then the refine pass that
+// textures it — see startRefine in supabase/functions/ai-job-status). Each
+// stage runs 1-5 minutes, so a 5-minute budget timed out mid-refine on a job
+// that was going to succeed. Image→3D callers are single-stage and unchanged.
+const MAX_POLLS = 120;
 
 type Phase = 'idle' | 'starting' | 'running' | 'done' | 'failed' | 'timeout';
 
