@@ -47,6 +47,7 @@ import challengesFeatureVideo from '../assets/landing/challenges-feature.mp4';
 import challengesFeaturePoster from '../assets/landing/challenges-feature-poster.jpg';
 import cardsFeatureVideo from '../assets/landing/cards-feature.mp4';
 import cardsFeaturePoster from '../assets/landing/cards-feature-poster.jpg';
+import { ENTITLEMENTS, formatPostCap, formatRetention } from '../lib/plans';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -157,27 +158,54 @@ interface Tier {
   popular?: boolean;
 }
 
+/* Features are written against ENTITLEMENTS, not from memory.
+ *
+ * Two things were wrong here originally: Essentials advertised a "Video
+ * guestbook" while ENTITLEMENTS.essentials.cardsStandard is false, and no tier
+ * disclosed retention at all — so a prospect chose Free without being told
+ * photos expire after a week, and only met "7-day storage" once inside.
+ *
+ * Two service promises are deliberately absent: "Priority support" (Premium)
+ * and "White-glove setup" (Deluxe). There is no contact or support route
+ * anywhere on the marketing surface, so both were claims we cannot currently
+ * honour. Put them back the day a support channel exists, not before. */
 const TIERS: Tier[] = [
   {
     name: 'Free',
     price: '$0',
     unit: 'to try it',
     blurb: 'Spin up a booth and see the magic.',
-    features: ['1 live event', 'Up to 25 photos', 'Photo booth + live wall', 'A subtle Beamwall credit'],
+    features: [
+      '1 live event',
+      'Photo booth + live wall',
+      formatPostCap(ENTITLEMENTS.free.maxPosts, ENTITLEMENTS.free.videoEnabled),
+      formatRetention(ENTITLEMENTS.free.retentionDays),
+      'A subtle Beamwall credit',
+    ],
   },
   {
     name: 'Essentials',
     price: '$49',
     unit: 'per event',
     blurb: 'Everything a small celebration needs.',
-    features: ['Up to 500 photos', 'Video guestbook', 'No watermark', 'Every frame & effect'],
+    features: [
+      formatPostCap(ENTITLEMENTS.essentials.maxPosts, ENTITLEMENTS.essentials.videoEnabled),
+      'Every frame & effect',
+      'No watermark',
+      formatRetention(ENTITLEMENTS.essentials.retentionDays),
+    ],
   },
   {
     name: 'Premium',
     price: '$99',
     unit: 'per event',
     blurb: 'The full experience, most hosts pick this.',
-    features: ['Unlimited photos & video', 'AI event studio', 'Greeting cards', 'Priority support'],
+    features: [
+      'Unlimited photos & video',
+      'AI event studio',
+      'Greeting cards',
+      formatRetention(ENTITLEMENTS.premium.retentionDays),
+    ],
     popular: true,
   },
   {
@@ -185,7 +213,12 @@ const TIERS: Tier[] = [
     price: '$169',
     unit: 'per event',
     blurb: 'A keepsake film and white-glove polish.',
-    features: ['Everything in Premium', 'Keepsake highlight film', 'Premium card renders', 'White-glove setup'],
+    features: [
+      'Everything in Premium',
+      'Keepsake highlight film',
+      'Premium card renders',
+      formatRetention(ENTITLEMENTS.deluxe.retentionDays),
+    ],
   },
 ];
 
@@ -497,9 +530,14 @@ export default function Landing() {
   usePageTitle('Beamwall · AR photo booth & live wall for events');
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  // Assume live media until the carousel's pools resolve, so the caption
-  // never overclaims once we know every card is an empty branded frame.
-  const [hasLiveMedia, setHasLiveMedia] = useState(true);
+  // Tri-state: null until the carousel's pools resolve. This used to start at
+  // `true` to avoid a flash from the weaker caption to the stronger one — but
+  // that meant a pulsing red LIVE dot sat over empty branded frames for the
+  // whole fetch, which is the overclaim it was trying to avoid, just earlier.
+  // Unknown now renders the modest caption and no dot; learning that the strip
+  // IS live and saying so is an honest change, in the direction that costs
+  // nobody anything if the fetch fails.
+  const [hasLiveMedia, setHasLiveMedia] = useState<boolean | null>(null);
 
   // Scroll choreography. [data-reveal="up|left|right"] slide in on entry,
   // [data-reveal-stagger] cascades its children, [data-parallax-depth] drifts
@@ -806,13 +844,13 @@ export default function Landing() {
             {/* Prominent proof line — this strip is real events, not stock. */}
             <div className="mt-5 flex items-center justify-center">
               <p className="flex items-center gap-2.5 rounded-full liquid-glass px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg/85 sm:text-[11px]">
-                {hasLiveMedia && (
+                {hasLiveMedia === true && (
                   <span className="relative flex h-2 w-2" aria-hidden>
                     <span className="absolute inline-flex h-full w-full motion-safe:animate-ping rounded-full bg-rose-400 opacity-60" />
                     <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-400" />
                   </span>
                 )}
-                {hasLiveMedia ? 'Live moments from real Beamwall events' : 'Frame styles from real Beamwall events'}
+                {hasLiveMedia === true ? 'Live moments from real Beamwall events' : 'Frame styles from real Beamwall events'}
               </p>
             </div>
           </section>
@@ -944,7 +982,7 @@ export default function Landing() {
                   }`}
                 >
                   {t.popular && (
-                    <span className="absolute -top-2.5 left-6 rounded-full bg-foil px-3 py-1 font-label uppercase tracking-luxe text-[8px] font-bold text-white">
+                    <span className="absolute -top-2.5 left-6 rounded-full bg-foil px-3 py-1 font-label uppercase tracking-luxe text-[10px] font-bold text-[color:var(--on-accent)]">
                       Most popular
                     </span>
                   )}
@@ -1019,7 +1057,7 @@ export default function Landing() {
         <footer className="flex flex-col items-center gap-3 pb-6 pt-20 text-center">
           <span className="font-serif text-lg text-foil-static">Beamwall</span>
           <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
-            Loved at weddings, galas &amp; milestone birthdays.
+            Built for weddings, galas and celebrations of every size.
           </p>
           <nav className="flex items-center gap-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
             <Link to="/privacy" className="rounded transition hover:text-brand-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]">Privacy</Link>

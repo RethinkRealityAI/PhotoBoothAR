@@ -28,13 +28,15 @@ import type { Challenge } from '../../types';
 /* ------------------------------------------------------------------ */
 
 interface EditFormProps {
+  /** Event slug — the reference image uploads into THIS event's folder. */
+  eventId: string;
   initial: Partial<Challenge>;
   onSave: (patch: Partial<Challenge>) => Promise<void>;
   onCancel: () => void;
   saving: boolean;
 }
 
-function EditForm({ initial, onSave, onCancel, saving }: EditFormProps) {
+function EditForm({ eventId, initial, onSave, onCancel, saving }: EditFormProps) {
   const [emoji, setEmoji] = useState(initial.emoji ?? '✨');
   const [title, setTitle] = useState(initial.title ?? '');
   const [description, setDescription] = useState(initial.description ?? '');
@@ -55,7 +57,7 @@ function EditForm({ initial, onSave, onCancel, saving }: EditFormProps) {
     e.target.value = ''; // allow re-picking the same file
     if (!file) return;
     setRefUploading(true);
-    const url = await uploadAsset(file, `challenge-ref-${Date.now()}`);
+    const url = await uploadAsset(eventId, file, `challenge-ref-${Date.now()}`);
     if (url) setRefUrl(url);
     setRefUploading(false);
   };
@@ -484,6 +486,7 @@ export default function Challenges() {
         {/* Add form */}
         {editingId === 'new' && (
           <EditForm
+            eventId={eventId}
             initial={{ emoji: '✨', title: '', points: 10, active: true }}
             onSave={handleCreate}
             onCancel={() => setEditingId(null)}
@@ -516,6 +519,7 @@ export default function Challenges() {
             {challenges.map((c, i) =>
               editingId === c.id ? (
                 <EditForm
+                  eventId={eventId}
                   key={c.id}
                   initial={c}
                   onSave={(patch) => handleUpdate(c.id, patch)}

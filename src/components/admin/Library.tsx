@@ -15,6 +15,7 @@ import {
 import { isTemplate } from '../../lib/studio/assetSources';
 import { QRCodeSVG } from 'qrcode.react';
 import EventBackground from '../ui/EventBackground';
+import Modal from '../ui/Modal';
 import {
   fetchExperiences, createExperience, updateExperience, deleteExperience,
   getPresetOverrides, setPresetOverrides,
@@ -95,15 +96,10 @@ function QRModal({ exp, onClose }: { exp: Experience; onClose: () => void }) {
     navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   };
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-noir-900/80 backdrop-blur-sm p-4"
-      onClick={onClose}
-    >
-      <div
-        className="glass-strong rounded-3xl border border-gold-400/20 p-8 w-full max-w-xs text-center animate-rise-in flex flex-col items-center gap-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <p className="font-serif italic text-xl text-foil-static">{exp.name}</p>
+    // Modal supplies the dialog semantics this was missing entirely: Escape,
+    // the focus trap, and returning focus to the button that opened it.
+    <Modal title={exp.name} onClose={onClose} maxWidthClass="max-w-xs">
+      <div className="text-center flex flex-col items-center gap-4">
         <div className="rounded-xl p-3 bg-ivory/95 shadow-lg">
           <QRCodeSVG value={url} size={160} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
         </div>
@@ -117,9 +113,8 @@ function QRModal({ exp, onClose }: { exp: Experience; onClose: () => void }) {
             <ExternalLink className="w-4 h-4" />
           </a>
         </div>
-        <button onClick={onClose} className="text-champagne/40 hover:text-ivory text-xs font-sans transition-colors">Close</button>
       </div>
-    </div>
+    </Modal>
   );
 }
 

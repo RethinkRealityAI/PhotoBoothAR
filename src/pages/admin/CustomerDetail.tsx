@@ -12,6 +12,7 @@ import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { fetchOrg, adjustCredits, type OrgDetail } from '../../lib/admin';
 import { formatCount, formatDate } from '../../lib/adminFormat';
 import StatusPill from '../../components/ui/StatusPill';
+import ConfirmModal from '../../components/ui/ConfirmModal';
 
 export default function CustomerDetail() {
   const { orgId = '' } = useParams<{ orgId: string }>();
@@ -20,6 +21,8 @@ export default function CustomerDetail() {
   const [grantAmt, setGrantAmt] = useState('');
   const [grantReason, setGrantReason] = useState('');
   const [granting, setGranting] = useState(false);
+  /** A grant awaiting explicit confirmation. */
+  const [pendingGrant, setPendingGrant] = useState<{ delta: number; reason: string } | null>(null);
   const [grantMsg, setGrantMsg] = useState<string | null>(null);
 
   const load = async () => {
@@ -37,6 +40,18 @@ export default function CustomerDetail() {
     const delta = Math.trunc(Number(grantAmt));
     const reason = grantReason.trim();
     if (!Number.isFinite(delta) || delta === 0 || !reason) { setGrantMsg('Enter a non-zero amount and a reason.'); return; }
+    // This is a bare <form>, so Enter in either field submits it — and the
+    // adjustment used to apply instantly, with "500" typed for "50" only
+    // reversible by a second manual grant. Confirm first, in the app's own
+    // dialog rather than a native window.confirm.
+    setPendingGrant({ delta, reason });
+  }
+
+  async function applyGrant() {
+    const pending = pendingGrant;
+    if (!pending) return;
+    const { delta, reason } = pending;
+    setPendingGrant(null);
     setGranting(true); setGrantMsg(null);
     const { error } = await adjustCredits(orgId, delta, reason);
     setGranting(false);
@@ -214,6 +229,31 @@ export default function CustomerDetail() {
           )}
         </div>
       </section>
+
+      {pendingGrant && (
+        <ConfirmModal
+          tone="danger"
+          title={`${pendingGrant.delta > 0 ? 'Grant' : 'Remove'} ${Math.abs(pendingGrant.delta)} credit${Math.abs(pendingGrant.delta) === 1 ? '' : 's'}?`}
+          confirmLabel={pendingGrant.delta > 0 ? 'Grant credits' : 'Remove credits'}
+          busy={granting}
+          onCancel={() => setPendingGrant(null)}
+          onConfirm={applyGrant}
+          body={
+            <>
+              <p>
+                {pendingGrant.delta > 0 ? 'To' : 'From'}{' '}
+                <span className="text-brand-fg">{detail?.org.name ?? 'this organization'}</span>.
+              </p>
+              <p className="mt-2">
+                Balance <span className="text-brand-fg">{detail?.creditBalance ?? 0}</span> →{' '}
+                <span className="text-brand-fg">{(detail?.creditBalance ?? 0) + pendingGrant.delta}</span>
+              </p>
+              <p className="mt-2">Reason: <span className="text-brand-fg">{pendingGrant.reason}</span></p>
+              <p className="mt-3 text-brand-muted/50">Reversible only by a second manual adjustment.</p>
+            </>
+          }
+        />
+      )}
     </div>
   );
 }

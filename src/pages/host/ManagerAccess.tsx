@@ -11,7 +11,7 @@ import { Check, Copy, KeyRound, Loader2, Plus, Trash2, X } from 'lucide-react';
 import EventBackground from '../../components/ui/EventBackground';
 import { useEvent } from '../../events/EventContext';
 import {
-  createManagerToken, listManagerTokens, revokeManagerToken,
+  createManagerToken, listManagerTokensResult, revokeManagerToken,
   type ManagerTokenRow,
 } from '../../lib/host';
 
@@ -36,10 +36,18 @@ export default function ManagerAccess({ eventUuid }: { eventUuid: string }) {
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  /** The token list read failed — distinct from an event with no staff links. */
+  const [loadFailed, setLoadFailed] = useState(false);
+  /** Last action failure, surfaced inline instead of failing silently. */
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setTokens(await listManagerTokens(eventUuid));
+    const { rows, failed } = await listManagerTokensResult(eventUuid);
+    // A failed read used to render "No access links yet — create one above",
+    // hiding live staff links and inviting the host to mint duplicates.
+    setLoadFailed(failed);
+    setTokens(rows);
     setLoading(false);
   }, [eventUuid]);
 
@@ -47,10 +55,16 @@ export default function ManagerAccess({ eventUuid }: { eventUuid: string }) {
 
   const create = async () => {
     setCreating(true);
+    setActionError(null);
     const expiresAt = expiry ? new Date(expiry).toISOString() : undefined;
     const res = await createManagerToken(eventUuid, label.trim() || 'Door staff', expiresAt);
     setCreating(false);
-    if (!res) return;
+    if (!res) {
+      // This used to `return` silently, so the button simply reset and day-of
+      // staff onboarding failed with nothing said.
+      setActionError('We couldn’t create that access link. Check your connection and try again.');
+      return;
+    }
     setReveal({ url: `${origin}/m/${eventId}?t=${res.raw}`, label: res.row.label ?? 'Manager link' });
     setCopied(false);
     load();
@@ -62,9 +76,15 @@ export default function ManagerAccess({ eventUuid }: { eventUuid: string }) {
       return;
     }
     setConfirmRevoke(null);
+    setActionError(null);
     setTokens((t) => t.filter((r) => r.id !== id)); // optimistic
     const ok = await revokeManagerToken(id);
-    if (!ok) load();
+    if (!ok) {
+      // The row silently reappeared, so a host who watched it vanish believed
+      // a staff link was dead while it was still live.
+      setActionError('That link could NOT be revoked — it is still active. Try again.');
+      load();
+    }
   };
 
   return (
@@ -139,6 +159,14 @@ export default function ManagerAccess({ eventUuid }: { eventUuid: string }) {
             {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             Create access link
           </button>
+          {/* Create and revoke both used to fail silently — one left the host
+              with no link and no explanation, the other let them believe a
+              live staff link had been killed. */}
+          {actionError && (
+            <p role="alert" className="mt-3 font-sans text-[12px] text-amber-300/90 leading-relaxed">
+              {actionError}
+            </p>
+          )}
         </section>
 
         {/* Existing tokens */}
@@ -151,7 +179,11 @@ export default function ManagerAccess({ eventUuid }: { eventUuid: string }) {
               {[1, 2].map((i) => <div key={i} className="h-12 liquid-glass rounded-xl animate-pulse" />)}
             </div>
           ) : tokens.length === 0 ? (
-            <p className="font-sans text-sm text-brand-muted/40">No access links yet — create one above.</p>
+            <p className="font-sans text-sm text-brand-muted/40">
+              {loadFailed
+                ? 'We couldn’t load your access links — any you created are still active.'
+                : 'No access links yet — create one above.'}
+            </p>
           ) : (
             <div className="divide-y divide-white/5">
               {tokens.map((t) => (

@@ -157,7 +157,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   // is to show everything at once, so there are no tabs to lazy-load behind.
   const loadUploads = useCallback(() => {
     setUploads({ status: 'loading', items: [] });
-    listAssets()
+    listAssets(eventId)
       .then((assets) => setUploads({ status: 'ready', items: uploadsToDockItems(assets) }))
       .catch(() => setUploads({ status: 'error', items: [] }));
   }, []);
@@ -255,7 +255,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     e.target.value = '';
     if (!file) return;
     setModelThumb(null);
-    const url = await uploadAsset(file, file.name);
+    const url = await uploadAsset(eventId, file, file.name);
     if (!url) return;
     const fitScale = await measureGlbFitScale(url);
     dispatch({ type: 'SET_MODEL_ASSET', url, name: file.name, scale: fitScale ?? undefined });
@@ -265,7 +265,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     try {
       const thumbBlob = await captureGlbThumbnail(url);
       if (!thumbBlob) return;
-      const thumbUrl = await uploadAsset(thumbBlob, `${file.name}.thumb`);
+      const thumbUrl = await uploadAsset(eventId, thumbBlob, `${file.name}.thumb`);
       if (thumbUrl) setModelThumb(thumbUrl);
     } catch (err) {
       console.error('[AssetsDock] GLB thumbnail capture failed', err);

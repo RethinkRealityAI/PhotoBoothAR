@@ -17,12 +17,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, Check, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
+  ArrowLeft, Check, Coins, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
   LayoutGrid, Palette, QrCode, Settings, ShieldCheck, Sparkles, Trophy, Wand2, X,
 } from 'lucide-react';
 import { useCopilotStore } from '../../lib/copilotStore';
 import { supabase } from '../../lib/supabase';
-import { canEnterStudio } from '../../lib/host';
+import { canEnterStudio, fetchCreditBalance } from '../../lib/host';
+import { useAiJobSweep } from '../../lib/useAiJobSweep';
 import { subscribeToPosts } from '../../lib/db';
 import type { Post } from '../../types';
 import EventProvider, { useEvent } from '../../events/EventContext';
@@ -52,6 +53,10 @@ interface StudioEvent {
   status: string;
   plan_tier: string;
   event_type: string;
+  /** The org that AI generation actually charges — drives the credit pill and
+   *  the abandoned-job sweep, both of which the platform rail used to carry and
+   *  this screen does not have. */
+  org_id: string;
 }
 
 type LoadState =
@@ -87,6 +92,8 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState<Post[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  /** The pending read failed — distinct from an empty approval queue. */
+  const [pendingFailed, setPendingFailed] = useState(false);
 
   const loadPending = useCallback(async () => {
     const { data, error } = await supabase
@@ -97,9 +104,14 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
       .eq('hidden', false)
       .order('created_at', { ascending: false });
     if (error) {
+      // This used to `return` with `pending` left at [], and the queue below
+      // only renders when pending.length > 0 — so a failed read showed the host
+      // NOTHING, and guest photos waiting on approval never went live.
       console.error('[ModerationTab] pending fetch', error);
+      setPendingFailed(true);
       return;
     }
+    setPendingFailed(false);
     setPending((data as Post[]) ?? []);
   }, [eventId]);
 
@@ -189,6 +201,24 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
           </div>
         </div>
 
+        {/* A failed read is reported, never left silent: an invisible queue and
+            an empty queue look identical to a host, and the difference is
+            whether guests' photos are stuck. */}
+        {pendingFailed && pending.length === 0 && (
+          <div role="alert" className="glass rounded-2xl border border-amber-400/30 px-4 py-3">
+            <p className="font-sans text-xs text-amber-200/90 leading-relaxed">
+              We couldn’t load the approval queue — if guests have posted, their photos may
+              be waiting. This is not confirmation that the queue is empty.
+            </p>
+            <button
+              onClick={loadPending}
+              className="mt-2 min-h-11 rounded-lg px-4 bg-white/[0.06] font-label uppercase tracking-luxe text-[10px] text-brand-fg"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
         {/* Pending queue — shown whenever unapproved posts exist (they can
             linger after switching back to instant mode). */}
         {pending.length > 0 && (
@@ -268,7 +298,7 @@ export default function EventStudio() {
     (async () => {
       const { data, error } = await supabase
         .from('events')
-        .select('id, slug, name, status, plan_tier, event_type')
+        .select('id, slug, name, status, plan_tier, event_type, org_id')
         .eq('id', id)
         .maybeSingle();
       if (!alive) return;
@@ -287,6 +317,24 @@ export default function EventStudio() {
     })();
     return () => { alive = false; };
   }, [id, validId]);
+
+  // The platform rail is deliberately absent here — the owner asked for studio
+  // mode to be "less encumbered" — but two things it carried are not chrome,
+  // they are information a host needs precisely while they are spending: the
+  // credit balance, and a way to top up. Without them, running out mid-session
+  // meant an unexplained failure and no route to Billing.
+  const orgId = state.phase === 'ready' ? state.event.org_id : null;
+  const [credits, setCredits] = useState<number | null>(null);
+  const loadCredits = useCallback(() => {
+    if (!orgId) return;
+    void fetchCreditBalance(orgId).then(setCredits);
+  }, [orgId]);
+  useEffect(() => { loadCredits(); }, [loadCredits]);
+
+  // Recover AI jobs whose watcher is gone. This screen is where 3D generation
+  // happens AND it sits outside HostLayout, so without a sweep here a host who
+  // starts a model and closes the tab loses it (nothing else polls ai_jobs).
+  useAiJobSweep(orgId, loadCredits);
 
   if (!validId || state.phase === 'missing') {
     // EventsList reads this flag and shows a "couldn't open that studio" notice.
@@ -400,11 +448,27 @@ export default function EventStudio() {
                 </NavLink>
               </div>
             </div>
+            {/* Credit balance — a link, not a badge, because the only useful
+                thing to do with a low balance is top it up. A real 0 must show
+                (it is the number that explains a failed generation), so this
+                checks for null rather than falsiness. */}
+            {credits !== null && (
+              <Link
+                to="/host/billing"
+                title="Credit balance — top up in Billing"
+                className={`pressable shrink-0 hidden sm:flex items-center gap-1.5 rounded-full px-2.5 min-h-9 font-label uppercase tracking-luxe text-[9px] liquid-glass ${
+                  credits <= 0 ? 'text-red-300' : 'text-brand-muted/70 hover:text-brand-fg'
+                }`}
+              >
+                <Coins className="w-3.5 h-3.5 shrink-0" />
+                {credits} cr
+              </Link>
+            )}
             <button
               onClick={() => useCopilotStore.getState().open()}
               title="Beamwall Copilot"
               aria-label="Open the Beamwall Copilot"
-              className="shrink-0 w-8 h-8 rounded-full bg-foil glow-accent flex items-center justify-center text-noir-900 active:scale-95 transition-transform"
+              className="shrink-0 w-9 h-9 rounded-full bg-foil glow-accent flex items-center justify-center text-noir-900 active:scale-95 transition-transform"
             >
               <Sparkles className="w-4 h-4" />
             </button>

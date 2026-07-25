@@ -22,6 +22,10 @@ export type AiErrorCode =
   | 'event_not_found'
   | 'job_not_found'
   | 'generation_failed'
+  /** The provider refused the prompt (safety / recitation / prohibited
+   *  content). Distinct from generation_failed because the fix is different:
+   *  rewording works, retrying the same words never will. */
+  | 'content_blocked'
   | 'ai_quota'
   | 'ai_not_configured'
   | 'ai_key_invalid'
@@ -30,11 +34,15 @@ export type AiErrorCode =
   | 'network';
 
 /** Hard failures a retry cannot fix (bad/rejected provider key, missing config,
- *  no credits, tier gate, auth) — surfaces should NOT offer "try again". */
+ *  no credits, tier gate, auth) — surfaces should NOT offer "try again".
+ *  `content_blocked` is in the list because every retry path re-runs the SAME
+ *  stored prompt, and a prompt the provider refused will be refused again — the
+ *  host has to reword it, which the error copy asks for. */
 export function aiErrorRetryable(code: AiErrorCode): boolean {
   return (
     code !== 'ai_key_invalid' &&
     code !== 'ai_not_configured' &&
+    code !== 'content_blocked' &&
     code !== 'insufficient_credits' &&
     code !== 'upgrade_required' &&
     code !== 'unauthorized' &&
@@ -123,12 +131,28 @@ export interface GenerateImageOpts {
    */
   greenScreen?: boolean;
   /**
+   * Let the edge function add its art-direction layer (composition, palette,
+   * craft, quality bar). Default true. Pass false when the prompt is already
+   * complete and purpose-built — the 3D concept image does, because
+   * buildConceptPrompt carries wearable-geometry rules that generic sticker
+   * art direction would fight.
+   */
+  artDirection?: boolean;
+  /**
    * Optional public assets-bucket URL of a host-uploaded reference image. The
    * edge function fetches it server-side and passes it to Gemini as an inline
    * image part BEFORE the text prompt, so generation is guided by the reference
    * style/subject. Omitted → the request body is byte-identical to before.
    */
   referenceImageUrl?: string;
+  /**
+   * What to name the resulting experiences row when the prompt is a poor name
+   * for it. The 3D concept image passes the host's raw brief here, because its
+   * `prompt` is a full geometry specification and naming a Library row after
+   * that reads as "Product concept art of ONE object f…". Omitted → the prompt
+   * names it, as before.
+   */
+  nameHint?: string;
 }
 
 export function generateImage(
@@ -218,6 +242,9 @@ export function aiErrorMessage(code: AiErrorCode): string {
       return 'This event is not registered on the platform.';
     case 'generation_failed':
       return 'Generation failed — credits were refunded. Try a different prompt.';
+    case 'content_blocked':
+      // Retrying the same words is guaranteed to fail again, so say what to change.
+      return 'The AI wouldn’t make that one — credits were refunded. Try describing it differently (real people, brands and logos are usually the blocker).';
     case 'ai_quota':
       // Customer-safe (the provider-billing detail lives in the server logs).
       return 'The AI service is over capacity right now — any credits were refunded. Please try again in a little while.';

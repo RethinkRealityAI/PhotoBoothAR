@@ -10,7 +10,12 @@
  *   - re-entrancy guard so an error thrown while reporting can't loop;
  *   - max MAX_REPORTS_PER_SESSION rows per page session;
  *   - identical messages deduped within DEDUPE_WINDOW_MS;
- *   - message/stack truncated client-side (the table has no server-side caps).
+ *   - message/stack truncated client-side.
+ * The caps below are the FIRST line of defence, not the only one: migration 021
+ * enforces its own (larger, headroom-bearing) size bounds, refuses future-dated
+ * rows, drops a session past 40 reports an hour, and expires everything after
+ * 30 days — because none of the limits in this file constrain a caller who
+ * skips it and posts to PostgREST directly. Keep these caps BELOW those.
  */
 import { supabase } from './supabase';
 

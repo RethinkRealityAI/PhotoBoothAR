@@ -62,6 +62,7 @@ import {
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { measureGlbFitScale } from '../../lib/studio/glbThumb';
 import { PROP_TARGET_CM } from '../../lib/studio/bustFit';
+import { buildConceptPrompt } from '../../lib/assetPrompt';
 import {
   SceneHeader,
   FilterCard,
@@ -287,7 +288,7 @@ export default function DirectorPanel({
     }
     setReferenceUploading(true);
     try {
-      const url = await uploadAsset(file, 'director-reference');
+      const url = await uploadAsset(eventId, file, 'director-reference');
       if (url) setReferenceUrl(url);
       else pushDirector('That image couldn’t be uploaded — try another.', 'error');
     } catch {
@@ -493,9 +494,20 @@ export default function DirectorPanel({
         conceptUrlRef.current = reference;
       } else if (!conceptUrl) {
         // No greenScreen: image→3D wants the object on a plain background.
+        // The concept image drives image->3D, so it is the highest-leverage
+        // prompt in the pipeline: a concept showing the piece ON a face makes
+        // Meshy fuse a face into the mesh, which is exactly the "solid mass,
+        // no hole where the head goes" failure. buildConceptPrompt states the
+        // cavity, the wall thickness, the real-world scale and the camera
+        // angle that reveals the opening.
         const concept = await generateImage(uuid, {
-          prompt: `${brief} — a single centered object, isolated on a plain neutral studio background, product shot, no frame, no border, no text`,
+          prompt: buildConceptPrompt(brief),
           kind: '2d_filter',
+          // buildConceptPrompt is already complete and 3D-specific; the edge
+          // function's sticker art direction would fight its geometry rules.
+          artDirection: false,
+          // …and it is far too long to name the Library row after.
+          nameHint: brief,
         });
         // Bail AFTER the charge but BEFORE caching: a stale epoch must not write
         // the concept onto the shared cache (the next plan reads it un-scoped and
@@ -511,6 +523,12 @@ export default function DirectorPanel({
         conceptUrlRef.current = conceptUrl;
       }
 
+      // RAW brief on purpose. Meshy's image-to-3D takes no text prompt, so this
+      // value is used only to name the experience (ai-job-status nameFromPrompt,
+      // truncated to 40 chars) — passing the enriched geometry paragraph here
+      // would name the piece "a venetian mask. Geometry: a HOLLOW cu…".
+      // The wearability rules ride in the CONCEPT IMAGE for this path, and
+      // ai-generate-3d applies them server-side for the text path.
       const { data, error } = await generate3d(uuid, { mode: 'image', imageUrl: conceptUrl, prompt: brief });
       if (planEpochRef.current !== epoch) return null;
       void refreshBalance();

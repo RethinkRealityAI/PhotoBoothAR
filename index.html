@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1, interactive-widget=resizes-content" />
+    <!-- No `maximum-scale`: it disabled pinch-zoom app-wide (WCAG 1.4.4), on the
+         same surface that carries the pre-camera privacy line. viewport-fit and
+         interactive-widget are kept — the booth relies on both. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="theme-color" content="#05060B" />
     <meta name="description" content="Beamwall — give every guest an AR photo booth in their pocket and beam their photos onto a cinematic live wall. Design frames, effects and greeting cards in minutes. No app to download." />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -63,9 +66,9 @@
           "image": "https://beamwall.netlify.app/og.jpg",
           "publisher": { "@id": "https://beamwall.netlify.app/#org" },
           "offers": [
-            { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD", "description": "1 live event, up to 25 photos, photo booth + live wall, a subtle Beamwall credit." },
-            { "@type": "Offer", "name": "Essentials", "price": "49", "priceCurrency": "USD", "description": "Per event. Up to 500 photos, video guestbook, no watermark, every frame & effect." },
-            { "@type": "Offer", "name": "Premium", "price": "99", "priceCurrency": "USD", "description": "Per event. Unlimited photos & video, AI event studio, greeting cards, priority support." },
+            { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD", "description": "1 live event, up to 25 photos, photos kept for 7 days, a subtle Beamwall credit." },
+            { "@type": "Offer", "name": "Essentials", "price": "49", "priceCurrency": "USD", "description": "Per event. Up to 500 photos, video capture, no watermark, photos kept for 90 days." },
+            { "@type": "Offer", "name": "Premium", "price": "99", "priceCurrency": "USD", "description": "Per event. Unlimited photos & video, AI event studio, greeting cards, photos kept for 365 days." },
             { "@type": "Offer", "name": "Deluxe", "price": "169", "priceCurrency": "USD", "description": "Per event. Everything in Premium plus a keepsake highlight film, premium card renders and white-glove setup." },
             { "@type": "Offer", "name": "Beamwall Pro", "price": "79", "priceCurrency": "USD", "description": "Per month. Premium features across every event for frequent hosts." }
           ]

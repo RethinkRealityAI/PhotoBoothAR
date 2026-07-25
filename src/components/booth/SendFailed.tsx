@@ -8,7 +8,7 @@
  */
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { CloudOff, Download, RefreshCw, Check } from 'lucide-react';
+import { CloudOff, Download, RefreshCw, Check, ArrowLeft } from 'lucide-react';
 import { useEvent } from '../../events/EventContext';
 
 interface Props {
@@ -17,6 +17,9 @@ interface Props {
   /** Failure kind from submitPostDetailed ('event_not_live', 'post_limit_reached', …). */
   errorKind?: string;
   onRetry: () => void;
+  /** Return to the live camera, discarding this attempt. Always available —
+   *  see the note beside the button. */
+  onBackToBooth: () => void;
 }
 
 function failureCopy(errorKind?: string): string {
@@ -38,7 +41,7 @@ function failureCopy(errorKind?: string): string {
  *  transient/network) — the same submit will fail again, so hide "Try again". */
 const PERMANENT_KINDS = new Set(['video_not_allowed', 'quota_exceeded', 'post_limit_reached']);
 
-export default function SendFailed({ dataUrl, mediaType = 'image', errorKind, onRetry }: Props) {
+export default function SendFailed({ dataUrl, mediaType = 'image', errorKind, onRetry, onBackToBooth }: Props) {
   const { config } = useEvent();
   const [saved, setSaved] = useState(false);
   const permanent = errorKind !== undefined && PERMANENT_KINDS.has(errorKind);
@@ -129,6 +132,17 @@ export default function SendFailed({ dataUrl, mediaType = 'image', errorKind, on
           >
             {saved ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Download className="h-3.5 w-3.5" />}
             {saved ? 'Saved' : 'Save to my phone'}
+          </button>
+          {/* Always a way out. On a permanent failure (a plan cap) there is no
+              retry, so "Save to my phone" used to be the only control on a
+              full-screen z-50 overlay — a guest who hit the event's photo limit
+              was stuck there for the rest of the night. */}
+          <button
+            onClick={onBackToBooth}
+            className="flex min-h-11 items-center justify-center gap-2 rounded-xl px-6 font-label text-[11px] uppercase tracking-wide text-champagne/50 transition-colors hover:text-ivory"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to the booth
           </button>
         </div>
       </motion.div>

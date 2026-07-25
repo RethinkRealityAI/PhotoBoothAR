@@ -73,6 +73,12 @@ export default function ChallengeCheck({
               for “{challengeTitle}”
             </p>
           )}
+          {/* Say what is happening. This step sends the photo away to be
+              judged before any post exists, and a guest who then retakes has
+              already transmitted the shot they chose not to keep. */}
+          <p className="font-sans text-[11px] text-champagne/40 max-w-[15rem] mx-auto leading-relaxed">
+            Your photo is being checked against the challenge — it’s sent for this check even if you retake.
+          </p>
           <div className="flex justify-center gap-1.5 pt-1">
             {[0, 1, 2].map((i) => (
               <motion.div

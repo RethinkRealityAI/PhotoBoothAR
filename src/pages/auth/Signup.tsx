@@ -53,9 +53,11 @@ export default function Signup() {
     }
   }
 
+  // See Login: a centred card taller than the viewport loses its own top.
+  // This one has four fields, so it is the likelier of the two to overflow.
   return (
-    <div className="h-full w-full app-bg flex items-center justify-center px-5 py-12 overflow-y-auto">
-      <div className="w-full max-w-sm animate-rise-in">
+    <div className="h-full w-full app-bg flex items-start justify-center px-5 py-12 overflow-y-auto">
+      <div className="w-full max-w-sm my-auto animate-rise-in">
         <div className="glass-strong rounded-3xl px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
           <Link
             to="/"
@@ -110,9 +112,12 @@ export default function Signup() {
             </div>
           ) : (
             <>
-              <p className="mt-2 text-center font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">
-                Create your event studio
-              </p>
+              {/* The page had no h1; its first heading was an h2. The wording
+                  also matches the CTA that brings people here — this action was
+                  called four different things across the funnel. */}
+              <h1 className="mt-2 text-center font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
+                Create your event
+              </h1>
 
               <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
                 <label className="flex flex-col gap-1.5">

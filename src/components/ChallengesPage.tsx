@@ -17,10 +17,11 @@ import { fetchMyPosts } from '../lib/db';
 import EventBackground from './ui/EventBackground';
 import { Wordmark } from './ui/EventLogo';
 import GuestNav from './ui/GuestNav';
+import FetchFailed from './ui/FetchFailed';
 
 export default function ChallengesPage() {
   const { eventId, basePath } = useEvent();
-  const { challenges, challengesLoaded, fetchChallenges } = useStore();
+  const { challenges, challengesLoaded, challengesFailed, fetchChallenges } = useStore();
   const [completed, setCompleted] = useState<string[]>(() => getCompletedChallenges(eventId));
 
   useEffect(() => {
@@ -96,6 +97,10 @@ export default function ChallengesPage() {
           <div className="flex justify-center py-16">
             <div className="w-8 h-8 rounded-full border-2 border-gold-400/30 border-t-gold-400 animate-spin" />
           </div>
+        ) : active.length === 0 && challengesFailed ? (
+          /* "This event hasn't added any challenges" is a claim about the
+             host, not about our network — only make it when we actually know. */
+          <FetchFailed what="the challenges" onRetry={() => fetchChallenges(true)} />
         ) : active.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
@@ -109,7 +114,7 @@ export default function ChallengesPage() {
               This event hasn’t added any challenges. Step into the booth and capture a moment for the wall!
             </p>
             <a href={`${basePath}/booth`}
-              className="mt-7 inline-flex items-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-8 py-3 rounded-xl glow-accent">
+              className="pressable mt-7 inline-flex items-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-8 min-h-11 rounded-xl glow-accent">
               <Camera className="w-4 h-4" /> Open the booth
             </a>
           </motion.div>

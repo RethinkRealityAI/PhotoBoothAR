@@ -60,7 +60,7 @@ export default function GuestWelcome() {
   return (
     <div className="absolute inset-0 overflow-y-auto bg-noir-900">
       <EventBackground density={40} sparkle={0.6} />
-      <div className="relative z-10 max-w-md mx-auto px-5 pt-safe-top pt-10 pb-14 flex flex-col items-center gap-7">
+      <div className="relative z-10 max-w-md mx-auto px-5 pt-safe-top [--safe-top:2.5rem] pb-14 flex flex-col items-center gap-7">
 
         <div className="flex flex-col items-center gap-3 text-center animate-rise-in">
           <Emblem size={56} className="drop-shadow-[0_0_14px_rgba(var(--accent-rgb),0.4)]" />

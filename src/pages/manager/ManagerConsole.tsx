@@ -16,6 +16,7 @@ import {
   ShieldCheck, ShieldOff, Trash2, X,
 } from 'lucide-react';
 import { callManagerApi } from '../../lib/managerApi';
+import { useDialog } from '../../lib/useDialog';
 import type { Post, WallSettings } from '../../types';
 
 const storageKey = (slug: string) => `pbar.mgr.${slug}`;
@@ -151,6 +152,7 @@ function WallSettingsDrawer({
   token: string;
   onClose: () => void;
 }) {
+  const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, 'Wall settings');
   const [settings, setSettings] = useState<WallSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -183,8 +185,12 @@ function WallSettingsDrawer({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      {/* A side drawer, so not Modal-shaped — but day-of staff operating a wall
+          from a laptop had no Escape and no focus trap here. */}
       <div
-        className="w-full max-w-sm h-full bg-[#101014] border-l border-white/10 p-6 overflow-y-auto flex flex-col gap-4"
+        ref={panelRef}
+        {...dialogProps}
+        className="w-full max-w-sm h-full bg-[#101014] border-l border-white/10 p-6 overflow-y-auto flex flex-col gap-4 outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">

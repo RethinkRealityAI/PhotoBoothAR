@@ -48,13 +48,28 @@ export async function fetchExperiences(eventId: string, opts?: { publishedOnly?:
   return (data as Experience[]) ?? [];
 }
 
-export async function getExperience(eventId: string, id: string): Promise<Experience | null> {
+/**
+ * Read one experience, distinguishing "it isn't there" from "we couldn't ask".
+ *
+ * The difference is load-bearing in the studio: on a failed read the editor used
+ * to open on a blank draft, and saving that draft CREATED a second experience
+ * instead of updating the one the host opened — a silent duplicate fork of their
+ * work. `*Result` sibling convention, so no existing caller changes.
+ */
+export async function getExperienceResult(
+  eventId: string,
+  id: string,
+): Promise<{ experience: Experience | null; failed: boolean }> {
   const { data, error } = await supabase.from('experiences').select('*').eq('id', id).eq('event_id', eventId).maybeSingle();
   if (error) {
     console.error('[db] getExperience', error);
-    return null;
+    return { experience: null, failed: true };
   }
-  return (data as Experience) ?? null;
+  return { experience: (data as Experience) ?? null, failed: false };
+}
+
+export async function getExperience(eventId: string, id: string): Promise<Experience | null> {
+  return (await getExperienceResult(eventId, id)).experience;
 }
 
 export async function createExperience(eventId: string, draft: ExperienceDraft): Promise<Experience | null> {
@@ -171,19 +186,37 @@ export async function fetchLinkedGlobalExperiences(eventId: string): Promise<Exp
 /* Posts (live photo wall)                                             */
 /* ------------------------------------------------------------------ */
 
-export async function fetchPosts(eventId: string, opts?: { includeHidden?: boolean; limit?: number }): Promise<Post[]> {
+/** A list read that keeps "the query failed" apart from "there are no rows".
+ *  Mirrors the fetchMyOrgResult/fetchMyOrg pair in host.ts. Without it, every
+ *  failed fetch renders as a confident empty state — the wall telling guests
+ *  nobody has posted, or a guest being told they have no photos. */
+export interface ListResult<T> {
+  rows: T[];
+  failed: boolean;
+}
+
+export async function fetchPostsResult(
+  eventId: string,
+  opts?: { includeHidden?: boolean; limit?: number },
+): Promise<ListResult<Post>> {
   let q = supabase.from('posts').select('*').eq('event_id', eventId).order('created_at', { ascending: false });
   if (!opts?.includeHidden) q = q.eq('hidden', false).eq('approved', true);
   if (opts?.limit) q = q.limit(opts.limit);
   const { data, error } = await q;
   if (error) {
     console.error('[db] fetchPosts', error);
-    return [];
+    return { rows: [], failed: true };
   }
-  return (data as Post[]) ?? [];
+  return { rows: (data as Post[]) ?? [], failed: false };
 }
 
-export async function fetchMyPosts(eventId: string): Promise<Post[]> {
+/** Posts, or [] on failure. Use fetchPostsResult when the caller renders an
+ *  empty state the guest could mistake for the truth. */
+export async function fetchPosts(eventId: string, opts?: { includeHidden?: boolean; limit?: number }): Promise<Post[]> {
+  return (await fetchPostsResult(eventId, opts)).rows;
+}
+
+export async function fetchMyPostsResult(eventId: string): Promise<ListResult<Post>> {
   const sid = getSessionId(eventId);
   const { data, error } = await supabase
     .from('posts')
@@ -193,9 +226,13 @@ export async function fetchMyPosts(eventId: string): Promise<Post[]> {
     .order('created_at', { ascending: false });
   if (error) {
     console.error('[db] fetchMyPosts', error);
-    return [];
+    return { rows: [], failed: true };
   }
-  return (data as Post[]) ?? [];
+  return { rows: (data as Post[]) ?? [], failed: false };
+}
+
+export async function fetchMyPosts(eventId: string): Promise<Post[]> {
+  return (await fetchMyPostsResult(eventId)).rows;
 }
 
 export async function setPostHidden(eventId: string, id: string, hidden: boolean): Promise<boolean> {
@@ -285,9 +322,22 @@ function uid(): string {
   return crypto.randomUUID?.() ?? `${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
-/** Upload a studio asset (PNG/SVG/GLB). Returns its public URL. */
-export async function uploadAsset(file: Blob, name?: string): Promise<string | null> {
-  const path = `${uid()}-${(name ?? 'asset').replace(/[^a-z0-9.\-_]/gi, '_')}.${extFor(file, 'png')}`;
+/**
+ * Upload a studio asset (PNG/SVG/GLB) into THIS event's folder. Public URL back.
+ *
+ * `eventId` (the event SLUG) is first and required on purpose. Uploads used to
+ * land flat at the bucket root — `<uid>-name.png` with no tenant in the path —
+ * which made per-tenant storage rules impossible to express and meant
+ * `listAssets` handed every host every other host's files. Making it required
+ * turns the compiler into the reference sweep: no call site can forget it.
+ *
+ * The shape matches what the edge functions already write (`<slug>/ai/<id>.png`),
+ * so one storage policy covers uploads and generated assets alike — see
+ * migration 017.
+ */
+export async function uploadAsset(eventId: string, file: Blob, name?: string): Promise<string | null> {
+  const safe = (name ?? 'asset').replace(/[^a-z0-9.\-_]/gi, '_');
+  const path = `${eventId}/uploads/${uid()}-${safe}.${extFor(file, 'png')}`;
   const { error } = await supabase.storage.from(ASSETS_BUCKET).upload(path, file, {
     upsert: true,
     contentType: file.type || undefined,
@@ -308,11 +358,20 @@ export interface StoredAsset {
   created_at?: string;
 }
 
-/** List every file in the assets bucket (newest first) — powers the Assets library. */
-export async function listAssets(): Promise<StoredAsset[]> {
+/**
+ * This event's uploaded assets, newest first — powers the Assets library.
+ *
+ * Scoped to `<eventId>/uploads`. It used to list the bucket ROOT, so every host
+ * saw every other host's uploads in their studio, with a delete button next to
+ * them. Files uploaded before namespacing still serve from their public URLs
+ * (nothing on a live event breaks); they simply no longer appear in anyone's
+ * library, and platform admins retain full read for support (migration 017).
+ */
+export async function listAssets(eventId: string): Promise<StoredAsset[]> {
+  const prefix = `${eventId}/uploads`;
   const { data, error } = await supabase.storage
     .from(ASSETS_BUCKET)
-    .list('', { limit: 1000, sortBy: { column: 'created_at', order: 'desc' } });
+    .list(prefix, { limit: 1000, sortBy: { column: 'created_at', order: 'desc' } });
   if (error || !data) {
     if (error) console.error('[db] listAssets', error);
     return [];
@@ -321,10 +380,13 @@ export async function listAssets(): Promise<StoredAsset[]> {
     .filter((f) => f.name && !f.name.startsWith('.'))
     .map((f) => {
       const meta = (f.metadata ?? null) as { size?: number; mimetype?: string } | null;
+      // `list` returns names relative to the prefix; every consumer (delete,
+      // public URL) needs the FULL object path.
+      const path = `${prefix}/${f.name}`;
       return {
         name: f.name,
-        path: f.name,
-        url: publicUrl(ASSETS_BUCKET, f.name),
+        path,
+        url: publicUrl(ASSETS_BUCKET, path),
         size: meta?.size,
         mimetype: meta?.mimetype,
         created_at: f.created_at ?? undefined,
@@ -485,15 +547,22 @@ export async function submitPost(eventId: string, input: SubmitPostInput): Promi
 /* Challenges                                                          */
 /* ------------------------------------------------------------------ */
 
-export async function fetchChallenges(eventId: string, opts?: { activeOnly?: boolean }): Promise<Challenge[]> {
+export async function fetchChallengesResult(
+  eventId: string,
+  opts?: { activeOnly?: boolean },
+): Promise<ListResult<Challenge>> {
   let q = supabase.from('challenges').select('*').eq('event_id', eventId).order('sort_order').order('created_at');
   if (opts?.activeOnly) q = q.eq('active', true);
   const { data, error } = await q;
   if (error) {
     console.error('[db] fetchChallenges', error);
-    return [];
+    return { rows: [], failed: true };
   }
-  return (data as Challenge[]) ?? [];
+  return { rows: (data as Challenge[]) ?? [], failed: false };
+}
+
+export async function fetchChallenges(eventId: string, opts?: { activeOnly?: boolean }): Promise<Challenge[]> {
+  return (await fetchChallengesResult(eventId, opts)).rows;
 }
 
 export async function createChallenge(eventId: string, c: Partial<Challenge>): Promise<Challenge | null> {

@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Coins, CreditCard, ExternalLink, RefreshCw, Sparkles } from 'lucide-react';
 import {
-  fetchMyOrgResult, fetchCreditBalance, fetchSubscription, fetchLedger,
+  fetchMyOrgResult, fetchCreditBalance, fetchSubscription, fetchLedgerResult,
   startCheckout, openPortal, invalidateProSubscriptionCache,
   type HostOrg, type SubscriptionRow, type LedgerRow, type CheckoutBody,
 } from '../../lib/host';
@@ -75,6 +75,8 @@ export default function Billing() {
   const [balance, setBalance] = useState<number | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionRow | null>(null);
   const [ledger, setLedger] = useState<LedgerRow[]>([]);
+  /** The ledger read failed — not a record of zero purchases. */
+  const [ledgerFailed, setLedgerFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null); // 'pro' | 'portal' | pack id
   const [notice, setNotice] = useState<'pending' | 'success' | string | null>(
@@ -87,14 +89,18 @@ export default function Billing() {
     setOrgLoadFailed(failed);
     setOrg(myOrg);
     if (myOrg) {
-      const [bal, sub, rows] = await Promise.all([
+      const [bal, sub, ledgerResult] = await Promise.all([
         fetchCreditBalance(myOrg.orgId),
         fetchSubscription(myOrg.orgId),
-        fetchLedger(myOrg.orgId, 20),
+        fetchLedgerResult(myOrg.orgId, 20),
       ]);
       setBalance(bal);
       setSubscription(sub);
-      setLedger(rows);
+      // A failed ledger read printed "No credit activity yet." over the
+      // customer's real purchases — the balance card above already models the
+      // error case properly, this one did not.
+      setLedgerFailed(ledgerResult.failed);
+      setLedger(ledgerResult.rows);
     }
     setLoading(false);
   }, []);
@@ -153,7 +159,7 @@ export default function Billing() {
         <button
           onClick={load}
           disabled={loading}
-          className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
+          className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
           aria-label="Refresh"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -283,7 +289,7 @@ export default function Billing() {
               <button
                 onClick={portal}
                 disabled={busy !== null}
-                className="flex-1 flex items-center justify-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors disabled:opacity-40"
+                className="pressable flex-1 flex items-center justify-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors disabled:opacity-40"
               >
                 <CreditCard className="w-3.5 h-3.5" /> {busy === 'portal' ? 'Opening…' : 'Manage'}
                 <ExternalLink className="w-3 h-3 opacity-50" />
@@ -299,9 +305,23 @@ export default function Billing() {
           Recent credit activity
         </p>
         {ledger.length === 0 ? (
-          <p className="font-sans text-xs text-brand-muted/50 py-4 text-center">
-            {loading ? 'Loading…' : 'No credit activity yet.'}
-          </p>
+          <div className="py-4 text-center">
+            <p className={`font-sans text-xs ${ledgerFailed && !loading ? 'text-amber-300/90' : 'text-brand-muted/50'}`}>
+              {loading
+                ? 'Loading…'
+                : ledgerFailed
+                ? 'We couldn’t load your credit activity — this is not a record of zero purchases.'
+                : 'No credit activity yet.'}
+            </p>
+            {ledgerFailed && !loading && (
+              <button
+                onClick={load}
+                className="mt-3 min-h-11 rounded-lg px-4 bg-white/[0.06] font-label uppercase tracking-luxe text-[10px] text-brand-fg"
+              >
+                Try again
+              </button>
+            )}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left">

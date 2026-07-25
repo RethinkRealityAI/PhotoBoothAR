@@ -1,9 +1,11 @@
 /**
  * Elegant camera-permission error / retry screen.
  */
-import { Camera, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Camera, RefreshCw, AlertTriangle, Upload, Images } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import type { CameraError as CameraErrorType } from './useCameraStream';
 import { useStore } from '../../store';
+import { useEvent } from '../../events/EventContext';
 
 interface Props {
   error: CameraErrorType;
@@ -24,6 +26,7 @@ function isIOS(): boolean {
 
 export default function CameraErrorScreen({ error, onRetry }: Props) {
   const copy = useStore((s) => s.copy);
+  const { basePath } = useEvent();
   const isPermission = error === 'NotAllowedError';
   const isNotFound = error === 'NotFoundError';
   const permissionHelp = isIOS()
@@ -64,6 +67,30 @@ export default function CameraErrorScreen({ error, onRetry }: Props) {
           <RefreshCw className="w-4 h-4" />
           Try Again
         </button>
+
+        {/* Ways out. Retry is the only control this screen used to have, and on
+            iOS a denied permission re-rejects instantly with no visible change
+            — so a guest who tapped "no" once could not take part at all. Both
+            of these let them still contribute and still see the room. */}
+        <div className="flex flex-col items-stretch gap-2 w-full">
+          <p className="font-label text-[10px] uppercase tracking-luxe text-champagne/40">
+            Or, without the camera
+          </p>
+          <Link
+            to={`${basePath}/upload`}
+            className="glass min-h-11 rounded-xl flex items-center justify-center gap-2 font-label uppercase tracking-luxe text-[11px] text-champagne/80"
+          >
+            <Upload className="w-4 h-4" />
+            Upload a photo instead
+          </Link>
+          <Link
+            to={`${basePath}/wall`}
+            className="glass min-h-11 rounded-xl flex items-center justify-center gap-2 font-label uppercase tracking-luxe text-[11px] text-champagne/80"
+          >
+            <Images className="w-4 h-4" />
+            See the wall
+          </Link>
+        </div>
 
         <p className="font-label text-[9px] uppercase tracking-luxe text-champagne/40">
           {copy.fullName}

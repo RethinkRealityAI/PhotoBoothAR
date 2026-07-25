@@ -5,8 +5,10 @@
  * AI Generate panel for the 3D anchor editor — kicks off an async Meshy
  * text/image → GLB job via the ai-generate-3d edge function (10 credits,
  * spent + entitlement-checked server-side), then polls ai-job-status every
- * 5s (up to ~5 minutes). On success the finished experience is already in
- * the library (unpublished); the panel offers to open it for anchor placement.
+ * 5s (up to ~10 minutes, extendable — text→3D is two Meshy tasks back to back,
+ * preview geometry then the refine pass that textures it). On success the
+ * finished experience is already in the library (unpublished); the panel offers
+ * to open it for anchor placement.
  */
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Wand2, Loader, Box, Image as ImageIcon, ExternalLink, RotateCcw } from 'lucide-react';
@@ -18,7 +20,12 @@ import { useEvent } from '../../../events/EventContext';
 import type { Experience } from '../../../types';
 
 const POLL_MS = 5000;
-const MAX_POLLS = 60; // ~5 minutes
+// ~10 minutes. This is the only caller that can run text→3D, which is TWO
+// Meshy tasks back to back (preview geometry, then the refine pass that
+// textures it — see startRefine in supabase/functions/ai-job-status). Each
+// stage runs 1-5 minutes, so a 5-minute budget timed out mid-refine on a job
+// that was going to succeed. Image→3D callers are single-stage and unchanged.
+const MAX_POLLS = 120;
 
 type Phase = 'idle' | 'starting' | 'running' | 'done' | 'failed' | 'timeout';
 
@@ -39,6 +46,12 @@ export default function AiGeneratePanel({
   const [error, setError] = useState('');
   const [showBillingLink, setShowBillingLink] = useState(false);
   const [balance, setBalance] = useState<number | null>(null);
+  // Bumped by "Keep waiting", which re-arms the poll loop. Nothing else in the
+  // product polls ai_jobs — no cron, no resume-on-mount — so when this loop
+  // stops, the Meshy job is finished at the provider but never materialized
+  // into an experience. Giving up silently used to promise the host the model
+  // "will appear in your Library shortly"; it would not have.
+  const [waitEpoch, setWaitEpoch] = useState(0);
 
   const refreshBalance = useCallback(async (): Promise<number | null> => {
     const org = await fetchMyOrg();
@@ -88,7 +101,7 @@ export default function AiGeneratePanel({
       }
     }, POLL_MS);
     return () => { alive = false; clearInterval(timer); };
-  }, [jobId, refreshBalance]);
+  }, [jobId, refreshBalance, waitEpoch]);
 
   const start = async () => {
     if (phase === 'starting' || phase === 'running') return;
@@ -110,6 +123,10 @@ export default function AiGeneratePanel({
       setPhase('idle');
       return;
     }
+    // RAW brief in both modes. ai-generate-3d applies the wearable-geometry
+    // rules server-side to what it sends Meshy, while storing this raw text for
+    // the experience NAME — enriching here would name the piece after a
+    // geometry paragraph.
     const { data, error: err } = await generate3d(uuid, mode === 'text'
       ? { mode, prompt: trimmedPrompt }
       : { mode, imageUrl: imageUrl.trim(), ...(trimmedPrompt ? { prompt: trimmedPrompt } : {}) });
@@ -212,18 +229,29 @@ export default function AiGeneratePanel({
             <p className="font-label text-[9px] uppercase tracking-widest text-accent-2">
               Generating 3D model{typeof progress === 'number' ? ` · ${progress}%` : '…'}
             </p>
-            <p className="font-sans text-[9px] text-brand-muted/35">Usually 1–3 minutes — keep this tab open.</p>
+            <p className="font-sans text-[9px] text-brand-muted/35">
+              {mode === 'text' ? 'Usually 2–8 minutes' : 'Usually 1–3 minutes'} — keep this tab open.
+            </p>
           </div>
         </div>
       )}
       {phase === 'timeout' && (
         <div className="bg-white/[0.04] rounded-lg px-3 py-2 border border-accent/15">
           <p className="font-sans text-[10px] text-brand-muted/60 leading-snug">
-            Still working — the finished model will appear in your Library shortly.
+            Still working — this one is taking longer than usual. Keep waiting and it will land in your
+            Library the moment it finishes; your credits are already spent either way.
           </p>
-          <button onClick={reset} className="mt-1 flex items-center gap-1 text-[9px] text-brand-muted/40 hover:text-accent-2 transition-colors">
-            <RotateCcw size={10} /> New generation
-          </button>
+          <div className="mt-1 flex items-center gap-3">
+            <button
+              onClick={() => { setPhase('running'); setWaitEpoch((e) => e + 1); }}
+              className="flex items-center gap-1 text-[9px] text-accent-2 hover:underline"
+            >
+              <RotateCcw size={10} /> Keep waiting
+            </button>
+            <button onClick={reset} className="flex items-center gap-1 text-[9px] text-brand-muted/40 hover:text-accent-2 transition-colors">
+              New generation
+            </button>
+          </div>
         </div>
       )}
       {phase === 'done' && result && (

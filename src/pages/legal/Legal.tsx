@@ -64,6 +64,18 @@ const PRIVACY: Section[] = [
     ],
   },
   {
+    // The public homepage streams approved captures from real events into its
+    // hero strip. That use was not covered by any clause here — this states it
+    // plainly, and states how to opt out. FLAGGED FOR COUNSEL alongside the
+    // rest of this document.
+    heading: 'Showing event photos on our own site',
+    body: [
+      'We may feature approved captures from real events on our marketing pages, including the live strip on our homepage, to show what the product does. Only captures a host has approved and not hidden are ever eligible.',
+      `Hosts can ask us to exclude their event from this at any time, and guests can ask for a specific capture to be removed, by emailing ${CONTACT}. We remove it from our marketing surfaces on request.`,
+      'We do not sell event content.',
+    ],
+  },
+  {
     heading: 'Retention & your choices',
     body: [
       'Event content is retained for the host’s event and account; hosts can moderate and remove captures, and can request deletion of an event’s data by contacting us.',

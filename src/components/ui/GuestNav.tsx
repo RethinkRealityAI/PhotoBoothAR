@@ -28,6 +28,7 @@ import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 import { CameraIcon, GalleryIcon, MediaStackIcon, IconProps } from './MediaIcons';
 import { keyForPath, type NavKey } from './navRouting';
+import { haptic } from '../../lib/haptics';
 
 export type { NavKey };
 
@@ -88,8 +89,9 @@ export default function GuestNav({ current, extras, bottomOnMobile = true, class
             to={`${basePath}${d.to}`}
             aria-current={on ? 'page' : undefined}
             title={d.label}
-            className={`flex items-center gap-1.5 rounded-full px-3 py-2 shrink-0 font-label uppercase tracking-luxe text-[10px] transition-all active:scale-95 ${
-              on ? 'bg-foil text-noir-900 glow-accent' : 'text-champagne/70 hover:text-gold-300'
+            onClick={() => haptic('tap')}
+            className={`pressable flex items-center gap-1.5 rounded-full px-3 min-h-11 shrink-0 font-label uppercase tracking-luxe text-[10px] transition-all ${
+              on ? 'bg-foil text-[color:var(--on-accent)] glow-accent' : 'text-champagne/70 hover:text-gold-300'
             }`}
           >
             <d.Icon size={15} />
@@ -118,7 +120,7 @@ export default function GuestNav({ current, extras, bottomOnMobile = true, class
             style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.6rem)' }}
           >
             <nav
-              className="liquid-glass rounded-2xl px-1.5 py-1.5 flex items-stretch justify-between gap-0.5 w-full pointer-events-auto"
+              className="liquid-glass-raised rounded-[1.35rem] px-1.5 py-1.5 flex items-stretch justify-between gap-0.5 w-full pointer-events-auto"
               aria-label="Primary"
             >
               {dests.map((d) => {
@@ -128,8 +130,9 @@ export default function GuestNav({ current, extras, bottomOnMobile = true, class
                     key={d.key}
                     to={`${basePath}${d.to}`}
                     aria-current={on ? 'page' : undefined}
-                    className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-1 rounded-xl py-2 px-0.5 transition-all active:scale-95 ${
-                      on ? 'bg-foil text-noir-900 glow-accent' : 'text-champagne/65 hover:text-gold-300'
+                    onClick={() => haptic('tap')}
+                    className={`pressable flex-1 min-w-0 flex flex-col items-center justify-center gap-1 rounded-[0.9rem] py-2 px-0.5 min-h-11 transition-all ${
+                      on ? 'bg-foil text-[color:var(--on-accent)] glow-accent' : 'text-champagne/65 hover:text-gold-300'
                     }`}
                   >
                     <d.Icon size={19} />

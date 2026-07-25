@@ -13,6 +13,7 @@ import type { CopilotAction } from './copilot';
 import { FILTER_SHADERS } from './shaders';
 import { HEAD_PIECES } from './headPieces';
 import { GENERIC_FRAMES } from './borders';
+import { frameBriefGaps, gapSummary, pieceBriefGaps } from './assetBrief';
 
 const FILTER_OPTIONS = FILTER_SHADERS.filter((s) => s.id !== 'none').map((s) => ({ label: s.name, value: s.id }));
 const PIECE_OPTIONS = HEAD_PIECES.map((p) => ({ label: p.name, value: p.id }));
@@ -48,6 +49,33 @@ function confirmRow(confirmLabel: string): { ids: string[]; components: A2uiComp
       { id: 'confirmLabel', component: 'Text', text: confirmLabel },
     ],
   };
+}
+
+/* ── Brief hints ─────────────────────────────────────────────────────────
+ * A generation card used to say the same thing whatever the brief was, so a
+ * card offering to spend a credit on "gold" looked identical to one with a
+ * real brief. These name what is still missing, in the caption, before the
+ * host spends anything.
+ *
+ * The caption is only half of it: CopilotChat's confirm handler runs
+ * proposalGaps() on the CURRENT (host-edited) field values and asks the
+ * question instead of generating. It asks once for a vague brief and every
+ * time for an absent one — see src/lib/proposalGaps.ts. */
+
+function frameHint(prompt: unknown): string {
+  const brief = typeof prompt === 'string' ? prompt : '';
+  const gaps = frameBriefGaps(brief);
+  const base = 'Generated at 9:16 with a clear centre for faces. Your first 3 frames are free.';
+  const summary = gapSummary(gaps);
+  return summary ? `${summary} I’ll check before spending anything. ${base}` : base;
+}
+
+function pieceHint(prompt: unknown): string {
+  const brief = typeof prompt === 'string' ? prompt : '';
+  const gaps = pieceBriefGaps(brief);
+  const base = 'A head-worn 3D piece from your description (~11 credits — a concept image then a 3D model).';
+  const summary = gapSummary(gaps);
+  return summary ? `${summary} I’ll check before spending anything. ${base}` : base;
 }
 
 function textField(id: string, label: string, path: string): A2uiComponent {
@@ -150,7 +178,7 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
         { id: 'root', component: 'Card', child: 'body' },
         { id: 'body', component: 'Column', children: ['heading', 'sub', 'promptField', 'genRow'] },
         { id: 'heading', component: 'Text', text: 'Design a signature frame', variant: 'h5' },
-        { id: 'sub', component: 'Text', variant: 'caption', text: 'Generated at 9:16 with a clear centre for faces. Your first 3 frames are free.' },
+        { id: 'sub', component: 'Text', variant: 'caption', text: frameHint(action.proposal.prompt) },
         textField('promptField', 'Describe your frame', '/proposal/prompt'),
         { id: 'genRow', component: 'Row', justify: 'end', children: ['cancelBtn', 'genBtn'] },
         { id: 'cancelBtn', component: 'Button', variant: 'borderless', child: 'cancelLabel', action: { event: { name: 'cancel_action', context: {} } } },
@@ -179,7 +207,7 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
           { id: 'root', component: 'Card', child: 'body' },
           { id: 'body', component: 'Column', children: ['heading', 'sub', 'promptField', 'genRow'] },
           { id: 'heading', component: 'Text', text: 'Generate a 3D prop', variant: 'h5' },
-          { id: 'sub', component: 'Text', variant: 'caption', text: 'A head-worn 3D piece from your description (~11 credits — a concept image then a 3D model).' },
+          { id: 'sub', component: 'Text', variant: 'caption', text: pieceHint(action.proposal.prompt) },
           textField('promptField', 'Describe your 3D prop', '/proposal/prompt'),
           { id: 'genRow', component: 'Row', justify: 'end', children: ['cancelBtn', 'genBtn'] },
           { id: 'cancelBtn', component: 'Button', variant: 'borderless', child: 'cancelLabel', action: { event: { name: 'cancel_action', context: {} } } },

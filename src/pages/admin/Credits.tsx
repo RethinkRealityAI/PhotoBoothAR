@@ -14,6 +14,7 @@ import { Check, Plus, Ticket } from 'lucide-react';
 import {
   fetchPlatformConfig, setSignupCredits, fetchPromos, createPromo, setPromoActive, type PromoCode,
 } from '../../lib/admin';
+import ConfirmModal from '../../components/ui/ConfirmModal';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-3.5 py-2.5 text-sm text-brand-fg ' +
@@ -31,6 +32,10 @@ export default function Credits() {
   const [bonusInput, setBonusInput] = useState('');
   const [savingBonus, setSavingBonus] = useState(false);
   const [bonusMsg, setBonusMsg] = useState<string | null>(null);
+  /** The current welcome-credit value could not be read. */
+  const [configFailed, setConfigFailed] = useState(false);
+  /** A welcome-bonus REDUCTION awaiting confirmation (it hits every new account). */
+  const [pendingBonus, setPendingBonus] = useState<number | null>(null);
 
   /* Promo codes */
   const [promos, setPromos] = useState<PromoCode[]>([]);
@@ -41,24 +46,47 @@ export default function Credits() {
   const [expiresAt, setExpiresAt] = useState('');
   const [creating, setCreating] = useState(false);
   const [promoErr, setPromoErr] = useState<string | null>(null);
+  /** The promo list could not be read — distinct from "no promo codes exist". */
+  const [promosFailed, setPromosFailed] = useState(false);
 
   useEffect(() => {
     fetchPlatformConfig().then((r) => {
       if (!r.error && r.data) {
         setBonus(r.data.signupBonusCredits);
         setBonusInput(String(r.data.signupBonusCredits));
+        setConfigFailed(false);
+        return;
       }
+      // A failed load used to be swallowed, leaving the field blank — and a
+      // blank field submitted as 0, silently setting the platform-wide welcome
+      // bonus to nothing. The form is disabled until we know the real value.
+      setConfigFailed(true);
     });
     fetchPromos().then((r) => {
       if (r.data) setPromos(r.data);
+      setPromosFailed(Boolean(r.error));
       setLoadingPromos(false);
     });
   }, []);
 
   async function saveBonus(e: FormEvent) {
     e.preventDefault();
+    // Number('') is 0, which passed both guards below — so submitting an empty
+    // field set the platform-wide welcome bonus to 0 and reported "Saved."
+    if (!bonusInput.trim()) { setBonusMsg('Enter a whole number ≥ 0.'); return; }
     const amount = Math.trunc(Number(bonusInput));
     if (!Number.isFinite(amount) || amount < 0) { setBonusMsg('Enter a whole number ≥ 0.'); return; }
+    if (configFailed) { setBonusMsg('Reload before changing this — the current value could not be read.'); return; }
+    // Every new account is affected, so a reduction is confirmed explicitly.
+    if (bonus !== null && amount < bonus) {
+      setPendingBonus(amount);
+      return;
+    }
+    await writeBonus(amount);
+  }
+
+  async function writeBonus(amount: number) {
+    setPendingBonus(null);
     setSavingBonus(true);
     setBonusMsg(null);
     const r = await setSignupCredits(amount);
@@ -92,8 +120,20 @@ export default function Credits() {
   }
 
   async function toggleActive(promo: PromoCode) {
+    setPromoErr(null);
     const r = await setPromoActive(promo.id, !promo.active);
-    if (!r.error) setPromos((list) => list.map((p) => (p.id === promo.id ? { ...p, active: !p.active } : p)));
+    if (!r.error) {
+      setPromos((list) => list.map((p) => (p.id === promo.id ? { ...p, active: !p.active } : p)));
+      return;
+    }
+    // The failure used to be dropped entirely, so an operator disabling an
+    // abused code saw the pill keep reading "Active" — or worse, assumed it
+    // had switched. Deactivation is the whole point of the control.
+    setPromoErr(
+      `“${promo.code}” could NOT be ${promo.active ? 'deactivated' : 'activated'} — it is still ${
+        promo.active ? 'active' : 'inactive'
+      }. Try again.`,
+    );
   }
 
   return (
@@ -108,6 +148,11 @@ export default function Credits() {
           Every new account is granted this many credits when its first event/org is created
           {bonus !== null && <> (currently <span className="text-brand-fg">{bonus}</span>)</>}.
         </p>
+        {configFailed && (
+          <p role="alert" className="mt-2 text-sm text-amber-300/90">
+            We couldn’t read the current value, so this can’t be changed safely — reload the page.
+          </p>
+        )}
         <form onSubmit={saveBonus} className="mt-4 flex items-center gap-3">
           <input
             type="number" min={0} step={1} value={bonusInput}
@@ -161,6 +206,10 @@ export default function Credits() {
         <div className="mt-6 flex flex-col gap-2">
           {loadingPromos ? (
             <p className="text-sm text-brand-muted/50">Loading…</p>
+          ) : promos.length === 0 && promosFailed ? (
+            <p role="alert" className="text-sm text-amber-300/90">
+              We couldn’t load the promo codes — this is not a list of zero codes.
+            </p>
           ) : promos.length === 0 ? (
             <p className="text-sm text-brand-muted/50">No promo codes yet.</p>
           ) : (
@@ -185,6 +234,27 @@ export default function Credits() {
           )}
         </div>
       </section>
+
+      {pendingBonus !== null && (
+        <ConfirmModal
+          tone="danger"
+          title="Lower the welcome bonus?"
+          confirmLabel="Lower it"
+          busy={savingBonus}
+          onCancel={() => setPendingBonus(null)}
+          onConfirm={() => writeBonus(pendingBonus)}
+          body={
+            <>
+              <p>
+                From <span className="text-brand-fg">{bonus}</span> to{' '}
+                <span className="text-brand-fg">{pendingBonus}</span> credit
+                {pendingBonus === 1 ? '' : 's'}.
+              </p>
+              <p className="mt-2">This applies to every account created from now on.</p>
+            </>
+          }
+        />
+      )}
     </div>
   );
 }

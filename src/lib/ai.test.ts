@@ -8,15 +8,35 @@ vi.mock('./supabase', () => ({
   supabase: { from: fromMock, functions: { invoke: vi.fn() } },
 }));
 
-/** All 15 members of AiErrorCode, split by expected retryability. */
-const RETRYABLE: AiErrorCode[] = [
-  'invalid_json', 'invalid_body', 'event_not_found', 'job_not_found',
-  'generation_failed', 'ai_quota', 'rate_limited', 'internal', 'network',
-];
-const NOT_RETRYABLE: AiErrorCode[] = [
-  'ai_key_invalid', 'ai_not_configured', 'insufficient_credits',
-  'upgrade_required', 'unauthorized', 'forbidden',
-];
+/**
+ * Every member of AiErrorCode and how it should behave. This is a
+ * `Record<AiErrorCode, ...>`, so adding a code to the union without classifying
+ * it here is a COMPILE error — the old pair of loose arrays could silently miss
+ * a new member and the "covers the whole union" test would still pass.
+ */
+const COVERAGE: Record<AiErrorCode, 'retryable' | 'hard'> = {
+  invalid_json: 'retryable',
+  invalid_body: 'retryable',
+  event_not_found: 'retryable',
+  job_not_found: 'retryable',
+  generation_failed: 'retryable',
+  ai_quota: 'retryable',
+  rate_limited: 'retryable',
+  internal: 'retryable',
+  network: 'retryable',
+  ai_key_invalid: 'hard',
+  ai_not_configured: 'hard',
+  // Retrying re-runs the same stored prompt, which the provider already refused.
+  content_blocked: 'hard',
+  insufficient_credits: 'hard',
+  upgrade_required: 'hard',
+  unauthorized: 'hard',
+  forbidden: 'hard',
+};
+
+const CODES = Object.keys(COVERAGE) as AiErrorCode[];
+const RETRYABLE = CODES.filter((c) => COVERAGE[c] === 'retryable');
+const NOT_RETRYABLE = CODES.filter((c) => COVERAGE[c] === 'hard');
 
 describe('aiErrorRetryable', () => {
   it.each(RETRYABLE)('%s is retryable', (code) => {
@@ -28,9 +48,10 @@ describe('aiErrorRetryable', () => {
   });
 
   it('the truth table covers the whole AiErrorCode union', () => {
-    // Compile-time: both arrays are typed AiErrorCode[]. Runtime: no overlaps.
-    const all = new Set<AiErrorCode>([...RETRYABLE, ...NOT_RETRYABLE]);
-    expect(all.size).toBe(RETRYABLE.length + NOT_RETRYABLE.length);
+    // Exhaustiveness is enforced by COVERAGE being a Record<AiErrorCode, …>;
+    // this guards the split itself (no code in both halves, none dropped).
+    expect(new Set(CODES).size).toBe(CODES.length);
+    expect(RETRYABLE.length + NOT_RETRYABLE.length).toBe(CODES.length);
   });
 });
 

@@ -12,6 +12,7 @@
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import type { ListResult } from './db';
 
 export const CARDS_BUCKET = 'cards';
 
@@ -198,8 +199,10 @@ export async function createCard(eventSlug: string, input: CreateCardInput): Pro
   return data as CardRow;
 }
 
-/** Every card of the event (member RLS), newest first, with contribution counts. */
-export async function listCards(eventSlug: string): Promise<CardRow[]> {
+/** Every card of the event (member RLS), newest first, with contribution counts.
+ *  Result-shaped so a failed read is not reported to the host as "no cards yet"
+ *  — see ListResult in db.ts. */
+export async function listCardsResult(eventSlug: string): Promise<ListResult<CardRow>> {
   const { data, error } = await supabase
     .from('cards')
     .select('*, card_contributions(count)')
@@ -207,12 +210,17 @@ export async function listCards(eventSlug: string): Promise<CardRow[]> {
     .order('created_at', { ascending: false });
   if (error) {
     console.error('[cards] listCards', error);
-    return [];
+    return { rows: [], failed: true };
   }
-  return ((data ?? []) as (CardRow & { card_contributions?: { count: number }[] })[]).map((row) => {
+  const rows = ((data ?? []) as (CardRow & { card_contributions?: { count: number }[] })[]).map((row) => {
     const { card_contributions, ...card } = row;
     return { ...card, contribution_count: card_contributions?.[0]?.count ?? 0 };
   });
+  return { rows, failed: false };
+}
+
+export async function listCards(eventSlug: string): Promise<CardRow[]> {
+  return (await listCardsResult(eventSlug)).rows;
 }
 
 export async function deleteCard(cardId: string): Promise<boolean> {
@@ -228,7 +236,7 @@ export async function deleteCard(cardId: string): Promise<boolean> {
 /* Host: contribution moderation                                       */
 /* ------------------------------------------------------------------ */
 
-export async function listContributions(cardId: string): Promise<ContributionRow[]> {
+export async function listContributionsResult(cardId: string): Promise<ListResult<ContributionRow>> {
   const { data, error } = await supabase
     .from('card_contributions')
     .select('*')
@@ -237,9 +245,13 @@ export async function listContributions(cardId: string): Promise<ContributionRow
     .order('created_at', { ascending: true });
   if (error) {
     console.error('[cards] listContributions', error);
-    return [];
+    return { rows: [], failed: true };
   }
-  return (data as ContributionRow[]) ?? [];
+  return { rows: (data as ContributionRow[]) ?? [], failed: false };
+}
+
+export async function listContributions(cardId: string): Promise<ContributionRow[]> {
+  return (await listContributionsResult(cardId)).rows;
 }
 
 export async function updateContribution(

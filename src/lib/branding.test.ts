@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeCopy, brandingCssVars, hexToRgbTriplet, MANAGED_CSS_VARS } from './branding';
+import { mergeCopy, brandingCssVars, hexToRgbTriplet, MANAGED_CSS_VARS, onAccentForeground } from './branding';
 import type { EventCopy } from '../events/types';
 
 const base: EventCopy = {
@@ -88,5 +88,30 @@ describe('brandingCssVars', () => {
     for (const key of Object.keys(all)) {
       expect(MANAGED_CSS_VARS).toContain(key);
     }
+  });
+});
+
+describe('onAccentForeground', () => {
+  it('puts near-black ink on a light accent', () => {
+    // Champagne gold — the legacy events' accent.
+    expect(onAccentForeground('#D4AF37')).toBe('#0A0806');
+  });
+
+  it('puts ivory ink on a dark accent', () => {
+    // The failure this exists to prevent: .bg-foil is built from the host's
+    // accent while CTAs hard-coded a dark foreground, so a host who picked a
+    // dark accent got an unreadable booth shutter and "Try again" button.
+    expect(onAccentForeground('#101010')).toBe('#F7F1E3');
+    expect(onAccentForeground('#3A46B0')).toBe('#F7F1E3');
+  });
+
+  it('accepts a hex without the leading hash', () => {
+    expect(onAccentForeground('D4AF37')).toBe('#0A0806');
+  });
+
+  it('returns null for anything that is not a 6-digit hex, so the default stands', () => {
+    expect(onAccentForeground('rebeccapurple')).toBeNull();
+    expect(onAccentForeground('#fff')).toBeNull();
+    expect(onAccentForeground('')).toBeNull();
   });
 });

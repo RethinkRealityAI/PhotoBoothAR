@@ -8,17 +8,21 @@
  * are unprovisioned as of this writing, so the honest state today is empty —
  * this renders that plainly instead of a fake zeroed dashboard.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, Search } from 'lucide-react';
 import { fetchOrders, fetchRevenueSummary, type OrderRow } from '../../lib/admin';
 import type { RevenueSummary } from '../../lib/revenue';
 import { formatCents, formatDate } from '../../lib/adminFormat';
-import { searchRows, sortRows, paginateRows } from '../../lib/adminFilters';
+import { listFootnote, type ListQuery } from '../../lib/serverList';
+import { useServerList } from '../../lib/useServerList';
 import DataTable, { type Column } from '../../components/ui/DataTable';
-import Pagination from '../../components/ui/Pagination';
+import ListMore from '../../components/ui/ListMore';
 import StatusPill from '../../components/ui/StatusPill';
 
-const PAGE_SIZE = 10;
+/** Rows per request. The header totals come from `revenue_summary`, which
+ *  aggregates SERVER-side over every order — so paging the table below cannot
+ *  make the money numbers wrong. */
+const PAGE_SIZE = 50;
 
 function currencyTotals(byCurrency: Record<string, number>): string {
   const entries = Object.entries(byCurrency);
@@ -28,31 +32,33 @@ function currencyTotals(byCurrency: Record<string, number>): string {
 
 export default function Payments() {
   const [summary, setSummary] = useState<RevenueSummary | null>(null);
-  const [orders, setOrders] = useState<OrderRow[]>([]);
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [query, setQuery] = useState('');
-  const [page, setPage] = useState(1);
+  const [summaryFailed, setSummaryFailed] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(true);
 
-  const load = async () => {
-    setState('loading');
-    const [summaryRes, ordersRes] = await Promise.all([fetchRevenueSummary(), fetchOrders()]);
-    if (summaryRes.error || !summaryRes.data || ordersRes.error || !ordersRes.data) {
-      setState('error');
-      return;
-    }
-    setSummary(summaryRes.data);
-    setOrders(ordersRes.data.orders);
-    setState('ready');
-  };
+  // Orders are searched and paged by the server; this screen used to pull EVERY
+  // order on the platform to show ten of them. Search matches the Stripe
+  // reference — the thing an operator has in front of them when a customer
+  // disputes a charge. Org name lives on another table and is not filterable
+  // server-side, which the placeholder now states.
+  const fetchPage = useCallback(async (q: ListQuery) => {
+    const { data, error } = await fetchOrders(q);
+    return { rows: data?.orders ?? [], hasMore: data?.hasMore ?? false, error };
+  }, []);
+  const list = useServerList<OrderRow>(fetchPage, PAGE_SIZE);
 
-  useEffect(() => { load(); }, []);
-  useEffect(() => { setPage(1); }, [query]);
+  const loadSummary = useCallback(async () => {
+    setSummaryLoading(true);
+    const res = await fetchRevenueSummary();
+    setSummary(res.data ?? null);
+    setSummaryFailed(Boolean(res.error) || !res.data);
+    setSummaryLoading(false);
+  }, []);
+  useEffect(() => { void loadSummary(); }, [loadSummary]);
 
-  const filtered = useMemo(
-    () => sortRows(searchRows(orders, query, ['orgName', 'kind', 'tier']), 'created_at', 'desc'),
-    [orders, query],
-  );
-  const paged = useMemo(() => paginateRows(filtered, page, PAGE_SIZE), [filtered, page]);
+  const load = useCallback(() => { void loadSummary(); list.reload(); }, [loadSummary, list]);
+  const state: 'loading' | 'ready' | 'error' = summaryLoading
+    ? 'loading'
+    : summaryFailed ? 'error' : 'ready';
 
   const columns: Column<OrderRow>[] = [
     { key: 'org', label: 'Organization', render: (o) => <span className="text-brand-fg font-medium">{o.orgName}</span> },
@@ -73,7 +79,7 @@ export default function Payments() {
         <button
           onClick={load}
           disabled={state === 'loading'}
-          className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
+          className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
         >
           <RefreshCw className={`w-4 h-4 ${state === 'loading' ? 'animate-spin' : ''}`} />
         </button>
@@ -123,15 +129,26 @@ export default function Payments() {
           <div className="relative mb-4 max-w-xs">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted/40" />
             <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search payments…"
-              className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
+              value={list.query}
+              onChange={(e) => list.setQuery(e.target.value)}
+              placeholder="Search by Stripe reference…"
+              className="w-full pl-9 pr-3 min-h-11 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
             />
           </div>
 
-          <DataTable columns={columns} rows={paged.rows} getRowKey={(o) => String(o.id)} emptyMessage="No payments match." />
-          <Pagination page={paged.page} totalPages={paged.totalPages} total={paged.total} onPageChange={setPage} />
+          <DataTable
+            columns={columns}
+            rows={list.rows}
+            getRowKey={(o) => String(o.id)}
+            loading={list.loading}
+            emptyMessage="No payments match."
+          />
+          <ListMore
+            hasMore={list.hasMore}
+            loading={list.loadingMore}
+            onMore={list.loadMore}
+            note={listFootnote(list.rows.length, list.hasMore, 'payment')}
+          />
         </>
       ) : null}
     </div>

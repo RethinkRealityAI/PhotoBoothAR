@@ -14,10 +14,12 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { useParams } from 'react-router-dom';
 import type { EventConfig } from './types';
 import { getRegisteredEvent } from './registry';
-import { codeRuntimeEvent, loadEventConfig, type RuntimeEvent } from './runtime';
+import { codeRuntimeEvent, loadEventConfig, type EventLoad, type RuntimeEvent } from './runtime';
 import { subscribeToBranding } from '../lib/db';
+import { isEventMember } from '../lib/host';
 import { MANAGED_CSS_VARS } from '../lib/branding';
 import { useStore } from '../store';
+import { accessAllowsBooth, guestAccess, needsMemberCheck, type GuestAccess } from '../lib/eventAccess';
 
 export interface EventContextValue {
   eventId: string;
@@ -136,7 +138,19 @@ function bootstrapEvent(event: RuntimeEvent) {
 
 /* ── Status screens ─────────────────────────────────────────────────── */
 
-function CenterScreen({ eyebrow, title, body }: { eyebrow: string; title: string; body?: string }) {
+function CenterScreen({
+  eyebrow,
+  title,
+  body,
+  onRetry,
+}: {
+  eyebrow: string;
+  title: string;
+  body?: string;
+  /** Renders a retry control. Only passed for recoverable states — a genuine
+   *  "no such event" has nothing to retry. */
+  onRetry?: () => void;
+}) {
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-noir-900 p-6">
       <div className="flex flex-col items-center gap-4 text-center animate-rise-in max-w-sm">
@@ -144,6 +158,14 @@ function CenterScreen({ eyebrow, title, body }: { eyebrow: string; title: string
         <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/40">{eyebrow}</p>
         <h1 className="font-serif italic text-3xl text-foil-static">{title}</h1>
         {body && <p className="font-sans text-sm text-champagne/55 leading-relaxed">{body}</p>}
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            className="mt-2 min-h-11 rounded-full bg-foil px-6 font-label uppercase tracking-luxe text-[11px] text-[color:var(--on-accent)]"
+          >
+            Try again
+          </button>
+        )}
       </div>
     </div>
   );
@@ -153,7 +175,11 @@ function CenterScreen({ eyebrow, title, body }: { eyebrow: string; title: string
 
 type LoadState =
   | { phase: 'loading' }
+  /** The lookup answered, and there is no event at this slug. */
   | { phase: 'missing' }
+  /** The lookup never answered — offline, RLS, 5xx. Recoverable, so it gets a
+   *  retry instead of accusing the guest's QR code of being wrong. */
+  | { phase: 'unreachable' }
   | { phase: 'ready'; event: RuntimeEvent };
 
 interface Props {
@@ -191,22 +217,54 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
     return resetPlatformTheme;
   }, []);
 
+  // Bumping this re-runs the resolve effect, which is how "Try again" works.
+  const [attempt, setAttempt] = useState(0);
+  // Guest access for a members-only status (draft / ended). null = still
+  // deciding: rendering the booth then would flash the guest surface of an
+  // event the viewer may not be allowed into, so the provider waits.
+  const [access, setAccess] = useState<GuestAccess | null>(
+    state.phase === 'ready' && !needsMemberCheck(state.event.status) ? 'open' : null,
+  );
+
   useEffect(() => {
     if (loadedSlugRef.current === slug) return;
     let alive = true;
     setState({ phase: 'loading' });
-    loadEventConfig(slug).then((event) => {
-      if (!alive) return;
-      loadedSlugRef.current = slug;
-      if (!event) {
-        setState({ phase: 'missing' });
-        return;
-      }
-      bootstrapEvent(event);
-      setState({ phase: 'ready', event });
-    });
+    loadEventConfig(slug)
+      // A rejected promise (total network drop) used to leave the provider in
+      // 'loading' forever — "Setting the stage…" with no cancel and no retry.
+      .catch((e): EventLoad => {
+        console.error('[events] loadEventConfig threw', e);
+        return { event: null, error: 'unreachable' };
+      })
+      .then(({ event, error }) => {
+        if (!alive) return;
+        if (error === 'unreachable') {
+          // Not cached as "loaded": a retry must be able to re-resolve it.
+          setState({ phase: 'unreachable' });
+          return;
+        }
+        loadedSlugRef.current = slug;
+        if (!event) {
+          setState({ phase: 'missing' });
+          return;
+        }
+        bootstrapEvent(event);
+        setState({ phase: 'ready', event });
+        // Draft / ended events are members-only. A live event skips this
+        // round-trip entirely, so the common path — a guest scanning a QR at
+        // the party — is exactly as fast as it was.
+        if (!needsMemberCheck(event.status)) {
+          setAccess('open');
+          return;
+        }
+        setAccess(null); // deciding
+        void isEventMember(event.eventId).then((member) => {
+          if (alive) setAccess(guestAccess(event.status, member));
+        });
+      });
     return () => { alive = false; };
-  }, [slug]);
+  }, [slug, attempt]);
 
   // Refresh mechanism for admin config patches (least-invasive correct path):
   // re-run loadEventConfig and replace the ready state's event, keeping the
@@ -217,7 +275,7 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
   // config.Background does so via useEvent().config (see EventBackground), so
   // updating the context state is sufficient for the change to appear live.
   const refreshConfig = useCallback(async () => {
-    const event = await loadEventConfig(slug);
+    const { event } = await loadEventConfig(slug);
     if (!event || loadedSlugRef.current !== slug) return;
     applyEventTheme(event);
     useStore.setState({ eventConfig: event.config });
@@ -237,6 +295,16 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
   if (state.phase === 'loading') {
     return <CenterScreen eyebrow="Photo Booth" title="Setting the stage…" />;
   }
+  if (state.phase === 'unreachable') {
+    return (
+      <CenterScreen
+        eyebrow="Photo Booth"
+        title="Can't reach this event"
+        body="Your link is fine — we just couldn't load the event. This is usually the venue's wifi. Check your connection and try again."
+        onRetry={() => setAttempt((n) => n + 1)}
+      />
+    );
+  }
   if (state.phase === 'missing') {
     return (
       <CenterScreen
@@ -247,12 +315,22 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
     );
   }
   const { event } = state;
-  if (event.status === 'archived') {
-    return (
+  // Members-only statuses: decide before rendering anything guest-facing.
+  if (access === null) {
+    return <CenterScreen eyebrow="Photo Booth" title="Setting the stage…" body="" />;
+  }
+  if (!accessAllowsBooth(access)) {
+    return access === 'ended' ? (
       <CenterScreen
         eyebrow={event.config.copy.eyebrow}
         title="This event has ended"
         body={event.config.copy.thankYou}
+      />
+    ) : (
+      <CenterScreen
+        eyebrow={event.config.copy.eyebrow}
+        title="Not open just yet"
+        body="Your host is still putting the finishing touches to this one. Check the link again closer to the event — nothing is wrong with your QR code."
       />
     );
   }
@@ -268,5 +346,22 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
     refreshConfig,
   };
 
-  return <EventContext.Provider value={value}>{children}</EventContext.Provider>;
+  return (
+    <EventContext.Provider value={value}>
+      {/* A member looking at an event guests cannot reach yet (or any more).
+          Without this a host testing a draft sees a working booth and can
+          reasonably conclude their guests do too. */}
+      {access === 'preview' && (
+        <div
+          role="status"
+          className="pointer-events-none fixed inset-x-0 top-0 z-[100] flex justify-center px-3 pt-safe-top [--safe-top:0.5rem]"
+        >
+          <p className="liquid-glass-raised rounded-full px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] text-amber-300">
+            {event.status === 'draft' ? 'Preview — guests can’t open this yet' : 'Preview — this event has ended'}
+          </p>
+        </div>
+      )}
+      {children}
+    </EventContext.Provider>
+  );
 }

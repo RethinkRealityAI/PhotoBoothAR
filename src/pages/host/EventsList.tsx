@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
+import Modal from '../../components/ui/Modal';
 import { ArrowUpRight, Check, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2 } from 'lucide-react';
 import { fetchMyEvents, updateEventStatus, eventOrgHasActivePro, type HostEventRow } from '../../lib/host';
 import { TierPill, UpgradeModal } from './UpgradeCard';
@@ -21,7 +22,7 @@ function CopyLinkButton({ text }: { text: string }) {
     <button
       onClick={() => navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
       title="Copy guest link"
-      className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
+      className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
     >
       {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
@@ -31,12 +32,11 @@ function CopyLinkButton({ text }: { text: string }) {
 function QRModal({ url, name, draft, onClose }: { url: string; name: string; draft: boolean; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={onClose}>
-      <div
-        className="liquid-glass rounded-3xl p-8 w-full max-w-xs text-center animate-rise-in flex flex-col items-center gap-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <p className="font-serif text-xl text-foil-static">{name}</p>
+    // Modal, not a bare overlay: this was openable but not dismissable or
+    // operable from a keyboard, and Tab walked straight through it into the page
+    // behind. Modal supplies Escape, the focus trap and focus restore.
+    <Modal title={name} onClose={onClose} maxWidthClass="max-w-xs">
+      <div className="text-center flex flex-col items-center gap-4">
         <div className="rounded-xl p-3 bg-brand-fg/95 shadow-lg">
           <QRCodeSVG value={url} size={160} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
         </div>
@@ -53,9 +53,8 @@ function QRModal({ url, name, draft, onClose }: { url: string; name: string; dra
           {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <QrCode className="w-3.5 h-3.5" />}
           {copied ? 'Copied!' : 'Copy link'}
         </button>
-        <button onClick={onClose} className="text-brand-muted/50 hover:text-brand-fg text-xs transition-colors">Close</button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -194,13 +193,14 @@ export default function EventsList() {
           <button
             onClick={load}
             disabled={loading}
-            className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
+            aria-label="Refresh events"
+            className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
           <Link
             to="/host/new"
-            className="flex items-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
+            className="pressable flex items-center gap-2 rounded-full bg-foil px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition"
           >
             <Plus className="w-4 h-4" /> New event
           </Link>
@@ -210,7 +210,7 @@ export default function EventsList() {
       {notice && (
         <div className="mb-5 flex items-start gap-2.5 rounded-xl bg-red-500/10 border border-red-500/25 px-4 py-3">
           <p className="flex-1 font-sans text-xs text-red-300">{notice}</p>
-          <button onClick={() => setNotice(null)} className="text-red-300/60 hover:text-red-300 text-xs" aria-label="Dismiss">✕</button>
+          <button onClick={() => setNotice(null)} className="pressable min-h-11 min-w-11 flex items-center justify-center rounded-lg text-red-300/60 hover:text-red-300 text-xs" aria-label="Dismiss">✕</button>
         </div>
       )}
 
@@ -219,7 +219,7 @@ export default function EventsList() {
           <button
             onClick={dismissGuide}
             aria-label="Dismiss guide"
-            className="absolute top-3 right-3 text-brand-muted/50 hover:text-brand-fg text-xs transition-colors"
+            className="pressable absolute top-1.5 right-1.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg text-brand-muted/50 hover:text-brand-fg text-xs transition-colors"
           >
             ✕
           </button>
@@ -304,7 +304,7 @@ export default function EventsList() {
                   <button
                     onClick={() => setQrTarget(ev)}
                     title="QR code"
-                    className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
+                    className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
                   >
                     <QrCode className="w-3.5 h-3.5" />
                   </button>
@@ -313,7 +313,7 @@ export default function EventsList() {
                     target="_blank"
                     rel="noopener noreferrer"
                     title="Open guest view"
-                    className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
+                    className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
@@ -336,7 +336,7 @@ export default function EventsList() {
                 <div className="mt-auto flex items-center gap-2 pt-1">
                   <Link
                     to={`/host/events/${ev.id}`}
-                    className="flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors"
+                    className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors"
                   >
                     <Settings2 className="w-3.5 h-3.5" /> Open studio
                   </Link>
@@ -344,7 +344,7 @@ export default function EventsList() {
                     <button
                       onClick={() => setStatus(ev, 'live')}
                       disabled={busy}
-                      className="rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-emerald-400 transition-colors disabled:opacity-40"
+                      className="rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-emerald-400 transition-colors disabled:opacity-40"
                     >
                       Go live
                     </button>
@@ -353,7 +353,7 @@ export default function EventsList() {
                     <button
                       onClick={() => setStatus(ev, 'ended')}
                       disabled={busy}
-                      className="rounded-full bg-amber-500/15 hover:bg-amber-500/25 px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-amber-400 transition-colors disabled:opacity-40"
+                      className="rounded-full bg-amber-500/15 hover:bg-amber-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-amber-400 transition-colors disabled:opacity-40"
                     >
                       End
                     </button>
@@ -361,7 +361,7 @@ export default function EventsList() {
                   {normalizeTier(ev.plan_tier) !== 'deluxe' && (
                     <button
                       onClick={() => setUpgradeTarget(ev)}
-                      className="ml-auto flex items-center gap-1 rounded-full bg-accent/10 hover:bg-accent/20 px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-accent-2 transition-colors"
+                      className="ml-auto flex items-center gap-1 rounded-full bg-accent/10 hover:bg-accent/20 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-accent-2 transition-colors"
                     >
                       Upgrade <ArrowUpRight className="w-3 h-3" />
                     </button>
