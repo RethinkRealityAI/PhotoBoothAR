@@ -15,6 +15,7 @@ import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
 import { SUPPORT_EMAIL } from '../../lib/errorReport';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { haptic } from '../../lib/haptics';
+import { useAiJobSweep } from '../../lib/useAiJobSweep';
 
 export default function HostLayout() {
   // Layout-level title for every /host screen. NOTE: a child page adopting
@@ -26,6 +27,7 @@ export default function HostLayout() {
   const navigate = useNavigate();
   const { session, loading } = useSession();
   const [orgName, setOrgName] = useState<string | null>(null);
+  const [orgId, setOrgId] = useState<string | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
 
   useEffect(() => {
@@ -34,11 +36,22 @@ export default function HostLayout() {
     fetchMyOrg().then(async (org) => {
       if (!alive || !org) return;
       setOrgName(org.name);
+      setOrgId(org.orgId);
       const balance = await fetchCreditBalance(org.orgId);
       if (alive) setCredits(balance);
     });
     return () => { alive = false; };
   }, [session]);
+
+  // Finish off AI jobs whose watcher is long gone. Nothing else polls ai_jobs,
+  // so without this a 3D model the host paid for and navigated away from is
+  // complete at Meshy and never becomes an experience — and Meshy deletes it
+  // after three days. Silent by design; a refunded job also settles here, so
+  // the balance is re-read whenever anything resolves.
+  useAiJobSweep(orgId, () => {
+    if (!orgId) return;
+    void fetchCreditBalance(orgId).then((b) => setCredits(b));
+  });
 
   if (loading) {
     return (

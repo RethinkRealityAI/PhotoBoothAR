@@ -48,13 +48,28 @@ export async function fetchExperiences(eventId: string, opts?: { publishedOnly?:
   return (data as Experience[]) ?? [];
 }
 
-export async function getExperience(eventId: string, id: string): Promise<Experience | null> {
+/**
+ * Read one experience, distinguishing "it isn't there" from "we couldn't ask".
+ *
+ * The difference is load-bearing in the studio: on a failed read the editor used
+ * to open on a blank draft, and saving that draft CREATED a second experience
+ * instead of updating the one the host opened — a silent duplicate fork of their
+ * work. `*Result` sibling convention, so no existing caller changes.
+ */
+export async function getExperienceResult(
+  eventId: string,
+  id: string,
+): Promise<{ experience: Experience | null; failed: boolean }> {
   const { data, error } = await supabase.from('experiences').select('*').eq('id', id).eq('event_id', eventId).maybeSingle();
   if (error) {
     console.error('[db] getExperience', error);
-    return null;
+    return { experience: null, failed: true };
   }
-  return (data as Experience) ?? null;
+  return { experience: (data as Experience) ?? null, failed: false };
+}
+
+export async function getExperience(eventId: string, id: string): Promise<Experience | null> {
+  return (await getExperienceResult(eventId, id)).experience;
 }
 
 export async function createExperience(eventId: string, draft: ExperienceDraft): Promise<Experience | null> {

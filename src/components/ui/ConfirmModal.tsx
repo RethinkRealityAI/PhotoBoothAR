@@ -21,6 +21,7 @@ export default function ConfirmModal({
   onCancel,
   tone = 'caution',
   busy = false,
+  extraAction,
 }: {
   title: string;
   /** What will happen, in the operator's terms. Include the numbers. */
@@ -31,6 +32,13 @@ export default function ConfirmModal({
   /** 'caution' for reversible-with-effort, 'danger' for money or access. */
   tone?: 'caution' | 'danger';
   busy?: boolean;
+  /**
+   * A third, de-emphasised choice for the cases where "cancel" and "confirm"
+   * genuinely aren't the whole picture — save-or-discard being the obvious one.
+   * Rendered below the pair so it can never be hit by muscle memory, and styled
+   * quietly because it is usually the lossy option.
+   */
+  extraAction?: { label: string; onClick: () => void };
 }) {
   const confirmClass =
     tone === 'danger'
@@ -58,6 +66,15 @@ export default function ConfirmModal({
           Cancel
         </button>
       </div>
+      {extraAction && (
+        <button
+          onClick={extraAction.onClick}
+          disabled={busy}
+          className="mt-2 w-full min-h-11 rounded-xl px-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/60 hover:text-brand-fg transition-colors disabled:opacity-50"
+        >
+          {extraAction.label}
+        </button>
+      )}
     </Modal>
   );
 }

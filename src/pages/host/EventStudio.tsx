@@ -17,12 +17,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, Check, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
+  ArrowLeft, Check, Coins, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
   LayoutGrid, Palette, QrCode, Settings, ShieldCheck, Sparkles, Trophy, Wand2, X,
 } from 'lucide-react';
 import { useCopilotStore } from '../../lib/copilotStore';
 import { supabase } from '../../lib/supabase';
-import { canEnterStudio } from '../../lib/host';
+import { canEnterStudio, fetchCreditBalance } from '../../lib/host';
+import { useAiJobSweep } from '../../lib/useAiJobSweep';
 import { subscribeToPosts } from '../../lib/db';
 import type { Post } from '../../types';
 import EventProvider, { useEvent } from '../../events/EventContext';
@@ -52,6 +53,10 @@ interface StudioEvent {
   status: string;
   plan_tier: string;
   event_type: string;
+  /** The org that AI generation actually charges — drives the credit pill and
+   *  the abandoned-job sweep, both of which the platform rail used to carry and
+   *  this screen does not have. */
+  org_id: string;
 }
 
 type LoadState =
@@ -293,7 +298,7 @@ export default function EventStudio() {
     (async () => {
       const { data, error } = await supabase
         .from('events')
-        .select('id, slug, name, status, plan_tier, event_type')
+        .select('id, slug, name, status, plan_tier, event_type, org_id')
         .eq('id', id)
         .maybeSingle();
       if (!alive) return;
@@ -312,6 +317,24 @@ export default function EventStudio() {
     })();
     return () => { alive = false; };
   }, [id, validId]);
+
+  // The platform rail is deliberately absent here — the owner asked for studio
+  // mode to be "less encumbered" — but two things it carried are not chrome,
+  // they are information a host needs precisely while they are spending: the
+  // credit balance, and a way to top up. Without them, running out mid-session
+  // meant an unexplained failure and no route to Billing.
+  const orgId = state.phase === 'ready' ? state.event.org_id : null;
+  const [credits, setCredits] = useState<number | null>(null);
+  const loadCredits = useCallback(() => {
+    if (!orgId) return;
+    void fetchCreditBalance(orgId).then(setCredits);
+  }, [orgId]);
+  useEffect(() => { loadCredits(); }, [loadCredits]);
+
+  // Recover AI jobs whose watcher is gone. This screen is where 3D generation
+  // happens AND it sits outside HostLayout, so without a sweep here a host who
+  // starts a model and closes the tab loses it (nothing else polls ai_jobs).
+  useAiJobSweep(orgId, loadCredits);
 
   if (!validId || state.phase === 'missing') {
     // EventsList reads this flag and shows a "couldn't open that studio" notice.
@@ -425,11 +448,27 @@ export default function EventStudio() {
                 </NavLink>
               </div>
             </div>
+            {/* Credit balance — a link, not a badge, because the only useful
+                thing to do with a low balance is top it up. A real 0 must show
+                (it is the number that explains a failed generation), so this
+                checks for null rather than falsiness. */}
+            {credits !== null && (
+              <Link
+                to="/host/billing"
+                title="Credit balance — top up in Billing"
+                className={`pressable shrink-0 hidden sm:flex items-center gap-1.5 rounded-full px-2.5 min-h-9 font-label uppercase tracking-luxe text-[9px] liquid-glass ${
+                  credits <= 0 ? 'text-red-300' : 'text-brand-muted/70 hover:text-brand-fg'
+                }`}
+              >
+                <Coins className="w-3.5 h-3.5 shrink-0" />
+                {credits} cr
+              </Link>
+            )}
             <button
               onClick={() => useCopilotStore.getState().open()}
               title="Beamwall Copilot"
               aria-label="Open the Beamwall Copilot"
-              className="shrink-0 w-8 h-8 rounded-full bg-foil glow-accent flex items-center justify-center text-noir-900 active:scale-95 transition-transform"
+              className="shrink-0 w-9 h-9 rounded-full bg-foil glow-accent flex items-center justify-center text-noir-900 active:scale-95 transition-transform"
             >
               <Sparkles className="w-4 h-4" />
             </button>
