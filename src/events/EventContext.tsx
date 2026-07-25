@@ -14,7 +14,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { useParams } from 'react-router-dom';
 import type { EventConfig } from './types';
 import { getRegisteredEvent } from './registry';
-import { codeRuntimeEvent, loadEventConfig, type RuntimeEvent } from './runtime';
+import { codeRuntimeEvent, loadEventConfig, type EventLoad, type RuntimeEvent } from './runtime';
 import { subscribeToBranding } from '../lib/db';
 import { MANAGED_CSS_VARS } from '../lib/branding';
 import { useStore } from '../store';
@@ -136,7 +136,19 @@ function bootstrapEvent(event: RuntimeEvent) {
 
 /* ── Status screens ─────────────────────────────────────────────────── */
 
-function CenterScreen({ eyebrow, title, body }: { eyebrow: string; title: string; body?: string }) {
+function CenterScreen({
+  eyebrow,
+  title,
+  body,
+  onRetry,
+}: {
+  eyebrow: string;
+  title: string;
+  body?: string;
+  /** Renders a retry control. Only passed for recoverable states — a genuine
+   *  "no such event" has nothing to retry. */
+  onRetry?: () => void;
+}) {
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-noir-900 p-6">
       <div className="flex flex-col items-center gap-4 text-center animate-rise-in max-w-sm">
@@ -144,6 +156,14 @@ function CenterScreen({ eyebrow, title, body }: { eyebrow: string; title: string
         <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/40">{eyebrow}</p>
         <h1 className="font-serif italic text-3xl text-foil-static">{title}</h1>
         {body && <p className="font-sans text-sm text-champagne/55 leading-relaxed">{body}</p>}
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            className="mt-2 min-h-11 rounded-full bg-foil px-6 font-label uppercase tracking-luxe text-[11px] text-noir-900"
+          >
+            Try again
+          </button>
+        )}
       </div>
     </div>
   );
@@ -153,7 +173,11 @@ function CenterScreen({ eyebrow, title, body }: { eyebrow: string; title: string
 
 type LoadState =
   | { phase: 'loading' }
+  /** The lookup answered, and there is no event at this slug. */
   | { phase: 'missing' }
+  /** The lookup never answered — offline, RLS, 5xx. Recoverable, so it gets a
+   *  retry instead of accusing the guest's QR code of being wrong. */
+  | { phase: 'unreachable' }
   | { phase: 'ready'; event: RuntimeEvent };
 
 interface Props {
@@ -191,22 +215,37 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
     return resetPlatformTheme;
   }, []);
 
+  // Bumping this re-runs the resolve effect, which is how "Try again" works.
+  const [attempt, setAttempt] = useState(0);
+
   useEffect(() => {
     if (loadedSlugRef.current === slug) return;
     let alive = true;
     setState({ phase: 'loading' });
-    loadEventConfig(slug).then((event) => {
-      if (!alive) return;
-      loadedSlugRef.current = slug;
-      if (!event) {
-        setState({ phase: 'missing' });
-        return;
-      }
-      bootstrapEvent(event);
-      setState({ phase: 'ready', event });
-    });
+    loadEventConfig(slug)
+      // A rejected promise (total network drop) used to leave the provider in
+      // 'loading' forever — "Setting the stage…" with no cancel and no retry.
+      .catch((e): EventLoad => {
+        console.error('[events] loadEventConfig threw', e);
+        return { event: null, error: 'unreachable' };
+      })
+      .then(({ event, error }) => {
+        if (!alive) return;
+        if (error === 'unreachable') {
+          // Not cached as "loaded": a retry must be able to re-resolve it.
+          setState({ phase: 'unreachable' });
+          return;
+        }
+        loadedSlugRef.current = slug;
+        if (!event) {
+          setState({ phase: 'missing' });
+          return;
+        }
+        bootstrapEvent(event);
+        setState({ phase: 'ready', event });
+      });
     return () => { alive = false; };
-  }, [slug]);
+  }, [slug, attempt]);
 
   // Refresh mechanism for admin config patches (least-invasive correct path):
   // re-run loadEventConfig and replace the ready state's event, keeping the
@@ -217,7 +256,7 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
   // config.Background does so via useEvent().config (see EventBackground), so
   // updating the context state is sufficient for the change to appear live.
   const refreshConfig = useCallback(async () => {
-    const event = await loadEventConfig(slug);
+    const { event } = await loadEventConfig(slug);
     if (!event || loadedSlugRef.current !== slug) return;
     applyEventTheme(event);
     useStore.setState({ eventConfig: event.config });
@@ -236,6 +275,16 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
 
   if (state.phase === 'loading') {
     return <CenterScreen eyebrow="Photo Booth" title="Setting the stage…" />;
+  }
+  if (state.phase === 'unreachable') {
+    return (
+      <CenterScreen
+        eyebrow="Photo Booth"
+        title="Can't reach this event"
+        body="Your link is fine — we just couldn't load the event. This is usually the venue's wifi. Check your connection and try again."
+        onRetry={() => setAttempt((n) => n + 1)}
+      />
+    );
   }
   if (state.phase === 'missing') {
     return (

@@ -171,19 +171,37 @@ export async function fetchLinkedGlobalExperiences(eventId: string): Promise<Exp
 /* Posts (live photo wall)                                             */
 /* ------------------------------------------------------------------ */
 
-export async function fetchPosts(eventId: string, opts?: { includeHidden?: boolean; limit?: number }): Promise<Post[]> {
+/** A list read that keeps "the query failed" apart from "there are no rows".
+ *  Mirrors the fetchMyOrgResult/fetchMyOrg pair in host.ts. Without it, every
+ *  failed fetch renders as a confident empty state — the wall telling guests
+ *  nobody has posted, or a guest being told they have no photos. */
+export interface ListResult<T> {
+  rows: T[];
+  failed: boolean;
+}
+
+export async function fetchPostsResult(
+  eventId: string,
+  opts?: { includeHidden?: boolean; limit?: number },
+): Promise<ListResult<Post>> {
   let q = supabase.from('posts').select('*').eq('event_id', eventId).order('created_at', { ascending: false });
   if (!opts?.includeHidden) q = q.eq('hidden', false).eq('approved', true);
   if (opts?.limit) q = q.limit(opts.limit);
   const { data, error } = await q;
   if (error) {
     console.error('[db] fetchPosts', error);
-    return [];
+    return { rows: [], failed: true };
   }
-  return (data as Post[]) ?? [];
+  return { rows: (data as Post[]) ?? [], failed: false };
 }
 
-export async function fetchMyPosts(eventId: string): Promise<Post[]> {
+/** Posts, or [] on failure. Use fetchPostsResult when the caller renders an
+ *  empty state the guest could mistake for the truth. */
+export async function fetchPosts(eventId: string, opts?: { includeHidden?: boolean; limit?: number }): Promise<Post[]> {
+  return (await fetchPostsResult(eventId, opts)).rows;
+}
+
+export async function fetchMyPostsResult(eventId: string): Promise<ListResult<Post>> {
   const sid = getSessionId(eventId);
   const { data, error } = await supabase
     .from('posts')
@@ -193,9 +211,13 @@ export async function fetchMyPosts(eventId: string): Promise<Post[]> {
     .order('created_at', { ascending: false });
   if (error) {
     console.error('[db] fetchMyPosts', error);
-    return [];
+    return { rows: [], failed: true };
   }
-  return (data as Post[]) ?? [];
+  return { rows: (data as Post[]) ?? [], failed: false };
+}
+
+export async function fetchMyPosts(eventId: string): Promise<Post[]> {
+  return (await fetchMyPostsResult(eventId)).rows;
 }
 
 export async function setPostHidden(eventId: string, id: string, hidden: boolean): Promise<boolean> {
@@ -485,15 +507,22 @@ export async function submitPost(eventId: string, input: SubmitPostInput): Promi
 /* Challenges                                                          */
 /* ------------------------------------------------------------------ */
 
-export async function fetchChallenges(eventId: string, opts?: { activeOnly?: boolean }): Promise<Challenge[]> {
+export async function fetchChallengesResult(
+  eventId: string,
+  opts?: { activeOnly?: boolean },
+): Promise<ListResult<Challenge>> {
   let q = supabase.from('challenges').select('*').eq('event_id', eventId).order('sort_order').order('created_at');
   if (opts?.activeOnly) q = q.eq('active', true);
   const { data, error } = await q;
   if (error) {
     console.error('[db] fetchChallenges', error);
-    return [];
+    return { rows: [], failed: true };
   }
-  return (data as Challenge[]) ?? [];
+  return { rows: (data as Challenge[]) ?? [], failed: false };
+}
+
+export async function fetchChallenges(eventId: string, opts?: { activeOnly?: boolean }): Promise<Challenge[]> {
+  return (await fetchChallengesResult(eventId, opts)).rows;
 }
 
 export async function createChallenge(eventId: string, c: Partial<Challenge>): Promise<Challenge | null> {

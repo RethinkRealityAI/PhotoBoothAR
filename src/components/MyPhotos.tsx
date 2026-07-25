@@ -24,13 +24,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getSavedPhotos } from '../lib/session';
-import { fetchMyPosts } from '../lib/db';
+import { fetchMyPostsResult } from '../lib/db';
 import { SavedPhoto, Post, MediaType } from '../types';
 import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
 import EventBackground from './ui/EventBackground';
 import { Wordmark } from './ui/EventLogo';
 import GuestNav from './ui/GuestNav';
+import FetchFailed from './ui/FetchFailed';
 import {
   CameraIcon,
   PhotoIcon,
@@ -390,14 +391,20 @@ export default function MyPhotos() {
   const { eventId, config, basePath } = useEvent();
   const [media, setMedia] = useState<GalaMedia[]>([]);
   const [loading, setLoading] = useState(true);
+  /** The server read failed. Locally-saved captures may still be shown. */
+  const [serverFailed, setServerFailed] = useState(false);
   const [lightbox, setLightbox] = useState<GalaMedia | null>(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
 
   const fetchAndMerge = useCallback(async () => {
-    const [saved, serverPosts] = await Promise.all([
+    const [saved, server] = await Promise.all([
       Promise.resolve(getSavedPhotos(eventId)),
-      fetchMyPosts(eventId),
+      fetchMyPostsResult(eventId),
     ]);
+    // A failed server read used to be indistinguishable from "you have no
+    // photos" — this page would tell a guest their own moments don't exist.
+    setServerFailed(server.failed);
+    const serverPosts = server.rows;
 
     const map = new Map<string, GalaMedia>();
 
@@ -508,6 +515,22 @@ export default function MyPhotos() {
 
       {/* Content */}
       <div className="relative z-10 px-4 pb-28 sm:pb-16">
+        {/* Locally-saved captures are still shown when the server read fails,
+            but the guest is told the list is incomplete rather than being left
+            to assume some of their photos vanished. */}
+        {serverFailed && media.length > 0 && (
+          <div className="mb-4 rounded-xl liquid-glass px-4 py-3 flex items-center justify-between gap-3">
+            <p className="font-sans text-xs text-brand-muted/80 leading-relaxed">
+              Showing what’s saved on this device — we couldn’t reach the event for the rest.
+            </p>
+            <button
+              onClick={fetchAndMerge}
+              className="shrink-0 min-h-11 px-4 rounded-lg font-label uppercase tracking-luxe text-[10px] text-brand-fg bg-white/[0.06]"
+            >
+              Retry
+            </button>
+          </div>
+        )}
         {loading ? (
           <div className="flex justify-center py-16">
             <div className="flex flex-col items-center gap-4 animate-rise-in">
@@ -517,6 +540,10 @@ export default function MyPhotos() {
               </p>
             </div>
           </div>
+        ) : media.length === 0 && serverFailed ? (
+          /* The server read failed and nothing was saved locally — say so
+             rather than claiming the guest has never taken a photo. */
+          <FetchFailed what="your moments" onRetry={fetchAndMerge} />
         ) : media.length === 0 ? (
           /* Empty state */
           <motion.div
