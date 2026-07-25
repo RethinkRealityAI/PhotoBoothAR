@@ -124,6 +124,26 @@ export function entitlementsFor(tier: PlanTier, hasProSubscription = false): Ent
  *   guests and members of other orgs resolve false — the Pro floor never
  *   leaks onto a foreign event (helper caches per event-uuid).
  */
+/* ------------------------------------------------------------------ */
+/* Plan-copy formatters                                                */
+/* ------------------------------------------------------------------ */
+/* The marketing pricing table and the in-app upgrade card described the
+ * same plans in different words, and the landing table left retention out
+ * entirely — so a prospect could sign up on Free without learning their
+ * photos expire in 7 days, then meet "7-day storage" as a headline bullet
+ * only after they were inside. Both surfaces now format the same values
+ * through these, so the two cannot drift apart again. */
+
+/** "Unlimited photos" / "Up to 500 photos". */
+export function formatPostCap(maxPosts: number | null): string {
+  return maxPosts === null ? 'Unlimited photos' : `Up to ${maxPosts} photos`;
+}
+
+/** "Photos kept forever" / "Photos kept for 90 days". */
+export function formatRetention(retentionDays: number | null): string {
+  return retentionDays === null ? 'Photos kept forever' : `Photos kept for ${retentionDays} days`;
+}
+
 export function useEntitlements(): Entitlements {
   const { planTier, source, eventUuid } = useEvent();
   const [hasPro, setHasPro] = useState(false);

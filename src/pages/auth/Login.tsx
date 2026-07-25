@@ -7,7 +7,7 @@
  */
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { signInWithEmail, signInWithGoogle } from '../../lib/auth';
+import { signInWithEmail, signInWithGoogle, resendConfirmation } from '../../lib/auth';
 import { usePageTitle } from '../../lib/usePageTitle';
 
 const inputClass =
@@ -21,6 +21,9 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** The sign-in failed specifically because the address is unconfirmed. */
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
+  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [submitting, setSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
@@ -32,7 +35,17 @@ export default function Login() {
     try {
       const { error: err } = await signInWithEmail(email.trim(), password);
       if (err) {
-        setError(err.message);
+        // Raw Supabase strings ("Invalid login credentials", "Email not
+        // confirmed") were shown verbatim, naming no recovery step.
+        const raw = err.message.toLowerCase();
+        if (raw.includes('not confirmed')) {
+          setNeedsConfirmation(true);
+          setError('This email hasn’t been confirmed yet — check your inbox for the link.');
+        } else if (raw.includes('invalid login')) {
+          setError('That email and password don’t match. Check them, or reset your password below.');
+        } else {
+          setError(err.message);
+        }
         return;
       }
       navigate('/host');
@@ -41,6 +54,14 @@ export default function Login() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  /** Offer a resend when the account exists but was never confirmed — there
+   *  was previously no in-app way out of that state at all. */
+  async function handleResend() {
+    setResendState('sending');
+    const { error: err } = await resendConfirmation(email.trim());
+    setResendState(err ? 'error' : 'sent');
   }
 
   async function handleGoogle() {
@@ -60,9 +81,12 @@ export default function Login() {
     }
   }
 
+  // items-start + my-auto rather than items-center: inside an h-screen
+  // overflow-hidden shell, a centred card taller than the viewport pushes
+  // its own top out of reach and cannot be scrolled back to.
   return (
-    <div className="h-full w-full app-bg flex items-center justify-center px-5 py-12 overflow-y-auto">
-      <div className="w-full max-w-sm animate-rise-in">
+    <div className="h-full w-full app-bg flex items-start justify-center px-5 py-12 overflow-y-auto">
+      <div className="w-full max-w-sm my-auto animate-rise-in">
         <div className="glass-strong rounded-3xl px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
           <Link
             to="/"
@@ -70,9 +94,11 @@ export default function Login() {
           >
             Beamwall
           </Link>
-          <p className="mt-2 text-center font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">
+          {/* The page had no h1 at all — no title for a screen reader, and the
+              first heading on the page was an h2. */}
+          <h1 className="mt-2 text-center font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
             Sign in to your studio
-          </p>
+          </h1>
 
           <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
             <label className="flex flex-col gap-1.5">
@@ -116,6 +142,29 @@ export default function Login() {
               <p role="alert" className="text-sm text-red-400">
                 {error}
               </p>
+            )}
+            {needsConfirmation && (
+              <div className="rounded-xl bg-white/[0.04] px-4 py-3">
+                {resendState === 'sent' ? (
+                  <p role="status" className="text-sm text-brand-muted/80">
+                    Sent — check {email.trim()} for a fresh confirmation link.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResend}
+                    disabled={resendState === 'sending'}
+                    className="min-h-11 font-label uppercase tracking-luxe text-[10px] text-accent disabled:opacity-60"
+                  >
+                    {resendState === 'sending' ? 'Sending…' : 'Send me a new confirmation link'}
+                  </button>
+                )}
+                {resendState === 'error' && (
+                  <p role="alert" className="mt-1 text-xs text-amber-300/90">
+                    That didn’t send. Try again in a moment.
+                  </p>
+                )}
+              </div>
             )}
 
             <button

@@ -14,13 +14,15 @@
  */
 import { useState } from 'react';
 import { ArrowUpRight, Check, Sparkles, X } from 'lucide-react';
-import { ENTITLEMENTS, normalizeTier, type PlanTier } from '../../lib/entitlements';
+import { ENTITLEMENTS, formatPostCap, formatRetention, normalizeTier, type PlanTier } from '../../lib/entitlements';
 import { startCheckout } from '../../lib/host';
 
 type PaidTier = 'essentials' | 'premium' | 'deluxe';
 
-const fmtPosts = (n: number | null) => (n === null ? 'Unlimited posts' : `${n} posts`);
-const fmtRetention = (d: number | null) => (d === null ? 'Storage forever' : `${d}-day storage`);
+/* Shared with the landing pricing table (src/lib/entitlements.ts) so the two
+   descriptions of the same plan cannot drift apart again. */
+const fmtPosts = formatPostCap;
+const fmtRetention = formatRetention;
 
 /** Price + credit grant + entitlement-derived bullets per package. */
 export const PACKAGES: { tier: PaidTier; price: string; credits: number; tagline: string; bullets: string[] }[] = [

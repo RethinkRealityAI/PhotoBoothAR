@@ -47,6 +47,7 @@ import challengesFeatureVideo from '../assets/landing/challenges-feature.mp4';
 import challengesFeaturePoster from '../assets/landing/challenges-feature-poster.jpg';
 import cardsFeatureVideo from '../assets/landing/cards-feature.mp4';
 import cardsFeaturePoster from '../assets/landing/cards-feature-poster.jpg';
+import { ENTITLEMENTS, formatPostCap, formatRetention } from '../lib/entitlements';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -157,27 +158,48 @@ interface Tier {
   popular?: boolean;
 }
 
+/* Features are written against ENTITLEMENTS, not from memory. Two things were
+   wrong here before: Essentials advertised a "Video guestbook" while
+   ENTITLEMENTS.essentials.cardsStandard is false (the in-app card calls the
+   same thing "Video capture"), and no tier disclosed retention at all — so a
+   prospect chose Free without being told photos expire after a week, and only
+   met "7-day storage" once they were already inside. */
 const TIERS: Tier[] = [
   {
     name: 'Free',
     price: '$0',
     unit: 'to try it',
     blurb: 'Spin up a booth and see the magic.',
-    features: ['1 live event', 'Up to 25 photos', 'Photo booth + live wall', 'A subtle Beamwall credit'],
+    features: [
+      '1 live event',
+      formatPostCap(ENTITLEMENTS.free.maxPosts),
+      formatRetention(ENTITLEMENTS.free.retentionDays),
+      'A subtle Beamwall credit',
+    ],
   },
   {
     name: 'Essentials',
     price: '$49',
     unit: 'per event',
     blurb: 'Everything a small celebration needs.',
-    features: ['Up to 500 photos', 'Video guestbook', 'No watermark', 'Every frame & effect'],
+    features: [
+      formatPostCap(ENTITLEMENTS.essentials.maxPosts),
+      'Video capture',
+      'No watermark',
+      formatRetention(ENTITLEMENTS.essentials.retentionDays),
+    ],
   },
   {
     name: 'Premium',
     price: '$99',
     unit: 'per event',
     blurb: 'The full experience, most hosts pick this.',
-    features: ['Unlimited photos & video', 'AI event studio', 'Greeting cards', 'Priority support'],
+    features: [
+      'Unlimited photos & video',
+      'AI event studio',
+      'Greeting cards',
+      formatRetention(ENTITLEMENTS.premium.retentionDays),
+    ],
     popular: true,
   },
   {
@@ -185,7 +207,12 @@ const TIERS: Tier[] = [
     price: '$169',
     unit: 'per event',
     blurb: 'A keepsake film and white-glove polish.',
-    features: ['Everything in Premium', 'Keepsake highlight film', 'Premium card renders', 'White-glove setup'],
+    features: [
+      'Everything in Premium',
+      'Keepsake highlight film',
+      'Premium card renders',
+      formatRetention(ENTITLEMENTS.deluxe.retentionDays),
+    ],
   },
 ];
 
@@ -1019,7 +1046,7 @@ export default function Landing() {
         <footer className="flex flex-col items-center gap-3 pb-6 pt-20 text-center">
           <span className="font-serif text-lg text-foil-static">Beamwall</span>
           <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
-            Loved at weddings, galas &amp; milestone birthdays.
+            Built for weddings, galas and celebrations of every size.
           </p>
           <nav className="flex items-center gap-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
             <Link to="/privacy" className="rounded transition hover:text-brand-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]">Privacy</Link>
