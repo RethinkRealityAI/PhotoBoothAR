@@ -245,6 +245,32 @@ the clipped control.
 
 ## Fix status
 
-See git history on this branch. Items are fixed in severity order; anything still
-listed here without a ✅ in the commit log remains open and is the backlog for the
-next pass.
+Six gated packages landed on this branch (each: tsc 0 · vitest green · build ✓).
+
+**Fixed**
+
+| Package | What it closed |
+|---|---|
+| `fix(a11y)` foundations | Safe-area utilities defined (all 7 dead usages now live, base padding preserved — probed at 40px) · global `:focus-visible` ring (probed with a real Tab press) · reduced-motion extended past `.animate-float` · `forced-colors` fallback for the foil text · `maximum-scale=1` removed |
+| `fix(guest)` honesty | Event lookup distinguishes missing from unreachable, with retry · the rejected-promise path that hung on "Setting the stage…" forever · wall / my-photos / challenges report failure instead of emptiness (`lib/listState.ts`, tested) · wall stops flashing its empty state during first load · guest-writable event-wide QR toggle is now per-device · projection mode hidden below `sm` and revealed on touch |
+| `fix(guest)` dead ends | Camera-denied offers upload + wall · permanent send failure always offers "Back to the booth" · pre-camera disclosure legible and accurate · challenge check states that the photo is sent even if you retake |
+| `fix(host)` honesty | Copilot no longer ticks failed actions (and no longer flashes success before the action runs) · cards / contributions / ledger / manager tokens report failure · manager create+revoke no longer fail silently · new-event handover carries the draft caveat, one link shape, QR on phones |
+| `fix(admin)` money paths | Promo toggle failure surfaced · empty welcome-credits field can no longer write 0 · five list screens surface load errors (probed) · credit adjustments validate and confirm · `Modal` is a real dialog with Escape/focus-trap/restore (probed) · toasts are a live region, errors persist |
+| `fix(marketing)` | Essentials no longer sells a feature it lacks · retention disclosed on every tier and in JSON-LD, from shared tested helpers · unearned social proof removed · privacy clause for marketing use of event photos · resend-confirmation path · auth `h1`s and top-anchored cards |
+
+**Still open** — everything above not named in that table, notably: `/host/events/:id/*`
+mounted outside `HostLayout` (the sidebar vanishes in the studio); `StudioShell`'s
+unsaved-work guard and its silent duplicate-fork on a failed load; the remaining
+~14 ad-hoc overlays that should route through the now-fixed `Modal`; sub-44px tap
+targets across booth/wall/host/admin; admin list screens fetching every row with
+client-side filtering; the wall shipping full-resolution originals to phones; and
+the copy/token cleanups marked P2. Each row above carries its `file:line`.
+
+**Product decisions deliberately not taken unilaterally**
+
+- Gating `draft` / `ended` events from guests (`EventContext.tsx:246`). Hosts test
+  drafts through the guest booth via the copilot's `test_experience` flow, so
+  gating drafts would break a shipped path. Needs an owner decision on how host
+  preview and guest access should differ.
+- `REFERENCE_HEAD_SCALE` and the hero carousel's use of legacy branded frames were
+  previously settled by the owner and were left alone.

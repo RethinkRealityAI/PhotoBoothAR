@@ -14,7 +14,7 @@
  */
 import { useState } from 'react';
 import { ArrowUpRight, Check, Sparkles, X } from 'lucide-react';
-import { ENTITLEMENTS, formatPostCap, formatRetention, normalizeTier, type PlanTier } from '../../lib/entitlements';
+import { ENTITLEMENTS, formatPostCap, formatRetention, normalizeTier, type PlanTier } from '../../lib/plans';
 import { startCheckout } from '../../lib/host';
 
 type PaidTier = 'essentials' | 'premium' | 'deluxe';

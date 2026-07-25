@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ENTITLEMENTS, formatPostCap, formatRetention } from './entitlements';
+import { ENTITLEMENTS, formatPostCap, formatRetention } from './plans';
 
 describe('plan copy formatters', () => {
   it('describes an unlimited cap without a number', () => {
@@ -19,6 +19,9 @@ describe('plan copy formatters', () => {
   });
 });
 
+// Imported from ./plans, not ./entitlements: the latter pulls in the Supabase
+// client, whose createClient throws when env vars are absent — which is exactly
+// how CI runs.
 describe('entitlements the pricing page relies on', () => {
   it('does not include greeting cards on essentials', () => {
     // The landing page advertised a "Video guestbook" on Essentials; cards are

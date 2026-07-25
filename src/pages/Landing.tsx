@@ -47,7 +47,7 @@ import challengesFeatureVideo from '../assets/landing/challenges-feature.mp4';
 import challengesFeaturePoster from '../assets/landing/challenges-feature-poster.jpg';
 import cardsFeatureVideo from '../assets/landing/cards-feature.mp4';
 import cardsFeaturePoster from '../assets/landing/cards-feature-poster.jpg';
-import { ENTITLEMENTS, formatPostCap, formatRetention } from '../lib/entitlements';
+import { ENTITLEMENTS, formatPostCap, formatRetention } from '../lib/plans';
 
 gsap.registerPlugin(ScrollTrigger);
 
