@@ -932,7 +932,7 @@ export default function Booth() {
 
           {/* Header */}
           {phase === 'camera' && ready && (
-            <div className="relative z-20 flex items-center justify-between gap-2 px-4 pt-safe-top pt-3 pb-2 shrink-0">
+            <div className="relative z-20 flex items-center justify-between gap-2 px-4 pt-safe-top [--safe-top:0.75rem] pb-2 shrink-0">
               <Emblem size={34} className="shrink-0 drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.35)]" />
               <div className="flex flex-wrap items-center justify-end gap-1.5">
                 {wallSettings.showChallenges && (
@@ -1186,7 +1186,7 @@ export default function Booth() {
 
           {/* Floating shutter when chrome is hidden (full-frame preview) */}
           {phase === 'camera' && ready && uiHidden && (
-            <div className="absolute bottom-0 left-0 right-0 z-20 pb-safe-bottom flex flex-col items-center gap-3 pb-7 pointer-events-none">
+            <div className="absolute bottom-0 left-0 right-0 z-20 pb-safe-bottom [--safe-bottom:1.75rem] flex flex-col items-center gap-3 pointer-events-none">
               {mediaMode === 'photo' ? (
                 <motion.button onClick={handleShutterPress} whileTap={{ scale: 0.88 }} className="pointer-events-auto relative w-[72px] h-[72px] rounded-full bg-foil glow-accent animate-pulse-glow flex items-center justify-center" aria-label="Take photo">
                   <div className="absolute inset-2 rounded-full border-2 border-ivory/60" />

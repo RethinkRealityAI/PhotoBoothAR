@@ -116,7 +116,7 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
             onClick={close}
           >
             <motion.div
-              className="w-full max-w-md glass-strong rounded-t-3xl px-6 pt-6 pb-safe-bottom pb-8"
+              className="w-full max-w-md glass-strong rounded-t-3xl px-6 pt-6 pb-safe-bottom [--safe-bottom:2rem]"
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}

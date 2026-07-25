@@ -193,6 +193,18 @@ body {
   .hide-scrollbar::-webkit-scrollbar { display: none; }
   .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+  /* Safe-area padding for notched phones. These were referenced in the booth,
+     onboarding and welcome markup long before they existed, so every notch
+     allowance in the app was silently inert.
+     They ADD to a base padding rather than replacing it, because a plain
+     `padding-*: env(...)` would win the cascade over the Tailwind class beside
+     it and collapse the design padding to zero on every non-notch device.
+     Usage: `class="pt-safe-top [--safe-top:0.75rem]"`. */
+  .pt-safe-top    { padding-top:    calc(env(safe-area-inset-top, 0px)    + var(--safe-top, 0px)); }
+  .pb-safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--safe-bottom, 0px)); }
+  .pl-safe-left   { padding-left:   calc(env(safe-area-inset-left, 0px)   + var(--safe-left, 0px)); }
+  .pr-safe-right  { padding-right:  calc(env(safe-area-inset-right, 0px)  + var(--safe-right, 0px)); }
+
   .tracking-luxe { letter-spacing: 0.28em; }
 
   /* Semantic decorative utilities (event-themable) */
@@ -252,8 +264,49 @@ body {
 .animate-rise-in { animation: rise-in 0.7s cubic-bezier(0.16,1,0.3,1) both; }
 .animate-pulse-glow { animation: pulse-glow 3.2s ease-in-out infinite; }
 .animate-float { animation: float-y 6s ease-in-out infinite; }
+/* Reduced motion. Decorative movement — levitation, glow pulses, the foil
+   shimmer and the rise-in translate — is switched off entirely. Spinners and
+   opacity-only skeleton pulses are deliberately kept: they communicate that
+   work is in progress, and a frozen spinner reads as a hung app. `rise-in`
+   degrades to a plain fade rather than disappearing, so entrances still land. */
 @media (prefers-reduced-motion: reduce) {
-  .animate-float { animation: none; }
+  .animate-float,
+  .animate-pulse-glow,
+  .text-foil,
+  .gold-foil {
+    animation: none;
+  }
+  .animate-rise-in { animation: rise-in-reduced 0.2s ease-out both; }
+}
+@keyframes rise-in-reduced {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Keyboard focus. No global focus style existed, and the booth shutter, the
+   auth inputs and several host controls set `outline-none` with no
+   replacement — so keyboard and switch-control users had no indicator at all
+   on the app's most important controls. Scoped to :focus-visible so pointer
+   users never see it. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* Windows High Contrast / forced-colors: the foil text utilities paint their
+   colour through a clipped gradient, which forced-colors discards — leaving
+   every headline, price and the wordmark invisible. Restore a real colour. */
+@media (forced-colors: active) {
+  .text-foil,
+  .text-foil-static,
+  .gold-foil,
+  .gold-foil-static {
+    background: none;
+    -webkit-text-fill-color: CanvasText;
+    color: CanvasText;
+    animation: none;
+  }
 }
 
 /* Range inputs styled to the active accent */
