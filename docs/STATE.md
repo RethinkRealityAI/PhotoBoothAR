@@ -27,7 +27,11 @@ PROVEN IN A BROWSER (rig at :5173 + stub at :54999, seeded with one 45-min-old a
 Gates (no `.env.local`, matching CI): tsc 0 · 759 tests (60 files) · build ✓ · `VITE_EVENT=hope-gala` build ✓.
 
 ## Next
-DEPLOY the 4 edited edge functions — NONE are deployed (live: ai-generate-image v13, ai-generate-3d v6, ai-job-status v6, ai-event-designer v17; the repo is ahead of all four). Deferred to the owner deliberately: these are production money-path changes that CANNOT be tested from the sandbox (*.googleapis.com and api.meshy.ai are both proxy-blocked), so the owner should say go. Deploy via Supabase MCP `deploy_edge_function` with `import_map_path:"deno.json"`. First real generation after deploy: check the logs for `gemini rejected the generation config — falling back` (means flash-image won't take 2K/TEXT+IMAGE) and for `refine rejected` / `refine unavailable` (means the Meshy refine body needs adjusting).
+DEPLOYED 2026-07-25 (owner said go): ai-generate-image **v14**, ai-generate-3d **v7**, ai-job-status **v7**, ai-event-designer **v18** — all ACTIVE, repo and prod back in lockstep.
+FIRST-RUN WATCH (nothing about these could be tested from the sandbox — *.googleapis.com and api.meshy.ai are both proxy-blocked, so "it compiles" was the only proof available). On the first real generation, check the edge logs for:
+- `gemini rejected the generation config — falling back` → gemini-2.5-flash-image will not take imageSize 2K and/or responseModalities TEXT+IMAGE. Output still works (it retries with the exact pre-deploy config), but frames stay at 1K: either move frames to gemini-3-pro-image or drop GEMINI_IMAGE_SIZE.
+- `refine rejected` / `refine unavailable — shipping the preview mesh` → the Meshy refine body needs adjusting (it retries once without enable_pbr). Text→3D still returns a mesh, just untextured, and `experiences.config.textured` records which.
+- `gemini_image_safety` / `content_blocked` responses → the new HTTP-200 refusal path is firing (previously these were misreported as generation_failed).
 PR #24 (draft, base claude/beta-release-readiness-tihw04) carries the audit + 6 fix packages + the self-audit fixes; watched, CI green expected. Awaiting owner: the draft/ended guest-gating decision (hosts test drafts THROUGH the guest booth via the copilot test_experience flow, so gating would break a shipped path); then the P1 backlog at the end of docs/UI-UX-AUDIT.md, led by /host/events/:id/* being mounted outside HostLayout and StudioShell's missing unsaved-work guard.
 
 ## Done
