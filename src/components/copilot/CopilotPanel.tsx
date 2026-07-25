@@ -137,7 +137,7 @@ export default function CopilotPanel() {
              shorthand's md: override lost the ordering fight and stranded the
              window top-left). The inline background re-solidifies the glass:
              liquid-glass alone is too transparent to read chat over a page. */
-          className="fixed z-[80] left-3 right-3 top-3 bottom-3 md:left-auto md:top-auto md:right-6 md:bottom-6 md:w-[420px] md:h-[680px] md:max-h-[calc(100dvh-3rem)] rounded-3xl overflow-hidden liquid-glass border border-white/10 shadow-[0_30px_90px_-20px_rgba(0,0,0,0.85)] flex flex-col"
+          className="fixed z-[80] left-3 right-3 top-3 bottom-3 md:left-auto md:top-auto md:right-6 md:bottom-6 md:w-[420px] md:h-[680px] md:max-h-[calc(100dvh-3rem)] rounded-3xl overflow-hidden liquid-glass-raised flex flex-col"
           /* position INLINE because .liquid-glass (unlayered CSS) declares
              position:relative, which beats the layered Tailwind `fixed`
              utility — that collision stranded the popup at the page's static

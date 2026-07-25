@@ -39,6 +39,7 @@ import type { ChatMessage } from '../../lib/eventDesigner';
 import type { EventSnapshot } from '../../lib/eventSnapshot';
 import type { Experience } from '../../types';
 import A2uiSurface from '../a2ui/A2uiSurface';
+import { haptic } from '../../lib/haptics';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const POLL_MS = 5000;
@@ -598,6 +599,7 @@ export default function CopilotChat({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
                 className="max-w-[90%] self-end rounded-2xl rounded-tr-md bg-[color:var(--color-accent)]/15 border border-[color:var(--color-accent)]/30 px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg"
+                style={{ boxShadow: '0 2px 6px -2px rgba(0,0,0,0.5), 0 10px 26px -18px rgba(var(--accent-rgb),0.8), inset 0 1px 0 rgba(255,255,255,0.18)' }}
               >
                 {m.content}
               </motion.div>
@@ -612,7 +614,7 @@ export default function CopilotChat({
               className="max-w-[92%] self-start flex flex-col gap-2"
             >
               {m.content && (
-                <div className="rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg/90">
+                <div className="liquid-glass-inset rounded-2xl rounded-tl-md px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg/90">
                   {m.content}
                 </div>
               )}
@@ -664,9 +666,20 @@ export default function CopilotChat({
             initial={reduced ? false : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-            className="self-start flex items-center gap-1.5 rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5"
+            className="liquid-glass-inset self-start flex items-center gap-2 rounded-2xl rounded-tl-md px-3.5 py-3"
           >
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-muted/60" />
+            {/* Three dots breathing in sequence reads as "composing" in a way a
+                spinner never does. Static under reduced motion. */}
+            <span className="flex items-center gap-1">
+              {[0, 1, 2].map((i) => (
+                <motion.span
+                  key={i}
+                  className="block h-1.5 w-1.5 rounded-full bg-[color:var(--color-accent)]"
+                  animate={reduced ? { opacity: 0.6 } : { opacity: [0.25, 1, 0.25], y: [0, -2, 0] }}
+                  transition={reduced ? { duration: 0 } : { duration: 1.1, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
+                />
+              ))}
+            </span>
             <span className="font-sans text-[11px] text-brand-muted/60">Thinking…</span>
           </motion.div>
         )}
@@ -678,9 +691,9 @@ export default function CopilotChat({
           {quickChips().map((q) => (
             <button
               key={q.label}
-              onClick={q.run}
+              onClick={() => { haptic('tap'); q.run(); }}
               disabled={busy}
-              className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 font-sans text-[10.5px] text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.07] transition-colors disabled:opacity-40"
+              className="pressable liquid-glass-inset rounded-full px-3 min-h-9 font-sans text-[10.5px] text-brand-muted/80 hover:text-brand-fg transition-colors disabled:opacity-40"
             >
               {q.label}
             </button>
@@ -696,16 +709,25 @@ export default function CopilotChat({
           value={input}
           rows={1}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              // The Enter key is the "enter button" — it gets the same
+              // acknowledgement as tapping send.
+              if (input.trim() && !busy) haptic('tap');
+              send(input);
+            }
+          }}
           maxLength={2000}
           placeholder={snapshot ? `Ask about “${snapshot.name}” or tell me what to change…` : 'Ask how Beamwall works…'}
-          className="flex-1 resize-none hide-scrollbar rounded-xl bg-white/[0.04] border border-white/10 px-3.5 py-2.5 text-[13px] leading-snug text-brand-fg placeholder:text-brand-muted/40 outline-none transition focus:border-[color:var(--color-accent)]/60"
+          className="liquid-glass-inset flex-1 resize-none hide-scrollbar rounded-2xl px-3.5 py-2.5 text-[13px] leading-snug text-brand-fg placeholder:text-brand-muted/40 outline-none transition-shadow focus:shadow-[0_0_0_1px_var(--color-accent),0_0_18px_-6px_rgba(var(--accent-rgb),0.9)]"
         />
         <button
-          onClick={() => send(input)}
+          onClick={() => { if (input.trim() && !busy) haptic('tap'); send(input); }}
           disabled={!input.trim() || busy}
           aria-label={busy ? 'Waiting for reply' : 'Send'}
-          className="shrink-0 w-10 h-10 rounded-full bg-foil glow-accent flex items-center justify-center text-white transition active:scale-95 disabled:opacity-40"
+          className="pressable shrink-0 w-11 h-11 rounded-full bg-foil glow-accent flex items-center justify-center text-[color:var(--on-accent)] disabled:opacity-40"
+          style={{ boxShadow: '0 4px 16px -6px rgba(var(--accent-rgb),0.9), inset 0 1px 0 rgba(255,255,255,0.4)' }}
         >
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         </button>
