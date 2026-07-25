@@ -16,6 +16,7 @@ import { useState } from 'react';
 import { ArrowUpRight, Check, Sparkles, X } from 'lucide-react';
 import { ENTITLEMENTS, formatPostCap, formatRetention, normalizeTier, type PlanTier } from '../../lib/plans';
 import { startCheckout } from '../../lib/host';
+import Modal from '../../components/ui/Modal';
 
 type PaidTier = 'essentials' | 'premium' | 'deluxe';
 
@@ -136,17 +137,11 @@ export function UpgradeModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto" onClick={onClose}>
-      <div
-        className="liquid-glass rounded-3xl p-6 md:p-8 w-full max-w-3xl animate-rise-in my-8"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-4 mb-1">
-          <h2 className="font-serif text-2xl text-foil-static">Upgrade this event</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors" aria-label="Close">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    // A dialog that takes MONEY had no Escape, no focus trap and no focus
+    // restore. dismissOnScrim stays on (nothing is typed here, so a stray click
+    // costs nothing) but the keyboard now works.
+    <Modal title="Upgrade this event" onClose={onClose} maxWidthClass="max-w-3xl">
+      <div>
         <p className="font-sans text-xs text-brand-muted/60 mb-5">
           One-time purchase for this event only. Current plan: <TierPill tier={current} />
         </p>
@@ -198,7 +193,7 @@ export function UpgradeModal({
           })}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

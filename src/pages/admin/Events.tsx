@@ -81,7 +81,17 @@ export default function Events() {
     {
       key: 'org',
       label: 'Organization',
-      render: (e) => <Link to={`/admin/customers/${e.org_id}`} className="hover:text-brand-fg underline decoration-white/20">{e.orgName}</Link>,
+      // A drill-in inside a row that is itself clickable, so this is a secondary
+      // affordance rather than the row's tap target — but 14px tall was still
+      // not a target at all.
+      render: (e) => (
+        <Link
+          to={`/admin/customers/${e.org_id}`}
+          className="inline-flex items-center min-h-11 hover:text-brand-fg underline decoration-white/20"
+        >
+          {e.orgName}
+        </Link>
+      ),
     },
     { key: 'type', label: 'Type', render: (e) => <span className="capitalize">{e.event_type}</span> },
     { key: 'plan', label: 'Plan', render: (e) => <span className="capitalize">{e.plan_tier}</span> },
@@ -94,13 +104,13 @@ export default function Events() {
         <div className="flex items-center gap-2 justify-end">
           <button
             onClick={(ev) => { ev.stopPropagation(); setTierTarget(e); }}
-            className="rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg/80 transition-colors"
+            className="pressable rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/80 transition-colors"
           >
             Comp plan
           </button>
           <button
             onClick={(ev) => { ev.stopPropagation(); setTarget(e); }}
-            className="rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg/80 transition-colors"
+            className="pressable rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/80 transition-colors"
           >
             Change status
           </button>
@@ -121,7 +131,7 @@ export default function Events() {
         <button
           onClick={load}
           disabled={list.loading}
-          className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
+          className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
         >
           <RefreshCw className={`w-4 h-4 ${list.loading ? 'animate-spin' : ''}`} />
         </button>
@@ -135,7 +145,7 @@ export default function Events() {
           value={list.query}
           onChange={(e) => list.setQuery(e.target.value)}
           placeholder="Search by event name or slug…"
-          className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
+          className="w-full pl-9 pr-3 min-h-11 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
         />
       </div>
 

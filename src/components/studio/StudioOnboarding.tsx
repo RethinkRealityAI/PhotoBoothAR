@@ -10,6 +10,7 @@
  */
 import { useState, type ComponentType } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useDialog } from '../../lib/useDialog';
 import { X, ChevronRight, ChevronLeft, QrCode, Layers, Box, Eye } from 'lucide-react';
 import libraryImg from '../../assets/studio/studio-library.jpg';
 import directorImg from '../../assets/studio/studio-director.jpg';
@@ -91,6 +92,7 @@ const STEPS: Step[] = [
 ];
 
 export default function StudioOnboarding({ onDismiss }: { onDismiss: () => void }) {
+  const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onDismiss, 'Welcome to the studio');
   const [step, setStep] = useState(0);
   const isLast = step === STEPS.length - 1;
   const current = STEPS[step];
@@ -112,9 +114,11 @@ export default function StudioOnboarding({ onDismiss }: { onDismiss: () => void 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Welcome to the studio"
+      /* It already announced itself as a dialog but could not be closed with a
+         key and did not keep focus inside — the labelling was the honest part.
+         useDialog supplies Escape, the trap and focus restore. */
+      ref={panelRef}
+      {...dialogProps}
     >
       <motion.div
         className="glass-strong relative w-full max-w-lg overflow-hidden rounded-3xl px-7 pb-8 pt-6 shadow-[0_30px_100px_rgba(0,0,0,0.7)]"

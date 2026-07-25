@@ -64,7 +64,7 @@ export default function AdminLayout() {
   const handleSignOut = async () => { await signOut(); navigate('/'); };
 
   const railLink =
-    'pressable flex items-center gap-2.5 rounded-xl px-3.5 min-h-11 font-label uppercase tracking-luxe text-[10px] transition-colors shrink-0';
+    'pressable flex items-center gap-2.5 rounded-xl px-3.5 min-h-11 min-w-11 font-label uppercase tracking-luxe text-[10px] transition-colors shrink-0';
 
   return (
     <div className="absolute inset-0 app-bg text-brand-fg flex flex-col md:flex-row overflow-hidden md:gap-0">
@@ -82,7 +82,7 @@ export default function AdminLayout() {
         <Link
           to="/admin"
           onClick={() => haptic('tap')}
-          className="font-serif text-lg md:text-2xl font-semibold tracking-wide text-foil-static md:px-2 shrink-0"
+          className="font-serif text-lg md:text-2xl font-semibold tracking-wide text-foil-static md:px-2 shrink-0 flex items-center min-h-11"
         >
           Beamwall
         </Link>

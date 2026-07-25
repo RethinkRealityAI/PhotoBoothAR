@@ -17,6 +17,7 @@ import {
   getCompletedChallenges, addCompletedChallenges,
 } from '../../lib/session';
 import { fetchMyPosts } from '../../lib/db';
+import { useDialog } from '../../lib/useDialog';
 import { useEvent } from '../../events/EventContext';
 
 interface Props {
@@ -65,6 +66,8 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
     setSheetOpen(true);
   };
   const close = () => setSheetOpen(false);
+  // Dialog behaviour for a bottom sheet: enabled only while it is on screen.
+  const { panelRef, dialogProps } = useDialog<HTMLDivElement>(close, 'Challenges', sheetOpen);
 
   const confirmName = () => {
     const n = nameInput.trim();
@@ -115,8 +118,14 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
             exit={{ opacity: 0 }}
             onClick={close}
           >
+            {/* A bottom sheet, so it cannot reuse Modal's centred card — but it
+                is still a dialog, and it had no Escape, no focus trap and no
+                focus restore. useDialog is exactly Modal's behaviour without
+                its layout. */}
             <motion.div
-              className="w-full max-w-md glass-strong rounded-t-3xl px-6 pt-6 pb-safe-bottom [--safe-bottom:2rem]"
+              ref={panelRef}
+              {...dialogProps}
+              className="w-full max-w-md glass-strong rounded-t-3xl px-6 pt-6 pb-safe-bottom [--safe-bottom:2rem] outline-none"
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}

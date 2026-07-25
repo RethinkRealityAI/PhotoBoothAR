@@ -30,6 +30,7 @@ import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
 import EventBackground from './ui/EventBackground';
 import PostImage from './ui/PostImage';
+import { useDialog } from '../lib/useDialog';
 import { Wordmark } from './ui/EventLogo';
 import GuestNav from './ui/GuestNav';
 import FetchFailed from './ui/FetchFailed';
@@ -273,6 +274,7 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
 // Lightbox (image + video)
 // ----------------------------------------------------------------
 function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void }) {
+  const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, 'Your moment');
   const { config } = useEvent();
   const [downloading, setDownloading] = useState(false);
   const canShare = typeof navigator !== 'undefined' && !!navigator.share;
@@ -307,7 +309,11 @@ function Lightbox({ media, onClose }: { media: GalaMedia; onClose: () => void })
       onClick={onClose}
       style={{ background: 'rgba(5,3,1,0.92)', backdropFilter: 'blur(12px)' }}
     >
+      {/* A full-bleed viewer, so not Modal-shaped — but a dialog all the same,
+          and it had no Escape and no focus trap. */}
       <motion.div
+        ref={panelRef}
+        {...dialogProps}
         className="relative max-w-sm w-full"
         initial={{ scale: 0.88, y: 20 }}
         animate={{ scale: 1, y: 0 }}
@@ -571,7 +577,7 @@ export default function MyPhotos() {
             </p>
             <a
               href={basePath || '/'}
-              className="inline-flex items-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-8 py-3 rounded-xl glow-accent"
+              className="pressable inline-flex items-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-8 min-h-11 rounded-xl glow-accent"
             >
               <CameraIcon size={15} strokeWidth={1.8} />
               Go to the Booth

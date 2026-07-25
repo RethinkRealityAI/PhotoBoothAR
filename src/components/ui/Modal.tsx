@@ -14,12 +14,9 @@
  * Scrim clicks close by default but can be opted out of (`dismissOnScrim`),
  * because a stray click used to discard a half-typed credit adjustment.
  */
-import { useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { X } from 'lucide-react';
-
-/** Focusable descendants, in DOM order, for the focus trap. */
-const FOCUSABLE =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+import { useDialog } from '../../lib/useDialog';
 
 export default function Modal({
   title,
@@ -36,57 +33,7 @@ export default function Modal({
    *  would silently discard what the user typed. */
   dismissOnScrim?: boolean;
 }) {
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  // Whatever had focus when the dialog opened, so it can be given back.
-  const openerRef = useRef<HTMLElement | null>(null);
-
-  const focusablesIn = useCallback((): HTMLElement[] => {
-    const panel = panelRef.current;
-    if (!panel) return [];
-    return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-      (el) => el.offsetParent !== null || el === document.activeElement,
-    );
-  }, []);
-
-  useEffect(() => {
-    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // Move focus into the dialog: the first control if there is one, else the
-    // panel itself (which is why it carries tabIndex={-1}).
-    const first = focusablesIn()[0];
-    (first ?? panelRef.current)?.focus();
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const items = focusablesIn();
-      if (items.length === 0) {
-        e.preventDefault();
-        return;
-      }
-      const first = items[0];
-      const last = items[items.length - 1];
-      const active = document.activeElement;
-      // Wrap at both ends so Tab can never walk out of the dialog and into the
-      // page behind it.
-      if (e.shiftKey && (active === first || !panelRef.current?.contains(active))) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener('keydown', onKeyDown, true);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown, true);
-      openerRef.current?.focus();
-    };
-  }, [onClose, focusablesIn]);
+  const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, title);
 
   return (
     <div
@@ -95,10 +42,7 @@ export default function Modal({
     >
       <div
         ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        tabIndex={-1}
+        {...dialogProps}
         className={`glass-strong rounded-3xl p-6 md:p-8 w-full ${maxWidthClass} animate-rise-in max-h-[85vh] overflow-y-auto`}
         onClick={(e) => e.stopPropagation()}
       >

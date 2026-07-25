@@ -114,7 +114,7 @@ export default function ChallengesPage() {
               This event hasn’t added any challenges. Step into the booth and capture a moment for the wall!
             </p>
             <a href={`${basePath}/booth`}
-              className="mt-7 inline-flex items-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-8 py-3 rounded-xl glow-accent">
+              className="pressable mt-7 inline-flex items-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-8 min-h-11 rounded-xl glow-accent">
               <Camera className="w-4 h-4" /> Open the booth
             </a>
           </motion.div>

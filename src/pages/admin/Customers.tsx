@@ -71,7 +71,7 @@ export default function Customers() {
           value={list.query}
           onChange={(e) => list.setQuery(e.target.value)}
           placeholder="Search organizations…"
-          className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
+          className="w-full pl-9 pr-3 min-h-11 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
         />
       </div>
 

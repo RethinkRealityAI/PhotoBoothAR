@@ -159,7 +159,7 @@ export default function Billing() {
         <button
           onClick={load}
           disabled={loading}
-          className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
+          className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
           aria-label="Refresh"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -289,7 +289,7 @@ export default function Billing() {
               <button
                 onClick={portal}
                 disabled={busy !== null}
-                className="flex-1 flex items-center justify-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors disabled:opacity-40"
+                className="pressable flex-1 flex items-center justify-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors disabled:opacity-40"
               >
                 <CreditCard className="w-3.5 h-3.5" /> {busy === 'portal' ? 'Opening…' : 'Manage'}
                 <ExternalLink className="w-3 h-3 opacity-50" />

@@ -448,7 +448,7 @@ export default function Wall() {
                   <button
                     key={tab.id}
                     onClick={() => setMode(tab.id)}
-                    className={`px-3.5 py-1.5 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
+                    className={`pressable px-3.5 min-h-11 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
                       mode === tab.id
                         ? 'bg-foil text-noir-900 glow-accent'
                         : 'text-champagne/60 hover:text-champagne'
@@ -463,7 +463,7 @@ export default function Wall() {
                 {/* QR codes on/off */}
                 <button
                   onClick={toggleQR}
-                  className={`glass flex items-center gap-1.5 px-3 py-2 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all ${showQR ? 'text-gold-200' : 'text-champagne/55 hover:text-champagne'}`}
+                  className={`pressable glass flex items-center gap-1.5 px-3 min-h-11 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all ${showQR ? 'text-gold-200' : 'text-champagne/55 hover:text-champagne'}`}
                   style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
                   title={showQR ? 'Hide QR codes on this screen' : 'Show QR codes on this screen'}
                 >
@@ -474,7 +474,7 @@ export default function Wall() {
                 <ShareButton
                   label="Share"
                   iconSize={14}
-                  className="glass flex items-center gap-1.5 px-3 py-2 rounded-full font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
+                  className="pressable glass flex items-center gap-1.5 px-3 min-h-11 rounded-full font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
                 />
 
                 {/* Projection mode toggle — hidden below sm. This is a control
@@ -482,7 +482,7 @@ export default function Wall() {
                     only ever produced a chrome-less dead end for a guest. */}
                 <button
                   onClick={() => setProjectionMode((p) => !p)}
-                  className="hidden sm:block glass px-3 py-2 rounded-full font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
+                  className="pressable hidden sm:flex items-center glass px-3 min-h-11 rounded-full font-label uppercase tracking-luxe text-[10px] text-champagne/70 hover:text-gold-300 transition-all"
                   style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
                   title="Full screen — hides everything except the photos"
                 >

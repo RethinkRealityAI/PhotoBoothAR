@@ -265,23 +265,19 @@ element's radius, squaring off every pill button in the app on keyboard focus (p
 /login: 3.35544e+07px → 0px). It also found four audited P0s that the packages had missed.
 All are now fixed; see the `fix(audit)` commit.
 
-**Still open.** P0 first — this list previously led with P1/P2 items while leaving P0s
-unnamed, which read as though the P0s were all handled:
+**The P1 backlog is now closed** (2026-07-25, second fix pass). What each item
+turned out to be, and what was done:
 
-- *(none of the P0s in this document remain open)*
-- P1 `src/App.tsx` — `/host/events/:id/*` is mounted outside `HostLayout`, so opening any
-  event drops the whole sidebar on the screen hosts use most.
-- P1 `src/components/studio/StudioShell.tsx:435` — `state.dirty` guards nothing: one tap
-  discards an unsaved scene. And `:174` still forks a duplicate event when a load fails.
-- P1 — ~14 ad-hoc overlays still don't route through the now-fixed `Modal`
-  (`EventsList.tsx:34`, `UpgradeCard.tsx:137`, `WallLightbox.tsx:51`, `MyPhotos.tsx:269`, …).
-  The booth's new top-bar menu is not one of them — it closes on outside press
-  and Escape.
-- P1 — sub-44px tap targets across the wall and the remaining host/admin
-  screens (the booth deck, both nav rails and the chat now meet 44px).
-- P1 `src/lib/admin.ts` — the admin lists fetch every row and filter client-side.
-- P1 `src/lib/db.ts:174` — the wall ships full-resolution originals to phones.
-- P2 — the copy and token cleanups listed per surface above.
+| Was | Now |
+|---|---|
+| P1 `src/App.tsx` — `/host/events/:id/*` mounted outside `HostLayout`, "drops the whole sidebar" | **Premise partly wrong.** `EventStudio.tsx:375` already carries a back-to-events link and a full event tab row, and the owner asked (2026-07-17) for studio mode to be "less encumbered" — so nesting it in `HostLayout` would double the chrome against an explicit instruction. What was genuinely missing was the rail's *information*: the credit balance. A host who ran out mid-session saw an unexplained failure and had no route to Billing. Added as a link; the rail still stays out. |
+| P1 `StudioShell` — `state.dirty` guards nothing; a failed load forks a duplicate | Both fixed. The back arrow now asks, with **Save** as the primary action (the host pressed "back", not "discard"). `getExperience` returned `null` for "not found" and "read failed" alike, so a failed read opened the blank starter draft and saving it created a SECOND experience while the original kept its old content — `getExperienceResult` separates them and the editor refuses to open rather than fork. |
+| P1 — ~14 overlays not routed through the fixed `Modal` | Nine were real dialogs and all nine are fixed. Three were card-shaped and now use `Modal` (EventsList QR, UpgradeCard, Library QR). Six are deliberately **not** card-shaped — a bottom sheet, a side drawer, two full-bleed viewers, a confirm sheet, the studio tour — so `Modal`'s behaviour was extracted into `src/lib/useDialog.ts` and applied without forcing them into a centred card. `Modal` itself now uses the same hook, so there is one implementation. The rest of the `fixed inset-0` matches are **not dialogs** and were correctly left alone: `BeamIn` (a `pointer-events-none` animation), `FeaturedSpotlight` (wall display), `CardContribute`'s decorative gradient (already `aria-hidden`). |
+| P1 — sub-44px tap targets | **Measured, not reasoned about**: every visible interactive element at 390px across nine routes. Was 5 on the wall, 27 on `/host`, 12 on `/admin/events`; now **0 on all nine**, 0 page errors. |
+| P1 `src/lib/admin.ts` — admin lists fetch every row, filter client-side | `list_orgs`, `list_events` and `list_orders` had no `.limit()` at all. All three now search and page server-side, with `ilike` terms escaped (`%`, `_`, `,` are all meaningful there). Two honest narrowings, stated in the placeholders: events search covers name and slug, payments search covers the Stripe reference — org name is on another table and PostgREST cannot filter across it. |
+| P1 `src/lib/db.ts` — the wall ships full-resolution originals to phones | Grid tiles now request a Supabase resize URL sized to their display width (a 2-column phone grid was pulling the full 1080px capture for each ~185px tile). Image transformation is a **paid plan feature that could not be verified from the sandbox**, so `PostImage` falls back to the original on the first error — being wrong costs one failed request per image, never a broken wall. Big-display views (slideshow, spotlight, lightbox) deliberately keep full resolution. |
+| NEW (found while auditing) — nothing polls `ai_jobs` | All three pollers were in-flight UI loops, so a 3D job the host walked away from was finished at Meshy and frozen at `running` forever: credits spent, no experience, and Meshy deletes the asset after three days. `useAiJobSweep` finishes them off on entering the host area. |
+| P2 — copy and token cleanups | Still open; listed per surface above. |
 
 **Product decisions deliberately not taken unilaterally**
 

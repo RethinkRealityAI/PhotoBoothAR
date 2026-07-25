@@ -71,7 +71,7 @@ export default function HostLayout() {
 
   // Sidebar rows at md+; ≥44px-tall tap targets on the mobile top bar too.
   const railLink =
-    'pressable flex items-center gap-2.5 rounded-xl px-3 md:px-3.5 py-2.5 min-h-11 font-label uppercase tracking-luxe text-[10px] transition-colors justify-center md:justify-start';
+    'pressable flex items-center gap-2.5 rounded-xl px-3 md:px-3.5 py-2.5 min-h-11 min-w-11 font-label uppercase tracking-luxe text-[10px] transition-colors justify-center md:justify-start';
   const railState = (isActive: boolean) =>
     isActive ? 'bg-white/[0.10] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05]';
 
@@ -88,7 +88,7 @@ export default function HostLayout() {
       >
         <Link
           to="/host"
-          className="font-serif text-xl md:text-2xl font-semibold tracking-wide text-foil-static md:mb-0.5 md:px-2 shrink-0"
+          className="font-serif text-xl md:text-2xl font-semibold tracking-wide text-foil-static md:mb-0.5 md:px-2 shrink-0 flex items-center min-h-11"
         >
           Beamwall
         </Link>
