@@ -123,6 +123,14 @@ export interface GenerateImageOpts {
    */
   greenScreen?: boolean;
   /**
+   * Let the edge function add its art-direction layer (composition, palette,
+   * craft, quality bar). Default true. Pass false when the prompt is already
+   * complete and purpose-built — the 3D concept image does, because
+   * buildConceptPrompt carries wearable-geometry rules that generic sticker
+   * art direction would fight.
+   */
+  artDirection?: boolean;
+  /**
    * Optional public assets-bucket URL of a host-uploaded reference image. The
    * edge function fetches it server-side and passes it to Gemini as an inline
    * image part BEFORE the text prompt, so generation is guided by the reference

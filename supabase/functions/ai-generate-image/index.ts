@@ -170,11 +170,80 @@ function nameFromPrompt(prompt: string): string {
   return clean.length <= 40 ? clean : `${clean.slice(0, 39)}…`;
 }
 
+/* ── Art direction ───────────────────────────────────────────────────────
+ * MIRRORED from src/lib/assetPrompt.ts (buildFrameArtDirection). Edge
+ * functions cannot import from src/, so the two carry the same rules — change
+ * one, change the other, the same standing rule the stripe-webhook
+ * entitlements snapshot follows.
+ *
+ * Before this, the whole prompt was chroma-key mechanics plus
+ * `Design brief: <whatever the host typed>`. A two-word brief therefore
+ * produced two-word art: no composition, no motif vocabulary, no material or
+ * line-weight language, no quality bar. This is the missing half. */
+
+const EVENT_REGISTER: Record<string, string> = {
+  wedding: 'romantic and refined — botanical filigree, ribbon, fine script flourishes, pearl and gold leaf',
+  gala: 'black-tie and opulent — art-deco geometry, sunburst fans, metallic inlay, deep jewel tones',
+  birthday: 'celebratory and playful — confetti, streamers, balloon clusters, bold saturated colour',
+  conference: 'crisp and modern — geometric rules, thin brackets, restrained accent colour, generous whitespace',
+  party: 'high-energy and neon — light streaks, glow, gradient washes, night-club palette',
+  corporate: 'clean and premium — minimal rules, subtle metallic hairlines, plenty of negative space',
+};
+
+function artDirectionFor(
+  brief: string,
+  kind: string,
+  accentHex: string | null,
+  eventType: string | null,
+): string {
+  const register = eventType ? EVENT_REGISTER[eventType.toLowerCase()] : undefined;
+  const palette = accentHex
+    ? `Build the palette around ${accentHex} — use it plus one supporting metallic or neutral, and ` +
+      'at most one accent hue. Do not use every colour.'
+    : 'Use a disciplined palette: one dominant colour, one supporting metallic or neutral, at most one accent.';
+  // Frame composition language is WRONG for a sticker (and for the 3D concept
+  // image, which also arrives as a sticker kind) — a sticker has one subject,
+  // not four edges.
+  const composition = kind === 'border'
+    ? 'Composition: treat the four edges as a deliberate composition, not a repeating stamp. Anchor ' +
+      'the design with heavier ornament in two opposite corners and let it thin out along the long ' +
+      'edges, so the eye travels. Keep the top-centre and bottom-centre calmer than the corners.'
+    : 'Composition: one clear silhouette that reads instantly at thumbnail size. Strong outer shape, ' +
+      'detail concentrated toward the centre, nothing important near the outer few pixels.';
+  return [
+    `Design brief: ${brief.trim()}.`,
+    register ? `Register: ${register}.` : '',
+    palette,
+    composition,
+    'Craft: crisp vector-clean edges, deliberate line-weight contrast between thick structural strokes ' +
+      'and fine detail lines, believable material (brushed metal, foil, glass, matte ink) with subtle ' +
+      'depth from layering rather than drop shadows. Symmetrical left-to-right unless the brief says otherwise.',
+    'Quality bar: looks like a professional event stationery designer made it for this specific ' +
+      'occasion. Avoid clip-art motifs, generic swirls, muddy gradients, and anything that reads as ' +
+      'stock template.',
+    'No text, no lettering, no numerals, no logos, no watermark, no signature anywhere in the image.',
+  ].filter(Boolean).join(' ');
+}
+
 /** Kind-aware prompt wrapper (mirrors the old Creator2D client-side intent).
  *  greenScreen=true switches to a solid pure-green chroma-key backdrop that the
  *  browser keys out to transparency (the image models won't emit clean alpha).
- *  When greenScreen is false the prompt is byte-identical to the original. */
-function buildPrompt(prompt: string, kind: string, transparent: boolean, greenScreen: boolean): string {
+ *  The MECHANICS below are unchanged; the art direction is appended after. */
+function buildPrompt(
+  prompt: string,
+  kind: string,
+  transparent: boolean,
+  greenScreen: boolean,
+  accentHex: string | null = null,
+  eventType: string | null = null,
+  /** false when the caller already built a complete, purpose-specific prompt —
+   *  the 3D concept image does this, and layering sticker art direction on top
+   *  of it would fight the wearable-geometry rules it carries. */
+  artDirection = true,
+): string {
+  const art = artDirection
+    ? artDirectionFor(prompt, kind, accentHex, eventType)
+    : `Design brief: ${prompt.trim()}`;
   if (greenScreen) {
     const base = kind === 'border'
       ? 'Create a full-bleed decorative FRAME composition for a 9:16 vertical portrait canvas ' +
@@ -187,7 +256,7 @@ function buildPrompt(prompt: string, kind: string, transparent: boolean, greenSc
         'readable at small sizes. Fill the ENTIRE background behind and around the subject with ONE ' +
         'solid pure green colour #00FF00 — a flat, uniform chroma-key green with NO gradients, NO ' +
         'shadows, NO texture, NO glow behind the subject, so the background can be keyed out.';
-    return `${base} Design brief: ${prompt}`;
+    return `${base} ${art}`;
   }
   const base = kind === 'border'
     ? 'Create a decorative full-frame border/frame overlay for a 1080x1920 portrait ' +
@@ -198,7 +267,7 @@ function buildPrompt(prompt: string, kind: string, transparent: boolean, greenSc
   const alpha = transparent
     ? ' Render on a fully TRANSPARENT background (PNG with alpha channel) — no backdrop, no solid color fill.'
     : '';
-  return `${base}${alpha} Design brief: ${prompt}`;
+  return `${base}${alpha} ${art}`;
 }
 
 /* ── Providers ──────────────────────────────────────────────────────── */
@@ -380,6 +449,11 @@ Deno.serve(async (req: Request) => {
     // Opt-in: paint a solid pure-green chroma-key backdrop for the browser to
     // key out. Absent/false → the prompt is unchanged for existing callers.
     const greenScreen = body.greenScreen === true;
+    // Art direction is ON unless the caller opts out. The 3D concept image
+    // opts out: buildConceptPrompt (src/lib/assetPrompt.ts) already carries
+    // complete, wearable-specific geometry rules, and layering sticker art
+    // direction on top would fight them.
+    const artDirection = body.artDirection !== false;
     // Optional host-uploaded reference image (public assets URL). Absent →
     // request is byte-identical for existing callers. Only gemini uses it.
     const referenceImageUrl =
@@ -392,7 +466,7 @@ Deno.serve(async (req: Request) => {
     // 3. Event + org membership (same pattern as stripe-checkout).
     const { data: event, error: evErr } = await sb
       .from('events')
-      .select('id, slug, org_id, plan_tier')
+      .select('id, slug, org_id, plan_tier, event_type, config')
       .eq('id', eventUuid)
       .maybeSingle();
     if (evErr) throw evErr;
@@ -486,7 +560,19 @@ Deno.serve(async (req: Request) => {
 
     // 7. Everything after the spend refunds on failure.
     try {
-      let fullPrompt = buildPrompt(prompt, kind, transparentBackground, greenScreen);
+      // The event's own accent and type ground the art direction in the real
+      // theme instead of a generic palette. Both are optional — a missing
+      // config simply falls back to the disciplined-palette wording.
+      const cfg = (event.config ?? {}) as Record<string, unknown>;
+      const accentHex = typeof cfg.accent === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(cfg.accent)
+        ? cfg.accent
+        : null;
+      const eventType = typeof event.event_type === 'string' && event.event_type.trim()
+        ? event.event_type
+        : null;
+      let fullPrompt = buildPrompt(
+        prompt, kind, transparentBackground, greenScreen, accentHex, eventType, artDirection,
+      );
       // Reference image (gemini only): fetch + encode server-side and tell the
       // model to follow it. A failed fetch degrades to null → no reference,
       // generation still proceeds (never fail a paid job over a reference).

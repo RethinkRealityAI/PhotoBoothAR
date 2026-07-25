@@ -110,6 +110,10 @@ export default function AiGeneratePanel({
       setPhase('idle');
       return;
     }
+    // RAW brief in both modes. ai-generate-3d applies the wearable-geometry
+    // rules server-side to what it sends Meshy, while storing this raw text for
+    // the experience NAME — enriching here would name the piece after a
+    // geometry paragraph.
     const { data, error: err } = await generate3d(uuid, mode === 'text'
       ? { mode, prompt: trimmedPrompt }
       : { mode, imageUrl: imageUrl.trim(), ...(trimmedPrompt ? { prompt: trimmedPrompt } : {}) });

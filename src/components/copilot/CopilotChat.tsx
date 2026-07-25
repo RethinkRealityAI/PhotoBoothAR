@@ -40,6 +40,7 @@ import type { EventSnapshot } from '../../lib/eventSnapshot';
 import type { Experience } from '../../types';
 import A2uiSurface from '../a2ui/A2uiSurface';
 import { haptic } from '../../lib/haptics';
+import { buildConceptPrompt } from '../../lib/assetPrompt';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const POLL_MS = 5000;
@@ -312,15 +313,22 @@ export default function CopilotChat({
     try {
       const uuid = await resolveEventUuid(snapshot.slug, snapshot.eventUuid);
       if (!uuid) { showGenError(sid, 'headpiece', aiErrorMessage('event_not_found'), false); return; }
+      // Wearable geometry lives in the CONCEPT, because Meshy's image->3D copies
+      // what it sees: a concept showing the piece on a face produces a mesh with
+      // a face fused into it. The old prompt said only "a single centered
+      // object … product shot", which is how masks came back as solid lumps.
       const concept = await generateImage(uuid, {
-        prompt: `${prompt} — a single centered object, isolated on a plain neutral studio background, product shot, no frame, no border, no text`,
+        prompt: buildConceptPrompt(prompt),
         kind: '2d_filter',
+        artDirection: false, // buildConceptPrompt is already complete + 3D-specific
       });
       if (concept.error || !concept.data?.experience?.asset_url) {
         const code = (concept.error ?? 'internal') as AiErrorCode;
         showGenError(sid, 'headpiece', aiErrorMessage(code), retryableGenError(code), code === 'insufficient_credits');
         return;
       }
+      // Raw brief: image->3D takes no text prompt, so this only names the
+      // experience (ai-job-status truncates it to 40 chars).
       const g = await generate3d(uuid, { mode: 'image', imageUrl: concept.data.experience.asset_url, prompt });
       if (g.error || !g.data?.job) {
         const code = (g.error ?? 'internal') as AiErrorCode;
