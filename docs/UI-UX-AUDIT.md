@@ -168,8 +168,8 @@ sheets, keyboard overlap) are flagged for the live-hardware checklist.
 | P1 | L1 | `src/pages/admin/Payments.tsx:57` | `stripe_ref` and `event_id` exist on `OrderRow` but are never rendered — a refund means leaving the console without the charge id. |
 | P1 | L1 | `src/pages/admin/Users.tsx:126` | Search keys omit `id`, so a UUID copied out of Audit matches nothing. |
 | P1 | L1 | `src/pages/admin/CustomerDetail.tsx:151` | The org's events link nowhere and its orders are absent from the record entirely. |
-| P1 | L2 | `src/pages/admin/AdminLayout.tsx:69` | On mobile the rail is a non-wrapping row of 9 items (~430px) inside `overflow-hidden` — at 390px Audit, Admins and Sign out are clipped and unreachable. |
-| P1 | L5 | `src/pages/admin/AdminLayout.tsx:89` | Nav labels are `hidden sm:inline` with no `aria-label` — below 640px every console control is unnamed. |
+| ~~P1~~ FIXED | L2 | `src/pages/admin/AdminLayout.tsx:69` | On mobile the rail was a non-wrapping row of 9 items (~430px) inside `overflow-hidden` — at 390px Audit, Admins and Sign out were clipped and unreachable. Now a floating scrollable strip; probed at 390px, scrollWidth 536 vs client 372 and "Sign out" fully reachable. |
+| ~~P1~~ FIXED | L5 | `src/pages/admin/AdminLayout.tsx:89` | Nav labels are `hidden sm:inline`; every rail control now carries an `aria-label` and `title`. |
 | P1 | L5 | `src/components/ui/DataTable.tsx:68` | `onRowClick` is bound to a `<tr>` with no `tabIndex`/`role`/key handler — the Customers→CustomerDetail drill-in is mouse-only. |
 | P1 | L5 | `src/components/ui/Modal.tsx:23` | No Escape handler, no `role="dialog"`/`aria-modal`, no focus trap, no focus restore — every admin confirm is a keyboard trap. |
 | P1 | L3 | `src/components/ui/Modal.tsx:26` | The scrim closes unconditionally — one stray click discards a half-typed credit adjustment. |
@@ -275,7 +275,10 @@ unnamed, which read as though the P0s were all handled:
   discards an unsaved scene. And `:174` still forks a duplicate event when a load fails.
 - P1 — ~14 ad-hoc overlays still don't route through the now-fixed `Modal`
   (`EventsList.tsx:34`, `UpgradeCard.tsx:137`, `WallLightbox.tsx:51`, `MyPhotos.tsx:269`, …).
-- P1 — sub-44px tap targets across booth, wall, host and admin.
+  The booth's new top-bar menu is not one of them — it closes on outside press
+  and Escape.
+- P1 — sub-44px tap targets across the wall and the remaining host/admin
+  screens (the booth deck, both nav rails and the chat now meet 44px).
 - P1 `src/lib/admin.ts` — the admin lists fetch every row and filter client-side.
 - P1 `src/lib/db.ts:174` — the wall ships full-resolution originals to phones.
 - P2 — the copy and token cleanups listed per surface above.
