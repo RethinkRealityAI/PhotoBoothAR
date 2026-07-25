@@ -56,6 +56,7 @@ export default function DataTable<T>({
             {columns.map((col) => (
               <th
                 key={col.key}
+                scope="col"
                 className={`font-label uppercase tracking-luxe text-[9px] text-brand-muted/50 px-4 py-3 whitespace-nowrap ${col.className ?? ''}`}
               >
                 {col.label}

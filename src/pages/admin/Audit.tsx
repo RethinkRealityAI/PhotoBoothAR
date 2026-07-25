@@ -13,7 +13,7 @@
 import { useCallback } from 'react';
 import { RefreshCw, Search } from 'lucide-react';
 import { fetchAudit, type AuditEntry } from '../../lib/admin';
-import { formatDate } from '../../lib/adminFormat';
+import { formatDate, auditActionLabel, auditMetaSummary } from '../../lib/adminFormat';
 import { listFootnote, type ListQuery } from '../../lib/serverList';
 import { useServerList } from '../../lib/useServerList';
 import DataTable, { type Column } from '../../components/ui/DataTable';
@@ -36,7 +36,7 @@ export default function Audit() {
 
   const columns: Column<AuditEntry>[] = [
     { key: 'actor', label: 'Actor', render: (e) => e.actorEmail ?? <span className="text-brand-muted/40">system</span> },
-    { key: 'action', label: 'Action', render: (e) => <span className="font-mono text-[11px]">{e.action}</span> },
+    { key: 'action', label: 'Action', render: (e) => <span className="text-brand-fg">{auditActionLabel(e.action)}</span> },
     {
       key: 'target',
       label: 'Target',
@@ -47,9 +47,12 @@ export default function Audit() {
     {
       key: 'meta',
       label: 'Detail',
-      render: (e) => e.meta
-        ? <span className="font-mono text-[10px] text-brand-muted/50 truncate block max-w-xs">{JSON.stringify(e.meta)}</span>
-        : <span className="text-brand-muted/40">—</span>,
+      render: (e) => {
+        const summary = auditMetaSummary(e.meta);
+        return summary
+          ? <span className="text-[11px] text-brand-muted/60 truncate block max-w-xs" title={summary}>{summary}</span>
+          : <span className="text-brand-muted/40">—</span>;
+      },
     },
     { key: 'when', label: 'When', render: (e) => formatDate(e.created_at) },
   ];

@@ -215,11 +215,9 @@ export default function Users() {
       render: (u) => (
         <div className="flex items-center gap-1.5">
           <StatusPill status={u.banned ? 'banned' : 'active'} />
-          {u.isPlatformAdmin && (
-            <span className="inline-block shrink-0 px-2.5 py-1 rounded-full text-[9px] font-label uppercase tracking-widest bg-purple-500/15 text-purple-300">
-              Admin
-            </span>
-          )}
+          {/* Was a hand-rolled span duplicating StatusPill's exact classes — so
+              a tone change in the shared map would silently miss this one. */}
+          {u.isPlatformAdmin && <StatusPill status="admin" />}
         </div>
       ),
     },

@@ -277,13 +277,41 @@ turned out to be, and what was done:
 | P1 `src/lib/admin.ts` — admin lists fetch every row, filter client-side | `list_orgs`, `list_events` and `list_orders` had no `.limit()` at all. All three now search and page server-side, with `ilike` terms escaped (`%`, `_`, `,` are all meaningful there). Two honest narrowings, stated in the placeholders: events search covers name and slug, payments search covers the Stripe reference — org name is on another table and PostgREST cannot filter across it. |
 | P1 `src/lib/db.ts` — the wall ships full-resolution originals to phones | Grid tiles now request a Supabase resize URL sized to their display width (a 2-column phone grid was pulling the full 1080px capture for each ~185px tile). Image transformation is a **paid plan feature that could not be verified from the sandbox**, so `PostImage` falls back to the original on the first error — being wrong costs one failed request per image, never a broken wall. Big-display views (slideshow, spotlight, lightbox) deliberately keep full resolution. |
 | NEW (found while auditing) — nothing polls `ai_jobs` | All three pollers were in-flight UI loops, so a 3D job the host walked away from was finished at Meshy and frozen at `running` forever: credits spent, no experience, and Meshy deletes the asset after three days. `useAiJobSweep` finishes them off on entering the host area. |
-| P2 — copy and token cleanups | Still open; listed per surface above. |
+| P2 — copy and token cleanups | **Partly closed** — see the third pass below. |
+
+**Third fix pass (2026-07-25) — the last two lists, the error sink, and eight P2s**
+
+| Was | Now |
+|---|---|
+| `list_users` capped at 1000, `list_audit` at 200, both un-paged | Both search and page server-side. `list_users` was the one list that could not simply be given a `LIMIT`: GoTrue's admin list API takes `page`/`perPage` and has **no search parameter**, so migration `020` adds `admin_list_users`, a SECURITY DEFINER reader over `auth.users` gated exactly like `admin_user_emails` (EXECUTE granted only to `service_role`). Its 1000-row cap sits deliberately **above** admin-api's 500-row page cap, because the caller asks for `limit + 1` to detect "there is more" and an equal cap would clamp that sentinel away — claiming completeness at exactly a full page. |
+| `client_errors_insert` is `WITH CHECK (true)` — unbounded anonymous sink | Migration `021`. Size bounds as a CHECK (so they bind the service role too, not just the policy's callers), future-dated rows refused (a row dated 2050 would sit there forever, immune to retention), a 40-per-session hourly ceiling, and a daily purge past 30 days. Stated in the migration: `session_id` is client-chosen, so the ceiling bounds the **accident** — a render loop in one tab — not a determined flooder. |
+| `InteractiveShowcase.tsx` — "nothing leaves your device" above a QR block that transmits a photo | The blanket claim is gone; the demo paragraph now scopes itself to the in-page demo ("nothing is uploaded, and nothing is saved") and the QR block's own existing disclosure ("Sends just that one photo here; nothing is stored") stands unopposed. |
+| `Landing.tsx` — `hasLiveMedia` starts `true`, so a pulsing red LIVE dot renders over empty frames for the whole fetch | Tri-state. Unknown renders the modest caption and no dot; learning the strip **is** live and saying so is an honest change in the direction that costs nothing if the fetch fails. |
+| `StatusPill` renders the raw enum; `disputed` has no tone | `statusLabel` turns separators into spaces (derived, not a maintained word list, so an action added next week reads as English the day it ships), and `disputed`/`uncollectible` get a new `danger` tone — a dispute is money being clawed back with a deadline, and it was rendering as ordinary unknown grey. |
+| `Audit.tsx` — snake_case actions and `JSON.stringify(meta)` | `auditActionLabel` and `auditMetaSummary` (both pure, tested): "Set event status", "delta 25 · reason goodwill". The detail an operator most needs was arriving wrapped in braces and escapes inside a truncated 10px cell. |
+| `DataTable` `<th>` cells lack `scope="col"` | Added. |
+| `Users.tsx` hand-rolled purple "Admin" badge duplicating StatusPill | Now `<StatusPill status="admin" />` against a shared `special` tone, so a tone change can't miss this one copy. |
+| `LiveHeroCarousel` — pause control 36px, arrows 40px below `sm` | All three are 44px at every width. The pause control is the one WCAG 2.2.2 requires. |
+| `LiveHeroCarousel` — `COMPACT_VIEWPORT` is a module-level `matchMedia` snapshot taken at import | Now a hook with a `change` listener, and the animation effect re-runs when it flips. A phone rotated to landscape kept the stepped carousel and a window dragged narrow kept the expensive desktop shadows on twelve cards. |
+| `Landing.tsx` — "Most popular" badge is `text-[8px]`, `text-white` on `bg-foil` | 10px, and on the `--on-accent` luminance token like every other accent surface. |
+
+**Still open after the third pass** (named, not quietly dropped): the remaining
+P2 items listed per surface above — `GuestWelcome`'s missing nav, reduced-motion
+coverage past `.animate-float`, spinner-vs-skeleton loading states, `Credits.tsx`
+hand-rolled panels, the `text-white`/`text-noir-900` split on `bg-foil` across
+eight admin screens, `Customers.tsx` refresh losing page position, missing
+`/admin/events/:id` and `/admin/payments/:id` deep links, the four different
+nouns for one signup action, credits never mentioned on the landing page, and
+`InteractiveShowcase`'s `whileInView` entrances not gated by its own `reduced`
+flag.
 
 **Product decisions deliberately not taken unilaterally**
 
-- Gating `draft` / `ended` events from guests (`EventContext.tsx:246`). Hosts test
-  drafts through the guest booth via the copilot's `test_experience` flow, so
-  gating drafts would break a shipped path. Needs an owner decision on how host
-  preview and guest access should differ.
+- ~~Gating `draft` / `ended` events from guests~~ — **RESOLVED 2026-07-25.** The
+  blocker was never the gate, it was that hosts test drafts THROUGH the guest
+  booth. `src/lib/eventAccess.ts` keys on status **and** org membership: guests
+  are turned away, members get the booth plus a "Preview" banner, unknown
+  statuses fail closed, and a `live` event skips the membership round-trip so the
+  common guest path is unchanged in speed.
 - `REFERENCE_HEAD_SCALE` and the hero carousel's use of legacy branded frames were
   previously settled by the owner and were left alone.

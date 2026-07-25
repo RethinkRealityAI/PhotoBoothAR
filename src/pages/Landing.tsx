@@ -530,9 +530,14 @@ export default function Landing() {
   usePageTitle('Beamwall · AR photo booth & live wall for events');
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  // Assume live media until the carousel's pools resolve, so the caption
-  // never overclaims once we know every card is an empty branded frame.
-  const [hasLiveMedia, setHasLiveMedia] = useState(true);
+  // Tri-state: null until the carousel's pools resolve. This used to start at
+  // `true` to avoid a flash from the weaker caption to the stronger one — but
+  // that meant a pulsing red LIVE dot sat over empty branded frames for the
+  // whole fetch, which is the overclaim it was trying to avoid, just earlier.
+  // Unknown now renders the modest caption and no dot; learning that the strip
+  // IS live and saying so is an honest change, in the direction that costs
+  // nobody anything if the fetch fails.
+  const [hasLiveMedia, setHasLiveMedia] = useState<boolean | null>(null);
 
   // Scroll choreography. [data-reveal="up|left|right"] slide in on entry,
   // [data-reveal-stagger] cascades its children, [data-parallax-depth] drifts
@@ -839,13 +844,13 @@ export default function Landing() {
             {/* Prominent proof line — this strip is real events, not stock. */}
             <div className="mt-5 flex items-center justify-center">
               <p className="flex items-center gap-2.5 rounded-full liquid-glass px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg/85 sm:text-[11px]">
-                {hasLiveMedia && (
+                {hasLiveMedia === true && (
                   <span className="relative flex h-2 w-2" aria-hidden>
                     <span className="absolute inline-flex h-full w-full motion-safe:animate-ping rounded-full bg-rose-400 opacity-60" />
                     <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-400" />
                   </span>
                 )}
-                {hasLiveMedia ? 'Live moments from real Beamwall events' : 'Frame styles from real Beamwall events'}
+                {hasLiveMedia === true ? 'Live moments from real Beamwall events' : 'Frame styles from real Beamwall events'}
               </p>
             </div>
           </section>
@@ -977,7 +982,7 @@ export default function Landing() {
                   }`}
                 >
                   {t.popular && (
-                    <span className="absolute -top-2.5 left-6 rounded-full bg-foil px-3 py-1 font-label uppercase tracking-luxe text-[8px] font-bold text-white">
+                    <span className="absolute -top-2.5 left-6 rounded-full bg-foil px-3 py-1 font-label uppercase tracking-luxe text-[10px] font-bold text-[color:var(--on-accent)]">
                       Most popular
                     </span>
                   )}
