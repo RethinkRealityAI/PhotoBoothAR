@@ -8,52 +8,42 @@
  * deliberate, not a stray click. "Comp plan" (`set_event_tier`) is the same
  * pattern for admin-granted tiers outside of Stripe (support comps, trials).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
 import { fetchEvents, setEventStatus, setEventTier, type AdminEventRow } from '../../lib/admin';
 import { formatDate } from '../../lib/adminFormat';
-import { searchRows, sortRows, paginateRows } from '../../lib/adminFilters';
+import { listFootnote, type ListQuery } from '../../lib/serverList';
+import { useServerList } from '../../lib/useServerList';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import LoadError from '../../components/ui/LoadError';
-import Pagination from '../../components/ui/Pagination';
+import ListMore from '../../components/ui/ListMore';
 import Modal from '../../components/ui/Modal';
 import StatusPill from '../../components/ui/StatusPill';
 import { useToast } from '../../components/ui/Toast';
 
-const PAGE_SIZE = 10;
+/** Rows per request — the server pages now; this screen used to receive every
+ *  event on the platform and page it in JavaScript. */
+const PAGE_SIZE = 50;
 const STATUSES = ['draft', 'live', 'ended', 'archived'] as const;
 const TIERS = ['free', 'essentials', 'premium', 'deluxe'] as const;
 
 export default function Events() {
   const { push } = useToast();
-  const [events, setEvents] = useState<AdminEventRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  /** Non-null when the last load failed — the list below is then not
-   *  "no results", it is an unknown. */
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [page, setPage] = useState(1);
   const [target, setTarget] = useState<AdminEventRow | null>(null);
   const [tierTarget, setTierTarget] = useState<AdminEventRow | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
-    const { data, error } = await fetchEvents();
-    setLoadError(error);
-    setEvents(data?.events ?? []);
-    setLoading(false);
-  };
-
-  useEffect(() => { load(); }, []);
-  useEffect(() => { setPage(1); }, [query]);
-
-  const filtered = useMemo(
-    () => sortRows(searchRows(events, query, ['name', 'slug', 'orgName']), 'created_at', 'desc'),
-    [events, query],
-  );
-  const paged = useMemo(() => paginateRows(filtered, page, PAGE_SIZE), [filtered, page]);
+  // Server-side search over name AND slug (an operator usually has the slug off
+  // a QR code). Org name is on another table and so is not searchable here —
+  // that is a real narrowing versus the old client-side filter, and the reason
+  // the placeholder now says what it matches.
+  const fetchPage = useCallback(async (q: ListQuery) => {
+    const { data, error } = await fetchEvents(q);
+    return { rows: data?.events ?? [], hasMore: data?.hasMore ?? false, error };
+  }, []);
+  const list = useServerList<AdminEventRow>(fetchPage, PAGE_SIZE);
+  const load = list.reload;
 
   const applyStatus = async (status: string) => {
     if (!target) return;
@@ -61,7 +51,7 @@ export default function Events() {
     const { error } = await setEventStatus(target.id, status);
     setBusy(false);
     if (error) { push('Could not change status.', 'error'); return; }
-    setEvents((list) => list.map((e) => (e.id === target.id ? { ...e, status } : e)));
+    list.patchRows((rows) => rows.map((e) => (e.id === target.id ? { ...e, status } : e)));
     push(`${target.name} is now ${status}.`, 'success');
     setTarget(null);
   };
@@ -72,7 +62,7 @@ export default function Events() {
     const { error } = await setEventTier(tierTarget.id, tier);
     setBusy(false);
     if (error) { push('Could not comp this plan.', 'error'); return; }
-    setEvents((list) => list.map((e) => (e.id === tierTarget.id ? { ...e, plan_tier: tier } : e)));
+    list.patchRows((rows) => rows.map((e) => (e.id === tierTarget.id ? { ...e, plan_tier: tier } : e)));
     push(`${tierTarget.name} comped to ${tier}.`, 'success');
     setTierTarget(null);
   };
@@ -124,37 +114,44 @@ export default function Events() {
       <header className="flex items-center justify-between mb-6 gap-4">
         <div>
           <h1 className="font-serif text-3xl text-foil-static">Events</h1>
-          <p className="mt-1 font-sans text-xs text-brand-muted/60">{events.length} events across every customer</p>
+          <p className="mt-1 font-sans text-xs text-brand-muted/60">
+            {listFootnote(list.rows.length, list.hasMore, 'event') || 'Loading…'}
+          </p>
         </div>
         <button
           onClick={load}
-          disabled={loading}
+          disabled={list.loading}
           className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-4 h-4 ${list.loading ? 'animate-spin' : ''}`} />
         </button>
       </header>
 
-      {loadError && <LoadError what="events" code={loadError} onRetry={load} />}
+      {list.error && <LoadError what="events" code={list.error} onRetry={list.reload} />}
 
       <div className="relative mb-4 max-w-xs">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted/40" />
         <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search events…"
+          value={list.query}
+          onChange={(e) => list.setQuery(e.target.value)}
+          placeholder="Search by event name or slug…"
           className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
         />
       </div>
 
       <DataTable
         columns={columns}
-        rows={paged.rows}
+        rows={list.rows}
         getRowKey={(e) => e.id}
-        loading={loading}
+        loading={list.loading}
         emptyMessage="No events match."
       />
-      <Pagination page={paged.page} totalPages={paged.totalPages} total={paged.total} onPageChange={setPage} />
+      <ListMore
+        hasMore={list.hasMore}
+        loading={list.loadingMore}
+        onMore={list.loadMore}
+        note={listFootnote(list.rows.length, list.hasMore, 'event')}
+      />
 
       {target && (
         <Modal title={`Change status — ${target.name}`} onClose={() => setTarget(null)} maxWidthClass="max-w-sm">

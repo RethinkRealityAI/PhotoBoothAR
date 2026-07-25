@@ -11,6 +11,7 @@
 import { useRef } from 'react';
 import { motion } from 'motion/react';
 import { Post } from '../../types';
+import PostImage from '../ui/PostImage';
 
 interface Props {
   posts: Post[];
@@ -71,11 +72,10 @@ function PostCard({ post, isFresh, onSelect }: { post: Post; isFresh: boolean; o
           <PlayBadge />
         </>
       ) : (
-        <img
+        <PostImage
           src={post.image_url}
           alt={post.guest_name ?? 'Event moment'}
-          loading="lazy"
-          decoding="async"
+          displayWidth={720}
           className="w-full block object-cover"
           style={{ aspectRatio: ar }}
         />

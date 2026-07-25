@@ -29,6 +29,7 @@ import { SavedPhoto, Post, MediaType } from '../types';
 import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
 import EventBackground from './ui/EventBackground';
+import PostImage from './ui/PostImage';
 import { Wordmark } from './ui/EventLogo';
 import GuestNav from './ui/GuestNav';
 import FetchFailed from './ui/FetchFailed';
@@ -176,6 +177,11 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
         border: '1px solid rgba(var(--accent-rgb),0.12)',
       }}
     >
+      {/* A 2-column phone grid shows these ~185px wide, and it was fetching the
+          full 1080px capture for each — roughly eight times the pixels needed,
+          on the surface most likely to be on venue wifi. 260 covers the
+          3-column tablet layout too; the full-size original is still what the
+          viewer opens and what Save downloads. */}
       {isVideo ? (
         <>
           <video
@@ -190,13 +196,12 @@ function MediaCard({ media, onView }: { media: GalaMedia; onView: (m: GalaMedia)
           <PlayBadge />
         </>
       ) : (
-        <img
+        <PostImage
           src={media.image_url}
           alt="Your moment"
+          displayWidth={260}
           className="w-full block object-cover"
           style={{ aspectRatio: '9/16' }}
-          loading="lazy"
-          decoding="async"
         />
       )}
 

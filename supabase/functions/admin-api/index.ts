@@ -122,6 +122,59 @@ async function overviewMetrics(sb: Client): Promise<Response> {
   });
 }
 
+/* ── Paging for the list screens ──────────────────────────────────────────
+ * list_orgs, list_events and list_orders had NO limit at all: each one selected
+ * every row in its table and shipped the lot to the browser, which then filtered
+ * and paginated in JavaScript. That is fine at fifty customers and a cliff at
+ * fifty thousand — the operator's first search would hang on a payload nobody
+ * budgeted for, and every one of these screens also runs follow-up `.in()`
+ * lookups whose URL length grows with the row count.
+ *
+ * So the server pages and searches now. `hasMore` is derived by asking for ONE
+ * row more than requested, which is cheaper and more honest than a second
+ * count(*) that can disagree with the page under concurrent writes. */
+
+const DEFAULT_PAGE = 100;
+const MAX_PAGE = 500;
+
+interface Paging {
+  limit: number;
+  offset: number;
+  /** Trimmed search term, or '' for none. */
+  search: string;
+}
+
+function paging(args: Record<string, unknown>): Paging {
+  const rawLimit = typeof args.limit === 'number' && Number.isFinite(args.limit)
+    ? Math.round(args.limit)
+    : DEFAULT_PAGE;
+  const rawOffset = typeof args.offset === 'number' && Number.isFinite(args.offset)
+    ? Math.round(args.offset)
+    : 0;
+  const search = typeof args.search === 'string' ? args.search.trim().slice(0, 100) : '';
+  return {
+    limit: Math.max(1, Math.min(rawLimit, MAX_PAGE)),
+    offset: Math.max(0, rawOffset),
+    search,
+  };
+}
+
+/**
+ * Escape a user-typed search term for a PostgREST `ilike` pattern.
+ *
+ * `%` and `_` are wildcards, and a `,` or `)` would break out of the filter's
+ * own syntax — an operator searching for "50% off" must not accidentally match
+ * everything, and must not be able to inject a filter clause.
+ */
+function likeTerm(search: string): string {
+  return `%${search.replace(/[\\%_,()]/g, (c) => `\\${c}`)}%`;
+}
+
+/** Trim the sentinel extra row and report whether it was there. */
+function page<T>(rows: T[], limit: number): { rows: T[]; hasMore: boolean } {
+  return rows.length > limit ? { rows: rows.slice(0, limit), hasMore: true } : { rows, hasMore: false };
+}
+
 /** Append-only audit trail for a mutating action. Logs the error but never
  *  throws — a failed audit write must not roll back an already-applied change. */
 async function auditLog(
@@ -138,15 +191,19 @@ async function auditLog(
   if (error) console.error('[admin-api] audit insert failed', error);
 }
 
-async function listOrgs(sb: Client): Promise<Response> {
-  const { data: orgs, error } = await sb
+async function listOrgs(sb: Client, args: Record<string, unknown>): Promise<Response> {
+  const { limit, offset, search } = paging(args);
+  let q = sb
     .from('orgs')
     .select('id, name, owner_id, stripe_customer_id, created_at')
     .order('created_at', { ascending: false });
+  if (search) q = q.ilike('name', likeTerm(search));
+  const { data: raw, error } = await q.range(offset, offset + limit); // +1 sentinel
   if (error) throw error;
+  const { rows: orgs, hasMore } = page(raw ?? [], limit);
 
-  const orgIds = (orgs ?? []).map((o) => o.id as string);
-  if (orgIds.length === 0) return json(200, { data: { orgs: [] } });
+  const orgIds = orgs.map((o) => o.id as string);
+  if (orgIds.length === 0) return json(200, { data: { orgs: [], hasMore } });
 
   const [{ data: events, error: evErr }, { data: subs, error: subErr }, { data: credits, error: credErr }] =
     await Promise.all([
@@ -166,7 +223,7 @@ async function listOrgs(sb: Client): Promise<Response> {
   const subByOrg = new Map((subs ?? []).map((s) => [s.org_id as string, s as { status: string; tier: string }]));
   const creditByOrg = new Map((credits ?? []).map((c) => [c.org_id as string, c.balance as number]));
 
-  const rows = (orgs ?? []).map((o) => {
+  const rows = orgs.map((o) => {
     const orgId = o.id as string;
     const sub = subByOrg.get(orgId);
     return {
@@ -181,7 +238,7 @@ async function listOrgs(sb: Client): Promise<Response> {
       creditBalance: creditByOrg.get(orgId) ?? 0,
     };
   });
-  return json(200, { data: { orgs: rows } });
+  return json(200, { data: { orgs: rows, hasMore } });
 }
 
 async function getOrg(sb: Client, args: Record<string, unknown>): Promise<Response> {
@@ -259,22 +316,28 @@ async function getOrg(sb: Client, args: Record<string, unknown>): Promise<Respon
   });
 }
 
-async function listEvents(sb: Client): Promise<Response> {
-  const { data: events, error } = await sb
+async function listEvents(sb: Client, args: Record<string, unknown>): Promise<Response> {
+  const { limit, offset, search } = paging(args);
+  let q = sb
     .from('events')
     .select('id, slug, name, event_type, status, plan_tier, org_id, created_at')
     .order('created_at', { ascending: false });
+  // An operator looking up an event has either its name or the slug from a QR
+  // code, so both are searched. `or` takes the already-escaped pattern.
+  if (search) q = q.or(`name.ilike.${likeTerm(search)},slug.ilike.${likeTerm(search)}`);
+  const { data: raw, error } = await q.range(offset, offset + limit); // +1 sentinel
   if (error) throw error;
+  const { rows: events, hasMore } = page(raw ?? [], limit);
 
-  const orgIds = [...new Set((events ?? []).map((e) => e.org_id as string))];
+  const orgIds = [...new Set(events.map((e) => e.org_id as string))];
   const { data: orgs, error: orgErr } = orgIds.length
     ? await sb.from('orgs').select('id, name').in('id', orgIds)
     : { data: [], error: null };
   if (orgErr) throw orgErr;
   const orgNameById = new Map((orgs ?? []).map((o) => [o.id as string, o.name as string]));
 
-  const rows = (events ?? []).map((e) => ({ ...e, orgName: orgNameById.get(e.org_id as string) ?? '—' }));
-  return json(200, { data: { events: rows } });
+  const rows = events.map((e) => ({ ...e, orgName: orgNameById.get(e.org_id as string) ?? '—' }));
+  return json(200, { data: { events: rows, hasMore } });
 }
 
 const EVENT_STATUSES = new Set(['draft', 'live', 'ended', 'archived']);
@@ -293,22 +356,28 @@ async function setEventStatus(sb: Client, actorUserId: string, args: Record<stri
   return json(200, { data });
 }
 
-async function listOrders(sb: Client): Promise<Response> {
-  const { data: orders, error } = await sb
+async function listOrders(sb: Client, args: Record<string, unknown>): Promise<Response> {
+  const { limit, offset, search } = paging(args);
+  let q = sb
     .from('orders')
     .select('id, org_id, event_id, kind, tier, amount_total, currency, status, stripe_ref, created_at')
     .order('created_at', { ascending: false });
+  // Orders are looked up by the Stripe reference from a receipt or a dispute —
+  // org name lives on another table and is not filterable here.
+  if (search) q = q.ilike('stripe_ref', likeTerm(search));
+  const { data: raw, error } = await q.range(offset, offset + limit); // +1 sentinel
   if (error) throw error;
+  const { rows: orders, hasMore } = page(raw ?? [], limit);
 
-  const orgIds = [...new Set((orders ?? []).map((o) => o.org_id as string))];
+  const orgIds = [...new Set(orders.map((o) => o.org_id as string))];
   const { data: orgs, error: orgErr } = orgIds.length
     ? await sb.from('orgs').select('id, name').in('id', orgIds)
     : { data: [], error: null };
   if (orgErr) throw orgErr;
   const orgNameById = new Map((orgs ?? []).map((o) => [o.id as string, o.name as string]));
 
-  const rows = (orders ?? []).map((o) => ({ ...o, orgName: orgNameById.get(o.org_id as string) ?? '—' }));
-  return json(200, { data: { orders: rows } });
+  const rows = orders.map((o) => ({ ...o, orgName: orgNameById.get(o.org_id as string) ?? '—' }));
+  return json(200, { data: { orders: rows, hasMore } });
 }
 
 /** Server-side aggregate so the client never needs a PRICES copy — amounts
@@ -680,15 +749,15 @@ Deno.serve(async (req: Request) => {
       case 'overview_metrics':
         return await overviewMetrics(sb);
       case 'list_orgs':
-        return await listOrgs(sb);
+        return await listOrgs(sb, args);
       case 'get_org':
         return await getOrg(sb, args);
       case 'list_events':
-        return await listEvents(sb);
+        return await listEvents(sb, args);
       case 'set_event_status':
         return await setEventStatus(sb, user.id, args);
       case 'list_orders':
-        return await listOrders(sb);
+        return await listOrders(sb, args);
       case 'revenue_summary':
         return await revenueSummary(sb);
       case 'list_users':

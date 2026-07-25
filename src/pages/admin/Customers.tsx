@@ -5,42 +5,31 @@
  * /admin/customers — every org on the platform: events, subscription tier,
  * outstanding credits. Row click drills into CustomerDetail.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
 import { fetchOrgs, type OrgRow } from '../../lib/admin';
 import { formatCount, formatDate } from '../../lib/adminFormat';
-import { searchRows, sortRows, paginateRows } from '../../lib/adminFilters';
+import { listFootnote, type ListQuery } from '../../lib/serverList';
+import { useServerList } from '../../lib/useServerList';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import LoadError from '../../components/ui/LoadError';
-import Pagination from '../../components/ui/Pagination';
+import ListMore from '../../components/ui/ListMore';
 import StatusPill from '../../components/ui/StatusPill';
 
-const PAGE_SIZE = 10;
+/** Rows per request. The old client-side pager showed ten at a time out of a
+ *  payload containing EVERY org; this is what the server actually sends. */
+const PAGE_SIZE = 50;
 
 export default function Customers() {
   const navigate = useNavigate();
-  const [orgs, setOrgs] = useState<OrgRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  /** Non-null when the last load failed — the list below is then not
-   *  "no results", it is an unknown. */
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [page, setPage] = useState(1);
-
-  const load = async () => {
-    setLoading(true);
-    const { data, error } = await fetchOrgs();
-    setLoadError(error);
-    setOrgs(data?.orgs ?? []);
-    setLoading(false);
-  };
-
-  useEffect(() => { load(); }, []);
-  useEffect(() => { setPage(1); }, [query]);
-
-  const filtered = useMemo(() => sortRows(searchRows(orgs, query, ['name']), 'createdAt', 'desc'), [orgs, query]);
-  const paged = useMemo(() => paginateRows(filtered, page, PAGE_SIZE), [filtered, page]);
+  // Search and paging happen on the SERVER now: this screen used to receive
+  // every org on the platform and filter them in JavaScript.
+  const fetchPage = useCallback(async (q: ListQuery) => {
+    const { data, error } = await fetchOrgs(q);
+    return { rows: data?.orgs ?? [], hasMore: data?.hasMore ?? false, error };
+  }, []);
+  const list = useServerList<OrgRow>(fetchPage, PAGE_SIZE);
 
   const columns: Column<OrgRow>[] = [
     { key: 'name', label: 'Organization', render: (o) => <span className="text-brand-fg font-medium">{o.name}</span> },
@@ -60,24 +49,27 @@ export default function Customers() {
       <header className="flex items-center justify-between mb-6 gap-4">
         <div>
           <h1 className="font-serif text-3xl text-foil-static">Customers</h1>
-          <p className="mt-1 font-sans text-xs text-brand-muted/60">{formatCount(orgs.length)} organizations</p>
+          <p className="mt-1 font-sans text-xs text-brand-muted/60">
+            {listFootnote(list.rows.length, list.hasMore, 'organization') || 'Loading…'}
+          </p>
         </div>
         <button
-          onClick={load}
-          disabled={loading}
-          className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
+          onClick={list.reload}
+          disabled={list.loading}
+          aria-label="Refresh"
+          className="pressable p-2.5 min-h-11 min-w-11 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-4 h-4 ${list.loading ? 'animate-spin' : ''}`} />
         </button>
       </header>
 
-      {loadError && <LoadError what="customers" code={loadError} onRetry={load} />}
+      {list.error && <LoadError what="customers" code={list.error} onRetry={list.reload} />}
 
       <div className="relative mb-4 max-w-xs">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted/40" />
         <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          value={list.query}
+          onChange={(e) => list.setQuery(e.target.value)}
           placeholder="Search organizations…"
           className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
         />
@@ -85,13 +77,18 @@ export default function Customers() {
 
       <DataTable
         columns={columns}
-        rows={paged.rows}
+        rows={list.rows}
         getRowKey={(o) => o.id}
-        loading={loading}
+        loading={list.loading}
         emptyMessage="No organizations match."
         onRowClick={(o) => navigate(`/admin/customers/${o.id}`)}
       />
-      <Pagination page={paged.page} totalPages={paged.totalPages} total={paged.total} onPageChange={setPage} />
+      <ListMore
+        hasMore={list.hasMore}
+        loading={list.loadingMore}
+        onMore={list.loadMore}
+        note={listFootnote(list.rows.length, list.hasMore, 'organization')}
+      />
     </div>
   );
 }
