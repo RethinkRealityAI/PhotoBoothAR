@@ -8,6 +8,7 @@
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import type { ListResult } from './db';
 import { sha256Hex } from './hash';
 
 /* ------------------------------------------------------------------ */
@@ -100,7 +101,7 @@ export interface LedgerRow {
   created_at: string;
 }
 
-export async function fetchLedger(orgId: string, limit = 20): Promise<LedgerRow[]> {
+export async function fetchLedgerResult(orgId: string, limit = 20): Promise<ListResult<LedgerRow>> {
   const { data, error } = await supabase
     .from('credit_ledger')
     .select('id, delta, reason, ref, created_at')
@@ -109,9 +110,13 @@ export async function fetchLedger(orgId: string, limit = 20): Promise<LedgerRow[
     .limit(limit);
   if (error) {
     console.error('[host] fetchLedger', error);
-    return [];
+    return { rows: [], failed: true };
   }
-  return (data as LedgerRow[]) ?? [];
+  return { rows: (data as LedgerRow[]) ?? [], failed: false };
+}
+
+export async function fetchLedger(orgId: string, limit = 20): Promise<LedgerRow[]> {
+  return (await fetchLedgerResult(orgId, limit)).rows;
 }
 
 /**
@@ -504,7 +509,7 @@ export async function createManagerToken(
   return { raw, row: data as ManagerTokenRow };
 }
 
-export async function listManagerTokens(eventUuid: string): Promise<ManagerTokenRow[]> {
+export async function listManagerTokensResult(eventUuid: string): Promise<ListResult<ManagerTokenRow>> {
   const { data, error } = await supabase
     .from('event_access_tokens')
     .select('id, label, created_at, expires_at')
@@ -512,9 +517,13 @@ export async function listManagerTokens(eventUuid: string): Promise<ManagerToken
     .order('created_at', { ascending: false });
   if (error) {
     console.error('[host] listManagerTokens', error);
-    return [];
+    return { rows: [], failed: true };
   }
-  return (data as ManagerTokenRow[]) ?? [];
+  return { rows: (data as ManagerTokenRow[]) ?? [], failed: false };
+}
+
+export async function listManagerTokens(eventUuid: string): Promise<ManagerTokenRow[]> {
+  return (await listManagerTokensResult(eventUuid)).rows;
 }
 
 export async function revokeManagerToken(id: string): Promise<boolean> {

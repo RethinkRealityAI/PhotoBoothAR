@@ -25,7 +25,7 @@ import { useEntitlements } from '../../lib/entitlements';
 import { updateEventConfig } from '../../lib/host';
 import {
   contributeUrl, createCard, deleteCard, deleteContribution, fetchRenderStatus, latestRender,
-  listCards, listContributions, publishCard, renderCard, renderDownloadUrl, sendCardEmail,
+  listCardsResult, listContributionsResult, publishCard, renderCard, renderDownloadUrl, sendCardEmail,
   signContributionUrls, unpublishCard, updateContribution, viewerPath,
   type CardRenderRow, type CardRow, type ContributionRow,
 } from '../../lib/cards';
@@ -60,9 +60,12 @@ function ContributionsManager({ cardId }: { cardId: string }) {
   const [rows, setRows] = useState<ContributionRow[] | null>(null);
   const [thumbs, setThumbs] = useState<Map<string, string>>(new Map());
   const [busy, setBusy] = useState(false);
+  /** The contributions read failed — not the same as nobody having contributed. */
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const load = useCallback(async () => {
-    const list = await listContributions(cardId);
+    const { rows: list, failed } = await listContributionsResult(cardId);
+    setLoadFailed(failed);
     setRows(list);
     const paths = list.map((r) => r.media_path).filter((p): p is string => Boolean(p));
     setThumbs(await signContributionUrls(paths));
@@ -106,6 +109,21 @@ function ContributionsManager({ cardId }: { cardId: string }) {
       <div className="flex items-center gap-2 py-6 justify-center text-brand-muted/50">
         <Loader2 className="w-4 h-4 animate-spin" />
         <span className="font-sans text-xs">Loading contributions…</span>
+      </div>
+    );
+  }
+  if (rows.length === 0 && loadFailed) {
+    return (
+      <div className="py-5 text-center">
+        <p className="font-sans text-xs text-brand-muted/80">
+          We couldn’t load the contributions — guests may well have sent some.
+        </p>
+        <button
+          onClick={load}
+          className="mt-3 min-h-11 rounded-lg px-4 bg-white/[0.06] font-label uppercase tracking-luxe text-[10px] text-brand-fg"
+        >
+          Try again
+        </button>
       </div>
     );
   }
@@ -434,11 +452,26 @@ export default function CardsTab() {
   const [emailSentFor, setEmailSentFor] = useState<string | null>(null);
 
   const isDb = source === 'db';
+  /** The card list read failed — distinct from an event with no cards. */
+  const [cardsFailed, setCardsFailed] = useState(false);
+
+  const reloadCards = useCallback(() => {
+    listCardsResult(eventId).then(({ rows, failed }) => {
+      setCardsFailed(failed);
+      setCards(rows);
+    });
+  }, [eventId]);
 
   useEffect(() => {
     if (!isDb) return;
     let alive = true;
-    listCards(eventId).then((list) => { if (alive) setCards(list); });
+    listCardsResult(eventId).then(({ rows, failed }) => {
+      if (!alive) return;
+      // A failed read used to land here as [], so the host was told "No cards
+      // yet — create one" while their cards existed and were live.
+      setCardsFailed(failed);
+      setCards(rows);
+    });
     return () => { alive = false; };
   }, [eventId, isDb]);
 
@@ -597,6 +630,19 @@ export default function CardsTab() {
         {cards === null ? (
           <div className="flex items-center justify-center py-16 text-brand-muted/50">
             <Loader2 className="w-5 h-5 animate-spin" />
+          </div>
+        ) : cards.length === 0 && cardsFailed ? (
+          <div className="rounded-2xl border border-dashed border-amber-300/30 py-14 text-center">
+            <Gift className="w-7 h-7 mx-auto text-amber-300/70" />
+            <p className="mt-3 font-sans text-sm text-brand-muted/80">
+              We couldn’t load your cards — this doesn’t mean you have none.
+            </p>
+            <button
+              onClick={reloadCards}
+              className="mt-4 min-h-11 rounded-xl px-5 bg-white/[0.06] font-label uppercase tracking-luxe text-[10px] text-brand-fg"
+            >
+              Try again
+            </button>
           </div>
         ) : cards.length === 0 && !creating ? (
           <div className="rounded-2xl border border-dashed border-white/15 py-14 text-center">

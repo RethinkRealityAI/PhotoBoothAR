@@ -63,6 +63,10 @@ function costNoteFor(action: CopilotAction): string | null {
 interface ChatItem extends ChatMessage {
   surfaceId?: string;
   kind?: 'tool_result';
+  /** Did the action this result reports actually succeed? Absent on older
+   *  persisted transcripts, which are then rendered neutrally rather than
+   *  being retro-labelled as successes. */
+  ok?: boolean;
 }
 
 const STORE_KEY = 'beamwall:copilot:v1';
@@ -364,7 +368,7 @@ export default function CopilotChat({
     if (experienceId) flashThenDrop(sid); else dropSurfaceById(sid);
     delete genState.current[sid];
     if (!experienceId) {
-      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] The generated asset was lost — please generate it again.' }]);
+      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] The generated asset was lost — please generate it again.' }]);
       return;
     }
     let result;
@@ -388,7 +392,7 @@ export default function CopilotChat({
       if (glbUrl) { try { fitScale = await measureGlbFitScale(glbUrl); } catch { /* best-effort fit */ } }
       result = await applyGeneratedPiece(ctx(), experienceId, fitScale);
     }
-    setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: `[tool_result] ${result.summary}` }]);
+    setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: result.ok, content: `[tool_result] ${result.summary}` }]);
     if (result.ok) onMutated();
   };
 
@@ -399,7 +403,7 @@ export default function CopilotChat({
       // genState is a ref (not persisted) — after a refresh the prompt is gone,
       // so a restored card's Regenerate/Try-again would be a dead button (F1).
       dropSurfaceById(event.surfaceId);
-      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] I lost the details for that one — tell me what to make and I’ll generate a fresh version.' }]);
+      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] I lost the details for that one — tell me what to make and I’ll generate a fresh version.' }]);
       return;
     }
     if (g.kind === 'frame') void startFrameGen(event.surfaceId, g.prompt);
@@ -451,7 +455,7 @@ export default function CopilotChat({
     // — with one clear prompt to pick an event first.
     if (!snapshot) {
       dropSurfaceById(event.surfaceId);
-      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] Pick which event this is for first — select one of your events, then ask me again.' }]);
+      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] Pick which event this is for first — select one of your events, then ask me again.' }]);
       return;
     }
 
@@ -470,12 +474,15 @@ export default function CopilotChat({
     const [validated] = normalizeActions([proposal], snapshot);
     if (!validated) {
       dropSurfaceById(event.surfaceId);
-      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: '[tool_result] That didn’t look valid, so nothing changed — tell me again and I’ll redo it.' }]);
+      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] That didn’t look valid, so nothing changed — tell me again and I’ll redo it.' }]);
       return;
     }
-    flashThenDrop(event.surfaceId);
+    // The success flash used to fire here, BEFORE executeAction — so a failing
+    // action still played its confirmation animation. Drop the card now, and
+    // let the result message carry the outcome.
+    dropSurfaceById(event.surfaceId);
     const result = await executeAction(validated, ctx());
-    setMessages((m) => [...m, { role: 'user', kind: 'tool_result', content: `[tool_result] ${result.summary}` }]);
+    setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: result.ok, content: `[tool_result] ${result.summary}` }]);
     if (result.ok && result.card) {
       const sid = `card_${++seqRef.current}`;
       addSurface(buildCardLinkSurface(result.card, sid), sid);
@@ -568,9 +575,18 @@ export default function CopilotChat({
                 initial={entrance}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                className="self-center rounded-full bg-white/[0.04] border border-white/10 px-3 py-1 font-mono text-[10px] text-brand-muted/70"
+                className={`self-center rounded-full px-3 py-1 font-mono text-[10px] ${
+                  m.ok === false
+                    ? 'bg-amber-400/10 border border-amber-300/30 text-amber-200/90'
+                    : 'bg-white/[0.04] border border-white/10 text-brand-muted/70'
+                }`}
               >
-                {m.content.replace(/^\[tool_result\]\s*/, '✓ ')}
+                {/* Every tool result used to be prefixed "✓ " regardless of
+                    whether it worked, so a failed action read as a success. */}
+                {m.content.replace(
+                  /^\[tool_result\]\s*/,
+                  m.ok === false ? '✕ ' : m.ok === true ? '✓ ' : '',
+                )}
               </motion.div>
             );
           }
