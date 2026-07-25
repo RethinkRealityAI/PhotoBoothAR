@@ -310,6 +310,23 @@ export async function fetchMyEvents(): Promise<HostEventRow[] | null> {
  * as narrow as what fetchMyEvents already shows on the dashboard, so the two
  * can't drift into disagreeing about who gets demo access.
  */
+/**
+ * Is the signed-in viewer a member of this event's org?
+ *
+ * Used by the guest surface to decide whether a draft or ended event is
+ * openable (a host previewing their own build) or closed (a guest who scanned
+ * early). Returns false for a signed-out visitor and false on ANY error —
+ * failing closed is the whole point of the gate.
+ */
+export async function isEventMember(slug: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('is_event_member', { p_slug: slug });
+  if (error) {
+    console.error('[host] isEventMember', error);
+    return false;
+  }
+  return Boolean(data);
+}
+
 export async function canEnterStudio(slug: string): Promise<boolean> {
   if (SHOW_DEMO_EVENT && slug === DEMO_EVENT_SLUG) {
     const orgIds = await fetchMyOrgIds();

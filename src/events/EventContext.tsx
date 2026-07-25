@@ -16,8 +16,10 @@ import type { EventConfig } from './types';
 import { getRegisteredEvent } from './registry';
 import { codeRuntimeEvent, loadEventConfig, type EventLoad, type RuntimeEvent } from './runtime';
 import { subscribeToBranding } from '../lib/db';
+import { isEventMember } from '../lib/host';
 import { MANAGED_CSS_VARS } from '../lib/branding';
 import { useStore } from '../store';
+import { accessAllowsBooth, guestAccess, needsMemberCheck, type GuestAccess } from '../lib/eventAccess';
 
 export interface EventContextValue {
   eventId: string;
@@ -217,6 +219,12 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
 
   // Bumping this re-runs the resolve effect, which is how "Try again" works.
   const [attempt, setAttempt] = useState(0);
+  // Guest access for a members-only status (draft / ended). null = still
+  // deciding: rendering the booth then would flash the guest surface of an
+  // event the viewer may not be allowed into, so the provider waits.
+  const [access, setAccess] = useState<GuestAccess | null>(
+    state.phase === 'ready' && !needsMemberCheck(state.event.status) ? 'open' : null,
+  );
 
   useEffect(() => {
     if (loadedSlugRef.current === slug) return;
@@ -243,6 +251,17 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
         }
         bootstrapEvent(event);
         setState({ phase: 'ready', event });
+        // Draft / ended events are members-only. A live event skips this
+        // round-trip entirely, so the common path — a guest scanning a QR at
+        // the party — is exactly as fast as it was.
+        if (!needsMemberCheck(event.status)) {
+          setAccess('open');
+          return;
+        }
+        setAccess(null); // deciding
+        void isEventMember(event.eventId).then((member) => {
+          if (alive) setAccess(guestAccess(event.status, member));
+        });
       });
     return () => { alive = false; };
   }, [slug, attempt]);
@@ -296,12 +315,22 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
     );
   }
   const { event } = state;
-  if (event.status === 'archived') {
-    return (
+  // Members-only statuses: decide before rendering anything guest-facing.
+  if (access === null) {
+    return <CenterScreen eyebrow="Photo Booth" title="Setting the stage…" body="" />;
+  }
+  if (!accessAllowsBooth(access)) {
+    return access === 'ended' ? (
       <CenterScreen
         eyebrow={event.config.copy.eyebrow}
         title="This event has ended"
         body={event.config.copy.thankYou}
+      />
+    ) : (
+      <CenterScreen
+        eyebrow={event.config.copy.eyebrow}
+        title="Not open just yet"
+        body="Your host is still putting the finishing touches to this one. Check the link again closer to the event — nothing is wrong with your QR code."
       />
     );
   }
@@ -317,5 +346,22 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
     refreshConfig,
   };
 
-  return <EventContext.Provider value={value}>{children}</EventContext.Provider>;
+  return (
+    <EventContext.Provider value={value}>
+      {/* A member looking at an event guests cannot reach yet (or any more).
+          Without this a host testing a draft sees a working booth and can
+          reasonably conclude their guests do too. */}
+      {access === 'preview' && (
+        <div
+          role="status"
+          className="pointer-events-none fixed inset-x-0 top-0 z-[100] flex justify-center px-3 pt-safe-top [--safe-top:0.5rem]"
+        >
+          <p className="liquid-glass-raised rounded-full px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] text-amber-300">
+            {event.status === 'draft' ? 'Preview — guests can’t open this yet' : 'Preview — this event has ended'}
+          </p>
+        </div>
+      )}
+      {children}
+    </EventContext.Provider>
+  );
 }
