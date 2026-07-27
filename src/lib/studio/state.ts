@@ -197,7 +197,6 @@ export interface StudioDraft {
 export interface StudioState {
   mode: StudioMode;
   threeView: ThreeView;
-  paused: boolean;
   draft: StudioDraft;
   /** True once the draft diverged from its loaded/initial snapshot. */
   dirty: boolean;
@@ -231,10 +230,11 @@ export function initialDraft(kind: StudioKind = 'shader'): StudioDraft {
 export function initialState(kind: StudioKind = 'shader'): StudioState {
   return {
     mode: kind === '3d_attachment' ? '3d' : '2d',
-    // Default to the reference-head ("Model") view so entering 3D shows the head
-    // + anchor dots to place onto — not the camera, which needs a detected face.
-    threeView: 'orbit',
-    paused: false,
+    // Default to LIVE. Opening 3D into the no-camera reference view meant
+    // entering 3D turned tracking off rather than on, and the host had to find a
+    // second control to get the WYSIWYG view they came for. The reference head
+    // is still one tap away for precise placement without a face.
+    threeView: 'live',
     draft: initialDraft(kind),
     dirty: false,
   };
@@ -369,7 +369,6 @@ function placeFrame(d: StudioDraft, frame: Overlay2D): StudioDraft {
 export type StudioAction =
   | { type: 'SET_MODE'; mode: StudioMode }
   | { type: 'SET_THREE_VIEW'; view: ThreeView }
-  | { type: 'SET_PAUSED'; paused: boolean }
   | { type: 'SET_KIND'; kind: StudioKind }
   | { type: 'LOAD'; draft: StudioDraft }
   | { type: 'SET_NAME'; name: string }
@@ -419,8 +418,6 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     }
     case 'SET_THREE_VIEW':
       return state.threeView === action.view ? state : { ...state, threeView: action.view };
-    case 'SET_PAUSED':
-      return state.paused === action.paused ? state : { ...state, paused: action.paused };
     case 'SET_KIND': {
       // The dock's category tabs are becoming pure catalog-browsing UI in a later
       // wave; for now the dock still dispatches SET_KIND. With the new semantics
@@ -434,8 +431,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'LOAD':
       return {
         mode: modeForKind(action.draft.kind),
-        threeView: 'orbit',
-        paused: false,
+        threeView: 'live',
         draft: action.draft,
         dirty: false,
       };

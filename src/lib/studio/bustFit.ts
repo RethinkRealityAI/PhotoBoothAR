@@ -69,14 +69,16 @@ export function computePropFitScale(root: THREE.Object3D): number | null {
  * day the asset is re-vendored.
  */
 
-/** Gap (cm) we want between an anchor dot and the head surface: comfortably
- *  clear of the largest dot radius (0.72cm) so a dot never half-sinks. */
-export const ANCHOR_CLEARANCE_CM = 1.2;
+/** Gap (cm) we aim for between an anchor dot and the head surface — just proud
+ *  of the skin, so a dot reads as sitting ON the head rather than floating. */
+export const ANCHOR_CLEARANCE_CM = 0.35;
 
 /** Cone half-angle used to sample the surface along an anchor direction. */
 const CONE_MIN_COS = 0.9;
-/** Vertices sampled by the solver — bounds a mount to a few ms. */
-const FIT_MAX_SAMPLES = 1200;
+/** Vertices sampled by the SEARCH. The final answer is always re-checked against
+ *  every vertex (see computeAnchorAlignedFit), so this trades search precision
+ *  for solve time, not correctness. */
+const FIT_MAX_SAMPLES = 600;
 
 export interface AnchorAlignedFit extends BustFit {
   /** Signed clearance per anchor, cm; positive = the dot sits outside the mesh. */
@@ -182,13 +184,18 @@ export function computeAnchorAlignedFit(
     let c = 0;
     for (const clear of clearancesFor(cloud, s, ty, tz)) {
       if (!Number.isFinite(clear)) { c += 100; continue; }
-      // A buried anchor is the defect this whole function exists to prevent, so
-      // it costs a FLAT penalty on top of the quadratic: without the flat term
-      // the cost has a plateau (any clearance inside the target band is free)
-      // and the search happily accepts a millimetre of burial rather than trade
-      // it for a little extra float. Anything from touching the surface out to
-      // `target` stays free; beyond that, mild.
-      c += clear < 0 ? 0.5 + clear * clear * 25 : Math.max(0, clear - target) ** 2;
+      // Anchors should HUG the skin: squared distance from the surface, with
+      // burial weighted heavier so ties break outward.
+      //
+      // An earlier version instead treated burial as catastrophic and any
+      // clearance up to a target as free. That made the search shrink the head
+      // until nothing could possibly be buried — 10.7cm wide against a 15.4cm
+      // ear span, leaving the earring dots hovering 2.3cm out in space. Burial
+      // was only ever catastrophic because it made a dot INVISIBLE, and
+      // AnchorDots now draws every dot over the bust regardless. So the thing
+      // worth optimising is how convincingly the dots sit on the head.
+      const d = clear - target;
+      c += clear < 0 ? d * d * 3 : d * d;
     }
     return c;
   };
@@ -261,9 +268,42 @@ export function computeAnchorAlignedFit(
     const cand = descend(src, s0, -cy * s0, -cz * s0);
     if (cand.c < best.c) best = cand;
   }
-  const { s: bs, ty: bty, tz: btz } = best;
+  let { s: bs } = best;
+  const { ty: bty, tz: btz } = best;
 
-  const clearances = clearancesFor(src, bs, bty, btz);
+  // FINAL CHECK AGAINST THE FULL CLOUD. The search runs on a subsample, and
+  // surfaceRadiusAlong takes a max, so a subsample can miss the one vertex that
+  // pokes furthest along an anchor's direction — measured 0.2mm of residual
+  // burial that the search believed it had cleared. Re-measure against every
+  // vertex and shrink slightly until nothing is buried. Bounded and cheap: one
+  // pass per step, at most 12 steps, and it only ever makes the head smaller.
+  const full: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const x = points[i * 3], y = points[i * 3 + 1], z = points[i * 3 + 2];
+    if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) full.push(x, y, z);
+  }
+  const fullScratch = new Float64Array(full.length);
+  const fullClearances = (s: number): number[] => {
+    for (let i = 0; i < full.length; i += 3) {
+      fullScratch[i] = (full[i] - cx) * s;
+      fullScratch[i + 1] = full[i + 1] * s + bty;
+      fullScratch[i + 2] = full[i + 2] * s + btz;
+    }
+    return dirs.map((a) => {
+      const sr = surfaceRadiusAlong(fullScratch, a.d);
+      return sr == null ? Number.POSITIVE_INFINITY : a.r - sr;
+    });
+  };
+  // Only GROSS burial is corrected here — a dot a fraction of a millimetre
+  // under the skin is invisible as an error and the dots draw over the bust
+  // anyway; shrinking the whole head to chase it costs more than it buys.
+  const MAX_BURIAL_CM = 0.3;
+  let clearances = fullClearances(bs);
+  for (let i = 0; i < 12 && Math.min(...clearances) < -MAX_BURIAL_CM; i++) {
+    bs *= 0.99;
+    clearances = fullClearances(bs);
+  }
+
   return {
     scale: bs,
     position: [-cx * bs, bty, btz],

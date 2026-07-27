@@ -10,7 +10,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
 import { initializeFaceLandmarker } from '../../lib/faceTracking';
-import { updateHeadPose, ANCHOR_MAP } from '../../lib/faceRig';
+import { updateHeadPose, detectFaceNow, ANCHOR_MAP } from '../../lib/faceRig';
 import { AnchorConfig, HeadAnchor } from '../../types';
 import AssetGizmo from './AssetGizmo';
 import FaceOccluder from './FaceOccluder';
@@ -55,7 +55,7 @@ export function FaceRig({
   videoId,
   anchor,
   config,
-  paused = false,
+  holdPose = false,
   mirror = false,
   editable = false,
   occlude = false,
@@ -71,7 +71,10 @@ export function FaceRig({
   videoId: string;
   anchor: HeadAnchor;
   config?: Partial<AnchorConfig>;
-  paused?: boolean;
+  /** Hold the RENDERED pose steady (used while a gizmo is being dragged, so the
+   *  asset does not swim under the pointer) WITHOUT stopping tracking: detection,
+   *  blendshapes and the trigger engine keep running throughout. */
+  holdPose?: boolean;
   mirror?: boolean;
   editable?: boolean;
   /** Render the invisible depth-only head so props behind it are hidden. */
@@ -105,11 +108,23 @@ export function FaceRig({
     initializeFaceLandmarker().catch((e) => console.warn('[FaceRig] face tracker init failed', e));
   }, []);
 
+  // A stale matrix is worse than none: drag-and-drop projects anchors through
+  // this ref, so leaving the last pose behind after this rig stops driving it
+  // snaps drops to where the head WAS. Clear on unmount.
+  useEffect(() => () => { if (matrixRef) matrixRef.current = null; }, [matrixRef]);
+
   useFrame(() => {
     const group = head.current;
     if (!group) return;
-    if (paused) return;
     const video = document.getElementById(videoId) as HTMLVideoElement | null;
+    if (holdPose) {
+      // Keep DETECTING — blendshapes, the trigger engine and the head-fit
+      // estimator all read the shared detection, and the host should never see
+      // the feed freeze just because they grabbed a handle. Only the rendered
+      // pose is held, so the piece stays put under the pointer.
+      if (video) detectFaceNow(video);
+      return;
+    }
     const visible = video ? updateHeadPose(group, video, mirror) : false;
     group.visible = visible;
     if (matrixRef) {

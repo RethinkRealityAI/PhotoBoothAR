@@ -9,25 +9,27 @@
  *               border/sticker overlay (Transform2D, booth semantics)
  *   • 3d      — Studio3DView (live face rig / orbit) reading the same video
  *   • preview — StudioPreview (booth-parity composite)
- * The in-canvas segmented mode switcher lives here as a floating liquid-glass
- * pill; 3D adds a Live/Orbit + Pause sub-control.
+ * ALL floating chrome lives in ONE top band inside the stage: status on the
+ * left, the mode switcher centred, the 3D view toggle on the right. There is no
+ * instructional caption, no separate tracker pill and no pause control — the
+ * stage is for looking at the artwork, and tracking never stops.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { Boxes, Eye, Layers, Pause, Play, ScanFace, Smartphone, Sparkles, Rotate3d, AlertTriangle } from 'lucide-react';
+import { Boxes, Eye, Layers, ScanFace, Smartphone, Sparkles, Rotate3d, AlertTriangle } from 'lucide-react';
 import { ShaderRunner } from '../../lib/shaders';
 import { snapTransform, type SnapResult } from '../../lib/studio/snap';
-import { selectedObject, type StudioState, type StudioAction, type Overlay2D, type Object3D } from '../../lib/studio/state';
+import { selectedObject, draftHasContent, type StudioState, type StudioAction, type Overlay2D, type Object3D } from '../../lib/studio/state';
 import Studio3DView from './Studio3DView';
 import StudioPreview from './StudioPreview';
 import Tooltip from '../ui/Tooltip';
 import ErrorBoundary from '../ui/ErrorBoundary';
-import HelpButton from './HelpButton';
 import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
 import { createTriggerEngine, TRIGGER_SOURCE_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
 import { initializeFaceLandmarker, isFaceLandmarkerReady } from '../../lib/faceTracking';
 import { REVEAL_SHIMMER_MS } from '../../lib/studio/reveal';
+import { stageStatus, STAGE_STATUS_DOT_CLASS, STAGE_STATUS_TONE_CLASS, type StageStatus } from '../../lib/studio/stageStatus';
 
 interface CamState {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -78,7 +80,7 @@ export default function StudioStage({
   onTestOnPhone,
   onOpenAssets,
 }: Props) {
-  const { mode, draft, threeView, paused } = state;
+  const { mode, draft, threeView } = state;
   const shaderCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const runnerRef = useRef<ShaderRunner | null>(null);
   const rafRef = useRef<number>(0);
@@ -178,10 +180,11 @@ export default function StudioStage({
   // TriggerEffects canvas, and the preview simulation state stays inert.
   const triggers = draft.triggers;
   const hasTriggers = triggers.length > 0;
-  // The tracker is genuinely live in 2D, 3D-Live (not paused), and Preview.
-  // 3D-Orbit has no camera feed, so triggers never run there.
+  // The tracker is genuinely live in 2D, 3D-Live and Preview. 3D-Orbit has no
+  // camera feed, so triggers never run there. Note there is no longer a pause to
+  // consult: a gizmo drag holds the rendered pose but detection keeps running.
   const trackerLive =
-    mode === 'preview' || mode === '2d' || (mode === '3d' && threeView === 'live' && !paused);
+    mode === 'preview' || mode === '2d' || (mode === '3d' && threeView === 'live');
   const triggersActive = hasTriggers && trackerLive && cam.ready;
 
   // The landmarker is normally initialized by a mounted FaceRig (3D Live) — but
@@ -189,16 +192,23 @@ export default function StudioStage({
   // would ever load it and detectFaceNow would no-op silently (audit H-A8).
   // Initialize it ourselves (idempotent) and track readiness so the indicator
   // below never claims a live tracker that isn't.
-  const [trackerReady, setTrackerReady] = useState(false);
+  // Gated on the CAMERA, not on triggers: the single status chip reports tracker
+  // readiness in every tracked view, so readiness must be known even in a scene
+  // with no triggers. Init is idempotent (faceTracking caches the promise) and
+  // FaceRig self-initialises anyway.
+  const [trackerLoaded, setTrackerLoaded] = useState(isFaceLandmarkerReady);
   useEffect(() => {
-    if (!triggersActive) return;
+    if (!cam.ready || trackerLoaded) return;
     void initializeFaceLandmarker();
-    if (isFaceLandmarkerReady()) { setTrackerReady(true); return; }
+    if (isFaceLandmarkerReady()) { setTrackerLoaded(true); return; }
     const id = window.setInterval(() => {
-      if (isFaceLandmarkerReady()) { setTrackerReady(true); window.clearInterval(id); }
+      if (isFaceLandmarkerReady()) { setTrackerLoaded(true); window.clearInterval(id); }
     }, 400);
-    return () => { window.clearInterval(id); setTrackerReady(false); };
-  }, [triggersActive]);
+    // Readiness is MONOTONIC — once the landmarker is loaded it stays loaded, so
+    // this must never reset to false on cleanup (the old version did, and a
+    // trigger-set change flashed "Loading face tracker…" over a live tracker).
+    return () => window.clearInterval(id);
+  }, [cam.ready, trackerLoaded]);
 
   const triggerFxRef = useRef<TriggerEffectsHandle>(null);
 
@@ -312,84 +322,45 @@ export default function StudioStage({
   // content (SET_MODE is a pure view flip; the scene persists across 2D/3D/Preview).
   const visibleTabs = MODE_TABS;
 
+  // Preview needs something to show; SET_MODE silently no-ops otherwise, which
+  // made the tab look broken. Surface the precondition instead of swallowing it.
+  const previewReady = draftHasContent(draft);
+
+  // Gizmo drags hold the RENDERED pose so the piece does not swim under the
+  // pointer — they no longer stop tracking. This is deliberately local state,
+  // not a reducer flag: the old global `paused` outlived the interaction, was
+  // never cleared by a mode switch, and left hosts staring at a frozen face.
+  const [gizmoDragging, setGizmoDragging] = useState(false);
+  // Nothing holds a pose in orbit (no camera feed) — and a drag that ends while
+  // the view is switching must not leave the hold latched.
+  useEffect(() => { setGizmoDragging(false); }, [mode, threeView]);
+
+  // Whether the CURRENT view actually uses the tracker — orbit has no feed.
+  const trackerNeeded = mode === 'preview' || mode === '2d' || (mode === '3d' && threeView === 'live');
+  const status = stageStatus({
+    camError: cam.error,
+    camReady: cam.ready,
+    trackerNeeded,
+    trackerReady: trackerNeeded ? trackerLoaded : true,
+    faceVisible,
+    toast: triggerToast,
+  });
+
   return (
-    <div className="relative h-full w-full flex items-center justify-center p-3 md:p-5">
-      {/* Mode switcher — floating pill */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5">
-        <div className="flex items-center gap-1 liquid-glass rounded-full p-1">
-          {visibleTabs.map((t) => {
-            const active = mode === t.id;
-            // In 3D/Preview a sub-pill / caption band sits right below this
-            // pill (top-[3.35rem]) — push the tooltip past it so it never
-            // covers the control it describes.
-            const tipOffset = mode === '2d' ? undefined : 56;
-            return (
-              <Tooltip key={t.id} label={t.label} hint={t.hint} side="bottom" offset={tipOffset}>
-                <button
-                  onClick={() => dispatch({ type: 'SET_MODE', mode: t.id })}
-                  className="relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors"
-                >
-                  {active && (
-                    <motion.span
-                      layoutId="studio-mode-pill"
-                      className="absolute inset-0 rounded-full bg-accent/20 ring-1 ring-accent/40"
-                      transition={{ type: 'spring', stiffness: 400, damping: 32 }}
-                    />
-                  )}
-                  <t.icon className={`relative w-3.5 h-3.5 ${active ? 'text-accent-2' : 'text-brand-muted/60'}`} />
-                  <span className={`relative ${active ? 'text-brand-fg' : 'text-brand-muted/60'}`}>{t.label}</span>
-                </button>
-              </Tooltip>
-            );
-          })}
-        </div>
-        <HelpButton topic="modes" label="How 2D, 3D & Preview work" side="bottom" offset={mode === '2d' ? undefined : 56} variant="floating" />
-      </div>
-
-      {/* 3D sub-controls — sit BELOW the main switcher (centred) so they never
-          overlap it on narrow screens. */}
-      {mode === '3d' && (
-        <div className="absolute top-[3.35rem] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2">
-          <div className="flex items-center gap-1 liquid-glass rounded-full p-1">
-            {([
-              { v: 'orbit' as const, icon: Rotate3d, label: 'Model', hint: 'Reference head — drag to orbit, place with the gizmo' },
-              { v: 'live' as const, icon: ScanFace, label: 'Live', hint: 'Track your real face (WYSIWYG)' },
-            ]).map(({ v, icon: Icon, label, hint }) => (
-              <Tooltip key={v} label={label} hint={hint} side="bottom">
-                <button
-                  onClick={() => dispatch({ type: 'SET_THREE_VIEW', view: v })}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors ${threeView === v ? 'bg-accent/20 text-brand-fg ring-1 ring-accent/40' : 'text-brand-muted/60 hover:text-brand-fg'}`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {label}
-                </button>
-              </Tooltip>
-            ))}
-          </div>
-          {threeView === 'live' && (
-            <Tooltip label={paused ? 'Resume' : 'Pause'} hint="Freeze tracking to fine-tune placement" side="bottom">
-              <button
-                onClick={() => dispatch({ type: 'SET_PAUSED', paused: !paused })}
-                className={`flex items-center justify-center w-8 h-8 rounded-full liquid-glass transition-colors ${paused ? 'text-accent-2 ring-1 ring-accent/40' : 'text-brand-muted/60 hover:text-brand-fg'}`}
-              >
-                {paused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
-              </button>
-            </Tooltip>
-          )}
-        </div>
-      )}
-
-      {/* Stage body — 9:16 */}
+    <div
+      className="relative h-full w-full flex items-center justify-center p-3 md:p-5"
+      style={{ containerType: 'size' }}
+    >
+      {/* Stage body — a true 9:16 box. `height` is the min of the space available
+          and the height this width can support, so the ratio survives a
+          width-bound layout; `aspectRatio` alone does NOT (it only derives a
+          missing axis, and `h-full` made the height definite — so a phone or a
+          laptop with the Director open silently cropped the composite). */}
       <div
         ref={stageBodyRef}
-        className={`relative h-full rounded-2xl overflow-hidden liquid-glass transition-shadow ${dropActive ? 'ring-2 ring-accent shadow-[0_0_40px_-4px_var(--color-accent)]' : ''}`}
-        style={{ aspectRatio: '9/16', maxWidth: '100%' }}
+        className={`relative rounded-2xl overflow-hidden liquid-glass transition-shadow ${dropActive ? 'ring-2 ring-accent shadow-[0_0_40px_-4px_var(--color-accent)]' : ''}`}
+        style={{ aspectRatio: '9 / 16', height: 'min(100cqh, calc(100cqw * 16 / 9))' }}
       >
-        {/* Legibility scrim: the floating pills/captions are translucent glass —
-            over bright frame art or dense sticker stacks they lose contrast.
-            A soft top fade keeps the chrome readable without boxing it in. */}
-        <div className="absolute inset-x-0 top-0 h-24 z-10 pointer-events-none bg-gradient-to-b from-black/45 via-black/15 to-transparent" />
-
         {/* The ONE camera element — always mounted so the stream persists. */}
         <video
           id="studio-video"
@@ -407,6 +378,74 @@ export default function StudioStage({
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
           style={{ transform: 'scaleX(-1)', opacity: shaderActive ? 1 : 0 }}
         />
+
+        {/* ── The stage's ONE chrome band ────────────────────────────────────
+            Everything that floats over the artwork lives here, in a single flex
+            row inside the stage's own coordinate space. Previously the mode pill
+            was anchored to the OUTER wrapper while the trigger chip was anchored
+            to the stage body, so the two overlapped at every viewport; and each
+            centred pill was `absolute left-1/2`, which CSS shrink-to-fit caps at
+            half the container, wrapping the caption to three lines.
+            Status sits left, modes centre, the 3D view toggle right. */}
+        <div className="absolute top-2.5 inset-x-2.5 z-30 flex items-start gap-2">
+          <div className="flex-1 min-w-0 flex justify-start">
+            <StageStatusChip status={status} />
+          </div>
+
+          <div className="flex items-center gap-1 liquid-glass-raised rounded-full p-1 shrink-0">
+            {visibleTabs.map((t) => {
+              const active = mode === t.id;
+              const disabled = t.id === 'preview' && !previewReady;
+              return (
+                <Tooltip
+                  key={t.id}
+                  label={t.label}
+                  hint={disabled ? 'Add a frame, sticker, filter or prop first' : t.hint}
+                  side="bottom"
+                >
+                  <button
+                    onClick={() => dispatch({ type: 'SET_MODE', mode: t.id })}
+                    disabled={disabled}
+                    aria-pressed={active}
+                    data-testid={`studio-mode-${t.id}`}
+                    className="relative flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {active && (
+                      <motion.span
+                        layoutId="studio-mode-pill"
+                        className="absolute inset-0 rounded-full bg-accent/20 ring-1 ring-accent/40"
+                        transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+                      />
+                    )}
+                    <t.icon className={`relative w-3.5 h-3.5 ${active ? 'text-accent-2' : 'text-brand-muted/60'}`} />
+                    <span className={`relative hidden sm:inline ${active ? 'text-brand-fg' : 'text-brand-muted/60'}`}>{t.label}</span>
+                  </button>
+                </Tooltip>
+              );
+            })}
+          </div>
+
+          {/* 3D view toggle — one control, in the same band rather than a second
+              floating row stacked underneath the first. */}
+          <div className="flex-1 min-w-0 flex justify-end">
+            {mode === '3d' && (
+              <Tooltip
+                label={threeView === 'live' ? 'Reference head' : 'Your face'}
+                hint={threeView === 'live' ? 'Place against a reference head — no camera needed' : 'Track your real face (WYSIWYG)'}
+                side="bottom"
+              >
+                <button
+                  onClick={() => dispatch({ type: 'SET_THREE_VIEW', view: threeView === 'live' ? 'orbit' : 'live' })}
+                  data-testid="studio-view-toggle"
+                  aria-label={threeView === 'live' ? 'Show the reference head' : 'Show your face'}
+                  className="pressable flex items-center justify-center w-9 h-9 rounded-full liquid-glass-raised text-brand-muted/70 hover:text-brand-fg transition-colors"
+                >
+                  {threeView === 'live' ? <Rotate3d className="w-4 h-4" /> : <ScanFace className="w-4 h-4" />}
+                </button>
+              </Tooltip>
+            )}
+          </div>
+        </div>
 
         {/* 2D overlay(s) (border / sticker) with drag-to-place. Every visible
             overlay renders in array order OVER the filter canvas; the selected
@@ -472,14 +511,15 @@ export default function StudioStage({
                 drawer instead. lg+ keeps the pointer-through caption. */}
             {!hasAnyOverlay && draft.shaderId === 'none' && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-8 text-center">
-                <p className={`${onOpenAssets ? 'hidden lg:block' : ''} font-label text-[10px] uppercase tracking-widest text-brand-muted/50`}>Pick a frame or stickers from the left</p>
-                {onOpenAssets && (
+                {onOpenAssets ? (
                   <button
                     onClick={onOpenAssets}
-                    className="lg:hidden pointer-events-auto px-4 py-2.5 rounded-full liquid-glass text-[10px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors"
+                    className="pressable pointer-events-auto px-4 py-2.5 rounded-full liquid-glass-raised text-[10px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors"
                   >
-                    Pick a frame or sticker
+                    Add a frame or sticker
                   </button>
+                ) : (
+                  <p className="font-label text-[10px] uppercase tracking-widest text-brand-muted/50">Add a frame or sticker to begin</p>
                 )}
               </div>
             )}
@@ -496,7 +536,7 @@ export default function StudioStage({
               videoId="studio-video"
               objects={objects3d}
               selectedId={draft.selectedId}
-              paused={paused}
+              holdPose={gizmoDragging}
               headScale={headScale}
               occlusionEnabled={occlusionEnabled}
               debugOcclusion={debugOcclusion}
@@ -505,8 +545,8 @@ export default function StudioStage({
               onAnchorSelect={(a) => dispatch({ type: 'SELECT_ANCHOR', anchor: a })}
               onTransformChange={(patch) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch })}
               onFaceVisible={onFaceVisible}
-              onGizmoDragStart={() => dispatch({ type: 'SET_PAUSED', paused: true })}
-              onGizmoDragEnd={() => dispatch({ type: 'SET_PAUSED', paused: false })}
+              onGizmoDragStart={() => setGizmoDragging(true)}
+              onGizmoDragEnd={() => setGizmoDragging(false)}
             />
             </ErrorBoundary>
           </div>
@@ -539,41 +579,14 @@ export default function StudioStage({
           </div>
         )}
 
-        {/* Trigger-testing indicator — green only once the landmarker is truly
-            ready (2D, 3D-Live, or Preview); amber while it loads so the chip
-            never claims a live tracker that isn't (audit H-A8). */}
-        {triggersActive && (
-          <div data-testid="studio-trigger-indicator" className="absolute top-3 left-3 z-20 pointer-events-none">
-            <div className="liquid-glass rounded-full px-3 py-1.5 flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${trackerReady ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-              <ScanFace className="w-3 h-3 text-accent-2" />
-              <span className="font-label text-[9px] uppercase tracking-widest text-brand-muted">
-                {trackerReady ? 'Testing triggers' : 'Loading face tracker…'}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Live-view trigger toast — reveal/filterPulse register here instead of
-            mutating the editing scene (Preview fully simulates them instead). */}
-        {triggerToast && (
-          <div data-testid="studio-trigger-toast" className="absolute bottom-12 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-            <div className="liquid-glass rounded-full px-3.5 py-1.5 flex items-center gap-1.5 animate-rise-in">
-              <Sparkles className="w-3 h-3 text-accent-2" />
-              <span className="font-label text-[9px] uppercase tracking-widest text-brand-fg whitespace-nowrap">{triggerToast}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Test on phone — every mode, floating bottom-right (the modal itself
-            handles unsaved/hidden drafts). In preview the status caption moves
-            up under the mode pill (see below); in 2D/3D the caption is
-            pointer-through, so the pill stays tappable on narrow stages. */}
+        {/* Test on phone — the one persistent ACTION on the stage (the modal
+            itself handles unsaved/hidden drafts). The bottom band is otherwise
+            empty now, so it can never collide with a caption again. */}
         {onTestOnPhone && (
           <div className="absolute bottom-3 right-3 z-20">
             <button
               onClick={onTestOnPhone}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-full liquid-glass text-[10px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors"
+              className="pressable flex items-center gap-1.5 px-3 py-2 rounded-full liquid-glass-raised text-[10px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors"
             >
               <Smartphone className="w-3.5 h-3.5" />
               <span>Test on phone</span>
@@ -590,54 +603,28 @@ export default function StudioStage({
           </div>
         )}
 
-        {/* Status caption — in preview it sits under the mode pill (the 3D
-            sub-controls slot); in 2D/3D it sits at the bottom, lifted above the
-            Test-on-phone pill on narrow stages (sm-) so the two never overlap. */}
-        <div
-          className={`absolute left-1/2 -translate-x-1/2 z-20 pointer-events-none ${
-            mode === 'preview' ? 'top-[3.35rem]' : 'bottom-16 sm:bottom-3'
-          }`}
-        >
-          <StageCaption mode={mode} threeView={threeView} paused={paused} faceVisible={faceVisible} filterActive={draft.shaderId !== 'none'} objectCount={overlays.length} />
-        </div>
       </div>
     </div>
   );
 }
 
-function StageCaption({
-  mode,
-  threeView,
-  paused,
-  faceVisible,
-  filterActive,
-  objectCount,
-}: {
-  mode: string;
-  threeView: string;
-  paused: boolean;
-  faceVisible: boolean;
-  filterActive: boolean;
-  objectCount: number;
-}) {
-  let text = '';
-  let tone = 'text-brand-muted/60';
-  // A filter now rides alongside objects, so it's a suffix on the 2D caption
-  // rather than a whole distinct mode.
-  const filterNote = filterActive ? ' · filter on' : '';
-  if (mode === 'preview') text = 'Live preview — exactly what guests capture';
-  else if (mode === '2d' && objectCount > 0) text = `${objectCount} object${objectCount === 1 ? '' : 's'} · drag to place · scroll to scale${filterNote}`;
-  else if (mode === '2d' && filterActive) text = 'Live filter preview';
-  else if (mode === '2d') text = 'Drag to place · scroll to scale';
-  else if (mode === '3d' && threeView === 'orbit') text = 'Drag to orbit · click a dot to anchor · gizmo to place';
-  else if (mode === '3d' && paused) { text = 'Tracking paused — adjust, then resume'; tone = 'text-accent-2'; }
-  else if (mode === '3d' && faceVisible) { text = 'Face detected — drag the gizmo to place'; tone = 'text-emerald-400/90'; }
-  else if (mode === '3d') text = 'Look into the camera to preview placement';
-  if (!text) return null;
+/**
+ * The stage's ONE status affordance. Renders nothing when there is nothing worth
+ * saying, which is most of the time — replacing a permanent instructional
+ * caption, a trigger-testing chip and a separate centred tracker-loading pill.
+ */
+function StageStatusChip({ status }: { status: StageStatus | null }) {
+  if (!status) return null;
   return (
-    <div className="liquid-glass rounded-full px-3.5 py-1.5 flex items-center gap-2">
-      {mode === '2d' && filterActive && <Sparkles className="w-3 h-3 text-accent-2" />}
-      <span className={`font-label text-[9px] uppercase tracking-widest ${tone}`}>{text}</span>
+    <div data-testid="studio-stage-status" className="pointer-events-none max-w-full">
+      <div className="liquid-glass-raised rounded-full pl-2.5 pr-3 py-1.5 flex items-center gap-1.5 min-w-0">
+        <span
+          className={`w-1.5 h-1.5 rounded-full shrink-0 ${STAGE_STATUS_DOT_CLASS[status.tone]} ${status.live ? 'animate-pulse' : ''}`}
+        />
+        <span className={`font-label text-[9px] uppercase tracking-widest truncate ${STAGE_STATUS_TONE_CLASS[status.tone]}`}>
+          {status.text}
+        </span>
+      </div>
     </div>
   );
 }

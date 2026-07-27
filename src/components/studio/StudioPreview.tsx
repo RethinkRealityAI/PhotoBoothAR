@@ -51,7 +51,12 @@ export default function StudioPreview({ videoRef, draft, headScale, occlusionEna
 
   return (
     <div className="relative h-full w-full flex items-center justify-center">
-      <div className="relative h-full" style={{ aspectRatio: '9/16', maxWidth: '100%' }}>
+      {/* The stage body is already an exact 9:16 box (StudioStage sizes it via
+          fitStageBox semantics), so fill it. This used to re-declare
+          `h-full` + `aspectRatio` + `maxWidth`, which is NOT a 9:16 box when
+          width binds — the ratio silently changed and object-cover cropped the
+          composite the host was told matched the guest capture. */}
+      <div className="relative h-full w-full">
         <StageCanvas
           videoRef={videoRef}
           effectId={effectIdOverride ?? draft.shaderId}

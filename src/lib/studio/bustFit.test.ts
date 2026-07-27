@@ -163,12 +163,12 @@ describe('computeAnchorAlignedFit', () => {
     const fit = computeAnchorAlignedFit(sphereCloud(1), anchorsAt(3))!;
     expect(fit).not.toBeNull();
     expect(fit.worstClearance).toBeGreaterThanOrEqual(0);
-    // Every anchor should land in the free band: outside the mesh, but not
-    // hovering further than the clearance target. (The cost is flat across that
-    // band by design, so the exact scale inside it is not the contract.)
+    // On a sphere every anchor is equidistant, so the optimum puts them all at
+    // exactly the clearance target — the dots hug the surface rather than
+    // hovering. Tolerance covers the search's step granularity.
     for (const c of fit.clearances) {
       expect(c).toBeGreaterThanOrEqual(0);
-      expect(c).toBeLessThanOrEqual(ANCHOR_CLEARANCE_CM + 1e-6);
+      expect(Math.abs(c - ANCHOR_CLEARANCE_CM)).toBeLessThanOrEqual(0.15);
     }
     // Sanity: the sphere must end up smaller than the anchor shell it sits in.
     expect(fit.scale).toBeLessThan(3);
