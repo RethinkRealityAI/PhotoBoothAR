@@ -376,19 +376,19 @@ export default function StudioStage({
           style={{ transform: 'scaleX(-1)', opacity: shaderActive ? 1 : 0 }}
         />
 
-        {/* ── The stage's ONE chrome band ────────────────────────────────────
-            Everything that floats over the artwork lives here, in a single flex
-            row inside the stage's own coordinate space. Previously the mode pill
-            was anchored to the OUTER wrapper while the trigger chip was anchored
-            to the stage body, so the two overlapped at every viewport; and each
-            centred pill was `absolute left-1/2`, which CSS shrink-to-fit caps at
-            half the container, wrapping the caption to three lines.
-            Status sits left, modes centre, the 3D view toggle right. */}
-        <div className="absolute top-2.5 inset-x-2.5 z-30 flex items-start gap-2">
-          <div className="flex-1 min-w-0 flex justify-start">
-            <StageStatusChip status={status} />
-          </div>
+        {/* ── TOP BAND: what am I editing ────────────────────────────────────
+            The mode switcher, truly centred, with the 3D view toggle pinned
+            right. Everything floating over the artwork now lives in this band or
+            the bottom one, both in the STAGE's coordinate space — the mode pill
+            used to be anchored to the OUTER wrapper while the trigger chip was
+            anchored to the stage body, so they overlapped at every viewport.
 
+            Status deliberately does NOT live here. Measured: the band is 429px,
+            the pill takes 245, so a three-cell row leaves 84px per side for text
+            that needs 99 — it truncated to "LOADIN…" at every width, and the
+            right cell was wasting all 84 on a 36px button. The bottom band is
+            free, so status went there and gets its natural width. */}
+        <div className="absolute top-2.5 inset-x-2.5 z-30 flex items-start justify-center">
           <div className="flex items-center gap-1 liquid-glass-raised rounded-full p-1 shrink-0">
             {visibleTabs.map((t) => {
               const active = mode === t.id;
@@ -422,9 +422,9 @@ export default function StudioStage({
             })}
           </div>
 
-          {/* 3D view toggle — one control, in the same band rather than a second
+          {/* 3D view toggle — pinned right in the same band rather than a second
               floating row stacked underneath the first. */}
-          <div className="flex-1 min-w-0 flex justify-end">
+          <div className="absolute right-0 top-0">
             {mode === '3d' && (
               <Tooltip
                 label={threeView === 'live' ? 'Reference head' : 'Your face'}
@@ -577,20 +577,26 @@ export default function StudioStage({
           </div>
         )}
 
-        {/* Test on phone — the one persistent ACTION on the stage (the modal
-            itself handles unsaved/hidden drafts). The bottom band is otherwise
-            empty now, so it can never collide with a caption again. */}
-        {onTestOnPhone && (
-          <div className="absolute bottom-3 right-3 z-20">
+        {/* ── BOTTOM BAND: what is happening ─────────────────────────────────
+            Live status on the left (nothing when there is nothing to say, which
+            is most of the time), and the one persistent ACTION on the right. */}
+        <div className="absolute bottom-3 inset-x-3 z-20 flex items-end justify-between gap-2 pointer-events-none">
+          {/* Always render the status SLOT, even when there is no status: with
+              justify-between, an absent first child sends Test-on-phone to the
+              left edge. */}
+          <div className="min-w-0">
+            <StageStatusChip status={status} />
+          </div>
+          {onTestOnPhone ? (
             <button
               onClick={onTestOnPhone}
-              className="pressable flex items-center gap-1.5 px-3 py-2 rounded-full liquid-glass-raised text-[10px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors"
+              className="pressable pointer-events-auto shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-full liquid-glass-raised text-[10px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors"
             >
               <Smartphone className="w-3.5 h-3.5" />
               <span>Test on phone</span>
             </button>
-          </div>
-        )}
+          ) : <span />}
+        </div>
 
         {/* Camera error */}
         {cam.error && showVideo && (
