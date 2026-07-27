@@ -25,7 +25,7 @@ import StudioPreview from './StudioPreview';
 import Tooltip from '../ui/Tooltip';
 import ErrorBoundary from '../ui/ErrorBoundary';
 import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
-import { createTriggerEngine, TRIGGER_SOURCE_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
+import { createTriggerEngine, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
 import { initializeFaceLandmarker, isFaceLandmarkerReady } from '../../lib/faceTracking';
 import { REVEAL_SHIMMER_MS } from '../../lib/studio/reveal';
@@ -215,11 +215,7 @@ export default function StudioStage({
   // Preview-only full simulation: reveal-target pieces stay hidden until fired,
   // and a filterPulse temporarily swaps the preview's shader. The live editing
   // views never mutate the scene — they surface a transient toast instead.
-  const revealTargetIds = useMemo(() => {
-    const s = new Set<string>();
-    for (const t of triggers) if (t.action.type === 'reveal') s.add(t.action.objectId);
-    return s;
-  }, [triggers]);
+  const revealTargetIds = useMemo(() => revealTargetIdsOf(triggers), [triggers]);
   const [revealedIds, setRevealedIds] = useState<Set<string>>(() => new Set());
   const [reveal, setReveal] = useState(false);
   const revealTimerRef = useRef<number | null>(null);
@@ -563,6 +559,7 @@ export default function StudioStage({
               occlusionEnabled={occlusionEnabled}
               onFaceVisible={onFaceVisible}
               hiddenObjectIds={hiddenObjectIds}
+              revealTargetIds={revealTargetIds}
               effectIdOverride={pulseShaderId ?? undefined}
               reveal={reveal}
             />

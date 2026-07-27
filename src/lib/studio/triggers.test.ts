@@ -4,6 +4,12 @@ import {
   parseTriggers,
   sourceSignal,
   type TriggerConfig,
+  revealTargetIdsOf,
+  isLayerVisible,
+  resolvePulseShader,
+  pulseRestoreValue,
+  triggerHintText,
+  shouldRunTriggers,
 } from './triggers';
 
 const smile = (over: Partial<TriggerConfig> = {}): TriggerConfig => ({
@@ -185,5 +191,113 @@ describe('parseTriggers — garbage in', () => {
     ]);
     expect(a.action).toEqual({ type: 'filterPulse', shaderId: 'vhs', durationMs: 1200 });
     expect(b.action).toEqual({ type: 'filterPulse' });
+  });
+});
+
+/* — scene visibility + effect resolution ---------------------------------- */
+
+describe('revealTargetIdsOf', () => {
+  it('collects only reveal targets', () => {
+    const ids = revealTargetIdsOf([
+      { id: 'a', source: 'smile', action: { type: 'reveal', objectId: 'obj-1' } },
+      { id: 'b', source: 'wink', action: { type: 'burst', style: 'hearts' } },
+      { id: 'c', source: 'browRaise', action: { type: 'reveal', objectId: 'obj-2' } },
+    ]);
+    expect([...ids].sort()).toEqual(['obj-1', 'obj-2']);
+  });
+
+  it('is empty for a scene with no reveals', () => {
+    expect(revealTargetIdsOf([{ id: 'a', source: 'smile', action: { type: 'burst', style: 'confetti' } }]).size).toBe(0);
+  });
+});
+
+describe('isLayerVisible', () => {
+  const targets = new Set(['hero']);
+
+  it('shows an ordinary layer unless it is eye-hidden', () => {
+    expect(isLayerVisible({ id: 'x' }, targets, new Set())).toBe(true);
+    expect(isLayerVisible({ id: 'x', hidden: true }, targets, new Set())).toBe(false);
+  });
+
+  it('hides a reveal target until its trigger fires', () => {
+    expect(isLayerVisible({ id: 'hero' }, targets, new Set())).toBe(false);
+    expect(isLayerVisible({ id: 'hero' }, targets, new Set(['hero']))).toBe(true);
+  });
+
+  it('lets a fired reveal override the editor eye toggle', () => {
+    // The divergence this replaces: StudioPreview ANDed the two conditions, so
+    // an eye-hidden reveal target could never appear however often it fired.
+    expect(isLayerVisible({ id: 'hero', hidden: true }, targets, new Set(['hero']))).toBe(true);
+  });
+});
+
+describe('resolvePulseShader', () => {
+  it('returns null when the pulse would be invisible', () => {
+    expect(resolvePulseShader(undefined, 'velvet')).toBeNull();   // the shipped default
+    expect(resolvePulseShader('none', 'velvet')).toBeNull();
+    expect(resolvePulseShader('velvet', 'velvet')).toBeNull();    // same as ambient
+  });
+
+  it('returns the requested shader when it is genuinely distinct', () => {
+    expect(resolvePulseShader('bloom', 'velvet')).toBe('bloom');
+    expect(resolvePulseShader('bloom', 'none')).toBe('bloom');
+  });
+});
+
+describe('pulseRestoreValue', () => {
+  it('restores the prior filter when the pulse is still showing', () => {
+    expect(pulseRestoreValue('pulse', 'pulse', 'velvet')).toBe('velvet');
+  });
+
+  it('leaves a filter the guest picked mid-pulse alone', () => {
+    expect(pulseRestoreValue('guest-pick', 'pulse', 'velvet')).toBe('guest-pick');
+  });
+});
+
+describe('triggerHintText', () => {
+  it('is null with no triggers', () => {
+    expect(triggerHintText([])).toBeNull();
+  });
+
+  it('names the actual source rather than always saying smile', () => {
+    expect(triggerHintText([{ id: 'a', source: 'wink', action: { type: 'burst', style: 'hearts' } }]))
+      .toBe('Wink for a surprise');
+    expect(triggerHintText([{ id: 'a', source: 'mouthOpen', action: { type: 'burst', style: 'hearts' } }]))
+      .toBe('Open your mouth for a surprise');
+  });
+
+  it('groups by distinct SOURCE, not by trigger count', () => {
+    const twoSmiles = triggerHintText([
+      { id: 'a', source: 'smile', action: { type: 'burst', style: 'hearts' } },
+      { id: 'b', source: 'smile', action: { type: 'burst', style: 'confetti' } },
+    ]);
+    expect(twoSmiles).toBe('Smile for a surprise');
+    const mixed = triggerHintText([
+      { id: 'a', source: 'smile', action: { type: 'burst', style: 'hearts' } },
+      { id: 'b', source: 'wink', action: { type: 'burst', style: 'confetti' } },
+    ]);
+    expect(mixed).toBe('Make a face for a surprise');
+  });
+});
+
+describe('shouldRunTriggers', () => {
+  it('runs during the COUNTDOWN — the smile people make for the shutter', () => {
+    expect(shouldRunTriggers('db', true, 'countdown', true)).toBe(true);
+  });
+
+  it('runs while the camera is live', () => {
+    expect(shouldRunTriggers('db', true, 'camera', true)).toBe(true);
+  });
+
+  it('stops once the capture is done or being reviewed', () => {
+    for (const phase of ['flash', 'review', 'sending', 'sent']) {
+      expect(shouldRunTriggers('db', true, phase, true)).toBe(false);
+    }
+  });
+
+  it('never runs for coded/legacy events, empty scenes, or an unready camera', () => {
+    expect(shouldRunTriggers('code', true, 'camera', true)).toBe(false);
+    expect(shouldRunTriggers('db', false, 'camera', true)).toBe(false);
+    expect(shouldRunTriggers('db', true, 'camera', false)).toBe(false);
   });
 });
