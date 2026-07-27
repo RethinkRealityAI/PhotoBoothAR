@@ -10,7 +10,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
 import { initializeFaceLandmarker } from '../../lib/faceTracking';
-import { updateHeadPose, detectFaceNow, ANCHOR_MAP } from '../../lib/faceRig';
+import { updateHeadPose, detectFaceNow, scaledAnchorBase, ANCHOR_MAP } from '../../lib/faceRig';
 import { AnchorConfig, HeadAnchor } from '../../types';
 import AssetGizmo from './AssetGizmo';
 import FaceOccluder from './FaceOccluder';
@@ -141,7 +141,9 @@ export function FaceRig({
     }
   });
 
-  const base = ANCHOR_MAP[anchor]?.offset ?? ([0, 0, 0] as [number, number, number]);
+  // Anchors scale WITH the calibrated head — otherwise raising headScale grows
+  // the occluder around a prop that stayed put, and the head eats it.
+  const base = scaledAnchorBase(ANCHOR_MAP[anchor]?.offset ?? [0, 0, 0], headScale);
 
   return (
     <group ref={head} visible={false}>

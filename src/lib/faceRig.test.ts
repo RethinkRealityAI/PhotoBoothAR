@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { composeAnchorMatrix, decomposeAnchorMatrix, medianOf } from './faceRig';
+import { composeAnchorMatrix, decomposeAnchorMatrix, medianOf , scaledAnchorBase} from './faceRig';
 
 const ZERO: [number, number, number] = [0, 0, 0];
 
@@ -93,5 +93,28 @@ describe('medianOf (head-fit estimator)', () => {
 
   it('a single sample is its own median', () => {
     expect(medianOf([1.07], 1, scratch())).toBeCloseTo(1.07, 6);
+  });
+});
+
+describe('scaledAnchorBase', () => {
+  it('is the identity at headScale 1 — every legacy event renders unchanged', () => {
+    const raw: [number, number, number] = [0, 8.3, 4.0];
+    expect(scaledAnchorBase(raw, 1)).toEqual([0, 8.3, 4.0]);
+  });
+
+  it('moves the anchor outward with a bigger calibrated head', () => {
+    const [x, y, z] = scaledAnchorBase([0, 8.3, 4.0], 1.3);
+    expect(x).toBeCloseTo(0, 6);
+    expect(y).toBeCloseTo(10.79, 6);
+    expect(z).toBeCloseTo(5.2, 6);
+  });
+
+  it('pulls the anchor in with a smaller head', () => {
+    const [, y] = scaledAnchorBase([0, 8.3, 4.0], 0.85);
+    expect(y).toBeCloseTo(7.055, 6);
+  });
+
+  it('falls back to the raw offset for a non-finite scale', () => {
+    expect(scaledAnchorBase([1, 2, 3], NaN)).toEqual([1, 2, 3]);
   });
 });
