@@ -5,8 +5,9 @@
  * ReferenceBust — the visual reference head shown in the studio's 3D orbit view
  * (a stand-in for the guest so anchors/props read in context). It renders the
  * realistic head-bust GLB (vendored to public/models/reference-head.glb via
- * scripts/remote-assets.json), normalized to the tracker's centimetre head
- * space by computeBustFit. GLB-ONLY by user decision (W8): while loading, and
+ * scripts/remote-assets.json), aligned to the tracker's centimetre head space by
+ * computeAnchorAlignedFit so every attachment point stays clear of the mesh
+ * (computeBustFit stays as the fallback). GLB-ONLY by user decision (W8): while loading, and
  * if the GLB is missing or fails, it renders NOTHING — the old procedural head
  * used to flash before the GLB swapped in and must never show.
  *
@@ -16,19 +17,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
-import { computeBustFit } from '../../lib/studio/bustFit';
+import { computeBustFit, computeAnchorAlignedFit, collectWorldPositions } from '../../lib/studio/bustFit';
+import { ANCHOR_PRESETS } from '../../lib/faceRig';
 
 /** Served from public/; 404s (→ procedural fallback) until CI vendors it. */
 const BUST_URL = `${import.meta.env.BASE_URL}models/reference-head.glb`;
 
-/**
- * Studio-orbit-only VISUAL magnifier: the strictly head-sized (17.7cm) bust
- * read too small next to props, so render it 2x. Applied to both the fitted
- * scale AND the centring offset (the offset is -center·scale, so it must
- * scale by the same factor to keep the bust centred at the origin). Purely
- * cosmetic — booth tracking, prop fit, and the occluder never read this.
- */
-const REFERENCE_HEAD_SCALE = 2;
+/** Anchor offsets the bust is aligned against (cm) — the calibration target. */
+const ANCHOR_OFFSETS = ANCHOR_PRESETS.map((a) => a.offset);
 
 /**
  * Scale + centre a raw bust mesh so its crown-to-chin height matches the head
@@ -57,24 +53,50 @@ function loadBust(): Promise<THREE.Group | null> {
   return _bustPromise;
 }
 
-function GlbBust({ scene }: { scene: THREE.Group }) {
+function GlbBust({ scene, onFit }: { scene: THREE.Group; onFit?: (b: BustBounds) => void }) {
   const fitted = useMemo(() => {
     const obj = scene.clone(true);
-    const fit = computeBustFit(obj);
-    return fit ? { object: obj, ...fit } : null;
+    // Align the mesh to the ANCHOR CLOUD rather than stretching its bounding box
+    // to head height. The anchors are the calibration (they were measured
+    // against MediaPipe's canonical face), so a fit that keeps every anchor just
+    // clear of the surface is a reference head that agrees with what the tracker
+    // will do to a real guest — and, crucially, one whose attachment points are
+    // not swallowed. Measured on the vendored bust: the old whole-bbox fit x2
+    // buried all 12 anchors 2.9–8.8cm deep; this puts 12 of 12 outside.
+    const points = collectWorldPositions(obj);
+    const aligned = computeAnchorAlignedFit(points, ANCHOR_OFFSETS);
+    // Degrade, never fail: an unmeasurable mesh keeps the legacy bbox fit.
+    const fit = aligned ?? computeBustFit(obj);
+    if (!fit) return null;
+    let minY = Infinity, maxY = -Infinity;
+    for (let i = 1; i < points.length; i += 3) {
+      const y = points[i] * fit.scale + fit.position[1];
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    return { object: obj, ...fit, minY, maxY };
   }, [scene]);
+
+  useEffect(() => {
+    if (fitted && Number.isFinite(fitted.minY)) onFit?.({ minY: fitted.minY, maxY: fitted.maxY });
+  }, [fitted, onFit]);
+
   if (!fitted) return null;
   return (
-    <group
-      scale={fitted.scale * REFERENCE_HEAD_SCALE}
-      position={fitted.position.map((p) => p * REFERENCE_HEAD_SCALE) as [number, number, number]}
-    >
+    <group scale={fitted.scale} position={fitted.position}>
       <primitive object={fitted.object} />
     </group>
   );
 }
 
-export default function ReferenceBust() {
+/** Vertical extent of the fitted bust in head space (cm) — lets the orbit view
+ *  frame whatever bust is actually vendored instead of a hard-coded guess. */
+export interface BustBounds {
+  minY: number;
+  maxY: number;
+}
+
+export default function ReferenceBust({ onFit }: { onFit?: (b: BustBounds) => void } = {}) {
   const [scene, setScene] = useState<THREE.Group | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -86,7 +108,7 @@ export default function ReferenceBust() {
     return () => { alive = false; };
   }, []);
 
-  if (scene && !failed) return <GlbBust scene={scene} />;
+  if (scene && !failed) return <GlbBust scene={scene} onFit={onFit} />;
   // Loading or failed: nothing. Anchor dots still give spatial context, and a
   // brief empty beat beats the wrong head appearing then swapping.
   return null;

@@ -13,17 +13,18 @@
  * Replaces the deleted creator3d ModelCanvas + LiveCanvas; the live sub-view no
  * longer opens its own getUserMedia — the shell owns the one stream.
  */
-import { Suspense, useEffect, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import type { ThreeEvent } from '@react-three/fiber';
+import type * as THREE from 'three';
 import { initializeFaceLandmarker, isFaceLandmarkerReady } from '../../lib/faceTracking';
 import { ANCHOR_MAP, RIG_CAMERA } from '../../lib/faceRig';
 import { FaceRig, Model } from '../ar/FaceRig';
 import AssetGizmo from '../ar/AssetGizmo';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
 import FaceOccluder from '../ar/FaceOccluder';
-import ReferenceBust from '../ar/ReferenceBust';
+import ReferenceBust, { type BustBounds } from '../ar/ReferenceBust';
 import AnchorDots from '../admin/creator3d/AnchorDots';
 import type { AnchorConfig, HeadAnchor } from '../../types';
 import type { Object3D } from '../../lib/studio/state';
@@ -46,6 +47,48 @@ interface Props {
   onFaceVisible?: (v: boolean) => void;
   onGizmoDragStart?: () => void;
   onGizmoDragEnd?: () => void;
+}
+
+/** Extra head space kept above the crown so tall pieces (top hats, halos,
+ *  crowns) stay in frame. */
+const CROWN_HEADROOM_CM = 9;
+/** How much of the bust below the crown to keep in shot — a head plus a little
+ *  neck. The vendored bust continues well past that into a plinth nobody is
+ *  placing anything on. */
+const HEAD_FRAME_CM = 22;
+/** Breathing room around the framed extent. */
+const FRAME_PADDING = 1.12;
+
+/**
+ * Frames the orbit camera on the bust that actually loaded. The camera used to
+ * be a constant tuned for a bust rendered at 2x life size; now that the bust is
+ * fitted to the anchor space, the right distance depends on the asset, so it is
+ * derived instead of guessed.
+ */
+function FrameBust({ bounds }: { bounds: BustBounds | null }) {
+  const camera = useThree((s) => s.camera);
+  // R3F types `state.controls` as a bare EventDispatcher; OrbitControls
+  // (makeDefault) is what actually lands there, so narrow by shape at runtime.
+  const controls = useThree((s) => s.controls) as unknown as
+    | { target?: THREE.Vector3; update?: () => void }
+    | null;
+  useEffect(() => {
+    if (!bounds || !Number.isFinite(bounds.maxY) || !Number.isFinite(bounds.minY)) return;
+    const top = bounds.maxY + CROWN_HEADROOM_CM;
+    const bottom = Math.max(bounds.minY, bounds.maxY - HEAD_FRAME_CM);
+    const height = Math.max(1, top - bottom);
+    const centre = (top + bottom) / 2;
+    const fov = ((camera as THREE.PerspectiveCamera).fov ?? 42) * (Math.PI / 180);
+    const dist = (height / 2 / Math.tan(fov / 2)) * FRAME_PADDING;
+    camera.position.set(0, centre + dist * 0.05, dist);
+    camera.lookAt(0, centre, 0);
+    camera.updateProjectionMatrix();
+    if (controls?.target && controls.update) {
+      controls.target.set(0, centre, 0);
+      controls.update();
+    }
+  }, [bounds, camera, controls]);
+  return null;
 }
 
 function ObjectContent({ object }: { object: Object3D }) {
@@ -71,6 +114,12 @@ export default function Studio3DView({
   onGizmoDragStart,
   onGizmoDragEnd,
 }: Props) {
+  const [bustBounds, setBustBounds] = useState<BustBounds | null>(null);
+  // Stable identity: ReferenceBust reports its fit from an effect, so an inline
+  // callback would re-run it on every render of this view.
+  const handleBustFit = useCallback((b: BustBounds) => {
+    setBustBounds((prev) => (prev && prev.minY === b.minY && prev.maxY === b.maxY ? prev : b));
+  }, []);
   const selected = objects.find((o) => o.id === selectedId) ?? null;
   // AnchorDots highlight the SELECTED object's anchor (or crown when none).
   const activeAnchor: HeadAnchor = selected?.anchor ?? 'crown';
@@ -102,14 +151,14 @@ export default function Studio3DView({
         <Suspense fallback={null}>
         <color attach="background" args={['#05060B']} />
         <fog attach="fog" args={['#05060B', 70, 170]} />
-        {/* Target slightly below head centre → the head sits low in frame,
-            leaving headroom above the crown for tall pieces + the pills. */}
-        <OrbitControls makeDefault enableDamping dampingFactor={0.1} target={[0, -3, 2]} />
+        {/* Target + distance are derived from the fitted bust by FrameBust. */}
+        <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
+        <FrameBust bounds={bustBounds} />
         <ambientLight intensity={0.6} />
         <directionalLight position={[8, 14, 12]} intensity={1.3} color="#EAF1FF" />
         <directionalLight position={[-9, 5, -7]} intensity={0.4} color="#5B8CFF" />
 
-        <ReferenceBust />
+        <ReferenceBust onFit={handleBustFit} />
         {/* Occluder shown faintly in orbit only when debugging placement. */}
         {debugOcclusion && <FaceOccluder scale={headScale} debug />}
         <AnchorDots activeAnchor={activeAnchor} onSelect={onAnchorSelect} />
