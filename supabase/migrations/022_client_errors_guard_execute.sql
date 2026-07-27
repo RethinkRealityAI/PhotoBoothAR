@@ -1,0 +1,24 @@
+-- 022: Take EXECUTE on the client_errors rate-guard away from the API roles.
+--
+-- Follow-up to 021, which shipped `client_errors_rate_guard()` as a SECURITY
+-- DEFINER trigger function but only revoked EXECUTE on its sibling
+-- `client_errors_purge()`. PostgREST exposes every function in `public`, so the
+-- guard became callable as `/rest/v1/rpc/client_errors_rate_guard` by anon and
+-- authenticated — which the Supabase advisor flagged, correctly, right after
+-- the deploy.
+--
+-- The practical risk was low: calling a plpgsql TRIGGER function outside a
+-- trigger raises, so an attacker gets an error rather than an effect. But a
+-- SECURITY DEFINER function on the public API surface is exactly the thing that
+-- becomes a real hole the day someone edits it without remembering how it is
+-- reachable. Cheaper to close now than to reason about later.
+--
+-- Revoking is SAFE for the trigger itself: PostgreSQL checks EXECUTE on a
+-- trigger function when the TRIGGER IS CREATED, not each time it fires, so the
+-- guard keeps running for anonymous inserts with no privilege of its own.
+-- Verified against the live database rather than assumed — after the revoke,
+-- 45 inserts from one session still landed exactly 40 rows.
+--
+-- Idempotent.
+
+revoke all on function public.client_errors_rate_guard() from public, anon, authenticated;
