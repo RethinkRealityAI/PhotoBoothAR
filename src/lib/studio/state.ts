@@ -377,7 +377,7 @@ export type StudioAction =
   | { type: 'SET_SHADER_PARAMS'; params: Record<string, number> }
   | { type: 'CLEAR_FILTER' }
   | { type: 'SELECT_BUILTIN'; borderId: string; url: string }
-  | { type: 'SET_OVERLAY_UPLOAD'; url: string; blob: Blob | null; overlayKind?: 'border' | '2d_filter' }
+  | { type: 'SET_OVERLAY_UPLOAD'; url: string; blob: Blob | null; overlayKind?: 'border' | '2d_filter'; name?: string }
   | { type: 'CLEAR_OVERLAY' }
   | { type: 'SET_TRANSFORM'; transform: Transform2D }
   | { type: 'SELECT_ANCHOR'; anchor: HeadAnchor }
@@ -477,7 +477,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         url: action.url,
         blob: action.blob,
         isBuiltin: false,
-        name: 'Custom overlay',
+        name: action.name?.trim() || 'Custom overlay',
       });
       const nd = overlayKind === 'border' ? placeFrame(d, obj) : appendObject(d, obj);
       if (!nd) return state;

@@ -37,15 +37,24 @@ const LEGACY_EVENT_IDS = new Set(['hope-gala', 'jenna-jake', 'detola-wuyi']);
 /* Experiences (studio-authored AR filters / borders / 3D / shaders)   */
 /* ------------------------------------------------------------------ */
 
-export async function fetchExperiences(eventId: string, opts?: { publishedOnly?: boolean }): Promise<Experience[]> {
+export async function fetchExperiencesResult(
+  eventId: string,
+  opts?: { publishedOnly?: boolean },
+): Promise<ListResult<Experience>> {
   let q = supabase.from('experiences').select('*').eq('event_id', eventId).order('sort_order').order('created_at');
   if (opts?.publishedOnly) q = q.eq('is_published', true);
   const { data, error } = await q;
   if (error) {
     console.error('[db] fetchExperiences', error);
-    return [];
+    return { rows: [], failed: true };
   }
-  return (data as Experience[]) ?? [];
+  return { rows: (data as Experience[]) ?? [], failed: false };
+}
+
+/** Experiences, or [] on failure. Use fetchExperiencesResult wherever the caller
+ *  renders an empty state a host could mistake for "you have no assets". */
+export async function fetchExperiences(eventId: string, opts?: { publishedOnly?: boolean }): Promise<Experience[]> {
+  return (await fetchExperiencesResult(eventId, opts)).rows;
 }
 
 /**
@@ -367,16 +376,17 @@ export interface StoredAsset {
  * (nothing on a live event breaks); they simply no longer appear in anyone's
  * library, and platform admins retain full read for support (migration 017).
  */
-export async function listAssets(eventId: string): Promise<StoredAsset[]> {
+export async function listAssetsResult(eventId: string): Promise<ListResult<StoredAsset>> {
   const prefix = `${eventId}/uploads`;
   const { data, error } = await supabase.storage
     .from(ASSETS_BUCKET)
     .list(prefix, { limit: 1000, sortBy: { column: 'created_at', order: 'desc' } });
   if (error || !data) {
     if (error) console.error('[db] listAssets', error);
-    return [];
+    // No data with no error is an empty folder, not a failure.
+    return { rows: [], failed: !!error };
   }
-  return data
+  const rows = data
     .filter((f) => f.name && !f.name.startsWith('.'))
     .map((f) => {
       const meta = (f.metadata ?? null) as { size?: number; mimetype?: string } | null;
@@ -392,6 +402,13 @@ export async function listAssets(eventId: string): Promise<StoredAsset[]> {
         created_at: f.created_at ?? undefined,
       };
     });
+  return { rows, failed: false };
+}
+
+/** Uploaded assets, or [] on failure. Use listAssetsResult wherever the caller
+ *  renders an empty state a host could mistake for "you have not uploaded any". */
+export async function listAssets(eventId: string): Promise<StoredAsset[]> {
+  return (await listAssetsResult(eventId)).rows;
 }
 
 export async function deleteAsset(path: string): Promise<boolean> {
