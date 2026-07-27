@@ -48,6 +48,7 @@ import { SHADER_MAP, FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
 import { getHeadFitEstimate } from '../../lib/faceRig';
 import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
+import { OVERLAY_SCALE, OVERLAY_POSITION, OVERLAY_ROTATION, formatAtStep } from '../../lib/studio/controlSpecs';
 import {
   DEFAULT_TRANSFORM,
   MAX_OBJECTS,
@@ -794,10 +795,10 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                     <RotateCcw className="w-3 h-3" /> Reset all
                   </button>
                 </div>
-                <SliderRow label="Size" value={selOverlay.transform.scale} min={0.1} max={3} step={0.05} defaultValue={DEFAULT_TRANSFORM.scale} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, scale: v } })} />
-                <SliderRow label="Position · left/right" value={selOverlay.transform.x} min={-100} max={100} step={0.5} defaultValue={DEFAULT_TRANSFORM.x} format={(v) => `${v.toFixed(0)}%`} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, x: v } })} />
-                <SliderRow label="Position · up/down" value={selOverlay.transform.y} min={-100} max={100} step={0.5} defaultValue={DEFAULT_TRANSFORM.y} format={(v) => `${v.toFixed(0)}%`} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, y: v } })} />
-                <SliderRow label="Rotation" value={selOverlay.transform.rotation} min={-180} max={180} step={1} defaultValue={DEFAULT_TRANSFORM.rotation} format={(v) => `${v.toFixed(0)}°`} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, rotation: v } })} />
+                <SliderRow label="Size" value={selOverlay.transform.scale} min={OVERLAY_SCALE.min} max={OVERLAY_SCALE.max} step={OVERLAY_SCALE.step} defaultValue={DEFAULT_TRANSFORM.scale} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, scale: v } })} />
+                <SliderRow label="Position · left/right" value={selOverlay.transform.x} min={OVERLAY_POSITION.min} max={OVERLAY_POSITION.max} step={OVERLAY_POSITION.step} defaultValue={DEFAULT_TRANSFORM.x} format={(v) => formatAtStep(v, OVERLAY_POSITION.step, '%')} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, x: v } })} />
+                <SliderRow label="Position · up/down" value={selOverlay.transform.y} min={OVERLAY_POSITION.min} max={OVERLAY_POSITION.max} step={OVERLAY_POSITION.step} defaultValue={DEFAULT_TRANSFORM.y} format={(v) => formatAtStep(v, OVERLAY_POSITION.step, '%')} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, y: v } })} />
+                <SliderRow label="Rotation" value={selOverlay.transform.rotation} min={OVERLAY_ROTATION.min} max={OVERLAY_ROTATION.max} step={OVERLAY_ROTATION.step} defaultValue={DEFAULT_TRANSFORM.rotation} format={(v) => formatAtStep(v, OVERLAY_ROTATION.step, '°')} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, rotation: v } })} />
                 <AnimationChips value={selOverlay.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: selOverlay.id, animation: a })} />
               </div>
             )}
@@ -872,7 +873,8 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
 
       {/* LAYERS — grouped by kind (Frame · Stickers · 3D pieces). Within a group,
           rows show top-most first; reorder acts on the flat objects[] paint order,
-          the eye toggles the editor-only hidden flag, delete removes the object. */}
+          the eye hides a layer FROM GUESTS (it persists — see below), delete
+          removes the object. */}
       {hasObjects && (
         <DockSection icon={Layers} title="Layers" open={!!open.layers} onToggle={() => toggleSection('layers')}>
           {counts.capped >= 15 && (
@@ -917,10 +919,15 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                             <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">{o.animation}</span>
                           )}
                           <div className="flex items-center gap-0.5 shrink-0">
+                            {/* NOT a preview toggle. draftMapping persists
+                                `hidden` and the booth honours it, so this is a
+                                publish control: hide + save ships a scene
+                                without that layer. The label says so. */}
                             <button
                               onClick={(e) => { e.stopPropagation(); dispatch({ type: 'UPDATE_OBJECT', id: o.id, patch: { hidden: !hidden } }); }}
-                              aria-label={hidden ? 'Show layer' : 'Hide layer'}
-                              className="p-0.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors"
+                              aria-label={hidden ? 'Show this layer to guests' : 'Hide this layer from guests'}
+                              title={hidden ? 'Hidden from guests — click to show' : 'Visible to guests — click to hide'}
+                              className="p-1.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors"
                             >
                               {hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                             </button>

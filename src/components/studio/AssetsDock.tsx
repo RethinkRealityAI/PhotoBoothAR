@@ -38,6 +38,7 @@ import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
 import { selectedObject, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
 import { experienceToDraft } from '../../lib/studio/draftMapping';
+import { OVERLAY_SCALE } from '../../lib/studio/controlSpecs';
 import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
 import AiFramePanel from './AiFramePanel';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
@@ -423,7 +424,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             label="Size"
             value={sel.transform.scale}
             min={0.1}
-            max={3}
+            max={OVERLAY_SCALE.max}
             step={0.05}
             onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...sel.transform, scale: v } })}
           />

@@ -78,10 +78,13 @@ export interface Overlay2D {
   transform: Transform2D;
   animation: LayerAnimation;
   /**
-   * Editor-only visibility toggle for the layers panel — hides the overlay in
-   * the stage/preview render without deleting it. Never persisted: draftMapping
-   * constructs layers explicitly (it doesn't spread this field in), so it drops
-   * out naturally on save/load. Defaults undefined (== visible).
+   * Hide this overlay FROM GUESTS. Defaults undefined (== visible).
+   *
+   * This comment used to claim the flag was editor-only and "never persisted".
+   * That is false and was false when written: draftMapping writes `hidden` onto
+   * the saved layer (draftMapping.ts:267) and reads it back (:158), and the
+   * booth honours it — so hiding a layer and saving publishes a scene without
+   * it. Treat it as a publish control; the Layers eye is labelled accordingly.
    */
   hidden?: boolean;
 }
@@ -101,9 +104,9 @@ export interface Object3D {
   /** Per-object head occlusion opt-in (opt-IN: never surprise-hides an asset). */
   occlusion: boolean;
   /**
-   * Editor-only visibility toggle for the layers panel — hides the piece in the
-   * stage/preview render without deleting it. Never persisted (see Overlay2D.hidden):
-   * draftMapping builds layers explicitly, so it drops out on save. Defaults undefined.
+   * Hide this piece FROM GUESTS — persisted on save, exactly like
+   * Overlay2D.hidden (see the note there; the old "never persisted" claim was
+   * wrong). Defaults undefined (== visible).
    */
   hidden?: boolean;
 }

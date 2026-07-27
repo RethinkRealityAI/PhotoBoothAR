@@ -402,6 +402,47 @@ body {
 /* Range inputs styled to the active accent */
 input[type="range"] { accent-color: var(--color-accent); }
 
+/* Studio sliders (.studio-range, StudioControls.tsx).
+   The class was applied to every slider in the studio but NO rule for it existed
+   anywhere in the repo, so these fell back to the UA thumb on a 4px track: an
+   off-brand handle inside a hit area far below the 44px minimum, on the controls
+   a host uses most. The visual track stays 4px — the padding is transparent and
+   the gradient is clipped to the content box — while the grabbable area becomes
+   24px tall. */
+.studio-range {
+  height: 4px;
+  padding-block: 10px;
+  box-sizing: content-box;
+  background-clip: content-box;
+}
+.studio-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid var(--color-accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55), 0 0 0 4px rgba(var(--accent-rgb), 0.12);
+  cursor: grab;
+  transition: box-shadow 140ms ease, transform 140ms ease;
+}
+.studio-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid var(--color-accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55), 0 0 0 4px rgba(var(--accent-rgb), 0.12);
+  cursor: grab;
+}
+.studio-range:hover::-webkit-slider-thumb { box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6), 0 0 0 6px rgba(var(--accent-rgb), 0.2); }
+.studio-range:active::-webkit-slider-thumb { transform: scale(0.94); cursor: grabbing; }
+.studio-range::-moz-range-track { background: transparent; }
+@media (prefers-reduced-motion: reduce) {
+  .studio-range::-webkit-slider-thumb { transition: none; }
+}
+
 /* Selection */
 ::selection { background: rgba(var(--accent-rgb), 0.35); color: #fff; }
 

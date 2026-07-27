@@ -30,6 +30,7 @@ import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
 import { initializeFaceLandmarker, isFaceLandmarkerReady } from '../../lib/faceTracking';
 import { REVEAL_SHIMMER_MS } from '../../lib/studio/reveal';
 import { stageStatus, STAGE_STATUS_DOT_CLASS, STAGE_STATUS_TONE_CLASS, type StageStatus } from '../../lib/studio/stageStatus';
+import { OVERLAY_SCALE, clampToSpec } from '../../lib/studio/controlSpecs';
 
 interface CamState {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -169,7 +170,7 @@ export default function StudioStage({
 
   const onOverlayWheel = useCallback((e: React.WheelEvent) => {
     if (!selectedOverlay) return;
-    const next = clamp(selectedOverlay.transform.scale + (e.deltaY > 0 ? -0.05 : 0.05), 0.1, 5);
+    const next = clampToSpec(selectedOverlay.transform.scale + (e.deltaY > 0 ? -OVERLAY_SCALE.step : OVERLAY_SCALE.step), OVERLAY_SCALE);
     dispatch({ type: 'UPDATE_OBJECT', id: selectedOverlay.id, patch: { transform: { ...selectedOverlay.transform, scale: next } } });
   }, [dispatch, selectedOverlay]);
 
