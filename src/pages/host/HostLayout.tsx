@@ -8,11 +8,11 @@
  * via <Outlet />.
  */
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { CalendarRange, Coins, CreditCard, LifeBuoy, LogOut, Sparkles } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
 import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
-import { SUPPORT_EMAIL } from '../../lib/errorReport';
+import { fetchMyUnreadCount } from '../../lib/support';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { haptic } from '../../lib/haptics';
 import { useAiJobSweep } from '../../lib/useAiJobSweep';
@@ -29,6 +29,18 @@ export default function HostLayout() {
   const [orgName, setOrgName] = useState<string | null>(null);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
+  const [unread, setUnread] = useState(0);
+  const { pathname } = useLocation();
+
+  // Re-checked on every /host navigation rather than by a timer or a realtime
+  // channel: a support reply is not time-critical to the second, and a poll
+  // that runs while nobody is looking is a cost with no reader.
+  useEffect(() => {
+    if (!session) { setUnread(0); return; }
+    let alive = true;
+    fetchMyUnreadCount().then((n) => { if (alive) setUnread(n); });
+    return () => { alive = false; };
+  }, [session, pathname]);
 
   useEffect(() => {
     if (!session) return;
@@ -134,13 +146,28 @@ export default function HostLayout() {
                 </span>
               </Link>
             )}
-            <a
-              href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Beamwall support')}`}
-              className={`${railLink} ${railState(false)}`}
+            {/* Was a mailto: into a personal inbox — no ticket, no status, no
+                record. Now a real thread the customer can come back to. */}
+            <NavLink
+              to="/host/support"
+              onClick={() => haptic('tap')}
+              aria-label="Support"
+              className={({ isActive }) => `${railLink} ${railState(isActive)} relative`}
             >
-              <LifeBuoy className="w-[18px] h-[18px] shrink-0" />
-              <span className="hidden sm:inline">Support</span>
-            </a>
+              <span className="relative shrink-0">
+                <LifeBuoy className="w-[18px] h-[18px]" />
+                {unread > 0 && (
+                  <span
+                    aria-hidden
+                    className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[color:var(--color-accent)] ring-2 ring-[color:var(--color-brand-bg)]"
+                  />
+                )}
+              </span>
+              <span className="hidden sm:inline">
+                Support
+                {unread > 0 && <span className="ml-1.5 text-[color:var(--color-accent)]">{unread}</span>}
+              </span>
+            </NavLink>
             <button onClick={handleSignOut} aria-label="Sign out" className={`${railLink} ${railState(false)}`}>
               <LogOut className="w-[18px] h-[18px] shrink-0" />
               <span className="hidden sm:inline">Sign out</span>

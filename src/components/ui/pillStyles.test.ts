@@ -37,6 +37,30 @@ describe('statusTone — unified status vocabulary', () => {
     expect(pillClass('collecting')).toBe('bg-sky-500/15 text-sky-300');
     expect(pillClass('unknown')).toBe('bg-white/[0.08] text-brand-muted/70');
   });
+  it('maps the support-ticket lifecycle by who is being waited on', () => {
+    expect(statusTone('new')).toBe('info');
+    expect(statusTone('open')).toBe('warn');
+    // warn = the ball is with US; neutral = it is with the customer.
+    expect(statusTone('waiting_on_us')).toBe('warn');
+    expect(statusTone('waiting_on_customer')).toBe('neutral');
+    expect(statusTone('resolved')).toBe('success');
+    expect(statusTone('closed')).toBe('muted');
+  });
+  it('maps ticket priority through the same pill', () => {
+    expect(statusTone('urgent')).toBe('danger');
+    expect(statusTone('high')).toBe('warn');
+    expect(statusTone('normal')).toBe('neutral');
+    expect(statusTone('low')).toBe('muted');
+    // Urgent must not read like an ordinary unrecognised status.
+    expect(pillClass('urgent')).not.toBe(pillClass('mystery'));
+  });
+  it('does not disturb the statuses that were already mapped', () => {
+    // The support keys were added to a shared map five other screens read.
+    expect(statusTone('live')).toBe('success');
+    expect(statusTone('paid')).toBe('success');
+    expect(statusTone('draft')).toBe('neutral');
+    expect(statusTone('canceled')).toBe('muted');
+  });
   it('gives a disputed charge its own alarming tone, not the unknown grey', () => {
     // A dispute is money being clawed back with a deadline. It had no entry at
     // all, so it rendered identically to a status nobody recognised.
@@ -56,6 +80,10 @@ describe('statusLabel — no database enum reaches an operator raw', () => {
   it('leaves an ordinary status alone', () => {
     expect(statusLabel('live')).toBe('live');
     expect(statusLabel('paid')).toBe('paid');
+  });
+  it('renders the two-word ticket statuses as English', () => {
+    expect(statusLabel('waiting_on_customer')).toBe('waiting on customer');
+    expect(statusLabel('waiting_on_us')).toBe('waiting on us');
   });
   it('is empty for nothing, rather than rendering "null"', () => {
     expect(statusLabel(null)).toBe('');

@@ -56,6 +56,7 @@ const EventsList = lazy(() => import('./pages/host/EventsList'));
 const NewEvent = lazy(() => import('./pages/host/NewEvent'));
 const Concierge = lazy(() => import('./pages/host/Concierge'));
 const Billing = lazy(() => import('./pages/host/Billing'));
+const HostSupport = lazy(() => import('./pages/host/Support'));
 const EventStudio = lazy(() => import('./pages/host/EventStudio'));
 const ManagerConsole = lazy(() => import('./pages/manager/ManagerConsole'));
 const CardViewer = lazy(() => import('./pages/cards/CardViewer'));
@@ -66,6 +67,7 @@ const AdminOverview = lazy(() => import('./pages/admin/Overview'));
 const AdminCustomers = lazy(() => import('./pages/admin/Customers'));
 const AdminCustomerDetail = lazy(() => import('./pages/admin/CustomerDetail'));
 const AdminEvents = lazy(() => import('./pages/admin/Events'));
+const AdminSupport = lazy(() => import('./pages/admin/Support'));
 const AdminPayments = lazy(() => import('./pages/admin/Payments'));
 const AdminCredits = lazy(() => import('./pages/admin/Credits'));
 const AdminUsers = lazy(() => import('./pages/admin/Users'));
@@ -76,6 +78,8 @@ const AdminAdmins = lazy(() => import('./pages/admin/Admins'));
 // visitor. Both components gate their own visibility to /host surfaces.
 const CopilotFab = lazy(() => import('./components/copilot/CopilotFab'));
 const CopilotPanel = lazy(() => import('./components/copilot/CopilotPanel'));
+// Lazy too: nothing is loaded until somebody actually reports something.
+const SupportDialog = lazy(() => import('./components/support/SupportDialog'));
 
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
@@ -215,6 +219,7 @@ export default function App() {
                 <Route path="new" element={<NewEvent />} />
                 <Route path="concierge" element={<Concierge />} />
                 <Route path="billing" element={<Billing />} />
+                <Route path="support" element={<HostSupport />} />
               </Route>
               <Route path="/host/events/:id/*" element={<EventStudio />} />
 
@@ -224,6 +229,7 @@ export default function App() {
                 <Route path="customers" element={<AdminCustomers />} />
                 <Route path="customers/:orgId" element={<AdminCustomerDetail />} />
                 <Route path="events" element={<AdminEvents />} />
+                <Route path="support" element={<AdminSupport />} />
                 <Route path="payments" element={<AdminPayments />} />
                 <Route path="credits" element={<AdminCredits />} />
                 <Route path="users" element={<AdminUsers />} />
@@ -265,6 +271,20 @@ export default function App() {
             <CopilotPanel />
           </Suspense>
         )}
+        </ErrorBoundary>
+
+        {/* Report-an-issue dialog — mounted OUTSIDE the app ErrorBoundary on
+            purpose. The Copilot above sits inside it, which is fine for an
+            assistant; but the boundary's own fallback offers "tell us what
+            happened", and a dialog mounted inside the subtree the boundary just
+            replaced would be unmounted by the very crash it exists to report.
+            It gets its own boundary so a fault in the reporter cannot take down
+            the page, and every surface still keeps a mailto: fallback for the
+            case where the database itself is unreachable. */}
+        <ErrorBoundary label="report dialog" silent>
+          <Suspense fallback={null}>
+            <SupportDialog />
+          </Suspense>
         </ErrorBoundary>
       </AppShell>
     </Router>

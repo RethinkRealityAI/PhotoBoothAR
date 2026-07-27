@@ -24,7 +24,14 @@ import { Link } from 'react-router-dom';
 import { Eye, EyeOff, MoreHorizontal, SwitchCamera, UploadCloud } from 'lucide-react';
 import { GalleryIcon, MediaStackIcon } from '../ui/MediaIcons';
 import ShareButton from '../ui/ShareButton';
+import ReportIssueButton from '../support/ReportIssueButton';
 import { haptic } from '../../lib/haptics';
+
+/** `/e/<slug>` (or `''` in a legacy single-event build) → the slug, or null. */
+function slugFromBasePath(basePath: string): string | null {
+  const m = /^\/e\/([^/]+)/.exec(basePath);
+  return m ? m[1] : null;
+}
 
 /** A floating glass circle — the booth's only chrome shape. */
 export function GlassCircle({
@@ -67,6 +74,7 @@ export default function BoothTopBar({
 }: BoothTopBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const boothSlug = slugFromBasePath(basePath);
 
   // Close on outside press or Escape — a menu that can only be dismissed by
   // hitting its own trigger is a trap on a touch screen.
@@ -152,6 +160,20 @@ export default function BoothTopBar({
                     iconSize={16}
                     className="pressable flex min-h-11 w-full items-center gap-3 rounded-xl px-3 font-label text-[10px] uppercase tracking-luxe text-brand-fg/85 hover:bg-white/[0.06]"
                   />
+                  {/* A guest whose booth just broke is the highest-value report
+                      we can get, and they have no account to file it from.
+                      Only when the path carries a real event slug: in a legacy
+                      VITE_EVENT build basePath is '', and those three frozen
+                      single-event sites get no new chrome — nor would a ticket
+                      from one have an org to route to. */}
+                  {boothSlug !== null && (
+                    <ReportIssueButton
+                      label="Report a problem"
+                      iconSize={16}
+                      prefill={{ source: 'guest_booth', eventSlug: boothSlug }}
+                      className="pressable flex min-h-11 w-full items-center gap-3 rounded-xl px-3 font-label text-[10px] uppercase tracking-luxe text-brand-fg/85 hover:bg-white/[0.06]"
+                    />
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

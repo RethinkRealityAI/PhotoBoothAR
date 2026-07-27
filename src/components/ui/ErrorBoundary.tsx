@@ -11,14 +11,23 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle, Mail, RotateCcw } from 'lucide-react';
 import { reportError, SUPPORT_EMAIL } from '../../lib/errorReport';
+import { redactUrl } from '../../lib/supportModel';
+import { openSupportDialog } from '../../lib/supportStore';
 
-/** "Something broke — tell us" mailto with the error message prefilled. */
+/** "Something broke — tell us" mailto with the error message prefilled.
+ *
+ *  Kept as the LAST-RESORT channel even now that a ticket system exists: if the
+ *  database is unreachable, filing a ticket is exactly what cannot work, and
+ *  email is the only thing left. The page URL is redacted for the same reason
+ *  errorReport.ts redacts it — a recovery link in the fragment is a
+ *  session-granting secret, and prefilling one into the user's mail client
+ *  would post it to our inbox. */
 function supportMailto(label: string, error: Error): string {
   const subject = `Beamwall problem report — ${label}`;
   const body =
     `Hi — something broke in the ${label}.\n\n` +
     `Error: ${String(error.message || error).slice(0, 500)}\n` +
-    `Page: ${window.location.href.slice(0, 300)}\n\n` +
+    `Page: ${redactUrl(window.location.href, 300)}\n\n` +
     `What I was doing:\n`;
   return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
@@ -30,6 +39,11 @@ interface Props {
    *  backdrop, and offers a hard page reload in addition to a remount (a
    *  whole-app crash usually can't be recovered by remounting alone). */
   fullScreen?: boolean;
+  /** Render NOTHING on error instead of a fallback. For boundaries around
+   *  non-essential overlays: the default fallback is `absolute inset-0`, so a
+   *  crash in a closed dialog would paint an error panel across the whole app.
+   *  The error is still reported — it is the UI that stays silent. */
+  silent?: boolean;
   children: ReactNode;
 }
 
@@ -53,9 +67,25 @@ export default class ErrorBoundary extends Component<Props, State> {
     });
   }
 
+  /** Open the report dialog already describing what crashed, so the user is not
+   *  asked to explain a stack trace they never saw. */
+  private reportPrefill() {
+    const err = this.state.error;
+    return {
+      source: 'error_boundary' as const,
+      category: 'bug' as const,
+      subject: `The ${this.props.label} hit an error`,
+      diagnostics: {
+        boundary: this.props.label,
+        error: String(err?.message ?? err ?? '').slice(0, 500),
+      },
+    };
+  }
+
   render() {
     if (!this.state.error) return this.props.children;
-    const { label, fullScreen } = this.props;
+    const { label, fullScreen, silent } = this.props;
+    if (silent) return null;
     if (fullScreen) {
       return (
         <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-brand-bg px-8 text-center">
@@ -79,13 +109,23 @@ export default class ErrorBoundary extends Component<Props, State> {
               Try again
             </button>
           </div>
-          <a
-            href={supportMailto(label, this.state.error)}
-            className="mt-1 flex items-center gap-1.5 text-[11px] text-brand-muted/70 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
-          >
-            <Mail className="h-3 w-3" />
-            Something broke — tell us
-          </a>
+          <div className="mt-1 flex flex-col items-center gap-1.5">
+            <button
+              onClick={() => openSupportDialog(this.reportPrefill())}
+              className="flex items-center gap-1.5 text-[11px] text-brand-muted/70 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
+            >
+              <AlertTriangle className="h-3 w-3" />
+              Something broke — tell us
+            </button>
+            {/* Last resort: if the database is down, the ticket cannot be filed. */}
+            <a
+              href={supportMailto(label, this.state.error)}
+              className="flex items-center gap-1.5 text-[10px] text-brand-muted/50 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
+            >
+              <Mail className="h-3 w-3" />
+              or email us directly
+            </a>
+          </div>
         </div>
       );
     }
@@ -102,11 +142,17 @@ export default class ErrorBoundary extends Component<Props, State> {
           <RotateCcw className="w-3 h-3" />
           Try again
         </button>
-        <a
-          href={supportMailto(label, this.state.error)}
+        <button
+          onClick={() => openSupportDialog(this.reportPrefill())}
           className="text-[10px] text-brand-muted/60 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
         >
           Something broke — tell us
+        </button>
+        <a
+          href={supportMailto(label, this.state.error)}
+          className="text-[10px] text-brand-muted/40 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
+        >
+          or email us directly
         </a>
       </div>
     );

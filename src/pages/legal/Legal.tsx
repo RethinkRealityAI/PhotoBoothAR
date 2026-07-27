@@ -12,10 +12,13 @@
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { usePageTitle } from '../../lib/usePageTitle';
+import { SUPPORT_EMAIL } from '../../lib/errorReport';
 
 /** Confirm these before launch. */
 const OPERATOR = 'Beamwall, operated by RethinkReality';
-const CONTACT = 'dapo@rethinkreality.ai';
+/** One address, one definition. This was a second literal of the same value
+ *  that errorReport.ts already owned, so the two could drift. */
+const CONTACT = SUPPORT_EMAIL;
 const UPDATED = 'July 15, 2026';
 
 interface Section {

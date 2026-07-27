@@ -30,6 +30,22 @@ const STATUS_TONE: Record<string, PillTone> = {
   collecting: 'info',
   published: 'success',
   rendered: 'special',
+  // Support tickets (admin inbox + host support section). The tones encode who
+  // is being waited on: warn = it is on US, neutral = it is on the customer.
+  // `new` is info rather than warn because an unanswered ticket is a normal
+  // state for a few minutes, and colouring every arrival as a problem trains
+  // the operator to ignore the colour.
+  new: 'info',
+  open: 'warn',
+  waiting_on_us: 'warn',
+  waiting_on_customer: 'neutral',
+  resolved: 'success',
+  closed: 'muted',
+  // Ticket priority renders through the same pill.
+  urgent: 'danger',
+  high: 'warn',
+  normal: 'neutral',
+  low: 'muted',
   // Admin: orders / subscriptions / users
   paid: 'success',
   active: 'success',

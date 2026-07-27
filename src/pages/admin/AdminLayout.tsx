@@ -12,11 +12,13 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Building2, CalendarRange, Receipt, Coins, Users, ScrollText, ShieldCheck, LogOut,
+  LayoutDashboard, Building2, CalendarRange, Receipt, Coins, Users, ScrollText, ShieldCheck,
+  LifeBuoy, LogOut,
   type LucideIcon,
 } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
 import { checkIsPlatformAdmin } from '../../lib/admin';
+import { adminSupportCounts } from '../../lib/support';
 import { ToastProvider } from '../../components/ui/Toast';
 import { haptic } from '../../lib/haptics';
 
@@ -28,6 +30,7 @@ const NAV: NavItem[] = [
   { to: '/admin', end: true, label: 'Overview', Icon: LayoutDashboard, ready: true },
   { to: '/admin/customers', label: 'Customers', Icon: Building2, ready: true },
   { to: '/admin/events', label: 'Events', Icon: CalendarRange, ready: true },
+  { to: '/admin/support', label: 'Support', Icon: LifeBuoy, ready: true },
   { to: '/admin/payments', label: 'Payments', Icon: Receipt, ready: true },
   { to: '/admin/credits', label: 'Credits', Icon: Coins, ready: true },
   { to: '/admin/users', label: 'Users', Icon: Users, ready: true },
@@ -47,6 +50,18 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const { session, loading } = useSession();
   const [adminState, setAdminState] = useState<'checking' | 'yes' | 'no'>('checking');
+  const [unread, setUnread] = useState(0);
+
+  // Only once the admin check has passed — support_api would 403 otherwise, and
+  // a console full of 403s on every non-admin page load is its own bug report.
+  useEffect(() => {
+    if (adminState !== 'yes') { setUnread(0); return; }
+    let alive = true;
+    adminSupportCounts().then(({ data }) => {
+      if (alive && data !== null) setUnread(data.unread);
+    });
+    return () => { alive = false; };
+  }, [adminState]);
 
   useEffect(() => {
     if (loading) return;
@@ -103,8 +118,21 @@ export default function AdminLayout() {
                 `${railLink} ${isActive ? 'bg-white/[0.10] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05]'}`
               }
             >
-              <Icon className="w-4 h-4 shrink-0" />
-              <span className="hidden sm:inline">{label}</span>
+              <span className="relative shrink-0">
+                <Icon className="w-4 h-4" />
+                {to === '/admin/support' && unread > 0 && (
+                  <span
+                    aria-hidden
+                    className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[color:var(--color-accent)] ring-2 ring-[color:var(--color-brand-bg)]"
+                  />
+                )}
+              </span>
+              <span className="hidden sm:inline">
+                {label}
+                {to === '/admin/support' && unread > 0 && (
+                  <span className="ml-1.5 text-[color:var(--color-accent)]">{unread}</span>
+                )}
+              </span>
             </NavLink>
           ))}
 

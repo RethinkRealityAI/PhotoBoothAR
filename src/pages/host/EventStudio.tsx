@@ -43,6 +43,7 @@ import CardsTab from './CardsTab';
 import ShareKit from './ShareKit';
 import UpgradeCard from './UpgradeCard';
 import StatusPill from '../../components/ui/StatusPill';
+import ReportIssueButton from '../../components/support/ReportIssueButton';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -472,6 +473,16 @@ export default function EventStudio() {
             >
               <Sparkles className="w-4 h-4" />
             </button>
+            {/* The studio has no rail, so the rail's Support entry cannot reach
+                here — and this is the surface a host is on when an event is
+                actually going wrong. */}
+            <ReportIssueButton
+              label="Report a problem"
+              showIcon
+              iconSize={16}
+              prefill={{ source: 'event_studio', eventSlug: event.slug }}
+              className="shrink-0 w-9 h-9 rounded-full liquid-glass-inset flex items-center justify-center text-brand-muted/70 hover:text-brand-fg active:scale-95 transition [&>span]:sr-only"
+            />
             <GuestLinkCopy url={`${origin}${basePath}/welcome`} />
           </nav>
           )}
