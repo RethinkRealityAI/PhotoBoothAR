@@ -1,5 +1,5 @@
 {
-  "comment": "Remote assets to vendor into the repo. Pushing a change to this file triggers the 'Fetch remote assets' GitHub Action automatically (or dispatch it manually) — CI runners have open egress; the Claude sandbox does not. Paths are repo-relative.",
+  "comment": "Remote assets to vendor into the repo. Pushing a change to this file triggers the 'Fetch remote assets' GitHub Action automatically (or dispatch it manually) \u2014 CI runners have open egress; the Claude sandbox does not. Paths are repo-relative.",
   "assets": [
     {
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260707_041724_7bedd98a-8eb8-4bc2-bf02-7fea18093449.png",
@@ -74,32 +74,32 @@
       "path": "hyperframes/studio/assets/vo-promo.wav"
     },
     {
-      "comment": "How-it-works step 1 cutout — frame-design cluster (nano_banana_2 b05a0d1b + bg-removed cb02e769).",
+      "comment": "How-it-works step 1 cutout \u2014 frame-design cluster (nano_banana_2 b05a0d1b + bg-removed cb02e769).",
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260718_104706_cb02e769-24d3-4da9-8672-c60e40628c9d.png",
       "path": "src/assets/landing/step-create-cutout.png"
     },
     {
-      "comment": "How-it-works step 2 cutout — gold-framed QR table card (nano_banana_2 a73549a5 + bg-removed a33393d2).",
+      "comment": "How-it-works step 2 cutout \u2014 gold-framed QR table card (nano_banana_2 a73549a5 + bg-removed a33393d2).",
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260718_104707_a33393d2-b6a9-47e9-ba28-0065c37bc132.png",
       "path": "src/assets/landing/step-qr-cutout.png"
     },
     {
-      "comment": "How-it-works step 3 cutout — glowing live photo wall (nano_banana_2 ec0a8bd9 + bg-removed 8aedf46a).",
+      "comment": "How-it-works step 3 cutout \u2014 glowing live photo wall (nano_banana_2 ec0a8bd9 + bg-removed 8aedf46a).",
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260718_104708_8aedf46a-9d46-4fac-a859-71db80e69891.png",
       "path": "src/assets/landing/step-wall-cutout.png"
     },
     {
-      "comment": "MediaPipe canonical face model (468 verts, metric centimetres) — the studio AR head occluder. Same coordinate space faceRig.ts anchors are calibrated against.",
+      "comment": "MediaPipe canonical face model (468 verts, metric centimetres) \u2014 the studio AR head occluder. Same coordinate space faceRig.ts anchors are calibrated against.",
       "url": "https://raw.githubusercontent.com/google-ai-edge/mediapipe/master/mediapipe/modules/face_geometry/data/canonical_face_model.obj",
       "path": "src/assets/ar/canonical_face_model.obj"
     },
     {
-      "comment": "Higgsfield image_to_3d neutral head bust — the studio 3D orbit reference head. Normalized to head-space at load by ReferenceBust/computeBustFit; GLB-ONLY (W8): nothing renders while loading or if absent — the procedural fallback was deleted per user decision.",
+      "comment": "Higgsfield image_to_3d neutral head bust \u2014 the studio 3D orbit reference head. Normalized to head-space at load by ReferenceBust/computeBustFit; GLB-ONLY (W8): nothing renders while loading or if absent \u2014 the procedural fallback was deleted per user decision.",
       "url": "https://d3u0tzju9qaucj.cloudfront.net/7d051b5a-7bfe-49fe-a484-24e7b3a9458a/95db6f33-c463-4020-b5b3-67312bd1a1d4.glb",
       "path": "public/models/reference-head.glb"
     },
     {
-      "comment": "Feature-film rebuild imagery (2026-07-20, nano_banana_pro) — 3x3 contact sheets + 9:16 phone shots, one set per film so no image repeats across films.",
+      "comment": "Feature-film rebuild imagery (2026-07-20, nano_banana_pro) \u2014 3x3 contact sheets + 9:16 phone shots, one set per film so no image repeats across films.",
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260720_170202_6192cdb0-86f0-4a8f-ba45-2026f0804362.png",
       "path": "hyperframes/studio/assets/photos/booth-grid.png"
     },
@@ -136,14 +136,38 @@
       "path": "hyperframes/studio/assets/photos/challenges-gala-laugh.png"
     },
     {
-      "comment": "Landing round 6 — booth section decor: young man taking an AR selfie (soul_v2 ddb4166a + bg-removed c8ae7e14); converted to webp locally after vendoring.",
+      "comment": "Landing round 6 \u2014 booth section decor: young man taking an AR selfie (soul_v2 ddb4166a + bg-removed c8ae7e14); converted to webp locally after vendoring.",
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260721_022703_c8ae7e14-0360-4fff-97f0-5168911d708d.png",
       "path": "src/assets/landing/booth-guy-cutout.png"
     },
     {
-      "comment": "Landing round 6 — Who-it's-for section: 3x2 contact sheet of six event types (nano_banana 2k cbace9db); sliced to per-event webp cells locally after vendoring.",
+      "comment": "Landing round 6 \u2014 Who-it's-for section: 3x2 contact sheet of six event types (nano_banana 2k cbace9db); sliced to per-event webp cells locally after vendoring.",
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260721_023255_cbace9db-a892-413e-9705-77956f2ebf9d.png",
       "path": "src/assets/landing/event-types-grid.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260728_014135_72e1cb90-0eb1-4874-b9df-868df9a5b2f0_min.webp",
+      "path": "public/samples/lettering/cursive-monogram-bottom.webp"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260728_014139_c86b5fb1-1865-4334-bfcf-755b2b14e621_min.webp",
+      "path": "public/samples/lettering/serif-initials-top.webp"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260728_014142_a05781a0-265f-4ea8-8313-f641c25695ae_min.webp",
+      "path": "public/samples/lettering/script-name-extending.webp"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260728_014145_ed878693-1a8c-4ecf-b82f-462f493c8ea2_min.webp",
+      "path": "public/samples/lettering/block-name-integrated.webp"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260728_014149_83984be8-acf5-467d-b893-385266366f88_min.webp",
+      "path": "public/samples/lettering/name-art-standalone.webp"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260728_014152_89462e58-8bf5-4bd1-8067-23247c9ce480_min.webp",
+      "path": "public/samples/lettering/logo-space-bottom.webp"
     }
   ]
 }
