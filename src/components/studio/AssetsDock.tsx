@@ -24,7 +24,7 @@
  * The GLB add is async (measure-then-dispatch) — the tile shows an "adding" spinner
  * while it's in flight and the expander binds to selection, which lands with it.
  */
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Boxes, ChevronDown, ChevronRight, Crown, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Search, Sparkles, Sun, Upload, Wand2, X } from 'lucide-react';
 import { FILTER_SHADERS, SHADER_MAP, defaultParams } from '../../lib/shaders';
@@ -56,6 +56,10 @@ import {
   type DockItem,
   type AssetChip,
 } from '../../lib/studio/assetSources';
+
+// Lazy: the jewelry builder pulls in TextGeometry, the GLTF exporter and the
+// bundled typefaces, none of which the dock needs until the host opens it.
+const Text3DBuilder = lazy(() => import('./Text3DBuilder'));
 
 interface Props {
   state: StudioState;
@@ -116,6 +120,20 @@ const KIND_BADGE: Record<ReturnType<typeof dockItemKind>, string> = {
   image: 'Frame',
 };
 
+/**
+ * Filename marker stamped by Text3DBuilder's upload (`<name>-<kind>.bw1.glb`).
+ * Those pieces are authored in true head-space centimetres, so the measure-then-
+ * add auto-fit MUST be skipped for them: computePropFitScale normalizes any
+ * model to PROP_TARGET_CM (24cm), which would blow a life-size 15cm necklace up
+ * to something wider than the head it hangs on.
+ */
+const AUTHORED_CM_MARKER = '.bw1';
+
+function isAuthoredInCm(url: string | null | undefined, label: string): boolean {
+  const u = (url ?? '').toLowerCase();
+  return u.endsWith(`${AUTHORED_CM_MARKER}.glb`) || label.toLowerCase().endsWith(AUTHORED_CM_MARKER);
+}
+
 /** Smooth expand/collapse for dock sub-groups and inline settings cards —
  *  the PickerDrawer height/opacity idiom; prefers-reduced-motion snaps. */
 function Collapse({ show, children }: { show: boolean; children: ReactNode }) {
@@ -169,6 +187,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const [modelThumb, setModelThumb] = useState<string | null>(null);
   /** Busy/error for the GLB upload — a failed storage write used to be silent. */
   const [glbUpload, setGlbUpload] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
+  const [jewelryOpen, setJewelryOpen] = useState(false);
 
   // Both remote sources load eagerly on mount — the point of the single surface
   // is to show everything at once, so there are no tabs to lazy-load behind.
@@ -239,6 +258,12 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
       // tile shows an "adding" spinner until the measure resolves and dispatches.
       const url = item.payload.assetUrl;
       const label = item.label;
+      // Procedural jewelry is already life-size — add it at scale 1 without the
+      // async measure, so re-adding a saved piece matches how it was authored.
+      if (isAuthoredInCm(url, label)) {
+        dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: 1 });
+        return;
+      }
       setPendingKey(key);
       void measureGlbFitScale(url)
         .then((fitScale) => dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined }))
@@ -813,6 +838,15 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                     <span className="truncate">{glbUpload.busy ? 'Uploading model…' : 'Upload model (.glb / .gltf)'}</span>
                   </button>
                 )}
+                {showGlbUpload && (
+                  <button
+                    onClick={() => setJewelryOpen(true)}
+                    className="pressable flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-accent/[0.06] hover:bg-accent/[0.1] border border-accent/15 transition-colors text-xs text-brand-muted/70 overflow-hidden"
+                  >
+                    <Gem className="w-3.5 h-3.5 text-accent-2 shrink-0" />
+                    <span className="truncate">3D Name Jewelry — build a name piece</span>
+                  </button>
+                )}
                 {glbUpload.error && (
                   <p role="alert" className="font-sans text-[10px] text-rose-300/90 leading-relaxed px-1">{glbUpload.error}</p>
                 )}
@@ -896,6 +930,17 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
           </p>
         )}
       </div>
+
+      {jewelryOpen && (
+        <Suspense fallback={null}>
+          <Text3DBuilder
+            eventId={eventId}
+            dispatch={dispatch}
+            onClose={() => setJewelryOpen(false)}
+            onUploaded={loadUploads}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
