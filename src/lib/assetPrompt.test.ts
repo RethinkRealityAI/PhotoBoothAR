@@ -9,7 +9,18 @@ import {
   FRAME_LAYOUT_SPEC,
   type PieceKind,
   FRAME_COMPOSITION,
+  normalizeLettering,
+  LETTERING_STYLE_SPEC,
+  LETTERING_PLACEMENT_SPEC,
+  type LetteringStyle,
+  type LetteringPlacement,
 } from './assetPrompt';
+
+/** The exact ban line every frame prompt has ended with since frames existed.
+ *  Duplicated verbatim (not imported) ON PURPOSE: a test that imports the
+ *  string can never catch it being edited. */
+const BAN_LINE =
+  'No text, no lettering, no numerals, no logos, no watermark, no signature anywhere in the image.';
 
 describe('inferPieceKind', () => {
   it('recognises the head-worn kinds', () => {
@@ -227,6 +238,112 @@ describe('buildFrameArtDirection', () => {
     const p = buildFrameArtDirection('a frame');
     expect(p).toMatch(/disciplined palette/i);
     expect(p).not.toContain('undefined');
+  });
+});
+
+describe('frame lettering', () => {
+  const spec = { text: 'Maya & Sam', style: 'script-name', placement: 'bottom' } as const;
+
+  /* ── The byte-identity guarantee ─────────────────────────────────────
+   * Lettering is opt-in. With it absent, the prompt must be the SAME STRING
+   * the model has been receiving in production — proved two ways: the ban
+   * line is present verbatim, and the whole prompt equals the prompt built
+   * with `lettering` explicitly absent/null/undefined. */
+  it('sends the standing ban line verbatim when no lettering is asked for', () => {
+    const p = buildFrameArtDirection('art-deco border', { eventType: 'gala', accentHexes: ['#D4AF37'] });
+    expect(p).toContain(BAN_LINE);
+    expect(p.endsWith(BAN_LINE)).toBe(true);
+  });
+
+  it('treats an absent, null and undefined lettering option as the same prompt', () => {
+    const base = buildFrameArtDirection('art-deco border', { layout: 'full-scene' });
+    expect(buildFrameArtDirection('art-deco border', { layout: 'full-scene', lettering: null })).toBe(base);
+    expect(buildFrameArtDirection('art-deco border', { layout: 'full-scene', lettering: undefined })).toBe(base);
+  });
+
+  it('replaces the ban with an exact-text instruction when lettering is asked for', () => {
+    const p = buildFrameArtDirection('art-deco border', { lettering: spec });
+    expect(p).toContain('EXACTLY the text "Maya & Sam"');
+    expect(p).not.toContain('No text, no lettering');
+    // …and still forbids everything ELSE, or the model adds a fake date.
+    expect(p.endsWith(
+      'Apart from that single piece of lettering: no other text, no numerals, no logos, ' +
+      'no watermark, no signature anywhere in the image.',
+    )).toBe(true);
+  });
+
+  it('spells out the spelling requirement — models substitute characters silently', () => {
+    const p = buildFrameArtDirection('a frame', { lettering: spec });
+    expect(p).toMatch(/letter-for-letter with no substitutions/);
+    expect(p).toMatch(/exactly once/);
+  });
+
+  it('maps every style id to its own letterform sentence', () => {
+    const styles: LetteringStyle[] = ['cursive-monogram', 'serif-initials', 'script-name', 'modern-block'];
+    for (const style of styles) {
+      const p = buildFrameArtDirection('a frame', { lettering: { ...spec, style } });
+      expect(p).toContain(LETTERING_STYLE_SPEC[style]);
+    }
+    // Distinct sentences, not four aliases of one.
+    expect(new Set(Object.values(LETTERING_STYLE_SPEC)).size).toBe(4);
+  });
+
+  it('maps every placement id to its own position sentence', () => {
+    const placements: Exclude<LetteringPlacement, 'standalone'>[] = ['top', 'bottom', 'integrated', 'beyond-edge'];
+    for (const placement of placements) {
+      const p = buildFrameArtDirection('a frame', { lettering: { ...spec, placement } });
+      expect(p).toContain(LETTERING_PLACEMENT_SPEC[placement]);
+    }
+    expect(new Set(Object.values(LETTERING_PLACEMENT_SPEC)).size).toBe(4);
+  });
+
+  it('describes standalone lettering as the artwork itself, with no frame', () => {
+    const p = buildFrameArtDirection('a name in gold', { lettering: { ...spec, placement: 'standalone' } });
+    expect(p).toMatch(/standalone subject/i);
+    expect(p).toMatch(/no frame or border around it/i);
+  });
+});
+
+describe('normalizeLettering', () => {
+  const ok = { text: 'Maya & Sam', style: 'script-name', placement: 'bottom' };
+
+  it('accepts a well-formed spec and trims the text', () => {
+    expect(normalizeLettering({ ...ok, text: '  Maya & Sam  ' })).toEqual(ok);
+  });
+
+  it('rejects anything that is not an object', () => {
+    expect(normalizeLettering(null)).toBeNull();
+    expect(normalizeLettering(undefined)).toBeNull();
+    expect(normalizeLettering('Maya & Sam')).toBeNull();
+    expect(normalizeLettering(42)).toBeNull();
+    expect(normalizeLettering([ok])).toBeNull();
+  });
+
+  it('rejects unknown style and placement ids — a hallucinated id must not reach the model', () => {
+    expect(normalizeLettering({ ...ok, style: 'comic-sans' })).toBeNull();
+    expect(normalizeLettering({ ...ok, placement: 'sideways' })).toBeNull();
+    expect(normalizeLettering({ text: 'Maya' })).toBeNull();
+  });
+
+  it('rejects empty or whitespace-only text', () => {
+    expect(normalizeLettering({ ...ok, text: '' })).toBeNull();
+    expect(normalizeLettering({ ...ok, text: '   ' })).toBeNull();
+    expect(normalizeLettering({ ...ok, text: 42 })).toBeNull();
+  });
+
+  it('accepts 40 characters and rejects 41 — past that models stop spelling', () => {
+    expect(normalizeLettering({ ...ok, text: 'a'.repeat(40) })?.text).toHaveLength(40);
+    expect(normalizeLettering({ ...ok, text: 'a'.repeat(41) })).toBeNull();
+    // Trimming happens BEFORE the length check, so padding to 41 still passes.
+    expect(normalizeLettering({ ...ok, text: ` ${'a'.repeat(40)} ` })?.text).toHaveLength(40);
+  });
+
+  it('accepts every valid style/placement combination', () => {
+    for (const style of ['cursive-monogram', 'serif-initials', 'script-name', 'modern-block']) {
+      for (const placement of ['top', 'bottom', 'integrated', 'beyond-edge', 'standalone']) {
+        expect(normalizeLettering({ text: 'M&S', style, placement })).toEqual({ text: 'M&S', style, placement });
+      }
+    }
   });
 });
 

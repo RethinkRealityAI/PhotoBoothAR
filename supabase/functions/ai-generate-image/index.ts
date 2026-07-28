@@ -14,6 +14,16 @@
  *            | 'duo-scene' | 'corner-overlay'    only. Default 'classic-border'
  *            | 'bottom-third'                    = the exact prompt this
  *                                               function has always sent.)
+ *     lettering?: {                             (optional lettering ON the frame.
+ *       text: string (1-40 chars),               Absent → the standing "no text"
+ *       style: 'cursive-monogram'                ban is sent verbatim and the
+ *            | 'serif-initials'                  prompt is byte-identical to
+ *            | 'script-name'                     before. Malformed → 400.
+ *            | 'modern-block',                   placement 'standalone' = the
+ *       placement: 'top' | 'bottom'              lettering IS the artwork, so
+ *                | 'integrated'                  the caller sends kind
+ *                | 'beyond-edge'                 '2d_filter' for it.)
+ *                | 'standalone' }
  *     referenceImageUrl?: string }              (optional public assets URL of a
  *                                               host-uploaded reference; gemini
  *                                               fetches it server-side + inlines
@@ -309,12 +319,88 @@ const FRAME_COMPOSITION: Record<string, string> = {
     'detail live in the bottom band and thin upward to nothing well before the vertical midpoint.',
 };
 
+/* ── Frame lettering ──────────────────────────────────────────────────────
+ * MIRRORED from src/lib/assetPrompt.ts (LetteringStyle / LetteringPlacement /
+ * LETTERING_STYLE_SPEC / LETTERING_PLACEMENT_SPEC / normalizeLettering /
+ * letteringDirection). Edge functions cannot import from src/, so the two carry
+ * the same text byte for byte — change one, change the other.
+ *
+ * Opt-in: with `lettering` absent the ban line below is the exact string this
+ * function has always ended its art direction with. */
+
+type LetteringStyle = 'cursive-monogram' | 'serif-initials' | 'script-name' | 'modern-block';
+type LetteringPlacement = 'top' | 'bottom' | 'integrated' | 'beyond-edge' | 'standalone';
+
+interface LetteringSpec {
+  text: string;
+  style: LetteringStyle;
+  placement: LetteringPlacement;
+}
+
+const LETTERING_STYLES = new Set([
+  'cursive-monogram', 'serif-initials', 'script-name', 'modern-block',
+]);
+const LETTERING_PLACEMENTS = new Set([
+  'top', 'bottom', 'integrated', 'beyond-edge', 'standalone',
+]);
+
+/** Max characters of lettering. Past ~40 an image model stops spelling and
+ *  starts inventing glyphs, which is worse than no lettering at all. */
+const LETTERING_MAX = 40;
+
+/** Validate untrusted lettering into a spec, or null (= no lettering). */
+function normalizeLettering(v: unknown): LetteringSpec | null {
+  if (v === null || v === undefined || typeof v !== 'object' || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const text = typeof o.text === 'string' ? o.text.trim() : '';
+  if (!text || text.length > LETTERING_MAX) return null;
+  const style = typeof o.style === 'string' ? o.style : '';
+  if (!LETTERING_STYLES.has(style)) return null;
+  const placement = typeof o.placement === 'string' ? o.placement : '';
+  if (!LETTERING_PLACEMENTS.has(placement)) return null;
+  return { text, style: style as LetteringStyle, placement: placement as LetteringPlacement };
+}
+
+const LETTERING_STYLE_SPEC: Record<LetteringStyle, string> = {
+  'cursive-monogram': 'an interlocked cursive monogram with elegant flourishes',
+  'serif-initials': 'large engraved serif capital initials',
+  'script-name': 'a flowing calligraphic script wordmark',
+  'modern-block': 'bold modern geometric block capitals with tight tracking',
+};
+
+/** 'standalone' has no entry: it means "no frame at all", so the sticker
+ *  composition line already places the subject — see letteringPlacementSpec. */
+const LETTERING_PLACEMENT_SPEC: Record<Exclude<LetteringPlacement, 'standalone'>, string> = {
+  top: 'centred in the top band of the frame',
+  bottom: 'centred in the lower band of the frame',
+  integrated: 'woven into the frame ornament itself, sharing its materials and lighting',
+  'beyond-edge': 'overflowing past the frame edge into the canvas, oversized and confident',
+};
+
+function letteringPlacementSpec(placement: LetteringPlacement): string {
+  return placement === 'standalone'
+    ? 'as the single standalone subject of the artwork, with no frame or border around it'
+    : LETTERING_PLACEMENT_SPEC[placement];
+}
+
+/** The block that REPLACES the standing "no text" ban when lettering is asked
+ *  for. Spelling is the whole game with image models, hence "letter-for-letter
+ *  with no substitutions" and the residual ban on EVERYTHING else. */
+function letteringDirection(spec: LetteringSpec): string {
+  return `Render EXACTLY the text "${spec.text}", exactly once, spelled precisely letter-for-letter ` +
+    `with no substitutions, as ${LETTERING_STYLE_SPEC[spec.style]}, ${letteringPlacementSpec(spec.placement)}. ` +
+    'Integrate the lettering with the frame\'s palette and materials. Apart from that single piece of ' +
+    'lettering: no other text, no numerals, no logos, no watermark, no signature anywhere in the image.';
+}
+
 function artDirectionFor(
   brief: string,
   kind: string,
   accentHexes: string[],
   eventType: string | null,
   layout: string = 'classic-border',
+  /** Opt-in lettering. Absent/null → the ban line is sent verbatim. */
+  lettering: LetteringSpec | null = null,
 ): string {
   const register = eventType ? EVENT_REGISTER[eventType.toLowerCase()] : undefined;
   const palette = paletteDirection(accentHexes);
@@ -336,7 +422,12 @@ function artDirectionFor(
     'Quality bar: looks like a professional event stationery designer made it for this specific ' +
       'occasion. Avoid clip-art motifs, generic swirls, muddy gradients, and anything that reads as ' +
       'stock template.',
-    'No text, no lettering, no numerals, no logos, no watermark, no signature anywhere in the image.',
+    // Lettering REPLACES the ban (it is the one exception to it) — for the
+    // sticker/standalone path too, which keeps its one-subject composition
+    // line above. Absent → the exact string this function has always sent.
+    lettering
+      ? letteringDirection(lettering)
+      : 'No text, no lettering, no numerals, no logos, no watermark, no signature anywhere in the image.',
   ].filter(Boolean).join(' ');
 }
 
@@ -358,9 +449,12 @@ function buildPrompt(
   /** Frame archetype — border + greenScreen only. 'classic-border' reproduces
    *  the prompt this function has always sent, byte for byte. */
   layout: FrameLayout = 'classic-border',
+  /** Opt-in lettering ON the artwork. Absent/null → the art direction ends with
+   *  the standing ban line, byte-identical to before this parameter existed. */
+  lettering: LetteringSpec | null = null,
 ): string {
   const art = artDirection
-    ? artDirectionFor(prompt, kind, accentHexes, eventType, layout)
+    ? artDirectionFor(prompt, kind, accentHexes, eventType, layout, lettering)
     : `Design brief: ${prompt.trim()}`;
   if (greenScreen) {
     const base = kind === 'border'
@@ -644,6 +738,16 @@ Deno.serve(async (req: Request) => {
     // sticker has one subject, not a canvas layout.
     const layout = (body.layout ?? 'classic-border') as FrameLayout;
     if (!LAYOUTS.has(layout)) return json(400, { error: 'invalid_body' });
+    // Optional lettering ON the artwork. Absent (or explicitly null) → no
+    // lettering and a byte-identical prompt; PRESENT BUT MALFORMED is a client
+    // bug, not a silent "never mind" — a host who typed a name must not be
+    // charged a credit for a frame that silently drops it.
+    const lettering = body.lettering === undefined || body.lettering === null
+      ? null
+      : normalizeLettering(body.lettering);
+    if (body.lettering !== undefined && body.lettering !== null && !lettering) {
+      return json(400, { error: 'invalid_body' });
+    }
     const transparentBackground = body.transparentBackground === true;
     // Opt-in: paint a solid pure-green chroma-key backdrop for the browser to
     // key out. Absent/false → the prompt is unchanged for existing callers.
@@ -750,6 +854,8 @@ Deno.serve(async (req: Request) => {
         input: {
           prompt, kind, transparentBackground, greenScreen, provider,
           ...(kind === 'border' ? { layout } : {}),
+          // Recorded so a regenerate/audit can see the frame carried a name.
+          ...(lettering ? { lettering } : {}),
           ...(referenceImageUrl ? { referenceImageUrl } : {}),
         },
         credits_charged: cost,
@@ -787,6 +893,7 @@ Deno.serve(async (req: Request) => {
         : null;
       let fullPrompt = buildPrompt(
         prompt, kind, transparentBackground, greenScreen, accentHexes, eventType, artDirection, layout,
+        lettering,
       );
       // Reference image (gemini only): fetch + encode server-side and tell the
       // model to follow it. A failed fetch degrades to null → no reference,

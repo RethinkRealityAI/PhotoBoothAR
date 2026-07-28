@@ -120,6 +120,22 @@ describe('normalizeActions — experience-building tools', () => {
     expect(normalizeActions([{ tool: 'generate_frame' }], snapshot)).toEqual([]);
   });
 
+  it('passes valid frame lettering through', () => {
+    const lettering = { text: 'Maya & Sam', style: 'script-name', placement: 'bottom' };
+    expect(normalizeActions([{ tool: 'generate_frame', prompt: 'art-deco gold border', lettering }], snapshot))
+      .toEqual([{ tool: 'generate_frame', proposal: { prompt: 'art-deco gold border', lettering } }]);
+  });
+
+  it('drops invalid lettering SILENTLY rather than the whole frame proposal', () => {
+    // A hallucinated placement id must cost the host a name on the frame, not
+    // the frame itself — same handling validationPrompt gets on add_challenge.
+    const bad = { text: 'Maya & Sam', style: 'script-name', placement: 'diagonally' };
+    expect(normalizeActions([{ tool: 'generate_frame', prompt: 'art-deco gold border', lettering: bad }], snapshot))
+      .toEqual([{ tool: 'generate_frame', proposal: { prompt: 'art-deco gold border' } }]);
+    expect(normalizeActions([{ tool: 'generate_frame', prompt: 'a frame', lettering: 'Maya' }], snapshot))
+      .toEqual([{ tool: 'generate_frame', proposal: { prompt: 'a frame' } }]);
+  });
+
   it('accepts a known filter id, drops unknown ids and none', () => {
     expect(normalizeActions([{ tool: 'set_filter', shaderId: filterId }], snapshot))
       .toEqual([{ tool: 'set_filter', proposal: { shaderId: filterId } }]);

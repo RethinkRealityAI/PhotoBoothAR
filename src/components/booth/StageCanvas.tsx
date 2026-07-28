@@ -21,7 +21,8 @@ import {
 } from 'react';
 import { ShaderRunner, defaultParams } from '../../lib/shaders';
 import { drawScagoMark } from '../../lib/scagoMark';
-import { Transform2D, LayerAnimation } from '../../types';
+import { Transform2D, LayerAnimation, GuestLetteringConfig } from '../../types';
+import { fitLettering, regionForPlacement, MIN_FONT_PX, type GuestLetteringStyle } from '../../lib/letteringFit';
 import type { EventConfig } from '../../events/types';
 import { useOptionalEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
@@ -75,6 +76,18 @@ interface Props {
    * the step is skipped and output is byte-identical to before this prop existed.
    */
   effectsCanvas?: HTMLCanvasElement | null;
+  /**
+   * Live lettering drawn OVER the frame — the guest's own name (or one fixed
+   * line), from the frame experience's `config.lettering`. `name` is what to
+   * draw for a 'guestName' token; empty means the guest has no stored name yet,
+   * and nothing is drawn.
+   *
+   * ABSENT (or null) ⇒ drawFrame is byte-identical to before this prop existed:
+   * step 5c is skipped entirely, no font is requested, and no canvas state is
+   * touched. That is the legacy-event guarantee — coded events never carry a
+   * `config.lettering` key, so Booth passes null and their output is unchanged.
+   */
+  lettering?: { spec: GuestLetteringConfig; name: string } | null;
 }
 
 const PREVIEW_W = 720;
@@ -157,6 +170,72 @@ function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number, even
   ctx.restore();
 }
 
+/* ── Guest lettering (step 5c) ───────────────────────────────────────────
+ * The guest's own name, drawn over the frame. Every number below is a FRACTION
+ * of w/h because this runs at 720×1280 for the preview and 1080×1920 for the
+ * capture — a constant would put the name in two different places. The faces
+ * are the ones the app already loads (src/index.css:67-70). */
+
+const LETTERING_FONT: Record<GuestLetteringStyle, (px: number) => string> = {
+  script: (px) => `${px}px "Pinyon Script", cursive`,
+  serif: (px) => `italic 600 ${px}px "Cormorant Garamond", Georgia, serif`,
+  block: (px) => `800 ${px}px "Inter", sans-serif`,
+  label: (px) => `600 ${px}px "Jost", sans-serif`,
+};
+
+/** The families to warm up before the first draw — same list, one per style. */
+const LETTERING_FONT_PROBES = [
+  '32px "Pinyon Script"',
+  'italic 600 32px "Cormorant Garamond"',
+  '800 32px "Inter"',
+  '600 32px "Jost"',
+];
+
+function drawGuestLettering(
+  ctx: CanvasRenderingContext2D,
+  w: number, h: number,
+  spec: GuestLetteringConfig,
+  name: string,
+) {
+  const raw = spec.token === 'fixed' ? (spec.text ?? '') : name;
+  if (!raw.trim()) return; // no name yet (guest skipped) → draw nothing
+  // 'label' is tracked-out uppercase, so the case change happens BEFORE fitting
+  // — uppercase is wider, and fitting the lowercase form would overflow.
+  const isLabel = spec.style === 'label';
+  const region = regionForPlacement(spec.placement, w, h);
+  const { fontPx, text } = fitLettering(
+    isLabel ? raw.toUpperCase() : raw,
+    region.w, region.h, spec.style,
+    // The legibility floor is defined at the 1080 capture width; scaling it
+    // keeps the preview and the photo showing the SAME truncation.
+    MIN_FONT_PX * (w / 1080),
+  );
+  if (fontPx <= 0 || !text) return;
+
+  ctx.save();
+  ctx.textBaseline = 'middle';
+  ctx.font = LETTERING_FONT[spec.style](fontPx);
+  ctx.fillStyle = spec.color;
+  // Same lift the signature uses — a name over busy frame art is unreadable
+  // without it (drawSignature: rgba(0,0,0,0.55), blur 12 at 1080).
+  ctx.shadowColor = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur = w * 0.011;
+  const cx = region.x + region.w / 2;
+  const cy = region.y + region.h / 2;
+  if (isLabel) {
+    // Manual tracking means manual centring: measure the tracked run first.
+    const spacing = fontPx * 0.18;
+    ctx.textAlign = 'left';
+    let total = -spacing;
+    for (const ch of text) total += ctx.measureText(ch).width + spacing;
+    drawTracked(ctx, text, cx - total / 2, cy, spacing);
+  } else {
+    ctx.textAlign = 'center';
+    ctx.fillText(text, cx, cy);
+  }
+  ctx.restore();
+}
+
 /** Draws text with manual letter-spacing (for the small-caps eyebrow). */
 function drawTracked(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, spacing: number) {
   let cx = x;
@@ -227,7 +306,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   {
     videoRef, effectId, mirror, sparkles = false,
     overlayUrl, overlayTransform, overlayOpacity, overlays,
-    threeCanvasId, active = true, watermark = true, effectsCanvas,
+    threeCanvasId, active = true, watermark = true, effectsCanvas, lettering,
   },
   ref,
 ) {
@@ -251,6 +330,10 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   const activeRef = useRef(active);
   const watermarkRef = useRef(watermark);
   const effectsCanvasRef = useRef<HTMLCanvasElement | null>(effectsCanvas ?? null);
+  const letteringRef = useRef<Props['lettering']>(lettering ?? null);
+  /** Latch so the webfont warm-up runs at most once, and ONLY for a booth that
+   *  actually draws lettering (a legacy event requests no extra fonts). */
+  const letteringFontsRef = useRef(false);
   // Multi-layer path: the overlays spec array + a per-url image cache.
   const overlaysRef = useRef<StageOverlaySpec[] | null>(overlays ?? null);
   const overlayImgCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -275,6 +358,20 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { watermarkRef.current = watermark; }, [watermark]);
   useEffect(() => { effectsCanvasRef.current = effectsCanvas ?? null; }, [effectsCanvas]);
+  useEffect(() => {
+    letteringRef.current = lettering ?? null;
+    // Canvas text does NOT trigger a webfont fetch — an unloaded family silently
+    // falls back to the generic. Warm them once, best-effort: a failure (or an
+    // environment with no FontFaceSet) just means the fallback face is used.
+    if (!lettering || letteringFontsRef.current) return;
+    letteringFontsRef.current = true;
+    const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
+    if (!fonts?.load) return;
+    for (const probe of LETTERING_FONT_PROBES) {
+      try { void fonts.load(probe).catch(() => { /* fallback face is fine */ }); }
+      catch { /* older engines throw on an unparsed shorthand */ }
+    }
+  }, [lettering]);
   useEffect(() => {
     overlaysRef.current = overlays ?? null;
     // Preload any not-yet-cached overlay images (cache persists across renders
@@ -384,6 +481,17 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     const fx = effectsCanvasRef.current;
     if (fx && fx.width > 0) {
       try { ctx.drawImage(fx, 0, 0, w, h); } catch { /* tainted / not ready */ }
+    }
+
+    // Step 5c: Guest lettering (the guest's own name over the frame).
+    // Deliberately NOT gated on `withSignature`: the preview must show the name
+    // the guest is about to get, the recorded video is a capture of THIS canvas
+    // (preview pass), and the photo re-renders with withSignature=true — the
+    // name has to land in all three. Absent prop -> skipped entirely, so a
+    // legacy/coded event's frame is byte-identical to before this step existed.
+    const letteringSpec = letteringRef.current;
+    if (letteringSpec) {
+      drawGuestLettering(ctx, w, h, letteringSpec.spec, letteringSpec.name);
     }
 
     // Step 6: Signature (only for capture, not preview — keeps preview fast).

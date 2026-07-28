@@ -235,6 +235,105 @@ export function buildMeshyPrompt(brief: string, kind: PieceKind = inferPieceKind
  */
 export type FrameLayout = 'classic-border' | 'full-scene' | 'duo-scene' | 'corner-overlay' | 'bottom-third';
 
+/* ── Frame lettering ──────────────────────────────────────────────────────
+ * A host who names their event ("Maya & Sam · 12 June") almost always wants
+ * that ON the frame. Until now the art direction ended with an unconditional
+ * ban on text, so the only way to get a name onto a frame was to draw it
+ * afterwards. Lettering is OPT-IN: absent → the ban line below is sent exactly
+ * as it always has been, byte for byte.
+ *
+ * MIRRORED SERVER-SIDE in `supabase/functions/ai-generate-image/index.ts`
+ * (LETTERING_STYLE_SPEC / LETTERING_PLACEMENT_SPEC / normalizeLettering /
+ * the exact-text sentence) — edge functions cannot import from src/, so the
+ * two carry the same text byte for byte. Change one, change the other. */
+
+/** How the lettering is DRAWN. */
+export type LetteringStyle = 'cursive-monogram' | 'serif-initials' | 'script-name' | 'modern-block';
+
+/** WHERE it sits. 'standalone' is the no-frame case: the lettering itself IS
+ *  the artwork (the caller sends it down the sticker path, not the border one). */
+export type LetteringPlacement = 'top' | 'bottom' | 'integrated' | 'beyond-edge' | 'standalone';
+
+export interface LetteringSpec {
+  /** The literal characters to render, 1–40 chars after trimming. */
+  text: string;
+  style: LetteringStyle;
+  placement: LetteringPlacement;
+}
+
+const LETTERING_STYLES: ReadonlySet<string> = new Set<LetteringStyle>([
+  'cursive-monogram', 'serif-initials', 'script-name', 'modern-block',
+]);
+const LETTERING_PLACEMENTS: ReadonlySet<string> = new Set<LetteringPlacement>([
+  'top', 'bottom', 'integrated', 'beyond-edge', 'standalone',
+]);
+
+/** Max characters of lettering. Past ~40 an image model stops spelling and
+ *  starts inventing glyphs, which is worse than no lettering at all. */
+export const LETTERING_MAX = 40;
+
+/**
+ * Validate untrusted lettering (model output, an edited confirm card, a stored
+ * config) into a LetteringSpec — or null, which means "no lettering" and
+ * restores the byte-identical ban line. Never throws.
+ */
+export function normalizeLettering(v: unknown): LetteringSpec | null {
+  if (v === null || v === undefined || typeof v !== 'object' || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const text = typeof o.text === 'string' ? o.text.trim() : '';
+  if (!text || text.length > LETTERING_MAX) return null;
+  const style = typeof o.style === 'string' ? o.style : '';
+  if (!LETTERING_STYLES.has(style)) return null;
+  const placement = typeof o.placement === 'string' ? o.placement : '';
+  if (!LETTERING_PLACEMENTS.has(placement)) return null;
+  return { text, style: style as LetteringStyle, placement: placement as LetteringPlacement };
+}
+
+/** The look of the letterforms, per style id (mirror: ai-generate-image). */
+export const LETTERING_STYLE_SPEC: Record<LetteringStyle, string> = {
+  'cursive-monogram': 'an interlocked cursive monogram with elegant flourishes',
+  'serif-initials': 'large engraved serif capital initials',
+  'script-name': 'a flowing calligraphic script wordmark',
+  'modern-block': 'bold modern geometric block capitals with tight tracking',
+};
+
+/**
+ * Where the lettering sits, per placement id (mirror: ai-generate-image).
+ *
+ * 'standalone' has NO entry on purpose: it means "no frame at all", so the
+ * caller sends kind '2d_filter' and the sticker composition line ("one clear
+ * silhouette…") already says where the subject goes. Looking it up falls back
+ * to the standalone sentence below.
+ */
+export const LETTERING_PLACEMENT_SPEC: Record<Exclude<LetteringPlacement, 'standalone'>, string> = {
+  top: 'centred in the top band of the frame',
+  bottom: 'centred in the lower band of the frame',
+  integrated: 'woven into the frame ornament itself, sharing its materials and lighting',
+  'beyond-edge': 'overflowing past the frame edge into the canvas, oversized and confident',
+};
+
+/** Placement sentence for any placement, including 'standalone'. */
+function letteringPlacementSpec(placement: LetteringPlacement): string {
+  return placement === 'standalone'
+    ? 'as the single standalone subject of the artwork, with no frame or border around it'
+    : LETTERING_PLACEMENT_SPEC[placement];
+}
+
+/**
+ * The block that REPLACES the standing "no text" ban when lettering is asked
+ * for. Spelling is the whole game with image models, hence "letter-for-letter
+ * with no substitutions" and the residual ban on EVERYTHING else — one piece of
+ * lettering is a design; two is a mistake.
+ *
+ * Mirror: ai-generate-image `letteringDirection`.
+ */
+export function letteringDirection(spec: LetteringSpec): string {
+  return `Render EXACTLY the text "${spec.text}", exactly once, spelled precisely letter-for-letter ` +
+    `with no substitutions, as ${LETTERING_STYLE_SPEC[spec.style]}, ${letteringPlacementSpec(spec.placement)}. ` +
+    'Integrate the lettering with the frame\'s palette and materials. Apart from that single piece of ' +
+    'lettering: no other text, no numerals, no logos, no watermark, no signature anywhere in the image.';
+}
+
 /**
  * The anti-spill block, reused VERBATIM from the classic-border prompt that has
  * been keying cleanly in production. Every new archetype ends with it rather
@@ -339,6 +438,12 @@ export interface FrameArtOptions {
   eventType?: string | null;
   /** Frame layout driving the composition direction (default classic-border). */
   layout?: FrameLayout;
+  /**
+   * Opt-in lettering (a name, initials, a monogram) to render ON the frame.
+   * Absent/null → the standing "no text, no lettering…" ban is sent verbatim,
+   * so every existing caller's prompt is byte-identical to before.
+   */
+  lettering?: LetteringSpec | null;
 }
 
 /** Palette sentence for 0, 1 or many known accent colours. Exported so the
@@ -420,7 +525,11 @@ export function buildFrameArtDirection(brief: string, opts: FrameArtOptions = {}
     'Quality bar: looks like a professional event stationery designer made it for this specific ' +
       'occasion. Avoid clip-art motifs, generic swirls, muddy gradients, and anything that reads as ' +
       'stock template.',
-    'No text, no lettering, no numerals, no logos, no watermark, no signature anywhere in the image.',
+    // Lettering REPLACES the ban (it is the one exception to it). Absent →
+    // this line is the exact string this function has always ended with.
+    opts.lettering
+      ? letteringDirection(opts.lettering)
+      : 'No text, no lettering, no numerals, no logos, no watermark, no signature anywhere in the image.',
   ];
   return parts.filter(Boolean).join(' ');
 }

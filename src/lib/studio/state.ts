@@ -23,7 +23,9 @@
  * TOUCHED frame's transform/animation — while stickers and 3D objects ALWAYS
  * APPEND on pick (appendObject): a click never deletes or replaces content.
  */
-import type { ExperienceKind, HeadAnchor, LayerAnimation, Transform2D } from '../../types';
+import type {
+  ExperienceKind, GuestLetteringConfig, HeadAnchor, LayerAnimation, Transform2D,
+} from '../../types';
 import { BORDER_MAP } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
 import type { TriggerConfig } from './triggers';
@@ -87,6 +89,14 @@ export interface Overlay2D {
    * it. Treat it as a publish control; the Layers eye is labelled accordingly.
    */
   hidden?: boolean;
+  /**
+   * Live per-guest lettering drawn over this frame in the booth (the guest's
+   * own name, or one fixed line for everyone). Persisted at CONFIG level, not
+   * layer level: draftMapping mirrors it to/from `config.lettering` beside
+   * `config.opacity`, the same way layer 0's transform is mirrored. Undefined =
+   * none, which is every scene that predates the feature.
+   */
+  lettering?: GuestLetteringConfig;
 }
 
 /** A single 3D attachment (GLB model or procedural head piece) within a 3D scene. */
@@ -135,6 +145,9 @@ export function createOverlay(
     name: opts.name ?? 'Overlay',
     transform: opts.transform ? { ...opts.transform } : { ...DEFAULT_TRANSFORM },
     animation: opts.animation ?? 'none',
+    // Omitted entirely when absent, so an overlay without guest lettering has
+    // no such key at all (deep-equality snapshots stay byte-identical).
+    ...(opts.lettering ? { lettering: { ...opts.lettering } } : {}),
   };
 }
 

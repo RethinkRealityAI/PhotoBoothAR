@@ -181,7 +181,20 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
 
       case 'Image': {
         const url = str(c.url, scope);
-        return url ? <img key={key} src={url} alt="" className="rounded-xl max-w-full" /> : null;
+        // Hide on error rather than show a broken-image glyph: sample art is
+        // vendored at build time (scripts/remote-assets.json), so a card must
+        // degrade to its labels when the asset isn't there yet.
+        return url ? (
+          <img
+            key={key}
+            src={url}
+            alt=""
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            className={c.variant === 'thumb'
+              ? 'rounded-lg w-[72px] h-[128px] object-cover border border-white/10'
+              : 'rounded-xl max-w-full'}
+          />
+        ) : null;
       }
 
       case 'Icon': {

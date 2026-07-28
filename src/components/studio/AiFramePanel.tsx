@@ -13,7 +13,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Loader, Wand2 } from 'lucide-react';
 import { generateImage, resolveEventUuid, aiErrorMessage, fetchEventCreditBalance } from '../../lib/ai';
 import { useEvent } from '../../events/EventContext';
-import { inferFrameLayout, type FrameLayout } from '../../lib/assetPrompt';
+import {
+  inferFrameLayout, normalizeLettering, LETTERING_MAX,
+  type FrameLayout, type LetteringPlacement, type LetteringStyle,
+} from '../../lib/assetPrompt';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import type { Experience } from '../../types';
 
@@ -26,6 +29,24 @@ const LAYOUT_CHIPS: { id: FrameLayout; label: string }[] = [
   { id: 'duo-scene', label: 'Two faces' },
   { id: 'corner-overlay', label: 'Corners' },
   { id: 'bottom-third', label: 'Banner' },
+];
+
+/** Lettering styles, each with the sample frame that shows the look. The
+ *  thumbnails are vendored at build time (scripts/remote-assets.json) and hide
+ *  themselves if missing, so the row degrades to plain pills. */
+const LETTERING_STYLE_PILLS: { id: LetteringStyle; label: string; sample: string }[] = [
+  { id: 'cursive-monogram', label: 'Monogram', sample: 'cursive-monogram-bottom' },
+  { id: 'serif-initials', label: 'Initials', sample: 'serif-initials-top' },
+  { id: 'script-name', label: 'Script', sample: 'script-name-extending' },
+  { id: 'modern-block', label: 'Block', sample: 'block-name-integrated' },
+];
+
+const LETTERING_PLACEMENT_PILLS: { id: LetteringPlacement; label: string }[] = [
+  { id: 'bottom', label: 'Bottom' },
+  { id: 'top', label: 'Top' },
+  { id: 'integrated', label: 'Woven in' },
+  { id: 'beyond-edge', label: 'Past the edge' },
+  { id: 'standalone', label: 'Name art only' },
 ];
 
 export default function AiFramePanel({
@@ -50,6 +71,16 @@ export default function AiFramePanel({
   // after that their choice wins (null = still following the brief).
   const [layoutPick, setLayoutPick] = useState<FrameLayout | null>(null);
   const layout = layoutPick ?? inferFrameLayout(prompt);
+  // Lettering ON the frame — opt-in, and only sent when the host actually typed
+  // something. Empty text (or the pill closed) leaves the request body exactly
+  // as it was before lettering existed.
+  const [letteringOpen, setLetteringOpen] = useState(false);
+  const [letteringText, setLetteringText] = useState('');
+  const [letteringStyle, setLetteringStyle] = useState<LetteringStyle>('script-name');
+  const [letteringPlacement, setLetteringPlacement] = useState<LetteringPlacement>('bottom');
+  const lettering = letteringOpen
+    ? normalizeLettering({ text: letteringText, style: letteringStyle, placement: letteringPlacement })
+    : null;
 
   // Balance of the EVENT's org — the org ai-generate-image actually charges
   // (event.org_id), not the caller's first org membership (they can differ
@@ -73,14 +104,20 @@ export default function AiFramePanel({
     try {
       const uuid = await resolveEventUuid(eventId, eventUuid);
       if (!uuid) { setError(aiErrorMessage('event_not_found')); return; }
+      // "Name art only" is words with NO frame around them — a single centred
+      // subject, which is the sticker path, whatever panel the host is in.
+      const genKind = lettering?.placement === 'standalone' ? '2d_filter' : kind;
       const { data, error: err } = await generateImage(uuid, {
         prompt: prompt.trim(),
-        kind,
-        transparentBackground: kind === '2d_filter',
+        kind: genKind,
+        transparentBackground: genKind === '2d_filter',
         greenScreen: true,
         // A sticker has one subject, not a canvas layout — only a frame carries
         // an archetype (the edge function ignores it for other kinds anyway).
-        ...(kind === 'border' ? { layout } : {}),
+        ...(genKind === 'border' ? { layout } : {}),
+        // Only ever present when the host typed real text — absent keeps the
+        // server prompt byte-identical to before this control existed.
+        ...(lettering ? { lettering } : {}),
       });
       if (err || !data?.experience) {
         if (err === 'insufficient_credits') {
@@ -165,6 +202,83 @@ export default function AiFramePanel({
               </button>
             );
           })}
+        </div>
+      )}
+      {kind === 'border' && (
+        <div className="flex flex-col gap-1.5">
+          <button
+            type="button"
+            onClick={() => setLetteringOpen((o) => !o)}
+            aria-pressed={letteringOpen}
+            className={`pressable liquid-glass self-start rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors ${
+              letteringOpen
+                ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
+                : 'text-brand-muted/60 hover:text-brand-fg'
+            }`}
+          >
+            Lettering
+          </button>
+          {letteringOpen && (
+            <div className="flex flex-col gap-1.5">
+              <input
+                type="text"
+                value={letteringText}
+                onChange={(e) => setLetteringText(e.target.value.slice(0, LETTERING_MAX))}
+                placeholder="Names or initials — e.g. 'Maya & Sam'"
+                className="w-full rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2 text-brand-fg text-xs placeholder:text-brand-muted/40 outline-none focus:border-accent/50"
+              />
+              <div className="flex flex-wrap gap-1" role="group" aria-label="Lettering style">
+                {LETTERING_STYLE_PILLS.map(({ id, label, sample }) => {
+                  const active = id === letteringStyle;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setLetteringStyle(id)}
+                      aria-pressed={active}
+                      className={`pressable liquid-glass flex items-center gap-1.5 rounded-full pl-1 pr-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors ${
+                        active
+                          ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
+                          : 'text-brand-muted/60 hover:text-brand-fg'
+                      }`}
+                    >
+                      {/* Vendored at build time — hidden if it isn't there. */}
+                      <img
+                        src={`/samples/lettering/${sample}.png`}
+                        alt=""
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        className="w-[44px] h-[44px] rounded-full object-cover"
+                      />
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex flex-wrap gap-1" role="group" aria-label="Lettering placement">
+                {LETTERING_PLACEMENT_PILLS.map(({ id, label }) => {
+                  const active = id === letteringPlacement;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setLetteringPlacement(id)}
+                      aria-pressed={active}
+                      className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors ${
+                        active
+                          ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
+                          : 'text-brand-muted/60 hover:text-brand-fg'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[9px] text-brand-muted/40 font-sans leading-relaxed">
+                Up to {LETTERING_MAX} characters spells reliably. “Name art only” drops the frame and generates the words alone.
+              </p>
+            </div>
+          )}
         </div>
       )}
       {error && (

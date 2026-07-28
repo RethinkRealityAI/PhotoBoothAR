@@ -75,7 +75,8 @@ import {
 import { draftToPayload, existingUrlResolver } from '../../lib/studio/draftMapping';
 import { createExperience, getStudioSettings, setStudioSettings } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
-import type { LayerAnimation } from '../../types';
+import type { GuestLetteringConfig, LayerAnimation } from '../../types';
+import { DEFAULT_LETTERING_COLOR, type GuestLetteringStyle } from '../../lib/letteringFit';
 import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
 import Tooltip from '../ui/Tooltip';
 import HelpButton from './HelpButton';
@@ -256,6 +257,76 @@ function AnimationChips({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* ── Guest-name lettering (the free, live personalisation) ────────────────
+ * Turning this on makes the booth draw the GUEST'S OWN NAME over the frame —
+ * in the preview, the photo and the recorded video. Off (the default, and
+ * every scene that predates it) writes no config key and changes nothing. */
+
+const LETTERING_STYLE_OPTIONS: { id: GuestLetteringStyle; label: string }[] = [
+  { id: 'script', label: 'Script' },
+  { id: 'serif', label: 'Serif' },
+  { id: 'block', label: 'Block' },
+  { id: 'label', label: 'Label caps' },
+];
+
+/** What a freshly-enabled toggle stores — the guest's name, white, bottom. */
+const DEFAULT_GUEST_LETTERING: GuestLetteringConfig = {
+  token: 'guestName',
+  style: 'script',
+  color: DEFAULT_LETTERING_COLOR,
+  placement: 'bottom',
+};
+
+function GuestLetteringControls({
+  value,
+  onChange,
+}: {
+  value: GuestLetteringConfig | undefined;
+  onChange: (v: GuestLetteringConfig | undefined) => void;
+}) {
+  const selectCls = 'w-full bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-brand-fg focus:outline-none focus:border-accent/40';
+  const on = !!value;
+  const cfg = value ?? DEFAULT_GUEST_LETTERING;
+  const patch = (p: Partial<GuestLetteringConfig>) => onChange({ ...cfg, ...p });
+  return (
+    <div className="flex flex-col gap-2">
+      <StudioToggle
+        label="Guest name lettering"
+        hint="Each guest's own name is drawn onto this frame — in the preview, the photo and the video."
+        value={on}
+        onChange={(v) => onChange(v ? { ...DEFAULT_GUEST_LETTERING } : undefined)}
+      />
+      {on && (
+        <div className="flex flex-col gap-2">
+          <div>
+            <SectionLabel>Style</SectionLabel>
+            <select value={cfg.style} onChange={(e) => patch({ style: e.target.value as GuestLetteringStyle })} className={selectCls}>
+              {LETTERING_STYLE_OPTIONS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <SectionLabel>Position</SectionLabel>
+            <select value={cfg.placement} onChange={(e) => patch({ placement: e.target.value as 'top' | 'bottom' })} className={selectCls}>
+              <option value="bottom">Bottom of the frame</option>
+              <option value="top">Top of the frame</option>
+            </select>
+          </div>
+          <div>
+            <SectionLabel>Colour</SectionLabel>
+            <input
+              type="color"
+              value={cfg.color}
+              onChange={(e) => patch({ color: e.target.value })}
+              aria-label="Lettering colour"
+              className="w-full h-8 rounded-lg bg-white/[0.04] border border-white/10 cursor-pointer"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -805,6 +876,15 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                 <SliderRow label="Position · up/down" value={selOverlay.transform.y} min={OVERLAY_POSITION.min} max={OVERLAY_POSITION.max} step={OVERLAY_POSITION.step} defaultValue={DEFAULT_TRANSFORM.y} format={(v) => formatAtStep(v, OVERLAY_POSITION.step, '%')} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, y: v } })} />
                 <SliderRow label="Rotation" value={selOverlay.transform.rotation} min={OVERLAY_ROTATION.min} max={OVERLAY_ROTATION.max} step={OVERLAY_ROTATION.step} defaultValue={DEFAULT_TRANSFORM.rotation} format={(v) => formatAtStep(v, OVERLAY_ROTATION.step, '°')} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, rotation: v } })} />
                 <AnimationChips value={selOverlay.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: selOverlay.id, animation: a })} />
+                {/* Guest-name lettering lives on the FRAME only — a sticker is
+                    placed anywhere on the canvas, so a name band under it has
+                    no meaning. Absent on every scene that never turns it on. */}
+                {selOverlay.overlayKind === 'border' && (
+                  <GuestLetteringControls
+                    value={selOverlay.lettering}
+                    onChange={(lettering) => dispatch({ type: 'UPDATE_OBJECT', id: selOverlay.id, patch: { lettering } })}
+                  />
+                )}
               </div>
             )}
 

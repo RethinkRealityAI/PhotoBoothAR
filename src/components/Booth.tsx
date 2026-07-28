@@ -63,7 +63,10 @@ import {
 } from '../lib/studio/triggers';
 import { submitPostDetailed, getStudioSettings } from '../lib/db';
 import { DEFAULT_STUDIO_SETTINGS, HEAD_SCALE_MIN, HEAD_SCALE_MAX, type StudioSettings } from '../lib/studio/occluder';
-import { savePhoto, addCompletedChallenge, setGuestName } from '../lib/session';
+import {
+  savePhoto, addCompletedChallenge, setGuestName, getGuestName, hasSkippedGuestName, skipGuestName,
+} from '../lib/session';
+import { normalizeGuestLettering } from '../lib/letteringFit';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
 import { useEntitlements } from '../lib/entitlements';
 import { dataUrlToBlob } from './booth/capture';
@@ -398,6 +401,33 @@ export default function Booth() {
   const anchorConfig: AnchorConfig | null =
     is3D && attachExp?.config?.anchor ? (attachExp.config.anchor as AnchorConfig) : null;
 
+  // ── Guest-name lettering ──────────────────────────────────────────────
+  // Opt-in per FRAME (config.lettering, written only by the studio). Legacy
+  // coded events never carry the key, so this resolves to null for them and
+  // StageCanvas skips the draw step entirely — their output is unchanged.
+  const letteringSpec = useMemo(
+    () => normalizeGuestLettering(frameExp?.config?.lettering),
+    [frameExp],
+  );
+  // Bumped whenever the guest saves/skips a name, so the canvas picks it up
+  // (localStorage is not reactive).
+  const [guestNameTick, setGuestNameTick] = useState(0);
+  const guestLetteringName = useMemo(() => {
+    if (!letteringSpec) return '';
+    void guestNameTick;
+    return letteringSpec.token === 'fixed' ? letteringSpec.text : getGuestName(eventId);
+  }, [letteringSpec, eventId, guestNameTick]);
+  /** The name prompt is owed when the frame wants the GUEST's name, we don't
+   *  have one, and they haven't already declined for this event. */
+  const needsGuestName =
+    letteringSpec?.token === 'guestName' && !guestLetteringName && !hasSkippedGuestName(eventId);
+  const [askName, setAskName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const stageLettering = useMemo(
+    () => (letteringSpec ? { spec: letteringSpec, name: guestLetteringName } : null),
+    [letteringSpec, guestLetteringName],
+  );
+
   // ── Face-triggered effects ────────────────────────────────────────────
   // Opt-in per DB scene (config.triggers). Legacy/code events never carry them,
   // so the whole subsystem below stays inert — empty triggers means no engine,
@@ -665,6 +695,14 @@ export default function Booth() {
   const handleShutterPress = useCallback(() => {
     if (phase !== 'camera') return;
     if (mediaMode === 'video' && recording) return; // handled by stop button
+    // This frame puts the guest's NAME on the photo and we don't have one yet:
+    // ask before the first shot, not after. Skipping is remembered per event,
+    // so this can only ever interrupt once.
+    if (needsGuestName && !askName) {
+      setNameDraft('');
+      setAskName(true);
+      return;
+    }
     if (timerSec > 0) {
       setPhase('countdown');
     } else {
@@ -675,7 +713,7 @@ export default function Booth() {
         capturePhoto();
       }
     }
-  }, [phase, mediaMode, recording, timerSec]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phase, mediaMode, recording, timerSec, needsGuestName, askName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCountdownComplete = useCallback(() => {
     if (mediaMode === 'video') {
@@ -1084,6 +1122,7 @@ export default function Booth() {
                   active={true}
                   watermark={entitlements.watermark}
                   effectsCanvas={triggerFxCanvas}
+                  lettering={stageLettering}
                 />
               )}
               <div ref={feedContainerRef} className="absolute inset-0">
@@ -1303,6 +1342,57 @@ export default function Booth() {
             doSubmit(p?.guestName ?? '', p?.message ?? '', false);
           }}
         />
+      )}
+
+      {/* ── Name for the frame (asked once, before the first shot) ─────── */}
+      {askName && (
+        <div className="absolute inset-0 z-50 flex items-end sm:items-center justify-center bg-noir-900/70 backdrop-blur-sm px-4 pb-6">
+          <div className="w-full max-w-sm liquid-glass rounded-3xl px-6 py-6 text-center">
+            <h3 className="font-serif text-2xl text-ivory mb-1">Put your name on it</h3>
+            <p className="font-sans text-[13px] text-champagne/60 leading-relaxed mb-5">
+              This frame writes your name across every shot you take. Skip it and the frame stays as it is.
+            </p>
+            <input
+              type="text"
+              autoFocus
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value.slice(0, 60))}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' || nameDraft.trim().length < 2) return;
+                setGuestName(eventId, nameDraft);
+                setGuestNameTick((t) => t + 1);
+                setAskName(false);
+              }}
+              placeholder="Your name"
+              className="w-full text-center bg-noir-800/70 border border-gold-400/25 rounded-xl px-4 py-3 font-sans text-base text-ivory placeholder-champagne/30 outline-none focus:border-gold-400/60 transition-colors mb-4"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  // Remembered per event: never ask this guest again, and the
+                  // lettering simply draws nothing for them.
+                  skipGuestName(eventId);
+                  setGuestNameTick((t) => t + 1);
+                  setAskName(false);
+                }}
+                className="flex-1 glass rounded-xl px-4 py-3 font-label uppercase tracking-luxe text-[11px] text-champagne/60 hover:text-ivory transition-colors"
+              >
+                Continue without a name
+              </button>
+              <button
+                onClick={() => {
+                  setGuestName(eventId, nameDraft);
+                  setGuestNameTick((t) => t + 1);
+                  setAskName(false);
+                }}
+                disabled={nameDraft.trim().length < 2}
+                className="flex-1 bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 hover:brightness-110 transition-all active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+              >
+                Use it
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Send-off + success ────────────────────────────────────────── */}
