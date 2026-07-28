@@ -10,7 +10,10 @@ import {
   isSceneSettled,
   FRAME_CREDIT_COST,
   GENERATE_3D_CREDIT_COST,
+  buildSceneContext,
+  MAX_SCENE_CONTEXT_CHARS,
   type SceneShaderCatalogEntry,
+  type ScenePlan,
 } from './sceneDirector';
 
 const CATALOG: SceneShaderCatalogEntry[] = [
@@ -136,5 +139,68 @@ describe('scene progress', () => {
     prog = setPieceStatus(prog, 'shader', 'accepted');
     prog = setPieceStatus(prog, 'headPiece', 'skipped');
     expect(isSceneSettled(prog)).toBe(true);
+  });
+});
+
+describe('buildSceneContext', () => {
+  const plan: ScenePlan = {
+    sceneName: 'Art Deco Gold',
+    frame: { prompt: 'art-deco sunburst corners in brass on matte black' },
+    shader: { shaderId: 'noir-classic', params: {} },
+    headPiece: { kind: 'generate', prompt: 'a gold laurel wreath' },
+  };
+
+  it('is empty when there is nothing to tell the model (field then omitted)', () => {
+    expect(buildSceneContext(null, null)).toBe('');
+  });
+
+  it('summarises the open draft: filter + object names and kinds', () => {
+    const out = buildSceneContext({
+      shaderId: 'noir-classic',
+      objects: [
+        { name: 'Gold Frame', type: 'overlay', overlayKind: 'border' },
+        { name: 'Sparkles', type: 'overlay', overlayKind: '2d_filter' },
+        { name: 'Crown', type: 'headpiece' },
+      ],
+    }, null);
+    expect(out).toContain('filter "noir-classic"');
+    expect(out).toContain('"Gold Frame" (frame)');
+    expect(out).toContain('"Sparkles" (sticker)');
+    expect(out).toContain('"Crown" (3D head piece)');
+    expect(out).not.toContain('last scene');
+  });
+
+  it('reports an empty draft honestly ("none" filter is no filter)', () => {
+    const out = buildSceneContext({ shaderId: 'none', objects: [] }, null);
+    expect(out).toContain('no filter');
+    expect(out).toContain('no pieces yet');
+  });
+
+  it('summarises the last plan’s slots so the Director can iterate on it', () => {
+    const out = buildSceneContext(null, plan);
+    expect(out).toContain('Art Deco Gold');
+    expect(out).toContain('art-deco sunburst');
+    expect(out).toContain('filter: noir-classic');
+    expect(out).toContain('generate "a gold laurel wreath"');
+  });
+
+  it('names a built-in head piece and null slots', () => {
+    const out = buildSceneContext(null, {
+      sceneName: 'Quiet Ivory', frame: null, shader: null,
+      headPiece: { kind: 'procedural', id: 'royal-crown' },
+    });
+    expect(out).toContain('frame: none');
+    expect(out).toContain('filter: none');
+    expect(out).toContain('built-in "royal-crown"');
+  });
+
+  it('caps its length whatever the scene holds', () => {
+    const objects = Array.from({ length: 30 }, (_v, i) => ({ name: `Object number ${i} with a long name`, type: 'model' }));
+    const out = buildSceneContext({ shaderId: 'noir-classic', objects }, {
+      ...plan, frame: { prompt: 'x'.repeat(500) },
+    });
+    expect(out.length).toBeLessThanOrEqual(MAX_SCENE_CONTEXT_CHARS);
+    expect(out).toContain('Object number 0');
+    expect(out).not.toContain('Object number 9'); // only the first 8 are listed
   });
 });

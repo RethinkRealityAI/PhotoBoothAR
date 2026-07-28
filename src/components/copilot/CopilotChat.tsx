@@ -224,6 +224,17 @@ export default function CopilotChat({
   /** Guarded phase swap for a generation card — a no-op once the host dismissed it. */
   const placeGen = (sid: string, msgs: A2uiMessage[]) => { if (!dismissedGen.current.has(sid)) replaceSurface(sid, msgs); };
 
+  /** Tell the MODEL what the host can now see. A landed preview left no trace in
+   *  the transcript, so the next turn behaved as if nothing had been generated
+   *  (re-proposing the same asset, or denying it existed). Terse on purpose —
+   *  this rides the wire like every other [tool_result] turn. */
+  const noteGenerated = (tool: 'generate_frame' | 'add_head_piece', prompt: string) => {
+    setMessages((m) => [...m, {
+      role: 'user', kind: 'tool_result', ok: true,
+      content: `[tool_result] ${tool} succeeded — preview shown, not applied yet (prompt: "${prompt.slice(0, 140)}").`,
+    }]);
+  };
+
   /** Read-only tools run instantly from the snapshot — no confirm, no wire. */
   const runReadOnly = (action: CopilotAction) => {
     if (!snapshot) return;
@@ -299,6 +310,7 @@ export default function CopilotChat({
         return;
       }
       placeGen(sid, buildFramePreviewSurface(sid, { experienceId: experience.id, assetUrl: experience.asset_url ?? '' }));
+      noteGenerated('generate_frame', prompt);
     } catch (e) {
       console.error('[copilot] startFrameGen', e);
       showGenError(sid, 'frame', 'Frame generation failed — try again.', true);
@@ -352,6 +364,13 @@ export default function CopilotChat({
           showGenError(sid, 'headpiece', job.error ? `Generation failed — credits refunded. (${job.error})` : 'Generation failed — credits refunded.', true);
           return;
         }
+        // Real progress when the job reports it (0 is a legitimate value, so
+        // check the type, never truthiness): a card that read the same static
+        // line for four minutes looked hung.
+        const pct = typeof p.data?.progress === 'number' ? p.data.progress : null;
+        if (pct !== null) {
+          placeGen(sid, buildGeneratingSurface(sid, `Sculpting your 3D prop… ${Math.round(pct)}% — this can take a minute.`));
+        }
       }
       if (!experience) {
         // Client-side poll timeout — the Meshy job usually still finishes
@@ -366,6 +385,7 @@ export default function CopilotChat({
         thumbUrl: experience.thumbnail_url ?? null,
         label: prompt,
       }));
+      noteGenerated('add_head_piece', prompt);
     } catch (e) {
       console.error('[copilot] startPieceGen', e);
       showGenError(sid, 'headpiece', '3D generation failed — try again.', true);
@@ -412,7 +432,13 @@ export default function CopilotChat({
     if (result.ok) onMutated();
   };
 
-  /** Regenerate the same surface with its stored prompt (an explicit new spend). */
+  /**
+   * Regenerate the same surface (an explicit new spend). The host's "Tweak it"
+   * note is folded into the stored prompt — re-running the IDENTICAL prompt was
+   * only ever a re-roll of the dice, never "make it warmer". startFrameGen /
+   * startPieceGen store the revised prompt back onto the card, so successive
+   * tweaks COMPOUND instead of each one starting from the original brief.
+   */
   const regenerate = (event: A2uiActionEvent) => {
     const g = genState.current[event.surfaceId];
     if (!g) {
@@ -422,8 +448,10 @@ export default function CopilotChat({
       setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] I lost the details for that one — tell me what to make and I’ll generate a fresh version.' }]);
       return;
     }
-    if (g.kind === 'frame') void startFrameGen(event.surfaceId, g.prompt);
-    else void startPieceGen(event.surfaceId, g.prompt);
+    const feedback = String(event.context.feedback ?? '').trim();
+    const prompt = feedback ? `${g.prompt}. Revision: ${feedback}` : g.prompt;
+    if (g.kind === 'frame') void startFrameGen(event.surfaceId, prompt);
+    else void startPieceGen(event.surfaceId, prompt);
   };
 
   const send = async (text: string) => {

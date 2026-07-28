@@ -158,6 +158,75 @@ export function parseDirectorTurn(
   return { reply, plan };
 }
 
+/* ---- scene context (what the Director can already see) ------------- */
+
+/**
+ * The Director used to be blind: every turn it saw only the chat text, never
+ * the scene the host actually has open nor the plan it proposed last turn — so
+ * it re-proposed pieces already in the draft and could not answer "swap the
+ * frame, keep the rest". `buildSceneContext` renders both into a compact,
+ * DATA-ONLY string the panel sends as an OPTIONAL `sceneContext` body field
+ * (absent = the edge function behaves exactly as before).
+ *
+ * Structural input types on purpose: this module stays free of react/supabase
+ * (and of the studio reducer), and a StudioDraft satisfies `SceneContextDraft`.
+ */
+export interface SceneContextObject {
+  name: string;
+  /** StudioObject.type — 'overlay' | 'model' | 'headpiece'. */
+  type: string;
+  /** Overlay2D.overlayKind — 'border' | '2d_filter'. */
+  overlayKind?: string;
+}
+
+export interface SceneContextDraft {
+  shaderId: string;
+  objects: readonly SceneContextObject[];
+}
+
+/** Cap so a busy 20-object scene can never crowd out the prompt. */
+export const MAX_SCENE_CONTEXT_CHARS = 800;
+const MAX_LISTED_OBJECTS = 8;
+const MAX_PROMPT_ECHO = 80;
+
+const OBJECT_LABEL: Record<string, string> = {
+  border: 'frame',
+  '2d_filter': 'sticker',
+  model: '3D model',
+  headpiece: '3D head piece',
+};
+
+function describeObject(o: SceneContextObject): string {
+  const key = o.type === 'overlay' ? (o.overlayKind ?? '') : o.type;
+  return `"${o.name}" (${OBJECT_LABEL[key] ?? o.type})`;
+}
+
+/** '' when there is nothing worth telling the model — the caller then omits the
+ *  field entirely, keeping the request byte-identical to today's. */
+export function buildSceneContext(draft: SceneContextDraft | null, plan: ScenePlan | null): string {
+  const lines: string[] = [];
+  if (draft) {
+    const shaderId = draft.shaderId ?? '';
+    const filter = shaderId !== '' && shaderId !== 'none' ? `filter "${shaderId}"` : 'no filter';
+    const objects = draft.objects.length > 0
+      ? `pieces: ${draft.objects.slice(0, MAX_LISTED_OBJECTS).map(describeObject).join(', ')}`
+      : 'no pieces yet';
+    lines.push(`Open draft — ${filter}; ${objects}.`);
+  }
+  if (plan) {
+    const piece = plan.headPiece === null
+      ? 'none'
+      : plan.headPiece.kind === 'procedural'
+        ? `built-in "${plan.headPiece.id ?? ''}"`
+        : `generate "${(plan.headPiece.prompt ?? '').slice(0, MAX_PROMPT_ECHO)}"`;
+    lines.push(
+      `Your last scene "${plan.sceneName}" — frame: ${plan.frame ? `"${plan.frame.prompt.slice(0, MAX_PROMPT_ECHO)}"` : 'none'}` +
+      `; filter: ${plan.shader ? plan.shader.shaderId : 'none'}; 3D piece: ${piece}.`,
+    );
+  }
+  return lines.join('\n').slice(0, MAX_SCENE_CONTEXT_CHARS);
+}
+
 /* ---- credits ------------------------------------------------------ */
 
 export const FRAME_CREDIT_COST = 1;

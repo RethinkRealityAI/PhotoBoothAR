@@ -232,11 +232,25 @@ export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): 
   return out;
 }
 
-/** Gemini requires strict user/model alternation; tool-result turns are sent
- *  as user turns, so consecutive user turns must merge before the wire. */
+/**
+ * Prepare a transcript for the wire.
+ *
+ * 1. EMPTY turns are dropped. The chat stores a client-rendered card as an
+ *    assistant turn with no prose (CopilotChat's addSurface: `content: ''`),
+ *    and ai-event-designer rejects ANY blank turn with 400 invalid_body
+ *    (index.ts: `!content.trim()`). Because the transcript is persisted in
+ *    sessionStorage, one surface-only turn used to break EVERY later send —
+ *    the thread fell into the offline reply and never recovered. Merging alone
+ *    could not catch it: an empty turn adjacent to a real assistant turn was
+ *    absorbed, but a non-adjacent one (card right after a [tool_result] user
+ *    turn, or a quick-action card at the top of a thread) survived.
+ * 2. Gemini requires strict user/model alternation; tool-result turns are sent
+ *    as user turns, so consecutive same-role turns merge.
+ */
 export function mergeWireTurns(messages: ChatMessage[]): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const m of messages) {
+    if (!m.content.trim()) continue;
     const last = out[out.length - 1];
     if (last && last.role === m.role) {
       last.content = `${last.content}\n\n${m.content}`;

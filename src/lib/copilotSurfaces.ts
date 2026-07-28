@@ -301,21 +301,25 @@ export function buildGeneratingSurface(surfaceId: string, label: string): A2uiMe
 }
 
 /** Phase 3 (frame): the generated frame previewed over a sample face, with
- *  apply / regenerate / dismiss. The apply button carries the experience id +
- *  identity transform to CopilotChat's `apply_generated` handler. */
+ *  apply / tweak+regenerate / dismiss. The apply button carries the experience
+ *  id + identity transform to CopilotChat's `apply_generated` handler; the
+ *  regenerate button carries the host's "what should change" note so the next
+ *  take is an ITERATION, not the identical prompt run again (mirrors the studio
+ *  Director's RejectPanel). */
 export function buildFramePreviewSurface(
   surfaceId: string,
   gen: { experienceId: string; assetUrl: string },
 ): A2uiMessage[] {
-  const model = { gen: { kind: 'frame', experienceId: gen.experienceId, assetUrl: gen.assetUrl, transform: { scale: 1, x: 0, y: 0 } } };
+  const model = { gen: { kind: 'frame', experienceId: gen.experienceId, assetUrl: gen.assetUrl, feedback: '', transform: { scale: 1, x: 0, y: 0 } } };
   return surface(surfaceId, model, [
     { id: 'root', component: 'Card', child: 'body' },
-    { id: 'body', component: 'Column', align: 'center', children: ['heading', 'preview', 'hint', 'actionsRow'] },
+    { id: 'body', component: 'Column', align: 'center', children: ['heading', 'preview', 'hint', 'tweakField', 'actionsRow'] },
     { id: 'heading', component: 'Text', text: 'Here’s your frame', variant: 'h5' },
     { id: 'preview', component: 'FramePreview', assetUrl: { path: '/gen/assetUrl' }, transform: { path: '/gen/transform' } },
     { id: 'hint', component: 'Text', variant: 'caption', text: 'Fine-tune its placement anytime in the studio’s 2D creator.' },
+    textField('tweakField', 'Tweak it (optional) — what should change?', '/gen/feedback'),
     { id: 'actionsRow', component: 'Row', justify: 'center', children: ['regenBtn', 'applyBtn'] },
-    { id: 'regenBtn', component: 'Button', variant: 'borderless', child: 'regenLabel', action: { event: { name: 'regenerate_generated', context: { kind: { path: '/gen/kind' } } } } },
+    { id: 'regenBtn', component: 'Button', variant: 'borderless', child: 'regenLabel', action: { event: { name: 'regenerate_generated', context: { kind: { path: '/gen/kind' }, feedback: { path: '/gen/feedback' } } } } },
     { id: 'regenLabel', component: 'Text', text: 'Regenerate' },
     {
       id: 'applyBtn', component: 'Button', variant: 'primary', child: 'applyLabel',
@@ -331,8 +335,8 @@ export function buildHeadPiecePreviewSurface(
   surfaceId: string,
   gen: { experienceId: string; thumbUrl: string | null; label: string },
 ): A2uiMessage[] {
-  const model = { gen: { kind: 'headpiece', experienceId: gen.experienceId } };
-  const children = ['heading', ...(gen.thumbUrl ? ['thumb'] : []), 'label', 'hint', 'actionsRow'];
+  const model = { gen: { kind: 'headpiece', experienceId: gen.experienceId, feedback: '' } };
+  const children = ['heading', ...(gen.thumbUrl ? ['thumb'] : []), 'label', 'hint', 'tweakField', 'actionsRow'];
   const comps: A2uiComponent[] = [
     { id: 'root', component: 'Card', child: 'body' },
     { id: 'body', component: 'Column', align: 'center', children },
@@ -340,8 +344,11 @@ export function buildHeadPiecePreviewSurface(
     ...(gen.thumbUrl ? [{ id: 'thumb', component: 'Image', url: gen.thumbUrl } as A2uiComponent] : []),
     { id: 'label', component: 'Text', text: gen.label },
     { id: 'hint', component: 'Text', variant: 'caption', text: 'Preview it live in the booth after you add it.' },
+    // A regenerate that re-ran the identical prompt could only ever produce
+    // "the same thing again, differently" — the note makes it an iteration.
+    textField('tweakField', 'Tweak it (optional) — what should change?', '/gen/feedback'),
     { id: 'actionsRow', component: 'Row', justify: 'center', children: ['regenBtn', 'applyBtn'] },
-    { id: 'regenBtn', component: 'Button', variant: 'borderless', child: 'regenLabel', action: { event: { name: 'regenerate_generated', context: { kind: { path: '/gen/kind' } } } } },
+    { id: 'regenBtn', component: 'Button', variant: 'borderless', child: 'regenLabel', action: { event: { name: 'regenerate_generated', context: { kind: { path: '/gen/kind' }, feedback: { path: '/gen/feedback' } } } } },
     { id: 'regenLabel', component: 'Text', text: 'Regenerate' },
     {
       id: 'applyBtn', component: 'Button', variant: 'primary', child: 'applyLabel',

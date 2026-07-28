@@ -206,4 +206,44 @@ describe('mergeWireTurns', () => {
     expect(out[2].content).toBe('[tool_result] Challenge "X" added.\n\nnow show stats');
     expect(msgs[2].content).toBe('[tool_result] Challenge "X" added.'); // input not mutated
   });
+
+  // REGRESSION: CopilotChat stores a client-rendered card as an assistant turn
+  // with EMPTY content (CopilotChat.tsx addSurface). ai-event-designer rejects
+  // ANY blank turn with 400 invalid_body, and the empty turn persists in
+  // sessionStorage — so one quick-action card used to poison every later send.
+  // Merging alone never caught it: it only merges ADJACENT same-role turns.
+  it('drops empty/whitespace-only turns so a surface-only card never reaches the wire', () => {
+    const out = mergeWireTurns([
+      { role: 'user', content: 'add a challenge' },
+      { role: 'assistant', content: '' },        // surface-only card, not adjacent to any assistant turn
+      { role: 'user', content: 'now show stats' },
+    ]);
+    expect(out.every((m) => m.content.trim().length > 0)).toBe(true);
+    expect(out).toEqual([{ role: 'user', content: 'add a challenge\n\nnow show stats' }]);
+    // Whitespace-only counts as empty (the server tests content.trim()).
+    const ws = mergeWireTurns([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: '   \n ' },
+      { role: 'user', content: 'again' },
+    ]);
+    expect(ws).toHaveLength(1);
+  });
+
+  it('leaves a real assistant turn between two user turns intact', () => {
+    const out = mergeWireTurns([
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b' },
+      { role: 'user', content: 'c' },
+    ]);
+    expect(out).toEqual([
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b' },
+      { role: 'user', content: 'c' },
+    ]);
+  });
+
+  it('returns [] when every turn is empty', () => {
+    expect(mergeWireTurns([{ role: 'assistant', content: '' }, { role: 'assistant', content: ' ' }])).toEqual([]);
+    expect(mergeWireTurns([])).toEqual([]);
+  });
 });
