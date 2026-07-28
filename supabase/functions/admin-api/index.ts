@@ -56,6 +56,14 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+// Same shape every sibling function uses (card-contribute, ai-event-designer,
+// validate-challenge-photo, …). The flag/plan actions below referenced this
+// without declaring it — a ReferenceError, i.e. a guaranteed 500, on
+// set_feature_override / clear_feature_override / resolve_features /
+// set_org_plan. tsc never sees supabase/ and esbuild only parses, so only a
+// runtime read caught it.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
