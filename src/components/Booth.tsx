@@ -50,8 +50,8 @@ import { buildCatalog } from '../lib/catalog';
 import { initializeFaceLandmarker } from '../lib/faceTracking';
 import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
 import {
+  collectTriggers,
   createTriggerEngine,
-  parseTriggers,
   revealTargetIdsOf,
   isLayerVisible,
   resolvePulseShader,
@@ -197,6 +197,18 @@ export default function Booth() {
 
   // ── Picker state ──────────────────────────────────────────────────────
   const [effectId, setEffectId] = useState<string>('none');
+  // The filter's own Experience. A shader is applied as a bare shaderId, so its
+  // Experience used to be discarded at the call site — and with it any
+  // config.triggers, which is why a filter-only scene could never fire one.
+  const [effectExp, setEffectExp] = useState<Experience | null>(null);
+  /** Apply a filter AND remember which Experience it came from, so its
+   *  config.triggers reach the engine. NOTE a bare `setEffectId` is assignable
+   *  to this 2-arg callback type, so TypeScript will NOT catch a call site that
+   *  goes back to dropping the experience — keep them going through here. */
+  const applyEffect = useCallback((shaderId: string, exp: Experience | null = null) => {
+    setEffectId(shaderId);
+    setEffectExp(shaderId === 'none' ? null : exp);
+  }, []);
   const [sparkles, setSparkles] = useState(false);
   const [frameExp, setFrameExp] = useState<Experience | null>(null);
   const [attachExp, setAttachExp] = useState<Experience | null>(null);
@@ -271,6 +283,7 @@ export default function Booth() {
     if (exp) {
       if (exp.kind === 'shader') {
         setEffectId(exp.config?.shader?.shaderId ?? 'none');
+        setEffectExp(exp);
       } else if (exp.kind === 'border' || exp.kind === '2d_filter') {
         setFrameExp(exp);
         setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
@@ -302,6 +315,7 @@ export default function Booth() {
     if (!exp) return;
     if (exp.kind === 'shader') {
       setEffectId(exp.config?.shader?.shaderId ?? 'none');
+      setEffectExp(exp);
     } else if (exp.kind === 'border' || exp.kind === '2d_filter') {
       setFrameExp(exp);
       setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
@@ -389,27 +403,18 @@ export default function Booth() {
   // so the whole subsystem below stays inert — empty triggers means no engine,
   // no RAF, no reveal filtering — and the booth renders byte-identically.
   const activeTriggerExp =
-    (attachExp?.config?.triggers ? attachExp : null) ?? (frameExp?.config?.triggers ? frameExp : null);
+    (attachExp?.config?.triggers ? attachExp : null)
+    ?? (frameExp?.config?.triggers ? frameExp : null)
+    ?? (effectExp?.config?.triggers ? effectExp : null);
   // Merge triggers from BOTH of the scene's experiences: a scene can pair a 3D
   // attach and a 2D frame that EACH carry config.triggers, and reading only the
   // primary (activeTriggerExp) silently dropped the other's. Dedupe by trigger
   // id; a composite sets attachExp === frameExp, so parse it once (single-source
   // scenes stay byte-identical — the one experience is the only one parsed).
-  const triggers = useMemo<TriggerConfig[]>(() => {
-    if (source !== 'db') return [];
-    const exps = attachExp === frameExp ? [attachExp] : [attachExp, frameExp];
-    const seen = new Set<string>();
-    const merged: TriggerConfig[] = [];
-    for (const exp of exps) {
-      if (!exp?.config?.triggers) continue;
-      for (const t of parseTriggers(exp.config.triggers)) {
-        if (seen.has(t.id)) continue;
-        seen.add(t.id);
-        merged.push(t);
-      }
-    }
-    return merged;
-  }, [source, attachExp, frameExp]);
+  const triggers = useMemo<TriggerConfig[]>(
+    () => (source !== 'db' ? [] : collectTriggers([attachExp, frameExp, effectExp])),
+    [source, attachExp, frameExp, effectExp],
+  );
   const hasTriggers = triggers.length > 0;
   // Layer ids that a reveal trigger hides until it fires; `revealedIds` is the
   // runtime set already fired. NEVER persisted — a fresh scene starts all hidden.
@@ -1187,7 +1192,7 @@ export default function Booth() {
                 onCategory={setDeckCategory}
                 sparkles={sparkles}
                 onToggleSparkles={setSparkles}
-                onSelectEffect={setEffectId}
+                onSelectEffect={applyEffect}
                 onSelectFrame={handleSelectFrame}
                 onSelectAttachment={setAttachExp}
                 onClearAll={() => {
@@ -1260,7 +1265,7 @@ export default function Booth() {
               sparkles={sparkles}
               frameId={frameExp?.id ?? null}
               attachmentId={attachExp?.id ?? null}
-              onSelectEffect={setEffectId}
+              onSelectEffect={applyEffect}
               onToggleSparkles={setSparkles}
               onSelectFrame={handleSelectFrame}
               onSelectAttachment={setAttachExp}

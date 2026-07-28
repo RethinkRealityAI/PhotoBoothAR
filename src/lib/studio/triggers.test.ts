@@ -10,6 +10,7 @@ import {
   pulseRestoreValue,
   triggerHintText,
   shouldRunTriggers,
+  collectTriggers,
 } from './triggers';
 
 const smile = (over: Partial<TriggerConfig> = {}): TriggerConfig => ({
@@ -299,5 +300,49 @@ describe('shouldRunTriggers', () => {
     expect(shouldRunTriggers('code', true, 'camera', true)).toBe(false);
     expect(shouldRunTriggers('db', false, 'camera', true)).toBe(false);
     expect(shouldRunTriggers('db', true, 'camera', false)).toBe(false);
+  });
+});
+
+describe('collectTriggers', () => {
+  const t = (id: string) => ({ id, source: 'smile', action: { type: 'burst', style: 'confetti' } });
+
+  it('collects from a FILTER-only scene — the P0 this exists for', () => {
+    // A filter is applied as a bare shaderId, so its Experience was dropped and
+    // its triggers never reached the engine: authored, previewed, dead at the event.
+    const filter = { id: 'exp-shader', config: { triggers: [t('a')] } };
+    expect(collectTriggers([null, null, filter]).map((x) => x.id)).toEqual(['a']);
+  });
+
+  it('merges across attachment, frame and filter', () => {
+    const out = collectTriggers([
+      { id: 'e1', config: { triggers: [t('a')] } },
+      { id: 'e2', config: { triggers: [t('b')] } },
+      { id: 'e3', config: { triggers: [t('c')] } },
+    ]);
+    expect(out.map((x) => x.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('parses a composite once when it fills two slots', () => {
+    const composite = { id: 'same', config: { triggers: [t('a'), t('b')] } };
+    expect(collectTriggers([composite, composite, null]).map((x) => x.id)).toEqual(['a', 'b']);
+  });
+
+  it('dedupes by trigger id across different experiences', () => {
+    const out = collectTriggers([
+      { id: 'e1', config: { triggers: [t('dup')] } },
+      { id: 'e2', config: { triggers: [t('dup'), t('other')] } },
+    ]);
+    expect(out.map((x) => x.id)).toEqual(['dup', 'other']);
+  });
+
+  it('ignores empty slots and malformed configs without throwing', () => {
+    expect(collectTriggers([null, undefined, {}, { id: 'x', config: null }])).toEqual([]);
+    expect(collectTriggers([{ id: 'x', config: { triggers: 'nope' } }])).toEqual([]);
+    expect(collectTriggers([])).toEqual([]);
+  });
+
+  it('drops individually malformed triggers but keeps the good ones', () => {
+    const out = collectTriggers([{ id: 'e', config: { triggers: [t('ok'), { id: 'bad' }] } }]);
+    expect(out.map((x) => x.id)).toEqual(['ok']);
   });
 });

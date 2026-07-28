@@ -263,6 +263,43 @@ export function shouldRunTriggers(
   return phase === 'camera' || phase === 'countdown';
 }
 
+/**
+ * Merge the triggers carried by every experience making up the current scene,
+ * de-duplicated by id and preserving order.
+ *
+ * A scene is up to THREE experiences — a 3D attachment, a 2D frame, and a
+ * filter — and any of them may carry triggers. The booth previously merged only
+ * the first two, because a filter is applied as a bare shaderId string and its
+ * Experience was thrown away at the call site. A filter-only scene therefore
+ * saved triggers, previewed them correctly in the studio, and could never fire
+ * one at the event.
+ *
+ * Takes `unknown` config blobs so it can sit in front of parseTriggers without
+ * the caller pre-validating anything.
+ */
+export function collectTriggers(
+  sources: readonly ({ id?: string; config?: { triggers?: unknown } | null } | null | undefined)[],
+): TriggerConfig[] {
+  const seenExp = new Set<string>();
+  const seen = new Set<string>();
+  const merged: TriggerConfig[] = [];
+  for (const exp of sources) {
+    if (!exp?.config?.triggers) continue;
+    // The same experience can appear in two slots (a composite is both the
+    // attachment and the frame); parse it once.
+    if (exp.id !== undefined) {
+      if (seenExp.has(exp.id)) continue;
+      seenExp.add(exp.id);
+    }
+    for (const t of parseTriggers(exp.config.triggers)) {
+      if (seen.has(t.id)) continue;
+      seen.add(t.id);
+      merged.push(t);
+    }
+  }
+  return merged;
+}
+
 /* — (de)serialization guards ---------------------------------------------- */
 
 function parseAction(a: unknown): TriggerAction | null {
