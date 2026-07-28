@@ -65,11 +65,12 @@ const RENDER_COST = 30;
 const MEDIA_TTL_S = 60 * 60 * 24; // 24 hours
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** cardsPremiumRender is DELUXE-only (per-event) or a grandfathered legacy
- *  slug — mirror of ENTITLEMENTS in src/lib/entitlements.ts. Unlike
- *  cardsStandard, an org Pro subscription does NOT unlock it. */
-const DELUXE_TIER = 'deluxe';
-const LEGACY_SLUGS = new Set(['hope-gala', 'jenna-jake', 'detola-wuyi']);
+/* cardsPremiumRender used to be decided here by a local tier constant and a
+ * hardcoded legacy-slug set — one of four hand-kept mirrors of ENTITLEMENTS.
+ * It now comes from public.resolve_features_raw (migration 028), which is the
+ * only authority and reproduces both rules: Pro raises the floor to premium
+ * (whose cardsPremiumRender is false, so Pro alone still does not unlock the
+ * film), and legacy slugs short-circuit to deluxe. */
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -300,15 +301,38 @@ Deno.serve(async (req: Request) => {
     //    grandfathered legacy slug ONLY. A Pro subscription alone does not
     //    unlock the deluxe film (per-event package), so — unlike card-publish —
     //    there is deliberately NO subscription fallback here.
+    // Entitlement comes from the DATABASE resolver (migration 028), not from a
+    // tier constant in this file. That is what lets an operator comp the film
+    // to one customer from /admin/features and have it actually work here.
+    //
+    // The resolver reproduces this gate's original semantics exactly: a Pro
+    // subscription raises the floor to PREMIUM, and premium's
+    // cardsPremiumRender is false, so Pro alone still does not unlock the film;
+    // and the three legacy slugs short-circuit to deluxe, so they stay
+    // grandfathered.
     const { data: event, error: evErr } = await sb
       .from('events')
-      .select('slug, plan_tier')
+      .select('id, org_id, slug')
       .eq('slug', card.event_id as string)
       .maybeSingle();
     if (evErr) throw evErr;
-    const allowed =
-      (event?.plan_tier as string) === DELUXE_TIER || LEGACY_SLUGS.has(card.event_id as string);
-    if (!allowed) return json(403, { error: 'upgrade_required' });
+
+    const { data: features, error: featErr } = await sb.rpc('resolve_features_raw', {
+      p_org: event?.org_id ?? null,
+      p_event: event?.id ?? null,
+    });
+    // FAIL CLOSED. Deliberately the opposite of challengeValidation's fail-open:
+    // that one is a third-party AI call over the network, this is a function in
+    // the same Postgres the write is about to hit. If it is unreachable the
+    // write is unreachable too, and spending 30 credits on an unverified
+    // entitlement is the worse outcome.
+    if (featErr) {
+      console.error('[card-render] resolve_features_raw failed', featErr);
+      return json(503, { error: 'features_unavailable' });
+    }
+    if ((features as Record<string, unknown> | null)?.cardsPremiumRender !== true) {
+      return json(403, { error: 'upgrade_required' });
+    }
 
     // 5. The card must be published (or already rendered) before we film it.
     if (card.status !== 'published' && card.status !== 'rendered') {

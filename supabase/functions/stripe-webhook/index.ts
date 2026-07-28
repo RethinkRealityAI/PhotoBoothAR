@@ -57,8 +57,9 @@ const PACKAGE_CREDITS: Record<string, number> = { essentials: 20, premium: 100, 
 const PACK_CREDITS: Record<string, number> = { '50': 50, '120': 120, '300': 300 };
 const PRO_MONTHLY_CREDITS = 300;
 
-/* Entitlements snapshot stored on event_plans.features at purchase time.
- * Mirror of src/lib/entitlements.ts — keep the two in sync. */
+/* FALLBACK ONLY for the event_plans.features snapshot: plan_feature_defaults
+ * (migration 028) is read first and is the authority. Kept so a purchase can
+ * still be recorded if that read fails — money has already moved by then. */
 const ENTITLEMENTS: Record<string, Record<string, unknown>> = {
   essentials: {
     maxPosts: 500, videoEnabled: true, watermark: false, aiStudio: true,
@@ -271,6 +272,32 @@ async function catalogCredits(
   return fallback;
 }
 
+/**
+ * The entitlements snapshot frozen onto event_plans.features at purchase time.
+ *
+ * This is a HISTORICAL RECORD, not a gate — it is what settles "what did I
+ * actually buy in March". It reads plan_feature_defaults (the editable
+ * authority behind migration 028) so the snapshot records what the tier really
+ * granted on the day, and falls back to the constants below if that read fails,
+ * because this runs after the customer's money has moved and must never be the
+ * reason a purchase fails to record.
+ */
+async function snapshotFeatures(sb: SupabaseClient, tier: string): Promise<Record<string, unknown>> {
+  try {
+    const { data, error } = await sb
+      .from('plan_feature_defaults').select('flag_key, value').eq('tier', tier);
+    if (error) throw error;
+    if (Array.isArray(data) && data.length > 0) {
+      const out: Record<string, unknown> = {};
+      for (const row of data) out[row.flag_key as string] = row.value;
+      return out;
+    }
+  } catch (e) {
+    console.error('[stripe-webhook] plan_feature_defaults read failed, using frozen table', tier, e);
+  }
+  return ENTITLEMENTS[tier] ?? {};
+}
+
 /** Credits the original purchase granted, derived from the order row.
  *  null when the kind/tier no longer maps to a known grant. */
 function creditsGrantedFor(order: OrderRow): number | null {
@@ -309,7 +336,7 @@ async function handleCheckoutCompleted(
       event_id: eventUuid,
       tier,
       stripe_payment_intent: (session.payment_intent as string) ?? null,
-      features: ENTITLEMENTS[tier] ?? {},
+      features: await snapshotFeatures(sb, tier),
     });
     if (planErr) throw planErr;
 
