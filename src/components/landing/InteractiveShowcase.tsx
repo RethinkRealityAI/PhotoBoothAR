@@ -523,11 +523,21 @@ export default function InteractiveShowcase() {
   // socket per landing visitor would burn the realtime connection budget for
   // nothing, and on phones the panel (display:none) never triggers it.
   const [wantChannel, setWantChannel] = useState(false);
+  const [beamWireBroken, setBeamWireBroken] = useState(false);
   useEffect(() => {
     if (!wantChannel) return;
     const transport = createBeamTransport(beamChannelId);
     transport.onHello(() => setPhoneLinked(true));
-    transport.onShot((shot) => remoteArriveRef.current(shot));
+    transport.onShot((shot) => {
+      remoteArriveRef.current(shot);
+      // Tell the phone it actually landed. Without this the phone celebrates
+      // on `send()` returning 'ok', which only means the socket accepted the
+      // message — not that any wall was listening.
+      transport.sendAck();
+    });
+    // The wall used to ignore its own status entirely, so a channel that
+    // errored or never joined looked identical to one waiting for a phone.
+    transport.onStatus((st) => setBeamWireBroken(st === 'error'));
     return () => transport.close();
   }, [wantChannel, beamChannelId]);
 
@@ -713,18 +723,26 @@ export default function InteractiveShowcase() {
               Scan to turn your phone into the booth — this screen becomes the wall.
               Sends just that one photo here; nothing is stored.
             </p>
+            {/* Tri-state. The broken case used to be invisible: the wall
+                ignored its own channel status, so a wire that never joined
+                looked exactly like one patiently waiting for a phone — and the
+                visitor scanned, beamed, and watched nothing happen. */}
             <p
               className="mt-0.5 flex items-center gap-1.5 font-label text-[9px] uppercase tracking-luxe"
-              style={{ color: phoneLinked ? '#34D399' : 'rgba(169,180,204,0.6)' }}
+              style={{ color: beamWireBroken ? '#FDA4AF' : phoneLinked ? '#34D399' : 'rgba(169,180,204,0.6)' }}
             >
               <span
                 className="h-1.5 w-1.5 rounded-full"
                 style={{
-                  background: phoneLinked ? '#34D399' : 'rgba(169,180,204,0.5)',
-                  boxShadow: phoneLinked ? '0 0 6px #34D399' : 'none',
+                  background: beamWireBroken ? '#FDA4AF' : phoneLinked ? '#34D399' : 'rgba(169,180,204,0.5)',
+                  boxShadow: phoneLinked && !beamWireBroken ? '0 0 6px #34D399' : 'none',
                 }}
               />
-              {phoneLinked ? 'Phone linked — take your shot' : 'Waiting for a phone…'}
+              {beamWireBroken
+                ? "Live link unavailable — the demo above still works"
+                : phoneLinked
+                  ? 'Phone linked — take your shot'
+                  : 'Waiting for a phone…'}
             </p>
           </div>
         </motion.div>
