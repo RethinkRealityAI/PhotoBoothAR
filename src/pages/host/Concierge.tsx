@@ -20,6 +20,7 @@ import { loadEventSnapshot, type EventSnapshot } from '../../lib/eventSnapshot';
 import { TierPill } from './UpgradeCard';
 import StatusPill from '../../components/ui/StatusPill';
 import CopilotChat from '../../components/copilot/CopilotChat';
+import { copyText } from '../../lib/clipboard';
 
 /** One selectable event card: inline rename, status toggle, link chips. */
 function EventCard({
@@ -108,7 +109,7 @@ function EventCard({
       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
         <p className="flex-1 font-mono text-[10px] text-brand-muted/60 truncate">/e/{ev.slug}</p>
         <button
-          onClick={() => navigator.clipboard.writeText(welcomeUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
+          onClick={() => copyText(welcomeUrl).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 1500); })}
           title="Copy guest link"
           className="p-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
         >

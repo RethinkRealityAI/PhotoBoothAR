@@ -31,6 +31,7 @@ import {
 } from '../../lib/cards';
 import { UpgradeModal } from './UpgradeCard';
 import StatusPill from '../../components/ui/StatusPill';
+import { copyText } from '../../lib/clipboard';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-2.5 text-sm text-brand-fg ' +
@@ -42,7 +43,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   return (
     <button
       onClick={() =>
-        navigator.clipboard.writeText(text).then(() => {
+        copyText(text).then((ok) => { if (!ok) return;
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
         })

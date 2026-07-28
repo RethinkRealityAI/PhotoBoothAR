@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Check, Copy, KeyRound, Loader2, Plus, Trash2, X } from 'lucide-react';
 import EventBackground from '../../components/ui/EventBackground';
 import { useEvent } from '../../events/EventContext';
+import { copyText } from '../../lib/clipboard';
 import {
   createManagerToken, listManagerTokensResult, revokeManagerToken,
   type ManagerTokenRow,
@@ -115,7 +116,7 @@ export default function ManagerAccess({ eventUuid }: { eventUuid: string }) {
                 {reveal.url}
               </p>
               <button
-                onClick={() => navigator.clipboard.writeText(reveal.url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
+                onClick={() => copyText(reveal.url).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 2000); })}
                 className="p-2.5 liquid-glass rounded-lg text-brand-muted/60 hover:text-accent-2 transition-colors shrink-0"
                 title="Copy link"
               >

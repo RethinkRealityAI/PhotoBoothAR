@@ -27,6 +27,7 @@ import ListMore from '../../components/ui/ListMore';
 import Modal from '../../components/ui/Modal';
 import StatusPill from '../../components/ui/StatusPill';
 import { useToast } from '../../components/ui/Toast';
+import { copyText } from '../../lib/clipboard';
 
 const PAGE_SIZE = 50;
 
@@ -41,7 +42,7 @@ function ResetLinkModal({ link, onClose }: { link: string; onClose: () => void }
         <p className="font-mono text-[10px] text-brand-fg/90 break-all">{link}</p>
       </div>
       <button
-        onClick={() => navigator.clipboard.writeText(link).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
+        onClick={() => copyText(link).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 2000); })}
         className="w-full flex items-center justify-center gap-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] px-4 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors"
       >
         {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}

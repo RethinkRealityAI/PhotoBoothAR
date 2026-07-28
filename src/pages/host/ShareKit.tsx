@@ -18,6 +18,7 @@ import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 import { useStudioBase } from '../../components/admin/studioBase';
 import EventBackground from '../../components/ui/EventBackground';
+import { copyText } from '../../lib/clipboard';
 
 interface Surface {
   path: string;
@@ -30,7 +31,7 @@ function CopyLink({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      onClick={() => navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
+      onClick={() => copyText(url).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 2000); })}
       className="print:hidden flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg glass text-[10px] font-mono text-brand-muted/60 hover:text-accent-2 transition-colors w-full justify-center"
     >
       {copied ? <Check className="w-3 h-3 text-emerald-400 shrink-0" /> : <Copy className="w-3 h-3 shrink-0" />}
