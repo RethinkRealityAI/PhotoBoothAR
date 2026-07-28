@@ -39,11 +39,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8MB
 const MAX_VIDEO_BYTES = 60 * 1024 * 1024; // 60MB
 
-/** Per-event post cap by plan tier (mirror of src/lib/entitlements.ts
- *  maxPosts). premium/deluxe = unlimited (no entry). The three grandfathered
- *  legacy events are never capped (LEGACY_ENTITLEMENTS = uncapped). */
-const TIER_MAX_POSTS: Record<string, number> = { free: 25, essentials: 500 };
-const LEGACY_SLUGS = new Set(['hope-gala', 'jenna-jake', 'detola-wuyi']);
+/* The per-tier post cap and the legacy-slug list used to live here — the last
+ * of five hand-kept mirrors of ENTITLEMENTS across the Deno functions.
+ * public.resolve_features_raw (migration 028) owns them now.
+ *
+ * The abuse backstops below are NOT plan limits and deliberately stay local:
+ * QUOTA_MAX_POSTS, IP_QUOTA_MAX, EVENT_DAILY_MAX and the byte ceilings bound
+ * what one session, one venue or one event can do in an hour regardless of
+ * what they paid, and no feature flag may raise them. */
 
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
 const VIDEO_EXTS = ['webm', 'mp4'];
@@ -179,42 +182,44 @@ async function handleInit(sb: Client, body: Record<string, unknown>, ip: string)
   // entitlementsFor() in src/lib/entitlements.ts — free videoEnabled=false;
   // essentials/premium/deluxe=true). Legacy slugs, and events whose org holds
   // an active Pro subscription, are exempt (same lift as the post cap below).
-  if (
-    mediaType === 'video' &&
-    (((event.plan_tier as string) ?? 'free') === 'free') &&
-    !LEGACY_SLUGS.has(event.slug)
-  ) {
-    const { data: sub, error: subErr } = await sb
-      .from('subscriptions')
-      .select('org_id')
-      .eq('org_id', event.org_id as string)
-      .eq('status', 'active')
-      .maybeSingle();
-    if (subErr) throw subErr;
-    if (!sub) return json(403, { error: 'video_not_allowed' });
+  // Both gates below now read ONE resolved feature set from the database
+  // (migration 028) instead of a tier constant in this file. That is what makes
+  // "grant video to this one customer" from /admin/features actually work at
+  // the point it matters. The resolver reproduces every rule these constants
+  // encoded — free has videoEnabled false, an active org Pro raises the floor
+  // to premium, and the three legacy slugs short-circuit to deluxe (uncapped).
+  const { data: featuresRaw, error: featErr } = await sb.rpc('resolve_features_raw', {
+    p_org: event.org_id as string,
+    p_event: event.id as string,
+  });
+  // FAIL CLOSED. This is the guest hot path, so the temptation is to let a
+  // resolver blip through — but the resolver lives in the same Postgres as the
+  // insert this guards. If it cannot answer, the write was not going to land
+  // either, and failing open here means an unbounded post flood on a free event.
+  if (featErr) {
+    console.error('[submit-post] resolve_features_raw failed', featErr);
+    return json(503, { error: 'features_unavailable' });
+  }
+  const features = (featuresRaw ?? {}) as Record<string, unknown>;
+
+  if (mediaType === 'video' && features.videoEnabled !== true) {
+    return json(403, { error: 'video_not_allowed' });
   }
 
   // Plan-tier post cap (free 25 / essentials 500 / premium+deluxe unlimited),
   // checked BEFORE the rate-limit bump so a capped event never burns quota.
   // An active org Pro subscription lifts the cap to premium-level (unlimited),
   // matching entitlementsFor() in src/lib/entitlements.ts.
-  const cap = TIER_MAX_POSTS[(event.plan_tier as string) ?? 'free'];
-  if (cap !== undefined && !LEGACY_SLUGS.has(event.slug)) {
+  // maxPosts: null means UNLIMITED, which is why this is an explicit null check
+  // and not a truthiness test — 0 would be a real (if unkind) cap.
+  const cap = features.maxPosts;
+  if (typeof cap === 'number' && Number.isFinite(cap)) {
     const { count, error: countErr } = await sb
       .from('posts')
       .select('id', { count: 'exact', head: true })
       .eq('event_id', event.slug);
     if (countErr) throw countErr;
-    if ((count ?? 0) >= cap) {
-      const { data: sub, error: subErr } = await sb
-        .from('subscriptions')
-        .select('org_id')
-        .eq('org_id', event.org_id as string)
-        .eq('status', 'active')
-        .maybeSingle();
-      if (subErr) throw subErr;
-      if (!sub) return json(403, { error: 'post_limit_reached' });
-    }
+    if ((count ?? 0) >= cap) return json(403, { error: 'post_limit_reached' });
   }
 
   // Quotas: counted at INIT — signed URLs are the gate to storage, so init

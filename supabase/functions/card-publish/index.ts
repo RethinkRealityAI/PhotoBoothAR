@@ -39,10 +39,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Pragmatic shape check, not RFC 5322 — Resend enforces the rest.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-/** cardsStandard requires premium/deluxe (vs ai-generate-image's broader PAID
- *  set) — mirror of ENTITLEMENTS in src/lib/entitlements.ts. */
-const CARD_TIERS = new Set(['premium', 'deluxe']);
-const LEGACY_SLUGS = new Set(['hope-gala', 'jenna-jake', 'detola-wuyi']);
+/* The cardsStandard tier set and the legacy-slug list used to live here as a
+ * mirror of ENTITLEMENTS. public.resolve_features_raw (028) owns both now. */
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -149,29 +147,33 @@ Deno.serve(async (req: Request) => {
 
     // 4. Actions.
     if (action === 'publish') {
+      // Server-side cardsStandard entitlement, resolved by the DATABASE
+      // (migration 028) rather than by a tier set in this file. The resolver
+      // reproduces all three of the old rules — premium/deluxe event tier, an
+      // active org Pro subscription (which raises the floor to premium, whose
+      // cardsStandard is true), and the grandfathered legacy slugs — and adds
+      // the one this file could never do: an operator comping the feature to a
+      // single customer from /admin/features.
       const { data: event, error: evErr } = await sb
         .from('events')
-        .select('slug, plan_tier')
+        .select('id, org_id, slug')
         .eq('slug', card.event_id as string)
         .maybeSingle();
       if (evErr) throw evErr;
 
-      // Server-side cardsStandard entitlement: premium/deluxe event tier,
-      // active org Pro subscription, or grandfathered legacy slug.
-      let allowed =
-        CARD_TIERS.has((event?.plan_tier as string) ?? '') ||
-        LEGACY_SLUGS.has(card.event_id as string);
-      if (!allowed) {
-        const { data: sub, error: subErr } = await sb
-          .from('subscriptions')
-          .select('org_id')
-          .eq('org_id', card.org_id as string)
-          .eq('status', 'active')
-          .maybeSingle();
-        if (subErr) throw subErr;
-        allowed = Boolean(sub);
+      const { data: features, error: featErr } = await sb.rpc('resolve_features_raw', {
+        p_org: event?.org_id ?? card.org_id ?? null,
+        p_event: event?.id ?? null,
+      });
+      // Fail CLOSED: this resolver lives in the same Postgres as the write it
+      // guards, so if it is unreachable the write is too.
+      if (featErr) {
+        console.error('[card-publish] resolve_features_raw failed', featErr);
+        return json(503, { error: 'features_unavailable' });
       }
-      if (!allowed) return json(403, { error: 'upgrade_required' });
+      if ((features as Record<string, unknown> | null)?.cardsStandard !== true) {
+        return json(403, { error: 'upgrade_required' });
+      }
 
       // Only stamp published_at on the collecting → published transition; when
       // re-publishing a card that was previously published/rendered, keep the

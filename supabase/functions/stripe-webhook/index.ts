@@ -57,8 +57,9 @@ const PACKAGE_CREDITS: Record<string, number> = { essentials: 20, premium: 100, 
 const PACK_CREDITS: Record<string, number> = { '50': 50, '120': 120, '300': 300 };
 const PRO_MONTHLY_CREDITS = 300;
 
-/* Entitlements snapshot stored on event_plans.features at purchase time.
- * Mirror of src/lib/entitlements.ts — keep the two in sync. */
+/* FALLBACK ONLY for the event_plans.features snapshot: plan_feature_defaults
+ * (migration 028) is read first and is the authority. Kept so a purchase can
+ * still be recorded if that read fails — money has already moved by then. */
 const ENTITLEMENTS: Record<string, Record<string, unknown>> = {
   essentials: {
     maxPosts: 500, videoEnabled: true, watermark: false, aiStudio: true,
@@ -231,8 +232,73 @@ async function findOrderByRefs(sb: SupabaseClient, refs: unknown[]): Promise<Ord
   return (data as OrderRow | null) ?? null;
 }
 
-/** Credits the original purchase granted, derived from the order row —
- *  mirrors the grant amounts in handleCheckoutCompleted/renewals above.
+/**
+ * The catalogue id a purchase corresponds to (migration 029).
+ *
+ * Preferred over the constant maps below because the catalogue is editable from
+ * /admin/catalog, and a credit grant that only exists in this file cannot be
+ * changed without a deploy — which is how it drifted from stripe-checkout's
+ * PRICES in the first place.
+ */
+function catalogIdFor(kind: string, tier: string | null): string | null {
+  if (kind === 'pro_subscription') return 'pro_subscription.monthly';
+  if (kind === 'event_package' && tier) return `event_package.${tier}`;
+  if (kind === 'credit_pack' && tier) return `credit_pack.${tier}`;
+  return null;
+}
+
+/**
+ * Credits the catalogue says this purchase grants.
+ *
+ * FALLS BACK to the frozen constants, deliberately and loudly. This runs after
+ * the customer's money has already moved: a missing or unreadable catalogue row
+ * must never be the reason somebody pays and receives nothing. The fallback is
+ * the exact behaviour this function had before the catalogue existed.
+ */
+async function catalogCredits(
+  sb: SupabaseClient, kind: string, tier: string | null, fallback: number | null,
+): Promise<number | null> {
+  const id = catalogIdFor(kind, tier);
+  if (id === null) return fallback;
+  try {
+    const { data, error } = await sb
+      .from('billing_catalog').select('credits_granted').eq('id', id).maybeSingle();
+    if (error) throw error;
+    const n = data?.credits_granted;
+    if (typeof n === 'number' && Number.isFinite(n)) return n;
+  } catch (e) {
+    console.error('[stripe-webhook] catalog lookup failed, using frozen grant', id, e);
+  }
+  return fallback;
+}
+
+/**
+ * The entitlements snapshot frozen onto event_plans.features at purchase time.
+ *
+ * This is a HISTORICAL RECORD, not a gate — it is what settles "what did I
+ * actually buy in March". It reads plan_feature_defaults (the editable
+ * authority behind migration 028) so the snapshot records what the tier really
+ * granted on the day, and falls back to the constants below if that read fails,
+ * because this runs after the customer's money has moved and must never be the
+ * reason a purchase fails to record.
+ */
+async function snapshotFeatures(sb: SupabaseClient, tier: string): Promise<Record<string, unknown>> {
+  try {
+    const { data, error } = await sb
+      .from('plan_feature_defaults').select('flag_key, value').eq('tier', tier);
+    if (error) throw error;
+    if (Array.isArray(data) && data.length > 0) {
+      const out: Record<string, unknown> = {};
+      for (const row of data) out[row.flag_key as string] = row.value;
+      return out;
+    }
+  } catch (e) {
+    console.error('[stripe-webhook] plan_feature_defaults read failed, using frozen table', tier, e);
+  }
+  return ENTITLEMENTS[tier] ?? {};
+}
+
+/** Credits the original purchase granted, derived from the order row.
  *  null when the kind/tier no longer maps to a known grant. */
 function creditsGrantedFor(order: OrderRow): number | null {
   if (order.kind === 'pro_subscription') return PRO_MONTHLY_CREDITS;
@@ -263,14 +329,14 @@ async function handleCheckoutCompleted(
   if (kind === 'event_package') {
     const tier = meta.tier;
     const eventUuid = meta.event_uuid;
-    const credits = PACKAGE_CREDITS[tier];
+    const credits = await catalogCredits(sb, 'event_package', tier, PACKAGE_CREDITS[tier] ?? null);
     if (!eventUuid || !credits) throw new Error(`invalid event_package metadata on ${session.id}`);
 
     const { error: planErr } = await sb.from('event_plans').insert({
       event_id: eventUuid,
       tier,
       stripe_payment_intent: (session.payment_intent as string) ?? null,
-      features: ENTITLEMENTS[tier] ?? {},
+      features: await snapshotFeatures(sb, tier),
     });
     if (planErr) throw planErr;
 
@@ -295,7 +361,7 @@ async function handleCheckoutCompleted(
     });
     await grantCredits(sb, orgId, credits, 'plan_grant', { ...ref, tier, event_uuid: eventUuid });
   } else if (kind === 'credit_pack') {
-    const credits = PACK_CREDITS[meta.pack];
+    const credits = await catalogCredits(sb, 'credit_pack', meta.pack, PACK_CREDITS[meta.pack] ?? null);
     if (!credits) throw new Error(`invalid credit_pack metadata on ${session.id}`);
     // Grant last — see event_package note above.
     await insertOrder(sb, {

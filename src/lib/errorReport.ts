@@ -18,6 +18,7 @@
  * skips it and posts to PostgREST directly. Keep these caps BELOW those.
  */
 import { supabase } from './supabase';
+import { redactUrl } from './supportModel';
 
 /** Support address actually in use (matches Legal.tsx CONTACT). */
 export const SUPPORT_EMAIL = 'dapo@rethinkreality.ai';
@@ -31,8 +32,14 @@ const DEDUPE_WINDOW_MS = 5 * 60 * 1_000; // 5 min
 const appVersion =
   ((import.meta.env.VITE_APP_VERSION as string | undefined) ?? '').trim() || null;
 
-/** Random per-page-load session id (telemetry correlation only, no auth). */
-const sessionId: string = (() => {
+/**
+ * Random per-page-load session id (telemetry correlation only, no auth).
+ *
+ * Exported because a support ticket stamps the SAME value: it is the join that
+ * lets an operator open a ticket and see the stack traces this browser reported
+ * around the time the human wrote in.
+ */
+export const telemetrySessionId: string = (() => {
   try {
     return crypto.randomUUID();
   } catch {
@@ -72,8 +79,15 @@ export function reportError(err: unknown, context?: Record<string, unknown>): vo
     supabase
       .from('client_errors')
       .insert({
-        session_id: sessionId,
-        url: window.location.href.slice(0, 500),
+        session_id: telemetrySessionId,
+        // SECURITY: not location.href raw. Supabase returns
+        // `#access_token=…&refresh_token=…` in the fragment after
+        // magic-link/invite/recovery flows, and this app has /reset-password —
+        // so an error thrown on that page used to write a session-granting
+        // secret into a table platform admins read, which
+        // docs/guardrails/PROJECT.md explicitly forbids. redactUrl drops the
+        // whole fragment and blanks token-shaped query params.
+        url: redactUrl(window.location.href),
         message,
         stack,
         user_agent: navigator.userAgent.slice(0, 400),

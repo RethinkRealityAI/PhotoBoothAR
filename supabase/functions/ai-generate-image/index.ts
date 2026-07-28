@@ -92,6 +92,12 @@ const FREE_IMAGES_PER_EVENT = 3;
 
 const KINDS = new Set(['2d_filter', 'border']);
 
+/* The legacy-slug list and the paid-tier set used to live here as two of
+ * five hand-kept mirrors of ENTITLEMENTS. public.resolve_features_raw
+ * (migration 028) owns both rules now — it is the single authority, and
+ * it is what makes a per-customer comp from /admin/features actually
+ * take effect on the server rather than only in the UI. */
+
 /* ── Frame archetypes ─────────────────────────────────────────────────────
  * MIRRORED from src/lib/assetPrompt.ts (FrameLayout / FRAME_LAYOUT_SPEC /
  * GREEN_RULES / EMPTY_ELLIPSE). Edge functions cannot import from src/, so the
@@ -154,11 +160,6 @@ const FRAME_LAYOUT_SPEC: Record<FrameLayout, string> = {
 
 const LAYOUTS = new Set(Object.keys(FRAME_LAYOUT_SPEC));
 
-/** Grandfathered coded events: full-capability (mirrors LEGACY_ENTITLEMENTS
- *  in src/lib/entitlements.ts) even though their events rows say 'free'. */
-const LEGACY_SLUGS = new Set(['hope-gala', 'jenna-jake', 'detola-wuyi']);
-
-const PAID_TIERS = new Set(['essentials', 'premium', 'deluxe']);
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -809,18 +810,21 @@ Deno.serve(async (req: Request) => {
     //     subscription, or grandfathered legacy slug. Free tier → upgrade
     //     (once the trial allowance is exhausted).
     if (!isFreeTrial) {
-      let allowed = PAID_TIERS.has(event.plan_tier as string) || LEGACY_SLUGS.has(eventSlug);
-      if (!allowed) {
-        const { data: sub, error: subErr } = await sb
-          .from('subscriptions')
-          .select('org_id')
-          .eq('org_id', orgId)
-          .eq('status', 'active')
-          .maybeSingle();
-        if (subErr) throw subErr;
-        allowed = Boolean(sub);
+      // Resolved by the DATABASE (migration 028), not by a tier set here. Same
+      // three rules as before — paid event tier, active org Pro, legacy slug —
+      // plus the ability to comp aiStudio to one customer from /admin/features.
+      const { data: features, error: featErr } = await sb.rpc('resolve_features_raw', {
+        p_org: orgId,
+        p_event: event.id,
+      });
+      // Fail CLOSED, and BEFORE any credit is spent (step 5 below).
+      if (featErr) {
+        console.error('[ai-generate-image] resolve_features_raw failed', featErr);
+        return json(503, { error: 'features_unavailable' });
       }
-      if (!allowed) return json(403, { error: 'upgrade_required' });
+      if ((features as Record<string, unknown> | null)?.aiStudio !== true) {
+        return json(403, { error: 'upgrade_required' });
+      }
     }
 
     // 5. Spend credits FIRST (atomic; raises 'insufficient_credits').

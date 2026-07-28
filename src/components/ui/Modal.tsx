@@ -24,6 +24,7 @@ export default function Modal({
   children,
   maxWidthClass = 'max-w-md',
   dismissOnScrim = true,
+  zClass = 'z-50',
 }: {
   title?: string;
   onClose: () => void;
@@ -32,12 +33,17 @@ export default function Modal({
   /** Set false for dialogs holding unsaved input, where a stray scrim click
    *  would silently discard what the user typed. */
   dismissOnScrim?: boolean;
+  /** Stacking level. The default 50 sits above the rails; the report-an-issue
+   *  dialog raises it to 90 because it can be opened from the Copilot panel
+   *  (z-[80]) and would otherwise render behind the thing that launched it.
+   *  Stay below Toast (z-[100]) — a toast about this dialog must be visible. */
+  zClass?: string;
 }) {
   const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, title);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+      className={`fixed inset-0 ${zClass} flex items-center justify-center bg-black/75 backdrop-blur-sm p-4`}
       onClick={dismissOnScrim ? onClose : undefined}
     >
       <div

@@ -211,37 +211,76 @@ Deno.serve(async (req: Request) => {
       if (updErr) throw updErr;
     }
 
-    // 5. Create the Checkout Session (inline price_data — no products needed).
+    // 5. Create the Checkout Session.
+    //
+    // Prefer a PROVISIONED Stripe Price (migration 029 + /admin/catalog): a real
+    // Price means Stripe's own product reporting works, a subscription has
+    // something to be moved onto, and the amount charged is the one the
+    // catalogue says. Inline price_data remains the fallback for any row that
+    // has not been provisioned yet, so nothing here can stop selling — that is
+    // exactly how this function behaved before the catalogue existed.
+    const catalogId = kind === 'event_package'
+      ? `event_package.${body.tier as string}`
+      : kind === 'credit_pack'
+        ? `credit_pack.${body.pack as string}`
+        : 'pro_subscription.monthly';
+
+    const { data: catalogRow, error: catErr } = await sb
+      .from('billing_catalog')
+      .select('id, name, amount_cents, currency, recurring_interval, stripe_price_id, active')
+      .eq('id', catalogId)
+      .maybeSingle();
+    if (catErr) throw catErr;
+    // A retired row must not be sellable through a stale client.
+    if (catalogRow && catalogRow.active !== true) return json(400, { error: 'not_for_sale' });
+
     const params: Record<string, string> = {
       customer: customerId,
       success_url: withParam(returnUrl, 'checkout', 'success'),
       cancel_url: withParam(returnUrl, 'checkout', 'cancelled'),
       'line_items[0][quantity]': '1',
-      'line_items[0][price_data][currency]': 'usd',
       'metadata[org_id]': orgId,
       'metadata[kind]': kind,
+      'metadata[catalog_id]': catalogId,
     };
+
+    const provisionedPrice = (catalogRow?.stripe_price_id as string | null) ?? null;
+    if (provisionedPrice !== null) {
+      params['line_items[0][price]'] = provisionedPrice;
+    } else {
+      params['line_items[0][price_data][currency]'] =
+        (catalogRow?.currency as string | undefined) ?? 'usd';
+    }
+
+    /** Amount + name from the catalogue when it has them, else the frozen
+     *  constants this function shipped with. */
+    function inlinePrice(fallbackAmount: number, fallbackName: string) {
+      if (provisionedPrice !== null) return;
+      params['line_items[0][price_data][unit_amount]'] =
+        String((catalogRow?.amount_cents as number | undefined) ?? fallbackAmount);
+      params['line_items[0][price_data][product_data][name]'] =
+        (catalogRow?.name as string | undefined) ?? fallbackName;
+    }
 
     if (kind === 'event_package') {
       const tier = body.tier as keyof typeof PRICES.event_package;
       const price = PRICES.event_package[tier];
       params.mode = 'payment';
-      params['line_items[0][price_data][unit_amount]'] = String(price.amount);
-      params['line_items[0][price_data][product_data][name]'] = price.name;
+      inlinePrice(price.amount, price.name);
       params['metadata[tier]'] = tier;
       params['metadata[event_uuid]'] = eventUuid!;
     } else if (kind === 'credit_pack') {
       const pack = body.pack as keyof typeof PRICES.credit_pack;
       const price = PRICES.credit_pack[pack];
       params.mode = 'payment';
-      params['line_items[0][price_data][unit_amount]'] = String(price.amount);
-      params['line_items[0][price_data][product_data][name]'] = price.name;
+      inlinePrice(price.amount, price.name);
       params['metadata[pack]'] = pack;
     } else {
       params.mode = 'subscription';
-      params['line_items[0][price_data][unit_amount]'] = String(PRICES.pro_subscription.amount);
-      params['line_items[0][price_data][product_data][name]'] = PRICES.pro_subscription.name;
-      params['line_items[0][price_data][recurring][interval]'] = 'month';
+      inlinePrice(PRICES.pro_subscription.amount, PRICES.pro_subscription.name);
+      if (provisionedPrice === null) {
+        params['line_items[0][price_data][recurring][interval]'] = 'month';
+      }
       // Also stamp the subscription object so subscription.* events carry it.
       params['subscription_data[metadata][org_id]'] = orgId;
     }

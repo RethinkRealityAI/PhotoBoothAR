@@ -56,9 +56,11 @@ const MAX_POLYCOUNT = 50000;
 const MESHY_TEXT_URL = 'https://api.meshy.ai/openapi/v2/text-to-3d';
 const MESHY_IMAGE_URL = 'https://api.meshy.ai/openapi/v1/image-to-3d';
 
-/** Grandfathered coded events (see src/lib/entitlements.ts LEGACY_ENTITLEMENTS). */
-const LEGACY_SLUGS = new Set(['hope-gala', 'jenna-jake', 'detola-wuyi']);
-const PAID_TIERS = new Set(['essentials', 'premium', 'deluxe']);
+/* The legacy-slug list and the paid-tier set used to live here as two of
+ * five hand-kept mirrors of ENTITLEMENTS. public.resolve_features_raw
+ * (migration 028) owns both rules now — it is the single authority, and
+ * it is what makes a per-customer comp from /admin/features actually
+ * take effect on the server rather than only in the UI. */
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -378,19 +380,21 @@ Deno.serve(async (req: Request) => {
     if (memErr) throw memErr;
     if (!member) return json(403, { error: 'forbidden' });
 
-    // 4. aiStudio entitlement (paid tier / active Pro subscription / legacy).
-    let allowed = PAID_TIERS.has(event.plan_tier as string) || LEGACY_SLUGS.has(event.slug as string);
-    if (!allowed) {
-      const { data: sub, error: subErr } = await sb
-        .from('subscriptions')
-        .select('org_id')
-        .eq('org_id', orgId)
-        .eq('status', 'active')
-        .maybeSingle();
-      if (subErr) throw subErr;
-      allowed = Boolean(sub);
+    // 4. aiStudio entitlement, resolved by the DATABASE (migration 028).
+    //    Same three rules as the local constants encoded — paid event tier,
+    //    active org Pro, legacy slug — plus per-customer comps.
+    const { data: features, error: featErr } = await sb.rpc('resolve_features_raw', {
+      p_org: orgId,
+      p_event: event.id,
+    });
+    // Fail CLOSED, and BEFORE any credit is spent (step 5 below).
+    if (featErr) {
+      console.error('[ai-generate-3d] resolve_features_raw failed', featErr);
+      return json(503, { error: 'features_unavailable' });
     }
-    if (!allowed) return json(403, { error: 'upgrade_required' });
+    if ((features as Record<string, unknown> | null)?.aiStudio !== true) {
+      return json(403, { error: 'upgrade_required' });
+    }
 
     // 5. Spend credits FIRST.
     const ref = { event_uuid: eventUuid, prompt_hash: await shortHash(prompt ?? imageUrl ?? '') };

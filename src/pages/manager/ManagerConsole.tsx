@@ -15,6 +15,7 @@ import {
   Check, Eye, EyeOff, KeyRound, Loader2, RefreshCw, Settings2,
   ShieldCheck, ShieldOff, Trash2, X,
 } from 'lucide-react';
+import ReportIssueButton from '../../components/support/ReportIssueButton';
 import { callManagerApi } from '../../lib/managerApi';
 import { useDialog } from '../../lib/useDialog';
 import type { Post, WallSettings } from '../../types';
@@ -387,6 +388,14 @@ export default function ManagerConsole() {
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
         </button>
+        {/* Day-of staff hit problems mid-event, on a phone, with no account —
+            this is the surface where "the wall froze" needs one tap. */}
+        <ReportIssueButton
+          label="Report a problem"
+          iconSize={16}
+          prefill={{ source: 'manager_console', eventSlug: slug, category: 'bug' }}
+          className="p-2 rounded-lg bg-white/[0.05] text-white/50 hover:text-white transition-colors [&>span]:sr-only"
+        />
         <button
           onClick={() => setDrawerOpen(true)}
           className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.05] text-white/70 hover:text-white text-xs font-semibold transition-colors"
