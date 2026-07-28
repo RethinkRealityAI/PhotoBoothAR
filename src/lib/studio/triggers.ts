@@ -166,6 +166,140 @@ export function createTriggerEngine(configs: TriggerConfig[]): TriggerEngine {
   };
 }
 
+/* — scene-visibility + effect resolution ----------------------------------- *
+ * These were previously inline in three places (Booth, StudioStage,
+ * StudioPreview) and had DRIFTED: the booth exempts a reveal target from the
+ * studio's eye toggle, while StudioPreview ANDed the two conditions, so an
+ * eye-hidden reveal target could never appear in Preview no matter how often the
+ * trigger fired. One predicate, one behaviour.
+ */
+
+/** Ids of every scene object some trigger reveals. */
+export function revealTargetIdsOf(triggers: readonly TriggerConfig[]): Set<string> {
+  const s = new Set<string>();
+  for (const t of triggers) if (t.action.type === 'reveal') s.add(t.action.objectId);
+  return s;
+}
+
+/**
+ * Should this layer render right now?
+ *
+ * A reveal target is governed ONLY by whether its trigger has fired — the eye
+ * toggle in the Layers panel is an editor convenience and must not silently
+ * disable a guest-facing surprise. Everything else honours `hidden`.
+ */
+export function isLayerVisible(
+  layer: { id: string; hidden?: boolean },
+  revealTargets: ReadonlySet<string>,
+  revealed: ReadonlySet<string>,
+): boolean {
+  return revealTargets.has(layer.id) ? revealed.has(layer.id) : layer.hidden !== true;
+}
+
+/**
+ * Which shader a filterPulse should actually switch to, or null when the pulse
+ * would be invisible.
+ *
+ * A `filterPulse` with no explicit shaderId falls back to the scene's own
+ * ambient filter — which IS what is already on screen, so the default trigger
+ * the authoring UI offered ("Smile → Filter pulse") was a guaranteed no-op in
+ * the booth AND in Preview, with nothing telling the host. Returning null makes
+ * that case explicit so callers can skip the work and the editor can warn.
+ */
+export function resolvePulseShader(requested: string | undefined, current: string): string | null {
+  const target = requested && requested !== 'none' ? requested : null;
+  if (!target) return null;              // nothing distinct requested
+  if (target === current) return null;   // pulsing to what is already showing
+  return target;
+}
+
+/**
+ * What the effect id should be when a pulse ends. Restores `prior` ONLY if the
+ * pulse shader is still the one showing — a guest who picks their own filter
+ * during the ~1.2s pulse used to have that choice silently reverted.
+ */
+export function pulseRestoreValue(current: string, target: string, prior: string): string {
+  return current === target ? prior : current;
+}
+
+/** Guest-facing hint per source. */
+export const TRIGGER_HINT_LABELS: Record<TriggerSource, string> = {
+  smile: 'Smile for a surprise',
+  mouthOpen: 'Open your mouth for a surprise',
+  wink: 'Wink for a surprise',
+  browRaise: 'Raise your brows for a surprise',
+};
+
+/**
+ * The booth's one-line hint for a scene's triggers, or null when there are none.
+ * The booth used to hard-code "Smile for a surprise" regardless of what the host
+ * actually authored, so a wink-triggered scene told every guest to smile.
+ */
+export function triggerHintText(triggers: readonly TriggerConfig[]): string | null {
+  const sources = new Set<TriggerSource>();
+  for (const t of triggers) sources.add(t.source);
+  if (sources.size === 0) return null;
+  if (sources.size === 1) return TRIGGER_HINT_LABELS[[...sources][0]];
+  return 'Make a face for a surprise';
+}
+
+/**
+ * Should the booth run detection + the trigger engine right now?
+ *
+ * Includes the COUNTDOWN deliberately: the gate used to be `phase === 'camera'`
+ * alone, so from the instant a guest tapped the shutter with a timer until the
+ * JPEG was composited, no expression could fire anything — i.e. the smile people
+ * actually make for the shutter was the one smile that never worked. Both
+ * TriggerEffects and StageCanvas are already mounted during the countdown, so a
+ * burst fired at t-1s composites into the capture.
+ */
+export function shouldRunTriggers(
+  source: string,
+  hasTriggers: boolean,
+  phase: string,
+  ready: boolean,
+): boolean {
+  if (source !== 'db' || !hasTriggers || !ready) return false;
+  return phase === 'camera' || phase === 'countdown';
+}
+
+/**
+ * Merge the triggers carried by every experience making up the current scene,
+ * de-duplicated by id and preserving order.
+ *
+ * A scene is up to THREE experiences — a 3D attachment, a 2D frame, and a
+ * filter — and any of them may carry triggers. The booth previously merged only
+ * the first two, because a filter is applied as a bare shaderId string and its
+ * Experience was thrown away at the call site. A filter-only scene therefore
+ * saved triggers, previewed them correctly in the studio, and could never fire
+ * one at the event.
+ *
+ * Takes `unknown` config blobs so it can sit in front of parseTriggers without
+ * the caller pre-validating anything.
+ */
+export function collectTriggers(
+  sources: readonly ({ id?: string; config?: { triggers?: unknown } | null } | null | undefined)[],
+): TriggerConfig[] {
+  const seenExp = new Set<string>();
+  const seen = new Set<string>();
+  const merged: TriggerConfig[] = [];
+  for (const exp of sources) {
+    if (!exp?.config?.triggers) continue;
+    // The same experience can appear in two slots (a composite is both the
+    // attachment and the frame); parse it once.
+    if (exp.id !== undefined) {
+      if (seenExp.has(exp.id)) continue;
+      seenExp.add(exp.id);
+    }
+    for (const t of parseTriggers(exp.config.triggers)) {
+      if (seen.has(t.id)) continue;
+      seen.add(t.id);
+      merged.push(t);
+    }
+  }
+  return merged;
+}
+
 /* — (de)serialization guards ---------------------------------------------- */
 
 function parseAction(a: unknown): TriggerAction | null {

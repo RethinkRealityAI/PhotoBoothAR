@@ -13,6 +13,7 @@ import {
 import { listAssets, uploadAsset, deleteAsset, type StoredAsset } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
 import { classifyAsset } from '../../lib/studio/dnd';
+import { copyText } from '../../lib/clipboard';
 
 function prettySize(bytes?: number): string {
   if (!bytes) return '';
@@ -27,7 +28,7 @@ function AssetCard({ asset, onDeleted }: { asset: StoredAsset; onDeleted: () => 
   const [busy, setBusy] = useState(false);
   const cls = classifyAsset(asset.name, asset.mimetype);
 
-  const copy = () => navigator.clipboard.writeText(asset.url).then(() => {
+  const copy = () => copyText(asset.url).then((ok) => { if (!ok) return;
     setCopied(true); setTimeout(() => setCopied(false), 1800);
   });
   const remove = async () => {

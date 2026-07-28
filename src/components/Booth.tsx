@@ -49,10 +49,24 @@ import { useEvent } from '../events/EventContext';
 import { buildCatalog } from '../lib/catalog';
 import { initializeFaceLandmarker } from '../lib/faceTracking';
 import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
-import { createTriggerEngine, parseTriggers, type TriggerConfig, type TriggerEvent } from '../lib/studio/triggers';
+import {
+  collectTriggers,
+  createTriggerEngine,
+  revealTargetIdsOf,
+  isLayerVisible,
+  resolvePulseShader,
+  pulseRestoreValue,
+  triggerHintText,
+  shouldRunTriggers,
+  type TriggerConfig,
+  type TriggerEvent,
+} from '../lib/studio/triggers';
 import { submitPostDetailed, getStudioSettings } from '../lib/db';
 import { DEFAULT_STUDIO_SETTINGS, HEAD_SCALE_MIN, HEAD_SCALE_MAX, type StudioSettings } from '../lib/studio/occluder';
-import { savePhoto, addCompletedChallenge, setGuestName } from '../lib/session';
+import {
+  savePhoto, addCompletedChallenge, setGuestName, getGuestName, hasSkippedGuestName, skipGuestName,
+} from '../lib/session';
+import { normalizeGuestLettering } from '../lib/letteringFit';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
 import { useEntitlements } from '../lib/entitlements';
 import { dataUrlToBlob } from './booth/capture';
@@ -186,6 +200,18 @@ export default function Booth() {
 
   // ── Picker state ──────────────────────────────────────────────────────
   const [effectId, setEffectId] = useState<string>('none');
+  // The filter's own Experience. A shader is applied as a bare shaderId, so its
+  // Experience used to be discarded at the call site — and with it any
+  // config.triggers, which is why a filter-only scene could never fire one.
+  const [effectExp, setEffectExp] = useState<Experience | null>(null);
+  /** Apply a filter AND remember which Experience it came from, so its
+   *  config.triggers reach the engine. NOTE a bare `setEffectId` is assignable
+   *  to this 2-arg callback type, so TypeScript will NOT catch a call site that
+   *  goes back to dropping the experience — keep them going through here. */
+  const applyEffect = useCallback((shaderId: string, exp: Experience | null = null) => {
+    setEffectId(shaderId);
+    setEffectExp(shaderId === 'none' ? null : exp);
+  }, []);
   const [sparkles, setSparkles] = useState(false);
   const [frameExp, setFrameExp] = useState<Experience | null>(null);
   const [attachExp, setAttachExp] = useState<Experience | null>(null);
@@ -260,6 +286,7 @@ export default function Booth() {
     if (exp) {
       if (exp.kind === 'shader') {
         setEffectId(exp.config?.shader?.shaderId ?? 'none');
+        setEffectExp(exp);
       } else if (exp.kind === 'border' || exp.kind === '2d_filter') {
         setFrameExp(exp);
         setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
@@ -291,6 +318,7 @@ export default function Booth() {
     if (!exp) return;
     if (exp.kind === 'shader') {
       setEffectId(exp.config?.shader?.shaderId ?? 'none');
+      setEffectExp(exp);
     } else if (exp.kind === 'border' || exp.kind === '2d_filter') {
       setFrameExp(exp);
       setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
@@ -373,57 +401,67 @@ export default function Booth() {
   const anchorConfig: AnchorConfig | null =
     is3D && attachExp?.config?.anchor ? (attachExp.config.anchor as AnchorConfig) : null;
 
+  // ── Guest-name lettering ──────────────────────────────────────────────
+  // Opt-in per FRAME (config.lettering, written only by the studio). Legacy
+  // coded events never carry the key, so this resolves to null for them and
+  // StageCanvas skips the draw step entirely — their output is unchanged.
+  const letteringSpec = useMemo(
+    () => normalizeGuestLettering(frameExp?.config?.lettering),
+    [frameExp],
+  );
+  // Bumped whenever the guest saves/skips a name, so the canvas picks it up
+  // (localStorage is not reactive).
+  const [guestNameTick, setGuestNameTick] = useState(0);
+  const guestLetteringName = useMemo(() => {
+    if (!letteringSpec) return '';
+    void guestNameTick;
+    return letteringSpec.token === 'fixed' ? letteringSpec.text : getGuestName(eventId);
+  }, [letteringSpec, eventId, guestNameTick]);
+  /** The name prompt is owed when the frame wants the GUEST's name, we don't
+   *  have one, and they haven't already declined for this event. */
+  const needsGuestName =
+    letteringSpec?.token === 'guestName' && !guestLetteringName && !hasSkippedGuestName(eventId);
+  const [askName, setAskName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const stageLettering = useMemo(
+    () => (letteringSpec ? { spec: letteringSpec, name: guestLetteringName } : null),
+    [letteringSpec, guestLetteringName],
+  );
+
   // ── Face-triggered effects ────────────────────────────────────────────
   // Opt-in per DB scene (config.triggers). Legacy/code events never carry them,
   // so the whole subsystem below stays inert — empty triggers means no engine,
   // no RAF, no reveal filtering — and the booth renders byte-identically.
   const activeTriggerExp =
-    (attachExp?.config?.triggers ? attachExp : null) ?? (frameExp?.config?.triggers ? frameExp : null);
+    (attachExp?.config?.triggers ? attachExp : null)
+    ?? (frameExp?.config?.triggers ? frameExp : null)
+    ?? (effectExp?.config?.triggers ? effectExp : null);
   // Merge triggers from BOTH of the scene's experiences: a scene can pair a 3D
   // attach and a 2D frame that EACH carry config.triggers, and reading only the
   // primary (activeTriggerExp) silently dropped the other's. Dedupe by trigger
   // id; a composite sets attachExp === frameExp, so parse it once (single-source
   // scenes stay byte-identical — the one experience is the only one parsed).
-  const triggers = useMemo<TriggerConfig[]>(() => {
-    if (source !== 'db') return [];
-    const exps = attachExp === frameExp ? [attachExp] : [attachExp, frameExp];
-    const seen = new Set<string>();
-    const merged: TriggerConfig[] = [];
-    for (const exp of exps) {
-      if (!exp?.config?.triggers) continue;
-      for (const t of parseTriggers(exp.config.triggers)) {
-        if (seen.has(t.id)) continue;
-        seen.add(t.id);
-        merged.push(t);
-      }
-    }
-    return merged;
-  }, [source, attachExp, frameExp]);
+  const triggers = useMemo<TriggerConfig[]>(
+    () => (source !== 'db' ? [] : collectTriggers([attachExp, frameExp, effectExp])),
+    [source, attachExp, frameExp, effectExp],
+  );
   const hasTriggers = triggers.length > 0;
   // Layer ids that a reveal trigger hides until it fires; `revealedIds` is the
   // runtime set already fired. NEVER persisted — a fresh scene starts all hidden.
-  const revealTargetIds = useMemo(() => {
-    const s = new Set<string>();
-    for (const t of triggers) if (t.action.type === 'reveal') s.add(t.action.objectId);
-    return s;
-  }, [triggers]);
+  const revealTargetIds = useMemo(() => revealTargetIdsOf(triggers), [triggers]);
   const [revealedIds, setRevealedIds] = useState<Set<string>>(() => new Set());
   useEffect(() => { setRevealedIds(new Set()); }, [activeTriggerExp]);
-  // A reveal layer renders only once revealed. With no triggers revealTargetIds
-  // is empty, so this is always true → the layer builders below are unchanged.
-  const revealVisible = useCallback(
-    (id: string) => !(revealTargetIds.has(id) && !revealedIds.has(id)),
-    [revealTargetIds, revealedIds],
-  );
   // A layer that is a reveal-trigger TARGET is hidden-until-fired BY DESIGN, so
   // its reveal state ALONE decides visibility — an editor "hidden" (eye toggle)
   // must not also suppress it, or the reveal could never appear. Every other
   // (non-targeted) layer keeps the studio eye toggle (l.hidden). With no
   // triggers the target set is empty, so this reduces to `l.hidden !== true`.
+  // Shared with StudioStage/StudioPreview as one pure predicate — the inline
+  // copies had drifted (Preview ANDed the two conditions, so an eye-hidden
+  // reveal target could never appear there however often the trigger fired).
   const layerVisible = useCallback(
-    (l: { id: string; hidden?: boolean }) =>
-      revealTargetIds.has(l.id) ? revealVisible(l.id) : l.hidden !== true,
-    [revealTargetIds, revealVisible],
+    (l: { id: string; hidden?: boolean }) => isLayerVisible(l, revealTargetIds, revealedIds),
+    [revealTargetIds, revealedIds],
   );
 
   // ── Multi-layer (studio) scenes ───────────────────────────────────────
@@ -541,7 +579,7 @@ export default function Booth() {
   // restore the EXACT prior effect after ~1.2s (default). One pulse at a time.
   const effectIdRef = useRef(effectId);
   useEffect(() => { effectIdRef.current = effectId; }, [effectId]);
-  const pulseRef = useRef<{ prior: string; timeout: number } | null>(null);
+  const pulseRef = useRef<{ prior: string; target: string; timeout: number } | null>(null);
   // End an in-flight pulse: clear its restore timer, drop the state, and only
   // then optionally restore the pre-pulse effect. `restore` is true just on the
   // normal same-scene timeout path; a scene switch cancels WITHOUT restoring.
@@ -550,18 +588,24 @@ export default function Booth() {
     if (!p) return;
     window.clearTimeout(p.timeout);
     pulseRef.current = null;
-    if (restore) setEffectId(p.prior);
+    // Restore FUNCTIONALLY and only if the pulse shader is still the one on
+    // screen: a guest who picked their own filter during the ~1.2s pulse used to
+    // have that choice silently reverted when the timer fired.
+    if (restore) setEffectId((cur) => pulseRestoreValue(cur, p.target, p.prior));
   }, []);
   const startFilterPulse = useCallback((shaderId: string | undefined, durationMs: number | undefined) => {
     if (pulseRef.current) return; // don't stack pulses
     const prior = effectIdRef.current;
-    const target = shaderId || activeTriggerExp?.config?.ambientShader?.shaderId || '';
-    if (!target || target === 'none' || target === prior) return; // nothing distinct to pulse to
+    // resolvePulseShader returns null when the pulse would be invisible (no
+    // distinct shader requested, or the same one already showing) — which is
+    // exactly what the authoring UI's DEFAULT filterPulse used to produce.
+    const target = resolvePulseShader(shaderId, prior);
+    if (!target) return;
     setEffectId(target);
     const dur = durationMs && durationMs > 0 ? durationMs : 1200;
     const timeout = window.setTimeout(() => endFilterPulse(true), dur);
-    pulseRef.current = { prior, timeout };
-  }, [activeTriggerExp, endFilterPulse]);
+    pulseRef.current = { prior, target, timeout };
+  }, [endFilterPulse]);
   // A pulse must never outlive the scene that fired it. When the active trigger
   // scene changes (or the booth unmounts), cancel any in-flight pulse WITHOUT
   // restoring: the incoming scene sets its own filter, so restoring scene A's
@@ -600,7 +644,7 @@ export default function Booth() {
   // is live. Drives detection itself (detectFaceNow) so blendshapes refresh even
   // with no 3D piece mounted, and steps the engine once per NEW detection frame.
   useEffect(() => {
-    if (source !== 'db' || !hasTriggers || phase !== 'camera' || !ready) return;
+    if (!shouldRunTriggers(source, hasTriggers, phase, ready)) return;
     const engine = createTriggerEngine(triggers);
     let raf = 0;
     let lastT = -1;
@@ -618,10 +662,14 @@ export default function Booth() {
     return () => cancelAnimationFrame(raf);
   }, [source, hasTriggers, phase, ready, videoRef, triggers]);
 
-  // A one-off guest hint when the scene has triggers ("Smile for a surprise").
+  // A one-off guest hint when the scene has triggers. The copy names the source
+  // the HOST actually authored — it used to hard-code "Smile for a surprise", so
+  // a wink-triggered scene told every guest to do the wrong thing.
+  const triggerHintCopy = useMemo(() => triggerHintText(triggers) ?? 'Smile for a surprise', [triggers]);
   const [triggerHint, setTriggerHint] = useState(false);
   useEffect(() => {
     if (source === 'db' && hasTriggers && phase === 'camera' && ready) {
+      // (the hint itself stays camera-only — it is guidance before the shutter)
       setTriggerHint(true);
       const t = window.setTimeout(() => setTriggerHint(false), 5000);
       return () => window.clearTimeout(t);
@@ -647,6 +695,14 @@ export default function Booth() {
   const handleShutterPress = useCallback(() => {
     if (phase !== 'camera') return;
     if (mediaMode === 'video' && recording) return; // handled by stop button
+    // This frame puts the guest's NAME on the photo and we don't have one yet:
+    // ask before the first shot, not after. Skipping is remembered per event,
+    // so this can only ever interrupt once.
+    if (needsGuestName && !askName) {
+      setNameDraft('');
+      setAskName(true);
+      return;
+    }
     if (timerSec > 0) {
       setPhase('countdown');
     } else {
@@ -657,7 +713,7 @@ export default function Booth() {
         capturePhoto();
       }
     }
-  }, [phase, mediaMode, recording, timerSec]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phase, mediaMode, recording, timerSec, needsGuestName, askName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCountdownComplete = useCallback(() => {
     if (mediaMode === 'video') {
@@ -859,6 +915,15 @@ export default function Booth() {
     [capturedDataUrl, selectedChallenge, eventId, doSubmit],
   );
 
+  // Re-arm the scene's surprises for the next capture. `revealedIds` was only
+  // ever cleared when the active experience OBJECT changed, and the booth never
+  // unmounts between guests (the flow is phase state, not routing) — so a reveal
+  // was one-shot per SESSION: guest #2 onward walked up to a booth already
+  // showing the piece that was supposed to appear when they smiled.
+  const rearmReveals = useCallback(() => {
+    setRevealedIds((prev) => (prev.size === 0 ? prev : new Set()));
+  }, []);
+
   const handleRetake = useCallback(() => {
     // Revoke video object URL if present
     if (recordVideoUrlRef.current) {
@@ -869,7 +934,8 @@ export default function Booth() {
     setCapturedDataUrl(null);
     setCapturedBlobRef(null);
     setPhase('camera');
-  }, []);
+    rearmReveals();
+  }, [rearmReveals]);
 
   const handleTakeAnother = useCallback(() => {
     setMoreOpen(false);
@@ -880,7 +946,8 @@ export default function Booth() {
     setCapturedDataUrl(null);
     setCapturedBlobRef(null);
     setPhase('camera');
-  }, []);
+    rearmReveals();
+  }, [rearmReveals]);
 
   // ── Recording progress ring ───────────────────────────────────────────
   const reducedMotionPref = prefersReducedMotion();
@@ -1055,6 +1122,7 @@ export default function Booth() {
                   active={true}
                   watermark={entitlements.watermark}
                   effectsCanvas={triggerFxCanvas}
+                  lettering={stageLettering}
                 />
               )}
               <div ref={feedContainerRef} className="absolute inset-0">
@@ -1073,10 +1141,15 @@ export default function Booth() {
                   />
                 )}
               </div>
-              {/* Face-trigger particles — a sibling canvas over the stage. Also
-                  passed into StageCanvas.effectsCanvas so an on-screen burst is
-                  composited into the captured photo. Mounted only for trigger scenes. */}
-              {hasTriggers && <TriggerEffects ref={triggerFxRef} />}
+              {/* Face-trigger particles. This canvas is the SOURCE: it is passed
+                  to StageCanvas.effectsCanvas (:1081) and composited into the
+                  same canvas that produces the preview, the JPEG and the recorded
+                  video. It must stay MOUNTED and rendering, but it must not also
+                  be drawn on top — it was, so every burst was drawn twice on
+                  screen and the live preview came out brighter than the photo the
+                  guest keeps. `opacity-0` rather than `hidden` because the
+                  component hardcodes `display: block`. */}
+              {hasTriggers && <TriggerEffects ref={triggerFxRef} className="absolute inset-0 w-full h-full pointer-events-none opacity-0" />}
               <div className="absolute top-4 inset-x-0 z-30 flex flex-col items-center gap-2 pointer-events-none">
                 <AnimatePresence>
                   {boothHint && (
@@ -1124,7 +1197,7 @@ export default function Booth() {
                     >
                       <Sparkles className="w-4 h-4 text-gold-300 animate-pulse" />
                       <span className="font-label text-[10px] uppercase tracking-wide text-champagne/80">
-                        Smile for a surprise
+                        {triggerHintCopy}
                       </span>
                     </motion.div>
                   )}
@@ -1158,7 +1231,7 @@ export default function Booth() {
                 onCategory={setDeckCategory}
                 sparkles={sparkles}
                 onToggleSparkles={setSparkles}
-                onSelectEffect={setEffectId}
+                onSelectEffect={applyEffect}
                 onSelectFrame={handleSelectFrame}
                 onSelectAttachment={setAttachExp}
                 onClearAll={() => {
@@ -1231,7 +1304,7 @@ export default function Booth() {
               sparkles={sparkles}
               frameId={frameExp?.id ?? null}
               attachmentId={attachExp?.id ?? null}
-              onSelectEffect={setEffectId}
+              onSelectEffect={applyEffect}
               onToggleSparkles={setSparkles}
               onSelectFrame={handleSelectFrame}
               onSelectAttachment={setAttachExp}
@@ -1269,6 +1342,57 @@ export default function Booth() {
             doSubmit(p?.guestName ?? '', p?.message ?? '', false);
           }}
         />
+      )}
+
+      {/* ── Name for the frame (asked once, before the first shot) ─────── */}
+      {askName && (
+        <div className="absolute inset-0 z-50 flex items-end sm:items-center justify-center bg-noir-900/70 backdrop-blur-sm px-4 pb-6">
+          <div className="w-full max-w-sm liquid-glass rounded-3xl px-6 py-6 text-center">
+            <h3 className="font-serif text-2xl text-ivory mb-1">Put your name on it</h3>
+            <p className="font-sans text-[13px] text-champagne/60 leading-relaxed mb-5">
+              This frame writes your name across every shot you take. Skip it and the frame stays as it is.
+            </p>
+            <input
+              type="text"
+              autoFocus
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value.slice(0, 60))}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' || nameDraft.trim().length < 2) return;
+                setGuestName(eventId, nameDraft);
+                setGuestNameTick((t) => t + 1);
+                setAskName(false);
+              }}
+              placeholder="Your name"
+              className="w-full text-center bg-noir-800/70 border border-gold-400/25 rounded-xl px-4 py-3 font-sans text-base text-ivory placeholder-champagne/30 outline-none focus:border-gold-400/60 transition-colors mb-4"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  // Remembered per event: never ask this guest again, and the
+                  // lettering simply draws nothing for them.
+                  skipGuestName(eventId);
+                  setGuestNameTick((t) => t + 1);
+                  setAskName(false);
+                }}
+                className="flex-1 glass rounded-xl px-4 py-3 font-label uppercase tracking-luxe text-[11px] text-champagne/60 hover:text-ivory transition-colors"
+              >
+                Continue without a name
+              </button>
+              <button
+                onClick={() => {
+                  setGuestName(eventId, nameDraft);
+                  setGuestNameTick((t) => t + 1);
+                  setAskName(false);
+                }}
+                disabled={nameDraft.trim().length < 2}
+                className="flex-1 bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 hover:brightness-110 transition-all active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+              >
+                Use it
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Send-off + success ────────────────────────────────────────── */}

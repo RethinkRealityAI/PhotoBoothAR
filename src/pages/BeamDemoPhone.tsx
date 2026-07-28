@@ -21,7 +21,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { isValidChannelId } from '../lib/demoBeam';
-import { createBeamTransport, downscaleShot, type BeamTransport, type BeamTransportStatus } from '../lib/demoBeamTransport';
+import { ACK_TIMEOUT_MS, createBeamTransport, downscaleShot, type BeamTransport, type BeamTransportStatus } from '../lib/demoBeamTransport';
 import { BoothIcon, WallIcon } from '../components/ui/BeamIcons';
 
 // The camera drags in the AR stack (WebGL shaders, MediaPipe, Three) —
@@ -82,8 +82,19 @@ export default function BeamDemoPhone() {
       return;
     }
     const wireShot = await downscaleShot(shot);
-    const ok = await transport.sendShot(wireShot);
-    setStage(ok ? 'sent' : 'sendfail');
+    // Wait for the WALL to confirm, not just for the socket to accept the
+    // message. `send()` resolves 'ok' as soon as Realtime takes the payload,
+    // so a wall that never joined the channel — or joined and errored — used
+    // to produce a triumphant "Look up, it's on the wall!" over an empty wall.
+    const acked = new Promise<boolean>((resolve) => {
+      let settled = false;
+      const done = (v: boolean) => { if (!settled) { settled = true; clearTimeout(timer); resolve(v); } };
+      const timer = setTimeout(() => done(false), ACK_TIMEOUT_MS);
+      transport.onAck(() => done(true));
+    });
+    const sent = await transport.sendShot(wireShot);
+    if (!sent) { setStage('sendfail'); return; }
+    setStage((await acked) ? 'sent' : 'sendfail');
   }, []);
 
   const retry = useCallback(() => {

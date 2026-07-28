@@ -15,12 +15,13 @@ import { TierPill, UpgradeModal } from './UpgradeCard';
 import { entitlementsFor, normalizeTier } from '../../lib/entitlements';
 import { supabase } from '../../lib/supabase';
 import StatusPill from '../../components/ui/StatusPill';
+import { copyText } from '../../lib/clipboard';
 
 function CopyLinkButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      onClick={() => navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
+      onClick={() => copyText(text).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 2000); })}
       title="Copy guest link"
       className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
     >
@@ -47,7 +48,7 @@ function QRModal({ url, name, draft, onClose }: { url: string; name: string; dra
           </p>
         )}
         <button
-          onClick={() => navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
+          onClick={() => copyText(url).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 2000); })}
           className="w-full py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-xs font-label uppercase tracking-widest text-brand-fg/80 transition-colors flex items-center justify-center gap-1.5"
         >
           {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <QrCode className="w-3.5 h-3.5" />}

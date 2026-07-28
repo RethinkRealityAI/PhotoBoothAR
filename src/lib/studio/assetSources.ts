@@ -248,3 +248,26 @@ export function filterDockByChip(items: DockItem[], chip: AssetChip, query: stri
     return item.label.toLowerCase().includes(q);
   });
 }
+
+/** A scene object, reduced to the identity fields a dock tile can match on. */
+export interface PlacedRef {
+  url?: string | null;
+  assetUrl?: string | null;
+  proceduralId?: string | null;
+}
+
+/**
+ * Is this dock item already in the scene?
+ *
+ * Built-in tiles computed this correctly, but every upload / generated /
+ * saved-experience tile was constructed with a literal `active: false`, so a
+ * host could never see which of their own assets was already placed — and the
+ * accent ring that exists for exactly this purpose never lit up for them.
+ */
+export function isDockItemInScene(item: DockItem, placed: readonly PlacedRef[]): boolean {
+  const { url, assetUrl, proceduralId } = item.payload;
+  return placed.some((p) =>
+    (!!url && (p.url === url || p.assetUrl === url)) ||
+    (!!assetUrl && (p.assetUrl === assetUrl || p.url === assetUrl)) ||
+    (!!proceduralId && p.proceduralId === proceduralId));
+}

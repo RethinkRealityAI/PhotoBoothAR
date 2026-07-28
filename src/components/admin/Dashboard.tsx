@@ -21,6 +21,7 @@ import { updateEventStatus } from '../../lib/host';
 import { useStore } from '../../store';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from './studioBase';
+import { copyText } from '../../lib/clipboard';
 
 interface Stats {
   published: number;
@@ -58,7 +59,7 @@ function useStats() {
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
-    navigator.clipboard.writeText(text).then(() => {
+    copyText(text).then((ok) => { if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });

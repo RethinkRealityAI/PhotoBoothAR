@@ -23,7 +23,9 @@
  * TOUCHED frame's transform/animation — while stickers and 3D objects ALWAYS
  * APPEND on pick (appendObject): a click never deletes or replaces content.
  */
-import type { ExperienceKind, HeadAnchor, LayerAnimation, Transform2D } from '../../types';
+import type {
+  ExperienceKind, GuestLetteringConfig, HeadAnchor, LayerAnimation, Transform2D,
+} from '../../types';
 import { BORDER_MAP } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
 import type { TriggerConfig } from './triggers';
@@ -78,12 +80,23 @@ export interface Overlay2D {
   transform: Transform2D;
   animation: LayerAnimation;
   /**
-   * Editor-only visibility toggle for the layers panel — hides the overlay in
-   * the stage/preview render without deleting it. Never persisted: draftMapping
-   * constructs layers explicitly (it doesn't spread this field in), so it drops
-   * out naturally on save/load. Defaults undefined (== visible).
+   * Hide this overlay FROM GUESTS. Defaults undefined (== visible).
+   *
+   * This comment used to claim the flag was editor-only and "never persisted".
+   * That is false and was false when written: draftMapping writes `hidden` onto
+   * the saved layer (draftMapping.ts:267) and reads it back (:158), and the
+   * booth honours it — so hiding a layer and saving publishes a scene without
+   * it. Treat it as a publish control; the Layers eye is labelled accordingly.
    */
   hidden?: boolean;
+  /**
+   * Live per-guest lettering drawn over this frame in the booth (the guest's
+   * own name, or one fixed line for everyone). Persisted at CONFIG level, not
+   * layer level: draftMapping mirrors it to/from `config.lettering` beside
+   * `config.opacity`, the same way layer 0's transform is mirrored. Undefined =
+   * none, which is every scene that predates the feature.
+   */
+  lettering?: GuestLetteringConfig;
 }
 
 /** A single 3D attachment (GLB model or procedural head piece) within a 3D scene. */
@@ -101,9 +114,9 @@ export interface Object3D {
   /** Per-object head occlusion opt-in (opt-IN: never surprise-hides an asset). */
   occlusion: boolean;
   /**
-   * Editor-only visibility toggle for the layers panel — hides the piece in the
-   * stage/preview render without deleting it. Never persisted (see Overlay2D.hidden):
-   * draftMapping builds layers explicitly, so it drops out on save. Defaults undefined.
+   * Hide this piece FROM GUESTS — persisted on save, exactly like
+   * Overlay2D.hidden (see the note there; the old "never persisted" claim was
+   * wrong). Defaults undefined (== visible).
    */
   hidden?: boolean;
 }
@@ -132,6 +145,9 @@ export function createOverlay(
     name: opts.name ?? 'Overlay',
     transform: opts.transform ? { ...opts.transform } : { ...DEFAULT_TRANSFORM },
     animation: opts.animation ?? 'none',
+    // Omitted entirely when absent, so an overlay without guest lettering has
+    // no such key at all (deep-equality snapshots stay byte-identical).
+    ...(opts.lettering ? { lettering: { ...opts.lettering } } : {}),
   };
 }
 
@@ -197,7 +213,6 @@ export interface StudioDraft {
 export interface StudioState {
   mode: StudioMode;
   threeView: ThreeView;
-  paused: boolean;
   draft: StudioDraft;
   /** True once the draft diverged from its loaded/initial snapshot. */
   dirty: boolean;
@@ -231,10 +246,11 @@ export function initialDraft(kind: StudioKind = 'shader'): StudioDraft {
 export function initialState(kind: StudioKind = 'shader'): StudioState {
   return {
     mode: kind === '3d_attachment' ? '3d' : '2d',
-    // Default to the reference-head ("Model") view so entering 3D shows the head
-    // + anchor dots to place onto — not the camera, which needs a detected face.
-    threeView: 'orbit',
-    paused: false,
+    // Default to LIVE. Opening 3D into the no-camera reference view meant
+    // entering 3D turned tracking off rather than on, and the host had to find a
+    // second control to get the WYSIWYG view they came for. The reference head
+    // is still one tap away for precise placement without a face.
+    threeView: 'live',
     draft: initialDraft(kind),
     dirty: false,
   };
@@ -369,7 +385,6 @@ function placeFrame(d: StudioDraft, frame: Overlay2D): StudioDraft {
 export type StudioAction =
   | { type: 'SET_MODE'; mode: StudioMode }
   | { type: 'SET_THREE_VIEW'; view: ThreeView }
-  | { type: 'SET_PAUSED'; paused: boolean }
   | { type: 'SET_KIND'; kind: StudioKind }
   | { type: 'LOAD'; draft: StudioDraft }
   | { type: 'SET_NAME'; name: string }
@@ -378,7 +393,7 @@ export type StudioAction =
   | { type: 'SET_SHADER_PARAMS'; params: Record<string, number> }
   | { type: 'CLEAR_FILTER' }
   | { type: 'SELECT_BUILTIN'; borderId: string; url: string }
-  | { type: 'SET_OVERLAY_UPLOAD'; url: string; blob: Blob | null; overlayKind?: 'border' | '2d_filter' }
+  | { type: 'SET_OVERLAY_UPLOAD'; url: string; blob: Blob | null; overlayKind?: 'border' | '2d_filter'; name?: string }
   | { type: 'CLEAR_OVERLAY' }
   | { type: 'SET_TRANSFORM'; transform: Transform2D }
   | { type: 'SELECT_ANCHOR'; anchor: HeadAnchor }
@@ -419,8 +434,6 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     }
     case 'SET_THREE_VIEW':
       return state.threeView === action.view ? state : { ...state, threeView: action.view };
-    case 'SET_PAUSED':
-      return state.paused === action.paused ? state : { ...state, paused: action.paused };
     case 'SET_KIND': {
       // The dock's category tabs are becoming pure catalog-browsing UI in a later
       // wave; for now the dock still dispatches SET_KIND. With the new semantics
@@ -434,8 +447,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'LOAD':
       return {
         mode: modeForKind(action.draft.kind),
-        threeView: 'orbit',
-        paused: false,
+        threeView: 'live',
         draft: action.draft,
         dirty: false,
       };
@@ -481,7 +493,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         url: action.url,
         blob: action.blob,
         isBuiltin: false,
-        name: 'Custom overlay',
+        name: action.name?.trim() || 'Custom overlay',
       });
       const nd = overlayKind === 'border' ? placeFrame(d, obj) : appendObject(d, obj);
       if (!nd) return state;
@@ -628,6 +640,13 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return { ...state, draft: { ...d, selectedId: action.id } };
     }
     case 'REORDER_OBJECT': {
+      // NOTE: this swaps ADJACENT ARRAY indices, which is 2D paint order, and
+      // that is deliberate — see docs/STATE.md. The Layers panel renders three
+      // fixed buckets, so a cross-bucket swap does not move anything in the
+      // LIST, but it does change what paints over what ON THE STAGE (a frame
+      // over a sticker, say). Restricting reorder to same-bucket neighbours
+      // makes the list honest at the cost of removing that capability
+      // entirely — the real fix is to render one list in true array order.
       const idx = d.objects.findIndex((o) => o.id === action.id);
       if (idx < 0) return state;
       const swap = action.dir === 'up' ? idx - 1 : idx + 1;

@@ -6,7 +6,7 @@
  * slider (replaces the legacy GoldSlider) and a pill toggle. Kept token-only
  * (accent / brand-*) so the studio matches the platform, not the gold theme.
  */
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 
 export function StudioSlider({
   label,
@@ -28,20 +28,26 @@ export function StudioSlider({
   compact?: boolean;
 }) {
   const pct = ((Math.min(max, Math.max(min, value)) - min) / (max - min)) * 100;
+  // The label was a bare <span>, so every slider in the studio announced only
+  // "slider" with a raw number and no name. A real <label> plus aria-valuetext
+  // gives assistive tech the same thing a sighted host reads.
+  const id = useId();
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex justify-between items-baseline">
-        <span className="font-label uppercase tracking-widest text-[9px] text-brand-muted/70">{label}</span>
+        <label htmlFor={id} className="font-label uppercase tracking-widest text-[9px] text-brand-muted/70">{label}</label>
         {!compact && <span className="font-mono text-[9px] text-accent-2">{format(value)}</span>}
       </div>
       <input
+        id={id}
         type="range"
         min={min}
         max={max}
         step={step}
         value={value}
+        aria-valuetext={format(value)}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="studio-range w-full h-1 appearance-none rounded-full cursor-pointer"
+        className="studio-range w-full appearance-none rounded-full cursor-pointer"
         style={{
           background: `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${pct}%, rgba(255,255,255,0.10) ${pct}%, rgba(255,255,255,0.10) 100%)`,
         }}
@@ -63,6 +69,9 @@ export function StudioToggle({
 }) {
   return (
     <button
+      type="button"
+      role="switch"
+      aria-checked={value}
       onClick={() => onChange(!value)}
       className={`flex items-center gap-2.5 w-full rounded-xl px-3 py-2.5 border transition-all text-left ${
         value ? 'border-accent/40 bg-accent/10' : 'border-white/10 bg-white/[0.03] opacity-70 hover:opacity-100'

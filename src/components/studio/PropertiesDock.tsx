@@ -48,6 +48,8 @@ import { SHADER_MAP, FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
 import { getHeadFitEstimate } from '../../lib/faceRig';
 import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
+import { OVERLAY_SCALE, OVERLAY_POSITION, OVERLAY_ROTATION, formatAtStep, defaultAnchorConfig } from '../../lib/studio/controlSpecs';
+import { HEAD_PIECE_MAP } from '../../lib/headPieces';
 import {
   DEFAULT_TRANSFORM,
   MAX_OBJECTS,
@@ -73,7 +75,8 @@ import {
 import { draftToPayload, existingUrlResolver } from '../../lib/studio/draftMapping';
 import { createExperience, getStudioSettings, setStudioSettings } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
-import type { LayerAnimation } from '../../types';
+import type { GuestLetteringConfig, LayerAnimation } from '../../types';
+import { DEFAULT_LETTERING_COLOR, type GuestLetteringStyle } from '../../lib/letteringFit';
 import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
 import Tooltip from '../ui/Tooltip';
 import HelpButton from './HelpButton';
@@ -254,6 +257,76 @@ function AnimationChips({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* ── Guest-name lettering (the free, live personalisation) ────────────────
+ * Turning this on makes the booth draw the GUEST'S OWN NAME over the frame —
+ * in the preview, the photo and the recorded video. Off (the default, and
+ * every scene that predates it) writes no config key and changes nothing. */
+
+const LETTERING_STYLE_OPTIONS: { id: GuestLetteringStyle; label: string }[] = [
+  { id: 'script', label: 'Script' },
+  { id: 'serif', label: 'Serif' },
+  { id: 'block', label: 'Block' },
+  { id: 'label', label: 'Label caps' },
+];
+
+/** What a freshly-enabled toggle stores — the guest's name, white, bottom. */
+const DEFAULT_GUEST_LETTERING: GuestLetteringConfig = {
+  token: 'guestName',
+  style: 'script',
+  color: DEFAULT_LETTERING_COLOR,
+  placement: 'bottom',
+};
+
+function GuestLetteringControls({
+  value,
+  onChange,
+}: {
+  value: GuestLetteringConfig | undefined;
+  onChange: (v: GuestLetteringConfig | undefined) => void;
+}) {
+  const selectCls = 'w-full bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-brand-fg focus:outline-none focus:border-accent/40';
+  const on = !!value;
+  const cfg = value ?? DEFAULT_GUEST_LETTERING;
+  const patch = (p: Partial<GuestLetteringConfig>) => onChange({ ...cfg, ...p });
+  return (
+    <div className="flex flex-col gap-2">
+      <StudioToggle
+        label="Guest name lettering"
+        hint="Each guest's own name is drawn onto this frame — in the preview, the photo and the video."
+        value={on}
+        onChange={(v) => onChange(v ? { ...DEFAULT_GUEST_LETTERING } : undefined)}
+      />
+      {on && (
+        <div className="flex flex-col gap-2">
+          <div>
+            <SectionLabel>Style</SectionLabel>
+            <select value={cfg.style} onChange={(e) => patch({ style: e.target.value as GuestLetteringStyle })} className={selectCls}>
+              {LETTERING_STYLE_OPTIONS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <SectionLabel>Position</SectionLabel>
+            <select value={cfg.placement} onChange={(e) => patch({ placement: e.target.value as 'top' | 'bottom' })} className={selectCls}>
+              <option value="bottom">Bottom of the frame</option>
+              <option value="top">Top of the frame</option>
+            </select>
+          </div>
+          <div>
+            <SectionLabel>Colour</SectionLabel>
+            <input
+              type="color"
+              value={cfg.color}
+              onChange={(e) => patch({ color: e.target.value })}
+              aria-label="Lettering colour"
+              className="w-full h-8 rounded-lg bg-white/[0.04] border border-white/10 cursor-pointer"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -693,6 +766,10 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   const selected = selectedObject(draft);
   const selOverlay: Overlay2D | null = selected && selected.type === 'overlay' ? selected : null;
   const sel3D: Object3D | null = selected && selected.type !== 'overlay' ? selected : null;
+  // Reset targets: a built-in head piece's tuned preset, else zero. Passing a
+  // literal 0 reset four of the five built-ins AWAY from where they belong, and
+  // inverted the reset button's enabled state along with it.
+  const sel3DDefaults = defaultAnchorConfig(sel3D ?? { type: 'model' }, HEAD_PIECE_MAP);
 
   const handleThumbInput = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -794,11 +871,20 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                     <RotateCcw className="w-3 h-3" /> Reset all
                   </button>
                 </div>
-                <SliderRow label="Size" value={selOverlay.transform.scale} min={0.1} max={3} step={0.05} defaultValue={DEFAULT_TRANSFORM.scale} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, scale: v } })} />
-                <SliderRow label="Position · left/right" value={selOverlay.transform.x} min={-100} max={100} step={0.5} defaultValue={DEFAULT_TRANSFORM.x} format={(v) => `${v.toFixed(0)}%`} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, x: v } })} />
-                <SliderRow label="Position · up/down" value={selOverlay.transform.y} min={-100} max={100} step={0.5} defaultValue={DEFAULT_TRANSFORM.y} format={(v) => `${v.toFixed(0)}%`} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, y: v } })} />
-                <SliderRow label="Rotation" value={selOverlay.transform.rotation} min={-180} max={180} step={1} defaultValue={DEFAULT_TRANSFORM.rotation} format={(v) => `${v.toFixed(0)}°`} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, rotation: v } })} />
+                <SliderRow label="Size" value={selOverlay.transform.scale} min={OVERLAY_SCALE.min} max={OVERLAY_SCALE.max} step={OVERLAY_SCALE.step} defaultValue={DEFAULT_TRANSFORM.scale} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, scale: v } })} />
+                <SliderRow label="Position · left/right" value={selOverlay.transform.x} min={OVERLAY_POSITION.min} max={OVERLAY_POSITION.max} step={OVERLAY_POSITION.step} defaultValue={DEFAULT_TRANSFORM.x} format={(v) => formatAtStep(v, OVERLAY_POSITION.step, '%')} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, x: v } })} />
+                <SliderRow label="Position · up/down" value={selOverlay.transform.y} min={OVERLAY_POSITION.min} max={OVERLAY_POSITION.max} step={OVERLAY_POSITION.step} defaultValue={DEFAULT_TRANSFORM.y} format={(v) => formatAtStep(v, OVERLAY_POSITION.step, '%')} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, y: v } })} />
+                <SliderRow label="Rotation" value={selOverlay.transform.rotation} min={OVERLAY_ROTATION.min} max={OVERLAY_ROTATION.max} step={OVERLAY_ROTATION.step} defaultValue={DEFAULT_TRANSFORM.rotation} format={(v) => formatAtStep(v, OVERLAY_ROTATION.step, '°')} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, rotation: v } })} />
                 <AnimationChips value={selOverlay.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: selOverlay.id, animation: a })} />
+                {/* Guest-name lettering lives on the FRAME only — a sticker is
+                    placed anywhere on the canvas, so a name band under it has
+                    no meaning. Absent on every scene that never turns it on. */}
+                {selOverlay.overlayKind === 'border' && (
+                  <GuestLetteringControls
+                    value={selOverlay.lettering}
+                    onChange={(lettering) => dispatch({ type: 'UPDATE_OBJECT', id: selOverlay.id, patch: { lettering } })}
+                  />
+                )}
               </div>
             )}
 
@@ -809,7 +895,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                 <div className="flex items-center justify-between">
                   <p className="font-sans text-xs text-brand-fg font-medium">Placement</p>
                   <button
-                    onClick={() => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } } })}
+                    onClick={() => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { ...sel3DDefaults.offset }, rotation: { ...sel3DDefaults.rotation } } })}
                     className="flex items-center gap-1 text-[9px] text-brand-muted/50 hover:text-accent-2 transition-colors"
                   >
                     <RotateCcw className="w-3 h-3" /> Reset all
@@ -825,7 +911,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                       min={-20}
                       max={20}
                       step={0.1}
-                      defaultValue={0}
+                      defaultValue={sel3DDefaults.offset[axis]}
                       format={(v) => `${v.toFixed(1)} cm`}
                       onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { ...sel3D.anchorConfig.offset, [axis]: v } } })}
                     />
@@ -843,7 +929,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                       min={-180}
                       max={180}
                       step={1}
-                      defaultValue={0}
+                      defaultValue={sel3DDefaults.rotation[axis] * RAD_TO_DEG}
                       format={(v) => `${v.toFixed(0)}°`}
                       onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { rotation: { ...sel3D.anchorConfig.rotation, [axis]: v / RAD_TO_DEG } } })}
                     />
@@ -872,7 +958,8 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
 
       {/* LAYERS — grouped by kind (Frame · Stickers · 3D pieces). Within a group,
           rows show top-most first; reorder acts on the flat objects[] paint order,
-          the eye toggles the editor-only hidden flag, delete removes the object. */}
+          the eye hides a layer FROM GUESTS (it persists — see below), delete
+          removes the object. */}
       {hasObjects && (
         <DockSection icon={Layers} title="Layers" open={!!open.layers} onToggle={() => toggleSection('layers')}>
           {counts.capped >= 15 && (
@@ -917,10 +1004,15 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                             <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">{o.animation}</span>
                           )}
                           <div className="flex items-center gap-0.5 shrink-0">
+                            {/* NOT a preview toggle. draftMapping persists
+                                `hidden` and the booth honours it, so this is a
+                                publish control: hide + save ships a scene
+                                without that layer. The label says so. */}
                             <button
                               onClick={(e) => { e.stopPropagation(); dispatch({ type: 'UPDATE_OBJECT', id: o.id, patch: { hidden: !hidden } }); }}
-                              aria-label={hidden ? 'Show layer' : 'Hide layer'}
-                              className="p-0.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors"
+                              aria-label={hidden ? 'Show this layer to guests' : 'Hide this layer from guests'}
+                              title={hidden ? 'Hidden from guests — click to show' : 'Visible to guests — click to hide'}
+                              className="p-1.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors"
                             >
                               {hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                             </button>

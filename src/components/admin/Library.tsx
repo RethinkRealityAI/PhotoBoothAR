@@ -27,6 +27,7 @@ import { toDataUrl } from '../../lib/borders';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from './studioBase';
 import type { Experience, PresetOverrides } from '../../types';
+import { copyText } from '../../lib/clipboard';
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                              */
@@ -93,7 +94,7 @@ function QRModal({ exp, onClose }: { exp: Experience; onClose: () => void }) {
   const url = `${window.location.origin}${basePath}/experience/${exp.id}`;
   const [copied, setCopied] = useState(false);
   const copy = () => {
-    navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+    copyText(url).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 2000); });
   };
   return (
     // Modal supplies the dialog semantics this was missing entirely: Escape,

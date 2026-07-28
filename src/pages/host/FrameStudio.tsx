@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom';
 import { Check, Loader2, Move, RefreshCw, Sparkles, Wand2 } from 'lucide-react';
 import { generateImage, aiErrorMessage, type AiErrorCode } from '../../lib/ai';
 import { frameBriefGaps, gapSummary } from '../../lib/assetBrief';
+import { inferFrameLayout } from '../../lib/assetPrompt';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { updateEventConfig } from '../../lib/host';
 import type { Experience } from '../../types';
@@ -96,6 +97,10 @@ export default function FrameStudio({
       // CopilotChat via processGeneratedFrame).
       transparentBackground: false,
       greenScreen: true,
+      // No archetype picker on the create-event success screen — the brief
+      // itself chooses, and a brief that describes nothing special stays on
+      // 'classic-border', exactly what this screen generated before.
+      layout: inferFrameLayout(brief),
     });
     if (res.error !== null || !res.data) {
       const code = (res.error ?? 'internal') as AiErrorCode;

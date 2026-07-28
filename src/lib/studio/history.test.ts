@@ -131,7 +131,6 @@ describe('history: generic reducer', () => {
 const isDraftMutating = (a: StudioAction): boolean =>
   a.type !== 'SET_MODE' &&
   a.type !== 'SET_THREE_VIEW' &&
-  a.type !== 'SET_PAUSED' &&
   a.type !== 'SELECT_OBJECT' &&
   a.type !== 'SET_KIND';
 const isClearing = (a: StudioAction): boolean => a.type === 'LOAD' || a.type === 'MARK_SAVED';

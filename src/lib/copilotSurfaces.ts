@@ -82,6 +82,52 @@ function textField(id: string, label: string, path: string): A2uiComponent {
   return { id, component: 'TextField', label, value: { path } };
 }
 
+/* ── Frame lettering (the "put our names on it" choice) ───────────────────
+ * Hosts do not know what "beyond-edge" means, and a wall of radio labels does
+ * not tell them — so the card SHOWS the four looks. The thumbnails are
+ * vendored to /samples/lettering/ (scripts/remote-assets.json); the renderer
+ * hides any that 404, so the card degrades to plain labelled pickers rather
+ * than a row of broken-image icons. */
+
+const LETTERING_STYLE_OPTIONS = [
+  { label: 'Cursive monogram', value: 'cursive-monogram' },
+  { label: 'Serif initials', value: 'serif-initials' },
+  { label: 'Script name', value: 'script-name' },
+  { label: 'Modern block', value: 'modern-block' },
+];
+
+const LETTERING_PLACEMENT_OPTIONS = [
+  { label: 'Bottom of the frame', value: 'bottom' },
+  { label: 'Top of the frame', value: 'top' },
+  { label: 'Woven into the art', value: 'integrated' },
+  { label: 'Overflowing the edge', value: 'beyond-edge' },
+  { label: 'Name art only — no frame', value: 'standalone' },
+];
+
+/** [sample id, caption] for the visual legend, in style/placement order. */
+const LETTERING_SAMPLES: [string, string][] = [
+  ['cursive-monogram-bottom', 'Cursive monogram · bottom'],
+  ['serif-initials-top', 'Serif initials · top'],
+  ['script-name-extending', 'Script name · past the edge'],
+  ['block-name-integrated', 'Block name · woven in'],
+];
+
+/** The two cases the four-up legend cannot show: no frame at all, and leaving
+ *  room for a logo (which is guidance, not an option — hence the caption). */
+const LETTERING_EXTRA_SAMPLES: [string, string][] = [
+  ['name-art-standalone', 'Name art only — no frame'],
+  ['logo-space-bottom', 'Ask for “a clear band for our logo” in the brief'],
+];
+
+/** One legend cell: thumbnail above its caption. */
+function sampleCell(prefix: string, sample: string, caption: string): A2uiComponent[] {
+  return [
+    { id: `${prefix}Col`, component: 'Column', children: [`${prefix}Img`, `${prefix}Cap`] },
+    { id: `${prefix}Img`, component: 'Image', variant: 'thumb', url: `/samples/lettering/${sample}.png` },
+    { id: `${prefix}Cap`, component: 'Text', variant: 'caption', text: caption },
+  ];
+}
+
 /** Confirm card for a MUTATION proposal — every field the executor will use
  *  is editable in the card. Returns [] for read-only tools (no confirm). */
 export function buildProposalSurface(action: CopilotAction, surfaceId: string): A2uiMessage[] {
@@ -174,12 +220,43 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
       // Generation card: confirm KICKS OFF generation (client-side, two-phase),
       // it does NOT execute a mutation — CopilotChat routes confirm_action for
       // generation tools to the async generator instead of executeAction.
-      return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
+      //
+      // The lettering block is ALWAYS seeded (with the agent's proposal when it
+      // made one) so the pickers have a selection to show. An empty text box
+      // means no lettering: normalizeLettering rejects it and the frame
+      // generates wordless, exactly as before this card had the fields.
+      const lettering = {
+        text: action.proposal.lettering?.text ?? '',
+        style: action.proposal.lettering?.style ?? 'script-name',
+        placement: action.proposal.lettering?.placement ?? 'bottom',
+      };
+      const legendIds = LETTERING_SAMPLES.map(([s]) => `lg_${s}Col`);
+      const extraIds = LETTERING_EXTRA_SAMPLES.map(([s]) => `lg_${s}Col`);
+      return surface(surfaceId, { proposal: { tool: action.tool, ...p, lettering } }, [
         { id: 'root', component: 'Card', child: 'body' },
-        { id: 'body', component: 'Column', children: ['heading', 'sub', 'promptField', 'genRow'] },
+        {
+          id: 'body', component: 'Column',
+          children: [
+            'heading', 'sub', 'promptField',
+            'letterHeading', 'letterField', 'legendRow', 'stylePicker', 'placePicker', 'extraRow', 'letterHint',
+            'genRow',
+          ],
+        },
         { id: 'heading', component: 'Text', text: 'Design a signature frame', variant: 'h5' },
         { id: 'sub', component: 'Text', variant: 'caption', text: frameHint(action.proposal.prompt) },
         textField('promptField', 'Describe your frame', '/proposal/prompt'),
+        { id: 'letterHeading', component: 'Text', text: 'Names on the frame (optional)', variant: 'h5' },
+        textField('letterField', 'Text to letter — names, initials, a monogram', '/proposal/lettering/text'),
+        { id: 'legendRow', component: 'Row', children: legendIds },
+        ...LETTERING_SAMPLES.flatMap(([s, cap]) => sampleCell(`lg_${s}`, s, cap)),
+        { id: 'stylePicker', component: 'ChoicePicker', label: 'Lettering style', options: LETTERING_STYLE_OPTIONS, value: { path: '/proposal/lettering/style' } },
+        { id: 'placePicker', component: 'ChoicePicker', label: 'Where it goes', options: LETTERING_PLACEMENT_OPTIONS, value: { path: '/proposal/lettering/placement' } },
+        { id: 'extraRow', component: 'Row', children: extraIds },
+        ...LETTERING_EXTRA_SAMPLES.flatMap(([s, cap]) => sampleCell(`lg_${s}`, s, cap)),
+        {
+          id: 'letterHint', component: 'Text', variant: 'caption',
+          text: 'Leave the box empty for a frame with no words on it. Keep it short — up to 40 characters spells reliably.',
+        },
         { id: 'genRow', component: 'Row', justify: 'end', children: ['cancelBtn', 'genBtn'] },
         { id: 'cancelBtn', component: 'Button', variant: 'borderless', child: 'cancelLabel', action: { event: { name: 'cancel_action', context: {} } } },
         { id: 'cancelLabel', component: 'Text', text: 'Dismiss' },
@@ -301,21 +378,25 @@ export function buildGeneratingSurface(surfaceId: string, label: string): A2uiMe
 }
 
 /** Phase 3 (frame): the generated frame previewed over a sample face, with
- *  apply / regenerate / dismiss. The apply button carries the experience id +
- *  identity transform to CopilotChat's `apply_generated` handler. */
+ *  apply / tweak+regenerate / dismiss. The apply button carries the experience
+ *  id + identity transform to CopilotChat's `apply_generated` handler; the
+ *  regenerate button carries the host's "what should change" note so the next
+ *  take is an ITERATION, not the identical prompt run again (mirrors the studio
+ *  Director's RejectPanel). */
 export function buildFramePreviewSurface(
   surfaceId: string,
   gen: { experienceId: string; assetUrl: string },
 ): A2uiMessage[] {
-  const model = { gen: { kind: 'frame', experienceId: gen.experienceId, assetUrl: gen.assetUrl, transform: { scale: 1, x: 0, y: 0 } } };
+  const model = { gen: { kind: 'frame', experienceId: gen.experienceId, assetUrl: gen.assetUrl, feedback: '', transform: { scale: 1, x: 0, y: 0 } } };
   return surface(surfaceId, model, [
     { id: 'root', component: 'Card', child: 'body' },
-    { id: 'body', component: 'Column', align: 'center', children: ['heading', 'preview', 'hint', 'actionsRow'] },
+    { id: 'body', component: 'Column', align: 'center', children: ['heading', 'preview', 'hint', 'tweakField', 'actionsRow'] },
     { id: 'heading', component: 'Text', text: 'Here’s your frame', variant: 'h5' },
     { id: 'preview', component: 'FramePreview', assetUrl: { path: '/gen/assetUrl' }, transform: { path: '/gen/transform' } },
     { id: 'hint', component: 'Text', variant: 'caption', text: 'Fine-tune its placement anytime in the studio’s 2D creator.' },
+    textField('tweakField', 'Tweak it (optional) — what should change?', '/gen/feedback'),
     { id: 'actionsRow', component: 'Row', justify: 'center', children: ['regenBtn', 'applyBtn'] },
-    { id: 'regenBtn', component: 'Button', variant: 'borderless', child: 'regenLabel', action: { event: { name: 'regenerate_generated', context: { kind: { path: '/gen/kind' } } } } },
+    { id: 'regenBtn', component: 'Button', variant: 'borderless', child: 'regenLabel', action: { event: { name: 'regenerate_generated', context: { kind: { path: '/gen/kind' }, feedback: { path: '/gen/feedback' } } } } },
     { id: 'regenLabel', component: 'Text', text: 'Regenerate' },
     {
       id: 'applyBtn', component: 'Button', variant: 'primary', child: 'applyLabel',
@@ -331,8 +412,8 @@ export function buildHeadPiecePreviewSurface(
   surfaceId: string,
   gen: { experienceId: string; thumbUrl: string | null; label: string },
 ): A2uiMessage[] {
-  const model = { gen: { kind: 'headpiece', experienceId: gen.experienceId } };
-  const children = ['heading', ...(gen.thumbUrl ? ['thumb'] : []), 'label', 'hint', 'actionsRow'];
+  const model = { gen: { kind: 'headpiece', experienceId: gen.experienceId, feedback: '' } };
+  const children = ['heading', ...(gen.thumbUrl ? ['thumb'] : []), 'label', 'hint', 'tweakField', 'actionsRow'];
   const comps: A2uiComponent[] = [
     { id: 'root', component: 'Card', child: 'body' },
     { id: 'body', component: 'Column', align: 'center', children },
@@ -340,8 +421,11 @@ export function buildHeadPiecePreviewSurface(
     ...(gen.thumbUrl ? [{ id: 'thumb', component: 'Image', url: gen.thumbUrl } as A2uiComponent] : []),
     { id: 'label', component: 'Text', text: gen.label },
     { id: 'hint', component: 'Text', variant: 'caption', text: 'Preview it live in the booth after you add it.' },
+    // A regenerate that re-ran the identical prompt could only ever produce
+    // "the same thing again, differently" — the note makes it an iteration.
+    textField('tweakField', 'Tweak it (optional) — what should change?', '/gen/feedback'),
     { id: 'actionsRow', component: 'Row', justify: 'center', children: ['regenBtn', 'applyBtn'] },
-    { id: 'regenBtn', component: 'Button', variant: 'borderless', child: 'regenLabel', action: { event: { name: 'regenerate_generated', context: { kind: { path: '/gen/kind' } } } } },
+    { id: 'regenBtn', component: 'Button', variant: 'borderless', child: 'regenLabel', action: { event: { name: 'regenerate_generated', context: { kind: { path: '/gen/kind' }, feedback: { path: '/gen/feedback' } } } } },
     { id: 'regenLabel', component: 'Text', text: 'Regenerate' },
     {
       id: 'applyBtn', component: 'Button', variant: 'primary', child: 'applyLabel',

@@ -10,6 +10,7 @@
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import type { FrameLayout, LetteringSpec } from './assetPrompt';
 import type { Experience } from '../types';
 
 export type AiErrorCode =
@@ -130,6 +131,24 @@ export interface GenerateImageOpts {
    * the edge function's prompt is byte-identical to before.
    */
   greenScreen?: boolean;
+  /**
+   * Which FRAME ARCHETYPE to generate — a classic edge border, a full
+   * illustrated scene with a head cutout, a two-head version of it, corner
+   * clusters, or a lower-third band. Border kind only. Omitted →
+   * 'classic-border', which is the prompt (and the model) every frame used
+   * before archetypes existed. See FRAME_LAYOUT_SPEC in ./assetPrompt.
+   */
+  layout?: FrameLayout;
+  /**
+   * Put real lettering ON the artwork — a couple's names, initials, a monogram.
+   * The edge function re-validates it and swaps its standing "no text" ban for
+   * an exact-text instruction. Omitted → the prompt is byte-identical to
+   * before lettering existed. A MALFORMED object is rejected with
+   * `invalid_body` rather than silently dropped, so a host never pays a credit
+   * for a frame that quietly lost their name. placement 'standalone' means "no
+   * frame, just the name art" — send it with kind '2d_filter'.
+   */
+  lettering?: LetteringSpec;
   /**
    * Let the edge function add its art-direction layer (composition, palette,
    * craft, quality bar). Default true. Pass false when the prompt is already

@@ -17,57 +17,45 @@
  */
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import { fitWithin, isLocalChannel, makeShotPayload, parseShotPayload } from './demoBeam';
+import { createBeamHub, fitWithin, isLocalChannel, makeShotPayload } from './demoBeam';
+import type { BeamTransportStatus } from './demoBeam';
 
-export type BeamTransportStatus = 'connecting' | 'ready' | 'error';
+export type { BeamTransportStatus } from './demoBeam';
 
 export interface BeamTransport {
   /** Broadcast a captured shot (data URL). Resolves false on failure. */
   sendShot(shot: string): Promise<boolean>;
   /** Announce "a phone joined this channel" (drives the QR panel state). */
   sendHello(): void;
+  /** Confirm to the phone that a shot actually landed on the wall. */
+  sendAck(): void;
   onShot(cb: (shot: string) => void): void;
   onHello(cb: () => void): void;
+  /** The wall confirmed it rendered our shot. */
+  onAck(cb: () => void): void;
   /** Fires immediately with the current status, then on every change. */
   onStatus(cb: (status: BeamTransportStatus) => void): void;
+  /** Resolves once the wire is usable, or false if it errored/timed out.
+   *  Sending before the channel has finished subscribing silently drops the
+   *  message on the Realtime transport. */
+  whenReady(timeoutMs?: number): Promise<boolean>;
   close(): void;
 }
 
-/** Shared listener plumbing for both transports. */
-function makeHub() {
-  const shotCbs: Array<(shot: string) => void> = [];
-  const helloCbs: Array<() => void> = [];
-  const statusCbs: Array<(s: BeamTransportStatus) => void> = [];
-  let status: BeamTransportStatus = 'connecting';
-  return {
-    shotCbs,
-    helloCbs,
-    emitShot(payload: unknown) {
-      const shot = parseShotPayload(payload);
-      if (shot !== null) shotCbs.forEach((cb) => cb(shot));
-    },
-    emitHello() {
-      helloCbs.forEach((cb) => cb());
-    },
-    setStatus(s: BeamTransportStatus) {
-      status = s;
-      statusCbs.forEach((cb) => cb(s));
-    },
-    onStatus(cb: (s: BeamTransportStatus) => void) {
-      statusCbs.push(cb);
-      cb(status);
-    },
-  };
-}
+/** How long the phone waits for the wall to confirm a shot landed. */
+export const ACK_TIMEOUT_MS = 6000;
+/** How long a send waits for the channel to finish subscribing. */
+export const READY_TIMEOUT_MS = 8000;
 
 function createLocalTransport(channelId: string): BeamTransport {
-  const hub = makeHub();
+  const hub = createBeamHub();
   const bc = new BroadcastChannel(`beamwall-demo:${channelId}`);
   bc.onmessage = (e: MessageEvent) => {
     const msg = e.data as { event?: string; payload?: unknown } | null;
     if (msg === null || typeof msg !== 'object') return;
     if (msg.event === 'shot') hub.emitShot(msg.payload);
     if (msg.event === 'hello') hub.emitHello();
+    if (msg.event === 'ack') hub.emitAck();
   };
   // BroadcastChannel has no handshake — it is ready as soon as it exists.
   queueMicrotask(() => hub.setStatus('ready'));
@@ -83,21 +71,27 @@ function createLocalTransport(channelId: string): BeamTransport {
     sendHello() {
       try { bc.postMessage({ event: 'hello' }); } catch { /* non-fatal */ }
     },
+    sendAck() {
+      try { bc.postMessage({ event: 'ack' }); } catch { /* non-fatal */ }
+    },
     onShot(cb) { hub.shotCbs.push(cb); },
     onHello(cb) { hub.helloCbs.push(cb); },
+    onAck(cb) { hub.ackCbs.push(cb); },
     onStatus(cb) { hub.onStatus(cb); },
+    whenReady(timeoutMs = READY_TIMEOUT_MS) { return hub.whenReady(timeoutMs); },
     close() { bc.close(); },
   };
 }
 
 function createSupabaseTransport(channelId: string): BeamTransport {
-  const hub = makeHub();
+  const hub = createBeamHub();
   let channel: RealtimeChannel | null = null;
   try {
     channel = supabase
       .channel(`demo-beam:${channelId}`, { config: { broadcast: { self: false } } })
       .on('broadcast', { event: 'shot' }, (msg) => hub.emitShot(msg.payload))
       .on('broadcast', { event: 'hello' }, () => hub.emitHello())
+      .on('broadcast', { event: 'ack' }, () => hub.emitAck())
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') hub.setStatus('ready');
         else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') hub.setStatus('error');
@@ -109,6 +103,9 @@ function createSupabaseTransport(channelId: string): BeamTransport {
   return {
     async sendShot(shot) {
       if (channel === null) return false;
+      // Realtime DROPS anything sent before the channel finishes subscribing,
+      // and the guest can easily capture faster than the socket joins.
+      if (!(await hub.whenReady(READY_TIMEOUT_MS))) return false;
       try {
         const res = await channel.send({ type: 'broadcast', event: 'shot', payload: makeShotPayload(shot) });
         return res === 'ok';
@@ -119,9 +116,14 @@ function createSupabaseTransport(channelId: string): BeamTransport {
     sendHello() {
       void channel?.send({ type: 'broadcast', event: 'hello', payload: {} }).catch(() => { /* non-fatal */ });
     },
+    sendAck() {
+      void channel?.send({ type: 'broadcast', event: 'ack', payload: {} }).catch(() => { /* non-fatal */ });
+    },
     onShot(cb) { hub.shotCbs.push(cb); },
     onHello(cb) { hub.helloCbs.push(cb); },
+    onAck(cb) { hub.ackCbs.push(cb); },
     onStatus(cb) { hub.onStatus(cb); },
+    whenReady(timeoutMs = READY_TIMEOUT_MS) { return hub.whenReady(timeoutMs); },
     close() {
       if (channel !== null) void supabase.removeChannel(channel);
     },

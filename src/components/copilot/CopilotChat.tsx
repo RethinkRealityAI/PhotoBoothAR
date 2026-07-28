@@ -41,7 +41,7 @@ import type { EventSnapshot } from '../../lib/eventSnapshot';
 import type { Experience } from '../../types';
 import A2uiSurface from '../a2ui/A2uiSurface';
 import { haptic } from '../../lib/haptics';
-import { buildConceptPrompt } from '../../lib/assetPrompt';
+import { buildConceptPrompt, normalizeLettering, type LetteringSpec } from '../../lib/assetPrompt';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const POLL_MS = 5000;
@@ -142,7 +142,11 @@ export default function CopilotChat({
   // double-fire latch so a fast double-click on Generate can never double-charge;
   // `genState` holds the prompt (for regenerate) + the generated experience (for
   // apply). Each generation card is independent — no shared plan/epoch needed.
-  const genState = useRef<Record<string, { kind: 'frame' | 'headpiece'; prompt: string; experience?: Experience }>>({});
+  // `lettering` rides along so Regenerate re-runs the SAME words on the frame —
+  // re-rolling the art and silently losing the couple's names would read as a bug.
+  const genState = useRef<Record<string, {
+    kind: 'frame' | 'headpiece'; prompt: string; experience?: Experience; lettering?: LetteringSpec | null;
+  }>>({});
   const runningGen = useRef<Set<string>>(new Set());
   // Surfaces the host dismissed mid-generation — a late async continuation must
   // NOT re-materialise a card the host already closed (F2).
@@ -224,6 +228,17 @@ export default function CopilotChat({
   /** Guarded phase swap for a generation card — a no-op once the host dismissed it. */
   const placeGen = (sid: string, msgs: A2uiMessage[]) => { if (!dismissedGen.current.has(sid)) replaceSurface(sid, msgs); };
 
+  /** Tell the MODEL what the host can now see. A landed preview left no trace in
+   *  the transcript, so the next turn behaved as if nothing had been generated
+   *  (re-proposing the same asset, or denying it existed). Terse on purpose —
+   *  this rides the wire like every other [tool_result] turn. */
+  const noteGenerated = (tool: 'generate_frame' | 'add_head_piece', prompt: string) => {
+    setMessages((m) => [...m, {
+      role: 'user', kind: 'tool_result', ok: true,
+      content: `[tool_result] ${tool} succeeded — preview shown, not applied yet (prompt: "${prompt.slice(0, 140)}").`,
+    }]);
+  };
+
   /** Read-only tools run instantly from the snapshot — no confirm, no wire. */
   const runReadOnly = (action: CopilotAction) => {
     if (!snapshot) return;
@@ -277,28 +292,38 @@ export default function CopilotChat({
 
   /** FRAME: generate (greenScreen) → chroma-key → preview. Charge happens once
    *  in generateImage (server-metered, first 3 free); apply never re-generates. */
-  const startFrameGen = async (sid: string, prompt: string) => {
+  const startFrameGen = async (sid: string, prompt: string, lettering: LetteringSpec | null = null) => {
     if (!snapshot || runningGen.current.has(sid)) return;
     runningGen.current.add(sid);
     dismissedGen.current.delete(sid);
-    genState.current[sid] = { kind: 'frame', prompt };
+    genState.current[sid] = { kind: 'frame', prompt, lettering };
     placeGen(sid, buildGeneratingSurface(sid, 'Designing your frame…'));
     try {
       const uuid = await resolveEventUuid(snapshot.slug, snapshot.eventUuid);
       if (!uuid) { showGenError(sid, 'frame', aiErrorMessage('event_not_found'), false); return; }
-      const res = await generateImage(uuid, { prompt, kind: 'border', transparentBackground: false, greenScreen: true });
+      // 'standalone' lettering is name art with NO frame around it — a single
+      // centred subject, which is the sticker path ('2d_filter'), not a border.
+      const standalone = lettering?.placement === 'standalone';
+      const res = await generateImage(uuid, {
+        prompt,
+        kind: standalone ? '2d_filter' : 'border',
+        transparentBackground: standalone,
+        greenScreen: true,
+        ...(lettering ? { lettering } : {}),
+      });
       if (res.error || !res.data?.experience) {
         const code = (res.error ?? 'internal') as AiErrorCode;
         showGenError(sid, 'frame', aiErrorMessage(code), retryableGenError(code), code === 'insufficient_credits');
         return;
       }
       const { experience, keyed } = await processGeneratedFrame(res.data.experience, snapshot.slug);
-      genState.current[sid] = { kind: 'frame', prompt, experience };
+      genState.current[sid] = { kind: 'frame', prompt, lettering, experience };
       if (!keyed) {
         showGenError(sid, 'frame', 'Generated, but the transparent cutout didn’t come through cleanly — Regenerate for a fresh version.', true);
         return;
       }
       placeGen(sid, buildFramePreviewSurface(sid, { experienceId: experience.id, assetUrl: experience.asset_url ?? '' }));
+      noteGenerated('generate_frame', prompt);
     } catch (e) {
       console.error('[copilot] startFrameGen', e);
       showGenError(sid, 'frame', 'Frame generation failed — try again.', true);
@@ -352,6 +377,13 @@ export default function CopilotChat({
           showGenError(sid, 'headpiece', job.error ? `Generation failed — credits refunded. (${job.error})` : 'Generation failed — credits refunded.', true);
           return;
         }
+        // Real progress when the job reports it (0 is a legitimate value, so
+        // check the type, never truthiness): a card that read the same static
+        // line for four minutes looked hung.
+        const pct = typeof p.data?.progress === 'number' ? p.data.progress : null;
+        if (pct !== null) {
+          placeGen(sid, buildGeneratingSurface(sid, `Sculpting your 3D prop… ${Math.round(pct)}% — this can take a minute.`));
+        }
       }
       if (!experience) {
         // Client-side poll timeout — the Meshy job usually still finishes
@@ -366,6 +398,7 @@ export default function CopilotChat({
         thumbUrl: experience.thumbnail_url ?? null,
         label: prompt,
       }));
+      noteGenerated('add_head_piece', prompt);
     } catch (e) {
       console.error('[copilot] startPieceGen', e);
       showGenError(sid, 'headpiece', '3D generation failed — try again.', true);
@@ -412,7 +445,13 @@ export default function CopilotChat({
     if (result.ok) onMutated();
   };
 
-  /** Regenerate the same surface with its stored prompt (an explicit new spend). */
+  /**
+   * Regenerate the same surface (an explicit new spend). The host's "Tweak it"
+   * note is folded into the stored prompt — re-running the IDENTICAL prompt was
+   * only ever a re-roll of the dice, never "make it warmer". startFrameGen /
+   * startPieceGen store the revised prompt back onto the card, so successive
+   * tweaks COMPOUND instead of each one starting from the original brief.
+   */
   const regenerate = (event: A2uiActionEvent) => {
     const g = genState.current[event.surfaceId];
     if (!g) {
@@ -422,8 +461,10 @@ export default function CopilotChat({
       setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] I lost the details for that one — tell me what to make and I’ll generate a fresh version.' }]);
       return;
     }
-    if (g.kind === 'frame') void startFrameGen(event.surfaceId, g.prompt);
-    else void startPieceGen(event.surfaceId, g.prompt);
+    const feedback = String(event.context.feedback ?? '').trim();
+    const prompt = feedback ? `${g.prompt}. Revision: ${feedback}` : g.prompt;
+    if (g.kind === 'frame') void startFrameGen(event.surfaceId, prompt, g.lettering ?? null);
+    else void startPieceGen(event.surfaceId, prompt);
   };
 
   const send = async (text: string) => {
@@ -502,7 +543,12 @@ export default function CopilotChat({
     // Generation tools DON'T execute a mutation — they kick off async generation
     // IN PLACE (the same surface swaps proposal → working → preview), so the
     // charge point stays single and apply never re-generates.
-    if (tool === 'generate_frame') { void startFrameGen(event.surfaceId, String(proposal.prompt ?? '')); return; }
+    if (tool === 'generate_frame') {
+      // The lettering fields are host-editable, so they go through the SAME
+      // validator as model output. An empty/partial box → null = no lettering.
+      void startFrameGen(event.surfaceId, String(proposal.prompt ?? ''), normalizeLettering(proposal.lettering));
+      return;
+    }
     if (tool === 'add_head_piece' && proposal.source === 'generate') {
       void startPieceGen(event.surfaceId, String(proposal.prompt ?? ''));
       return;

@@ -24,7 +24,8 @@
  *               topology: 'triangle', should_remesh, target_polycount }
  *   image → POST https://api.meshy.ai/openapi/v1/image-to-3d
  *             { image_url, should_texture: true, texture_prompt?,
- *               topology: 'triangle', should_remesh, target_polycount }
+ *               topology: 'triangle', should_remesh, target_polycount,
+ *               auto_size: true — retried once WITHOUT it on a 4xx }
  * Both return { result: '<task-id>' }; completion is handled by ai-job-status.
  *
  * TEXT IS TWO-STAGE. `mode: 'preview'` returns geometry ONLY — an untextured
@@ -108,8 +109,9 @@ class AiError extends Error {
  * from it), so the only thing that check could still do was let a host disable
  * the geometry rules by typing "Geometry:" into their brief. */
 
-const KIND_GEOMETRY: { re: RegExp; text: string }[] = [
+const KIND_GEOMETRY: { kind: string; re: RegExp; text: string }[] = [
   {
+    kind: 'glasses',
     re: /\b(glasses|sunglasses|shades|spectacles|goggles|monocle|visor)\b/i,
     text: 'an eyewear frame — two rims joined by a bridge with temple arms folding back, the lens area ' +
       'empty or a thin transparent sheet, NOT solid blocks. No face, no head, no mannequin',
@@ -117,33 +119,83 @@ const KIND_GEOMETRY: { re: RegExp; text: string }[] = [
   // Helmet BEFORE mask: the mask rules ask for "cut-through eye openings and an
   // open lower edge", which is right for a face mask and wrong for a helmet.
   {
+    kind: 'helmet',
     re: /\b(helmet|hardhat|hard ?hat|astronaut|space ?suit|diving ?bell)\b/i,
     text: 'a HOLLOW helmet shell a whole head fits inside — concave inside, a large open neck opening ' +
       'at the bottom and an open face gap at the front (not two small eye holes), wall roughly 5-8mm. ' +
       'No head, no face, no mannequin, no solid interior filling the cavity',
   },
   {
+    kind: 'mask',
     re: /\b(mask|masquerade|balaclava|face ?cover|respirator)\b/i,
     text: 'a HOLLOW curved shell that fits over a human face — concave inside, open at the back, with ' +
       'cut-through eye openings and an open lower edge, wall roughly 3-5mm. No face, no head, no ' +
       'mannequin, no solid interior filling the cavity',
   },
   {
+    kind: 'crown',
     re: /\b(crown|tiara|diadem|coronet|halo|laurel)\b/i,
     text: 'an OPEN circular band — a ring hollow through the middle with the decorative points rising ' +
       'from it, the centre empty air rather than a solid disc or dome. No head, no bust, no stand',
   },
   {
+    kind: 'hat',
     re: /\b(hat|cap|beanie|fedora|top ?hat|sombrero|beret|headdress|turban|bonnet|hood)\b/i,
     text: 'a HOLLOW hat with an open underside — the crown a shell with an empty cavity where a head ' +
       'would go, the brim a thin surface, wall roughly 4-6mm. No head, no mannequin, no stand',
   },
+  // The three jewellery kinds go BEFORE `ears`, which matches a bare "ear" and
+  // was therefore giving an ear cuff headband geometry; `piercing` goes before
+  // `earring` because "nose studs" matches `studs?` in the earring pattern too.
+  // (Same order as KIND_PATTERNS in src/lib/assetPrompt.ts — mirror pair.)
   {
+    kind: 'piercing',
+    re: /\b(nose ?rings?|septum|nose ?studs?|lip ?rings?|piercings?)\b/i,
+    text: 'a small OPEN C-shaped hoop with a visible gap where it clips onto the nostril — wire roughly ' +
+      '1-2mm thick with the middle hollow, NOT a closed torus and NOT a solid disc. No nose, no face, ' +
+      'no head, no mannequin',
+  },
+  {
+    kind: 'earring',
+    re: /\b(earrings?|ear ?cuffs?|studs?|hoops?)\b/i,
+    text: 'a single earring — a thin OPEN hook or hoop at the top (roughly 1mm wire, an open curve, ' +
+      'never fused into a closed solid) with the decorative body hanging below it. No ear, no head, ' +
+      'no mannequin, no stand',
+  },
+  {
+    kind: 'faceGem',
+    re: /\b(face ?(gems?|stickers?|jewels?)|rhinestones?|bindis?|cheek ?gems?)\b/i,
+    text: 'a small faceted gem, or a tight cluster of them, with a completely FLAT back so it sits flush ' +
+      'on skin and a domed faceted front, roughly 2-4mm thick overall. No face, no skin, no head, no ' +
+      'mannequin',
+  },
+  {
+    kind: 'ears',
     re: /\b(ears?|antlers?|horns?|antennae|headband)\b/i,
     text: 'a thin headband arc with the shapes rising from it — an open arc, not a closed ring and not ' +
       'a solid cap, the space under the arc empty. No head, no hair, no mannequin',
   },
 ];
+
+/**
+ * Where the finished piece hangs off the face rig (ids from ANCHOR_PRESETS in
+ * src/lib/faceRig.ts). Stored on the job so ai-job-status can materialize the
+ * experience already anchored: an earring pinned to the crown sits above the
+ * guest's head, and the host has to find the 3D anchor editor to discover why.
+ * Anything unlisted keeps today's 'crown' default.
+ */
+const ANCHOR_BY_KIND: Record<string, string> = {
+  earring: 'leftEar',
+  piercing: 'noseTip',
+  faceGem: 'forehead',
+  glasses: 'noseBridge',
+  mask: 'noseBridge',
+};
+
+function anchorHintFor(prompt: string): string {
+  const kind = KIND_GEOMETRY.find((k) => k.re.test(prompt))?.kind;
+  return (kind ? ANCHOR_BY_KIND[kind] : undefined) ?? 'crown';
+}
 
 const GENERIC_GEOMETRY =
   'a single object built to be worn on or near the head. Any part that encloses the head or face must ' +
@@ -186,41 +238,55 @@ async function createMeshyTask(
   // ~300k-triangle mesh to a phone that is already running a camera feed, a
   // WebGL shader and face tracking. topology stays 'triangle' (right for
   // runtime; quad is for DCC round-tripping).
-  const reqBody = mode === 'text'
-    ? {
+  const imageBody = {
+    image_url: imageUrl,
+    should_texture: true,
+    // Image->3D does accept texture guidance even though it takes no
+    // geometry prompt — this is where the brief's material language
+    // ("brushed gold", "matte black with neon trim") earns its keep.
+    ...(prompt ? { texture_prompt: prompt.slice(0, 600) } : {}),
+    topology: 'triangle',
+    should_remesh: true,
+    target_polycount: targetPolycount,
+  };
+  // auto_size asks Meshy to return the mesh at real-world proportions instead
+  // of an arbitrary unit box — the "3D props are way too small" complaint
+  // starts there. It is newer than the rest of this body, so a rejected body is
+  // retried WITHOUT it before giving up: the same two-body idiom ai-job-status
+  // uses for refine's enable_pbr. Text mode keeps exactly one body (its shape
+  // is unchanged).
+  const bodies: Record<string, unknown>[] = mode === 'text'
+    ? [{
         mode: 'preview',
         prompt: withWearability(prompt ?? ''),
         art_style: 'realistic',
         topology: 'triangle',
         should_remesh: true,
         target_polycount: targetPolycount,
-      }
-    : {
-        image_url: imageUrl,
-        should_texture: true,
-        // Image->3D does accept texture guidance even though it takes no
-        // geometry prompt — this is where the brief's material language
-        // ("brushed gold", "matte black with neon trim") earns its keep.
-        ...(prompt ? { texture_prompt: prompt.slice(0, 600) } : {}),
-        topology: 'triangle',
-        should_remesh: true,
-        target_polycount: targetPolycount,
-      };
+      }]
+    : [{ ...imageBody, auto_size: true }, imageBody];
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify(reqBody),
-  });
-  if (!res.ok) {
+  let lastStatus = 0;
+  for (const reqBody of bodies) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify(reqBody),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { result?: string };
+      if (!body.result || typeof body.result !== 'string') {
+        throw new AiError('generation_failed', 'meshy_no_task_id');
+      }
+      return body.result;
+    }
+    lastStatus = res.status;
     console.error('[ai-generate-3d] meshy error', res.status, await res.text().catch(() => ''));
-    throw new AiError('generation_failed', `meshy_http_${res.status}`);
+    // Only a 4xx is worth re-trying with a smaller body (an unknown field); a
+    // 5xx or an auth failure will reject the minimal body just the same.
+    if (res.status < 400 || res.status >= 500) break;
   }
-  const body = (await res.json()) as { result?: string };
-  if (!body.result || typeof body.result !== 'string') {
-    throw new AiError('generation_failed', 'meshy_no_task_id');
-  }
-  return body.result;
+  throw new AiError('generation_failed', `meshy_http_${lastStatus}`);
 }
 
 async function refundAndFail(
@@ -358,7 +424,13 @@ Deno.serve(async (req: Request) => {
         // preview task returns untextured geometry, so when it succeeds
         // ai-job-status starts the refine pass and flips this to 'refine'.
         // Image→3D is single-stage and stays on 'preview' forever.
-        input: { mode, prompt, imageUrl, targetPolycount, ref, stage: 'preview' },
+        // `anchorHint` is read by ai-job-status when it materializes the
+        // experience — the brief is the only place the piece's kind is known,
+        // and by then it has been reduced to a Meshy task id.
+        input: {
+          mode, prompt, imageUrl, targetPolycount, ref, stage: 'preview',
+          anchorHint: anchorHintFor(prompt ?? ''),
+        },
         credits_charged: COST_3D,
       })
       .select()

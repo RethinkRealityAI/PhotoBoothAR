@@ -14,7 +14,7 @@ import { SavedPhoto } from '../types';
 
 const LEGACY_EVENT_IDS = new Set(['hope-gala', 'jenna-jake', 'detola-wuyi']);
 
-type KeySuffix = 'session' | 'gallery' | 'guestName' | 'completedChallenges';
+type KeySuffix = 'session' | 'gallery' | 'guestName' | 'completedChallenges' | 'guestNameSkipped';
 
 function scopedKey(eventId: string, suffix: KeySuffix): string {
   return `pbar.${eventId}.${suffix}`;
@@ -93,6 +93,28 @@ export function setGuestName(eventId: string, name: string): void {
   if (!n) return;
   try {
     localStorage.setItem(scopedKey(eventId, 'guestName'), n);
+  } catch {
+    /* non-fatal */
+  }
+}
+
+/**
+ * The guest declined to give a name for on-frame lettering. Remembered per
+ * event so the booth asks ONCE — being re-asked at every shutter press would be
+ * worse than the feature is good. Separate from `guestName` because "skipped"
+ * and "not asked yet" must not look the same.
+ */
+export function hasSkippedGuestName(eventId: string): boolean {
+  try {
+    return readKey(eventId, 'guestNameSkipped') === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function skipGuestName(eventId: string): void {
+  try {
+    localStorage.setItem(scopedKey(eventId, 'guestNameSkipped'), '1');
   } catch {
     /* non-fatal */
   }

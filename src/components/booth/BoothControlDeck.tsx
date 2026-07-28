@@ -132,7 +132,9 @@ export interface BoothControlDeckProps<T extends number = number> {
   onCategory: (c: DeckCategory) => void;
   sparkles: boolean;
   onToggleSparkles: (v: boolean) => void;
-  onSelectEffect: (shaderId: string) => void;
+  /** The Experience is passed too: a shader carries its own config.triggers,
+   *  and dropping it here is what made filter-only trigger scenes inert. */
+  onSelectEffect: (shaderId: string, exp: Experience | null) => void;
   onSelectFrame: (exp: Experience | null) => void;
   onSelectAttachment: (exp: Experience | null) => void;
   onClearAll: () => void;
@@ -324,7 +326,7 @@ export default function BoothControlDeck<T extends number>({
                 onClick={() =>
                   choose(() => {
                     if (active.key === 'effect') {
-                      onSelectEffect(on ? 'none' : o.shaderId ?? 'none');
+                      onSelectEffect(on ? 'none' : o.shaderId ?? 'none', on ? null : o.exp);
                     } else if (active.key === 'frame') {
                       onSelectFrame(on ? null : o.exp);
                     } else {

@@ -73,6 +73,49 @@ describe('round-trip: single 2D (byte-identical legacy shape — no layers)', ()
   });
 });
 
+describe('guest-name lettering (config-level, mirrored to the frame object)', () => {
+  const lettering = { token: 'guestName', text: '', style: 'script', color: '#FFD700', placement: 'bottom' } as const;
+
+  it('omits the key entirely when the scene has no lettering', () => {
+    const o = createOverlay('border', { url: 'https://cdn/f.png', isBuiltin: false });
+    const draft: StudioDraft = { ...initialDraft('border'), objects: [o], selectedId: o.id, kind: 'border' };
+    expect(draftToPayload(draft, resolver({ [o.id]: 'https://cdn/f.png' }), null).config?.lettering).toBeUndefined();
+  });
+
+  it('round-trips through config.lettering onto the frame object', () => {
+    const o = createOverlay('border', { url: 'https://cdn/f.png', isBuiltin: false, lettering });
+    const draft: StudioDraft = { ...initialDraft('border'), objects: [o], selectedId: o.id, kind: 'border' };
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/f.png' }), null);
+    expect(payload.config?.lettering).toEqual(lettering);
+    // …and still takes the byte-identical singular path (no layers key).
+    expect(payload.config?.layers).toBeUndefined();
+
+    const back = experienceToDraft(expFromPayload(payload))!;
+    expect((back.objects[0] as Overlay2D).lettering).toEqual(lettering);
+  });
+
+  it('survives a composite scene (lands on the first overlay)', () => {
+    const o = createOverlay('border', { url: 'https://cdn/f.png', isBuiltin: false, lettering });
+    const p = createObject3D('headpiece', { proceduralId: 'royal-crown' });
+    const draft: StudioDraft = { ...initialDraft('border'), objects: [o, p], selectedId: o.id, kind: 'composite' };
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/f.png' }), null);
+    expect(payload.kind).toBe('composite');
+    expect(payload.config?.lettering).toEqual(lettering);
+    const back = experienceToDraft(expFromPayload(payload))!;
+    expect((back.objects[0] as Overlay2D).lettering).toEqual(lettering);
+  });
+
+  it('drops a stored config that is junk rather than loading it', () => {
+    // events.config is jsonb — a hand-edited row must not reach the canvas.
+    const exp = baseExp({
+      kind: 'border',
+      asset_url: 'https://cdn/f.png',
+      config: { transform: { scale: 1, x: 0, y: 0, rotation: 0 }, lettering: { token: 'guestName', style: 'comic', placement: 'bottom', color: '#fff' } as never },
+    });
+    expect((experienceToDraft(exp)!.objects[0] as Overlay2D).lettering).toBeUndefined();
+  });
+});
+
 describe('animation on a single object forces layers', () => {
   it('a lone animated overlay writes config.layers (len 1) plus the legacy mirror', () => {
     const o = createOverlay('2d_filter', { url: 'blob:s', isBuiltin: false, name: 'Sticker', animation: 'float', transform: { scale: 1, x: 2, y: 2, rotation: 0 } });

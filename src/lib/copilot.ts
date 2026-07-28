@@ -21,6 +21,7 @@ import { FILTER_SHADERS } from './shaders';
 import { HEAD_PIECE_MAP, HEAD_PIECES } from './headPieces';
 import { BORDER_MAP, GENERIC_FRAMES, GENERIC_FRAME_IDS } from './borders';
 import { normalizeValidation } from './challengeValidation';
+import { normalizeLettering, type LetteringSpec } from './assetPrompt';
 import { PROP_TARGET_CM } from './studio/bustFit';
 
 /* ── Action types (post-normalization) ───────────────────────────────── */
@@ -41,7 +42,7 @@ export type CopilotAction =
   | { tool: 'delete_challenge'; proposal: { challengeId: string } }
   | { tool: 'create_card'; proposal: { cardTitle: string; recipientName: string; cardTemplate: 'storybook' | 'filmstrip'; deadline: string } }
   // Experience-building tools (Event Concierge post-create build phase).
-  | { tool: 'generate_frame'; proposal: { prompt: string } }
+  | { tool: 'generate_frame'; proposal: { prompt: string; lettering?: LetteringSpec } }
   | { tool: 'add_frame'; proposal: { borderId: string } }
   | { tool: 'set_filter'; proposal: { shaderId: string } }
   | { tool: 'add_head_piece'; proposal: { source: 'builtin'; pieceId: string } | { source: 'generate'; prompt: string } }
@@ -167,7 +168,12 @@ export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): 
       case 'generate_frame': {
         const prompt = str(a.prompt, 500);
         if (!prompt) break;
-        out.push({ tool: 'generate_frame', proposal: { prompt } });
+        // Lettering is optional and independently validated: a hallucinated
+        // style/placement id (or a 60-character "name") drops SILENTLY back to
+        // a frame with no words on it rather than killing the whole proposal —
+        // the same handling validationPrompt gets on add_challenge.
+        const lettering = normalizeLettering(a.lettering);
+        out.push({ tool: 'generate_frame', proposal: { prompt, ...(lettering ? { lettering } : {}) } });
         break;
       }
       case 'add_frame': {
@@ -232,11 +238,25 @@ export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): 
   return out;
 }
 
-/** Gemini requires strict user/model alternation; tool-result turns are sent
- *  as user turns, so consecutive user turns must merge before the wire. */
+/**
+ * Prepare a transcript for the wire.
+ *
+ * 1. EMPTY turns are dropped. The chat stores a client-rendered card as an
+ *    assistant turn with no prose (CopilotChat's addSurface: `content: ''`),
+ *    and ai-event-designer rejects ANY blank turn with 400 invalid_body
+ *    (index.ts: `!content.trim()`). Because the transcript is persisted in
+ *    sessionStorage, one surface-only turn used to break EVERY later send —
+ *    the thread fell into the offline reply and never recovered. Merging alone
+ *    could not catch it: an empty turn adjacent to a real assistant turn was
+ *    absorbed, but a non-adjacent one (card right after a [tool_result] user
+ *    turn, or a quick-action card at the top of a thread) survived.
+ * 2. Gemini requires strict user/model alternation; tool-result turns are sent
+ *    as user turns, so consecutive same-role turns merge.
+ */
 export function mergeWireTurns(messages: ChatMessage[]): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const m of messages) {
+    if (!m.content.trim()) continue;
     const last = out[out.length - 1];
     if (last && last.role === m.role) {
       last.content = `${last.content}\n\n${m.content}`;
