@@ -34,11 +34,14 @@ const LAYOUT_CHIPS: { id: FrameLayout; label: string }[] = [
 /** Lettering styles, each with the sample frame that shows the look. The
  *  thumbnails are vendored at build time (scripts/remote-assets.json) and hide
  *  themselves if missing, so the row degrades to plain pills. */
-const LETTERING_STYLE_PILLS: { id: LetteringStyle; label: string; sample: string }[] = [
-  { id: 'cursive-monogram', label: 'Monogram', sample: 'cursive-monogram-bottom' },
-  { id: 'serif-initials', label: 'Initials', sample: 'serif-initials-top' },
-  { id: 'script-name', label: 'Script', sample: 'script-name-extending' },
-  { id: 'modern-block', label: 'Block', sample: 'block-name-integrated' },
+// `pos` = object-position: the samples are full 9:16 frames whose centre is the
+// deliberately-empty face region, so a centre crop shows a dark blob — aim the
+// 44px circle at the band where that sample's lettering actually sits.
+const LETTERING_STYLE_PILLS: { id: LetteringStyle; label: string; sample: string; pos: string }[] = [
+  { id: 'cursive-monogram', label: 'Monogram', sample: 'cursive-monogram-bottom', pos: 'center 85%' },
+  { id: 'serif-initials', label: 'Initials', sample: 'serif-initials-top', pos: 'center 12%' },
+  { id: 'script-name', label: 'Script', sample: 'script-name-extending', pos: '80% center' },
+  { id: 'modern-block', label: 'Block', sample: 'block-name-integrated', pos: 'center 88%' },
 ];
 
 const LETTERING_PLACEMENT_PILLS: { id: LetteringPlacement; label: string }[] = [
@@ -228,7 +231,7 @@ export default function AiFramePanel({
                 className="w-full rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2 text-brand-fg text-xs placeholder:text-brand-muted/40 outline-none focus:border-accent/50"
               />
               <div className="flex flex-wrap gap-1" role="group" aria-label="Lettering style">
-                {LETTERING_STYLE_PILLS.map(({ id, label, sample }) => {
+                {LETTERING_STYLE_PILLS.map(({ id, label, sample, pos }) => {
                   const active = id === letteringStyle;
                   return (
                     <button
@@ -248,6 +251,7 @@ export default function AiFramePanel({
                         alt=""
                         onError={(e) => { e.currentTarget.style.display = 'none'; }}
                         className="w-[44px] h-[44px] rounded-full object-cover"
+                        style={{ objectPosition: pos }}
                       />
                       {label}
                     </button>
