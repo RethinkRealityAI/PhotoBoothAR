@@ -48,7 +48,8 @@ import { SHADER_MAP, FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
 import { getHeadFitEstimate } from '../../lib/faceRig';
 import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
-import { OVERLAY_SCALE, OVERLAY_POSITION, OVERLAY_ROTATION, formatAtStep } from '../../lib/studio/controlSpecs';
+import { OVERLAY_SCALE, OVERLAY_POSITION, OVERLAY_ROTATION, formatAtStep, defaultAnchorConfig } from '../../lib/studio/controlSpecs';
+import { HEAD_PIECE_MAP } from '../../lib/headPieces';
 import {
   DEFAULT_TRANSFORM,
   MAX_OBJECTS,
@@ -694,6 +695,10 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   const selected = selectedObject(draft);
   const selOverlay: Overlay2D | null = selected && selected.type === 'overlay' ? selected : null;
   const sel3D: Object3D | null = selected && selected.type !== 'overlay' ? selected : null;
+  // Reset targets: a built-in head piece's tuned preset, else zero. Passing a
+  // literal 0 reset four of the five built-ins AWAY from where they belong, and
+  // inverted the reset button's enabled state along with it.
+  const sel3DDefaults = defaultAnchorConfig(sel3D ?? { type: 'model' }, HEAD_PIECE_MAP);
 
   const handleThumbInput = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -810,7 +815,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                 <div className="flex items-center justify-between">
                   <p className="font-sans text-xs text-brand-fg font-medium">Placement</p>
                   <button
-                    onClick={() => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } } })}
+                    onClick={() => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { ...sel3DDefaults.offset }, rotation: { ...sel3DDefaults.rotation } } })}
                     className="flex items-center gap-1 text-[9px] text-brand-muted/50 hover:text-accent-2 transition-colors"
                   >
                     <RotateCcw className="w-3 h-3" /> Reset all
@@ -826,7 +831,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                       min={-20}
                       max={20}
                       step={0.1}
-                      defaultValue={0}
+                      defaultValue={sel3DDefaults.offset[axis]}
                       format={(v) => `${v.toFixed(1)} cm`}
                       onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { ...sel3D.anchorConfig.offset, [axis]: v } } })}
                     />
@@ -844,7 +849,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                       min={-180}
                       max={180}
                       step={1}
-                      defaultValue={0}
+                      defaultValue={sel3DDefaults.rotation[axis] * RAD_TO_DEG}
                       format={(v) => `${v.toFixed(0)}°`}
                       onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { rotation: { ...sel3D.anchorConfig.rotation, [axis]: v / RAD_TO_DEG } } })}
                     />

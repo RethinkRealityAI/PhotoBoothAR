@@ -55,3 +55,32 @@ export function formatAtStep(value: number, step: number, suffix = ''): string {
   const decimals = step < 1 && step > 0 ? Math.min(2, Math.ceil(-Math.log10(step))) : 0;
   return `${value.toFixed(decimals)}${suffix}`;
 }
+
+/* — 3D placement defaults ------------------------------------------------- */
+
+/**
+ * The anchor config a 3D object should RESET to.
+ *
+ * PropertiesDock passed a literal 0 as the default for all six offset/rotation
+ * rows. That is wrong for four of the five built-in head pieces, which ship
+ * deliberately tuned nudges (Royal Crown sits at y −1.0cm, the Halo at +3.4).
+ * So "reset" dragged a piece AWAY from the position it was designed at, and the
+ * reset button's enabled state was inverted: greyed out at 0 — which is not the
+ * default — and offered when the piece was already exactly where it belonged.
+ */
+export function defaultAnchorConfig(
+  o: { type: string; proceduralId?: string },
+  headPieceMap: Record<string, { config: { offset: Vec3Like; rotation: Vec3Like; scale: number } }>,
+): { offset: Vec3Like; rotation: Vec3Like; scale: number } {
+  const preset = o.type === 'headpiece' && o.proceduralId ? headPieceMap[o.proceduralId] : undefined;
+  if (preset) {
+    return {
+      offset: { ...preset.config.offset },
+      rotation: { ...preset.config.rotation },
+      scale: preset.config.scale,
+    };
+  }
+  return { offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 };
+}
+
+export interface Vec3Like { x: number; y: number; z: number }

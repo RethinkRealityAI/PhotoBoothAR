@@ -627,6 +627,13 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return { ...state, draft: { ...d, selectedId: action.id } };
     }
     case 'REORDER_OBJECT': {
+      // NOTE: this swaps ADJACENT ARRAY indices, which is 2D paint order, and
+      // that is deliberate — see docs/STATE.md. The Layers panel renders three
+      // fixed buckets, so a cross-bucket swap does not move anything in the
+      // LIST, but it does change what paints over what ON THE STAGE (a frame
+      // over a sticker, say). Restricting reorder to same-bucket neighbours
+      // makes the list honest at the cost of removing that capability
+      // entirely — the real fix is to render one list in true array order.
       const idx = d.objects.findIndex((o) => o.id === action.id);
       if (idx < 0) return state;
       const swap = action.dir === 'up' ? idx - 1 : idx + 1;

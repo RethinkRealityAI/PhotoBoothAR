@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { OVERLAY_SCALE, OVERLAY_POSITION, clampToSpec, formatAtStep } from './controlSpecs';
+import { OVERLAY_SCALE, OVERLAY_POSITION, clampToSpec, formatAtStep, defaultAnchorConfig } from './controlSpecs';
 
 describe('OVERLAY_SCALE', () => {
   it('reaches the stage wheel-zoom ceiling — the drift that lost work', () => {
@@ -50,5 +50,35 @@ describe('formatAtStep', () => {
 
   it('caps at two decimals for very fine steps', () => {
     expect(formatAtStep(0.125, 0.001)).toBe('0.13');
+  });
+});
+
+describe('defaultAnchorConfig', () => {
+  const MAP = {
+    'royal-crown': { config: { offset: { x: 0, y: -1, z: -0.6 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } },
+  };
+
+  it("resets a built-in head piece to ITS tuned preset, not to zero", () => {
+    // 4 of the 5 built-ins ship non-zero offsets; resetting to 0 dragged them
+    // away from the position they were designed at.
+    const d = defaultAnchorConfig({ type: 'headpiece', proceduralId: 'royal-crown' }, MAP);
+    expect(d.offset).toEqual({ x: 0, y: -1, z: -0.6 });
+  });
+
+  it('falls back to zero for an uploaded model with no preset', () => {
+    const d = defaultAnchorConfig({ type: 'model' }, MAP);
+    expect(d.offset).toEqual({ x: 0, y: 0, z: 0 });
+    expect(d.scale).toBe(1);
+  });
+
+  it('falls back to zero for an unknown procedural id', () => {
+    const d = defaultAnchorConfig({ type: 'headpiece', proceduralId: 'nope' }, MAP);
+    expect(d.offset).toEqual({ x: 0, y: 0, z: 0 });
+  });
+
+  it('returns a COPY — a reset must not let the caller mutate the preset', () => {
+    const d = defaultAnchorConfig({ type: 'headpiece', proceduralId: 'royal-crown' }, MAP);
+    d.offset.y = 999;
+    expect(MAP['royal-crown'].config.offset.y).toBe(-1);
   });
 });
