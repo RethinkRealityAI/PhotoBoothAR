@@ -748,6 +748,392 @@ async function removeAdmin(sb: Client, actorUserId: string, args: Record<string,
   return json(200, { data: { userId } });
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Feature flags, org plans, and the billing catalogue                 */
+/* ------------------------------------------------------------------ */
+/* The RESOLVER lives in SQL (migration 028), not here. That is the whole
+ * point: ENTITLEMENTS was already mirrored by hand into four Deno functions,
+ * and a fifth copy of precedence in this file would have made it five. These
+ * handlers only read and write the tables the resolver reads. */
+
+const TIERS_SET = new Set(['free', 'essentials', 'premium', 'deluxe']);
+
+/** A flag value is a boolean or a nullable number — never an arbitrary blob. */
+function flagValue(v: unknown, valueType: string): { ok: true; value: unknown } | { ok: false } {
+  if (valueType === 'boolean') {
+    return typeof v === 'boolean' ? { ok: true, value: v } : { ok: false };
+  }
+  if (v === null) return { ok: true, value: null };
+  if (typeof v === 'number' && Number.isFinite(v) && v >= 0) {
+    return { ok: true, value: Math.round(v) };
+  }
+  return { ok: false };
+}
+
+async function flagType(sb: Client, key: string): Promise<string | null> {
+  const { data, error } = await sb
+    .from('feature_flags').select('value_type').eq('key', key).maybeSingle();
+  if (error) throw error;
+  return (data?.value_type as string | undefined) ?? null;
+}
+
+async function listFeatureFlags(sb: Client): Promise<Response> {
+  const [flags, defaults] = await Promise.all([
+    sb.from('feature_flags').select('*').order('sort'),
+    sb.from('plan_feature_defaults').select('tier, flag_key, value'),
+  ]);
+  if (flags.error) throw flags.error;
+  if (defaults.error) throw defaults.error;
+  return json(200, { data: { flags: flags.data ?? [], planDefaults: defaults.data ?? [] } });
+}
+
+async function setPlanDefault(
+  sb: Client, actorUserId: string, args: Record<string, unknown>,
+): Promise<Response> {
+  const tier = typeof args.tier === 'string' ? args.tier : '';
+  const key = typeof args.key === 'string' ? args.key : '';
+  if (!TIERS_SET.has(tier) || key === '') return json(400, { error: 'invalid_args' });
+  const vt = await flagType(sb, key);
+  if (vt === null) return json(404, { error: 'flag_not_found' });
+  const parsed = flagValue(args.value, vt);
+  if (!parsed.ok) return json(400, { error: 'invalid_args' });
+
+  const { error } = await sb.from('plan_feature_defaults')
+    .upsert({ tier, flag_key: key, value: parsed.value }, { onConflict: 'tier,flag_key' });
+  if (error) throw error;
+  await auditLog(sb, actorUserId, 'set_plan_default', 'plan_tier', tier, { key, value: parsed.value });
+  return json(200, { data: { ok: true } });
+}
+
+async function setOverride(
+  sb: Client, actorUserId: string, args: Record<string, unknown>, scope: 'org' | 'event',
+): Promise<Response> {
+  const targetId = typeof args.targetId === 'string' ? args.targetId : '';
+  const key = typeof args.key === 'string' ? args.key : '';
+  if (!UUID_RE.test(targetId) || key === '') return json(400, { error: 'invalid_args' });
+  const vt = await flagType(sb, key);
+  if (vt === null) return json(404, { error: 'flag_not_found' });
+  const parsed = flagValue(args.value, vt);
+  if (!parsed.ok) return json(400, { error: 'invalid_args' });
+
+  const table = scope === 'org' ? 'org_feature_overrides' : 'event_feature_overrides';
+  const idCol = scope === 'org' ? 'org_id' : 'event_id';
+  const expiresAt = typeof args.expiresAt === 'string' && args.expiresAt !== ''
+    ? args.expiresAt : null;
+  const reason = typeof args.reason === 'string' ? args.reason.slice(0, 500) : null;
+
+  const { error } = await sb.from(table).upsert({
+    [idCol]: targetId, flag_key: key, value: parsed.value,
+    reason, expires_at: expiresAt, set_by: actorUserId, set_at: new Date().toISOString(),
+  }, { onConflict: `${idCol},flag_key` });
+  if (error) throw error;
+  await auditLog(sb, actorUserId, `set_${scope}_override`, scope, targetId,
+    { key, value: parsed.value, reason, expiresAt });
+  return json(200, { data: { ok: true } });
+}
+
+async function clearOverride(
+  sb: Client, actorUserId: string, args: Record<string, unknown>, scope: 'org' | 'event',
+): Promise<Response> {
+  const targetId = typeof args.targetId === 'string' ? args.targetId : '';
+  const key = typeof args.key === 'string' ? args.key : '';
+  if (!UUID_RE.test(targetId) || key === '') return json(400, { error: 'invalid_args' });
+  const table = scope === 'org' ? 'org_feature_overrides' : 'event_feature_overrides';
+  const idCol = scope === 'org' ? 'org_id' : 'event_id';
+  const { error } = await sb.from(table).delete().eq(idCol, targetId).eq('flag_key', key);
+  if (error) throw error;
+  await auditLog(sb, actorUserId, `clear_${scope}_override`, scope, targetId, { key });
+  return json(200, { data: { ok: true } });
+}
+
+/** The ops panic button. `killable = false` flags refuse: killing projection
+ *  mode or the watermark mid-event would break a live legacy wall. */
+async function setFlagKill(
+  sb: Client, actorUserId: string, args: Record<string, unknown>,
+): Promise<Response> {
+  const key = typeof args.key === 'string' ? args.key : '';
+  const killed = args.killed === true;
+  if (key === '') return json(400, { error: 'invalid_args' });
+
+  const { data: flag, error: fErr } = await sb
+    .from('feature_flags').select('killable, value_type').eq('key', key).maybeSingle();
+  if (fErr) throw fErr;
+  if (!flag) return json(404, { error: 'flag_not_found' });
+  if (killed && flag.killable !== true) return json(400, { error: 'flag_not_killable' });
+
+  let killedValue: unknown = null;
+  if (killed) {
+    const parsed = flagValue(
+      args.killedValue === undefined ? false : args.killedValue,
+      flag.value_type as string,
+    );
+    if (!parsed.ok) return json(400, { error: 'invalid_args' });
+    killedValue = parsed.value;
+  }
+
+  const { error } = await sb.from('feature_flags').update({
+    killed,
+    killed_value: killed ? killedValue : null,
+    killed_reason: killed ? (typeof args.reason === 'string' ? args.reason.slice(0, 500) : null) : null,
+    killed_at: killed ? new Date().toISOString() : null,
+    killed_by: killed ? actorUserId : null,
+  }).eq('key', key);
+  if (error) throw error;
+  await auditLog(sb, actorUserId, killed ? 'kill_flag' : 'unkill_flag', 'feature_flag', key,
+    { killedValue, reason: args.reason ?? null });
+  return json(200, { data: { ok: true } });
+}
+
+/** Effective values WITH provenance, for the admin screen and its preview. */
+async function resolveFeatures(sb: Client, args: Record<string, unknown>): Promise<Response> {
+  const orgId = typeof args.orgId === 'string' && UUID_RE.test(args.orgId) ? args.orgId : null;
+  const eventId = typeof args.eventId === 'string' && UUID_RE.test(args.eventId) ? args.eventId : null;
+  if (orgId === null && eventId === null) return json(400, { error: 'invalid_args' });
+  const { data, error } = await sb.rpc('explain_features', { p_org: orgId, p_event: eventId });
+  if (error) throw error;
+  return json(200, { data: { features: data ?? {} } });
+}
+
+/* ── Org plan ─────────────────────────────────────────────────────────── */
+/* DB-authoritative. Stripe is a follower here and may only: write customer
+ * metadata, or stop a renewal. It may NEVER create a charge — an admin plan
+ * change is a comp, and a control that bills a saved card from an internal
+ * tool is a chargeback and an SCA failure waiting to happen. Upgrades hand
+ * back a Checkout link to SEND, which charges nobody. */
+async function setOrgPlan(
+  sb: Client, actorUserId: string, args: Record<string, unknown>,
+): Promise<Response> {
+  const orgId = typeof args.orgId === 'string' ? args.orgId : '';
+  const tier = typeof args.tier === 'string' ? args.tier : '';
+  if (!UUID_RE.test(orgId) || !TIERS_SET.has(tier)) return json(400, { error: 'invalid_args' });
+
+  const expiresAt = typeof args.expiresAt === 'string' && args.expiresAt !== ''
+    ? args.expiresAt : null;
+  const note = typeof args.note === 'string' ? args.note.slice(0, 500) : null;
+
+  const { data: org, error: oErr } = await sb
+    .from('orgs').select('id, plan_tier, stripe_customer_id').eq('id', orgId).maybeSingle();
+  if (oErr) throw oErr;
+  if (!org) return json(404, { error: 'org_not_found' });
+
+  const { data: sub } = await sb
+    .from('subscriptions').select('stripe_subscription_id, status')
+    .eq('org_id', orgId).maybeSingle();
+  const hasActiveSub = sub?.status === 'active';
+
+  // 1. The DB write. This is the part that takes effect, and it happens whether
+  //    or not Stripe is reachable or even configured.
+  const { error: uErr } = await sb.from('orgs').update({
+    plan_tier: tier,
+    plan_expires_at: expiresAt,
+    plan_note: note,
+    plan_source: 'admin_override',
+    plan_set_by: actorUserId,
+    plan_set_at: new Date().toISOString(),
+  }).eq('id', orgId);
+  if (uErr) throw uErr;
+
+  await auditLog(sb, actorUserId, 'set_org_plan', 'org', orgId, {
+    from: org.plan_tier, to: tier, expiresAt, note, syncStripe: args.syncStripe === true,
+  });
+
+  // 2. Stripe, best effort and never able to fail the plan change.
+  let stripeSynced = false;
+  let stripeError: string | null = null;
+  const key = Deno.env.get('STRIPE_SECRET_KEY');
+
+  if (args.syncStripe === true) {
+    if (!key) {
+      stripeError = 'billing_not_configured';
+    } else if (!org.stripe_customer_id) {
+      stripeError = 'no_stripe_customer';
+    } else {
+      try {
+        const body = new URLSearchParams({
+          'metadata[beamwall_plan_tier]': tier,
+          'metadata[beamwall_plan_expires_at]': expiresAt ?? '',
+          'metadata[beamwall_plan_source]': 'admin_override',
+        });
+        const res = await fetch(`https://api.stripe.com/v1/customers/${org.stripe_customer_id}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${key}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body,
+        });
+        if (!res.ok) {
+          stripeError = `stripe_${res.status}`;
+          console.error('[admin-api] stripe metadata write failed', res.status, await res.text().catch(() => ''));
+        } else {
+          stripeSynced = true;
+        }
+
+        // A downgrade away from a live subscription stops the RENEWAL. It does
+        // not refund, and they keep what they paid for until the period ends.
+        if (tier === 'free' && hasActiveSub && sub?.stripe_subscription_id) {
+          const cancelRes = await fetch(
+            `https://api.stripe.com/v1/subscriptions/${sub.stripe_subscription_id}`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${key}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({ cancel_at_period_end: 'true' }),
+            },
+          );
+          if (!cancelRes.ok) {
+            stripeError = `stripe_cancel_${cancelRes.status}`;
+          } else {
+            await auditLog(sb, actorUserId, 'stripe_cancel_at_period_end', 'org', orgId,
+              { subscription: sub.stripe_subscription_id });
+          }
+        }
+      } catch (e) {
+        console.error('[admin-api] stripe sync threw', e);
+        stripeError = 'stripe_unreachable';
+      }
+    }
+  }
+
+  // The plan applied regardless; the UI is told the truth about Stripe so it
+  // never implies a sync that did not happen.
+  return json(200, { data: { tier, expiresAt, stripeSynced, stripeError } });
+}
+
+/* ── Billing catalogue ────────────────────────────────────────────────── */
+
+async function listCatalog(sb: Client): Promise<Response> {
+  const { data, error } = await sb.from('billing_catalog').select('*').order('sort');
+  if (error) throw error;
+  return json(200, { data: { items: data ?? [] } });
+}
+
+async function upsertCatalogItem(
+  sb: Client, actorUserId: string, args: Record<string, unknown>,
+): Promise<Response> {
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  if (id === '' || id.length > 120) return json(400, { error: 'invalid_args' });
+  const patch: Record<string, unknown> = {};
+  if (typeof args.name === 'string') patch.name = args.name.slice(0, 200);
+  if (typeof args.description === 'string') patch.description = args.description.slice(0, 500);
+  if (typeof args.amountCents === 'number' && Number.isFinite(args.amountCents) && args.amountCents >= 0) {
+    patch.amount_cents = Math.round(args.amountCents);
+  }
+  if (typeof args.creditsGranted === 'number' && args.creditsGranted >= 0) {
+    patch.credits_granted = Math.round(args.creditsGranted);
+  }
+  if (typeof args.active === 'boolean') patch.active = args.active;
+  if (Object.keys(patch).length === 0) return json(400, { error: 'invalid_args' });
+
+  // A price change invalidates the provisioned Stripe Price: Stripe prices are
+  // immutable, so a new one must be created. Clearing the id forces that on the
+  // next sync rather than silently charging the old amount.
+  if (patch.amount_cents !== undefined) {
+    patch.stripe_price_id = null;
+    patch.synced_at = null;
+  }
+
+  const { error } = await sb.from('billing_catalog').update(patch).eq('id', id);
+  if (error) throw error;
+  await auditLog(sb, actorUserId, 'upsert_catalog_item', 'billing_catalog', id, patch);
+  return json(200, { data: { ok: true } });
+}
+
+/**
+ * Provision the catalogue into Stripe: one Product + one Price per active row.
+ *
+ * Idempotent by construction. A Stripe Price is IMMUTABLE, so this never edits
+ * one — it looks for an existing Price carrying our catalogue id in metadata at
+ * the current amount, and only creates a new one when there is none. Products
+ * are matched by metadata too, so re-running does not duplicate anything.
+ */
+async function syncCatalogToStripe(
+  sb: Client, actorUserId: string, args: Record<string, unknown>,
+): Promise<Response> {
+  const key = Deno.env.get('STRIPE_SECRET_KEY');
+  if (!key) return json(503, { error: 'billing_not_configured' });
+  const live = key.startsWith('sk_live_');
+  if (!live && Deno.env.get('ALLOW_TEST_BILLING') !== 'true') {
+    return json(503, { error: 'billing_test_mode' });
+  }
+
+  const onlyId = typeof args.id === 'string' ? args.id : null;
+  let q = sb.from('billing_catalog').select('*').eq('active', true);
+  if (onlyId !== null) q = q.eq('id', onlyId);
+  const { data: items, error } = await q;
+  if (error) throw error;
+
+  const headers = {
+    Authorization: `Bearer ${key}`,
+    'Content-Type': 'application/x-www-form-urlencoded',
+  };
+  const results: Array<Record<string, unknown>> = [];
+
+  for (const item of items ?? []) {
+    const id = item.id as string;
+    try {
+      // 1. Product — reuse the stored id if we have one.
+      let productId = item.stripe_product_id as string | null;
+      if (!productId) {
+        const res = await fetch('https://api.stripe.com/v1/products', {
+          method: 'POST',
+          headers,
+          body: new URLSearchParams({
+            name: item.name as string,
+            description: (item.description as string | null) ?? '',
+            'metadata[beamwall_catalog_id]': id,
+          }),
+        });
+        if (!res.ok) throw new Error(`product_${res.status}:${await res.text().catch(() => '')}`);
+        productId = ((await res.json()) as { id: string }).id;
+      }
+
+      // 2. Price — immutable, so create only when the amount has no Price yet.
+      let priceId = item.stripe_price_id as string | null;
+      if (!priceId) {
+        const params = new URLSearchParams({
+          product: productId,
+          currency: (item.currency as string) ?? 'usd',
+          unit_amount: String(item.amount_cents),
+          lookup_key: id,
+          'transfer_lookup_key': 'true',
+          'metadata[beamwall_catalog_id]': id,
+        });
+        if (item.recurring_interval) {
+          params.set('recurring[interval]', item.recurring_interval as string);
+        }
+        const res = await fetch('https://api.stripe.com/v1/prices', {
+          method: 'POST', headers, body: params,
+        });
+        if (!res.ok) throw new Error(`price_${res.status}:${await res.text().catch(() => '')}`);
+        priceId = ((await res.json()) as { id: string }).id;
+      }
+
+      const { error: uErr } = await sb.from('billing_catalog').update({
+        stripe_product_id: productId,
+        stripe_price_id: priceId,
+        synced_at: new Date().toISOString(),
+        sync_error: null,
+      }).eq('id', id);
+      if (uErr) throw uErr;
+      results.push({ id, productId, priceId, ok: true });
+    } catch (e) {
+      const message = String(e).slice(0, 300);
+      console.error('[admin-api] catalog sync failed', id, message);
+      await sb.from('billing_catalog').update({ sync_error: message }).eq('id', id);
+      // Keep going: one bad row must not strand the rest of the catalogue.
+      results.push({ id, ok: false, error: message });
+    }
+  }
+
+  await auditLog(sb, actorUserId, 'sync_catalog_to_stripe', 'billing_catalog', onlyId ?? 'all',
+    { mode: live ? 'live' : 'test', results });
+  return json(200, { data: { results, mode: live ? 'live' : 'test' } });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -836,6 +1222,30 @@ Deno.serve(async (req: Request) => {
         return await addAdmin(sb, user.id, args);
       case 'remove_admin':
         return await removeAdmin(sb, user.id, args);
+      case 'list_feature_flags':
+        return await listFeatureFlags(sb);
+      case 'set_plan_default':
+        return await setPlanDefault(sb, user.id, args);
+      case 'set_org_override':
+        return await setOverride(sb, user.id, args, 'org');
+      case 'clear_org_override':
+        return await clearOverride(sb, user.id, args, 'org');
+      case 'set_event_override':
+        return await setOverride(sb, user.id, args, 'event');
+      case 'clear_event_override':
+        return await clearOverride(sb, user.id, args, 'event');
+      case 'set_flag_kill':
+        return await setFlagKill(sb, user.id, args);
+      case 'resolve_features':
+        return await resolveFeatures(sb, args);
+      case 'set_org_plan':
+        return await setOrgPlan(sb, user.id, args);
+      case 'list_catalog':
+        return await listCatalog(sb);
+      case 'upsert_catalog_item':
+        return await upsertCatalogItem(sb, user.id, args);
+      case 'sync_catalog_to_stripe':
+        return await syncCatalogToStripe(sb, user.id, args);
       default:
         return json(400, { error: 'unknown_action' });
     }

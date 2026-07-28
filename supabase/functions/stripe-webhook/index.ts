@@ -231,8 +231,47 @@ async function findOrderByRefs(sb: SupabaseClient, refs: unknown[]): Promise<Ord
   return (data as OrderRow | null) ?? null;
 }
 
-/** Credits the original purchase granted, derived from the order row —
- *  mirrors the grant amounts in handleCheckoutCompleted/renewals above.
+/**
+ * The catalogue id a purchase corresponds to (migration 029).
+ *
+ * Preferred over the constant maps below because the catalogue is editable from
+ * /admin/catalog, and a credit grant that only exists in this file cannot be
+ * changed without a deploy — which is how it drifted from stripe-checkout's
+ * PRICES in the first place.
+ */
+function catalogIdFor(kind: string, tier: string | null): string | null {
+  if (kind === 'pro_subscription') return 'pro_subscription.monthly';
+  if (kind === 'event_package' && tier) return `event_package.${tier}`;
+  if (kind === 'credit_pack' && tier) return `credit_pack.${tier}`;
+  return null;
+}
+
+/**
+ * Credits the catalogue says this purchase grants.
+ *
+ * FALLS BACK to the frozen constants, deliberately and loudly. This runs after
+ * the customer's money has already moved: a missing or unreadable catalogue row
+ * must never be the reason somebody pays and receives nothing. The fallback is
+ * the exact behaviour this function had before the catalogue existed.
+ */
+async function catalogCredits(
+  sb: SupabaseClient, kind: string, tier: string | null, fallback: number | null,
+): Promise<number | null> {
+  const id = catalogIdFor(kind, tier);
+  if (id === null) return fallback;
+  try {
+    const { data, error } = await sb
+      .from('billing_catalog').select('credits_granted').eq('id', id).maybeSingle();
+    if (error) throw error;
+    const n = data?.credits_granted;
+    if (typeof n === 'number' && Number.isFinite(n)) return n;
+  } catch (e) {
+    console.error('[stripe-webhook] catalog lookup failed, using frozen grant', id, e);
+  }
+  return fallback;
+}
+
+/** Credits the original purchase granted, derived from the order row.
  *  null when the kind/tier no longer maps to a known grant. */
 function creditsGrantedFor(order: OrderRow): number | null {
   if (order.kind === 'pro_subscription') return PRO_MONTHLY_CREDITS;
@@ -263,7 +302,7 @@ async function handleCheckoutCompleted(
   if (kind === 'event_package') {
     const tier = meta.tier;
     const eventUuid = meta.event_uuid;
-    const credits = PACKAGE_CREDITS[tier];
+    const credits = await catalogCredits(sb, 'event_package', tier, PACKAGE_CREDITS[tier] ?? null);
     if (!eventUuid || !credits) throw new Error(`invalid event_package metadata on ${session.id}`);
 
     const { error: planErr } = await sb.from('event_plans').insert({
@@ -295,7 +334,7 @@ async function handleCheckoutCompleted(
     });
     await grantCredits(sb, orgId, credits, 'plan_grant', { ...ref, tier, event_uuid: eventUuid });
   } else if (kind === 'credit_pack') {
-    const credits = PACK_CREDITS[meta.pack];
+    const credits = await catalogCredits(sb, 'credit_pack', meta.pack, PACK_CREDITS[meta.pack] ?? null);
     if (!credits) throw new Error(`invalid credit_pack metadata on ${session.id}`);
     // Grant last — see event_package note above.
     await insertOrder(sb, {

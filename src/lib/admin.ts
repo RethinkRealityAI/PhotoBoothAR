@@ -11,6 +11,7 @@
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import type { PlanTier } from './plans';
 import type { ListQuery } from './serverList';
 import type { RevenueSummary } from './revenue';
 
@@ -321,4 +322,127 @@ export function addAdmin(
 
 export function removeAdmin(userId: string): Promise<AdminResult<{ userId: string }>> {
   return adminApi('remove_admin', { userId });
+}
+
+/* ------------------------------------------------------------------ */
+/* Feature flags, org plans, billing catalogue                         */
+/* ------------------------------------------------------------------ */
+
+export interface FeatureFlagRow {
+  key: string;
+  label: string;
+  description: string;
+  category: string;
+  value_type: 'boolean' | 'nullable_number';
+  paid: boolean;
+  killable: boolean;
+  killed: boolean;
+  killed_value: unknown;
+  killed_reason: string | null;
+  sort: number;
+}
+
+export interface PlanDefaultRow {
+  tier: PlanTier;
+  flag_key: string;
+  value: unknown;
+}
+
+/** One flag's effective value plus WHICH layer produced it. Four layers without
+ *  provenance is unmaintainable; this is what makes the screen explainable. */
+export interface ResolvedFeature {
+  value: unknown;
+  layer: 'plan_default' | 'org_override' | 'event_override' | 'kill_switch' | 'legacy';
+  note: string | null;
+  paid: boolean;
+  killable: boolean;
+  label: string;
+  category: string;
+  valueType: 'boolean' | 'nullable_number';
+}
+
+export function fetchFeatureFlags() {
+  return adminApi<{ flags: FeatureFlagRow[]; planDefaults: PlanDefaultRow[] }>('list_feature_flags');
+}
+
+export function setPlanDefault(tier: PlanTier, key: string, value: unknown) {
+  return adminApi<{ ok: true }>('set_plan_default', { tier, key, value });
+}
+
+export function setOrgOverride(
+  orgId: string, key: string, value: unknown, reason: string, expiresAt: string | null,
+) {
+  return adminApi<{ ok: true }>('set_org_override', { targetId: orgId, key, value, reason, expiresAt });
+}
+
+export function clearOrgOverride(orgId: string, key: string) {
+  return adminApi<{ ok: true }>('clear_org_override', { targetId: orgId, key });
+}
+
+export function setEventOverride(
+  eventId: string, key: string, value: unknown, reason: string, expiresAt: string | null,
+) {
+  return adminApi<{ ok: true }>('set_event_override', { targetId: eventId, key, value, reason, expiresAt });
+}
+
+export function clearEventOverride(eventId: string, key: string) {
+  return adminApi<{ ok: true }>('clear_event_override', { targetId: eventId, key });
+}
+
+export function setFlagKill(key: string, killed: boolean, killedValue: unknown, reason: string) {
+  return adminApi<{ ok: true }>('set_flag_kill', { key, killed, killedValue, reason });
+}
+
+export function resolveFeaturesFor(orgId: string | null, eventId: string | null) {
+  return adminApi<{ features: Record<string, ResolvedFeature> }>('resolve_features', { orgId, eventId });
+}
+
+export function setOrgPlan(
+  orgId: string, tier: PlanTier, expiresAt: string | null, note: string, syncStripe: boolean,
+) {
+  return adminApi<{ tier: PlanTier; expiresAt: string | null; stripeSynced: boolean; stripeError: string | null }>(
+    'set_org_plan', { orgId, tier, expiresAt, note, syncStripe },
+  );
+}
+
+export interface CatalogItem {
+  id: string;
+  kind: 'event_package' | 'credit_pack' | 'pro_subscription';
+  tier: string | null;
+  name: string;
+  description: string | null;
+  amount_cents: number;
+  currency: string;
+  recurring_interval: 'month' | 'year' | null;
+  credits_granted: number;
+  active: boolean;
+  sort: number;
+  stripe_product_id: string | null;
+  stripe_price_id: string | null;
+  synced_at: string | null;
+  sync_error: string | null;
+}
+
+export function fetchCatalog() {
+  return adminApi<{ items: CatalogItem[] }>('list_catalog');
+}
+
+export function updateCatalogItem(id: string, patch: {
+  name?: string; description?: string; amountCents?: number; creditsGranted?: number; active?: boolean;
+}) {
+  return adminApi<{ ok: true }>('upsert_catalog_item', { id, ...patch });
+}
+
+export interface CatalogSyncResult {
+  id: string;
+  ok: boolean;
+  productId?: string;
+  priceId?: string;
+  error?: string;
+}
+
+export function syncCatalogToStripe(id?: string) {
+  return adminApi<{ results: CatalogSyncResult[]; mode: 'live' | 'test' }>(
+    'sync_catalog_to_stripe', id === undefined ? {} : { id },
+  );
 }

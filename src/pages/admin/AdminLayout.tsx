@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Building2, CalendarRange, Receipt, Coins, Users, ScrollText, ShieldCheck,
-  LifeBuoy, LogOut,
+  LifeBuoy, Tags, ToggleLeft, LogOut,
   type LucideIcon,
 } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
@@ -32,6 +32,8 @@ const NAV: NavItem[] = [
   { to: '/admin/events', label: 'Events', Icon: CalendarRange, ready: true },
   { to: '/admin/support', label: 'Support', Icon: LifeBuoy, ready: true },
   { to: '/admin/payments', label: 'Payments', Icon: Receipt, ready: true },
+  { to: '/admin/catalog', label: 'Catalog', Icon: Tags, ready: true },
+  { to: '/admin/features', label: 'Features', Icon: ToggleLeft, ready: true },
   { to: '/admin/credits', label: 'Credits', Icon: Coins, ready: true },
   { to: '/admin/users', label: 'Users', Icon: Users, ready: true },
   { to: '/admin/audit', label: 'Audit', Icon: ScrollText, ready: true },
