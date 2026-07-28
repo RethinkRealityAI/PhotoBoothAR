@@ -196,9 +196,15 @@ async function materializeModel(
 
     // Experience config MUST match what Creator3D saves / the booth reads:
     // config.anchor = AnchorConfig { anchor, offset, rotation, scale }.
-    // 'crown' is the top-of-head anchor (see src/lib/faceRig.ts) — the
-    // host fine-tunes placement in the 3D anchor editor afterwards.
+    // The anchor comes from the brief's piece kind (ai-generate-3d writes
+    // `input.anchorHint` — an earring belongs on an ear, a nose ring on the
+    // nose tip), falling back to 'crown', the top-of-head anchor every job used
+    // before and the right default for a hat or a crown (src/lib/faceRig.ts).
+    // The host fine-tunes placement in the 3D anchor editor afterwards.
     const prompt = input.prompt ?? null;
+    const anchorHint = typeof input.anchorHint === 'string' && input.anchorHint
+      ? input.anchorHint
+      : 'crown';
     const { data: experience, error: expErr } = await sb
       .from('experiences')
       .insert({
@@ -210,7 +216,7 @@ async function materializeModel(
         thumbnail_url: null,
         config: {
           anchor: {
-            anchor: 'crown',
+            anchor: anchorHint,
             offset: { x: 0, y: 0, z: 0 },
             rotation: { x: 0, y: 0, z: 0 },
             scale: 1,

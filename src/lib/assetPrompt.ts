@@ -32,7 +32,10 @@
  * needs an open face cavity, a hat needs an open crown, glasses need a bridge
  * and temples and mostly empty lenses.
  */
-export type PieceKind = 'mask' | 'helmet' | 'hat' | 'crown' | 'glasses' | 'ears' | 'held' | 'generic';
+export type PieceKind =
+  | 'mask' | 'helmet' | 'hat' | 'crown' | 'glasses' | 'ears'
+  | 'earring' | 'piercing' | 'faceGem'
+  | 'held' | 'generic';
 
 const KIND_PATTERNS: { kind: PieceKind; re: RegExp }[] = [
   { kind: 'glasses', re: /\b(glasses|sunglasses|shades|spectacles|goggles|monocle|visor)\b/i },
@@ -44,6 +47,13 @@ const KIND_PATTERNS: { kind: PieceKind; re: RegExp }[] = [
   { kind: 'mask', re: /\b(mask|masquerade|balaclava|face ?cover|respirator)\b/i },
   { kind: 'crown', re: /\b(crown|tiara|diadem|coronet|halo|laurel)\b/i },
   { kind: 'hat', re: /\b(hat|cap|beanie|fedora|top ?hat|sombrero|beret|headdress|turban|bonnet|hood)\b/i },
+  // The three jewellery kinds go BEFORE `ears`, which matches a bare "ear" and
+  // was therefore swallowing "ear cuff" (a headband arc is the wrong geometry
+  // for something that clips onto one ear). `piercing` goes before `earring`
+  // because "nose studs" matches `studs?` in the earring pattern too.
+  { kind: 'piercing', re: /\b(nose ?rings?|septum|nose ?studs?|lip ?rings?|piercings?)\b/i },
+  { kind: 'earring', re: /\b(earrings?|ear ?cuffs?|studs?|hoops?)\b/i },
+  { kind: 'faceGem', re: /\b(face ?(gems?|stickers?|jewels?)|rhinestones?|bindis?|cheek ?gems?)\b/i },
   { kind: 'ears', re: /\b(ears?|antlers?|horns?|antennae|headband)\b/i },
   { kind: 'held', re: /\b(trophy|cup|statue|figurine|bouquet|sign|placard|balloon|wand|sword|mug|bottle)\b/i },
 ];
@@ -121,6 +131,34 @@ const KIND_SPEC: Record<PieceKind, KindSpec> = {
     scale: 'band about 15cm across — sized to sit on a real adult head',
     view: 'a three-quarter front view showing the arc of the band and both shapes',
   },
+  // The jewellery kinds fail differently from the head-worn ones: they are
+  // small, so the model's instinct is to render them ON the body part they clip
+  // to (an ear, a nostril, a cheek), and to close every opening into a solid
+  // ring. Both are stated explicitly, in millimetres.
+  earring: {
+    geometry:
+      'a single earring — a thin OPEN hook or hoop at the top (roughly 1mm wire, an open curve, ' +
+      'never fused into a closed solid) with the decorative body hanging below it. There must be ' +
+      'NO ear, NO head, NO mannequin and NO stand',
+    scale: 'about 3-6cm from the top of the hook to the bottom of the drop',
+    view: 'a straight-on macro view with the open hook or hoop clearly visible',
+  },
+  piercing: {
+    geometry:
+      'a small OPEN C-shaped hoop with a visible gap where it clips onto the nostril — wire roughly ' +
+      '1-2mm thick with the middle hollow. It is NOT a closed torus and NOT a solid disc. There must ' +
+      'be NO nose, NO face, NO head and NO mannequin',
+    scale: 'about 8-14mm across the outer diameter',
+    view: 'a macro view angled so the open gap in the hoop is unmistakable',
+  },
+  faceGem: {
+    geometry:
+      'a small faceted gem, or a tight cluster of them, with a completely FLAT back so it sits flush ' +
+      'on skin and a domed faceted front, roughly 2-4mm thick overall. There must be NO face, NO ' +
+      'skin, NO head and NO mannequin',
+    scale: 'about 1-3cm across the whole gem or cluster',
+    view: 'a three-quarter macro view showing both the faceted top and the flat underside edge',
+  },
   held: {
     geometry:
       'a single free-standing object, modelled complete and closed, with no ground plane, no base ' +
@@ -188,6 +226,105 @@ export function buildMeshyPrompt(brief: string, kind: PieceKind = inferPieceKind
 
 /* ── Frames ───────────────────────────────────────────────────────────── */
 
+/**
+ * What SHAPE of frame this is. Until now every generated frame was the same
+ * artefact — ornament hugging four edges around an empty centre — so "creative"
+ * only ever meant a different motif. These archetypes change the composition
+ * itself: a full illustrated scene with a head cutout, a two-up version of it,
+ * corner clusters, or a lower-third band.
+ */
+export type FrameLayout = 'classic-border' | 'full-scene' | 'duo-scene' | 'corner-overlay' | 'bottom-third';
+
+/**
+ * The anti-spill block, reused VERBATIM from the classic-border prompt that has
+ * been keying cleanly in production. Every new archetype ends with it rather
+ * than a paraphrase — the exact wording is the part that was proven, and a
+ * frame whose green carries a gradient or a rim-light cannot be keyed out at
+ * all (the guest gets a green pane over their face).
+ */
+const GREEN_RULES =
+  'The green must be a flat, uniform chroma-key green with NO gradients, NO shadows, NO texture, ' +
+  'NO vignette or glow, and must read as a single exact colour so it can be keyed out. Use NO green ' +
+  'anywhere in the artwork itself, and give it no green tint, green reflection or green rim-light — ' +
+  'anything green in the art will be punched out as a hole.';
+
+/** Cutout layouts only: asked for a hole where a head goes, an image model's
+ *  first instinct is to draw a face in it — which then keys out as a hole in
+ *  the guest's own face. */
+const EMPTY_ELLIPSE =
+  'The ellipse contains NOTHING but flat green — no person, no face, no silhouette inside it.';
+
+/**
+ * The base mechanics prompt per archetype (green-screen border path).
+ *
+ * MIRRORED SERVER-SIDE in `supabase/functions/ai-generate-image/index.ts`
+ * (FRAME_LAYOUT_SPEC) — edge functions cannot import from src/. The
+ * 'classic-border' entry is byte-identical to the string that function has
+ * always sent, so an absent/legacy layout produces the same prompt as before.
+ */
+export const FRAME_LAYOUT_SPEC: Record<FrameLayout, string> = {
+  'classic-border':
+    'Create a full-bleed decorative FRAME composition for a 9:16 vertical portrait canvas ' +
+    '(1080x1920). ALL decorative art must hug the four edges as a border. Fill the ENTIRE ' +
+    'central area AND the whole background with ONE solid pure green colour #00FF00 — a flat, ' +
+    'uniform chroma-key green with NO gradients, NO shadows, NO texture, NO vignette or glow on ' +
+    'the green. Do not place any art, drop-shadow, or highlight over the green region; the green ' +
+    'must read as a single exact colour so it can be keyed out. Use NO green anywhere in the ' +
+    'border artwork itself, and give it no green tint, green reflection or green rim-light — ' +
+    'anything green in the art will be punched out as a hole.',
+  'full-scene':
+    'Create a full-bleed illustrated SCENE for a 9:16 vertical portrait canvas (1080x1920) — the ' +
+    'artwork runs edge to edge as a complete environment, NOT a border around an empty middle. ' +
+    'Leave exactly ONE head cutout: a solid #00FF00 ellipse centred at 50% of the width and 38% of ' +
+    'the height, spanning 34% of the width and 21% of the height. The scene may frame that ellipse ' +
+    '(a porthole, a visor, a wreath of flowers) but must never paint over it. ' +
+    `${EMPTY_ELLIPSE} ${GREEN_RULES}`,
+  'duo-scene':
+    'Create a full-bleed illustrated SCENE for a 9:16 vertical portrait canvas (1080x1920) — the ' +
+    'artwork runs edge to edge as a complete environment, NOT a border around an empty middle. ' +
+    'Leave exactly TWO head cutouts: solid #00FF00 ellipses centred at 30% and at 70% of the width, ' +
+    'both at 38% of the height, each spanning 26% of the width and 18% of the height. The scene may ' +
+    'frame those ellipses (portholes, visors, wreaths) but must never paint over them. ' +
+    `${EMPTY_ELLIPSE} ${GREEN_RULES}`,
+  'corner-overlay':
+    'Create a corner-anchored decorative overlay for a 9:16 vertical portrait canvas (1080x1920). ' +
+    'ALL of the artwork sits in two opposite corners — top-left and bottom-right — each cluster ' +
+    'contained within 40% of the width and 25% of the height. EVERY other pixel, including the ' +
+    'whole centre and both remaining corners, is solid #00FF00. ' +
+    `${GREEN_RULES}`,
+  'bottom-third':
+    'Create a lower-third stage graphic for a 9:16 vertical portrait canvas (1080x1920). ALL of the ' +
+    'artwork sits BELOW 66% of the height, as a lower-third band the subject stands above. The top ' +
+    'two-thirds of the canvas is entirely solid #00FF00. ' +
+    `${GREEN_RULES}`,
+};
+
+/** A scene is an environment, not a border — these words mean the host wants
+ *  the whole canvas illustrated. */
+const SCENE_WORDS = /\b(scene|backdrop|background|world|environment|inside)\b/i;
+/** …and these mean they want a hole in it for a head. */
+const CUTOUT_WORDS = /\b(cut ?outs?|head ?holes?|face ?holes?|head ?cut ?outs?|holes? for (my|our|the|their) (head|face))\b/i;
+const DUO_WORDS = /\b(two|couple|duo|pair|both of us)\b/i;
+const CORNER_WORDS = /\bcorners?\b/i;
+const BANNER_WORDS = /\b(lower ?thirds?|banners?|title ?bars?|marquees?)\b/i;
+
+/**
+ * Pick the archetype a brief is describing. Pure and deliberately conservative:
+ * anything it cannot place stays 'classic-border', which is what every frame
+ * generated before this was.
+ *
+ * Order matters — a two-header ("a jungle scene with holes for both of us") is
+ * a duo-scene, and checking full-scene first would swallow it.
+ */
+export function inferFrameLayout(brief: string): FrameLayout {
+  const scene = SCENE_WORDS.test(brief);
+  if (scene && DUO_WORDS.test(brief)) return 'duo-scene';
+  if (scene && CUTOUT_WORDS.test(brief)) return 'full-scene';
+  if (CORNER_WORDS.test(brief)) return 'corner-overlay';
+  if (BANNER_WORDS.test(brief)) return 'bottom-third';
+  return 'classic-border';
+}
+
 export interface FrameArtOptions {
   /**
    * The event's own palette, when known — grounds the art in the real theme
@@ -200,6 +337,8 @@ export interface FrameArtOptions {
   accentHexes?: string[] | null;
   /** e.g. "wedding", "gala" — sets the register. */
   eventType?: string | null;
+  /** Frame layout driving the composition direction (default classic-border). */
+  layout?: FrameLayout;
 }
 
 /** Palette sentence for 0, 1 or many known accent colours. Exported so the
@@ -235,16 +374,46 @@ const EVENT_REGISTER: Record<string, string> = {
  * that was missing entirely: what makes a frame look designed rather than
  * generated.
  */
+/**
+ * Composition direction PER FRAME LAYOUT (mirror: ai-generate-image
+ * FRAME_COMPOSITION). The edge-border language ("heavier ornament in two
+ * opposite corners… keep the top-centre calmer") is exactly wrong for a
+ * full-scene frame, whose art must fill the canvas and organise itself AROUND
+ * the head cutouts — one table, keyed by layout, on both mirror sides.
+ */
+export const FRAME_COMPOSITION: Record<FrameLayout, string> = {
+  'classic-border':
+    'Composition: treat the four edges as a deliberate composition, not a repeating stamp. Anchor the ' +
+    'design with heavier ornament in two opposite corners and let it thin out along the long edges, ' +
+    'so the eye travels. Keep the top-centre and bottom-centre calmer than the corners.',
+  'corner-overlay':
+    'Composition: treat the four edges as a deliberate composition, not a repeating stamp. Anchor the ' +
+    'design with heavier ornament in two opposite corners and let it thin out along the long edges, ' +
+    'so the eye travels. Keep the top-centre and bottom-centre calmer than the corners.',
+  'full-scene':
+    'Composition: a complete illustrated environment with real depth — distinct foreground, midground ' +
+    'and background layers — designed AROUND the head cutout so the scene makes sense once a real face ' +
+    'fills the opening. Use leading lines and framing devices (arches, foliage, beams of light, portholes) ' +
+    'that draw the eye toward the cutout.',
+  'duo-scene':
+    'Composition: a complete illustrated environment with real depth — distinct foreground, midground ' +
+    'and background layers — designed AROUND the two head cutouts so the scene makes sense once real ' +
+    'faces fill the openings. Give the pair a shared context (one bench, one archway, one marquee) and ' +
+    'use leading lines that connect the two openings.',
+  'bottom-third':
+    'Composition: build the artwork as a lower-third stage with a clear horizon line; visual weight and ' +
+    'detail live in the bottom band and thin upward to nothing well before the vertical midpoint.',
+};
+
 export function buildFrameArtDirection(brief: string, opts: FrameArtOptions = {}): string {
   const register = opts.eventType ? EVENT_REGISTER[opts.eventType.toLowerCase()] : undefined;
   const parts = [
     `Design brief: ${brief.trim()}.`,
     register ? `Register: ${register}.` : '',
     paletteDirection(opts.accentHexes),
-    // Composition is what separates a designed frame from a generated one.
-    'Composition: treat the four edges as a deliberate composition, not a repeating stamp. Anchor the ' +
-      'design with heavier ornament in two opposite corners and let it thin out along the long edges, ' +
-      'so the eye travels. Keep the top-centre and bottom-centre calmer than the corners.',
+    // Composition is what separates a designed frame from a generated one —
+    // and it must match the layout (edge language fights a full-scene brief).
+    FRAME_COMPOSITION[opts.layout ?? 'classic-border'],
     'Craft: crisp vector-clean edges, deliberate line-weight contrast between thick structural strokes ' +
       'and fine detail lines, believable material (brushed metal, foil, glass, matte ink) with subtle ' +
       'depth from layering rather than drop shadows. Symmetrical left-to-right unless the brief says otherwise.',

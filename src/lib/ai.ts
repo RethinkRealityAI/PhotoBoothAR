@@ -10,6 +10,7 @@
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import type { FrameLayout } from './assetPrompt';
 import type { Experience } from '../types';
 
 export type AiErrorCode =
@@ -130,6 +131,14 @@ export interface GenerateImageOpts {
    * the edge function's prompt is byte-identical to before.
    */
   greenScreen?: boolean;
+  /**
+   * Which FRAME ARCHETYPE to generate — a classic edge border, a full
+   * illustrated scene with a head cutout, a two-head version of it, corner
+   * clusters, or a lower-third band. Border kind only. Omitted →
+   * 'classic-border', which is the prompt (and the model) every frame used
+   * before archetypes existed. See FRAME_LAYOUT_SPEC in ./assetPrompt.
+   */
+  layout?: FrameLayout;
   /**
    * Let the edge function add its art-direction layer (composition, palette,
    * craft, quality bar). Default true. Pass false when the prompt is already

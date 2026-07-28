@@ -13,8 +13,20 @@ import { useCallback, useEffect, useState } from 'react';
 import { Loader, Wand2 } from 'lucide-react';
 import { generateImage, resolveEventUuid, aiErrorMessage, fetchEventCreditBalance } from '../../lib/ai';
 import { useEvent } from '../../events/EventContext';
+import { inferFrameLayout, type FrameLayout } from '../../lib/assetPrompt';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import type { Experience } from '../../types';
+
+/** The five frame archetypes, in the order they escalate: an edge border, a
+ *  whole illustrated scene, the two-head version of it, corner clusters, a
+ *  lower-third band. Labels are what a host would call them, not the ids. */
+const LAYOUT_CHIPS: { id: FrameLayout; label: string }[] = [
+  { id: 'classic-border', label: 'Border' },
+  { id: 'full-scene', label: 'Full scene' },
+  { id: 'duo-scene', label: 'Two faces' },
+  { id: 'corner-overlay', label: 'Corners' },
+  { id: 'bottom-third', label: 'Banner' },
+];
 
 export default function AiFramePanel({
   kind,
@@ -34,6 +46,10 @@ export default function AiFramePanel({
   // Generation whose chroma-key processing failed — held for a FREE retry
   // (the raw green asset is saved server-side; reprocessing costs nothing).
   const [pendingRaw, setPendingRaw] = useState<Experience | null>(null);
+  // The archetype tracks what the host is TYPING until they touch a chip;
+  // after that their choice wins (null = still following the brief).
+  const [layoutPick, setLayoutPick] = useState<FrameLayout | null>(null);
+  const layout = layoutPick ?? inferFrameLayout(prompt);
 
   // Balance of the EVENT's org — the org ai-generate-image actually charges
   // (event.org_id), not the caller's first org membership (they can differ
@@ -62,6 +78,9 @@ export default function AiFramePanel({
         kind,
         transparentBackground: kind === '2d_filter',
         greenScreen: true,
+        // A sticker has one subject, not a canvas layout — only a frame carries
+        // an archetype (the edge function ignores it for other kinds anyway).
+        ...(kind === 'border' ? { layout } : {}),
       });
       if (err || !data?.experience) {
         if (err === 'insufficient_credits') {
@@ -126,6 +145,28 @@ export default function AiFramePanel({
         rows={2}
         className="w-full rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2 text-brand-fg text-xs placeholder:text-brand-muted/40 outline-none focus:border-accent/50 resize-none"
       />
+      {kind === 'border' && (
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Frame style">
+          {LAYOUT_CHIPS.map(({ id, label }) => {
+            const active = id === layout;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setLayoutPick(id)}
+                aria-pressed={active}
+                className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors ${
+                  active
+                    ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
+                    : 'text-brand-muted/60 hover:text-brand-fg'
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {error && (
         <p className="text-rose-400 text-[10px]">
           {error}

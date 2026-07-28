@@ -216,13 +216,16 @@ export function fitOnCanvas(img: RgbaImage, targetW: number, targetH: number): R
  * exact #00FF00 (e.g. #00B140 sits ~64 chroma units from pure green and the
  * fixed key kept it, shipping green into the scene).
  *
- * The two layouts the edge fn produces hide their backdrop in different places:
+ * The layouts the edge fn produces hide their backdrop in different places:
  *   • frames  (kind 'border')  — art hugs the edges; green fills the CENTRE + bg
  *   • stickers (2d_filter)     — the subject is centred; green SURROUNDS it
+ *   • scene frames (FrameLayout full-scene / duo-scene) — art edge to edge with
+ *     head cutouts punched ANYWHERE, including between those two regions
  * so we sample a centre patch (catches a frame's green) plus a perimeter ring
- * and the four corners (catch a sticker's green) at a sparse stride. Green-
- * family samples are histogrammed into coarse (Cb,Cr) bins; the densest bin +
- * its 8 neighbours give the mean RGB returned as the key.
+ * and the four corners (catch a sticker's green), UNIONED with a sparse
+ * full-canvas grid (catches a cutout that sits in neither) at a sparse stride.
+ * Green-family samples are histogrammed into coarse (Cb,Cr) bins; the densest
+ * bin + its 8 neighbours give the mean RGB returned as the key.
  *
  * Returns null when green-family samples are under 1% of those visited — the
  * caller falls back to DEFAULT_KEY (and the keyedFraction gate downstream
@@ -236,6 +239,11 @@ export function detectKeyColor(
 
   const STRIDE = 4; // sample every 4th px in x AND y → ~1/16 of pixels, O(n)
   const BIN = 6; // coarse (Cb,Cr) bin size, in chroma units
+  // Sparse whole-canvas grid, UNIONED with the regions below. A multiple of
+  // STRIDE on purpose: every grid point is already a point the loop visits, so
+  // the union costs one modulo per sample and can never count a pixel twice
+  // (double-counting would bias which (Cb,Cr) bin wins).
+  const GRID_STRIDE = 8;
 
   // Region bounds (fractions of the image): a centre patch + an edge ring +
   // corner patches. Their union holds the backdrop in either layout.
@@ -253,11 +261,13 @@ export function detectKeyColor(
     const inRingY = y < ring || y >= h - ring;
     const inCornerY = y < corner || y >= h - corner;
     const inCenterY = y >= cyLo && y < cyHi;
+    const onGridY = y % GRID_STRIDE === 0;
     for (let x = 0; x < w; x += STRIDE) {
       const inRing = inRingY || x < ring || x >= w - ring;
       const inCorner = inCornerY && (x < corner || x >= w - corner);
       const inCenter = inCenterY && x >= cxLo && x < cxHi;
-      if (!inRing && !inCorner && !inCenter) continue;
+      const onGrid = onGridY && x % GRID_STRIDE === 0;
+      if (!inRing && !inCorner && !inCenter && !onGrid) continue;
 
       visited++;
       const i = (y * w + x) * 4;
