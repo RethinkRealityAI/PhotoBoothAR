@@ -4,7 +4,7 @@ import {
   buildFramePreviewSurface, buildHeadPiecePreviewSurface, buildGenErrorSurface,
   buildBoothTestSurface, buildChecklistSurface,
 } from './copilotSurfaces';
-import { applySurfaceMessages, getPath, resolveContext, type SurfaceState } from './a2ui';
+import { applySurfaceMessages, getPath, resolveContext, setPath, type SurfaceState } from './a2ui';
 import { normalizeActions, type CopilotAction } from './copilot';
 import type { EventSnapshot } from './eventSnapshot';
 import { FILTER_SHADERS } from './shaders';
@@ -172,6 +172,27 @@ describe('generation two-phase surfaces', () => {
     expect(noThumb.components.thumb).toBeUndefined();
     const ev = (noThumb.components.applyBtn.action as { event: { name: string; context: Record<string, unknown> } }).event;
     expect(resolveContext(ev.context, noThumb.dataModel)).toMatchObject({ kind: 'headpiece', experienceId: 'e1' });
+  });
+
+  it('preview cards carry the host’s tweak note on regenerate (frame + 3D)', () => {
+    // Without this the Regenerate button re-ran the IDENTICAL stored prompt, so
+    // "make it warmer" was impossible — the host could only re-roll the dice.
+    const frame = applySurfaceMessages({}, buildFramePreviewSurface('f2', { experienceId: 'exp-1', assetUrl: 'https://x/a.png' })).f2;
+    assertReducerValid(frame);
+    expect(frame.components.tweakField.component).toBe('TextField');
+    const edited = { ...frame, dataModel: setPath(frame.dataModel, '/gen/feedback', 'warmer gold, thinner border') as Record<string, unknown> };
+    const ev = (frame.components.regenBtn.action as { event: { name: string; context: Record<string, unknown> } }).event;
+    expect(ev.name).toBe('regenerate_generated');
+    expect(resolveContext(ev.context, edited.dataModel)).toMatchObject({ kind: 'frame', feedback: 'warmer gold, thinner border' });
+    // An untouched field resolves to the empty string, never undefined.
+    expect(resolveContext(ev.context, frame.dataModel).feedback).toBe('');
+
+    const piece = applySurfaceMessages({}, buildHeadPiecePreviewSurface('h3', { experienceId: 'e2', thumbUrl: null, label: 'Foam crown' })).h3;
+    assertReducerValid(piece);
+    expect(piece.components.tweakField.component).toBe('TextField');
+    const pieceEv = (piece.components.regenBtn.action as { event: { name: string; context: Record<string, unknown> } }).event;
+    const pieceModel = setPath(piece.dataModel, '/gen/feedback', 'taller, more jewels') as Record<string, unknown>;
+    expect(resolveContext(pieceEv.context, pieceModel)).toMatchObject({ kind: 'headpiece', feedback: 'taller, more jewels' });
   });
 
   it('error surface shows retry only when retryable', () => {

@@ -120,6 +120,22 @@ describe('normalizeActions — experience-building tools', () => {
     expect(normalizeActions([{ tool: 'generate_frame' }], snapshot)).toEqual([]);
   });
 
+  it('passes valid frame lettering through', () => {
+    const lettering = { text: 'Maya & Sam', style: 'script-name', placement: 'bottom' };
+    expect(normalizeActions([{ tool: 'generate_frame', prompt: 'art-deco gold border', lettering }], snapshot))
+      .toEqual([{ tool: 'generate_frame', proposal: { prompt: 'art-deco gold border', lettering } }]);
+  });
+
+  it('drops invalid lettering SILENTLY rather than the whole frame proposal', () => {
+    // A hallucinated placement id must cost the host a name on the frame, not
+    // the frame itself — same handling validationPrompt gets on add_challenge.
+    const bad = { text: 'Maya & Sam', style: 'script-name', placement: 'diagonally' };
+    expect(normalizeActions([{ tool: 'generate_frame', prompt: 'art-deco gold border', lettering: bad }], snapshot))
+      .toEqual([{ tool: 'generate_frame', proposal: { prompt: 'art-deco gold border' } }]);
+    expect(normalizeActions([{ tool: 'generate_frame', prompt: 'a frame', lettering: 'Maya' }], snapshot))
+      .toEqual([{ tool: 'generate_frame', proposal: { prompt: 'a frame' } }]);
+  });
+
   it('accepts a known filter id, drops unknown ids and none', () => {
     expect(normalizeActions([{ tool: 'set_filter', shaderId: filterId }], snapshot))
       .toEqual([{ tool: 'set_filter', proposal: { shaderId: filterId } }]);
@@ -205,5 +221,45 @@ describe('mergeWireTurns', () => {
     expect(out[2].role).toBe('user');
     expect(out[2].content).toBe('[tool_result] Challenge "X" added.\n\nnow show stats');
     expect(msgs[2].content).toBe('[tool_result] Challenge "X" added.'); // input not mutated
+  });
+
+  // REGRESSION: CopilotChat stores a client-rendered card as an assistant turn
+  // with EMPTY content (CopilotChat.tsx addSurface). ai-event-designer rejects
+  // ANY blank turn with 400 invalid_body, and the empty turn persists in
+  // sessionStorage — so one quick-action card used to poison every later send.
+  // Merging alone never caught it: it only merges ADJACENT same-role turns.
+  it('drops empty/whitespace-only turns so a surface-only card never reaches the wire', () => {
+    const out = mergeWireTurns([
+      { role: 'user', content: 'add a challenge' },
+      { role: 'assistant', content: '' },        // surface-only card, not adjacent to any assistant turn
+      { role: 'user', content: 'now show stats' },
+    ]);
+    expect(out.every((m) => m.content.trim().length > 0)).toBe(true);
+    expect(out).toEqual([{ role: 'user', content: 'add a challenge\n\nnow show stats' }]);
+    // Whitespace-only counts as empty (the server tests content.trim()).
+    const ws = mergeWireTurns([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: '   \n ' },
+      { role: 'user', content: 'again' },
+    ]);
+    expect(ws).toHaveLength(1);
+  });
+
+  it('leaves a real assistant turn between two user turns intact', () => {
+    const out = mergeWireTurns([
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b' },
+      { role: 'user', content: 'c' },
+    ]);
+    expect(out).toEqual([
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b' },
+      { role: 'user', content: 'c' },
+    ]);
+  });
+
+  it('returns [] when every turn is empty', () => {
+    expect(mergeWireTurns([{ role: 'assistant', content: '' }, { role: 'assistant', content: ' ' }])).toEqual([]);
+    expect(mergeWireTurns([])).toEqual([]);
   });
 });

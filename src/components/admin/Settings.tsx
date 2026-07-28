@@ -25,6 +25,7 @@ import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from './studioBase';
 import type { WallSettings, LandingContent } from '../../types';
 import { inputCls, TextField, TextArea } from './fields';
+import { copyText } from '../../lib/clipboard';
 
 /* ------------------------------------------------------------------ */
 /* Gala-styled toggle row                                               */
@@ -128,7 +129,7 @@ function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      onClick={() => navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
+      onClick={() => copyText(text).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 2000); })}
       className="p-1.5 rounded-lg glass hover:bg-gold-400/15 text-champagne/50 hover:text-gold-300 transition-colors"
       title="Copy"
     >

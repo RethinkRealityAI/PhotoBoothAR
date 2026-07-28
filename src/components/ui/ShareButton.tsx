@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import { Share2, Check } from 'lucide-react';
 import { useStore } from '../../store';
+import { copyText } from '../../lib/clipboard';
 
 interface Props {
   /** Link to share. Defaults to this site's origin (the booth). */
@@ -39,12 +40,11 @@ export default function ShareButton({ url, label = 'Share', className = '', icon
         return; // user cancelled — don't fall through to clipboard
       }
     }
-    try {
-      await navigator.clipboard.writeText(shareUrl);
+    // copyText falls back to the legacy path, which is the only one that works
+    // in a non-secure context — this used to just give up silently there.
+    if (await copyText(shareUrl)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard blocked — nothing else we can do */
     }
   }
 

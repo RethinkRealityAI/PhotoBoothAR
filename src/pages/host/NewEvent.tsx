@@ -25,6 +25,7 @@ import { loadEventSnapshot, type EventSnapshot } from '../../lib/eventSnapshot';
 import { applySurfaceMessages, getPath, setPath, type A2uiActionEvent, type SurfaceState } from '../../lib/a2ui';
 import A2uiSurface from '../../components/a2ui/A2uiSurface';
 import TemplatePreview from '../../components/ui/TemplatePreview';
+import { copyText } from '../../lib/clipboard';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-brand-fg ' +
@@ -382,7 +383,7 @@ export default function NewEvent() {
             <div className="flex items-center gap-1.5">
               <p className="font-mono text-[11px] text-brand-muted/70 truncate">{guestUrl.replace(/^https?:\/\//, '')}</p>
               <button
-                onClick={() => navigator.clipboard.writeText(guestUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
+                onClick={() => copyText(guestUrl).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 2000); })}
                 className="p-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors shrink-0"
                 title="Copy guest link"
               >

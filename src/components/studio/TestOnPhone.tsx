@@ -16,6 +16,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Loader2, Save, Smartphone } from 'lucide-react';
 import { useEvent } from '../../events/EventContext';
 import Modal from '../ui/Modal';
+import ErrorBoundary from '../ui/ErrorBoundary';
 
 interface Props {
   /** The saved experience id (draft.id) — undefined until the first save. */
@@ -40,9 +41,20 @@ export default function TestOnPhone({ experienceId, dirty, isPublished, saving, 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const url = experienceId ? `${origin}${basePath}/experience/${experienceId}` : '';
 
+  const [copyFailed, setCopyFailed] = useState(false);
   const copy = () => {
     if (!url) return;
-    navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+    // navigator.clipboard is UNDEFINED outside a secure context — and this is
+    // the one feature that actively invites a host to open the studio on a LAN
+    // IP over plain HTTP so their phone can reach it. Reading `.writeText` off
+    // undefined threw a TypeError out of the click handler. writeText also
+    // REJECTS when the document isn't focused, which had no handler either.
+    const clip = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
+    if (!clip?.writeText) { setCopyFailed(true); return; }
+    clip.writeText(url).then(
+      () => { setCopied(true); setCopyFailed(false); setTimeout(() => setCopied(false), 2000); },
+      () => setCopyFailed(true),
+    );
   };
 
   return (
@@ -73,15 +85,30 @@ export default function TestOnPhone({ experienceId, dirty, isPublished, saving, 
           </>
         ) : (
           <>
-            <div className="rounded-2xl p-3 bg-brand-fg">
-              <QRCodeSVG value={url} size={168} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
-            </div>
+            {/* The QR is rendered behind its own boundary. The app's only other
+                boundary is the ROOT one (App.tsx), and it is `fullScreen` — so
+                anything that throws while rendering this dialog does not
+                degrade the dialog, it blanks the entire studio behind a
+                full-page "unexpected error". QRCodeSVG genuinely can throw
+                (RangeError "Data too long" once a value exceeds the symbol's
+                capacity), and the link below is the actual payload the host
+                needs, so failing down to it costs them nothing. */}
+            <ErrorBoundary label="QR code">
+              <div className="rounded-2xl p-3 bg-brand-fg">
+                <QRCodeSVG value={url} size={168} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
+              </div>
+            </ErrorBoundary>
             <button
               onClick={copy}
               className="font-mono text-[10px] text-brand-muted/50 hover:text-accent-2 break-all transition-colors"
             >
               {copied ? 'Copied!' : url.replace(/^https?:\/\//, '')}
             </button>
+            {copyFailed && (
+              <p role="status" className="font-sans text-[10px] text-brand-muted/60 leading-relaxed">
+                Couldn&apos;t copy automatically — select the link above and copy it manually.
+              </p>
+            )}
             <p className="font-sans text-[11px] text-brand-muted/45 leading-relaxed">
               Published pieces appear in the booth picker; this link opens your piece directly.
             </p>

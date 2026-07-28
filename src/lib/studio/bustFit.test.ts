@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { computeBustFit, computePropFitScale, HEAD_HEIGHT_CM, PROP_TARGET_CM } from './bustFit';
+import {
+  computeBustFit,
+  computePropFitScale,
+  computeAnchorAlignedFit,
+  collectWorldPositions,
+  surfaceRadiusAlong,
+  ANCHOR_CLEARANCE_CM,
+  HEAD_HEIGHT_CM,
+  PROP_TARGET_CM,
+} from './bustFit';
 
 /** Build a mesh like the vendored bust: a box with a tiny native size AND a
  *  90° X-axis node rotation (the case that broke the orbit view). */
@@ -95,5 +104,153 @@ describe('computePropFitScale', () => {
 
   it('returns null for an empty object (caller keeps legacy scale 1)', () => {
     expect(computePropFitScale(new THREE.Group())).toBeNull();
+  });
+});
+
+/* ── Anchor-aligned fit ───────────────────────────────────────────────────── */
+
+/** Evenly-distributed points on a sphere (Fibonacci lattice), as xyz triples. */
+function sphereCloud(radius: number, n = 900, centre: [number, number, number] = [0, 0, 0]): Float32Array {
+  const out = new Float32Array(n * 3);
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < n; i++) {
+    const y = 1 - (i / (n - 1)) * 2;
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    const th = golden * i;
+    out[i * 3] = Math.cos(th) * r * radius + centre[0];
+    out[i * 3 + 1] = y * radius + centre[1];
+    out[i * 3 + 2] = Math.sin(th) * r * radius + centre[2];
+  }
+  return out;
+}
+
+/** Anchors spread over the upper hemisphere at a fixed radius from the origin. */
+function anchorsAt(radius: number): [number, number, number][] {
+  return [
+    [0, radius, 0], [0, 0, radius], [radius, 0, 0], [-radius, 0, 0],
+    [0, radius * 0.7, radius * 0.7], [radius * 0.7, radius * 0.7, 0],
+  ];
+}
+
+describe('surfaceRadiusAlong', () => {
+  it('measures the radius of a sphere in any direction', () => {
+    const cloud = sphereCloud(4);
+    for (const dir of [[0, 1, 0], [1, 0, 0], [0, 0, 1], [1, 1, 1]] as const) {
+      expect(surfaceRadiusAlong(cloud, dir)!).toBeCloseTo(4, 1);
+    }
+  });
+
+  it('normalises a non-unit direction', () => {
+    const cloud = sphereCloud(4);
+    expect(surfaceRadiusAlong(cloud, [0, 17, 0])!).toBeCloseTo(4, 1);
+  });
+
+  it('returns null when nothing lies inside the cone', () => {
+    // A single point on +Y only; ask about −Y.
+    expect(surfaceRadiusAlong(new Float32Array([0, 5, 0]), [0, -1, 0])).toBeNull();
+  });
+
+  it('returns null for an empty cloud or a zero-length direction', () => {
+    expect(surfaceRadiusAlong(new Float32Array(0), [0, 1, 0])).toBeNull();
+    expect(surfaceRadiusAlong(sphereCloud(2), [0, 0, 0])).toBeNull();
+  });
+});
+
+describe('computeAnchorAlignedFit', () => {
+  it('scales a mesh so no anchor is left buried inside it', () => {
+    // A unit sphere against anchors 3 units out: the whole-bbox fit would blow
+    // the sphere up to HEAD_HEIGHT_CM tall (radius 8.85) and swallow every one.
+    const fit = computeAnchorAlignedFit(sphereCloud(1), anchorsAt(3))!;
+    expect(fit).not.toBeNull();
+    expect(fit.worstClearance).toBeGreaterThanOrEqual(0);
+    // On a sphere every anchor is equidistant, so the optimum puts them all at
+    // exactly the clearance target — the dots hug the surface rather than
+    // hovering. Tolerance covers the search's step granularity.
+    for (const c of fit.clearances) {
+      expect(c).toBeGreaterThanOrEqual(0);
+      expect(Math.abs(c - ANCHOR_CLEARANCE_CM)).toBeLessThanOrEqual(0.15);
+    }
+    // Sanity: the sphere must end up smaller than the anchor shell it sits in.
+    expect(fit.scale).toBeLessThan(3);
+  });
+
+  it('rescues a mesh the legacy whole-bbox fit would swallow whole', () => {
+    // computeBustFit stretches ANY mesh to HEAD_HEIGHT_CM tall — for a unit
+    // sphere that is radius 8.85, which buries an anchor shell at radius 3.
+    // This is the exact shape of the shipped bug (all 12 anchors 2.9–8.8cm deep).
+    const cloud = sphereCloud(1);
+    const legacyScale = HEAD_HEIGHT_CM / 2; // bbox height of a unit sphere is 2
+    expect(3 - legacyScale).toBeLessThan(0); // legacy fit really does bury them
+    const fit = computeAnchorAlignedFit(cloud, anchorsAt(3))!;
+    expect(fit.worstClearance).toBeGreaterThanOrEqual(0);
+  });
+
+  it('recovers a translation that pushes the mesh off the anchor origin', () => {
+    // Same sphere, but modelled 5 units up and 2 forward: the fit must bring it
+    // back so the anchor shell stays clear on every side.
+    const fit = computeAnchorAlignedFit(sphereCloud(1, 900, [0, 5, 2]), anchorsAt(3))!;
+    expect(fit.worstClearance).toBeGreaterThanOrEqual(0);
+    expect(fit.position[1]).toBeCloseTo(-5 * fit.scale, 0);
+    expect(fit.position[2]).toBeCloseTo(-2 * fit.scale, 0);
+  });
+
+  it('reports one clearance per anchor, in order', () => {
+    const anchors = anchorsAt(3);
+    const fit = computeAnchorAlignedFit(sphereCloud(1), anchors)!;
+    expect(fit.clearances).toHaveLength(anchors.length);
+    expect(fit.worstClearance).toBe(Math.min(...fit.clearances));
+  });
+
+  it('is deterministic — the same cloud fits identically every time', () => {
+    const cloud = sphereCloud(1.3);
+    const a = computeAnchorAlignedFit(cloud, anchorsAt(4))!;
+    const b = computeAnchorAlignedFit(cloud, anchorsAt(4))!;
+    expect(b.scale).toBe(a.scale);
+    expect(b.position).toEqual(a.position);
+  });
+
+  it('honours a custom clearance target', () => {
+    const tight = computeAnchorAlignedFit(sphereCloud(1), anchorsAt(3), { clearanceCm: 0.2 })!;
+    const loose = computeAnchorAlignedFit(sphereCloud(1), anchorsAt(3), { clearanceCm: 2.0 })!;
+    // A bigger gap demands a smaller head.
+    expect(loose.scale).toBeLessThan(tight.scale);
+  });
+
+  it('ignores non-finite vertices instead of poisoning the fit', () => {
+    const clean = sphereCloud(1);
+    const dirty = new Float32Array(clean.length + 3);
+    dirty.set(clean);
+    dirty[clean.length] = NaN; dirty[clean.length + 1] = Infinity; dirty[clean.length + 2] = 0;
+    const fit = computeAnchorAlignedFit(dirty, anchorsAt(3))!;
+    expect(Number.isFinite(fit.scale)).toBe(true);
+    expect(fit.worstClearance).toBeGreaterThanOrEqual(0);
+  });
+
+  it('returns null when there is nothing to fit', () => {
+    expect(computeAnchorAlignedFit(new Float32Array(0), anchorsAt(3))).toBeNull();
+    expect(computeAnchorAlignedFit(sphereCloud(1), [])).toBeNull();
+    // An anchor list of nothing but the origin has no direction to measure.
+    expect(computeAnchorAlignedFit(sphereCloud(1), [[0, 0, 0]])).toBeNull();
+  });
+});
+
+describe('collectWorldPositions', () => {
+  it('returns world-space vertices, honouring node transforms', () => {
+    const pts = collectWorldPositions(makeRotatedBust());
+    expect(pts.length).toBeGreaterThan(0);
+    let maxY = -Infinity;
+    for (let i = 1; i < pts.length; i += 3) maxY = Math.max(maxY, pts[i]);
+    // Rotated 90° about X, so the raw 1.911 depth becomes world height (±~0.955
+    // around the geometry's translated centre).
+    expect(maxY).toBeGreaterThan(0.6);
+  });
+
+  it('samples down to the requested budget', () => {
+    const pts = collectWorldPositions(makeRotatedBust(), 12);
+    expect(pts.length / 3).toBeLessThanOrEqual(12);
+  });
+
+  it('returns an empty array for an object with no meshes', () => {
+    expect(collectWorldPositions(new THREE.Group()).length).toBe(0);
   });
 });

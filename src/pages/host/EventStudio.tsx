@@ -43,6 +43,7 @@ import CardsTab from './CardsTab';
 import ShareKit from './ShareKit';
 import UpgradeCard from './UpgradeCard';
 import StatusPill from '../../components/ui/StatusPill';
+import { copyText } from '../../lib/clipboard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -68,7 +69,7 @@ function GuestLinkCopy({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      onClick={() => navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
+      onClick={() => copyText(url).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 2000); })}
       title="Copy guest link"
       className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass text-[10px] font-mono text-brand-muted/60 hover:text-accent-2 transition-colors max-w-[14rem]"
     >

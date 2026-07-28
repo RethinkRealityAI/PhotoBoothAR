@@ -81,3 +81,63 @@ export function parseShotPayload(x: unknown): string | null {
   if (shot.length === 0 || shot.length > MAX_SHOT_CHARS) return null;
   return shot;
 }
+
+export type BeamTransportStatus = 'connecting' | 'ready' | 'error';
+
+/**
+ * Shared listener plumbing for both beam transports — DOM-free so the ready /
+ * ack logic that decides whether a guest is told the truth about their beam is
+ * unit-testable in node. (It cannot live in demoBeamTransport.ts and be tested:
+ * that module imports the Supabase client, which throws without env vars, so a
+ * colocated test would fail to even collect.)
+ */
+export function createBeamHub() {
+  const shotCbs: Array<(shot: string) => void> = [];
+  const helloCbs: Array<() => void> = [];
+  const ackCbs: Array<() => void> = [];
+  const statusCbs: Array<(s: BeamTransportStatus) => void> = [];
+  let status: BeamTransportStatus = 'connecting';
+  return {
+    shotCbs,
+    helloCbs,
+    ackCbs,
+    emitAck() {
+      ackCbs.forEach((cb) => cb());
+    },
+    /** Resolve once the wire is usable; false on error or timeout. */
+    whenReady(timeoutMs: number): Promise<boolean> {
+      if (status === 'ready') return Promise.resolve(true);
+      if (status === 'error') return Promise.resolve(false);
+      return new Promise((resolve) => {
+        let settled = false;
+        const done = (v: boolean) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(v);
+        };
+        const timer = setTimeout(() => done(false), timeoutMs);
+        statusCbs.push((s) => {
+          if (s === 'ready') done(true);
+          else if (s === 'error') done(false);
+        });
+      });
+    },
+    emitShot(payload: unknown) {
+      const shot = parseShotPayload(payload);
+      if (shot !== null) shotCbs.forEach((cb) => cb(shot));
+    },
+    emitHello() {
+      helloCbs.forEach((cb) => cb());
+    },
+    setStatus(s: BeamTransportStatus) {
+      status = s;
+      statusCbs.forEach((cb) => cb(s));
+    },
+    onStatus(cb: (s: BeamTransportStatus) => void) {
+      statusCbs.push(cb);
+      cb(status);
+    },
+  };
+}
+

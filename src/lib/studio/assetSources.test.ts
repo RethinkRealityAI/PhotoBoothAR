@@ -13,6 +13,7 @@ import {
   dockItemKind,
   dockItemMatchesChip,
   filterDockByChip,
+  isDockItemInScene,
   type DockItem,
   type AssetChip,
 } from './assetSources';
@@ -386,5 +387,32 @@ describe('dockItemMatchesChip / filterDockByChip', () => {
   it('applies the case-insensitive label substring on top of the chip', () => {
     expect(filterDockByChip(items, 'all', 'GOLD').map((i) => i.id)).toEqual(['frame']);
     expect(filterDockByChip(items, 'frame', 'confetti')).toEqual([]); // right query, wrong chip
+  });
+});
+
+describe('isDockItemInScene', () => {
+  const imageItem = { id: 'a', label: 'Logo', family: '2d', previewUrl: null, payload: { url: 'https://x/logo.png' } } as never;
+  const modelItem = { id: 'b', label: 'Crown', family: '3d', previewUrl: null, payload: { assetUrl: 'https://x/crown.glb' } } as never;
+  const procItem = { id: 'c', label: 'Tiara', family: '3d', previewUrl: null, payload: { proceduralId: 'tiara' } } as never;
+
+  it('is false for an empty scene', () => {
+    expect(isDockItemInScene(imageItem, [])).toBe(false);
+  });
+
+  it('matches an overlay already placed by url', () => {
+    expect(isDockItemInScene(imageItem, [{ url: 'https://x/logo.png' }])).toBe(true);
+    expect(isDockItemInScene(imageItem, [{ url: 'https://x/other.png' }])).toBe(false);
+  });
+
+  it('matches a model by assetUrl and a head piece by proceduralId', () => {
+    expect(isDockItemInScene(modelItem, [{ assetUrl: 'https://x/crown.glb' }])).toBe(true);
+    expect(isDockItemInScene(procItem, [{ proceduralId: 'tiara' }])).toBe(true);
+    expect(isDockItemInScene(procItem, [{ proceduralId: 'crown' }])).toBe(false);
+  });
+
+  it('ignores null/undefined identity fields rather than matching everything', () => {
+    // The trap: a scene object with url:null must not "match" a tile with no url.
+    const blank = { id: 'd', label: 'x', family: '2d', previewUrl: null, payload: {} } as never;
+    expect(isDockItemInScene(blank, [{ url: null, assetUrl: null, proceduralId: null }])).toBe(false);
   });
 });

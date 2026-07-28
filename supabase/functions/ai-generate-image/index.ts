@@ -10,6 +10,20 @@
  *                                               key backdrop for the browser to
  *                                               key out; default false — prompt
  *                                               unchanged for other callers)
+ *     layout?: 'classic-border' | 'full-scene'  (frame archetype; border kind
+ *            | 'duo-scene' | 'corner-overlay'    only. Default 'classic-border'
+ *            | 'bottom-third'                    = the exact prompt this
+ *                                               function has always sent.)
+ *     lettering?: {                             (optional lettering ON the frame.
+ *       text: string (1-40 chars),               Absent → the standing "no text"
+ *       style: 'cursive-monogram'                ban is sent verbatim and the
+ *            | 'serif-initials'                  prompt is byte-identical to
+ *            | 'script-name'                     before. Malformed → 400.
+ *            | 'modern-block',                   placement 'standalone' = the
+ *       placement: 'top' | 'bottom'              lettering IS the artwork, so
+ *                | 'integrated'                  the caller sends kind
+ *                | 'beyond-edge'                 '2d_filter' for it.)
+ *                | 'standalone' }
  *     referenceImageUrl?: string }              (optional public assets URL of a
  *                                               host-uploaded reference; gemini
  *                                               fetches it server-side + inlines
@@ -43,7 +57,9 @@
  *
  * Env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY (injected),
  *      GEMINI_API_KEY (secret — moved server-side from the old client-only
- *      VITE_GEMINI_API_KEY), HIGGSFIELD_API_KEY + HIGGSFIELD_API_URL (secrets,
+ *      VITE_GEMINI_API_KEY), GEMINI_FRAME_MODEL (optional — model ATTEMPTED for
+ *      a non-classic frame archetype before falling back to GEMINI_MODEL;
+ *      default 'gemini-3-pro-image'), HIGGSFIELD_API_KEY + HIGGSFIELD_API_URL (secrets,
  *      not provisioned yet — until then higgsfield returns ai_not_configured).
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
@@ -57,6 +73,12 @@ const corsHeaders = {
 
 const ASSETS_BUCKET = 'assets';
 const GEMINI_MODEL = 'gemini-2.5-flash-image';
+/** Model tried FIRST for a non-classic frame archetype — those are composition
+ *  problems (a whole illustrated scene with an exact cutout), which the thinking
+ *  image model handles far better than flash. Overridable via GEMINI_FRAME_MODEL
+ *  so it can be rolled forward or back without a deploy. It is only ever an
+ *  ATTEMPT: any failure degrades to GEMINI_MODEL (see generateGemini). */
+const GEMINI_FRAME_MODEL_DEFAULT = 'gemini-3-pro-image';
 
 /** Credit cost per provider (strategy doc: gemini image 1cr, higgsfield 2cr). */
 const COSTS = { gemini: 1, higgsfield: 2 } as const;
@@ -69,6 +91,68 @@ type Provider = keyof typeof COSTS;
 const FREE_IMAGES_PER_EVENT = 3;
 
 const KINDS = new Set(['2d_filter', 'border']);
+
+/* ── Frame archetypes ─────────────────────────────────────────────────────
+ * MIRRORED from src/lib/assetPrompt.ts (FrameLayout / FRAME_LAYOUT_SPEC /
+ * GREEN_RULES / EMPTY_ELLIPSE). Edge functions cannot import from src/, so the
+ * two carry the same text byte for byte — change one, change the other.
+ *
+ * 'classic-border' is the string this function has always sent for a
+ * green-screen frame, moved verbatim into the table: an absent or legacy
+ * `layout` therefore produces a byte-identical prompt to before. */
+
+type FrameLayout = 'classic-border' | 'full-scene' | 'duo-scene' | 'corner-overlay' | 'bottom-third';
+
+const GREEN_RULES =
+  'The green must be a flat, uniform chroma-key green with NO gradients, NO shadows, NO texture, ' +
+  'NO vignette or glow, and must read as a single exact colour so it can be keyed out. Use NO green ' +
+  'anywhere in the artwork itself, and give it no green tint, green reflection or green rim-light — ' +
+  'anything green in the art will be punched out as a hole.';
+
+/** Cutout layouts only: asked for a hole where a head goes, an image model's
+ *  first instinct is to draw a face in it — which then keys out as a hole in
+ *  the guest's own face. */
+const EMPTY_ELLIPSE =
+  'The ellipse contains NOTHING but flat green — no person, no face, no silhouette inside it.';
+
+const FRAME_LAYOUT_SPEC: Record<FrameLayout, string> = {
+  'classic-border':
+    'Create a full-bleed decorative FRAME composition for a 9:16 vertical portrait canvas ' +
+    '(1080x1920). ALL decorative art must hug the four edges as a border. Fill the ENTIRE ' +
+    'central area AND the whole background with ONE solid pure green colour #00FF00 — a flat, ' +
+    'uniform chroma-key green with NO gradients, NO shadows, NO texture, NO vignette or glow on ' +
+    'the green. Do not place any art, drop-shadow, or highlight over the green region; the green ' +
+    'must read as a single exact colour so it can be keyed out. Use NO green anywhere in the ' +
+    'border artwork itself, and give it no green tint, green reflection or green rim-light — ' +
+    'anything green in the art will be punched out as a hole.',
+  'full-scene':
+    'Create a full-bleed illustrated SCENE for a 9:16 vertical portrait canvas (1080x1920) — the ' +
+    'artwork runs edge to edge as a complete environment, NOT a border around an empty middle. ' +
+    'Leave exactly ONE head cutout: a solid #00FF00 ellipse centred at 50% of the width and 38% of ' +
+    'the height, spanning 34% of the width and 21% of the height. The scene may frame that ellipse ' +
+    '(a porthole, a visor, a wreath of flowers) but must never paint over it. ' +
+    `${EMPTY_ELLIPSE} ${GREEN_RULES}`,
+  'duo-scene':
+    'Create a full-bleed illustrated SCENE for a 9:16 vertical portrait canvas (1080x1920) — the ' +
+    'artwork runs edge to edge as a complete environment, NOT a border around an empty middle. ' +
+    'Leave exactly TWO head cutouts: solid #00FF00 ellipses centred at 30% and at 70% of the width, ' +
+    'both at 38% of the height, each spanning 26% of the width and 18% of the height. The scene may ' +
+    'frame those ellipses (portholes, visors, wreaths) but must never paint over them. ' +
+    `${EMPTY_ELLIPSE} ${GREEN_RULES}`,
+  'corner-overlay':
+    'Create a corner-anchored decorative overlay for a 9:16 vertical portrait canvas (1080x1920). ' +
+    'ALL of the artwork sits in two opposite corners — top-left and bottom-right — each cluster ' +
+    'contained within 40% of the width and 25% of the height. EVERY other pixel, including the ' +
+    'whole centre and both remaining corners, is solid #00FF00. ' +
+    `${GREEN_RULES}`,
+  'bottom-third':
+    'Create a lower-third stage graphic for a 9:16 vertical portrait canvas (1080x1920). ALL of the ' +
+    'artwork sits BELOW 66% of the height, as a lower-third band the subject stands above. The top ' +
+    'two-thirds of the canvas is entirely solid #00FF00. ' +
+    `${GREEN_RULES}`,
+};
+
+const LAYOUTS = new Set(Object.keys(FRAME_LAYOUT_SPEC));
 
 /** Grandfathered coded events: full-capability (mirrors LEGACY_ENTITLEMENTS
  *  in src/lib/entitlements.ts) even though their events rows say 'free'. */
@@ -207,11 +291,116 @@ function paletteDirection(accentHexes: string[]): string {
     'plus at most one neutral. Do not use every colour.';
 }
 
+// Composition direction PER FRAME LAYOUT (mirror: src/lib/assetPrompt.ts
+// FRAME_COMPOSITION — change one, change the other). Edge-border language is
+// exactly wrong for a full-scene frame, whose art fills the canvas and
+// organises itself AROUND the head cutouts.
+const FRAME_COMPOSITION: Record<string, string> = {
+  'classic-border':
+    'Composition: treat the four edges as a deliberate composition, not a repeating stamp. Anchor the ' +
+    'design with heavier ornament in two opposite corners and let it thin out along the long edges, ' +
+    'so the eye travels. Keep the top-centre and bottom-centre calmer than the corners.',
+  'corner-overlay':
+    'Composition: treat the four edges as a deliberate composition, not a repeating stamp. Anchor the ' +
+    'design with heavier ornament in two opposite corners and let it thin out along the long edges, ' +
+    'so the eye travels. Keep the top-centre and bottom-centre calmer than the corners.',
+  'full-scene':
+    'Composition: a complete illustrated environment with real depth — distinct foreground, midground ' +
+    'and background layers — designed AROUND the head cutout so the scene makes sense once a real face ' +
+    'fills the opening. Use leading lines and framing devices (arches, foliage, beams of light, portholes) ' +
+    'that draw the eye toward the cutout.',
+  'duo-scene':
+    'Composition: a complete illustrated environment with real depth — distinct foreground, midground ' +
+    'and background layers — designed AROUND the two head cutouts so the scene makes sense once real ' +
+    'faces fill the openings. Give the pair a shared context (one bench, one archway, one marquee) and ' +
+    'use leading lines that connect the two openings.',
+  'bottom-third':
+    'Composition: build the artwork as a lower-third stage with a clear horizon line; visual weight and ' +
+    'detail live in the bottom band and thin upward to nothing well before the vertical midpoint.',
+};
+
+/* ── Frame lettering ──────────────────────────────────────────────────────
+ * MIRRORED from src/lib/assetPrompt.ts (LetteringStyle / LetteringPlacement /
+ * LETTERING_STYLE_SPEC / LETTERING_PLACEMENT_SPEC / normalizeLettering /
+ * letteringDirection). Edge functions cannot import from src/, so the two carry
+ * the same text byte for byte — change one, change the other.
+ *
+ * Opt-in: with `lettering` absent the ban line below is the exact string this
+ * function has always ended its art direction with. */
+
+type LetteringStyle = 'cursive-monogram' | 'serif-initials' | 'script-name' | 'modern-block';
+type LetteringPlacement = 'top' | 'bottom' | 'integrated' | 'beyond-edge' | 'standalone';
+
+interface LetteringSpec {
+  text: string;
+  style: LetteringStyle;
+  placement: LetteringPlacement;
+}
+
+const LETTERING_STYLES = new Set([
+  'cursive-monogram', 'serif-initials', 'script-name', 'modern-block',
+]);
+const LETTERING_PLACEMENTS = new Set([
+  'top', 'bottom', 'integrated', 'beyond-edge', 'standalone',
+]);
+
+/** Max characters of lettering. Past ~40 an image model stops spelling and
+ *  starts inventing glyphs, which is worse than no lettering at all. */
+const LETTERING_MAX = 40;
+
+/** Validate untrusted lettering into a spec, or null (= no lettering). */
+function normalizeLettering(v: unknown): LetteringSpec | null {
+  if (v === null || v === undefined || typeof v !== 'object' || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const text = typeof o.text === 'string' ? o.text.trim() : '';
+  if (!text || text.length > LETTERING_MAX) return null;
+  const style = typeof o.style === 'string' ? o.style : '';
+  if (!LETTERING_STYLES.has(style)) return null;
+  const placement = typeof o.placement === 'string' ? o.placement : '';
+  if (!LETTERING_PLACEMENTS.has(placement)) return null;
+  return { text, style: style as LetteringStyle, placement: placement as LetteringPlacement };
+}
+
+const LETTERING_STYLE_SPEC: Record<LetteringStyle, string> = {
+  'cursive-monogram': 'an interlocked cursive monogram with elegant flourishes',
+  'serif-initials': 'large engraved serif capital initials',
+  'script-name': 'a flowing calligraphic script wordmark',
+  'modern-block': 'bold modern geometric block capitals with tight tracking',
+};
+
+/** 'standalone' has no entry: it means "no frame at all", so the sticker
+ *  composition line already places the subject — see letteringPlacementSpec. */
+const LETTERING_PLACEMENT_SPEC: Record<Exclude<LetteringPlacement, 'standalone'>, string> = {
+  top: 'centred in the top band of the frame',
+  bottom: 'centred in the lower band of the frame',
+  integrated: 'woven into the frame ornament itself, sharing its materials and lighting',
+  'beyond-edge': 'overflowing past the frame edge into the canvas, oversized and confident',
+};
+
+function letteringPlacementSpec(placement: LetteringPlacement): string {
+  return placement === 'standalone'
+    ? 'as the single standalone subject of the artwork, with no frame or border around it'
+    : LETTERING_PLACEMENT_SPEC[placement];
+}
+
+/** The block that REPLACES the standing "no text" ban when lettering is asked
+ *  for. Spelling is the whole game with image models, hence "letter-for-letter
+ *  with no substitutions" and the residual ban on EVERYTHING else. */
+function letteringDirection(spec: LetteringSpec): string {
+  return `Render EXACTLY the text "${spec.text}", exactly once, spelled precisely letter-for-letter ` +
+    `with no substitutions, as ${LETTERING_STYLE_SPEC[spec.style]}, ${letteringPlacementSpec(spec.placement)}. ` +
+    'Integrate the lettering with the frame\'s palette and materials. Apart from that single piece of ' +
+    'lettering: no other text, no numerals, no logos, no watermark, no signature anywhere in the image.';
+}
+
 function artDirectionFor(
   brief: string,
   kind: string,
   accentHexes: string[],
   eventType: string | null,
+  layout: string = 'classic-border',
+  /** Opt-in lettering. Absent/null → the ban line is sent verbatim. */
+  lettering: LetteringSpec | null = null,
 ): string {
   const register = eventType ? EVENT_REGISTER[eventType.toLowerCase()] : undefined;
   const palette = paletteDirection(accentHexes);
@@ -219,9 +408,7 @@ function artDirectionFor(
   // image, which also arrives as a sticker kind) — a sticker has one subject,
   // not four edges.
   const composition = kind === 'border'
-    ? 'Composition: treat the four edges as a deliberate composition, not a repeating stamp. Anchor ' +
-      'the design with heavier ornament in two opposite corners and let it thin out along the long ' +
-      'edges, so the eye travels. Keep the top-centre and bottom-centre calmer than the corners.'
+    ? (FRAME_COMPOSITION[layout] ?? FRAME_COMPOSITION['classic-border'])
     : 'Composition: one clear silhouette that reads instantly at thumbnail size. Strong outer shape, ' +
       'detail concentrated toward the centre, nothing important near the outer few pixels.';
   return [
@@ -235,7 +422,12 @@ function artDirectionFor(
     'Quality bar: looks like a professional event stationery designer made it for this specific ' +
       'occasion. Avoid clip-art motifs, generic swirls, muddy gradients, and anything that reads as ' +
       'stock template.',
-    'No text, no lettering, no numerals, no logos, no watermark, no signature anywhere in the image.',
+    // Lettering REPLACES the ban (it is the one exception to it) — for the
+    // sticker/standalone path too, which keeps its one-subject composition
+    // line above. Absent → the exact string this function has always sent.
+    lettering
+      ? letteringDirection(lettering)
+      : 'No text, no lettering, no numerals, no logos, no watermark, no signature anywhere in the image.',
   ].filter(Boolean).join(' ');
 }
 
@@ -254,20 +446,19 @@ function buildPrompt(
    *  the 3D concept image does this, and layering sticker art direction on top
    *  of it would fight the wearable-geometry rules it carries. */
   artDirection = true,
+  /** Frame archetype — border + greenScreen only. 'classic-border' reproduces
+   *  the prompt this function has always sent, byte for byte. */
+  layout: FrameLayout = 'classic-border',
+  /** Opt-in lettering ON the artwork. Absent/null → the art direction ends with
+   *  the standing ban line, byte-identical to before this parameter existed. */
+  lettering: LetteringSpec | null = null,
 ): string {
   const art = artDirection
-    ? artDirectionFor(prompt, kind, accentHexes, eventType)
+    ? artDirectionFor(prompt, kind, accentHexes, eventType, layout, lettering)
     : `Design brief: ${prompt.trim()}`;
   if (greenScreen) {
     const base = kind === 'border'
-      ? 'Create a full-bleed decorative FRAME composition for a 9:16 vertical portrait canvas ' +
-        '(1080x1920). ALL decorative art must hug the four edges as a border. Fill the ENTIRE ' +
-        'central area AND the whole background with ONE solid pure green colour #00FF00 — a flat, ' +
-        'uniform chroma-key green with NO gradients, NO shadows, NO texture, NO vignette or glow on ' +
-        'the green. Do not place any art, drop-shadow, or highlight over the green region; the green ' +
-        'must read as a single exact colour so it can be keyed out. Use NO green anywhere in the ' +
-        'border artwork itself, and give it no green tint, green reflection or green rim-light — ' +
-        'anything green in the art will be punched out as a hole.'
+      ? FRAME_LAYOUT_SPEC[layout]
       : 'Create a single centered decorative subject for an event photo-booth sticker, bold and ' +
         'readable at small sizes. Fill the ENTIRE background behind and around the subject with ONE ' +
         'solid pure green colour #00FF00 — a flat, uniform chroma-key green with NO gradients, NO ' +
@@ -320,7 +511,14 @@ const GEMINI_IMAGE_SIZE = '2K';
 /** Gemini image generation — REST generateContent with IMAGE modality.
  *  (Server-side move of the old browser call to generativelanguage.googleapis.com
  *  in Creator2D; the image model returns inlineData base64 instead of SVG text.) */
-async function generateGemini(prompt: string, aspectRatio: string, reference?: InlineImage | null): Promise<Uint8Array> {
+async function generateGemini(
+  prompt: string,
+  aspectRatio: string,
+  reference?: InlineImage | null,
+  /** Model to ATTEMPT before GEMINI_MODEL (creative frame archetypes only).
+   *  Never a replacement — every failure path degrades to GEMINI_MODEL. */
+  preferModel: string | null = null,
+): Promise<Uint8Array> {
   // Dashboard-set secrets can arrive wrapped in quotes / with a trailing
   // newline; Google then rejects them as API_KEY_INVALID. Strip both.
   const key = Deno.env.get('GEMINI_API_KEY')?.trim().replace(/^["']|["']$/g, '');
@@ -348,8 +546,8 @@ async function generateGemini(prompt: string, aspectRatio: string, reference?: I
     ? [{ inlineData: { mimeType: reference.mimeType, data: reference.data } }, { text: prompt }]
     : [{ text: prompt }];
 
-  const post = (generationConfig: Record<string, unknown>) => fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+  const post = (model: string, generationConfig: Record<string, unknown>) => fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
@@ -357,7 +555,28 @@ async function generateGemini(prompt: string, aspectRatio: string, reference?: I
     },
   );
 
-  let res = await post(fullConfig);
+  // Guarded model chain. A creative frame archetype is a composition problem,
+  // so it gets ONE attempt at the stronger image model first. A 4xx there is
+  // the expected degrade (the key has no access to it, or the name has moved);
+  // a 5xx or a network error degrades too, because failing a paid job over an
+  // OPTIONAL upgrade is strictly worse than generating on the model that has
+  // always run. Either way the chain continues into the production path below,
+  // whose own fallback ends at the exact request shipping today.
+  let res: Response | null = null;
+  if (preferModel && preferModel !== GEMINI_MODEL) {
+    try {
+      const attempt = await post(preferModel, fullConfig);
+      if (attempt.ok) res = attempt;
+      else {
+        const detail = await attempt.text().catch(() => '');
+        console.warn('[ai-generate-image] frame model declined — falling back to ' + GEMINI_MODEL,
+          preferModel, attempt.status, detail.slice(0, 300));
+      }
+    } catch (e) {
+      console.warn('[ai-generate-image] frame model request failed — falling back', preferModel, e);
+    }
+  }
+  if (!res) res = await post(GEMINI_MODEL, fullConfig);
   if (!res.ok) {
     let bodyText = await res.text().catch(() => '');
     // 2K output and TEXT+IMAGE are both newer than this model, and the API
@@ -369,7 +588,7 @@ async function generateGemini(prompt: string, aspectRatio: string, reference?: I
     const looksLikeKeyProblem = /API_KEY_INVALID|api key not valid|PERMISSION_DENIED/i.test(bodyText);
     if (res.status === 400 && !looksLikeKeyProblem) {
       console.warn('[ai-generate-image] gemini rejected the generation config — falling back', bodyText.slice(0, 300));
-      res = await post({ responseModalities: ['IMAGE'], imageConfig: { aspectRatio } });
+      res = await post(GEMINI_MODEL, { responseModalities: ['IMAGE'], imageConfig: { aspectRatio } });
       if (!res.ok) bodyText = await res.text().catch(() => '');
     }
     if (!res.ok) {
@@ -514,6 +733,21 @@ Deno.serve(async (req: Request) => {
     if (provider !== 'gemini' && provider !== 'higgsfield') return json(400, { error: 'invalid_body' });
     const kind = (body.kind ?? '2d_filter') as string;
     if (!KINDS.has(kind)) return json(400, { error: 'invalid_body' });
+    // Frame archetype. Absent → 'classic-border', whose prompt is byte-identical
+    // to what this function has always sent. Only meaningful for a border: a
+    // sticker has one subject, not a canvas layout.
+    const layout = (body.layout ?? 'classic-border') as FrameLayout;
+    if (!LAYOUTS.has(layout)) return json(400, { error: 'invalid_body' });
+    // Optional lettering ON the artwork. Absent (or explicitly null) → no
+    // lettering and a byte-identical prompt; PRESENT BUT MALFORMED is a client
+    // bug, not a silent "never mind" — a host who typed a name must not be
+    // charged a credit for a frame that silently drops it.
+    const lettering = body.lettering === undefined || body.lettering === null
+      ? null
+      : normalizeLettering(body.lettering);
+    if (body.lettering !== undefined && body.lettering !== null && !lettering) {
+      return json(400, { error: 'invalid_body' });
+    }
     const transparentBackground = body.transparentBackground === true;
     // Opt-in: paint a solid pure-green chroma-key backdrop for the browser to
     // key out. Absent/false → the prompt is unchanged for existing callers.
@@ -617,7 +851,13 @@ Deno.serve(async (req: Request) => {
         kind: 'image',
         provider,
         status: 'running',
-        input: { prompt, kind, transparentBackground, greenScreen, provider, ...(referenceImageUrl ? { referenceImageUrl } : {}) },
+        input: {
+          prompt, kind, transparentBackground, greenScreen, provider,
+          ...(kind === 'border' ? { layout } : {}),
+          // Recorded so a regenerate/audit can see the frame carried a name.
+          ...(lettering ? { lettering } : {}),
+          ...(referenceImageUrl ? { referenceImageUrl } : {}),
+        },
         credits_charged: cost,
       })
       .select()
@@ -652,7 +892,8 @@ Deno.serve(async (req: Request) => {
         ? event.event_type
         : null;
       let fullPrompt = buildPrompt(
-        prompt, kind, transparentBackground, greenScreen, accentHexes, eventType, artDirection,
+        prompt, kind, transparentBackground, greenScreen, accentHexes, eventType, artDirection, layout,
+        lettering,
       );
       // Reference image (gemini only): fetch + encode server-side and tell the
       // model to follow it. A failed fetch degrades to null → no reference,
@@ -676,8 +917,14 @@ Deno.serve(async (req: Request) => {
       // other call at the model's "match the input image, else 1:1" default —
       // meaning a host's reference image silently chose the aspect.
       const aspect = kind === 'border' ? '9:16' : '1:1';
+      // Creative archetypes get one attempt at the stronger image model; every
+      // other generation stays on exactly the model it has always used.
+      // (Dashboard secrets can arrive quoted — stripped like GEMINI_API_KEY.)
+      const frameModel = kind === 'border' && layout !== 'classic-border'
+        ? (Deno.env.get('GEMINI_FRAME_MODEL')?.trim().replace(/^["']|["']$/g, '') || GEMINI_FRAME_MODEL_DEFAULT)
+        : null;
       const bytes = provider === 'gemini'
-        ? await generateGemini(fullPrompt, aspect, reference)
+        ? await generateGemini(fullPrompt, aspect, reference, frameModel)
         : await generateHiggsfield(fullPrompt);
 
       // Transparency flag: requested AND the PNG actually carries alpha.
@@ -708,6 +955,10 @@ Deno.serve(async (req: Request) => {
             prompt,
             provider,
             transparent,
+            // Which archetype this frame IS — the studio needs it to reason
+            // about the art (a duo-scene has two head cutouts, not a clear
+            // centre). Border only; a sticker has no canvas layout.
+            ...(kind === 'border' ? { layout } : {}),
             // Booth defaults so the asset renders immediately when published.
             transform: { scale: 1, x: 0, y: 0, rotation: 0 },
             opacity: 1,

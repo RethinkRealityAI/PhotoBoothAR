@@ -5,6 +5,7 @@
  * Shared domain types for the AR Photo Booth.
  */
 import type { OnboardingStep } from './events/types';
+import type { GuestLetteringStyle } from './lib/letteringFit';
 
 /** Categories of AR experience that can be authored in the studio. */
 export type ExperienceKind =
@@ -85,9 +86,30 @@ export interface ExperienceLayer {
   hidden?: boolean;
 }
 
+/**
+ * Text drawn LIVE onto the booth canvas over a frame — the guest's own name
+ * ('guestName') or one fixed line for everybody ('fixed'). Free, per-guest, and
+ * baked into the preview, the photo and the recorded video alike.
+ *
+ * Written only by the studio (db-sourced events); legacy coded events never
+ * carry the key, so their booth output is unchanged.
+ */
+export interface GuestLetteringConfig {
+  token: 'guestName' | 'fixed';
+  /** The line to draw when token is 'fixed' (ignored for 'guestName'). */
+  text?: string;
+  style: GuestLetteringStyle;
+  /** Any CSS colour the canvas accepts. Default '#FFFFFF'. */
+  color: string;
+  placement: 'top' | 'bottom';
+}
+
 export interface ExperienceConfig {
   transform?: Transform2D;        // for 2d_filter / border
   opacity?: number;
+  /** Live per-guest lettering drawn over this frame (see GuestLetteringConfig).
+   *  Absent → nothing is drawn and the booth renders exactly as before. */
+  lettering?: GuestLetteringConfig;
   blendMode?: string;
   shader?: ShaderConfig;          // for shader kind
   anchor?: AnchorConfig;          // for 3d_attachment kind

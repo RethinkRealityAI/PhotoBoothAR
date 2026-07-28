@@ -53,8 +53,6 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
   }, [eventId]);
 
   const active = challenges.filter((c) => c.active);
-  if (active.length === 0 && challengesLoaded) return null;
-
   const completedSet = new Set(completed);
   const available = active.filter((c) => !completedSet.has(c.id));
   const allDone = active.length > 0 && available.length === 0;
@@ -68,6 +66,13 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
   const close = () => setSheetOpen(false);
   // Dialog behaviour for a bottom sheet: enabled only while it is on screen.
   const { panelRef, dialogProps } = useDialog<HTMLDivElement>(close, 'Challenges', sheetOpen);
+
+  // Nothing to offer → render nothing. This check MUST stay below every hook:
+  // it used to sit above useDialog, so the render where challenges finished
+  // loading empty called fewer hooks than the one before it and React threw
+  // ("Rendered fewer hooks than expected"), taking the whole booth down for
+  // any event with zero active challenges — a fresh event's first QR scan.
+  if (active.length === 0 && challengesLoaded) return null;
 
   const confirmName = () => {
     const n = nameInput.trim();

@@ -22,7 +22,7 @@ interface Props {
   sparkles: boolean;
   frameId: string | null;
   attachmentId: string | null;
-  onSelectEffect: (id: string) => void;
+  onSelectEffect: (id: string, exp: Experience | null) => void;
   onToggleSparkles: (v: boolean) => void;
   onSelectFrame: (exp: Experience | null) => void;
   onSelectAttachment: (exp: Experience | null) => void;
@@ -166,9 +166,11 @@ export default function PickerDrawer({
   const attachName = attachmentId ? (catalog.find((e) => e.id === attachmentId)?.name ?? '3D') : 'No 3D';
 
   const handleSelectEffect = useCallback((id: string) => {
-    onSelectEffect(id);
+    // Carry the shader's own Experience: it may hold config.triggers, and
+    // dropping it here made filter-only trigger scenes inert in the booth.
+    onSelectEffect(id, effects.find((e) => e.config?.shader?.shaderId === id) ?? null);
     // Don't auto-close — let user combine effect + frame
-  }, [onSelectEffect]);
+  }, [onSelectEffect, effects]);
 
   const hasAny = effectId !== 'none' || sparkles || frameId !== null || attachmentId !== null;
 

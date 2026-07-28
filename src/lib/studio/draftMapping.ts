@@ -50,6 +50,7 @@ import {
   type StudioObject,
 } from './state';
 import { parseTriggers, type TriggerConfig } from './triggers';
+import { normalizeGuestLettering } from '../letteringFit';
 
 const STUDIO_KINDS: readonly StudioKind[] = ['shader', 'border', '2d_filter', '3d_attachment'];
 
@@ -160,6 +161,20 @@ function layerToObject(l: ExperienceLayer): StudioObject {
 }
 
 /**
+ * Live per-guest lettering is stored at CONFIG level (beside config.opacity),
+ * not per layer, because the booth draws ONE line over the whole frame. On the
+ * draft side it belongs to the scene's frame — the first overlay — which is the
+ * same object config.transform/opacity mirror. Mirror of the write in
+ * draftToPayload; a config without the key leaves every object untouched.
+ */
+function attachLettering(objects: StudioObject[], exp: Experience): void {
+  const lettering = normalizeGuestLettering(exp.config?.lettering);
+  if (!lettering) return;
+  const frame = objects.find((o): o is Overlay2D => o.type === 'overlay');
+  if (frame) frame.lettering = lettering;
+}
+
+/**
  * Build an editing draft from a stored experience (?id= deep link). A
  * 'composite' experience (mixed 2D + 3D layers) loads too — it has no single
  * StudioKind of its own, so initialDraft seeds it with an arbitrary base
@@ -205,6 +220,7 @@ export function experienceToDraft(exp: Experience): StudioDraft | null {
 
   if (exp.kind === 'composite') {
     draft.objects = fromLayers(layers ?? []);
+    attachLettering(draft.objects, exp);
     draft.selectedId = draft.objects[0]?.id ?? null;
     draft.kind = deriveKind(draft);
     draft.triggers = finalizeTriggers(rawTriggers, idMap);
@@ -226,6 +242,7 @@ export function experienceToDraft(exp: Experience): StudioDraft | null {
       ];
     }
     // else: keep initialDraft's default built-in overlay.
+    attachLettering(draft.objects, exp);
     draft.selectedId = draft.objects[0]?.id ?? null;
     draft.kind = draft.objects[0]?.type === 'overlay' ? draft.objects[0].overlayKind : exp.kind;
     draft.triggers = finalizeTriggers(rawTriggers, idMap);
@@ -321,6 +338,9 @@ export function draftToPayload(
     // Legacy mirror of layer 0.
     config.transform = layer0 ? { ...layer0.transform } : { scale: 1, x: 0, y: 0, rotation: 0 };
     config.opacity = 1;
+    // Live per-guest lettering rides on the frame (layer 0) at config level.
+    // Omitted entirely when the scene has none, so those rows save byte-identically.
+    if (layer0?.lettering) config.lettering = { ...layer0.lettering };
     if (layer0) assetUrl = resolve(resolvedUrls, layer0.id);
     if (objs.length > 1 || anyAnim || anyHidden || revealActive) config.layers = objs.map((o) => overlayLayer(o, resolvedUrls));
     // The scene-level filter slot ('none' = empty) can ride alongside any scene.
@@ -361,6 +381,8 @@ export function draftToPayload(
     if (firstOverlay) {
       config.transform = { ...firstOverlay.transform };
       config.opacity = 1;
+      // Same config-level mirror as the 2D branch above.
+      if (firstOverlay.lettering) config.lettering = { ...firstOverlay.lettering };
       assetUrl = resolve(resolvedUrls, firstOverlay.id);
     }
     if (first3D) {

@@ -263,6 +263,55 @@ describe('detectKeyColor + adaptive processFrameImage', () => {
     expect(px(image, 20, 20)[3]).toBe(255); // subject survives
   });
 
+  /**
+   * A duo-scene frame: illustrated art edge to edge with TWO head cutouts
+   * punched out of it. Nothing about the cutouts touches the frame's centre or
+   * its edges, so the centre/ring/corner regions alone can miss them entirely.
+   */
+  function duoScene(
+    w: number,
+    h: number,
+    rxFrac: number,
+    ryFrac: number,
+  ): RgbaImage {
+    const inEllipse = (x: number, y: number, cxFrac: number) =>
+      ((x - w * cxFrac) / (w * rxFrac)) ** 2 + ((y - h * 0.38) / (h * ryFrac)) ** 2 <= 1;
+    return generate(w, h, (x, y) => {
+      if (inEllipse(x, y, 0.3) || inEllipse(x, y, 0.7)) return [...OFF_GREEN, 255];
+      // Warm, varied, deliberately NOT green-family art in every other pixel.
+      return [200 + ((x * 7 + y * 3) % 40), 60 + ((x * 3) % 40), 120 + ((y * 5) % 60), 255];
+    });
+  }
+
+  it('(g) finds the off-green in a duo-scene layout (two head cutouts, art everywhere else)', () => {
+    // Cutouts at 30%/70% width, 38% height — 26%×18% of the canvas, the
+    // FRAME_LAYOUT_SPEC duo-scene geometry.
+    const img = duoScene(180, 320, 0.13, 0.09);
+    const det = detectKeyColor(img);
+    expect(det).not.toBeNull();
+    expect(det!.key[0]).toBeLessThan(30); // ≈ #00B140, not the warm art
+    expect(det!.key[1]).toBeGreaterThan(150);
+    expect(det!.key[2]).toBeLessThan(100);
+    const { image } = keyOutColorWithStats(img, { key: det!.key });
+    expect(px(image, Math.round(180 * 0.3), Math.round(320 * 0.38))[3]).toBe(0); // cutout keyed
+    expect(px(image, 2, 2)[3]).toBe(255); // corner art survives
+  });
+
+  it('(h) finds cutouts that fall BETWEEN the centre patch and the edge ring', () => {
+    // Narrow cutouts at the same 30%/70% centres: they never reach the centre
+    // patch (x ≥ 35% of width) nor the edge ring, so before the sparse
+    // full-canvas grid pass every sample landed on art and detection returned
+    // null — the panel would then have keyed with #00FF00 and shipped the
+    // green holes into the booth.
+    const img = duoScene(180, 320, 0.045, 0.14);
+    const det = detectKeyColor(img);
+    expect(det).not.toBeNull();
+    expect(det!.key[0]).toBeLessThan(30);
+    expect(det!.key[1]).toBeGreaterThan(150);
+    const { image } = keyOutColorWithStats(img, { key: det!.key });
+    expect(px(image, Math.round(180 * 0.3), Math.round(320 * 0.38))[3]).toBe(0);
+  });
+
   it('(f) locks onto the dominant backdrop hue over green-family art; distant art survives', () => {
     // Pure #00FF00 backdrop with dark forest-green art in the centre. Forest
     // green is green-family too, but the backdrop cluster is far denser so

@@ -21,6 +21,7 @@ import type { FaceLandmarkerResult } from '@mediapipe/tasks-vision';
 import { HeadAnchor } from '../types';
 import { getFaceLandmarker } from './faceTracking';
 import { OneEuroVec3, OneEuroQuat, type OneEuroConfig, type Vec3, type Quat } from './smoothing';
+import { createDetectGate, shouldDetect, markDetected } from './faceDetectClock';
 
 export interface AnchorPreset {
   id: HeadAnchor;
@@ -77,7 +78,7 @@ let _lastTs = 0;
  * empty results, which used to blink the asset. We detect on an interval and
  * cache the latest RAW pose so every rig in the frame reuses one detection.
  */
-const DETECT_INTERVAL_MS = 33;   // ~30 detections/sec
+const DETECT_INTERVAL_MS = 33;   // ~30 detections/sec (floor, not a schedule)
 /** Keep showing the last good pose through brief detection misses (fast motion,
  *  a blink, a hand passing by) instead of hard-hiding it every dropped frame. */
 const HOLD_MS = 500;
@@ -87,7 +88,10 @@ const _gQuat = new THREE.Quaternion();
 const _gScale = new THREE.Vector3(1, 1, 1);
 let _gSeen = 0;          // performance.now() of the last successful detection
 let _gHas = false;       // a face has been detected at least once
-let _lastDetectTs = 0;   // throttle clock for detectForVideo
+/** Frame gate: rate limit PLUS "has the camera actually produced a new frame".
+ *  A wall-clock-only throttle re-ran blocking inference on frames the camera had
+ *  not replaced, and on a 60fps camera could only ever see half of them. */
+const _detectGate = createDetectGate();
 
 /**
  * Latest face blendshape scores (categoryName → score) + timestamp, consumed by
@@ -228,8 +232,11 @@ const _fsOut: Vec3 = [1, 1, 1];
 /** Run the landmarker at most once per DETECT_INTERVAL_MS; cache the raw pose. */
 function detectIfDue(fl: ReturnType<typeof getFaceLandmarker>, video: HTMLVideoElement, now: number) {
   if (!fl) return;
-  if (now - _lastDetectTs < DETECT_INTERVAL_MS) return;
-  _lastDetectTs = now;
+  // video.currentTime is the frame identity; the gate skips a frame already
+  // analysed and has a watchdog so a stuck clock can never freeze tracking.
+  const videoTime = video.currentTime;
+  if (!shouldDetect(_detectGate, now, videoTime, { minIntervalMs: DETECT_INTERVAL_MS })) return;
+  markDetected(_detectGate, now, videoTime);
   let results;
   try {
     const ts = Math.max(now, _lastTs + 1);
@@ -334,6 +341,26 @@ export function updateHeadPose(
   group.quaternion.set(_fqOut[0], _fqOut[1], _fqOut[2], _fqOut[3]);
   group.scale.set(_fsOut[0], _fsOut[1], _fsOut[2]);
   return true;
+}
+
+/**
+ * An anchor base scaled by the head-size calibration.
+ *
+ * headScale sizes the occluder shell (FaceOccluder), but the anchor bases were
+ * left at their raw centimetres — so turning the slider UP grew the invisible
+ * head without moving the props outward, and the occluder swallowed them. That
+ * reaches real guests through the booth, not just the studio.
+ *
+ * IDENTITY AT headScale = 1, deliberately: DEFAULT_STUDIO_SETTINGS.headScale is
+ * 1 and normalizeStudioSettings clamps a missing value to 1, so every legacy /
+ * coded event renders byte-identically.
+ */
+export function scaledAnchorBase(
+  offset: readonly [number, number, number],
+  headScale: number,
+): [number, number, number] {
+  if (!Number.isFinite(headScale) || headScale === 1) return [offset[0], offset[1], offset[2]];
+  return [offset[0] * headScale, offset[1] * headScale, offset[2] * headScale];
 }
 
 /** Build the THREE.Matrix4 for a fine transform relative to an anchor base. */
