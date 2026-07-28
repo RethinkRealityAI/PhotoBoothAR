@@ -166,10 +166,16 @@ interface Tier {
  * disclosed retention at all — so a prospect chose Free without being told
  * photos expire after a week, and only met "7-day storage" once inside.
  *
- * Two service promises are deliberately absent: "Priority support" (Premium)
- * and "White-glove setup" (Deluxe). There is no contact or support route
- * anywhere on the marketing surface, so both were claims we cannot currently
- * honour. Put them back the day a support channel exists, not before. */
+ * On the two service promises that used to be absent: there was no contact or
+ * support route anywhere on the marketing surface, so "Priority support" and
+ * "White-glove setup" were both claims we could not honour.
+ *
+ * "Priority support" is BACK, because it is now true: there is a real desk
+ * (/host/support, /admin/support), tickets carry a priority the operator sets,
+ * and the footer has a contact route. "White-glove setup" stays OUT — that is
+ * a promise about a human doing the setup for you, and shipping a ticket
+ * system does not make it true. Put it back when somebody is actually
+ * committed to doing it, not before. */
 const TIERS: Tier[] = [
   {
     name: 'Free',
@@ -206,6 +212,7 @@ const TIERS: Tier[] = [
       'AI event studio',
       'Greeting cards',
       formatRetention(ENTITLEMENTS.premium.retentionDays),
+      'Priority support',
     ],
     popular: true,
   },
@@ -213,7 +220,7 @@ const TIERS: Tier[] = [
     name: 'Deluxe',
     price: '$169',
     unit: 'per event',
-    blurb: 'A keepsake film and white-glove polish.',
+    blurb: 'A keepsake film, and every finishing touch.',
     features: [
       'Everything in Premium',
       'Keepsake highlight film',
