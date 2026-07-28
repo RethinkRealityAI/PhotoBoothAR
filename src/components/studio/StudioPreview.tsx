@@ -43,8 +43,10 @@ interface Props {
 export default function StudioPreview({ videoRef, draft, headScale, occlusionEnabled, onFaceVisible, hiddenObjectIds, revealTargetIds, effectIdOverride, reveal }: Props) {
   const targets = revealTargetIds ?? EMPTY_SET;
   // Fired = a target NOT in hiddenObjectIds (the parent tracks the un-fired set).
-  const visible = (o: { id: string; hidden?: boolean }) =>
-    isLayerVisible(o, targets, firedOf(targets, hiddenObjectIds));
+  // Built ONCE per render: this used to sit inside `visible`, which runs per
+  // object across two filter passes, so the set was rebuilt 2N times a frame.
+  const fired = firedOf(targets, hiddenObjectIds);
+  const visible = (o: { id: string; hidden?: boolean }) => isLayerVisible(o, targets, fired);
   // Mixed scenes: preview EVERYTHING present simultaneously — the filter slot
   // (effectId = shaderId, 'none' == off), any visible overlays, and any visible
   // 3D pieces — instead of gating on the derived kind. Layers flagged `hidden`
