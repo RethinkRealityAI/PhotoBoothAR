@@ -165,6 +165,8 @@ export function applyRegionTint(
     uRegionRough: { value: uniforms.roughness },
     uRegionMetal: { value: uniforms.metalness },
     uRegionMatAmount: { value: uniforms.matAmount },
+    uRegionEmissive: { value: uniforms.emissive },
+    uRegionEmissiveAmount: { value: uniforms.emissiveAmount },
   };
 
   const created: THREE.Material[] = [];

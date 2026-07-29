@@ -349,13 +349,18 @@ export function regionIdsSource(raw: unknown): RegionIdsSource | null {
 /**
  * Validate an untrusted customization AND scope it to a template.
  *
- * The SHAPE half is delegated to ./state.ts, which owns writing this object
- * into storage — one validator, not two. What is added here is the half state.ts
- * structurally cannot do, because it has no template: dropping overrides that
- * name a region the asset does not have or that the author LOCKED, and dropping
- * a label whose slot does not exist. Without that scoping a stale saved config
- * (the host swapped the asset, the template was re-authored) would index into
- * uniform slots that mean something else entirely and repaint the wrong part.
+ * NAMED FOR WHAT IT ADDS (Stage C). It was `normalizeCustomization`, which is
+ * also the name of the SHAPE validator in ./state.ts that this function calls —
+ * two exported functions, one name, one delegating to the other, and a reader
+ * landing on an import had no way to tell which contract they had. The shape
+ * half stays where storage owns it; this one is the SCOPING half.
+ *
+ * The scoping is the part state.ts structurally cannot do, because it has no
+ * template: dropping overrides that name a region the asset does not have or
+ * that the author LOCKED, and dropping a label whose slot does not exist.
+ * Without it a stale saved config (the host swapped the asset, the template was
+ * re-authored) would index into uniform slots that mean something else entirely
+ * and repaint the wrong part.
  *
  * Returns NULL for "nothing to render", where state.ts returns `undefined` for
  * "omit the key from storage". The distinction is real and worth the friction:
@@ -366,7 +371,7 @@ export function regionIdsSource(raw: unknown): RegionIdsSource | null {
  * `template` omitted = shape validation only, for a surface editing a
  * customization before its asset is known.
  */
-export function normalizeCustomization(
+export function scopeCustomizationToTemplate(
   raw: unknown,
   template?: AssetTemplate | null,
 ): AssetCustomization | null {
@@ -399,23 +404,16 @@ export function normalizeCustomization(
 /* ── label text ───────────────────────────────────────────────────────────── */
 
 /**
- * The exact families the 2D booth already draws guest names in.
+ * UNIFIED (Stage C): this used to be a knowing copy of the module-private
+ * `LETTERING_FONT` table in components/booth/StageCanvas.tsx. Both now read the
+ * one definition in lib/letteringFit.ts, beside the `CHAR_WIDTH_RATIO` keyed by
+ * the same style union — so the name printed on the frame and the name engraved
+ * into the asset are the same typeface by construction, not by agreement.
  *
- * DUPLICATION, KNOWINGLY: `LETTERING_FONT` in components/booth/StageCanvas.tsx
- * is the same table, module-private inside a `.tsx` that a node-env test cannot
- * import and that this Stage may not edit. Keeping the copy HERE — pure,
- * exported, tested — is what lets the engraved 3D name and the printed 2D name
- * be the same typeface instead of two designers' guesses. They should be
- * unified into one export (letteringFit.ts is the natural home, since it
- * already owns `CHAR_WIDTH_RATIO` keyed by the same style union) the moment one
- * agent owns both files.
+ * Re-exported under the old name because ./assetDecal.ts and this module's test
+ * both import it, and the alias costs nothing.
  */
-export const LABEL_FONT_CSS: Record<GuestLetteringStyle, (px: number) => string> = {
-  script: (px) => `${px}px "Pinyon Script", cursive`,
-  serif: (px) => `italic 600 ${px}px "Cormorant Garamond", Georgia, serif`,
-  block: (px) => `800 ${px}px "Inter", sans-serif`,
-  label: (px) => `600 ${px}px "Jost", sans-serif`,
-};
+export { LETTERING_FONT_CSS as LABEL_FONT_CSS } from '../letteringFit';
 
 /**
  * Resolve a label's token to the string to engrave.

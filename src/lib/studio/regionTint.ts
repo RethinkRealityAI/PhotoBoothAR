@@ -63,6 +63,66 @@ export const MAX_REGIONS = 8;
 export const MAX_TINT_RATIO = 3;
 
 /**
+ * Where the highlight rolloff starts, in LINEAR light.
+ *
+ * ── The defect this fixes ────────────────────────────────────────────────
+ * The tint is `swatch x ratio`, and `ratio` runs to MAX_TINT_RATIO. On a DARK
+ * swatch that never matters: navy is ~0.03 linear, so even a 3x highlight lands
+ * at 0.09 and every texel stays distinguishable. On a LIGHT swatch it matters
+ * enormously — cream `#e8e2d6` is (0.806, 0.741, 0.673) linear, so a texel only
+ * 1.25x the region mean already asks for 1.007 and everything brighter asks for
+ * more. Albedo above 1 is not a colour a framebuffer can hold: every one of
+ * those texels resolves to the same white, so the brim's topstitch, its weave
+ * and its crown shadow all flatten into one blank slab. That is the washed-out
+ * cream this constant exists to fix, and it is why white and cream — the two
+ * most-requested cap colours — were the two that looked broken.
+ *
+ * ── Why a Reinhard shoulder and not a filmic curve or a simple clamp ─────
+ * Three properties are needed, and this is the cheapest function with all three:
+ *   1. STRICTLY MONOTONIC on [K, inf) — two different input luminances always
+ *      produce two different outputs. That is literally the detail the clamp
+ *      destroyed, and it is what regionTint.test.ts asserts at dark, mid AND
+ *      light swatches.
+ *   2. IDENTITY below the knee — dark and mid swatches, which were never broken,
+ *      come out bit-for-bit as before. A filmic (ACES-style) curve fails this:
+ *      it lifts the toe and re-contrasts the mid-range, so fixing cream would
+ *      have silently restyled every navy asset already in a live event.
+ *   3. C1-CONTINUOUS at the knee (its derivative is exactly 1 there) and
+ *      asymptotic to 1.0. A plain `x/(1+x)` Reinhard over the whole range fails
+ *      (2), and a hard knee with no derivative match leaves a visible crease
+ *      exactly where the highlight rolls over.
+ * ── Why 0.9, and what it costs ──────────────────────────────────────────
+ * The knee has to sit ABOVE the swatch itself, or the swatch stops landing on
+ * the region mean. Cream `#e8e2d6` measures 0.80695 on its red channel, so a
+ * knee of 0.8 already compressed the requested colour (caught by this module's
+ * own test, not by eye). 0.9 covers every channel up to sRGB byte ~244, which
+ * is every swatch except the near-whites.
+ *
+ * The near-whites pay, and the size of the bill is stated rather than hidden:
+ * `#ffffff` is 1.0 linear and resolves to 0.95 at the region mean — sRGB 249
+ * instead of 255, six levels darker than asked for, on a cap that has nothing
+ * beside it to
+ * compare against. That is the price of having ANY headroom left to hold a
+ * highlight, and the alternative is the defect: a white cap with no weave, no
+ * seams and no stitching, because every texel above the mean is the same white.
+ */
+export const TINT_SHOULDER_KNEE = 0.9;
+
+/**
+ * Compress one LINEAR channel through the highlight shoulder.
+ *
+ * `y = K + (1-K) * t/(t+(1-K))` for `t = x - K`. Exact TypeScript twin of
+ * `beamwallShoulder` in the GLSL below.
+ */
+export function softShoulder(x: number): number {
+  if (!Number.isFinite(x) || x <= 0) return 0;
+  if (x <= TINT_SHOULDER_KNEE) return x;
+  const span = 1 - TINT_SHOULDER_KNEE;
+  const over = x - TINT_SHOULDER_KNEE;
+  return TINT_SHOULDER_KNEE + (span * over) / (over + span);
+}
+
+/**
  * Floor for a region's reference luminance.
  *
  * `refLuminance` is a DIVISOR. A region whose bake is genuinely black (or whose
@@ -196,10 +256,17 @@ export function applyRegionTintLinear(
   const amt = Number.isFinite(amount) ? Math.min(1, Math.max(0, amount)) : 0;
   if (amt <= 0) return [baked[0], baked[1], baked[2]];
   const ratio = tintRatio(linearLuminance(baked[0], baked[1], baked[2]), refLuminance);
+  // The shoulder is applied to the TINTED colour before the blend, not after:
+  // after the blend a partial `amount` would drag an already-legal baked colour
+  // through the curve for no reason, and the two operands of the mix would live
+  // in different ranges.
+  const r = softShoulder(tint[0] * ratio);
+  const g = softShoulder(tint[1] * ratio);
+  const b = softShoulder(tint[2] * ratio);
   return [
-    baked[0] + (tint[0] * ratio - baked[0]) * amt,
-    baked[1] + (tint[1] * ratio - baked[1]) * amt,
-    baked[2] + (tint[2] * ratio - baked[2]) * amt,
+    baked[0] + (r - baked[0]) * amt,
+    baked[1] + (g - baked[1]) * amt,
+    baked[2] + (b - baked[2]) * amt,
   ];
 }
 
@@ -280,6 +347,20 @@ export interface RegionUniforms {
   roughness: Float32Array;
   metalness: Float32Array;
   matAmount: Float32Array;
+  /**
+   * Per region LINEAR emissive, ALREADY multiplied by the finish's own
+   * emissiveIntensity — three uploads `material.emissive * emissiveIntensity`
+   * as one uniform, so splitting it here would be a second convention.
+   */
+  emissive: Float32Array;
+  /**
+   * Separate from `matAmount` on purpose. A finish whose `emissive` is null
+   * (gold, chrome, matte, glass) must LEAVE the mesh's own emissive alone —
+   * exactly what finish.ts `applyFinish` does with its `if (o.emissive)` guard.
+   * Folding this into matAmount would force those four finishes to write black
+   * over an asset that shipped with a glow of its own.
+   */
+  emissiveAmount: Float32Array;
   /** Region id -> its slot in the arrays. */
   indexOf: Record<string, number>;
   /** False when nothing is overridden — the caller must then skip the patch
@@ -295,6 +376,8 @@ function emptyUniforms(): RegionUniforms {
     roughness: new Float32Array(MAX_REGIONS),
     metalness: new Float32Array(MAX_REGIONS),
     matAmount: new Float32Array(MAX_REGIONS),
+    emissive: new Float32Array(MAX_REGIONS * 3),
+    emissiveAmount: new Float32Array(MAX_REGIONS),
     indexOf: {},
     active: false,
   };
@@ -358,6 +441,16 @@ export function buildRegionUniforms(
       u.matAmount[i] = 1;
       u.active = true;
     }
+    if (resolved.emissive) {
+      const lin = hexToLinearRgb(resolved.emissive);
+      if (lin) {
+        u.emissive[i * 3] = lin[0] * resolved.emissiveIntensity;
+        u.emissive[i * 3 + 1] = lin[1] * resolved.emissiveIntensity;
+        u.emissive[i * 3 + 2] = lin[2] * resolved.emissiveIntensity;
+        u.emissiveAmount[i] = 1;
+        u.active = true;
+      }
+    }
   }
   return u;
 }
@@ -369,6 +462,13 @@ export interface ResolvedRegionOverride {
   /** null when the finish is `original` — do not touch the exporter's values. */
   metalness: number | null;
   roughness: number | null;
+  /**
+   * Self-lit colour, or null to keep whatever glow the asset shipped with. Only
+   * `neon` declares one today; the other finishes deliberately return null so a
+   * per-region gold cannot black out an emissive the exporter authored.
+   */
+  emissive: string | null;
+  emissiveIntensity: number;
 }
 
 /**
@@ -397,6 +497,8 @@ export function resolveRegionOverride(hexRaw: unknown, finishRaw: unknown): Reso
     hex: hex ?? spec?.color ?? null,
     metalness: spec ? spec.metalness : null,
     roughness: spec ? spec.roughness : null,
+    emissive: spec?.emissive ?? null,
+    emissiveIntensity: spec?.emissiveIntensity ?? 0,
   };
 }
 
@@ -411,7 +513,7 @@ export function resolveRegionOverride(hexRaw: unknown, finishRaw: unknown): Reso
  * change whenever the GLSL below changes, or a page that already compiled the
  * old program keeps using it.
  */
-export const REGION_TINT_CACHE_KEY = `beamwall-regionTint-v1-${MAX_REGIONS}`;
+export const REGION_TINT_CACHE_KEY = `beamwall-regionTint-v2-${MAX_REGIONS}`;
 
 /** Name of the per-vertex attribute the patch reads. */
 export const REGION_ATTRIBUTE = 'aRegion';
@@ -477,9 +579,19 @@ uniform float uRegionRef[${MAX_REGIONS}];
 uniform float uRegionRough[${MAX_REGIONS}];
 uniform float uRegionMetal[${MAX_REGIONS}];
 uniform float uRegionMatAmount[${MAX_REGIONS}];
+uniform vec3 uRegionEmissive[${MAX_REGIONS}];
+uniform float uRegionEmissiveAmount[${MAX_REGIONS}];
 int beamwallRegionIndex() {
   int ri = int(vRegion + 0.5);
   return clamp(ri, 0, ${MAX_REGIONS - 1});
+}
+// Highlight shoulder — exact twin of regionTint.ts softShoulder(). Identity
+// below the knee, strictly increasing above it, asymptotic to 1.
+vec3 beamwallShoulder(vec3 c) {
+  vec3 b = max(c, vec3(0.0));
+  vec3 s = vec3(${(1 - TINT_SHOULDER_KNEE).toFixed(2)});
+  vec3 t = max(b - ${TINT_SHOULDER_KNEE.toFixed(2)}, 0.0);
+  return min(b, ${TINT_SHOULDER_KNEE.toFixed(2)}) + s * (t / (t + s));
 }`;
 
   const tint = `#include <map_fragment>
@@ -489,7 +601,7 @@ int beamwallRegionIndex() {
   if (amt > 0.0) {
     float lum = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
     float ratio = clamp(lum / max(uRegionRef[ri], ${MIN_REF_LUMINANCE.toExponential()}), 0.0, ${MAX_TINT_RATIO.toFixed(1)});
-    diffuseColor.rgb = mix(diffuseColor.rgb, uRegionTint[ri] * ratio, amt);
+    diffuseColor.rgb = mix(diffuseColor.rgb, beamwallShoulder(uRegionTint[ri] * ratio), amt);
   }
 }`;
 
@@ -507,13 +619,24 @@ int beamwallRegionIndex() {
   metalnessFactor = mix(metalnessFactor, uRegionMetal[ri], m);
 }`;
 
+  // `totalEmissiveRadiance` is declared from the `emissive` uniform BEFORE this
+  // chunk in three's standard/physical fragment shader, so it exists to be
+  // overwritten here. Gated by its own amount, not matAmount — see
+  // RegionUniforms.emissiveAmount.
+  const emissive = `#include <emissivemap_fragment>
+{
+  int ri = beamwallRegionIndex();
+  totalEmissiveRadiance = mix(totalEmissiveRadiance, uRegionEmissive[ri], uRegionEmissiveAmount[ri]);
+}`;
+
   const a = replaceOnce(source, '#include <common>', declarations);
   const b = replaceOnce(a.source, '#include <map_fragment>', tint);
   const c = replaceOnce(b.source, '#include <roughnessmap_fragment>', rough);
   const d = replaceOnce(c.source, '#include <metalnessmap_fragment>', metal);
-  // The colour patch is the point of the exercise; the two material chunks are
+  const e = replaceOnce(d.source, '#include <emissivemap_fragment>', emissive);
+  // The colour patch is the point of the exercise; the three material chunks are
   // a bonus that a MeshBasicMaterial legitimately does not have.
-  return { source: d.source, patched: a.patched && b.patched };
+  return { source: e.source, patched: a.patched && b.patched };
 }
 
 /**

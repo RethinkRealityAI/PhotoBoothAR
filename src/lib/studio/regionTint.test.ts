@@ -16,6 +16,8 @@ import {
   meanRegionLuminance,
   normalizeRefLuminance,
   tintRatio,
+  softShoulder,
+  TINT_SHOULDER_KNEE,
   applyRegionTintLinear,
   packRegionIds,
   unpackRegionIds,
@@ -194,6 +196,123 @@ describe('applyRegionTintLinear — the muddy-tint fix', () => {
   });
 });
 
+describe('softShoulder — the highlight rolloff', () => {
+  it('is the IDENTITY below the knee, so dark and mid swatches are unchanged', () => {
+    for (const x of [0, 0.01, 0.2158605, 0.5, TINT_SHOULDER_KNEE]) {
+      expect(softShoulder(x)).toBe(x);
+    }
+  });
+
+  it('never reaches 1, however hard it is pushed', () => {
+    expect(softShoulder(1)).toBeLessThan(1);
+    expect(softShoulder(3)).toBeLessThan(1);
+    expect(softShoulder(1e6)).toBeLessThan(1);
+    expect(softShoulder(1e6)).toBeGreaterThan(0.99);
+  });
+
+  it('is STRICTLY increasing across the whole range — this is the detail a clamp destroys', () => {
+    let prev = -1;
+    for (let x = 0; x <= 3; x += 0.001) {
+      const y = softShoulder(x);
+      expect(y).toBeGreaterThan(prev);
+      prev = y;
+    }
+  });
+
+  it('meets the identity segment with matching slope, so there is no crease at the knee', () => {
+    const eps = 1e-5;
+    const below = (softShoulder(TINT_SHOULDER_KNEE) - softShoulder(TINT_SHOULDER_KNEE - eps)) / eps;
+    const above = (softShoulder(TINT_SHOULDER_KNEE + eps) - softShoulder(TINT_SHOULDER_KNEE)) / eps;
+    expect(close(below, 1, 1e-3)).toBe(true);
+    expect(close(above, 1, 1e-3)).toBe(true);
+  });
+
+  it('is defined for junk input rather than propagating NaN into a colour', () => {
+    // 0, matching this module's existing convention for non-finite input
+    // (srgbByteToLinear(Infinity), tintRatio(NaN)). Neither can occur in the
+    // shader — tint is <= 1 and ratio is clamped — but a render loop gets a
+    // defined colour rather than a NaN that paints the mesh black-on-some-GPUs.
+    expect(softShoulder(NaN)).toBe(0);
+    expect(softShoulder(-4)).toBe(0);
+    expect(softShoulder(Infinity)).toBe(0);
+  });
+});
+
+describe('applyRegionTintLinear preserves DETAIL at every swatch brightness', () => {
+  /**
+   * The Stage A defect, as an assertion. A cream brim came back near-white with
+   * its topstitch gone: `swatch x ratio` ran past 1.0 for every texel above the
+   * region mean, and 1.0 is the brightest thing a framebuffer holds — so texels
+   * that differed in the bake all resolved to the same white.
+   *
+   * The test is the same at all three brightnesses on purpose. Dark and mid were
+   * never broken; asserting them here is what proves the fix did not "fix" them
+   * into something new.
+   */
+  const swatches: [string, string][] = [
+    ['dark  (#22304f navy)', '#22304f'],
+    ['mid   (#808080 grey)', '#808080'],
+    ['light (#e8e2d6 cream)', '#e8e2d6'],
+    ['white (#ffffff)', '#ffffff'],
+  ];
+  // A mid-luminance bake, the case the docblock names: the region mean is 0.18
+  // and the two probe texels sit just above it — an ordinary weave highlight,
+  // not a specular hotspot.
+  const REF = 0.18;
+  const probe = (l: number): [number, number, number] => [l, l, l];
+
+  for (const [name, hex] of swatches) {
+    it(`keeps two different bake luminances different — ${name}`, () => {
+      const tint = hexToLinearRgb(hex)!;
+      const dim = applyRegionTintLinear(probe(0.26), tint, REF, 1);
+      const bright = applyRegionTintLinear(probe(0.34), tint, REF, 1);
+      for (let c = 0; c < 3; c++) {
+        expect(bright[c]).toBeGreaterThan(dim[c]);
+        // And every channel is a colour a framebuffer can actually hold.
+        expect(bright[c]).toBeLessThanOrEqual(1);
+      }
+    });
+  }
+
+  it('is exactly the case a hard clamp flattened: the raw product exceeds 1 for BOTH cream probes', () => {
+    const cream = hexToLinearRgb('#e8e2d6')!;
+    const rawDim = cream[0] * tintRatio(0.26, REF);
+    const rawBright = cream[0] * tintRatio(0.34, REF);
+    // Pre-fix both of these clipped to the same 1.0 — no topstitch, no weave.
+    expect(rawDim).toBeGreaterThan(1);
+    expect(rawBright).toBeGreaterThan(1);
+    expect(Math.min(1, rawDim)).toBe(Math.min(1, rawBright));
+    // Post-fix they are distinct and still inside range.
+    const dim = applyRegionTintLinear([0.26, 0.26, 0.26], cream, REF, 1);
+    const bright = applyRegionTintLinear([0.34, 0.34, 0.34], cream, REF, 1);
+    expect(bright[0]).toBeGreaterThan(dim[0]);
+    expect(bright[0]).toBeLessThan(1);
+  });
+
+  it('still lands the region AVERAGE exactly on a light swatch (cream is below the knee)', () => {
+    // The knee exists to sit above real swatches. Cream's brightest channel is
+    // 0.80695 — this assertion is why the knee is 0.9 and not 0.8.
+    const cream = hexToLinearRgb('#e8e2d6')!;
+    const out = applyRegionTintLinear([REF, REF, REF], cream, REF, 1); // ratio == 1
+    for (let c = 0; c < 3; c++) {
+      expect(cream[c]).toBeLessThan(TINT_SHOULDER_KNEE);
+      expect(close(out[c], cream[c], 1e-9)).toBe(true);
+    }
+  });
+
+  it('states white\'s cost out loud: the mean darkens to sRGB 249 to buy highlight range', () => {
+    const white = hexToLinearRgb('#ffffff')!;
+    const mean = applyRegionTintLinear([REF, REF, REF], white, REF, 1);
+    expect(close(mean[0], 0.95, 1e-6)).toBe(true);
+    // Which is what makes the highlights above it survive at all.
+    const dim = applyRegionTintLinear([0.26, 0.26, 0.26], white, REF, 1);
+    const bright = applyRegionTintLinear([0.34, 0.34, 0.34], white, REF, 1);
+    expect(bright[0]).toBeGreaterThan(dim[0]);
+    expect(dim[0]).toBeGreaterThan(mean[0]);
+    expect(bright[0]).toBeLessThan(1);
+  });
+});
+
 describe('packRegionIds / unpackRegionIds', () => {
   it('round-trips', () => {
     const ids = [0, 1, 2, 3, 255, 7, 0, 0];
@@ -270,6 +389,21 @@ describe('resolveRegionOverride', () => {
     expect(r.hex).toBeNull();
     expect(r.roughness).toBe(0.92);
   });
+
+  it('carries the finish emissive so a per-region neon can actually glow', () => {
+    const neon = resolveRegionOverride(undefined, 'neon')!;
+    expect(neon.emissive).toBe('#7DF9FF');
+    expect(neon.emissiveIntensity).toBe(2.2);
+  });
+
+  it('a finish with NO emissive returns null, so it cannot black out the asset\'s own glow', () => {
+    for (const id of ['gold', 'chrome', 'matte', 'glass']) {
+      const r = resolveRegionOverride(undefined, id)!;
+      expect(r.emissive).toBeNull();
+      expect(r.emissiveIntensity).toBe(0);
+    }
+    expect(resolveRegionOverride('#112233', undefined)!.emissive).toBeNull();
+  });
 });
 
 describe('buildRegionUniforms', () => {
@@ -278,6 +412,24 @@ describe('buildRegionUniforms', () => {
     { id: 'brim', recolourable: true, refLuminance: 0.4 },
     { id: 'badge', recolourable: false, refLuminance: 0.3 },
   ];
+
+  it('lights a neon region and leaves every other region\'s emissive alone', () => {
+    const u = buildRegionUniforms(regions, { crown: { finish: 'neon' }, brim: { finish: 'gold' } });
+    expect(u.emissiveAmount[0]).toBe(1);
+    // #7DF9FF linear x 2.2 — non-zero on all three channels.
+    for (let c = 0; c < 3; c++) expect(u.emissive[c]).toBeGreaterThan(0);
+    // Gold declares no emissive, so the brim is NOT forced to black even though
+    // its metalness/roughness are overridden.
+    expect(u.matAmount[1]).toBe(1);
+    expect(u.emissiveAmount[1]).toBe(0);
+    expect(u.emissive[3]).toBe(0);
+  });
+
+  it('a colour-only override never touches the emissive arrays', () => {
+    const u = buildRegionUniforms(regions, { crown: { hex: '#ff0000' } });
+    expect(u.active).toBe(true);
+    expect(Array.from(u.emissiveAmount)).toEqual(new Array(MAX_REGIONS).fill(0));
+  });
 
   it('is INACTIVE with no overrides — the caller must then skip the patch entirely', () => {
     expect(buildRegionUniforms(regions, null).active).toBe(false);
@@ -350,6 +502,7 @@ describe('shader patches', () => {
     '#include <map_fragment>',
     '#include <roughnessmap_fragment>',
     '#include <metalnessmap_fragment>',
+    '#include <emissivemap_fragment>',
     '}',
   ].join('\n');
 
@@ -379,9 +532,32 @@ describe('shader patches', () => {
 
   it('declares every uniform at the MAX_REGIONS bound', () => {
     const { source } = regionTintFragmentPatch(FRAG);
-    for (const name of ['uRegionTint', 'uRegionAmount', 'uRegionRef', 'uRegionRough', 'uRegionMetal', 'uRegionMatAmount']) {
+    for (const name of [
+      'uRegionTint', 'uRegionAmount', 'uRegionRef', 'uRegionRough', 'uRegionMetal',
+      'uRegionMatAmount', 'uRegionEmissive', 'uRegionEmissiveAmount',
+    ]) {
       expect(source).toContain(`${name}[${MAX_REGIONS}]`);
     }
+  });
+
+  it('routes the tint through the shoulder, at the SAME knee as the TypeScript twin', () => {
+    const { source } = regionTintFragmentPatch(FRAG);
+    expect(source).toContain('beamwallShoulder(uRegionTint[ri] * ratio)');
+    expect(source).toContain(TINT_SHOULDER_KNEE.toFixed(2));
+    expect(source).toContain((1 - TINT_SHOULDER_KNEE).toFixed(2));
+  });
+
+  it('patches the emissive chunk AFTER totalEmissiveRadiance exists', () => {
+    const { source } = regionTintFragmentPatch(FRAG);
+    const chunkAt = source.indexOf('#include <emissivemap_fragment>');
+    const writeAt = source.indexOf('totalEmissiveRadiance = mix(');
+    expect(chunkAt).toBeGreaterThanOrEqual(0);
+    expect(writeAt).toBeGreaterThan(chunkAt);
+  });
+
+  it('still reports patched:true for a shader with NO emissive chunk (MeshBasicMaterial)', () => {
+    const basic = ['#include <common>', 'void main() {', '#include <map_fragment>', '}'].join('\n');
+    expect(regionTintFragmentPatch(basic).patched).toBe(true);
   });
 
   it('the GLSL uses the SAME constants as the TypeScript twin', () => {

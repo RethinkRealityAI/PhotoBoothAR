@@ -500,6 +500,79 @@ function RegionRow({
   );
 }
 
+/**
+ * Delay between the last keystroke and the dispatch that rebuilds the decal.
+ *
+ * MEASURED, not guessed: `BuiltLabelDecal.buildMs` reports 45-46 ms for a carve
+ * on the 30k-triangle reference mesh, and DecalGeometry is O(triangles) with no
+ * acceleration structure, so every keystroke is a synchronous main-thread stall
+ * of that size. Live-ish typing is affordable at 46 ms; a rebuild PER keystroke
+ * at typing speed is not, because they queue behind each other and the field
+ * starts dropping characters. 220 ms is longer than the gap inside a word and
+ * shorter than the pause between words, so the preview lands as the host stops.
+ */
+const LABEL_TEXT_DEBOUNCE_MS = 220;
+
+/**
+ * A text field that keeps up with typing while its consumer does not.
+ *
+ * Local state owns the keystrokes; the commit is trailing-debounced and FLUSHED
+ * on blur and on unmount, so a host who types a name and immediately clicks away
+ * (or closes the panel) still gets what they typed. `value` re-seeds the field
+ * only when it changes from OUTSIDE — without that check, the debounced commit
+ * echoing back would fight the cursor.
+ */
+function DebouncedTextInput({
+  value,
+  onCommit,
+  ...rest
+}: {
+  value: string;
+  onCommit: (next: string) => void;
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
+  const [local, setLocal] = useState(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pending = useRef<string | null>(null);
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+  const external = useRef(value);
+
+  useEffect(() => {
+    if (value === external.current) return;
+    external.current = value;
+    setLocal(value);
+  }, [value]);
+
+  const flush = useCallback(() => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    if (pending.current === null) return;
+    const next = pending.current;
+    pending.current = null;
+    external.current = next;
+    commitRef.current(next);
+  }, []);
+
+  // Unmount is a flush, not a cancel: closing the dock must not silently discard
+  // the last word the host typed.
+  useEffect(() => flush, [flush]);
+
+  return (
+    <input
+      {...rest}
+      type="text"
+      value={local}
+      onChange={(e) => {
+        const next = e.target.value;
+        setLocal(next);
+        pending.current = next;
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(flush, LABEL_TEXT_DEBOUNCE_MS);
+      }}
+      onBlur={flush}
+    />
+  );
+}
+
 function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch: React.Dispatch<StudioAction> }) {
   // Templates arrive as untrusted jsonb (they round-trip through the
   // experience's config), so they are validated on every read, never trusted.
@@ -531,6 +604,24 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
 
   return (
     <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-1.5 pt-1">
+        <Palette className="w-3.5 h-3.5 text-accent-2" />
+        <span className="font-label uppercase tracking-widest text-[9px] text-accent-2">Personalise</span>
+        <Tooltip
+          label={template.name}
+          hint={
+            template.preparedBy === 'auto'
+              ? 'This asset’s parts were detected automatically and nobody has checked them — treat the regions below as a starting point.'
+              : 'This asset ships with an authored map of which parts recolour and where a name is engraved.'
+          }
+          side="left"
+        >
+          <span className="ml-auto text-brand-muted/50 cursor-help text-[10px]">?</span>
+        </Tooltip>
+      </div>
+      <p className="font-sans text-[10px] leading-relaxed text-brand-muted/50 -mt-1">
+        Recolour this piece and put a name on it. Everything here shows up in the guest{'’'}s photo and video, not just in this preview.
+      </p>
       {recolourable.length > 0 && (
         <>
           <SectionLabel>Colours</SectionLabel>
@@ -561,17 +652,36 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
                   </select>
                 </div>
               )}
-              <StudioToggle
-                label="Use the guest's name"
-                hint={`Every guest gets their OWN name. Here it previews as “${STUDIO_SAMPLE_GUEST_NAME}”; a guest who skips the name prompt gets no engraving at all.`}
-                value={label.token === 'guestName'}
-                onChange={(on) => setLabel({ token: on ? 'guestName' : 'fixed' })}
-              />
+              {/* THE HEADLINE. A per-guest 3D name is a thing no host has seen
+                  before, so this is not a bare switch in a list of switches: it
+                  gets its own accented card and says, in words, what each guest
+                  will actually get. Same idiom as the Lighting block above —
+                  accent-tinted rounded panel, semantic tokens only. */}
+              <div className={`rounded-xl border p-3 flex flex-col gap-2 transition-colors ${
+                label.token === 'guestName' ? 'border-accent/30 bg-accent/[0.07]' : 'border-white/10 bg-white/[0.02]'
+              }`}>
+                <StudioToggle
+                  label="Use each guest's own name"
+                  hint={`Every guest who gives their name gets it engraved on their own copy of this piece — in the booth, in their photo and in their video. Here it previews as “${STUDIO_SAMPLE_GUEST_NAME}”.`}
+                  value={label.token === 'guestName'}
+                  onChange={(on) => setLabel({ token: on ? 'guestName' : 'fixed' })}
+                />
+                <p className="font-sans text-[10px] leading-relaxed text-brand-muted/60">
+                  {label.token === 'guestName' ? (
+                    <>
+                      Each guest sees <span className="text-brand-fg">their own name</span> on this
+                      piece. You are previewing “{STUDIO_SAMPLE_GUEST_NAME}”. A guest who skips the
+                      name prompt simply gets no engraving — never someone else’s name.
+                    </>
+                  ) : (
+                    <>Everyone gets the same line, exactly as you type it below.</>
+                  )}
+                </p>
+              </div>
               {label.token === 'fixed' && (
-                <input
-                  type="text"
+                <DebouncedTextInput
                   value={label.text ?? ''}
-                  onChange={(e) => setLabel({ text: e.target.value })}
+                  onCommit={(text) => setLabel({ text })}
                   placeholder="Type the line to engrave…"
                   maxLength={ASSET_CUSTOMIZATION.maxLabelLength}
                   aria-label="Engraved text"

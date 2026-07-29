@@ -12,7 +12,7 @@ import {
   normalizeTemplate,
   isConfigurable,
   regionIdsSource,
-  normalizeCustomization,
+  scopeCustomizationToTemplate,
   resolveLabelText,
   configuratorKey,
   type AssetTemplate,
@@ -306,48 +306,48 @@ describe('regionIdsSource', () => {
   });
 });
 
-describe('normalizeCustomization', () => {
+describe('scopeCustomizationToTemplate', () => {
   const template = normalizeTemplate(goodTemplate())!;
 
   it('returns null for absence — the legacy guarantee', () => {
     for (const bad of [null, undefined, {}, [], 'x', 0, { parts: {} }, { parts: {}, label: null }]) {
-      expect(normalizeCustomization(bad, template)).toBeNull();
+      expect(scopeCustomizationToTemplate(bad, template)).toBeNull();
     }
   });
 
   it('keeps overrides that name real, unlocked regions', () => {
-    const c = normalizeCustomization({ parts: { crown: { hex: '#ff0000' } } }, template)!;
+    const c = scopeCustomizationToTemplate({ parts: { crown: { hex: '#ff0000' } } }, template)!;
     expect(c.parts).toEqual({ crown: { hex: '#ff0000' } });
   });
 
   it('DROPS an override naming a region the template does not have', () => {
-    expect(normalizeCustomization({ parts: { ghost: { hex: '#ff0000' } } }, template)).toBeNull();
+    expect(scopeCustomizationToTemplate({ parts: { ghost: { hex: '#ff0000' } } }, template)).toBeNull();
   });
 
   it('DROPS an override naming a LOCKED region — a licensed badge is not the host\'s to repaint', () => {
-    expect(normalizeCustomization({ parts: { badge: { hex: '#ff0000' } } }, template)).toBeNull();
+    expect(scopeCustomizationToTemplate({ parts: { badge: { hex: '#ff0000' } } }, template)).toBeNull();
   });
 
   it('keeps the good parts of a mixed config', () => {
-    const c = normalizeCustomization({
+    const c = scopeCustomizationToTemplate({
       parts: { crown: { hex: '#ff0000' }, badge: { hex: '#00ff00' }, ghost: { hex: '#0000ff' } },
     }, template)!;
     expect(Object.keys(c.parts!)).toEqual(['crown']);
   });
 
   it('DROPS a label whose slot does not exist', () => {
-    const good = normalizeCustomization({
+    const good = scopeCustomizationToTemplate({
       label: { slotId: 'front', token: 'fixed', text: 'Amara', style: 'serif', hex: '#f4d58d' },
     }, template);
     expect(good?.label?.slotId).toBe('front');
-    const stale = normalizeCustomization({
+    const stale = scopeCustomizationToTemplate({
       label: { slotId: 'gone', token: 'fixed', text: 'Amara', style: 'serif', hex: '#f4d58d' },
     }, template);
     expect(stale).toBeNull();
   });
 
   it('validates shape only when no template is supplied', () => {
-    const c = normalizeCustomization({ parts: { anything: { hex: '#ff0000' } } });
+    const c = scopeCustomizationToTemplate({ parts: { anything: { hex: '#ff0000' } } });
     expect(c?.parts).toBeTruthy();
   });
 
@@ -360,7 +360,7 @@ describe('normalizeCustomization', () => {
       { parts: { crown: 'red' } },
     ];
     for (const h of hostile) {
-      expect(() => normalizeCustomization(h, template)).not.toThrow();
+      expect(() => scopeCustomizationToTemplate(h, template)).not.toThrow();
     }
   });
 });
@@ -467,12 +467,12 @@ describe('configuratorKey', () => {
 describe('the legacy guarantee, end to end', () => {
   it('an asset with no template and no customization produces NO key and NO overrides', () => {
     expect(configuratorKey(undefined, undefined)).toBe('');
-    expect(normalizeCustomization(undefined, null)).toBeNull();
+    expect(scopeCustomizationToTemplate(undefined, null)).toBeNull();
     expect(isConfigurable(normalizeTemplate(undefined))).toBe(false);
   });
 
   it('a layer carrying an empty customization object is indistinguishable from one carrying none', () => {
     const t: AssetTemplate | null = normalizeTemplate(goodTemplate());
-    expect(normalizeCustomization({}, t)).toBe(normalizeCustomization(undefined, t));
+    expect(scopeCustomizationToTemplate({}, t)).toBe(scopeCustomizationToTemplate(undefined, t));
   });
 });

@@ -25,7 +25,14 @@ import {
 } from '../../lib/shaders';
 import { drawScagoMark } from '../../lib/scagoMark';
 import { Transform2D, LayerAnimation, GuestLetteringConfig } from '../../types';
-import { fitLettering, regionForPlacement, MIN_FONT_PX, type GuestLetteringStyle } from '../../lib/letteringFit';
+import {
+  fitLettering,
+  regionForPlacement,
+  MIN_FONT_PX,
+  LETTERING_FONT_CSS,
+  LETTERING_FONT_PROBES,
+  type GuestLetteringStyle,
+} from '../../lib/letteringFit';
 import type { EventConfig } from '../../events/types';
 import { useOptionalEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
@@ -197,20 +204,11 @@ function drawSignature(ctx: CanvasRenderingContext2D, w: number, h: number, even
  * capture — a constant would put the name in two different places. The faces
  * are the ones the app already loads (src/index.css:67-70). */
 
-const LETTERING_FONT: Record<GuestLetteringStyle, (px: number) => string> = {
-  script: (px) => `${px}px "Pinyon Script", cursive`,
-  serif: (px) => `italic 600 ${px}px "Cormorant Garamond", Georgia, serif`,
-  block: (px) => `800 ${px}px "Inter", sans-serif`,
-  label: (px) => `600 ${px}px "Jost", sans-serif`,
-};
-
-/** The families to warm up before the first draw — same list, one per style. */
-const LETTERING_FONT_PROBES = [
-  '32px "Pinyon Script"',
-  'italic 600 32px "Cormorant Garamond"',
-  '800 32px "Inter"',
-  '600 32px "Jost"',
-];
+/* The font table and its warm-up probes moved to lib/letteringFit.ts, which the
+ * 3D engraving path (lib/studio/assetTemplate.ts -> assetDecal.ts) also reads.
+ * They were two hand-maintained copies of the same four families; the probe
+ * list is now DERIVED from the table rather than retyped beside it. */
+const LETTERING_FONT = LETTERING_FONT_CSS;
 
 function drawGuestLettering(
   ctx: CanvasRenderingContext2D,

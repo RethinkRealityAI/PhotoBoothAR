@@ -52,7 +52,7 @@ import {
   type StudioKind,
   type StudioObject,
 } from './state';
-import { normalizeTemplate, type AssetTemplate } from './assetTemplate';
+import { normalizeTemplate, scopeCustomizationToTemplate, type AssetTemplate } from './assetTemplate';
 import { parseTriggers, type TriggerConfig } from './triggers';
 import { normalizeGuestLettering } from '../letteringFit';
 
@@ -421,14 +421,23 @@ function pieceExtras(
     tintStrength: src.tintStrength,
   };
   if (ctx.customizationEnabled !== false) {
-    const customization = resolvePieceCustomization(src.customization, ctx.guestName ?? '');
-    if (customization) out.customization = customization;
     // A template with nothing customized still travels: the renderer needs it to
     // know which regions exist before anything is styled. Anything it does not
     // fully understand normalizes to null = "not configurable", which is the
     // pre-feature behaviour.
     const template = normalizeTemplate(src.template);
     if (template) out.template = template;
+    const resolved = resolvePieceCustomization(src.customization, ctx.guestName ?? '');
+    // SCOPED to the template when there is one. A saved config outlives the
+    // asset it was written against — the host swaps the model, the library
+    // re-authors the descriptor — and an override naming a region that no
+    // longer exists (or one the author LOCKED) must not reach the renderer.
+    // The renderer enforces this again at the uniform level; doing it here is
+    // what stops the render SPEC from claiming a part it will not paint.
+    const customization = template
+      ? scopeCustomizationToTemplate(resolved, template) ?? undefined
+      : resolved;
+    if (customization) out.customization = customization;
   }
   return out;
 }

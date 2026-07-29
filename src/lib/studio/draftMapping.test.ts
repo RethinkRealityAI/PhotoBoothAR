@@ -755,6 +755,18 @@ describe('round-trip: the configurator template rides with the layer', () => {
     expect(layerToPiece(layer, { guestName: 'Ada' })).toEqual(objectToPiece(o, { guestName: 'Ada' }));
   });
 
+  it('a stale override for a region the template does not have never reaches the renderer', () => {
+    // HAT() styles `band` (in TPL) and `crown` (NOT in TPL), and labels slot
+    // `front` (TPL has no text slots at all) — exactly the shape a config takes
+    // after the host swaps the asset or the library re-authors the descriptor.
+    const o = createObject3D('model', { assetUrl: 'https://cdn/hat.glb', template: TPL, customization: HAT() });
+    const p = objectToPiece(o, { guestName: 'Ada' });
+    expect(p.customization).toEqual({ parts: { band: { hex: '#d4a017' } } });
+    // The OBJECT keeps everything — scoping is a render-spec concern, so the
+    // host does not silently lose their crown colour by opening the studio.
+    expect(o.customization).toEqual(HAT());
+  });
+
   it('an untemplated object carries no template key anywhere', () => {
     const o = createObject3D('model', { assetUrl: 'https://cdn/m.glb' });
     expect('template' in o).toBe(false);
