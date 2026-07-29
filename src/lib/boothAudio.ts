@@ -160,9 +160,11 @@ export function playCue(kind: CueKind): void {
   try {
     // A context the browser has not unblocked yet renders nothing audible;
     // bail rather than queue oscillators that will fire in a batch on resume.
+    // resume() is async, so `state` cannot have flipped by the time it returns
+    // — request the unblock for NEXT time and skip this cue either way.
     if (c.state !== 'running') {
       void c.resume?.().catch(() => { /* still blocked — this cue is skipped */ });
-      if (c.state !== 'running') return;
+      return;
     }
     const spec = cueSpec(kind);
     const t0 = c.currentTime;
