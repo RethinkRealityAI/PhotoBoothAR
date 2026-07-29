@@ -1,6 +1,9 @@
 node_modules/
 build/
 dist/
+# Alternate build output dirs (`vite build --outDir dist-…`), used when several
+# builds run against one working tree and would otherwise clobber `dist/`.
+dist-*/
 coverage/
 .DS_Store
 *.log
