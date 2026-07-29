@@ -20,7 +20,20 @@ import { useState } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { Plus, Sparkles } from 'lucide-react';
 import { STARTER_SCENES, buildStarterDraft } from '../../lib/studio/starterScenes';
+import { preloadModel } from '../../lib/glbCache';
 import type { StudioDraft } from '../../lib/studio/state';
+
+/**
+ * Warm a scene's bundled GLB prop through the SHARED cache, so the piece is
+ * already decoded when the draft mounts it. Without this the host picks a look
+ * and watches a head with nothing on it for as long as the fetch takes — the
+ * Model component renders null until its load resolves, with no spinner of its
+ * own. Fire-and-forget: a failed warm just means the normal load path runs.
+ */
+function warmProp(url: string | undefined) {
+  if (!url) return;
+  void preloadModel(url).catch(() => {});
+}
 
 interface Props {
   /** Receives a complete, unsaved draft to LOAD. */
@@ -80,7 +93,10 @@ export default function StarterGallery({ onPick, onOpenAssets }: Props) {
             return (
               <button
                 key={s.id}
-                onClick={() => onPick(draft)}
+                onClick={() => { warmProp(s.prop?.url); onPick(draft); }}
+                // Hover/touch-start is the earliest honest signal of intent, and
+                // buys the fetch a head start before the click commits.
+                onPointerEnter={() => warmProp(s.prop?.url)}
                 title={s.blurb}
                 aria-label={`${s.name} — ${s.blurb}`}
                 className="pressable group relative aspect-[9/16] overflow-hidden rounded-xl border border-white/10 hover:border-accent/50 transition-colors"

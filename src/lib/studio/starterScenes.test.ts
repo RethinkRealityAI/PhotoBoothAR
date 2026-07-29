@@ -4,7 +4,7 @@
  */
 import { existsSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { STARTER_SCENES, STARTER_SCENE_MAP, starterAssetIds, buildStarterDraft } from './starterScenes';
+import { STARTER_SCENES, STARTER_SCENE_MAP, starterAssetIds, starterPropUrls, buildStarterDraft } from './starterScenes';
 import { BORDER_MAP } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
 import { SHADER_MAP } from '../shaders';
@@ -50,6 +50,27 @@ describe('the shipped catalogue is real', () => {
   it('gives every scene its own preview', () => {
     const previews = STARTER_SCENES.map((s) => s.preview);
     expect(new Set(previews).size).toBe(previews.length);
+  });
+
+  // Same reasoning as the preview check: a scene may only reference a prop the
+  // build actually ships, and it must be a bundled one — an off-origin GLB on
+  // the booth's critical path is the face_landmarker mistake again.
+  it('every bundled prop GLB exists in public/ and is app-absolute', () => {
+    for (const s of STARTER_SCENES) {
+      if (!s.prop) continue;
+      expect(s.prop.url, `${s.id} prop url`).toMatch(/^\/models\/props\/[a-z0-9-]+\.glb$/);
+      const onDisk = new URL(`../../../public${s.prop.url}`, import.meta.url);
+      expect(existsSync(onDisk), `${s.id} prop missing on disk: ${s.prop.url}`).toBe(true);
+      expect(s.prop.scale, `${s.id} prop scale`).toBeGreaterThan(0);
+    }
+  });
+
+  it('lists every bundled prop once for preloading', () => {
+    const urls = starterPropUrls();
+    expect(new Set(urls).size).toBe(urls.length);
+    for (const s of STARTER_SCENES) {
+      if (s.prop) expect(urls).toContain(s.prop.url);
+    }
   });
 });
 
@@ -105,7 +126,11 @@ describe('GENERIC ONLY — no legacy-event branding may reach the starter galler
       const ids = starterAssetIds(s);
       const names = [
         ...ids.borders.map((id) => BORDER_MAP[id].name),
-        ...ids.pieces.map((id) => HEAD_PIECE_MAP[id].name),
+        // `pieces` now carries procedural head-piece IDS and, for scenes with a
+        // bundled GLB, that prop's URL and label. Resolve what resolves and
+        // check the rest as the literal strings they are — a branded file name
+        // must fail this test just as loudly as a branded piece name.
+        ...ids.pieces.map((id) => HEAD_PIECE_MAP[id]?.name ?? id),
       ].join(' ').toLowerCase();
       for (const word of LEGACY_WORDS) {
         expect(names.includes(word), `${s.id} pulls in an asset named for "${word}"`).toBe(false);
@@ -151,8 +176,15 @@ describe('buildStarterDraft', () => {
           expect(o.url?.startsWith('data:image/svg+xml')).toBe(true);
           expect(o.isBuiltin).toBe(true);
           expect(o.builtinId).toBeTruthy();
-        } else {
+        } else if (o.type === 'headpiece') {
           expect(o.proceduralId).toBeTruthy();
+        } else {
+          // A bundled GLB prop: an app-absolute path under public/ (never a
+          // third-party URL — that would put a venue's wifi on the booth's
+          // critical path) and a finish, because these meshes ship with no
+          // material of their own and would otherwise render as grey plastic.
+          expect(o.assetUrl, `${s.id} prop url`).toMatch(/^\/models\/props\/[a-z0-9-]+\.glb$/);
+          expect(o.finish, `${s.id} prop finish`).toBeTruthy();
         }
       }
     }

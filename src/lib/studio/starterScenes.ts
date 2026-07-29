@@ -9,9 +9,16 @@
  * was "Add a frame or sticker", and the only "templates" in the dock were ones
  * the host had already made themselves. So the fastest route to something that
  * looked designed was the AI Director — i.e. spending credits before seeing a
- * single result. These presets cost ZERO credits and ZERO network: every asset
- * is a built-in already bundled in the app (BUILTIN_BORDERS SVGs, the shader
- * catalogue, the procedural head pieces).
+ * single result.
+ *
+ * These presets still cost ZERO CREDITS, and every asset ships WITH THE APP:
+ * BUILTIN_BORDERS SVGs and the shader catalogue are inlined, and the three
+ * Meshy-modelled props are same-origin files under public/models/props.
+ * "Zero network" is no longer literally true for those three — a GLB is a real
+ * fetch — so `starterPropUrls()` exists to warm them through the shared GLB
+ * cache before the piece is needed. Same-origin is the load-bearing part: a
+ * third-party CDN on the booth's critical path is exactly what cost the AR
+ * layer on bad venue wifi once already (see face_landmarker in CLAUDE.md).
  *
  * GENERIC BY MANDATE (owner, verbatim): "make sure we remove all the hard-coded
  * templates, like the SCAGO gala or any that have specific branding for any of
@@ -33,7 +40,7 @@ import {
   type StudioDraft,
   type StudioObject,
 } from './state';
-import type { Transform2D } from '../../types';
+import type { HeadAnchor, Transform2D } from '../../types';
 
 /** A sticker placed within a starter scene, with its composed position. */
 export interface StarterSticker {
@@ -71,6 +78,36 @@ export interface StarterScene {
   shaderId?: string;
   /** HEAD_PIECES id. */
   headPieceId?: string;
+  /**
+   * A bundled GLB prop, used INSTEAD of `headPieceId` when set.
+   *
+   * These are the pieces the preview images promise: each one was modelled by
+   * Meshy from the very product shot cropped out of that scene's preview, so
+   * the crown a host sees on the card is the crown the guest wears. They ship
+   * UNTEXTURED (0 materials, 216-542KB) and take their look from the shared
+   * `finish` system instead — a 20k-triangle textured bake of the same crown
+   * was 7.4MB, which is not something to hand a guest on venue wifi.
+   */
+  prop?: StarterProp;
+}
+
+/** A bundled GLB prop attached to the tracked head. */
+export interface StarterProp {
+  /** App-absolute path under public/. */
+  url: string;
+  name: string;
+  anchor: HeadAnchor;
+  /** finish.ts id — these meshes carry no material of their own. */
+  finish: string;
+  /**
+   * Head-space centimetres, exactly like HEAD_PIECES config. `scale` is
+   * pre-computed with the same maths as bustFit.computePropFitScale
+   * (PROP_TARGET_CM / largest bbox dimension) because auto-fit only ever runs
+   * on the dock's add path — a scene loaded from this file is used AS AUTHORED.
+   */
+  offset: [number, number, number];
+  rotation: [number, number, number];
+  scale: number;
 }
 
 /**
@@ -107,7 +144,15 @@ export const STARTER_SCENES: StarterScene[] = [
     frameId: 'frame-minimal-plain',
     stickers: [{ borderId: 'overlay-confetti' }],
     shaderId: 'champagne-sparkle',
-    headPieceId: 'royal-crown',
+    prop: {
+      url: '/models/props/royal-crown.glb',
+      name: 'Royal Crown',
+      anchor: 'crown',
+      finish: 'gold',
+      offset: [0, 2, -0.6],
+      rotation: [0, 0, 0],
+      scale: 5.5,
+    },
   },
   {
     id: 'deco-glam',
@@ -123,7 +168,15 @@ export const STARTER_SCENES: StarterScene[] = [
     // 20-object scene cap and a row in Scene layers, and the blurb never
     // promised a crown anyway (the tiara below is the scene's head piece).
     shaderId: 'prismatic-holo',
-    headPieceId: 'queen-tiara',
+    prop: {
+      url: '/models/props/queens-tiara.glb',
+      name: "Queen's Tiara",
+      anchor: 'forehead',
+      finish: 'gold',
+      offset: [0, 1.6, 0.4],
+      rotation: [0, 0, 0],
+      scale: 4.5,
+    },
   },
   {
     id: 'soft-portrait',
@@ -142,7 +195,15 @@ export const STARTER_SCENES: StarterScene[] = [
     swatch: ['#FFE9A8', '#4A3A12'],
     frameId: 'dw-frame-classic',
     shaderId: 'aureate-god-rays',
-    headPieceId: 'hope-halo',
+    prop: {
+      url: '/models/props/halo-ring.glb',
+      name: 'Halo Ring',
+      anchor: 'crown',
+      finish: 'gold',
+      offset: [0, 6, -1.0],
+      rotation: [0, 0, 0],
+      scale: 6,
+    },
   },
   {
     id: 'equalizer-live',
@@ -164,9 +225,21 @@ export const STARTER_SCENE_MAP: Record<string, StarterScene> = Object.fromEntrie
 export function starterAssetIds(scene: StarterScene): { borders: string[]; pieces: string[]; shaders: string[] } {
   return {
     borders: [...(scene.frameId ? [scene.frameId] : []), ...(scene.stickers ?? []).map((s) => s.borderId)],
-    pieces: scene.headPieceId ? [scene.headPieceId] : [],
+    // Bundled props are named here too, so the colocated "never names a legacy
+    // event" check inspects their file names and labels as well — otherwise a
+    // branded prop could enter the library through a door the test does not
+    // watch.
+    pieces: [
+      ...(scene.headPieceId ? [scene.headPieceId] : []),
+      ...(scene.prop ? [scene.prop.url, scene.prop.name] : []),
+    ],
     shaders: scene.shaderId ? [scene.shaderId] : [],
   };
+}
+
+/** Every bundled prop GLB a starter scene can pull in — the preload list. */
+export function starterPropUrls(): string[] {
+  return Array.from(new Set(STARTER_SCENES.flatMap((s) => (s.prop ? [s.prop.url] : []))));
 }
 
 /**
@@ -211,7 +284,20 @@ export function buildStarterDraft(sceneId: string): StudioDraft | null {
     }));
   }
 
-  if (preset.headPieceId) {
+  if (preset.prop) {
+    const pr = preset.prop;
+    objects.push(createObject3D('model', {
+      assetUrl: pr.url,
+      name: pr.name,
+      anchor: pr.anchor,
+      finish: pr.finish,
+      anchorConfig: {
+        offset: { x: pr.offset[0], y: pr.offset[1], z: pr.offset[2] },
+        rotation: { x: pr.rotation[0], y: pr.rotation[1], z: pr.rotation[2] },
+        scale: pr.scale,
+      },
+    }));
+  } else if (preset.headPieceId) {
     const p = HEAD_PIECE_MAP[preset.headPieceId];
     if (p) {
       objects.push(createObject3D('headpiece', {
