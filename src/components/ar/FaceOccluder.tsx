@@ -20,7 +20,7 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import objText from '../../assets/ar/canonical_face_model.obj?raw';
-import { parseObj, CRANIUM } from '../../lib/studio/occluder';
+import { parseObj, CRANIUM, HAIR_DOME } from '../../lib/studio/occluder';
 
 const noRaycast = () => null;
 
@@ -76,6 +76,18 @@ export default function FaceOccluder({
       <mesh
         position={CRANIUM.center}
         scale={CRANIUM.radii}
+        material={material}
+        renderOrder={-2}
+        raycast={noRaycast}
+      >
+        <sphereGeometry args={[1, 24, 20]} />
+      </mesh>
+      {/* Hair dome — the cranium is a bald skull capped at ear width; a cap sits
+          on HAIR, further out. This second shell is wide up high and inside the
+          ear bound at ear level, which one ellipsoid cannot be (occluder.ts). */}
+      <mesh
+        position={HAIR_DOME.center}
+        scale={HAIR_DOME.radii}
         material={material}
         renderOrder={-2}
         raycast={noRaycast}

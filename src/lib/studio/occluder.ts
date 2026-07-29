@@ -107,6 +107,32 @@ export const CRANIUM: CraniumParams = {
 };
 
 /**
+ * HAIR DOME — a second ellipsoid the cranium alone cannot be.
+ *
+ * The cranium is a bald skull, and it is CAPPED at ±7.6 by the ear anchors: an
+ * earring mounted at (±7.7, 1.5) must not be swallowed, so the shell cannot
+ * widen at ear level no matter how big the wearer's head is. But a cap does not
+ * sit on the skull — it sits on HAIR, several centimetres further out, and the
+ * gap between bald shell and hair-riding cap is exactly where the cap's back
+ * lining stayed visible ("occlusion isn't working", reported on a live head).
+ *
+ * A single ellipsoid cannot be both wide at the hair and narrow at the ears.
+ * Two can: this dome is CENTRED HIGH AND WELL BACK (+5.0, −7.0), so its widest
+ * cross-section sits up in the hair volume — sides 8.6 (the cap shell is 8.61:
+ * hugged from just inside), top +13.8, back −15 — while its FRONT reach stops
+ * at +1.0cm. The front bound is a lesson from a live head: a first draft
+ * reaching +3.4 at brow height swallowed the cap brim's ROOT and cut a
+ * scalloped hole across its underside. The dome's whole job is hiding what
+ * passes BEHIND the head; the face shell + cranium already own the front.
+ * Every anchor clears it (binding: ear at 1.197 normalized radius);
+ * occluder.test.ts asserts clearance against BOTH shells.
+ */
+export const HAIR_DOME: CraniumParams = {
+  center: [0, 5.0, -7.0],
+  radii: [8.6, 8.8, 8.0],
+};
+
+/**
  * Where `point` (head-space centimetres) sits relative to the cranium shell, as
  * the ellipsoid's own normalized radius: 1 = exactly on the surface, >1 outside
  * (safe — a prop anchored there is not swallowed), <1 inside.

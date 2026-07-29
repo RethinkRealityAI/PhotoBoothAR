@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   parseObj,
   CRANIUM,
+  HAIR_DOME,
   craniumNormalizedRadius,
   clampHeadScale,
   normalizeStudioSettings,
@@ -155,5 +156,40 @@ describe('head-size calibration', () => {
     expect(normalizeStudioSettings({}).lighting).toBe('studio');
     expect(normalizeStudioSettings({ lighting: 'chartreuse' }).lighting).toBe('studio');
     expect(normalizeStudioSettings({ lighting: 42 }).lighting).toBe('studio');
+  });
+});
+
+describe('HAIR_DOME — the second shell the ear bound forces', () => {
+  const anchorSrc = readFileSync(
+    fileURLToPath(new URL('../faceRig.ts', import.meta.url)),
+    'utf8',
+  );
+  const block = anchorSrc.slice(
+    anchorSrc.indexOf('export const ANCHOR_PRESETS'),
+    anchorSrc.indexOf('export const ANCHOR_MAP'),
+  );
+  const anchors = [...block.matchAll(
+    /id:\s*'(\w+)',\s*label:[^,]+,\s*offset:\s*\[([-\d.]+),\s*([-\d.]+),\s*([-\d.]+)\]/g,
+  )].map((m) => ({
+    id: m[1],
+    offset: [Number(m[2]), Number(m[3]), Number(m[4])] as [number, number, number],
+  }));
+
+  it('no anchor preset is swallowed by the dome either', () => {
+    for (const a of anchors) {
+      expect(`${a.id}:${craniumNormalizedRadius(a.offset, HAIR_DOME) > 1}`).toBe(`${a.id}:true`);
+    }
+  });
+
+  it('the binding anchors keep a real margin against the dome', () => {
+    expect(craniumNormalizedRadius([7.7, 1.5, -1.5], HAIR_DOME)).toBeGreaterThan(1.03);
+    expect(craniumNormalizedRadius([0, 8.3, 4.0], HAIR_DOME)).toBeGreaterThan(1.03);
+  });
+
+  it('is wide where hair lives — wider than the ear-capped cranium up high', () => {
+    // The whole reason it exists: at hair height the dome's half-width must
+    // exceed the cranium's ear-capped 7.6 and approach the cap shell's 8.61.
+    expect(HAIR_DOME.radii[0]).toBeGreaterThan(8.3);
+    expect(HAIR_DOME.center[1] + HAIR_DOME.radii[1]).toBeGreaterThan(12);
   });
 });
