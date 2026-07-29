@@ -91,9 +91,13 @@ export default function AdminLayout() {
           strip — nine destinations in a non-wrapping row inside an
           overflow-hidden parent used to clip Audit, Admins and Sign out
           entirely at 390px, with no way to reach them. */}
+      {/* On a phone this rail is the TOP strip, so it sits under the status bar
+          / notch without a safe-area inset. Composed via --safe-top so the 8px
+          design padding survives on a device with no inset at all. */}
       <aside
         className="liquid-glass-raised shrink-0 z-20 flex md:flex-col items-center md:items-stretch gap-1
-                   m-2 md:my-3 md:ml-3 md:mr-0 md:w-56 rounded-2xl px-3 py-2 md:px-3 md:py-5
+                   m-2 md:my-3 md:ml-3 md:mr-0 md:w-56 rounded-2xl px-3 pb-2 md:px-3 md:pb-5
+                   pt-safe-top [--safe-top:0.5rem] md:[--safe-top:1.25rem]
                    overflow-x-auto md:overflow-x-visible hide-scrollbar"
       >
         <Link

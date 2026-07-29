@@ -231,7 +231,7 @@ describe('shareFiles', () => {
   it('reports unsupported without calling share', async () => {
     const share = vi.fn();
     await withNav({ share, canShare: () => false }, async () => {
-      expect(await shareFiles(files, {})).toEqual({ ok: false, via: 'share', reason: 'unsupported' });
+      expect(await shareFiles(files, {})).toBe('unsupported');
       expect(share).not.toHaveBeenCalled();
     });
   });
@@ -244,7 +244,7 @@ describe('shareFiles', () => {
         share: async (d: ShareData) => { received = d; },
       },
       async () => {
-        expect(await shareFiles(files, { title: 'Your moments' })).toEqual({ ok: true, via: 'share' });
+        expect(await shareFiles(files, { title: 'Your moments' })).toBe('shared');
       },
     );
     const data = received as unknown as ShareData;
@@ -264,7 +264,7 @@ describe('shareFiles', () => {
         },
       },
       async () => {
-        expect(await shareFiles(files, {})).toEqual({ ok: false, via: 'share', reason: 'cancelled' });
+        expect(await shareFiles(files, {})).toBe('cancelled');
       },
     );
   });
@@ -273,7 +273,7 @@ describe('shareFiles', () => {
     await withNav(
       { canShare: () => true, share: async () => { throw new Error('boom'); } },
       async () => {
-        expect(await shareFiles(files, {})).toEqual({ ok: false, via: 'share', reason: 'failed' });
+        expect(await shareFiles(files, {})).toBe('failed');
       },
     );
   });

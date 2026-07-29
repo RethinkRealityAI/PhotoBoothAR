@@ -93,10 +93,14 @@ export default function HostLayout() {
           bevel and drop shadow, so it lifts off the canvas instead of reading
           as a wall bolted to the side. Matches the guest surface's floating
           pill on mobile. */}
+      {/* Safe area COMPOSES with the design padding via --safe-top (see
+          src/index.css). The inline `padding-top: max(env(...), 0.5rem)` this
+          replaces won the cascade over `md:pt-6`, so every desktop sidebar was
+          silently rendering with 8px of top padding instead of 24px. */}
       <aside
         className="liquid-glass-raised shrink-0 z-20 md:w-60 flex md:flex-col items-center md:items-stretch gap-2 md:gap-1
-                   m-2 md:my-3 md:ml-3 md:mr-0 rounded-2xl px-3 md:px-4 pb-2 md:pb-4 md:pt-6"
-        style={{ paddingTop: 'max(env(safe-area-inset-top), 0.5rem)' }}
+                   m-2 md:my-3 md:ml-3 md:mr-0 rounded-2xl px-3 md:px-4 pb-2 md:pb-4
+                   pt-safe-top [--safe-top:0.5rem] md:[--safe-top:1.5rem]"
       >
         <Link
           to="/host"

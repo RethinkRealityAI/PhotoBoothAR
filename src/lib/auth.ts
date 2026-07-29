@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import { invalidateProSubscriptionCache } from './host';
 
 /** Where confirmed / OAuth-redirected users land after auth completes. */
 const HOST_REDIRECT = () => `${window.location.origin}/host`;
@@ -63,8 +64,18 @@ export function signInWithGoogle() {
   });
 }
 
-/** Sign out of the current session. */
+/**
+ * Sign out of the current session.
+ *
+ * Clears the Pro-subscription cache on the way out. That cache is a
+ * module-level Map keyed by event uuid (src/lib/host.ts), so without this it
+ * outlives the session that populated it: on a shared browser the next person
+ * to sign in inherits the previous viewer's Pro answer for any event already
+ * looked up, until a full page reload. Pro drives an entitlement floor — the
+ * watermark among them — so a stale `true` grants a non-member paid output.
+ */
 export function signOut() {
+  invalidateProSubscriptionCache();
   return supabase.auth.signOut();
 }
 

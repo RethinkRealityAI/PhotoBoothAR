@@ -175,9 +175,13 @@ export function archiveOf(files: CollectedFile[]): Blob {
   return zipBlob(files.map((f) => ({ name: f.name, data: f.bytes })));
 }
 
-export type HandoffOutcome =
-  | { ok: true; via: 'share' }
-  | { ok: false; via: 'share'; reason: 'cancelled' | 'unsupported' | 'failed' };
+/**
+ * A flat string rather than a discriminated union on purpose: this repo's
+ * tsconfig leaves `strictNullChecks` off, and without it TypeScript will not
+ * narrow a union by a boolean `ok` discriminant — every caller would have to
+ * cast. Four names carry the same information with none of that.
+ */
+export type HandoffOutcome = 'shared' | 'cancelled' | 'unsupported' | 'failed';
 
 /**
  * Hand the files to the native share sheet.
@@ -190,21 +194,19 @@ export async function shareFiles(
   files: CollectedFile[],
   meta: { title?: string; text?: string },
 ): Promise<HandoffOutcome> {
-  if (!canShareFiles()) return { ok: false, via: 'share', reason: 'unsupported' };
+  if (!canShareFiles()) return 'unsupported';
   const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
   const payload: ShareData = { files: toShareFiles(files) };
   if (meta.title) payload.title = meta.title;
   if (meta.text) payload.text = meta.text;
   try {
-    if (nav.canShare && !nav.canShare(payload)) {
-      return { ok: false, via: 'share', reason: 'unsupported' };
-    }
+    if (nav.canShare && !nav.canShare(payload)) return 'unsupported';
     await nav.share(payload);
-    return { ok: true, via: 'share' };
+    return 'shared';
   } catch (err) {
     const name = err instanceof Error ? err.name : '';
-    if (name === 'AbortError') return { ok: false, via: 'share', reason: 'cancelled' };
-    return { ok: false, via: 'share', reason: 'failed' };
+    if (name === 'AbortError') return 'cancelled';
+    return 'failed';
   }
 }
 

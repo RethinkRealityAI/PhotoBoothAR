@@ -90,14 +90,24 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
           <span className="font-label text-[9px] uppercase tracking-wide text-gold-200 max-w-[92px] truncate">
             {selectedChallenge.title}
           </span>
-          <button onClick={() => onSelect(null)} className="text-gold-300/60 hover:text-ivory transition-colors" aria-label="Remove challenge">
+          {/* A bare 14px glyph was a 14px touch target. The `-inset-2.5`
+              pseudo-element makes the real hit area 44px WITHOUT changing the
+              chip's size — negative-margin padding would have grown the pill
+              and pushed the top bar's layout around. */}
+          <button
+            onClick={() => onSelect(null)}
+            className="pressable relative text-gold-300/60 hover:text-ivory transition-colors after:absolute after:-inset-2.5 after:rounded-full after:content-['']"
+            aria-label="Remove challenge"
+          >
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
       ) : (
         <button
           onClick={openSheet}
-          className="flex items-center gap-1.5 pl-3 pr-2.5 py-1.5 rounded-full bg-gold-400/15 border border-gold-400/45 text-gold-200 hover:bg-gold-400/25 hover:border-gold-400/70 transition-all glow-soft active:scale-95"
+          // min-h-11: the trigger was 30px tall — under the 44px touch minimum,
+          // and it is the entry point to the whole challenge system.
+          className="pressable flex min-h-11 items-center gap-1.5 pl-3 pr-2.5 py-1.5 rounded-full bg-gold-400/15 border border-gold-400/45 text-gold-200 hover:bg-gold-400/25 hover:border-gold-400/70 transition-all glow-soft active:scale-95"
         >
           <Trophy className="w-4 h-4 text-gold-300" />
           <span className="font-label text-[9px] uppercase tracking-luxe">Challenges</span>

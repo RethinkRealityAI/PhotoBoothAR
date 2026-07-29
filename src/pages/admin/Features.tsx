@@ -65,6 +65,11 @@ export default function AdminFeatures() {
 
   const [search, setSearch] = useState('');
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
+  /** The customer search itself failed. Without this the picker answered a
+   *  dead admin-api with "No customers match." — telling an operator hunting
+   *  for the account they need to change that the account does not exist. */
+  const [orgsFailed, setOrgsFailed] = useState(false);
+  const [orgsLoaded, setOrgsLoaded] = useState(false);
   const [org, setOrg] = useState<OrgRow | null>(null);
 
   const [flags, setFlags] = useState<FeatureFlagRow[]>([]);
@@ -92,10 +97,16 @@ export default function AdminFeatures() {
   useEffect(() => { void loadFlags(); }, [loadFlags]);
 
   useEffect(() => {
+    let alive = true;
     const id = setTimeout(() => {
-      void fetchOrgs({ search, limit: 20 }).then(({ data }) => setOrgs(data?.orgs ?? []));
+      void fetchOrgs({ search, limit: 20 }).then(({ data, error }) => {
+        if (!alive) return;
+        setOrgsFailed(error !== null || !data);
+        setOrgs(data?.orgs ?? []);
+        setOrgsLoaded(true);
+      });
     }, search === '' ? 0 : 300);
-    return () => clearTimeout(id);
+    return () => { alive = false; clearTimeout(id); };
   }, [search]);
 
   const loadResolved = useCallback(async (orgId: string) => {
@@ -229,7 +240,13 @@ export default function AdminFeatures() {
                     </button>
                   ))}
                   {orgs.length === 0 && (
-                    <p className="font-sans text-xs text-brand-muted/50 py-2">No customers match.</p>
+                    <p className={`font-sans text-xs py-2 ${orgsFailed ? 'text-amber-300/90' : 'text-brand-muted/50'}`}>
+                      {!orgsLoaded
+                        ? 'Searching…'
+                        : orgsFailed
+                        ? 'Couldn’t search customers — this is not "no matches".'
+                        : 'No customers match.'}
+                    </p>
                   )}
                 </div>
               </div>

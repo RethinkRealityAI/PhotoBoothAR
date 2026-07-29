@@ -50,22 +50,25 @@ export default function ChallengesPage() {
   const allDone = active.length > 0 && doneCount === active.length;
 
   return (
-    <div className="absolute inset-0 overflow-y-auto hide-scrollbar bg-noir-900">
-      <EventBackground density={28} />
+    <div className="absolute inset-0 overflow-y-auto hide-scrollbar app-bg">
+      <EventBackground density={22} />
 
       {/* Cross-page navigation — desktop pill; GuestNav also mounts the mobile
           bottom tab bar via portal, so this strip hides on small screens. */}
       <div className="hidden sm:flex sticky top-0 z-30 justify-center px-3 pt-4 pb-2"
-        style={{ background: 'linear-gradient(to bottom, rgba(10,7,3,0.92) 0%, rgba(10,7,3,0) 100%)' }}>
+        style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 100%)' }}>
         <GuestNav current="challenges" />
       </div>
 
-      {/* Header */}
-      <div className="relative z-10 flex flex-col items-center pt-6 pb-6 px-4 text-center">
-        <Wordmark size="md" />
-        <p className="mt-6 font-label uppercase tracking-luxe text-[10px] text-gold-300/70">Challenges</p>
-        <p className="mt-2 font-serif italic text-2xl text-ivory/85">
-          {allDone ? 'You finished them all!' : 'Complete them all'}
+      {/* Header. Compact on phones: the full-size lockup used to fill the first
+          screen, so a guest saw the page title and none of the challenges. */}
+      <div className="relative z-10 flex flex-col items-center pt-5 sm:pt-6 pb-5 px-4 text-center pt-safe-top [--safe-top:0.5rem]">
+        <div className="scale-90 sm:scale-100 origin-top">
+          <Wordmark size="md" />
+        </div>
+        <p className="mt-4 sm:mt-6 font-label uppercase tracking-luxe text-[10px] text-[color:var(--color-accent)]/75">Challenges</p>
+        <p className="mt-1.5 font-serif italic text-[27px] sm:text-3xl text-foil-static leading-tight">
+          {allDone ? 'You finished them all' : 'Complete them all'}
         </p>
         <span
           className="mt-3 h-px w-16 block"
@@ -74,12 +77,19 @@ export default function ChallengesPage() {
         />
 
         {active.length > 0 && (
-          <div className="mt-5 w-full max-w-xs">
+          <div
+            className="mt-5 w-full max-w-xs"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={active.length}
+            aria-valuenow={doneCount}
+            aria-label="Challenges completed"
+          >
             <div className="flex items-center justify-between mb-1.5">
-              <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/50">Your progress</span>
-              <span className="font-label uppercase tracking-luxe text-[9px] text-gold-300">{doneCount}/{active.length}</span>
+              <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/55">Your progress</span>
+              <span className="font-label uppercase tracking-luxe text-[9px] text-[color:var(--color-accent)]">{doneCount}/{active.length}</span>
             </div>
-            <div className="h-2 w-full rounded-full bg-noir-800 overflow-hidden border border-gold-400/10">
+            <div className="h-2 w-full rounded-full bg-white/[0.07] overflow-hidden border border-white/10">
               <motion.div
                 className="h-full bg-foil"
                 initial={{ width: 0 }}
@@ -92,10 +102,17 @@ export default function ChallengesPage() {
       </div>
 
       {/* Content */}
-      <div className="relative z-10 px-4 pb-28 sm:pb-16 max-w-2xl mx-auto">
+      <div className="relative z-10 px-4 sm:pb-16 max-w-2xl mx-auto pb-safe-bottom [--safe-bottom:7rem]">
         {!challengesLoaded ? (
-          <div className="flex justify-center py-16">
-            <div className="w-8 h-8 rounded-full border-2 border-gold-400/30 border-t-gold-400 animate-spin" />
+          /* Skeletons in the real row shape, so nothing jumps when they land. */
+          <div className="grid gap-3 sm:grid-cols-2" aria-busy="true" aria-label="Loading challenges">
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="rounded-2xl liquid-glass h-[86px] animate-pulse"
+                style={{ animationDelay: `${i * 90}ms` }}
+              />
+            ))}
           </div>
         ) : active.length === 0 && challengesFailed ? (
           /* "This event hasn't added any challenges" is a claim about the
@@ -106,15 +123,15 @@ export default function ChallengesPage() {
             initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
             className="flex flex-col items-center py-16 text-center px-6"
           >
-            <div className="w-20 h-20 rounded-full liquid-glass flex items-center justify-center mb-6">
-              <Trophy className="w-9 h-9 text-gold-300" />
+            <div className="w-20 h-20 rounded-full liquid-glass flex items-center justify-center mb-6 glow-accent">
+              <Trophy className="w-9 h-9 text-[color:var(--color-accent)]" />
             </div>
             <p className="font-serif italic text-2xl text-foil-static mb-2">No challenges yet</p>
-            <p className="font-sans text-champagne/60 text-sm max-w-xs leading-relaxed">
-              This event hasn’t added any challenges. Step into the booth and capture a moment for the wall!
+            <p className="font-sans text-brand-muted/70 text-sm max-w-xs leading-relaxed">
+              This event hasn’t added any challenges. Step into the booth and capture a moment for the wall.
             </p>
             <a href={`${basePath}/booth`}
-              className="pressable mt-7 inline-flex items-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-8 min-h-11 rounded-xl glow-accent">
+              className="pressable mt-7 inline-flex items-center gap-2 bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] px-8 min-h-12 rounded-2xl glow-accent">
               <Camera className="w-4 h-4" /> Open the booth
             </a>
           </motion.div>
@@ -123,31 +140,48 @@ export default function ChallengesPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               {active.map((c, i) => {
                 const done = completedSet.has(c.id);
+                // An unfinished challenge is a thing to go and DO, so the whole
+                // row is the tap target that takes the guest to the booth —
+                // 44px-plus by construction, and it removes the "…and how do I
+                // do it?" step the old static card left hanging.
+                const Row = done ? 'div' : 'a';
                 return (
                   <motion.div
                     key={c.id}
                     initial={{ opacity: 0, y: 18, scale: 0.97 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ duration: 0.45, delay: Math.min(i * 0.05, 0.5), ease: [0.22, 1, 0.36, 1] }}
-                    className={`relative flex items-center gap-3.5 rounded-2xl liquid-glass p-4 ${done ? 'opacity-70' : ''}`}
                   >
-                    <span className="text-3xl shrink-0 leading-none">{c.emoji}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-sans text-[15px] text-ivory font-medium leading-tight">{c.title}</p>
-                      {c.description && (
-                        <p className="font-sans text-xs text-champagne/55 mt-1 leading-snug line-clamp-2">{c.description}</p>
-                      )}
-                    </div>
-                    <div className="shrink-0 flex flex-col items-end gap-1.5">
-                      <span className="font-label text-[8px] uppercase tracking-luxe text-gold-400">+{c.points}pts</span>
-                      {done ? (
-                        <span className="w-6 h-6 rounded-full bg-gold-400/20 flex items-center justify-center">
-                          <Check className="w-3.5 h-3.5 text-gold-300" />
+                    <Row
+                      {...(done ? {} : { href: `${basePath}/booth` })}
+                      className={`pressable relative flex items-center gap-3.5 rounded-2xl liquid-glass p-4 min-h-[76px] ${
+                        done ? 'opacity-65' : ''
+                      }`}
+                      aria-label={done ? undefined : `${c.title} — open the booth`}
+                    >
+                      <span className="text-3xl shrink-0 leading-none" aria-hidden>{c.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-sans text-[15px] text-brand-fg font-medium leading-tight">{c.title}</p>
+                        {c.description && (
+                          <p className="font-sans text-xs text-brand-muted/60 mt-1 leading-snug line-clamp-2">{c.description}</p>
+                        )}
+                      </div>
+                      <div className="shrink-0 flex flex-col items-end gap-1.5">
+                        <span className="font-label text-[9px] uppercase tracking-luxe text-[color:var(--color-accent)]">
+                          +{c.points}
                         </span>
-                      ) : (
-                        <span className="w-6 h-6 rounded-full border border-champagne/20" aria-hidden />
-                      )}
-                    </div>
+                        {done ? (
+                          <span
+                            className="w-7 h-7 rounded-full flex items-center justify-center bg-foil"
+                            title="Completed"
+                          >
+                            <Check className="w-4 h-4 text-[color:var(--on-accent)]" />
+                          </span>
+                        ) : (
+                          <span className="w-7 h-7 rounded-full border border-white/20" aria-hidden />
+                        )}
+                      </div>
+                    </Row>
                   </motion.div>
                 );
               })}
@@ -156,20 +190,28 @@ export default function ChallengesPage() {
             <div className="mt-8 flex flex-col items-center text-center">
               {allDone ? (
                 <>
-                  <div className="text-4xl mb-2">🏆</div>
-                  <p className="font-serif italic text-xl text-foil-static">All done — check the wall leaderboard!</p>
-                  <a href={`${basePath}/wall`}
-                    className="mt-5 inline-flex items-center gap-2 glass rounded-xl px-7 py-3 font-label uppercase tracking-luxe text-[11px] text-champagne/75 hover:text-gold-300 border border-gold-400/20 transition-colors">
-                    View the wall
-                  </a>
+                  <div className="text-4xl mb-2" aria-hidden>🏆</div>
+                  <p className="font-serif italic text-xl text-foil-static">
+                    Every one of them — go and see the leaderboard.
+                  </p>
+                  <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                    <a href={`${basePath}/wall`}
+                      className="pressable inline-flex items-center gap-2 bg-foil text-[color:var(--on-accent)] rounded-2xl px-7 min-h-12 font-label uppercase tracking-luxe text-[11px] glow-accent">
+                      View the wall
+                    </a>
+                    <a href={`${basePath}/me`}
+                      className="pressable inline-flex items-center gap-2 rounded-2xl px-7 min-h-12 font-label uppercase tracking-luxe text-[11px] text-brand-fg bg-white/[0.07] border border-white/10">
+                      Your moments
+                    </a>
+                  </div>
                 </>
               ) : (
                 <>
-                  <p className="font-sans text-sm text-champagne/60 max-w-sm leading-relaxed">
+                  <p className="font-sans text-sm text-brand-muted/70 max-w-sm leading-relaxed">
                     Pick a challenge in the booth before you snap — the first guests to finish them all take the top spots.
                   </p>
                   <a href={`${basePath}/booth`}
-                    className="mt-5 inline-flex items-center gap-2 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] px-8 py-3 rounded-xl glow-accent">
+                    className="pressable mt-5 inline-flex items-center gap-2 bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] px-8 min-h-12 rounded-2xl glow-accent">
                     <Camera className="w-4 h-4" /> Do a challenge
                   </a>
                 </>

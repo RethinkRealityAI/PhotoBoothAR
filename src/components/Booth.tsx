@@ -141,6 +141,50 @@ function prefersReducedMotion(): boolean {
   }
 }
 
+/** URLs already pulled into the HTTP cache this session — a second selection of
+ *  the same frame must not re-warm it. */
+const warmedAssets = new Set<string>();
+/** Ceiling on a warm-up, so a hung request can never leave a permanent spinner
+ *  on an orb. The asset itself keeps loading; only our "pending" claim expires. */
+const WARM_TIMEOUT_MS = 12_000;
+
+/**
+ * Pull an experience's asset into the browser cache and resolve when it is
+ * there, so the booth knows when a selection is genuinely ready to draw.
+ *
+ * ALWAYS RESOLVES. A 404, a CORS refusal, an offline radio or a corrupt file
+ * all resolve exactly like a success: the pending state clears and the booth
+ * renders whatever it can, which is precisely today's behaviour. Reporting an
+ * error here would only replace "nothing happened" with a spinner that never
+ * stops — strictly worse.
+ *
+ * Images are decoded (so `StageCanvas`'s own `loadImage` is an instant cache
+ * hit). Anything else — in practice a .glb — is fetched to completion, which
+ * warms the same HTTP cache `FaceRig`'s GLTFLoader reads from. That is a proxy
+ * for "ready", not a guarantee of it: see the follow-up contract noted for
+ * FaceRig in the wave report.
+ */
+function warmAsset(url: string): Promise<void> {
+  if (warmedAssets.has(url)) return Promise.resolve();
+  const done = new Promise<void>((resolve) => {
+    const finish = () => { warmedAssets.add(url); resolve(); };
+    const timer = window.setTimeout(finish, WARM_TIMEOUT_MS);
+    const settle = () => { window.clearTimeout(timer); finish(); };
+    if (/\.(png|jpe?g|webp|gif|svg|avif)(\?|#|$)/i.test(url) || url.startsWith('data:')) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = settle;
+      img.onerror = settle;
+      img.src = url;
+      return;
+    }
+    fetch(url, { mode: 'cors', credentials: 'omit' })
+      .then((r) => r.arrayBuffer())
+      .then(settle, settle);
+  });
+  return done;
+}
+
 /**
  * Renders `children(ms)` against the recording clock WITHOUT the clock living in
  * Booth's state. The recorder ticks ~10x/s for up to 30s; as component state
@@ -209,6 +253,8 @@ export default function Booth() {
     presetOverrides, fetchPresetOverrides,
     wallSettings, fetchWallSettings,
   } = useStore();
+  /** Event copy (used for the photo strip's footer line). */
+  const copy = useStore((s) => s.copy);
 
   useEffect(() => {
     fetchExperiences(true);
@@ -277,6 +323,40 @@ export default function Booth() {
   // ── Timer ─────────────────────────────────────────────────────────────
   const [timerSec, setTimerSec] = useState<TimerOption>(0);
   const [timerPickerOpen, setTimerPickerOpen] = useState(false);
+  /** What the on-screen countdown counts from. Held separately from `timerSec`
+   *  because the photo strip leads every shot after the first with its own
+   *  short countdown regardless of the guest's timer setting. */
+  const [countdownFrom, setCountdownFrom] = useState(3);
+
+  // ── Photo strip ───────────────────────────────────────────────────────
+  // Three shots, composited into ONE keepsake card. Deliberately built on top
+  // of the untouched capture path: each panel is a normal
+  // `StageCanvas.capturePhoto()` and the result is a normal 9:16 JPEG, so
+  // review, the AI challenge check, submitPost, the wall and the keepsake card
+  // all receive exactly the shape they already handle.
+  const [stripMode, setStripMode] = useState(false);
+  /** `capturePhoto` is a plain function reached through MEMOIZED callbacks
+   *  (handleCountdownComplete memoizes on [mediaMode]), so reading `stripMode`
+   *  from the render closure served a stale `false` and the strip captured one
+   *  panel then jumped to review. A ref is read at call time, so no memoized
+   *  caller can serve an out-of-date value. */
+  const stripModeRef = useRef(stripMode);
+  useEffect(() => { stripModeRef.current = stripMode; }, [stripMode]);
+  /** Same reasoning as `stripModeRef` — read the mode at call time, not at the
+   *  time the enclosing callback was last memoized. */
+  const mediaModeRef = useRef(mediaMode);
+  useEffect(() => { mediaModeRef.current = mediaMode; }, [mediaMode]);
+  const stripShotsRef = useRef<string[]>([]);
+  const [stripTaken, setStripTaken] = useState(0);
+  const stripTimerRef = useRef<number | null>(null);
+  const resetStrip = useCallback(() => {
+    if (stripTimerRef.current) { window.clearTimeout(stripTimerRef.current); stripTimerRef.current = null; }
+    stripShotsRef.current = [];
+    setStripTaken(0);
+  }, []);
+  useEffect(() => () => {
+    if (stripTimerRef.current) window.clearTimeout(stripTimerRef.current);
+  }, []);
 
   // ── UI chrome ─────────────────────────────────────────────────────────
   const [uiHidden, setUiHidden] = useState(false);   // collapse panel to see the full frame
@@ -433,17 +513,62 @@ export default function Booth() {
   const [reveal, setReveal] = useState(false);
   const prevSelectionRef = useRef<string | null>(null);
   const revealTimeoutRef = useRef<number | null>(null);
+
+  // ── Asset readiness (the loading state a selection never had) ──────────
+  // Tapping a crown on venue wifi used to produce NOTHING for seconds: the orb
+  // read as selected, the GLB was still on the network, and — worse — the
+  // reveal shimmer had ALREADY played, so the magic moment celebrated an empty
+  // frame. Track which URLs have actually landed, show a pending ring on the
+  // orb until they have, and hold the reveal until the asset is there.
+  const [loadedAssets, setLoadedAssets] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const selectionUrls = useMemo(() => {
+    const urls = assetUrlsOf(frameExp);
+    for (const u of assetUrlsOf(attachExp)) if (!urls.includes(u)) urls.push(u);
+    return urls;
+  }, [frameExp, attachExp]);
+  const selectionPending = isPending(selectionUrls, loadedAssets);
   useEffect(() => {
-    const sig = frameExp || attachExp ? `${frameExp?.id ?? ''}|${attachExp?.id ?? ''}` : null;
+    if (selectionUrls.length === 0) return;
+    let alive = true;
+    for (const url of selectionUrls) {
+      void warmAsset(url).then(() => {
+        if (alive) setLoadedAssets((prev) => withLoaded(prev, url));
+      });
+    }
+    return () => { alive = false; };
+  }, [selectionUrls]);
+  /** Ids whose assets are still in flight — drives the deck's pending ring. */
+  const pendingExperienceIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (frameExp && isPending(assetUrlsOf(frameExp), loadedAssets)) ids.add(frameExp.id);
+    if (attachExp && isPending(assetUrlsOf(attachExp), loadedAssets)) ids.add(attachExp.id);
+    return ids;
+  }, [frameExp, attachExp, loadedAssets]);
+
+  const selectionSig = useMemo(
+    () => selectionSignature(frameExp?.id ?? null, attachExp?.id ?? null),
+    [frameExp, attachExp],
+  );
+  /** A selection that has changed but whose asset has not arrived yet. The
+   *  shimmer is ARMED here and FIRED below, once the bytes are in. */
+  const armedRevealRef = useRef<string | null>(null);
+  useEffect(() => {
     const prevSig = prevSelectionRef.current;
-    prevSelectionRef.current = sig;
-    if (source !== 'db') return;            // legacy/code events: never
-    if (!sig || sig === prevSig) return;     // deselecting, or unchanged: never
+    prevSelectionRef.current = selectionSig;
+    if (source !== 'db') return;                  // legacy/code events: never
+    if (!selectionSig || selectionSig === prevSig) return; // deselecting, or unchanged: never
+    armedRevealRef.current = selectionSig;
+  }, [selectionSig, source]);
+  useEffect(() => {
+    if (armedRevealRef.current === null) return;
+    if (armedRevealRef.current !== selectionSig) return; // superseded by a newer pick
+    if (selectionPending) return;                        // wait for the asset itself
+    armedRevealRef.current = null;
     if (prefersReducedMotion()) return;      // a11y: apply instantly, no animated entrance
     setReveal(true);
     if (revealTimeoutRef.current) window.clearTimeout(revealTimeoutRef.current);
     revealTimeoutRef.current = window.setTimeout(() => setReveal(false), REVEAL_SHIMMER_MS);
-  }, [frameExp, attachExp, source]);
+  }, [selectionSig, selectionPending]);
   useEffect(() => () => {
     if (revealTimeoutRef.current) window.clearTimeout(revealTimeoutRef.current);
   }, []);
@@ -762,6 +887,10 @@ export default function Booth() {
   const handleShutterPress = useCallback(() => {
     if (phase !== 'camera') return;
     if (mediaMode === 'video' && recording) return; // handled by stop button
+    // A browser will only unblock WebAudio inside a REAL user gesture, and this
+    // is the only one the countdown gets — prime the shared context here or the
+    // ticks are silent for the whole session.
+    primeAudio();
     // This frame puts the guest's NAME on the photo and we don't have one yet:
     // ask before the first shot, not after. Skipping is remembered per event,
     // so this can only ever interrupt once.
@@ -770,7 +899,14 @@ export default function Booth() {
       setAskName(true);
       return;
     }
-    if (timerSec > 0) {
+    const strip = mediaMode === 'photo' && stripMode;
+    if (strip) resetStrip();
+    // A strip always leads with a visible countdown even when the guest's timer
+    // is Off — three shots fired the instant you tap is a strip of one pose and
+    // two surprised faces.
+    const lead = timerSec > 0 ? timerSec : (strip ? STRIP_LEAD_SEC : 0);
+    if (lead > 0) {
+      setCountdownFrom(lead);
       setPhase('countdown');
     } else {
       // Fire immediately
@@ -780,7 +916,7 @@ export default function Booth() {
         capturePhoto();
       }
     }
-  }, [phase, mediaMode, recording, timerSec, needsGuestName, askName]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phase, mediaMode, recording, timerSec, needsGuestName, askName, stripMode, resetStrip]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCountdownComplete = useCallback(() => {
     if (mediaMode === 'video') {
@@ -790,6 +926,13 @@ export default function Booth() {
     }
   }, [mediaMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** The escape hatch the countdown never had. Abandons the shot (and any
+   *  half-finished strip) and returns to a live viewfinder. */
+  const handleCountdownCancel = useCallback(() => {
+    resetStrip();
+    setPhase('camera');
+  }, [resetStrip]);
+
   // ── Photo capture ─────────────────────────────────────────────────────
   async function capturePhoto() {
     setPhase('flash');
@@ -797,15 +940,71 @@ export default function Booth() {
     if (!stage) { setPhase('camera'); return; }
     try {
       const dataUrl = await stage.capturePhoto();
+      // The shutter BUTTON already buzzes on press; this is the confirmation
+      // that a frame actually landed — which is a different event entirely once
+      // a timer or a strip puts seconds between the two.
+      haptic('success');
+      playCue('shutter');
+      if (mediaModeRef.current === 'photo' && stripModeRef.current) { await advanceStrip(dataUrl); return; }
       setCapturedDataUrl(dataUrl);
       capturedMediaTypeRef.current = 'image';
       setCapturedDurationMs(undefined);
       setTimeout(() => setPhase('review'), 180);
     } catch (e) {
       console.error('[Booth] capture failed', e);
+      haptic('error');
       setPhase('camera');
+      resetStrip();
       showBoothHint('Capture failed — try again');
     }
+  }
+
+  /**
+   * Fold one captured panel into the strip, then either queue the next shot or
+   * composite and hand the finished card to the normal review flow.
+   */
+  async function advanceStrip(dataUrl: string) {
+    const shots = [...stripShotsRef.current, dataUrl];
+    stripShotsRef.current = shots;
+    setStripTaken(shots.length);
+
+    if (!stripComplete(shots.length)) {
+      // Back to a LIVE viewfinder between panels so the guest can see the pose
+      // they are changing into, then auto-run the next countdown. A strip is
+      // one decision, not three taps.
+      setPhase('camera');
+      stripTimerRef.current = window.setTimeout(() => {
+        setCountdownFrom(STRIP_LEAD_SEC);
+        setPhase('countdown');
+      }, STRIP_GAP_MS);
+      return;
+    }
+
+    try {
+      const card = await composeStrip(shots, {
+        width: CAPTURE_W,
+        height: CAPTURE_H,
+        background: '#05060B',
+        accent: eventConfig.accentHexes[0] ?? '#E8C766',
+        // Each panel already carries the baked signature, but at panel scale it
+        // is a smudge — the card-level line is the legible one, and it stays
+        // entitlement-gated exactly like the per-photo watermark.
+        footer: entitlements.watermark ? copy.eventName : undefined,
+      });
+      setCapturedDataUrl(card);
+    } catch (e) {
+      // Compositing failed (a browser that refuses a 2D context). NEVER lose
+      // the shots the guest already posed for — post the last panel as an
+      // ordinary photo instead of dropping the whole strip.
+      console.error('[Booth] strip compose failed', e);
+      showBoothHint('Couldn’t build the strip — keeping your last shot');
+      setCapturedDataUrl(shots[shots.length - 1]);
+    }
+    capturedMediaTypeRef.current = 'image';
+    setCapturedBlobRef(null);
+    setCapturedDurationMs(undefined);
+    resetStrip();
+    setTimeout(() => setPhase('review'), 180);
   }
 
   // ── Video recording ───────────────────────────────────────────────────
@@ -1019,6 +1218,108 @@ export default function Booth() {
     rearmReveals();
   }, [rearmReveals]);
 
+  // ── Outcome feedback ──────────────────────────────────────────────────
+  // `haptic('success')`/`haptic('error')` existed in the library but nothing in
+  // the booth ever fired them: the two moments a guest most needs confirming —
+  // "it's on the wall" and "it didn't send" — were silent and buzz-free. One
+  // effect on the phase, so every route into these states (first send, retry,
+  // "post anyway" after a failed challenge check) is covered.
+  useEffect(() => {
+    if (phase === 'success') { haptic('success'); playCue('success'); }
+    else if (phase === 'sendFailed') haptic('error');
+  }, [phase]);
+
+  // ── Live filter thumbnails ────────────────────────────────────────────
+  // Point the shared 96px preview engine at the booth's video. It only runs
+  // while orbs are actually on screen (they register themselves), the camera is
+  // live and reduced motion is off — see filterThumbEngine for the cost budget.
+  useEffect(() => {
+    setThumbSource(videoRef.current, ready && phase === 'camera' && !uiHidden, isFront);
+  }, [ready, phase, uiHidden, isFront, videoRef]);
+  useEffect(() => () => { setThumbSource(null, false, true); }, []);
+
+  // ── Viewfinder gestures ───────────────────────────────────────────────
+  // The viewfinder had no gestures at all, which is below the baseline every
+  // guest brings from Instagram/Snapchat. Swipe sideways to change the look,
+  // double-tap to flip the camera. Attached to the STAGE box only, so the
+  // control deck's own drag/scroll behaviour is untouched.
+  const gestureStartRef = useRef<PointerSample | null>(null);
+  const lastTapRef = useRef<PointerSample | null>(null);
+  // Taken from the catalog rather than the deck sections, which are built
+  // further down — the swipe must work whichever tab the deck happens to show.
+  const filterOptions = useMemo(
+    () => catalog.filter((e) => e.kind === 'shader' && !!e.config?.shader?.shaderId),
+    [catalog],
+  );
+  const stepFilter = useCallback((dir: 'left' | 'right') => {
+    if (filterOptions.length === 0) return;
+    const cur = filterOptions.findIndex((e) => e.config?.shader?.shaderId === effectId);
+    const next = cycleIndex(cur, filterOptions.length, dir);
+    haptic('select');
+    if (next < 0) applyEffect('none');
+    else applyEffect(filterOptions[next].config!.shader!.shaderId, filterOptions[next]);
+  }, [filterOptions, effectId, applyEffect]);
+
+  const onStagePointerDown = useCallback((e: React.PointerEvent) => {
+    if (phase !== 'camera') return;
+    gestureStartRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
+  }, [phase]);
+
+  const onStagePointerUp = useCallback((e: React.PointerEvent) => {
+    const start = gestureStartRef.current;
+    gestureStartRef.current = null;
+    if (!start || phase !== 'camera') return;
+    const end: PointerSample = { x: e.clientX, y: e.clientY, t: performance.now() };
+    const swipe = detectSwipe(start, end);
+    if (swipe) {
+      lastTapRef.current = null;   // a swipe is never half of a double-tap
+      stepFilter(swipe);
+      return;
+    }
+    // Not a swipe → a tap. Two quick ones in the same spot flip the camera.
+    if (isDoubleTap(lastTapRef.current, end)) {
+      lastTapRef.current = null;
+      if (canFlip && !recording) { haptic('toggle'); flipCamera(); }
+      return;
+    }
+    lastTapRef.current = end;
+  }, [phase, stepFilter, canFlip, recording, flipCamera]);
+
+  // ── Orientation ───────────────────────────────────────────────────────
+  // The stage is a fixed 9:16 box and the capture buffer is 1080x1920 by
+  // construction, so a phone held sideways STILL produces a portrait photo —
+  // a landscape "group shot" layout would silently crop the group it promised
+  // to fit. Rather than lie about the frame, say so: a rotate prompt with an
+  // honest reason and a "use it sideways" escape, so nobody is ever blocked.
+  const [viewport, setViewport] = useState(() => ({
+    w: typeof window === 'undefined' ? 0 : window.innerWidth,
+    h: typeof window === 'undefined' ? 0 : window.innerHeight,
+  }));
+  useEffect(() => {
+    const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    onResize();
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
+  const cramped = isCrampedLandscape(viewport.w, viewport.h);
+  const [rotateDismissed, setRotateDismissed] = useState(false);
+  // Turning back to portrait re-arms the prompt, so a guest who dismissed it
+  // once in a lift is not stuck with it silently off for the whole event.
+  useEffect(() => { if (!cramped) setRotateDismissed(false); }, [cramped]);
+  const showRotatePrompt = cramped && !rotateDismissed && started && !error;
+  // A guest who chose "use it sideways" gets the frame UNOBSTRUCTED. In cramped
+  // landscape the 9:16 stage is only ~220px wide, and the full deck sits right
+  // on top of it. Collapse to the booth's existing chrome-hidden layout — the
+  // shutter plus a "Controls" pill — which is tested code and still lets them
+  // bring the deck back deliberately.
+  useEffect(() => {
+    if (cramped && rotateDismissed) setUiHidden(true);
+  }, [cramped, rotateDismissed]);
+
   // ── Recording progress ring ───────────────────────────────────────────
   // Hoisted: this is a matchMedia() call, and it used to run on EVERY render of
   // the booth. It only feeds a tap-scale animation, so reading it once at mount
@@ -1199,8 +1500,14 @@ export default function Booth() {
             style={{ containerType: 'size' }}
           >
             <div
-              className="relative h-full aspect-[9/16] max-w-full rounded-[1.4rem] overflow-hidden ring-1 ring-gold-700/25 shadow-[0_10px_50px_rgba(0,0,0,0.6)] bg-noir-900"
+              className="relative h-full aspect-[9/16] max-w-full rounded-[1.4rem] overflow-hidden ring-1 ring-gold-700/25 shadow-[0_10px_50px_rgba(0,0,0,0.6)] bg-noir-900 touch-pan-y"
               style={{ height: 'min(100cqh, calc(100cqw * 16 / 9))' }}
+              // Swipe sideways = next/previous filter; double-tap = flip camera.
+              // Scoped to the stage box, so the control deck below keeps its own
+              // horizontal scroll and drag behaviour untouched.
+              onPointerDown={onStagePointerDown}
+              onPointerUp={onStagePointerUp}
+              onPointerCancel={() => { gestureStartRef.current = null; }}
             >
               <video
                 id="booth-video"
@@ -1261,6 +1568,38 @@ export default function Booth() {
                   component hardcodes `display: block`. */}
               {hasTriggers && <TriggerEffects ref={triggerFxRef} className="absolute inset-0 w-full h-full pointer-events-none opacity-0" />}
               <div className="absolute top-4 inset-x-0 z-30 flex flex-col items-center gap-2 pointer-events-none">
+                {/* Photo strip — which panel we're on, between shots. Without
+                    this the camera silently reappears for a second and a half
+                    and the guest cannot tell whether the strip is still going. */}
+                <AnimatePresence>
+                  {stripMode && mediaMode === 'photo' && stripTaken > 0 && phase === 'camera' && (
+                    <motion.div
+                      key="strip-progress"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.25 }}
+                      className="flex items-center gap-2 px-3.5 py-2 rounded-full glass-strong border border-gold-400/25"
+                    >
+                      <span className="flex gap-1">
+                        {Array.from({ length: STRIP_SHOTS }, (_, i) => (
+                          <span
+                            key={i}
+                            className="h-1.5 w-4 rounded-full"
+                            style={{
+                              background: i < stripTaken
+                                ? 'var(--color-accent)'
+                                : 'rgba(255,255,255,0.22)',
+                            }}
+                          />
+                        ))}
+                      </span>
+                      <span className="font-label text-[10px] uppercase tracking-wide text-champagne/80">
+                        {stripProgressLabel(stripTaken)} — strike a new pose
+                      </span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
                 <AnimatePresence>
                   {boothHint && (
                     <motion.div
@@ -1359,6 +1698,9 @@ export default function Booth() {
                 timerOptions={TIMER_OPTIONS}
                 recording={recording}
                 shutter={shutterNode}
+                pendingIds={pendingExperienceIds}
+                stripMode={stripMode}
+                onStripMode={setStripMode}
               />
             </div>
           )}
@@ -1395,7 +1737,12 @@ export default function Booth() {
 
       {/* ── Countdown ─────────────────────────────────────────────────── */}
       {phase === 'countdown' && (
-        <Countdown from={timerSec || 3} onComplete={handleCountdownComplete} />
+        <Countdown
+          from={countdownFrom || 3}
+          onComplete={handleCountdownComplete}
+          onCancel={handleCountdownCancel}
+          caption={mediaMode === 'photo' && stripMode ? stripProgressLabel(stripTaken) : undefined}
+        />
       )}
 
       {/* ── More filters & settings sheet ─────────────────────────────── */}
@@ -1434,7 +1781,6 @@ export default function Booth() {
           durationMs={capturedDurationMs}
           onRetake={handleRetake}
           onSend={handleSend}
-          sending={false}
           selectedChallenge={selectedChallenge}
         />
       )}
@@ -1456,7 +1802,7 @@ export default function Booth() {
 
       {/* ── Name for the frame (asked once, before the first shot) ─────── */}
       {askName && (
-        <div className="absolute inset-0 z-50 flex items-end sm:items-center justify-center bg-noir-900/70 backdrop-blur-sm px-4 pb-6">
+        <div className="absolute inset-0 z-50 flex items-end sm:items-center justify-center bg-noir-900/70 backdrop-blur-sm px-4 pb-safe-bottom [--safe-bottom:1.5rem]">
           <div className="w-full max-w-sm liquid-glass rounded-3xl px-6 py-6 text-center">
             <h3 className="font-serif text-2xl text-ivory mb-1">Put your name on it</h3>
             <p className="font-sans text-[13px] text-champagne/60 leading-relaxed mb-5">
@@ -1515,6 +1861,41 @@ export default function Booth() {
           pendingApproval={pendingApproval}
           onTakeAnother={handleTakeAnother}
         />
+      )}
+
+      {/* ── Rotate prompt (cramped landscape) ─────────────────────────────
+          NOT a block: "Use it sideways" dismisses it and the booth stays fully
+          usable, because a guest who has chosen to shoot sideways is allowed
+          to. It exists to tell the truth about the frame — every capture is
+          1080x1920 by construction, so a sideways group shot gets cropped to
+          portrait whatever we lay out. Saying that up front is kinder than a
+          collapsed stage with the deck sitting on top of it. */}
+      {showRotatePrompt && (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-noir-900/92 backdrop-blur-md px-6">
+          <div className="flex max-w-sm flex-col items-center gap-5 text-center">
+            <motion.div
+              animate={reducedMotionPref ? undefined : { rotate: [0, -90, -90, 0] }}
+              transition={reducedMotionPref ? undefined : { duration: 3, repeat: Infinity, times: [0, 0.35, 0.75, 1], ease: 'easeInOut' }}
+              className="flex h-20 w-14 items-center justify-center rounded-2xl border-2 border-gold-400/50"
+              style={{ boxShadow: '0 0 30px -6px rgba(var(--accent-rgb),0.6)' }}
+            >
+              <RotateCcw className="h-6 w-6 text-gold-300" />
+            </motion.div>
+            <div className="space-y-2">
+              <h3 className="font-serif text-2xl text-ivory">Turn your phone upright</h3>
+              <p className="font-sans text-[13px] leading-relaxed text-champagne/60">
+                Every shot from this booth is a tall 9:16 photo — sideways, you
+                only see a sliver of the frame you&rsquo;re actually posing in.
+              </p>
+            </div>
+            <button
+              onClick={() => { haptic('tap'); setRotateDismissed(true); }}
+              className="pressable glass min-h-11 rounded-full px-6 font-label text-[11px] uppercase tracking-luxe text-champagne/70 hover:text-ivory transition-colors"
+            >
+              Use it sideways anyway
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ── Send failed — retry or save locally, never silently lost ──── */}

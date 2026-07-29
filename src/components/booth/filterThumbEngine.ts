@@ -60,12 +60,25 @@ let video: HTMLVideoElement | null = null;
 let cameraReady = false;
 let mirrored = true;
 
+/**
+ * Reduced-motion, read ONCE and kept live by a listener.
+ *
+ * `gateOpen()` runs inside the rAF loop, so a `matchMedia()` call in here would
+ * be a fresh media-query evaluation at display rate — the exact per-frame cost
+ * this feature promised not to add.
+ */
+let reducedMotionCache: boolean | null = null;
 function reducedMotion(): boolean {
+  if (reducedMotionCache !== null) return reducedMotionCache;
   try {
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    reducedMotionCache = mq.matches;
+    const onChange = (e: MediaQueryListEvent) => { reducedMotionCache = e.matches; sync(); };
+    if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange);
   } catch {
-    return false;
+    reducedMotionCache = false;
   }
+  return reducedMotionCache;
 }
 
 function documentHidden(): boolean {

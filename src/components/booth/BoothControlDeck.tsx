@@ -238,7 +238,9 @@ export default function BoothControlDeck<T extends number>({
                 type="button"
                 onClick={() => { haptic('tap'); onCategory(s.key); }}
                 aria-pressed={on}
-                className="relative min-h-11 pb-1 font-label text-[10px] uppercase tracking-[0.24em] transition-colors"
+                // min-w-11 as well as min-h-11: "3D" is a two-character label,
+                // so the tab was a 44px-tall but 18px-wide target.
+                className="relative min-h-11 min-w-11 pb-1 font-label text-[10px] uppercase tracking-[0.24em] transition-colors"
                 style={{ color: on ? 'var(--color-brand-fg)' : 'rgba(169,180,204,0.55)' }}
               >
                 {s.label}
