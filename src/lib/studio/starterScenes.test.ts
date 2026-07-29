@@ -4,7 +4,8 @@
  */
 import { existsSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { STARTER_SCENES, STARTER_SCENE_MAP, starterAssetIds, starterPropUrls, buildStarterDraft } from './starterScenes';
+import { STARTER_SCENES, STARTER_SCENE_MAP, starterAssetIds, starterPropUrls, starterPropUrl, buildStarterDraft } from './starterScenes';
+import { BUNDLED_PROP_MAP } from './bundledProps';
 import { BORDER_MAP } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
 import { SHADER_MAP } from '../shaders';
@@ -52,16 +53,21 @@ describe('the shipped catalogue is real', () => {
     expect(new Set(previews).size).toBe(previews.length);
   });
 
-  // Same reasoning as the preview check: a scene may only reference a prop the
-  // build actually ships, and it must be a bundled one — an off-origin GLB on
-  // the booth's critical path is the face_landmarker mistake again.
-  it('every bundled prop GLB exists in public/ and is app-absolute', () => {
+  // A scene names a prop by id, so the id has to resolve in the ONE shared
+  // catalogue the studio library also renders from. This is the assertion that
+  // would have caught the reported bug: a scene pointing at a prop the library
+  // does not offer (or vice versa) is exactly how the cards ended up promising
+  // a crown the library never handed out.
+  it('resolves every propId in the shared bundled catalogue', () => {
     for (const s of STARTER_SCENES) {
-      if (!s.prop) continue;
-      expect(s.prop.url, `${s.id} prop url`).toMatch(/^\/models\/props\/[a-z0-9-]+\.glb$/);
-      const onDisk = new URL(`../../../public${s.prop.url}`, import.meta.url);
-      expect(existsSync(onDisk), `${s.id} prop missing on disk: ${s.prop.url}`).toBe(true);
-      expect(s.prop.scale, `${s.id} prop scale`).toBeGreaterThan(0);
+      if (!s.propId) continue;
+      expect(BUNDLED_PROP_MAP[s.propId], `${s.id} propId ${s.propId}`).toBeDefined();
+    }
+  });
+
+  it('never carries both a procedural piece and a bundled prop', () => {
+    for (const s of STARTER_SCENES) {
+      expect(!!(s.propId && s.headPieceId), `${s.id} declares both`).toBe(false);
     }
   });
 
@@ -69,7 +75,8 @@ describe('the shipped catalogue is real', () => {
     const urls = starterPropUrls();
     expect(new Set(urls).size).toBe(urls.length);
     for (const s of STARTER_SCENES) {
-      if (s.prop) expect(urls).toContain(s.prop.url);
+      const url = starterPropUrl(s);
+      if (url) expect(urls).toContain(url);
     }
   });
 });
@@ -184,7 +191,14 @@ describe('buildStarterDraft', () => {
           // critical path) and a finish, because these meshes ship with no
           // material of their own and would otherwise render as grey plastic.
           expect(o.assetUrl, `${s.id} prop url`).toMatch(/^\/models\/props\/[a-z0-9-]+\.glb$/);
-          expect(o.finish, `${s.id} prop finish`).toBeTruthy();
+          // The finish key is ABSENT when the catalogue asks for 'original',
+          // and that is correct: createObject3D's finishKeys() omits the
+          // default so an unstyled object round-trips byte-identically. Only
+          // the textured shades want 'original' — the untextured meshes must
+          // name a real finish or they render as grey plastic.
+          const wanted = BUNDLED_PROP_MAP[s.propId!].finish;
+          if (wanted === 'original') expect(o.finish, `${s.id} finish`).toBeUndefined();
+          else expect(o.finish, `${s.id} finish`).toBe(wanted);
         }
       }
     }
