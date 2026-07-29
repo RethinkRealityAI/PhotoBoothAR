@@ -391,6 +391,7 @@ export default function BoothControlDeck<T extends number>({
                 key={o.exp.id}
                 active={on}
                 label={o.label}
+                pending={on && (pendingIds?.has(o.exp.id) ?? false)}
                 onClick={() =>
                   choose(() => {
                     if (active.key === 'effect') {

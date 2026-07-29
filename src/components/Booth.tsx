@@ -16,7 +16,7 @@ import {
 } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ChevronUp, ScanFace, Sparkles } from 'lucide-react';
+import { AlertCircle, ChevronUp, RotateCcw, ScanFace, Sparkles } from 'lucide-react';
 
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
@@ -76,6 +76,16 @@ import { challengeNeedsCheck, validateChallengePhoto } from '../lib/challengeVal
 import { fileToImagePart } from '../lib/imageInput';
 import RevealShimmer from './booth/RevealShimmer';
 import { REVEAL_SHIMMER_MS } from '../lib/studio/reveal';
+import { setThumbSource } from './booth/filterThumbEngine';
+import { assetUrlsOf, isPending, selectionSignature, withLoaded } from '../lib/boothAssets';
+import {
+  detectSwipe, isDoubleTap, cycleIndex, isCrampedLandscape, type PointerSample,
+} from '../lib/boothGestures';
+import { playCue, primeAudio } from '../lib/boothAudio';
+import {
+  composeStrip, stripComplete, stripProgressLabel,
+  STRIP_SHOTS, STRIP_GAP_MS, STRIP_LEAD_SEC,
+} from '../lib/photoStrip';
 import type { Transform2D, Experience, AnchorConfig, Challenge } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────

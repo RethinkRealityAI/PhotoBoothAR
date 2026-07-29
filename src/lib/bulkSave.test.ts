@@ -114,31 +114,30 @@ describe('collectFiles', () => {
   });
 
   it('refuses a batch that would not fit in memory', async () => {
+    // A fake response whose arrayBuffer reports a huge length without actually
+    // allocating 1.5 GB — the guard reads `.byteLength`, nothing else.
     const huge = Math.ceil(MAX_ARCHIVE_BYTES / 2) + 1;
-    const impl = vi.fn(async () => new Response(new Uint8Array(0), {
-      // Build the buffer lazily via a fake arrayBuffer to avoid allocating 1.5 GB.
-    })) as unknown as typeof fetch;
     const fake = (async () => ({
       ok: true,
       status: 200,
       arrayBuffer: async () => new ArrayBuffer(huge),
     })) as unknown as typeof fetch;
-    void impl;
     await expect(
       collectFiles(items(3), { filePrefix: 'E', fetchImpl: fake }),
     ).rejects.toBeInstanceOf(ArchiveTooBigError);
   });
 
   it('reports every item as failed rather than throwing when there is no fetch', async () => {
-    const res = await collectFiles(items(2), {
-      filePrefix: 'E',
-      fetchImpl: undefined as unknown as typeof fetch,
-      // Force the no-fetch branch even though node has a global one.
-      ...(globalThis.fetch ? {} : {}),
-    });
-    // node provides fetch, so this path only asserts the happy shape here;
-    // the guard itself is covered by the explicit call below.
-    expect(res.files.length + res.failures.length).toBe(2);
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+    Object.defineProperty(globalThis, 'fetch', { value: undefined, configurable: true });
+    try {
+      const res = await collectFiles(items(2), { filePrefix: 'E' });
+      expect(res.files).toEqual([]);
+      expect(res.failures.map((f) => f.id)).toEqual(['p0', 'p1']);
+      expect(res.failures[0].reason).toBe('downloads are unavailable here');
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'fetch', original);
+    }
   });
 
   it('handles an empty selection', async () => {

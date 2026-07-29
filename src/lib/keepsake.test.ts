@@ -159,7 +159,9 @@ describe('groupByDay', () => {
     expect(groups[0].items.map((i) => i.id)).toEqual(['a', 'b']);
   });
 
-  it('keeps the order the groups first appear in', () => {
+  it('emits each day once, in the order it first appears', () => {
+    // A day heading that appeared twice would read as a bug to the guest, so a
+    // straggler joins its existing group rather than opening a new one.
     const groups = groupByDay(
       [
         item({ id: 'a', createdAt: at('2026-07-29T09:00:00') }),
@@ -168,7 +170,8 @@ describe('groupByDay', () => {
       ],
       now,
     );
-    expect(groups.map((g) => g.key)).toEqual(['2026-07-29', '2026-07-20', '2026-07-29']);
+    expect(groups.map((g) => g.key)).toEqual(['2026-07-29', '2026-07-20']);
+    expect(groups[0].items.map((i) => i.id)).toEqual(['a', 'c']);
   });
 
   it('gives older days a real date label, not "Today"', () => {
