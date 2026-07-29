@@ -124,9 +124,11 @@ describe('normalizeTemplate — the happy path', () => {
     expect(t.textSlots[0].decalDepth).toBe(0.35);
   });
 
-  it('normalizes the front axis to unit length', () => {
+  it('ignores a frontAxis key — the field was deleted from the contract, old descriptors still validate', () => {
     const raw = { ...goodTemplate(), frontAxis: [0, 0, 5] };
-    expect(normalizeTemplate(raw)!.frontAxis).toEqual([0, 0, 1]);
+    const t = normalizeTemplate(raw)!;
+    expect(t).not.toBeNull();
+    expect('frontAxis' in t).toBe(false);
   });
 });
 
@@ -153,7 +155,6 @@ describe('normalizeTemplate — degrades, never throws', () => {
     })!;
     expect(t.name).toBe('x');            // falls back to the id
     expect(t.fitCm).toBe(20);            // the documented default
-    expect(t.frontAxis).toEqual([0, 0, 1]);
     expect(t.regions).toEqual([]);
     expect(t.textSlots).toEqual([]);
     expect(t.regionIds).toBeUndefined();

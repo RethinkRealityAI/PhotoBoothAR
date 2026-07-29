@@ -416,17 +416,32 @@ export function largestMesh(root: THREE.Object3D): THREE.Mesh | null {
 }
 
 /**
- * Local model units per centimetre, derived from the model's own bounding box
- * and the template's authored real-world size.
+ * MESH-LOCAL model units per centimetre, derived from the target mesh's own
+ * geometry and the template's authored real-world size.
  *
  * A GLB may be exported in metres, centimetres or "whatever Blender had open",
  * so a slot width authored as "9 cm" means nothing until it is measured against
  * the asset itself. Falls back to 1 rather than 0 or Infinity for a degenerate
  * box — a wrongly-sized name is recoverable, a NaN transform is not.
+ *
+ * Measured from `geometry.boundingBox`, NOT `Box3.setFromObject`, and the
+ * difference is the whole bug it fixes: `setFromObject` reads `matrixWorld`,
+ * which in the booth carries the head rig's centimetre scale (and, before the
+ * first render, no scale at all — a race). The decal is carved in the MESH'S
+ * OWN rest-pose space (`withRestPose` identities the world matrix), so the
+ * conversion must be measured in that same space. With the world box, an "8 cm"
+ * line computed against a head-rig-scaled cap landed at several times the size
+ * of the whole model — giant sheared letter fragments instead of a name.
+ * Because the finished decal is PARENTED to the mesh, it inherits the fit
+ * scale, the gizmo and the per-frame pose with no further conversion: the
+ * engraving stays the same fraction of the piece at every host scale.
  */
-export function unitsPerCm(root: THREE.Object3D, fitCm: number): number {
-  const box = new THREE.Box3().setFromObject(root);
-  if (box.isEmpty()) return 1;
+export function unitsPerCm(mesh: THREE.Mesh, fitCm: number): number {
+  const geometry = mesh.geometry;
+  if (!geometry) return 1;
+  if (!geometry.boundingBox) geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  if (!box || box.isEmpty()) return 1;
   const size = box.getSize(new THREE.Vector3());
   const largest = Math.max(size.x, size.y, size.z);
   if (!Number.isFinite(largest) || largest <= 0 || !Number.isFinite(fitCm) || fitCm <= 0) return 1;
@@ -463,7 +478,7 @@ export async function attachLabelDecal(
     text,
     style: label.style,
     hex: label.hex,
-    unitsPerCm: unitsPerCm(root, template.fitCm),
+    unitsPerCm: unitsPerCm(target, template.fitCm),
   });
   if (!built) return null;
   // Parented to the MESH the decal was carved from, in that mesh's own local
