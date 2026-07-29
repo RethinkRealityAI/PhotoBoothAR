@@ -96,6 +96,81 @@ export interface ExperienceLayer {
   /** Layer is kept in the scene but rendered NOWHERE (studio eye toggle —
    *  preview and guest booth both skip it; only exactly `true` hides). */
   hidden?: boolean;
+  /**
+   * Per-asset personalisation — recoloured template regions and/or an engraved
+   * label (see AssetCustomization). Written ONLY when something is actually
+   * customized, and a reset REMOVES the key rather than writing a default, so a
+   * layer that was styled and then reset is byte-identical to one that never
+   * was. Absent on every pre-existing layer and every legacy coded event.
+   *
+   * NOTE (draftMapping.draftToPayload): its presence FORCES the `config.layers`
+   * path, because the legacy singular mirror has no slot for it — exactly like
+   * `finish`/`tint`.
+   */
+  customization?: AssetCustomization;
+  /**
+   * The asset's configurator descriptor (lib/studio/assetTemplate.ts
+   * `AssetTemplate`): which regions may be recoloured and where a name may be
+   * engraved. Stored as `unknown` and validated through `normalizeTemplate` at
+   * every read — the same untrusted-jsonb idiom `triggers` above uses — so a
+   * corrupt or newer descriptor degrades to "not configurable" instead of
+   * throwing inside a render loop.
+   *
+   * It travels WITH the layer because the guest booth only ever reads
+   * `config.layers`: a template that lived anywhere else would need either a
+   * migration (forbidden here) or a second fetch on the booth's critical path.
+   * Absent on every pre-existing layer.
+   */
+  template?: unknown;
+}
+
+/**
+ * How ONE named region of a customizable 3D asset is restyled. Both keys are
+ * optional and BOTH ABSENT is not a thing that is ever stored: a region with
+ * nothing to say is dropped entirely (normalizeCustomization in
+ * lib/studio/state.ts), so "unstyled" has exactly one byte-representation.
+ */
+export interface AssetPartStyle {
+  /** `#rrggbb` (normalized lowercase). Absent = keep the region's own colour. */
+  hex?: string;
+  /** lib/studio/finish.ts FinishId. Absent (or 'original') = leave the material alone. */
+  finish?: string;
+}
+
+/**
+ * The text engraved on a customizable asset's label slot (a necklace plate, a
+ * cap's front panel). `token: 'guestName'` is resolved to the individual guest's
+ * own name AT BOOTH TIME — the SAME source of truth as the 2D lettering
+ * (session.getGuestName, read in Booth.tsx) — and an empty name draws NOTHING,
+ * exactly like StageCanvas.drawGuestLettering.
+ */
+export interface AssetLabelConfig {
+  /** Which of the template's label slots this text belongs to. */
+  slotId: string;
+  token: 'fixed' | 'guestName';
+  /** The line to engrave when token is 'fixed'; at booth time this field also
+   *  carries the RESOLVED name for 'guestName' (see draftMapping.layerToPiece). */
+  text?: string;
+  style: GuestLetteringStyle;
+  /** `#rrggbb` (normalized lowercase). */
+  hex: string;
+}
+
+/**
+ * Per-asset personalisation stored on a studio layer: which regions were
+ * recoloured/refinished, and what the label says.
+ *
+ * PERSISTENCE: an optional key on ExperienceLayer, i.e. the experience's jsonb
+ * `config` — no column, no migration, no RLS change. Absent on every layer
+ * written before this feature and on every legacy coded event, so those render
+ * byte-identically. The render half (region tinting + the decal) lives in
+ * lib/studio/assetTemplate.ts / regionTint.ts / assetDecal.ts.
+ */
+export interface AssetCustomization {
+  /** Region id -> its style. Omitted entirely when no region is styled. */
+  parts?: Record<string, AssetPartStyle>;
+  /** Omitted entirely when the asset carries no label text. */
+  label?: AssetLabelConfig;
 }
 
 /**

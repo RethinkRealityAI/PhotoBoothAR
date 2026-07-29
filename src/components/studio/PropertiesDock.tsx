@@ -51,8 +51,9 @@ import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
 import { getHeadFitEstimate } from '../../lib/faceRig';
 import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
 import { OVERLAY_SCALE, OVERLAY_POSITION, OVERLAY_ROTATION, formatAtStep, defaultAnchorConfig } from '../../lib/studio/controlSpecs';
-import { FINISH_TINT_STRENGTH } from '../../lib/studio/controlSpecs';
+import { ASSET_CUSTOMIZATION, FINISH_TINT_STRENGTH } from '../../lib/studio/controlSpecs';
 import { FINISHES, normalizeFinish, normalizeTintStrength, type FinishId } from '../../lib/studio/finish';
+import { isConfigurable, normalizeTemplate, type AssetRegion } from '../../lib/studio/assetTemplate';
 import { HOST_LIGHTING_PRESETS, type LightingPresetId } from '../../lib/studio/lighting';
 import { alignTransform, snapRotation, stepRotation, type AlignAction } from '../../lib/studio/align';
 import { HEAD_PIECE_MAP } from '../../lib/headPieces';
@@ -78,10 +79,10 @@ import {
   type TriggerAction,
   type TriggerSource,
 } from '../../lib/studio/triggers';
-import { draftToPayload, existingUrlResolver } from '../../lib/studio/draftMapping';
+import { draftToPayload, existingUrlResolver, STUDIO_SAMPLE_GUEST_NAME } from '../../lib/studio/draftMapping';
 import { createExperience, getStudioSettings, setStudioSettings } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
-import type { GuestLetteringConfig, LayerAnimation, Transform2D } from '../../types';
+import type { AssetLabelConfig, AssetPartStyle, GuestLetteringConfig, LayerAnimation, Transform2D } from '../../types';
 import { DEFAULT_LETTERING_COLOR, type GuestLetteringStyle } from '../../lib/letteringFit';
 import { NumberField, SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
 import LayerList from './LayerList';
@@ -431,6 +432,309 @@ function FinishControls({ object, dispatch }: { object: Object3D; dispatch: Reac
           format={(v) => `${Math.round(v * 100)}%`}
           onChange={(v) => dispatch({ type: 'SET_FINISH', tintStrength: v })}
         />
+      )}
+    </div>
+  );
+}
+
+/* ── Per-asset personalisation (the configurator) ─────────────────────────
+ *
+ * Shown ONLY for a model that ships a template (assetTemplate.ts): the template
+ * is the only thing that knows which parts of an opaque GLB may be recoloured
+ * and where a name may be engraved. `normalizeTemplate` returns null for
+ * anything it does not fully understand, so a missing or corrupt descriptor
+ * simply hides this section — the asset stays exactly as it was exported.
+ *
+ * Built-in procedural head pieces are excluded by the SAME gate FinishControls
+ * uses (`type === 'model'`): their materials are hand-authored in R3F and
+ * genuinely cannot be recoloured.
+ */
+const NO_FINISH = '__none__';
+
+function RegionRow({
+  region,
+  style,
+  dispatch,
+}: {
+  region: AssetRegion;
+  style: AssetPartStyle | undefined;
+  dispatch: React.Dispatch<StudioAction>;
+}) {
+  const hex = style?.hex ?? region.defaultHex;
+  const styled = !!style?.hex || !!style?.finish;
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="flex-1 min-w-0 truncate text-[11px] text-brand-fg">{region.label}</span>
+      <label className="w-6 h-6 shrink-0 rounded-md ring-1 ring-white/15 overflow-hidden cursor-pointer relative" title={`Colour · ${region.label}`}>
+        <span className="absolute inset-0" style={{ backgroundColor: hex }} />
+        <input
+          type="color"
+          value={hex}
+          onChange={(e) => dispatch({ type: 'SET_CUSTOMIZATION', part: { id: region.id, hex: e.target.value } })}
+          className="absolute inset-0 opacity-0 cursor-pointer"
+          aria-label={`Colour for ${region.label}`}
+        />
+      </label>
+      <select
+        value={style?.finish ?? NO_FINISH}
+        onChange={(e) => dispatch({
+          type: 'SET_CUSTOMIZATION',
+          part: { id: region.id, finish: e.target.value === NO_FINISH ? null : e.target.value },
+        })}
+        aria-label={`Finish for ${region.label}`}
+        className="shrink-0 w-[86px] bg-white/[0.04] border border-white/10 rounded-lg px-1.5 py-1 text-[10px] text-brand-fg focus:outline-none focus:border-accent/40"
+      >
+        <option value={NO_FINISH}>As made</option>
+        {FINISHES.filter((f) => f.id !== 'original').map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+      </select>
+      <button
+        onClick={() => dispatch({ type: 'SET_CUSTOMIZATION', part: { id: region.id, hex: null, finish: null } })}
+        disabled={!styled}
+        aria-label={`Reset ${region.label}`}
+        title="Back to how it was made"
+        className="shrink-0 p-1 rounded text-brand-muted/40 hover:text-accent-2 transition-colors disabled:opacity-15 disabled:pointer-events-none"
+      >
+        <RotateCcw className="w-3 h-3" />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Delay between the last keystroke and the dispatch that rebuilds the decal.
+ *
+ * MEASURED, not guessed: `BuiltLabelDecal.buildMs` reports 45-46 ms for a carve
+ * on the 30k-triangle reference mesh, and DecalGeometry is O(triangles) with no
+ * acceleration structure, so every keystroke is a synchronous main-thread stall
+ * of that size. Live-ish typing is affordable at 46 ms; a rebuild PER keystroke
+ * at typing speed is not, because they queue behind each other and the field
+ * starts dropping characters. 220 ms is longer than the gap inside a word and
+ * shorter than the pause between words, so the preview lands as the host stops.
+ */
+const LABEL_TEXT_DEBOUNCE_MS = 220;
+
+/**
+ * A text field that keeps up with typing while its consumer does not.
+ *
+ * Local state owns the keystrokes; the commit is trailing-debounced and FLUSHED
+ * on blur and on unmount, so a host who types a name and immediately clicks away
+ * (or closes the panel) still gets what they typed. `value` re-seeds the field
+ * only when it changes from OUTSIDE — without that check, the debounced commit
+ * echoing back would fight the cursor.
+ */
+function DebouncedTextInput({
+  value,
+  onCommit,
+  ...rest
+}: {
+  value: string;
+  onCommit: (next: string) => void;
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
+  const [local, setLocal] = useState(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pending = useRef<string | null>(null);
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+  const external = useRef(value);
+
+  useEffect(() => {
+    if (value === external.current) return;
+    external.current = value;
+    setLocal(value);
+  }, [value]);
+
+  const flush = useCallback(() => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    if (pending.current === null) return;
+    const next = pending.current;
+    pending.current = null;
+    external.current = next;
+    commitRef.current(next);
+  }, []);
+
+  // Unmount is a flush, not a cancel: closing the dock must not silently discard
+  // the last word the host typed.
+  useEffect(() => flush, [flush]);
+
+  return (
+    <input
+      {...rest}
+      type="text"
+      value={local}
+      onChange={(e) => {
+        const next = e.target.value;
+        setLocal(next);
+        pending.current = next;
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(flush, LABEL_TEXT_DEBOUNCE_MS);
+      }}
+      onBlur={flush}
+    />
+  );
+}
+
+function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch: React.Dispatch<StudioAction> }) {
+  // Templates arrive as untrusted jsonb (they round-trip through the
+  // experience's config), so they are validated on every read, never trusted.
+  const template = useMemo(() => normalizeTemplate(object.template), [object.template]);
+
+  /**
+   * The editor's own echo of the label — and it is not redundant state.
+   *
+   * A 'fixed' engraving with no text NORMALIZES AWAY: state.ts `normalizeLabel`
+   * drops it, on the same rule letteringFit applies to 2D lettering ("an
+   * engraving with nothing to say is the same as no engraving"). That is right
+   * for storage and wrong for an editor. Turning OFF "use each guest's own name"
+   * sets `token: 'fixed'` with no text yet, so the stored label vanished and
+   * took the whole section with it — the host could SEE the switch but could
+   * never reach the text field behind it. Verified in the browser at 1440x900
+   * and 390x844 before this echo existed.
+   *
+   * So the UI renders from `label ?? echo`, and the echo is cleared the moment
+   * a real stored label exists again. Nothing extra is ever persisted: the
+   * dispatch is unchanged and the normalizer still owns what gets written.
+   *
+   * ABOVE the `isConfigurable` guard, deliberately — hooks may not sit after an
+   * early return, and this repo has already shipped one hooks-order crash.
+   */
+  const [echo, setEcho] = useState<AssetLabelConfig | null>(null);
+  const storedLabel = object.customization?.label;
+  useEffect(() => { if (storedLabel) setEcho(null); }, [storedLabel]);
+
+  if (!template || !isConfigurable(template)) return null;
+
+  const custom = object.customization;
+  const parts = custom?.parts ?? {};
+  const recolourable = template.regions.filter((r) => r.recolourable);
+  const slots = template.textSlots;
+  const label = storedLabel ?? echo ?? undefined;
+  const slot = label ? slots.find((s) => s.id === label.slotId) ?? slots[0] : slots[0];
+  const selectCls = 'w-full bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-brand-fg focus:outline-none focus:border-accent/40';
+
+  const setLabel = (p: Partial<AssetLabelConfig>) => {
+    if (!slot) return;
+    const next: AssetLabelConfig = {
+      slotId: label?.slotId ?? slot.id,
+      token: label?.token ?? 'guestName',
+      style: label?.style ?? 'script',
+      hex: label?.hex ?? DEFAULT_LETTERING_COLOR,
+      ...(label?.text ? { text: label.text } : {}),
+      ...p,
+    };
+    setEcho(next);
+    dispatch({ type: 'SET_CUSTOMIZATION', label: next });
+  };
+
+  const clearLabel = () => {
+    setEcho(null);
+    dispatch({ type: 'SET_CUSTOMIZATION', label: null });
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-1.5 pt-1">
+        <Palette className="w-3.5 h-3.5 text-accent-2" />
+        <span className="font-label uppercase tracking-widest text-[9px] text-accent-2">Personalise</span>
+        <Tooltip
+          label={template.name}
+          hint={
+            template.preparedBy === 'auto'
+              ? 'This asset’s parts were detected automatically and nobody has checked them — treat the regions below as a starting point.'
+              : 'This asset ships with an authored map of which parts recolour and where a name is engraved.'
+          }
+          side="left"
+        >
+          <span className="ml-auto text-brand-muted/50 cursor-help text-[10px]">?</span>
+        </Tooltip>
+      </div>
+      <p className="font-sans text-[10px] leading-relaxed text-brand-muted/50 -mt-1">
+        Recolour this piece and put a name on it. Everything here shows up in the guest{'’'}s photo and video, not just in this preview.
+      </p>
+      {recolourable.length > 0 && (
+        <>
+          <SectionLabel>Colours</SectionLabel>
+          <div className="flex flex-col gap-1.5">
+            {recolourable.map((r) => (
+              <RegionRow key={r.id} region={r} style={parts[r.id]} dispatch={dispatch} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {slots.length > 0 && (
+        <>
+          <SectionLabel>Engraved name</SectionLabel>
+          <StudioToggle
+            label="Engrave a name"
+            hint="Cuts a name into the asset itself — in this studio, in the preview, in the guest's photo and video."
+            value={!!label}
+            onChange={(on) => (on ? setLabel({}) : clearLabel())}
+          />
+          {label && slot && (
+            <div className="flex flex-col gap-2">
+              {slots.length > 1 && (
+                <div>
+                  <SectionLabel>Where</SectionLabel>
+                  <select value={label.slotId} onChange={(e) => setLabel({ slotId: e.target.value })} className={selectCls} aria-label="Engraving position">
+                    {slots.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                  </select>
+                </div>
+              )}
+              {/* THE HEADLINE. A per-guest 3D name is a thing no host has seen
+                  before, so this is not a bare switch in a list of switches: it
+                  gets its own accented card and says, in words, what each guest
+                  will actually get. Same idiom as the Lighting block above —
+                  accent-tinted rounded panel, semantic tokens only. */}
+              <div className={`rounded-xl border p-3 flex flex-col gap-2 transition-colors ${
+                label.token === 'guestName' ? 'border-accent/30 bg-accent/[0.07]' : 'border-white/10 bg-white/[0.02]'
+              }`}>
+                <StudioToggle
+                  label="Use each guest's own name"
+                  hint={`Every guest who gives their name gets it engraved on their own copy of this piece — in the booth, in their photo and in their video. Here it previews as “${STUDIO_SAMPLE_GUEST_NAME}”.`}
+                  value={label.token === 'guestName'}
+                  onChange={(on) => setLabel({ token: on ? 'guestName' : 'fixed' })}
+                />
+                <p className="font-sans text-[10px] leading-relaxed text-brand-muted/60">
+                  {label.token === 'guestName' ? (
+                    <>
+                      Each guest sees <span className="text-brand-fg">their own name</span> on this
+                      piece. You are previewing “{STUDIO_SAMPLE_GUEST_NAME}”. A guest who skips the
+                      name prompt simply gets no engraving — never someone else’s name.
+                    </>
+                  ) : (
+                    <>Everyone gets the same line, exactly as you type it below.</>
+                  )}
+                </p>
+              </div>
+              {label.token === 'fixed' && (
+                <DebouncedTextInput
+                  value={label.text ?? ''}
+                  onCommit={(text) => setLabel({ text })}
+                  placeholder="Type the line to engrave…"
+                  maxLength={ASSET_CUSTOMIZATION.maxLabelLength}
+                  aria-label="Engraved text"
+                  className="w-full px-3 py-2 rounded-lg bg-white/[0.03] text-sm text-brand-fg placeholder:text-brand-muted/30 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                />
+              )}
+              <div>
+                <SectionLabel>Style</SectionLabel>
+                <select value={label.style} onChange={(e) => setLabel({ style: e.target.value as GuestLetteringStyle })} className={selectCls} aria-label="Engraving style">
+                  {LETTERING_STYLE_OPTIONS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <SectionLabel>Colour</SectionLabel>
+                <input
+                  type="color"
+                  value={label.hex}
+                  onChange={(e) => setLabel({ hex: e.target.value })}
+                  aria-label="Engraving colour"
+                  className="w-full h-8 rounded-lg bg-white/[0.04] border border-white/10 cursor-pointer"
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1175,6 +1479,11 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                     pieces ship hand-authored materials that a blanket restyle
                     would flatten. */}
                 {sel3D.type === 'model' && <FinishControls object={sel3D} dispatch={dispatch} />}
+                {/* Same gate as FinishControls, for the same reason: a built-in
+                    head piece is procedural R3F with authored colours and has no
+                    template to configure. Renders nothing unless the asset ships
+                    one (normalizeTemplate -> null = not configurable). */}
+                {sel3D.type === 'model' && <AssetPersonalisation object={sel3D} dispatch={dispatch} />}
                 <AnimationChips value={sel3D.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: sel3D.id, animation: a })} />
               </div>
             )}

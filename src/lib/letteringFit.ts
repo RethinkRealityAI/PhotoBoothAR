@@ -30,6 +30,37 @@ export const CHAR_WIDTH_RATIO: Record<GuestLetteringStyle, number> = {
   label: 0.55,
 };
 
+/**
+ * The CSS `font` shorthand each style draws with — the SINGLE definition.
+ *
+ * This lived twice: module-private `LETTERING_FONT` in components/booth/
+ * StageCanvas.tsx (the 2D name printed on the frame) and `LABEL_FONT_CSS` in
+ * lib/studio/assetTemplate.ts (the 3D name engraved into an asset). Two copies
+ * of a typeface table is how the printed name and the engraved name end up in
+ * different fonts on the same photo. It belongs here because this file already
+ * owns `CHAR_WIDTH_RATIO`, keyed by the same union — a width ratio and the font
+ * it estimates must never be able to disagree.
+ *
+ * The families are the ones the app already loads (src/index.css:67-70). Pure
+ * data, so both the node-env test and the browser read the identical strings.
+ */
+export const LETTERING_FONT_CSS: Record<GuestLetteringStyle, (px: number) => string> = {
+  script: (px) => `${px}px "Pinyon Script", cursive`,
+  serif: (px) => `italic 600 ${px}px "Cormorant Garamond", Georgia, serif`,
+  block: (px) => `800 ${px}px "Inter", sans-serif`,
+  label: (px) => `600 ${px}px "Jost", sans-serif`,
+};
+
+/**
+ * The faces to warm before the first draw — one per style, derived from the
+ * table above rather than retyped, so a family can never be added to one and
+ * missed in the other. Canvas text silently falls back to the generic family
+ * when a webfont has not loaded, and for the 3D path that mistake is baked
+ * permanently into a texture.
+ */
+export const LETTERING_FONT_PROBES: string[] = (Object.keys(LETTERING_FONT_CSS) as GuestLetteringStyle[])
+  .map((style) => LETTERING_FONT_CSS[style](32));
+
 /** Fraction of the band's height a cap-height line may occupy. */
 const HEIGHT_FILL = 0.72;
 

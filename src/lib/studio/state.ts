@@ -24,11 +24,13 @@
  * APPEND on pick (appendObject): a click never deletes or replaces content.
  */
 import type {
+  AssetCustomization, AssetLabelConfig, AssetPartStyle,
   ExperienceKind, GuestLetteringConfig, HeadAnchor, LayerAnimation, Transform2D,
 } from '../../types';
 import { BORDER_MAP } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
-import { FINISH_TINT_STRENGTH } from './controlSpecs';
+import { CHAR_WIDTH_RATIO, DEFAULT_LETTERING_COLOR, type GuestLetteringStyle } from '../letteringFit';
+import { ASSET_CUSTOMIZATION, FINISH_TINT_STRENGTH } from './controlSpecs';
 import { DEFAULT_FINISH, normalizeFinish, normalizeTint, normalizeTintStrength } from './finish';
 import { moveByIndex } from './layerOrder';
 import type { TriggerConfig } from './triggers';
@@ -135,6 +137,23 @@ export interface Object3D {
    * wrong). Defaults undefined (== visible).
    */
   hidden?: boolean;
+  /**
+   * Per-asset personalisation (types.AssetCustomization): recoloured template
+   * regions and/or an engraved label. OPTIONAL and undefined by default, and
+   * deleted rather than defaulted on reset (withCustomization) — the same
+   * one-representation-of-unstyled rule `finish` follows, and the reason
+   * draftToPayload must force the layers path when it is present.
+   */
+  customization?: AssetCustomization;
+  /**
+   * The asset's configurator descriptor (assetTemplate.AssetTemplate), carried
+   * opaquely: this module is the persistence half and never renders, and typing
+   * it here would make state.ts and assetTemplate.ts import each other (that
+   * module already imports `normalizeCustomization` from this one). Consumers
+   * run it through `normalizeTemplate`, which returns null for anything it does
+   * not fully understand. Undefined = a plain asset with no configurator.
+   */
+  template?: unknown;
 }
 
 export type StudioObject = Overlay2D | Object3D;
@@ -214,6 +233,12 @@ export function createObject3D(
     // keys at all — object-identity/deep-equality snapshots taken before Wave 6
     // stay byte-identical (the same idiom as createOverlay's `lettering`).
     ...finishKeys(opts),
+    // Same idiom for per-asset customization: absent unless something is
+    // actually customized, so a plain object round-trips byte-identically.
+    ...customizationKeys(opts),
+    // The configurator descriptor rides along opaquely, and only when the asset
+    // actually has one (an untemplated model keeps NO template key).
+    ...(opts.template ? { template: opts.template } : {}),
   };
 }
 
@@ -244,6 +269,137 @@ export function withFinish(
   delete next.tint;
   delete next.tintStrength;
   return { ...next, ...finishKeys(merged) };
+}
+
+/* — Per-asset customization ------------------------------------------------ */
+
+/**
+ * Validate ONE region's style out of untrusted jsonb. Returns undefined when
+ * the region says nothing — a `{}` entry is dead weight that would make
+ * "unstyled" have two byte-representations.
+ */
+function normalizePart(raw: unknown): AssetPartStyle | undefined {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const out: AssetPartStyle = {};
+  const hex = normalizeTint(o.hex);
+  if (hex) out.hex = hex;
+  const finish = normalizeFinish(o.finish);
+  // 'original' IS "leave the material alone", so it is never stored.
+  if (finish !== DEFAULT_FINISH) out.finish = finish;
+  return out.hex || out.finish ? out : undefined;
+}
+
+/** A style id the 2D lettering already defines — one list, not a second copy. */
+function normalizeLabelStyle(raw: unknown): GuestLetteringStyle | null {
+  return typeof raw === 'string' && Object.prototype.hasOwnProperty.call(CHAR_WIDTH_RATIO, raw)
+    ? (raw as GuestLetteringStyle)
+    : null;
+}
+
+function normalizeLabel(raw: unknown): AssetLabelConfig | undefined {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const slotId = typeof o.slotId === 'string' ? o.slotId.trim().slice(0, ASSET_CUSTOMIZATION.maxSlotIdLength) : '';
+  if (!slotId) return undefined;
+  const token = o.token === 'fixed' ? 'fixed' : o.token === 'guestName' ? 'guestName' : null;
+  if (!token) return undefined;
+  const style = normalizeLabelStyle(o.style);
+  if (!style) return undefined;
+  const text = typeof o.text === 'string' ? o.text.trim().slice(0, ASSET_CUSTOMIZATION.maxLabelLength) : '';
+  // A 'fixed' engraving with nothing to say is the same as no label at all —
+  // the same rule letteringFit.normalizeGuestLettering applies to 2D lettering.
+  // 'guestName' keeps its slot with no text: the name arrives at booth time.
+  if (token === 'fixed' && !text) return undefined;
+  const hex = normalizeTint(o.hex) ?? (normalizeTint(DEFAULT_LETTERING_COLOR) as string);
+  const label: AssetLabelConfig = { slotId, token, style, hex };
+  if (text) label.text = text;
+  return label;
+}
+
+/**
+ * Validate an `ExperienceLayer.customization` value (untrusted jsonb, or a
+ * partially-built patch) into the ONE canonical shape — or `undefined`, which
+ * means "nothing is customized" and is what makes the key absent from storage.
+ *
+ * Every default is dropped, not written: no `finish: 'original'`, no empty
+ * `parts: {}`, no `label` whose fixed text is blank. Region keys are emitted in
+ * sorted order so the same customization always serialises the same way,
+ * whatever order the host clicked the regions in.
+ */
+export function normalizeCustomization(raw: unknown): AssetCustomization | undefined {
+  if (raw === null || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const out: AssetCustomization = {};
+
+  const rawParts = o.parts;
+  if (rawParts !== null && typeof rawParts === 'object' && !Array.isArray(rawParts)) {
+    const parts: Record<string, AssetPartStyle> = {};
+    let kept = 0;
+    for (const key of Object.keys(rawParts as Record<string, unknown>).sort()) {
+      if (kept >= ASSET_CUSTOMIZATION.maxParts) break;
+      const id = key.trim().slice(0, ASSET_CUSTOMIZATION.maxPartIdLength);
+      if (!id) continue;
+      const part = normalizePart((rawParts as Record<string, unknown>)[key]);
+      if (!part) continue;
+      parts[id] = part;
+      kept += 1;
+    }
+    if (kept > 0) out.parts = parts;
+  }
+
+  const label = normalizeLabel(o.label);
+  if (label) out.label = label;
+
+  return out.parts || out.label ? out : undefined;
+}
+
+/** Spread-in form of the above — absent entirely when nothing is customized. */
+function customizationKeys(src: { customization?: unknown }): Partial<Object3D> {
+  const c = normalizeCustomization(src.customization);
+  return c ? { customization: c } : {};
+}
+
+/**
+ * Apply a SET_CUSTOMIZATION patch to one 3D object.
+ *
+ * Mirrors `withFinish` exactly, for the same reason: the merged result goes back
+ * through the single normalizer, so an object the host styled and then cleared
+ * carries NO customization key at all — identical bytes to one that was never
+ * touched. `null` is the explicit clear (undefined means "leave it").
+ */
+export function withCustomization(
+  o: Object3D,
+  patch: {
+    /** Restyle one region; `hex`/`finish` null clears that field. */
+    part?: { id: string; hex?: string | null; finish?: string | null };
+    /** Replace or (null) remove the engraved label. */
+    label?: AssetLabelConfig | null;
+  },
+): Object3D {
+  const current = o.customization;
+  const parts: Record<string, AssetPartStyle> = { ...(current?.parts ?? {}) };
+
+  if (patch.part) {
+    const { id, hex, finish } = patch.part;
+    const existing = parts[id] ?? {};
+    const next: AssetPartStyle = {};
+    const nextHex = hex !== undefined ? hex : existing.hex;
+    if (nextHex) next.hex = nextHex;
+    const nextFinish = finish !== undefined ? finish : existing.finish;
+    if (nextFinish) next.finish = nextFinish;
+    if (next.hex || next.finish) parts[id] = next;
+    else delete parts[id];
+  }
+
+  const merged: AssetCustomization = {};
+  if (Object.keys(parts).length) merged.parts = parts;
+  const label = patch.label !== undefined ? patch.label : current?.label;
+  if (label) merged.label = label;
+
+  const next: Object3D = { ...o };
+  delete next.customization;
+  return { ...next, ...customizationKeys({ customization: merged }) };
 }
 
 /* — Draft ------------------------------------------------------------------ */
@@ -492,7 +648,10 @@ export type StudioAction =
   | { type: 'SELECT_ANCHOR'; anchor: HeadAnchor }
   | { type: 'PATCH_ANCHOR_CONFIG'; patch: Partial<StudioAnchorConfig> }
   | { type: 'SELECT_HEAD_PIECE'; pieceId: string }
-  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number }
+  /** `template` is the asset's configurator descriptor when the library row
+   *  ships one (assetTemplate.AssetTemplate). Omitting it — every caller today
+   *  — adds a plain, non-configurable model exactly as before. */
+  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown }
   | { type: 'SET_THUMB'; url: string | null; blob: Blob | null }
   | { type: 'TOGGLE_PUBLISHED' }
   | { type: 'TOGGLE_FEATURED' }
@@ -504,6 +663,14 @@ export type StudioAction =
    * "no colour" must be able to get back to the exported look).
    */
   | { type: 'SET_FINISH'; finish?: string; tint?: string | null; tintStrength?: number }
+  /**
+   * Personalise the SELECTED 3D object: restyle one template region and/or set
+   * the engraved label. Both fields optional so the dock can change one without
+   * knowing the other; `label: null` and `part.hex/finish: null` are the
+   * explicit clears (undefined means "leave it"), so the host can always get
+   * back to the asset exactly as it shipped.
+   */
+  | { type: 'SET_CUSTOMIZATION'; part?: { id: string; hex?: string | null; finish?: string | null }; label?: AssetLabelConfig | null }
   | { type: 'SET_SCENE_TAG'; scene: string | undefined }
   | { type: 'MARK_SAVED'; id: string }
   /* — multi-object scene actions — */
@@ -682,6 +849,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       const obj = createObject3D('model', {
         assetUrl: action.url,
         name: action.name ?? 'Model',
+        template: action.template,
         anchorConfig: action.scale != null
           ? { offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: action.scale }
           : undefined,
@@ -712,6 +880,17 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         ...state,
         dirty: true,
         draft: { ...d, objects: mapObjects(d, sel.id, (o) => (is3D(o) ? withFinish(o, action) : o)) },
+      };
+    }
+    case 'SET_CUSTOMIZATION': {
+      const sel = selectedObject(d);
+      if (!sel || !is3D(sel)) return state;
+      // Same shape as SET_FINISH above: normalize through withCustomization and
+      // mark dirty (no value-diff short-circuit — SET_FINISH has none either).
+      return {
+        ...state,
+        dirty: true,
+        draft: { ...d, objects: mapObjects(d, sel.id, (o) => (is3D(o) ? withCustomization(o, action) : o)) },
       };
     }
     case 'SET_SCENE_TAG':

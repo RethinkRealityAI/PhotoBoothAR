@@ -30,10 +30,12 @@
  */
 import type {
   AnchorConfig,
+  AssetCustomization,
   Experience,
   ExperienceConfig,
   ExperienceDraft,
   ExperienceLayer,
+  LayerAnimation,
 } from '../../types';
 import { defaultParams } from '../shaders';
 import {
@@ -41,6 +43,7 @@ import {
   createOverlay,
   deriveKind,
   initialDraft,
+  normalizeCustomization,
   type DraftKind,
   type Object3D,
   type Overlay2D,
@@ -49,6 +52,7 @@ import {
   type StudioKind,
   type StudioObject,
 } from './state';
+import { normalizeTemplate, scopeCustomizationToTemplate, type AssetTemplate } from './assetTemplate';
 import { parseTriggers, type TriggerConfig } from './triggers';
 import { normalizeGuestLettering } from '../letteringFit';
 
@@ -149,6 +153,11 @@ function layerToObject(l: ExperienceLayer): StudioObject {
       finish: l.finish,
       tint: l.tint,
       tintStrength: l.tintStrength,
+      // Per-asset customization, same rule: absent on every layer written
+      // before it existed, and createObject3D normalizes/omits it, so an old
+      // scene loads with no customization key at all.
+      customization: l.customization,
+      template: l.template,
     });
   } else {
     // Stored assets load as custom so builtin sync never overwrites them.
@@ -314,7 +323,156 @@ function object3DLayer(o: Object3D, r: UrlResolver): ExperienceLayer {
   if (o.tint) layer.tint = o.tint;
   if (typeof o.tintStrength === 'number') layer.tintStrength = o.tintStrength;
   if (o.hidden) layer.hidden = true;
+  // Written ONLY when set — state.withCustomization deletes the key on reset, so
+  // "personalised then cleared" persists exactly like "never personalised".
+  if (o.customization) layer.customization = o.customization;
+  // The configurator descriptor travels with the layer — the booth reads
+  // nothing else, so a template stored anywhere else would need a migration.
+  if (o.template) layer.template = o.template;
   return layer;
+}
+
+/* ── The ONE 3D piece mapper ───────────────────────────────────────────────
+ *
+ * The same handful of fields used to be hand-written in THREE places — the
+ * booth (from `config.layers`), the studio preview and the studio 3D view (both
+ * from `draft.objects`) — with nothing testing them against each other. Every
+ * field added since (animation, occlusion, finish/tint) had to be remembered in
+ * all three, and Studio3DView is the one people forget while being the surface
+ * the host is looking AT while they configure. One pure function now produces
+ * the render spec from either side, so that class of drift ends here.
+ */
+
+/** What a 3D renderer needs to draw ONE piece. Assignable to Overlay3DPiece. */
+export interface ScenePiece3D {
+  assetUrl: string | null;
+  proceduralId: string | null;
+  anchor: AnchorConfig;
+  /** Always concrete: a stored layer omits 'none' (that is how it saves
+   *  byte-identically), a live object always carries it, and the renderer's own
+   *  `animation ?? 'none'` made the two indistinguishable — so the spec settles
+   *  it here instead of leaving the two sides looking different. */
+  animation: LayerAnimation;
+  occlude: boolean;
+  finish?: string;
+  tint?: string;
+  tintStrength?: number;
+  /** Personalisation with `label.text` ALREADY RESOLVED (see resolvePieceCustomization). */
+  customization?: AssetCustomization;
+  /** The asset's configurator descriptor, ALREADY validated: the mapper is the
+   *  one place untrusted jsonb becomes a render spec, so no renderer has to
+   *  remember to call normalizeTemplate (and none can forget). */
+  template?: AssetTemplate;
+}
+
+export interface PieceContext {
+  /**
+   * The guest's own name, for a `label.token === 'guestName'` engraving. Empty
+   * (the default) means "no name yet" and DROPS the label — the same thing
+   * StageCanvas.drawGuestLettering does with an empty name: it draws nothing.
+   */
+  guestName?: string;
+  /** Master occlusion gate; a piece must ALSO opt in (occlusion === true). */
+  occlusionEnabled?: boolean;
+  /**
+   * Whether customization may render at all. Defaults true. The booth passes
+   * `source === 'db'`, keeping the legacy-event invariant explicit exactly like
+   * the occlude gate beside it — a coded event carries no layers to begin with.
+   */
+  customizationEnabled?: boolean;
+}
+
+/**
+ * The stand-in name the STUDIO previews a 'guestName' engraving with. The studio
+ * has no guest, and rendering nothing would make the label impossible to design
+ * against — but the booth uses the real name and nothing else.
+ */
+export const STUDIO_SAMPLE_GUEST_NAME = 'Alex';
+
+/**
+ * Normalize a stored customization and bind its label to a concrete string.
+ *
+ * `guestName` is the SINGLE source of truth for the guest's own name — the
+ * booth reads it from session.getGuestName, exactly like the 2D lettering — and
+ * an empty one drops the label rather than engraving a blank plate. When that
+ * leaves nothing customized at all, the whole key goes away.
+ */
+export function resolvePieceCustomization(raw: unknown, guestName = ''): AssetCustomization | undefined {
+  const c = normalizeCustomization(raw);
+  if (!c?.label) return c;
+  const text = (c.label.token === 'guestName' ? guestName : (c.label.text ?? '')).trim();
+  if (!text) return c.parts ? { parts: c.parts } : undefined;
+  // The resolved label is emitted as 'fixed': a render spec should not ask the
+  // renderer to know anything about guests, and this way EVERY consumer — one
+  // that resolves the token itself (assetTemplate.resolveLabelText) and one that
+  // just draws `text` — engraves the same string.
+  return { ...c, label: { ...c.label, token: 'fixed', text } };
+}
+
+type PieceExtras = Pick<ScenePiece3D, 'finish' | 'tint' | 'tintStrength' | 'customization' | 'template'>;
+
+function pieceExtras(
+  src: { finish?: string; tint?: string; tintStrength?: number; customization?: unknown; template?: unknown },
+  ctx: PieceContext,
+): PieceExtras {
+  const out: PieceExtras = {
+    finish: src.finish,
+    tint: src.tint,
+    tintStrength: src.tintStrength,
+  };
+  if (ctx.customizationEnabled !== false) {
+    // A template with nothing customized still travels: the renderer needs it to
+    // know which regions exist before anything is styled. Anything it does not
+    // fully understand normalizes to null = "not configurable", which is the
+    // pre-feature behaviour.
+    const template = normalizeTemplate(src.template);
+    if (template) out.template = template;
+    const resolved = resolvePieceCustomization(src.customization, ctx.guestName ?? '');
+    // SCOPED to the template when there is one. A saved config outlives the
+    // asset it was written against — the host swaps the model, the library
+    // re-authors the descriptor — and an override naming a region that no
+    // longer exists (or one the author LOCKED) must not reach the renderer.
+    // The renderer enforces this again at the uniform level; doing it here is
+    // what stops the render SPEC from claiming a part it will not paint.
+    const customization = template
+      ? scopeCustomizationToTemplate(resolved, template) ?? undefined
+      : resolved;
+    if (customization) out.customization = customization;
+  }
+  return out;
+}
+
+/**
+ * Stored layer (`config.layers`, untrusted jsonb) → render spec. Callers filter
+ * to `kind === '3d_attachment'` with a non-null `anchor` first, exactly as the
+ * booth always has.
+ */
+export function layerToPiece(l: ExperienceLayer, ctx: PieceContext = {}): ScenePiece3D {
+  return {
+    assetUrl: l.asset_url ?? null,
+    proceduralId: l.procedural ?? null,
+    anchor: l.anchor as AnchorConfig,
+    animation: l.animation ?? 'none',
+    occlude: ctx.occlusionEnabled === true && l.occlusion === true,
+    ...pieceExtras(l, ctx),
+  };
+}
+
+/** Live studio object → the SAME render spec, so preview cannot drift from booth. */
+export function objectToPiece(o: Object3D, ctx: PieceContext = {}): ScenePiece3D {
+  return {
+    assetUrl: o.type === 'model' ? o.assetUrl ?? null : null,
+    proceduralId: o.type === 'headpiece' ? o.proceduralId ?? null : null,
+    anchor: {
+      anchor: o.anchor,
+      offset: o.anchorConfig.offset,
+      rotation: o.anchorConfig.rotation,
+      scale: o.anchorConfig.scale,
+    },
+    animation: o.animation,
+    occlude: ctx.occlusionEnabled === true && o.occlusion === true,
+    ...pieceExtras(o, ctx),
+  };
 }
 
 /**
@@ -365,6 +523,13 @@ export function draftToPayload(
     // anchor/procedural/occlusion mirror has NO slot for finish/tint, so a
     // lone restyled model would save and reload as grey plastic again.
     const anyFinish = objs.some((o) => !!o.finish || !!o.tint);
+    // And so does per-asset customization, for EXACTLY the same reason: there is
+    // no singular slot for region colours or an engraved label, so a lone
+    // customized hat would save and reload with the personalisation gone. This
+    // is the bug `anyFinish` above already exists to prevent, one field later.
+    // The configurator descriptor has no singular slot either, and losing it
+    // makes the asset silently un-configurable in the booth.
+    const anyCustom = objs.some((o) => !!o.customization || !!o.template);
     const layer0 = objs[0];
     if (layer0) {
       // Legacy mirror of layer 0.
@@ -379,7 +544,7 @@ export function draftToPayload(
       if (layer0.occlusion) config.occlusion = true;
       assetUrl = layer0.type === 'headpiece' && layer0.proceduralId ? null : resolve(resolvedUrls, layer0.id);
     }
-    if (objs.length > 1 || anyAnim || anyHidden || anyFinish || revealActive) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
+    if (objs.length > 1 || anyAnim || anyHidden || anyFinish || anyCustom || revealActive) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
     // The scene-level filter slot ('none' = empty) can ride alongside any scene.
     if (draft.shaderId !== 'none') config.ambientShader = { shaderId: draft.shaderId, params: draft.shaderParams };
   } else {

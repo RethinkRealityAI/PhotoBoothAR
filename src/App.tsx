@@ -89,6 +89,12 @@ const DevStudioHarness = import.meta.env.DEV
   ? lazy(() => import('./dev/StudioHarness'))
   : (() => null);
 
+/** DEV-only GLB → AssetTemplate prep tool, gated exactly like the harness above
+ *  so no part of it (or of three's GLTF/Draco path it pulls in) ships. */
+const DevAssetPrepTool = import.meta.env.DEV
+  ? lazy(() => import('./dev/AssetPrepTool'))
+  : (() => null);
+
 /** Set at build time for the legacy single-event deploys. */
 const LEGACY_EVENT = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim();
 /** Where the old top-level guest routes redirect in runtime mode. Defaults to
@@ -200,6 +206,9 @@ export default function App() {
             <>
               {import.meta.env.DEV && (
                 <Route path="/dev/studio" element={<Suspense fallback={null}><DevStudioHarness /></Suspense>} />
+              )}
+              {import.meta.env.DEV && (
+                <Route path="/dev/asset-prep" element={<Suspense fallback={null}><DevAssetPrepTool /></Suspense>} />
               )}
               <Route path="/e/:slug" element={<EventProvider><Outlet /></EventProvider>}>
                 {guestRoutes()}

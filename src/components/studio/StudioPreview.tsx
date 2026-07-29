@@ -10,6 +10,7 @@
 import StageCanvas, { type StageOverlaySpec } from '../booth/StageCanvas';
 import Overlay3D, { type Overlay3DPiece } from '../booth/Overlay3D';
 import type { StudioDraft, Overlay2D, Object3D } from '../../lib/studio/state';
+import { objectToPiece, STUDIO_SAMPLE_GUEST_NAME } from '../../lib/studio/draftMapping';
 import { isLayerVisible } from '../../lib/studio/triggers';
 import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
 
@@ -60,18 +61,13 @@ export default function StudioPreview({ videoRef, draft, headScale, occlusionEna
     .filter((o): o is Overlay2D => o.type === 'overlay' && !!o.url && visible(o))
     .map((o) => ({ url: o.url as string, transform: o.transform, opacity: 1, animation: o.animation }));
 
+  // ONE mapper, shared with the booth and Studio3DView (draftMapping): the same
+  // fields used to be hand-written here, in Booth.tsx and in Studio3DView with
+  // nothing comparing them, which is how each new field (animation, occlusion,
+  // finish, now customization) got remembered in two places out of three.
   const pieces: Overlay3DPiece[] = draft.objects
     .filter((o): o is Object3D => o.type !== 'overlay' && visible(o))
-    .map((o) => ({
-      assetUrl: o.type === 'model' ? o.assetUrl ?? null : null,
-      proceduralId: o.type === 'headpiece' ? o.proceduralId ?? null : null,
-      anchor: { anchor: o.anchor, offset: o.anchorConfig.offset, rotation: o.anchorConfig.rotation, scale: o.anchorConfig.scale },
-      animation: o.animation,
-      occlude: occlusionEnabled && o.occlusion,
-      finish: o.finish,
-      tint: o.tint,
-      tintStrength: o.tintStrength,
-    }));
+    .map((o) => objectToPiece(o, { occlusionEnabled, guestName: STUDIO_SAMPLE_GUEST_NAME }));
 
   const hasOverlays = overlaySpecs.length > 0;
   const has3D = pieces.length > 0;

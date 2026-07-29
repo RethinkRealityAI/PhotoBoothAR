@@ -9,11 +9,12 @@ import type { Group } from 'three';
 import { FaceRig, Model } from '../ar/FaceRig';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
 import { RIG_CAMERA } from '../../lib/faceRig';
-import { AnchorConfig, LayerAnimation } from '../../types';
+import { AnchorConfig, AssetCustomization, LayerAnimation } from '../../types';
 import { animate3D } from '../../lib/studio/animation';
 import { revealScaleAt } from '../../lib/studio/reveal';
 import SceneLighting from '../ar/SceneLighting';
 import type { LightingPresetId } from '../../lib/studio/lighting';
+import type { AssetTemplate } from '../../lib/studio/assetTemplate';
 
 /** One piece of a multi-object 3D scene (studio `config.layers`). */
 export interface Overlay3DPiece {
@@ -29,6 +30,16 @@ export interface Overlay3DPiece {
   finish?: string | null;
   tint?: string | null;
   tintStrength?: number | null;
+  /**
+   * Per-asset personalisation — recoloured template regions + the engraved
+   * label, with `label.text` ALREADY RESOLVED to this guest's name
+   * (draftMapping.layerToPiece / objectToPiece, the one mapper every surface
+   * uses). Absent = nothing customized, which is every legacy scene.
+   */
+  customization?: AssetCustomization | null;
+  /** The asset's configurator descriptor, already validated by the shared
+   *  mapper (lib/studio/draftMapping). */
+  template?: AssetTemplate | null;
 }
 
 interface Props {
@@ -177,6 +188,8 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
                     finish={p.finish}
                     tint={p.tint}
                     tintStrength={p.tintStrength}
+                    template={p.template}
+                    customization={p.customization}
                     onReady={onAssetReady ? () => onAssetReady(p.assetUrl as string) : undefined}
                   />
                 ) : null}

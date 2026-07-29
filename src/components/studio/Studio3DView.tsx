@@ -28,6 +28,7 @@ import SceneLighting from '../ar/SceneLighting';
 import AnchorDots from '../admin/creator3d/AnchorDots';
 import type { AnchorConfig, HeadAnchor } from '../../types';
 import type { Object3D } from '../../lib/studio/state';
+import { objectToPiece, STUDIO_SAMPLE_GUEST_NAME } from '../../lib/studio/draftMapping';
 import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
 
 interface Props {
@@ -101,12 +102,29 @@ function FrameBust({ bounds }: { bounds: BustBounds | null }) {
   return null;
 }
 
+/**
+ * The piece the host is looking at WHILE they configure — and the mapper people
+ * forget, because it mounts `Model` directly instead of going through Overlay3D.
+ * It now reads the SAME shared spec (draftMapping.objectToPiece) the booth and
+ * the preview do, so a field can no longer land in two surfaces out of three.
+ *
+ * The studio has no guest, so a `token: 'guestName'` engraving previews with
+ * STUDIO_SAMPLE_GUEST_NAME; the booth substitutes the real one.
+ */
 function ObjectContent({ object }: { object: Object3D }) {
   if (object.type === 'headpiece' && isHeadPiece(object.proceduralId)) return <HeadPiece id={object.proceduralId as string} />;
-  if (object.assetUrl) {
-    return <Model url={object.assetUrl} finish={object.finish} tint={object.tint} tintStrength={object.tintStrength} />;
-  }
-  return null;
+  if (!object.assetUrl) return null;
+  const piece = objectToPiece(object, { guestName: STUDIO_SAMPLE_GUEST_NAME });
+  return (
+    <Model
+      url={object.assetUrl}
+      finish={piece.finish}
+      tint={piece.tint}
+      tintStrength={piece.tintStrength}
+      template={piece.template}
+      customization={piece.customization}
+    />
+  );
 }
 
 export default function Studio3DView({

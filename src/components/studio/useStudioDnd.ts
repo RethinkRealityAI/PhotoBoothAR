@@ -26,6 +26,17 @@ export interface DragPayload {
   builtinUrl?: string;
   assetUrl?: string;
   pieceId?: string;
+  /**
+   * The asset's configurator descriptor (lib/studio/assetTemplate.AssetTemplate)
+   * when the library row ships one, carried opaquely — `SET_MODEL_ASSET` takes
+   * `unknown` and every consumer runs it through `normalizeTemplate`.
+   *
+   * Load-bearing: without it a library model dropped on the stage arrives as a
+   * plain GLB, `AssetPersonalisation` finds no template and renders nothing, and
+   * the same asset added by CLICKING the tile is configurable while the dragged
+   * one is not. Absent (every other payload) is exactly today's behaviour.
+   */
+  template?: unknown;
 }
 
 const THRESHOLD = 6; // px before a press becomes a drag
@@ -122,8 +133,9 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef, draftRef }
       // Measure-then-add: auto-fit the GLB to head-space cm (null → scale 1).
       const url = p.assetUrl;
       const label = p.label;
+      const template = p.template;
       void measureGlbFitScale(url).then((fitScale) => {
-        dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined });
+        dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined, template });
         if (anchorHit) dispatch({ type: 'SELECT_ANCHOR', anchor: anchorHit });
       });
     }

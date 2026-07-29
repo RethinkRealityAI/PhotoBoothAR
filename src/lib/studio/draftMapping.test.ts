@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { experienceToDraft, draftToPayload, existingUrlResolver, isStudioKind, type UrlResolver } from './draftMapping';
-import { initialDraft, createOverlay, createObject3D, type Overlay2D, type Object3D, type StudioDraft } from './state';
+import { experienceToDraft, draftToPayload, existingUrlResolver, isStudioKind, layerToPiece, objectToPiece, type UrlResolver } from './draftMapping';
+import { initialDraft, createOverlay, createObject3D, withCustomization, type Overlay2D, type Object3D, type StudioDraft } from './state';
+import { normalizeTemplate } from './assetTemplate';
 import { defaultParams } from '../shaders';
-import type { Experience, ExperienceDraft } from '../../types';
+import type { AssetCustomization, Experience, ExperienceDraft } from '../../types';
 
 const baseExp = (over: Partial<Experience>): Experience => ({
   id: 'e1',
@@ -534,5 +535,241 @@ describe('round-trip: material finish / tint', () => {
     const back = experienceToDraft(exp)!.objects[0] as Object3D;
     expect(back.finish).toBeUndefined();
     expect(back.tint).toBeUndefined();
+  });
+});
+
+/* ── Per-asset customization (Stage B) ─────────────────────────────────────
+ * Regions + the engraved label live in the SAME jsonb `config.layers` — no
+ * column, no migration — so, exactly like the finish block above, these
+ * round-trips ARE the storage contract. */
+const HAT = (over: Partial<AssetCustomization> = {}): AssetCustomization => ({
+  parts: { band: { hex: '#d4a017' }, crown: { hex: '#101010', finish: 'matte' } },
+  label: { slotId: 'front', token: 'guestName', style: 'script', hex: '#ffffff' },
+  ...over,
+});
+
+describe('round-trip: asset customization', () => {
+  it('B1 — a LONE customized object forces config.layers and reloads customized', () => {
+    // THE TRAP: with one object, no animation, nothing hidden, no finish and no
+    // reveal trigger, draftToPayload takes the LEGACY SINGULAR path, which has
+    // slots for asset_url/anchor/procedural/occlusion and NOTHING else. Without
+    // `anyCustom` in that predicate this scene saves and reloads with the hat's
+    // colours and the guest's name silently gone.
+    const o = createObject3D('model', { assetUrl: 'https://cdn/hat.glb', customization: HAT() });
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id };
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/hat.glb' }), null);
+
+    expect(payload.config?.layers).toHaveLength(1);
+    expect(payload.config?.layers?.[0].customization).toEqual(HAT());
+
+    const back = experienceToDraft(expFromPayload(payload))!.objects[0] as Object3D;
+    expect(back.customization).toEqual(HAT());
+  });
+
+  it('an UNCUSTOMIZED object writes no key AND keeps the byte-identical singular path', () => {
+    const o = createObject3D('model', { assetUrl: 'https://cdn/m.glb' });
+    expect('customization' in o).toBe(false);
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id };
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/m.glb' }), null);
+    expect(payload.config?.layers).toBeUndefined();
+    expect('customization' in (payload.config ?? {})).toBe(false);
+  });
+
+  it('customized → reset writes the same bytes as never customized', () => {
+    const plain = createObject3D('model', { assetUrl: 'https://cdn/m.glb' });
+    const styled = withCustomization(plain, { part: { id: 'band', hex: '#ff0000' } });
+    const reset = withCustomization(styled, { part: { id: 'band', hex: null } });
+    expect('customization' in reset).toBe(false);
+
+    const pay = (o: Object3D) =>
+      draftToPayload({ ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id }, resolver({ [o.id]: 'https://cdn/m.glb' }), null);
+    expect(JSON.stringify(pay(reset))).toBe(JSON.stringify(pay(plain)));
+  });
+
+  it('survives a mixed (composite) scene alongside a frame', () => {
+    const frame = createOverlay('border', { url: 'https://cdn/f.png', isBuiltin: false });
+    const o = createObject3D('model', { assetUrl: 'https://cdn/hat.glb', customization: HAT() });
+    const draft: StudioDraft = { ...initialDraft('border'), objects: [frame, o], selectedId: o.id };
+    const payload = draftToPayload(draft, resolver({ [frame.id]: 'https://cdn/f.png', [o.id]: 'https://cdn/hat.glb' }), null);
+    expect(payload.kind).toBe('composite');
+    const back = experienceToDraft(expFromPayload(payload))!.objects[1] as Object3D;
+    expect(back.customization).toEqual(HAT());
+  });
+
+  it('a layer stored before this feature loads with NO customization key', () => {
+    const exp = baseExp({
+      kind: '3d_attachment',
+      config: { layers: [{ id: 'l1', kind: '3d_attachment', asset_url: 'https://cdn/a.glb', anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } }] },
+    });
+    const back = experienceToDraft(exp)!.objects[0] as Object3D;
+    expect('customization' in back).toBe(false);
+  });
+
+  it('hostile customization from the database is normalized away, never rendered', () => {
+    const exp = baseExp({
+      kind: '3d_attachment',
+      config: {
+        layers: [{
+          id: 'l1', kind: '3d_attachment', asset_url: 'https://cdn/a.glb',
+          anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+          customization: {
+            parts: { evil: { hex: 'url(javascript:alert(1))', finish: 'DROP TABLE' }, ok: { hex: '#ABCDEF' } },
+            label: { slotId: 'front', token: 'nope', style: 'comic', hex: 'red' },
+          } as unknown as AssetCustomization,
+        }],
+      },
+    });
+    const back = experienceToDraft(exp)!.objects[0] as Object3D;
+    // The junk region is dropped whole (no hex, no finish left); the good one
+    // survives lower-cased; the label's bad token kills the label outright.
+    expect(back.customization).toEqual({ parts: { ok: { hex: '#abcdef' } } });
+  });
+});
+
+/* ── The one 3D piece mapper (was three hand-written copies) ───────────────── */
+describe('layerToPiece / objectToPiece', () => {
+  const glb = 'https://cdn/hat.glb';
+  const styled = () =>
+    createObject3D('model', {
+      assetUrl: glb, anchor: 'crown', animation: 'float', occlusion: true,
+      finish: 'gold', tint: '#ff00aa', tintStrength: 0.4, customization: HAT(),
+    });
+
+  it('the STUDIO object and the SAVED layer produce an identical piece', () => {
+    // This is the anti-drift assertion: the booth reads the layer, the studio
+    // reads the object, and nothing used to compare the two.
+    const o = styled();
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id };
+    const layer = draftToPayload(draft, resolver({ [o.id]: glb }), null).config!.layers![0];
+    const ctx = { guestName: 'Ada', occlusionEnabled: true };
+    expect(layerToPiece(layer, ctx)).toEqual(objectToPiece(o, ctx));
+  });
+
+  it('carries every field the renderers need', () => {
+    const p = objectToPiece(styled(), { guestName: 'Ada', occlusionEnabled: true });
+    expect(p.assetUrl).toBe(glb);
+    expect(p.proceduralId).toBeNull();
+    expect(p.anchor.anchor).toBe('crown');
+    expect(p.animation).toBe('float');
+    expect(p.occlude).toBe(true);
+    expect(p.finish).toBe('gold');
+    expect(p.tint).toBe('#ff00aa');
+    expect(p.tintStrength).toBeCloseTo(0.4);
+    expect(p.customization?.parts).toEqual(HAT().parts);
+  });
+
+  it('a headpiece keeps its procedural id and no asset url', () => {
+    const o = createObject3D('headpiece', { proceduralId: 'royal-crown' });
+    const p = objectToPiece(o);
+    expect(p.proceduralId).toBe('royal-crown');
+    expect(p.assetUrl).toBeNull();
+  });
+
+  it('occlusion needs BOTH the master gate and the per-piece opt-in', () => {
+    const on = createObject3D('model', { assetUrl: glb, occlusion: true });
+    const off = createObject3D('model', { assetUrl: glb, occlusion: false });
+    expect(objectToPiece(on, { occlusionEnabled: true }).occlude).toBe(true);
+    expect(objectToPiece(on, { occlusionEnabled: false }).occlude).toBe(false);
+    expect(objectToPiece(on).occlude).toBe(false);
+    expect(objectToPiece(off, { occlusionEnabled: true }).occlude).toBe(false);
+  });
+
+  it('B4 — a guestName label resolves to THIS guest, and an empty name draws nothing', () => {
+    const o = styled();
+    const resolved = objectToPiece(o, { guestName: 'Ada Lovelace' }).customization?.label;
+    expect(resolved?.text).toBe('Ada Lovelace');
+    // Emitted as 'fixed' so a renderer that resolves the token itself and one
+    // that just draws `text` engrave the same string.
+    expect(resolved?.token).toBe('fixed');
+    // No name (the guest skipped the prompt) → the label is dropped entirely,
+    // matching StageCanvas.drawGuestLettering's early return.
+    const none = objectToPiece(o, { guestName: '   ' }).customization;
+    expect(none?.label).toBeUndefined();
+    expect(none?.parts).toEqual(HAT().parts);
+  });
+
+  it('a guestName label with NO parts and no name leaves no customization at all', () => {
+    const o = createObject3D('model', {
+      assetUrl: glb,
+      customization: { label: { slotId: 'front', token: 'guestName', style: 'block', hex: '#ffffff' } },
+    });
+    expect(objectToPiece(o, { guestName: '' }).customization).toBeUndefined();
+    expect(objectToPiece(o, { guestName: 'Bo' }).customization?.label?.text).toBe('Bo');
+  });
+
+  it("a 'fixed' label ignores the guest name entirely", () => {
+    const o = createObject3D('model', {
+      assetUrl: glb,
+      customization: { label: { slotId: 'front', token: 'fixed', text: 'Team Beam', style: 'serif', hex: '#ffffff' } },
+    });
+    expect(objectToPiece(o, { guestName: 'Ada' }).customization?.label?.text).toBe('Team Beam');
+  });
+
+  it('customizationEnabled:false (the booth\'s legacy gate) strips it, finish untouched', () => {
+    const p = layerToPiece(
+      { id: 'l1', kind: '3d_attachment', asset_url: glb, finish: 'gold', customization: HAT(),
+        anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } },
+      { customizationEnabled: false, guestName: 'Ada' },
+    );
+    expect(p.customization).toBeUndefined();
+    expect(p.finish).toBe('gold');
+  });
+
+  it("a layer that omits animation ('none' is never stored) still maps to a concrete one", () => {
+    const p = layerToPiece({
+      id: 'l1', kind: '3d_attachment', asset_url: glb,
+      anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+    });
+    expect(p.animation).toBe('none');
+  });
+
+  it('a pre-existing layer maps to a piece with no customization key', () => {
+    const p = layerToPiece({
+      id: 'l1', kind: '3d_attachment', asset_url: glb,
+      anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+    });
+    expect('customization' in p).toBe(false);
+  });
+});
+
+describe('round-trip: the configurator template rides with the layer', () => {
+  const TPL = { id: 'hat', name: 'Hat', glbUrl: 'https://cdn/hat.glb', fitCm: 20, regions: [{ id: 'band' }], textSlots: [] };
+
+  it('a lone TEMPLATED object forces config.layers even with nothing customized yet', () => {
+    // Without this the booth would load the asset with no descriptor and could
+    // not tint a region or engrave a name, however the host configured it.
+    const o = createObject3D('model', { assetUrl: 'https://cdn/hat.glb', template: TPL });
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id };
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/hat.glb' }), null);
+    expect(payload.config?.layers?.[0].template).toEqual(TPL);
+    expect((experienceToDraft(expFromPayload(payload))!.objects[0] as Object3D).template).toEqual(TPL);
+  });
+
+  it('reaches the render spec from BOTH sides, styled or not', () => {
+    const o = createObject3D('model', { assetUrl: 'https://cdn/hat.glb', template: TPL, customization: HAT() });
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id };
+    const layer = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/hat.glb' }), null).config!.layers![0];
+    // The piece carries the VALIDATED descriptor (the mapper is the one place
+    // untrusted jsonb becomes a render spec), not the raw jsonb.
+    expect(objectToPiece(o, { guestName: 'Ada' }).template).toEqual(normalizeTemplate(TPL));
+    expect(layerToPiece(layer, { guestName: 'Ada' })).toEqual(objectToPiece(o, { guestName: 'Ada' }));
+  });
+
+  it('a stale override for a region the template does not have never reaches the renderer', () => {
+    // HAT() styles `band` (in TPL) and `crown` (NOT in TPL), and labels slot
+    // `front` (TPL has no text slots at all) — exactly the shape a config takes
+    // after the host swaps the asset or the library re-authors the descriptor.
+    const o = createObject3D('model', { assetUrl: 'https://cdn/hat.glb', template: TPL, customization: HAT() });
+    const p = objectToPiece(o, { guestName: 'Ada' });
+    expect(p.customization).toEqual({ parts: { band: { hex: '#d4a017' } } });
+    // The OBJECT keeps everything — scoping is a render-spec concern, so the
+    // host does not silently lose their crown colour by opening the studio.
+    expect(o.customization).toEqual(HAT());
+  });
+
+  it('an untemplated object carries no template key anywhere', () => {
+    const o = createObject3D('model', { assetUrl: 'https://cdn/m.glb' });
+    expect('template' in o).toBe(false);
+    expect('template' in objectToPiece(o)).toBe(false);
   });
 });

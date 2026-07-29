@@ -26,7 +26,7 @@
  */
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Boxes, ChevronDown, ChevronRight, Crown, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Search, Sparkles, Sun, Upload, Wand2, X } from 'lucide-react';
+import { Boxes, ChevronDown, ChevronRight, Crown, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Palette, Search, Sparkles, Sun, Upload, Wand2, X } from 'lucide-react';
 import { FILTER_SHADERS, SHADER_MAP, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { HEAD_PIECES } from '../../lib/headPieces';
@@ -34,7 +34,13 @@ import { ANCHOR_PRESETS } from '../../lib/faceRig';
 import { uploadAsset, listAssetsResult, fetchExperiencesResult } from '../../lib/db';
 import { captureGlbThumbnail, measureGlbFitScale } from '../../lib/studio/glbThumb';
 import type { LightingPresetId } from '../../lib/studio/lighting';
-import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
+import { PROP_SCALE_MAX, PROP_TARGET_CM } from '../../lib/studio/bustFit';
+import {
+  LIBRARY_ASSET_CHECKLIST,
+  LIBRARY_EMPTY_MESSAGE,
+  assetTemplateOf,
+  libraryAssets,
+} from '../../lib/studio/assetLibrary';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
 import { SCENE_FULL_MESSAGE, canAddObject, selectedObject, sceneCounts, MAX_OBJECTS, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
@@ -644,6 +650,64 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     [q, sceneFrame?.builtinId, selBuiltinId, dispatch], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  /**
+   * CONFIGURABLE MODELS — the curated shelf from lib/studio/assetLibrary.ts.
+   *
+   * The only tile kind that carries a `template` on the way in. Without it the
+   * model lands as a plain GLB and the personalisation controls in the right
+   * dock have nothing to attach to — which is exactly what every SET_MODEL_ASSET
+   * call site did before this, so the feature's own controls never appeared.
+   *
+   * The fit measure runs exactly as it does for an upload, but retargeted: a
+   * library asset states its own real-world size (`template.fitCm`), and
+   * `measureGlbFitScale` reports the multiplier that lands the model at the
+   * generic PROP_TARGET_CM. Scaling by their ratio is what makes a 2cm earring
+   * arrive as an earring instead of as a 24cm one.
+   */
+  const configurableTiles = useCallback((): Tile[] =>
+    libraryAssets(import.meta.env.DEV)
+      .filter((a) => matchQuery(a.name))
+      .flatMap((a) => {
+        const template = assetTemplateOf(a);
+        // A catalogue entry whose descriptor does not validate is not offered at
+        // all. Its colocated test asserts this can never happen for shipped
+        // content, so reaching here means someone hand-edited the data.
+        if (!template) return [];
+        const key = `cfg:${a.id}`;
+        const drag: DragPayload = {
+          target: 'model',
+          label: a.name,
+          previewUrl: null,
+          assetUrl: template.glbUrl,
+          template: a.template,
+        };
+        return [{
+          key,
+          label: a.name,
+          previewUrl: null,
+          active: placedRefs.some((p) => p.assetUrl === template.glbUrl || p.url === template.glbUrl),
+          fallbackIcon: Palette,
+          pending: pendingKey === key,
+          kindBadge: a.demo ? 'Demo' : 'Personalise',
+          drag,
+          onAdd: () => {
+            setExpandedKey(key);
+            setPendingKey(key);
+            void measureGlbFitScale(template.glbUrl)
+              .then((fitScale) => dispatch({
+                type: 'SET_MODEL_ASSET',
+                url: template.glbUrl,
+                name: a.name,
+                scale: fitScale != null ? (fitScale * template.fitCm) / PROP_TARGET_CM : undefined,
+                template: a.template,
+              }))
+              .finally(() => setPendingKey((k) => (k === key ? null : k)));
+          },
+        }];
+      }),
+    [q, placedRefs, pendingKey, dispatch], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
+  );
+
   const headPieceTiles = useCallback((): Tile[] =>
     HEAD_PIECES.filter((p) => matchQuery(p.name)).map((p) => {
       const key = `piece:${p.id}`;
@@ -752,11 +816,18 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const frameTiles = useMemo(() => (showFrames ? builtinTiles('border') : []), [showFrames, builtinTiles]);
   const stickerTiles = useMemo(() => (showStickers ? builtinTiles('2d_filter') : []), [showStickers, builtinTiles]);
   const headTiles = useMemo(() => (showHeadPieces ? headPieceTiles() : []), [showHeadPieces, headPieceTiles]);
+  const cfgTiles = useMemo(() => (showHeadPieces ? configurableTiles() : []), [showHeadPieces, configurableTiles]);
+  // The configurable shelf is the one sub-group that renders when it is EMPTY:
+  // it is empty by design until the owner adds content (see assetLibrary.ts), and
+  // a section that simply vanishes teaches a host that the feature does not
+  // exist. Only under the 3D chip and only with no active search, so it never
+  // masquerades as a search result.
+  const showCfgEmpty = showHeadPieces && cfgTiles.length === 0 && !q;
   const filterCount = useMemo(
     () => (showFilters ? FILTER_SHADERS.filter((s) => matchQuery(s.name)).length : 0),
     [showFilters, q], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
   );
-  const libraryCount = frameTiles.length + stickerTiles.length + headTiles.length + filterCount;
+  const libraryCount = frameTiles.length + stickerTiles.length + headTiles.length + filterCount + cfgTiles.length;
 
   const generatedTiles = useMemo(() => dockTiles(experiences.generated, 'gen'), [dockTiles, experiences.generated]);
   const uploadTiles = useMemo(() => dockTiles(uploads.items, 'up'), [dockTiles, uploads.items]);
@@ -862,13 +933,31 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         )}
 
         {/* STUDIO LIBRARY — built-ins, collapsible sub-groups */}
-        {libraryCount > 0 && (
+        {(libraryCount > 0 || showCfgEmpty) && (
           <div className="flex flex-col gap-4">
             <SectionLabel>Studio Library</SectionLabel>
             {subGroup('lib-frames', 'Frames', frameTiles.length, renderTiles(frameTiles, 'frame'))}
             {subGroup('lib-stickers', 'Stickers', stickerTiles.length, renderTiles(stickerTiles, 'square'))}
             {subGroup('lib-filters', 'Filters', filterCount, renderFilters())}
             {subGroup('lib-pieces', 'Head pieces', headTiles.length, renderTiles(headTiles, 'square'))}
+            {(cfgTiles.length > 0 || showCfgEmpty) && subGroup(
+              'lib-configurable',
+              'Personalise',
+              cfgTiles.length,
+              cfgTiles.length > 0 ? renderTiles(cfgTiles, 'square') : (
+                <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-3 flex flex-col gap-2">
+                  <p className="font-sans text-[10px] leading-relaxed text-brand-muted/60">{LIBRARY_EMPTY_MESSAGE}</p>
+                  <ul className="flex flex-col gap-1">
+                    {LIBRARY_ASSET_CHECKLIST.map((line) => (
+                      <li key={line} className="flex gap-1.5 font-sans text-[9px] leading-relaxed text-brand-muted/40">
+                        <span aria-hidden className="text-accent-2/50">·</span>
+                        <span>{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ),
+            )}
           </div>
         )}
 

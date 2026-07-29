@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { ASSET_CUSTOMIZATION } from './controlSpecs';
 import {
+  normalizeCustomization,
   studioReducer,
   initialState,
   initialDraft,
@@ -718,5 +720,127 @@ describe('SET_FINISH (W6 material finishes)', () => {
     st = studioReducer(st, { type: 'ADD_OBJECT', object: createOverlay('2d_filter', { url: 'blob:x', isBuiltin: false }), select: true });
     const before = st;
     expect(studioReducer(st, { type: 'SET_FINISH', finish: 'gold' })).toBe(before);
+  });
+});
+
+describe('SET_CUSTOMIZATION (per-asset personalisation)', () => {
+  const with3D = () => {
+    let st = initialState('3d_attachment');
+    st = studioReducer(st, { type: 'ADD_OBJECT', object: createObject3D('model', { assetUrl: 'https://cdn/hat.glb' }), select: true });
+    return st;
+  };
+  const sel = (st: ReturnType<typeof with3D>) => selectedObject(st.draft) as Object3D;
+
+  it('a fresh object carries NO customization key at all', () => {
+    expect('customization' in sel(with3D())).toBe(false);
+  });
+
+  it('styles one region and marks the draft dirty', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_CUSTOMIZATION', part: { id: 'band', hex: '#D4A017' } });
+    expect(sel(st).customization).toEqual({ parts: { band: { hex: '#d4a017' } } });
+    expect(st.dirty).toBe(true);
+  });
+
+  it('regions accumulate, one field at a time', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_CUSTOMIZATION', part: { id: 'band', hex: '#d4a017' } });
+    st = studioReducer(st, { type: 'SET_CUSTOMIZATION', part: { id: 'band', finish: 'chrome' } });
+    st = studioReducer(st, { type: 'SET_CUSTOMIZATION', part: { id: 'crown', finish: 'matte' } });
+    expect(sel(st).customization?.parts).toEqual({
+      band: { hex: '#d4a017', finish: 'chrome' },
+      crown: { finish: 'matte' },
+    });
+  });
+
+  it("finish 'original' is the default and is never stored", () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_CUSTOMIZATION', part: { id: 'band', finish: 'original' } });
+    expect('customization' in sel(st)).toBe(false);
+  });
+
+  it('clearing the last region REMOVES the key rather than leaving an empty object', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_CUSTOMIZATION', part: { id: 'band', hex: '#d4a017', finish: 'gold' } });
+    st = studioReducer(st, { type: 'SET_CUSTOMIZATION', part: { id: 'band', hex: null, finish: null } });
+    expect('customization' in sel(st)).toBe(false);
+  });
+
+  it('label: set, keep across a region edit, then null-clear', () => {
+    let st = with3D();
+    const label = { slotId: 'front', token: 'guestName' as const, style: 'script' as const, hex: '#ffffff' };
+    st = studioReducer(st, { type: 'SET_CUSTOMIZATION', label });
+    expect(sel(st).customization?.label).toEqual(label);
+    st = studioReducer(st, { type: 'SET_CUSTOMIZATION', part: { id: 'band', hex: '#ff0000' } });
+    expect(sel(st).customization?.label).toEqual(label);
+    st = studioReducer(st, { type: 'SET_CUSTOMIZATION', label: null });
+    expect(sel(st).customization?.label).toBeUndefined();
+    expect(sel(st).customization?.parts).toEqual({ band: { hex: '#ff0000' } });
+  });
+
+  it('normalizes hostile input instead of storing it', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_CUSTOMIZATION', part: { id: 'evil', hex: 'url(javascript:alert(1))', finish: 'DROP TABLE' } });
+    expect('customization' in sel(st)).toBe(false);
+  });
+
+  it('is a no-op with nothing selected, and never touches a 2D overlay', () => {
+    const empty = initialState('3d_attachment');
+    expect(studioReducer(empty, { type: 'SET_CUSTOMIZATION', part: { id: 'band', hex: '#fff' } })).toBe(empty);
+    let st = initialState('border');
+    st = studioReducer(st, { type: 'ADD_OBJECT', object: createOverlay('border', { url: 'x' }), select: true });
+    const before = st;
+    expect(studioReducer(st, { type: 'SET_CUSTOMIZATION', part: { id: 'band', hex: '#fff' } })).toBe(before);
+  });
+});
+
+describe('normalizeCustomization', () => {
+  it('rejects non-objects and empty shapes without throwing', () => {
+    for (const v of [null, undefined, 42, 'x', [], {}, { parts: {} }, { parts: [] }, { label: {} }]) {
+      expect(normalizeCustomization(v)).toBeUndefined();
+    }
+  });
+
+  it('emits region keys in sorted order so the same styling always serialises the same', () => {
+    const a = normalizeCustomization({ parts: { zeta: { hex: '#111111' }, alpha: { hex: '#222222' } } });
+    const b = normalizeCustomization({ parts: { alpha: { hex: '#222222' }, zeta: { hex: '#111111' } } });
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    expect(Object.keys(a!.parts!)).toEqual(['alpha', 'zeta']);
+  });
+
+  it('caps the number of regions at the shared bound', () => {
+    const parts: Record<string, { hex: string }> = {};
+    for (let i = 0; i < ASSET_CUSTOMIZATION.maxParts + 7; i += 1) parts[`r${String(i).padStart(2, '0')}`] = { hex: '#010203' };
+    expect(Object.keys(normalizeCustomization({ parts })!.parts!)).toHaveLength(ASSET_CUSTOMIZATION.maxParts);
+  });
+
+  it('trims a label to the shared length bound and drops a blank fixed line', () => {
+    const long = 'x'.repeat(ASSET_CUSTOMIZATION.maxLabelLength + 20);
+    const c = normalizeCustomization({ label: { slotId: 'front', token: 'fixed', text: long, style: 'block', hex: '#ABCDEF' } });
+    expect(c!.label!.text).toHaveLength(ASSET_CUSTOMIZATION.maxLabelLength);
+    expect(c!.label!.hex).toBe('#abcdef');
+    expect(normalizeCustomization({ label: { slotId: 'front', token: 'fixed', text: '   ', style: 'block', hex: '#fff' } })).toBeUndefined();
+  });
+
+  it('a guestName label keeps its slot with no text — the name arrives at booth time', () => {
+    const c = normalizeCustomization({ label: { slotId: 'front', token: 'guestName', style: 'script', hex: '#fff' } });
+    expect(c!.label).toEqual({ slotId: 'front', token: 'guestName', style: 'script', hex: '#ffffff' });
+    expect('text' in c!.label!).toBe(false);
+  });
+
+  it('rejects an unknown style and an unknown token outright', () => {
+    expect(normalizeCustomization({ label: { slotId: 'f', token: 'guestName', style: 'comic', hex: '#fff' } })).toBeUndefined();
+    expect(normalizeCustomization({ label: { slotId: 'f', token: 'sql', style: 'block', hex: '#fff' } })).toBeUndefined();
+    expect(normalizeCustomization({ label: { slotId: '', token: 'guestName', style: 'block', hex: '#fff' } })).toBeUndefined();
+  });
+});
+
+describe('SET_MODEL_ASSET carries a configurator template when the asset ships one', () => {
+  it('stores it on the object, and omits the key entirely when absent', () => {
+    const tpl = { id: 'hat', glbUrl: 'https://cdn/hat.glb' };
+    let st = studioReducer(initialState('3d_attachment'), { type: 'SET_MODEL_ASSET', url: 'https://cdn/hat.glb', name: 'Hat', template: tpl });
+    expect((selectedObject(st.draft) as Object3D).template).toEqual(tpl);
+    st = studioReducer(initialState('3d_attachment'), { type: 'SET_MODEL_ASSET', url: 'https://cdn/m.glb', name: 'M' });
+    expect('template' in (selectedObject(st.draft) as Object3D)).toBe(false);
   });
 });
