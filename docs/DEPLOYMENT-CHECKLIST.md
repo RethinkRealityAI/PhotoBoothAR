@@ -134,6 +134,12 @@ Until the remaining boxes are checked, treat beta invites as **blocked**.
 - [ ] Test `event_package` and `pro_subscription` the same way (only `credit_pack` has
       been proven end-to-end so far) — confirm `event_plans`/`subscriptions` update and
       the watermark drops on that event.
+- [ ] **Provision the product catalogue** (added 2026-07-28, migration 029): in
+      `/admin/catalog` press **Provision in Stripe** — creates one Product + one
+      Price per active `billing_catalog` row, idempotent via `lookup_key`. Run it
+      once in test mode, and AGAIN after the live-key swap (live mode has its own
+      objects). Until provisioned, `stripe-checkout` falls back to inline
+      `price_data`, so selling never stops either way.
 - [ ] **Go live**: swap `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` for LIVE-mode values
       — this means a NEW webhook endpoint in Stripe's live mode (test-mode and live-mode
       webhook endpoints/secrets are separate) and a new signing secret. Until this swap,
@@ -148,6 +154,15 @@ Until the remaining boxes are checked, treat beta invites as **blocked**.
 - [ ] (Optional) `CARDS_FROM_EMAIL` — verified Resend sender
       (default `Beamwall <cards@beamwall.app>`; must be a domain you've verified
       in Resend).
+
+## 4b. Support desk — new-ticket email (added 2026-07-28)
+
+- [ ] `SUPPORT_NOTIFY_EMAIL` — the inbox that gets a Resend email when a
+      customer or guest files a support ticket (`support-api` v1 is deployed;
+      migrations 023–026 are live). Email is deliberately never load-bearing:
+      without this secret, tickets still land in `/admin/support` and the DB row
+      is always written first — only the notification is skipped.
+      Uses the same `RESEND_API_KEY` + `PUBLIC_SITE_URL` as §4.
 
 ## 5. Keepsake MP4 film — HeyGen HyperFrames (Deluxe add-on)
 
