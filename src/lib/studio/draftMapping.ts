@@ -143,6 +143,12 @@ function layerToObject(l: ExperienceLayer): StudioObject {
       animation: l.animation ?? 'none',
       // Occlusion is opt-IN: only an explicit `true` enables it.
       occlusion: l.occlusion === true,
+      // Finish keys are absent on every layer written before Wave 6, and
+      // createObject3D leaves them undefined for absent input — so an old scene
+      // loads with the exporter's own material, exactly as it always did.
+      finish: l.finish,
+      tint: l.tint,
+      tintStrength: l.tintStrength,
     });
   } else {
     // Stored assets load as custom so builtin sync never overwrites them.

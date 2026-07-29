@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "copy:mediapipe": "node scripts/copy-mediapipe.mjs",
-    "predev": "npm run copy:mediapipe",
+    "copy:decoders": "node scripts/copy-three-decoders.mjs",
+    "copy:vendor": "npm run copy:mediapipe && npm run copy:decoders",
+    "predev": "npm run copy:vendor",
     "dev": "vite --host",
-    "prebuild": "npm run copy:mediapipe",
+    "prebuild": "npm run copy:vendor",
     "build": "vite build",
     "start": "vite preview --host",
     "preview": "vite preview --host",

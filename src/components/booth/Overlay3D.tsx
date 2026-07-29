@@ -12,6 +12,8 @@ import { RIG_CAMERA } from '../../lib/faceRig';
 import { AnchorConfig, LayerAnimation } from '../../types';
 import { animate3D } from '../../lib/studio/animation';
 import { revealScaleAt } from '../../lib/studio/reveal';
+import SceneLighting from '../ar/SceneLighting';
+import type { LightingPresetId } from '../../lib/studio/lighting';
 
 /** One piece of a multi-object 3D scene (studio `config.layers`). */
 export interface Overlay3DPiece {
@@ -22,6 +24,11 @@ export interface Overlay3DPiece {
   /** Per-piece head-occlusion opt-in; only the FIRST piece with occlude===true
    *  actually renders the occluder (never duplicated across pieces). */
   occlude?: boolean;
+  /** Material finish (lib/studio/finish.ts). Absent = the model's own material,
+   *  untouched — every legacy and pre-Wave-6 scene renders identically. */
+  finish?: string | null;
+  tint?: string | null;
+  tintStrength?: number | null;
 }
 
 interface Props {
@@ -57,14 +64,40 @@ interface Props {
    * Device-pixel-ratio clamp for the R3F drawing buffer (@react-three/fiber
    * v9.6.1: `Dpr = number | [min, max]`).
    *
-   * The Canvas previously passed NO dpr, so it took R3F's own default of
-   * [1, 2]: on a 3x phone that is a backing store ~4x the pixel count of the
-   * CSS box, rendered every frame with `antialias: true`, and then composited
-   * down into the 720x1280 preview anyway. [1, 1.5] is ~56% of those pixels.
-   * Exposed as a prop rather than hard-coded so a surface that needs more can
-   * ask for it.
+   * WAVE 4 CLAMPED THIS TO [1, 1.5] AND WAVE 6 PUT IT BACK. The clamp was
+   * justified by "it is downsampled into the 720x1280 preview anyway", which is
+   * only true of the PREVIEW. `StageCanvas.capturePhoto` composites the same
+   * canvas into a 1080x1920 still (StageCanvas.tsx:116-117) with
+   * `ctx.drawImage(threeEl, 0, 0, w, h)` (:528) — an UPSCALE. On a 390 CSS-px
+   * phone, dpr 1.5 gives a 585px-wide buffer stretched 1.85x into the keepsake,
+   * so the clamp bought preview frame-rate by softening the saved photo: the
+   * one artefact the guest keeps, and the entire point of the AR layer.
+   *
+   * [1, 2] is @react-three/fiber's own default, and matches what the three
+   * studio canvases already use (Studio3DView.tsx:160/217, DirectorCards.tsx,
+   * Text3DBuilder.tsx:268). Honest note: at this value the prop buys no
+   * performance anywhere — it exists as a tuning point, and as the hook a
+   * future capture-time resolution boost would turn.
    */
   dpr?: number | [number, number];
+  /**
+   * Which shared lighting rig to use (lib/studio/lighting.ts).
+   *
+   * DEFAULTS TO 'legacy' — the exact ambient 1.2 / directional 1.8 / warm point
+   * 0.8 rig this file hard-coded before Wave 6, with no environment map. Every
+   * call site that does not pass this prop (the landing showcase, the demo
+   * booth) therefore renders byte-identically to before, and a frozen coded
+   * event's saved photos cannot change by accident. Booth passes the event's
+   * chosen preset only for `source === 'db'` platform events.
+   */
+  lightingPreset?: LightingPresetId;
+  /**
+   * Fires with a piece's asset url the moment that GLB is downloaded, parsed
+   * AND cloned into the scene graph — the exact "this is now on screen" signal
+   * (see FaceRig's `Model.onReady`). The booth clears that url's pending state
+   * on it, so the reveal animation celebrates real geometry.
+   */
+  onAssetReady?: (url: string) => void;
 }
 
 /**
@@ -106,7 +139,7 @@ function AnimatedPiece({ animation, reveal, children }: { animation?: LayerAnima
   return <group ref={ref}>{children}</group>;
 }
 
-export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, pieces, reveal = false, dpr = [1, 1.5] }: Props) {
+export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady }: Props) {
   // First piece whose occlude===true wins the (single, non-duplicated) occluder.
   const occluderIdx = pieces ? pieces.findIndex((p) => p.occlude === true) : -1;
   return (
@@ -117,10 +150,11 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
         gl={{ alpha: true, preserveDrawingBuffer: true, antialias: true }}
         style={{ width: '100%', height: '100%', background: 'transparent' }}
       >
-        {/* Lights */}
-        <ambientLight intensity={1.2} />
-        <directionalLight position={[2, 4, 3]} intensity={1.8} />
-        <pointLight position={[-2, 2, 2]} intensity={0.8} color="#E8C766" />
+        {/* Lights: the shared definition, never values typed here. No contact
+            shadow — this canvas is composited over the guest's camera feed,
+            where a shadow catcher has no floor and would smear a grey ellipse
+            across their face. */}
+        <SceneLighting preset={lightingPreset} />
 
         {pieces ? (
           pieces.map((p, i) => (
@@ -138,7 +172,13 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
                 {isHeadPiece(p.proceduralId) ? (
                   <HeadPiece id={p.proceduralId as string} />
                 ) : p.assetUrl ? (
-                  <Model url={p.assetUrl} />
+                  <Model
+                    url={p.assetUrl}
+                    finish={p.finish}
+                    tint={p.tint}
+                    tintStrength={p.tintStrength}
+                    onReady={onAssetReady ? () => onAssetReady(p.assetUrl as string) : undefined}
+                  />
                 ) : null}
               </AnimatedPiece>
             </FaceRig>
@@ -154,7 +194,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
               {isHeadPiece(proceduralId) ? (
                 <HeadPiece id={proceduralId as string} />
               ) : assetUrl ? (
-                <Model url={assetUrl} />
+                <Model url={assetUrl} onReady={onAssetReady ? () => onAssetReady(assetUrl) : undefined} />
               ) : null}
             </AnimatedPiece>
           </FaceRig>

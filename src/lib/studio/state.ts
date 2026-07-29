@@ -28,6 +28,8 @@ import type {
 } from '../../types';
 import { BORDER_MAP } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
+import { FINISH_TINT_STRENGTH } from './controlSpecs';
+import { DEFAULT_FINISH, normalizeFinish, normalizeTint, normalizeTintStrength } from './finish';
 import { moveByIndex } from './layerOrder';
 import type { TriggerConfig } from './triggers';
 
@@ -115,6 +117,19 @@ export interface Object3D {
   /** Per-object head occlusion opt-in (opt-IN: never surprise-hides an asset). */
   occlusion: boolean;
   /**
+   * Material finish (lib/studio/finish.ts). OPTIONAL and undefined by default:
+   * a Meshy import must keep the material it shipped with unless the host
+   * explicitly restyles it, and `undefined` is what makes the persisted layer
+   * omit the key entirely — so scenes saved before Wave 6 round-trip byte-for-
+   * byte. Only ever set on `type: 'model'`; procedural head pieces carry their
+   * own authored materials.
+   */
+  finish?: string;
+  /** `#rrggbb` colour wash over the finish. */
+  tint?: string;
+  /** 0..1 — how far the tint carries (controlSpecs.FINISH_TINT_STRENGTH). */
+  tintStrength?: number;
+  /**
    * Hide this piece FROM GUESTS — persisted on save, exactly like
    * Overlay2D.hidden (see the note there; the old "never persisted" claim was
    * wrong). Defaults undefined (== visible).
@@ -177,6 +192,43 @@ export function createObject3D(
     animation: opts.animation ?? 'none',
     occlusion: opts.occlusion ?? false,
   };
+}
+
+/**
+ * Apply a SET_FINISH patch to one 3D object.
+ *
+ * Values at their DEFAULT are deleted rather than stored, so an object the host
+ * styled and then reset carries no finish keys at all — identical bytes to an
+ * object that was never touched. Without this, "back to original" would leave
+ * `finish: 'original'` in the jsonb forever and every diff/round-trip test
+ * would have to know about it.
+ */
+export function withFinish(
+  o: Object3D,
+  patch: { finish?: string; tint?: string | null; tintStrength?: number },
+): Object3D {
+  const next: Object3D = { ...o };
+
+  if (patch.finish !== undefined) {
+    const f = normalizeFinish(patch.finish);
+    if (f === DEFAULT_FINISH) delete next.finish;
+    else next.finish = f;
+  }
+  if (patch.tint !== undefined) {
+    const t = patch.tint === null ? null : normalizeTint(patch.tint);
+    if (t === null) {
+      delete next.tint;
+      delete next.tintStrength; // a strength with no tint is dead data
+    } else {
+      next.tint = t;
+    }
+  }
+  if (patch.tintStrength !== undefined && next.tint) {
+    const s = normalizeTintStrength(patch.tintStrength);
+    if (s === FINISH_TINT_STRENGTH.max) delete next.tintStrength; // full = the default
+    else next.tintStrength = s;
+  }
+  return next;
 }
 
 /* — Draft ------------------------------------------------------------------ */
@@ -430,6 +482,13 @@ export type StudioAction =
   | { type: 'TOGGLE_PUBLISHED' }
   | { type: 'TOGGLE_FEATURED' }
   | { type: 'SET_OCCLUSION'; occlusion: boolean }
+  /**
+   * Restyle the SELECTED 3D object's material. Every field is optional so the
+   * dock can change one without knowing the others; `tint: null` explicitly
+   * CLEARS the tint (undefined would mean "leave it", and a host who picks
+   * "no colour" must be able to get back to the exported look).
+   */
+  | { type: 'SET_FINISH'; finish?: string; tint?: string | null; tintStrength?: number }
   | { type: 'SET_SCENE_TAG'; scene: string | undefined }
   | { type: 'MARK_SAVED'; id: string }
   /* — multi-object scene actions — */
@@ -629,6 +688,15 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         ...state,
         dirty: true,
         draft: { ...d, objects: mapObjects(d, sel.id, (o) => (is3D(o) ? { ...o, occlusion: action.occlusion } : o)) },
+      };
+    }
+    case 'SET_FINISH': {
+      const sel = selectedObject(d);
+      if (!sel || !is3D(sel)) return state;
+      return {
+        ...state,
+        dirty: true,
+        draft: { ...d, objects: mapObjects(d, sel.id, (o) => (is3D(o) ? withFinish(o, action) : o)) },
       };
     }
     case 'SET_SCENE_TAG':

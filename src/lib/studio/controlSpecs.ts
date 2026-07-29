@@ -36,6 +36,18 @@ export const OVERLAY_ROTATION = {
 } as const;
 
 /**
+ * How strongly a 3D object's tint colour washes over its finish/albedo.
+ * 0 = the tint does nothing, 1 = the tint fully replaces the colour.
+ * (Consumed by lib/studio/finish.ts and the Finish row in PropertiesDock —
+ * neither declares its own range.)
+ */
+export const FINISH_TINT_STRENGTH = {
+  min: 0,
+  max: 1,
+  step: 0.05,
+} as const;
+
+/**
  * Clamp a value into a spec's range, snapping non-finite input to the minimum
  * rather than propagating NaN into a transform.
  */

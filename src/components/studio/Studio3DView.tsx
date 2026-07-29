@@ -24,9 +24,11 @@ import AssetGizmo from '../ar/AssetGizmo';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
 import FaceOccluder from '../ar/FaceOccluder';
 import ReferenceBust, { type BustBounds } from '../ar/ReferenceBust';
+import SceneLighting from '../ar/SceneLighting';
 import AnchorDots from '../admin/creator3d/AnchorDots';
 import type { AnchorConfig, HeadAnchor } from '../../types';
 import type { Object3D } from '../../lib/studio/state';
+import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
 
 interface Props {
   view: 'live' | 'orbit';
@@ -41,6 +43,9 @@ interface Props {
   occlusionEnabled?: boolean;
   debugOcclusion?: boolean;
   matrixRef?: React.MutableRefObject<number[] | null>;
+  /** Event's shared lighting rig — the SAME preset the booth will render with,
+   *  so what the host tunes here is what the guest's photo gets. */
+  lightingPreset?: LightingPresetId;
   onSelect: (id: string) => void;
   onAnchorSelect: (a: HeadAnchor) => void;
   onTransformChange: (patch: Partial<AnchorConfig>) => void;
@@ -98,7 +103,9 @@ function FrameBust({ bounds }: { bounds: BustBounds | null }) {
 
 function ObjectContent({ object }: { object: Object3D }) {
   if (object.type === 'headpiece' && isHeadPiece(object.proceduralId)) return <HeadPiece id={object.proceduralId as string} />;
-  if (object.assetUrl) return <Model url={object.assetUrl} />;
+  if (object.assetUrl) {
+    return <Model url={object.assetUrl} finish={object.finish} tint={object.tint} tintStrength={object.tintStrength} />;
+  }
   return null;
 }
 
@@ -112,6 +119,7 @@ export default function Studio3DView({
   occlusionEnabled = false,
   debugOcclusion = false,
   matrixRef,
+  lightingPreset = DEFAULT_LIGHTING,
   onSelect,
   onAnchorSelect,
   onTransformChange,
@@ -130,6 +138,12 @@ export default function Studio3DView({
   const activeAnchor: HeadAnchor = selected?.anchor ?? 'crown';
   // First object opting into occlusion wins the single (non-duplicated) occluder.
   const occluderIdx = occlusionEnabled ? objects.findIndex((o) => o.occlusion === true) : -1;
+  // Where the orbit view's "floor" is: the same bottom edge FrameBust chose, so
+  // the contact shadow sits under exactly the extent the camera is framing.
+  // No bust loaded yet -> park it far below rather than through the head.
+  const shadowY = bustBounds && Number.isFinite(bustBounds.maxY)
+    ? Math.max(bustBounds.minY, bustBounds.maxY - HEAD_FRAME_CM)
+    : -100;
 
   // Clicking a non-selected piece's mesh selects it (PivotControls on the
   // selected piece may swallow its own events — acceptable; the layers panel is
@@ -170,9 +184,18 @@ export default function Studio3DView({
         {/* Target + distance are derived from the fitted bust by FrameBust. */}
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
         <FrameBust bounds={bustBounds} />
-        <ambientLight intensity={0.6} />
-        <directionalLight position={[8, 14, 12]} intensity={1.3} color="#EAF1FF" />
-        <directionalLight position={[-9, 5, -7]} intensity={0.4} color="#5B8CFF" />
+        {/* The shared rig — identical values to the booth's, so a crown tuned
+            here does not change appearance the moment a guest wears it. Contact
+            shadows ON: this view HAS a floor (the framed bottom of the bust), so
+            a piece resting on the head reads as sitting on it rather than
+            floating in front of it. Units are centimetres here, hence the
+            explicit plane. */}
+        <SceneLighting
+          preset={lightingPreset}
+          contactShadows
+          shadowY={shadowY}
+          shadowScale={60}
+        />
 
         <ReferenceBust onFit={handleBustFit} />
         {/* Occluder shown faintly in orbit only when debugging placement. */}
@@ -219,9 +242,9 @@ export default function Studio3DView({
     >
       {/* Same containment for the live view (see orbit note above). */}
       <Suspense fallback={null}>
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[5, 10, 8]} intensity={1.4} color="#EAF1FF" />
-      <directionalLight position={[-4, 2, -4]} intensity={0.3} color="#5B8CFF" />
+      {/* No contact shadows in the live view: like the booth it composites over
+          a camera feed, and there is no floor for a shadow to land on. */}
+      <SceneLighting preset={lightingPreset} />
 
       {objects.length === 0 ? (
         // Empty 3D scene: a placeholder marker on the head so tracking feedback
