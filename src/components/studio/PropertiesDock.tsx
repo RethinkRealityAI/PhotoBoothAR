@@ -1613,12 +1613,23 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
    * Only real CHANGES fire it — `prevShader` is seeded from the current value,
    * so loading an experience that already has a filter does not pop a section
    * open on arrival.
+   *
+   * A WHOLESALE LOAD (starter scene, template, duplicate, undo to a different
+   * scene) changes the filter and the selection in the same commit. That is
+   * not a host reaching for the filter, and treating it as one sent the panel
+   * to the Scene tab the instant a starter look was picked — the host landed
+   * on scene settings instead of the asset they had just been given. So a
+   * shader change that arrives WITH a selection change defers to the effect
+   * above, which puts them on Assets.
    */
   const prevShader = useRef(draft.shaderId);
+  const prevSelectedForShader = useRef(draft.selectedId);
   useEffect(() => {
     const changed = prevShader.current !== draft.shaderId;
+    const selectionAlsoChanged = prevSelectedForShader.current !== draft.selectedId;
     prevShader.current = draft.shaderId;
-    if (!changed || draft.shaderId === 'none') return;
+    prevSelectedForShader.current = draft.selectedId;
+    if (!changed || selectionAlsoChanged || draft.shaderId === 'none') return;
     if (draft.selectedId) {
       // A layer is selected, so the filter edits under Scene → Scene section.
       setTab('scene');
