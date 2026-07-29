@@ -14,6 +14,7 @@ import {
   buildTemplateDescriptor,
   connectedComponents,
   descriptorJson,
+  guessUpAxis,
   nearestAxis,
   paintSphere,
   proposeDecalDepth,
@@ -109,6 +110,30 @@ describe('proposeTextAnchor', () => {
     const a = proposeTextAnchor(BOX, '+y');
     const dot = a.up[0] * a.normal[0] + a.up[1] * a.normal[1] + a.up[2] * a.normal[2];
     expect(Math.abs(dot)).toBeLessThan(1e-9);
+  });
+
+  it('takes an EXPLICIT up — the case reference-head.glb proves the guess cannot cover', () => {
+    // That file's node carries a +90-degree X rotation, so in the mesh's own
+    // space (the space slot.position lives in) the front is +Y and up is −Z.
+    // No bounding box reveals that.
+    const a = proposeTextAnchor(BOX, '+y', 0.75, '-z');
+    expect(a.up).toEqual([0, 0, -1]);
+    // heightFraction 0.75 means three-quarters UP, which on a −Z up is a
+    // quarter of the way along +Z from the minimum.
+    expect(a.position[2]).toBeCloseTo(BOX.min[2] + (BOX.max[2] - BOX.min[2]) * 0.25);
+  });
+
+  it('refuses an up parallel to the front rather than collapsing the basis', () => {
+    const a = proposeTextAnchor(BOX, '+z', 0.5, '-z');
+    expect(guessUpAxis('+z')).toBe('+y');
+    expect(a.up).toEqual([0, 1, 0]);
+  });
+
+  it('guessUpAxis dodges the front axis', () => {
+    expect(guessUpAxis('+y')).toBe('+z');
+    expect(guessUpAxis('-y')).toBe('+z');
+    expect(guessUpAxis('+x')).toBe('+y');
+    expect(guessUpAxis('-z')).toBe('+y');
   });
 });
 

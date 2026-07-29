@@ -577,29 +577,57 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
   // Templates arrive as untrusted jsonb (they round-trip through the
   // experience's config), so they are validated on every read, never trusted.
   const template = useMemo(() => normalizeTemplate(object.template), [object.template]);
+
+  /**
+   * The editor's own echo of the label — and it is not redundant state.
+   *
+   * A 'fixed' engraving with no text NORMALIZES AWAY: state.ts `normalizeLabel`
+   * drops it, on the same rule letteringFit applies to 2D lettering ("an
+   * engraving with nothing to say is the same as no engraving"). That is right
+   * for storage and wrong for an editor. Turning OFF "use each guest's own name"
+   * sets `token: 'fixed'` with no text yet, so the stored label vanished and
+   * took the whole section with it — the host could SEE the switch but could
+   * never reach the text field behind it. Verified in the browser at 1440x900
+   * and 390x844 before this echo existed.
+   *
+   * So the UI renders from `label ?? echo`, and the echo is cleared the moment
+   * a real stored label exists again. Nothing extra is ever persisted: the
+   * dispatch is unchanged and the normalizer still owns what gets written.
+   *
+   * ABOVE the `isConfigurable` guard, deliberately — hooks may not sit after an
+   * early return, and this repo has already shipped one hooks-order crash.
+   */
+  const [echo, setEcho] = useState<AssetLabelConfig | null>(null);
+  const storedLabel = object.customization?.label;
+  useEffect(() => { if (storedLabel) setEcho(null); }, [storedLabel]);
+
   if (!template || !isConfigurable(template)) return null;
 
   const custom = object.customization;
   const parts = custom?.parts ?? {};
   const recolourable = template.regions.filter((r) => r.recolourable);
   const slots = template.textSlots;
-  const label = custom?.label;
+  const label = storedLabel ?? echo ?? undefined;
   const slot = label ? slots.find((s) => s.id === label.slotId) ?? slots[0] : slots[0];
   const selectCls = 'w-full bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-brand-fg focus:outline-none focus:border-accent/40';
 
   const setLabel = (p: Partial<AssetLabelConfig>) => {
     if (!slot) return;
-    dispatch({
-      type: 'SET_CUSTOMIZATION',
-      label: {
-        slotId: label?.slotId ?? slot.id,
-        token: label?.token ?? 'guestName',
-        style: label?.style ?? 'script',
-        hex: label?.hex ?? DEFAULT_LETTERING_COLOR,
-        ...(label?.text ? { text: label.text } : {}),
-        ...p,
-      },
-    });
+    const next: AssetLabelConfig = {
+      slotId: label?.slotId ?? slot.id,
+      token: label?.token ?? 'guestName',
+      style: label?.style ?? 'script',
+      hex: label?.hex ?? DEFAULT_LETTERING_COLOR,
+      ...(label?.text ? { text: label.text } : {}),
+      ...p,
+    };
+    setEcho(next);
+    dispatch({ type: 'SET_CUSTOMIZATION', label: next });
+  };
+
+  const clearLabel = () => {
+    setEcho(null);
+    dispatch({ type: 'SET_CUSTOMIZATION', label: null });
   };
 
   return (
@@ -640,7 +668,7 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
             label="Engrave a name"
             hint="Cuts a name into the asset itself — in this studio, in the preview, in the guest's photo and video."
             value={!!label}
-            onChange={(on) => (on ? setLabel({}) : dispatch({ type: 'SET_CUSTOMIZATION', label: null }))}
+            onChange={(on) => (on ? setLabel({}) : clearLabel())}
           />
           {label && slot && (
             <div className="flex flex-col gap-2">

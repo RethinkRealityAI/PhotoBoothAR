@@ -170,6 +170,24 @@ export interface TextAnchor {
 }
 
 /**
+ * The up the automatic pass GUESSES when nobody has said.
+ *
+ * "Whichever axis is neither the front nor X" is a coin flip on its sign, and
+ * this repo's own `reference-head.glb` is the proof it can be wrong in a way no
+ * bounding box reveals: its node carries `rotation: [0.7071, 0, 0, 0.7071]`, a
+ * +90 degree turn about X, so the MESH data is Z-up while the SCENE is Y-up. In
+ * the mesh's own space — which is the space `AssetTextSlot.position` lives in,
+ * because assetDecal builds against `largestMesh` with its world matrix
+ * identitied — the front is +Y and up is −Z. Nothing in the geometry says so.
+ *
+ * Hence `proposeTextAnchor` takes an explicit `upAxis`, and the prep tool puts a
+ * control next to it. This function is the fallback for the automatic pass only.
+ */
+export function guessUpAxis(frontAxis: AxisId): AxisId {
+  return axisIndex(frontAxis) === 1 ? '+z' : '+y';
+}
+
+/**
  * Place a text anchor on the FRONT FACE of the bounding box.
  *
  * This is the "raycast a text anchor" step, done against the box rather than the
@@ -178,15 +196,16 @@ export interface TextAnchor {
  * carves nothing. Sitting on the box and letting `decalDepth` reach inward is
  * both simpler and more robust — the projector is a box anyway.
  *
- * `heightFraction` runs 0 (bottom) to 1 (top) along the up axis; 0.5 is the
- * middle of the front face. `up` is the world up axis made perpendicular to the
- * normal by the template validator's own `orthogonalUp`, so a front axis of ±Y
- * cannot produce a collapsed basis.
+ * `heightFraction` runs 0 (the `upAxis`-negative end) to 1 (its positive end);
+ * 0.5 is the middle of the front face. An `upAxis` parallel to the front would
+ * collapse the decal's basis, so it is rejected in favour of the guess — the
+ * same defence `assetTemplate.orthogonalUp` applies downstream.
  */
 export function proposeTextAnchor(
   bounds: PrepBounds,
   frontAxis: AxisId = DEFAULT_FRONT_AXIS,
   heightFraction = 0.5,
+  upAxis?: AxisId,
 ): TextAnchor {
   const normal = AXIS_VECTORS[frontAxis];
   const ai = axisIndex(frontAxis);
@@ -196,15 +215,16 @@ export function proposeTextAnchor(
   // takes min.
   position[ai] = frontAxis[0] === '+' ? bounds.max[ai] : bounds.min[ai];
 
-  // Height runs along whichever axis is NOT the front and NOT the widest of the
-  // remaining two — i.e. the model's own vertical.
-  const upIndex = ai === 1 ? 2 : 1;
+  const chosen = upAxis && axisIndex(upAxis) !== ai ? upAxis : guessUpAxis(frontAxis);
+  const upIndex = axisIndex(chosen);
   const t = Math.min(1, Math.max(0, Number.isFinite(heightFraction) ? heightFraction : 0.5));
-  position[upIndex] = bounds.min[upIndex] + (bounds.max[upIndex] - bounds.min[upIndex]) * t;
+  // `heightFraction` is "up", not "+axis": on a −axis up, 1 must mean the
+  // minimum end, or the slider runs backwards against what the host can see.
+  const along = chosen[0] === '+' ? t : 1 - t;
+  position[upIndex] = bounds.min[upIndex] + (bounds.max[upIndex] - bounds.min[upIndex]) * along;
 
-  const up: Vec3 = [0, 0, 0];
-  up[upIndex] = 1;
-  return { position, normal: [normal[0], normal[1], normal[2]], up };
+  const up = AXIS_VECTORS[chosen];
+  return { position, normal: [normal[0], normal[1], normal[2]], up: [up[0], up[1], up[2]] };
 }
 
 /**

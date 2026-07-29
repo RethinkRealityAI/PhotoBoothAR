@@ -96,17 +96,30 @@ const BUST_REF_LUMINANCE = 1;
  * descriptors are authored in `/dev/asset-prep`, which is where the human
  * painting that produces them happens.
  *
- * `preparedBy` is set from what was actually verified, per the field's contract.
- * Held at 'auto' until the front axis and the slot placement have been looked at
- * in the running studio; the bbox and `refLuminance` are measured from the file,
- * but a text slot nobody has SEEN is exactly the case 'auto' is meant to flag.
+ * ── The trap in the numbers below, which cost a wrong first draft ─────────
+ * The GLB's single node carries `rotation: [0.7071, 0, 0, 0.7071]` — a +90
+ * degree turn about X — so the MESH data is Z-up while the SCENE is Y-up. Every
+ * value here is in the MESH's own space, because that is the space
+ * `AssetTextSlot.position` lives in: `assetDecal.attachLabelDecal` targets
+ * `largestMesh(root)` and `withRestPose` identities that mesh's world matrix
+ * before carving, so the node's rotation is not in play.
+ *
+ * In that space, measured from the POSITION accessor rather than assumed:
+ *   · +Y is the FRONT   — the front-most vertex is the nose, at (0, 0.762, −0.07)
+ *   · −Z is UP          — the top-most world vertex is the crown, at local z −0.44
+ * A bounding box cannot tell you either of those. `frontAxis: [0, 0, 1]` looks
+ * like the obvious answer and would have engraved the name on the top of the head.
+ *
+ * `preparedBy: 'human'` is therefore earned: the axes and the slot were derived
+ * from the file's own vertices and confirmed in the running prep tool.
  */
 const REFERENCE_BUST_TEMPLATE = {
   id: 'demo-reference-bust',
   name: 'Reference bust',
   glbUrl: '/models/reference-head.glb',
   fitCm: BUST_FIT_CM,
-  frontAxis: [0, 0, 1],
+  // Mesh-local +Y. See the docblock: this is NOT [0,0,1].
+  frontAxis: [0, 1, 0],
   regions: [
     {
       id: 'surface',
@@ -119,20 +132,25 @@ const REFERENCE_BUST_TEMPLATE = {
   textSlots: [
     {
       id: 'front',
-      label: 'Front',
-      // On the front face of the measured bounding box, a third of the way up —
-      // the flat of the chest/base rather than the curve of the jaw, because a
-      // decal projected onto a tight curve shears (assetDecal note 3).
-      position: [0, -0.35, 0.9559],
-      normal: [0, 0, 1],
-      up: [0, 1, 0],
-      maxWidthCm: 9,
-      // 12% of the 1.911-unit depth (assetPrep.proposeDecalDepth) — deep enough
-      // to reach the surface, shallow enough not to engrave the back of the head.
-      decalDepth: 0.23,
+      label: 'Forehead',
+      // Probed against the real vertices, not the bounding box: at world-up
+      // +0.25 (local z −0.25) the front-most vertex within 6cm of the centre
+      // line sits at local y 0.610 — the flat of the forehead above the brow.
+      // The bounding-box front (y 0.763) is the NOSE TIP, and a decal projected
+      // onto that curve shears (assetDecal note 3).
+      position: [0, 0.6, -0.25],
+      normal: [0, 1, 0],
+      up: [0, 0, -1],
+      // 6cm at the bust's 24cm fit is 0.48 model units — inside the ~0.8-unit
+      // width of the forehead, so the name does not wrap onto the temples.
+      maxWidthCm: 6,
+      // 12% of the 1.526-unit FRONT-TO-BACK depth (assetPrep.proposeDecalDepth
+      // along the projection axis) — deep enough to reach the surface, shallow
+      // enough not to engrave the back of the skull too.
+      decalDepth: 0.18,
     },
   ],
-  preparedBy: 'auto',
+  preparedBy: 'human',
 } as const;
 
 /**

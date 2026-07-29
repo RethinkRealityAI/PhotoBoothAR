@@ -41,7 +41,7 @@ import SceneLighting from '../components/ar/SceneLighting';
 import { applyRegionTint } from '../components/ar/FaceRig';
 import { loadModelDisposable } from '../lib/glbCache';
 import { largestMesh } from '../lib/studio/assetDecal';
-import { buildRegionUniforms, linearLuminance, packRegionIds, MAX_REGIONS } from '../lib/studio/regionTint';
+import { buildRegionUniforms, linearLuminance, MAX_REGIONS } from '../lib/studio/regionTint';
 import { TEMPLATE_BOUNDS, orthogonalUp, type Vec3 } from '../lib/studio/assetTemplate';
 import { DEFAULT_LIGHTING } from '../lib/studio/lighting';
 import {
@@ -54,6 +54,7 @@ import {
   buildTemplateDescriptor,
   connectedComponents,
   descriptorJson,
+  guessUpAxis,
   paintSphere,
   proposeDecalDepth,
   proposeFitCm,
@@ -134,21 +135,36 @@ function PreparedModel({
   return <primitive object={loaded.root} onPointerDown={handle} />;
 }
 
-function AnchorMarker({ position, normal, scale }: { position: Vec3; normal: Vec3; scale: number }) {
-  const quaternion = useMemo(() => {
-    const q = new THREE.Quaternion();
-    q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...normal).normalize());
-    return q;
-  }, [normal]);
+/**
+ * The anchor, drawn where the decal will actually be carved.
+ *
+ * `position`/`normal` are in the MESH's own space, and the mesh usually sits
+ * under a transform — `reference-head.glb`'s node carries a +90 degree X
+ * rotation. Rendering the marker as a sibling of the model root draws it in
+ * UNROTATED space, which is how the first version of this tool put the anchor
+ * on the mouth of a model whose slot was nowhere near it. So the marker is
+ * pushed through the mesh's own world matrix, exactly like the decal will be.
+ */
+function AnchorMarker({ mesh, position, normal, scale }: { mesh: THREE.Mesh; position: Vec3; normal: Vec3; scale: number }) {
+  const { worldPos, quaternion } = useMemo(() => {
+    mesh.updateWorldMatrix(true, false);
+    const p = new THREE.Vector3(...position).applyMatrix4(mesh.matrixWorld);
+    const n = new THREE.Vector3(...normal)
+      .applyMatrix3(new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld))
+      .normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+    return { worldPos: [p.x, p.y, p.z] as Vec3, quaternion: q };
+  }, [mesh, position, normal]);
   return (
-    <group position={position} quaternion={quaternion}>
+    <group position={worldPos} quaternion={quaternion}>
       {/* A disc on the surface plus a stub along the normal: the two things that
           go wrong (wrong face, inverted normal) are both visible at a glance. */}
       <mesh>
         <circleGeometry args={[scale * 0.12, 24]} />
         <meshBasicMaterial color="#ff5c8a" transparent opacity={0.85} side={THREE.DoubleSide} depthTest={false} />
       </mesh>
-      <mesh position={[0, 0, scale * 0.12]}>
+      {/* cylinderGeometry is Y-aligned; the marker's local +Z is the normal. */}
+      <mesh position={[0, 0, scale * 0.12]} rotation={[Math.PI / 2, 0, 0]}>
         <cylinderGeometry args={[scale * 0.012, scale * 0.012, scale * 0.24, 8]} />
         <meshBasicMaterial color="#ff5c8a" depthTest={false} />
       </mesh>
@@ -171,6 +187,7 @@ export default function AssetPrepTool() {
   const [fitCm, setFitCm] = useState(20);
   const [fitReason, setFitReason] = useState('');
   const [frontAxis, setFrontAxis] = useState<AxisId>(DEFAULT_FRONT_AXIS);
+  const [upAxis, setUpAxis] = useState<AxisId>(guessUpAxis(DEFAULT_FRONT_AXIS));
   const [heightFraction, setHeightFraction] = useState(0.5);
   const [maxWidthCm, setMaxWidthCm] = useState(6);
   const [decalDepth, setDecalDepth] = useState(0.5);
@@ -254,6 +271,7 @@ export default function AssetPrepTool() {
       setFitCm(fit.fitCm);
       setFitReason(fit.reason);
       setFrontAxis(DEFAULT_FRONT_AXIS);
+      setUpAxis(guessUpAxis(DEFAULT_FRONT_AXIS));
       setHeightFraction(0.5);
       setDecalDepth(proposeDecalDepth(bounds, DEFAULT_FRONT_AXIS));
       setMaxWidthCm(Math.max(TEMPLATE_BOUNDS.maxWidthCm.min, Math.round(fit.fitCm * 0.4)));
@@ -283,23 +301,28 @@ export default function AssetPrepTool() {
     ? Math.max(loaded.bounds.max[0] - loaded.bounds.min[0], loaded.bounds.max[1] - loaded.bounds.min[1], loaded.bounds.max[2] - loaded.bounds.min[2]) / Math.max(0.001, fitCm)
     : 1;
 
+  const idsRef = useRef(regionIds);
+  idsRef.current = regionIds;
+
   const paint = useCallback((point: Vec3) => {
     if (!loaded) return;
-    setRegionIds((prev) => {
-      const next = new Uint8Array(prev);
-      const changed = paintSphere(loaded.positions, next, point, brushCm * modelUnitsPerCm, activeRegion);
-      // A click that reached nothing is NOT an edit — it must not flip
-      // preparedBy to 'human'.
-      if (changed === 0) return prev;
-      setPaintStrokes((n) => n + 1);
-      setVersion((v) => v + 1);
-      return next;
-    });
+    // Computed OUTSIDE the state updater. Calling setState from inside another
+    // setState's updater is unsupported and React drops it under the double
+    // invoke — which is exactly how the stroke counter stayed at 0 while the
+    // model visibly repainted, and `preparedBy` therefore depended on whether
+    // the host had also touched some unrelated field.
+    const next = new Uint8Array(idsRef.current);
+    const changed = paintSphere(loaded.positions, next, point, brushCm * modelUnitsPerCm, activeRegion);
+    // A click that reached nothing is NOT an edit.
+    if (changed === 0) return;
+    setRegionIds(next);
+    setPaintStrokes((n) => n + 1);
+    setVersion((v) => v + 1);
   }, [loaded, brushCm, modelUnitsPerCm, activeRegion]);
 
   const reseedBands = useCallback((bands: number) => {
     if (!loaded) return;
-    const ids = bandRegionIds(loaded.positions, loaded.bounds, frontAxis === '+y' || frontAxis === '-y' ? '+z' : '+y', bands);
+    const ids = bandRegionIds(loaded.positions, loaded.bounds, upAxis, bands);
     setRegionIds(ids);
     setVersion((v) => v + 1);
     touch();
@@ -312,7 +335,7 @@ export default function AssetPrepTool() {
       refLuminance: loaded.baseLuminance ?? 0.18,
     })));
     setActiveRegion(0);
-  }, [loaded, frontAxis, touch]);
+  }, [loaded, upAxis, touch]);
 
   const patchRegion = useCallback((index: number, patch: Partial<PrepRegionDraft>) => {
     setRegions((prev) => prev.map((r) => (r.index === index ? { ...r, ...patch } : r)));
@@ -321,8 +344,8 @@ export default function AssetPrepTool() {
 
   /* — the descriptor — */
   const anchor = useMemo(
-    () => (loaded ? proposeTextAnchor(loaded.bounds, frontAxis, heightFraction) : null),
-    [loaded, frontAxis, heightFraction],
+    () => (loaded ? proposeTextAnchor(loaded.bounds, frontAxis, heightFraction, upAxis) : null),
+    [loaded, frontAxis, heightFraction, upAxis],
   );
 
   const descriptor = useMemo(() => {
@@ -376,7 +399,7 @@ export default function AssetPrepTool() {
                 onPaint={paint}
               />
               {withTextSlot && anchor && (
-                <AnchorMarker position={anchor.position} normal={anchor.normal} scale={radius} />
+                <AnchorMarker mesh={loaded.mesh} position={anchor.position} normal={anchor.normal} scale={radius} />
               )}
               {/* autoRotate is opt-out under prefers-reduced-motion; the tool is
                   a measuring instrument and a spinning subject is worse anyway. */}
@@ -468,15 +491,29 @@ export default function AssetPrepTool() {
                 {AXIS_IDS.map((id) => (
                   <button
                     key={id}
-                    onClick={() => { setFrontAxis(id); setDecalDepth(proposeDecalDepth(loaded.bounds, id)); touch(); }}
+                    onClick={() => { setFrontAxis(id); setUpAxis(guessUpAxis(id)); setDecalDepth(proposeDecalDepth(loaded.bounds, id)); touch(); }}
                     aria-pressed={frontAxis === id}
                     className={`${btnCls} font-mono ${frontAxis === id ? 'bg-accent/25 text-accent-2' : 'bg-white/[0.05] text-brand-muted/60 hover:bg-white/10'}`}
                   >{id}</button>
                 ))}
               </div>
+              <label className="font-sans text-[10px] text-brand-muted/60">Which way is up (in the MESH{'’'}s own space)</label>
+              <div className="flex flex-wrap gap-1">
+                {AXIS_IDS.map((id) => (
+                  <button
+                    key={id}
+                    onClick={() => { setUpAxis(id); touch(); }}
+                    aria-pressed={upAxis === id}
+                    disabled={id[1] === frontAxis[1]}
+                    className={`${btnCls} font-mono disabled:opacity-20 ${upAxis === id ? 'bg-accent/25 text-accent-2' : 'bg-white/[0.05] text-brand-muted/60 hover:bg-white/10'}`}
+                  >{id}</button>
+                ))}
+              </div>
               <p className="font-sans text-[9px] text-brand-muted/40 leading-relaxed">
-                glTF fixes +Y as up but says nothing about which way an asset faces — {AXIS_VECTORS[DEFAULT_FRONT_AXIS].join(',')} is
-                a convention, so check it against the marker in the viewport.
+                glTF fixes +Y as up for the SCENE, but a node transform can leave the mesh data in a
+                different orientation — this repo{'’'}s own reference-head.glb is +90{'°'} about X, so
+                its mesh-local front is {AXIS_VECTORS['+y'].join(',')} and its up is {AXIS_VECTORS['-z'].join(',')}.
+                A bounding box cannot tell you that. Check both against the marker in the viewport.
               </p>
             </div>
 
@@ -508,13 +545,17 @@ export default function AssetPrepTool() {
                     >
                       {activeRegion === r.index && <Brush className="w-3 h-3 text-black/70" />}
                     </button>
+                    {/* basis-0 + grow, NOT flex-1 beside fieldCls's `w-full`:
+                        two width utilities in one class list resolve by stylesheet
+                        order, not attribute order, so the label field collapsed to
+                        a sliver while the id field kept its 92px. */}
                     <input
-                      className={`${fieldCls} flex-1 min-w-0`} value={r.label}
+                      className={`${fieldCls} basis-0 grow shrink min-w-[64px]`} value={r.label}
                       onChange={(e) => patchRegion(r.index, { label: e.target.value })}
                       aria-label={`Label for region ${r.index + 1}`}
                     />
                     <input
-                      className={`${fieldCls} w-[92px] font-mono`} value={r.id}
+                      className={`${fieldCls} basis-[88px] grow-0 shrink-0 font-mono`} value={r.id}
                       onChange={(e) => patchRegion(r.index, { id: e.target.value })}
                       aria-label={`Id for region ${r.index + 1}`}
                     />
