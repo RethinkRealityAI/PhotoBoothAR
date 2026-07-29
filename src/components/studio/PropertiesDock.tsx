@@ -14,19 +14,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  AlignEndHorizontal,
+  AlignEndVertical,
+  AlignStartHorizontal,
+  AlignStartVertical,
   ArrowBigUp,
-  Boxes,
   Check,
   ChevronDown,
-  ChevronUp,
   Clapperboard,
-  Crown,
   Eye,
   EyeOff,
   FileStack,
   Image as ImageIcon,
   Laugh,
-  LayoutTemplate,
   Layers,
   Loader2,
   MousePointerClick,
@@ -34,11 +36,11 @@ import {
   PartyPopper,
   Plus,
   RotateCcw,
+  RotateCw,
   Ruler,
   Smile,
   Sparkles,
   Star,
-  Trash2,
   Upload,
   Wand2,
   X,
@@ -49,18 +51,22 @@ import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
 import { getHeadFitEstimate } from '../../lib/faceRig';
 import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
 import { OVERLAY_SCALE, OVERLAY_POSITION, OVERLAY_ROTATION, formatAtStep, defaultAnchorConfig } from '../../lib/studio/controlSpecs';
+import { FINISH_TINT_STRENGTH } from '../../lib/studio/controlSpecs';
+import { FINISHES, normalizeFinish, normalizeTintStrength, type FinishId } from '../../lib/studio/finish';
+import { HOST_LIGHTING_PRESETS, type LightingPresetId } from '../../lib/studio/lighting';
+import { alignTransform, snapRotation, stepRotation, type AlignAction } from '../../lib/studio/align';
 import { HEAD_PIECE_MAP } from '../../lib/headPieces';
 import {
   DEFAULT_TRANSFORM,
   MAX_OBJECTS,
   MAX_TRIGGERS,
+  SCENE_FULL_MESSAGE,
   sceneCounts,
   selectedObject,
   type Object3D,
   type Overlay2D,
   type StudioAction,
   type StudioDraft,
-  type StudioObject,
   type StudioState,
 } from '../../lib/studio/state';
 import {
@@ -75,9 +81,10 @@ import {
 import { draftToPayload, existingUrlResolver } from '../../lib/studio/draftMapping';
 import { createExperience, getStudioSettings, setStudioSettings } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
-import type { GuestLetteringConfig, LayerAnimation } from '../../types';
+import type { GuestLetteringConfig, LayerAnimation, Transform2D } from '../../types';
 import { DEFAULT_LETTERING_COLOR, type GuestLetteringStyle } from '../../lib/letteringFit';
-import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
+import { NumberField, SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
+import LayerList from './LayerList';
 import Tooltip from '../ui/Tooltip';
 import HelpButton from './HelpButton';
 import type { FeatureHelpTopic } from '../../lib/studio/featureHelp';
@@ -87,6 +94,10 @@ interface Props {
   dispatch: React.Dispatch<StudioAction>;
   headScale: number;
   onHeadScaleChange: (v: number, persist?: boolean) => void;
+  /** Event-wide 3D lighting rig (owned by StudioShell, persisted in the
+   *  app_settings 'studio' key alongside headScale). */
+  lighting: LightingPresetId;
+  onLightingChange: (next: LightingPresetId) => void;
   onThumbUpload: (file: File) => void;
   onThumbClear: () => void;
 }
@@ -169,9 +180,14 @@ function DockSection({
 }
 
 /**
- * StudioSlider + a small per-row reset affordance (shown wherever a default
- * exists). The reset sits beside the slider track, dims to near-invisible while
- * the value is already at its default, and never reflows the row.
+ * StudioSlider + a TYPED NUMERIC FIELD + a per-row reset affordance.
+ *
+ * The numeric field is the precision half: every property in this dock used to
+ * be a slider only, so a host could not type "rotate 90" or "x = 0" — position
+ * stepped 0.5% and rotation 1°, and exact values were a matter of nudging until
+ * the readout looked right. The field validates against the SAME spec the slider
+ * uses (controlSpecs stays the one source of bounds), so the two can never
+ * disagree about what is allowed.
  */
 function SliderRow({
   label,
@@ -182,6 +198,7 @@ function SliderRow({
   onChange,
   format,
   defaultValue,
+  numericLabel,
 }: {
   label: ReactNode;
   value: number;
@@ -191,13 +208,23 @@ function SliderRow({
   onChange: (v: number) => void;
   format?: (v: number) => string;
   defaultValue: number;
+  /** Accessible name for the numeric field (the visible label may be a node). */
+  numericLabel?: string;
 }) {
   const atDefault = Math.abs(value - defaultValue) < step / 2;
   return (
     <div className="flex items-end gap-1.5">
       <div className="flex-1 min-w-0">
-        <StudioSlider label={label} value={value} min={min} max={max} step={step} onChange={onChange} format={format} />
+        <StudioSlider label={label} value={value} min={min} max={max} step={step} onChange={onChange} format={format} compact />
       </div>
+      <NumberField
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onCommit={onChange}
+        label={numericLabel ?? (typeof label === 'string' ? label : 'Value')}
+      />
       <button
         onClick={() => onChange(defaultValue)}
         disabled={atDefault}
@@ -211,6 +238,70 @@ function SliderRow({
   );
 }
 
+/**
+ * Align / centre actions for the selected overlay, plus rotation snapping.
+ *
+ * None of this existed: snapping caught only the object's own centre against
+ * three fixed lines, and there was no way at all to say "centre this" or "make
+ * that exactly 90°". The maths is pure and tested in lib/studio/align.ts.
+ */
+function AlignRow({
+  transform,
+  kind,
+  onChange,
+}: {
+  transform: Transform2D;
+  kind: 'border' | '2d_filter';
+  onChange: (t: Transform2D) => void;
+}) {
+  const actions: { id: AlignAction; icon: LucideIcon; title: string }[] = [
+    { id: 'left', icon: AlignStartVertical, title: 'Align to the left edge' },
+    { id: 'centerH', icon: AlignCenterVertical, title: 'Centre horizontally' },
+    { id: 'right', icon: AlignEndVertical, title: 'Align to the right edge' },
+    { id: 'top', icon: AlignStartHorizontal, title: 'Align to the top edge' },
+    { id: 'centerV', icon: AlignCenterHorizontal, title: 'Centre vertically' },
+    { id: 'bottom', icon: AlignEndHorizontal, title: 'Align to the bottom edge' },
+  ];
+  const btn = 'flex items-center justify-center h-8 rounded-lg bg-white/[0.03] text-brand-muted/60 hover:text-brand-fg hover:bg-white/[0.07] transition-colors';
+  return (
+    <div className="flex flex-col gap-1.5">
+      <SectionLabel>Align &amp; snap</SectionLabel>
+      <div className="grid grid-cols-6 gap-1">
+        {actions.map(({ id, icon: Icon, title }) => (
+          <button key={id} onClick={() => onChange(alignTransform(transform, id, kind))} title={title} aria-label={title} className={btn}>
+            <Icon className="w-3.5 h-3.5" />
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-1">
+        <button
+          onClick={() => onChange({ ...transform, rotation: stepRotation(transform.rotation, -1) })}
+          title="Rotate to the previous 45°"
+          aria-label="Rotate to the previous 45 degrees"
+          className={btn}
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => onChange({ ...transform, rotation: snapRotation(transform.rotation, 180) })}
+          title="Snap to the nearest 0 / 45 / 90°"
+          className={`${btn} font-label text-[8px] uppercase tracking-widest`}
+        >
+          Snap
+        </button>
+        <button
+          onClick={() => onChange({ ...transform, rotation: stepRotation(transform.rotation, 1) })}
+          title="Rotate to the next 45°"
+          aria-label="Rotate to the next 45 degrees"
+          className={btn}
+        >
+          <RotateCw className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const ANIMATIONS: { id: LayerAnimation; label: string }[] = [
   { id: 'none', label: 'None' },
   { id: 'float', label: 'Float' },
@@ -218,19 +309,9 @@ const ANIMATIONS: { id: LayerAnimation; label: string }[] = [
   { id: 'spin', label: 'Spin' },
 ];
 
-function objectIcon(o: StudioObject) {
-  if (o.type === 'overlay') return o.overlayKind === 'border' ? LayoutTemplate : ImageIcon;
-  return o.type === 'headpiece' ? Crown : Boxes;
-}
-
-/** Layers-panel groups (in paint-family order): the single frame, then stickers,
- *  then 3D pieces. Within a group rows keep objects[] order; reorder still acts on
- *  the flat objects[] list (which sets paint order). */
-const LAYER_GROUPS: { id: string; label: string; match: (o: StudioObject) => boolean }[] = [
-  { id: 'frame', label: 'Frame', match: (o) => o.type === 'overlay' && o.overlayKind === 'border' },
-  { id: 'stickers', label: 'Stickers', match: (o) => o.type === 'overlay' && o.overlayKind === '2d_filter' },
-  { id: '3d', label: '3D pieces', match: (o) => o.type !== 'overlay' },
-];
+/* The Frame · Stickers · 3D-pieces BUCKETS that used to live here are gone.
+   They were a lie about paint order — see LayerList.tsx, which renders the one
+   flat list the reducer actually reorders. Kind now rides as a per-row badge. */
 
 /** 4-chip animation picker → SET_OBJECT_ANIMATION on the object. */
 function AnimationChips({
@@ -257,6 +338,136 @@ function AnimationChips({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* ── Material finish (3D objects) ─────────────────────────────────────────
+ * Most AI-generated and imported GLBs arrive as untuned grey plastic — Meshy
+ * hands back metalness ~0 / roughness ~1 and a flat albedo. The jewelry builder
+ * had had a metal picker since W7, but it was locked inside that dialog and only
+ * ever styled geometry the builder itself extruded. This is the general control:
+ * five finishes plus an optional colour wash, on ANY selected 3D object.
+ *
+ * Head pieces are excluded on purpose — they ship hand-authored materials
+ * (HeadPieces.tsx) that a blanket "chrome" would flatten.
+ */
+const TINT_SWATCHES: readonly string[] = [
+  '#d4a017', '#c8ccd0', '#d8927f', '#7df9ff',
+  '#ff4fd8', '#5b8cff', '#3ddc84', '#ffffff',
+];
+
+function FinishControls({ object, dispatch }: { object: Object3D; dispatch: React.Dispatch<StudioAction> }) {
+  const finish = normalizeFinish(object.finish);
+  const tint = object.tint ?? null;
+  // Absent strength means FULL — see finish.normalizeTintStrength; reading it
+  // as 0 would make a freshly-picked colour do nothing at all.
+  const strength = normalizeTintStrength(object.tintStrength);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <SectionLabel>Finish</SectionLabel>
+      <div className="grid grid-cols-3 gap-1.5">
+        {FINISHES.map((f) => {
+          const active = f.id === finish;
+          return (
+            <Tooltip key={f.id} label={f.label} hint={f.hint} side="left">
+              <button
+                onClick={() => dispatch({ type: 'SET_FINISH', finish: f.id as FinishId })}
+                aria-pressed={active}
+                className={`w-full py-2 rounded-lg text-[9px] font-label uppercase tracking-widest transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+              >
+                {f.label}
+              </button>
+            </Tooltip>
+          );
+        })}
+      </div>
+
+      <SectionLabel>Colour</SectionLabel>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {/* "None" first, and it is the only way back to the exported colour —
+            a swatch grid with no clear is a one-way door. */}
+        <button
+          onClick={() => dispatch({ type: 'SET_FINISH', tint: null })}
+          aria-pressed={tint === null}
+          title="No colour — keep the model's own"
+          className={`w-6 h-6 rounded-md grid place-items-center bg-white/[0.03] transition-colors ${tint === null ? 'ring-1 ring-accent/60' : 'ring-1 ring-white/10 hover:ring-white/25'}`}
+        >
+          <X className="w-3 h-3 text-brand-muted/60" />
+        </button>
+        {TINT_SWATCHES.map((hex) => (
+          <button
+            key={hex}
+            onClick={() => dispatch({ type: 'SET_FINISH', tint: hex })}
+            aria-pressed={tint === hex}
+            title={hex}
+            style={{ backgroundColor: hex }}
+            className={`w-6 h-6 rounded-md transition-transform ${tint === hex ? 'ring-2 ring-accent scale-110' : 'ring-1 ring-white/15 hover:scale-105'}`}
+          />
+        ))}
+        {/* Any colour at all, not just the eight — an event has brand colours. */}
+        <label className="w-6 h-6 rounded-md ring-1 ring-white/15 overflow-hidden cursor-pointer relative" title="Custom colour">
+          <span className="absolute inset-0 bg-[conic-gradient(from_0deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)]" />
+          <input
+            type="color"
+            value={tint ?? '#ffffff'}
+            onChange={(e) => dispatch({ type: 'SET_FINISH', tint: e.target.value })}
+            className="absolute inset-0 opacity-0 cursor-pointer"
+            aria-label="Custom colour"
+          />
+        </label>
+      </div>
+
+      {/* Strength only matters once there IS a colour. */}
+      {tint && (
+        <SliderRow
+          label="Colour strength"
+          value={strength}
+          min={FINISH_TINT_STRENGTH.min}
+          max={FINISH_TINT_STRENGTH.max}
+          step={FINISH_TINT_STRENGTH.step}
+          defaultValue={FINISH_TINT_STRENGTH.max}
+          format={(v) => `${Math.round(v * 100)}%`}
+          onChange={(v) => dispatch({ type: 'SET_FINISH', tintStrength: v })}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Event lighting (shared by every 3D surface) ──────────────────────────
+ * One rig for the booth, both studio 3D views, the preview and the jewelry
+ * builder. It is an EVENT setting, not a per-object one: a scene lit two ways
+ * at once is just a bug, and the guest's photo can only have one answer.
+ */
+function LightingPicker({ value, onChange }: { value: LightingPresetId; onChange: (v: LightingPresetId) => void }) {
+  const hint = HOST_LIGHTING_PRESETS.find((p) => p.id === value)?.hint ?? '';
+  return (
+    <div className="rounded-xl border border-accent/15 bg-accent/[0.05] p-3 flex flex-col gap-2">
+      <div className="flex items-center gap-1.5">
+        <Sparkles className="w-3.5 h-3.5 text-accent-2" />
+        <span className="font-label uppercase tracking-widest text-[9px] text-accent-2">Lighting</span>
+        <Tooltip label="Lighting" hint="Lights every 3D piece — in this studio, in the preview and in the guest booth. Metal, glass and gems take their look from it." side="left">
+          <span className="ml-auto text-brand-muted/50 cursor-help text-[10px]">?</span>
+        </Tooltip>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {HOST_LIGHTING_PRESETS.map((p) => {
+          const active = p.id === value;
+          return (
+            <button
+              key={p.id}
+              onClick={() => onChange(p.id)}
+              aria-pressed={active}
+              className={`py-2 rounded-lg text-[9px] font-label uppercase tracking-widest transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="font-sans text-[9px] text-brand-muted/50 leading-relaxed">{hint} Saved per event.</p>
     </div>
   );
 }
@@ -701,7 +912,7 @@ function HeadSizeCalibration({
   );
 }
 
-export default function PropertiesDock({ state, dispatch, headScale, onHeadScaleChange, onThumbUpload, onThumbClear }: Props) {
+export default function PropertiesDock({ state, dispatch, headScale, onHeadScaleChange, lighting, onLightingChange, onThumbUpload, onThumbClear }: Props) {
   const { draft } = state;
   const { eventId } = useEvent();
   const [templateSaving, setTemplateSaving] = useState(false);
@@ -749,6 +960,8 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   const filterActive = draft.shaderId !== 'none';
   const hasObjects = draft.objects.length > 0;
   const counts = sceneCounts(draft);
+  /** Scene at the object cap — surfaced up front, not discovered by an add that does nothing. */
+  const atCap = counts.capped >= MAX_OBJECTS;
   // Display-only numbering for same-name layers ("Golden Crown 2") — adding the
   // same catalog item twice must leave the rows tellable apart. Numbered in
   // scene order; nothing is written back to the objects.
@@ -875,6 +1088,11 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                 <SliderRow label="Position · left/right" value={selOverlay.transform.x} min={OVERLAY_POSITION.min} max={OVERLAY_POSITION.max} step={OVERLAY_POSITION.step} defaultValue={DEFAULT_TRANSFORM.x} format={(v) => formatAtStep(v, OVERLAY_POSITION.step, '%')} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, x: v } })} />
                 <SliderRow label="Position · up/down" value={selOverlay.transform.y} min={OVERLAY_POSITION.min} max={OVERLAY_POSITION.max} step={OVERLAY_POSITION.step} defaultValue={DEFAULT_TRANSFORM.y} format={(v) => formatAtStep(v, OVERLAY_POSITION.step, '%')} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, y: v } })} />
                 <SliderRow label="Rotation" value={selOverlay.transform.rotation} min={OVERLAY_ROTATION.min} max={OVERLAY_ROTATION.max} step={OVERLAY_ROTATION.step} defaultValue={DEFAULT_TRANSFORM.rotation} format={(v) => formatAtStep(v, OVERLAY_ROTATION.step, '°')} onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...selOverlay.transform, rotation: v } })} />
+                <AlignRow
+                  transform={selOverlay.transform}
+                  kind={selOverlay.overlayKind}
+                  onChange={(t) => dispatch({ type: 'SET_TRANSFORM', transform: t })}
+                />
                 <AnimationChips value={selOverlay.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: selOverlay.id, animation: a })} />
                 {/* Guest-name lettering lives on the FRAME only — a sticker is
                     placed anywhere on the canvas, so a name band under it has
@@ -935,13 +1153,28 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                     />
                   ))}
                 </div>
-                <StudioSlider label="Size" value={Math.min(sel3D.anchorConfig.scale, PROP_SCALE_MAX)} min={0.05} max={PROP_SCALE_MAX} step={0.05} onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { scale: v } })} />
+                <SliderRow
+                  label="Size"
+                  value={Math.min(sel3D.anchorConfig.scale, PROP_SCALE_MAX)}
+                  min={0.05}
+                  max={PROP_SCALE_MAX}
+                  step={0.05}
+                  defaultValue={sel3DDefaults.scale}
+                  onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { scale: v } })}
+                />
+                <p className="font-sans text-[9px] text-brand-muted/40 leading-relaxed -mt-2">
+                  Arrow keys nudge this piece (hold Shift for a bigger step).
+                </p>
                 <StudioToggle
                   label="Occlude behind head"
                   hint="Hide parts of this piece behind the real head"
                   value={sel3D.occlusion}
                   onChange={(v) => dispatch({ type: 'SET_OCCLUSION', occlusion: v })}
                 />
+                {/* Finish is for IMPORTED/GENERATED geometry only: built-in head
+                    pieces ship hand-authored materials that a blanket restyle
+                    would flatten. */}
+                {sel3D.type === 'model' && <FinishControls object={sel3D} dispatch={dispatch} />}
                 <AnimationChips value={sel3D.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: sel3D.id, animation: a })} />
               </div>
             )}
@@ -956,98 +1189,36 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
         </div>
       )}
 
-      {/* LAYERS — grouped by kind (Frame · Stickers · 3D pieces). Within a group,
-          rows show top-most first; reorder acts on the flat objects[] paint order,
-          the eye hides a layer FROM GUESTS (it persists — see below), delete
-          removes the object. */}
+      {/* LAYERS — ONE flat list in true paint order (LayerList). The old three
+          fixed buckets disagreed with the reducer's flat array, so a reorder
+          across a bucket boundary changed the stage and moved nothing here. */}
       {hasObjects && (
         <DockSection icon={Layers} title="Layers" open={!!open.layers} onToggle={() => toggleSection('layers')}>
-          {counts.capped >= 15 && (
-            <div className="flex items-center justify-end -mb-2">
-              <Tooltip
-                label={`${counts.capped} / ${MAX_OBJECTS} objects`}
-                hint="Up to 20 stickers + 3D pieces per scene — the frame is exempt. Adds past the cap are ignored."
-                side="left"
-              >
-                <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded-full cursor-help ${counts.capped >= MAX_OBJECTS ? 'text-amber-400 bg-amber-400/10' : 'text-brand-muted/50 bg-white/[0.04]'}`}>
-                  {counts.capped}/{MAX_OBJECTS}
-                </span>
-              </Tooltip>
-            </div>
-          )}
-          <div className="flex flex-col gap-3">
-            {LAYER_GROUPS.map((g) => {
-              const items = draft.objects.filter(g.match);
-              if (items.length === 0) return null;
-              return (
-                <div key={g.id}>
-                  <p className="font-label text-[8px] uppercase tracking-widest text-brand-muted/40 mb-1 px-1">{g.label}</p>
-                  <ul className="flex flex-col gap-1">
-                    {/* Reversed so the top of the list is the top-most rendered
-                        object (objects[last] paints last / on top). */}
-                    {[...items].reverse().map((o) => {
-                      const arrayIdx = draft.objects.indexOf(o);
-                      const isSel = o.id === draft.selectedId;
-                      const Icon = objectIcon(o);
-                      const canForward = arrayIdx < draft.objects.length - 1; // move up in list
-                      const canBack = arrayIdx > 0; // move down in list
-                      const hidden = !!o.hidden;
-                      return (
-                        <li
-                          key={o.id}
-                          onClick={() => dispatch({ type: 'SELECT_OBJECT', id: o.id })}
-                          className={`group flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer transition-colors ${isSel ? 'bg-accent/12 ring-1 ring-accent/30' : 'bg-white/[0.03] hover:bg-white/[0.06]'} ${hidden ? 'opacity-40' : ''}`}
-                        >
-                          <Icon className={`w-3.5 h-3.5 shrink-0 ${isSel ? 'text-accent-2' : 'text-brand-muted/50'}`} />
-                          <span className={`text-[11px] font-sans truncate flex-1 min-w-0 ${isSel ? 'text-brand-fg' : 'text-brand-muted/70'}`}>{displayNames.get(o.id) ?? o.name}</span>
-                          {o.animation !== 'none' && (
-                            <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">{o.animation}</span>
-                          )}
-                          <div className="flex items-center gap-0.5 shrink-0">
-                            {/* NOT a preview toggle. draftMapping persists
-                                `hidden` and the booth honours it, so this is a
-                                publish control: hide + save ships a scene
-                                without that layer. The label says so. */}
-                            <button
-                              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'UPDATE_OBJECT', id: o.id, patch: { hidden: !hidden } }); }}
-                              aria-label={hidden ? 'Show this layer to guests' : 'Hide this layer from guests'}
-                              title={hidden ? 'Hidden from guests — click to show' : 'Visible to guests — click to hide'}
-                              className="p-1.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors"
-                            >
-                              {hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'REORDER_OBJECT', id: o.id, dir: 'down' }); }}
-                              disabled={!canForward}
-                              aria-label="Move layer up"
-                              className="p-0.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-20 disabled:pointer-events-none"
-                            >
-                              <ChevronUp className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'REORDER_OBJECT', id: o.id, dir: 'up' }); }}
-                              disabled={!canBack}
-                              aria-label="Move layer down"
-                              className="p-0.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-20 disabled:pointer-events-none"
-                            >
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_OBJECT', id: o.id }); }}
-                              aria-label="Delete layer"
-                              className="p-0.5 rounded text-brand-muted/40 hover:text-rose-400 transition-colors"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              );
-            })}
+          {/* The object counter is ALWAYS visible, not only from 15. A host who
+              cannot see the limit cannot plan around it, and the first sign the
+              cap existed used to be an add that silently did nothing. */}
+          <div className="flex items-center justify-end -mb-1">
+            <Tooltip
+              label={`${counts.capped} / ${MAX_OBJECTS} objects`}
+              hint="Up to 20 stickers + 3D pieces per scene — the frame is exempt."
+              side="left"
+            >
+              <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded-full cursor-help ${atCap ? 'text-amber-400 bg-amber-400/10' : 'text-brand-muted/50 bg-white/[0.04]'}`}>
+                {counts.capped}/{MAX_OBJECTS}
+              </span>
+            </Tooltip>
           </div>
+          {atCap && (
+            <p role="status" className="text-[10px] text-amber-300/80 font-sans leading-snug px-1 -mt-1">
+              {SCENE_FULL_MESSAGE}
+            </p>
+          )}
+          <LayerList
+            objects={draft.objects}
+            selectedId={draft.selectedId}
+            displayNames={displayNames}
+            dispatch={dispatch}
+          />
         </DockSection>
       )}
 
@@ -1136,11 +1307,14 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
         </DockSection>
       )}
 
-      {/* HEAD & FIT — scene-level head-size calibration + per-guest auto-fit.
-          Offered whenever the scene has a 3D piece; mounted only while open so
-          the tracker-estimate polling runs only while the host is calibrating. */}
+      {/* LIGHTING & FIT — the two SCENE-level 3D settings: the shared lighting
+          rig every surface renders with, and head-size calibration + per-guest
+          auto-fit. Offered whenever the scene has a 3D piece; mounted only while
+          open so the tracker-estimate polling runs only while the host is
+          calibrating. */}
       {has3D && (
-        <DockSection icon={Ruler} title="Head & fit" open={!!open.headfit} onToggle={() => toggleSection('headfit')}>
+        <DockSection icon={Ruler} title="Lighting & fit" open={!!open.headfit} onToggle={() => toggleSection('headfit')}>
+          <LightingPicker value={lighting} onChange={onLightingChange} />
           <HeadSizeCalibration headScale={headScale} onHeadScaleChange={onHeadScaleChange} />
         </DockSection>
       )}

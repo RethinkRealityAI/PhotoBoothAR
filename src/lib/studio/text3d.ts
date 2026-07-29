@@ -47,11 +47,13 @@ export interface Text3DSpec {
  * emissive + emissiveIntensity through KHR_materials_emissive_strength), so
  * every preset stays inside that material's parameter set.
  *
- * The booth has NO environment map (booth/Overlay3D.tsx lights: ambient 1.2 +
- * one directional + one point), so metalness 1.0 has nothing to reflect and
- * renders near-black. 'chrome' is deliberately kept at 1.0 anyway — it is the
- * one preset that wants a mirror finish — and the preview uses the booth's
- * lights verbatim so the host sees that trade-off before they commit. */
+ * Wave 6 gave every platform-event booth a locally generated environment map
+ * (lib/studio/lighting.ts), so metalness 1.0 finally has something to reflect
+ * and no longer renders near-black. 'chrome' stays at 1.0 — it is the one
+ * preset that wants a mirror — but the trade-off has changed rather than gone:
+ * a pure mirror shows the ROOM, so it now looks materially different under each
+ * lighting preset. The preview renders the same shared rig as the booth, so the
+ * host sees the finish they will actually get. */
 export interface MaterialPreset {
   id: MaterialPresetId;
   label: string;
@@ -74,13 +76,14 @@ export const MATERIAL_MAP: Record<MaterialPresetId, MaterialPreset> = Object.fro
   MATERIAL_PRESETS.map((m) => [m.id, m]),
 ) as Record<MaterialPresetId, MaterialPreset>;
 
-/** Presets whose metalness leaves them near-black under the booth's envmap-less
- *  lighting — the builder surfaces this as a preview note, not an error. */
+/** Presets at full metalness are pure mirrors: they have no colour of their own
+ *  and show only the surrounding light, so they change most between lighting
+ *  presets. The builder surfaces this as a preview note, not an error. */
 export function materialWarning(id: MaterialPresetId): string | null {
   const m = MATERIAL_MAP[id];
   if (!m) return null;
   return m.metalness >= 1
-    ? 'Mirror finishes have nothing to reflect in the booth (no environment map) — expect it darker on camera than here.'
+    ? "A pure mirror has no colour of its own — it shows the light around it, so it looks different under each of your event's lighting styles."
     : null;
 }
 

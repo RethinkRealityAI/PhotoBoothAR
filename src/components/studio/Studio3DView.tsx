@@ -24,9 +24,11 @@ import AssetGizmo from '../ar/AssetGizmo';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
 import FaceOccluder from '../ar/FaceOccluder';
 import ReferenceBust, { type BustBounds } from '../ar/ReferenceBust';
+import SceneLighting from '../ar/SceneLighting';
 import AnchorDots from '../admin/creator3d/AnchorDots';
 import type { AnchorConfig, HeadAnchor } from '../../types';
 import type { Object3D } from '../../lib/studio/state';
+import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
 
 interface Props {
   view: 'live' | 'orbit';
@@ -41,6 +43,9 @@ interface Props {
   occlusionEnabled?: boolean;
   debugOcclusion?: boolean;
   matrixRef?: React.MutableRefObject<number[] | null>;
+  /** Event's shared lighting rig — the SAME preset the booth will render with,
+   *  so what the host tunes here is what the guest's photo gets. */
+  lightingPreset?: LightingPresetId;
   onSelect: (id: string) => void;
   onAnchorSelect: (a: HeadAnchor) => void;
   onTransformChange: (patch: Partial<AnchorConfig>) => void;
@@ -98,7 +103,9 @@ function FrameBust({ bounds }: { bounds: BustBounds | null }) {
 
 function ObjectContent({ object }: { object: Object3D }) {
   if (object.type === 'headpiece' && isHeadPiece(object.proceduralId)) return <HeadPiece id={object.proceduralId as string} />;
-  if (object.assetUrl) return <Model url={object.assetUrl} />;
+  if (object.assetUrl) {
+    return <Model url={object.assetUrl} finish={object.finish} tint={object.tint} tintStrength={object.tintStrength} />;
+  }
   return null;
 }
 
@@ -112,6 +119,7 @@ export default function Studio3DView({
   occlusionEnabled = false,
   debugOcclusion = false,
   matrixRef,
+  lightingPreset = DEFAULT_LIGHTING,
   onSelect,
   onAnchorSelect,
   onTransformChange,
@@ -148,7 +156,16 @@ export default function Studio3DView({
         // floating mode pills occupy the stage's top band — this framing keeps
         // tall pieces fully visible below the chrome.
         camera={{ position: [0, 2.5, 46], fov: 42, near: 0.1, far: 2000 }}
-        gl={{ preserveDrawingBuffer: true, antialias: true }}
+        // preserveDrawingBuffer dropped: NOTHING reads back from this canvas
+        // (the only in-studio readback is Text3DBuilder's own export canvas), and
+        // it forces the driver to keep the back buffer alive after every frame.
+        gl={{ antialias: true }}
+        // Cap the render resolution. With no `dpr` R3F renders at the device's
+        // full ratio — 3x on a modern laptop is ~9x the fragment work of 1x, for
+        // a reference bust the host is placing a hat on. DirectorCards.tsx:140
+        // and Text3DBuilder.tsx:268 already cap at [1,2]; this is the same
+        // house pattern, simply never applied here.
+        dpr={[1, 2]}
         style={{ width: '100%', height: '100%' }}
       >
         {/* In-canvas Suspense: an async 3D child (font/asset fetch) must never
@@ -161,9 +178,19 @@ export default function Studio3DView({
         {/* Target + distance are derived from the fitted bust by FrameBust. */}
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
         <FrameBust bounds={bustBounds} />
-        <ambientLight intensity={0.6} />
-        <directionalLight position={[8, 14, 12]} intensity={1.3} color="#EAF1FF" />
-        <directionalLight position={[-9, 5, -7]} intensity={0.4} color="#5B8CFF" />
+        {/* The shared rig — identical values to the booth's, so a crown tuned
+            here does not change appearance the moment a guest wears it.
+            CONTACT SHADOWS ARE OFF, and that is a measured decision, not an
+            omission. This view frames a HEAD (FrameBust: crown + 22cm) and
+            OrbitControls is clamped to maxDistance = dist * 2.4, so the bottom
+            of the bust — the only surface a ground shadow could fall on — is
+            off-frame at every camera distance the host can reach. Screenshotted
+            both at the default framing and fully dollied out: the catcher plane
+            rendered nothing either time, while still costing a 256px depth pass
+            every frame. The preset data still carries a contactShadow spec and
+            SceneLighting still implements it, for a future surface that has a
+            real floor; nothing in the product has one today. */}
+        <SceneLighting preset={lightingPreset} />
 
         <ReferenceBust onFit={handleBustFit} />
         {/* Occluder shown faintly in orbit only when debugging placement. */}
@@ -201,14 +228,18 @@ export default function Studio3DView({
     <Canvas
       id="studio-3d-live"
       camera={{ position: RIG_CAMERA.position, fov: RIG_CAMERA.fov, near: RIG_CAMERA.near, far: RIG_CAMERA.far }}
-      gl={{ alpha: true, preserveDrawingBuffer: true, antialias: true }}
+      // Same two caps as the orbit canvas above. `frameloop` deliberately stays
+      // the default 'always': this view is driven by live face tracking, so
+      // 'demand' would freeze the rig between invalidations.
+      gl={{ alpha: true, antialias: true }}
+      dpr={[1, 2]}
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
     >
       {/* Same containment for the live view (see orbit note above). */}
       <Suspense fallback={null}>
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[5, 10, 8]} intensity={1.4} color="#EAF1FF" />
-      <directionalLight position={[-4, 2, -4]} intensity={0.3} color="#5B8CFF" />
+      {/* No contact shadows in the live view: like the booth it composites over
+          a camera feed, and there is no floor for a shadow to land on. */}
+      <SceneLighting preset={lightingPreset} />
 
       {objects.length === 0 ? (
         // Empty 3D scene: a placeholder marker on the head so tracking feedback

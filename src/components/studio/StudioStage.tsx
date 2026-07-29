@@ -27,10 +27,14 @@ import ErrorBoundary from '../ui/ErrorBoundary';
 import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
 import { createTriggerEngine, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
+import type { LightingPresetId } from '../../lib/studio/lighting';
 import { initializeFaceLandmarker, isFaceLandmarkerReady } from '../../lib/faceTracking';
 import { REVEAL_SHIMMER_MS } from '../../lib/studio/reveal';
 import { stageStatus, STAGE_STATUS_DOT_CLASS, STAGE_STATUS_TONE_CLASS, type StageStatus } from '../../lib/studio/stageStatus';
 import { OVERLAY_SCALE, clampToSpec } from '../../lib/studio/controlSpecs';
+import { peerSnapLines, type SnapPeer } from '../../lib/studio/align';
+import StarterGallery from './StarterGallery';
+import type { StudioDraft } from '../../lib/studio/state';
 
 interface CamState {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -44,6 +48,9 @@ interface Props {
   dispatch: React.Dispatch<StudioAction>;
   cam: CamState;
   headScale: number;
+  /** Event-wide 3D lighting rig — threaded to the 3D views AND the preview so
+   *  all three agree with the booth. */
+  lighting: LightingPresetId;
   occlusionEnabled: boolean;
   debugOcclusion: boolean;
   faceVisible: boolean;
@@ -58,6 +65,10 @@ interface Props {
   /** Opens the mobile Assets drawer (<lg the docks are drawers, so the
       empty-state hint becomes a tappable CTA instead of dead-end copy). */
   onOpenAssets?: () => void;
+  /** Loads a shipped starter scene picked from the empty-state gallery. */
+  onStarterScene?: (draft: StudioDraft) => void;
+  /** The last refused add (e.g. a drop past the object cap), surfaced on the stage. */
+  refusal?: { message: string; at: number } | null;
 }
 
 const MODE_TABS = [
@@ -71,6 +82,7 @@ export default function StudioStage({
   dispatch,
   cam,
   headScale,
+  lighting,
   occlusionEnabled,
   debugOcclusion,
   faceVisible,
@@ -80,6 +92,8 @@ export default function StudioStage({
   dropActive = false,
   onTestOnPhone,
   onOpenAssets,
+  onStarterScene,
+  refusal = null,
 }: Props) {
   const { mode, draft, threeView } = state;
   const shaderCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -118,6 +132,14 @@ export default function StudioStage({
   // camera and needless GPU work).
   const shaderActive = mode === '2d' && draft.shaderId !== 'none';
   const { shaderId, shaderParams } = draft;
+  // The loop reads the params through a REF, not the closure. Depending on the
+  // `shaderParams` OBJECT meant every SET_SHADER_PARAM — which allocates a fresh
+  // object per change (state.ts) — tore down the rAF loop and scheduled a new
+  // one, so dragging a filter slider cancelled and restarted the render loop on
+  // every single frame of the drag. The values are still live; only the
+  // subscription is stable.
+  const shaderParamsRef = useRef(shaderParams);
+  shaderParamsRef.current = shaderParams;
   useEffect(() => {
     cancelAnimationFrame(rafRef.current);
     if (!shaderActive) return;
@@ -126,7 +148,7 @@ export default function StudioStage({
       const canvas = shaderCanvasRef.current;
       const runner = runnerRef.current;
       if (video && video.readyState >= 2 && canvas && runner?.available) {
-        const result = runner.draw(video, shaderId, shaderParams);
+        const result = runner.draw(video, shaderId, shaderParamsRef.current);
         if (result) {
           const ctx = canvas.getContext('2d');
           if (ctx) {
@@ -140,7 +162,7 @@ export default function StudioStage({
     };
     rafRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [shaderActive, shaderId, shaderParams, cam.videoRef]);
+  }, [shaderActive, shaderId, cam.videoRef]);
 
   // 2D overlay reposition via pointer drag (border/sticker). Booth Transform2D
   // semantics — x/y are % of the frame from centre (see StageCanvas). Only the
@@ -150,23 +172,65 @@ export default function StudioStage({
     drag.current = { startX: e.clientX, startY: e.clientY, tx: o.transform.x, ty: o.transform.y };
   }, []);
 
-  const onOverlayPointerMove = useCallback((e: React.PointerEvent) => {
+  // Peer guide lines — every OTHER visible overlay's centre and edges, so
+  // dragging snaps to the objects already on the canvas instead of only to the
+  // three fixed lines the old snapTransform knew about. Memoised on the
+  // PLACEMENT of the peers, so a drag (which rewrites the objects array every
+  // frame) does not rebuild the line set on each pointer event.
+  const peers = useMemo<SnapPeer[]>(
+    () => draft.objects
+      .filter((o): o is Overlay2D => o.type === 'overlay')
+      .map((o) => ({ id: o.id, kind: o.overlayKind, x: o.transform.x, y: o.transform.y, scale: o.transform.scale, hidden: o.hidden })),
+    [draft.objects],
+  );
+  const peersRef = useRef(peers);
+  peersRef.current = peers;
+
+  // The drag writes at most ONE reducer dispatch per animation frame.
+  // `pointermove` fires at the pointer's own rate — 120-240Hz on a modern
+  // trackpad or stylus — and each dispatch re-rendered the shell, BOTH docks and
+  // the R3F trees. Coalescing to the frame rate cuts that by 2-4x at 60Hz and
+  // more on high-rate devices, with no visible change: the browser cannot paint
+  // faster than a frame anyway.
+  const pendingDrag = useRef<{ x: number; y: number } | null>(null);
+  const dragRaf = useRef(0);
+
+  const flushDrag = useCallback(() => {
+    dragRaf.current = 0;
+    const point = pendingDrag.current;
     const d = drag.current;
     const box = overlayBoxRef.current;
-    if (!d || !box || !selectedOverlay) return;
+    const sel = selectedOverlay;
+    if (!point || !d || !box || !sel) return;
+    pendingDrag.current = null;
     const rect = box.getBoundingClientRect();
-    const dx = ((e.clientX - d.startX) / rect.width) * 100;
-    const dy = ((e.clientY - d.startY) / rect.height) * 100;
-    const raw = { ...selectedOverlay.transform, x: clamp(d.tx + dx, -100, 100), y: clamp(d.ty + dy, -100, 100) };
-    const snapped = snapTransform(raw);
-    dispatch({ type: 'UPDATE_OBJECT', id: selectedOverlay.id, patch: { transform: snapped.transform } });
+    const dx = ((point.x - d.startX) / rect.width) * 100;
+    const dy = ((point.y - d.startY) / rect.height) * 100;
+    const raw = { ...sel.transform, x: clamp(d.tx + dx, -100, 100), y: clamp(d.ty + dy, -100, 100) };
+    const lines = peerSnapLines(peersRef.current, sel.id);
+    const snapped = snapTransform(raw, { linesX: lines.x, linesY: lines.y });
+    dispatch({ type: 'UPDATE_OBJECT', id: sel.id, patch: { transform: snapped.transform } });
     setGuides(snapped.guides);
   }, [dispatch, selectedOverlay]);
 
+  const onOverlayPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!drag.current || !selectedOverlay) return;
+    pendingDrag.current = { x: e.clientX, y: e.clientY };
+    if (dragRaf.current) return; // a frame is already queued — coalesce into it
+    dragRaf.current = requestAnimationFrame(flushDrag);
+  }, [flushDrag, selectedOverlay]);
+
   const onOverlayPointerUp = useCallback(() => {
+    // Land the final position even if the last move is still queued, so the
+    // object never settles a frame behind where the host let go.
+    if (dragRaf.current) { cancelAnimationFrame(dragRaf.current); dragRaf.current = 0; flushDrag(); }
     drag.current = null;
+    pendingDrag.current = null;
     setGuides({ v: null, h: null });
-  }, []);
+  }, [flushDrag]);
+
+  // Never leave a queued drag frame behind on unmount.
+  useEffect(() => () => { if (dragRaf.current) cancelAnimationFrame(dragRaf.current); }, []);
 
   const onOverlayWheel = useCallback((e: React.WheelEvent) => {
     if (!selectedOverlay) return;
@@ -501,12 +565,17 @@ export default function StudioStage({
               <div className="absolute left-0 right-0 h-px bg-accent/70 pointer-events-none" style={{ top: `calc(50% + ${guides.h}%)` }} />
             )}
 
-            {/* Empty state — only when the scene truly has no overlays AND no
-                filter (a filter-only scene shows the live filter instead).
-                Below lg the docks are drawers, so "from the left" is a dead
-                end — the caption becomes a tappable CTA that opens the Assets
-                drawer instead. lg+ keeps the pointer-through caption. */}
-            {!hasAnyOverlay && draft.shaderId === 'none' && (
+            {/* Empty state → the starter-scene gallery.
+                The old condition was `!hasAnyOverlay && shaderId === 'none'`,
+                which a brand-new draft NEVER satisfies: initialDraft('shader')
+                pre-fills the filter slot, so the only guidance the studio had
+                was invisible on the exact screen it existed for. The real
+                "nothing built yet" test is simply an empty object list. */}
+            {!hasAnyOverlay && objects3d.length === 0 && onStarterScene && (
+              <StarterGallery onPick={onStarterScene} onOpenAssets={onOpenAssets} />
+            )}
+            {/* Kept for the harness/embedded case with no gallery handler. */}
+            {!hasAnyOverlay && objects3d.length === 0 && !onStarterScene && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-8 text-center">
                 {onOpenAssets ? (
                   <button
@@ -535,6 +604,7 @@ export default function StudioStage({
               selectedId={draft.selectedId}
               holdPose={gizmoDragging}
               headScale={headScale}
+              lightingPreset={lighting}
               occlusionEnabled={occlusionEnabled}
               debugOcclusion={debugOcclusion}
               matrixRef={headMatrixRef}
@@ -563,6 +633,7 @@ export default function StudioStage({
               revealTargetIds={revealTargetIds}
               effectIdOverride={pulseShaderId ?? undefined}
               reveal={reveal}
+              lightingPreset={lighting}
             />
             </ErrorBoundary>
           </div>
@@ -598,6 +669,11 @@ export default function StudioStage({
           ) : <span />}
         </div>
 
+        {/* Refused add (e.g. a drop past the object cap). A refusal used to be a
+            bare `return` in the drop handler: the host dragged an asset onto the
+            canvas and absolutely nothing happened, anywhere. */}
+        <RefusalNotice refusal={refusal} />
+
         {/* Camera error */}
         {cam.error && showVideo && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-brand-bg/80 px-8 text-center">
@@ -608,6 +684,33 @@ export default function StudioStage({
         )}
 
       </div>
+    </div>
+  );
+}
+
+/**
+ * A refused add, said out loud on the canvas the host was dropping onto.
+ * Auto-dismisses; a repeated refusal re-shows because `at` changes, so trying
+ * the same impossible drop twice does not look ignored the second time.
+ */
+function RefusalNotice({ refusal }: { refusal: { message: string; at: number } | null }) {
+  const [shown, setShown] = useState<{ message: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!refusal) return;
+    setShown(refusal);
+    const t = window.setTimeout(() => setShown(null), 4200);
+    return () => window.clearTimeout(t);
+  }, [refusal]);
+  if (!shown) return null;
+  return (
+    <div
+      role="status"
+      data-testid="studio-refusal"
+      className="absolute inset-x-3 top-16 z-40 flex justify-center pointer-events-none"
+    >
+      <p className="liquid-glass-raised rounded-xl px-3 py-2 max-w-[22rem] text-center font-sans text-[11px] leading-snug text-amber-200/90 ring-1 ring-amber-400/30">
+        {shown.message}
+      </p>
     </div>
   );
 }

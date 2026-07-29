@@ -24,7 +24,7 @@
  * The GLB add is async (measure-then-dispatch) — the tile shows an "adding" spinner
  * while it's in flight and the expander binds to selection, which lands with it.
  */
-import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Boxes, ChevronDown, ChevronRight, Crown, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Search, Sparkles, Sun, Upload, Wand2, X } from 'lucide-react';
 import { FILTER_SHADERS, SHADER_MAP, defaultParams } from '../../lib/shaders';
@@ -33,10 +33,11 @@ import { HEAD_PIECES } from '../../lib/headPieces';
 import { ANCHOR_PRESETS } from '../../lib/faceRig';
 import { uploadAsset, listAssetsResult, fetchExperiencesResult } from '../../lib/db';
 import { captureGlbThumbnail, measureGlbFitScale } from '../../lib/studio/glbThumb';
+import type { LightingPresetId } from '../../lib/studio/lighting';
 import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
-import { selectedObject, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
+import { SCENE_FULL_MESSAGE, canAddObject, selectedObject, sceneCounts, MAX_OBJECTS, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
 import { experienceToDraft } from '../../lib/studio/draftMapping';
 import { OVERLAY_SCALE } from '../../lib/studio/controlSpecs';
 import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
@@ -67,6 +68,10 @@ interface Props {
   onOpenExperience: (exp: Experience) => void;
   beginDrag: (payload: DragPayload, e: React.PointerEvent) => void;
   consumedDrag: () => boolean;
+  /** Event lighting rig — passed straight through to the jewelry builder so its
+   *  live preview is lit exactly like the booth (otherwise a host tuning a
+   *  chrome necklace under 'Neon' would be judging it under 'Studio'). */
+  lighting: LightingPresetId;
 }
 
 // Head pieces are procedural (no image asset) — a distinctive icon per piece
@@ -134,6 +139,26 @@ function isAuthoredInCm(url: string | null | undefined, label: string): boolean 
   return u.endsWith(`${AUTHORED_CM_MARKER}.glb`) || label.toLowerCase().endsWith(AUTHORED_CM_MARKER);
 }
 
+/**
+ * Built-in SVG → data-URL cache, keyed by built-in id.
+ *
+ * `builtinTiles` called toDataUrl(b.svg) for EVERY built-in on EVERY render, and
+ * toDataUrl does a regex replace plus encodeURIComponent over a multi-kilobyte
+ * SVG string (src/lib/borders.ts:46-48). With ~30 built-ins that is ~30 full
+ * string encodes per render — and this dock re-rendered on every frame of an
+ * overlay drag. The bytes are immutable, so the encode happens once per id per
+ * page load. Module-level, so it survives dock remounts too.
+ */
+const builtinDataUrls = new Map<string, string>();
+function builtinDataUrl(id: string, svg: string): string {
+  let url = builtinDataUrls.get(id);
+  if (url === undefined) {
+    url = toDataUrl(svg);
+    builtinDataUrls.set(id, url);
+  }
+  return url;
+}
+
 /** Smooth expand/collapse for dock sub-groups and inline settings cards —
  *  the PickerDrawer height/opacity idiom; prefers-reduced-motion snaps. */
 function Collapse({ show, children }: { show: boolean; children: ReactNode }) {
@@ -155,7 +180,7 @@ function Collapse({ show, children }: { show: boolean; children: ReactNode }) {
   );
 }
 
-export default function AssetsDock({ state, dispatch, onOpenExperience, beginDrag, consumedDrag }: Props) {
+export default function AssetsDock({ state, dispatch, onOpenExperience, beginDrag, consumedDrag, lighting }: Props) {
   const { draft } = state;
   const { source, eventId } = useEvent();
   const entitlements = useEntitlements();
@@ -233,7 +258,12 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     void _id;
     // A reused template starts Live like any fresh draft — the template ROW is
     // forced hidden, but that must not make experiences built FROM it unpublished.
-    dispatch({ type: 'LOAD', draft: { ...rest, isPublished: true, name: stripTemplateSuffix(exp.name) } });
+    //
+    // dirty:true — a template opened this way is UNSAVED work from the instant
+    // it lands. LOAD used to force dirty:false, so the leave-guard was disarmed
+    // on a scene that existed nowhere but in this tab (the same hole Duplicate
+    // had); it is now guarded and autosaved like any other unsaved draft.
+    dispatch({ type: 'LOAD', draft: { ...rest, isPublished: true, name: stripTemplateSuffix(exp.name) }, dirty: true });
   }, [state.dirty, dispatch]);
 
   // Click-to-add for an Uploads/Generated/Mine dock item — mirrors the built-in
@@ -347,12 +377,33 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   // The selected object drives which library item reads as "active" and what the
   // inline settings card edits (the reducer selects each just-added object).
   const sel = selectedObject(draft);
+  /**
+   * A stable signature of WHAT is in the scene, ignoring where it sits.
+   *
+   * Everything below depends on scene membership, not on placement — but
+   * `draft.objects` is a brand-new array on every UPDATE_OBJECT, i.e. on every
+   * frame of a drag. Keying the memos on this string means a drag (which only
+   * ever changes transforms) leaves every derived tile list untouched.
+   */
+  const placementKey = draft.objects
+    .map((o) => (o.type === 'overlay' ? `o:${o.url ?? ''}` : o.type === 'model' ? `m:${o.assetUrl ?? ''}` : `p:${o.proceduralId ?? ''}`))
+    .join('|');
+
   // Identity of everything currently in the scene, for the in-scene tile ring.
-  const placedRefs = draft.objects.map((o) => ({
-    url: o.type === 'overlay' ? o.url : null,
-    assetUrl: o.type === 'model' ? o.assetUrl : null,
-    proceduralId: o.type === 'headpiece' ? o.proceduralId : null,
-  }));
+  const placedRefs = useMemo(
+    () => draft.objects.map((o) => ({
+      url: o.type === 'overlay' ? o.url : null,
+      assetUrl: o.type === 'model' ? o.assetUrl : null,
+      proceduralId: o.type === 'headpiece' ? o.proceduralId : null,
+    })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- placementKey IS the
+    // membership identity of draft.objects; depending on the array itself would
+    // rebuild this on every drag frame, which is the whole point of the key.
+    [placementKey],
+  );
+  // Scene at the object cap → adds will be refused, so say so BEFORE the click.
+  const counts = sceneCounts(draft);
+  const capReached = !canAddObject(draft);
   const selBuiltinId = sel && sel.type === 'overlay' && sel.isBuiltin ? sel.builtinId : undefined;
   const selProceduralId = sel && sel.type === 'headpiece' ? sel.proceduralId : undefined;
   // The scene's single frame (if any) — highlights the active frame regardless
@@ -568,9 +619,13 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   // built-ins (baked event text — see BuiltinBorder.legacy) never surface here:
   // self-serve hosts only see the generic library. Legacy events still resolve
   // them by id through their event config (catalog.ts / BORDER_MAP).
-  const builtinTiles = (kind: 'border' | '2d_filter'): Tile[] =>
+  // Every tile list below is MEMOISED. They used to be rebuilt on each render —
+  // ~30 SVG data-URL encodes, a full re-map of every dock item and a fresh
+  // chip/query filter pass — and this dock re-renders on every frame of an
+  // overlay drag, because the shell hands it the whole studio state.
+  const builtinTiles = useCallback((kind: 'border' | '2d_filter'): Tile[] =>
     BUILTIN_BORDERS.filter((b) => !b.legacy && b.kind === kind && matchQuery(b.name)).map((b) => {
-      const url = toDataUrl(b.svg);
+      const url = builtinDataUrl(b.id, b.svg);
       const active = kind === 'border' ? sceneFrame?.builtinId === b.id : selBuiltinId === b.id;
       const key = `builtin:${b.id}`;
       return {
@@ -583,9 +638,13 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         drag: { target: 'overlay', label: b.name, overlayKind: b.kind, builtinId: b.id, builtinUrl: url, previewUrl: url },
         onAdd: () => { dispatch({ type: 'SELECT_BUILTIN', borderId: b.id, url }); setExpandedKey(key); },
       };
-    });
+    }),
+    // `matchQuery` closes over `q`; sceneFrame/selBuiltinId are compared by ID,
+    // so a transform-only change leaves all three deps identical.
+    [q, sceneFrame?.builtinId, selBuiltinId, dispatch], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
-  const headPieceTiles = (): Tile[] =>
+  const headPieceTiles = useCallback((): Tile[] =>
     HEAD_PIECES.filter((p) => matchQuery(p.name)).map((p) => {
       const key = `piece:${p.id}`;
       return {
@@ -598,9 +657,11 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         drag: { target: 'headpiece', label: p.name, pieceId: p.id },
         onAdd: () => { dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id }); setExpandedKey(key); },
       };
-    });
+    }),
+    [q, selProceduralId, dispatch], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
-  const dockTiles = (items: DockItem[], prefix: string): Tile[] =>
+  const dockTiles = useCallback((items: DockItem[], prefix: string): Tile[] =>
     filterDockByChip(items, chip, query).map((item) => {
       const key = `${prefix}:${item.id}`;
       return {
@@ -616,7 +677,9 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         drag: dragPayloadFor(item),
         onAdd: () => addDockItem(item, key),
       };
-    });
+    }),
+    [chip, query, placedRefs, pendingKey, dragPayloadFor, addDockItem],
+  );
 
   // Filters are a descriptive list (no visual preview), not a tile grid — the
   // param sliders expand right below the clicked row. Preserves CLEAR_FILTER and
@@ -686,15 +749,18 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const showFilters = chip === 'all' || chip === 'filter';
   const showHeadPieces = chip === 'all' || chip === '3d';
 
-  const frameTiles = showFrames ? builtinTiles('border') : [];
-  const stickerTiles = showStickers ? builtinTiles('2d_filter') : [];
-  const headTiles = showHeadPieces ? headPieceTiles() : [];
-  const filterCount = showFilters ? FILTER_SHADERS.filter((s) => matchQuery(s.name)).length : 0;
+  const frameTiles = useMemo(() => (showFrames ? builtinTiles('border') : []), [showFrames, builtinTiles]);
+  const stickerTiles = useMemo(() => (showStickers ? builtinTiles('2d_filter') : []), [showStickers, builtinTiles]);
+  const headTiles = useMemo(() => (showHeadPieces ? headPieceTiles() : []), [showHeadPieces, headPieceTiles]);
+  const filterCount = useMemo(
+    () => (showFilters ? FILTER_SHADERS.filter((s) => matchQuery(s.name)).length : 0),
+    [showFilters, q], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
+  );
   const libraryCount = frameTiles.length + stickerTiles.length + headTiles.length + filterCount;
 
-  const generatedTiles = dockTiles(experiences.generated, 'gen');
-  const uploadTiles = dockTiles(uploads.items, 'up');
-  const mineTiles = dockTiles(experiences.mine, 'mine');
+  const generatedTiles = useMemo(() => dockTiles(experiences.generated, 'gen'), [dockTiles, experiences.generated]);
+  const uploadTiles = useMemo(() => dockTiles(uploads.items, 'up'), [dockTiles, uploads.items]);
+  const mineTiles = useMemo(() => dockTiles(experiences.mine, 'mine'), [dockTiles, experiences.mine]);
   // Templates are whole scenes, not a single kind — only under the 'all' chip.
   const templates = (chip === 'all' ? experiences.templates : []).filter((t) => matchQuery(t.name));
 
@@ -750,6 +816,15 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
       </div>
 
       <div className="flex flex-col gap-6 px-4 pt-4 pb-8">
+        {/* Scene full — stated at the TOP of the dock, before any tile is
+            clicked. Adds past the cap no-op silently in the reducer, so without
+            this the host clicks an asset and simply nothing happens. */}
+        {capReached && (
+          <p role="status" className="rounded-xl bg-amber-400/10 ring-1 ring-amber-400/25 px-3 py-2 font-sans text-[10px] leading-snug text-amber-200/90">
+            {SCENE_FULL_MESSAGE} <span className="font-mono opacity-70">({counts.capped}/{MAX_OBJECTS})</span>
+          </p>
+        )}
+
         {/* AI generate — collapsible, chip-adaptive */}
         {showAi && (
           <div className="flex flex-col gap-2">
@@ -938,6 +1013,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             dispatch={dispatch}
             onClose={() => setJewelryOpen(false)}
             onUploaded={loadUploads}
+            lighting={lighting}
           />
         </Suspense>
       )}

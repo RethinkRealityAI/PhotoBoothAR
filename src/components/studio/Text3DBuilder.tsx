@@ -12,10 +12,12 @@
  * at scale 1. "Save as sticker" grabs the preview canvas as a transparent PNG
  * instead, for hosts who want the look without the tracking.
  *
- * The preview copies booth/Overlay3D.tsx's lights VERBATIM (ambient 1.2 +
- * directional 1.8 + a warm point light, and NO environment map) so what the
- * host tunes against is what the booth will actually render — a mirror-metal
- * preset looks dark in both places rather than brilliant here and black there.
+ * The preview renders `<SceneLighting>` — the SAME shared rig the booth uses
+ * (lib/studio/lighting.ts) — so what the host tunes against is what the guest's
+ * photo gets. It used to copy Overlay3D's light values by hand and a comment
+ * promised they stayed "VERBATIM"; nothing enforced that, and the mirror-metal
+ * presets shipped with a warning that they would look dark on camera. With a
+ * real (locally generated) environment map to reflect, they no longer do.
  */
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -48,6 +50,8 @@ import {
 } from '../../lib/studio/text3d';
 import { buildText3D, exportGlb, glyphsOf, loadFont, type BuiltText3D } from '../../lib/studio/text3dBuild';
 import type { StudioAction } from '../../lib/studio/state';
+import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
+import SceneLighting from '../ar/SceneLighting';
 import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
 
 interface Props {
@@ -57,6 +61,8 @@ interface Props {
   onClose: () => void;
   /** Refresh the dock's Uploads list once the GLB has landed in the bucket. */
   onUploaded?: () => void;
+  /** The event's lighting rig, so the preview matches the booth exactly. */
+  lighting?: LightingPresetId;
 }
 
 /** Rebuild delay after the last keystroke/drag. Long enough that typing a name
@@ -81,7 +87,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
   );
 }
 
-export default function Text3DBuilder({ eventId, dispatch, onClose, onUploaded }: Props) {
+export default function Text3DBuilder({ eventId, dispatch, onClose, onUploaded, lighting = DEFAULT_LIGHTING }: Props) {
   const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, '3D name jewelry');
 
   const [spec, setSpec] = useState<Text3DSpec>(() => defaultSpecFor('necklace'));
@@ -271,10 +277,10 @@ export default function Text3DBuilder({ eventId, dispatch, onClose, onUploaded }
               {/* In-canvas Suspense: an async 3D child must never suspend past
                   the Canvas to the route boundary. */}
               <Suspense fallback={null}>
-                {/* booth/Overlay3D.tsx lights, verbatim — no envmap. */}
-                <ambientLight intensity={1.2} />
-                <directionalLight position={[2, 4, 3]} intensity={1.8} />
-                <pointLight position={[-2, 2, 2]} intensity={0.8} color="#E8C766" />
+                {/* The shared booth rig — one definition, no hand-copied values.
+                    No contact shadow: <Bounds> reframes the piece continuously
+                    and there is no fixed floor to cast onto. */}
+                <SceneLighting preset={lighting} />
                 {/* Keyed on the built group: drei's Bounds only refits on
                     [size, clip, fit, observe, camera, controls] — never when
                     its children change — and R3F's <primitive> cannot swap its

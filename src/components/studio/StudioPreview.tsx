@@ -11,6 +11,7 @@ import StageCanvas, { type StageOverlaySpec } from '../booth/StageCanvas';
 import Overlay3D, { type Overlay3DPiece } from '../booth/Overlay3D';
 import type { StudioDraft, Overlay2D, Object3D } from '../../lib/studio/state';
 import { isLayerVisible } from '../../lib/studio/triggers';
+import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
 
 const EMPTY_SET: Set<string> = new Set();
 /** Reveal targets minus the ones still waiting = the ones that have fired. */
@@ -38,9 +39,12 @@ interface Props {
   effectIdOverride?: string;
   /** Booth reveal-spring flag — plays the 3D scale-in as a piece reveals. */
   reveal?: boolean;
+  /** The event's lighting rig. Preview exists to be pixel-parity with the guest
+   *  capture, so it must pass the SAME preset the booth will render with. */
+  lightingPreset?: LightingPresetId;
 }
 
-export default function StudioPreview({ videoRef, draft, headScale, occlusionEnabled, onFaceVisible, hiddenObjectIds, revealTargetIds, effectIdOverride, reveal }: Props) {
+export default function StudioPreview({ videoRef, draft, headScale, occlusionEnabled, onFaceVisible, hiddenObjectIds, revealTargetIds, effectIdOverride, reveal, lightingPreset = DEFAULT_LIGHTING }: Props) {
   const targets = revealTargetIds ?? EMPTY_SET;
   // Fired = a target NOT in hiddenObjectIds (the parent tracks the un-fired set).
   // Built ONCE per render: this used to sit inside `visible`, which runs per
@@ -64,6 +68,9 @@ export default function StudioPreview({ videoRef, draft, headScale, occlusionEna
       anchor: { anchor: o.anchor, offset: o.anchorConfig.offset, rotation: o.anchorConfig.rotation, scale: o.anchorConfig.scale },
       animation: o.animation,
       occlude: occlusionEnabled && o.occlusion,
+      finish: o.finish,
+      tint: o.tint,
+      tintStrength: o.tintStrength,
     }));
 
   const hasOverlays = overlaySpecs.length > 0;
@@ -96,6 +103,7 @@ export default function StudioPreview({ videoRef, draft, headScale, occlusionEna
               headScale={headScale}
               onFaceVisible={onFaceVisible}
               reveal={reveal}
+              lightingPreset={lightingPreset}
             />
           </div>
         )}

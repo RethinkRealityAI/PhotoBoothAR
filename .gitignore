@@ -1,6 +1,9 @@
 node_modules/
 build/
 dist/
+# Alternate build output dirs (`vite build --outDir dist-…`), used when several
+# builds run against one working tree and would otherwise clobber `dist/`.
+dist-*/
 coverage/
 .DS_Store
 *.log
@@ -12,6 +15,10 @@ coverage/
 
 # MediaPipe wasm copied from node_modules at build (kept in lockstep with the JS)
 public/mediapipe/
+
+# three.js Draco decoder, copied from node_modules at build for the same reason
+# — committing it would let the decoder drift from the three.js that loads it.
+public/three/
 
 # Phase 6 keepsake-film: local render output + container render toolchain
 .hf-bin/

@@ -19,8 +19,11 @@ import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from '
 import { Canvas } from '@react-three/fiber';
 import { Bounds, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three-stdlib';
 import { Box, Check, Loader2, RotateCcw, SlidersHorizontal, Sparkles, Wand2, X } from 'lucide-react';
+import { loadModel } from '../../lib/glbCache';
+import { describeGlbError } from '../../lib/glbErrors';
+import SceneLighting from '../ar/SceneLighting';
+import { DEFAULT_LIGHTING } from '../../lib/studio/lighting';
 
 /* ── Card state machine (owned by DirectorPanel, rendered here) ───────────── */
 
@@ -59,21 +62,10 @@ export const MESHY_STATUS_LINES = [
 
 /* ── Interactive 3D mini viewer ───────────────────────────────────────────── */
 
-// Cached GLB loader — mirrors ar/FaceRig.loadModel / ar/ReferenceBust.loadBust
-// (a runtime-URL fetch, never a static import) so the build never depends on
-// any model file being present.
-const _glbCache = new Map<string, Promise<THREE.Group | null>>();
-function loadGlb(url: string): Promise<THREE.Group | null> {
-  if (!_glbCache.has(url)) {
-    _glbCache.set(
-      url,
-      new Promise<THREE.Group | null>((resolve) => {
-        new GLTFLoader().load(url, (g) => resolve(g.scene), undefined, () => resolve(null));
-      }),
-    );
-  }
-  return _glbCache.get(url)!;
-}
+// GLB loading now goes through lib/glbCache — the SAME parse the booth's
+// FaceRig and the dock's thumbnail/auto-fit will reuse, instead of this file's
+// own third private Map. A model the host approves here is already in memory by
+// the time it lands on the stage.
 
 /**
  * Normalizes a loaded GLB's longest axis to ~2 units centred at the origin, so
@@ -106,28 +98,28 @@ function FittedModel({ scene }: { scene: THREE.Group }) {
   );
 }
 
-/** ~180px interactive viewer — orbit the piece before deciding. loadGlb resolves
- *  null when the browser can't fetch/parse the GLB (CORS, transient network);
- *  the model FILE is still valid server-side, so we say so honestly and let the
- *  host add it anyway rather than show an empty black box. */
+/** ~180px interactive viewer — orbit the piece before deciding. A load failure
+ *  now names its CAUSE (lib/glbErrors) instead of the old blanket "the model
+ *  itself is fine": a Draco-compressed upload is NOT fine and the host needs to
+ *  re-export it, whereas a dropped connection genuinely is. */
 function ModelPreview({ url }: { url: string }) {
   const [scene, setScene] = useState<THREE.Group | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
     setScene(null);
-    setFailed(false);
-    loadGlb(url)
-      .then((s) => { if (!alive) return; if (s) setScene(s); else setFailed(true); })
-      .catch(() => { if (alive) setFailed(true); });
+    setFailure(null);
+    loadModel(url)
+      .then((s) => { if (alive) setScene(s); })
+      .catch((e) => { if (alive) setFailure(describeGlbError(e).message); });
     return () => { alive = false; };
   }, [url]);
 
-  if (failed) {
+  if (failure) {
     return (
-      <div className="rounded-lg border border-white/10 px-3 py-4 flex items-center gap-2 text-[11px] text-brand-muted/70 leading-snug" style={{ backgroundColor: '#05060B' }}>
-        <Box className="w-4 h-4 shrink-0 text-accent-2/70" />
-        <span>3D preview unavailable — the model itself is fine; Approve to add it to your scene.</span>
+      <div className="rounded-lg border border-white/10 px-3 py-4 flex items-start gap-2 text-[11px] text-brand-muted/70 leading-snug" style={{ backgroundColor: '#05060B' }}>
+        <Box className="w-4 h-4 shrink-0 mt-0.5 text-accent-2/70" />
+        <span>{failure}</span>
       </div>
     );
   }
@@ -143,9 +135,9 @@ function ModelPreview({ url }: { url: string }) {
         {/* In-canvas Suspense: an async 3D child must never suspend past the
             Canvas to the route boundary (the W3 black-app lesson). */}
         <Suspense fallback={null}>
-          <ambientLight intensity={0.7} />
-          <directionalLight position={[5, 10, 8]} intensity={1.3} color="#EAF1FF" />
-          <directionalLight position={[-4, 2, -4]} intensity={0.35} color="#5B8CFF" />
+          {/* The shared rig, so the piece the host judges here is lit exactly
+              like the piece the guest will wear. */}
+          <SceneLighting preset={DEFAULT_LIGHTING} />
           <Bounds fit clip observe margin={1.15}>
             {scene && <FittedModel scene={scene} />}
           </Bounds>

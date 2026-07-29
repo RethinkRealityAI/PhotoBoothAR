@@ -26,7 +26,12 @@ export default function ChallengeCheck({
 }: Props) {
   const checking = phase === 'checking';
   return (
-    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-6 overflow-hidden bg-noir-900/95 px-8 vignette">
+    // pb-safe-bottom COMPOSES with the design padding through --safe-bottom
+    // (src/index.css); a bare env() would win the cascade and zero it on every
+    // non-notch device. The content is vertically centred, so on a short phone
+    // the Retake / "Post without the challenge" pair sat under the iPhone home
+    // indicator.
+    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-6 overflow-hidden bg-noir-900/95 px-8 pb-safe-bottom [--safe-bottom:0rem] vignette">
       {/* Soft accent bloom */}
       <div
         aria-hidden
@@ -106,14 +111,14 @@ export default function ChallengeCheck({
           <div className="flex w-full flex-col gap-2.5">
             <button
               onClick={onRetake}
-              className="flex items-center justify-center gap-2 rounded-xl bg-foil px-6 py-3.5 font-label text-xs uppercase tracking-luxe text-noir-900 glow-accent transition-all hover:brightness-110 active:scale-95"
+              className="pressable flex min-h-[52px] items-center justify-center gap-2 rounded-xl bg-foil px-6 font-label text-xs uppercase tracking-luxe text-noir-900 glow-accent transition-all hover:brightness-110 active:scale-95"
             >
               <RefreshCw className="h-4 w-4" />
               Retake photo
             </button>
             <button
               onClick={onPostAnyway}
-              className="glass flex items-center justify-center gap-2 rounded-xl px-6 py-3 font-label text-[11px] uppercase tracking-wide text-champagne/60 transition-colors hover:text-ivory"
+              className="pressable glass flex min-h-11 items-center justify-center gap-2 rounded-xl px-6 font-label text-[11px] uppercase tracking-wide text-champagne/60 transition-colors hover:text-ivory"
             >
               <Send className="h-3.5 w-3.5" />
               Post without the challenge

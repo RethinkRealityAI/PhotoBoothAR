@@ -9,29 +9,21 @@
  * own pairing helpers pure/DOM-free for exactly that reason.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three-stdlib';
 import { computePropFitScale } from './bustFit';
+import { loadModel } from '../glbCache';
 
 // Using three v0.184 / three-stdlib v2.36 — Box3.getBoundingSphere(target)
 // requires the target Sphere argument in this version (no bare-return overload).
 
-/** Free every geometry/material/texture under a loaded GLB scene graph.
- *  material.dispose() does NOT free its textures — a textured Meshy model
- *  would leak GPU memory per load. */
-function disposeSceneResources(root: THREE.Object3D | null) {
-  root?.traverse((obj) => {
-    if (obj instanceof THREE.Mesh) {
-      obj.geometry.dispose();
-      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-      for (const m of mats) {
-        for (const v of Object.values(m)) {
-          if (v instanceof THREE.Texture) v.dispose();
-        }
-        m.dispose();
-      }
-    }
-  });
-}
+// LOADING + DISPOSAL MOVED TO lib/glbCache.
+// This file used to construct `new GLTFLoader()` twice, so AssetsDock.tsx's
+// measure-then-thumbnail sequence downloaded and parsed the SAME model twice
+// before the host saw its tile. Both entry points now read the shared cache,
+// which also OWNS the resources: neither function disposes what it is handed
+// any more, because those geometries and materials are the ones FaceRig will
+// clone from when the piece reaches the stage. (Disposing them here is exactly
+// how a shared cache turns into a black, textureless model on the head.)
+// The renderer created below is still disposed here — that one IS ours.
 
 /**
  * Load `url` as a GLB and return its auto-fit head-space scale (see
@@ -46,23 +38,15 @@ function disposeSceneResources(root: THREE.Object3D | null) {
 const MEASURE_TIMEOUT_MS = 15_000;
 
 export async function measureGlbFitScale(url: string): Promise<number | null> {
-  let root: THREE.Object3D | null = null;
-  let settled = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const load = new Promise<THREE.Group>((resolve, reject) => {
-    new GLTFLoader().load(url, (g) => resolve(g.scene), undefined, reject);
-  });
-  // Late arrival: if the timeout already won, a slow-but-successful load still
-  // resolves here — dispose that orphaned scene so it can't leak GPU memory.
-  // This handler is registered BEFORE Promise.race's own, so on the fast/normal
-  // path it runs while `settled` is still false and skips (the finally disposes
-  // exactly once — no double-free). A late rejection has nothing to dispose.
-  void load.then(
-    (scene) => { if (settled) disposeSceneResources(scene); },
-    () => {},
-  );
+  // Shared cache: measuring is READ-ONLY (computePropFitScale walks the graph
+  // and never mutates it), so the master can be measured in place. The old
+  // late-arrival dispose handler is gone with it — there is no orphan to clean
+  // up when the timeout wins, because the cache keeps the one copy and the
+  // caller who actually renders this url will reuse it.
+  const load = loadModel(url);
   try {
-    root = await Promise.race([
+    const root = await Promise.race([
       load,
       new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), MEASURE_TIMEOUT_MS); }),
     ]);
@@ -72,9 +56,7 @@ export async function measureGlbFitScale(url: string): Promise<number | null> {
     console.warn('[glbThumb] measureGlbFitScale failed', url, e);
     return null;
   } finally {
-    settled = true;
     if (timer) clearTimeout(timer);
-    disposeSceneResources(root);
   }
 }
 
@@ -83,17 +65,20 @@ export async function measureGlbFitScale(url: string): Promise<number | null> {
  * bounding sphere, and render a `size`×`size` transparent PNG snapshot.
  * Resolves to `null` (never throws) on load or render failure — callers must
  * treat a missing thumbnail as best-effort, never as a failed model upload.
- * Every three.js resource created here (renderer, geometries, materials) is
- * disposed before returning, on both the success and failure paths.
+ * The only three.js resource this function OWNS is the WebGLRenderer, and it is
+ * disposed AND context-lost before returning on both the success and failure
+ * paths. The geometries/materials belong to lib/glbCache (see the clone note
+ * below) and are deliberately left alive.
  */
 export async function captureGlbThumbnail(url: string, size = 256): Promise<Blob | null> {
   let renderer: THREE.WebGLRenderer | null = null;
-  let root: THREE.Object3D | null = null;
   try {
-    const gltf = await new Promise<THREE.Group>((resolve, reject) => {
-      new GLTFLoader().load(url, (g) => resolve(g.scene), undefined, reject);
-    });
-    root = gltf;
+    // clone(true) because this function RE-PARENTS the graph into its own
+    // scene, and the cache's master must stay unparented for FaceRig. The clone
+    // shares the master's geometries/materials, so it costs almost nothing and
+    // is deliberately NOT disposed — those resources belong to the cache.
+    const master = await loadModel(url);
+    const gltf = master.clone(true);
 
     // Fold every node's local transform into world matrices before measuring
     // (a GLB commonly carries node rotation/scale — see bustFit.ts's same fix).
@@ -136,7 +121,6 @@ export async function captureGlbThumbnail(url: string, size = 256): Promise<Blob
     console.error('[glbThumb] captureGlbThumbnail failed', url, e);
     return null;
   } finally {
-    disposeSceneResources(root);
     renderer?.dispose();
     // dispose() alone leaves the GL context alive until GC; repeated uploads
     // would hit the browser's ~16-context cap and could kill the live stage.

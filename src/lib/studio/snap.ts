@@ -13,8 +13,16 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 export interface SnapOptions {
   /** Max distance (in the same % units as x/y) to snap to a guide line. Default 2.5. */
   threshold?: number;
-  /** Guide lines to snap to, in % from centre. Default [0, -25, 25]. */
+  /** Guide lines for BOTH axes, in % from centre. Default [0, -25, 25]. */
   lines?: number[];
+  /**
+   * Extra guide lines for the horizontal axis only — the other objects' centres
+   * and edges, so an overlay snaps to what is already on the canvas and not
+   * just to three fixed lines. Merged with `lines`; see lib/studio/align.ts.
+   */
+  linesX?: number[];
+  /** Extra guide lines for the vertical axis only. */
+  linesY?: number[];
 }
 
 export interface SnapResult {
@@ -44,8 +52,12 @@ function nearestLine(value: number, lines: number[], threshold: number): number 
 export function snapTransform(t: Transform2D, opts?: SnapOptions): SnapResult {
   const threshold = opts?.threshold ?? DEFAULT_THRESHOLD;
   const lines = opts?.lines ?? DEFAULT_LINES;
-  const vLine = nearestLine(t.x, lines, threshold);
-  const hLine = nearestLine(t.y, lines, threshold);
+  // Per-axis peer lines ride ALONGSIDE the frame lines — object-to-object
+  // alignment must never cost you the ability to snap back to dead centre.
+  const xLines = opts?.linesX?.length ? [...lines, ...opts.linesX] : lines;
+  const yLines = opts?.linesY?.length ? [...lines, ...opts.linesY] : lines;
+  const vLine = nearestLine(t.x, xLines, threshold);
+  const hLine = nearestLine(t.y, yLines, threshold);
   return {
     transform: {
       ...t,

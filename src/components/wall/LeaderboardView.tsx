@@ -15,6 +15,7 @@ import { Crown } from 'lucide-react';
 import { useStore } from '../../store';
 import { LeaderboardEntry } from '../../types';
 import { Wordmark } from '../ui/EventLogo';
+import { usePageVisible } from './wallHooks';
 
 const REFRESH_INTERVAL = 15_000;
 
@@ -129,19 +130,31 @@ function EntryRow({ entry, rank, delay }: { entry: LeaderboardEntry; rank: numbe
 export default function LeaderboardView() {
   const { leaderboard, fetchLeaderboard, copy } = useStore();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const visible = usePageVisible();
 
   useEffect(() => {
     fetchLeaderboard();
+    // Stop refreshing entirely while the wall is hidden: a throttled interval
+    // queues rather than pauses, and four minutes away meant sixteen fetches
+    // landing together the moment the projector woke.
+    if (!visible) return;
     intervalRef.current = setInterval(() => {
       fetchLeaderboard();
     }, REFRESH_INTERVAL);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [fetchLeaderboard]);
+  }, [fetchLeaderboard, visible]);
 
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden px-6 py-8">
+    // The board is a fixed 768 px panel of 9-11 px labels — about 20% of a
+    // 3840 px projector, unreadable from the room. Scaling the whole panel
+    // (rather than every label individually) keeps the composition intact and
+    // is exactly 1× at the 1440×900 design size.
+    <div
+      className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden px-6 py-8"
+      style={{ transform: 'scale(var(--wall-scale, 1))', transformOrigin: 'center center' }}
+    >
       {/* Header */}
       <motion.div
         className="flex flex-col items-center mb-8"

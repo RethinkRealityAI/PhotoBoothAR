@@ -72,7 +72,10 @@ function GoldBeam({ play }: { play: boolean }) {
         initial={{ scaleY: 0, opacity: 0 }}
         animate={play ? { scaleY: [0, 1, 1, 0.92], opacity: [0, 0.95, 0.8, 0] } : {}}
         transition={{ duration: 2.2, times: [0, 0.25, 0.7, 1], ease: 'easeInOut' }}
-        className="absolute bottom-0 h-[60vh] w-24 origin-bottom"
+        // dvh, not vh: on iOS Safari the collapsing URL bar changes what `vh`
+        // resolves to MID-ANIMATION, so the beam visibly jumped height halfway
+        // through the send-off. `dvh` tracks the live viewport instead.
+        className="absolute bottom-0 h-[60dvh] w-24 origin-bottom"
         style={{
           background:
             'linear-gradient(to top, rgba(251,243,217,0.0), rgba(var(--accent-rgb),0.55) 12%, rgba(var(--accent-rgb),0.28) 55%, rgba(var(--accent-rgb),0))',
@@ -86,7 +89,7 @@ function GoldBeam({ play }: { play: boolean }) {
         initial={{ scaleY: 0, opacity: 0 }}
         animate={play ? { scaleY: [0, 1, 1, 0.9], opacity: [0, 0.9, 0.55, 0], x: [-3, 2, -2, 0] } : {}}
         transition={{ duration: 2.2, times: [0, 0.3, 0.7, 1], ease: 'easeInOut' }}
-        className="absolute bottom-0 h-[58vh] w-2 origin-bottom rounded-full"
+        className="absolute bottom-0 h-[58dvh] w-2 origin-bottom rounded-full"
         style={{
           background: 'linear-gradient(to top, rgba(255,253,242,0.0), rgba(255,253,242,0.95) 30%, rgba(255,253,242,0))',
           filter: 'blur(1.5px)',
@@ -106,7 +109,7 @@ function GoldBeam({ play }: { play: boolean }) {
               boxShadow: '0 0 6px rgba(var(--accent-rgb),0.8)',
             }}
             initial={{ y: 0, x: 0, opacity: 0, scale: 0.4 }}
-            animate={{ y: ['-2vh', '-58vh'], x: [0, s.drift], opacity: [0, 1, 1, 0], scale: [0.4, 1, 0.6] }}
+            animate={{ y: ['-2dvh', '-58dvh'], x: [0, s.drift], opacity: [0, 1, 1, 0], scale: [0.4, 1, 0.6] }}
             transition={{
               duration: s.dur,
               delay: 0.35 + s.delay,
@@ -375,7 +378,12 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
             initial={{ opacity: 0, scale: 0.94, y: 18 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-            className="relative flex flex-col items-center gap-8 px-8 text-center"
+            // The stack is vertically centred, so on a short phone its bottom
+            // (Take Another / Live Wall / My Media) landed under the iPhone
+            // home indicator. pb-safe-bottom COMPOSES with the design padding
+            // via --safe-bottom (src/index.css) — a bare env() would win the
+            // cascade and zero the gap on every non-notch device.
+            className="relative flex flex-col items-center gap-8 px-8 pb-safe-bottom [--safe-bottom:0rem] text-center"
           >
             {/* Gentle ongoing ambient sparkle behind the emblem */}
             <GoldMotes play />

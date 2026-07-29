@@ -28,6 +28,15 @@
 import { useEffect, useRef, useMemo, useCallback } from 'react';
 import { Post } from '../../types';
 import PostImage from '../ui/PostImage';
+import {
+  MARQUEE_VIDEO_CAP,
+  advanceOffset,
+  autoplayVideoIds,
+  boundRowItems,
+  marqueeMetrics,
+  type MarqueeMetrics,
+} from '../../lib/wallRuntime';
+import { usePageVisible, usePrefersReducedMotion } from './wallHooks';
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                            */
@@ -36,32 +45,23 @@ import PostImage from '../ui/PostImage';
 /** Base pixels-per-second scroll speed (at multiplier = 1). */
 const BASE_PX_PER_S = 60;
 
-/** Fixed row height (px). Card width is derived per-post from its aspect ratio
- *  so the whole framed image shows without cropping (WYSIWYG on the wall). */
-const CARD_H = 290;
-const CARD_GAP = 12;
-const MIN_CARD_W = 150;
-const MAX_CARD_W = 360;
-
-/** Card width for a post at the fixed row height, honouring its aspect ratio. */
-function cardWidth(post: Post): number {
+/** Card width for a post at the row height, honouring its aspect ratio.
+ *  Row height is no longer a constant: it scales with the viewport so the
+ *  same component reads on a laptop AND across a 20-foot projection
+ *  (lib/wallRuntime.marqueeMetrics). */
+function cardWidth(post: Post, m: MarqueeMetrics): number {
   const ar = post.width && post.height ? post.width / post.height : 9 / 16;
-  return Math.round(Math.max(MIN_CARD_W, Math.min(MAX_CARD_W, CARD_H * ar)));
+  return Math.round(Math.max(m.minCardW, Math.min(m.maxCardW, m.cardH * ar)));
 }
 
 /** Total width of one card slot (card + gap). */
-function slotWidth(post: Post): number {
-  return cardWidth(post) + CARD_GAP;
+function slotWidth(post: Post, m: MarqueeMetrics): number {
+  return cardWidth(post, m) + m.gap;
 }
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                              */
 /* ------------------------------------------------------------------ */
-
-function prefersReducedMotion(): boolean {
-  if (typeof window === 'undefined') return false;
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
 
 /** Distribute posts into `numRows` rows in a balanced column-fill order.
  *  Post i goes to row (i % numRows) so each row has roughly equal items. */
@@ -73,9 +73,9 @@ function distributeToRows(posts: Post[], numRows: number): Post[][] {
 
 /** Duplicate the row's items until the strip is at least `minCopies` times
  *  the viewport width. We always produce at least 2 full copies (for the snap loop). */
-function buildLoopItems(items: Post[], minWidth: number): { items: Post[]; halfLen: number } {
+function buildLoopItems(items: Post[], minWidth: number, m: MarqueeMetrics): { items: Post[]; halfLen: number } {
   if (items.length === 0) return { items: [], halfLen: 0 };
-  const stripW = items.reduce((sum, p) => sum + slotWidth(p), 0);
+  const stripW = items.reduce((sum, p) => sum + slotWidth(p, m), 0);
   // Build an EVEN number of whole copies so the snap-back distance is an exact
   // multiple of one full pattern — seamless even with variable card widths.
   const copiesPerHalf = Math.max(1, Math.ceil(minWidth / stripW) + 1);
@@ -92,6 +92,9 @@ function buildLoopItems(items: Post[], minWidth: number): { items: Post[]; halfL
 
 interface CardProps {
   post: Post;
+  metrics: MarqueeMetrics;
+  /** Whether this clip is inside the concurrent-decoder cap. */
+  canPlay: boolean;
   onSelect?: (post: Post) => void;
 }
 
@@ -114,7 +117,7 @@ function PlayBadge() {
   );
 }
 
-function PostCard({ post, onSelect }: CardProps) {
+function PostCard({ post, metrics, canPlay, onSelect }: CardProps) {
   const isVideo = post.media_type === 'video';
 
   return (
@@ -122,9 +125,9 @@ function PostCard({ post, onSelect }: CardProps) {
       className={`relative overflow-hidden rounded-xl shrink-0 ${onSelect ? 'cursor-pointer' : ''}`}
       onClick={onSelect ? () => onSelect(post) : undefined}
       style={{
-        width: cardWidth(post),
-        height: CARD_H,
-        marginRight: CARD_GAP,
+        width: cardWidth(post, metrics),
+        height: metrics.cardH,
+        marginRight: metrics.gap,
         border: '1.5px solid rgba(var(--accent-rgb),0.28)',
         boxShadow: '0 4px 20px rgba(0,0,0,0.55), 0 0 12px rgba(var(--accent-rgb),0.06)',
         background: '#0a0703',
@@ -132,12 +135,17 @@ function PostCard({ post, onSelect }: CardProps) {
     >
       {isVideo ? (
         <>
+          {/* Only the newest few clips hold a decoder; the rest paint their
+              first frame. Past the platform decoder limit a <video> renders
+              solid black, and the marquee duplicates every card 4× — this is
+              where that limit was being blown through hardest. */}
           <video
-            src={post.image_url}
-            autoPlay
-            loop
+            src={canPlay ? post.image_url : `${post.image_url}#t=0.1`}
+            autoPlay={canPlay}
+            loop={canPlay}
             muted
             playsInline
+            preload={canPlay ? 'auto' : 'metadata'}
             className="absolute inset-0 w-full h-full object-cover"
           />
           <PlayBadge />
@@ -146,7 +154,7 @@ function PostCard({ post, onSelect }: CardProps) {
         <PostImage
           src={post.image_url}
           alt={post.guest_name ?? 'Event moment'}
-          displayWidth={480}
+          displayWidth={Math.round(metrics.maxCardW * 1.35)}
           className="absolute inset-0 w-full h-full object-cover"
           draggable={false}
         />
@@ -162,12 +170,18 @@ function PostCard({ post, onSelect }: CardProps) {
           }}
         >
           {post.guest_name && (
-            <p className="font-serif italic text-ivory/90 text-[12px] leading-tight truncate">
+            <p
+              className="font-serif italic text-ivory/90 leading-tight truncate"
+              style={{ fontSize: 'calc(13px * var(--wall-scale, 1))' }}
+            >
               {post.guest_name}
             </p>
           )}
           {post.message && (
-            <p className="font-sans text-champagne/65 text-[10px] leading-tight line-clamp-2 mt-0.5">
+            <p
+              className="font-sans text-champagne/65 leading-tight line-clamp-2 mt-0.5"
+              style={{ fontSize: 'calc(11px * var(--wall-scale, 1))' }}
+            >
               {post.message}
             </p>
           )}
@@ -190,13 +204,18 @@ interface RowProps {
   direction: 1 | -1;
   /** px per second scroll rate (already multiplied by speed factor). */
   pxPerSec: number;
+  metrics: MarqueeMetrics;
+  playable: Set<string>;
+  /** Whether the wall is on screen at all — rAF is stopped when it is not. */
+  active: boolean;
   onSelect?: (post: Post) => void;
 }
 
-function MarqueeRow({ items, halfLen, direction, pxPerSec, onSelect }: RowProps) {
+function MarqueeRow({ items, halfLen, direction, pxPerSec, metrics, playable, active, onSelect }: RowProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   // We store offset as a plain mutable ref to avoid React re-renders on each frame.
-  const offsetRef = useRef(0);
+  // Right-scrolling rows start mid-strip so they look continuous from frame 0.
+  const offsetRef = useRef(direction === -1 ? halfLen / 2 : 0);
   // Keep a ref to the latest pxPerSec so the rAF closure always reads the fresh value.
   const pxPerSecRef = useRef(pxPerSec);
   useEffect(() => { pxPerSecRef.current = pxPerSec; }, [pxPerSec]);
@@ -209,15 +228,16 @@ function MarqueeRow({ items, halfLen, direction, pxPerSec, onSelect }: RowProps)
     const dt = (ts - lastTsRef.current) / 1000; // seconds
     lastTsRef.current = ts;
 
-    // Move in the chosen direction
-    offsetRef.current += direction * pxPerSecRef.current * dt;
-
-    // Wrap: once we've scrolled a full "half" copy, snap back silently
-    if (direction === 1 && offsetRef.current >= halfLen) {
-      offsetRef.current -= halfLen;
-    } else if (direction === -1 && offsetRef.current <= -halfLen) {
-      offsetRef.current += halfLen;
-    }
+    // Advance + wrap. This used to be one `if` per direction, i.e. a single
+    // subtraction, which can only recover an overshoot of LESS THAN one
+    // period. rAF does not run while the tab is hidden or the projector
+    // output is occluded, so on return `dt` was however long the machine was
+    // away, the offset overshot by many periods, one subtraction could not
+    // bring it back, and the track translated off screen FOREVER — a
+    // projector laptop that slept meant a blank wall for the rest of the
+    // night. `advanceOffset` clamps the frame delta and wraps with a true
+    // modulo; both halves are unit-tested in lib/wallRuntime.
+    offsetRef.current = advanceOffset(offsetRef.current, direction, pxPerSecRef.current, dt, halfLen);
 
     if (trackRef.current) {
       trackRef.current.style.transform = `translateX(${-offsetRef.current}px)`;
@@ -227,12 +247,13 @@ function MarqueeRow({ items, halfLen, direction, pxPerSec, onSelect }: RowProps)
   }, [direction, halfLen]);
 
   useEffect(() => {
+    if (!active) return;
     rafRef.current = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(rafRef.current);
       lastTsRef.current = null;
     };
-  }, [tick]);
+  }, [tick, active]);
 
   return (
     <div className="overflow-hidden" style={{ width: '100%' }}>
@@ -241,13 +262,17 @@ function MarqueeRow({ items, halfLen, direction, pxPerSec, onSelect }: RowProps)
         className="flex"
         style={{
           willChange: 'transform',
-          // Initial offset: right-scrolling rows start mid-strip so they look
-          // continuous from frame 0 rather than starting at the left edge.
-          transform: direction === -1 ? `translateX(${-halfLen / 2}px)` : undefined,
+          transform: `translateX(${-offsetRef.current}px)`,
         }}
       >
         {items.map((post, i) => (
-          <PostCard key={`${post.id}-${i}`} post={post} onSelect={onSelect} />
+          <PostCard
+            key={`${post.id}-${i}`}
+            post={post}
+            metrics={metrics}
+            canPlay={playable.has(post.id)}
+            onSelect={onSelect}
+          />
         ))}
       </div>
     </div>
@@ -262,14 +287,17 @@ interface MarqueeGridProps {
   posts: Post[];
   /** Speed multiplier from WallSettings (0.25 slow … 3 fast). */
   scrollSpeed: number;
+  /** Live viewport height — drives card size so the wall reads at 20 feet. */
+  viewportH: number;
   onSelect?: (post: Post) => void;
 }
 
-export default function MarqueeGrid({ posts, scrollSpeed, onSelect }: MarqueeGridProps) {
+export default function MarqueeGrid({ posts, scrollSpeed, viewportH, onSelect }: MarqueeGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Compute effective px/s — honour reduced motion with a ~30% cap
-  const reducedMotion = prefersReducedMotion();
+  const reducedMotion = usePrefersReducedMotion();
+  const visible = usePageVisible();
   const effectivePxPerSec = reducedMotion
     ? Math.min(BASE_PX_PER_S * scrollSpeed, BASE_PX_PER_S * 0.3)
     : BASE_PX_PER_S * scrollSpeed;
@@ -277,10 +305,20 @@ export default function MarqueeGrid({ posts, scrollSpeed, onSelect }: MarqueeGri
   // Choose number of rows
   const numRows = posts.length >= 24 ? 4 : 3;
 
+  // Card geometry follows the viewport height: 290 px on a laptop (unchanged),
+  // ~510 px on a 4K projector, where the old fixed size made each face about
+  // 9% of the screen width.
+  const metrics = useMemo(() => marqueeMetrics(viewportH, numRows), [viewportH, numRows]);
+
+  const playable = useMemo(() => autoplayVideoIds(posts, MARQUEE_VIDEO_CAP), [posts]);
+
   // Distribute posts into rows — memoised so redistribution only triggers
   // when posts actually change, not on every speed-change render.
+  // boundRowItems is the DOM ceiling: 500 posts used to mean 125 items per
+  // row, each duplicated at least four times — ~2000 card elements, with
+  // every video among them duplicated as a separate decoder.
   const rows = useMemo(
-    () => distributeToRows(posts, numRows),
+    () => distributeToRows(posts, numRows).map((r) => boundRowItems(r)),
     [posts, numRows],
   );
 
@@ -290,26 +328,30 @@ export default function MarqueeGrid({ posts, scrollSpeed, onSelect }: MarqueeGri
   const MIN_FILL_WIDTH = 3840;
 
   const rowData = useMemo(
-    () => rows.map((rowPosts) => buildLoopItems(rowPosts, MIN_FILL_WIDTH)),
-    [rows],
+    () => rows.map((rowPosts) => buildLoopItems(rowPosts, MIN_FILL_WIDTH, metrics)),
+    [rows, metrics],
   );
 
   // Empty state lives in Wall.tsx (<EmptyWall/>) — shared across all modes.
   return (
     <div
       ref={containerRef}
-      className="absolute inset-0 flex flex-col justify-center gap-3 overflow-hidden py-2"
+      className="absolute inset-0 flex flex-col justify-center overflow-hidden py-2"
+      style={{ gap: metrics.gap }}
     >
       {rowData.map((rd, rowIdx) => {
         if (rd.items.length === 0) return null;
         const direction = rowIdx % 2 === 0 ? 1 : -1;
         return (
           <MarqueeRow
-            key={rowIdx}
+            key={`${rowIdx}:${rd.halfLen}`}
             items={rd.items}
             halfLen={rd.halfLen}
             direction={direction as 1 | -1}
             pxPerSec={effectivePxPerSec}
+            metrics={metrics}
+            playable={playable}
+            active={visible}
             onSelect={onSelect}
           />
         );

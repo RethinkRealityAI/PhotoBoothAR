@@ -10,6 +10,8 @@ import {
   createObject3D,
   MAX_OBJECTS,
   MAX_TRIGGERS,
+  canAddObject,
+  SCENE_FULL_MESSAGE,
   type StudioState,
   type Overlay2D,
   type Object3D,
@@ -419,6 +421,152 @@ describe('dirty tracking', () => {
     expect(st.dirty).toBe(false);
     expect(st.draft.id).toBe('abc');
   });
+
+  it('LOAD with dirty:true ARMS the leave-guard — the duplicate/template hole', () => {
+    // Duplicate strips the id and LOADs. With dirty forced false the copy was
+    // unsaved AND unguarded: one tap on back discarded it with no prompt.
+    const st = studioReducer(s0(), { type: 'LOAD', draft: initialDraft('border'), dirty: true });
+    expect(st.dirty).toBe(true);
+  });
+
+  it('LOAD without the flag still defaults to clean (opening a saved experience)', () => {
+    expect(studioReducer(s0(), { type: 'LOAD', draft: initialDraft('border') }).dirty).toBe(false);
+    expect(studioReducer(s0(), { type: 'LOAD', draft: initialDraft('border'), dirty: false }).dirty).toBe(false);
+  });
+});
+
+/** A frame + a sticker, the shape most reorder/rename assertions need. */
+const twoOverlayScene = (): StudioState => {
+  let st = studioReducer(s0(), { type: 'SELECT_BUILTIN', borderId: firstBorderId(), url: 'bu' });
+  st = studioReducer(st, { type: 'ADD_OBJECT', object: createOverlay('2d_filter', { url: 'sticker', isBuiltin: false, name: 'S' }) });
+  return st;
+};
+
+describe('MOVE_OBJECT — drag-to-reorder', () => {
+  const fourLayers = (): StudioState => {
+    let st = s0();
+    for (const s of stickers.slice(0, 4)) st = studioReducer(st, { type: 'SELECT_BUILTIN', borderId: s.id, url: 'u' });
+    return st;
+  };
+
+  it('splice-moves rather than swapping', () => {
+    const st0 = fourLayers();
+    const ids = st0.draft.objects.map((o) => o.id);
+    const st = studioReducer(st0, { type: 'MOVE_OBJECT', id: ids[0], toIndex: 3 });
+    expect(st.draft.objects.map((o) => o.id)).toEqual([ids[1], ids[2], ids[3], ids[0]]);
+  });
+
+  it('moves backwards too', () => {
+    const st0 = fourLayers();
+    const ids = st0.draft.objects.map((o) => o.id);
+    const st = studioReducer(st0, { type: 'MOVE_OBJECT', id: ids[3], toIndex: 0 });
+    expect(st.draft.objects.map((o) => o.id)).toEqual([ids[3], ids[0], ids[1], ids[2]]);
+  });
+
+  it('marks the draft dirty and recomputes kind', () => {
+    const st0 = twoOverlayScene();
+    const st = studioReducer(st0, { type: 'MOVE_OBJECT', id: st0.draft.objects[1].id, toIndex: 0 });
+    expect(st.dirty).toBe(true);
+    expect(st.draft.kind).toBe('2d_filter');
+  });
+
+  it('is a strict no-op for an unknown id or a move to the same place', () => {
+    const st0 = fourLayers();
+    expect(studioReducer(st0, { type: 'MOVE_OBJECT', id: 'nope', toIndex: 0 })).toBe(st0);
+    expect(studioReducer(st0, { type: 'MOVE_OBJECT', id: st0.draft.objects[2].id, toIndex: 2 })).toBe(st0);
+  });
+
+  it('clamps an out-of-range target instead of losing the layer', () => {
+    const st0 = fourLayers();
+    const ids = st0.draft.objects.map((o) => o.id);
+    const st = studioReducer(st0, { type: 'MOVE_OBJECT', id: ids[0], toIndex: 999 });
+    expect(st.draft.objects).toHaveLength(4);
+    expect(st.draft.objects[3].id).toBe(ids[0]);
+  });
+
+  it('never drops or duplicates a layer', () => {
+    const st0 = fourLayers();
+    const ids = st0.draft.objects.map((o) => o.id);
+    for (let from = 0; from < 4; from++) {
+      for (let to = 0; to < 4; to++) {
+        const st = studioReducer(st0, { type: 'MOVE_OBJECT', id: ids[from], toIndex: to });
+        expect(new Set(st.draft.objects.map((o) => o.id))).toEqual(new Set(ids));
+      }
+    }
+  });
+});
+
+describe('RENAME_OBJECT', () => {
+  it('renames a layer and marks the draft dirty', () => {
+    const st0 = twoOverlayScene();
+    const id = st0.draft.objects[1].id;
+    const st = studioReducer(st0, { type: 'RENAME_OBJECT', id, name: '  Balloon arch  ' });
+    expect(st.draft.objects[1].name).toBe('Balloon arch');
+    expect(st.dirty).toBe(true);
+  });
+
+  it('refuses an empty name rather than producing a nameless layer', () => {
+    const st0 = twoOverlayScene();
+    expect(studioReducer(st0, { type: 'RENAME_OBJECT', id: st0.draft.objects[0].id, name: '   ' })).toBe(st0);
+  });
+
+  it('bounds an absurd name', () => {
+    const st0 = twoOverlayScene();
+    const st = studioReducer(st0, { type: 'RENAME_OBJECT', id: st0.draft.objects[0].id, name: 'x'.repeat(1000) });
+    expect(st.draft.objects[0].name.length).toBe(120);
+  });
+
+  it('is a no-op for an unknown id or an unchanged name', () => {
+    const st0 = twoOverlayScene();
+    const o = st0.draft.objects[0];
+    expect(studioReducer(st0, { type: 'RENAME_OBJECT', id: 'nope', name: 'x' })).toBe(st0);
+    expect(studioReducer(st0, { type: 'RENAME_OBJECT', id: o.id, name: o.name })).toBe(st0);
+  });
+
+  it('never changes the object identity or count', () => {
+    const st0 = twoOverlayScene();
+    const st = studioReducer(st0, { type: 'RENAME_OBJECT', id: st0.draft.objects[0].id, name: 'Renamed' });
+    expect(st.draft.objects).toHaveLength(2);
+    expect(st.draft.objects[0].id).toBe(st0.draft.objects[0].id);
+    expect(st.draft.objects[0].type).toBe(st0.draft.objects[0].type);
+  });
+});
+
+describe('canAddObject — the cap must be askable BEFORE the add', () => {
+  it('is true on an empty scene and false at the cap', () => {
+    let st = s0();
+    expect(canAddObject(st.draft)).toBe(true);
+    for (let i = 0; i < MAX_OBJECTS; i++) {
+      st = studioReducer(st, { type: 'ADD_OBJECT', object: createOverlay('2d_filter', { url: 'u' }) });
+    }
+    expect(sceneCounts(st.draft).capped).toBe(MAX_OBJECTS);
+    expect(canAddObject(st.draft)).toBe(false);
+  });
+
+  it('always allows a frame — placeFrame swaps in place and is cap-exempt', () => {
+    let st = s0();
+    for (let i = 0; i < MAX_OBJECTS; i++) {
+      st = studioReducer(st, { type: 'ADD_OBJECT', object: createOverlay('2d_filter', { url: 'u' }) });
+    }
+    expect(canAddObject(st.draft, 'frame')).toBe(true);
+    const withFrame = studioReducer(st, { type: 'ADD_OBJECT', object: createOverlay('border', { url: 'f' }) });
+    expect(withFrame.draft.objects).toHaveLength(MAX_OBJECTS + 1);
+  });
+
+  it('agrees with what the reducer actually does', () => {
+    let st = s0();
+    for (let i = 0; i < MAX_OBJECTS + 3; i++) {
+      const allowed = canAddObject(st.draft);
+      const next = studioReducer(st, { type: 'ADD_OBJECT', object: createOverlay('2d_filter', { url: 'u' }) });
+      expect(next !== st).toBe(allowed);
+      st = next;
+    }
+  });
+
+  it('the shared refusal message names the real limit', () => {
+    expect(SCENE_FULL_MESSAGE).toContain(String(MAX_OBJECTS));
+    expect(SCENE_FULL_MESSAGE.length).toBeGreaterThan(20);
+  });
 });
 
 /* — W4: mixed scenes (derived kind, one-frame rule, filter slot) ---------- */
@@ -506,5 +654,69 @@ describe('sceneCounts (W4)', () => {
   });
   it('an empty scene is all zeros', () => {
     expect(sceneCounts(initialDraft('shader'))).toEqual({ frame: 0, stickers: 0, threeD: 0, capped: 0 });
+  });
+});
+
+describe('SET_FINISH (W6 material finishes)', () => {
+  const with3D = () => {
+    let st = initialState('3d_attachment');
+    st = studioReducer(st, { type: 'ADD_OBJECT', object: createObject3D('model', { assetUrl: 'https://cdn/a.glb' }), select: true });
+    return st;
+  };
+
+  it('sets a finish on the selected 3D object and marks the draft dirty', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_FINISH', finish: 'gold' });
+    expect((selectedObject(st.draft) as Object3D).finish).toBe('gold');
+    expect(st.dirty).toBe(true);
+  });
+
+  it('resetting to original DELETES the key rather than storing the default', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_FINISH', finish: 'gold' });
+    st = studioReducer(st, { type: 'SET_FINISH', finish: 'original' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect('finish' in o).toBe(false);
+  });
+
+  it('tint: null is an explicit CLEAR and drops the orphaned strength with it', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_FINISH', tint: '#ff0000' });
+    st = studioReducer(st, { type: 'SET_FINISH', tintStrength: 0.3 });
+    let o = selectedObject(st.draft) as Object3D;
+    expect(o.tint).toBe('#ff0000');
+    expect(o.tintStrength).toBeCloseTo(0.3);
+    st = studioReducer(st, { type: 'SET_FINISH', tint: null });
+    o = selectedObject(st.draft) as Object3D;
+    expect('tint' in o).toBe(false);
+    expect('tintStrength' in o).toBe(false);
+  });
+
+  it('one field at a time — changing the finish keeps the tint', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_FINISH', tint: '#00ff00', tintStrength: 0.5 });
+    st = studioReducer(st, { type: 'SET_FINISH', finish: 'chrome' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.finish).toBe('chrome');
+    expect(o.tint).toBe('#00ff00');
+    expect(o.tintStrength).toBeCloseTo(0.5);
+  });
+
+  it('normalizes hostile input instead of storing it', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_FINISH', finish: 'javascript:alert(1)', tint: 'url(evil)' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect('finish' in o).toBe(false);
+    expect('tint' in o).toBe(false);
+  });
+
+  it('is a no-op with nothing selected, and never touches a 2D overlay', () => {
+    const empty = initialState('3d_attachment');
+    expect(studioReducer(empty, { type: 'SET_FINISH', finish: 'gold' })).toBe(empty);
+
+    let st = initialState('2d_filter');
+    st = studioReducer(st, { type: 'ADD_OBJECT', object: createOverlay('2d_filter', { url: 'blob:x', isBuiltin: false }), select: true });
+    const before = st;
+    expect(studioReducer(st, { type: 'SET_FINISH', finish: 'gold' })).toBe(before);
   });
 });

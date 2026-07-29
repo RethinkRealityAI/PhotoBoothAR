@@ -14,6 +14,7 @@
 import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronUp, ChevronDown, Sparkles, Square, Box } from 'lucide-react';
+import FilterThumb from './FilterThumb';
 import { Experience } from '../../types';
 
 interface Props {
@@ -60,15 +61,16 @@ function EffectThumb({ id, name, selected, onSelect }: {
           ${selected ? 'ring-2 ring-gold-400 ring-offset-2 ring-offset-noir-900 scale-110' : 'opacity-70 group-hover:opacity-95'}
           ${grad ? `bg-gradient-to-br ${grad}` : 'bg-noir-700'}`}
       >
-        {id === 'none' && <span className="text-champagne/50 text-xl">∅</span>}
-        {id === 'champagne-sparkle' && <span className="text-xl">✨</span>}
-        {id === 'golden-hour-bloom' && <span className="text-xl">🥂</span>}
-        {id === 'prismatic-holo' && <span className="text-xl">🌈</span>}
-        {id === 'aureate-god-rays' && <span className="text-xl">🌅</span>}
-        {id === 'velvet-film' && <span className="text-xl">🎞️</span>}
-        {id === 'crystalline-kaleidoscope' && <span className="text-xl">💎</span>}
-        {id === 'celestial-lens-flare' && <span className="text-xl">☀️</span>}
-        {id === 'aurora-lumina' && <span className="text-xl">🌟</span>}
+        {/* The full-catalogue sheet used to identify eleven WebGL filters with
+            EIGHT emoji (three had none at all), so "Crystalline Kaleidoscope"
+            was a 💎 and "Neon Pulse" was a blank square. It now shows the
+            guest's own face through the actual shader, with the gradient as
+            the fallback underneath when the engine cannot run. */}
+        <FilterThumb shaderId={id}>
+          {id === 'none'
+            ? <span className="text-champagne/50 text-xl">∅</span>
+            : <Sparkles className="w-5 h-5 text-noir-900/45" />}
+        </FilterThumb>
       </div>
       <span className={`font-label text-[8px] uppercase tracking-wide max-w-[56px] text-center leading-tight ${selected ? 'text-gold-400' : 'text-champagne/50'}`}>
         {name}

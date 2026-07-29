@@ -22,21 +22,28 @@
  * localStorage (beamwall:wall:<eventId>) so a projector refresh restores the
  * wall exactly as the operator left it.
  *
- * Realtime: subscribeToPosts; fallback poll every ~20 s.
- * Beam-in: fires <BeamIn/> overlay on every onInsert event.
+ * Realtime: subscribeToPosts, with its channel status surfaced as a discreet
+ * LIVE / RECONNECTING indicator — a socket that dies on venue wifi used to be
+ * completely unobserved, and the wall silently stopped celebrating arrivals.
+ * Fallback poll adapts to that status (lib/wallRuntime.pollActionFor) and stops
+ * dead while the wall is hidden.
+ *
+ * Arrivals: <ArrivalBeam/> carries the guest's ACTUAL photo into its real tile;
+ * choreography (serialising, bounding, coalescing a rush) is decided by the
+ * pure queue in lib/wallArrivals.
  */
-import { useEffect, useState, useRef, useCallback, useLayoutEffect } from 'react';
+import { useEffect, useState, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { QrCode } from 'lucide-react';
 import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
-import { subscribeToPosts, subscribeToSettings } from '../lib/db';
+import { fetchPostsResult, subscribeToPosts, subscribeToSettings } from '../lib/db';
 import { Post } from '../types';
 import EventBackground from './ui/EventBackground';
 import { Wordmark } from './ui/EventLogo';
 import GuestNav from './ui/GuestNav';
 import ShareButton from './ui/ShareButton';
-import BeamIn from './wall/BeamIn';
+import ArrivalBeam from './wall/ArrivalBeam';
 import MosaicGrid from './wall/MosaicGrid';
 import MarqueeGrid from './wall/MarqueeGrid';
 import SlideshowView from './wall/SlideshowView';
@@ -48,8 +55,71 @@ import FeaturedSpotlight from './wall/FeaturedSpotlight';
 import EmptyWall from './wall/EmptyWall';
 import FetchFailed from './ui/FetchFailed';
 import { listState } from '../lib/listState';
+import {
+  COALESCE_GRACE_MS,
+  ceremonyIds,
+  emptyArrivalQueue,
+  enqueueArrival,
+  finishCeremony,
+  spotlightIdFor,
+  startNextCeremony,
+  type BeamRect,
+} from '../lib/wallArrivals';
+import {
+  INCREMENTAL_LIMIT,
+  POLL_TICK_MS,
+  burnInOffset,
+  pollActionFor,
+  socketStatusFrom,
+  type SocketStatus,
+} from '../lib/wallRuntime';
+import {
+  usePageVisible,
+  useSlowClock,
+  useWakeLock,
+  useWallViewport,
+} from './wall/wallHooks';
 
 type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard';
+
+/**
+ * Discreet realtime-health indicator.
+ *
+ * The socket dying is invisible from the room — photos keep arriving on the
+ * poll, just without any of the ceremony — so the person running the venue
+ * screen has no way to know the wall has gone quiet for a fixable reason.
+ * A calm dot when live; a labelled amber pill only when it is not.
+ */
+function SocketDot({ status }: { status: SocketStatus }) {
+  const live = status === 'live';
+  return (
+    <div
+      className="flex items-center gap-1.5"
+      title={live ? 'Realtime connected' : 'Reconnecting to realtime — photos still arrive, just more slowly'}
+    >
+      <span
+        className="rounded-full"
+        style={{
+          width: 'calc(6px * var(--wall-scale, 1))',
+          height: 'calc(6px * var(--wall-scale, 1))',
+          background: live ? 'rgba(120,220,150,0.85)' : 'rgba(240,190,90,0.95)',
+          boxShadow: live
+            ? '0 0 8px rgba(120,220,150,0.55)'
+            : '0 0 10px rgba(240,190,90,0.7)',
+          animation: live ? undefined : 'wall-socket-pulse 1.6s ease-in-out infinite',
+        }}
+      />
+      {!live && (
+        <span
+          className="font-label uppercase tracking-luxe text-amber-200/80"
+          style={{ fontSize: 'calc(9px * var(--wall-scale, 1))' }}
+        >
+          Reconnecting
+        </span>
+      )}
+    </div>
+  );
+}
 
 /** Restore persisted { mode, projectionMode, qrOverride } for a projector refresh. */
 function readPersistedWallState(eventId: string): {
@@ -122,14 +192,32 @@ export default function Wall() {
   const [showChrome, setShowChrome] = useState(true);
   const chromeDimTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Beam-in queue: each entry = { id, guestName }
-  const [beamQueue, setBeamQueue] = useState<{ id: string; guestName: string | null }[]>([]);
+  // Arrival choreography. The old version pushed onto an UNBOUNDED array and
+  // played one ~1.6 s beam per insert, so ten photos at dinner meant sixteen
+  // seconds of identical beams; it also overwrote `pendingFeatureId` on every
+  // insert, so nine of those ten guests were never spotlighted. All of that
+  // decision-making now lives in the pure, tested queue.
+  const [arrivals, setArrivals] = useState(emptyArrivalQueue);
+  /** Ids ArrivalBeam says it is actually carrying; null = "the whole ceremony". */
+  const [carriedIds, setCarriedIds] = useState<Set<string> | null>(null);
+  /** Landing rects reported upward by the grid, keyed by post id. */
+  const tileRectsRef = useRef<Map<string, BeamRect>>(new Map());
+
   // Fresh IDs for golden glow ring in mosaic
   const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
   const freshTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  // Fallback poll interval ref
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Six-hour survival: is the wall actually on screen, how big is it, and can
+  // we stop the projector laptop going to sleep mid-gala?
+  const visible = usePageVisible();
+  const viewport = useWallViewport(projectionMode);
+  useWakeLock(true);
+  const [socketStatus, setSocketStatus] = useState<SocketStatus>('connecting');
+
+  // Slow drift for the persistent high-contrast chrome (burn-in defence).
+  const driftSeconds = useSlowClock(visible);
+  const drift = burnInOffset(driftSeconds);
+  const driftStyle = { transform: `translate3d(${drift.x}px, ${drift.y}px, 0)` };
 
   // Measure the (variable-height, wrapping) header so gallery content always
   // starts just below it — never clipped, no magic numbers.
@@ -195,10 +283,14 @@ export default function Wall() {
       // visibleOnly subscription already filters; keep a guard so a beam-in
       // can never fire for a post the wall won't show (pre-moderation).
       if (!post.approved || post.hidden) return;
+      const isNew = !useStore.getState().posts.some((p) => p.id === post.id);
       prependPost(post);
-      setBeamQueue((q) => [...q, { id: post.id, guestName: post.guest_name }]);
-      // Feature the newest arrival in the spotlight once the beam-in clears
-      setPendingFeatureId(post.id);
+      setArrivals((q) => enqueueArrival(q, {
+        id: post.id,
+        guestName: post.guest_name,
+        imageUrl: post.image_url,
+        mediaType: post.media_type === 'video' ? 'video' : 'image',
+      }));
       // Mark fresh for 5 s
       setFreshIds((s) => new Set(s).add(post.id));
       const timer = setTimeout(() => {
@@ -210,10 +302,53 @@ export default function Wall() {
         freshTimers.current.delete(post.id);
       }, 5000);
       freshTimers.current.set(post.id, timer);
-      setSlideshowIndex(0);
+      // Posts are PREPENDED, so every existing index shifts by one. This used
+      // to reset the slideshow to 0 on every insert, which at a busy event
+      // meant it never advanced past the first two photos; shifting instead
+      // keeps the guest currently on screen on screen.
+      if (isNew) setSlideshowIndex((i) => i + 1);
     },
     [prependPost],
   );
+
+  // ----------------------------------------------------------------
+  // Arrival queue: drain one ceremony at a time
+  // ----------------------------------------------------------------
+  const ceremony = arrivals.playing;
+
+  useEffect(() => {
+    if (arrivals.playing !== null || arrivals.pending.length === 0) return;
+    // Wait a beat before starting: realtime delivers each INSERT in its own
+    // task, so without this the first photo of a rush would always win a solo
+    // ceremony and the coalescing rule could never fire.
+    const t = setTimeout(() => setArrivals(startNextCeremony), COALESCE_GRACE_MS);
+    return () => clearTimeout(t);
+  }, [arrivals]);
+
+  /** Tiles held invisible until their photo lands in them. Derived during
+   *  render (not set in an effect) so the grid measures and hides the tile in
+   *  the SAME commit the ceremony starts — otherwise the photo would flash in
+   *  the grid for one frame and then disappear into the beam. */
+  const beamingIds = useMemo(
+    () => carriedIds ?? ceremonyIds(ceremony),
+    [carriedIds, ceremony],
+  );
+
+  const handleTileRect = useCallback((id: string, rect: BeamRect | null) => {
+    if (rect === null) tileRectsRef.current.delete(id);
+    else tileRectsRef.current.set(id, rect);
+  }, []);
+
+  const handleCeremonyDone = useCallback(() => {
+    setCarriedIds(null);
+    setArrivals(finishCeremony);
+  }, []);
+
+  // Hand the spotlight the newest photo of the ceremony the room just watched.
+  useEffect(() => {
+    const id = spotlightIdFor(ceremony);
+    if (id !== null) setPendingFeatureId(id);
+  }, [ceremony]);
 
   useEffect(() => {
     // visibleOnly: unapproved/hidden posts never reach the wall, and a hide/
@@ -232,6 +367,10 @@ export default function Wall() {
         }
       },
       onDelete: removePost,
+      // Without this the socket could die on venue wifi and nobody in the room
+      // would know: photos still trickled in on the poll, but with no beam-in,
+      // no fresh glow and no spotlight.
+      onStatus: (s) => setSocketStatus(socketStatusFrom(s)),
     }, { visibleOnly: true });
     return unsubscribe;
   }, [eventId, handleInsert, updatePost, removePost]);
@@ -244,16 +383,59 @@ export default function Wall() {
   }, []);
 
   // ----------------------------------------------------------------
-  // Fallback poll every ~20 s
+  // Fallback poll — adaptive, bounded, and stopped while hidden
+  //
+  // This used to re-fetch EVERY post every 20 s with no limit: at hour five of
+  // a gala with 800 moments that is a full-table pull three times a minute,
+  // and each one replaced the `posts` array identity and re-ran the marquee's
+  // whole memo chain. It also kept running while the tab was hidden, so a
+  // sleeping projector queued them all up to land at once on wake.
+  //
+  // Now: nothing at all while hidden; a bounded newest-N catch-up on the
+  // common tick; a full reconcile only occasionally (that is the pass which
+  // still REMOVES a post a host hid while realtime was unavailable, so it
+  // cannot be dropped entirely). Cadence follows the socket — see
+  // lib/wallRuntime.pollActionFor.
   // ----------------------------------------------------------------
+  const catchUp = useCallback(async () => {
+    const { rows, failed } = await fetchPostsResult(eventId, { limit: INCREMENTAL_LIMIT });
+    // Same reasoning as the store: a failed refresh must never empty a wall.
+    if (failed) return;
+    const known = new Set(useStore.getState().posts.map((p) => p.id));
+    // Oldest → newest, so prepending preserves order. Anything genuinely new
+    // gets the full arrival ceremony: when the socket is down this poll IS the
+    // realtime feed, and the magic should not quietly stop with it.
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      if (!known.has(rows[i].id)) handleInsert(rows[i]);
+    }
+  }, [eventId, handleInsert]);
+
+  const statusRef = useRef(socketStatus);
+  statusRef.current = socketStatus;
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  const pollTickRef = useRef(0);
+
   useEffect(() => {
-    pollRef.current = setInterval(() => {
-      fetchPosts();
-    }, 20_000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [fetchPosts]);
+    const id = setInterval(() => {
+      pollTickRef.current += 1;
+      const action = pollActionFor({
+        visible: visibleRef.current,
+        status: statusRef.current,
+        tick: pollTickRef.current,
+      });
+      if (action === 'full') void fetchPosts();
+      else if (action === 'incremental') void catchUp();
+    }, POLL_TICK_MS);
+    return () => clearInterval(id);
+  }, [fetchPosts, catchUp]);
+
+  // Coming back from hidden: catch up once, immediately, instead of waiting
+  // out a tick — the wall was away, so this is the moment it is most stale.
+  useEffect(() => {
+    if (!visible) return;
+    void catchUp();
+  }, [visible, catchUp]);
 
   // ----------------------------------------------------------------
   // Projection mode: dim chrome after 4 s of no mouse movement
@@ -278,19 +460,15 @@ export default function Wall() {
     };
   }, [projectionMode]);
 
-  // ----------------------------------------------------------------
-  // Beam queue: pop one at a time
-  // ----------------------------------------------------------------
-  const activeBeam = beamQueue[0] ?? null;
-  const dismissBeam = useCallback(() => {
-    setBeamQueue((q) => q.slice(1));
-  }, []);
-
   // Stable identity so FeaturedSpotlight's pending-payoff effect (which lists it
   // as a dep) doesn't re-arm its 2.5 s timer on every Wall re-render.
   const consumePending = useCallback(() => setPendingFeatureId(null), []);
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
+
+  /** Effective QR visibility: this device's override, else the host's setting.
+   *  Declared here because the empty-wall placeholder below needs it. */
+  const showQR = qrOverride ?? wallSettings.showQR;
 
   /** The placeholder shown in place of the grid when there is nothing to draw.
    *  Declared after `origin` because EmptyWall needs it. */
@@ -302,7 +480,12 @@ export default function Wall() {
         <div className="w-8 h-8 rounded-full border-2 border-white/15 border-t-[color:var(--color-accent)] animate-spin" />
       </div>
     ) : (
-      <EmptyWall origin={`${origin}${basePath}`} />
+      <EmptyWall
+        origin={`${origin}${basePath}`}
+        // The footer already carries a join QR unless it is hidden or we are
+        // projecting; two of them stacked was the previous result.
+        showOwnQR={projectionMode || !showQR}
+      />
     );
 
   // Show/hide the QR codes on THIS screen only.
@@ -317,9 +500,6 @@ export default function Wall() {
   const toggleQR = useCallback(() => {
     setQrOverride((prev) => !(prev ?? wallSettings.showQR));
   }, [wallSettings.showQR]);
-
-  /** Effective QR visibility: this device's override, else the host's setting. */
-  const showQR = qrOverride ?? wallSettings.showQR;
 
   // Available mode tabs (leaderboard gated by setting)
   const modeTabs: { id: ViewMode; label: string }[] = [
@@ -341,9 +521,27 @@ export default function Wall() {
       // to onMouseMove, which never fires on a phone — a guest who tapped
       // Project was trapped, and the flag persists across reloads.
       onTouchStart={handleMouseMove}
+      // Every wall type size is expressed as `calc(Npx * var(--wall-scale))`.
+      // Exactly 1 at the 1440×900 design size, so the browser view is
+      // unchanged; 2.2 on a 4K projector, where 9-13 px captions were
+      // unreadable from the room. See lib/wallRuntime.wallScale.
+      style={{ '--wall-scale': viewport.scale } as React.CSSProperties}
     >
-      {/* Background — always rendered */}
-      <EventBackground density={projectionMode ? 90 : 70} />
+      {/* Background — always rendered.
+          Projection mode used to RAISE particle density to 90. That is
+          backwards: projection is the mode that runs unattended for six hours,
+          usually on a mid-range laptop driving a 4K output, where the GPU cost
+          compounds into thermal throttling — and on a 20-foot screen a dense
+          drifting speckle competes with the photos instead of supporting them.
+          It is now the quietest background of the three. */}
+      <EventBackground density={projectionMode ? 45 : 70} />
+
+      <style>{`
+        @keyframes wall-socket-pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.35 } }
+        @media (prefers-reduced-motion: reduce) {
+          [style*="wall-socket-pulse"] { animation: none !important }
+        }
+      `}</style>
 
       {/* ── Gallery: Marquee (scrolling rows) or Mosaic (masonry grid) ── */}
       {mode === 'mosaic' && (
@@ -354,10 +552,18 @@ export default function Wall() {
             <MarqueeGrid
               posts={posts}
               scrollSpeed={wallSettings.galleryScrollSpeed ?? 1}
+              viewportH={viewport.height}
               onSelect={setLightboxPost}
             />
           ) : (
-            <MosaicGrid posts={posts} freshIds={freshIds} onSelect={setLightboxPost} />
+            <MosaicGrid
+              posts={posts}
+              freshIds={freshIds}
+              beamingIds={beamingIds}
+              viewportH={viewport.height}
+              onTileRect={handleTileRect}
+              onSelect={setLightboxPost}
+            />
           )}
 
           {/* Featured Spotlight — content, not chrome: stays on in projection mode */}
@@ -368,7 +574,9 @@ export default function Wall() {
               intervalSec={wallSettings.featuredIntervalSec ?? 45}
               pendingFeatureId={pendingFeatureId}
               onConsumePending={consumePending}
-              suspended={beamQueue.length > 0 || lightboxPost !== null}
+              // …and suspended while hidden, so its cadence timer does not
+              // queue up behind a sleeping projector.
+              suspended={ceremony !== null || lightboxPost !== null || !visible}
               onSelect={setLightboxPost}
               showQR={showQR}
               showLeaderboard={wallSettings.showLeaderboard}
@@ -423,16 +631,32 @@ export default function Wall() {
             style={{
               background:
                 'linear-gradient(to bottom, rgba(10,7,3,0.9) 0%, rgba(10,7,3,0) 100%)',
+              // Burn-in defence: this bar is high-contrast and never moves,
+              // which over a six-hour projection is how you etch a panel.
+              ...driftStyle,
             }}
           >
             {/* Brand — far left on wide screens only, so the nav stays truly centered */}
             <div className="hidden xl:flex items-center gap-3 absolute left-6 top-1/2 -translate-y-1/2">
               <Wordmark size="sm" />
             </div>
-            {/* Moment count — far right on wide screens only */}
-            <div className="hidden xl:flex items-baseline gap-1.5 absolute right-6 top-1/2 -translate-y-1/2">
-              <span className="font-serif italic text-2xl text-foil-static leading-none">{posts.length}</span>
-              <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/45">moments</span>
+            {/* Moment count + socket health — far right on wide screens only */}
+            <div className="hidden xl:flex items-center gap-4 absolute right-6 top-1/2 -translate-y-1/2">
+              <SocketDot status={socketStatus} />
+              <div className="flex items-baseline gap-1.5">
+                <span
+                  className="font-serif italic text-foil-static leading-none"
+                  style={{ fontSize: 'calc(24px * var(--wall-scale, 1))' }}
+                >
+                  {posts.length}
+                </span>
+                <span
+                  className="font-label uppercase tracking-luxe text-champagne/45"
+                  style={{ fontSize: 'calc(10px * var(--wall-scale, 1))' }}
+                >
+                  moments
+                </span>
+              </div>
             </div>
 
             {/* Primary cross-page navigation — go anywhere from here */}
@@ -507,6 +731,7 @@ export default function Wall() {
             style={{
               background:
                 'linear-gradient(to top, rgba(10,7,3,0.92) 0%, rgba(10,7,3,0) 100%)',
+              ...driftStyle,
             }}
           >
             {/* Left spacer */}
@@ -533,10 +758,16 @@ export default function Wall() {
             <div className="flex-1 flex justify-end">
               {mode === 'slideshow' && posts.length > 0 && (
                 <div className="text-right">
-                  <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40">
+                  <p
+                    className="font-label uppercase tracking-luxe text-champagne/40"
+                    style={{ fontSize: 'calc(10px * var(--wall-scale, 1))' }}
+                  >
                     Photo
                   </p>
-                  <p className="font-serif italic text-ivory/70 text-lg">
+                  <p
+                    className="font-serif italic text-ivory/70"
+                    style={{ fontSize: 'calc(18px * var(--wall-scale, 1))' }}
+                  >
                     {slideshowIndex + 1} / {posts.length}
                   </p>
                 </div>
@@ -549,8 +780,23 @@ export default function Wall() {
       {/* ── Projection-mode: compact persistent join-QR chip (outside the
              auto-hiding chrome — guests can always join) ── */}
       {projectionMode && showQR && (
-        <div className="fixed bottom-4 right-4 z-30" style={{ opacity: 0.55 }}>
-          <QRPanel url={`${origin}${basePath}/`} label="Scan to join" size={84} />
+        <div
+          className="fixed bottom-4 right-4 z-30"
+          style={{ opacity: 0.55, ...driftStyle }}
+        >
+          <QRPanel
+            url={`${origin}${basePath}/`}
+            label="Scan to join"
+            size={Math.round(84 * Math.min(viewport.scale, 2))}
+          />
+        </div>
+      )}
+
+      {/* ── Projection-mode: surface a dead socket even with no chrome. Shown
+             ONLY when something is wrong, so a healthy projection stays clean. ── */}
+      {projectionMode && socketStatus !== 'live' && (
+        <div className="fixed bottom-4 left-4 z-30 glass rounded-full px-3 py-2" style={driftStyle}>
+          <SocketDot status={socketStatus} />
         </div>
       )}
 
@@ -572,13 +818,15 @@ export default function Wall() {
         )}
       </AnimatePresence>
 
-      {/* ── Beam-in animation overlay ── */}
+      {/* ── Arrival ceremony — the guest's real photo, in flight ── */}
       <AnimatePresence>
-        {activeBeam && (
-          <BeamIn
-            key={activeBeam.id}
-            guestName={activeBeam.guestName}
-            onDone={dismissBeam}
+        {ceremony !== null && (
+          <ArrivalBeam
+            key={ceremony.key}
+            ceremony={ceremony}
+            tileRects={tileRectsRef.current}
+            onCarry={setCarriedIds}
+            onDone={handleCeremonyDone}
           />
         )}
       </AnimatePresence>

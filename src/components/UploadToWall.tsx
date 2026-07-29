@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, ArrowRight, Sparkles, Check, Images } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Sparkles, Check, Images, WifiOff } from 'lucide-react';
 import EventBackground from './ui/EventBackground';
 import GuestNav from './ui/GuestNav';
 import UploadGate from './upload/UploadGate';
@@ -76,6 +76,8 @@ function UploadInner() {
   const [posting, setPosting] = useState(false);
   const [progress, setProgress] = useState<PostProgress | null>(null);
   const [result, setResult] = useState<{ posted: number; failed: number } | null>(null);
+  /** How many videos the plan refused on the last pick, so we can say so. */
+  const [videosBlocked, setVideosBlocked] = useState(0);
 
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -101,6 +103,9 @@ function UploadInner() {
   const addFiles = useCallback((files: File[]) => {
     // Video uploads are entitlement-gated (free tier: images only).
     const usable = videoAllowed ? files : files.filter((f) => !f.type.startsWith('video/'));
+    // Dropping the guest's videos with nothing but a console warning meant they
+    // picked six files, saw four appear, and had no idea why.
+    setVideosBlocked(files.length - usable.length);
     if (usable.length < files.length) {
       console.warn('[upload] video uploads are not available on this event plan — skipped');
     }
@@ -301,12 +306,12 @@ function UploadInner() {
   const stepIndex = steps.findIndex((s) => s.id === step);
 
   return (
-    <div className="absolute inset-0 flex flex-col overflow-hidden bg-noir-900">
+    <div className="absolute inset-0 flex flex-col overflow-hidden app-bg">
       <EventBackground density={32} />
 
       {/* Header — centered nav + stepper, always contained */}
-      <header className="relative z-20 flex flex-col items-center gap-2 px-3 pt-3 pb-2 shrink-0"
-        style={{ background: 'linear-gradient(to bottom, rgba(10,7,3,0.9) 0%, rgba(10,7,3,0) 100%)' }}>
+      <header className="relative z-20 flex flex-col items-center gap-2 px-3 pb-2 shrink-0 pt-safe-top [--safe-top:0.75rem]"
+        style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 100%)' }}>
         {/* Task flow: keep nav inline (its own controls live at the bottom) */}
         <GuestNav current="upload" bottomOnMobile={false} />
 
@@ -320,12 +325,12 @@ function UploadInner() {
                   <span
                     key={s.id}
                     className={`h-1.5 rounded-full transition-all ${
-                      i === stepIndex ? 'w-5 bg-foil' : i < stepIndex ? 'w-1.5 bg-gold-400/60' : 'w-1.5 bg-champagne/20'
+                      i === stepIndex ? 'w-5 bg-foil' : i < stepIndex ? 'w-1.5 bg-[color:var(--color-accent)]/60' : 'w-1.5 bg-white/20'
                     }`}
                   />
                 ))}
               </div>
-              <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/60 whitespace-nowrap">
+              <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 whitespace-nowrap">
                 {stepIndex + 1}/{steps.length} · {steps[stepIndex]?.label}
               </span>
             </div>
@@ -335,16 +340,16 @@ function UploadInner() {
               {steps.map((s, i) => (
                 <div key={s.id} className="flex items-center gap-2">
                   <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-label uppercase tracking-luxe transition-colors ${
-                    i === stepIndex ? 'bg-foil text-noir-900' : i < stepIndex ? 'text-gold-300' : 'text-champagne/40'
+                    i === stepIndex ? 'bg-foil text-[color:var(--on-accent)]' : i < stepIndex ? 'text-[color:var(--color-accent)]' : 'text-brand-muted/40'
                   }`}>
                     <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] ${
-                      i < stepIndex ? 'bg-gold-400/30 text-gold-200' : i === stepIndex ? 'bg-noir-900/20' : 'bg-champagne/10'
+                      i < stepIndex ? 'bg-[color:var(--color-accent)]/30' : i === stepIndex ? 'bg-black/20' : 'bg-white/10'
                     }`}>
                       {i < stepIndex ? <Check className="w-2.5 h-2.5" /> : i + 1}
                     </span>
                     {s.label}
                   </div>
-                  {i < steps.length - 1 && <span className="w-5 h-px bg-gold-400/20" />}
+                  {i < steps.length - 1 && <span className="w-5 h-px bg-white/15" />}
                 </div>
               ))}
             </div>
@@ -353,7 +358,7 @@ function UploadInner() {
       </header>
 
       {/* Body */}
-      <main className="relative z-10 flex-1 min-h-0 px-4 sm:px-8 pb-5">
+      <main className="relative z-10 flex-1 min-h-0 px-4 sm:px-8 pb-safe-bottom [--safe-bottom:1.25rem]">
         <div className="mx-auto h-full max-w-5xl flex flex-col min-h-0">
           <AnimatePresence mode="wait">
             {/* ── Step: Upload / Review ── */}
@@ -364,19 +369,21 @@ function UploadInner() {
                   <div className="flex-1 min-h-0 flex flex-col justify-center gap-6">
                     <div className="text-center">
                       <h1 className="font-serif italic text-4xl text-foil-static">Add to the Wall</h1>
-                      <p className="mt-2 font-sans text-sm text-champagne/55">
+                      <p className="mt-2 font-sans text-sm text-brand-muted/60">
                         Upload your favourite shots — frame them beautifully or post them as-is.
                       </p>
                     </div>
                     <UploadDropzone count={items.length} onAdd={addFiles} />
+                    <BlockedVideosNotice count={videosBlocked} onDismiss={() => setVideosBlocked(0)} />
                   </div>
                 ) : (
                   <div className="flex-1 min-h-0 flex flex-col gap-3">
                     <div className="shrink-0 text-center">
                       <h1 className="font-serif italic text-2xl sm:text-3xl text-foil-static">Your uploads</h1>
-                      <p className="mt-1 font-sans text-[12px] sm:text-sm text-champagne/55">
+                      <p className="mt-1 font-sans text-[12px] sm:text-sm text-brand-muted/60">
                         Review the batch — tap a photo to frame it, or remove any you don’t want.
                       </p>
+                      <BlockedVideosNotice count={videosBlocked} onDismiss={() => setVideosBlocked(0)} />
                     </div>
                     <div className="flex-1 min-h-0">
                       <UploadStack
@@ -394,15 +401,15 @@ function UploadInner() {
                       />
                     </div>
                     <div className="shrink-0 flex flex-wrap items-center justify-center gap-3 pt-1">
-                      <div className="flex items-center gap-2 text-champagne/60 font-label uppercase tracking-luxe text-[10px]">
-                        <Images className="w-4 h-4 text-gold-400/70" /> {items.length} ready
+                      <div className="flex items-center gap-2 text-brand-muted/60 font-label uppercase tracking-luxe text-[10px]">
+                        <Images className="w-4 h-4 text-[color:var(--color-accent)]/70" /> {items.length} ready
                       </div>
                       <button onClick={goFrame}
-                        className="flex items-center gap-2 px-6 py-3 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] font-bold rounded-xl glow-accent hover:scale-[1.02] transition-transform">
+                        className="pressable flex items-center gap-2 px-6 min-h-12 bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] font-bold rounded-2xl glow-accent">
                         <Sparkles className="w-4 h-4" /> Frame &amp; arrange
                       </button>
                       <button onClick={() => setStep('details')}
-                        className="flex items-center gap-2 px-6 py-3 glass rounded-xl text-[11px] font-label uppercase tracking-luxe text-champagne/70 hover:text-gold-300 border border-gold-400/15 hover:border-gold-400/35 transition-colors">
+                        className="pressable flex items-center gap-2 px-6 min-h-12 rounded-2xl text-[11px] font-label uppercase tracking-luxe text-brand-fg bg-white/[0.07] border border-white/10 transition-colors">
                         Skip framing <ArrowRight className="w-4 h-4" />
                       </button>
                     </div>
@@ -468,22 +475,40 @@ function UploadInner() {
             {step === 'done' && result && (
               <motion.div key="done" className="flex-1 min-h-0 flex items-center justify-center"
                 initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4 }}>
-                <div className="glass-strong rounded-3xl border border-gold-400/20 p-10 max-w-sm text-center">
-                  <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-foil glow-accent flex items-center justify-center">
-                    <Check className="w-7 h-7 text-noir-900" />
-                  </div>
-                  <h2 className="font-serif italic text-3xl text-foil-static">On the wall!</h2>
-                  <p className="mt-2 font-sans text-sm text-champagne/60">
-                    {result.posted} {result.posted === 1 ? 'item is' : 'items are'} now live
-                    {result.failed > 0 && ` · ${result.failed} couldn't be posted`}.
-                  </p>
+                <div className="liquid-glass rounded-3xl p-8 sm:p-10 max-w-sm text-center">
+                  {/* Nothing posted is not a success. Saying "On the wall!" over
+                      a zero count is how a guest walks away believing their
+                      photos are up when they are not. */}
+                  {result.posted > 0 ? (
+                    <>
+                      <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-foil glow-accent flex items-center justify-center">
+                        <Check className="w-7 h-7 text-[color:var(--on-accent)]" />
+                      </div>
+                      <h2 className="font-serif italic text-3xl text-foil-static">On the wall</h2>
+                      <p className="mt-2 font-sans text-sm text-brand-muted/65">
+                        {result.posted} {result.posted === 1 ? 'item is' : 'items are'} now live
+                        {result.failed > 0 && ` · ${result.failed} couldn’t be posted`}.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-16 h-16 mx-auto mb-5 rounded-full liquid-glass flex items-center justify-center">
+                        <WifiOff className="w-7 h-7 text-[color:var(--color-accent)]" />
+                      </div>
+                      <h2 className="font-serif italic text-3xl text-foil-static">Nothing went up</h2>
+                      <p className="mt-2 font-sans text-sm text-brand-muted/65">
+                        We couldn’t post {result.failed === 1 ? 'it' : 'any of them'} — usually the
+                        venue’s wifi. Your selection is still here, so you can try again.
+                      </p>
+                    </>
+                  )}
                   <div className="mt-7 flex gap-3">
                     <button onClick={reset}
-                      className="flex-1 glass rounded-xl px-4 py-3 font-label uppercase tracking-luxe text-[11px] text-champagne/70 hover:text-ivory transition-colors">
-                      Upload more
+                      className="pressable flex-1 rounded-2xl px-4 min-h-12 font-label uppercase tracking-luxe text-[11px] text-brand-fg bg-white/[0.07] border border-white/10 transition-colors">
+                      {result.posted > 0 ? 'Upload more' : 'Start over'}
                     </button>
                     <button onClick={() => navigate(`${basePath}/wall`)}
-                      className="flex-1 bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 hover:brightness-110 transition-all">
+                      className="pressable flex-1 bg-foil glow-accent text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] rounded-2xl px-4 min-h-12">
                       View the wall
                     </button>
                   </div>
@@ -505,15 +530,40 @@ function NavBar({
   return (
     <div className="shrink-0 flex items-center justify-between pt-3">
       <button onClick={onBack}
-        className="flex items-center gap-2 px-4 py-2.5 glass rounded-xl text-[10px] font-label uppercase tracking-luxe text-champagne/60 hover:text-gold-300 transition-colors">
+        className="pressable flex items-center gap-2 px-4 min-h-11 rounded-xl text-[10px] font-label uppercase tracking-luxe text-brand-fg bg-white/[0.07] border border-white/10 transition-colors">
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
       {!hideNext && onNext && (
         <button onClick={onNext}
-          className="flex items-center gap-2 px-6 py-2.5 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] font-bold rounded-xl glow-accent hover:scale-[1.02] transition-transform">
+          className="pressable flex items-center gap-2 px-6 min-h-11 bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] font-bold rounded-xl glow-accent">
           {nextLabel} <ArrowRight className="w-4 h-4" />
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * The plan refused some of the guest's videos.
+ *
+ * They chose files and fewer arrived; without this the only trace was a console
+ * warning nobody sees. Dismissible, because once it has been read it is just in
+ * the way of the task.
+ */
+function BlockedVideosNotice({ count, onDismiss }: { count: number; onDismiss: () => void }) {
+  if (count <= 0) return null;
+  return (
+    <div className="mt-3 mx-auto max-w-md liquid-glass rounded-xl px-4 py-3 flex items-center gap-3 text-left">
+      <p className="flex-1 font-sans text-xs text-brand-muted/80 leading-relaxed">
+        {count === 1 ? 'One video wasn’t added' : `${count} videos weren’t added`} — this event’s plan
+        accepts photos only. Everything else you picked is here.
+      </p>
+      <button
+        onClick={onDismiss}
+        className="pressable shrink-0 min-h-11 px-3 rounded-lg font-label uppercase tracking-luxe text-[10px] text-brand-fg bg-white/[0.07]"
+      >
+        OK
+      </button>
     </div>
   );
 }

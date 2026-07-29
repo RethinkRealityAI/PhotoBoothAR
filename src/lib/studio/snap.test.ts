@@ -94,3 +94,42 @@ describe('nudgeTransform', () => {
     expect(t.rotation).toBe(10);
   });
 });
+
+describe('peer guide lines (object-to-object alignment)', () => {
+  const t = (x: number, y: number) => ({ scale: 1, x, y, rotation: 0 });
+
+  it('snaps to a peer line that is not one of the three fixed frame lines', () => {
+    const r = snapTransform(t(41, 0), { linesX: [40] });
+    expect(r.transform.x).toBe(40);
+    expect(r.guides.v).toBe(40);
+  });
+
+  it('keeps the fixed frame lines available alongside the peer lines', () => {
+    const r = snapTransform(t(0.5, 0.5), { linesX: [40], linesY: [40] });
+    expect(r.transform.x).toBe(0);
+    expect(r.transform.y).toBe(0);
+  });
+
+  it('applies each axis list only to its own axis', () => {
+    const r = snapTransform(t(41, 41), { linesX: [40] });
+    expect(r.transform.x).toBe(40);
+    expect(r.transform.y).toBe(41); // no y peer line within threshold
+  });
+
+  it('empty peer lists behave exactly like no options at all', () => {
+    expect(snapTransform(t(41, 41), { linesX: [], linesY: [] })).toEqual(snapTransform(t(41, 41)));
+  });
+
+  it('picks the NEAREST line when a peer and a frame line compete', () => {
+    // 24 is 1 from the fixed 25 and 2 from the peer 22 → the fixed line wins.
+    expect(snapTransform(t(24, 0), { linesX: [22] }).transform.x).toBe(25);
+    // 22.5 is 0.5 from the peer 22 and 2.5 from the fixed 25 → the peer wins.
+    expect(snapTransform(t(22.5, 0), { linesX: [22] }).transform.x).toBe(22);
+  });
+
+  it('never mutates the input transform', () => {
+    const src = t(41, 0);
+    snapTransform(src, { linesX: [40] });
+    expect(src.x).toBe(41);
+  });
+});

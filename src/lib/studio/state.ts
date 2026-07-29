@@ -28,6 +28,9 @@ import type {
 } from '../../types';
 import { BORDER_MAP } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
+import { FINISH_TINT_STRENGTH } from './controlSpecs';
+import { DEFAULT_FINISH, normalizeFinish, normalizeTint, normalizeTintStrength } from './finish';
+import { moveByIndex } from './layerOrder';
 import type { TriggerConfig } from './triggers';
 
 export type StudioMode = '2d' | '3d' | 'preview';
@@ -114,6 +117,19 @@ export interface Object3D {
   /** Per-object head occlusion opt-in (opt-IN: never surprise-hides an asset). */
   occlusion: boolean;
   /**
+   * Material finish (lib/studio/finish.ts). OPTIONAL and undefined by default:
+   * a Meshy import must keep the material it shipped with unless the host
+   * explicitly restyles it, and `undefined` is what makes the persisted layer
+   * omit the key entirely — so scenes saved before Wave 6 round-trip byte-for-
+   * byte. Only ever set on `type: 'model'`; procedural head pieces carry their
+   * own authored materials.
+   */
+  finish?: string;
+  /** `#rrggbb` colour wash over the finish. */
+  tint?: string;
+  /** 0..1 — how far the tint carries (controlSpecs.FINISH_TINT_STRENGTH). */
+  tintStrength?: number;
+  /**
    * Hide this piece FROM GUESTS — persisted on save, exactly like
    * Overlay2D.hidden (see the note there; the old "never persisted" claim was
    * wrong). Defaults undefined (== visible).
@@ -151,6 +167,25 @@ export function createOverlay(
   };
 }
 
+/**
+ * The finish keys an object should CARRY, normalized, with every default
+ * omitted entirely (never stored as `finish: 'original'`). Shared by
+ * createObject3D and withFinish so "unstyled" has exactly one representation.
+ */
+function finishKeys(src: { finish?: unknown; tint?: unknown; tintStrength?: unknown }): Partial<Object3D> {
+  const out: Partial<Object3D> = {};
+  const finish = normalizeFinish(src.finish);
+  if (finish !== DEFAULT_FINISH) out.finish = finish;
+  const tint = normalizeTint(src.tint);
+  if (tint) {
+    out.tint = tint;
+    // A strength without a tint is dead data, and full strength IS the default.
+    const strength = normalizeTintStrength(src.tintStrength);
+    if (strength !== FINISH_TINT_STRENGTH.max) out.tintStrength = strength;
+  }
+  return out;
+}
+
 export function createObject3D(
   type: 'model' | 'headpiece',
   opts: Partial<Omit<Object3D, 'id' | 'type'>> = {},
@@ -175,7 +210,40 @@ export function createObject3D(
         },
     animation: opts.animation ?? 'none',
     occlusion: opts.occlusion ?? false,
+    // Spread-in only when actually set, so an unstyled object has NO finish
+    // keys at all — object-identity/deep-equality snapshots taken before Wave 6
+    // stay byte-identical (the same idiom as createOverlay's `lettering`).
+    ...finishKeys(opts),
   };
+}
+
+/**
+ * Apply a SET_FINISH patch to one 3D object.
+ *
+ * Values at their DEFAULT are deleted rather than stored, so an object the host
+ * styled and then reset carries no finish keys at all — identical bytes to an
+ * object that was never touched. Without this, "back to original" would leave
+ * `finish: 'original'` in the jsonb forever and every diff/round-trip test
+ * would have to know about it.
+ */
+export function withFinish(
+  o: Object3D,
+  patch: { finish?: string; tint?: string | null; tintStrength?: number },
+): Object3D {
+  // Merge current + patch, then re-derive the keys through the single
+  // normalizer — so there is exactly ONE representation of "unstyled",
+  // whichever route the object took to get there.
+  const merged = {
+    finish: patch.finish !== undefined ? patch.finish : o.finish,
+    // `null` is the explicit clear; `undefined` means "leave as it was".
+    tint: patch.tint !== undefined ? patch.tint : o.tint,
+    tintStrength: patch.tintStrength !== undefined ? patch.tintStrength : o.tintStrength,
+  };
+  const next: Object3D = { ...o };
+  delete next.finish;
+  delete next.tint;
+  delete next.tintStrength;
+  return { ...next, ...finishKeys(merged) };
 }
 
 /* — Draft ------------------------------------------------------------------ */
@@ -298,6 +366,24 @@ export function sceneCounts(d: StudioDraft): { frame: 0 | 1; stickers: number; t
 }
 
 /**
+ * Whether one more object of `kind` would actually land.
+ *
+ * Adds past MAX_OBJECTS are silently ignored in the reducer (appendObject and
+ * the ADD_OBJECT branch both bail), the dock only surfaced a counter from 15,
+ * and a dropped drag past the cap simply vanished — so at the cap the studio
+ * looked broken rather than full. Every add site now asks this FIRST and says
+ * so when the answer is no. A frame is exempt: placeFrame swaps in place.
+ */
+export function canAddObject(d: StudioDraft, kind: 'frame' | 'cappable' = 'cappable'): boolean {
+  if (kind === 'frame') return true;
+  return sceneCounts(d).capped < MAX_OBJECTS;
+}
+
+/** The one sentence every refusal shows, so the wording cannot drift per surface. */
+export const SCENE_FULL_MESSAGE =
+  `This scene is full — ${MAX_OBJECTS} stickers and 3D pieces is the limit (the frame doesn't count). Remove a layer to add another.`;
+
+/**
  * The DERIVED draft kind from the current objects:
  *   • a 2D overlay AND a 3D object present → 'composite'
  *   • only overlays → objects[0].overlayKind ('border' | '2d_filter')
@@ -386,7 +472,14 @@ export type StudioAction =
   | { type: 'SET_MODE'; mode: StudioMode }
   | { type: 'SET_THREE_VIEW'; view: ThreeView }
   | { type: 'SET_KIND'; kind: StudioKind }
-  | { type: 'LOAD'; draft: StudioDraft }
+  /**
+   * Replace the whole draft. `dirty` defaults to FALSE (a freshly-loaded
+   * experience matches its saved row), but a LOAD that creates UNSAVED work —
+   * Duplicate, "use template", loading a starter scene — must pass `dirty:true`.
+   * Without it the duplicate was unsaved AND the leave-guard was disarmed, so
+   * one tap on the back arrow discarded it with no prompt at all.
+   */
+  | { type: 'LOAD'; draft: StudioDraft; dirty?: boolean }
   | { type: 'SET_NAME'; name: string }
   | { type: 'SELECT_SHADER'; shaderId: string; params: Record<string, number> }
   | { type: 'SET_SHADER_PARAM'; key: string; value: number }
@@ -404,6 +497,13 @@ export type StudioAction =
   | { type: 'TOGGLE_PUBLISHED' }
   | { type: 'TOGGLE_FEATURED' }
   | { type: 'SET_OCCLUSION'; occlusion: boolean }
+  /**
+   * Restyle the SELECTED 3D object's material. Every field is optional so the
+   * dock can change one without knowing the others; `tint: null` explicitly
+   * CLEARS the tint (undefined would mean "leave it", and a host who picks
+   * "no colour" must be able to get back to the exported look).
+   */
+  | { type: 'SET_FINISH'; finish?: string; tint?: string | null; tintStrength?: number }
   | { type: 'SET_SCENE_TAG'; scene: string | undefined }
   | { type: 'MARK_SAVED'; id: string }
   /* — multi-object scene actions — */
@@ -411,6 +511,10 @@ export type StudioAction =
   | { type: 'DELETE_OBJECT'; id: string }
   | { type: 'SELECT_OBJECT'; id: string | null }
   | { type: 'REORDER_OBJECT'; id: string; dir: 'up' | 'down' }
+  /** Splice-move an object to an absolute index in the flat paint order (drag-to-reorder). */
+  | { type: 'MOVE_OBJECT'; id: string; toIndex: number }
+  /** Rename a layer. Separate from UPDATE_OBJECT so it never coalesces with a transform edit. */
+  | { type: 'RENAME_OBJECT'; id: string; name: string }
   | { type: 'UPDATE_OBJECT'; id: string; patch: Partial<Omit<Overlay2D, 'id' | 'type'>> | Partial<Omit<Object3D, 'id' | 'type'>> }
   | { type: 'SET_OBJECT_ANIMATION'; id: string; animation: LayerAnimation }
   /* — face-triggered effects (Magic Triggers) — */
@@ -449,7 +553,9 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         mode: modeForKind(action.draft.kind),
         threeView: 'live',
         draft: action.draft,
-        dirty: false,
+        // See the action's doc comment: a LOAD that creates unsaved work arms
+        // the leave-guard instead of disarming it.
+        dirty: action.dirty === true,
       };
     case 'SET_NAME':
       return { ...state, dirty: true, draft: { ...d, name: action.name } };
@@ -599,6 +705,15 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         draft: { ...d, objects: mapObjects(d, sel.id, (o) => (is3D(o) ? { ...o, occlusion: action.occlusion } : o)) },
       };
     }
+    case 'SET_FINISH': {
+      const sel = selectedObject(d);
+      if (!sel || !is3D(sel)) return state;
+      return {
+        ...state,
+        dirty: true,
+        draft: { ...d, objects: mapObjects(d, sel.id, (o) => (is3D(o) ? withFinish(o, action) : o)) },
+      };
+    }
     case 'SET_SCENE_TAG':
       return { ...state, dirty: true, draft: { ...d, scene: action.scene } };
     case 'MARK_SAVED':
@@ -640,21 +755,46 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return { ...state, draft: { ...d, selectedId: action.id } };
     }
     case 'REORDER_OBJECT': {
-      // NOTE: this swaps ADJACENT ARRAY indices, which is 2D paint order, and
-      // that is deliberate — see docs/STATE.md. The Layers panel renders three
-      // fixed buckets, so a cross-bucket swap does not move anything in the
-      // LIST, but it does change what paints over what ON THE STAGE (a frame
-      // over a sticker, say). Restricting reorder to same-bucket neighbours
-      // makes the list honest at the cost of removing that capability
-      // entirely — the real fix is to render one list in true array order.
+      // Swaps ADJACENT ARRAY indices = one step of real paint order. The
+      // "the list does not move" problem this used to have was never in the
+      // reducer: the Layers panel rendered three FIXED BUCKETS while this acted
+      // on the flat array, so a cross-bucket step changed the stage and nothing
+      // in the list. The panel now renders ONE flat list in true array order
+      // (src/lib/studio/layerOrder.ts), so every step is visible where it
+      // happens. `dir` keeps its ORIGINAL array meaning ('up' = toward index 0)
+      // so every existing caller and test is untouched; the new flat panel uses
+      // MOVE_OBJECT, whose absolute index has no direction to misread at all.
       const idx = d.objects.findIndex((o) => o.id === action.id);
       if (idx < 0) return state;
       const swap = action.dir === 'up' ? idx - 1 : idx + 1;
       if (swap < 0 || swap >= d.objects.length) return state;
-      const objects = [...d.objects];
-      [objects[idx], objects[swap]] = [objects[swap], objects[idx]];
+      const objects = moveByIndex(d.objects, idx, swap);
+      if (objects === d.objects) return state;
       const nd = { ...d, objects };
       return { ...state, dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
+    }
+    case 'MOVE_OBJECT': {
+      // Drag-to-reorder: a SPLICE-move, not a swap — dropping the top layer at
+      // the bottom must land it there and shift the rest up, not trade places
+      // with whatever happened to sit at that index.
+      const idx = d.objects.findIndex((o) => o.id === action.id);
+      if (idx < 0) return state;
+      const objects = moveByIndex(d.objects, idx, action.toIndex);
+      if (objects === d.objects) return state;
+      const nd = { ...d, objects };
+      return { ...state, dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
+    }
+    case 'RENAME_OBJECT': {
+      const name = action.name.trim().slice(0, 120);
+      // An empty rename is a cancel, not a way to produce a nameless layer.
+      if (!name) return state;
+      const target = d.objects.find((o) => o.id === action.id);
+      if (!target || target.name === name) return state;
+      return {
+        ...state,
+        dirty: true,
+        draft: { ...d, objects: mapObjects(d, action.id, (o) => ({ ...o, name })) },
+      };
     }
     case 'UPDATE_OBJECT': {
       const idx = d.objects.findIndex((o) => o.id === action.id);

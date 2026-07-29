@@ -81,7 +81,16 @@ describe('head-size calibration', () => {
   });
   it('normalizeStudioSettings tolerates junk rows and keeps defaults', () => {
     expect(normalizeStudioSettings(null)).toEqual(DEFAULT_STUDIO_SETTINGS);
-    expect(normalizeStudioSettings({ headScale: 1.15, occlusion: false })).toEqual({ headScale: 1.15, occlusion: false });
-    expect(normalizeStudioSettings({ headScale: 'x', occlusion: 'yes' })).toEqual({ headScale: 1, occlusion: true });
+    // `lighting` (W6) is ALWAYS emitted, so these exact-shape assertions list it.
+    expect(normalizeStudioSettings({ headScale: 1.15, occlusion: false })).toEqual({ headScale: 1.15, occlusion: false, lighting: 'studio' });
+    expect(normalizeStudioSettings({ headScale: 'x', occlusion: 'yes' })).toEqual({ headScale: 1, occlusion: true, lighting: 'studio' });
+  });
+  it('normalizeStudioSettings round-trips a stored lighting preset and rejects junk', () => {
+    expect(normalizeStudioSettings({ lighting: 'neon' }).lighting).toBe('neon');
+    expect(normalizeStudioSettings({ lighting: 'candlelit' }).lighting).toBe('candlelit');
+    // A row written before this key existed, and a hostile one, both fall back.
+    expect(normalizeStudioSettings({}).lighting).toBe('studio');
+    expect(normalizeStudioSettings({ lighting: 'chartreuse' }).lighting).toBe('studio');
+    expect(normalizeStudioSettings({ lighting: 42 }).lighting).toBe('studio');
   });
 });

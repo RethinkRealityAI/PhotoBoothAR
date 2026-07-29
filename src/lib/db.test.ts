@@ -10,6 +10,8 @@ const { rt } = vi.hoisted(() => ({
   rt: {
     handlers: new Map<string, (payload: unknown) => void>(),
     removed: [] as unknown[],
+    // The callback supabase-js would invoke with each channel status.
+    statusCb: null as ((s: string) => void) | null,
   },
 }));
 vi.mock('./supabase', () => {
@@ -18,7 +20,8 @@ vi.mock('./supabase', () => {
       rt.handlers.set(filter.event, cb);
       return channel;
     },
-    subscribe() {
+    subscribe(cb?: (s: string) => void) {
+      rt.statusCb = cb ?? null;
       return channel;
     },
   };
@@ -66,6 +69,7 @@ function handlerSpies() {
 beforeEach(() => {
   rt.handlers.clear();
   rt.removed.length = 0;
+  rt.statusCb = null;
 });
 
 describe('subscribeToPosts (default — raw pass-through for moderation surfaces)', () => {
@@ -143,5 +147,36 @@ describe('subscribeToPosts visibleOnly (guest walls)', () => {
     fire.update(updated);
     expect(h.onUpdate).toHaveBeenCalledWith(updated);
     expect(h.onDelete).not.toHaveBeenCalled();
+  });
+});
+
+describe('subscribeToPosts onStatus (a dead socket must be observable)', () => {
+  it('registers a status callback with the channel', () => {
+    subscribeToPosts('evt', handlerSpies());
+    expect(rt.statusCb).toBeTypeOf('function');
+  });
+
+  it('reports SUBSCRIBED to the caller', () => {
+    const onStatus = vi.fn();
+    subscribeToPosts('evt', { ...handlerSpies(), onStatus });
+    rt.statusCb!('SUBSCRIBED');
+    expect(onStatus).toHaveBeenCalledWith('SUBSCRIBED');
+  });
+
+  it('reports every failure state, so venue wifi dropping is visible', () => {
+    const onStatus = vi.fn();
+    subscribeToPosts('evt', { ...handlerSpies(), onStatus });
+    for (const s of ['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED']) rt.statusCb!(s);
+    expect(onStatus.mock.calls.map((c) => c[0])).toEqual(['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED']);
+  });
+
+  it('is optional — a caller that omits it is unaffected', () => {
+    const h = handlerSpies();
+    subscribeToPosts('evt', h);
+    expect(() => rt.statusCb!('CHANNEL_ERROR')).not.toThrow();
+    // and the data path still works after a status callback fires
+    const p = post('a');
+    fire.insert(p);
+    expect(h.onInsert).toHaveBeenCalledWith(p);
   });
 });

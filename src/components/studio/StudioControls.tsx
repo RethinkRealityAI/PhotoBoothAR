@@ -6,7 +6,73 @@
  * slider (replaces the legacy GoldSlider) and a pill toggle. Kept token-only
  * (accent / brand-*) so the studio matches the platform, not the gold theme.
  */
-import { useId, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
+import { parseSpecInput, quantizeToStep } from '../../lib/studio/controlSpecs';
+
+/**
+ * A typed numeric entry bound to a control's own spec.
+ *
+ * Every studio property was a slider — position stepping 0.5%, rotation 1° — so
+ * a host could not type "rotate 90" or "x = 0"; they dragged and hoped. This
+ * field holds its own in-progress text (so "-" and "1." are typeable without the
+ * object jumping on each keystroke), commits on blur/Enter, reverts on Escape,
+ * and validates through controlSpecs — which stays the single source of bounds.
+ */
+export function NumberField({
+  value,
+  min,
+  max,
+  step,
+  onCommit,
+  label,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onCommit: (v: number) => void;
+  /** Accessible name — the visible label (with its unit) lives on the slider. */
+  label: string;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  // While the host is typing, the field owns the text; otherwise it mirrors the
+  // live value (so a slider drag or an align action updates it immediately).
+  const shown = text ?? formatValue(value, step);
+  useEffect(() => { setText(null); }, [value]);
+
+  const commit = () => {
+    if (text === null) return;
+    const parsed = parseSpecInput(text, { min, max });
+    setText(null);
+    // Unparseable input reverts to the live value rather than writing NaN.
+    if (parsed === null) return;
+    const quantized = quantizeToStep(parsed, step);
+    if (quantized !== value) onCommit(quantized);
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      aria-label={label}
+      value={shown}
+      onChange={(e) => setText(e.target.value)}
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        e.stopPropagation(); // the shell's delete/undo shortcuts must not fire
+        if (e.key === 'Enter') { e.preventDefault(); commit(); e.currentTarget.blur(); }
+        else if (e.key === 'Escape') { e.preventDefault(); setText(null); e.currentTarget.blur(); }
+      }}
+      className="w-[3.4rem] shrink-0 rounded-md bg-white/[0.05] border border-white/10 px-1 py-0.5 text-right font-mono text-[9px] text-accent-2 outline-none focus:border-accent/60 transition-colors"
+    />
+  );
+}
+
+function formatValue(v: number, step: number): string {
+  const decimals = step < 1 && step > 0 ? Math.min(2, Math.ceil(-Math.log10(step))) : 0;
+  return v.toFixed(decimals);
+}
 
 export function StudioSlider({
   label,

@@ -13,20 +13,36 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
+import { Camera } from 'lucide-react';
 import { getLandingContent, subscribeToLanding, defaultLanding } from '../lib/db';
 import { LandingContent } from '../types';
 import { useEvent } from '../events/EventContext';
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
 
+/** Ambient motion only — the QR halo pulse stills when the OS asks it to. */
+function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+}
+
 export default function JoinBooth() {
   const { eventId, config, basePath } = useEvent();
   const defaults = useMemo(() => defaultLanding(config.copy), [config]);
   const [content, setContent] = useState<LandingContent>(defaults);
+  const reduced = useMemo(prefersReducedMotion, []);
 
   useEffect(() => {
     let active = true;
-    getLandingContent(eventId, config.copy).then((c) => { if (active) setContent(c); });
+    // A failed read is not worth showing on a projector: the admin-editable
+    // copy simply stays at the event's own defaults, which are real copy, not
+    // placeholders. What must never happen is an unhandled rejection here.
+    getLandingContent(eventId, config.copy)
+      .then((c) => { if (active) setContent(c); })
+      .catch((err) => console.error('[JoinBooth] landing copy unavailable, using defaults', err));
     const unsubscribe = subscribeToLanding(eventId, config.copy, (c) => { if (active) setContent(c); });
     return () => { active = false; unsubscribe(); };
   }, [eventId, config]);
@@ -42,10 +58,10 @@ export default function JoinBooth() {
   const steps = (content.steps?.length ? content.steps : defaults.steps).map((s) => s.title);
 
   return (
-    <div className="absolute inset-0 overflow-y-auto hide-scrollbar bg-noir-900">
+    <div className="absolute inset-0 overflow-y-auto hide-scrollbar app-bg">
       <EventBackground density={36} />
 
-      <div className="relative z-10 min-h-full flex items-center justify-center px-6 py-8">
+      <div className="relative z-10 min-h-full flex items-center justify-center px-6 py-8 pt-safe-top [--safe-top:2rem] pb-safe-bottom [--safe-bottom:2rem]">
         <div className="w-full max-w-6xl flex flex-col lg:flex-row items-center justify-center gap-10 lg:gap-16">
 
           {/* ── LEFT: the massive scannable QR ── */}
@@ -55,7 +71,7 @@ export default function JoinBooth() {
             animate={{ opacity: 1, scale: 1, x: 0 }}
             transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
           >
-            <p className="font-label uppercase tracking-luxe text-[11px] sm:text-sm text-gold-300/85 mb-4">
+            <p className="font-label uppercase tracking-luxe text-[11px] sm:text-sm text-[color:var(--color-accent)] mb-4">
               Scan to Join
             </p>
             <motion.div
@@ -65,19 +81,25 @@ export default function JoinBooth() {
                 border: '2px solid rgba(var(--accent-rgb),0.6)',
                 boxShadow: '0 0 0 6px rgba(var(--accent-rgb),0.12), 0 28px 70px -18px rgba(0,0,0,0.7)',
               }}
-              animate={{
-                boxShadow: [
-                  '0 0 0 6px rgba(var(--accent-rgb),0.12), 0 28px 70px -18px rgba(0,0,0,0.7)',
-                  '0 0 0 7px rgba(232,199,102,0.26), 0 28px 80px -12px rgba(0,0,0,0.7)',
-                  '0 0 0 6px rgba(var(--accent-rgb),0.12), 0 28px 70px -18px rgba(0,0,0,0.7)',
-                ],
-              }}
+              animate={
+                reduced
+                  ? undefined
+                  : {
+                      boxShadow: [
+                        '0 0 0 6px rgba(var(--accent-rgb),0.12), 0 28px 70px -18px rgba(0,0,0,0.7)',
+                        '0 0 0 7px rgba(var(--accent-rgb),0.3), 0 28px 80px -12px rgba(0,0,0,0.7)',
+                        '0 0 0 6px rgba(var(--accent-rgb),0.12), 0 28px 70px -18px rgba(0,0,0,0.7)',
+                      ],
+                    }
+              }
               transition={{ duration: 3.4, ease: 'easeInOut', repeat: Infinity }}
             >
-              <span className="pointer-events-none absolute top-2 left-2 w-6 h-6 border-t-2 border-l-2 border-gold-500/60 rounded-tl-lg" aria-hidden />
-              <span className="pointer-events-none absolute top-2 right-2 w-6 h-6 border-t-2 border-r-2 border-gold-500/60 rounded-tr-lg" aria-hidden />
-              <span className="pointer-events-none absolute bottom-2 left-2 w-6 h-6 border-b-2 border-l-2 border-gold-500/60 rounded-bl-lg" aria-hidden />
-              <span className="pointer-events-none absolute bottom-2 right-2 w-6 h-6 border-b-2 border-r-2 border-gold-500/60 rounded-br-lg" aria-hidden />
+              {/* Corner ticks read as a viewfinder, which is what tells a guest
+                  across the room that the white panel is meant to be scanned. */}
+              <span className="pointer-events-none absolute top-2 left-2 w-6 h-6 border-t-2 border-l-2 rounded-tl-lg" style={{ borderColor: 'rgba(var(--accent-rgb),0.6)' }} aria-hidden />
+              <span className="pointer-events-none absolute top-2 right-2 w-6 h-6 border-t-2 border-r-2 rounded-tr-lg" style={{ borderColor: 'rgba(var(--accent-rgb),0.6)' }} aria-hidden />
+              <span className="pointer-events-none absolute bottom-2 left-2 w-6 h-6 border-b-2 border-l-2 rounded-bl-lg" style={{ borderColor: 'rgba(var(--accent-rgb),0.6)' }} aria-hidden />
+              <span className="pointer-events-none absolute bottom-2 right-2 w-6 h-6 border-b-2 border-r-2 rounded-br-lg" style={{ borderColor: 'rgba(var(--accent-rgb),0.6)' }} aria-hidden />
 
               <div className="w-[min(88vw,72vh,640px)] h-[min(88vw,72vh,640px)]">
                 <QRCodeSVG
@@ -101,44 +123,57 @@ export default function JoinBooth() {
             transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1], delay: 0.1 }}
           >
             <Emblem size={56} className="drop-shadow-[0_0_22px_rgba(var(--accent-rgb),0.4)]" />
-            <p className="mt-3 font-label uppercase tracking-luxe text-[10px] sm:text-xs text-champagne/70">
+            <p className="mt-3 font-label uppercase tracking-luxe text-[10px] sm:text-xs text-brand-muted/70">
               {content.eyebrow}
             </p>
             <h1 className="mt-1.5 font-serif font-semibold text-foil text-4xl sm:text-5xl leading-[1.05]">
               {content.title}
             </h1>
             {content.subtitle && (
-              <p className="mt-2 font-serif italic text-base sm:text-xl text-ivory/85">
+              <p className="mt-2 font-serif italic text-base sm:text-xl text-brand-fg/85">
                 {content.subtitle}
               </p>
             )}
             {content.intro && (
-              <p className="mt-2 font-sans text-xs sm:text-sm text-champagne/55 leading-relaxed">
+              <p className="mt-2 font-sans text-xs sm:text-sm text-brand-muted/60 leading-relaxed">
                 {content.intro}
               </p>
             )}
+
+            {/* A guest who opened this page ON their phone cannot scan the QR
+                with the same phone — this is the way in for them, and it sits
+                ABOVE the steps because "1. Scan QR" is the one instruction they
+                cannot follow. Hidden on the large screens where the page is
+                acting as projected signage. */}
+            <a
+              href={`${basePath}/booth`}
+              className="pressable lg:hidden mt-6 w-full inline-flex items-center justify-center gap-2 bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] min-h-12 rounded-2xl glow-accent"
+            >
+              <Camera className="w-4 h-4" />
+              Open the booth here
+            </a>
 
             {/* Big step pills */}
             <ol className="mt-7 flex flex-col gap-3 w-full">
               {steps.map((label, i) => (
                 <motion.li
                   key={i}
-                  className="flex items-center gap-4 glass-strong rounded-full pl-3 pr-7 py-3 border border-gold-400/30"
+                  className="flex items-center gap-4 liquid-glass rounded-full pl-3 pr-7 py-3"
                   initial={{ opacity: 0, x: 18 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1], delay: 0.2 + i * 0.09 }}
                 >
-                  <span className="w-11 h-11 rounded-full bg-foil text-noir-900 font-serif font-bold text-lg flex items-center justify-center glow-soft shrink-0">
+                  <span className="w-11 h-11 rounded-full bg-foil text-[color:var(--on-accent)] font-serif font-bold text-lg flex items-center justify-center glow-accent shrink-0">
                     {i + 1}
                   </span>
-                  <span className="font-label uppercase tracking-luxe text-base sm:text-lg text-ivory">
+                  <span className="font-label uppercase tracking-luxe text-base sm:text-lg text-brand-fg">
                     {label}
                   </span>
                 </motion.li>
               ))}
             </ol>
 
-            <p className="mt-6 font-label uppercase tracking-luxe text-[9px] sm:text-[10px] text-champagne/45">
+            <p className="mt-6 font-label uppercase tracking-luxe text-[9px] sm:text-[10px] text-brand-muted/45">
               {content.footer}
             </p>
           </motion.div>

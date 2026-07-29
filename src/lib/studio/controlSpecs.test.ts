@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { OVERLAY_SCALE, OVERLAY_POSITION, clampToSpec, formatAtStep, defaultAnchorConfig } from './controlSpecs';
+import {
+  OVERLAY_SCALE,
+  OVERLAY_POSITION,
+  OVERLAY_ROTATION,
+  clampToSpec,
+  formatAtStep,
+  defaultAnchorConfig,
+  parseSpecInput,
+  quantizeToStep,
+} from './controlSpecs';
 
 describe('OVERLAY_SCALE', () => {
   it('reaches the stage wheel-zoom ceiling — the drift that lost work', () => {
@@ -50,6 +59,69 @@ describe('formatAtStep', () => {
 
   it('caps at two decimals for very fine steps', () => {
     expect(formatAtStep(0.125, 0.001)).toBe('0.13');
+  });
+});
+
+describe('parseSpecInput — typed numeric entry', () => {
+  it('accepts a plain number', () => {
+    expect(parseSpecInput('90', OVERLAY_ROTATION)).toBe(90);
+    expect(parseSpecInput('-45.5', OVERLAY_ROTATION)).toBe(-45.5);
+    expect(parseSpecInput('0', OVERLAY_POSITION)).toBe(0);
+  });
+
+  it('tolerates the unit the readout prints', () => {
+    expect(parseSpecInput('90°', OVERLAY_ROTATION)).toBe(90);
+    expect(parseSpecInput('25%', OVERLAY_POSITION)).toBe(25);
+    expect(parseSpecInput(' 12 cm ', { min: -20, max: 20 })).toBe(12);
+  });
+
+  it('CLAMPS an out-of-range number rather than rejecting it', () => {
+    expect(parseSpecInput('500', OVERLAY_ROTATION)).toBe(OVERLAY_ROTATION.max);
+    expect(parseSpecInput('-500', OVERLAY_POSITION)).toBe(OVERLAY_POSITION.min);
+  });
+
+  it('returns null for in-progress text so a field can be typed into', () => {
+    for (const t of ['', '  ', '-', '+', '.', '-.']) expect(parseSpecInput(t, OVERLAY_ROTATION)).toBeNull();
+  });
+
+  it('returns null for non-numeric input instead of writing NaN into a transform', () => {
+    for (const t of ['abc', '1,2', 'NaN', 'Infinity', '--5', '1px']) {
+      expect(parseSpecInput(t, OVERLAY_ROTATION), t).toBeNull();
+    }
+  });
+
+  it('never returns a value outside the spec', () => {
+    for (const t of ['1e999', '-1e999', '99999', '0']) {
+      const v = parseSpecInput(t, OVERLAY_SCALE);
+      if (v === null) continue;
+      expect(v).toBeGreaterThanOrEqual(OVERLAY_SCALE.min);
+      expect(v).toBeLessThanOrEqual(OVERLAY_SCALE.max);
+    }
+  });
+});
+
+describe('quantizeToStep', () => {
+  it('rounds to a value the slider can actually return to', () => {
+    expect(quantizeToStep(12.3456, 0.5)).toBe(12.5);
+    expect(quantizeToStep(12.2, 0.5)).toBe(12);
+    expect(quantizeToStep(88.7, 1)).toBe(89);
+  });
+
+  it('kills float dust', () => {
+    expect(quantizeToStep(0.30000000000000004, 0.05)).toBe(0.3);
+  });
+
+  it('passes non-finite values and bad steps straight through', () => {
+    expect(quantizeToStep(NaN, 0.5)).toBeNaN();
+    expect(quantizeToStep(3, 0)).toBe(3);
+    expect(quantizeToStep(3, -1)).toBe(3);
+  });
+
+  it('is idempotent', () => {
+    for (const v of [0, 1.2, -33.3, 99.99]) {
+      const once = quantizeToStep(v, 0.5);
+      expect(quantizeToStep(once, 0.5)).toBe(once);
+    }
   });
 });
 

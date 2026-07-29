@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ANCHOR_PRESETS, RIG_CAMERA } from '../../lib/faceRig';
 import { pointToTransform2D, projectAnchorsToScreen, nearestAnchor, type AnchorPoint } from '../../lib/studio/dnd';
-import { DEFAULT_TRANSFORM, MAX_OBJECTS, sceneCounts, type StudioAction, type StudioDraft } from '../../lib/studio/state';
+import { DEFAULT_TRANSFORM, SCENE_FULL_MESSAGE, canAddObject, type StudioAction, type StudioDraft } from '../../lib/studio/state';
 import { measureGlbFitScale } from '../../lib/studio/glbThumb';
 
 export interface DragPayload {
@@ -48,6 +48,14 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef, draftRef }
   const [payload, setPayload] = useState<DragPayload | null>(null);
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
   const [overStage, setOverStage] = useState(false);
+  /**
+   * Why the last drop was refused, for the stage to say out loud. A drop past
+   * the object cap used to be silently ignored — the host dragged an asset onto
+   * the canvas and NOTHING happened, with no explanation anywhere.
+   * `at` makes each refusal a new value, so repeating the same failed drop
+   * re-triggers the notice instead of looking ignored a second time.
+   */
+  const [refusal, setRefusal] = useState<{ message: string; at: number } | null>(null);
 
   const pending = useRef<{ payload: DragPayload; startX: number; startY: number } | null>(null);
   const active = useRef(false);
@@ -70,7 +78,11 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef, draftRef }
     // still fit at the cap, but that's a non-case worth the simplicity.)
     const isFrameDrop = p.target === 'overlay' && (p.overlayKind ?? 'border') === 'border';
     const cur = draftRef.current;
-    if (!isFrameDrop && cur && sceneCounts(cur).capped >= MAX_OBJECTS) return;
+    if (cur && !canAddObject(cur, isFrameDrop ? 'frame' : 'cappable')) {
+      // Say so. This branch used to be a bare `return`.
+      setRefusal({ message: SCENE_FULL_MESSAGE, at: Date.now() });
+      return;
+    }
     // NOTE on add semantics: the click-to-add actions (SELECT_BUILTIN,
     // SET_OVERLAY_UPLOAD, SELECT_HEAD_PIECE, SET_MODEL_ASSET) ALWAYS APPEND in
     // the reducer (state.ts appendObject; the one frame swaps via placeFrame)
@@ -185,5 +197,5 @@ export function useStudioDnd({ dispatch, stageBodyRef, headMatrixRef, draftRef }
     return d;
   }, []);
 
-  return { payload, ghost, overStage, dragging: !!payload, beginDrag, consumedDrag };
+  return { payload, ghost, overStage, dragging: !!payload, beginDrag, consumedDrag, refusal };
 }

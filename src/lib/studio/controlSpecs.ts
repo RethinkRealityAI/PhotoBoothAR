@@ -36,12 +36,58 @@ export const OVERLAY_ROTATION = {
 } as const;
 
 /**
+ * How strongly a 3D object's tint colour washes over its finish/albedo.
+ * 0 = the tint does nothing, 1 = the tint fully replaces the colour.
+ * (Consumed by lib/studio/finish.ts and the Finish row in PropertiesDock —
+ * neither declares its own range.)
+ */
+export const FINISH_TINT_STRENGTH = {
+  min: 0,
+  max: 1,
+  step: 0.05,
+} as const;
+
+/**
  * Clamp a value into a spec's range, snapping non-finite input to the minimum
  * rather than propagating NaN into a transform.
  */
 export function clampToSpec(value: number, spec: { min: number; max: number }): number {
   if (!Number.isFinite(value)) return spec.min;
   return Math.min(spec.max, Math.max(spec.min, value));
+}
+
+/**
+ * Parse typed numeric entry against a control's own spec.
+ *
+ * Every studio property was a slider, so a host could not type "rotate 90" or
+ * "x = 0" — they dragged and hoped. The numeric fields beside each slider run
+ * their input through here so a typed value obeys EXACTLY the bounds the slider
+ * obeys (this file stays the single source of limits; nothing that reads a
+ * number declares its own).
+ *
+ * Returns null for input that is not a number at all, so a field can hold
+ * in-progress text ("-", "1.") without snapping the object on every keystroke.
+ * Anything numeric but out of range is CLAMPED, not rejected — a host who types
+ * 500 into a 0..100 field means "as far as it goes".
+ */
+export function parseSpecInput(text: string, spec: { min: number; max: number }): number | null {
+  const trimmed = text.trim().replace(/[%°]\s*$/, '').replace(/\s*cm$/i, '');
+  if (trimmed === '' || trimmed === '-' || trimmed === '+' || trimmed === '.' || trimmed === '-.') return null;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value)) return null;
+  return clampToSpec(value, spec);
+}
+
+/**
+ * Round a value to the resolution its step offers, so a typed 12.3456 stores as
+ * 12.5 on a 0.5-step control rather than a number the slider can never return to.
+ */
+export function quantizeToStep(value: number, step: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(step) || step <= 0) return value;
+  const snapped = Math.round(value / step) * step;
+  // Kill float dust (0.30000000000000004) at the step's own precision.
+  const decimals = step < 1 ? Math.min(6, Math.ceil(-Math.log10(step)) + 1) : 0;
+  return Number(snapped.toFixed(decimals));
 }
 
 /**

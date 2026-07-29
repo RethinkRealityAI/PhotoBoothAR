@@ -8,37 +8,132 @@
 import { useRef, useEffect, useState, ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three-stdlib';
 import { initializeFaceLandmarker } from '../../lib/faceTracking';
 import { updateHeadPose, detectFaceNow, scaledAnchorBase, ANCHOR_MAP } from '../../lib/faceRig';
+import { loadModel } from '../../lib/glbCache';
+import { describeGlbError } from '../../lib/glbErrors';
+import { resolveFinish, type FinishOverride } from '../../lib/studio/finish';
 import { AnchorConfig, HeadAnchor } from '../../types';
 import AssetGizmo from './AssetGizmo';
 import FaceOccluder from './FaceOccluder';
 
-/** Loads + caches a GLB/GLTF model from a url. */
-const _cache = new Map<string, Promise<THREE.Group>>();
-function loadModel(url: string): Promise<THREE.Group> {
-  if (!_cache.has(url)) {
-    const loader = new GLTFLoader();
-    _cache.set(
-      url,
-      new Promise((resolve, reject) => loader.load(url, (g) => resolve(g.scene), undefined, reject)),
-    );
-  }
-  return _cache.get(url)!;
+/**
+ * Repaint a CLONED scene graph with a resolved finish.
+ *
+ * `Object3D.clone(true)` copies the node tree but SHARES geometries and
+ * materials with the cached master, so mutating `mesh.material` in place would
+ * restyle every other copy of that model in the app — including the one the
+ * guest is wearing. Every material touched here is therefore cloned first, and
+ * the clones are handed back so the caller can dispose exactly them (never the
+ * shared originals) when the piece unmounts.
+ */
+function applyFinish(
+  root: THREE.Object3D,
+  finish: unknown,
+  tint: unknown,
+  tintStrength: unknown,
+): THREE.Material[] {
+  const created: THREE.Material[] = [];
+  root.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh)) return;
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    const next = mats.map((m) => {
+      const std = m as THREE.MeshStandardMaterial;
+      const baseHex = std.color ? `#${std.color.getHexString()}` : '#ffffff';
+      const o: FinishOverride | null = resolveFinish(finish, tint, tintStrength, baseHex);
+      if (!o) return m; // nothing to change — keep the shared original untouched
+      // Glass needs transmission/ior/thickness, which only exist on
+      // MeshPhysicalMaterial. It extends MeshStandardMaterial, so .copy()
+      // carries every map, uv transform and alpha setting across intact.
+      const clone = o.physical
+        ? new THREE.MeshPhysicalMaterial().copy(std)
+        : (m.clone() as THREE.MeshStandardMaterial);
+      if (o.color && clone.color) clone.color.set(o.color);
+      clone.metalness = o.metalness;
+      clone.roughness = o.roughness;
+      if (o.emissive && clone.emissive) {
+        clone.emissive.set(o.emissive);
+        clone.emissiveIntensity = o.emissiveIntensity;
+      }
+      clone.transparent = o.transparent;
+      clone.opacity = o.opacity;
+      if (o.physical) {
+        const phys = clone as THREE.MeshPhysicalMaterial;
+        phys.transmission = o.transmission;
+        phys.ior = o.ior;
+        phys.thickness = o.thickness;
+      }
+      clone.needsUpdate = true;
+      created.push(clone);
+      return clone;
+    });
+    obj.material = Array.isArray(obj.material) ? next : next[0];
+  });
+  return created;
 }
 
-export function Model({ url }: { url: string }) {
+export function Model({
+  url,
+  onReady,
+  onError,
+  finish,
+  tint,
+  tintStrength,
+}: {
+  url: string;
+  /**
+   * Fires ONCE per successful load, after the bytes are downloaded AND parsed
+   * AND cloned — i.e. on the frame this component can actually draw geometry.
+   *
+   * The booth used to approximate this by fetching the .glb itself and calling
+   * it ready when the response ended (Booth.warmAsset), which excludes parse
+   * time entirely: on a phone a 12 MB Meshy model parses for hundreds of ms
+   * AFTER the last byte, so the "it's here!" reveal animation played over an
+   * empty frame. Omitting this prop is byte-identical to not having it.
+   */
+  onReady?: () => void;
+  /** Fires with host-readable copy when the model cannot be loaded at all. */
+  onError?: (message: string) => void;
+  /** lib/studio/finish.ts — undefined/'original' leaves the material alone. */
+  finish?: string | null;
+  tint?: string | null;
+  tintStrength?: number | null;
+}) {
   const [scene, setScene] = useState<THREE.Group | null>(null);
+  // Callbacks live in refs, not in the effect's deps: a caller passing an inline
+  // arrow (every caller does) would otherwise re-download and re-clone the whole
+  // model on every render of its parent.
+  const onReadyRef = useRef(onReady);
+  const onErrorRef = useRef(onError);
+  onReadyRef.current = onReady;
+  onErrorRef.current = onError;
+
   useEffect(() => {
     let alive = true;
+    let owned: THREE.Material[] = [];
     loadModel(url)
-      .then((s) => alive && setScene(s.clone(true)))
-      .catch((e) => console.error('[Model] load failed', url, e));
+      .then((s) => {
+        if (!alive) return;
+        const clone = s.clone(true);
+        owned = applyFinish(clone, finish, tint, tintStrength);
+        setScene(clone);
+        // AFTER the state that will render it, so a consumer that reveals on
+        // this callback can never beat the geometry to the screen.
+        onReadyRef.current?.();
+      })
+      .catch((e) => {
+        const { message } = describeGlbError(e);
+        console.error('[Model] load failed', url, message, e);
+        if (alive) onErrorRef.current?.(message);
+      });
     return () => {
       alive = false;
+      // Only the materials THIS clone created — the geometries and the original
+      // materials belong to the shared cache and outlive every clone.
+      for (const m of owned) m.dispose();
+      owned = [];
     };
-  }, [url]);
+  }, [url, finish, tint, tintStrength]);
   if (!scene) return null;
   return <primitive object={scene} />;
 }

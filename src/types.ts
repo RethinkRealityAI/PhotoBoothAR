@@ -81,6 +81,18 @@ export interface ExperienceLayer {
   animation?: LayerAnimation;
   /** Per-layer head-occlusion opt-in (3D layers). */
   occlusion?: boolean;
+  /**
+   * Material finish for a GLB layer (lib/studio/finish.ts FinishId). Absent —
+   * which is every layer written before Wave 6 — means "leave the exported
+   * material exactly alone", so old scenes render unchanged.
+   * All three keys live in the experience's jsonb `config`; no column, no
+   * migration.
+   */
+  finish?: string;
+  /** `#rrggbb` wash over the finish/albedo. Absent = no tint. */
+  tint?: string;
+  /** 0..1 (controlSpecs.FINISH_TINT_STRENGTH). Absent = full strength. */
+  tintStrength?: number;
   /** Layer is kept in the scene but rendered NOWHERE (studio eye toggle —
    *  preview and guest booth both skip it; only exactly `true` hides). */
   hidden?: boolean;

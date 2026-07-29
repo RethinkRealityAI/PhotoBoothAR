@@ -19,7 +19,10 @@
 import {
   useRef, useEffect, forwardRef, useImperativeHandle, useCallback,
 } from 'react';
-import { ShaderRunner, defaultParams } from '../../lib/shaders';
+import {
+  ShaderRunner, createShadeGate, canReuseShade, markShaded, invalidateShadeGate,
+  type ShadeGate,
+} from '../../lib/shaders';
 import { drawScagoMark } from '../../lib/scagoMark';
 import { Transform2D, LayerAnimation, GuestLetteringConfig } from '../../types';
 import { fitLettering, regionForPlacement, MIN_FONT_PX, type GuestLetteringStyle } from '../../lib/letteringFit';
@@ -88,12 +91,30 @@ interface Props {
    * `config.lettering` key, so Booth passes null and their output is unchanged.
    */
   lettering?: { spec: GuestLetteringConfig; name: string } | null;
+  /**
+   * Bake the event signature into the LIVE PREVIEW pass too (default false).
+   *
+   * A recorded video is `captureStream()` of the preview canvas, and the
+   * preview pass draws with `withSignature=false` — so every clip shipped
+   * UNSIGNED while photos shipped signed, an entitlement hole on free-tier
+   * events. Booth turns this on only for the duration of a recording, which
+   * keeps the viewfinder clean the rest of the time and makes what the guest
+   * sees while recording exactly what the clip will contain.
+   *
+   * Still ANDed with `watermark`, so a paid tier stays unsigned. Absent/false ⇒
+   * the preview pass is byte-identical to before this prop existed, and a still
+   * photo is unaffected either way (its own pass always passes true).
+   */
+  burnSignature?: boolean;
 }
 
-const PREVIEW_W = 720;
-const PREVIEW_H = 1280;
-const CAPTURE_W = 1080;
-const CAPTURE_H = 1920;
+/** Live preview / record buffer. Exported so callers reporting a recording's
+ *  true pixel dimensions do not have to re-declare them. */
+export const PREVIEW_W = 720;
+export const PREVIEW_H = 1280;
+/** Still-photo buffer. */
+export const CAPTURE_W = 1080;
+export const CAPTURE_H = 1920;
 
 function coverFit(
   ctx: CanvasRenderingContext2D,
@@ -258,6 +279,43 @@ const SPARKLES = (() => {
   }));
 })();
 
+/**
+ * One pre-rendered radial-gradient sprite per sparkle colour.
+ *
+ * The soft core used to be a `createRadialGradient` built per particle per
+ * frame — 46 gradient objects (plus 3 colour-stop strings each) allocated 60
+ * times a second, for the whole session, in the same loop that must not drop a
+ * frame. The gradient's shape is identical for every particle; only its alpha
+ * and radius differ, and both are reproducible with `globalAlpha` + a scaled
+ * `drawImage`. Built lazily on first use and cached forever (2 canvases total).
+ */
+const SPARKLE_SPRITE_R = 32;
+const sparkleSprites = new Map<string, HTMLCanvasElement | null>();
+
+function sparkleSprite(col: string): HTMLCanvasElement | null {
+  const hit = sparkleSprites.get(col);
+  if (hit !== undefined) return hit;
+  let sprite: HTMLCanvasElement | null = null;
+  const size = SPARKLE_SPRITE_R * 2;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const g2 = c.getContext('2d');
+  if (g2) {
+    // Same stops as the per-particle gradient, at alpha 1 — the caller scales
+    // the whole sprite with globalAlpha, which multiplies through identically.
+    const g = g2.createRadialGradient(SPARKLE_SPRITE_R, SPARKLE_SPRITE_R, 0, SPARKLE_SPRITE_R, SPARKLE_SPRITE_R, SPARKLE_SPRITE_R);
+    g.addColorStop(0, `rgba(${col},1)`);
+    g.addColorStop(0.4, `rgba(${col},0.35)`);
+    g.addColorStop(1, `rgba(${col},0)`);
+    g2.fillStyle = g;
+    g2.fillRect(0, 0, size, size);
+    sprite = c;
+  }
+  sparkleSprites.set(col, sprite);
+  return sprite;
+}
+
 /** Additive gold sparkle layer — independent of effects/frames so it stacks. */
 function drawSparkles(ctx: CanvasRenderingContext2D, w: number, h: number, t: number) {
   const unit = w / 1080;
@@ -271,15 +329,14 @@ function drawSparkles(ctx: CanvasRenderingContext2D, w: number, h: number, t: nu
     const py = sp.y * h;
     const r = sp.size * 9 * unit * (0.6 + tw * 0.6);
     const col = sp.warm > 0.5 ? '255,236,170' : '255,250,232';
-    // soft core
-    const g = ctx.createRadialGradient(px, py, 0, px, py, r);
-    g.addColorStop(0, `rgba(${col},${a})`);
-    g.addColorStop(0.4, `rgba(${col},${a * 0.35})`);
-    g.addColorStop(1, `rgba(${col},0)`);
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(px, py, r, 0, Math.PI * 2);
-    ctx.fill();
+    // soft core — the sprite's alpha ramp reaches 0 at its edge, so filling the
+    // sprite's full square is visually the same as the old clipped arc.
+    const sprite = sparkleSprite(col);
+    if (sprite) {
+      ctx.globalAlpha = a;
+      ctx.drawImage(sprite, px - r, py - r, r * 2, r * 2);
+      ctx.globalAlpha = 1; // the glint below bakes its own alpha into the stroke
+    }
     // 4-point glint
     ctx.strokeStyle = `rgba(${col},${a * 0.9})`;
     ctx.lineWidth = 1.1 * unit;
@@ -307,6 +364,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     videoRef, effectId, mirror, sparkles = false,
     overlayUrl, overlayTransform, overlayOpacity, overlays,
     threeCanvasId, active = true, watermark = true, effectsCanvas, lettering,
+    burnSignature = false,
   },
   ref,
 ) {
@@ -314,6 +372,8 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   const eventConfig = useOptionalEvent()?.config ?? null;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const runnerRef = useRef<ShaderRunner | null>(null);
+  /** Full-res runner for stills — built on the first capture, kept until unmount. */
+  const captureRunnerRef = useRef<ShaderRunner | null>(null);
   const rafRef = useRef<number>(0);
   const overlayImgRef = useRef<HTMLImageElement | null>(null);
   const eventConfigRef = useRef(eventConfig);
@@ -331,6 +391,12 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   const watermarkRef = useRef(watermark);
   const effectsCanvasRef = useRef<HTMLCanvasElement | null>(effectsCanvas ?? null);
   const letteringRef = useRef<Props['lettering']>(lettering ?? null);
+  const burnSignatureRef = useRef(burnSignature ?? false);
+  /** Which video frame the PREVIEW runner's buffer holds (see D5/ShadeGate). */
+  const shadeGateRef = useRef<ShadeGate>(createShadeGate());
+  /** Cached `#<id> canvas` node — `document.querySelector` per frame is a full
+   *  selector parse + tree walk for a node that changes at most on remount. */
+  const threeElRef = useRef<{ id: string; el: HTMLCanvasElement | null }>({ id: '', el: null });
   /** Latch so the webfont warm-up runs at most once, and ONLY for a booth that
    *  actually draws lettering (a legacy event requests no extra fonts). */
   const letteringFontsRef = useRef(false);
@@ -358,6 +424,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { watermarkRef.current = watermark; }, [watermark]);
   useEffect(() => { effectsCanvasRef.current = effectsCanvas ?? null; }, [effectsCanvas]);
+  useEffect(() => { burnSignatureRef.current = burnSignature ?? false; }, [burnSignature]);
   useEffect(() => {
     letteringRef.current = lettering ?? null;
     // Canvas text does NOT trigger a webfont fetch — an unloaded family silently
@@ -393,6 +460,12 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     runner: ShaderRunner,
     w: number, h: number,
     withSignature: boolean,
+    /**
+     * Pass a gate to let step 2 reuse the runner's existing drawing buffer when
+     * the video clock has not advanced (the live preview). Null ⇒ always shade,
+     * which is what a one-shot capture needs.
+     */
+    shadeGate: ShadeGate | null = null,
   ) => {
     const video = videoRef.current;
     if (!video || video.readyState < 2) return;
@@ -410,10 +483,27 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
 
     // Step 2: Effect shader
     if (eid !== 'none' && runner.available) {
-      // Draw unflipped video into runner, then mirror result onto composite
+      // Draw unflipped video into runner, then mirror result onto composite.
       runner.resize(w, h);
-      const params = defaultParams(eid);
-      const shaded = runner.draw(video, eid, params);
+      // The rAF loop runs at display rate while the camera yields ~30fps, so
+      // half of these passes used to re-upload and re-shade a byte-identical
+      // frame. `preserveDrawingBuffer: true` means the previous output is still
+      // in the runner canvas, so the skip costs nothing and the composite below
+      // is unchanged — only the shade is skipped, never the frame.
+      const vt = video.currentTime;
+      let shaded: HTMLCanvasElement | null;
+      if (shadeGate && canReuseShade(shadeGate, vt, eid, w, h)) {
+        shaded = runner.canvas;
+      } else {
+        // Omitting the params argument uses the shader's shared frozen defaults
+        // — identical values to the `defaultParams(eid)` object this allocated
+        // on every single frame.
+        shaded = runner.draw(video, eid);
+        if (shadeGate) {
+          if (shaded) markShaded(shadeGate, vt, eid, w, h);
+          else invalidateShadeGate(shadeGate);
+        }
+      }
       if (shaded) {
         ctx.save();
         if (isMirror) { ctx.translate(w, 0); ctx.scale(-1, 1); }
@@ -426,7 +516,14 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     // Step 3: Three.js canvas
     const threeId = threeCanvasIdRef.current;
     if (threeId) {
-      const threeEl = document.querySelector<HTMLCanvasElement>(`#${threeId} canvas`);
+      // Re-query only when the id changes or the cached node left the document
+      // (R3F remount) — otherwise this was a selector parse + tree walk per frame.
+      const cached = threeElRef.current;
+      if (cached.id !== threeId || !cached.el || !cached.el.isConnected) {
+        cached.id = threeId;
+        cached.el = document.querySelector<HTMLCanvasElement>(`#${threeId} canvas`);
+      }
+      const threeEl = cached.el;
       if (threeEl && threeEl.width > 0) {
         try { ctx.drawImage(threeEl, 0, 0, w, h); } catch { /* tainted */ }
       }
@@ -518,7 +615,12 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
       rafRef.current = requestAnimationFrame(tick);
       if (!activeRef.current) return;
       ctx!.clearRect(0, 0, canvas!.width, canvas!.height);
-      drawFrame(ctx!, canvas!, runner, PREVIEW_W, PREVIEW_H, false);
+      drawFrame(
+        ctx!, canvas!, runner, PREVIEW_W, PREVIEW_H,
+        // Step 6 on ONLY while recording: this canvas IS the recorded stream.
+        burnSignatureRef.current,
+        shadeGateRef.current,
+      );
     }
 
     rafRef.current = requestAnimationFrame(tick);
@@ -527,6 +629,10 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
       cancelAnimationFrame(rafRef.current);
       runner.dispose();
       runnerRef.current = null;
+      // The capture runner is created lazily and kept for the session (see
+      // capturePhoto) — this is the only place that owns its teardown.
+      captureRunnerRef.current?.dispose();
+      captureRunnerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -561,10 +667,21 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     offscreen.width = CAPTURE_W;
     offscreen.height = CAPTURE_H;
     const ctx = offscreen.getContext('2d')!;
-    // Capture runner at full res (create temporary full-res runner)
-    const captureRunner = new ShaderRunner(CAPTURE_W, CAPTURE_H);
-    drawFrame(ctx, offscreen, captureRunner, CAPTURE_W, CAPTURE_H, true);
-    captureRunner.dispose();
+    // ONE full-res capture runner for the session. This used to construct and
+    // dispose a ShaderRunner per shutter press, and the old dispose() never
+    // released the WebGL context — so a guest taking a dozen shots quietly
+    // stacked a dozen live contexts against mobile Safari's per-page cap and
+    // the browser force-lost the preview's. resetClock keeps the observable
+    // behaviour of a fresh runner: uTime starts at ~0 for every capture, so an
+    // animated filter bakes the same phase into every shot exactly as before.
+    let captureRunner = captureRunnerRef.current;
+    if (!captureRunner) {
+      captureRunner = new ShaderRunner(CAPTURE_W, CAPTURE_H);
+      captureRunnerRef.current = captureRunner;
+    }
+    captureRunner.resetClock();
+    // No shade gate: a capture must always shade the frame in front of it.
+    drawFrame(ctx, offscreen, captureRunner, CAPTURE_W, CAPTURE_H, true, null);
     return offscreen.toDataURL('image/jpeg', 0.9);
   }, [drawFrame, videoRef]);
 
