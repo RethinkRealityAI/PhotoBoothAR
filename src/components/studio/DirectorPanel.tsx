@@ -49,6 +49,10 @@ import {
   type AiErrorCode,
 } from '../../lib/ai';
 import { uploadAsset } from '../../lib/db';
+import { useEntitlements } from '../../lib/entitlements';
+// Defined ONCE in AiFramePanel so both studio surfaces offer the same picker at
+// the same prices — see the block above its default export.
+import { ProviderSegment, providerBody, useImageProvider } from './AiFramePanel';
 import type { Experience } from '../../types';
 import { MAX_OBJECTS, sceneCounts, type StudioAction, type StudioDraft } from '../../lib/studio/state';
 import {
@@ -142,6 +146,9 @@ export default function DirectorPanel({
   onClose: () => void;
 }) {
   const { eventId, eventUuid } = useEvent();
+  const entitlements = useEntitlements();
+  // Which model paints the FRAME (the 3D concept leg stays gemini — see below).
+  const providerChoice = useImageProvider(eventId, eventUuid);
   const [prompt, setPrompt] = useState(initialPrompt);
   const [phase, setPhase] = useState<Phase>('idle');
   const [plan, setPlan] = useState<ScenePlan | null>(null);
@@ -169,6 +176,11 @@ export default function DirectorPanel({
   planRef.current = plan;
   const referenceUrlRef = useRef(referenceUrl);
   referenceUrlRef.current = referenceUrl;
+  // Same latest-snapshot idiom as the reference above: the frame generator reads
+  // the CURRENT pick without generateFrame (and everything memoized on it) being
+  // rebuilt every time the host taps a provider pill.
+  const providerRef = useRef(providerChoice.effective);
+  providerRef.current = providerChoice.effective;
 
   // Retry caches — a failed LATER leg must never re-charge an EARLIER leg (audit:
   // retries bled 1cr each). The generated-but-unkeyed frame reprocesses for free;
@@ -379,6 +391,8 @@ export default function DirectorPanel({
         kind: 'border',
         transparentBackground: false,
         greenScreen: true,
+        // Absent for gemini — that body stays byte-identical to before.
+        ...providerBody(providerRef.current),
         ...(reference ? { referenceImageUrl: reference } : {}),
       });
       // Bail AFTER the charge but BEFORE caching: a stale epoch must not write the
@@ -556,6 +570,10 @@ export default function DirectorPanel({
         // no hole where the head goes" failure. buildConceptPrompt states the
         // cavity, the wall thickness, the real-world scale and the camera
         // angle that reveals the opening.
+        // No provider option here on purpose: the concept leg must accept a
+        // reference image (the path above feeds one straight to image→3D), and
+        // referenceImageUrl is a gemini-only capability — so 3D concepts stay
+        // gemini whatever the host picked for frames.
         const concept = await generateImage(uuid, {
           prompt: buildConceptPrompt(brief),
           kind: '2d_filter',
@@ -727,6 +745,13 @@ export default function DirectorPanel({
   const planBlock = plan && (
     <div className="flex flex-col gap-3">
       <SceneHeader sceneName={plan.sceneName} onGenerateAll={generateAll} generateAllDisabled={anyGenerating} />
+
+      {plan.frame && (
+        <div className="rounded-xl border border-white/8 bg-white/[0.02] px-3 py-2.5">
+          <p className="font-label uppercase tracking-widest text-[8px] text-brand-muted/50 mb-1.5">Generate the frame with</p>
+          <ProviderSegment choice={providerChoice} freeTrial={!entitlements.aiStudio} />
+        </div>
+      )}
 
       {plan.frame && (
         <FrameCard

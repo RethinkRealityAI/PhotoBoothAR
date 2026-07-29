@@ -9,12 +9,17 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Coins, CreditCard, ExternalLink, RefreshCw, Sparkles } from 'lucide-react';
+import { Coins, CreditCard, ExternalLink, Link2, RefreshCw, Sparkles } from 'lucide-react';
 import {
   fetchMyOrgResult, fetchCreditBalance, fetchSubscription, fetchLedgerResult,
   startCheckout, openPortal, invalidateProSubscriptionCache,
   type HostOrg, type SubscriptionRow, type LedgerRow, type CheckoutBody,
 } from '../../lib/host';
+import {
+  fetchProviderKeyStatus, setProviderKey, clearProviderKey, providerKeyErrorMessage,
+  type ProviderKeyStatus,
+} from '../../lib/providerKeys';
+import { splitCombinedKey, validateKeyInput, KEY_FIELD_MAX } from '../../lib/providerKeysModel';
 import { BillingPendingNotice } from './UpgradeCard';
 
 const CREDIT_PACKS: { pack: '50' | '120' | '300'; credits: number; price: string }[] = [
@@ -82,6 +87,17 @@ export default function Billing() {
   const [notice, setNotice] = useState<'pending' | 'success' | string | null>(
     searchParams.get('checkout') === 'success' ? 'success' : null,
   );
+  /* Connected accounts (bring-your-own Higgsfield key). `keyStatus` null with
+     keyFailed false = still loading; null with keyFailed true = the read failed,
+     which must never be painted as "not connected". */
+  const [keyStatus, setKeyStatus] = useState<ProviderKeyStatus | null>(null);
+  const [keyFailed, setKeyFailed] = useState(false);
+  const [keyId, setKeyId] = useState('');
+  const [keySecret, setKeySecret] = useState('');
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [keyNotice, setKeyNotice] = useState<string | null>(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,13 +105,23 @@ export default function Billing() {
     setOrgLoadFailed(failed);
     setOrg(myOrg);
     if (myOrg) {
-      const [bal, sub, ledgerResult] = await Promise.all([
+      const [bal, sub, ledgerResult, keyResult] = await Promise.all([
         fetchCreditBalance(myOrg.orgId),
         fetchSubscription(myOrg.orgId),
         fetchLedgerResult(myOrg.orgId, 20),
+        fetchProviderKeyStatus('higgsfield', myOrg.orgId),
       ]);
       setBalance(bal);
       setSubscription(sub);
+      // Same rule as the ledger below: a failed read is not a record of "no key".
+      if (keyResult.error !== null || keyResult.data === null) {
+        console.error('[billing] provider key status failed:', keyResult.error);
+        setKeyStatus(null);
+        setKeyFailed(true);
+      } else {
+        setKeyStatus(keyResult.data);
+        setKeyFailed(false);
+      }
       // A failed ledger read printed "No credit activity yet." over the
       // customer's real purchases — the balance card above already models the
       // error case properly, this one did not.
@@ -137,6 +163,57 @@ export default function Billing() {
     if (error === 'billing_not_configured' || error === 'billing_test_mode') { setNotice('pending'); return; }
     console.error('[billing] portal failed:', error);
     setNotice(checkoutErrorMessage(error));
+  };
+
+  /* ── Connected accounts: store / remove the org's own Higgsfield key ─────
+   * The secret travels ONE WAY (browser → provider-keys edge fn). Nothing here
+   * can read it back, and both fields are cleared the instant it is stored, so
+   * it is never left sitting in a form the next person to walk past can read. */
+  const onKeyIdChange = (raw: string) => {
+    // Most dashboards offer the pair as `id:secret` on one line — accept that
+    // paste in either box rather than making the host split it by hand.
+    const pair = splitCombinedKey(raw);
+    if (pair) { setKeyId(pair.keyId); setKeySecret(pair.keySecret); return; }
+    setKeyId(raw);
+  };
+
+  const connectKey = async () => {
+    if (keyBusy || !org) return;
+    setKeyError(null);
+    setKeyNotice(null);
+    const problem = validateKeyInput(keyId, keySecret);
+    if (problem) { setKeyError(problem); return; }
+    setKeyBusy(true);
+    const res = await setProviderKey(keyId.trim(), keySecret.trim(), 'higgsfield', org.orgId);
+    setKeyBusy(false);
+    if (res.error !== null || res.data === null) {
+      console.error('[billing] provider key save failed:', res.error);
+      setKeyError(providerKeyErrorMessage(res.error ?? 'internal', res.message));
+      return;
+    }
+    setKeyId('');
+    setKeySecret('');
+    setKeyStatus(res.data);
+    setKeyFailed(false);
+    setKeyNotice('Higgsfield connected — new generations run on your own account.');
+  };
+
+  const disconnectKey = async () => {
+    if (keyBusy || !org) return;
+    setKeyError(null);
+    setKeyNotice(null);
+    setKeyBusy(true);
+    const res = await clearProviderKey('higgsfield', org.orgId);
+    setKeyBusy(false);
+    setConfirmDisconnect(false);
+    if (res.error !== null || res.data === null) {
+      console.error('[billing] provider key clear failed:', res.error);
+      setKeyError(providerKeyErrorMessage(res.error ?? 'internal', res.message));
+      return;
+    }
+    setKeyStatus(res.data);
+    setKeyFailed(false);
+    setKeyNotice('Higgsfield disconnected — generations fall back to Beamwall credits.');
   };
 
   const returnUrl = typeof window !== 'undefined' ? `${window.location.origin}/host/billing` : '';
@@ -296,6 +373,142 @@ export default function Billing() {
               </button>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Connected accounts — bring your own provider credentials */}
+      <div className="liquid-glass rounded-2xl p-5 mb-6 flex flex-col gap-4">
+        <div className="flex items-center gap-2 text-brand-muted/60">
+          <Link2 className="w-4 h-4 text-accent/80" />
+          <span className="font-label uppercase tracking-luxe text-[10px]">Connected accounts</span>
+        </div>
+        <p className="font-sans text-[11px] text-brand-muted/60 leading-relaxed -mt-2">
+          Bring your own Higgsfield account — generations through Higgsfield stop consuming Beamwall credits.
+          Create API keys at{' '}
+          <a
+            href="https://cloud.higgsfield.ai"
+            target="_blank"
+            rel="noreferrer"
+            className="text-accent-2 hover:underline inline-flex items-center gap-0.5"
+          >
+            cloud.higgsfield.ai <ExternalLink className="w-3 h-3 opacity-60" />
+          </a>
+          .
+        </p>
+
+        <div className="rounded-xl bg-white/[0.03] border border-white/[0.08] p-4 flex flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="font-serif text-base text-brand-fg leading-tight">Higgsfield</p>
+              <p className="font-sans text-[11px] text-brand-muted/60 mt-0.5">
+                {loading
+                  ? 'Checking…'
+                  : noOrg
+                    ? 'Create your first event to set up your organization.'
+                    : keyFailed
+                      ? 'Couldn’t check this connection — this is not a record of "not connected".'
+                      : keyStatus === null
+                        ? 'Checking…'
+                        : keyStatus.configured
+                          ? `Connected · key ${keyStatus.keyIdMasked ?? '••••'}`
+                          : keyStatus.platformAvailable
+                            ? 'Not connected — Higgsfield generations cost 2 Beamwall credits.'
+                            : 'Not connected — Higgsfield generation needs your own key.'}
+              </p>
+            </div>
+            {keyStatus?.configured === true && !confirmDisconnect && (
+              <button
+                onClick={() => setConfirmDisconnect(true)}
+                disabled={keyBusy}
+                className="pressable shrink-0 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors disabled:opacity-40"
+              >
+                Disconnect
+              </button>
+            )}
+          </div>
+
+          {keyStatus?.configured === true && confirmDisconnect && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-400/25 px-3 py-2.5">
+              <p className="flex-1 min-w-[12rem] font-sans text-[11px] text-amber-200/90 leading-snug">
+                Remove this key? Higgsfield generations will spend Beamwall credits again.
+              </p>
+              <button
+                onClick={disconnectKey}
+                disabled={keyBusy}
+                className="rounded-full bg-amber-500/20 hover:bg-amber-500/30 px-4 min-h-11 font-label uppercase tracking-luxe text-[10px] text-amber-200 transition-colors disabled:opacity-40"
+              >
+                {keyBusy ? 'Removing…' : 'Remove key'}
+              </button>
+              <button
+                onClick={() => setConfirmDisconnect(false)}
+                disabled={keyBusy}
+                className="rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[10px] text-brand-fg/80 transition-colors disabled:opacity-40"
+              >
+                Keep it
+              </button>
+            </div>
+          )}
+
+          {/* The form shows while nothing is stored — and stays hidden while the
+              status is unknown, so a failed read never invites a host to
+              overwrite a key they may already have. */}
+          {!noOrg && keyStatus !== null && !keyStatus.configured && (
+            <div className="flex flex-col gap-2">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="flex flex-col gap-1">
+                  <span className="font-label uppercase tracking-widest text-[9px] text-brand-muted/50">Key id</span>
+                  <input
+                    type="text"
+                    value={keyId}
+                    onChange={(e) => onKeyIdChange(e.target.value)}
+                    maxLength={KEY_FIELD_MAX}
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="Paste key id — or id:secret"
+                    className="w-full rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2.5 font-mono text-[11px] text-brand-fg placeholder:text-brand-muted/40 outline-none focus:border-accent/50"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="font-label uppercase tracking-widest text-[9px] text-brand-muted/50">Key secret</span>
+                  <input
+                    type="password"
+                    value={keySecret}
+                    onChange={(e) => setKeySecret(e.target.value)}
+                    maxLength={KEY_FIELD_MAX}
+                    autoComplete="new-password"
+                    spellCheck={false}
+                    placeholder="Paste key secret"
+                    className="w-full rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2.5 font-mono text-[11px] text-brand-fg placeholder:text-brand-muted/40 outline-none focus:border-accent/50"
+                  />
+                </label>
+              </div>
+              <p className="font-sans text-[10px] text-brand-muted/40 leading-relaxed">
+                Stored encrypted and write-only — we can never show it back to you. Paste a new pair any time to replace it.
+              </p>
+              <button
+                onClick={connectKey}
+                disabled={keyBusy || !keyId.trim() || !keySecret.trim()}
+                className="self-start rounded-full bg-foil px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40"
+              >
+                {keyBusy ? 'Connecting…' : 'Connect'}
+              </button>
+            </div>
+          )}
+
+          {keyFailed && !loading && (
+            <button
+              onClick={load}
+              className="self-start flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/80 transition-colors"
+            >
+              <RefreshCw className="w-3 h-3" /> Retry
+            </button>
+          )}
+          {keyError && (
+            <p className="font-sans text-[11px] text-red-300" role="alert">{keyError}</p>
+          )}
+          {keyNotice && (
+            <p className="font-sans text-[11px] text-emerald-200/90">{keyNotice}</p>
+          )}
         </div>
       </div>
 

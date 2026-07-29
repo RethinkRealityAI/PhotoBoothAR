@@ -15,7 +15,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Check, Loader2, Send } from 'lucide-react';
 import {
   askCopilot, executeAction, normalizeActions, applyGeneratedFrame, applyGeneratedPiece,
-  type CopilotAction, type CopilotCtx,
+  type CopilotAction, type CopilotCtx, type FrameProvider,
 } from '../../lib/copilot';
 import {
   buildCardLinkSurface, buildLinksSurface, buildProposalSurface, buildStatsSurface,
@@ -144,8 +144,12 @@ export default function CopilotChat({
   // apply). Each generation card is independent — no shared plan/epoch needed.
   // `lettering` rides along so Regenerate re-runs the SAME words on the frame —
   // re-rolling the art and silently losing the couple's names would read as a bug.
+  // `provider` rides along for the same reason: a Regenerate must not quietly
+  // move the host onto a different model (or a different price) than the one
+  // their card said it would use.
   const genState = useRef<Record<string, {
     kind: 'frame' | 'headpiece'; prompt: string; experience?: Experience; lettering?: LetteringSpec | null;
+    provider?: FrameProvider;
   }>>({});
   const runningGen = useRef<Set<string>>(new Set());
   // Surfaces the host dismissed mid-generation — a late async continuation must
@@ -292,11 +296,18 @@ export default function CopilotChat({
 
   /** FRAME: generate (greenScreen) → chroma-key → preview. Charge happens once
    *  in generateImage (server-metered, first 3 free); apply never re-generates. */
-  const startFrameGen = async (sid: string, prompt: string, lettering: LetteringSpec | null = null) => {
+  const startFrameGen = async (
+    sid: string,
+    prompt: string,
+    lettering: LetteringSpec | null = null,
+    /** Which model paints it. The A2UI card carries the choice (its
+     *  providerPicker always seeds one); this only threads it to the server. */
+    provider: FrameProvider = 'gemini',
+  ) => {
     if (!snapshot || runningGen.current.has(sid)) return;
     runningGen.current.add(sid);
     dismissedGen.current.delete(sid);
-    genState.current[sid] = { kind: 'frame', prompt, lettering };
+    genState.current[sid] = { kind: 'frame', prompt, lettering, provider };
     placeGen(sid, buildGeneratingSurface(sid, 'Designing your frame…'));
     try {
       const uuid = await resolveEventUuid(snapshot.slug, snapshot.eventUuid);
@@ -309,6 +320,9 @@ export default function CopilotChat({
         kind: standalone ? '2d_filter' : 'border',
         transparentBackground: standalone,
         greenScreen: true,
+        // Absent for gemini (the server default), so the body of every frame
+        // generation made before this option existed is unchanged.
+        ...(provider === 'higgsfield' ? { provider } : {}),
         ...(lettering ? { lettering } : {}),
       });
       if (res.error || !res.data?.experience) {
@@ -317,7 +331,7 @@ export default function CopilotChat({
         return;
       }
       const { experience, keyed } = await processGeneratedFrame(res.data.experience, snapshot.slug);
-      genState.current[sid] = { kind: 'frame', prompt, lettering, experience };
+      genState.current[sid] = { kind: 'frame', prompt, lettering, provider, experience };
       if (!keyed) {
         showGenError(sid, 'frame', 'Generated, but the transparent cutout didn’t come through cleanly — Regenerate for a fresh version.', true);
         return;
@@ -463,7 +477,7 @@ export default function CopilotChat({
     }
     const feedback = String(event.context.feedback ?? '').trim();
     const prompt = feedback ? `${g.prompt}. Revision: ${feedback}` : g.prompt;
-    if (g.kind === 'frame') void startFrameGen(event.surfaceId, prompt, g.lettering ?? null);
+    if (g.kind === 'frame') void startFrameGen(event.surfaceId, prompt, g.lettering ?? null, g.provider ?? 'gemini');
     else void startPieceGen(event.surfaceId, prompt);
   };
 
@@ -546,7 +560,15 @@ export default function CopilotChat({
     if (tool === 'generate_frame') {
       // The lettering fields are host-editable, so they go through the SAME
       // validator as model output. An empty/partial box → null = no lettering.
-      void startFrameGen(event.surfaceId, String(proposal.prompt ?? ''), normalizeLettering(proposal.lettering));
+      // The provider pill is host-editable on the card, so it is coerced here
+      // the same way the lettering box is — anything but 'higgsfield' means the
+      // platform's own model, which is also the absent-field default.
+      void startFrameGen(
+        event.surfaceId,
+        String(proposal.prompt ?? ''),
+        normalizeLettering(proposal.lettering),
+        proposal.provider === 'higgsfield' ? 'higgsfield' : 'gemini',
+      );
       return;
     }
     if (tool === 'add_head_piece' && proposal.source === 'generate') {
