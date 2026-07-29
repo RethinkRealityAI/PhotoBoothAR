@@ -16,9 +16,9 @@
  * platform's blue. The per-option identity comes from each experience's REAL
  * thumbnail, which is better than the demo's invented hues.
  */
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Ban, Camera as CameraIcon, Clock, Crown, Layers, Sparkles, Video } from 'lucide-react';
+import { Ban, Camera as CameraIcon, Clock, Crown, Film, Sparkles, Video } from 'lucide-react';
 import FilterThumb from './FilterThumb';
 import type { Experience } from '../../types';
 import {
@@ -192,10 +192,14 @@ export interface BoothControlDeckProps<T extends number = number> {
   /** Experience ids whose assets are still downloading. Absent ⇒ no orb ever
    *  shows a pending ring, i.e. exactly today's rendering. */
   pendingIds?: ReadonlySet<string>;
-  /** Photo-strip mode: 3 shots composited into one keepsake card. Optional so
-   *  the deck stays usable by any surface that doesn't offer it. */
+  /** Photo-strip mode: 2 or 3 shots composited into one keepsake card.
+   *  Optional so the deck stays usable by any surface that doesn't offer it. */
   stripMode?: boolean;
   onStripMode?: (on: boolean) => void;
+  /** Shots the armed strip will take — shown as a badge on the strip button. */
+  stripShots?: number;
+  /** Opens the 2-vs-3 shot picker; the deck never arms strip mode directly. */
+  onOpenStripPicker?: () => void;
 }
 
 export default function BoothControlDeck<T extends number>({
@@ -204,8 +208,27 @@ export default function BoothControlDeck<T extends number>({
   onClearAll, onOpenAll,
   mediaMode, onMediaMode, videoAllowed, timerSec, onTimerSec, timerOptions,
   recording, shutter, pendingIds, stripMode = false, onStripMode,
+  stripShots, onOpenStripPicker,
 }: BoothControlDeckProps<T>) {
   const [timerOpen, setTimerOpen] = useState(false);
+  /** The open popover sits over the shutter's corner — without light dismissal
+   *  it blocked the very control the guest reaches for next. */
+  const timerWrapRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!timerOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (timerWrapRef.current && e.target instanceof Node && !timerWrapRef.current.contains(e.target)) {
+        setTimerOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setTimerOpen(false); };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [timerOpen]);
   const active = sections.find((s) => s.key === category) ?? sections[0] ?? null;
   const activeId = active ? activeOptionId(active, selection) : null;
 
@@ -225,141 +248,45 @@ export default function BoothControlDeck<T extends number>({
           'linear-gradient(to top, rgba(5,6,11,0.92) 26%, rgba(5,6,11,0.5) 66%, transparent)',
       }}
     >
-      {/* Category tabs + the mode/timer controls, in ONE row — the old deck
-          spent a whole third cluster on these. */}
-      <div className="flex w-full max-w-md items-center justify-between gap-2">
-        <div className="flex items-center gap-4">
-          {sections.map((s) => {
-            const on = active?.key === s.key;
-            const dotted = sectionHasSelection(s, selection);
-            return (
-              <button
-                key={s.key}
-                type="button"
-                onClick={() => { haptic('tap'); onCategory(s.key); }}
-                aria-pressed={on}
-                // min-w-11 as well as min-h-11: "3D" is a two-character label,
-                // so the tab was a 44px-tall but 18px-wide target.
-                className="relative min-h-11 min-w-11 pb-1 font-label text-[10px] uppercase tracking-[0.24em] transition-colors"
-                style={{ color: on ? 'var(--color-brand-fg)' : 'rgba(169,180,204,0.55)' }}
-              >
-                {s.label}
-                {dotted && (
-                  <span
-                    className="absolute -right-2.5 top-2 h-1.5 w-1.5 rounded-full"
-                    style={{
-                      background: 'var(--color-accent)',
-                      boxShadow: '0 0 6px rgba(var(--accent-rgb),0.9)',
-                    }}
-                  />
-                )}
-                {on && (
-                  <motion.span
-                    layoutId="deck-tab-underline"
-                    className="absolute bottom-0 left-1/2 h-px w-6 -translate-x-1/2"
-                    style={{ background: 'var(--color-brand-fg)' }}
-                  />
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          {/* Capture mode. The icons stay 32px so the deck row still fits a
-              360px phone, but each carries a `-inset-1.5` pseudo-element, so
-              the real TOUCH target is 44px — the accessibility minimum — while
-              the visual stays compact. */}
-          <div className="liquid-glass-inset flex items-center gap-0.5 rounded-full p-0.5">
+      {/* Category tabs — centered over the orbs they switch, with a gradient
+          underline + glow so the active tab is unmistakable. The mode/timer
+          cluster moved down beside the shutter, camera-app style, so these
+          tabs no longer read as left-justified leftovers. */}
+      <div className="flex w-full max-w-md items-center justify-center gap-7">
+        {sections.map((s) => {
+          const on = active?.key === s.key;
+          const dotted = sectionHasSelection(s, selection);
+          return (
             <button
+              key={s.key}
               type="button"
-              onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('photo'); onStripMode?.(false); } }}
-              disabled={recording}
-              aria-label="Photo mode"
-              aria-pressed={mediaMode === 'photo' && !stripMode}
-              className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
-                mediaMode === 'photo' && !stripMode ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
-              }`}
+              onClick={() => { haptic(on ? 'tap' : 'select'); onCategory(s.key); }}
+              aria-pressed={on}
+              // min-w-11 as well as min-h-11: "3D" is a two-character label,
+              // so the tab was a 44px-tall but 18px-wide target.
+              className="relative min-h-11 min-w-11 pb-1.5 font-label text-[11px] uppercase tracking-[0.24em] transition-colors"
+              style={{ color: on ? 'var(--color-brand-fg)' : 'rgba(169,180,204,0.55)' }}
             >
-              <CameraIcon className="h-3.5 w-3.5" />
+              {s.label}
+              {dotted && (
+                <span
+                  className="absolute -right-2.5 top-2 h-1.5 w-1.5 rounded-full"
+                  style={{
+                    background: 'var(--color-accent)',
+                    boxShadow: '0 0 6px rgba(var(--accent-rgb),0.9)',
+                  }}
+                />
+              )}
+              {on && (
+                <motion.span
+                  layoutId="deck-tab-underline"
+                  className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-foil"
+                  style={{ boxShadow: '0 0 10px rgba(var(--accent-rgb),0.85)' }}
+                />
+              )}
             </button>
-            {onStripMode && (
-              <button
-                type="button"
-                onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('photo'); onStripMode(true); } }}
-                disabled={recording}
-                aria-label="Photo strip mode — three shots on one card"
-                aria-pressed={mediaMode === 'photo' && stripMode}
-                className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
-                  mediaMode === 'photo' && stripMode ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
-                }`}
-              >
-                <Layers className="h-3.5 w-3.5" />
-              </button>
-            )}
-            {videoAllowed && (
-              <button
-                type="button"
-                onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('video'); onStripMode?.(false); } }}
-                disabled={recording}
-                aria-label="Video mode"
-                aria-pressed={mediaMode === 'video'}
-                className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
-                  mediaMode === 'video' ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
-                }`}
-              >
-                <Video className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Timer */}
-          {mediaMode === 'photo' && !recording && (
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => { haptic('tap'); setTimerOpen((o) => !o); }}
-                aria-label="Self-timer"
-                aria-expanded={timerOpen}
-                // 36px was below the 44px touch minimum — a self-timer is
-                // exactly the control a guest jabs at while holding the phone
-                // out at arm's length.
-                className={`pressable liquid-glass-inset flex h-11 min-w-11 items-center gap-1 rounded-full px-3 font-label text-[9px] uppercase tracking-wide transition-colors ${
-                  timerSec === 0 ? 'text-brand-muted/70' : 'text-[color:var(--color-accent)]'
-                }`}
-              >
-                <Clock className="h-3 w-3" />
-                {timerSec === 0 ? '' : `${timerSec}s`}
-              </button>
-              <AnimatePresence>
-                {timerOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 6, scale: 0.96 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 6, scale: 0.96 }}
-                    transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                    className="liquid-glass-raised absolute bottom-[3.25rem] right-0 z-30 flex gap-1 rounded-2xl p-1.5"
-                  >
-                    {timerOptions.map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => { haptic('select'); onTimerSec(t); setTimerOpen(false); }}
-                        className={`pressable h-11 w-11 rounded-xl font-label text-[10px] transition-colors ${
-                          timerSec === t
-                            ? 'bg-foil text-[color:var(--on-accent)]'
-                            : 'text-brand-muted/70 hover:text-brand-fg'
-                        }`}
-                      >
-                        {t === 0 ? 'Off' : `${t}s`}
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
-        </div>
+          );
+        })}
       </div>
 
       {/* Orb row for the active category. */}
@@ -417,7 +344,117 @@ export default function BoothControlDeck<T extends number>({
         </div>
       )}
 
-      {shutter}
+      {/* Shutter row — capture-mode pill on the left, shutter centered, timer
+          on the right. One contained, symmetric cluster: the timer used to sit
+          in the tab row's right corner, where it clipped against the viewport
+          edge and its popover escaped the screen. */}
+      <div className="relative flex min-h-[76px] w-full max-w-md items-center justify-center">
+        {/* Capture mode. The icons stay 32px so the cluster fits a 360px
+            phone, but each carries a `-inset-1.5` pseudo-element, so the real
+            TOUCH target is 44px — the accessibility minimum — while the
+            visual stays compact. */}
+        <div className="liquid-glass-inset absolute left-1 flex items-center gap-0.5 rounded-full p-0.5">
+          <button
+            type="button"
+            onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('photo'); onStripMode?.(false); } }}
+            disabled={recording}
+            aria-label="Photo mode"
+            aria-pressed={mediaMode === 'photo' && !stripMode}
+            className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
+              mediaMode === 'photo' && !stripMode ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
+            }`}
+          >
+            <CameraIcon className="h-3.5 w-3.5" />
+          </button>
+          {onOpenStripPicker && (
+            <button
+              type="button"
+              onClick={() => { if (!recording) { haptic('tap'); onOpenStripPicker(); } }}
+              disabled={recording}
+              aria-label="Photo strip — choose 2 or 3 shots"
+              aria-pressed={mediaMode === 'photo' && stripMode}
+              className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
+                mediaMode === 'photo' && stripMode ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
+              }`}
+            >
+              <Film className="h-3.5 w-3.5" />
+              {mediaMode === 'photo' && stripMode && stripShots != null && (
+                <span
+                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full font-label text-[8px] font-bold"
+                  style={{
+                    background: 'var(--color-accent)',
+                    color: 'var(--on-accent)',
+                    boxShadow: '0 0 6px rgba(var(--accent-rgb),0.8)',
+                  }}
+                >
+                  {stripShots}
+                </span>
+              )}
+            </button>
+          )}
+          {videoAllowed && (
+            <button
+              type="button"
+              onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('video'); onStripMode?.(false); } }}
+              disabled={recording}
+              aria-label="Video mode"
+              aria-pressed={mediaMode === 'video'}
+              className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
+                mediaMode === 'video' ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
+              }`}
+            >
+              <Video className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        {shutter}
+
+        {/* Timer — anchored to the cluster's right edge; the popover opens
+            upward and right-aligned, so both stay inside the viewport. */}
+        {mediaMode === 'photo' && !recording && (
+          <div ref={timerWrapRef} className="absolute right-1">
+            <button
+              type="button"
+              onClick={() => { haptic('tap'); setTimerOpen((o) => !o); }}
+              aria-label="Self-timer"
+              aria-expanded={timerOpen}
+              className={`pressable liquid-glass-inset flex h-11 min-w-11 items-center justify-center gap-1 rounded-full px-3 font-label text-[9px] uppercase tracking-wide transition-colors ${
+                timerSec === 0 ? 'text-brand-muted/70' : 'text-[color:var(--color-accent)]'
+              }`}
+            >
+              <Clock className="h-3 w-3" />
+              {timerSec === 0 ? '' : `${timerSec}s`}
+            </button>
+            <AnimatePresence>
+              {timerOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 6, scale: 0.96 }}
+                  transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                  className="liquid-glass-raised absolute bottom-full right-0 z-30 mb-2 flex gap-1 rounded-2xl p-1.5"
+                >
+                  {timerOptions.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => { haptic('select'); onTimerSec(t); setTimerOpen(false); }}
+                      className={`pressable h-11 w-11 rounded-xl font-label text-[10px] transition-colors ${
+                        timerSec === t
+                          ? 'bg-foil text-[color:var(--on-accent)]'
+                          : 'text-brand-muted/70 hover:text-brand-fg'
+                      }`}
+                    >
+                      {t === 0 ? 'Off' : `${t}s`}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

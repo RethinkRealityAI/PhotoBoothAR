@@ -16,25 +16,35 @@
  * 3D via AiGeneratePanel), adapting to the active chip.
  *
  * Clicking any tile ADDS it to the scene instantly (the reducer selects the new
- * object and flips the stage view to fit) AND expands a compact settings card
- * directly below that tile's row, bound to the CURRENT selection (selectedObject)
- * — attachment point + size + occlusion for 3D pieces, size + rotation for
- * frames/stickers, params for filters. Full properties still live in the right
- * dock. Drag-onto-canvas still works (beginDrag / consumedDrag guards preserved).
- * The GLB add is async (measure-then-dispatch) — the tile shows an "adding" spinner
- * while it's in flight and the expander binds to selection, which lands with it.
+ * object and flips the stage view to fit) and drops ONE compact confirmation row
+ * under that tile's row: "Added — edit in Properties". This panel edits NOTHING.
+ *
+ * It used to. A compact settings card expanded under the clicked tile carrying a
+ * SUBSET of the right dock's controls — size/rotation for overlays, attachment
+ * point/size/occlusion for 3D, shader params for filters — so the same property
+ * existed in two places, disagreed about which subset mattered, and taught hosts
+ * that "properties are wherever you last clicked". The 3D case was the worst:
+ * attachment points are the single most confusing control in the studio and they
+ * appeared in a 19rem column, below the fold, beside a grid of thumbnails. Every
+ * one of those controls exists in PropertiesDock (which is where the selection
+ * they edit is already shown), so the card is gone and the row that replaces it
+ * POINTS there — opening the properties drawer on phones/tablets, where that
+ * dock is otherwise off-screen.
+ *
+ * Drag-onto-canvas still works (beginDrag / consumedDrag guards preserved). The
+ * GLB add is async (measure-then-dispatch) — the tile keeps its "adding" spinner
+ * while it's in flight and the row says "Adding to scene…" until it lands.
  */
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Boxes, ChevronDown, ChevronRight, Crown, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Palette, Search, Sparkles, Sun, Upload, Wand2, X } from 'lucide-react';
+import { ArrowRight, Boxes, Check, ChevronDown, ChevronRight, Crown, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Palette, Search, Sparkles, Sun, Upload, Wand2, X } from 'lucide-react';
 import { FILTER_SHADERS, SHADER_MAP, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { HEAD_PIECES } from '../../lib/headPieces';
-import { ANCHOR_PRESETS } from '../../lib/faceRig';
 import { uploadAsset, listAssetsResult, fetchExperiencesResult } from '../../lib/db';
 import { captureGlbThumbnail, measureGlbFitScale } from '../../lib/studio/glbThumb';
 import type { LightingPresetId } from '../../lib/studio/lighting';
-import { PROP_SCALE_MAX, PROP_TARGET_CM } from '../../lib/studio/bustFit';
+import { PROP_TARGET_CM } from '../../lib/studio/bustFit';
 import {
   LIBRARY_ASSET_CHECKLIST,
   LIBRARY_EMPTY_MESSAGE,
@@ -45,8 +55,7 @@ import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
 import { SCENE_FULL_MESSAGE, canAddObject, selectedObject, sceneCounts, MAX_OBJECTS, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
 import { experienceToDraft } from '../../lib/studio/draftMapping';
-import { OVERLAY_SCALE } from '../../lib/studio/controlSpecs';
-import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
+import { SectionLabel } from './StudioControls';
 import AiFramePanel from './AiFramePanel';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
 import HelpButton from './HelpButton';
@@ -78,6 +87,10 @@ interface Props {
    *  live preview is lit exactly like the booth (otherwise a host tuning a
    *  chrome necklace under 'Neon' would be judging it under 'Studio'). */
   lighting: LightingPresetId;
+  /** Reveal the right-hand Properties dock — the ONLY place assets are edited.
+   *  Below lg that dock is an off-screen drawer, so the "edit in Properties"
+   *  row would otherwise point at something the host cannot see. */
+  onOpenProperties: () => void;
 }
 
 // Head pieces are procedural (no image asset) — a distinctive icon per piece
@@ -106,8 +119,8 @@ interface UploadsState { status: LoadStatus; items: DockItem[] }
 interface ExperiencesState { status: LoadStatus; templates: Experience[]; generated: DockItem[]; mine: DockItem[] }
 
 // A normalized tile — every grid section (built-ins, head pieces, generated,
-// uploads, mine) renders through renderTiles so the inline settings card can be
-// injected uniformly below the clicked tile's row.
+// uploads, mine) renders through renderTiles so the "Added — edit in Properties"
+// row can be injected uniformly below the clicked tile's row.
 interface Tile {
   key: string;
   label: string;
@@ -165,8 +178,8 @@ function builtinDataUrl(id: string, svg: string): string {
   return url;
 }
 
-/** Smooth expand/collapse for dock sub-groups and inline settings cards —
- *  the PickerDrawer height/opacity idiom; prefers-reduced-motion snaps. */
+/** Smooth expand/collapse for dock sub-groups and the just-added confirmation
+ *  row — the PickerDrawer height/opacity idiom; prefers-reduced-motion snaps. */
 function Collapse({ show, children }: { show: boolean; children: ReactNode }) {
   const reduced = useReducedMotion() ?? false;
   return (
@@ -186,7 +199,7 @@ function Collapse({ show, children }: { show: boolean; children: ReactNode }) {
   );
 }
 
-export default function AssetsDock({ state, dispatch, onOpenExperience, beginDrag, consumedDrag, lighting }: Props) {
+export default function AssetsDock({ state, dispatch, onOpenExperience, beginDrag, consumedDrag, lighting, onOpenProperties }: Props) {
   const { draft } = state;
   const { source, eventId } = useEvent();
   const entitlements = useEntitlements();
@@ -198,14 +211,15 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const [chip, setChip] = useState<AssetChip>('all');
   const [query, setQuery] = useState('');
   const [aiOpen, setAiOpen] = useState(false);
-  // Which tile's inline settings card is expanded (section-prefixed key so ids
-  // never collide across sections), and a model tile whose async GLB measure is
-  // still in flight (drives the "adding" spinner on that tile).
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  // Which tile was JUST added — its "Added — edit in Properties" row shows under
+  // that tile's grid row (section-prefixed key so ids never collide across
+  // sections) — and a model tile whose async GLB measure is still in flight
+  // (drives the "adding" spinner on that tile AND the row's pending copy).
+  const [addedKey, setAddedKey] = useState<string | null>(null);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
-  // The object id the open inline settings card adopted (and the tile key it
-  // belongs to) — the card auto-collapses if the live selection moves off it
-  // (see the guard effect after the selection is derived below).
+  // The object id the open confirmation row adopted (and the tile key it belongs
+  // to) — the row auto-dismisses if the live selection moves off it (see the
+  // guard effect after the selection is derived below).
   const cardObjIdRef = useRef<string | null>(null);
   const cardKeyRef = useRef<string | null>(null);
   // Collapsible Studio-Library sub-groups (default all expanded → collapsed:false).
@@ -273,10 +287,10 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   }, [state.dirty, dispatch]);
 
   // Click-to-add for an Uploads/Generated/Mine dock item — mirrors the built-in
-  // library's handlers, guarded by consumedDrag() at the call site. Also opens
-  // the inline settings card for the just-added object (keyed by the tile).
+  // library's handlers, guarded by consumedDrag() at the call site. Also flags
+  // the tile as the just-added one, so its confirmation row shows.
   const addDockItem = useCallback((item: DockItem, key: string) => {
-    setExpandedKey(key);
+    setAddedKey(key);
     if (item.family === '2d') {
       if (item.payload.url) {
         // Explicit sub-kind: the item's own kind, else the active chip (sticker),
@@ -380,8 +394,8 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     }
   }, [dispatch, eventId, loadUploads]);
 
-  // The selected object drives which library item reads as "active" and what the
-  // inline settings card edits (the reducer selects each just-added object).
+  // The selected object drives which library item reads as "active" and which
+  // name the confirmation row shows (the reducer selects each just-added object).
   const sel = selectedObject(draft);
   /**
    * A stable signature of WHAT is in the scene, ignoring where it sits.
@@ -419,152 +433,85 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   );
 
   const selId = sel?.id ?? null;
-  // Guard the inline settings card against silently RETARGETING: it edits
-  // selectedObject, so an EXTERNAL selection move (e.g. a Director add landing)
-  // would make the open card start editing the new object. Track the object id
-  // the card adopted and collapse when the live selection stops matching it.
-  // Race window: a tile click sets expandedKey a frame before its OWN add lands
+  // Keep the confirmation row honest about WHICH add it is confirming. It is
+  // written against the just-added object, so an EXTERNAL selection move (e.g. a
+  // Director add landing, or the host picking another layer) means the row is
+  // now describing something that is no longer what the Properties dock will
+  // show — so it dismisses instead of lying. Track the object id the row adopted
+  // and clear when the live selection stops matching it.
+  // Race window: a tile click sets addedKey a frame before its OWN add lands
   // (immediate for sync adds; deferred through the async GLB measure for model
-  // adds, marked by pendingKey === expandedKey) — so (re)adopt when the card key
+  // adds, marked by pendingKey === addedKey) — so (re)adopt when the row's key
   // changes and defer adoption while that add is still pending.
   useEffect(() => {
-    const objectCard = !!expandedKey && !expandedKey.startsWith('filter:');
-    if (!objectCard) { cardKeyRef.current = expandedKey; cardObjIdRef.current = null; return; }
-    if (cardKeyRef.current !== expandedKey) {          // a different tile's card opened
-      cardKeyRef.current = expandedKey;
-      cardObjIdRef.current = pendingKey === expandedKey ? null : selId; // defer if its add is in flight
+    const objectRow = !!addedKey && !addedKey.startsWith('filter:');
+    if (!objectRow) { cardKeyRef.current = addedKey; cardObjIdRef.current = null; return; }
+    if (cardKeyRef.current !== addedKey) {          // a different tile's row opened
+      cardKeyRef.current = addedKey;
+      cardObjIdRef.current = pendingKey === addedKey ? null : selId; // defer if its add is in flight
       return;
     }
     if (cardObjIdRef.current === null) {               // deferred adoption: the add's object just landed
-      if (pendingKey !== expandedKey && selId) cardObjIdRef.current = selId;
+      if (pendingKey !== addedKey && selId) cardObjIdRef.current = selId;
       return;
     }
-    if (selId && selId !== cardObjIdRef.current) {     // selection moved to another object → collapse
-      setExpandedKey(null);
+    if (selId && selId !== cardObjIdRef.current) {     // selection moved to another object → dismiss
+      setAddedKey(null);
       cardKeyRef.current = null;
       cardObjIdRef.current = null;
     }
-  }, [selId, expandedKey, pendingKey]);
+  }, [selId, addedKey, pendingKey]);
 
   const q = query.trim().toLowerCase();
   const matchQuery = (name: string) => !q || name.toLowerCase().includes(q);
 
-  const editingCaption = (name: string): ReactNode => (
-    <p className="flex items-baseline gap-1.5 min-w-0">
-      <span className="font-label text-[9px] uppercase tracking-widest text-brand-muted/50 shrink-0">Editing</span>
-      <span className="text-brand-muted/30 shrink-0">·</span>
-      <span className="text-xs text-brand-fg font-medium truncate">{name}</span>
-    </p>
-  );
-
-  // The compact settings card that expands under a clicked tile — a quick-reach
-  // subset of PropertiesDock, bound to the current selection (for object tiles) or
-  // the scene filter slot (for filter tiles). Full controls remain in the right dock.
-  const renderInlineSettings = (key: string): ReactNode => {
-    // Filter tiles aren't scene objects — bind to the single filter slot directly.
-    if (key.startsWith('filter:')) {
-      const def = SHADER_MAP[draft.shaderId];
-      if (!def || draft.shaderId === 'none') return null;
-      return (
-        <div className="rounded-xl liquid-glass p-3 flex flex-col gap-3">
-          {editingCaption(def.name)}
-          {def.params.length > 0 ? (
-            def.params.map((p) => (
-              <StudioSlider
-                key={p.key}
-                label={p.label}
-                value={draft.shaderParams[p.key] ?? p.default}
-                min={p.min}
-                max={p.max}
-                step={p.step}
-                onChange={(v) => dispatch({ type: 'SET_SHADER_PARAM', key: p.key, value: v })}
-              />
-            ))
-          ) : (
-            <p className="text-[10px] text-brand-muted/40 font-sans">No adjustable parameters.</p>
-          )}
-        </div>
-      );
-    }
-    if (!sel) {
-      // A model tile whose async measure is still landing — hold the card open.
-      if (pendingKey === key) {
-        return (
-          <div className="rounded-xl liquid-glass p-3 flex items-center gap-2">
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-2" />
-            <span className="font-sans text-[10px] text-brand-muted/60">Adding to scene…</span>
-          </div>
-        );
-      }
-      return null;
-    }
-    if (sel.type === 'overlay') {
-      return (
-        <div className="rounded-xl liquid-glass p-3 flex flex-col gap-3">
-          {editingCaption(sel.name)}
-          <StudioSlider
-            label="Size"
-            value={sel.transform.scale}
-            min={0.1}
-            max={OVERLAY_SCALE.max}
-            step={0.05}
-            onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...sel.transform, scale: v } })}
-          />
-          <StudioSlider
-            label="Rotation (°)"
-            value={sel.transform.rotation}
-            min={-180}
-            max={180}
-            step={1}
-            format={(v) => v.toFixed(0)}
-            onChange={(v) => dispatch({ type: 'SET_TRANSFORM', transform: { ...sel.transform, rotation: v } })}
-          />
-        </div>
-      );
-    }
-    // 3D piece: attachment point + size + occlusion.
+  /**
+   * The ONE row that replaced the inline settings card.
+   *
+   * It confirms the add, names the thing that landed, and says — in words, not
+   * by implication — where its controls are; below lg it also OPENS that dock,
+   * which is a drawer there. Deliberately one line high: anything taller starts
+   * competing with the Properties dock for the same job, which is the confusion
+   * this whole change removes.
+   */
+  const renderAddedRow = (key: string): ReactNode => {
+    const adding = pendingKey === key;
+    // A filter tile edits the scene's single filter slot, not an object, so it
+    // has no selection to name — its params live in the same dock (under
+    // Selected item when nothing is selected, under Scene when something is).
+    const isFilter = key.startsWith('filter:');
+    const landed = isFilter ? SHADER_MAP[draft.shaderId] != null : sel != null;
+    // Nothing landed and nothing is in flight → say nothing. (An add refused at
+    // the object cap takes this path; the cap banner at the top of the dock is
+    // the honest explanation, not a confirmation row for a thing that is
+    // not there.)
+    if (!landed && !adding) return null;
     return (
-      <div className="rounded-xl liquid-glass p-3 flex flex-col gap-3">
-        {editingCaption(sel.name)}
-        <div>
-          <SectionLabel>Attachment point</SectionLabel>
-          <div className="grid grid-cols-3 gap-1">
-            {ANCHOR_PRESETS.map((p) => {
-              const active = p.id === sel.anchor;
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => dispatch({ type: 'SELECT_ANCHOR', anchor: p.id })}
-                  title={p.hint}
-                  className={`px-1 py-1.5 rounded-lg text-[8px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
-                >
-                  {p.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <StudioSlider
-          label="Size"
-          value={Math.min(sel.anchorConfig.scale, PROP_SCALE_MAX)}
-          min={0.05}
-          max={PROP_SCALE_MAX}
-          step={0.05}
-          onChange={(v) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { scale: v } })}
-        />
-        <StudioToggle
-          label="Occlude behind head"
-          hint="Hide parts of this piece behind the real head"
-          value={sel.occlusion}
-          onChange={(v) => dispatch({ type: 'SET_OCCLUSION', occlusion: v })}
-        />
-      </div>
+      <button
+        onClick={onOpenProperties}
+        disabled={adding}
+        className="pressable group flex items-center gap-2 w-full min-h-11 rounded-xl liquid-glass px-3 text-left transition-colors hover:bg-white/[0.06] disabled:pointer-events-none"
+      >
+        {adding
+          ? <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-accent-2" />
+          : <Check className="w-3.5 h-3.5 shrink-0 text-accent-2" />}
+        {/* The asset's NAME is deliberately not in here. It did not fit — at the
+            dock's 19rem the row rendered "Gold Border added — edit in Prope…",
+            truncating the half that says what to DO. The highlighted tile
+            directly above already names it, and so does the Properties header
+            this row points at. */}
+        <span className="flex-1 min-w-0 truncate font-sans text-[10px] leading-snug text-brand-muted/70">
+          {adding ? 'Adding to scene…' : <><span className="text-brand-fg">Added</span> — edit in Properties</>}
+        </span>
+        {!adding && <ArrowRight className="w-3.5 h-3.5 shrink-0 text-accent-2/70 group-hover:text-accent-2 transition-colors" />}
+      </button>
     );
   };
 
   // Renders a set of tiles as rows of 3 (every grid here is grid-cols-3), then
-  // injects the inline settings card as a full-width row directly BELOW the row
-  // that holds the expanded tile — "settings show below the tile you clicked".
+  // injects the "Added — edit in Properties" row as a full-width row directly
+  // BELOW the grid row holding the tile that was clicked, so the confirmation
+  // lands where the host's eye already is.
   const renderTiles = (tiles: Tile[], aspect: 'square' | 'frame'): ReactNode => {
     const rows: Tile[][] = [];
     for (let i = 0; i < tiles.length; i += 3) rows.push(tiles.slice(i, i + 3));
@@ -572,7 +519,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     return (
       <div className="flex flex-col gap-1.5">
         {rows.map((row, ri) => {
-          const expanded = row.find((t) => t.key === expandedKey);
+          const expanded = row.find((t) => t.key === addedKey);
           return (
             <div key={ri} className="flex flex-col gap-1.5">
               <div className="grid grid-cols-3 gap-1.5">
@@ -611,7 +558,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                   );
                 })}
               </div>
-              <Collapse show={!!expanded}>{expanded ? renderInlineSettings(expanded.key) : null}</Collapse>
+              <Collapse show={!!expanded}>{expanded ? renderAddedRow(expanded.key) : null}</Collapse>
             </div>
           );
         })}
@@ -642,7 +589,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         fallbackIcon: ImageIcon,
         pending: false,
         drag: { target: 'overlay', label: b.name, overlayKind: b.kind, builtinId: b.id, builtinUrl: url, previewUrl: url },
-        onAdd: () => { dispatch({ type: 'SELECT_BUILTIN', borderId: b.id, url }); setExpandedKey(key); },
+        onAdd: () => { dispatch({ type: 'SELECT_BUILTIN', borderId: b.id, url }); setAddedKey(key); },
       };
     }),
     // `matchQuery` closes over `q`; sceneFrame/selBuiltinId are compared by ID,
@@ -691,7 +638,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
           kindBadge: a.demo ? 'Demo' : 'Personalise',
           drag,
           onAdd: () => {
-            setExpandedKey(key);
+            setAddedKey(key);
             setPendingKey(key);
             void measureGlbFitScale(template.glbUrl)
               .then((fitScale) => dispatch({
@@ -719,7 +666,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         fallbackIcon: HEAD_PIECE_ICONS[p.id] ?? Boxes,
         pending: false,
         drag: { target: 'headpiece', label: p.name, pieceId: p.id },
-        onAdd: () => { dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id }); setExpandedKey(key); },
+        onAdd: () => { dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id }); setAddedKey(key); },
       };
     }),
     [q, selProceduralId, dispatch], // eslint-disable-line react-hooks/exhaustive-deps
@@ -746,15 +693,16 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   );
 
   // Filters are a descriptive list (no visual preview), not a tile grid — the
-  // param sliders expand right below the clicked row. Preserves CLEAR_FILTER and
-  // SELECT_SHADER + the manual SET_MODE '2d' (SELECT_SHADER alone doesn't flip view).
+  // confirmation row lands right below the clicked row and the params themselves
+  // live in the Properties dock. Preserves CLEAR_FILTER and SELECT_SHADER + the
+  // manual SET_MODE '2d' (SELECT_SHADER alone doesn't flip view).
   const renderFilters = (): ReactNode => {
     const shaders = FILTER_SHADERS.filter((s) => matchQuery(s.name));
     return (
       <div className="flex flex-col gap-1">
         {!q && (
           <button
-            onClick={() => { dispatch({ type: 'CLEAR_FILTER' }); setExpandedKey(null); }}
+            onClick={() => { dispatch({ type: 'CLEAR_FILTER' }); setAddedKey(null); }}
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl transition-colors ${draft.shaderId === 'none' ? 'bg-accent/15 ring-1 ring-accent/30 text-accent-2' : 'bg-white/[0.03] hover:bg-white/[0.06] text-brand-muted/70 hover:text-brand-fg'}`}
           >
             <X className="w-3.5 h-3.5 shrink-0" />
@@ -770,7 +718,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                 onClick={() => {
                   dispatch({ type: 'SELECT_SHADER', shaderId: s.id, params: defaultParams(s.id) });
                   dispatch({ type: 'SET_MODE', mode: '2d' });
-                  setExpandedKey(key);
+                  setAddedKey(key);
                 }}
                 className={`w-full text-left px-3 py-2 rounded-xl transition-colors ${active ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.03] hover:bg-white/[0.06]'}`}
               >
@@ -780,7 +728,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                 </div>
                 <p className="text-[9px] text-brand-muted/40 mt-0.5 leading-tight">{s.description}</p>
               </button>
-              <Collapse show={expandedKey === key}>{expandedKey === key ? renderInlineSettings(key) : null}</Collapse>
+              <Collapse show={addedKey === key}>{addedKey === key ? renderAddedRow(key) : null}</Collapse>
             </div>
           );
         })}

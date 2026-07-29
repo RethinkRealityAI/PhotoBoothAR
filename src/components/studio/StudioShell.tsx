@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Check, Clapperboard, Copy, Layers, Loader2, Pencil, Redo2, Save, SlidersHorizontal, Undo2, X } from 'lucide-react';
+import { ArrowLeft, Check, Clapperboard, Copy, HardDrive, Layers, Loader2, Pencil, QrCode, Redo2, Save, SlidersHorizontal, Undo2, X } from 'lucide-react';
 import { useCameraStream } from '../booth/useCameraStream';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from '../admin/studioBase';
@@ -694,12 +694,14 @@ export default function StudioShell() {
           <span className="font-label text-[7px] uppercase tracking-wide leading-none">Assets</span>
         </button>
         {/* sm+: the experience NAME is the bar's visual anchor — large, inline-
-            renameable, flex-1 so it takes all slack and truncates first. */}
-        <div className="hidden sm:flex flex-col justify-center min-w-0 flex-1">
+            renameable, flex-1 so it takes all slack and truncates first.
+            The "Studio · Editing experience / New experience" caption that used
+            to sit under it is GONE: it named the screen the host is already
+            standing on, and the "new vs editing" half is already said — louder —
+            by the Save button, which reads "Save" for a new draft and "Update"
+            for one that exists. */}
+        <div className="hidden sm:flex items-center min-w-0 flex-1">
           {nameControl}
-          <p className="font-label text-[8px] uppercase tracking-widest text-brand-muted/50 px-2.5">
-            Studio · {state.draft.id ? 'Editing experience' : 'New experience'}
-          </p>
         </div>
         {/* Phone: the name lives on its own row below; this spacer spreads the
             control groups apart. */}
@@ -721,27 +723,35 @@ export default function StudioShell() {
         {saveError && <span className="hidden sm:inline text-rose-400 text-[10px] font-sans max-w-[180px] text-right">{saveError}</span>}
         {/* Autosave status. Says exactly what it is — a local copy on THIS
             device, not a save to the event — so it can never be mistaken for
-            having published the scene. */}
+            having published the scene. Compact by design: the glyph carries the
+            state in the bar, the words live in the tooltip and in the sr-only
+            text, so nothing is lost when the label is folded away. */}
         {!saveError && !saved && state.dirty && autosave && (
           <Tooltip
             label="Draft kept on this device"
             hint="Your unsaved scene is stored locally so a refresh or crash can’t lose it. It is not published until you Save."
             side="bottom"
           >
-            <span className="hidden md:inline text-[9px] font-label uppercase tracking-widest text-brand-muted/40 whitespace-nowrap cursor-help">
-              Draft kept locally
+            <span className="hidden sm:inline-flex items-center gap-1 text-[9px] font-label uppercase tracking-widest text-brand-muted/40 whitespace-nowrap cursor-help">
+              <HardDrive className="w-3.5 h-3.5 shrink-0" aria-hidden />
+              <span className="hidden xl:inline">Draft kept locally</span>
+              <span className="sr-only xl:hidden">Draft kept locally on this device</span>
             </span>
           </Tooltip>
         )}
         {/* Post-save nudge — the QR/share kit lives on the event's Share tab
             (same base path derivation as the back-to-Library link above). */}
         {saved && (
-          <Link
-            to={`${base}/share`}
-            className="hidden sm:inline text-[9px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors whitespace-nowrap"
-          >
-            Get your QR in Share
-          </Link>
+          <Tooltip label="Get your QR" hint="Opens the event's Share tab — QR code, guest link and print-ready art." side="bottom">
+            <Link
+              to={`${base}/share`}
+              className="hidden sm:inline-flex items-center gap-1 text-[9px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors whitespace-nowrap"
+            >
+              <QrCode className="w-3.5 h-3.5 shrink-0" aria-hidden />
+              <span className="hidden lg:inline">Get your QR</span>
+              <span className="sr-only lg:hidden">Get your QR in Share</span>
+            </Link>
+          </Tooltip>
         )}
         <button
           onClick={handleSave}
@@ -792,7 +802,21 @@ export default function StudioShell() {
             ${mobilePanel === 'assets' ? 'translate-x-0' : '-translate-x-full'}`}
         >
           <DrawerClose label="Assets" onClose={() => setMobilePanel(null)} />
-          <AssetsDock state={state} dispatch={dispatch} onOpenExperience={openExperience} beginDrag={dnd.beginDrag} consumedDrag={dnd.consumedDrag} lighting={lighting} />
+          {/* onOpenProperties: the left dock no longer edits anything, so the
+              "Added — edit in Properties" affordance under a just-clicked tile
+              has to be able to REACH the right dock. At lg+ that dock is always
+              a visible column and setting mobilePanel is a harmless no-op (both
+              toggles and the backdrop are lg:hidden); below lg it is the drawer
+              opener, which is the whole point. */}
+          <AssetsDock
+            state={state}
+            dispatch={dispatch}
+            onOpenExperience={openExperience}
+            beginDrag={dnd.beginDrag}
+            consumedDrag={dnd.consumedDrag}
+            lighting={lighting}
+            onOpenProperties={() => { setSceneOpen(false); setMobilePanel('props'); }}
+          />
         </aside>
 
         <main className="flex-1 min-w-0 relative">

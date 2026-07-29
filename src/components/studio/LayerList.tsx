@@ -18,6 +18,14 @@
  * Drag-to-reorder is hand-rolled pointer events, matching the deliberate
  * no-dnd-kit decision already made for the asset dock (src/lib/studio/dnd.ts +
  * useStudioDnd.ts); all the maths is pure and tested in lib/studio/layerOrder.ts.
+ *
+ * Each row is TWO lines: identity (handle · stack position · kind icon · name ·
+ * badges) over a full action bar (rename · hide · up · down · REMOVE). One line
+ * could not hold both: five controls plus a name in a 19rem dock left the name
+ * ~80px and every control a 14px glyph, so rename hid behind :hover (unreachable
+ * on touch) and delete — the thing the owner said had "no clear way" — was the
+ * last icon of a five-icon huddle. The extra line costs vertical space in a
+ * scrolling panel and buys targets a thumb can actually hit.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -137,12 +145,15 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
   // Never leave a drag's window listeners attached past unmount.
   useEffect(() => () => { dragState.current = null; }, []);
 
+  const action =
+    'flex items-center justify-center w-10 h-10 shrink-0 rounded-lg transition-colors disabled:opacity-20 disabled:pointer-events-none';
+
   return (
     <div className="flex flex-col gap-1.5">
       <p className="font-sans text-[9px] text-brand-muted/40 leading-snug px-1">
         Top of the list paints over everything below it. Drag a row, or use the arrows, to restack.
       </p>
-      <ul ref={listRef} className="flex flex-col gap-1">
+      <ul ref={listRef} className="flex flex-col gap-1.5">
         {rows.map(({ object: o, index, row, isTop, isBottom }) => {
           const isSel = o.id === selectedId;
           const Icon = objectIcon(o);
@@ -150,75 +161,88 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
           const isDragging = drag?.fromRow === row;
           const isDropTarget = !!drag && drag.overRow === row && drag.fromRow !== row;
           const renaming = renamingId === o.id;
+          const shownName = displayNames.get(o.id) ?? o.name;
           return (
             <li
               key={o.id}
               data-layer-row
               onClick={() => dispatch({ type: 'SELECT_OBJECT', id: o.id })}
-              className={`group flex items-center gap-1.5 rounded-lg px-1.5 py-1.5 cursor-pointer transition-colors
-                ${isSel ? 'bg-accent/12 ring-1 ring-accent/30' : 'bg-white/[0.03] hover:bg-white/[0.06]'}
+              className={`flex flex-col gap-0.5 rounded-xl border pl-1.5 pr-1 py-1.5 cursor-pointer transition-colors
+                ${isSel ? 'bg-accent/12 border-accent/35' : 'bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-white/10'}
                 ${hidden ? 'opacity-40' : ''}
                 ${isDragging ? 'opacity-50' : ''}
                 ${isDropTarget ? 'ring-1 ring-accent/60' : ''}`}
             >
-              {/* Drag handle — its own target so a plain row click still selects. */}
-              <button
-                onPointerDown={(e) => { e.stopPropagation(); beginRowDrag(row, e); }}
-                onClick={(e) => e.stopPropagation()}
-                aria-label={`Reorder ${displayNames.get(o.id) ?? o.name}`}
-                title="Drag to restack"
-                className="shrink-0 p-0.5 -ml-0.5 rounded text-brand-muted/30 hover:text-brand-fg cursor-grab active:cursor-grabbing transition-colors touch-none"
-              >
-                <GripVertical className="w-3.5 h-3.5" />
-              </button>
-
-              <Icon className={`w-3.5 h-3.5 shrink-0 ${isSel ? 'text-accent-2' : 'text-brand-muted/50'}`} />
-
-              {renaming ? (
-                <input
-                  autoFocus
-                  value={renameText}
-                  onChange={(e) => setRenameText(e.target.value)}
+              {/* Line 1 — WHAT this layer is and WHERE it sits in the stack. */}
+              <div className="flex items-center gap-1.5 min-w-0">
+                {/* Drag handle — its own target so a plain row click still selects. */}
+                <button
+                  onPointerDown={(e) => { e.stopPropagation(); beginRowDrag(row, e); }}
                   onClick={(e) => e.stopPropagation()}
-                  onBlur={() => commitRename(o.id)}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    if (e.key === 'Enter') { e.preventDefault(); commitRename(o.id); }
-                    else if (e.key === 'Escape') { e.preventDefault(); setRenamingId(null); }
-                  }}
-                  aria-label="Layer name"
-                  className="flex-1 min-w-0 rounded bg-white/[0.06] border border-accent/40 px-1.5 py-0.5 text-[11px] text-brand-fg outline-none"
-                />
-              ) : (
-                <Tooltip label={displayNames.get(o.id) ?? o.name} hint={paintOrderHint(row, count)} side="left">
-                  <span
-                    onDoubleClick={(e) => { e.stopPropagation(); setRenameText(o.name); setRenamingId(o.id); }}
-                    className={`text-[11px] font-sans truncate flex-1 min-w-0 cursor-text ${isSel ? 'text-brand-fg' : 'text-brand-muted/70'}`}
-                  >
-                    {displayNames.get(o.id) ?? o.name}
-                  </span>
-                </Tooltip>
-              )}
+                  aria-label={`Reorder ${shownName}`}
+                  title="Drag to restack"
+                  className="shrink-0 p-1 rounded text-brand-muted/30 hover:text-brand-fg cursor-grab active:cursor-grabbing transition-colors touch-none"
+                >
+                  <GripVertical className="w-3.5 h-3.5" />
+                </button>
 
-              <span className="shrink-0 font-label text-[7px] uppercase tracking-widest text-brand-muted/40 bg-white/[0.05] px-1 py-px rounded-full">
-                {kindBadge(o)}
-              </span>
-              {o.animation !== 'none' && (
-                <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">{o.animation}</span>
-              )}
+                {/* The stack position, stated. It was previously sr-only + a
+                    tooltip, so a sighted host could see the ORDER but never the
+                    NUMBER — which is what "third from the top" conversations
+                    with a venue are actually about. */}
+                <span className="shrink-0 w-3 text-center font-mono text-[8px] text-brand-muted/40 tabular-nums">{row + 1}</span>
 
-              <div className="flex items-center gap-0.5 shrink-0">
+                <Icon className={`w-3.5 h-3.5 shrink-0 ${isSel ? 'text-accent-2' : 'text-brand-muted/50'}`} />
+
+                {renaming ? (
+                  <input
+                    autoFocus
+                    value={renameText}
+                    onChange={(e) => setRenameText(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={() => commitRename(o.id)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === 'Enter') { e.preventDefault(); commitRename(o.id); }
+                      else if (e.key === 'Escape') { e.preventDefault(); setRenamingId(null); }
+                    }}
+                    aria-label="Layer name"
+                    className="flex-1 min-w-0 rounded bg-white/[0.06] border border-accent/40 px-1.5 py-0.5 text-[11px] text-brand-fg outline-none"
+                  />
+                ) : (
+                  <Tooltip label={shownName} hint={paintOrderHint(row, count)} side="left">
+                    <span
+                      onDoubleClick={(e) => { e.stopPropagation(); setRenameText(o.name); setRenamingId(o.id); }}
+                      className={`text-[11px] font-sans truncate flex-1 min-w-0 cursor-text ${isSel ? 'text-brand-fg' : 'text-brand-muted/70'}`}
+                    >
+                      {shownName}
+                    </span>
+                  </Tooltip>
+                )}
+
+                <span className="shrink-0 font-label text-[7px] uppercase tracking-widest text-brand-muted/40 bg-white/[0.05] px-1 py-px rounded-full">
+                  {kindBadge(o)}
+                </span>
+                {o.animation !== 'none' && (
+                  <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">{o.animation}</span>
+                )}
+              </div>
+
+              {/* Line 2 — WHAT YOU CAN DO to it. Its own row on purpose: five
+                  controls cannot share a 19rem line with a layer name without
+                  either the name or the targets becoming unusable. Everything
+                  here is now permanently visible at ~40px, where rename used to
+                  be hover-only (unreachable on touch) and delete was a 14px
+                  glyph in a 5-icon huddle — the "no clear way to remove them"
+                  the owner reported. */}
+              <div className="flex items-center justify-end gap-0.5">
                 <button
                   onClick={(e) => { e.stopPropagation(); setRenameText(o.name); setRenamingId(o.id); }}
-                  aria-label="Rename layer"
-                  title="Rename layer"
-                  // `hidden` rather than opacity-0: an invisible-but-laid-out
-                  // button still steals ~20px from the layer NAME, and at the
-                  // dock's fixed 19rem width that is the difference between
-                  // "Neon Tube Frame" and "Neon Tub…".
-                  className="hidden group-hover:inline-flex focus-visible:inline-flex p-1 rounded text-brand-muted/40 hover:text-brand-fg transition-colors"
+                  aria-label={`Rename ${shownName}`}
+                  title="Rename layer (or double-click its name)"
+                  className={`${action} text-brand-muted/40 hover:text-brand-fg hover:bg-white/[0.06]`}
                 >
-                  <Pencil className="w-3 h-3" />
+                  <Pencil className="w-3.5 h-3.5" />
                 </button>
                 {/* NOT a preview toggle — draftMapping persists `hidden` and the
                     booth honours it, so this is a publish control. */}
@@ -226,7 +250,7 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
                   onClick={(e) => { e.stopPropagation(); dispatch({ type: 'UPDATE_OBJECT', id: o.id, patch: { hidden: !hidden } }); }}
                   aria-label={hidden ? 'Show this layer to guests' : 'Hide this layer from guests'}
                   title={hidden ? 'Hidden from guests — click to show' : 'Visible to guests — click to hide'}
-                  className="p-1 rounded text-brand-muted/50 hover:text-brand-fg transition-colors"
+                  className={`${action} text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]`}
                 >
                   {hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                 </button>
@@ -235,25 +259,29 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
                   onClick={(e) => { e.stopPropagation(); dispatch({ type: 'MOVE_OBJECT', id: o.id, toIndex: stepTargetIndex(row, count, 'up') }); }}
                   disabled={isTop}
                   aria-label="Move layer up"
-                  className="p-0.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-20 disabled:pointer-events-none"
+                  title="Move up — paints over more"
+                  className={`${action} text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]`}
                 >
-                  <ChevronUp className="w-3.5 h-3.5" />
+                  <ChevronUp className="w-4 h-4" />
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); dispatch({ type: 'MOVE_OBJECT', id: o.id, toIndex: stepTargetIndex(row, count, 'down') }); }}
                   disabled={isBottom}
                   aria-label="Move layer down"
-                  className="p-0.5 rounded text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-20 disabled:pointer-events-none"
+                  title="Move down — paints under more"
+                  className={`${action} text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]`}
                 >
-                  <ChevronDown className="w-3.5 h-3.5" />
+                  <ChevronDown className="w-4 h-4" />
                 </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_OBJECT', id: o.id }); }}
-                  aria-label="Delete layer"
-                  className="p-0.5 rounded text-brand-muted/40 hover:text-rose-400 transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <Tooltip label="Remove from scene" hint="Deletes this layer. Del or Backspace does the same to the selected layer." side="left">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_OBJECT', id: o.id }); }}
+                    aria-label={`Remove ${shownName} from the scene`}
+                    className={`${action} bg-rose-500/[0.08] text-rose-300/80 hover:bg-rose-500/20 hover:text-rose-200`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </Tooltip>
               </div>
               <span className="sr-only">{`Layer ${row + 1} of ${count}. ${paintOrderHint(row, count)}. Array index ${index}.`}</span>
             </li>
