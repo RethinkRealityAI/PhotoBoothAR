@@ -10,6 +10,7 @@ import {
   mixHex,
   resolveFinish,
   hasFinish,
+  resolveFinishForRegionTint,
 } from './finish';
 import { FINISH_TINT_STRENGTH } from './controlSpecs';
 
@@ -171,5 +172,33 @@ describe('hasFinish', () => {
     expect(hasFinish('original', null)).toBe(false);
     expect(hasFinish('gold', null)).toBe(true);
     expect(hasFinish('original', '#ff0000')).toBe(true);
+  });
+});
+
+describe('resolveFinishForRegionTint', () => {
+  it('surrenders the colour so the region patch is not multiplied into', () => {
+    const g = resolveFinishForRegionTint('gold', null, 1, '#808080')!;
+    expect(g.color).toBeNull();
+    expect(g.metalness).toBe(FINISH_MAP.gold.metalness);
+    expect(g.roughness).toBe(FINISH_MAP.gold.roughness);
+  });
+
+  it('keeps every non-colour property the plain resolution produces', () => {
+    const plain = resolveFinish('glass', null, 1, '#808080')!;
+    const region = resolveFinishForRegionTint('glass', null, 1, '#808080')!;
+    expect({ ...region, color: plain.color }).toEqual(plain);
+  });
+
+  it('is null for `original` EVEN WITH a tint — writing its placeholder PBR values would flatten an imported material', () => {
+    expect(resolveFinishForRegionTint('original', '#ff0000', 1, '#808080')).toBeNull();
+    expect(resolveFinishForRegionTint('original', null, 1, '#808080')).toBeNull();
+    expect(resolveFinishForRegionTint(undefined, undefined, undefined, '#808080')).toBeNull();
+  });
+
+  it('keeps neon\'s emissive, which is not the base colour and is not the region\'s to own', () => {
+    const n = resolveFinishForRegionTint('neon', null, 1, '#808080')!;
+    expect(n.color).toBeNull();
+    expect(n.emissive).toBe(FINISH_MAP.neon.emissive);
+    expect(n.emissiveIntensity).toBeGreaterThan(0);
   });
 });

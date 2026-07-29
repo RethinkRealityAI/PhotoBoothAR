@@ -48,6 +48,26 @@ export const FINISH_TINT_STRENGTH = {
 } as const;
 
 /**
+ * Bounds for per-asset customization (types.AssetCustomization).
+ *
+ * `parts` is untrusted jsonb on the way back in, so the number of styled regions
+ * and the length of a region id are bounded here rather than at each reader —
+ * this file is the one place a studio limit is allowed to live. `label.maxLength`
+ * matches the 2D lettering ceiling in spirit (letteringFit trims to 60) but is
+ * tighter: an engraved plate is a few centimetres wide, and a name that has to
+ * be shrunk to nothing helps nobody.
+ */
+export const ASSET_CUSTOMIZATION = {
+  /** Max styled regions kept per asset (extras are dropped, deterministically). */
+  maxParts: 16,
+  /** Max characters in a region id. */
+  maxPartIdLength: 64,
+  /** Max characters in a label's engraved text (and in the slot id). */
+  maxLabelLength: 24,
+  maxSlotIdLength: 64,
+} as const;
+
+/**
  * Clamp a value into a spec's range, snapping non-finite input to the minimum
  * rather than propagating NaN into a transform.
  */

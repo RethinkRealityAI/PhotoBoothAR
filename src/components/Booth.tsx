@@ -88,6 +88,7 @@ import {
   STRIP_SHOTS, STRIP_GAP_MS, STRIP_LEAD_SEC,
 } from '../lib/photoStrip';
 import type { Transform2D, Experience, AnchorConfig, Challenge } from '../types';
+import { layerToPiece } from '../lib/studio/draftMapping';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -625,11 +626,16 @@ export default function Booth() {
   // Bumped whenever the guest saves/skips a name, so the canvas picks it up
   // (localStorage is not reactive).
   const [guestNameTick, setGuestNameTick] = useState(0);
-  const guestLetteringName = useMemo(() => {
-    if (!letteringSpec) return '';
+  /** THE guest's own name for this event — the single source both the 2D
+   *  lettering and a 3D asset's engraved label read (never a second pipeline). */
+  const guestName = useMemo(() => {
     void guestNameTick;
-    return letteringSpec.token === 'fixed' ? letteringSpec.text : getGuestName(eventId);
-  }, [letteringSpec, eventId, guestNameTick]);
+    return getGuestName(eventId);
+  }, [eventId, guestNameTick]);
+  const guestLetteringName = useMemo(
+    () => (!letteringSpec ? '' : letteringSpec.token === 'fixed' ? letteringSpec.text : guestName),
+    [letteringSpec, guestName],
+  );
   /** The name prompt is owed when the frame wants the GUEST's name, we don't
    *  have one, and they haven't already declined for this event. */
   const needsGuestName =
@@ -706,21 +712,17 @@ export default function Booth() {
       // Same layerVisible rule as the 2D builder above (eye toggle, except
       // reveal targets which are gated only by their trigger firing).
       .filter((l) => l.kind === '3d_attachment' && !!l.anchor && layerVisible(l))
-      .map((l) => ({
-        assetUrl: l.asset_url ?? null,
-        proceduralId: l.procedural ?? null,
-        anchor: l.anchor as AnchorConfig,
-        animation: l.animation,
-        // Same source==='db' safety gate as the single-piece occlude below —
-        // legacy/code events never carry layers, but keep the invariant explicit.
-        occlude: source === 'db' && l.occlusion === true,
-        // Material finish (W6). Absent on every pre-W6 layer, so those render
-        // with the exporter's own material exactly as before.
-        finish: l.finish,
-        tint: l.tint,
-        tintStrength: l.tintStrength,
+      // ONE mapper, shared with StudioPreview and Studio3DView (draftMapping):
+      // animation, occlusion, finish/tint and customization were hand-written
+      // three times and nothing compared them. The source==='db' gates stay
+      // EXPLICIT here — legacy/code events never carry layers, and that
+      // invariant is worth stating rather than inferring.
+      .map((l) => layerToPiece(l, {
+        guestName,
+        occlusionEnabled: source === 'db',
+        customizationEnabled: source === 'db',
       }));
-  }, [attachLayers, source, layerVisible]);
+  }, [attachLayers, source, layerVisible, guestName]);
 
   // ── Auto head-size (per-guest transfer) ───────────────────────────────
   // STRICTLY OPT-IN by construction: only kicks in when the occluder is actually

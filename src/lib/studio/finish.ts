@@ -226,3 +226,35 @@ export function resolveFinish(
 export function hasFinish(finishRaw: unknown, tintRaw: unknown): boolean {
   return normalizeFinish(finishRaw) !== 'original' || normalizeTint(tintRaw) !== null;
 }
+
+/**
+ * The same resolution, with the base COLOUR surrendered to the region tint.
+ *
+ * Used when an asset is being recoloured per region (lib/studio/regionTint.ts).
+ * Both features want to own `material.color`, and letting them both write it is
+ * not a merge — it is a multiply. `resolveFinish` hands back a colour intended
+ * to be assigned to `material.color`, which three then MULTIPLIES into the
+ * sampled albedo (`map_fragment.glsl.js`: `diffuseColor *= sampledDiffuseColor`).
+ * The region patch runs AFTER that multiply, so a whole-object colour sitting
+ * underneath it darkens every region's result by an amount nobody asked for —
+ * the exact muddy failure the region maths exists to avoid.
+ *
+ * So: the finish keeps everything that is genuinely about the MATERIAL
+ * (metalness, roughness, emissive, transmission) and gives up the colour.
+ *
+ * Returns null for the `original` finish even when a tint is set, because for
+ * `original` the colour was the ONLY thing being asked for — writing that
+ * finish's placeholder metalness 0 / roughness 1 over the exporter's own values
+ * would silently flatten an imported PBR material that the host never touched.
+ */
+export function resolveFinishForRegionTint(
+  finishRaw: unknown,
+  tintRaw: unknown,
+  strengthRaw: unknown,
+  baseColorHex: string,
+): FinishOverride | null {
+  if (normalizeFinish(finishRaw) === 'original') return null;
+  const base = resolveFinish(finishRaw, tintRaw, strengthRaw, baseColorHex);
+  if (!base) return null;
+  return { ...base, color: null };
+}
