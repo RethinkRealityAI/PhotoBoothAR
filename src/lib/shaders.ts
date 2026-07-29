@@ -567,15 +567,93 @@ export const SHADER_MAP: Record<string, ShaderDef> = Object.fromEntries(SHADERS.
 /** Effects offered as booth/studio filters (excludes 'none' and special effects). */
 export const FILTER_SHADERS: ShaderDef[] = SHADERS.filter((s) => s.id !== 'none' && !s.special);
 
-export function defaultParams(shaderId: string): Record<string, number> {
+/**
+ * Per-shader default uniform map, built once and frozen. A shader's defaults are
+ * constant for its id, but `defaultParams` was called on EVERY rendered frame
+ * (StageCanvas' rAF loop) and again inside `draw` — two `Object.fromEntries`
+ * allocations plus an array per frame, per runner, forever. The hot path reads
+ * this frozen instance directly; `defaultParams` still hands out a fresh copy
+ * because its callers store the result on a draft/experience and mutate it.
+ */
+const DEFAULT_PARAMS_CACHE = new Map<string, Readonly<Record<string, number>>>();
+
+/** The shared, frozen defaults for `shaderId` — never mutate; never allocates
+ *  after the first call. Unknown id ⇒ a frozen empty map (same as before). */
+export function defaultParamsFrozen(shaderId: string): Readonly<Record<string, number>> {
+  const hit = DEFAULT_PARAMS_CACHE.get(shaderId);
+  if (hit) return hit;
   const def = SHADER_MAP[shaderId];
-  if (!def) return {};
-  return Object.fromEntries(def.params.map((p) => [p.key, p.default]));
+  const built = Object.freeze(
+    def ? Object.fromEntries(def.params.map((p) => [p.key, p.default])) : {},
+  ) as Readonly<Record<string, number>>;
+  DEFAULT_PARAMS_CACHE.set(shaderId, built);
+  return built;
+}
+
+export function defaultParams(shaderId: string): Record<string, number> {
+  return { ...defaultParamsFrozen(shaderId) };
 }
 
 const UNIFORM_NAMES = [
   'uIntensity', 'uWarmth', 'uContrast', 'uVignette', 'uGrain', 'uBloom', 'uSparkle', 'uFade',
 ] as const;
+type UniformName = (typeof UNIFORM_NAMES)[number];
+
+/** Shared empty override map, so the common `draw(src, id)` call allocates none. */
+const NO_PARAMS: Readonly<Record<string, number>> = Object.freeze({});
+
+/**
+ * Which video frame the runner's drawing buffer currently holds.
+ *
+ * The rAF loop runs at display rate (~60Hz) while a camera yields ~30fps, so
+ * every other pass re-uploaded and re-shaded a byte-identical video frame. The
+ * runner canvas is created with `preserveDrawingBuffer: true`, so the previous
+ * output is still there to composite — the shade itself is the only wasted work.
+ * Same idea as the detection gate in src/lib/faceDetectClock.ts, and pure for
+ * the same reason: the policy is testable in node without WebGL.
+ */
+export interface ShadeGate {
+  /** `video.currentTime` of the frame in the buffer; -1 = nothing usable. */
+  time: number;
+  /** Shader id that produced it. */
+  id: string;
+  /** Buffer size it was drawn at. */
+  w: number;
+  h: number;
+}
+
+export function createShadeGate(): ShadeGate {
+  return { time: -1, id: '', w: 0, h: 0 };
+}
+
+/**
+ * May the buffer be composited again instead of re-shaded?
+ *
+ * Only when the video clock, the shader and the buffer size all match. A
+ * non-finite or non-positive `time` means "no usable video clock" (the element
+ * has not started, or the browser froze the clock) and never reuses — going
+ * stale is far worse than one redundant shade, exactly as the detect gate's
+ * watchdog reasons.
+ */
+export function canReuseShade(
+  gate: ShadeGate, time: number, id: string, w: number, h: number,
+): boolean {
+  if (!Number.isFinite(time) || time <= 0) return false;
+  return gate.time === time && gate.id === id && gate.w === w && gate.h === h;
+}
+
+/** Record that the buffer now holds `time`/`id` at `w`x`h`. */
+export function markShaded(gate: ShadeGate, time: number, id: string, w: number, h: number): void {
+  gate.time = Number.isFinite(time) ? time : -1;
+  gate.id = id;
+  gate.w = w;
+  gate.h = h;
+}
+
+/** The shade failed or the buffer is no longer trustworthy — force a redraw. */
+export function invalidateShadeGate(gate: ShadeGate): void {
+  gate.time = -1;
+}
 
 /**
  * Renders source frames through a shader to an internal canvas.
@@ -598,14 +676,30 @@ export function coverCropRect(
   return { sx, sy, sw, sh };
 }
 
+/**
+ * A linked program plus every location it needs, resolved ONCE at compile time.
+ * `getUniformLocation` is a string lookup into the linked program; `draw` did
+ * eleven of them on every frame for a set that cannot change after linking.
+ */
+interface CompiledShader {
+  program: WebGLProgram;
+  aPos: number;
+  uTexture: WebGLUniformLocation | null;
+  uTime: WebGLUniformLocation | null;
+  uResolution: WebGLUniformLocation | null;
+  uniforms: Record<UniformName, WebGLUniformLocation | null>;
+}
+
 export class ShaderRunner {
   readonly canvas: HTMLCanvasElement;
   private gl: WebGLRenderingContext | null;
-  private programs = new Map<string, WebGLProgram>();
+  private programs = new Map<string, CompiledShader>();
   private buffer: WebGLBuffer | null = null;
   private texture: WebGLTexture | null = null;
   private cropCanvas: HTMLCanvasElement | null = null;
   private start = performance.now();
+  /** Set by dispose(); makes every later call a no-op instead of a throw. */
+  private disposed = false;
 
   constructor(width = 1080, height = 1920) {
     this.canvas = document.createElement('canvas');
@@ -622,10 +716,29 @@ export class ShaderRunner {
     return !!this.gl;
   }
 
+  /**
+   * Assigning `canvas.width`/`height` resets the drawing buffer and the GL
+   * state EVEN WHEN THE VALUE IS UNCHANGED (HTML spec: the setter always
+   * reallocates). StageCanvas calls this once per rendered frame with the same
+   * constants, so every frame threw away a 1080x1920 buffer to allocate an
+   * identical one. Only a real size change may touch the attributes.
+   */
   resize(width: number, height: number) {
-    this.canvas.width = width;
-    this.canvas.height = height;
+    if (this.disposed) return;
+    const canvas = this.canvas;
+    if (canvas.width === width && canvas.height === height) return;
+    canvas.width = width;
+    canvas.height = height;
     this.gl?.viewport(0, 0, width, height);
+  }
+
+  /**
+   * Restart the `uTime` origin. Callers that used to construct a throw-away
+   * runner per capture got `uTime ~= 0` in every shot for free; reusing one
+   * runner keeps that guarantee explicit instead of drifting with the session.
+   */
+  resetClock() {
+    this.start = performance.now();
   }
 
   private init() {
@@ -641,7 +754,7 @@ export class ShaderRunner {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   }
 
-  private compile(def: ShaderDef): WebGLProgram | null {
+  private compile(def: ShaderDef): CompiledShader | null {
     const gl = this.gl!;
     const cached = this.programs.get(def.id);
     if (cached) return cached;
@@ -663,8 +776,20 @@ export class ShaderRunner {
       console.error(`[shaders] ${def.id} link error:`, gl.getProgramInfoLog(prog));
       return null;
     }
-    this.programs.set(def.id, prog);
-    return prog;
+    // Locations are fixed once the program is linked — resolve them all here so
+    // the per-frame path does zero string lookups.
+    const uniforms = {} as Record<UniformName, WebGLUniformLocation | null>;
+    for (const name of UNIFORM_NAMES) uniforms[name] = gl.getUniformLocation(prog, name);
+    const compiled: CompiledShader = {
+      program: prog,
+      aPos: gl.getAttribLocation(prog, 'aPos'),
+      uTexture: gl.getUniformLocation(prog, 'uTexture'),
+      uTime: gl.getUniformLocation(prog, 'uTime'),
+      uResolution: gl.getUniformLocation(prog, 'uResolution'),
+      uniforms,
+    };
+    this.programs.set(def.id, compiled);
+    return compiled;
   }
 
   /**
@@ -675,21 +800,20 @@ export class ShaderRunner {
   draw(
     source: TexImageSource,
     shaderId: string,
-    params: Record<string, number> = {},
+    params: Readonly<Record<string, number>> = NO_PARAMS,
     _legacyFlip?: boolean, // accepted for backward-compat; flipping is handled by callers
   ): HTMLCanvasElement | null {
     void _legacyFlip;
     const gl = this.gl;
     if (!gl) return null;
     const def = SHADER_MAP[shaderId] ?? SHADER_MAP['none'];
-    const prog = this.compile(def);
-    if (!prog) return null;
+    const shader = this.compile(def);
+    if (!shader) return null;
 
-    gl.useProgram(prog);
+    gl.useProgram(shader.program);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-    const loc = gl.getAttribLocation(prog, 'aPos');
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(shader.aPos);
+    gl.vertexAttribPointer(shader.aPos, 2, gl.FLOAT, false, 0, 0);
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
@@ -698,14 +822,20 @@ export class ShaderRunner {
     } catch {
       return null; // source not decodable yet
     }
-    gl.uniform1i(gl.getUniformLocation(prog, 'uTexture'), 0);
-    gl.uniform1f(gl.getUniformLocation(prog, 'uTime'), (performance.now() - this.start) / 1000);
-    gl.uniform2f(gl.getUniformLocation(prog, 'uResolution'), this.canvas.width, this.canvas.height);
+    gl.uniform1i(shader.uTexture, 0);
+    gl.uniform1f(shader.uTime, (performance.now() - this.start) / 1000);
+    gl.uniform2f(shader.uResolution, this.canvas.width, this.canvas.height);
 
-    const merged = { ...defaultParams(shaderId), ...params };
+    // Was `{ ...defaultParams(id), ...params }` — two objects per frame. The
+    // `in` test keeps the spread's exact semantics: a key PRESENT on `params`
+    // wins even when its value is undefined (and then falls to 0), which a
+    // bare `??` chain would silently resolve to the default instead.
+    const defaults = defaultParamsFrozen(def.id);
     for (const name of UNIFORM_NAMES) {
-      const l = gl.getUniformLocation(prog, name);
-      if (l) gl.uniform1f(l, merged[name] ?? 0);
+      const l = shader.uniforms[name];
+      if (!l) continue;
+      const v = name in params ? params[name] : defaults[name];
+      gl.uniform1f(l, v ?? 0);
     }
 
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -745,12 +875,36 @@ export class ShaderRunner {
     return this.cropCanvas;
   }
 
+  /**
+   * Release EVERYTHING, including the WebGL context itself.
+   *
+   * Deleting the program/texture/buffer frees GPU objects but leaves the
+   * context alive until GC eventually collects the canvas — and mobile Safari
+   * caps the number of LIVE contexts per page (older ones get force-lost). The
+   * booth already holds 2-3, and `capturePhoto` used to mint another on every
+   * shutter press, so a busy guest could silently kill the preview's context.
+   * `WEBGL_lose_context.loseContext()` gives it back immediately.
+   *
+   * After this the runner is inert, not broken: `available` is false, `draw`
+   * returns null and `resize` is a no-op, so a caller holding a stale reference
+   * degrades instead of throwing.
+   */
   dispose() {
+    this.disposed = true;
     const gl = this.gl;
     if (!gl) return;
-    this.programs.forEach((p) => gl.deleteProgram(p));
+    this.programs.forEach((s) => gl.deleteProgram(s.program));
     this.programs.clear();
     if (this.texture) gl.deleteTexture(this.texture);
     if (this.buffer) gl.deleteBuffer(this.buffer);
+    this.texture = null;
+    this.buffer = null;
+    this.cropCanvas = null;
+    try {
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
+    } catch {
+      /* extension unavailable — the deletes above are still the best we can do */
+    }
+    this.gl = null;
   }
 }

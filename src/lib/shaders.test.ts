@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { coverCropRect } from './shaders';
+import {
+  coverCropRect, defaultParams, defaultParamsFrozen, SHADER_MAP,
+  createShadeGate, canReuseShade, markShaded, invalidateShadeGate,
+} from './shaders';
 
 /**
  * coverCropRect drives ShaderRunner's aspect correction — the guarantee that a
@@ -45,5 +48,87 @@ describe('coverCropRect', () => {
       expect(sw).toBeLessThanOrEqual(w);
       expect(sh).toBeLessThanOrEqual(h);
     }
+  });
+});
+
+/**
+ * The hot render path reads the SHARED frozen defaults instead of rebuilding
+ * them every frame. `defaultParams` must keep handing out a fresh, mutable copy
+ * — several callers store it on a draft/experience and then mutate it.
+ */
+describe('defaultParamsFrozen / defaultParams', () => {
+  it('returns the identical instance on every call (no per-frame allocation)', () => {
+    expect(defaultParamsFrozen('champagne-sparkle')).toBe(defaultParamsFrozen('champagne-sparkle'));
+  });
+
+  it('the shared instance is frozen so a caller cannot corrupt every later frame', () => {
+    expect(Object.isFrozen(defaultParamsFrozen('velvet-film'))).toBe(true);
+  });
+
+  it('defaultParams still returns a fresh, mutable copy', () => {
+    const a = defaultParams('champagne-sparkle');
+    const b = defaultParams('champagne-sparkle');
+    expect(a).not.toBe(b);
+    expect(a).toEqual(b);
+    a.uSparkle = 0.123;
+    expect(defaultParams('champagne-sparkle').uSparkle).not.toBe(0.123);
+    expect(defaultParamsFrozen('champagne-sparkle').uSparkle).not.toBe(0.123);
+  });
+
+  it('matches each shader definition, for every shader', () => {
+    for (const def of Object.values(SHADER_MAP)) {
+      const expected = Object.fromEntries(def.params.map((p) => [p.key, p.default]));
+      expect(defaultParams(def.id)).toEqual(expected);
+      expect(defaultParamsFrozen(def.id)).toEqual(expected);
+    }
+  });
+
+  it('unknown shader id yields an empty map (unchanged behaviour)', () => {
+    expect(defaultParams('no-such-shader')).toEqual({});
+    expect(defaultParamsFrozen('no-such-shader')).toEqual({});
+  });
+});
+
+/**
+ * ShadeGate decides whether the runner's preserved drawing buffer can be
+ * composited again instead of re-shading a video frame that has not advanced.
+ */
+describe('ShadeGate', () => {
+  it('a fresh gate never reuses', () => {
+    expect(canReuseShade(createShadeGate(), 1.5, 'velvet-film', 720, 1280)).toBe(false);
+  });
+
+  it('reuses only when clock, shader and buffer size all match', () => {
+    const g = createShadeGate();
+    markShaded(g, 1.5, 'velvet-film', 720, 1280);
+    expect(canReuseShade(g, 1.5, 'velvet-film', 720, 1280)).toBe(true);
+    expect(canReuseShade(g, 1.5333, 'velvet-film', 720, 1280)).toBe(false); // new frame
+    expect(canReuseShade(g, 1.5, 'neon-pulse', 720, 1280)).toBe(false);     // filter changed
+    expect(canReuseShade(g, 1.5, 'velvet-film', 1080, 1920)).toBe(false);   // capture size
+    expect(canReuseShade(g, 1.5, 'velvet-film', 720, 1281)).toBe(false);
+  });
+
+  it('never reuses without a usable video clock', () => {
+    const g = createShadeGate();
+    markShaded(g, 0, 'velvet-film', 720, 1280);
+    expect(canReuseShade(g, 0, 'velvet-film', 720, 1280)).toBe(false);
+    expect(canReuseShade(g, NaN, 'velvet-film', 720, 1280)).toBe(false);
+    expect(canReuseShade(g, Infinity, 'velvet-film', 720, 1280)).toBe(false);
+    expect(canReuseShade(g, -1, 'velvet-film', 720, 1280)).toBe(false);
+  });
+
+  it('a non-finite mark leaves the gate unusable rather than stale', () => {
+    const g = createShadeGate();
+    markShaded(g, NaN, 'velvet-film', 720, 1280);
+    expect(g.time).toBe(-1);
+    expect(canReuseShade(g, NaN, 'velvet-film', 720, 1280)).toBe(false);
+  });
+
+  it('invalidate forces the next frame to shade again', () => {
+    const g = createShadeGate();
+    markShaded(g, 2.25, 'aurora-lumina', 720, 1280);
+    expect(canReuseShade(g, 2.25, 'aurora-lumina', 720, 1280)).toBe(true);
+    invalidateShadeGate(g);
+    expect(canReuseShade(g, 2.25, 'aurora-lumina', 720, 1280)).toBe(false);
   });
 });

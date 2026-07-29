@@ -25,7 +25,9 @@ import { Emblem } from './ui/EventLogo';
 import { useCameraStream } from './booth/useCameraStream';
 import Welcome from './booth/Welcome';
 import CameraErrorScreen from './booth/CameraError';
-import StageCanvas, { StageCanvasHandle, StageOverlaySpec } from './booth/StageCanvas';
+import StageCanvas, {
+  StageCanvasHandle, StageOverlaySpec, PREVIEW_W, PREVIEW_H, CAPTURE_W, CAPTURE_H,
+} from './booth/StageCanvas';
 import Overlay3D, { Overlay3DPiece } from './booth/Overlay3D';
 import TriggerEffects, { type TriggerEffectsHandle } from './booth/TriggerEffects';
 import PickerDrawer from './booth/PickerDrawer';
@@ -127,6 +129,51 @@ function prefersReducedMotion(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Renders `children(ms)` against the recording clock WITHOUT the clock living in
+ * Booth's state. The recorder ticks ~10x/s for up to 30s; as component state
+ * that re-rendered this entire 1400-line tree ~300 times per clip to move one
+ * progress ring. Only the subscribing node re-renders now.
+ */
+function RecordingClock({
+  subs, children,
+}: {
+  subs: React.RefObject<Set<(ms: number) => void>>;
+  children: (ms: number) => React.ReactNode;
+}) {
+  const [ms, setMs] = useState(0);
+  useEffect(() => {
+    const set = subs.current;
+    if (!set) return;
+    set.add(setMs);
+    return () => { set.delete(setMs); };
+  }, [subs]);
+  return <>{children(ms)}</>;
+}
+
+/**
+ * Owns the eased head-scale so the auto-fit tween re-renders ONLY the 3D layer.
+ * The ease is a ~600ms rAF ramp; driven through Booth state it re-rendered the
+ * whole booth ~36 times per adjustment. `base` is the host's calibrated value
+ * (re-seeds on change); `subRef` receives the setter while this is mounted, so
+ * the tween can push frames straight here. The `headScale` value sequence
+ * reaching Overlay3D is unchanged.
+ */
+function HeadScaleOverlay3D({
+  base, subRef, ...props
+}: {
+  base: number;
+  subRef: React.RefObject<((v: number) => void) | null>;
+} & Omit<React.ComponentProps<typeof Overlay3D>, 'headScale'>) {
+  const [scale, setScale] = useState(base);
+  useEffect(() => { setScale(base); }, [base]);
+  useEffect(() => {
+    subRef.current = setScale;
+    return () => { subRef.current = null; };
+  }, [subRef]);
+  return <Overlay3D {...props} headScale={scale} />;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -268,7 +315,13 @@ export default function Booth() {
   // ── Recording ─────────────────────────────────────────────────────────
   const recorderRef = useRef<StreamRecorder | null>(null);
   const [recording, setRecording] = useState(false);
-  const [recordingMs, setRecordingMs] = useState(0);
+  // Elapsed recording time is published to <RecordingClock> subscribers instead
+  // of held as Booth state — see RecordingClock. `recording` (a boolean that
+  // flips twice per clip) stays state because the layout genuinely changes.
+  const recordingMsSubsRef = useRef<Set<(ms: number) => void>>(new Set());
+  const publishRecordingMs = useCallback((ms: number) => {
+    for (const fn of recordingMsSubsRef.current) fn(ms);
+  }, []);
   const recordVideoUrlRef = useRef<string | null>(null);
   const recordStartRef = useRef(0);          // wall-clock start of recording (true duration)
   const streamRef = useRef<MediaStream | null>(null); // always-current stream (survives camera flip)
@@ -510,7 +563,7 @@ export default function Booth() {
   // studio "Apply" chip, AND auto-fit is left on. With no baseline — every
   // legacy/code event (source !== 'db' → studioCfg stays DEFAULT), and every db
   // scene whose host never used Apply — `autoFitEnabled` is false, so
-  // `effectiveHeadScale` equals `studioCfg.headScale` exactly and the occluder
+  // the effective head scale equals `studioCfg.headScale` exactly and the occluder
   // renders byte-identically to today (getHeadFitEstimate is never even read).
   const occlusionActive =
     source === 'db' &&
@@ -518,17 +571,21 @@ export default function Booth() {
   const autoFitEnabled =
     occlusionActive && studioCfg.baselineFit != null && studioCfg.autoHeadScale !== false;
 
-  const [effectiveHeadScale, setEffectiveHeadScale] = useState(studioCfg.headScale);
   // Current value + tween handle as refs so the 1s interval below reads fresh
-  // state and an in-flight ease can be cancelled without effect churn.
+  // state and an in-flight ease can be cancelled without effect churn. The
+  // VALUE itself is not Booth state: it is pushed to HeadScaleOverlay3D through
+  // this subscriber, so a 60fps ease never re-renders the booth (see D7).
   const effHeadScaleRef = useRef(studioCfg.headScale);
+  const headScaleSubRef = useRef<((v: number) => void) | null>(null);
   const headScaleTweenRef = useRef<number | null>(null);
   // Seed to the host's calibrated base whenever it (or the enable flag) changes.
   // When auto-fit is OFF this is the final value — the interval below never runs.
   useEffect(() => {
     if (headScaleTweenRef.current) { cancelAnimationFrame(headScaleTweenRef.current); headScaleTweenRef.current = null; }
     effHeadScaleRef.current = studioCfg.headScale;
-    setEffectiveHeadScale(studioCfg.headScale);
+    // Explicit: the child re-seeds itself when `base` changes, but a cancelled
+    // tween may have moved it away while `base` stayed the same.
+    headScaleSubRef.current?.(studioCfg.headScale);
   }, [studioCfg.headScale, autoFitEnabled]);
   // Transfer the live guest fit as a RATIO to the host's baseline (the defensible
   // signal — see faceRig's estimator note; the absolute factor is only a
@@ -550,7 +607,7 @@ export default function Booth() {
         const k = Math.min(1, (t - t0) / 600);
         const v = from + (target - from) * (k * (2 - k)); // easeOutQuad
         effHeadScaleRef.current = v;
-        setEffectiveHeadScale(v);
+        headScaleSubRef.current?.(v);
         headScaleTweenRef.current = k < 1 ? requestAnimationFrame(step) : null;
       };
       headScaleTweenRef.current = requestAnimationFrame(step);
@@ -752,7 +809,7 @@ export default function Booth() {
 
     setPhase('camera');
     setRecording(true);
-    setRecordingMs(0);
+    publishRecordingMs(0);
     recordStartRef.current = performance.now();
 
     /** Any start/mid-recording failure: drop the recorder, reset the recording
@@ -762,7 +819,7 @@ export default function Booth() {
       rec.dispose();
       if (recorderRef.current === rec) recorderRef.current = null;
       setRecording(false);
-      setRecordingMs(0);
+      publishRecordingMs(0);
       setPhase('camera');
       showBoothHint('Recording failed — try again');
     };
@@ -771,7 +828,7 @@ export default function Booth() {
       const recStream = buildRecordStream(canvas, streamRef.current ?? undefined, 30);
       const rec = new StreamRecorder({
         maxMs: VIDEO_MAX_MS,
-        onTick: (ms) => setRecordingMs(ms),
+        onTick: publishRecordingMs,
         onMaxReached: () => stopRecording(rec),
         onError: (e) => failRecording(rec, e),
       });
@@ -784,7 +841,7 @@ export default function Booth() {
       } else {
         console.error('[Booth] recording failed to start', e);
         setRecording(false);
-        setRecordingMs(0);
+        publishRecordingMs(0);
         showBoothHint('Recording failed — try again');
       }
     }
@@ -804,7 +861,7 @@ export default function Booth() {
     setCapturedDurationMs(Math.max(0, Math.round(performance.now() - recordStartRef.current)));
     capturedMediaTypeRef.current = 'video';
     setRecording(false);
-    setRecordingMs(0);
+    publishRecordingMs(0);
     setPhase('review');
   }
 
@@ -844,8 +901,11 @@ export default function Booth() {
           guestName: guestName || undefined,
           experienceId: expId ?? null,
           challengeId: taggedChallenge?.id ?? null,
-          width: 1080,
-          height: 1920,
+          // Report the TRUE buffer: a video is captureStream() of the preview
+          // canvas (720x1280), not the 1080x1920 still buffer. Both are exactly
+          // 9:16 so nothing laid out wrong, but the stored metadata was false.
+          width: isVideo ? PREVIEW_W : CAPTURE_W,
+          height: isVideo ? PREVIEW_H : CAPTURE_H,
         }),
         sendTimeoutFor(blob),
         { post: null, error: 'network' },
@@ -950,17 +1010,21 @@ export default function Booth() {
   }, [rearmReveals]);
 
   // ── Recording progress ring ───────────────────────────────────────────
-  const reducedMotionPref = prefersReducedMotion();
-  const recordProgress = Math.min(recordingMs / VIDEO_MAX_MS, 1);
+  // Hoisted: this is a matchMedia() call, and it used to run on EVERY render of
+  // the booth. It only feeds a tap-scale animation, so reading it once at mount
+  // is the same answer for the life of the screen.
+  const reducedMotionPref = useMemo(prefersReducedMotion, []);
   const ringCircumference = 2 * Math.PI * 28; // r=28 for a 60px button
 
   // ── Control deck ──────────────────────────────────────────────────────
   const deckSections = useMemo(() => buildDeck(catalog), [catalog]);
-  const deckSelection: DeckSelection = {
+  // Memoized: a fresh object literal per render made this a new prop identity
+  // on every single re-render of the booth, defeating any memo downstream.
+  const deckSelection: DeckSelection = useMemo(() => ({
     effectId,
     frameId: frameExp?.id ?? null,
     attachmentId: attachExp?.id ?? null,
-  };
+  }), [effectId, frameExp, attachExp]);
   const [deckCategory, setDeckCategory] = useState<DeckCategory | null>(null);
   // Open on whatever is already applied (an /experience/:id link or the
   // event's default), else the first category — but only once the catalog has
@@ -993,12 +1057,16 @@ export default function Booth() {
         <div className="relative">
           <svg className="absolute inset-0 -rotate-90" width="74" height="74" viewBox="0 0 74 74">
             <circle cx="37" cy="37" r="28" fill="none" stroke="rgba(var(--accent-rgb),0.2)" strokeWidth="3" />
-            <circle
-              cx="37" cy="37" r="28" fill="none" stroke="var(--color-accent)" strokeWidth="3" strokeLinecap="round"
-              strokeDasharray={ringCircumference}
-              strokeDashoffset={ringCircumference * (1 - recordProgress)}
-              style={{ transition: 'stroke-dashoffset 0.1s linear' }}
-            />
+            <RecordingClock subs={recordingMsSubsRef}>
+              {(ms) => (
+                <circle
+                  cx="37" cy="37" r="28" fill="none" stroke="var(--color-accent)" strokeWidth="3" strokeLinecap="round"
+                  strokeDasharray={ringCircumference}
+                  strokeDashoffset={ringCircumference * (1 - Math.min(ms / VIDEO_MAX_MS, 1))}
+                  style={{ transition: 'stroke-dashoffset 0.1s linear' }}
+                />
+              )}
+            </RecordingClock>
           </svg>
           <button
             onClick={() => { haptic('toggle'); stopRecording(); }}
@@ -1021,7 +1089,9 @@ export default function Booth() {
       )}
       {mediaMode === 'video' && recording && (
         <span className="absolute -bottom-5 font-label text-[8px] uppercase tracking-wide text-brand-muted/60">
-          {Math.ceil((VIDEO_MAX_MS - recordingMs) / 1000)}s left
+          <RecordingClock subs={recordingMsSubsRef}>
+            {(ms) => <>{Math.ceil((VIDEO_MAX_MS - ms) / 1000)}s left</>}
+          </RecordingClock>
         </span>
       )}
     </div>
@@ -1076,28 +1146,52 @@ export default function Booth() {
               rows and hid the top of the very frame the guest was choosing.
               It now floats OVER the stage, camera-app style. */}
           {phase === 'camera' && ready && (
-            <BoothTopBar
-              basePath={basePath}
-              uiHidden={uiHidden}
-              onToggleUi={() => setUiHidden((h) => !h)}
-              recording={recording}
-              recordingMs={recordingMs}
-              canFlip={canFlip}
-              onFlip={() => { if (!recording) flipCamera(); }}
-              leading={
-                <>
-                  <Emblem size={30} className="shrink-0 drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.35)]" />
-                  {wallSettings.showChallenges && !recording && (
-                    <ChallengeSelector selectedChallenge={selectedChallenge} onSelect={setSelectedChallenge} />
-                  )}
-                </>
-              }
-            />
+            <RecordingClock subs={recordingMsSubsRef}>
+              {(ms) => (
+                <BoothTopBar
+                  basePath={basePath}
+                  uiHidden={uiHidden}
+                  onToggleUi={() => setUiHidden((h) => !h)}
+                  recording={recording}
+                  recordingMs={ms}
+                  canFlip={canFlip}
+                  onFlip={() => { if (!recording) flipCamera(); }}
+                  leading={
+                    <>
+                      <Emblem size={30} className="shrink-0 drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.35)]" />
+                      {wallSettings.showChallenges && !recording && (
+                        <ChallengeSelector selectedChallenge={selectedChallenge} onSelect={setSelectedChallenge} />
+                      )}
+                    </>
+                  }
+                />
+              )}
+            </RecordingClock>
           )}
 
-          {/* Stage — the full 9:16 capture frame, centred & letterboxed so the whole frame/border is visible */}
-          <div className="flex-1 relative min-h-0 flex items-center justify-center px-2 pb-1">
-            <div className="relative h-full aspect-[9/16] max-w-full rounded-[1.4rem] overflow-hidden ring-1 ring-gold-700/25 shadow-[0_10px_50px_rgba(0,0,0,0.6)] bg-noir-900">
+          {/* Stage — a TRUE 9:16 box, letterboxed inside whatever space is left.
+              It previously claimed to be letterboxed while being `h-full` +
+              `aspect-[9/16]` + `max-w-full`, which is not a 9:16 box: CSS
+              `aspect-ratio` only derives the axis that is MISSING, and `h-full`
+              made the height definite, so clamping the width never gave the
+              height back. On a 390x844 phone the box came out ~390x750 = 0.52
+              against the 720x1280 (0.5625) canvas, and `object-cover` ate ~16px
+              off each side — the guest framed their shot against a frame whose
+              edges only reappeared at review. Same bug and same fix as the
+              studio stage (src/lib/studio/stageLayout.ts, StudioStage.tsx).
+              `height` is the min of the space available and the height this
+              width can support, so the ratio survives a width-bound layout. The
+              Tailwind classes stay as the fallback: a browser without container
+              units drops the inline `height` and lands on today's behaviour
+              rather than a collapsed (zero-height) stage. */}
+          <div
+            className="flex-1 relative min-h-0 flex items-center justify-center px-2 pb-1"
+            style={{ containerType: 'size' }}
+          >
+            <div
+              className="relative h-full aspect-[9/16] max-w-full rounded-[1.4rem] overflow-hidden ring-1 ring-gold-700/25 shadow-[0_10px_50px_rgba(0,0,0,0.6)] bg-noir-900"
+              style={{ height: 'min(100cqh, calc(100cqw * 16 / 9))' }}
+            >
               <video
                 id="booth-video"
                 ref={videoRef}
@@ -1123,18 +1217,24 @@ export default function Booth() {
                   watermark={entitlements.watermark}
                   effectsCanvas={triggerFxCanvas}
                   lettering={stageLettering}
+                  // The recorded clip IS this canvas (captureStream below), and
+                  // the preview pass skips the signature — so every video used
+                  // to ship unsigned while every photo shipped signed. On only
+                  // while recording, so the viewfinder stays clean otherwise.
+                  burnSignature={recording}
                 />
               )}
               <div ref={feedContainerRef} className="absolute inset-0">
                 {is3D && anchorConfig && (
-                  <Overlay3D
+                  <HeadScaleOverlay3D
+                    base={studioCfg.headScale}
+                    subRef={headScaleSubRef}
                     assetUrl={attachExp!.asset_url}
                     proceduralId={attachExp!.config?.procedural}
                     anchor={anchorConfig}
                     videoId="booth-video"
                     mirror={isFront}
                     occlude={source === 'db' && attachExp!.config?.occlusion === true}
-                    headScale={effectiveHeadScale}
                     onFaceVisible={setFaceVisible}
                     pieces={overlayPieces}
                     reveal={reveal}
