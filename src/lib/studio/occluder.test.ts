@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   parseObj,
   CRANIUM,
+  craniumNormalizedRadius,
   clampHeadScale,
   normalizeStudioSettings,
   DEFAULT_STUDIO_SETTINGS,
@@ -67,6 +68,68 @@ describe('CRANIUM ellipsoid stays inside prop space', () => {
   it('closes the back of the head (back of skull ≈ 9–12cm behind origin)', () => {
     expect(cz - rz).toBeLessThan(-9);
     expect(cz - rz).toBeGreaterThan(-13);
+  });
+
+  /**
+   * THE INVARIANT THAT ACTUALLY BOUNDS THE SHELL. The axis-extent assertions
+   * above only look along x/y/z; every anchor that matters sits OFF-axis (the
+   * ear anchors are the binding pair, and their clearance depends on all three
+   * radii at once). A resize that quietly buries one of these would hide the
+   * prop mounted there — an invisible earring, not an error.
+   *
+   * The offsets are read out of faceRig.ts's own source rather than imported:
+   * that module pulls in three and @mediapipe/tasks-vision, which this suite
+   * (vitest `node`, .ts only) must not load. Re-typing the table here would let
+   * the two drift silently, so the numbers come from the one real definition
+   * and the parse fails loudly if its shape ever changes.
+   */
+  const anchorSrc = readFileSync(
+    fileURLToPath(new URL('../faceRig.ts', import.meta.url)),
+    'utf8',
+  );
+  const anchorBlock = anchorSrc.slice(
+    anchorSrc.indexOf('export const ANCHOR_PRESETS'),
+    anchorSrc.indexOf('export const ANCHOR_MAP'),
+  );
+  const anchors = [...anchorBlock.matchAll(
+    /id:\s*'(\w+)'[\s\S]*?offset:\s*\[\s*(-?[\d.]+),\s*(-?[\d.]+),\s*(-?[\d.]+)\s*\]/g,
+  )].map((m) => ({
+    id: m[1],
+    offset: [Number(m[2]), Number(m[3]), Number(m[4])] as [number, number, number],
+  }));
+
+  it('reads every anchor preset out of faceRig.ts (guards the parse itself)', () => {
+    expect(anchors.length).toBe(12);
+    expect(anchors.map((a) => a.id)).toContain('leftEar');
+    expect(anchors.find((a) => a.id === 'crown')?.offset).toEqual([0, 8.3, 4]);
+  });
+
+  it('no anchor preset is swallowed by the shell', () => {
+    for (const a of anchors) {
+      // >1 = outside the ellipsoid. Stated per anchor so a failure names it.
+      expect(`${a.id}:${craniumNormalizedRadius(a.offset) > 1}`).toBe(`${a.id}:true`);
+    }
+  });
+
+  it('the ear anchors — the binding pair — keep a real margin, not a rounding one', () => {
+    const ear = craniumNormalizedRadius([7.7, 1.5, -1.5]);
+    expect(ear).toBeGreaterThan(1.03);
+    // Mirrored anchor must measure identically (the shell is x-symmetric).
+    expect(craniumNormalizedRadius([-7.7, 1.5, -1.5])).toBeCloseTo(ear, 12);
+  });
+
+  it('covers a head with hair, not a bare skull — the cap regression', () => {
+    // A cap sits ON hair: the shell must reach above the canonical crown
+    // (y +8.26 in the vendored OBJ) and behind the face shell's own back.
+    expect(cy + ry).toBeGreaterThan(9.5);
+    expect(cz - rz).toBeLessThan(-11);
+    // …and be at least as wide as the widest thing MediaPipe hands us minus a
+    // touch, so the silhouette does not pinch in behind the face.
+    expect(cx + rx).toBeGreaterThan(7.5);
+  });
+
+  it('degenerate radii report "outside" instead of dividing by zero', () => {
+    expect(craniumNormalizedRadius([0, 0, 0], { center: [0, 0, 0], radii: [0, 1, 1] })).toBe(Infinity);
   });
 });
 

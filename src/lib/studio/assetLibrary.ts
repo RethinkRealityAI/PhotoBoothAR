@@ -60,6 +60,15 @@ export interface ConfigurableAsset {
    * build; nothing else in the app reads the flag.
    */
   demo?: boolean;
+  /**
+   * Authored starting nudge, in head-space CENTIMETRES, applied when the piece
+   * is first added — the same `anchorConfig.offset` the Placement sliders edit,
+   * so the host can still move it and saved scenes never re-read it. Exists
+   * because an anchor centres a model by its bounding box: a cap's box centre
+   * sits mid-shell, which parks the brim at eye level; +y lifts it to the
+   * hairline. Measured in the live studio, not computed.
+   */
+  defaultNudgeCm?: { x: number; y: number; z: number };
 }
 
 /**
@@ -233,6 +242,7 @@ export const LIBRARY_ASSETS: ConfigurableAsset[] = [
     blurb: 'A classic six-panel cap. Crown, brim and button each take their own colour and finish, with a name across the front.',
     swatch: ['#3d5a80', '#e8e2d6'],
     template: BASEBALL_CAP_TEMPLATE,
+    defaultNudgeCm: { x: 0, y: 4, z: 0 },
   },
 ];
 

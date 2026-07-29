@@ -51,7 +51,20 @@ export default function FaceOccluder({
     () =>
       debug
         ? new THREE.MeshBasicMaterial({ color: '#5B8CFF', wireframe: true, transparent: true, opacity: 0.35 })
-        : new THREE.MeshBasicMaterial({ colorWrite: false }),
+        : new THREE.MeshBasicMaterial({
+            colorWrite: false,
+            // Bias the occluder's depth AWAY from the camera by a hair. A prop
+            // that RESTS on the head (a cap's inner crown against the skull)
+            // has surfaces almost coplanar with this shell, and coplanar depth
+            // is decided by rounding — which shows up as a speckled, jagged
+            // edge eating into the prop rather than a clean silhouette. A
+            // positive offset means ties resolve in the PROP's favour, so the
+            // failure mode is "occludes a fraction of a millimetre too little"
+            // instead of "chews a hole in the brim".
+            polygonOffset: true,
+            polygonOffsetFactor: 1,
+            polygonOffsetUnits: 1,
+          }),
     [debug],
   );
 

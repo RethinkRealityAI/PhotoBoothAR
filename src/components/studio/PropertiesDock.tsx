@@ -56,6 +56,14 @@ import { OVERLAY_SCALE, OVERLAY_POSITION, OVERLAY_ROTATION, formatAtStep, defaul
 import { ASSET_CUSTOMIZATION, FINISH_TINT_STRENGTH } from '../../lib/studio/controlSpecs';
 import { FINISHES, normalizeFinish, normalizeTintStrength, type FinishId } from '../../lib/studio/finish';
 import { isConfigurable, normalizeTemplate, type AssetRegion } from '../../lib/studio/assetTemplate';
+import {
+  COLORWAYS,
+  COLORWAY_ROLES,
+  colorwayParts,
+  outfitColorway,
+  dominantOutfitColor,
+  type Colorway,
+} from '../../lib/studio/colorways';
 import { HOST_LIGHTING_PRESETS, type LightingPresetId } from '../../lib/studio/lighting';
 import { alignTransform, snapRotation, stepRotation, type AlignAction } from '../../lib/studio/align';
 import { HEAD_PIECE_MAP } from '../../lib/headPieces';
@@ -503,6 +511,73 @@ function FinishControls({ object, dispatch }: { object: Object3D; dispatch: Reac
  */
 const NO_FINISH = '__none__';
 
+/**
+ * The ONE persistent studio camera element. StudioStage mounts it for the whole
+ * studio session (`<video id="studio-video">`, never unmounted so the stream
+ * survives 2D/3D/Preview switches), which is why "Match my outfit" can read a
+ * live frame from any view without asking for the camera itself.
+ */
+const STUDIO_VIDEO_ID = 'studio-video';
+
+/**
+ * Width the camera frame is downsampled to before its pixels are read.
+ *
+ * 160px is far more than `dominantOutfitColor`'s 12x3x3 histogram needs to be
+ * stable, and keeps the synchronous drawImage + getImageData well under a
+ * millisecond — a full-resolution read of a 1080p frame is ~2M pixels and would
+ * stall the live preview behind the dock for a visible beat.
+ */
+const OUTFIT_SAMPLE_W = 160;
+
+/** True when a stored `parts` map is exactly what this colorway would produce. */
+function partsMatchColorway(
+  want: Record<string, AssetPartStyle>,
+  have: Record<string, AssetPartStyle>,
+): boolean {
+  const ids = Object.keys(want);
+  if (ids.length === 0 || ids.length !== Object.keys(have).length) return false;
+  // `finish` is absent rather than 'original' on both sides (state.ts drops the
+  // default), so absence has to compare equal to absence — not to undefined vs
+  // a string, which is why both are coerced to null.
+  return ids.every((id) =>
+    have[id]?.hex === want[id].hex && (have[id]?.finish ?? null) === (want[id].finish ?? null));
+}
+
+/**
+ * Read the dominant colour of what the host is wearing off the live camera.
+ *
+ * Returns the hex, or a short reason the host can act on — never a throw. The
+ * <video> is CSS-mirrored (`scaleX(-1)`); `drawImage` reads the UNMIRRORED
+ * source, which makes no difference to a centre-weighted colour histogram.
+ */
+function sampleOutfitColor(): { hex: string } | { reason: string } {
+  const video = document.getElementById(STUDIO_VIDEO_ID);
+  if (!(video instanceof HTMLVideoElement)) {
+    return { reason: 'The studio camera isn’t running — open the 3D or Preview view first.' };
+  }
+  if (!video.videoWidth || !video.videoHeight) {
+    return { reason: 'The camera hasn’t sent a frame yet. Give it a second and try again.' };
+  }
+  const w = Math.min(OUTFIT_SAMPLE_W, video.videoWidth);
+  const h = Math.max(1, Math.round((video.videoHeight / video.videoWidth) * w));
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return { reason: 'This browser wouldn’t give us a canvas to read the frame with.' };
+    ctx.drawImage(video, 0, 0, w, h);
+    const hex = dominantOutfitColor(ctx.getImageData(0, 0, w, h).data, w, h);
+    return hex
+      ? { hex }
+      : { reason: 'Couldn’t find a colour in that frame — step into the light and try again.' };
+  } catch {
+    // getImageData throws SecurityError on a tainted canvas, and drawImage
+    // throws on a frame that is not decodable yet. Both are "try again".
+    return { reason: 'Couldn’t read that frame. Try again in a moment.' };
+  }
+}
+
 function RegionRow({
   region,
   style,
@@ -654,6 +729,15 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
   const storedLabel = object.customization?.label;
   useEffect(() => { if (storedLabel) setEcho(null); }, [storedLabel]);
 
+  /**
+   * What the last "Match my outfit" read, and what it dressed the piece in —
+   * kept so the host can SEE the two colours the feature chose. Same
+   * hooks-above-the-early-return rule as `echo` above.
+   */
+  const [matched, setMatched] = useState<{ outfit: string; body: string } | null>(null);
+  /** A quiet, actionable one-liner when there was no frame to read. */
+  const [matchHint, setMatchHint] = useState<string | null>(null);
+
   if (!template || !isConfigurable(template)) return null;
 
   const custom = object.customization;
@@ -683,6 +767,50 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
     dispatch({ type: 'SET_CUSTOMIZATION', label: null });
   };
 
+  /**
+   * Apply a whole scheme, ONE region per dispatch.
+   *
+   * That is the reducer's own shape — `withCustomization` merges a single
+   * `part` at a time — so no new action variant is needed and every existing
+   * test of SET_CUSTOMIZATION still describes what happens here.
+   *
+   * `?? null` on both fields is the explicit CLEAR, and it is load-bearing:
+   * moving from a gold-accent scheme to a plain one must DROP the gold, and
+   * `undefined` means "leave it" (state.ts:374).
+   */
+  const applyParts = (next: Record<string, AssetPartStyle>) => {
+    for (const id of Object.keys(next)) {
+      dispatch({
+        type: 'SET_CUSTOMIZATION',
+        part: { id, hex: next[id].hex ?? null, finish: next[id].finish ?? null },
+      });
+    }
+  };
+
+  const applyColorway = (cw: Colorway) => {
+    setMatched(null);
+    setMatchHint(null);
+    applyParts(colorwayParts(cw, template));
+  };
+
+  const matchOutfit = () => {
+    const read = sampleOutfitColor();
+    if ('reason' in read) {
+      setMatched(null);
+      setMatchHint(read.reason);
+      return;
+    }
+    const cw = outfitColorway(read.hex);
+    applyParts(colorwayParts(cw, template));
+    setMatched({ outfit: read.hex, body: cw.styles.primary.hex });
+    setMatchHint(null);
+  };
+
+  // Which shipped scheme, if any, the piece is currently wearing — so a chip
+  // reads as selected instead of every chip looking equally untouched.
+  const activeColorwayId =
+    COLORWAYS.find((cw) => partsMatchColorway(colorwayParts(cw, template), parts))?.id ?? null;
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-1.5 pt-1">
@@ -705,6 +833,78 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
       </p>
       {recolourable.length > 0 && (
         <>
+          {/* One-tap schemes FIRST, per-part rows after: a host who just wants
+              it to look good is done in one click, and the rows below are then
+              a refinement of something rather than a blank slate. Roles are
+              resolved against this template's own regions (colorways.ts), so
+              the same eight chips work for every future asset. */}
+          <SectionLabel>Colourways</SectionLabel>
+          <p className="font-sans text-[10px] leading-relaxed text-brand-muted/50 -mt-1 mb-1.5">
+            One tap dresses the whole piece — body, trim and details together.
+          </p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {COLORWAYS.map((cw) => {
+              const active = cw.id === activeColorwayId;
+              return (
+                <button
+                  key={cw.id}
+                  onClick={() => applyColorway(cw)}
+                  aria-pressed={active}
+                  title={`${cw.name} — recolours every part of this piece`}
+                  className={`w-full flex items-center gap-1.5 rounded-lg px-1.5 py-1.5 transition-colors motion-reduce:transition-none ${
+                    active ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.03] hover:bg-white/[0.06]'
+                  }`}
+                >
+                  <span className="shrink-0 w-7 h-4 rounded-[3px] overflow-hidden flex ring-1 ring-white/10">
+                    {COLORWAY_ROLES.map((role) => (
+                      <span key={role} className="flex-1" style={{ backgroundColor: cw.styles[role].hex }} />
+                    ))}
+                  </span>
+                  <span className={`min-w-0 flex-1 truncate text-left text-[10px] ${active ? 'text-accent-2' : 'text-brand-muted/60'}`}>
+                    {cw.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* THE ONE THAT IS NOT A LIST ITEM. Same accented-card idiom as the
+              "use each guest's own name" headline below — a control nobody has
+              seen in a photo booth before does not belong in a row of chips. */}
+          <div className="rounded-xl border border-accent/30 bg-accent/[0.07] p-3 flex flex-col gap-2 mt-0.5">
+            <button
+              onClick={matchOutfit}
+              title="Reads the live camera frame and dresses this piece to go with what you're wearing"
+              className="flex items-center justify-center gap-2 w-full rounded-lg px-2.5 py-2 bg-accent/15 text-accent-2 ring-1 ring-accent/30 hover:bg-accent/25 transition-colors motion-reduce:transition-none"
+            >
+              <Wand2 className="w-3.5 h-3.5 shrink-0" />
+              <span className="font-label uppercase tracking-widest text-[10px]">Match my outfit</span>
+            </button>
+            <p className="font-sans text-[10px] leading-relaxed text-brand-muted/60">
+              {matched
+                ? 'The trim and details take your outfit’s colour; the body takes a companion shade, so the piece still reads against you instead of disappearing into you.'
+                : 'Reads what you’re wearing from the live camera and dresses this piece to go with it.'}
+            </p>
+            {matched && (
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="w-5 h-5 shrink-0 rounded-md ring-1 ring-white/15"
+                  style={{ backgroundColor: matched.outfit }}
+                  title={`Your outfit · ${matched.outfit}`}
+                />
+                <span
+                  className="w-5 h-5 shrink-0 rounded-md ring-1 ring-white/15"
+                  style={{ backgroundColor: matched.body }}
+                  title={`The piece · ${matched.body}`}
+                />
+                <span className="min-w-0 truncate text-[10px] text-accent-2">Matched to your outfit</span>
+              </div>
+            )}
+            {matchHint && (
+              <p className="font-sans text-[10px] leading-relaxed text-brand-muted/50">{matchHint}</p>
+            )}
+          </div>
+
           <SectionLabel>Colours</SectionLabel>
           <p className="font-sans text-[10px] leading-relaxed text-brand-muted/50 -mt-1 mb-1.5">
             One row per part. Tap the swatch to recolour it, then pick a finish —

@@ -647,6 +647,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                 name: a.name,
                 scale: fitScale != null ? (fitScale * template.fitCm) / PROP_TARGET_CM : undefined,
                 template: a.template,
+                offsetCm: a.defaultNudgeCm,
               }))
               .finally(() => setPendingKey((k) => (k === key ? null : k)));
           },

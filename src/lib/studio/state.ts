@@ -651,7 +651,7 @@ export type StudioAction =
   /** `template` is the asset's configurator descriptor when the library row
    *  ships one (assetTemplate.AssetTemplate). Omitting it — every caller today
    *  — adds a plain, non-configurable model exactly as before. */
-  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown }
+  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown; offsetCm?: { x: number; y: number; z: number } }
   | { type: 'SET_THUMB'; url: string | null; blob: Blob | null }
   | { type: 'TOGGLE_PUBLISHED' }
   | { type: 'TOGGLE_FEATURED' }
@@ -850,8 +850,15 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         assetUrl: action.url,
         name: action.name ?? 'Model',
         template: action.template,
-        anchorConfig: action.scale != null
-          ? { offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: action.scale }
+        // offsetCm: a library entry's authored starting nudge (e.g. a cap rides
+        // at the hairline, not the brow) — same field the Placement sliders
+        // edit, so the host can still move it and saved scenes are untouched.
+        anchorConfig: action.scale != null || action.offsetCm != null
+          ? {
+              offset: action.offsetCm ?? { x: 0, y: 0, z: 0 },
+              rotation: { x: 0, y: 0, z: 0 },
+              scale: action.scale ?? 1,
+            }
           : undefined,
       });
       const nd = appendObject(d, obj);

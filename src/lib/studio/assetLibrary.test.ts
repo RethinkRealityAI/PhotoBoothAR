@@ -168,3 +168,11 @@ describe('GENERIC BY MANDATE — no legacy-event branding may reach the library'
     }
   });
 });
+
+describe('default nudge — a cap rides at the hairline, not the brow', () => {
+  it('ships an authored +y starting offset the host can still edit away', () => {
+    const cap = findLibraryAsset('baseball-cap')!;
+    expect(cap.defaultNudgeCm).toBeDefined();
+    expect(cap.defaultNudgeCm!.y).toBeGreaterThan(0);
+  });
+});

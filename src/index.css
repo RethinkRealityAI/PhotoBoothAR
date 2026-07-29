@@ -71,6 +71,13 @@
 }
 
 :root {
+  /* The app is dark-only: there is no light theme, no `prefers-color-scheme`
+     rule and no theme toggle anywhere in the repo, and every event theme.css
+     re-declares this same value. Without it the UA paints native form
+     popovers (select dropdowns, date pickers, scrollbars) in the LIGHT
+     scheme. Necessary but NOT sufficient on its own — see the `select` rules
+     near the bottom of this file for the white-popover failure it did not
+     prevent. */
   color-scheme: dark;
   /* Accent as a raw "r, g, b" triplet for inline rgba(var(--accent-rgb), a)
      usages. Events override this in their theme.css. Default = beam blue. */
@@ -441,6 +448,50 @@ input[type="range"] { accent-color: var(--color-accent); }
 .studio-range::-moz-range-track { background: transparent; }
 @media (prefers-reduced-motion: reduce) {
   .studio-range::-webkit-slider-thumb { transition: none; }
+}
+
+/* ── Native <select> and its popover ─────────────────────────────────────
+   THE FAILURE THIS PREVENTS: the studio's engraving "Style" dropdown opened
+   as a WHITE sheet of pale, near-unreadable options with a light-blue
+   highlight, on a black liquid-glass panel.
+
+   `color-scheme: dark` at :root was ALREADY declared (see the top of this
+   file) and did not stop it, so it is not the cause. The cause is that
+   Chromium paints the dropdown popup from the SELECT'S OWN computed
+   `background-color`/`color`, and every select in the app carried a utility
+   class like `bg-white/[0.04]` — a translucent WHITE, which the picker
+   composites over its own opaque base. A 4%-alpha white fill is how a dark
+   control produces a white sheet, and `text-brand-fg` (near-white) then had
+   almost no contrast against it.
+
+   The popup therefore needs colours that are OPAQUE and dark BY DEFAULT.
+   These rules are UNLAYERED on purpose — the same mechanism the
+   :focus-visible rule below relies on: Tailwind utilities live in
+   `@layer utilities`, and an unlayered rule beats every layered one
+   regardless of specificity. So a `bg-white/5` on any select — including one
+   written a year from now, or a bare <select> with no classes at all —
+   cannot bring the white popover back. It is deliberately not overridable by
+   a utility class; that is the "never again" property. Every colour is a
+   semantic token, so an event's own theme.css drives it.
+   `option` colours are honoured by Chromium and Firefox. Safari ignores them
+   and draws its own menu, which `color-scheme: dark` already gets right. */
+select {
+  background-color: var(--color-brand-surface);
+  color: var(--color-brand-fg);
+}
+select option,
+select optgroup {
+  background-color: var(--color-brand-surface);
+  color: var(--color-brand-fg);
+}
+/* The chosen row, tinted with the live accent instead of the UA's pale blue. */
+select option:checked {
+  background-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-brand-surface));
+  color: var(--color-brand-fg);
+}
+select:disabled,
+select option:disabled {
+  color: var(--color-brand-muted);
 }
 
 /* Selection */
