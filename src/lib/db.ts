@@ -272,13 +272,24 @@ export async function deletePost(eventId: string, id: string): Promise<boolean> 
  * makes a post non-visible arrives as `onDelete` so a host "hide"/"unapprove"
  * removes it from the wall instantly. Default (moderation surfaces) is the raw
  * pass-through, exactly as before.
+ *
+ * `onStatus` (optional, additive): the channel's own subscribe status. Without
+ * it a socket that dies on venue wifi is completely unobserved — photos keep
+ * trickling in on the fallback poll, but with no beam-in, no fresh glow and no
+ * spotlight, so the magic stops and nobody in the room can tell. Callers that
+ * do not pass it behave exactly as before.
  */
 let postsStreamSeq = 0;
+
+/** Channel states supabase-js reports to a `.subscribe()` callback. */
+export type PostsStreamStatus =
+  | 'SUBSCRIBED' | 'CHANNEL_ERROR' | 'TIMED_OUT' | 'CLOSED' | (string & {});
 
 export function subscribeToPosts(eventId: string, handlers: {
   onInsert?: (post: Post) => void;
   onUpdate?: (post: Post) => void;
   onDelete?: (id: string) => void;
+  onStatus?: (status: PostsStreamStatus) => void;
 }, opts?: { visibleOnly?: boolean }): () => void {
   const visibleOnly = opts?.visibleOnly === true;
   const isVisible = (p: Post) => p.approved && !p.hidden;
@@ -305,7 +316,9 @@ export function subscribeToPosts(eventId: string, handlers: {
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'posts' }, (payload) => {
       handlers.onDelete?.((payload.old as { id: string }).id);
     })
-    .subscribe();
+    .subscribe((status) => {
+      handlers.onStatus?.(status as PostsStreamStatus);
+    });
   return () => {
     supabase.removeChannel(channel);
   };

@@ -28,6 +28,7 @@ import type {
 } from '../../types';
 import { BORDER_MAP } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
+import { moveByIndex } from './layerOrder';
 import type { TriggerConfig } from './triggers';
 
 export type StudioMode = '2d' | '3d' | 'preview';
@@ -298,6 +299,24 @@ export function sceneCounts(d: StudioDraft): { frame: 0 | 1; stickers: number; t
 }
 
 /**
+ * Whether one more object of `kind` would actually land.
+ *
+ * Adds past MAX_OBJECTS are silently ignored in the reducer (appendObject and
+ * the ADD_OBJECT branch both bail), the dock only surfaced a counter from 15,
+ * and a dropped drag past the cap simply vanished — so at the cap the studio
+ * looked broken rather than full. Every add site now asks this FIRST and says
+ * so when the answer is no. A frame is exempt: placeFrame swaps in place.
+ */
+export function canAddObject(d: StudioDraft, kind: 'frame' | 'cappable' = 'cappable'): boolean {
+  if (kind === 'frame') return true;
+  return sceneCounts(d).capped < MAX_OBJECTS;
+}
+
+/** The one sentence every refusal shows, so the wording cannot drift per surface. */
+export const SCENE_FULL_MESSAGE =
+  `This scene is full — ${MAX_OBJECTS} stickers and 3D pieces is the limit (the frame doesn't count). Remove a layer to add another.`;
+
+/**
  * The DERIVED draft kind from the current objects:
  *   • a 2D overlay AND a 3D object present → 'composite'
  *   • only overlays → objects[0].overlayKind ('border' | '2d_filter')
@@ -386,7 +405,14 @@ export type StudioAction =
   | { type: 'SET_MODE'; mode: StudioMode }
   | { type: 'SET_THREE_VIEW'; view: ThreeView }
   | { type: 'SET_KIND'; kind: StudioKind }
-  | { type: 'LOAD'; draft: StudioDraft }
+  /**
+   * Replace the whole draft. `dirty` defaults to FALSE (a freshly-loaded
+   * experience matches its saved row), but a LOAD that creates UNSAVED work —
+   * Duplicate, "use template", loading a starter scene — must pass `dirty:true`.
+   * Without it the duplicate was unsaved AND the leave-guard was disarmed, so
+   * one tap on the back arrow discarded it with no prompt at all.
+   */
+  | { type: 'LOAD'; draft: StudioDraft; dirty?: boolean }
   | { type: 'SET_NAME'; name: string }
   | { type: 'SELECT_SHADER'; shaderId: string; params: Record<string, number> }
   | { type: 'SET_SHADER_PARAM'; key: string; value: number }
@@ -411,6 +437,10 @@ export type StudioAction =
   | { type: 'DELETE_OBJECT'; id: string }
   | { type: 'SELECT_OBJECT'; id: string | null }
   | { type: 'REORDER_OBJECT'; id: string; dir: 'up' | 'down' }
+  /** Splice-move an object to an absolute index in the flat paint order (drag-to-reorder). */
+  | { type: 'MOVE_OBJECT'; id: string; toIndex: number }
+  /** Rename a layer. Separate from UPDATE_OBJECT so it never coalesces with a transform edit. */
+  | { type: 'RENAME_OBJECT'; id: string; name: string }
   | { type: 'UPDATE_OBJECT'; id: string; patch: Partial<Omit<Overlay2D, 'id' | 'type'>> | Partial<Omit<Object3D, 'id' | 'type'>> }
   | { type: 'SET_OBJECT_ANIMATION'; id: string; animation: LayerAnimation }
   /* — face-triggered effects (Magic Triggers) — */
@@ -449,7 +479,9 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         mode: modeForKind(action.draft.kind),
         threeView: 'live',
         draft: action.draft,
-        dirty: false,
+        // See the action's doc comment: a LOAD that creates unsaved work arms
+        // the leave-guard instead of disarming it.
+        dirty: action.dirty === true,
       };
     case 'SET_NAME':
       return { ...state, dirty: true, draft: { ...d, name: action.name } };
@@ -640,21 +672,46 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return { ...state, draft: { ...d, selectedId: action.id } };
     }
     case 'REORDER_OBJECT': {
-      // NOTE: this swaps ADJACENT ARRAY indices, which is 2D paint order, and
-      // that is deliberate — see docs/STATE.md. The Layers panel renders three
-      // fixed buckets, so a cross-bucket swap does not move anything in the
-      // LIST, but it does change what paints over what ON THE STAGE (a frame
-      // over a sticker, say). Restricting reorder to same-bucket neighbours
-      // makes the list honest at the cost of removing that capability
-      // entirely — the real fix is to render one list in true array order.
+      // Swaps ADJACENT ARRAY indices = one step of real paint order. The
+      // "the list does not move" problem this used to have was never in the
+      // reducer: the Layers panel rendered three FIXED BUCKETS while this acted
+      // on the flat array, so a cross-bucket step changed the stage and nothing
+      // in the list. The panel now renders ONE flat list in true array order
+      // (src/lib/studio/layerOrder.ts), so every step is visible where it
+      // happens. `dir` keeps its ORIGINAL array meaning ('up' = toward index 0)
+      // so every existing caller and test is untouched; the new flat panel uses
+      // MOVE_OBJECT, whose absolute index has no direction to misread at all.
       const idx = d.objects.findIndex((o) => o.id === action.id);
       if (idx < 0) return state;
       const swap = action.dir === 'up' ? idx - 1 : idx + 1;
       if (swap < 0 || swap >= d.objects.length) return state;
-      const objects = [...d.objects];
-      [objects[idx], objects[swap]] = [objects[swap], objects[idx]];
+      const objects = moveByIndex(d.objects, idx, swap);
+      if (objects === d.objects) return state;
       const nd = { ...d, objects };
       return { ...state, dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
+    }
+    case 'MOVE_OBJECT': {
+      // Drag-to-reorder: a SPLICE-move, not a swap — dropping the top layer at
+      // the bottom must land it there and shift the rest up, not trade places
+      // with whatever happened to sit at that index.
+      const idx = d.objects.findIndex((o) => o.id === action.id);
+      if (idx < 0) return state;
+      const objects = moveByIndex(d.objects, idx, action.toIndex);
+      if (objects === d.objects) return state;
+      const nd = { ...d, objects };
+      return { ...state, dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
+    }
+    case 'RENAME_OBJECT': {
+      const name = action.name.trim().slice(0, 120);
+      // An empty rename is a cancel, not a way to produce a nameless layer.
+      if (!name) return state;
+      const target = d.objects.find((o) => o.id === action.id);
+      if (!target || target.name === name) return state;
+      return {
+        ...state,
+        dirty: true,
+        draft: { ...d, objects: mapObjects(d, action.id, (o) => ({ ...o, name })) },
+      };
     }
     case 'UPDATE_OBJECT': {
       const idx = d.objects.findIndex((o) => o.id === action.id);

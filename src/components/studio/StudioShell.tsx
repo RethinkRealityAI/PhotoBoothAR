@@ -32,7 +32,19 @@ import { clampHeadScale } from '../../lib/studio/occluder';
 import { studioReducer, initialState, selectedObject, type StudioState, type StudioAction, type StudioDraft } from '../../lib/studio/state';
 import { withHistory, initHistory, canUndo, canRedo } from '../../lib/studio/history';
 import { nudgeTransform } from '../../lib/studio/snap';
+import { nudgeOffset3D } from '../../lib/studio/align';
 import { experienceToDraft, draftToPayload } from '../../lib/studio/draftMapping';
+import {
+  clearSnapshot,
+  describeAge,
+  loadSnapshot,
+  pruneSnapshots,
+  saveSnapshot,
+  shouldOfferRecovery,
+  type DraftSnapshot,
+  type DraftStore,
+} from '../../lib/studio/draftSafety';
+import { useLeaveGuard } from './useLeaveGuard';
 import type { Experience } from '../../types';
 
 /* Undo/redo wiring — these predicates mirror src/lib/studio/history.test.ts
@@ -91,6 +103,41 @@ function svgBlob(svg: string): Blob {
   return new Blob([svg], { type: 'image/svg+xml' });
 }
 
+/**
+ * localStorage, or null where it is unavailable (SSR, private-mode lockdowns,
+ * a browser with storage disabled). Every draftSafety call takes null happily,
+ * so autosave degrades to "off" instead of throwing on module load.
+ */
+function draftStore(): DraftStore | null {
+  try {
+    const s = window.localStorage;
+    // Touch it — Safari's "block all cookies" throws only on ACCESS, not on the
+    // property read, so a bare `window.localStorage` check is not enough.
+    const probe = `${'__bw_probe__'}${Date.now()}`;
+    s.setItem(probe, '1');
+    s.removeItem(probe);
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Session cache of built-in SVG uploads, keyed by event + builtin id.
+ *
+ * handleSave used to re-upload the catalog SVG for EVERY built-in overlay on
+ * EVERY save, sequentially — so re-saving an unchanged 5-sticker scene meant 5
+ * serial storage round-trips and 5 orphaned objects in the bucket. The bytes for
+ * a given built-in never change, so the first upload's URL is reused for the
+ * rest of the session. Module-level (not a ref) so it survives remounts of the
+ * editor within one page load.
+ */
+const builtinUploadCache = new Map<string, string>();
+
+/** Debounce for the local autosave, in ms. Long enough not to thrash storage
+ *  during a drag, short enough that a crash costs at most a second of work. */
+const AUTOSAVE_DEBOUNCE_MS = 1200;
+
 /** Redirect the retired creator routes to the unified studio, keeping `?id=`. */
 export function StudioRedirect({ to }: { to: string }) {
   const { search } = useLocation();
@@ -127,6 +174,15 @@ export default function StudioShell() {
   const [loadError, setLoadError] = useState<'unreachable' | 'missing' | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  // Set the instant the host confirms leaving, so the leave guard stands down
+  // and does not intercept the navigation it was just told to allow.
+  const [leaving, setLeaving] = useState(false);
+  // A recovered local draft waiting on the host's yes/no. Never applied
+  // automatically — silently replacing what they opened would be its own bug.
+  const [recovery, setRecovery] = useState<DraftSnapshot | null>(null);
+  // What the autosave is doing, surfaced honestly in the header rather than
+  // implying a durability we cannot promise.
+  const [autosave, setAutosave] = useState<{ at: number; dropped: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -145,8 +201,11 @@ export default function StudioShell() {
   // First-load naming dialog: only for a brand-NEW draft (no `?id=` deep link
   // and not arriving from the Scene Director), so an existing experience or a
   // scene-prefill never gets interrupted by it.
-  const [showNameDialog, setShowNameDialog] = useState(!editId && sceneParam === null);
-  const [dialogName, setDialogName] = useState(() => state.draft.name);
+  // The first-load naming dialog is GONE. It covered the canvas before the host
+  // had seen a single thing the studio can do, to collect a field that is
+  // editable at any time from the header (and that a starter scene fills in for
+  // them). The empty stage now shows the starter-scene gallery instead — a
+  // result in one click, then a name if they want one.
 
   // Head-size calibration (per event). Occlusion itself is per-experience
   // (config.occlusion), so there's no event-wide occlusion switch to track.
@@ -186,6 +245,7 @@ export default function StudioShell() {
       if (!alive) return;
       const draft = experience ? experienceToDraft(experience) : null;
       if (draft) {
+        loadedDraftRef.current = draft;
         dispatch({ type: 'LOAD', draft });
       } else {
         setLoadError(failed ? 'unreachable' : 'missing');
@@ -223,6 +283,78 @@ export default function StudioShell() {
     }
   }, [eventId]);
 
+  /* ── The unsaved-work safety net ─────────────────────────────────────────
+     Three layers, in increasing order of how much they save:
+       1. beforeunload + a popstate trap (useLeaveGuard) — ASK before leaving.
+       2. a debounced local autosave — so a guard that is bypassed (or a crash,
+          or a killed tab) still costs nothing.
+       3. an explicit restore prompt on return — never an automatic overwrite.
+     None of it touches the server: the persistence contract is unchanged. */
+
+  const storeRef = useRef<DraftStore | null | undefined>(undefined);
+  if (storeRef.current === undefined) storeRef.current = draftStore();
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The draft the editor most recently LOADED, so the restore prompt can tell a
+  // genuinely different snapshot from one that merely mirrors what is open.
+  const loadedDraftRef = useRef<StudioDraft | null>(null);
+
+  // Look for a recovered draft once the editor knows what it is editing.
+  // Runs after the load effect settles (loadingEdit false) so `current` is the
+  // real comparison target rather than the blank starter draft.
+  const recoveryCheckedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loadingEdit || loadError) return;
+    const slot = `${eventId}:${editId ?? 'new'}`;
+    if (recoveryCheckedRef.current === slot) return;
+    recoveryCheckedRef.current = slot;
+    const store = storeRef.current;
+    // Keep the recovery data bounded: sweep anything stale on the way in.
+    pruneSnapshots(store, Date.now());
+    const snap = loadSnapshot(store, eventId, editId ?? null);
+    if (shouldOfferRecovery(snap, loadedDraftRef.current, Date.now())) setRecovery(snap);
+  }, [loadingEdit, loadError, eventId, editId]);
+
+  // Debounced autosave of the CURRENT draft whenever it is dirty. A clean draft
+  // clears its slot — a saved scene has nothing left to recover, and leaving a
+  // stale snapshot behind would offer the host their own already-saved work.
+  useEffect(() => {
+    const store = storeRef.current;
+    if (!store) return;
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    if (!state.dirty) {
+      clearSnapshot(store, eventId, editId ?? null);
+      setAutosave(null);
+      return;
+    }
+    autosaveTimer.current = setTimeout(() => {
+      const at = Date.now();
+      const res = saveSnapshot(store, { eventId, experienceId: editId ?? null, savedAt: at }, state.draft);
+      setAutosave(res.outcome === 'saved' ? { at, dropped: res.droppedAssets } : null);
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current); };
+  }, [state.draft, state.dirty, eventId, editId]);
+
+  // Ask before Back / Forward / refresh / tab close. `leaving` stands the guard
+  // down for the navigation the host just approved.
+  useLeaveGuard({
+    dirty: state.dirty && !leaving,
+    bypass: leaving,
+    onAttemptLeave: () => setConfirmLeave(true),
+  });
+
+  const acceptRecovery = useCallback(() => {
+    if (!recovery) return;
+    // dirty:true — a recovered scene is unsaved work by definition, so the
+    // leave-guard must be ARMED the moment it lands (the same hole Duplicate had).
+    dispatch({ type: 'LOAD', draft: recovery.draft, dirty: true });
+    setRecovery(null);
+  }, [recovery]);
+
+  const discardRecovery = useCallback(() => {
+    clearSnapshot(storeRef.current, eventId, editId ?? null);
+    setRecovery(null);
+  }, [eventId, editId]);
+
   const onThumbUpload = useCallback((file: File) => {
     dispatch({ type: 'SET_THUMB', url: URL.createObjectURL(file), blob: file });
   }, []);
@@ -242,25 +374,41 @@ export default function StudioShell() {
       // behaviour: built-in overlays upload their SVG; custom overlays upload their
       // pending Blob; already-stored (http/data) urls pass through; 3D models keep
       // their assetUrl and procedural head pieces resolve to null.
-      const urlMap = new Map<string, string | null>();
-      for (const obj of draft.objects) {
-        if (obj.type === 'overlay') {
-          if (obj.isBuiltin && obj.builtinId) {
-            const b = BUILTIN_BORDERS.find((x) => x.id === obj.builtinId);
-            urlMap.set(obj.id, b ? await uploadAsset(eventId, svgBlob(b.svg), `${b.id}.svg`) : (obj.url ?? null));
-          } else if (obj.blob) {
-            const base = obj.name.replace(/\s+/g, '-').toLowerCase() || 'overlay';
-            urlMap.set(obj.id, await uploadAsset(eventId, obj.blob, base));
-          } else if (obj.url && (obj.url.startsWith('http') || obj.url.startsWith('data:'))) {
-            urlMap.set(obj.id, obj.url);
-          } else {
-            urlMap.set(obj.id, null);
-          }
-        } else {
+      // Every object resolves CONCURRENTLY. This loop used to be `for … await`,
+      // so a 5-sticker scene meant 5 SERIAL storage round-trips on every save;
+      // and it re-uploaded each built-in's SVG unconditionally, orphaning a
+      // fresh object in the bucket per save of an unchanged scene. Built-in
+      // bytes never change, so their upload is memoised per event for the
+      // session (builtinUploadCache) and every object is resolved in parallel.
+      const resolveObjectUrl = async (obj: (typeof draft.objects)[number]): Promise<string | null> => {
+        if (obj.type !== 'overlay') {
           // Object3D — procedural pieces have no GLB; models keep their asset url.
-          urlMap.set(obj.id, obj.type === 'headpiece' && obj.proceduralId ? null : (obj.assetUrl ?? null));
+          return obj.type === 'headpiece' && obj.proceduralId ? null : (obj.assetUrl ?? null);
         }
-      }
+        if (obj.isBuiltin && obj.builtinId) {
+          const cacheKey = `${eventId}:${obj.builtinId}`;
+          const cached = builtinUploadCache.get(cacheKey);
+          if (cached) return cached;
+          const b = BUILTIN_BORDERS.find((x) => x.id === obj.builtinId);
+          if (!b) return obj.url ?? null;
+          const uploaded = await uploadAsset(eventId, svgBlob(b.svg), `${b.id}.svg`);
+          // Only a SUCCESSFUL upload is cached — caching a null would make every
+          // later save in this session silently drop the layer's asset.
+          if (uploaded) builtinUploadCache.set(cacheKey, uploaded);
+          return uploaded;
+        }
+        if (obj.blob) {
+          const base = obj.name.replace(/\s+/g, '-').toLowerCase() || 'overlay';
+          return uploadAsset(eventId, obj.blob, base);
+        }
+        if (obj.url && (obj.url.startsWith('http') || obj.url.startsWith('data:'))) return obj.url;
+        return null;
+      };
+
+      const resolved = await Promise.all(
+        draft.objects.map(async (obj) => [obj.id, await resolveObjectUrl(obj)] as const),
+      );
+      const urlMap = new Map<string, string | null>(resolved);
 
       let thumbnailUrl: string | null = null;
       if (draft.thumbBlob) {
@@ -279,6 +427,10 @@ export default function StudioShell() {
         return false;
       }
       dispatch({ type: 'MARK_SAVED', id: result.id });
+      // The row landed, so the local snapshot has nothing left to protect —
+      // and leaving it would offer the host their own already-saved work back.
+      clearSnapshot(storeRef.current, eventId, editId ?? null);
+      loadedDraftRef.current = draft;
       setSaved(true);
       setTimeout(() => setSaved(false), 2400);
       return true;
@@ -289,7 +441,7 @@ export default function StudioShell() {
     } finally {
       setSaving(false);
     }
-  }, [state.draft, eventId]);
+  }, [state.draft, eventId, editId]);
 
   const openExperience = useCallback((exp: Experience) => {
     navigate(`${base}/studio?id=${exp.id}`);
@@ -297,11 +449,21 @@ export default function StudioShell() {
 
   // Duplicate — strip the id so the current draft becomes a NEW unsaved scene,
   // suffix the name, and LOAD it (LOAD clears the undo timeline by design).
+  //
+  // `dirty: true` closes a real hole: LOAD forced dirty:false, so the duplicate
+  // was unsaved AND the leave-guard was disarmed — one tap on the back arrow
+  // discarded a fresh copy with no prompt at all. A duplicate is unsaved work
+  // from the instant it exists, and is now guarded (and autosaved) as such.
   const handleDuplicate = useCallback(() => {
     const { id: _id, ...rest } = state.draft;
     void _id;
-    dispatch({ type: 'LOAD', draft: { ...rest, name: `${state.draft.name} copy` } });
+    dispatch({ type: 'LOAD', draft: { ...rest, name: `${state.draft.name} copy` }, dirty: true });
   }, [state.draft]);
+
+  /** Load a shipped starter scene as a fresh, unsaved (and therefore guarded) draft. */
+  const handleStarterScene = useCallback((draft: StudioDraft) => {
+    dispatch({ type: 'LOAD', draft, dirty: true });
+  }, []);
 
   // Header inline-rename: open seeds the input from the live name; commit writes
   // a non-empty trimmed name (SET_NAME) and closes; Escape closes without saving.
@@ -319,13 +481,6 @@ export default function StudioShell() {
     if (trimmed && trimmed !== state.draft.name) dispatch({ type: 'SET_NAME', name: trimmed });
     setEditingName(false);
   }, [nameDraft, state.draft.name]);
-  // First-load dialog: "Start creating" / Enter commits the (possibly edited)
-  // name; the X or accepting the default just closes without dirtying the draft.
-  const commitDialogName = useCallback(() => {
-    const trimmed = dialogName.trim();
-    if (trimmed && trimmed !== state.draft.name) dispatch({ type: 'SET_NAME', name: trimmed });
-    setShowNameDialog(false);
-  }, [dialogName, state.draft.name]);
 
   // Keyboard shortcuts on the shell. Skipped while typing in a field so undo/
   // delete never fights text editing.
@@ -352,9 +507,19 @@ export default function StudioShell() {
       }
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         const sel = selectedObject(draft);
-        if (sel && sel.type === 'overlay') {
-          e.preventDefault();
+        if (!sel) return;
+        e.preventDefault();
+        if (sel.type === 'overlay') {
           dispatch({ type: 'UPDATE_OBJECT', id: sel.id, patch: { transform: nudgeTransform(sel.transform, e.key, e.shiftKey) } });
+        } else {
+          // 3D pieces had NO keyboard nudge at all — a selected prop could only
+          // be moved by dragging a gizmo or a slider. Arrow keys now walk its
+          // anchor offset in head-space cm, Shift for the coarse step.
+          dispatch({
+            type: 'UPDATE_OBJECT',
+            id: sel.id,
+            patch: { anchorConfig: { ...sel.anchorConfig, offset: nudgeOffset3D(sel.anchorConfig.offset, e.key, e.shiftKey) } },
+          });
         }
       }
     };
@@ -537,6 +702,20 @@ export default function StudioShell() {
           <HelpButton topic="director" label="How the Director works" side="bottom" />
         </div>
         {saveError && <span className="hidden sm:inline text-rose-400 text-[10px] font-sans max-w-[180px] text-right">{saveError}</span>}
+        {/* Autosave status. Says exactly what it is — a local copy on THIS
+            device, not a save to the event — so it can never be mistaken for
+            having published the scene. */}
+        {!saveError && !saved && state.dirty && autosave && (
+          <Tooltip
+            label="Draft kept on this device"
+            hint="Your unsaved scene is stored locally so a refresh or crash can’t lose it. It is not published until you Save."
+            side="bottom"
+          >
+            <span className="hidden md:inline text-[9px] font-label uppercase tracking-widest text-brand-muted/40 whitespace-nowrap cursor-help">
+              Draft kept locally
+            </span>
+          </Tooltip>
+        )}
         {/* Post-save nudge — the QR/share kit lives on the event's Share tab
             (same base path derivation as the back-to-Library link above). */}
         {saved && (
@@ -614,6 +793,8 @@ export default function StudioShell() {
             dropActive={dnd.dragging && dnd.overStage}
             onTestOnPhone={() => setTestPhoneOpen(true)}
             onOpenAssets={() => { setSceneOpen(false); setMobilePanel('assets'); }}
+            onStarterScene={handleStarterScene}
+            refusal={dnd.refusal}
           />
         </main>
 
@@ -660,42 +841,41 @@ export default function StudioShell() {
 
       <DragGhost payload={dnd.payload} ghost={dnd.ghost} />
 
-      {/* First-load naming dialog — brand-new drafts only (see showNameDialog).
-          Skippable via the X or by accepting the pre-filled default. */}
-      {showNameDialog && (
-        <div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-6"
-          onClick={() => setShowNameDialog(false)}
-          onKeyDown={(e) => { if (e.key === 'Escape') setShowNameDialog(false); }}
-        >
-          {/* Backdrop click + Escape both skip (matching ui/Modal conventions);
-              clicks inside the card stay inside. */}
-          <div className="liquid-glass rounded-2xl border border-accent/20 p-6 w-full max-w-sm relative animate-rise-in" onClick={(e) => e.stopPropagation()}>
-            <button
-              onClick={() => setShowNameDialog(false)}
-              aria-label="Skip naming"
-              className="absolute top-3 right-3 p-1 rounded-lg text-brand-muted/50 hover:text-brand-fg transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-            <p className="font-label text-[9px] uppercase tracking-widest text-accent-2 mb-1">New experience</p>
-            <h2 className="font-serif italic text-xl text-brand-fg mb-4">Name your experience</h2>
-            <form onSubmit={(e) => { e.preventDefault(); commitDialogName(); }}>
-              <input
-                autoFocus
-                value={dialogName}
-                onChange={(e) => setDialogName(e.target.value)}
-                placeholder="Experience name…"
-                aria-label="Experience name"
-                className="w-full rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5 text-sm text-brand-fg placeholder:text-brand-muted/40 outline-none focus:border-accent/60 transition mb-4"
-              />
+      {/* Recovered local draft — an EXPLICIT prompt, never an automatic
+          overwrite. The host is told what it is, how old it is, and what (if
+          anything) could not be preserved, then chooses. */}
+      {recovery && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
+          <div className="liquid-glass rounded-2xl border border-accent/20 p-6 w-full max-w-sm relative animate-rise-in">
+            <p className="font-label text-[9px] uppercase tracking-widest text-accent-2 mb-1">Unsaved work found</p>
+            <h2 className="font-serif italic text-xl text-brand-fg mb-2">We recovered your scene</h2>
+            <p className="font-sans text-[12px] text-brand-muted/70 leading-relaxed mb-1">
+              “{recovery.draft.name}” — {recovery.draft.objects.length} layer{recovery.draft.objects.length === 1 ? '' : 's'},
+              last edited {describeAge(recovery.savedAt, Date.now())} on this device and never saved.
+            </p>
+            {recovery.droppedAssets > 0 && (
+              <p className="font-sans text-[11px] text-amber-300/80 leading-relaxed mb-1">
+                {recovery.droppedAssets} uploaded image{recovery.droppedAssets === 1 ? '' : 's'} couldn’t be restored —
+                those layers come back empty and need re-uploading.
+              </p>
+            )}
+            <p className="font-sans text-[11px] text-brand-muted/50 leading-relaxed mb-4">
+              Restoring replaces what’s open right now.
+            </p>
+            <div className="flex items-center gap-2">
               <button
-                type="submit"
-                className="w-full py-2.5 bg-foil text-white font-bold text-[10px] font-label uppercase tracking-widest rounded-xl glow-accent transition active:scale-[0.98]"
+                onClick={acceptRecovery}
+                className="flex-1 py-2.5 bg-foil text-white font-bold text-[10px] font-label uppercase tracking-widest rounded-xl glow-accent transition active:scale-[0.98]"
               >
-                Start creating
+                Restore it
               </button>
-            </form>
+              <button
+                onClick={discardRecovery}
+                className="px-4 py-2.5 rounded-xl bg-white/[0.04] text-[10px] font-label uppercase tracking-widest text-brand-muted/60 hover:text-brand-fg transition-colors"
+              >
+                Discard
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -718,17 +898,23 @@ export default function StudioShell() {
       {confirmLeave && (
         <ConfirmModal
           title="Save before you go?"
-          body="This scene has changes you haven’t saved yet. Leaving now loses them."
           confirmLabel={saving ? 'Saving…' : 'Save and leave'}
           busy={saving}
+          body={
+            autosave
+              ? 'This scene has changes you haven’t saved yet. A local copy is kept on this device, but only saving publishes it to your event.'
+              : 'This scene has changes you haven’t saved yet. Leaving now loses them.'
+          }
           onConfirm={async () => {
             const ok = await handleSave();
-            if (ok) { setConfirmLeave(false); navigate(`${base}/library`); }
+            // `leaving` stands the guard down BEFORE navigating, so the popstate
+            // trap does not intercept the exit the host just approved.
+            if (ok) { setLeaving(true); setConfirmLeave(false); navigate(`${base}/library`); }
           }}
           onCancel={() => setConfirmLeave(false)}
           extraAction={{
             label: 'Leave without saving',
-            onClick: () => { setConfirmLeave(false); navigate(`${base}/library`); },
+            onClick: () => { setLeaving(true); setConfirmLeave(false); navigate(`${base}/library`); },
           }}
         />
       )}

@@ -148,7 +148,16 @@ export default function Studio3DView({
         // floating mode pills occupy the stage's top band — this framing keeps
         // tall pieces fully visible below the chrome.
         camera={{ position: [0, 2.5, 46], fov: 42, near: 0.1, far: 2000 }}
-        gl={{ preserveDrawingBuffer: true, antialias: true }}
+        // preserveDrawingBuffer dropped: NOTHING reads back from this canvas
+        // (the only in-studio readback is Text3DBuilder's own export canvas), and
+        // it forces the driver to keep the back buffer alive after every frame.
+        gl={{ antialias: true }}
+        // Cap the render resolution. With no `dpr` R3F renders at the device's
+        // full ratio — 3x on a modern laptop is ~9x the fragment work of 1x, for
+        // a reference bust the host is placing a hat on. DirectorCards.tsx:140
+        // and Text3DBuilder.tsx:268 already cap at [1,2]; this is the same
+        // house pattern, simply never applied here.
+        dpr={[1, 2]}
         style={{ width: '100%', height: '100%' }}
       >
         {/* In-canvas Suspense: an async 3D child (font/asset fetch) must never
@@ -201,7 +210,11 @@ export default function Studio3DView({
     <Canvas
       id="studio-3d-live"
       camera={{ position: RIG_CAMERA.position, fov: RIG_CAMERA.fov, near: RIG_CAMERA.near, far: RIG_CAMERA.far }}
-      gl={{ alpha: true, preserveDrawingBuffer: true, antialias: true }}
+      // Same two caps as the orbit canvas above. `frameloop` deliberately stays
+      // the default 'always': this view is driven by live face tracking, so
+      // 'demand' would freeze the rig between invalidations.
+      gl={{ alpha: true, antialias: true }}
+      dpr={[1, 2]}
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
     >
       {/* Same containment for the live view (see orbit note above). */}

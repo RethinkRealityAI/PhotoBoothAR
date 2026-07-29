@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useStore } from '../../store';
 import { Challenge } from '../../types';
+import { usePageVisible } from './wallHooks';
 
 const ROTATE_INTERVAL = 4200;
 
@@ -31,16 +32,23 @@ function TickerSlide({ challenge }: { challenge: Challenge }) {
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
     >
-      <span style={{ fontSize: 18, lineHeight: 1, flexShrink: 0 }}>{challenge.emoji}</span>
-      <span className="font-label uppercase tracking-luxe text-[10px] text-champagne/50 mr-1">
+      <span style={{ fontSize: 'calc(18px * var(--wall-scale, 1))', lineHeight: 1, flexShrink: 0 }}>{challenge.emoji}</span>
+      <span
+        className="font-label uppercase tracking-luxe text-champagne/50 mr-1"
+        style={{ fontSize: 'calc(10px * var(--wall-scale, 1))' }}
+      >
         Challenge
       </span>
-      <span className="font-serif italic text-ivory/80 text-sm truncate">
+      <span
+        className="font-serif italic text-ivory/80 truncate"
+        style={{ fontSize: 'calc(14px * var(--wall-scale, 1))' }}
+      >
         {challenge.title}
       </span>
       <span
-        className="font-label uppercase tracking-luxe text-[9px] shrink-0 px-2 py-0.5 rounded-full"
+        className="font-label uppercase tracking-luxe shrink-0 px-2 py-0.5 rounded-full"
         style={{
+          fontSize: 'calc(9px * var(--wall-scale, 1))',
           background: 'rgba(var(--accent-rgb),0.12)',
           border: '1px solid rgba(var(--accent-rgb),0.22)',
           color: 'rgba(var(--accent-rgb),0.8)',
@@ -56,6 +64,9 @@ export default function ChallengesTicker({ bottomOffset = 0 }: Props) {
   const { challenges, fetchChallenges } = useStore();
   const [index, setIndex] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // A hidden tab throttles this interval rather than stopping it, so every
+  // backed-up rotation fires at once on return. Stop it instead.
+  const visible = usePageVisible();
 
   useEffect(() => {
     fetchChallenges(true);
@@ -65,14 +76,14 @@ export default function ChallengesTicker({ bottomOffset = 0 }: Props) {
 
   // Auto-rotate
   useEffect(() => {
-    if (active.length <= 1) return;
+    if (active.length <= 1 || !visible) return;
     intervalRef.current = setInterval(() => {
       setIndex((i) => (i + 1) % active.length);
     }, ROTATE_INTERVAL);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [active.length]);
+  }, [active.length, visible]);
 
   if (active.length === 0) return null;
 

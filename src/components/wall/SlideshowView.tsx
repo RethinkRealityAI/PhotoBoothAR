@@ -18,6 +18,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Post } from '../../types';
 import { Wordmark } from '../ui/EventLogo';
+import { usePageVisible } from './wallHooks';
 
 interface Props {
   posts: Post[];
@@ -85,9 +86,16 @@ export default function SlideshowView({
   const advanceMsRef = useRef(advanceMs);
   useEffect(() => { advanceMsRef.current = advanceMs; }, [advanceMs]);
 
+  // A hidden wall must not keep advancing: browsers throttle the interval
+  // rather than stopping it, so a projector that slept for ten minutes came
+  // back and fast-forwarded through every queued tick at once.
+  const visible = usePageVisible();
+  const visibleRef = useRef(visible);
+  useEffect(() => { visibleRef.current = visible; }, [visible]);
+
   const resetAuto = useCallback(() => {
     if (autoTimer.current) clearInterval(autoTimer.current);
-    if (posts.length <= 1) return;
+    if (posts.length <= 1 || !visibleRef.current) return;
     autoTimer.current = setInterval(() => {
       onIndexChange((idxRef.current + 1) % Math.max(posts.length, 1));
     }, advanceMsRef.current);
@@ -98,7 +106,7 @@ export default function SlideshowView({
     return () => {
       if (autoTimer.current) clearInterval(autoTimer.current);
     };
-  }, [resetAuto]);
+  }, [resetAuto, visible]);
 
   // Re-arm the interval when the admin changes slideshowInterval live.
   useEffect(() => {

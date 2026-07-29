@@ -45,6 +45,40 @@ export function clampToSpec(value: number, spec: { min: number; max: number }): 
 }
 
 /**
+ * Parse typed numeric entry against a control's own spec.
+ *
+ * Every studio property was a slider, so a host could not type "rotate 90" or
+ * "x = 0" — they dragged and hoped. The numeric fields beside each slider run
+ * their input through here so a typed value obeys EXACTLY the bounds the slider
+ * obeys (this file stays the single source of limits; nothing that reads a
+ * number declares its own).
+ *
+ * Returns null for input that is not a number at all, so a field can hold
+ * in-progress text ("-", "1.") without snapping the object on every keystroke.
+ * Anything numeric but out of range is CLAMPED, not rejected — a host who types
+ * 500 into a 0..100 field means "as far as it goes".
+ */
+export function parseSpecInput(text: string, spec: { min: number; max: number }): number | null {
+  const trimmed = text.trim().replace(/[%°]\s*$/, '').replace(/\s*cm$/i, '');
+  if (trimmed === '' || trimmed === '-' || trimmed === '+' || trimmed === '.' || trimmed === '-.') return null;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value)) return null;
+  return clampToSpec(value, spec);
+}
+
+/**
+ * Round a value to the resolution its step offers, so a typed 12.3456 stores as
+ * 12.5 on a 0.5-step control rather than a number the slider can never return to.
+ */
+export function quantizeToStep(value: number, step: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(step) || step <= 0) return value;
+  const snapped = Math.round(value / step) * step;
+  // Kill float dust (0.30000000000000004) at the step's own precision.
+  const decimals = step < 1 ? Math.min(6, Math.ceil(-Math.log10(step)) + 1) : 0;
+  return Number(snapped.toFixed(decimals));
+}
+
+/**
  * Format a slider value at the resolution its step actually offers.
  *
  * The position sliders stepped by 0.5 but printed `toFixed(0)`, so the readout
