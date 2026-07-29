@@ -100,9 +100,12 @@ export function expiryWarning(tier: PlanTier, expiresAt: string | null): string 
   return 'No end date — this plan stays until somebody removes it by hand.';
 }
 
-/** Human money, from integer cents. Never floats, never division in the UI. */
+/** Human money, from integer cents. Never floats, never division in the UI.
+ *  Locale is PINNED: an unpinned Intl renders USD as "US$49.00" on any
+ *  non-en-US machine (en-CA does), so the same catalogue row would read
+ *  differently per admin's OS — and the colocated test only passes on en-US. */
 export function formatAmount(cents: number, currency = 'usd'): string {
-  return new Intl.NumberFormat(undefined, {
+  return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: currency.toUpperCase(),
   }).format(cents / 100);

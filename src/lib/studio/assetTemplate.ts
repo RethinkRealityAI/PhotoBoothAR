@@ -187,8 +187,6 @@ export interface AssetTemplate {
   glbUrl: string;
   /** Real-world size the asset is scaled to. Library assets ship authored. */
   fitCm: number;
-  /** Which way the asset faces in its own local space, unit length. */
-  frontAxis: Vec3;
   regions: AssetRegion[];
   /**
    * Per-vertex region ids: either base64-packed bytes (see regionTint
@@ -297,7 +295,12 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
     }
   }
 
-  const frontAxis = unitVec3(readVec3(o.frontAxis)) ?? [0, 0, 1];
+  // `frontAxis` was DELETED from this contract (2026-07-29): nothing in the
+  // render path ever read it — the decal orients from each slot's own
+  // normal/up, and auto-orienting a placed asset from a single vector is
+  // under-determined (no authored up axis) — so it was data that could be
+  // wrong without anything noticing. Descriptors that still carry the key are
+  // accepted and the key ignored, like any unknown field.
   const regionIds = typeof o.regionIds === 'string' && o.regionIds.trim() ? o.regionIds.trim() : undefined;
 
   return {
@@ -305,7 +308,6 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
     name: cleanId(o.name, TEMPLATE_BOUNDS.maxLabelLength) || id,
     glbUrl,
     fitCm: clampRange(o.fitCm, TEMPLATE_BOUNDS.fitCm, 20),
-    frontAxis,
     regions,
     ...(regionIds ? { regionIds } : {}),
     textSlots,

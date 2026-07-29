@@ -14,13 +14,16 @@ import {
   type ConfigurableAsset,
 } from './assetLibrary';
 import { isConfigurable } from './assetTemplate';
-import { MAX_REGIONS } from './regionTint';
+import { DEFAULT_REF_LUMINANCE, MAX_REGIONS, unpackRegionIds } from './regionTint';
 
 const ALL: ConfigurableAsset[] = [...LIBRARY_ASSETS, ...DEMO_LIBRARY_ASSETS];
 
 describe('the shelf a host actually sees', () => {
-  it('is EMPTY in a production build — the honest state, not an oversight', () => {
-    expect(libraryAssets(false)).toEqual([]);
+  it('ships the baseball cap — and ONLY authored content, no demo entries', () => {
+    // This asserted `toEqual([])` while the library was honestly empty; the
+    // first real asset (descriptor authored + measured in /dev/asset-prep)
+    // changes the honest state, not the honesty rule.
+    expect(libraryAssets(false).map((a) => a.id)).toEqual(['baseball-cap']);
   });
 
   it('adds the demo entries only under DEV', () => {
@@ -96,6 +99,53 @@ describe('every catalogued entry is a descriptor the app will actually accept', 
       });
     });
   }
+});
+
+describe('the baseball cap — the contracts its render depends on', () => {
+  const cap = () => assetTemplateOf(findLibraryAsset('baseball-cap')!)!;
+
+  it('was prepared by a human, with hand-painted regions', () => {
+    expect(cap().preparedBy).toBe('human');
+    expect(cap().regions.map((r) => r.id)).toEqual(['crown', 'brim', 'button']);
+  });
+
+  it('carries one packed region id per GLB vertex — FaceRig IGNORES a mismatched buffer', () => {
+    // 26,464 is baseball-cap.glb's POSITION count. If either side changes, the
+    // asset silently degrades to whole-asset styling (ensureRegionAttribute's
+    // guard), which is exactly the regression this test exists to catch.
+    const bytes = unpackRegionIds(cap().regionIds!);
+    expect(bytes).not.toBeNull();
+    expect(bytes!.length).toBe(26464);
+  });
+
+  it('every packed byte indexes a real region — the positional uniform contract', () => {
+    const t = cap();
+    const bytes = unpackRegionIds(t.regionIds!)!;
+    let max = 0;
+    for (const b of bytes) if (b > max) max = b;
+    expect(max).toBeLessThan(t.regions.length);
+  });
+
+  it('ships MEASURED reference luminances, not the placeholder — the blown-out-part guard', () => {
+    for (const r of cap().regions) {
+      expect(r.refLuminance).not.toBe(DEFAULT_REF_LUMINANCE);
+    }
+    // The button's bake is genuinely darker than the crown's; a copy-pasted
+    // shared value would be the tell that nobody measured.
+    const byId = Object.fromEntries(cap().regions.map((r) => [r.id, r.refLuminance]));
+    expect(byId.button).toBeLessThan(byId.crown);
+  });
+
+  it('engraves on the crown FRONT surface, not the bounding-box face', () => {
+    const slot = cap().textSlots[0];
+    // The mesh's front-most vertex is at z 0.946; the crown front panel sits
+    // near z 0.44. A slot at the box face would need decalDepth ~1 to reach
+    // fabric — this one sits ON the surface with a shallow projector.
+    expect(slot.position[2]).toBeGreaterThan(0.3);
+    expect(slot.position[2]).toBeLessThan(0.6);
+    expect(slot.normal).toEqual([0, 0, 1]);
+    expect(slot.decalDepth).toBeLessThanOrEqual(0.4);
+  });
 });
 
 describe('GENERIC BY MANDATE — no legacy-event branding may reach the library', () => {
