@@ -85,8 +85,9 @@ import {
 import { playCue, primeAudio } from '../lib/boothAudio';
 import {
   composeStrip, stripComplete, stripProgressLabel,
-  STRIP_SHOTS, STRIP_GAP_MS, STRIP_LEAD_SEC,
+  STRIP_SHOTS, STRIP_GAP_MS, STRIP_LEAD_SEC, type StripShotCount,
 } from '../lib/photoStrip';
+import StripPicker from './booth/StripPicker';
 import type { Transform2D, Experience, AnchorConfig, Challenge } from '../types';
 import { layerToPiece } from '../lib/studio/draftMapping';
 
@@ -337,6 +338,9 @@ export default function Booth() {
   // review, the AI challenge check, submitPost, the wall and the keepsake card
   // all receive exactly the shape they already handle.
   const [stripMode, setStripMode] = useState(false);
+  /** How many shots the armed strip takes (2 or 3), chosen in StripPicker. */
+  const [stripCount, setStripCount] = useState<StripShotCount>(STRIP_SHOTS as StripShotCount);
+  const [stripPickerOpen, setStripPickerOpen] = useState(false);
   /** `capturePhoto` is a plain function reached through MEMOIZED callbacks
    *  (handleCountdownComplete memoizes on [mediaMode]), so reading `stripMode`
    *  from the render closure served a stale `false` and the strip captured one
@@ -344,6 +348,9 @@ export default function Booth() {
    *  caller can serve an out-of-date value. */
   const stripModeRef = useRef(stripMode);
   useEffect(() => { stripModeRef.current = stripMode; }, [stripMode]);
+  /** Same call-time-read reasoning: `advanceStrip` runs from `capturePhoto`. */
+  const stripCountRef = useRef<StripShotCount>(stripCount);
+  useEffect(() => { stripCountRef.current = stripCount; }, [stripCount]);
   /** Same reasoning as `stripModeRef` — read the mode at call time, not at the
    *  time the enclosing callback was last memoized. */
   const mediaModeRef = useRef(mediaMode);
@@ -1000,7 +1007,7 @@ export default function Booth() {
     stripShotsRef.current = shots;
     setStripTaken(shots.length);
 
-    if (!stripComplete(shots.length)) {
+    if (!stripComplete(shots.length, stripCountRef.current)) {
       // Back to a LIVE viewfinder between panels so the guest can see the pose
       // they are changing into, then auto-run the next countdown. A strip is
       // one decision, not three taps.
@@ -1018,6 +1025,9 @@ export default function Booth() {
         height: CAPTURE_H,
         background: '#05060B',
         accent: eventConfig.accentHexes[0] ?? '#E8C766',
+        // The card's gradient ambience is painted from the event's own accent
+        // palette — the flat black behind the panels read as unfinished.
+        palette: eventConfig.accentHexes,
         // Each panel already carries the baked signature, but at panel scale it
         // is a smudge — the card-level line is the legible one, and it stays
         // entitlement-gated exactly like the per-photo watermark.
@@ -1442,7 +1452,7 @@ export default function Booth() {
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
-    <div className="absolute inset-0 flex flex-col overflow-hidden bg-noir-900 select-none">
+    <div className="absolute inset-0 flex flex-col overflow-hidden app-bg select-none">
       <EventBackground density={44} sparkle={0.7} />
 
       {/* ── Welcome gate ──────────────────────────────────────────────── */}
@@ -1472,7 +1482,10 @@ export default function Booth() {
       {started && !error && !ready && (
         <div className="absolute inset-0 z-10 flex items-center justify-center">
           <div className="flex flex-col items-center gap-4 animate-rise-in">
-            <div className="w-12 h-12 rounded-full border border-gold-400/30 animate-pulse-glow" />
+            <div className="relative h-12 w-12">
+              <div className="absolute inset-0 rounded-full border border-gold-400/30 animate-pulse-glow" />
+              <div className="absolute inset-1 animate-spin rounded-full border-2 border-white/10 border-t-[color:var(--color-accent)]" />
+            </div>
             <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/40">
               Starting camera…
             </p>
@@ -1616,7 +1629,7 @@ export default function Booth() {
                       className="flex items-center gap-2 px-3.5 py-2 rounded-full glass-strong border border-gold-400/25"
                     >
                       <span className="flex gap-1">
-                        {Array.from({ length: STRIP_SHOTS }, (_, i) => (
+                        {Array.from({ length: stripCount }, (_, i) => (
                           <span
                             key={i}
                             className="h-1.5 w-4 rounded-full"
@@ -1629,7 +1642,7 @@ export default function Booth() {
                         ))}
                       </span>
                       <span className="font-label text-[10px] uppercase tracking-wide text-champagne/80">
-                        {stripProgressLabel(stripTaken)} — strike a new pose
+                        {stripProgressLabel(stripTaken, stripCount)} — strike a new pose
                       </span>
                     </motion.div>
                   )}
@@ -1701,10 +1714,9 @@ export default function Booth() {
             </div>
           </div>
 
-          {/* Control deck — the demo's shape: category tabs, one orb row,
-              shutter. Replaces the four-group FilterOrbs rail plus the
-              left/right clusters; the mode toggle and timer moved into the tab
-              row so there is no third cluster to scan. */}
+          {/* Control deck — the demo's shape: centered category tabs, one orb
+              row, then the shutter row with the capture-mode pill and timer
+              flanking the shutter. */}
           {phase === 'camera' && ready && !uiHidden && (
             <div className="absolute inset-x-0 bottom-0 z-20">
               <BoothControlDeck
@@ -1735,6 +1747,8 @@ export default function Booth() {
                 pendingIds={pendingExperienceIds}
                 stripMode={stripMode}
                 onStripMode={setStripMode}
+                stripShots={stripCount}
+                onOpenStripPicker={() => setStripPickerOpen(true)}
               />
             </div>
           )}
@@ -1769,13 +1783,32 @@ export default function Booth() {
         )}
       </AnimatePresence>
 
+      {/* ── Photo-strip format picker ─────────────────────────────────── */}
+      {stripPickerOpen && (
+        <StripPicker
+          stripMode={stripMode}
+          current={stripCount}
+          onPick={(n) => {
+            setStripCount(n);
+            setMediaMode('photo');
+            setStripMode(true);
+            setStripPickerOpen(false);
+          }}
+          onSingle={() => {
+            setStripMode(false);
+            setStripPickerOpen(false);
+          }}
+          onClose={() => setStripPickerOpen(false)}
+        />
+      )}
+
       {/* ── Countdown ─────────────────────────────────────────────────── */}
       {phase === 'countdown' && (
         <Countdown
           from={countdownFrom || 3}
           onComplete={handleCountdownComplete}
           onCancel={handleCountdownCancel}
-          caption={mediaMode === 'photo' && stripMode ? stripProgressLabel(stripTaken) : undefined}
+          caption={mediaMode === 'photo' && stripMode ? stripProgressLabel(stripTaken, stripCount) : undefined}
         />
       )}
 
