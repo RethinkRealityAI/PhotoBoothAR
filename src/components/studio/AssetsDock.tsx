@@ -41,6 +41,7 @@ import { ArrowRight, Boxes, Check, ChevronDown, ChevronRight, Crown, FileStack, 
 import { FILTER_SHADERS, SHADER_MAP, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { HEAD_PIECES } from '../../lib/headPieces';
+import { BUNDLED_PROPS, propAnchorConfig, supersededPieceIds } from '../../lib/studio/bundledProps';
 import { uploadAsset, listAssetsResult, fetchExperiencesResult } from '../../lib/db';
 import { captureGlbThumbnail, measureGlbFitScale } from '../../lib/studio/glbThumb';
 import type { LightingPresetId } from '../../lib/studio/lighting';
@@ -53,7 +54,7 @@ import {
 } from '../../lib/studio/assetLibrary';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
-import { SCENE_FULL_MESSAGE, canAddObject, selectedObject, sceneCounts, MAX_OBJECTS, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
+import { SCENE_FULL_MESSAGE, canAddObject, createObject3D, selectedObject, sceneCounts, MAX_OBJECTS, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
 import { experienceToDraft } from '../../lib/studio/draftMapping';
 import { SectionLabel } from './StudioControls';
 import AiFramePanel from './AiFramePanel';
@@ -611,6 +612,49 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
    * generic PROP_TARGET_CM. Scaling by their ratio is what makes a 2cm earring
    * arrive as an earring instead of as a 24cm one.
    */
+  /**
+   * The bundled GLB props (bundledProps.ts) — the SAME pieces the starter
+   * looks attach. Without these tiles the new crown/tiara/halo/shades existed
+   * only inside three presets, so a host who added "Royal Crown" from the
+   * library still got the old procedural mesh: the library was quietly serving
+   * different assets from the cards.
+   *
+   * Placement is authored, not measured: these dispatch ADD_OBJECT with the
+   * prop's own anchor/offset/rotation/scale/finish rather than running the
+   * add-path auto-fit, whose PROP_TARGET_CM guess renders these meshes about
+   * three times too large (measured against the tracked face).
+   */
+  const bundledPropTiles = useCallback((): Tile[] =>
+    BUNDLED_PROPS.filter((p) => matchQuery(p.name)).map((p) => {
+      const key = `bundled:${p.id}`;
+      const drag: DragPayload = { target: 'model', label: p.name, previewUrl: p.thumb, assetUrl: p.url };
+      return {
+        key,
+        label: p.name,
+        previewUrl: p.thumb,
+        active: placedRefs.some((r) => r.assetUrl === p.url || r.url === p.url),
+        fallbackIcon: Boxes,
+        pending: false,
+        kindBadge: '3D',
+        drag,
+        onAdd: () => {
+          dispatch({
+            type: 'ADD_OBJECT',
+            object: createObject3D('model', {
+              assetUrl: p.url,
+              name: p.name,
+              anchor: p.anchor,
+              finish: p.finish,
+              anchorConfig: propAnchorConfig(p),
+            }),
+          });
+          setAddedKey(key);
+        },
+      };
+    }),
+    [q, placedRefs, dispatch], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
+  );
+
   const configurableTiles = useCallback((): Tile[] =>
     libraryAssets(import.meta.env.DEV)
       .filter((a) => matchQuery(a.name))
@@ -656,8 +700,12 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     [q, placedRefs, pendingKey, dispatch], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
   );
 
+  // A procedural piece a bundled GLB has replaced is not offered here any more:
+  // two identically-named tiles ("Royal Crown" twice) gave the host no way to
+  // pick the good one. Shelf-only — the piece still renders in every scene that
+  // already references it.
   const headPieceTiles = useCallback((): Tile[] =>
-    HEAD_PIECES.filter((p) => matchQuery(p.name)).map((p) => {
+    HEAD_PIECES.filter((p) => !supersededPieceIds().has(p.id) && matchQuery(p.name)).map((p) => {
       const key = `piece:${p.id}`;
       return {
         key,
@@ -765,6 +813,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const frameTiles = useMemo(() => (showFrames ? builtinTiles('border') : []), [showFrames, builtinTiles]);
   const stickerTiles = useMemo(() => (showStickers ? builtinTiles('2d_filter') : []), [showStickers, builtinTiles]);
   const headTiles = useMemo(() => (showHeadPieces ? headPieceTiles() : []), [showHeadPieces, headPieceTiles]);
+  const propTiles = useMemo(() => (showHeadPieces ? bundledPropTiles() : []), [showHeadPieces, bundledPropTiles]);
   const cfgTiles = useMemo(() => (showHeadPieces ? configurableTiles() : []), [showHeadPieces, configurableTiles]);
   // The configurable shelf is the one sub-group that renders when it is EMPTY:
   // it is empty by design until the owner adds content (see assetLibrary.ts), and
@@ -888,6 +937,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             {subGroup('lib-frames', 'Frames', frameTiles.length, renderTiles(frameTiles, 'frame'))}
             {subGroup('lib-stickers', 'Stickers', stickerTiles.length, renderTiles(stickerTiles, 'square'))}
             {subGroup('lib-filters', 'Filters', filterCount, renderFilters())}
+            {subGroup('lib-props', '3D props', propTiles.length, renderTiles(propTiles, 'square'))}
             {subGroup('lib-pieces', 'Head pieces', headTiles.length, renderTiles(headTiles, 'square'))}
             {(cfgTiles.length > 0 || showCfgEmpty) && subGroup(
               'lib-configurable',

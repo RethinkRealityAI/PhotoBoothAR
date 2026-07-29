@@ -19,7 +19,7 @@
 import { useState } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { Plus, Sparkles } from 'lucide-react';
-import { STARTER_SCENES, buildStarterDraft } from '../../lib/studio/starterScenes';
+import { STARTER_SCENES, buildStarterDraft, starterPropUrl } from '../../lib/studio/starterScenes';
 import { preloadModel } from '../../lib/glbCache';
 import type { StudioDraft } from '../../lib/studio/state';
 
@@ -30,7 +30,7 @@ import type { StudioDraft } from '../../lib/studio/state';
  * Model component renders null until its load resolves, with no spinner of its
  * own. Fire-and-forget: a failed warm just means the normal load path runs.
  */
-function warmProp(url: string | undefined) {
+function warmProp(url: string | null) {
   if (!url) return;
   void preloadModel(url).catch(() => {});
 }
@@ -93,10 +93,10 @@ export default function StarterGallery({ onPick, onOpenAssets }: Props) {
             return (
               <button
                 key={s.id}
-                onClick={() => { warmProp(s.prop?.url); onPick(draft); }}
+                onClick={() => { warmProp(starterPropUrl(s)); onPick(draft); }}
                 // Hover/touch-start is the earliest honest signal of intent, and
                 // buys the fetch a head start before the click commits.
-                onPointerEnter={() => warmProp(s.prop?.url)}
+                onPointerEnter={() => warmProp(starterPropUrl(s))}
                 title={s.blurb}
                 aria-label={`${s.name} — ${s.blurb}`}
                 className="pressable group relative aspect-[9/16] overflow-hidden rounded-xl border border-white/10 hover:border-accent/50 transition-colors"

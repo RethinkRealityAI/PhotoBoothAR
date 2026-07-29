@@ -32,6 +32,7 @@
  */
 import { BORDER_MAP, toDataUrl } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
+import { BUNDLED_PROP_MAP, propAnchorConfig } from './bundledProps';
 import {
   createObject3D,
   createOverlay,
@@ -76,38 +77,17 @@ export interface StarterScene {
   stickers?: StarterSticker[];
   /** Shader catalogue id, or omitted for no scene filter. */
   shaderId?: string;
-  /** HEAD_PIECES id. */
+  /** HEAD_PIECES id — a procedural piece, used only when `propId` is absent. */
   headPieceId?: string;
   /**
-   * A bundled GLB prop, used INSTEAD of `headPieceId` when set.
+   * BUNDLED_PROPS id (bundledProps.ts), used INSTEAD of `headPieceId`.
    *
-   * These are the pieces the preview images promise: each one was modelled by
-   * Meshy from the very product shot cropped out of that scene's preview, so
-   * the crown a host sees on the card is the crown the guest wears. They ship
-   * UNTEXTURED (0 materials, 216-542KB) and take their look from the shared
-   * `finish` system instead — a 20k-triangle textured bake of the same crown
-   * was 7.4MB, which is not something to hand a guest on venue wifi.
+   * Referenced by id rather than inlined so the studio library and the starter
+   * scenes serve the SAME prop. Inlining it here first time round is what let
+   * the library keep handing out the old procedural crown while the cards
+   * promised the new one.
    */
-  prop?: StarterProp;
-}
-
-/** A bundled GLB prop attached to the tracked head. */
-export interface StarterProp {
-  /** App-absolute path under public/. */
-  url: string;
-  name: string;
-  anchor: HeadAnchor;
-  /** finish.ts id — these meshes carry no material of their own. */
-  finish: string;
-  /**
-   * Head-space centimetres, exactly like HEAD_PIECES config. `scale` is
-   * pre-computed with the same maths as bustFit.computePropFitScale
-   * (PROP_TARGET_CM / largest bbox dimension) because auto-fit only ever runs
-   * on the dock's add path — a scene loaded from this file is used AS AUTHORED.
-   */
-  offset: [number, number, number];
-  rotation: [number, number, number];
-  scale: number;
+  propId?: string;
 }
 
 /**
@@ -133,7 +113,7 @@ export const STARTER_SCENES: StarterScene[] = [
     swatch: ['#FF3DDA', '#22E7FF'],
     frameId: 'jj-neon-frame',
     shaderId: 'neon-pulse',
-    headPieceId: 'neon-shades',
+    propId: 'prop-neon-shades',
   },
   {
     id: 'confetti-party',
@@ -144,15 +124,7 @@ export const STARTER_SCENES: StarterScene[] = [
     frameId: 'frame-minimal-plain',
     stickers: [{ borderId: 'overlay-confetti' }],
     shaderId: 'champagne-sparkle',
-    prop: {
-      url: '/models/props/royal-crown.glb',
-      name: 'Royal Crown',
-      anchor: 'crown',
-      finish: 'gold',
-      offset: [0, 2, -0.6],
-      rotation: [0, 0, 0],
-      scale: 5.5,
-    },
+    propId: 'prop-royal-crown',
   },
   {
     id: 'deco-glam',
@@ -168,15 +140,7 @@ export const STARTER_SCENES: StarterScene[] = [
     // 20-object scene cap and a row in Scene layers, and the blurb never
     // promised a crown anyway (the tiara below is the scene's head piece).
     shaderId: 'prismatic-holo',
-    prop: {
-      url: '/models/props/queens-tiara.glb',
-      name: "Queen's Tiara",
-      anchor: 'forehead',
-      finish: 'gold',
-      offset: [0, 1.6, 0.4],
-      rotation: [0, 0, 0],
-      scale: 4.5,
-    },
+    propId: 'prop-queens-tiara',
   },
   {
     id: 'soft-portrait',
@@ -195,15 +159,7 @@ export const STARTER_SCENES: StarterScene[] = [
     swatch: ['#FFE9A8', '#4A3A12'],
     frameId: 'dw-frame-classic',
     shaderId: 'aureate-god-rays',
-    prop: {
-      url: '/models/props/halo-ring.glb',
-      name: 'Halo Ring',
-      anchor: 'crown',
-      finish: 'gold',
-      offset: [0, 6, -1.0],
-      rotation: [0, 0, 0],
-      scale: 6,
-    },
+    propId: 'prop-halo-ring',
   },
   {
     id: 'equalizer-live',
@@ -231,7 +187,9 @@ export function starterAssetIds(scene: StarterScene): { borders: string[]; piece
     // watch.
     pieces: [
       ...(scene.headPieceId ? [scene.headPieceId] : []),
-      ...(scene.prop ? [scene.prop.url, scene.prop.name] : []),
+      ...(scene.propId && BUNDLED_PROP_MAP[scene.propId]
+        ? [BUNDLED_PROP_MAP[scene.propId].url, BUNDLED_PROP_MAP[scene.propId].name]
+        : []),
     ],
     shaders: scene.shaderId ? [scene.shaderId] : [],
   };
@@ -239,7 +197,18 @@ export function starterAssetIds(scene: StarterScene): { borders: string[]; piece
 
 /** Every bundled prop GLB a starter scene can pull in — the preload list. */
 export function starterPropUrls(): string[] {
-  return Array.from(new Set(STARTER_SCENES.flatMap((s) => (s.prop ? [s.prop.url] : []))));
+  return Array.from(new Set(
+    STARTER_SCENES.flatMap((s) => {
+      const p = s.propId ? BUNDLED_PROP_MAP[s.propId] : undefined;
+      return p ? [p.url] : [];
+    }),
+  ));
+}
+
+/** The prop URL a scene loads, or null when it uses a procedural piece. */
+export function starterPropUrl(scene: StarterScene): string | null {
+  const p = scene.propId ? BUNDLED_PROP_MAP[scene.propId] : undefined;
+  return p ? p.url : null;
 }
 
 /**
@@ -284,18 +253,14 @@ export function buildStarterDraft(sceneId: string): StudioDraft | null {
     }));
   }
 
-  if (preset.prop) {
-    const pr = preset.prop;
+  const bundled = preset.propId ? BUNDLED_PROP_MAP[preset.propId] : undefined;
+  if (bundled) {
     objects.push(createObject3D('model', {
-      assetUrl: pr.url,
-      name: pr.name,
-      anchor: pr.anchor,
-      finish: pr.finish,
-      anchorConfig: {
-        offset: { x: pr.offset[0], y: pr.offset[1], z: pr.offset[2] },
-        rotation: { x: pr.rotation[0], y: pr.rotation[1], z: pr.rotation[2] },
-        scale: pr.scale,
-      },
+      assetUrl: bundled.url,
+      name: bundled.name,
+      anchor: bundled.anchor,
+      finish: bundled.finish,
+      anchorConfig: propAnchorConfig(bundled),
     }));
   } else if (preset.headPieceId) {
     const p = HEAD_PIECE_MAP[preset.headPieceId];
