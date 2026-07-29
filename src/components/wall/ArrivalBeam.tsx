@@ -216,7 +216,7 @@ export default function ArrivalBeam({ ceremony, tileRects, onCarry, onDone }: Ar
   const reducedMotion = usePrefersReducedMotion();
   const [phase, setPhase] = useState<Phase>('preparing');
   const [shot, setShot] = useState<string | null>(null);
-  const [rects, setRects] = useState<{ from: BeamRect; to: BeamRect; vh: number } | null>(null);
+  const [rects, setRects] = useState<{ from: BeamRect; to: BeamRect; vw: number; vh: number } | null>(null);
 
   // onDone fires exactly once, from whichever path gets there first.
   const doneRef = useRef(false);
@@ -281,7 +281,7 @@ export default function ArrivalBeam({ ceremony, tileRects, onCarry, onDone }: Ar
         return;
       }
       setShot(url);
-      setRects({ from: beamOriginRect(to, vw, vh), to, vh });
+      setRects({ from: beamOriginRect(to, vw, vh), to, vw, vh });
       setPhase('flying');
     });
 
@@ -390,13 +390,20 @@ export default function ArrivalBeam({ ceremony, tileRects, onCarry, onDone }: Ar
           looking to join. */}
       {phase === 'landed' && rects !== null && (
         <motion.div
-          className="absolute left-1/2 -translate-x-1/2 glass-strong rounded-2xl text-center"
+          className="absolute -translate-x-1/2 -translate-y-1/2 glass-strong rounded-2xl text-center"
           initial={{ y: 18, opacity: 0, scale: 0.95 }}
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: -10, opacity: 0 }}
           transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
           style={{
-            top: Math.max(12, Math.min(rects.to.top + rects.to.height + 16, rects.vh - 110)),
+            // Centred ON the photo that just landed. Anything anchored to a
+            // screen edge eventually lands on the footer QR block or the
+            // header — and on a projected wall the join QR is the one thing
+            // that must never be covered. Clamped so an edge tile's pill
+            // cannot leave the viewport.
+            left: Math.min(Math.max(rects.to.left + rects.to.width / 2, rects.vw * 0.22), rects.vw * 0.78),
+            top: Math.min(Math.max(rects.to.top + rects.to.height * 0.5, 70), rects.vh - 70),
+            maxWidth: '86vw',
             border: '1px solid rgba(var(--accent-rgb),0.40)',
             boxShadow: '0 0 32px rgba(var(--accent-rgb),0.30), 0 8px 24px rgba(0,0,0,0.5)',
             whiteSpace: 'nowrap',

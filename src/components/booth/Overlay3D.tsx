@@ -53,6 +53,18 @@ interface Props {
    * for every call site that doesn't pass it.
    */
   reveal?: boolean;
+  /**
+   * Device-pixel-ratio clamp for the R3F drawing buffer (@react-three/fiber
+   * v9.6.1: `Dpr = number | [min, max]`).
+   *
+   * The Canvas previously passed NO dpr, so it took R3F's own default of
+   * [1, 2]: on a 3x phone that is a backing store ~4x the pixel count of the
+   * CSS box, rendered every frame with `antialias: true`, and then composited
+   * down into the 720x1280 preview anyway. [1, 1.5] is ~56% of those pixels.
+   * Exposed as a prop rather than hard-coded so a surface that needs more can
+   * ask for it.
+   */
+  dpr?: number | [number, number];
 }
 
 /**
@@ -94,13 +106,14 @@ function AnimatedPiece({ animation, reveal, children }: { animation?: LayerAnima
   return <group ref={ref}>{children}</group>;
 }
 
-export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, pieces, reveal = false }: Props) {
+export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, pieces, reveal = false, dpr = [1, 1.5] }: Props) {
   // First piece whose occlude===true wins the (single, non-duplicated) occluder.
   const occluderIdx = pieces ? pieces.findIndex((p) => p.occlude === true) : -1;
   return (
     <div id="booth-3d-layer" className="absolute inset-0 pointer-events-none z-20">
       <Canvas
         camera={{ position: RIG_CAMERA.position, fov: RIG_CAMERA.fov, near: RIG_CAMERA.near, far: RIG_CAMERA.far }}
+        dpr={dpr}
         gl={{ alpha: true, preserveDrawingBuffer: true, antialias: true }}
         style={{ width: '100%', height: '100%', background: 'transparent' }}
       >

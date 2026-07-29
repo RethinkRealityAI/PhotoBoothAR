@@ -11,7 +11,7 @@
  */
 import { Link } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { Camera, Images, Trophy, UploadCloud } from 'lucide-react';
+import { Album, Camera, Images, Trophy, UploadCloud } from 'lucide-react';
 import { useEffect } from 'react';
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
@@ -42,6 +42,16 @@ export default function GuestWelcome() {
       blurb: 'Watch everyone’s moments appear on the big screen in real time.',
     },
     {
+      // The one thing a guest comes BACK for. /e/:slug/me was reachable only
+      // from inside the review panel and the send-off screen, i.e. only in the
+      // ~30 seconds after taking a shot — so a guest who closed the tab and
+      // returned later had no route to their own photos from the hub at all.
+      to: `${basePath}/me`,
+      icon: Album,
+      title: 'My Photos & Videos',
+      blurb: 'Everything you’ve taken here — save it, share it, or send more.',
+    },
+    {
       to: `${basePath}/upload`,
       icon: UploadCloud,
       title: 'Share a Photo',
@@ -60,7 +70,7 @@ export default function GuestWelcome() {
   return (
     <div className="absolute inset-0 overflow-y-auto bg-noir-900">
       <EventBackground density={40} sparkle={0.6} />
-      <div className="relative z-10 max-w-md mx-auto px-5 pt-safe-top [--safe-top:2.5rem] pb-14 flex flex-col items-center gap-7">
+      <div className="relative z-10 max-w-md mx-auto px-5 pt-safe-top [--safe-top:2.5rem] pb-safe-bottom [--safe-bottom:3.5rem] flex flex-col items-center gap-7">
 
         <div className="flex flex-col items-center gap-3 text-center animate-rise-in">
           <Emblem size={56} className="drop-shadow-[0_0_14px_rgba(var(--accent-rgb),0.4)]" />

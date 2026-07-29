@@ -18,7 +18,8 @@
  */
 import { useState, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Ban, Camera as CameraIcon, Clock, Crown, Sparkles, Video } from 'lucide-react';
+import { Ban, Camera as CameraIcon, Clock, Crown, Layers, Sparkles, Video } from 'lucide-react';
+import FilterThumb from './FilterThumb';
 import type { Experience } from '../../types';
 import {
   activeOptionId,
@@ -44,11 +45,15 @@ const EFFECT_GRADIENT: Record<string, string> = {
 /* ── Orb ──────────────────────────────────────────────────────────────── */
 
 function Orb({
-  active, label, onClick, children,
+  active, label, onClick, pending = false, children,
 }: {
   active: boolean;
   label: string;
   onClick: () => void;
+  /** The asset this orb applies is still downloading. Shows a sweeping ring so
+   *  "I tapped it and nothing happened" becomes "it's coming" — on venue wifi a
+   *  frame or GLB can take seconds, and the orb used to look done instantly. */
+  pending?: boolean;
   children: ReactNode;
 }) {
   const reduced = useReducedMotion() ?? false;
@@ -57,6 +62,7 @@ function Orb({
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      aria-busy={pending || undefined}
       className="group flex w-[52px] shrink-0 flex-col items-center gap-1.5"
     >
       <motion.span
@@ -76,6 +82,31 @@ function Orb({
         }}
       >
         {children}
+        {pending && (
+          <span
+            className="pointer-events-none absolute inset-0 rounded-full"
+            style={{
+              background: 'rgba(5,6,11,0.55)',
+              // Two-stop conic sweep = a spinner with no extra DOM. Reduced
+              // motion keeps the dimming and the ring but drops the rotation.
+              WebkitMaskImage: 'radial-gradient(circle, transparent 58%, #000 60%)',
+              maskImage: 'radial-gradient(circle, transparent 58%, #000 60%)',
+            }}
+          />
+        )}
+        {pending && (
+          <span
+            className={reduced ? '' : 'animate-spin'}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: '9999px',
+              border: '2px solid transparent',
+              borderTopColor: 'var(--color-accent)',
+              borderRightColor: 'rgba(var(--accent-rgb),0.35)',
+            }}
+          />
+        )}
       </motion.span>
       <span
         className="max-w-[52px] truncate text-center font-label text-[8px] uppercase tracking-wide leading-none transition-colors"
@@ -89,14 +120,20 @@ function Orb({
 
 function OrbThumb({ category, exp, shaderId }: { category: DeckCategory; exp: Experience; shaderId: string | null }) {
   if (category === 'effect') {
+    // The gradient + generic sparkle glyph is now the FALLBACK, drawn
+    // underneath. When the shared thumbnail engine is running, the orb shows
+    // the guest's own face through this exact shader — which is the only way
+    // to tell "Prismatic Holo" from "Aurora Lumina" without applying both.
     return (
-      <span
-        className={`flex h-full w-full items-center justify-center bg-gradient-to-br ${
-          EFFECT_GRADIENT[shaderId ?? ''] ?? 'from-[color:var(--color-accent-3)] to-[color:var(--color-accent)]'
-        }`}
-      >
-        <Sparkles className="h-4 w-4 text-noir-900/45" />
-      </span>
+      <FilterThumb shaderId={shaderId ?? 'none'}>
+        <span
+          className={`flex h-full w-full items-center justify-center bg-gradient-to-br ${
+            EFFECT_GRADIENT[shaderId ?? ''] ?? 'from-[color:var(--color-accent-3)] to-[color:var(--color-accent)]'
+          }`}
+        >
+          <Sparkles className="h-4 w-4 text-noir-900/45" />
+        </span>
+      </FilterThumb>
     );
   }
   const src = exp.thumbnail_url ?? (category === 'frame' ? exp.asset_url : null);
@@ -152,6 +189,13 @@ export interface BoothControlDeckProps<T extends number = number> {
   /** The shutter itself stays in Booth — it owns capture, recording and the
    *  progress ring. The deck just gives it a home. */
   shutter: ReactNode;
+  /** Experience ids whose assets are still downloading. Absent ⇒ no orb ever
+   *  shows a pending ring, i.e. exactly today's rendering. */
+  pendingIds?: ReadonlySet<string>;
+  /** Photo-strip mode: 3 shots composited into one keepsake card. Optional so
+   *  the deck stays usable by any surface that doesn't offer it. */
+  stripMode?: boolean;
+  onStripMode?: (on: boolean) => void;
 }
 
 export default function BoothControlDeck<T extends number>({
@@ -159,7 +203,7 @@ export default function BoothControlDeck<T extends number>({
   sparkles, onToggleSparkles, onSelectEffect, onSelectFrame, onSelectAttachment,
   onClearAll, onOpenAll,
   mediaMode, onMediaMode, videoAllowed, timerSec, onTimerSec, timerOptions,
-  recording, shutter,
+  recording, shutter, pendingIds, stripMode = false, onStripMode,
 }: BoothControlDeckProps<T>) {
   const [timerOpen, setTimerOpen] = useState(false);
   const active = sections.find((s) => s.key === category) ?? sections[0] ?? null;
@@ -220,28 +264,45 @@ export default function BoothControlDeck<T extends number>({
         </div>
 
         <div className="flex items-center gap-1.5">
-          {/* Photo / video */}
+          {/* Capture mode. The icons stay 32px so the deck row still fits a
+              360px phone, but each carries a `-inset-1.5` pseudo-element, so
+              the real TOUCH target is 44px — the accessibility minimum — while
+              the visual stays compact. */}
           <div className="liquid-glass-inset flex items-center gap-0.5 rounded-full p-0.5">
             <button
               type="button"
-              onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('photo'); } }}
+              onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('photo'); onStripMode?.(false); } }}
               disabled={recording}
               aria-label="Photo mode"
-              aria-pressed={mediaMode === 'photo'}
-              className={`pressable flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
-                mediaMode === 'photo' ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
+              aria-pressed={mediaMode === 'photo' && !stripMode}
+              className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
+                mediaMode === 'photo' && !stripMode ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
               }`}
             >
               <CameraIcon className="h-3.5 w-3.5" />
             </button>
+            {onStripMode && (
+              <button
+                type="button"
+                onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('photo'); onStripMode(true); } }}
+                disabled={recording}
+                aria-label="Photo strip mode — three shots on one card"
+                aria-pressed={mediaMode === 'photo' && stripMode}
+                className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
+                  mediaMode === 'photo' && stripMode ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
+                }`}
+              >
+                <Layers className="h-3.5 w-3.5" />
+              </button>
+            )}
             {videoAllowed && (
               <button
                 type="button"
-                onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('video'); } }}
+                onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('video'); onStripMode?.(false); } }}
                 disabled={recording}
                 aria-label="Video mode"
                 aria-pressed={mediaMode === 'video'}
-                className={`pressable flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+                className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
                   mediaMode === 'video' ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
                 }`}
               >
@@ -258,7 +319,10 @@ export default function BoothControlDeck<T extends number>({
                 onClick={() => { haptic('tap'); setTimerOpen((o) => !o); }}
                 aria-label="Self-timer"
                 aria-expanded={timerOpen}
-                className={`pressable liquid-glass-inset flex h-9 min-w-9 items-center gap-1 rounded-full px-2.5 font-label text-[9px] uppercase tracking-wide transition-colors ${
+                // 36px was below the 44px touch minimum — a self-timer is
+                // exactly the control a guest jabs at while holding the phone
+                // out at arm's length.
+                className={`pressable liquid-glass-inset flex h-11 min-w-11 items-center gap-1 rounded-full px-3 font-label text-[9px] uppercase tracking-wide transition-colors ${
                   timerSec === 0 ? 'text-brand-muted/70' : 'text-[color:var(--color-accent)]'
                 }`}
               >
@@ -272,14 +336,14 @@ export default function BoothControlDeck<T extends number>({
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 6, scale: 0.96 }}
                     transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                    className="liquid-glass-raised absolute bottom-11 right-0 z-30 flex gap-1 rounded-2xl p-1.5"
+                    className="liquid-glass-raised absolute bottom-[3.25rem] right-0 z-30 flex gap-1 rounded-2xl p-1.5"
                   >
                     {timerOptions.map((t) => (
                       <button
                         key={t}
                         type="button"
                         onClick={() => { haptic('select'); onTimerSec(t); setTimerOpen(false); }}
-                        className={`pressable h-9 w-10 rounded-xl font-label text-[10px] transition-colors ${
+                        className={`pressable h-11 w-11 rounded-xl font-label text-[10px] transition-colors ${
                           timerSec === t
                             ? 'bg-foil text-[color:var(--on-accent)]'
                             : 'text-brand-muted/70 hover:text-brand-fg'
@@ -304,7 +368,11 @@ export default function BoothControlDeck<T extends number>({
             label="Clear"
             onClick={() => choose(onClearAll)}
           >
-            <Ban className="h-4 w-4 text-brand-muted/60" />
+            {/* "Clear" previews the untouched camera, so the guest can see
+                what they are going back TO before they tap it. */}
+            <FilterThumb shaderId="none">
+              <Ban className="h-4 w-4 text-brand-muted/60" />
+            </FilterThumb>
           </Orb>
           <Orb
             active={sparkles}
