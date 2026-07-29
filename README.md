@@ -42,13 +42,14 @@ HyperFrames.
 | Guest (per event) | `/e/:slug` → `/welcome` `/booth` `/wall` `/me` `/upload` `/experience/:id` | runtime-resolved tenant; `/welcome` = instruction landing for signage QRs |
 | Greeting card | `/c/:publicId`, `/c/:publicId/contribute?t=` | public viewer + token-gated contribution |
 | Day-of staff | `/m/:slug` | PIN/link manager console (moderation + wall settings) |
+| **DEV only** | `/dev/studio`, `/dev/asset-prep` | registered only when `import.meta.env.DEV` — the studio harness (no auth, no network) and the asset-prep tool that turns a raw GLB into a configurator template. Never ship to production; note `vite build --mode development` does **not** set `DEV` (`NODE_ENV` is the load-bearing part), so these 404 in a static build unless you set it. |
 
 ## Run locally
 
 ```bash
 npm install
 cp .env.example .env.local   # fill VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
-npm run dev                  # http://localhost:5180
+npm run dev                  # http://localhost:5173
 ```
 
 Platform build uses **no `VITE_EVENT`** (so `/` is the marketing/login page).
@@ -58,7 +59,7 @@ Legacy single-event builds set `VITE_EVENT=<slug>` and render exactly as before.
 
 - **Multi-tenant data** — Supabase Postgres with real RLS. `orgs → events`
   tenancy; `event_id` (= `events.slug`) partitions the existing content tables.
-  Migrations are checked in under `supabase/migrations/` (001–012) and mirror
+  Migrations are checked in under `supabase/migrations/` (001–029) and mirror
   what's applied to the live project. The three legacy slugs keep working via
   **grandfather RLS policies**.
 - **Runtime tenancy** — `src/events/runtime.ts` + `EventContext.tsx` resolve an

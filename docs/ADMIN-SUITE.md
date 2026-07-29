@@ -8,6 +8,25 @@ support actions. It is **distinct from the per-event host studio** (`/host/**`,
 Built in phases, each independently shippable. **All five phases are done and
 deployed.**
 
+**2026-07-29 (PR #30) — no new phase, no new `admin-api` actions, nothing to
+deploy.** Client-side only: `/admin` gained a triage strip (`src/lib/adminTriage.ts`,
+pure + tested) that answers "is anything on fire" from three independent reads,
+with an `unknown` severity so a FAILED read never renders as all-clear. One real
+bug fixed — `Features.tsx` discarded `fetchOrgs`' error and rendered "No customers
+match." on a failed read, the same failed-fetch-as-empty class this codebase has
+fixed before. The manager console (`/m/:slug`) was rebuilt phone-first with live
+arrivals, pending counts, a keyboard queue and undo; note its live path is a POLL
+through `manager-api`, not Realtime, because the console holds only the anon key
+and anon RLS exposes `approved and not hidden` — i.e. everything EXCEPT the
+pending queue it needs. Also fixed there: `get_wall_settings` discarded its error,
+so a failed read rendered `DEFAULT_WALL_SETTINGS` as if they were the event's real
+values and one Save overwrote a live wall's config mid-event.
+Known gaps, described not faked: `events.starts_at` is never SELECTed by
+`list_events`/`overview_metrics`, so "events happening today" is absent from the
+strip; no `ai_jobs` admin action exists, so "AI jobs stuck" is not surfaced; and
+payments triage scans only the most recent 50 orders (stated in the UI). Each
+needs an `admin-api` change.
+
 ---
 
 ## Security architecture (the core — don't weaken it)
