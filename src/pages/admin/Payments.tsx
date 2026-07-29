@@ -17,6 +17,7 @@ import { listFootnote, type ListQuery } from '../../lib/serverList';
 import { useServerList } from '../../lib/useServerList';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import ListMore from '../../components/ui/ListMore';
+import LoadError from '../../components/ui/LoadError';
 import StatusPill from '../../components/ui/StatusPill';
 
 /** Rows per request. The header totals come from `revenue_summary`, which
@@ -125,6 +126,8 @@ export default function Payments() {
               <p className="mt-1 font-sans text-[11px] text-brand-muted/50">Pro, incl. renewals</p>
             </div>
           </div>
+
+          {list.error !== null && <LoadError what="payments" code={list.error} onRetry={list.reload} />}
 
           <div className="relative mb-4 max-w-xs">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted/40" />

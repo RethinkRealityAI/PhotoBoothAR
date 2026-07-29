@@ -9,7 +9,7 @@
  * Per-org one-off credit grants live on the Customer detail screen; this is the
  * platform-wide config + the promo catalogue.
  */
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Check, Plus, Ticket } from 'lucide-react';
 import {
   fetchPlatformConfig, setSignupCredits, fetchPromos, createPromo, setPromoActive, type PromoCode,
@@ -49,7 +49,7 @@ export default function Credits() {
   /** The promo list could not be read — distinct from "no promo codes exist". */
   const [promosFailed, setPromosFailed] = useState(false);
 
-  useEffect(() => {
+  const loadConfig = useCallback(() => {
     fetchPlatformConfig().then((r) => {
       if (!r.error && r.data) {
         setBonus(r.data.signupBonusCredits);
@@ -62,12 +62,19 @@ export default function Credits() {
       // bonus to nothing. The form is disabled until we know the real value.
       setConfigFailed(true);
     });
+  }, []);
+  const loadPromos = useCallback(() => {
+    setLoadingPromos(true);
     fetchPromos().then((r) => {
       if (r.data) setPromos(r.data);
       setPromosFailed(Boolean(r.error));
       setLoadingPromos(false);
     });
   }, []);
+  useEffect(() => {
+    loadConfig();
+    loadPromos();
+  }, [loadConfig, loadPromos]);
 
   async function saveBonus(e: FormEvent) {
     e.preventDefault();
@@ -149,8 +156,15 @@ export default function Credits() {
           {bonus !== null && <> (currently <span className="text-brand-fg">{bonus}</span>)</>}.
         </p>
         {configFailed && (
-          <p role="alert" className="mt-2 text-sm text-amber-300/90">
-            We couldn’t read the current value, so this can’t be changed safely — reload the page.
+          <p role="alert" className="mt-2 flex flex-wrap items-center gap-3 text-sm text-amber-300/90">
+            We couldn’t read the current value, so this can’t be changed safely.
+            <button
+              type="button"
+              onClick={loadConfig}
+              className="rounded-full border border-amber-300/40 px-3 py-1 font-label uppercase tracking-luxe text-[9px] text-amber-200 transition hover:bg-amber-300/10"
+            >
+              Retry
+            </button>
           </p>
         )}
         <form onSubmit={saveBonus} className="mt-4 flex items-center gap-3">
@@ -207,8 +221,15 @@ export default function Credits() {
           {loadingPromos ? (
             <p className="text-sm text-brand-muted/50">Loading…</p>
           ) : promos.length === 0 && promosFailed ? (
-            <p role="alert" className="text-sm text-amber-300/90">
+            <p role="alert" className="flex flex-wrap items-center gap-3 text-sm text-amber-300/90">
               We couldn’t load the promo codes — this is not a list of zero codes.
+              <button
+                type="button"
+                onClick={loadPromos}
+                className="rounded-full border border-amber-300/40 px-3 py-1 font-label uppercase tracking-luxe text-[9px] text-amber-200 transition hover:bg-amber-300/10"
+              >
+                Retry
+              </button>
             </p>
           ) : promos.length === 0 ? (
             <p className="text-sm text-brand-muted/50">No promo codes yet.</p>
