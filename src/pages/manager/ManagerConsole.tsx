@@ -391,13 +391,21 @@ export default function ManagerConsole() {
       return;
     }
     if (error) {
-      // Transient — keep the console up if it was already ready, but SAY SO.
-      // A poll that fails silently is how a queue goes quiet at exactly the
-      // moment staff most need to trust it.
+      // Transient — keep the console up, but SAY SO. A poll that fails
+      // silently is how a queue goes quiet at exactly the moment staff most
+      // need to trust it.
+      //
+      // A transient failure on the FIRST load used to fall through to the
+      // token-entry screen reading "This access link is invalid or has
+      // expired" — so a 500, or venue wifi dropping, sent day-of staff off to
+      // find the host and beg for a new code while their link was perfectly
+      // good. Only `bad_token` / `event_not_found` (handled above) may say
+      // that. Everything else opens the console on its own failed state,
+      // which keeps retrying.
       errorsRef.current += 1;
       setLoadedOnce(true);
       setLoadFailed(true);
-      if (!opts?.soft) setPhase('invalid');
+      setPhase('ready');
       return;
     }
     errorsRef.current = 0;
