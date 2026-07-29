@@ -12,7 +12,11 @@
  *
  * Pure parsing/params here (node-tested); the R3F meshes live in
  * components/ar/FaceOccluder.tsx.
+ *
+ * Also the home of `StudioSettings` — the whole `app_settings` 'studio' key,
+ * not just the occluder's slice of it.
  */
+import { DEFAULT_LIGHTING, normalizeLightingPreset, type LightingPresetId } from './lighting';
 
 export interface ParsedObj {
   /** flat xyz triples */
@@ -125,11 +129,23 @@ export interface StudioSettings {
    * true when `baselineFit` is present; meaningless (and omitted) otherwise.
    */
   autoHeadScale?: boolean;
+  /**
+   * The event's shared 3D lighting rig (lib/studio/lighting.ts). Applies to the
+   * booth's 3D layer, the studio's live + orbit views, the preview and the
+   * jewelry builder — one value, so those five surfaces cannot disagree about
+   * what a gold crown looks like.
+   *
+   * ALWAYS PRESENT after normalization, defaulting to 'studio'. That default is
+   * safe for legacy events because the BOOTH does not read this key for them:
+   * `boothLightingFor` forces 'legacy' whenever the event's source is not 'db'.
+   */
+  lighting: LightingPresetId;
 }
 
 export const DEFAULT_STUDIO_SETTINGS: StudioSettings = {
   headScale: 1,
   occlusion: true,
+  lighting: DEFAULT_LIGHTING,
 };
 
 export function normalizeStudioSettings(raw: unknown): StudioSettings {
@@ -137,6 +153,7 @@ export function normalizeStudioSettings(raw: unknown): StudioSettings {
   const out: StudioSettings = {
     headScale: clampHeadScale(r.headScale ?? 1),
     occlusion: r.occlusion !== false,
+    lighting: normalizeLightingPreset(r.lighting),
   };
   // Additive: the two auto-fit keys only appear once a baseline has been set, so
   // rows written before this feature (and legacy events) normalize IDENTICALLY

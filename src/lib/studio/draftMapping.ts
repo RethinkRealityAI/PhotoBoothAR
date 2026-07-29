@@ -308,6 +308,11 @@ function object3DLayer(o: Object3D, r: UrlResolver): ExperienceLayer {
   if (o.name) layer.name = o.name;
   if (o.animation !== 'none') layer.animation = o.animation;
   if (o.occlusion) layer.occlusion = true;
+  // Written ONLY when set: state.withFinish deletes keys at their defaults, so
+  // "restyled then reset" persists exactly like "never styled".
+  if (o.finish) layer.finish = o.finish;
+  if (o.tint) layer.tint = o.tint;
+  if (typeof o.tintStrength === 'number') layer.tintStrength = o.tintStrength;
   if (o.hidden) layer.hidden = true;
   return layer;
 }
@@ -356,6 +361,10 @@ export function draftToPayload(
     const anyAnim = objs.some((o) => o.animation !== 'none');
     // Hidden forces the layers path — see the 2D branch note.
     const anyHidden = objs.some((o) => o.hidden === true);
+    // So does a material finish, for the same reason: the singular
+    // anchor/procedural/occlusion mirror has NO slot for finish/tint, so a
+    // lone restyled model would save and reload as grey plastic again.
+    const anyFinish = objs.some((o) => !!o.finish || !!o.tint);
     const layer0 = objs[0];
     if (layer0) {
       // Legacy mirror of layer 0.
@@ -370,7 +379,7 @@ export function draftToPayload(
       if (layer0.occlusion) config.occlusion = true;
       assetUrl = layer0.type === 'headpiece' && layer0.proceduralId ? null : resolve(resolvedUrls, layer0.id);
     }
-    if (objs.length > 1 || anyAnim || anyHidden || revealActive) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
+    if (objs.length > 1 || anyAnim || anyHidden || anyFinish || revealActive) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
     // The scene-level filter slot ('none' = empty) can ride alongside any scene.
     if (draft.shaderId !== 'none') config.ambientShader = { shaderId: draft.shaderId, params: draft.shaderParams };
   } else {

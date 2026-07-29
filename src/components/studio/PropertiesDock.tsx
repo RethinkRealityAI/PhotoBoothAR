@@ -51,6 +51,9 @@ import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
 import { getHeadFitEstimate } from '../../lib/faceRig';
 import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
 import { OVERLAY_SCALE, OVERLAY_POSITION, OVERLAY_ROTATION, formatAtStep, defaultAnchorConfig } from '../../lib/studio/controlSpecs';
+import { FINISH_TINT_STRENGTH } from '../../lib/studio/controlSpecs';
+import { FINISHES, normalizeFinish, normalizeTintStrength, type FinishId } from '../../lib/studio/finish';
+import { HOST_LIGHTING_PRESETS, type LightingPresetId } from '../../lib/studio/lighting';
 import { alignTransform, snapRotation, stepRotation, type AlignAction } from '../../lib/studio/align';
 import { HEAD_PIECE_MAP } from '../../lib/headPieces';
 import {
@@ -91,6 +94,10 @@ interface Props {
   dispatch: React.Dispatch<StudioAction>;
   headScale: number;
   onHeadScaleChange: (v: number, persist?: boolean) => void;
+  /** Event-wide 3D lighting rig (owned by StudioShell, persisted in the
+   *  app_settings 'studio' key alongside headScale). */
+  lighting: LightingPresetId;
+  onLightingChange: (next: LightingPresetId) => void;
   onThumbUpload: (file: File) => void;
   onThumbClear: () => void;
 }
@@ -331,6 +338,136 @@ function AnimationChips({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* ── Material finish (3D objects) ─────────────────────────────────────────
+ * Most AI-generated and imported GLBs arrive as untuned grey plastic — Meshy
+ * hands back metalness ~0 / roughness ~1 and a flat albedo. The jewelry builder
+ * had had a metal picker since W7, but it was locked inside that dialog and only
+ * ever styled geometry the builder itself extruded. This is the general control:
+ * five finishes plus an optional colour wash, on ANY selected 3D object.
+ *
+ * Head pieces are excluded on purpose — they ship hand-authored materials
+ * (HeadPieces.tsx) that a blanket "chrome" would flatten.
+ */
+const TINT_SWATCHES: readonly string[] = [
+  '#d4a017', '#c8ccd0', '#d8927f', '#7df9ff',
+  '#ff4fd8', '#5b8cff', '#3ddc84', '#ffffff',
+];
+
+function FinishControls({ object, dispatch }: { object: Object3D; dispatch: React.Dispatch<StudioAction> }) {
+  const finish = normalizeFinish(object.finish);
+  const tint = object.tint ?? null;
+  // Absent strength means FULL — see finish.normalizeTintStrength; reading it
+  // as 0 would make a freshly-picked colour do nothing at all.
+  const strength = normalizeTintStrength(object.tintStrength);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <SectionLabel>Finish</SectionLabel>
+      <div className="grid grid-cols-3 gap-1.5">
+        {FINISHES.map((f) => {
+          const active = f.id === finish;
+          return (
+            <Tooltip key={f.id} label={f.label} hint={f.hint} side="left">
+              <button
+                onClick={() => dispatch({ type: 'SET_FINISH', finish: f.id as FinishId })}
+                aria-pressed={active}
+                className={`w-full py-2 rounded-lg text-[9px] font-label uppercase tracking-widest transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+              >
+                {f.label}
+              </button>
+            </Tooltip>
+          );
+        })}
+      </div>
+
+      <SectionLabel>Colour</SectionLabel>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {/* "None" first, and it is the only way back to the exported colour —
+            a swatch grid with no clear is a one-way door. */}
+        <button
+          onClick={() => dispatch({ type: 'SET_FINISH', tint: null })}
+          aria-pressed={tint === null}
+          title="No colour — keep the model's own"
+          className={`w-6 h-6 rounded-md grid place-items-center bg-white/[0.03] transition-colors ${tint === null ? 'ring-1 ring-accent/60' : 'ring-1 ring-white/10 hover:ring-white/25'}`}
+        >
+          <X className="w-3 h-3 text-brand-muted/60" />
+        </button>
+        {TINT_SWATCHES.map((hex) => (
+          <button
+            key={hex}
+            onClick={() => dispatch({ type: 'SET_FINISH', tint: hex })}
+            aria-pressed={tint === hex}
+            title={hex}
+            style={{ backgroundColor: hex }}
+            className={`w-6 h-6 rounded-md transition-transform ${tint === hex ? 'ring-2 ring-accent scale-110' : 'ring-1 ring-white/15 hover:scale-105'}`}
+          />
+        ))}
+        {/* Any colour at all, not just the eight — an event has brand colours. */}
+        <label className="w-6 h-6 rounded-md ring-1 ring-white/15 overflow-hidden cursor-pointer relative" title="Custom colour">
+          <span className="absolute inset-0 bg-[conic-gradient(from_0deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)]" />
+          <input
+            type="color"
+            value={tint ?? '#ffffff'}
+            onChange={(e) => dispatch({ type: 'SET_FINISH', tint: e.target.value })}
+            className="absolute inset-0 opacity-0 cursor-pointer"
+            aria-label="Custom colour"
+          />
+        </label>
+      </div>
+
+      {/* Strength only matters once there IS a colour. */}
+      {tint && (
+        <SliderRow
+          label="Colour strength"
+          value={strength}
+          min={FINISH_TINT_STRENGTH.min}
+          max={FINISH_TINT_STRENGTH.max}
+          step={FINISH_TINT_STRENGTH.step}
+          defaultValue={FINISH_TINT_STRENGTH.max}
+          format={(v) => `${Math.round(v * 100)}%`}
+          onChange={(v) => dispatch({ type: 'SET_FINISH', tintStrength: v })}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Event lighting (shared by every 3D surface) ──────────────────────────
+ * One rig for the booth, both studio 3D views, the preview and the jewelry
+ * builder. It is an EVENT setting, not a per-object one: a scene lit two ways
+ * at once is just a bug, and the guest's photo can only have one answer.
+ */
+function LightingPicker({ value, onChange }: { value: LightingPresetId; onChange: (v: LightingPresetId) => void }) {
+  const hint = HOST_LIGHTING_PRESETS.find((p) => p.id === value)?.hint ?? '';
+  return (
+    <div className="rounded-xl border border-accent/15 bg-accent/[0.05] p-3 flex flex-col gap-2">
+      <div className="flex items-center gap-1.5">
+        <Sparkles className="w-3.5 h-3.5 text-accent-2" />
+        <span className="font-label uppercase tracking-widest text-[9px] text-accent-2">Lighting</span>
+        <Tooltip label="Lighting" hint="Lights every 3D piece — in this studio, in the preview and in the guest booth. Metal, glass and gems take their look from it." side="left">
+          <span className="ml-auto text-brand-muted/50 cursor-help text-[10px]">?</span>
+        </Tooltip>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {HOST_LIGHTING_PRESETS.map((p) => {
+          const active = p.id === value;
+          return (
+            <button
+              key={p.id}
+              onClick={() => onChange(p.id)}
+              aria-pressed={active}
+              className={`py-2 rounded-lg text-[9px] font-label uppercase tracking-widest transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="font-sans text-[9px] text-brand-muted/50 leading-relaxed">{hint} Saved per event.</p>
     </div>
   );
 }
@@ -775,7 +912,7 @@ function HeadSizeCalibration({
   );
 }
 
-export default function PropertiesDock({ state, dispatch, headScale, onHeadScaleChange, onThumbUpload, onThumbClear }: Props) {
+export default function PropertiesDock({ state, dispatch, headScale, onHeadScaleChange, lighting, onLightingChange, onThumbUpload, onThumbClear }: Props) {
   const { draft } = state;
   const { eventId } = useEvent();
   const [templateSaving, setTemplateSaving] = useState(false);
@@ -1034,6 +1171,10 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                   value={sel3D.occlusion}
                   onChange={(v) => dispatch({ type: 'SET_OCCLUSION', occlusion: v })}
                 />
+                {/* Finish is for IMPORTED/GENERATED geometry only: built-in head
+                    pieces ship hand-authored materials that a blanket restyle
+                    would flatten. */}
+                {sel3D.type === 'model' && <FinishControls object={sel3D} dispatch={dispatch} />}
                 <AnimationChips value={sel3D.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: sel3D.id, animation: a })} />
               </div>
             )}
@@ -1166,11 +1307,14 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
         </DockSection>
       )}
 
-      {/* HEAD & FIT — scene-level head-size calibration + per-guest auto-fit.
-          Offered whenever the scene has a 3D piece; mounted only while open so
-          the tracker-estimate polling runs only while the host is calibrating. */}
+      {/* LIGHTING & FIT — the two SCENE-level 3D settings: the shared lighting
+          rig every surface renders with, and head-size calibration + per-guest
+          auto-fit. Offered whenever the scene has a 3D piece; mounted only while
+          open so the tracker-estimate polling runs only while the host is
+          calibrating. */}
       {has3D && (
-        <DockSection icon={Ruler} title="Head & fit" open={!!open.headfit} onToggle={() => toggleSection('headfit')}>
+        <DockSection icon={Ruler} title="Lighting & fit" open={!!open.headfit} onToggle={() => toggleSection('headfit')}>
+          <LightingPicker value={lighting} onChange={onLightingChange} />
           <HeadSizeCalibration headScale={headScale} onHeadScaleChange={onHeadScaleChange} />
         </DockSection>
       )}

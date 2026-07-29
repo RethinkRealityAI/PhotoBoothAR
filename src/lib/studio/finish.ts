@@ -106,8 +106,18 @@ export function normalizeTint(raw: unknown): string | null {
   return null;
 }
 
-/** Tint strength, clamped through the shared control spec. */
+/**
+ * Tint strength, clamped through the shared control spec.
+ *
+ * ABSENT defaults to FULL, not to zero — a host who has just picked a colour
+ * must see that colour. `null`/`undefined`/`''` are rejected BEFORE the numeric
+ * coercion because `Number(null)` and `Number('')` are both 0, a perfectly
+ * finite value: without this guard a missing strength would silently mean
+ * "apply 0% of the tint", i.e. the tint would vanish with no error anywhere.
+ * 0 typed by the host is still honoured — it is data, not absence.
+ */
 export function normalizeTintStrength(raw: unknown): number {
+  if (raw === null || raw === undefined || raw === '') return FINISH_TINT_STRENGTH.max;
   const n = typeof raw === 'number' ? raw : Number(raw);
   if (!Number.isFinite(n)) return FINISH_TINT_STRENGTH.max;
   return clampToSpec(n, FINISH_TINT_STRENGTH);

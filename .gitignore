@@ -16,6 +16,10 @@ coverage/
 # MediaPipe wasm copied from node_modules at build (kept in lockstep with the JS)
 public/mediapipe/
 
+# three.js Draco decoder, copied from node_modules at build for the same reason
+# — committing it would let the decoder drift from the three.js that loads it.
+public/three/
+
 # Phase 6 keepsake-film: local render output + container render toolchain
 .hf-bin/
 hyperframes/keepsake-film/renders/

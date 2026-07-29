@@ -29,6 +29,7 @@ import StageCanvas, {
   StageCanvasHandle, StageOverlaySpec, PREVIEW_W, PREVIEW_H, CAPTURE_W, CAPTURE_H,
 } from './booth/StageCanvas';
 import Overlay3D, { Overlay3DPiece } from './booth/Overlay3D';
+import { boothLightingFor } from '../lib/studio/lighting';
 import TriggerEffects, { type TriggerEffectsHandle } from './booth/TriggerEffects';
 import PickerDrawer from './booth/PickerDrawer';
 import BoothControlDeck from './booth/BoothControlDeck';
@@ -521,6 +522,30 @@ export default function Booth() {
   // frame. Track which URLs have actually landed, show a pending ring on the
   // orb until they have, and hold the reveal until the asset is there.
   const [loadedAssets, setLoadedAssets] = useState<ReadonlySet<string>>(() => new Set<string>());
+  /**
+   * THE EXACT 3D SIGNAL (W6). `warmAsset` below fetches a .glb to completion,
+   * which warms the same HTTP cache the loader reads — but a fetch ending is
+   * NOT the same as geometry being on screen: a 12 MB Meshy model still has to
+   * be parsed and cloned, hundreds of ms on a phone, and the reveal shimmer used
+   * to fire in that gap over an empty frame. Overlay3D now reports each piece's
+   * url the frame its scene graph actually mounts (FaceRig `Model.onReady`), and
+   * this marks it loaded. Both paths write the SAME set, and marking a url twice
+   * is a no-op, so the warm-up stays as the backstop for a piece that never
+   * mounts (a 2D-only selection, a hidden layer).
+   */
+  const markAssetLoaded = useCallback((url: string) => {
+    setLoadedAssets((prev) => withLoaded(prev, url));
+  }, []);
+
+  /**
+   * THE LEGACY GATE for lighting. `boothLightingFor` returns 'legacy' for ANY
+   * event whose source is not 'db' — hope-gala, jenna-jake and detola-wuyi get
+   * the exact ambient 1.2 / directional 1.8 / warm point 0.8 rig they shipped
+   * with, no environment map, so their saved photos are byte-identical. Only a
+   * platform event a host authored in the studio gets the new lighting, and
+   * only the preset that host chose.
+   */
+  const boothLighting = boothLightingFor(source, studioCfg.lighting);
   const selectionUrls = useMemo(() => {
     const urls = assetUrlsOf(frameExp);
     for (const u of assetUrlsOf(attachExp)) if (!urls.includes(u)) urls.push(u);
@@ -689,6 +714,11 @@ export default function Booth() {
         // Same source==='db' safety gate as the single-piece occlude below —
         // legacy/code events never carry layers, but keep the invariant explicit.
         occlude: source === 'db' && l.occlusion === true,
+        // Material finish (W6). Absent on every pre-W6 layer, so those render
+        // with the exporter's own material exactly as before.
+        finish: l.finish,
+        tint: l.tint,
+        tintStrength: l.tintStrength,
       }));
   }, [attachLayers, source, layerVisible]);
 
@@ -1555,6 +1585,8 @@ export default function Booth() {
                     onFaceVisible={setFaceVisible}
                     pieces={overlayPieces}
                     reveal={reveal}
+                    lightingPreset={boothLighting}
+                    onAssetReady={markAssetLoaded}
                   />
                 )}
               </div>

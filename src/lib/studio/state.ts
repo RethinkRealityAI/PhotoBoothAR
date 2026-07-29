@@ -167,6 +167,25 @@ export function createOverlay(
   };
 }
 
+/**
+ * The finish keys an object should CARRY, normalized, with every default
+ * omitted entirely (never stored as `finish: 'original'`). Shared by
+ * createObject3D and withFinish so "unstyled" has exactly one representation.
+ */
+function finishKeys(src: { finish?: unknown; tint?: unknown; tintStrength?: unknown }): Partial<Object3D> {
+  const out: Partial<Object3D> = {};
+  const finish = normalizeFinish(src.finish);
+  if (finish !== DEFAULT_FINISH) out.finish = finish;
+  const tint = normalizeTint(src.tint);
+  if (tint) {
+    out.tint = tint;
+    // A strength without a tint is dead data, and full strength IS the default.
+    const strength = normalizeTintStrength(src.tintStrength);
+    if (strength !== FINISH_TINT_STRENGTH.max) out.tintStrength = strength;
+  }
+  return out;
+}
+
 export function createObject3D(
   type: 'model' | 'headpiece',
   opts: Partial<Omit<Object3D, 'id' | 'type'>> = {},
@@ -191,6 +210,10 @@ export function createObject3D(
         },
     animation: opts.animation ?? 'none',
     occlusion: opts.occlusion ?? false,
+    // Spread-in only when actually set, so an unstyled object has NO finish
+    // keys at all — object-identity/deep-equality snapshots taken before Wave 6
+    // stay byte-identical (the same idiom as createOverlay's `lettering`).
+    ...finishKeys(opts),
   };
 }
 
@@ -207,28 +230,20 @@ export function withFinish(
   o: Object3D,
   patch: { finish?: string; tint?: string | null; tintStrength?: number },
 ): Object3D {
+  // Merge current + patch, then re-derive the keys through the single
+  // normalizer — so there is exactly ONE representation of "unstyled",
+  // whichever route the object took to get there.
+  const merged = {
+    finish: patch.finish !== undefined ? patch.finish : o.finish,
+    // `null` is the explicit clear; `undefined` means "leave as it was".
+    tint: patch.tint !== undefined ? patch.tint : o.tint,
+    tintStrength: patch.tintStrength !== undefined ? patch.tintStrength : o.tintStrength,
+  };
   const next: Object3D = { ...o };
-
-  if (patch.finish !== undefined) {
-    const f = normalizeFinish(patch.finish);
-    if (f === DEFAULT_FINISH) delete next.finish;
-    else next.finish = f;
-  }
-  if (patch.tint !== undefined) {
-    const t = patch.tint === null ? null : normalizeTint(patch.tint);
-    if (t === null) {
-      delete next.tint;
-      delete next.tintStrength; // a strength with no tint is dead data
-    } else {
-      next.tint = t;
-    }
-  }
-  if (patch.tintStrength !== undefined && next.tint) {
-    const s = normalizeTintStrength(patch.tintStrength);
-    if (s === FINISH_TINT_STRENGTH.max) delete next.tintStrength; // full = the default
-    else next.tintStrength = s;
-  }
-  return next;
+  delete next.finish;
+  delete next.tint;
+  delete next.tintStrength;
+  return { ...next, ...finishKeys(merged) };
 }
 
 /* — Draft ------------------------------------------------------------------ */

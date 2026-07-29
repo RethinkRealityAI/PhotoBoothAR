@@ -29,7 +29,8 @@ import { MAX_OBJECTS, deriveKind } from './state';
 import type { LayerAnimation, Transform2D, GuestLetteringConfig } from '../../types';
 import type { TriggerConfig } from './triggers';
 import { TRIGGER_SOURCES, BURST_STYLES } from './triggers';
-import { OVERLAY_SCALE, OVERLAY_POSITION, OVERLAY_ROTATION, clampToSpec } from './controlSpecs';
+import { OVERLAY_SCALE, OVERLAY_POSITION, OVERLAY_ROTATION, FINISH_TINT_STRENGTH, clampToSpec } from './controlSpecs';
+import { DEFAULT_FINISH, normalizeFinish, normalizeTint, normalizeTintStrength } from './finish';
 
 /** Key prefix for every studio autosave entry — also the prune scope. */
 export const DRAFT_KEY_PREFIX = 'bw.studio.draft.';
@@ -243,6 +244,18 @@ function objectOf(v: unknown, seen: Set<string>): StudioObject | null {
     };
     if (assetUrl) out.assetUrl = assetUrl;
     if (proceduralId) out.proceduralId = proceduralId;
+    // Finish keys are narrowed through the same normalizers the reducer uses —
+    // an arbitrary string from a restored autosave can never reach a THREE
+    // material. Defaults are OMITTED, so a pre-Wave-6 draft restores with no
+    // finish keys and deep-equals its old self.
+    const finish = normalizeFinish(v.finish);
+    if (finish !== DEFAULT_FINISH) out.finish = finish;
+    const tint = normalizeTint(v.tint);
+    if (tint) {
+      out.tint = tint;
+      const strength = normalizeTintStrength(v.tintStrength);
+      if (strength !== FINISH_TINT_STRENGTH.max) out.tintStrength = strength;
+    }
     if (v.hidden === true) out.hidden = true;
     return out;
   }
@@ -502,6 +515,9 @@ export function draftsEquivalent(a: StudioDraft, b: StudioDraft): boolean {
     } else if (x.type !== 'overlay' && y.type !== 'overlay') {
       if (x.assetUrl !== y.assetUrl || x.proceduralId !== y.proceduralId || x.anchor !== y.anchor) return false;
       if (x.occlusion !== y.occlusion) return false;
+      // A restyled piece IS different work: without this, changing a crown from
+      // grey plastic to gold and refreshing would show no recovery prompt.
+      if (x.finish !== y.finish || x.tint !== y.tint || x.tintStrength !== y.tintStrength) return false;
       const p = x.anchorConfig;
       const q = y.anchorConfig;
       if (p.scale !== q.scale) return false;

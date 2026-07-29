@@ -27,6 +27,7 @@ import ErrorBoundary from '../ui/ErrorBoundary';
 import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
 import { createTriggerEngine, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
+import type { LightingPresetId } from '../../lib/studio/lighting';
 import { initializeFaceLandmarker, isFaceLandmarkerReady } from '../../lib/faceTracking';
 import { REVEAL_SHIMMER_MS } from '../../lib/studio/reveal';
 import { stageStatus, STAGE_STATUS_DOT_CLASS, STAGE_STATUS_TONE_CLASS, type StageStatus } from '../../lib/studio/stageStatus';
@@ -47,6 +48,9 @@ interface Props {
   dispatch: React.Dispatch<StudioAction>;
   cam: CamState;
   headScale: number;
+  /** Event-wide 3D lighting rig — threaded to the 3D views AND the preview so
+   *  all three agree with the booth. */
+  lighting: LightingPresetId;
   occlusionEnabled: boolean;
   debugOcclusion: boolean;
   faceVisible: boolean;
@@ -78,6 +82,7 @@ export default function StudioStage({
   dispatch,
   cam,
   headScale,
+  lighting,
   occlusionEnabled,
   debugOcclusion,
   faceVisible,
@@ -599,6 +604,7 @@ export default function StudioStage({
               selectedId={draft.selectedId}
               holdPose={gizmoDragging}
               headScale={headScale}
+              lightingPreset={lighting}
               occlusionEnabled={occlusionEnabled}
               debugOcclusion={debugOcclusion}
               matrixRef={headMatrixRef}
@@ -627,6 +633,7 @@ export default function StudioStage({
               revealTargetIds={revealTargetIds}
               effectIdOverride={pulseShaderId ?? undefined}
               reveal={reveal}
+              lightingPreset={lighting}
             />
             </ErrorBoundary>
           </div>

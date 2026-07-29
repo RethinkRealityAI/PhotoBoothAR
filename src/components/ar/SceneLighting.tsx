@@ -16,10 +16,11 @@
  * would "look darker on camera". The environment below is generated on the GPU
  * from a handful of emissive panels: no HDR file, no fetch, one cube render.
  */
-import { Environment, Lightformer, ContactShadows } from '@react-three/drei';
+import { Environment, ContactShadows } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
-import { useEffect } from 'react';
-import { lightingFor, type LightingPresetId } from '../../lib/studio/lighting';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import * as THREE from 'three';
+import { lightingFor, type LightformerSpec, type LightingPresetId } from '../../lib/studio/lighting';
 
 /** Applies the preset's renderer exposure and puts it back on unmount, so a
  *  surface that stops rendering never leaves the next one over-exposed. */
@@ -31,6 +32,48 @@ function Exposure({ value }: { value: number }) {
     return () => { gl.toneMappingExposure = prev; };
   }, [gl, value]);
   return null;
+}
+
+/**
+ * One emissive panel inside the generated environment.
+ *
+ * This is drei's `<Lightformer>` written out by hand, and deliberately so: that
+ * component's props type is `Omit<ThreeElements['mesh'],'ref'> & {...}`, so its
+ * `scale` and `args` INTERSECT with the mesh element's own — `scale` resolves to
+ * `number & [number, number]` and `args` to the mesh's
+ * `[geometry?, material?]`, which makes a non-uniform panel size unexpressible
+ * without an `as unknown as` cast. Plain R3F elements type cleanly and this is
+ * exactly what Lightformer renders internally (colour pre-multiplied by
+ * intensity into an unlit, tone-mapping-exempt material).
+ */
+function Panel({ spec }: { spec: LightformerSpec }) {
+  const ref = useRef<THREE.Mesh>(null);
+  // Colour × intensity: a basic material has no lighting response, so the
+  // "brightness" of an environment panel IS its colour value, which may exceed 1.
+  const color = useMemo(() => new THREE.Color(spec.color).multiplyScalar(spec.intensity), [spec.color, spec.intensity]);
+  // Face the scene origin unless the spec pinned an explicit rotation — a panel
+  // pointing away contributes nothing to the cube capture.
+  useLayoutEffect(() => {
+    if (!spec.rotation && ref.current) ref.current.lookAt(0, 0, 0);
+  }, [spec.rotation, spec.position]);
+
+  const [w, h] = spec.scale;
+  return (
+    <mesh
+      ref={ref}
+      position={spec.position as [number, number, number]}
+      rotation={spec.rotation as [number, number, number] | undefined}
+    >
+      {spec.form === 'rect' ? (
+        <planeGeometry args={[w, h]} />
+      ) : spec.form === 'circle' ? (
+        <ringGeometry args={[0, w / 2, 48]} />
+      ) : (
+        <ringGeometry args={[w / 4, w / 2, 48]} />
+      )}
+      <meshBasicMaterial color={color} toneMapped={false} side={THREE.DoubleSide} />
+    </mesh>
+  );
 }
 
 export interface SceneLightingProps {
@@ -81,15 +124,7 @@ export default function SceneLighting({
           environmentIntensity={p.environment.intensity}
         >
           {p.environment.lightformers.map((lf, i) => (
-            <Lightformer
-              key={`lf${i}`}
-              form={lf.form}
-              color={lf.color}
-              intensity={lf.intensity}
-              position={lf.position as [number, number, number]}
-              rotation={lf.rotation as [number, number, number] | undefined}
-              scale={[lf.scale[0], lf.scale[1]] as [number, number]}
-            />
+            <Panel key={`lf${i}`} spec={lf} />
           ))}
         </Environment>
       )}

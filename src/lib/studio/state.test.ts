@@ -656,3 +656,67 @@ describe('sceneCounts (W4)', () => {
     expect(sceneCounts(initialDraft('shader'))).toEqual({ frame: 0, stickers: 0, threeD: 0, capped: 0 });
   });
 });
+
+describe('SET_FINISH (W6 material finishes)', () => {
+  const with3D = () => {
+    let st = initialState('3d_attachment');
+    st = studioReducer(st, { type: 'ADD_OBJECT', object: createObject3D('model', { assetUrl: 'https://cdn/a.glb' }), select: true });
+    return st;
+  };
+
+  it('sets a finish on the selected 3D object and marks the draft dirty', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_FINISH', finish: 'gold' });
+    expect((selectedObject(st.draft) as Object3D).finish).toBe('gold');
+    expect(st.dirty).toBe(true);
+  });
+
+  it('resetting to original DELETES the key rather than storing the default', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_FINISH', finish: 'gold' });
+    st = studioReducer(st, { type: 'SET_FINISH', finish: 'original' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect('finish' in o).toBe(false);
+  });
+
+  it('tint: null is an explicit CLEAR and drops the orphaned strength with it', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_FINISH', tint: '#ff0000' });
+    st = studioReducer(st, { type: 'SET_FINISH', tintStrength: 0.3 });
+    let o = selectedObject(st.draft) as Object3D;
+    expect(o.tint).toBe('#ff0000');
+    expect(o.tintStrength).toBeCloseTo(0.3);
+    st = studioReducer(st, { type: 'SET_FINISH', tint: null });
+    o = selectedObject(st.draft) as Object3D;
+    expect('tint' in o).toBe(false);
+    expect('tintStrength' in o).toBe(false);
+  });
+
+  it('one field at a time — changing the finish keeps the tint', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_FINISH', tint: '#00ff00', tintStrength: 0.5 });
+    st = studioReducer(st, { type: 'SET_FINISH', finish: 'chrome' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.finish).toBe('chrome');
+    expect(o.tint).toBe('#00ff00');
+    expect(o.tintStrength).toBeCloseTo(0.5);
+  });
+
+  it('normalizes hostile input instead of storing it', () => {
+    let st = with3D();
+    st = studioReducer(st, { type: 'SET_FINISH', finish: 'javascript:alert(1)', tint: 'url(evil)' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect('finish' in o).toBe(false);
+    expect('tint' in o).toBe(false);
+  });
+
+  it('is a no-op with nothing selected, and never touches a 2D overlay', () => {
+    const empty = initialState('3d_attachment');
+    expect(studioReducer(empty, { type: 'SET_FINISH', finish: 'gold' })).toBe(empty);
+
+    let st = initialState('2d_filter');
+    st = studioReducer(st, { type: 'ADD_OBJECT', object: createOverlay('2d_filter', { url: 'blob:x', isBuiltin: false }), select: true });
+    const before = st;
+    expect(studioReducer(st, { type: 'SET_FINISH', finish: 'gold' })).toBe(before);
+  });
+});

@@ -33,6 +33,7 @@ import { HEAD_PIECES } from '../../lib/headPieces';
 import { ANCHOR_PRESETS } from '../../lib/faceRig';
 import { uploadAsset, listAssetsResult, fetchExperiencesResult } from '../../lib/db';
 import { captureGlbThumbnail, measureGlbFitScale } from '../../lib/studio/glbThumb';
+import type { LightingPresetId } from '../../lib/studio/lighting';
 import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
@@ -67,6 +68,10 @@ interface Props {
   onOpenExperience: (exp: Experience) => void;
   beginDrag: (payload: DragPayload, e: React.PointerEvent) => void;
   consumedDrag: () => boolean;
+  /** Event lighting rig — passed straight through to the jewelry builder so its
+   *  live preview is lit exactly like the booth (otherwise a host tuning a
+   *  chrome necklace under 'Neon' would be judging it under 'Studio'). */
+  lighting: LightingPresetId;
 }
 
 // Head pieces are procedural (no image asset) — a distinctive icon per piece
@@ -175,7 +180,7 @@ function Collapse({ show, children }: { show: boolean; children: ReactNode }) {
   );
 }
 
-export default function AssetsDock({ state, dispatch, onOpenExperience, beginDrag, consumedDrag }: Props) {
+export default function AssetsDock({ state, dispatch, onOpenExperience, beginDrag, consumedDrag, lighting }: Props) {
   const { draft } = state;
   const { source, eventId } = useEvent();
   const entitlements = useEntitlements();
@@ -1008,6 +1013,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             dispatch={dispatch}
             onClose={() => setJewelryOpen(false)}
             onUploaded={loadUploads}
+            lighting={lighting}
           />
         </Suspense>
       )}

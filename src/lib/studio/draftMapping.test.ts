@@ -470,3 +470,69 @@ describe('face-triggered effects (W7-D)', () => {
     expect(experienceToDraft(exp)!.triggers).toEqual([]);
   });
 });
+
+/* ── Material finish (W6) ──────────────────────────────────────────────────
+ * The whole feature persists inside the experience's jsonb `config.layers` —
+ * no column, no migration — so these round-trips ARE the storage contract. */
+describe('round-trip: material finish / tint', () => {
+  it('carries finish, tint and strength through payload and back', () => {
+    const o = createObject3D('model', { assetUrl: 'https://cdn/m.glb', finish: 'gold', tint: '#ff00aa', tintStrength: 0.4 });
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id };
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/m.glb' }), null);
+    const layer = payload.config?.layers?.[0];
+    expect(layer?.finish).toBe('gold');
+    expect(layer?.tint).toBe('#ff00aa');
+    expect(layer?.tintStrength).toBeCloseTo(0.4);
+
+    const back = experienceToDraft(expFromPayload(payload))!.objects[0] as Object3D;
+    expect(back.finish).toBe('gold');
+    expect(back.tint).toBe('#ff00aa');
+    expect(back.tintStrength).toBeCloseTo(0.4);
+  });
+
+  it('an UNSTYLED object writes no finish keys AND does not force the layers path', () => {
+    const o = createObject3D('model', { assetUrl: 'https://cdn/m.glb' });
+    expect('finish' in o).toBe(false);
+    expect('tint' in o).toBe(false);
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id };
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/m.glb' }), null);
+    // Pre-W6 single-object scenes keep saving through the singular mirror, with
+    // no config.layers key at all — byte-identical rows.
+    expect(payload.config?.layers).toBeUndefined();
+  });
+
+  it('a LONE finished object still forces config.layers — the singular mirror has no finish slot', () => {
+    const o = createObject3D('model', { assetUrl: 'https://cdn/m.glb', finish: 'chrome' });
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id };
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/m.glb' }), null);
+    expect(payload.config?.layers).toHaveLength(1);
+    expect(payload.config?.layers?.[0].finish).toBe('chrome');
+    expect((experienceToDraft(expFromPayload(payload))!.objects[0] as Object3D).finish).toBe('chrome');
+  });
+
+  it('a layer stored before this feature loads with the exporter material untouched', () => {
+    const exp = baseExp({
+      kind: '3d_attachment',
+      config: { layers: [{ id: 'l1', kind: '3d_attachment', asset_url: 'https://cdn/a.glb', anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } }] },
+    });
+    const back = experienceToDraft(exp)!.objects[0] as Object3D;
+    expect(back.finish).toBeUndefined();
+    expect(back.tint).toBeUndefined();
+  });
+
+  it('full strength is the default and is never written', () => {
+    const o = createObject3D('model', { assetUrl: 'https://cdn/m.glb', tint: '#00ff00', tintStrength: 1 });
+    expect(o.tint).toBe('#00ff00');
+    expect('tintStrength' in o).toBe(false);
+  });
+
+  it('a hostile finish/tint from the database cannot reach a THREE material', () => {
+    const exp = baseExp({
+      kind: '3d_attachment',
+      config: { layers: [{ id: 'l1', kind: '3d_attachment', asset_url: 'https://cdn/a.glb', finish: 'javascript:alert(1)', tint: 'url(evil)', tintStrength: 99, anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } }] },
+    });
+    const back = experienceToDraft(exp)!.objects[0] as Object3D;
+    expect(back.finish).toBeUndefined();
+    expect(back.tint).toBeUndefined();
+  });
+});

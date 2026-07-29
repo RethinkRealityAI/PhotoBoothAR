@@ -29,6 +29,7 @@ import {
 import ConfirmModal from '../ui/ConfirmModal';
 import { BUILTIN_BORDERS } from '../../lib/borders';
 import { clampHeadScale } from '../../lib/studio/occluder';
+import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
 import { studioReducer, initialState, selectedObject, type StudioState, type StudioAction, type StudioDraft } from '../../lib/studio/state';
 import { withHistory, initHistory, canUndo, canRedo } from '../../lib/studio/history';
 import { nudgeTransform } from '../../lib/studio/snap';
@@ -212,6 +213,11 @@ export default function StudioShell() {
   const [headScale, setHeadScale] = useState(1);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingHeadScale = useRef<number | null>(null);
+  // Event-wide 3D lighting rig. Owned HERE, beside headScale, for the same
+  // reason: five surfaces (stage 3D live, stage 3D orbit, preview, the jewelry
+  // builder and — through the same persisted key — the guest booth) must all
+  // read one value, so a change repaints every one of them at once.
+  const [lighting, setLighting] = useState<LightingPresetId>(DEFAULT_LIGHTING);
 
   const cam = useCameraStream(true);
   const stageBodyRef = useRef<HTMLDivElement | null>(null);
@@ -225,8 +231,19 @@ export default function StudioShell() {
   // Load studio settings once.
   useEffect(() => {
     let alive = true;
-    getStudioSettings(eventId).then((s) => { if (alive) setHeadScale(s.headScale); });
+    getStudioSettings(eventId).then((s) => {
+      if (!alive) return;
+      setHeadScale(s.headScale);
+      setLighting(s.lighting);
+    });
     return () => { alive = false; };
+  }, [eventId]);
+
+  // Lighting is a discrete pick, not a dragged slider, so it persists
+  // immediately — no debounce, nothing to flush on unmount.
+  const onLightingChange = useCallback((next: LightingPresetId) => {
+    setLighting(next);
+    setStudioSettings(eventId, { lighting: next }).catch(() => {});
   }, [eventId]);
 
   // Load an existing experience for editing.
@@ -775,7 +792,7 @@ export default function StudioShell() {
             ${mobilePanel === 'assets' ? 'translate-x-0' : '-translate-x-full'}`}
         >
           <DrawerClose label="Assets" onClose={() => setMobilePanel(null)} />
-          <AssetsDock state={state} dispatch={dispatch} onOpenExperience={openExperience} beginDrag={dnd.beginDrag} consumedDrag={dnd.consumedDrag} />
+          <AssetsDock state={state} dispatch={dispatch} onOpenExperience={openExperience} beginDrag={dnd.beginDrag} consumedDrag={dnd.consumedDrag} lighting={lighting} />
         </aside>
 
         <main className="flex-1 min-w-0 relative">
@@ -784,6 +801,7 @@ export default function StudioShell() {
             dispatch={dispatch}
             cam={{ videoRef: cam.videoRef, ready: cam.ready, error: camError, retry: cam.retry }}
             headScale={headScale}
+            lighting={lighting}
             occlusionEnabled={source === 'db'}
             debugOcclusion={debugOcclusion}
             faceVisible={faceVisible}
@@ -833,6 +851,8 @@ export default function StudioShell() {
             dispatch={dispatch}
             headScale={headScale}
             onHeadScaleChange={onHeadScaleChange}
+            lighting={lighting}
+            onLightingChange={onLightingChange}
             onThumbUpload={onThumbUpload}
             onThumbClear={onThumbClear}
           />
