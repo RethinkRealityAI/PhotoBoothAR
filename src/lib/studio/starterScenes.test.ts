@@ -2,6 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
+import { existsSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { STARTER_SCENES, STARTER_SCENE_MAP, starterAssetIds, buildStarterDraft } from './starterScenes';
 import { BORDER_MAP } from '../borders';
@@ -31,6 +32,24 @@ describe('the shipped catalogue is real', () => {
   it('the map mirrors the list', () => {
     expect(Object.keys(STARTER_SCENE_MAP)).toHaveLength(STARTER_SCENES.length);
     for (const s of STARTER_SCENES) expect(STARTER_SCENE_MAP[s.id]).toBe(s);
+  });
+
+  // The gallery card IS the preview image now, so a scene pointing at a file
+  // that was never committed would render as a bare gradient with no way to
+  // tell it apart from a slow network. Checked against the real public/ tree
+  // (vitest runs in node), which is the only place a 404 can be caught before
+  // a host sees it.
+  it('every scene ships a preview image that exists in public/', () => {
+    for (const s of STARTER_SCENES) {
+      expect(s.preview, `${s.id} preview`).toMatch(/^\/starters\/[a-z0-9-]+\.webp$/);
+      const onDisk = new URL(`../../../public${s.preview}`, import.meta.url);
+      expect(existsSync(onDisk), `${s.id} preview missing on disk: ${s.preview}`).toBe(true);
+    }
+  });
+
+  it('gives every scene its own preview', () => {
+    const previews = STARTER_SCENES.map((s) => s.preview);
+    expect(new Set(previews).size).toBe(previews.length);
   });
 });
 
@@ -152,10 +171,30 @@ describe('buildStarterDraft', () => {
     expect(withFilter.shaderParams).toEqual({});
   });
 
+  // Was asserted on deco-glam's crown sticker at { scale: 0.8, y: -30 }. That
+  // sticker is gone: measured on a 540x960 render of its own art it covered
+  // ZERO pixels, because -30 lifts the layer 30% of the card height and its
+  // art only spans the top ~18%. The behaviour under test (a partial transform
+  // merged over the default) is unchanged and still shipped by equalizer-live.
   it('applies a sticker composition transform', () => {
-    const deco = buildStarterDraft('deco-glam')!;
-    const sticker = deco.objects.find((o) => o.type === 'overlay' && o.overlayKind === '2d_filter');
-    expect(sticker && sticker.type === 'overlay' ? sticker.transform : null).toEqual({ scale: 0.8, x: 0, y: -30, rotation: 0 });
+    const eq = buildStarterDraft('equalizer-live')!;
+    const sticker = eq.objects.find((o) => o.type === 'overlay' && o.overlayKind === '2d_filter');
+    expect(sticker && sticker.type === 'overlay' ? sticker.transform : null).toEqual({ scale: 0.9, x: 0, y: 0, rotation: 0 });
+  });
+
+  // Guard rail for the defect above. The art's own bounding box is only
+  // knowable by rasterising (not available in the node test env), so this
+  // bounds the COMPOSITION offset instead: a shipped starter layer may nudge,
+  // but may not be flung far enough to leave the card on its own.
+  it('never composes a layer far enough off-centre to leave the card', () => {
+    for (const s of STARTER_SCENES) {
+      for (const st of s.stickers ?? []) {
+        const { x = 0, y = 0, scale = 1 } = st.transform ?? {};
+        expect(Math.abs(x), `${s.id} sticker x`).toBeLessThanOrEqual(25);
+        expect(Math.abs(y), `${s.id} sticker y`).toBeLessThanOrEqual(25);
+        expect(scale, `${s.id} sticker scale`).toBeGreaterThan(0.1);
+      }
+    }
   });
 
   it('orders layers frame-first so stickers paint over the frame', () => {

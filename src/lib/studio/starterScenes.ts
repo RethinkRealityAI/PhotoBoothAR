@@ -48,7 +48,21 @@ export interface StarterScene {
   name: string;
   /** One line the host reads before clicking — what this scene feels like. */
   blurb: string;
-  /** Two swatch colours for the gallery card, so it reads at thumbnail size. */
+  /**
+   * Bundled sample of what this scene actually produces: a photographic booth
+   * shot graded like the scene's filter and wearing its 3D piece, with the
+   * scene's OWN frame and sticker layers composited over it at the exact
+   * transforms `buildStarterDraft` produces. Two gradient swatches could say
+   * "gold" or "neon" but never which frame, which filter or which prop was
+   * coming — so the card showed a colour where the host needed a picture.
+   *
+   * App-absolute so it resolves identically on the platform build and the
+   * legacy single-event builds. The colocated test asserts the file exists in
+   * public/, so a scene can never ship pointing at a 404.
+   */
+  preview: string;
+  /** Two swatch colours, still used as the card's fallback tint while the
+   *  preview decodes and if it ever fails to load. */
   swatch: [string, string];
   /** BUILTIN_BORDERS id with kind 'border'. Optional — a scene may be frameless. */
   frameId?: string;
@@ -68,6 +82,7 @@ export const STARTER_SCENES: StarterScene[] = [
     id: 'gold-classic',
     name: 'Gold Classic',
     blurb: 'A warm gold border with corner flourishes and a soft golden glow.',
+    preview: '/starters/gold-classic.webp',
     swatch: ['#E8C766', '#7A5A18'],
     frameId: 'frame-classic-gold',
     stickers: [{ borderId: 'dw-corners' }],
@@ -77,6 +92,7 @@ export const STARTER_SCENES: StarterScene[] = [
     id: 'neon-night',
     name: 'Neon Night',
     blurb: 'Neon tube frame, pulsing colour and a pair of glowing shades.',
+    preview: '/starters/neon-night.webp',
     swatch: ['#FF3DDA', '#22E7FF'],
     frameId: 'jj-neon-frame',
     shaderId: 'neon-pulse',
@@ -86,6 +102,7 @@ export const STARTER_SCENES: StarterScene[] = [
     id: 'confetti-party',
     name: 'Confetti Party',
     blurb: 'Clean inset frame, falling gold confetti and a crown on every guest.',
+    preview: '/starters/confetti-party.webp',
     swatch: ['#FFD966', '#2A2033'],
     frameId: 'frame-minimal-plain',
     stickers: [{ borderId: 'overlay-confetti' }],
@@ -96,9 +113,15 @@ export const STARTER_SCENES: StarterScene[] = [
     id: 'deco-glam',
     name: 'Deco Glam',
     blurb: 'Art-deco lines, a holographic shimmer and a tiara.',
+    preview: '/starters/deco-glam.webp',
     swatch: ['#C9A227', '#1B2A4A'],
     frameId: 'frame-deco-plain',
-    stickers: [{ borderId: 'sticker-crown-plain', transform: { y: -30, scale: 0.8 } }],
+    // The Golden Crown sticker that used to sit here drew ZERO pixels: its
+    // art occupies y 40-177 of a 960-tall card, and `y: -30` lifts it 30% of
+    // the card height (288px) — entirely off the top edge. Measured, not
+    // guessed. It was an invisible layer that still took a slot in the
+    // 20-object scene cap and a row in Scene layers, and the blurb never
+    // promised a crown anyway (the tiara below is the scene's head piece).
     shaderId: 'prismatic-holo',
     headPieceId: 'queen-tiara',
   },
@@ -106,6 +129,7 @@ export const STARTER_SCENES: StarterScene[] = [
     id: 'soft-portrait',
     name: 'Soft Portrait',
     blurb: 'A quiet hexagon frame with cinematic film grain — flattering on everyone.',
+    preview: '/starters/soft-portrait.webp',
     swatch: ['#D8C7A8', '#3A3630'],
     frameId: 'frame-hexagon-plain',
     shaderId: 'velvet-film',
@@ -114,6 +138,7 @@ export const STARTER_SCENES: StarterScene[] = [
     id: 'halo-light',
     name: 'Halo Light',
     blurb: 'Golden light shafts, a simple gold border and a glowing halo.',
+    preview: '/starters/halo-light.webp',
     swatch: ['#FFE9A8', '#4A3A12'],
     frameId: 'dw-frame-classic',
     shaderId: 'aureate-god-rays',
@@ -123,6 +148,7 @@ export const STARTER_SCENES: StarterScene[] = [
     id: 'equalizer-live',
     name: 'Equalizer',
     blurb: 'A music-bar frame with a laser sparkle — made for a dance floor.',
+    preview: '/starters/equalizer-live.webp',
     swatch: ['#5BFF9A', '#12203A'],
     frameId: 'jj-equalizer',
     stickers: [{ borderId: 'overlay-confetti', transform: { scale: 0.9 } }],
