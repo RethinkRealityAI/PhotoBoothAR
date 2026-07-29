@@ -4,6 +4,8 @@ import {
   regionForPlacement,
   normalizeGuestLettering,
   CHAR_WIDTH_RATIO,
+  LETTERING_FONT_CSS,
+  LETTERING_FONT_PROBES,
   MIN_FONT_PX,
   DEFAULT_LETTERING_COLOR,
   type GuestLetteringStyle,
@@ -149,5 +151,45 @@ describe('normalizeGuestLettering', () => {
 
   it('caps a stored line at 60 characters', () => {
     expect(normalizeGuestLettering({ ...ok, token: 'fixed', text: 'x'.repeat(200) })?.text).toHaveLength(60);
+  });
+});
+
+describe('LETTERING_FONT_CSS — one typeface table for the 2D name and the 3D engraving', () => {
+  /**
+   * PINNED BYTE-FOR-BYTE against the strings that shipped as the module-private
+   * `LETTERING_FONT` in components/booth/StageCanvas.tsx (commit c00ee89) and as
+   * `LABEL_FONT_CSS` in lib/studio/assetTemplate.ts. Both now read this table,
+   * and this assertion is the legacy guarantee for the 2D path: the frozen coded
+   * events draw the guest's name with the exact same `ctx.font` as before.
+   */
+  it('produces the exact strings the booth drew before the tables were unified', () => {
+    expect(LETTERING_FONT_CSS.script(48)).toBe('48px "Pinyon Script", cursive');
+    expect(LETTERING_FONT_CSS.serif(48)).toBe('italic 600 48px "Cormorant Garamond", Georgia, serif');
+    expect(LETTERING_FONT_CSS.block(48)).toBe('800 48px "Inter", sans-serif');
+    expect(LETTERING_FONT_CSS.label(48)).toBe('600 48px "Jost", sans-serif');
+  });
+
+  it('covers exactly the four styles, and nothing can be added to one table only', () => {
+    expect(Object.keys(LETTERING_FONT_CSS).sort()).toEqual(Object.keys(CHAR_WIDTH_RATIO).sort());
+  });
+
+  it('scales with the requested pixel size', () => {
+    expect(LETTERING_FONT_CSS.block(120)).toContain('120px');
+  });
+
+  /**
+   * The probes are DERIVED from the table rather than retyped beside it, which
+   * is the drift this unification removes. They therefore now carry the fallback
+   * families too ('32px "Pinyon Script", cursive' vs the old '32px "Pinyon
+   * Script"'). That is a real string difference and it is behaviourally inert:
+   * FontFaceSet.load matches registered FontFace objects, and a generic family
+   * is never one — so the same four webfaces are warmed.
+   */
+  it('warms one probe per style, derived from the table', () => {
+    expect(LETTERING_FONT_PROBES).toHaveLength(4);
+    for (const family of ['Pinyon Script', 'Cormorant Garamond', 'Inter', 'Jost']) {
+      expect(LETTERING_FONT_PROBES.some((p) => p.includes(family))).toBe(true);
+    }
+    expect(LETTERING_FONT_PROBES.every((p) => p.includes('32px'))).toBe(true);
   });
 });
