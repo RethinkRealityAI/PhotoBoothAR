@@ -11,13 +11,42 @@ const runningMode: 'IMAGE' | 'VIDEO' = 'VIDEO';
  * malformed facial-transform matrices, which placed AR assets off the face.
  */
 const WASM_PATH = '/mediapipe/wasm';
-const MODEL_URL =
+
+/**
+ * The landmark model, preferred from our OWN origin for exactly the reason the
+ * WASM is — except this one is also on the booth's critical path: without it the
+ * tracker never acquires, the head group stays invisible and NO 3D renders at
+ * all. A venue with bad wifi is the normal case, not the edge case.
+ *
+ * The vendored copy arrives via scripts/remote-assets.json (pushing that file
+ * triggers the fetch-remote-assets workflow, which has the egress this sandbox
+ * lacks). Until it lands, the remote copy is used and behaviour is unchanged.
+ */
+const LOCAL_MODEL_URL = '/models/face_landmarker.task';
+const REMOTE_MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
-async function create(delegate: 'GPU' | 'CPU'): Promise<FaceLandmarker> {
+/**
+ * Pick the vendored model when it is really there. A plain `res.ok` is not
+ * enough: both the Vite dev server and Netlify answer an unknown path with
+ * index.html at 200, so an un-vendored build would "find" the model and hand
+ * MediaPipe a page of HTML. Content-type is what distinguishes them.
+ */
+async function resolveModelUrl(): Promise<string> {
+  try {
+    const res = await fetch(LOCAL_MODEL_URL, { method: 'HEAD' });
+    const type = res.headers.get('content-type') ?? '';
+    if (res.ok && !type.includes('text/html')) return LOCAL_MODEL_URL;
+  } catch {
+    // Offline, blocked, or not vendored yet — the remote copy still works.
+  }
+  return REMOTE_MODEL_URL;
+}
+
+async function create(delegate: 'GPU' | 'CPU', modelUrl: string): Promise<FaceLandmarker> {
   const vision = await FilesetResolver.forVisionTasks(WASM_PATH);
   return FaceLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: MODEL_URL, delegate },
+    baseOptions: { modelAssetPath: modelUrl, delegate },
     // Blendshapes power face-triggered effects (src/lib/studio/triggers.ts).
     // With this on, FaceLandmarkerResult carries `faceBlendshapes: Classifications[]`
     // (vision.d.ts:697), each `{ categories: Category[] }` where a Category is
@@ -43,11 +72,12 @@ export async function initializeFaceLandmarker() {
   // The CPU delegate (XNNPACK) is plenty fast for single-face landmarks and is
   // rock-solid next to other WebGL canvases.
   initPromise = (async () => {
+    const modelUrl = await resolveModelUrl();
     try {
-      faceLandmarker = await create('CPU');
+      faceLandmarker = await create('CPU', modelUrl);
     } catch (cpuErr) {
       console.warn('[faceTracking] CPU delegate failed, trying GPU', cpuErr);
-      faceLandmarker = await create('GPU');
+      faceLandmarker = await create('GPU', modelUrl);
     }
     return faceLandmarker;
   })();

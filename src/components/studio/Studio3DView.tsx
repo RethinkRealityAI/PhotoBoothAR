@@ -138,12 +138,6 @@ export default function Studio3DView({
   const activeAnchor: HeadAnchor = selected?.anchor ?? 'crown';
   // First object opting into occlusion wins the single (non-duplicated) occluder.
   const occluderIdx = occlusionEnabled ? objects.findIndex((o) => o.occlusion === true) : -1;
-  // Where the orbit view's "floor" is: the same bottom edge FrameBust chose, so
-  // the contact shadow sits under exactly the extent the camera is framing.
-  // No bust loaded yet -> park it far below rather than through the head.
-  const shadowY = bustBounds && Number.isFinite(bustBounds.maxY)
-    ? Math.max(bustBounds.minY, bustBounds.maxY - HEAD_FRAME_CM)
-    : -100;
 
   // Clicking a non-selected piece's mesh selects it (PivotControls on the
   // selected piece may swallow its own events — acceptable; the layers panel is
@@ -185,17 +179,18 @@ export default function Studio3DView({
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
         <FrameBust bounds={bustBounds} />
         {/* The shared rig — identical values to the booth's, so a crown tuned
-            here does not change appearance the moment a guest wears it. Contact
-            shadows ON: this view HAS a floor (the framed bottom of the bust), so
-            a piece resting on the head reads as sitting on it rather than
-            floating in front of it. Units are centimetres here, hence the
-            explicit plane. */}
-        <SceneLighting
-          preset={lightingPreset}
-          contactShadows
-          shadowY={shadowY}
-          shadowScale={60}
-        />
+            here does not change appearance the moment a guest wears it.
+            CONTACT SHADOWS ARE OFF, and that is a measured decision, not an
+            omission. This view frames a HEAD (FrameBust: crown + 22cm) and
+            OrbitControls is clamped to maxDistance = dist * 2.4, so the bottom
+            of the bust — the only surface a ground shadow could fall on — is
+            off-frame at every camera distance the host can reach. Screenshotted
+            both at the default framing and fully dollied out: the catcher plane
+            rendered nothing either time, while still costing a 256px depth pass
+            every frame. The preset data still carries a contactShadow spec and
+            SceneLighting still implements it, for a future surface that has a
+            real floor; nothing in the product has one today. */}
+        <SceneLighting preset={lightingPreset} />
 
         <ReferenceBust onFit={handleBustFit} />
         {/* Occluder shown faintly in orbit only when debugging placement. */}

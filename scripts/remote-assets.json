@@ -168,6 +168,11 @@
     {
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260728_014941_c8b6b096-2db1-499f-b59b-f829eb7036bb.png",
       "path": "public/samples/lettering/logo-space-bottom.png"
+    },
+    {
+      "comment": "MediaPipe face_landmarker (float16 v1) — the model the booth's face tracker loads. src/lib/faceTracking.ts fetched this from storage.googleapis.com at RUNTIME, on the critical path: with no model the tracker never acquires, the head group stays invisible and no 3D renders at all, so a venue with poor wifi lost the whole AR layer. Vendored for the same reason the WASM already is; faceTracking prefers this copy and falls back to the remote one when it is absent.",
+      "url": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+      "path": "public/models/face_landmarker.task"
     }
   ]
 }
