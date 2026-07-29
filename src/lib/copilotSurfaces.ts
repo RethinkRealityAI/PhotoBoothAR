@@ -104,6 +104,17 @@ const LETTERING_PLACEMENT_OPTIONS = [
   { label: 'Name art only — no frame', value: 'standalone' },
 ];
 
+/* ── Frame provider (which model paints it, and what it costs) ────────────
+ * Labelled with the PRICE, not the vendor's marketing name, because that is the
+ * only part of the choice a host can act on. The Higgsfield label says "or your
+ * connected account" because an org that brought its own key (providerKeys.ts)
+ * pays Higgsfield directly and spends ZERO platform credits — the card must not
+ * imply a charge that will not happen. */
+const PROVIDER_OPTIONS = [
+  { label: 'Beamwall AI (1 credit)', value: 'gemini' },
+  { label: 'Higgsfield (2 credits · or your connected account)', value: 'higgsfield' },
+];
+
 /** [sample id, caption] for the visual legend, in style/placement order. */
 const LETTERING_SAMPLES: [string, string][] = [
   ['cursive-monogram-bottom', 'Cursive monogram · bottom'],
@@ -230,14 +241,18 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
         style: action.proposal.lettering?.style ?? 'script-name',
         placement: action.proposal.lettering?.placement ?? 'bottom',
       };
+      // The provider is ALWAYS seeded (the agent's choice, else 'gemini') so the
+      // picker has a selection to show and the confirm payload always names a
+      // provider — the generator then never has to guess what the host chose.
+      const provider = action.proposal.provider ?? 'gemini';
       const legendIds = LETTERING_SAMPLES.map(([s]) => `lg_${s}Col`);
       const extraIds = LETTERING_EXTRA_SAMPLES.map(([s]) => `lg_${s}Col`);
-      return surface(surfaceId, { proposal: { tool: action.tool, ...p, lettering } }, [
+      return surface(surfaceId, { proposal: { tool: action.tool, ...p, lettering, provider } }, [
         { id: 'root', component: 'Card', child: 'body' },
         {
           id: 'body', component: 'Column',
           children: [
-            'heading', 'sub', 'promptField',
+            'heading', 'sub', 'promptField', 'providerPicker',
             'letterHeading', 'letterField', 'legendRow', 'stylePicker', 'placePicker', 'extraRow', 'letterHint',
             'genRow',
           ],
@@ -245,6 +260,7 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
         { id: 'heading', component: 'Text', text: 'Design a signature frame', variant: 'h5' },
         { id: 'sub', component: 'Text', variant: 'caption', text: frameHint(action.proposal.prompt) },
         textField('promptField', 'Describe your frame', '/proposal/prompt'),
+        { id: 'providerPicker', component: 'ChoicePicker', label: 'Generate with', options: PROVIDER_OPTIONS, value: { path: '/proposal/provider' } },
         { id: 'letterHeading', component: 'Text', text: 'Names on the frame (optional)', variant: 'h5' },
         textField('letterField', 'Text to letter — names, initials, a monogram', '/proposal/lettering/text'),
         { id: 'legendRow', component: 'Row', children: legendIds },

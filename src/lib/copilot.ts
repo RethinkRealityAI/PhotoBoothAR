@@ -26,6 +26,27 @@ import { PROP_TARGET_CM } from './studio/bustFit';
 
 /* ── Action types (post-normalization) ───────────────────────────────── */
 
+/**
+ * Which image provider generates a frame. Same union as ai.ts
+ * GenerateImageOpts.provider — 'gemini' is the platform's own path (1 credit),
+ * 'higgsfield' costs 2 platform credits, or nothing at all when the org brought
+ * its own Higgsfield key (see providerKeys.ts).
+ */
+export type FrameProvider = 'gemini' | 'higgsfield';
+
+/**
+ * Coerce an untrusted provider value. ABSENT stays absent, so a proposal the
+ * model made without naming a provider is byte-identical to before this option
+ * existed. A PRESENT but unrecognised value normalizes to 'gemini' rather than
+ * dropping the action — a hallucinated provider name must cost the host a
+ * provider choice, never the frame they asked for.
+ */
+function frameProvider(v: unknown): FrameProvider | null {
+  if (v === null || v === undefined) return null;
+  const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
+  return s === 'higgsfield' ? 'higgsfield' : 'gemini';
+}
+
 export interface ChallengeDraft {
   title: string;
   emoji: string;
@@ -42,7 +63,7 @@ export type CopilotAction =
   | { tool: 'delete_challenge'; proposal: { challengeId: string } }
   | { tool: 'create_card'; proposal: { cardTitle: string; recipientName: string; cardTemplate: 'storybook' | 'filmstrip'; deadline: string } }
   // Experience-building tools (Event Concierge post-create build phase).
-  | { tool: 'generate_frame'; proposal: { prompt: string; lettering?: LetteringSpec } }
+  | { tool: 'generate_frame'; proposal: { prompt: string; lettering?: LetteringSpec; provider?: FrameProvider } }
   | { tool: 'add_frame'; proposal: { borderId: string } }
   | { tool: 'set_filter'; proposal: { shaderId: string } }
   | { tool: 'add_head_piece'; proposal: { source: 'builtin'; pieceId: string } | { source: 'generate'; prompt: string } }
@@ -173,7 +194,16 @@ export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): 
         // a frame with no words on it rather than killing the whole proposal —
         // the same handling validationPrompt gets on add_challenge.
         const lettering = normalizeLettering(a.lettering);
-        out.push({ tool: 'generate_frame', proposal: { prompt, ...(lettering ? { lettering } : {}) } });
+        // Same forgiving handling for the provider (see frameProvider).
+        const provider = frameProvider(a.provider);
+        out.push({
+          tool: 'generate_frame',
+          proposal: {
+            prompt,
+            ...(lettering ? { lettering } : {}),
+            ...(provider ? { provider } : {}),
+          },
+        });
         break;
       }
       case 'add_frame': {

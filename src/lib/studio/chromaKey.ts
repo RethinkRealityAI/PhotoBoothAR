@@ -43,6 +43,67 @@ export interface KeyOutOptions {
   softness?: number;
 }
 
+/**
+ * Least fraction of a source image that must key out before the result is
+ * believed. Under this, the key never matched the real backdrop and the asset is
+ * still effectively the raw GREEN image.
+ *
+ * Trade-off (unchanged from the inline constant this replaces): thin-border /
+ * sliver-green art keys out only a few percent, so 0.015 (was 0.03) avoids false
+ * "unkeyed" rejects of legit frames; a real greenScreen output is
+ * green-DOMINANT, so 1.5% still catches a total key miss.
+ *
+ * Exported so frameProcessing.ts uses THIS number rather than its own copy —
+ * two thresholds for one decision drift the moment either is tuned.
+ */
+export const MIN_KEYED_FRACTION = 0.015;
+
+/**
+ * Does this generated asset still need chroma-keying at all?
+ *
+ * `hasAlpha` true short-circuits to false: a provider that returned GENUINE
+ * transparency (a Higgsfield marketplace-app import, a remove_background
+ * output) has already delivered the artefact the keyer exists to produce.
+ * Running the keyer on it would punch holes wherever the art is green, and —
+ * worse — the keyedFraction gate would REJECT it, because there is no green
+ * backdrop left to remove. The best inputs would have been the ones thrown away.
+ *
+ * Otherwise the honesty gate applies: only a key that removed at least
+ * MIN_KEYED_FRACTION of the image actually found a backdrop.
+ */
+export function needsChromaKey(hasAlpha: boolean, keyedFraction: number): boolean {
+  if (hasAlpha) return false;
+  return keyedFraction >= MIN_KEYED_FRACTION;
+}
+
+/**
+ * Probe PNG bytes for a colour type that CARRIES an alpha channel (4 =
+ * grey+alpha, 6 = RGBA). Cheap and allocation-free: the answer is one byte of
+ * the IHDR header, so nothing is decoded.
+ *
+ * MIRROR of `pngHasAlpha` in supabase/functions/ai-generate-image/index.ts —
+ * same signature check, same offsets, same two colour types. Edge functions
+ * cannot import from src/, so the maths is duplicated deliberately; change one,
+ * change the other.
+ *
+ * "Look" is the honest verb: colour type 6 proves an alpha CHANNEL exists, not
+ * that any pixel is actually transparent (a fully-opaque RGBA PNG is legal).
+ * A false negative is the safe direction — it just means the keyer runs.
+ */
+export function bytesLookAlpha(png: Uint8Array | ArrayBuffer): boolean {
+  const bytes = png instanceof Uint8Array ? png : new Uint8Array(png);
+  const SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length < 26) return false;
+  for (let i = 0; i < 8; i++) if (bytes[i] !== SIG[i]) return false;
+  // First chunk must be IHDR ("IHDR" at offset 12); color type is IHDR byte 9
+  // (offset 25 = 8 sig + 4 length + 4 type + 4 width + 4 height + 1 bit depth).
+  if (bytes[12] !== 0x49 || bytes[13] !== 0x48 || bytes[14] !== 0x44 || bytes[15] !== 0x52) {
+    return false;
+  }
+  const colorType = bytes[25];
+  return colorType === 4 || colorType === 6;
+}
+
 /** Rec.601 chroma components (signed, centred on 0). Luminance is discarded. */
 function chromaCbCr(r: number, g: number, b: number): [number, number] {
   const cb = -0.168736 * r - 0.331264 * g + 0.5 * b;

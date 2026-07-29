@@ -5,9 +5,12 @@ import {
   detectKeyColor,
   fitOnCanvas,
   processFrameImage,
+  needsChromaKey,
+  bytesLookAlpha,
   DEFAULT_KEY,
   FRAME_W,
   FRAME_H,
+  MIN_KEYED_FRACTION,
   type RgbaImage,
 } from './chromaKey';
 
@@ -331,5 +334,73 @@ describe('detectKeyColor + adaptive processFrameImage', () => {
     const { image } = keyOutColorWithStats(img, { key: det!.key });
     expect(px(image, 20, 20)[3]).toBeGreaterThan(0); // forest art survives
     expect(px(image, 0, 0)[3]).toBe(0); // #00FF00 backdrop keyed
+  });
+});
+
+describe('needsChromaKey', () => {
+  it('never keys or rejects an asset that already has genuine alpha', () => {
+    // A Higgsfield marketplace-app import / remove_background output. There is
+    // no green to find, so keyedFraction is ~0 — the honesty gate would have
+    // thrown away the BEST input the pipeline can get.
+    expect(needsChromaKey(true, 0)).toBe(false);
+    expect(needsChromaKey(true, 0.9)).toBe(false);
+  });
+
+  it('keeps the honesty gate for green-screen output, inclusive at the threshold', () => {
+    expect(needsChromaKey(false, MIN_KEYED_FRACTION)).toBe(true);
+    expect(needsChromaKey(false, 0.5)).toBe(true);
+    expect(needsChromaKey(false, MIN_KEYED_FRACTION - 0.0001)).toBe(false);
+    // Zero is DATA here, not "missing" — a total key miss.
+    expect(needsChromaKey(false, 0)).toBe(false);
+  });
+
+  it('pins the shared threshold frameProcessing reads', () => {
+    // frameProcessing.ts imports this constant instead of carrying its own 0.015
+    // — one number, one decision. Changing it here is a deliberate retune.
+    expect(MIN_KEYED_FRACTION).toBe(0.015);
+  });
+});
+
+describe('bytesLookAlpha', () => {
+  /** Minimal 26-byte PNG prefix: signature + IHDR length/type/w/h/depth/colour. */
+  function pngHeader(colorType: number): Uint8Array {
+    const b = new Uint8Array(26);
+    b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0); // \x89PNG\r\n\x1a\n
+    b.set([0, 0, 0, 13], 8); // IHDR chunk length = 13
+    b.set([0x49, 0x48, 0x44, 0x52], 12); // "IHDR"
+    b.set([0, 0, 0x04, 0x38], 16); // width 1080
+    b.set([0, 0, 0x07, 0x80], 20); // height 1920
+    b[24] = 8; // bit depth
+    b[25] = colorType;
+    return b;
+  }
+
+  it('says yes for the two colour types that carry an alpha channel', () => {
+    expect(bytesLookAlpha(pngHeader(4))).toBe(true); // greyscale + alpha
+    expect(bytesLookAlpha(pngHeader(6))).toBe(true); // RGBA
+  });
+
+  it('says no for opaque colour types', () => {
+    expect(bytesLookAlpha(pngHeader(2))).toBe(false); // truecolour, no alpha
+    expect(bytesLookAlpha(pngHeader(0))).toBe(false); // greyscale
+    expect(bytesLookAlpha(pngHeader(3))).toBe(false); // palette (tRNS is not probed)
+  });
+
+  it('accepts an ArrayBuffer as well as a Uint8Array', () => {
+    const buf = pngHeader(6).buffer;
+    expect(bytesLookAlpha(buf)).toBe(true);
+  });
+
+  it('fails CLOSED on anything that is not a PNG whose first chunk is IHDR', () => {
+    const notPng = pngHeader(6);
+    notPng[0] = 0x88; // broken signature
+    expect(bytesLookAlpha(notPng)).toBe(false);
+
+    const notIhdr = pngHeader(6);
+    notIhdr.set([0x69, 0x54, 0x58, 0x74], 12); // "iTXt" first — colour type unknown
+    expect(bytesLookAlpha(notIhdr)).toBe(false);
+
+    expect(bytesLookAlpha(new Uint8Array(25))).toBe(false); // truncated
+    expect(bytesLookAlpha(new Uint8Array(0))).toBe(false);
   });
 });

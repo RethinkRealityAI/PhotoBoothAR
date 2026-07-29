@@ -99,6 +99,32 @@ describe('buildProposalSurface', () => {
     const ctx = resolveContext(ev.context, edited.dataModel);
     expect((ctx.proposal as { prompt: string; tool: string })).toMatchObject({ tool: 'generate_frame', prompt: 'art deco silver' });
   });
+
+  it('generate_frame card offers a provider picker, defaulting to the platform path', () => {
+    const s = applySurfaceMessages({}, buildProposalSurface({ tool: 'generate_frame', proposal: { prompt: 'gold border' } }, 'gp')).gp;
+    assertReducerValid(s);
+    const picker = s.components.providerPicker;
+    expect(picker.component).toBe('ChoicePicker');
+    expect(picker.value).toEqual({ path: '/proposal/provider' });
+    expect(picker.options).toEqual([
+      { label: 'Beamwall AI (1 credit)', value: 'gemini' },
+      { label: 'Higgsfield (2 credits · or your connected account)', value: 'higgsfield' },
+    ]);
+    // Seeded even when the agent named no provider, so the picker has a
+    // selection and the confirm payload always says which one.
+    expect(getPath(s.dataModel, '/proposal/provider')).toBe('gemini');
+  });
+
+  it('seeds the picker with the provider the agent proposed and carries a host edit through confirm', () => {
+    const s = applySurfaceMessages({}, buildProposalSurface(
+      { tool: 'generate_frame', proposal: { prompt: 'gold border', provider: 'higgsfield' } }, 'gp2',
+    )).gp2;
+    expect(getPath(s.dataModel, '/proposal/provider')).toBe('higgsfield');
+    const ev = (s.components.genBtn.action as { event: { name: string; context: Record<string, unknown> } }).event;
+    const edited = { proposal: { ...(getPath(s.dataModel, '/proposal') as object), provider: 'gemini' } };
+    const ctx = resolveContext(ev.context, edited);
+    expect((ctx.proposal as { provider: string }).provider).toBe('gemini');
+  });
 });
 
 /**
