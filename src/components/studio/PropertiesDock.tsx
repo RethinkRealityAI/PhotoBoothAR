@@ -534,6 +534,7 @@ function RegionRow({
           part: { id: region.id, finish: e.target.value === NO_FINISH ? null : e.target.value },
         })}
         aria-label={`Finish for ${region.label}`}
+        title={`Finish · ${region.label} — how the surface catches light`}
         className="shrink-0 w-[86px] bg-white/[0.04] border border-white/10 rounded-lg px-1.5 py-1 text-[10px] text-brand-fg focus:outline-none focus:border-accent/40"
       >
         <option value={NO_FINISH}>As made</option>
@@ -705,6 +706,10 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
       {recolourable.length > 0 && (
         <>
           <SectionLabel>Colours</SectionLabel>
+          <p className="font-sans text-[10px] leading-relaxed text-brand-muted/50 -mt-1 mb-1.5">
+            One row per part. Tap the swatch to recolour it, then pick a finish —
+            {' '}“As made” leaves that part exactly as it was built.
+          </p>
           <div className="flex flex-col gap-1.5">
             {recolourable.map((r) => (
               <RegionRow key={r.id} region={r} style={parts[r.id]} dispatch={dispatch} />
@@ -726,8 +731,8 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
             <div className="flex flex-col gap-2">
               {slots.length > 1 && (
                 <div>
-                  <SectionLabel>Where</SectionLabel>
-                  <select value={label.slotId} onChange={(e) => setLabel({ slotId: e.target.value })} className={selectCls} aria-label="Engraving position">
+                  <SectionLabel>Where on the piece</SectionLabel>
+                  <select value={label.slotId} onChange={(e) => setLabel({ slotId: e.target.value })} className={selectCls} aria-label="Engraving position" title="Which surface of this piece the name is cut into">
                     {slots.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                   </select>
                 </div>
@@ -759,30 +764,41 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
                 </p>
               </div>
               {label.token === 'fixed' && (
-                <DebouncedTextInput
-                  value={label.text ?? ''}
-                  onCommit={(text) => setLabel({ text })}
-                  placeholder="Type the line to engrave…"
-                  maxLength={ASSET_CUSTOMIZATION.maxLabelLength}
-                  aria-label="Engraved text"
-                  className="w-full px-3 py-2 rounded-lg bg-white/[0.03] text-sm text-brand-fg placeholder:text-brand-muted/30 focus:outline-none focus:ring-1 focus:ring-accent/30"
-                />
+                <div>
+                  <SectionLabel>The line to engrave</SectionLabel>
+                  <DebouncedTextInput
+                    value={label.text ?? ''}
+                    onCommit={(text) => setLabel({ text })}
+                    placeholder="e.g. Tolu — or “Class of 2026”"
+                    maxLength={ASSET_CUSTOMIZATION.maxLabelLength}
+                    aria-label="Engraved text"
+                    className="w-full px-3 py-2 rounded-lg bg-white/[0.03] text-sm text-brand-fg placeholder:text-brand-muted/30 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                  />
+                  <p className="font-sans text-[10px] leading-relaxed text-brand-muted/50 mt-1">
+                    Up to {ASSET_CUSTOMIZATION.maxLabelLength} characters. Every guest gets this same line.
+                  </p>
+                </div>
               )}
               <div>
-                <SectionLabel>Style</SectionLabel>
+                <SectionLabel>Lettering style</SectionLabel>
                 <select value={label.style} onChange={(e) => setLabel({ style: e.target.value as GuestLetteringStyle })} className={selectCls} aria-label="Engraving style">
                   {LETTERING_STYLE_OPTIONS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
               </div>
               <div>
-                <SectionLabel>Colour</SectionLabel>
+                <SectionLabel>Engraving colour</SectionLabel>
                 <input
                   type="color"
                   value={label.hex}
                   onChange={(e) => setLabel({ hex: e.target.value })}
                   aria-label="Engraving colour"
+                  title="Colour of the engraved letters"
                   className="w-full h-8 rounded-lg bg-white/[0.04] border border-white/10 cursor-pointer"
                 />
+                <p className="font-sans text-[10px] leading-relaxed text-brand-muted/50 mt-1">
+                  Pick a shade that contrasts with the part underneath — the default white
+                  disappears on a pale surface.
+                </p>
               </div>
             </div>
           )}
@@ -1336,6 +1352,12 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
     : filterActive && shaderDef
       ? shaderDef.name
       : undefined;
+  /** Kind chip beside the pronounced asset name. */
+  const selectedKind: string | undefined = selected
+    ? (selOverlay ? (selOverlay.overlayKind === 'border' ? 'Frame' : 'Sticker') : '3D piece')
+    : filterActive && shaderDef
+      ? 'Filter'
+      : undefined;
 
   const handleThumbInput = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -1347,11 +1369,16 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   // calibration is scene/event-level, not per-selection).
   const has3D = draft.objects.some((o) => o.type !== 'overlay');
 
-  // Collapsible-section state — Selected item + Scene layers open by default
-  // (the first is the editing surface, the second is how you select); everything
-  // else starts collapsed (progressive disclosure).
+  // Two high-level tabs (owner IA): "Assets" — the scene-asset hierarchy first,
+  // then the selected asset's properties — is the default, because configuring
+  // assets is what the studio session is mostly made of; "Scene" holds the
+  // scene-wide sections (Triggers · Scene · Booth look · Lighting & fit).
+  const [tab, setTab] = useState<'assets' | 'scene'>('assets');
+
+  // Collapsible-section state — Scene assets open by default (it is how you
+  // select); the scene-wide sections start collapsed (progressive disclosure).
+  // The asset-properties block is not collapsible: it IS the Assets tab.
   const [open, setOpen] = useState<Record<string, boolean>>({
-    selected: true,
     layers: true,
     triggers: false,
     scene: false,
@@ -1364,12 +1391,12 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   const selectedSectionRef = useRef<HTMLDivElement>(null);
   const sceneSectionRef = useRef<HTMLDivElement>(null);
 
-  // Picking an object on the stage (or in Scene layers) auto-opens the
-  // Selected-item section and brings it into view — the host immediately sees
+  // Picking an object on the stage (or in Scene assets) jumps to the Assets
+  // tab and brings the properties block into view — the host immediately sees
   // what they can edit, without hunting.
   useEffect(() => {
     if (!draft.selectedId) return;
-    setOpen((o) => (o.selected ? o : { ...o, selected: true }));
+    setTab('assets');
     const t = window.setTimeout(() => {
       selectedSectionRef.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
     }, 50);
@@ -1379,7 +1406,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   /**
    * The same courtesy for the FILTER slot, which is the one thing in the studio
    * that is picked in the left dock and edited in a section whose identity
-   * depends on the selection: its params live under Selected item when nothing
+   * depends on the selection: its params live in the Assets tab's block when nothing
    * is selected and under Scene when something is. Since the left dock stopped
    * carrying its own copy of the sliders, a host who picks a filter with a layer
    * selected would otherwise be looking at a collapsed section with no clue.
@@ -1392,17 +1419,24 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
     const changed = prevShader.current !== draft.shaderId;
     prevShader.current = draft.shaderId;
     if (!changed || draft.shaderId === 'none') return;
-    const id = draft.selectedId ? 'scene' : 'selected';
-    setOpen((o) => (o[id] ? o : { ...o, [id]: true }));
-    const target = id === 'scene' ? sceneSectionRef : selectedSectionRef;
+    if (draft.selectedId) {
+      // A layer is selected, so the filter edits under Scene → Scene section.
+      setTab('scene');
+      setOpen((o) => (o.scene ? o : { ...o, scene: true }));
+    } else {
+      // The filter IS the selected thing — it edits in the Assets tab's block.
+      setTab('assets');
+    }
+    const target = draft.selectedId ? sceneSectionRef : selectedSectionRef;
     const t = window.setTimeout(() => {
       target.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
     }, 50);
     return () => window.clearTimeout(t);
   }, [draft.shaderId, draft.selectedId, reduced]);
 
-  /** Filter-slot params — rendered in "Selected item" when nothing is selected
-   *  (the filter IS the thing being edited) or under "Scene" otherwise. */
+  /** Filter-slot params — rendered in the Assets tab's properties block when
+   *  nothing is selected (the filter IS the thing being edited) or under the
+   *  Scene tab's "Scene" section otherwise. */
   const filterParams = (): ReactNode =>
     filterActive && shaderDef ? (
       <div className="flex flex-col gap-4">
@@ -1438,25 +1472,86 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
     ) : null;
 
   return (
-    <div className="h-full overflow-y-auto hide-scrollbar p-3 flex flex-col gap-2.5">
+    <div className="h-full flex flex-col">
+      {/* ASSETS | SCENE — the panel's two high-level tabs. Assets is the
+          default and holds the hierarchy + the selected asset's properties;
+          Scene holds the scene-wide sections. */}
+      <div className="shrink-0 px-3 pt-3">
+        <div role="tablist" aria-label="Properties" className="liquid-glass-inset flex gap-1 rounded-full p-1">
+          {(['assets', 'scene'] as const).map((id) => {
+            const on = tab === id;
+            return (
+              <button
+                key={id}
+                role="tab"
+                aria-selected={on}
+                onClick={() => setTab(id)}
+                className={cn(
+                  'flex-1 min-h-9 rounded-full font-label uppercase tracking-widest text-[10px] transition-colors',
+                  on ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/60 hover:text-brand-fg',
+                )}
+              >
+                {id === 'assets' ? 'Assets' : 'Scene'}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto hide-scrollbar p-3 flex flex-col gap-2.5">
+        {tab === 'assets' && (
+          <>
       {/* Empty scene + empty filter slot — the hint is the panel's only guidance. */}
       {!hasObjects && !filterActive && (
         <p className="text-[10px] text-brand-muted/40 font-sans px-1">Add a frame, sticker or 3D piece from the left dock to start a scene.</p>
       )}
 
-      {/* SELECTED ITEM — always the first section; auto-opens + scrolls into
-          view whenever the host picks an object on the stage or in Scene layers.
-          Its badge names WHAT is selected, which is why the per-block "EDITING ·
-          <name>" captions below could go. */}
+      {/* SCENE ASSETS — the hierarchy leads the tab: select here, edit below.
+          ONE flat list in true paint order (LayerList); the object counter
+          rides in the badge, amber at the cap. */}
+      {hasObjects && (
+        <DockSection
+          icon={Layers}
+          title="Scene assets"
+          open={!!open.layers}
+          onToggle={() => toggleSection('layers')}
+          badge={`${counts.capped}/${MAX_OBJECTS}`}
+          badgeTone={atCap ? 'warn' : 'default'}
+        >
+          {atCap && (
+            <p role="status" className="text-[10px] text-amber-300/80 font-sans leading-snug px-1 -mt-1">
+              {SCENE_FULL_MESSAGE}
+            </p>
+          )}
+          <LayerList
+            objects={draft.objects}
+            selectedId={draft.selectedId}
+            displayNames={displayNames}
+            dispatch={dispatch}
+          />
+        </DockSection>
+      )}
+
+      {/* ASSET PROPERTIES — not collapsible: it IS the Assets tab. The header
+          carries the selected asset's name at display size (the owner's
+          "make the selected item name more pronounced"), with a kind chip. */}
       {(hasObjects || filterActive) && (
-        <div ref={selectedSectionRef}>
-          <DockSection
-            icon={MousePointerClick}
-            title="Selected item"
-            open={!!open.selected}
-            onToggle={() => toggleSection('selected')}
-            badge={selectedBadge}
-          >
+        <div ref={selectedSectionRef} className="rounded-2xl border border-accent/25 bg-accent/[0.04]">
+          <div className="flex items-center gap-2.5 px-2.5 pt-2.5">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-accent/15 text-accent-2">
+              <MousePointerClick className="h-4 w-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-label text-[9px] uppercase tracking-widest text-brand-muted/50">Asset properties</p>
+              <p className="truncate font-serif text-lg leading-snug text-brand-fg">{selectedBadge ?? 'Nothing selected'}</p>
+            </div>
+            {selectedKind && (
+              <span className="shrink-0 rounded-full bg-white/[0.06] px-2 py-0.5 font-label text-[8px] uppercase tracking-widest text-brand-muted/60">
+                {selectedKind}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-col gap-4 px-2.5 pb-3 pt-3">
             {/* Selected 2D overlay properties */}
             {selOverlay && (
               <div className="flex flex-col gap-4">
@@ -1617,43 +1712,17 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
             {!selected && filterParams()}
             {hasObjects && !selected && !filterActive && (
               <p className="text-[10px] text-brand-muted/40 font-sans px-1">
-                Nothing selected — tap an item on the stage, or pick one in Scene layers below.
+                Nothing selected — tap an item on the stage, or pick one in Scene assets above.
               </p>
             )}
-          </DockSection>
+          </div>
         </div>
       )}
+          </>
+        )}
 
-      {/* SCENE LAYERS — ONE flat list in true paint order (LayerList). The old
-          three fixed buckets disagreed with the reducer's flat array, so a
-          reorder across a bucket boundary changed the stage and moved nothing
-          here. The object counter rides in the section header's badge (always
-          visible, amber at the cap): a host who cannot see the limit cannot plan
-          around it, and the first sign the cap existed used to be an add that
-          silently did nothing. */}
-      {hasObjects && (
-        <DockSection
-          icon={Layers}
-          title="Scene layers"
-          open={!!open.layers}
-          onToggle={() => toggleSection('layers')}
-          badge={`${counts.capped}/${MAX_OBJECTS}`}
-          badgeTone={atCap ? 'warn' : 'default'}
-        >
-          {atCap && (
-            <p role="status" className="text-[10px] text-amber-300/80 font-sans leading-snug px-1 -mt-1">
-              {SCENE_FULL_MESSAGE}
-            </p>
-          )}
-          <LayerList
-            objects={draft.objects}
-            selectedId={draft.selectedId}
-            displayNames={displayNames}
-            dispatch={dispatch}
-          />
-        </DockSection>
-      )}
-
+        {tab === 'scene' && (
+          <>
       {/* MAGIC TRIGGERS — scene-level face-triggered effects, shown once the scene
           has content (or already carries triggers) since they ride on the scene. */}
       {(hasObjects || filterActive || draft.triggers.length > 0) && (
@@ -1675,7 +1744,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
       )}
 
       {/* SCENE — the filter slot (surfaced here only while an object is
-          selected; otherwise it lives in Selected item) + how this experience
+          selected; otherwise it lives in the Assets tab) + how this experience
           surfaces in the booth: Live/Hidden, Featured, Save-as-template.
           Hidden while the scene is completely EMPTY (no objects, no filter):
           flipping a blank experience to "Live" would publish nothing to
@@ -1765,6 +1834,16 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
           <HeadSizeCalibration headScale={headScale} onHeadScaleChange={onHeadScaleChange} />
         </DockSection>
       )}
+
+      {/* An empty scene has nothing scene-wide to configure yet. */}
+      {!hasObjects && !filterActive && draft.triggers.length === 0 && (
+        <p className="text-[10px] text-brand-muted/40 font-sans px-1">
+          Scene settings appear once your scene has content — start from the Assets tab.
+        </p>
+      )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

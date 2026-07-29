@@ -478,7 +478,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     const adding = pendingKey === key;
     // A filter tile edits the scene's single filter slot, not an object, so it
     // has no selection to name — its params live in the same dock (under
-    // Selected item when nothing is selected, under Scene when something is).
+    // the Assets tab's block when nothing is selected, under Scene when something is).
     const isFilter = key.startsWith('filter:');
     const landed = isFilter ? SHADER_MAP[draft.shaderId] != null : sel != null;
     // Nothing landed and nothing is in flight → say nothing. (An add refused at

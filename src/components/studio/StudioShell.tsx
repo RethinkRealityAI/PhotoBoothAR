@@ -864,22 +864,27 @@ export default function StudioShell() {
 
         <aside
           data-panel="props"
-          className={`overflow-y-auto hide-scrollbar bg-brand-bg lg:bg-transparent border-white/10
+          // flex-col + overflow-hidden (not overflow-y-auto): the dock owns its
+          // own scroll area so its Assets|Scene tab bar stays pinned while the
+          // sections scroll beneath it.
+          className={`flex flex-col overflow-hidden bg-brand-bg lg:bg-transparent border-white/10
             fixed z-40 top-14 bottom-0 right-0 w-[20rem] max-w-[86vw] border-l transition-transform duration-200
             lg:static lg:z-auto lg:top-0 lg:w-[19rem] lg:max-w-none lg:translate-x-0 lg:shrink-0
             ${mobilePanel === 'props' ? 'translate-x-0' : 'translate-x-full'}`}
         >
           <DrawerClose label="Properties" onClose={() => setMobilePanel(null)} />
-          <PropertiesDock
-            state={state}
-            dispatch={dispatch}
-            headScale={headScale}
-            onHeadScaleChange={onHeadScaleChange}
-            lighting={lighting}
-            onLightingChange={onLightingChange}
-            onThumbUpload={onThumbUpload}
-            onThumbClear={onThumbClear}
-          />
+          <div className="min-h-0 flex-1">
+            <PropertiesDock
+              state={state}
+              dispatch={dispatch}
+              headScale={headScale}
+              onHeadScaleChange={onHeadScaleChange}
+              lighting={lighting}
+              onLightingChange={onLightingChange}
+              onThumbUpload={onThumbUpload}
+              onThumbClear={onThumbClear}
+            />
+          </div>
         </aside>
       </div>
 
