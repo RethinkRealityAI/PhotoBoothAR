@@ -195,7 +195,7 @@ export default function ReviewPanel({
             onClick={handleSendPress}
             disabled={submitted}
             aria-label={`Send your ${noun} to the live wall`}
-            className="flex-1 bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-sm rounded-2xl px-5 min-h-[56px] flex items-center justify-center gap-2.5 hover:brightness-110 transition-all active:scale-[0.97] disabled:opacity-70 disabled:pointer-events-none"
+            className="flex-1 bg-foil glow-accent text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-sm rounded-2xl px-5 min-h-[56px] flex items-center justify-center gap-2.5 hover:brightness-110 transition-all active:scale-[0.97] disabled:opacity-70 disabled:pointer-events-none"
           >
             <Send className="w-4 h-4" />
             {submitted ? 'Beaming…' : 'Send to the wall'}
@@ -329,7 +329,7 @@ export default function ReviewPanel({
               <div className="flex gap-3">
                 <button
                   onClick={() => setLeaveTarget(null)}
-                  className="flex-1 bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 min-h-11 hover:brightness-110 transition-all active:scale-95"
+                  className="flex-1 bg-foil glow-accent text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 min-h-11 hover:brightness-110 transition-all active:scale-95"
                 >
                   Stay
                 </button>

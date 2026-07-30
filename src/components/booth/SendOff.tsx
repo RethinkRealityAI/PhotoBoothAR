@@ -16,7 +16,8 @@
  * canvas-confetti, motion/react, and <ScagoMark> for the success emblem.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import { Link } from 'react-router-dom';
 import confetti from 'canvas-confetti';
 import { LayoutGrid, Film } from 'lucide-react';
 import { ShaderRunner, defaultParams } from '../../lib/shaders';
@@ -123,8 +124,11 @@ function GoldBeam({ play }: { play: boolean }) {
   );
 }
 
-/** Gold motes that drift gently up after the dissolve — soft ambient afterglow. */
+/** Gold motes that drift gently up after the dissolve — soft ambient afterglow.
+ *  Infinite repeat, so it goes fully still under prefers-reduced-motion
+ *  (same pattern as Countdown.tsx). */
 function GoldMotes({ play }: { play: boolean }) {
+  const reduced = useReducedMotion() ?? false;
   const motes = useMemo(
     () =>
       Array.from({ length: 18 }, (_, i) => ({
@@ -137,7 +141,7 @@ function GoldMotes({ play }: { play: boolean }) {
       })),
     [],
   );
-  if (!play) return null;
+  if (!play || reduced) return null;
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
       {motes.map((m) => (
@@ -163,6 +167,7 @@ function GoldMotes({ play }: { play: boolean }) {
 
 export default function SendOff({ dataUrl, mediaType = 'image', uploading, success, pendingApproval = false, onTakeAnother }: Props) {
   const { config, basePath } = useEvent();
+  const reduced = useReducedMotion() ?? false;
   const copy = useStore((s) => s.copy);
   const GOLD_COLORS = config.accentHexes.slice(0, 3);
   const GOLD_DEEP = config.accentHexes;
@@ -364,8 +369,8 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
                   <motion.div
                     key={i}
                     className="h-1.5 w-1.5 rounded-full bg-gold-400/70"
-                    animate={{ opacity: [0.25, 1, 0.25], scale: [0.85, 1.1, 0.85] }}
-                    transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
+                    animate={reduced ? undefined : { opacity: [0.25, 1, 0.25], scale: [0.85, 1.1, 0.85] }}
+                    transition={reduced ? undefined : { duration: 1.2, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
                   />
                 ))}
               </div>
@@ -431,24 +436,27 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
             >
               <button
                 onClick={onTakeAnother}
-                className="rounded-xl bg-foil px-6 py-4 font-label text-xs uppercase tracking-luxe text-noir-900 glow-accent transition-all hover:brightness-110 active:scale-95"
+                className="rounded-xl bg-foil px-6 py-4 font-label text-xs uppercase tracking-luxe text-[color:var(--on-accent)] glow-accent transition-all hover:brightness-110 active:scale-95"
               >
                 Take Another
               </button>
-              <a
-                href={`${basePath}/wall`}
+              {/* Client-side <Link>s (BoothTopBar rule): a raw anchor here is a
+                  full page load, which costs the guest a fresh camera
+                  permission round-trip when they come back to the booth. */}
+              <Link
+                to={`${basePath}/wall`}
                 className="glass flex items-center justify-center gap-2 rounded-xl px-6 py-4 font-label text-xs uppercase tracking-wide text-champagne/70 transition-colors hover:text-ivory"
               >
                 <LayoutGrid className="h-4 w-4" />
                 View the Live Wall
-              </a>
-              <a
-                href={`${basePath}/me`}
+              </Link>
+              <Link
+                to={`${basePath}/me`}
                 className="glass flex items-center justify-center gap-2 rounded-xl px-6 py-4 font-label text-xs uppercase tracking-wide text-champagne/70 transition-colors hover:text-ivory"
               >
                 <Film className="h-4 w-4" />
                 My Media
-              </a>
+              </Link>
             </motion.div>
 
             {/* Footer lockup — SCAGO above the event name, never below */}

@@ -6,10 +6,12 @@
  * slowly sweeps light around the frame — a premium, magical first impression.
  */
 import { motion, useReducedMotion } from 'motion/react';
-import { Camera } from 'lucide-react';
+import { Camera, Images } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Wordmark } from '../ui/EventLogo';
 import GoldFrameCard from '../ui/GoldFrameCard';
+import { MediaStackIcon } from '../ui/MediaIcons';
+import { useEvent } from '../../events/EventContext';
 
 /** Platform legal routes (/privacy, /terms) only exist in runtime multi-tenant
  *  builds — legacy single-event builds (VITE_EVENT set) keep their microcopy
@@ -18,6 +20,7 @@ const IS_LEGACY_BUILD = (((import.meta.env.VITE_EVENT as string | undefined) ?? 
 
 export default function Welcome({ onStart }: { onStart: () => void }) {
   const reduced = useReducedMotion() ?? false;
+  const { basePath } = useEvent();
   /* The staged reveal used to span ~1.85s, which read as an empty dark frame
      while it played. It now completes in ~0.7s (and is instant under
      prefers-reduced-motion), so the card never lingers half-built. */
@@ -70,7 +73,7 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
           <motion.button
             onClick={onStart}
             whileTap={{ scale: 0.96 }}
-            className="mt-9 flex items-center gap-3 px-9 py-4 bg-foil text-white rounded-full font-label uppercase tracking-luxe text-[11px] font-bold glow-accent animate-pulse-glow"
+            className="mt-9 flex items-center gap-3 px-9 py-4 bg-foil text-[color:var(--on-accent)] rounded-full font-label uppercase tracking-luxe text-[11px] font-bold glow-accent animate-pulse-glow"
             initial={{ opacity: 0, y: reduced ? 0 : 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={at(0.32)}
@@ -78,6 +81,30 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
             <Camera className="w-4 h-4" />
             Step Inside
           </motion.button>
+
+          {/* Ways out BEFORE the camera. This gate used to be a dead end: a
+              guest who didn't want to turn a camera on had nowhere to go. */}
+          <motion.div
+            className="mt-4 flex items-center justify-center gap-5"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={at(0.38)}
+          >
+            <Link
+              to={`${basePath}/wall`}
+              className="pressable flex min-h-11 items-center gap-1.5 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 hover:text-brand-fg transition-colors"
+            >
+              <Images className="w-3.5 h-3.5" />
+              See the live wall
+            </Link>
+            <Link
+              to={`${basePath}/me`}
+              className="pressable flex min-h-11 items-center gap-1.5 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 hover:text-brand-fg transition-colors"
+            >
+              <MediaStackIcon size={14} />
+              My photos
+            </Link>
+          </motion.div>
 
           {/* The pre-camera disclosure. This was 8px uppercase at 30% opacity
               with 0.28em tracking — not a legible disclosure by any measure,

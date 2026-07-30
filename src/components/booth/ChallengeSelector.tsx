@@ -112,7 +112,7 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
           <Trophy className="w-4 h-4 text-gold-300" />
           <span className="font-label text-[9px] uppercase tracking-luxe">Challenges</span>
           {available.length > 0 ? (
-            <span className="min-w-[16px] h-4 px-1 rounded-full bg-foil text-noir-900 font-label text-[9px] flex items-center justify-center">
+            <span className="min-w-[16px] h-4 px-1 rounded-full bg-foil text-[color:var(--on-accent)] font-label text-[9px] flex items-center justify-center">
               {available.length}
             </span>
           ) : allDone ? (
@@ -175,7 +175,7 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
                     <button
                       onClick={confirmName}
                       disabled={nameInput.trim().length < 2}
-                      className="flex-1 bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 hover:brightness-110 transition-all active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+                      className="flex-1 bg-foil glow-accent text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 hover:brightness-110 transition-all active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
                     >
                       Continue
                     </button>
@@ -226,7 +226,7 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
                               <p className="font-sans text-xs text-champagne/50 mt-0.5 line-clamp-2">{c.description}</p>
                             )}
                           </div>
-                          <span className="font-label text-[8px] uppercase tracking-wide text-gold-400 flex-shrink-0">+{c.points}pts</span>
+                          <span className="font-label text-[10px] uppercase tracking-wide text-gold-400 flex-shrink-0">+{c.points}pts</span>
                         </button>
                       ))}
                     </div>
@@ -239,7 +239,7 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
                   >
                     Skip — no challenge this time
                   </button>
-                  <p className="mt-2 text-center font-label text-[8px] uppercase tracking-luxe text-champagne/20">
+                  <p className="mt-2 text-center font-label text-[10px] uppercase tracking-luxe text-champagne/35">
                     Tagged when you send to the wall
                   </p>
                 </>

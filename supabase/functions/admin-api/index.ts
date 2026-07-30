@@ -42,6 +42,10 @@
  *                       resolves an existing user by email, else invites one
  *   remove_admin     → { data: { userId } } (args: { userId }) — audited;
  *                       blocked: removing self, removing the last admin
+ *   get_landing_content_admin → { data: { draft, published, version, updatedAt } }
+ *   save_landing_draft        → { data: { ok } } (args: { draft: object ≤200KB }) — audited
+ *   publish_landing_content   → { data: { version } } — copies draft → published — audited
+ *   revert_landing_draft      → { data: { ok } } — copies published → draft — audited
  *
  * 400 { error:'invalid_json'|'invalid_args'|'cannot_remove_self'|'cannot_remove_last_admin'|
  *       'unknown_action' } · 401 unauthorized · 403 forbidden · 404 not_found ·
@@ -567,6 +571,84 @@ async function setSignupCredits(sb: Client, actorUserId: string, args: Record<st
   if (error) throw error;
   await auditLog(sb, actorUserId, 'set_signup_credits', 'config', 'signup_bonus_credits', { amount });
   return json(200, { data: { signupBonusCredits: amount } });
+}
+
+/* ── Landing-page CMS: the marketing "/" singleton (migration 030) ─────── */
+/* The table has NO client policies (draft must never be publicly readable);
+ * this service-role path is the only writer. Anonymous visitors read the
+ * published half through the get_landing_content() SQL function. The blobs
+ * are opaque jsonb here — the browser normalizes on every read, so a bad
+ * draft can degrade only to bundled defaults, never to a broken page. */
+
+async function getLandingContentAdmin(sb: Client): Promise<Response> {
+  const { data, error } = await sb
+    .from('landing_content')
+    .select('draft, published, version, updated_at')
+    .eq('id', 1)
+    .maybeSingle();
+  if (error) throw error;
+  // Migration 030 seeds row 1; a missing row means the migration never ran.
+  if (!data) return json(404, { error: 'not_found' });
+  return json(200, {
+    data: { draft: data.draft, published: data.published, version: data.version, updatedAt: data.updated_at },
+  });
+}
+
+async function saveLandingDraft(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const draft = args.draft;
+  if (typeof draft !== 'object' || draft === null || Array.isArray(draft)) {
+    return json(400, { error: 'invalid_args' });
+  }
+  // Size ceiling: the row is read on every admin-editor load; 200KB of copy is
+  // already ~40× the shipped page's text. Audit meta records the size, never
+  // the blob (audit rows are forever; drafts are not).
+  const bytes = JSON.stringify(draft).length;
+  if (bytes > 200_000) return json(400, { error: 'invalid_args' });
+  const { error } = await sb
+    .from('landing_content')
+    .update({ draft, updated_at: new Date().toISOString(), updated_by: actorUserId })
+    .eq('id', 1);
+  if (error) throw error;
+  await auditLog(sb, actorUserId, 'save_landing_draft', 'landing_content', '1', { bytes });
+  return json(200, { data: { ok: true } });
+}
+
+async function publishLandingContent(sb: Client, actorUserId: string): Promise<Response> {
+  // Read-then-write (supabase-js cannot express `version = version + 1`);
+  // two admins publishing in the same instant is a lost version bump, not a
+  // corruption — the copy itself is atomic within the single UPDATE.
+  const { data: row, error: readErr } = await sb
+    .from('landing_content')
+    .select('draft, version')
+    .eq('id', 1)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!row) return json(404, { error: 'not_found' });
+  const version = (typeof row.version === 'number' && Number.isFinite(row.version) ? row.version : 0) + 1;
+  const { error } = await sb
+    .from('landing_content')
+    .update({ published: row.draft, version, updated_at: new Date().toISOString(), updated_by: actorUserId })
+    .eq('id', 1);
+  if (error) throw error;
+  await auditLog(sb, actorUserId, 'publish_landing_content', 'landing_content', '1', { version });
+  return json(200, { data: { version } });
+}
+
+async function revertLandingDraft(sb: Client, actorUserId: string): Promise<Response> {
+  const { data: row, error: readErr } = await sb
+    .from('landing_content')
+    .select('published')
+    .eq('id', 1)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!row) return json(404, { error: 'not_found' });
+  const { error } = await sb
+    .from('landing_content')
+    .update({ draft: row.published, updated_at: new Date().toISOString(), updated_by: actorUserId })
+    .eq('id', 1);
+  if (error) throw error;
+  await auditLog(sb, actorUserId, 'revert_landing_draft', 'landing_content', '1');
+  return json(200, { data: { ok: true } });
 }
 
 /* ── Promo codes ───────────────────────────────────────────────────────── */
@@ -1214,6 +1296,14 @@ Deno.serve(async (req: Request) => {
         return await getPlatformConfig(sb);
       case 'set_signup_credits':
         return await setSignupCredits(sb, user.id, args);
+      case 'get_landing_content_admin':
+        return await getLandingContentAdmin(sb);
+      case 'save_landing_draft':
+        return await saveLandingDraft(sb, user.id, args);
+      case 'publish_landing_content':
+        return await publishLandingContent(sb, user.id);
+      case 'revert_landing_draft':
+        return await revertLandingDraft(sb, user.id);
       case 'list_promos':
         return await listPromos(sb);
       case 'create_promo':

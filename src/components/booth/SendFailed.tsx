@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { CloudOff, Download, RefreshCw, Check, ArrowLeft } from 'lucide-react';
 import { useEvent } from '../../events/EventContext';
+import ReportIssueButton from '../support/ReportIssueButton';
 
 interface Props {
   dataUrl: string;             // JPEG data-url for image; object URL for video
@@ -42,9 +43,12 @@ function failureCopy(errorKind?: string): string {
 const PERMANENT_KINDS = new Set(['video_not_allowed', 'quota_exceeded', 'post_limit_reached']);
 
 export default function SendFailed({ dataUrl, mediaType = 'image', errorKind, onRetry, onBackToBooth }: Props) {
-  const { config } = useEvent();
+  const { config, basePath } = useEvent();
   const [saved, setSaved] = useState(false);
   const permanent = errorKind !== undefined && PERMANENT_KINDS.has(errorKind);
+  /** `/e/<slug>` → slug; legacy builds ('' basePath) have no support desk —
+   *  same gate as BoothTopBar. */
+  const slug = /^\/e\/([^/]+)/.exec(basePath)?.[1] ?? null;
 
   // Same download affordance as ReviewPanel: resolve the real container from
   // the blob so the saved file's extension matches its bytes.
@@ -120,7 +124,7 @@ export default function SendFailed({ dataUrl, mediaType = 'image', errorKind, on
           {!permanent && (
             <button
               onClick={onRetry}
-              className="flex items-center justify-center gap-2 rounded-xl bg-foil px-6 py-3.5 font-label text-xs uppercase tracking-luxe text-noir-900 glow-accent transition-all hover:brightness-110 active:scale-95"
+              className="flex items-center justify-center gap-2 rounded-xl bg-foil px-6 py-3.5 font-label text-xs uppercase tracking-luxe text-[color:var(--on-accent)] glow-accent transition-all hover:brightness-110 active:scale-95"
             >
               <RefreshCw className="h-4 w-4" />
               Try again
@@ -144,6 +148,21 @@ export default function SendFailed({ dataUrl, mediaType = 'image', errorKind, on
             <ArrowLeft className="h-3.5 w-3.5" />
             Back to the booth
           </button>
+          {/* A repeat failure is exactly when a guest needs a human — same
+              slug gate as BoothTopBar (legacy builds have no support desk). */}
+          {slug !== null && (
+            <ReportIssueButton
+              label="Report a problem"
+              iconSize={14}
+              prefill={{
+                source: 'guest_booth',
+                eventSlug: slug,
+                subject: 'My photo won’t send to the wall',
+                diagnostics: { sendErrorKind: errorKind ?? 'network', mediaType },
+              }}
+              className="pressable flex min-h-11 items-center justify-center gap-2 rounded-xl px-6 font-label text-[10px] uppercase tracking-wide text-champagne/40 transition-colors hover:text-ivory"
+            />
+          )}
         </div>
       </motion.div>
     </div>

@@ -14,9 +14,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { ArrowLeft, ArrowRight, Check, Copy, ImagePlus, Loader2, PartyPopper, Send, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Copy, ImagePlus, Loader2, PartyPopper, Printer, Rocket, Send, Sparkles } from 'lucide-react';
 import { slugify, SLUG_RE, RESERVED_SLUGS } from '../../lib/slug';
-import { createEvent, updateEventConfig, fetchEventStatus, isSlugVisiblyTaken, type CreateEventError, type HostEventRow } from '../../lib/host';
+import { createEvent, updateEventConfig, updateEventStatus, fetchEventStatus, isSlugVisiblyTaken, type CreateEventError, type HostEventRow } from '../../lib/host';
+import { useToast } from '../../components/ui/Toast';
 import { accentThemePatch, EVENT_TEMPLATES, templateById, templateConfigPatch } from '../../lib/eventTemplates';
 import { designEvent, normalizePlan, type ChatMessage, type DesignImage, type EventPlan } from '../../lib/eventDesigner';
 import { fileToImagePart } from '../../lib/imageInput';
@@ -96,6 +97,12 @@ export default function NewEvent() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [created, setCreated] = useState<HostEventRow | null>(null);
   const [copied, setCopied] = useState(false);
+  /** Both template-seed attempts failed — the event exists but opened plain. */
+  const [seedFailed, setSeedFailed] = useState(false);
+  const [goingLive, setGoingLive] = useState(false);
+  const [wentLive, setWentLive] = useState(false);
+  const [goLiveError, setGoLiveError] = useState<string | null>(null);
+  const { push } = useToast();
 
   // ── Post-create build phase: the same chat continues, now event-aware, so
   //    the host adds frame/filter/3D/challenges, tests, and goes live inline. ──
@@ -335,8 +342,11 @@ export default function NewEvent() {
       if (accent) {
         patch.themeVars = { ...(patch.themeVars as Record<string, string>), ...accentThemePatch(accent) };
       }
+      // Both attempts failing is surfaced on the success screen — the event
+      // exists but opened plain, and silence here left the host to discover
+      // an unstyled booth at the venue.
       const seeded = await updateEventConfig(res.event.id, patch);
-      if (!seeded) await updateEventConfig(res.event.id, patch);
+      if (!seeded) setSeedFailed(!(await updateEventConfig(res.event.id, patch)));
     }
     setCreating(false);
     if (res.event) {
@@ -363,6 +373,25 @@ export default function NewEvent() {
     setCreated(res.event);
   };
 
+  /** Go live straight from the success screen — the next thing every host
+   *  does anyway, and until now it required a detour through the events list. */
+  const goLive = async () => {
+    if (!created || goingLive || wentLive) return;
+    setGoingLive(true);
+    setGoLiveError(null);
+    const ok = await updateEventStatus(created.id, 'live');
+    setGoingLive(false);
+    if (ok) {
+      setWentLive(true);
+      // Updating `created` re-runs reloadBuild, so the build chat's Test card
+      // and checklist flip to live too.
+      setCreated((c) => (c ? { ...c, status: 'live' } : c));
+      push('You’re live — guests can scan now', 'success');
+    } else {
+      setGoLiveError('Couldn’t go live — check your connection and try again.');
+    }
+  };
+
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   // Same shape as the link EventsList hands out — two different "guest links"
   // for one event is how a host ends up printing the wrong QR.
@@ -371,6 +400,7 @@ export default function NewEvent() {
   /* ── Post-create build phase: the concierge conversation continues, now
         event-aware, so the host builds the whole experience inline. ── */
   if (created) {
+    const isLive = wentLive || created.status === 'live';
     return (
       <div className="h-full flex flex-col p-4 md:p-6 max-w-3xl mx-auto w-full min-h-0">
         {/* Celebratory header + instant share, kept compact above the chat. */}
@@ -393,9 +423,23 @@ export default function NewEvent() {
             {/* Events are always created as drafts, but this screen hands over
                 a link and a QR with no hint that guests can't open them yet —
                 exactly the thing a host would print. EventsList already warns. */}
-            <p className="mt-0.5 font-sans text-[11px] text-amber-300/80 leading-snug">
-              Draft — this link won’t open for guests until you go live.
-            </p>
+            {isLive ? (
+              <p className="mt-0.5 font-sans text-[11px] text-emerald-300/90 leading-snug animate-rise-in">
+                Live — guests can scan and join right now.
+              </p>
+            ) : (
+              <p className="mt-0.5 font-sans text-[11px] text-amber-300/80 leading-snug">
+                Draft — this link won’t open for guests until you go live.
+              </p>
+            )}
+            {goLiveError && (
+              <p role="alert" className="mt-0.5 font-sans text-[11px] text-red-400 leading-snug">{goLiveError}</p>
+            )}
+            {seedFailed && (
+              <p className="mt-0.5 font-sans text-[11px] text-amber-300/80 leading-snug">
+                We couldn’t apply the template look — open the Studio to style your event.
+              </p>
+            )}
           </div>
           {/* Shown on phones too: this is the screen a host reaches straight
               after creating an event, and it exists to hand over the QR. */}
@@ -403,12 +447,28 @@ export default function NewEvent() {
             <QRCodeSVG value={guestUrl} size={56} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
           </div>
           <div className="shrink-0 flex flex-col gap-1.5">
+            {!isLive && (
+              <button
+                onClick={goLive}
+                disabled={goingLive}
+                title="Publish this event so guests can scan in"
+                className="rounded-full bg-foil glow-accent px-3.5 py-1.5 font-label uppercase tracking-luxe text-[9px] font-bold text-white transition active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-1"
+              >
+                {goingLive ? <Loader2 className="w-3 h-3 animate-spin" /> : <Rocket className="w-3 h-3" />} Go live
+              </button>
+            )}
             <button
               onClick={() => navigate(`/host/events/${created.id}`)}
               className="rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3.5 py-1.5 font-label uppercase tracking-luxe text-[9px] font-bold text-brand-fg/90 transition-colors"
             >
               Open studio
             </button>
+            <Link
+              to={`/host/events/${created.id}/share`}
+              className="rounded-full border border-white/15 px-3.5 py-1.5 font-label uppercase tracking-luxe text-[9px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors text-center flex items-center justify-center gap-1"
+            >
+              <Printer className="w-3 h-3" /> Print signage
+            </Link>
             <Link
               to="/host"
               className="rounded-full border border-white/15 px-3.5 py-1.5 font-label uppercase tracking-luxe text-[9px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors text-center"
@@ -458,9 +518,11 @@ export default function NewEvent() {
 
       <div className={`grid gap-6 items-start lg:grid-cols-[minmax(0,1fr)_280px] ${conciergeStep ? 'flex-1 min-h-0' : ''}`}>
       <div className={`liquid-glass rounded-3xl animate-rise-in ${conciergeStep ? 'p-5 md:p-6 flex flex-col min-h-0 overflow-hidden' : 'p-8'}`}>
-        {/* Step dots */}
+        {/* Step dots — the concierge path really has two steps (describe →
+            review), so it renders two dots; three dots that visibly skipped
+            the middle one read as a broken wizard. */}
         <div className={`flex items-center justify-center gap-2 ${conciergeStep ? 'mb-4 shrink-0' : 'mb-8'}`}>
-          {[1, 2, 3].map((s) => (
+          {(concierge ? [1, 3] : [1, 2, 3]).map((s) => (
             <span
               key={s}
               className={`h-1.5 rounded-full transition-all ${s === step ? 'w-6 bg-[color:var(--color-accent)]' : 'w-1.5 bg-white/15'}`}
@@ -563,6 +625,13 @@ export default function NewEvent() {
                 placeholder="Describe your event, or add a photo of your invitation…"
                 className={inputClass}
               />
+              {/* Subtle counter once the 2000-char limit comes into view —
+                  before this, typing simply stopped with no explanation. */}
+              {chatInput.length >= 1800 && (
+                <span className="shrink-0 font-mono text-[10px] text-brand-muted/50" aria-live="polite">
+                  {chatInput.length}/2000
+                </span>
+              )}
               <button
                 onClick={() => sendChat(chatInput)}
                 disabled={!chatInput.trim() || chatBusy}
@@ -577,10 +646,24 @@ export default function NewEvent() {
             <button
               onClick={reviewAndCreate}
               disabled={!name.trim() || !slug}
+              title={
+                !name.trim()
+                  ? 'Your event needs a name first — describe it above'
+                  : !slug
+                  ? 'Your event needs a guest link first — describe it above'
+                  : 'Review the plan and create your event'
+              }
               className="shrink-0 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
             >
               Review &amp; create <ArrowRight className="w-4 h-4" />
             </button>
+            {(!name.trim() || !slug) && (
+              <p className="shrink-0 -mt-1.5 text-center font-sans text-[10px] text-brand-muted/50">
+                {!name.trim()
+                  ? 'Ready once your event has a name — describe it above and I’ll set one.'
+                  : 'Ready once your event has a guest link — ask me to pick one, or edit it in the card.'}
+              </p>
+            )}
           </div>
         )}
 

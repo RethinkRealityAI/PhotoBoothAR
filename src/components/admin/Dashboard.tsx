@@ -171,12 +171,16 @@ interface ChecklistStep {
  * "you're ready" and the one remaining action is the Go-live button.
  */
 function GoLiveChecklist({
-  steps, live, canGoLive, going, onGoLive, onPreview,
+  steps, live, canGoLive, going, error, shareTo, onGoLive, onPreview,
 }: {
   steps: ChecklistStep[];
   live: boolean;
   canGoLive: boolean;
   going: boolean;
+  /** Go-live failure, reported inline instead of a silent button reset. */
+  error?: string | null;
+  /** Route to the Share tab — platform studio only (legacy has no share tab). */
+  shareTo?: string;
   onGoLive: () => void;
   onPreview: () => void;
 }) {
@@ -192,11 +196,26 @@ function GoLiveChecklist({
             {live ? 'Your event is live' : 'Get your event live'}
           </h2>
           <p className="font-sans text-xs text-champagne/55 mt-0.5">
-            {live
-              ? 'Guests can scan and join right now — print signage from the Share tab.'
-              : pct === 100
-                ? 'Everything checks out — go live whenever you’re ready.'
-                : `You're ${pct}% ready — finish up, then go live in one tap.`}
+            {live ? (
+              shareTo ? (
+                <>
+                  Guests can scan and join right now —{' '}
+                  <button
+                    onClick={() => navigate(shareTo)}
+                    className="underline underline-offset-2 text-gold-300 hover:text-gold-200 transition-colors"
+                  >
+                    print signage
+                  </button>{' '}
+                  from the Share tab.
+                </>
+              ) : (
+                'Guests can scan and join right now — print signage from the Share tab.'
+              )
+            ) : pct === 100 ? (
+              'Everything checks out — go live whenever you’re ready.'
+            ) : (
+              `You're ${pct}% ready — finish up, then go live in one tap.`
+            )}
           </p>
         </div>
         <div
@@ -241,6 +260,10 @@ function GoLiveChecklist({
         ))}
       </ul>
 
+      {error && (
+        <p role="alert" className="mb-3 font-sans text-xs text-red-400">{error}</p>
+      )}
+
       <div className="flex flex-col sm:flex-row gap-3">
         <button
           onClick={onPreview}
@@ -249,7 +272,10 @@ function GoLiveChecklist({
           <Sparkles className="w-4 h-4" /> Preview booth
         </button>
         {live ? (
-          <div className="flex-1 flex items-center justify-center gap-2 rounded-full bg-emerald-500/15 border border-emerald-400/30 px-6 py-3 font-label uppercase tracking-luxe text-[10px] text-emerald-300">
+          // animate-rise-in gives the moment of ceremony when the flip happens
+          // in place (no more full page reload); its reduced-motion variant is
+          // a short fade, so the celebration respects that preference too.
+          <div className="flex-1 flex items-center justify-center gap-2 rounded-full bg-emerald-500/15 border border-emerald-400/30 px-6 py-3 font-label uppercase tracking-luxe text-[10px] text-emerald-300 animate-rise-in">
             <PartyPopper className="w-4 h-4" /> Live now
           </div>
         ) : (
@@ -267,16 +293,30 @@ function GoLiveChecklist({
   );
 }
 
-export default function Dashboard() {
+export default function Dashboard({
+  onStatusChange,
+}: {
+  /** Platform studio wiring: lets EventStudio keep its own status pill in
+   *  lockstep when Go live succeeds without a page reload. Legacy mounts
+   *  (adminRoutes in App.tsx) pass nothing and behave as before. */
+  onStatusChange?: (status: string) => void;
+}) {
   const navigate = useNavigate();
   const base = useStudioBase();
+  // Platform studio vs legacy passcode-gated admin: only the platform mounts
+  // this under /host/events/<id> (useStudioBase defaults to '/admin' in the
+  // legacy builds), and only the platform has a Share tab or steers signage
+  // at /welcome — legacy behavior must stay byte-identical.
+  const platformStudio = base.startsWith('/host/');
   const { basePath, eventUuid, status, config } = useEvent();
   const { stats, loading, reload } = useStats();
   const [going, setGoing] = useState(false);
-  // `status` is the freshly-loaded DB status (runtime.ts), so it's the source of
-  // truth. After going live we reload so the studio topbar + checklist stay in
-  // lockstep instead of drifting from an optimistic local flag.
-  const live = status === 'live';
+  const [justLive, setJustLive] = useState(false);
+  const [goError, setGoError] = useState<string | null>(null);
+  // `status` is the freshly-loaded DB status (runtime.ts) — the source of
+  // truth on load; `justLive` carries a confirmed in-session go-live so the
+  // flip is instant instead of a full window.location.reload().
+  const live = status === 'live' || justLive;
 
   // Every step is VERIFIED against real state — a checklist that shows a
   // check the host didn't earn erodes trust in the whole panel.
@@ -298,14 +338,20 @@ export default function Dashboard() {
   const goLive = useCallback(async () => {
     if (!eventUuid || going) return;
     setGoing(true);
+    setGoError(null);
     const ok = await updateEventStatus(eventUuid, 'live');
+    setGoing(false);
     if (ok) {
-      // Reload so every surface re-reads the persisted 'live' status.
-      window.location.reload();
+      // Confirmed by the DB write — flip in place (no reload), tell the host
+      // shell so its status pill follows, and re-pull the stats.
+      setJustLive(true);
+      onStatusChange?.('live');
+      reload();
     } else {
-      setGoing(false);
+      // A silent button reset read as "nothing happened" — say why.
+      setGoError('Couldn’t go live — check your connection and try again.');
     }
-  }, [eventUuid, going]);
+  }, [eventUuid, going, onStatusChange, reload]);
   const copy = useStore((s) => s.copy);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
@@ -342,6 +388,8 @@ export default function Dashboard() {
             live={live}
             canGoLive={canGoLive}
             going={going}
+            error={goError}
+            shareTo={platformStudio ? `${base}/share` : undefined}
             onGoLive={goLive}
             onPreview={() => window.open(`${basePath}/`, '_blank')}
           />
@@ -447,10 +495,14 @@ export default function Dashboard() {
         <section>
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-champagne/50 mb-4">Event QR Codes</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 max-w-2xl mx-auto">
+            {/* Platform events steer printed signage at /welcome — the same
+                target ShareKit, EventsList and the platform guide hand out, so
+                a host never prints two different "guest links" for one event.
+                Legacy builds keep their original booth-root QR unchanged. */}
             <QRCard
               label="Photo Booth"
               hint="Print for guest tables — scan to launch the AR booth on any phone."
-              url={`${origin}${basePath}/`}
+              url={platformStudio ? `${origin}${basePath}/welcome` : `${origin}${basePath}/`}
               icon={<Sparkles className="w-4 h-4" />}
             />
             <QRCard

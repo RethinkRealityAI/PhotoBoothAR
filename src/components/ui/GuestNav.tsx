@@ -136,7 +136,7 @@ export default function GuestNav({ current, extras, bottomOnMobile = true, class
                     }`}
                   >
                     <d.Icon size={19} />
-                    <span className="font-label uppercase tracking-wide text-[7.5px] leading-none w-full text-center truncate">{d.label}</span>
+                    <span className="font-label uppercase tracking-wide text-[10px] leading-none w-full text-center truncate">{d.label}</span>
                   </Link>
                 );
               })}

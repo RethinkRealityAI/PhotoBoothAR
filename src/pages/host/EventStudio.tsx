@@ -15,14 +15,15 @@
  * same as leaving /e/:slug today.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Check, Coins, Copy, FolderOpen, Gift, Image as ImageIcon, KeyRound,
   LayoutGrid, Palette, QrCode, Settings, ShieldCheck, Sparkles, Trophy, Wand2, X,
 } from 'lucide-react';
 import { useCopilotStore } from '../../lib/copilotStore';
 import { supabase } from '../../lib/supabase';
-import { canEnterStudio, fetchCreditBalance } from '../../lib/host';
+import { canEnterStudio, fetchCreditBalance, invalidateProSubscriptionCache } from '../../lib/host';
+import { ToastProvider, useToast } from '../../components/ui/Toast';
 import { useAiJobSweep } from '../../lib/useAiJobSweep';
 import { subscribeToPosts } from '../../lib/db';
 import type { Post } from '../../types';
@@ -78,6 +79,34 @@ function GuestLinkCopy({ url }: { url: string }) {
       <span className="truncate hidden sm:inline">{url.replace(/^https?:\/\//, '')}</span>
     </button>
   );
+}
+
+/**
+ * Checkout round-trip feedback: UpgradeModal's returnUrl is the page the host
+ * was on, so Stripe can land back here with ?checkout=success|cancelled. Toast
+ * it once (must sit under ToastProvider, hence a child component), refresh the
+ * event row so the new plan tier shows, and strip the param so a refresh
+ * doesn't re-announce it.
+ */
+function CheckoutReturn({ onRefresh }: { onRefresh: () => void }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { push } = useToast();
+  const checkoutReturn = searchParams.get('checkout');
+  useEffect(() => {
+    if (checkoutReturn !== 'success' && checkoutReturn !== 'cancelled') return;
+    if (checkoutReturn === 'success') {
+      push('Payment received — your plan updates within a minute of Stripe confirming.', 'success');
+      invalidateProSubscriptionCache();
+      onRefresh();
+    } else {
+      push('Checkout cancelled — nothing was charged.', 'info');
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete('checkout');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkoutReturn]);
+  return null;
 }
 
 type ModerationMode = 'post' | 'pre';
@@ -293,10 +322,18 @@ export default function EventStudio() {
     setIntroOpen(true);
   }, [introAvailable, isStudio, state]);
 
+  // Bumped by CheckoutReturn so a plan upgrade re-reads the event row
+  // (plan_tier drives the upgrade banner and tab gating).
+  const [reloadKey, setReloadKey] = useState(0);
+
   useEffect(() => {
     if (!validId) return;
     let alive = true;
-    setState({ phase: 'loading' });
+    // A reloadKey bump is a background refresh (checkout return): keep the
+    // studio on screen — flipping to the spinner would unmount ToastProvider
+    // and eat the very toast the refresh accompanies. A different :id is a
+    // real navigation and still gets the spinner.
+    setState((prev) => (prev.phase === 'ready' && prev.event.id === id ? prev : { phase: 'loading' }));
     (async () => {
       const { data, error } = await supabase
         .from('events')
@@ -318,7 +355,7 @@ export default function EventStudio() {
       setState({ phase: 'ready', event: data as StudioEvent });
     })();
     return () => { alive = false; };
-  }, [id, validId]);
+  }, [id, validId, reloadKey]);
 
   // The platform rail is deliberately absent here — the owner asked for studio
   // mode to be "less encumbered" — but two things it carried are not chrome,
@@ -378,6 +415,8 @@ export default function EventStudio() {
   return (
     <StudioBaseContext.Provider value={base}>
       <EventProvider slug={event.slug} basePath={basePath}>
+        <ToastProvider>
+        <CheckoutReturn onRefresh={() => setReloadKey((k) => k + 1)} />
         <AnimatePresence>
           {introOpen && (
             <StudioOnboarding
@@ -517,7 +556,21 @@ export default function EventStudio() {
               {/* Remote celebrations live in the Cards tab — make it home. */}
               <Route
                 index
-                element={event.event_type === 'remote' ? <Navigate to={`${base}/cards`} replace /> : <Dashboard />}
+                element={
+                  event.event_type === 'remote' ? (
+                    <Navigate to={`${base}/cards`} replace />
+                  ) : (
+                    // onStatusChange keeps this screen's StatusPill + status in
+                    // lockstep when the Dashboard goes live without a reload.
+                    <Dashboard
+                      onStatusChange={(status) =>
+                        setState((prev) =>
+                          prev.phase === 'ready' ? { ...prev, event: { ...prev.event, status } } : prev,
+                        )
+                      }
+                    />
+                  )
+                }
               />
               <Route path="library" element={<Library />} />
               <Route path="assets" element={<Assets />} />
@@ -536,6 +589,7 @@ export default function EventStudio() {
             </Routes>
           </main>
         </div>
+        </ToastProvider>
       </EventProvider>
     </StudioBaseContext.Provider>
   );

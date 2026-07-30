@@ -9,7 +9,7 @@
  *
  * Purely presentational; the Booth owns the validation call and phase.
  */
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { ScanEye, RefreshCw, Send } from 'lucide-react';
 
 interface Props {
@@ -25,6 +25,8 @@ export default function ChallengeCheck({
   dataUrl, phase, challengeTitle, reason, onRetake, onPostAnyway,
 }: Props) {
   const checking = phase === 'checking';
+  /** Same pattern as Countdown.tsx — every infinite loop below goes still. */
+  const reduced = useReducedMotion() ?? false;
   return (
     // pb-safe-bottom COMPOSES with the design padding through --safe-bottom
     // (src/index.css); a bare env() would win the cascade and zero it on every
@@ -47,7 +49,7 @@ export default function ChallengeCheck({
           className="h-full w-full object-cover transition-all duration-500"
           style={{ filter: checking ? 'brightness(0.7)' : 'brightness(0.85)' }}
         />
-        {checking && (
+        {checking && !reduced && (
           <motion.div
             aria-hidden
             className="absolute inset-x-0 h-16"
@@ -67,10 +69,10 @@ export default function ChallengeCheck({
         <div className="space-y-2 text-center">
           <motion.div
             className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-foil glow-accent"
-            animate={{ scale: [1, 1.08, 1] }}
-            transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+            animate={reduced ? undefined : { scale: [1, 1.08, 1] }}
+            transition={reduced ? undefined : { duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
           >
-            <ScanEye className="h-5 w-5 text-noir-900" />
+            <ScanEye className="h-5 w-5 text-[color:var(--on-accent)]" />
           </motion.div>
           <p className="font-serif text-lg italic text-champagne/80">Checking your photo…</p>
           {challengeTitle && (
@@ -89,8 +91,8 @@ export default function ChallengeCheck({
               <motion.div
                 key={i}
                 className="h-1.5 w-1.5 rounded-full bg-gold-400/70"
-                animate={{ opacity: [0.25, 1, 0.25], scale: [0.85, 1.1, 0.85] }}
-                transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
+                animate={reduced ? undefined : { opacity: [0.25, 1, 0.25], scale: [0.85, 1.1, 0.85] }}
+                transition={reduced ? undefined : { duration: 1.2, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
               />
             ))}
           </div>
@@ -111,7 +113,7 @@ export default function ChallengeCheck({
           <div className="flex w-full flex-col gap-2.5">
             <button
               onClick={onRetake}
-              className="pressable flex min-h-[52px] items-center justify-center gap-2 rounded-xl bg-foil px-6 font-label text-xs uppercase tracking-luxe text-noir-900 glow-accent transition-all hover:brightness-110 active:scale-95"
+              className="pressable flex min-h-[52px] items-center justify-center gap-2 rounded-xl bg-foil px-6 font-label text-xs uppercase tracking-luxe text-[color:var(--on-accent)] glow-accent transition-all hover:brightness-110 active:scale-95"
             >
               <RefreshCw className="h-4 w-4" />
               Retake photo

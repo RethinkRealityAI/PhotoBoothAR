@@ -109,6 +109,14 @@ interface Props {
    * on it, so the reveal animation celebrates real geometry.
    */
   onAssetReady?: (url: string) => void;
+  /**
+   * Fires with a piece's asset url + FaceRig's classified, human-readable
+   * message (`describeGlbError`) when that GLB cannot load at all — the booth
+   * surfaces it as a hint and clears the orb's pending ring, instead of the
+   * selection silently rendering nothing forever. Omitting it is byte-identical
+   * to before (Model.onError is optional).
+   */
+  onAssetError?: (url: string, message: string) => void;
 }
 
 /**
@@ -150,7 +158,7 @@ function AnimatedPiece({ animation, reveal, children }: { animation?: LayerAnima
   return <group ref={ref}>{children}</group>;
 }
 
-export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady }: Props) {
+export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError }: Props) {
   // First piece whose occlude===true wins the (single, non-duplicated) occluder.
   const occluderIdx = pieces ? pieces.findIndex((p) => p.occlude === true) : -1;
   return (
@@ -191,6 +199,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
                     template={p.template}
                     customization={p.customization}
                     onReady={onAssetReady ? () => onAssetReady(p.assetUrl as string) : undefined}
+                    onError={onAssetError ? (m) => onAssetError(p.assetUrl as string, m) : undefined}
                   />
                 ) : null}
               </AnimatedPiece>
@@ -207,7 +216,11 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
               {isHeadPiece(proceduralId) ? (
                 <HeadPiece id={proceduralId as string} />
               ) : assetUrl ? (
-                <Model url={assetUrl} onReady={onAssetReady ? () => onAssetReady(assetUrl) : undefined} />
+                <Model
+                  url={assetUrl}
+                  onReady={onAssetReady ? () => onAssetReady(assetUrl) : undefined}
+                  onError={onAssetError ? (m) => onAssetError(assetUrl, m) : undefined}
+                />
               ) : null}
             </AnimatedPiece>
           </FaceRig>

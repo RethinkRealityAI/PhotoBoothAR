@@ -7,7 +7,8 @@
  */
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { signUpWithEmail } from '../../lib/auth';
+import { Eye, EyeOff } from 'lucide-react';
+import { signUpWithEmail, resendConfirmation } from '../../lib/auth';
 import { usePageTitle } from '../../lib/usePageTitle';
 
 const inputClass =
@@ -20,11 +21,13 @@ export default function Signup() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [promoCode, setPromoCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
+  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -51,6 +54,14 @@ export default function Signup() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  /** Same three-state resend as Login: confirmation emails go missing, and
+   *  the "check your email" screen was previously a dead end when they did. */
+  async function handleResend() {
+    setResendState('sending');
+    const { error: err } = await resendConfirmation(email.trim());
+    setResendState(err ? 'error' : 'sent');
   }
 
   // See Login: a centred card taller than the viewport loses its own top.
@@ -103,6 +114,33 @@ export default function Signup() {
                 account — once confirmed, you&rsquo;ll land in your studio at{' '}
                 <span className="text-accent">/host</span>.
               </p>
+              {promoCode.trim() !== '' && (
+                <p className="mt-3 text-sm leading-relaxed text-brand-muted/80">
+                  Promo code <span className="text-accent">{promoCode.trim()}</span> will be
+                  applied when you create your first event.
+                </p>
+              )}
+              <div className="mt-6 rounded-xl bg-white/[0.04] px-4 py-3">
+                {resendState === 'sent' ? (
+                  <p role="status" className="text-sm text-brand-muted/80">
+                    Sent — check {email.trim()} for a fresh confirmation link.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResend}
+                    disabled={resendState === 'sending'}
+                    className="min-h-11 font-label uppercase tracking-luxe text-[10px] text-accent disabled:opacity-60"
+                  >
+                    {resendState === 'sending' ? 'Sending…' : 'Send me a new confirmation link'}
+                  </button>
+                )}
+                {resendState === 'error' && (
+                  <p role="alert" className="mt-1 text-xs text-amber-300/90">
+                    That didn’t send. Try again in a moment.
+                  </p>
+                )}
+              </div>
               <p className="mt-6 text-sm text-brand-muted/60">
                 Already confirmed?{' '}
                 <Link to="/login" className="text-accent underline-offset-4 hover:underline">
@@ -155,16 +193,35 @@ export default function Signup() {
                   <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
                     Password
                   </span>
-                  <input
-                    type="password"
-                    required
-                    minLength={8}
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 8 characters"
-                    className={inputClass}
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className={`${inputClass} pr-12`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      className="absolute inset-y-0 right-0 flex items-center px-4 text-brand-muted/50 hover:text-brand-fg transition-colors"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  {/* Same requirement ResetPassword enforces (MIN_LENGTH 8) —
+                      stated up front instead of discovered on submit. */}
+                  <span
+                    className={`font-sans text-[10px] ${
+                      password.length > 0 && password.length < 8 ? 'text-amber-300/90' : 'text-brand-muted/40'
+                    }`}
+                  >
+                    Use at least 8 characters.
+                  </span>
                 </label>
 
                 <label className="flex flex-col gap-1.5">

@@ -13,9 +13,10 @@
  */
 import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronUp, ChevronDown, Sparkles, Square, Box } from 'lucide-react';
+import { ChevronUp, ChevronDown, Sparkles, Square, Box, RefreshCw } from 'lucide-react';
 import FilterThumb from './FilterThumb';
 import { Experience } from '../../types';
+import { useStore } from '../../store';
 
 interface Props {
   catalog: Experience[];
@@ -72,7 +73,7 @@ function EffectThumb({ id, name, selected, onSelect }: {
             : <Sparkles className="w-5 h-5 text-noir-900/45" />}
         </FilterThumb>
       </div>
-      <span className={`font-label text-[8px] uppercase tracking-wide max-w-[56px] text-center leading-tight ${selected ? 'text-gold-400' : 'text-champagne/50'}`}>
+      <span className={`font-label text-[10px] uppercase tracking-wide max-w-[56px] text-center leading-tight ${selected ? 'text-gold-400' : 'text-champagne/50'}`}>
         {name}
       </span>
     </button>
@@ -104,7 +105,7 @@ function FrameThumb({ exp, selected, onSelect }: {
           <span className="text-gold-400/60 text-lg">▣</span>
         )}
       </div>
-      <span className={`font-label text-[8px] uppercase tracking-wide max-w-[56px] text-center leading-tight ${selected ? 'text-gold-400' : 'text-champagne/50'}`}>
+      <span className={`font-label text-[10px] uppercase tracking-wide max-w-[56px] text-center leading-tight ${selected ? 'text-gold-400' : 'text-champagne/50'}`}>
         {isNone ? 'None' : exp?.name}
       </span>
     </button>
@@ -137,7 +138,7 @@ function AttachmentThumb({ exp, selected, onSelect }: {
           </div>
         )}
       </div>
-      <span className={`font-label text-[8px] uppercase tracking-wide max-w-[56px] text-center leading-tight ${selected ? 'text-gold-400' : 'text-champagne/50'}`}>
+      <span className={`font-label text-[10px] uppercase tracking-wide max-w-[56px] text-center leading-tight ${selected ? 'text-gold-400' : 'text-champagne/50'}`}>
         {isNone ? 'None' : exp?.name}
       </span>
     </button>
@@ -152,6 +153,13 @@ export default function PickerDrawer({
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (v: boolean) => (onOpenChange ? onOpenChange(v) : setInternalOpen(v));
+
+  // Honest network states for the Frames rail (the catalog prop can't tell
+  // "still loading" from "failed" from "genuinely empty"). Legacy builds have
+  // built-in frames, so these states only ever show on platform events.
+  const experiencesLoaded = useStore((s) => s.experiencesLoaded);
+  const experiencesFailed = useStore((s) => s.experiencesFailed);
+  const fetchExperiences = useStore((s) => s.fetchExperiences);
 
   // Effects derive from the catalog (shader experiences) so hidden/reordered
   // presets are respected — same as frames and 3D.
@@ -322,8 +330,26 @@ export default function PickerDrawer({
                     />
                   ))}
                 </div>
-                {frames.length === 0 && (
-                  <p className="px-3 text-[10px] text-champagne/20 font-label italic">Loading…</p>
+                {/* Three REAL states, not a perpetual invisible "Loading…":
+                    still fetching · fetch failed (retry re-runs the store
+                    fetch) · genuinely empty. */}
+                {frames.length === 0 && !experiencesLoaded && (
+                  <p className="px-3 font-sans text-[11px] text-champagne/60 italic">Loading this event’s frames…</p>
+                )}
+                {frames.length === 0 && experiencesLoaded && experiencesFailed && (
+                  <div className="px-3 flex items-center gap-2">
+                    <span className="font-sans text-[11px] text-champagne/60">Couldn’t load this event’s frames.</span>
+                    <button
+                      onClick={() => void fetchExperiences(true)}
+                      className="pressable flex min-h-9 items-center gap-1 rounded-full px-2.5 font-label text-[10px] uppercase tracking-wide text-gold-300 hover:text-gold-200 transition-colors"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Retry
+                    </button>
+                  </div>
+                )}
+                {frames.length === 0 && experiencesLoaded && !experiencesFailed && (
+                  <p className="px-3 font-sans text-[11px] text-champagne/60">No frames in this event yet.</p>
                 )}
               </div>
 

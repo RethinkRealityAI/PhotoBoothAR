@@ -20,6 +20,7 @@ import { loadEventSnapshot, type EventSnapshot } from '../../lib/eventSnapshot';
 import { TierPill } from './UpgradeCard';
 import StatusPill from '../../components/ui/StatusPill';
 import CopilotChat from '../../components/copilot/CopilotChat';
+import { useToast } from '../../components/ui/Toast';
 import { copyText } from '../../lib/clipboard';
 
 /** One selectable event card: inline rename, status toggle, link chips. */
@@ -41,6 +42,7 @@ function EventCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(ev.name);
   const [copied, setCopied] = useState(false);
+  const { push } = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const guestUrl = `${origin}/e/${ev.slug}`;
@@ -109,7 +111,7 @@ function EventCard({
       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
         <p className="flex-1 font-mono text-[10px] text-brand-muted/60 truncate">/e/{ev.slug}</p>
         <button
-          onClick={() => copyText(welcomeUrl).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 1500); })}
+          onClick={() => copyText(welcomeUrl).then((ok) => { if (!ok) return; setCopied(true); push('Link copied', 'success'); setTimeout(() => setCopied(false), 1500); })}
           title="Copy guest link"
           className="p-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
         >
@@ -164,7 +166,7 @@ export default function Concierge() {
   const [snapFailed, setSnapFailed] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const { push } = useToast();
 
   const load = useCallback(async () => {
     const rows = await fetchMyEvents();
@@ -210,9 +212,11 @@ export default function Concierge() {
     const prev = ev.name;
     setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, name } : e))); // optimistic
     const ok = await updateEventName(ev.id, name);
-    if (!ok) {
+    if (ok) {
+      push('Renamed', 'success');
+    } else {
       setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, name: prev } : e)));
-      setNotice(`Couldn’t update “${prev}” — check your connection and try again.`);
+      push(`Couldn’t update “${prev}” — check your connection and try again.`, 'error');
     }
     setBusyId(null);
   };
@@ -222,9 +226,11 @@ export default function Concierge() {
     const prev = ev.status;
     setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, status } : e))); // optimistic
     const ok = await updateEventStatus(ev.id, status);
-    if (!ok) {
+    if (ok) {
+      push(status === 'live' ? 'You’re live — guests can scan now' : 'Event ended', 'success');
+    } else {
       setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, status: prev } : e)));
-      setNotice(`Couldn’t update “${ev.name}” — check your connection and try again.`);
+      push(`Couldn’t update “${ev.name}” — check your connection and try again.`, 'error');
     }
     setBusyId(null);
   };
@@ -247,13 +253,6 @@ export default function Concierge() {
           <PartyPopper className="w-4 h-4" /> New event with the Concierge
         </Link>
       </header>
-
-      {notice && (
-        <div className="shrink-0 mb-4 flex items-start gap-2.5 rounded-xl bg-red-500/10 border border-red-500/25 px-4 py-3">
-          <p className="flex-1 font-sans text-xs text-red-300">{notice}</p>
-          <button onClick={() => setNotice(null)} className="text-red-300/60 hover:text-red-300 text-xs" aria-label="Dismiss">✕</button>
-        </div>
-      )}
 
       {loadFailed ? (
         <div className="liquid-glass rounded-3xl p-12 text-center max-w-lg mx-auto my-auto">

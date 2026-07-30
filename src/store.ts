@@ -51,6 +51,9 @@ interface AppState {
   /** Beamwall-catalog experiences linked into this event (runtime mode only). */
   linkedGlobals: Experience[];
   experiencesLoaded: boolean;
+  /** True when the last experiences fetch failed — "couldn't load" is not
+   *  "this event has none" (same contract as postsFailed/challengesFailed). */
+  experiencesFailed: boolean;
   fetchExperiences: (publishedOnly?: boolean) => Promise<void>;
 
   // Active filter selection (booth)
@@ -110,6 +113,7 @@ export const useStore = create<AppState>((set, get) => ({
       experiences: [],
       linkedGlobals: [],
       experiencesLoaded: false,
+      experiencesFailed: false,
       currentFilter: null,
       posts: [],
       postsLoaded: false,
@@ -130,13 +134,21 @@ export const useStore = create<AppState>((set, get) => ({
   experiences: [],
   linkedGlobals: [],
   experiencesLoaded: false,
+  experiencesFailed: false,
   fetchExperiences: async (publishedOnly = false) => {
     const eventId = get().eventId;
-    const [experiences, linkedGlobals] = await Promise.all([
-      db.fetchExperiences(eventId, { publishedOnly }),
+    const [expResult, linkedGlobals] = await Promise.all([
+      db.fetchExperiencesResult(eventId, { publishedOnly }),
       LEGACY_EVENT ? Promise.resolve<Experience[]>([]) : db.fetchLinkedGlobalExperiences(eventId),
     ]);
-    set({ experiences, linkedGlobals, experiencesLoaded: true });
+    // Same shape as fetchPosts: keep whatever we already had on a failed
+    // refresh, and mark failed so the pickers can offer Retry instead of
+    // claiming "no frames in this event yet".
+    if (expResult.failed) {
+      set({ experiencesLoaded: true, experiencesFailed: true });
+      return;
+    }
+    set({ experiences: expResult.rows, linkedGlobals, experiencesLoaded: true, experiencesFailed: false });
   },
 
   currentFilter: null,

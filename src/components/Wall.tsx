@@ -38,6 +38,7 @@ import { QrCode } from 'lucide-react';
 import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { fetchPostsResult, subscribeToPosts, subscribeToSettings } from '../lib/db';
+import { getSavedPhotos } from '../lib/session';
 import { Post } from '../types';
 import EventBackground from './ui/EventBackground';
 import { Wordmark } from './ui/EventLogo';
@@ -144,7 +145,7 @@ function readPersistedWallState(eventId: string): {
 }
 
 export default function Wall() {
-  const { eventId, basePath } = useEvent();
+  const { eventId, basePath, source } = useEvent();
   const {
     posts,
     postsLoaded,
@@ -466,6 +467,27 @@ export default function Wall() {
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
+  /** Where the wall's join QR sends a fresh scan. Platform (db) events point
+   *  signage at the /welcome guest hub — instructions before a camera
+   *  permission prompt; legacy coded builds keep their shipped target
+   *  (`${basePath}/`) byte-for-byte. */
+  const joinUrl = source === 'db'
+    ? `${origin}${basePath}/welcome`
+    : `${origin}${basePath}/`;
+
+  /** This DEVICE's own post ids (booth saves them at send time) — drives the
+   *  small "Yours" chip on matching tiles. A projector never has any, so venue
+   *  screens render exactly as before. */
+  const [savedIds, setSavedIds] = useState<ReadonlySet<string>>(
+    () => new Set(getSavedPhotos(eventId).map((p) => p.id)),
+  );
+  useEffect(() => {
+    const refresh = () => setSavedIds(new Set(getSavedPhotos(eventId).map((p) => p.id)));
+    refresh();
+    window.addEventListener('gallery:changed', refresh);
+    return () => window.removeEventListener('gallery:changed', refresh);
+  }, [eventId]);
+
   /** Effective QR visibility: this device's override, else the host's setting.
    *  Declared here because the empty-wall placeholder below needs it. */
   const showQR = qrOverride ?? wallSettings.showQR;
@@ -482,6 +504,7 @@ export default function Wall() {
     ) : (
       <EmptyWall
         origin={`${origin}${basePath}`}
+        joinUrl={joinUrl}
         // The footer already carries a join QR unless it is hidden or we are
         // projecting; two of them stacked was the previous result.
         showOwnQR={projectionMode || !showQR}
@@ -560,6 +583,7 @@ export default function Wall() {
               posts={posts}
               freshIds={freshIds}
               beamingIds={beamingIds}
+              savedIds={savedIds}
               viewportH={viewport.height}
               onTileRect={handleTileRect}
               onSelect={setLightboxPost}
@@ -674,7 +698,7 @@ export default function Wall() {
                     onClick={() => setMode(tab.id)}
                     className={`pressable px-3.5 min-h-11 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
                       mode === tab.id
-                        ? 'bg-foil text-noir-900 glow-accent'
+                        ? 'bg-foil text-[color:var(--on-accent)] glow-accent'
                         : 'text-champagne/60 hover:text-champagne'
                     }`}
                   >
@@ -748,7 +772,7 @@ export default function Wall() {
                     exit={{ opacity: 0, scale: 0.92, y: 8 }}
                     transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                   >
-                    <WallQRCodes origin={`${origin}${basePath}`} />
+                    <WallQRCodes origin={`${origin}${basePath}`} joinUrl={joinUrl} />
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -785,7 +809,7 @@ export default function Wall() {
           style={{ opacity: 0.55, ...driftStyle }}
         >
           <QRPanel
-            url={`${origin}${basePath}/`}
+            url={joinUrl}
             label="Scan to join"
             size={Math.round(84 * Math.min(viewport.scale, 2))}
           />

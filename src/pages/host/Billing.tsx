@@ -16,6 +16,7 @@ import {
   type HostOrg, type SubscriptionRow, type LedgerRow, type CheckoutBody,
 } from '../../lib/host';
 import { BillingPendingNotice } from './UpgradeCard';
+import { useToast } from '../../components/ui/Toast';
 
 const CREDIT_PACKS: { pack: '50' | '120' | '300'; credits: number; price: string }[] = [
   { pack: '50', credits: 50, price: '$5' },
@@ -69,7 +70,8 @@ function subStatusPill(status: string): string {
 }
 
 export default function Billing() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { push } = useToast();
   const [org, setOrg] = useState<HostOrg | null>(null);
   const [orgLoadFailed, setOrgLoadFailed] = useState(false);
   const [balance, setBalance] = useState<number | null>(null);
@@ -79,9 +81,9 @@ export default function Billing() {
   const [ledgerFailed, setLedgerFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null); // 'pro' | 'portal' | pack id
-  const [notice, setNotice] = useState<'pending' | 'success' | string | null>(
-    searchParams.get('checkout') === 'success' ? 'success' : null,
-  );
+  /** Only the long-lived "billing setup pending" banner stays inline; success
+   *  and failure feedback are toasts (errors persist until dismissed). */
+  const [notice, setNotice] = useState<'pending' | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,6 +113,22 @@ export default function Billing() {
     load();
   }, [load]);
 
+  // Checkout round-trip feedback — announced once, then the param is stripped
+  // so a refresh doesn't re-toast it.
+  const checkoutReturn = searchParams.get('checkout');
+  useEffect(() => {
+    if (checkoutReturn !== 'success' && checkoutReturn !== 'cancelled') return;
+    if (checkoutReturn === 'success') {
+      push('Payment received — your plan and credits update within a minute of Stripe confirming. Refresh if you don’t see them yet.', 'success');
+    } else {
+      push('Checkout cancelled — nothing was charged.', 'info');
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete('checkout');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkoutReturn]);
+
   const checkout = async (label: string, body: CheckoutBody) => {
     if (busy) return;
     setBusy(label);
@@ -122,7 +140,7 @@ export default function Billing() {
     setBusy(null);
     if (error === 'billing_not_configured' || error === 'billing_test_mode') { setNotice('pending'); return; }
     console.error('[billing] checkout failed:', error);
-    setNotice(checkoutErrorMessage(error));
+    push(checkoutErrorMessage(error), 'error');
   };
 
   const portal = async () => {
@@ -136,7 +154,7 @@ export default function Billing() {
     setBusy(null);
     if (error === 'billing_not_configured' || error === 'billing_test_mode') { setNotice('pending'); return; }
     console.error('[billing] portal failed:', error);
-    setNotice(checkoutErrorMessage(error));
+    push(checkoutErrorMessage(error), 'error');
   };
 
   const returnUrl = typeof window !== 'undefined' ? `${window.location.origin}/host/billing` : '';
@@ -179,20 +197,6 @@ export default function Billing() {
       )}
       {notice === 'pending' && (
         <div className="mb-5"><BillingPendingNotice onDismiss={() => setNotice(null)} /></div>
-      )}
-      {notice === 'success' && (
-        <div className="mb-5 flex items-start gap-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-4 py-3">
-          <p className="flex-1 font-sans text-xs text-emerald-200/90">
-            Payment received — your plan and credits update within a minute of Stripe confirming. Refresh if you don't see them yet.
-          </p>
-          <button onClick={() => setNotice(null)} className="text-emerald-200/60 hover:text-emerald-200 text-xs" aria-label="Dismiss">✕</button>
-        </div>
-      )}
-      {notice && notice !== 'pending' && notice !== 'success' && (
-        <div className="mb-5 flex items-start gap-2.5 rounded-xl bg-red-500/10 border border-red-500/25 px-4 py-3">
-          <p className="flex-1 font-sans text-xs text-red-300">{notice}</p>
-          <button onClick={() => setNotice(null)} className="text-red-300/60 hover:text-red-300 text-xs" aria-label="Dismiss">✕</button>
-        </div>
       )}
 
       <div className="grid gap-4 md:grid-cols-2 mb-6">

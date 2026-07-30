@@ -31,6 +31,10 @@ interface Props {
   /** IDs currently in flight in the arrival ceremony — held invisible so the
    *  same moment is never on screen twice at once. */
   beamingIds?: Set<string>;
+  /** THIS device's own post ids (lib/session.getSavedPhotos) — matching tiles
+   *  get a small "Yours" chip. A venue screen has none saved, so it renders
+   *  exactly as before. */
+  savedIds?: ReadonlySet<string>;
   /** Report a beaming tile's viewport rect (null when it goes away). */
   onTileRect?: (id: string, rect: BeamRect | null) => void;
   /** Live viewport height — caps tile height on very tall screens. */
@@ -60,11 +64,13 @@ function PlayBadge() {
 }
 
 function PostCard({
-  post, isFresh, isBeaming, canPlay, maxH, onTileRect, onSelect,
+  post, isFresh, isBeaming, isMine, canPlay, maxH, onTileRect, onSelect,
 }: {
   post: Post;
   isFresh: boolean;
   isBeaming: boolean;
+  /** This device took it — renders the small accent "Yours" chip. */
+  isMine: boolean;
   canPlay: boolean;
   /** Height ceiling in px, or 0 for none — see wallRuntime.mosaicTileMaxH. */
   maxH: number;
@@ -147,6 +153,25 @@ function PostCard({
         />
       )}
 
+      {/* "Yours" chip — only ever on the device that took the shot (savedIds
+          come from ITS localStorage), so projectors never show it. Top-left;
+          the video PlayBadge owns top-right. */}
+      {isMine && (
+        <span
+          className="absolute top-2 left-2 z-10 rounded-full font-label uppercase tracking-wide"
+          style={{
+            fontSize: 'calc(9px * var(--wall-scale, 1))',
+            padding: '2px 8px',
+            background: 'rgba(10,7,3,0.72)',
+            border: '1px solid rgba(var(--accent-rgb),0.55)',
+            color: 'var(--color-accent)',
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          Yours
+        </span>
+      )}
+
       {/* Caption overlay */}
       {(post.guest_name || post.message) && (
         <div
@@ -178,7 +203,7 @@ function PostCard({
   );
 }
 
-export default function MosaicGrid({ posts, freshIds, beamingIds, viewportH, onTileRect, onSelect }: Props) {
+export default function MosaicGrid({ posts, freshIds, beamingIds, savedIds, viewportH, onTileRect, onSelect }: Props) {
   const playable = useMemo(() => autoplayVideoIds(posts, MOSAIC_VIDEO_CAP), [posts]);
   const maxH = mosaicTileMaxH(viewportH ?? 0);
 
@@ -218,6 +243,7 @@ export default function MosaicGrid({ posts, freshIds, beamingIds, viewportH, onT
               post={post}
               isFresh={isFresh}
               isBeaming={isBeaming}
+              isMine={savedIds?.has(post.id) ?? false}
               canPlay={playable.has(post.id)}
               maxH={maxH}
               onTileRect={onTileRect}

@@ -247,6 +247,34 @@ export function fetchPlatformConfig(): Promise<AdminResult<{ signupBonusCredits:
   return adminApi('get_platform_config');
 }
 
+/* ── Landing-page CMS (marketing "/", singleton row — migration 030) ───── */
+
+/** Both blobs arrive OPAQUE (unknown): the editor runs each through
+ *  normalizeLandingContent before rendering, so shape validation lives in one
+ *  place (src/lib/landingContent.ts) instead of being trusted here. */
+export interface LandingContentAdmin {
+  draft: unknown;
+  published: unknown;
+  version: number;
+  updatedAt: string;
+}
+
+export function fetchLandingContentAdmin(): Promise<AdminResult<LandingContentAdmin>> {
+  return adminApi('get_landing_content_admin');
+}
+
+export function saveLandingDraft(draft: Record<string, unknown>): Promise<AdminResult<{ ok: true }>> {
+  return adminApi('save_landing_draft', { draft });
+}
+
+export function publishLandingContent(): Promise<AdminResult<{ version: number }>> {
+  return adminApi('publish_landing_content');
+}
+
+export function revertLandingDraft(): Promise<AdminResult<{ ok: true }>> {
+  return adminApi('revert_landing_draft');
+}
+
 export function setSignupCredits(amount: number): Promise<AdminResult<{ signupBonusCredits: number }>> {
   return adminApi('set_signup_credits', { amount });
 }

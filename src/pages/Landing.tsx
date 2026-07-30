@@ -14,7 +14,7 @@
  * component owns scrolling via its root (h-full overflow-y-auto). All
  * ScrollTriggers therefore pass that root as their `scroller`.
  */
-import { lazy, Suspense, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
 import ReportIssueButton from '../components/support/ReportIssueButton';
 import { Check, ChevronDown, Play } from 'lucide-react';
@@ -40,6 +40,14 @@ import {
 } from '../lib/landingAssets';
 import { BORDER_MAP, toDataUrl } from '../lib/borders';
 import { usePageTitle } from '../lib/usePageTitle';
+import {
+  normalizeLandingContent,
+  resolveMediaUrl,
+  type LandingContent,
+  type LandingFeatureContent,
+  type LandingEventTypeContent,
+} from '../lib/landingContent';
+import { fetchLandingContent } from '../lib/landingContentClient';
 import boothFeatureVideo from '../assets/landing/booth-feature.mp4';
 import boothFeaturePoster from '../assets/landing/booth-feature-poster.jpg';
 import wallFeatureVideo from '../assets/landing/wall-feature.mp4';
@@ -59,16 +67,14 @@ const InteractiveShowcase = lazy(() => import('../components/landing/Interactive
 
 /* ── Content ────────────────────────────────────────────────────────── */
 
-interface Feature {
-  id: string;
-  eyebrow: string;
-  title: string;
-  /** ONE succinct line — the detail (old bullet lists) now lives INSIDE each
-   *  film as animated callouts, so the page copy stays scannable. */
-  copy: string;
-  /** Compact keyword row under the one-liner — a visible text alternative to
-   *  the film's in-video callouts (and honest SEO copy). Keep it one line. */
-  highlights: string;
+/* Feature COPY (eyebrow/title/one-liner/highlights) now lives in
+ * src/lib/landingContent.ts (CMS-overridable, defaults = the shipped strings).
+ * What stays here is PRESENTATION — icons, gradient colors, the decor
+ * discriminator and the BUNDLED media imports the CMS falls back to. These are
+ * code, not data: an admin can swap a film or a cutout, but not turn a section
+ * into a different component. */
+interface FeaturePresentation {
+  id: 'booth' | 'wall' | 'challenges' | 'cards';
   Icon: ComponentType<BeamIconProps>;
   from: string;
   to: string;
@@ -80,19 +86,15 @@ interface Feature {
   image?: string;
   /** Which corner the decor art leans out from behind the film. */
   flip?: boolean;
-  /** Feature film — rendered by the HyperFrames video studio (hyperframes/studio/<id>).
-   *  Carries the feature's full story (incl. the old bullets) as text callouts. */
+  /** Bundled feature film + poster — the fallback when no CMS override is set.
+   *  Rendered by the HyperFrames video studio (hyperframes/studio/<id>). */
   video: string;
   videoPoster: string;
 }
 
-const FEATURES: Feature[] = [
+const FEATURES: FeaturePresentation[] = [
   {
     id: 'booth',
-    eyebrow: 'Immersive booth',
-    title: 'A photo booth that lives in every pocket',
-    copy: 'One scan drops every guest into a magical, face-tracked booth — right in their browser.',
-    highlights: 'Face-tracked 3D props · Live effects & frames · Photo or video · No app to download',
     Icon: BoothIcon,
     from: '#5B8CFF',
     to: '#7C6CF7',
@@ -104,10 +106,6 @@ const FEATURES: Feature[] = [
   },
   {
     id: 'wall',
-    eyebrow: 'Live photo wall',
-    title: 'Every shot beams onto the wall, live',
-    copy: 'The moment a guest captures, it beams onto a cinematic wall the whole room watches.',
-    highlights: 'Real-time beam · Cinematic projection · Your frame designs · Host moderation',
     Icon: WallIcon,
     from: '#22D3EE',
     to: '#38BDF8',
@@ -119,10 +117,6 @@ const FEATURES: Feature[] = [
   },
   {
     id: 'challenges',
-    eyebrow: 'Challenges',
-    title: 'Turn the room into the game',
-    copy: 'Set photo missions — “catch the first dance” — and the leaderboard lights the wall up.',
-    highlights: 'Photo missions · Points & leaderboard · Lights up the wall',
     Icon: ChallengeIcon,
     from: '#FB923C',
     to: '#F59E0B',
@@ -134,10 +128,6 @@ const FEATURES: Feature[] = [
   },
   {
     id: 'cards',
-    eyebrow: 'Keepsake cards & guestbook',
-    title: 'The morning-after keepsake',
-    copy: 'Video messages and a card everyone signs — a keepsake that outlives the night.',
-    highlights: 'Video guestbook · A card everyone signs · Keepsake after the event',
     Icon: CardIcon,
     from: '#E879F9',
     to: '#C084FC',
@@ -230,59 +220,57 @@ const TIERS: Tier[] = [
   },
 ];
 
-/** Dead-simple "how it works" — three steps, each with a transparent-cutout
- *  hero that floats, tilts in 3D and drifts on scroll (parallax). `image` is the
- *  current brand cutout — swappable for the Higgsfield renders once handed off. */
+/** "How it works" PRESENTATION — copy comes from content.howSteps (same fixed
+ *  length 3, merged by index). `image` is the bundled cutout the CMS override
+ *  falls back to; the tilt/parallax numbers are choreography, not content. */
 const HOW_STEPS = [
-  { n: '1', title: 'Create your event', body: 'Sign up free, pick a style, and tune your frames, effects and 3D props in the studio — minutes, not hours.', image: STEP_CREATE_CUTOUT, rgb: '91, 140, 255', tilt: 11, depth: 0.1 },
-  { n: '2', title: 'Share one QR code', body: 'Put your code on tables, screens or the invite. Guests scan it and they’re in — no app to download, nothing to install.', image: STEP_QR_CUTOUT, rgb: '34, 211, 238', tilt: -9, depth: 0.16 },
-  { n: '3', title: 'The room lights up', body: 'Guests snap magical photos and videos that beam onto your live wall in real time, for the whole room to watch.', image: STEP_WALL_CUTOUT, rgb: '232, 121, 249', tilt: 11, depth: 0.1 },
+  { n: '1', image: STEP_CREATE_CUTOUT, rgb: '91, 140, 255', tilt: 11, depth: 0.1 },
+  { n: '2', image: STEP_QR_CUTOUT, rgb: '34, 211, 238', tilt: -9, depth: 0.16 },
+  { n: '3', image: STEP_WALL_CUTOUT, rgb: '232, 121, 249', tilt: 11, depth: 0.1 },
 ];
 
-/** Who-it's-for: the people who run events… */
-const AUDIENCES = [
-  'Event planners & organizers',
-  'Corporate & marketing teams',
-  'Couples & wedding parties',
-  'Party hosts',
-  'Venues & agencies',
-];
-
-/** …and the events they run. `image` is a Higgsfield-generated scene card
- *  (vendored via remote-assets); a tinted glow paints the card until it loads
- *  or if it ever fails. */
-interface EventType {
-  label: string;
-  blurb: string;
-  rgb: string;
-  image?: string;
-}
-const EVENT_TYPES: EventType[] = [
-  { label: 'Conferences', blurb: 'Networking made playful', rgb: '91, 140, 255', image: EVENT_CONFERENCE },
-  { label: 'Trade shows & conventions', blurb: 'A booth that draws the floor', rgb: '34, 211, 238', image: EVENT_TRADESHOW },
-  { label: 'Weddings', blurb: 'Every guest, one keepsake', rgb: '232, 121, 249', image: EVENT_WEDDING },
-  { label: 'Galas & fundraisers', blurb: 'Black-tie, full glamour', rgb: '212, 175, 55', image: EVENT_GALA },
-  { label: 'Birthdays & parties', blurb: 'The room joins the fun', rgb: '251, 146, 60', image: EVENT_BIRTHDAY },
-  { label: 'Brand activations', blurb: 'Shareable by design', rgb: '124, 108, 247', image: EVENT_ACTIVATION },
+/** Event-type PRESENTATION — label/blurb/imageUrl come from content.eventTypes
+ *  (fixed length 6, merged by index). `image` is the bundled Higgsfield scene
+ *  card (vendored via remote-assets); a tinted glow paints the card until it
+ *  loads or if it ever fails. */
+const EVENT_TYPES = [
+  { rgb: '91, 140, 255', image: EVENT_CONFERENCE },
+  { rgb: '34, 211, 238', image: EVENT_TRADESHOW },
+  { rgb: '232, 121, 249', image: EVENT_WEDDING },
+  { rgb: '212, 175, 55', image: EVENT_GALA },
+  { rgb: '251, 146, 60', image: EVENT_BIRTHDAY },
+  { rgb: '124, 108, 247', image: EVENT_ACTIVATION },
 ];
 
 /** One event-type photo card — image cover + dark gradient + label; degrades
- *  to a branded glow card when there's no image (or it fails to load). */
-function EventTypeCard({ event }: { event: EventType }) {
-  const [failed, setFailed] = useState(false);
-  const showImage = event.image !== undefined && !failed;
+ *  to a branded glow card when there's no image (or it fails to load). A CMS
+ *  override (validated by resolveMediaUrl) wins over the bundled scene card;
+ *  failure is tracked PER SRC so a bad bundled image cannot poison a good
+ *  override that arrives after it. */
+function EventTypeCard({
+  rgb,
+  image,
+  content,
+}: {
+  rgb: string;
+  image?: string;
+  content: LandingEventTypeContent;
+}) {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const src = resolveMediaUrl(content.imageUrl, 'image') ?? image;
+  const showImage = src !== undefined && failedSrc !== src;
   return (
     <div
       className="group relative aspect-[4/3] overflow-hidden rounded-2xl border border-white/10"
-      style={{ boxShadow: `0 0 30px -10px rgba(${event.rgb}, 0.4), 0 18px 44px -20px rgba(0,0,0,0.7)` }}
+      style={{ boxShadow: `0 0 30px -10px rgba(${rgb}, 0.4), 0 18px 44px -20px rgba(0,0,0,0.7)` }}
     >
       {showImage ? (
         <img
-          src={event.image}
+          src={src}
           alt=""
           aria-hidden
           loading="lazy"
-          onError={() => setFailed(true)}
+          onError={() => setFailedSrc(src)}
           className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-105"
         />
       ) : (
@@ -290,28 +278,18 @@ function EventTypeCard({ event }: { event: EventType }) {
           aria-hidden
           className="absolute inset-0"
           style={{
-            background: `radial-gradient(120% 90% at 50% 20%, rgba(${event.rgb}, 0.32), rgba(${event.rgb}, 0.08) 55%, transparent 80%), linear-gradient(180deg, rgba(24,26,38,0.9), rgba(8,9,15,0.95))`,
+            background: `radial-gradient(120% 90% at 50% 20%, rgba(${rgb}, 0.32), rgba(${rgb}, 0.08) 55%, transparent 80%), linear-gradient(180deg, rgba(24,26,38,0.9), rgba(8,9,15,0.95))`,
           }}
         />
       )}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
       <div className="absolute inset-x-0 bottom-0 p-3.5 sm:p-4">
-        <p className="font-serif text-base leading-tight text-brand-fg sm:text-lg">{event.label}</p>
-        <p className="mt-0.5 text-[11px] text-brand-muted/80 sm:text-xs">{event.blurb}</p>
+        <p className="font-serif text-base leading-tight text-brand-fg sm:text-lg">{content.label}</p>
+        <p className="mt-0.5 text-[11px] text-brand-muted/80 sm:text-xs">{content.blurb}</p>
       </div>
     </div>
   );
 }
-
-/** Honest objection-handling FAQ (no fluff, no fake urgency). */
-const FAQS: { q: string; a: string }[] = [
-  { q: 'Do my guests need to download an app?', a: 'No. The booth runs right in the phone browser — guests scan your QR code and they’re in. Nothing to install.' },
-  { q: 'Will it work on my guests’ phones?', a: 'Yes — it runs in modern mobile browsers (iOS Safari, Android Chrome). The camera stays on their device; nothing leaves it until they choose to share a photo.' },
-  { q: 'How long does it take to set up?', a: 'Minutes. Pick a style, tweak your frames and effects in the studio, and share the QR — you can have a booth live well before your event.' },
-  { q: 'What if the venue wifi is patchy?', a: 'The magic runs on each guest’s device, so only the finished photo needs to upload — it works on cellular data, and you moderate what hits the wall from your phone.' },
-  { q: 'What does it cost?', a: 'Start free — one event, up to 25 photos. Paid event packages start at $49, and Beamwall Pro is $79/month for frequent hosts. You only pay for events you run.' },
-  { q: 'Is our event private?', a: 'You control it. Guests’ captures appear on your wall by design and you can moderate or remove any of them at any time; see our Privacy Policy for the full details.' },
-];
 
 /** Ghost frames drifting at different depths behind the whole page. */
 const GHOST_FRAMES = [
@@ -373,7 +351,10 @@ function FilmEmbed({ src, poster, label }: { src: string; poster: string; label:
  *  parent owns the 3D tilt and the scroll parallax; this just floats (with a
  *  per-step phase offset) and degrades to a soft glow if the art fails to load. */
 function StepArt({ src, rgb, delay }: { src: string; rgb: string; delay: number }) {
-  const [failed, setFailed] = useState(false);
+  // Per-src failure so a failed bundled cutout can't hide a CMS override
+  // swapped in after it (and vice versa).
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const failed = failedSrc === src;
   if (failed) {
     return (
       <div
@@ -388,7 +369,7 @@ function StepArt({ src, rgb, delay }: { src: string; rgb: string; delay: number 
       alt=""
       aria-hidden
       loading="lazy"
-      onError={() => setFailed(true)}
+      onError={() => setFailedSrc(src)}
       className="animate-float max-h-56 w-auto max-w-full object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.6)] sm:max-h-64"
       style={{ animationDelay: `${delay}s` }}
     />
@@ -433,9 +414,23 @@ function FramePairDecor() {
   );
 }
 
-function FeatureSection({ feature }: { feature: Feature }) {
-  const [artFailed, setArtFailed] = useState(false);
+function FeatureSection({ feature, content }: { feature: FeaturePresentation; content: LandingFeatureContent }) {
+  // Decor failure is tracked per-src so a failed bundled cutout cannot hide a
+  // CMS override that arrives after it.
+  const [failedArtSrc, setFailedArtSrc] = useState<string | null>(null);
   const left = !feature.flip; // which side the decor art leans out from
+
+  // CMS overrides, validated at the render boundary; undefined = bundled.
+  const decorOverride = resolveMediaUrl(content.decorImageUrl, 'image');
+  const videoSrc = resolveMediaUrl(content.videoUrl, 'video') ?? feature.video;
+  const posterSrc = resolveMediaUrl(content.posterUrl, 'image') ?? feature.videoPoster;
+  // An override image beats the discriminator (it can replace even the wall's
+  // frame-pair); with no override, 'frames' keeps its SVG fan, 'cutout' its
+  // bundled art. The discriminator itself is code, not CMS data.
+  const decorImgSrc = decorOverride ?? (feature.decor === 'frames' ? undefined : feature.image);
+  const showFramePair = decorOverride === undefined && feature.decor === 'frames';
+  const artFailed = decorImgSrc !== undefined && failedArtSrc === decorImgSrc;
+
   return (
     <section data-parallax-scope className="w-full">
       <div data-reveal className="flex flex-col items-center text-center">
@@ -450,14 +445,16 @@ function FeatureSection({ feature }: { feature: Feature }) {
           <feature.Icon size={26} from={feature.from} to={feature.to} />
         </div>
         <p className="font-label uppercase tracking-luxe text-[10px]" style={{ color: feature.from }}>
-          {feature.eyebrow}
+          {content.eyebrow}
         </p>
-        <h2 className="mt-3 font-serif text-3xl leading-tight text-brand-fg sm:text-4xl">{feature.title}</h2>
-        <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-brand-muted/80">{feature.copy}</p>
+        <h2 className="mt-3 font-serif text-3xl leading-tight text-brand-fg sm:text-4xl">{content.title}</h2>
+        <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-brand-muted/80">{content.copy}</p>
         {/* Compact visible text alternative to the film's in-video callouts. */}
-        <p className="mt-2 max-w-xl font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
-          {feature.highlights}
-        </p>
+        {content.highlights.length > 0 && (
+          <p className="mt-2 max-w-xl font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
+            {content.highlights.join(' · ')}
+          </p>
+        )}
       </div>
 
       <div
@@ -499,11 +496,11 @@ function FeatureSection({ feature }: { feature: Feature }) {
                   <FramePairDecor />
                 ) : (
                   <img
-                    src={feature.image}
+                    src={decorImgSrc}
                     alt=""
                     className="w-full object-contain drop-shadow-[0_18px_44px_rgba(0,0,0,0.6)]"
                     loading="lazy"
-                    onError={() => setArtFailed(true)}
+                    onError={() => { if (decorImgSrc !== undefined) setFailedArtSrc(decorImgSrc); }}
                   />
                 )}
               </div>
@@ -521,7 +518,10 @@ function FeatureSection({ feature }: { feature: Feature }) {
             transformStyle: 'preserve-3d',
           }}
         >
-          <FilmEmbed src={feature.video} poster={feature.videoPoster} label={`${feature.title} — feature film`} />
+          {/* key remounts the video (and its IntersectionObserver) when a CMS
+              override swaps the film in — a bare src change on a playing
+              <video> can leave the old frame up until the next play(). */}
+          <FilmEmbed key={videoSrc} src={videoSrc} poster={posterSrc} label={`${content.title} — feature film`} />
           <div
             className="pointer-events-none absolute inset-0"
             style={{ background: 'linear-gradient(155deg, rgba(255,255,255,0.10), transparent 34%)' }}
@@ -546,6 +546,24 @@ export default function Landing() {
   // IS live and saying so is an honest change, in the direction that costs
   // nobody anything if the fetch fails.
   const [hasLiveMedia, setHasLiveMedia] = useState<boolean | null>(null);
+
+  // CMS content: render the bundled defaults IMMEDIATELY (zero layout shift —
+  // the defaults ARE the shipped page), then swap in validated overrides if
+  // the published row has any. fetchLandingContent never throws and returns
+  // the same defaults on any failure, so this can only ever be a no-op or an
+  // in-place text/media swap. Fixed slot counts (3 steps · 4 features ·
+  // 6 event types) are guaranteed by normalizeLandingContent, so the GSAP
+  // node sets registered in the effect below stay stable.
+  const [content, setContent] = useState<LandingContent>(() => normalizeLandingContent(undefined));
+  useEffect(() => {
+    let alive = true;
+    void fetchLandingContent().then((c) => {
+      if (alive) setContent(c);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Scroll choreography. [data-reveal="up|left|right"] slide in on entry,
   // [data-reveal-stagger] cascades its children, [data-parallax-depth] drifts
@@ -799,15 +817,15 @@ export default function Landing() {
               <div className="mb-5 flex items-center gap-2 rounded-full liquid-glass px-4 py-1.5">
                 <span className="h-1.5 w-1.5 motion-safe:animate-pulse rounded-full bg-emerald-400" aria-hidden />
                 <span className="font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg">
-                  Free to start — no credit card
+                  {content.hero.badge}
                 </span>
               </div>
               <h1 className="max-w-3xl font-serif text-5xl leading-[1.05] text-shadow-lux sm:text-6xl">
-                Your <span className="text-foil-static">Immersive Virtual Photobooth</span>
+                {content.hero.titlePre}{' '}
+                <span className="text-foil-static">{content.hero.titleHighlight}</span>
               </h1>
               <p className="mt-6 max-w-2xl text-base leading-relaxed text-brand-muted/85 sm:text-lg">
-                Give every guest a magical photo booth in their pocket — no app to download. Photos beam
-                onto a live wall styled with frames and 3D magic you set up in minutes.
+                {content.hero.tagline}
               </p>
 
               <div className="mt-6 flex flex-col items-center gap-3">
@@ -816,7 +834,7 @@ export default function Landing() {
                     to="/signup"
                     className="pointer-events-auto rounded-full bg-foil px-10 py-4 font-label uppercase tracking-luxe text-[12px] font-bold text-white glow-accent transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
                   >
-                    Start free
+                    {content.hero.primaryCta}
                   </Link>
                   {/* Demo CTA — promoted to a first-class button: play chip,
                       accent ring + glow, so "see it now" reads as inviting as
@@ -833,7 +851,7 @@ export default function Landing() {
                     <span className="flex h-6 w-6 items-center justify-center rounded-full bg-foil transition group-hover:scale-110">
                       <Play className="ml-0.5 h-3 w-3 fill-current text-white" />
                     </span>
-                    Try the live demo
+                    {content.hero.secondaryCta}
                   </a>
                 </div>
                 {/* The free promise lives ONCE, in the badge above the title —
@@ -874,6 +892,8 @@ export default function Landing() {
               </p>
             </div>
             <div data-steps-reveal className="mx-auto mt-14 grid w-full max-w-5xl gap-10 sm:grid-cols-3 sm:gap-8">
+              {/* content.howSteps is normalized to EXACTLY three entries, so this
+                  zip keeps the [data-steps-reveal] node set stable. */}
               {HOW_STEPS.map((s, i) => (
                 <div key={s.n} className="flex flex-col items-center text-center">
                   {/* Floating, 3D-tilted, parallax hero. The parallax drift lives
@@ -891,7 +911,11 @@ export default function Landing() {
                       style={{ background: `radial-gradient(circle, rgba(${s.rgb}, 0.34), transparent 68%)` }}
                     />
                     <div style={{ transform: `rotateY(${s.tilt}deg) rotateX(6deg)`, transformStyle: 'preserve-3d' }}>
-                      <StepArt src={s.image} rgb={s.rgb} delay={i * -1.6} />
+                      <StepArt
+                        src={resolveMediaUrl(content.howSteps[i]?.imageUrl, 'image') ?? s.image}
+                        rgb={s.rgb}
+                        delay={i * -1.6}
+                      />
                     </div>
                     {/* grounding shadow puddle */}
                     <div
@@ -905,8 +929,8 @@ export default function Landing() {
                   <span className="rounded-full bg-foil px-4 py-1.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent">
                     Step {s.n}
                   </span>
-                  <h3 className="mt-3 font-serif text-2xl text-brand-fg">{s.title}</h3>
-                  <p className="mt-2.5 max-w-xs text-sm leading-relaxed text-brand-muted/75">{s.body}</p>
+                  <h3 className="mt-3 font-serif text-2xl text-brand-fg">{content.howSteps[i]?.title}</h3>
+                  <p className="mt-2.5 max-w-xs text-sm leading-relaxed text-brand-muted/75">{content.howSteps[i]?.body}</p>
                 </div>
               ))}
             </div>
@@ -915,8 +939,9 @@ export default function Landing() {
           {/* Feature stories — one immersive section per pillar. Tighter
               rhythm on mobile where each section already stacks tall. */}
           <div className="mt-24 flex w-full max-w-5xl flex-col gap-20 sm:mt-36 sm:gap-36">
-            {FEATURES.map((f) => (
-              <FeatureSection key={f.id} feature={f} />
+            {/* content.features is normalized to the same four ids, in order. */}
+            {FEATURES.map((f, i) => (
+              <FeatureSection key={f.id} feature={f} content={content.features[i]} />
             ))}
           </div>
 
@@ -933,8 +958,12 @@ export default function Landing() {
                 Built for the people who bring events to life — and the events they dream up.
               </p>
             </div>
-            <div data-reveal-stagger className="mx-auto mt-8 flex max-w-3xl flex-wrap items-center justify-center gap-2.5">
-              {AUDIENCES.map((a) => (
+            {/* Audience chips are VARIABLE-length CMS content, so the reveal
+                lives on the CONTAINER (data-reveal), not per-child stagger —
+                a per-child GSAP set registered at mount would miss chips the
+                CMS adds after the fetch resolves. */}
+            <div data-reveal className="mx-auto mt-8 flex max-w-3xl flex-wrap items-center justify-center gap-2.5">
+              {content.audiences.map((a) => (
                 <span
                   key={a}
                   className="rounded-full liquid-glass px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg/85"
@@ -943,9 +972,11 @@ export default function Landing() {
                 </span>
               ))}
             </div>
+            {/* content.eventTypes is normalized to exactly six entries, so this
+                stagger's node set stays stable. */}
             <div data-reveal-stagger className="mx-auto mt-10 grid w-full max-w-5xl grid-cols-2 gap-4 sm:grid-cols-3">
-              {EVENT_TYPES.map((e) => (
-                <EventTypeCard key={e.label} event={e} />
+              {EVENT_TYPES.map((e, i) => (
+                <EventTypeCard key={i} rgb={e.rgb} image={e.image} content={content.eventTypes[i]} />
               ))}
             </div>
           </section>
@@ -1032,8 +1063,12 @@ export default function Landing() {
                 The things hosts ask before their first event.
               </p>
             </div>
-            <div data-reveal-stagger className="mt-10 flex flex-col gap-3">
-              {FAQS.map((f) => (
+            {/* FAQs are VARIABLE-length CMS content (add/remove up to 12), so —
+                like the audience chips — the reveal moved from a per-child
+                stagger to the CONTAINER: the entries themselves are native
+                details/summary with no JS or GSAP dependency of their own. */}
+            <div data-reveal className="mt-10 flex flex-col gap-3">
+              {content.faqs.map((f) => (
                 <details key={f.q} className="group rounded-2xl border border-white/10 bg-white/[0.02] px-5 py-4 transition open:bg-white/[0.03]">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-left font-serif text-base text-brand-fg">
                     {f.q}
@@ -1047,16 +1082,15 @@ export default function Landing() {
 
           {/* Closing CTA */}
           <div data-reveal className="mt-32 flex w-full max-w-2xl flex-col items-center rounded-3xl liquid-glass px-8 py-12 text-center">
-            <h2 className="font-serif text-3xl text-foil-static">Ready in minutes.</h2>
+            <h2 className="font-serif text-3xl text-foil-static">{content.closing.title}</h2>
             <p className="mt-3 max-w-md text-sm leading-relaxed text-brand-muted/75">
-              Create your event, pick a style, and share the QR code. Your guests bring the moments; the
-              wall brings the magic.
+              {content.closing.body}
             </p>
             <Link
               to="/signup"
               className="mt-7 rounded-full bg-foil px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
             >
-              Create your event
+              {content.closing.cta}
             </Link>
           </div>
         </main>
@@ -1065,7 +1099,7 @@ export default function Landing() {
         <footer className="flex flex-col items-center gap-3 pb-6 pt-20 text-center">
           <span className="font-serif text-lg text-foil-static">Beamwall</span>
           <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
-            Built for weddings, galas and celebrations of every size.
+            {content.footerTagline}
           </p>
           <nav className="flex items-center gap-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
             <Link to="/privacy" className="rounded transition hover:text-brand-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]">Privacy</Link>

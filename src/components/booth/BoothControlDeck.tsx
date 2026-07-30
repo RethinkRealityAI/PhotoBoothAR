@@ -109,8 +109,8 @@ function Orb({
         )}
       </motion.span>
       <span
-        className="max-w-[52px] truncate text-center font-label text-[8px] uppercase tracking-wide leading-none transition-colors"
-        style={{ color: active ? 'var(--color-accent)' : 'rgba(169,180,204,0.6)' }}
+        className="max-w-[56px] truncate text-center font-label text-[10px] uppercase tracking-wide leading-none transition-colors"
+        style={{ color: active ? 'var(--color-accent)' : 'rgba(169,180,204,0.75)' }}
       >
         {label}
       </span>
