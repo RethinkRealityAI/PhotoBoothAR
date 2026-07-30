@@ -152,9 +152,12 @@ function CenterScreen({
   onRetry?: () => void;
 }) {
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-noir-900 p-6">
+    <div className="absolute inset-0 flex items-center justify-center app-bg p-6">
       <div className="flex flex-col items-center gap-4 text-center animate-rise-in max-w-sm">
-        <div className="w-12 h-12 rounded-full border border-gold-400/30 animate-pulse-glow" />
+        <div className="relative h-12 w-12">
+          <div className="absolute inset-0 rounded-full border border-gold-400/30 animate-pulse-glow" />
+          <div className="absolute inset-1 animate-spin rounded-full border-2 border-white/10 border-t-[color:var(--color-accent)]" />
+        </div>
         <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/40">{eyebrow}</p>
         <h1 className="font-serif italic text-3xl text-foil-static">{title}</h1>
         {body && <p className="font-sans text-sm text-champagne/55 leading-relaxed">{body}</p>}

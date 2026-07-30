@@ -55,6 +55,7 @@ import {
   connectedComponents,
   descriptorJson,
   guessUpAxis,
+  measureRegionLuminances,
   paintSphere,
   proposeDecalDepth,
   proposeFitCm,
@@ -64,6 +65,36 @@ import {
   type PrepBounds,
   type PrepRegionDraft,
 } from '../lib/studio/assetPrep';
+
+/**
+ * Refine a box-face anchor onto the mesh surface along −normal.
+ *
+ * `proposeTextAnchor` deliberately anchors on the BOUNDING-BOX face — but on a
+ * model whose front plane is mostly air (a cap: only the brim tip reaches the
+ * box plane, the crown front sits half a model behind it) a box-face anchor
+ * floats in space, and only an absurd projector depth ever reaches the surface.
+ * Casting from just outside the box face along −normal and taking the FIRST hit
+ * finds the near surface by definition; the concave-front trap the pure module
+ * documents (a ray landing on the far wall) cannot happen to a first hit.
+ * No hit at all — the anchor line misses the model — keeps the box-face
+ * fallback, and the panel says so.
+ */
+function projectAnchorToSurface(mesh: THREE.Mesh, position: Vec3, normal: Vec3): Vec3 | null {
+  mesh.updateWorldMatrix(true, false);
+  const n = new THREE.Vector3(...normal);
+  const originLocal = new THREE.Vector3(...position).addScaledVector(n, 1e-3);
+  const origin = mesh.localToWorld(originLocal.clone());
+  const direction = n
+    .clone()
+    .applyMatrix3(new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld))
+    .normalize()
+    .negate();
+  const caster = new THREE.Raycaster(origin, direction);
+  const hit = caster.intersectObject(mesh, false)[0];
+  if (!hit) return null;
+  const local = mesh.worldToLocal(hit.point.clone());
+  return [local.x, local.y, local.z];
+}
 
 /** Distinct, high-separation debug swatches so painted regions read at a glance. */
 const REGION_PALETTE = ['#e8e2d6', '#3aa0ff', '#ff5c8a', '#5bff9a', '#ffd166', '#b06cff', '#ff8a3d', '#26d5c8'];
@@ -202,6 +233,9 @@ export default function AssetPrepTool() {
   const [paintStrokes, setPaintStrokes] = useState(0);
   const [manualEdits, setManualEdits] = useState(0);
   const [copied, setCopied] = useState(false);
+  /** Set by "Measure from texture": the stroke count the measurement saw, plus
+   *  per-region texel counts, so staleness and empty regions are both visible. */
+  const [measured, setMeasured] = useState<{ strokes: number; texels: number[] } | null>(null);
 
   const humanEdited = paintStrokes > 0 || manualEdits > 0;
   const touch = useCallback(() => setManualEdits((n) => n + 1), []);
@@ -278,6 +312,7 @@ export default function AssetPrepTool() {
       setPaintStrokes(0);
       setManualEdits(0);
       setActiveRegion(0);
+      setMeasured(null);
 
       const previous = disposeRef.current;
       if (previous?.ownsObjectUrl) URL.revokeObjectURL(previous.url);
@@ -325,6 +360,7 @@ export default function AssetPrepTool() {
     const ids = bandRegionIds(loaded.positions, loaded.bounds, upAxis, bands);
     setRegionIds(ids);
     setVersion((v) => v + 1);
+    setMeasured(null);
     touch();
     setRegions(usedRegionIndices(ids).map((i) => ({
       index: i,
@@ -342,11 +378,51 @@ export default function AssetPrepTool() {
     touch();
   }, [touch]);
 
+  /**
+   * The step that used to be manual: refLuminance from the texels each region's
+   * UVs cover. The canvas turns the texture into flat RGBA; the rasterising is
+   * the tested pure function. Re-run it after painting — the staleness note
+   * below the button tracks that.
+   */
+  const measureFromTexture = useCallback(() => {
+    if (!loaded) return;
+    const material = loaded.mesh.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
+    const first = Array.isArray(material) ? material[0] : material;
+    const image = first?.map?.image as CanvasImageSource & { width: number; height: number } | undefined;
+    const uv = loaded.mesh.geometry.attributes.uv;
+    if (!image || !image.width || !image.height || !uv) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+    ctx.drawImage(image, 0, 0);
+    const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    const index = loaded.mesh.geometry.getIndex();
+    const results = measureRegionLuminances(
+      rgba,
+      canvas.width,
+      canvas.height,
+      uv.array as ArrayLike<number>,
+      index ? (index.array as ArrayLike<number>) : null,
+      idsRef.current,
+    );
+    setRegions((prev) => prev.map((r) => ({ ...r, refLuminance: results[r.index].luminance })));
+    setMeasured({ strokes: paintStrokes, texels: results.map((r) => r.texels) });
+    touch();
+  }, [loaded, paintStrokes, touch]);
+
+  const hasTextureMap = loaded !== null && loaded.baseLuminance === null;
+
   /* — the descriptor — */
-  const anchor = useMemo(
-    () => (loaded ? proposeTextAnchor(loaded.bounds, frontAxis, heightFraction, upAxis) : null),
-    [loaded, frontAxis, heightFraction, upAxis],
-  );
+  const anchor = useMemo(() => {
+    if (!loaded) return null;
+    const proposed = proposeTextAnchor(loaded.bounds, frontAxis, heightFraction, upAxis);
+    const surface = projectAnchorToSurface(loaded.mesh, proposed.position, proposed.normal);
+    return surface
+      ? { ...proposed, position: surface, onSurface: true }
+      : { ...proposed, onSurface: false };
+  }, [loaded, frontAxis, heightFraction, upAxis]);
 
   const descriptor = useMemo(() => {
     if (!loaded || !anchor) return null;
@@ -355,7 +431,6 @@ export default function AssetPrepTool() {
       name: assetName,
       glbUrl,
       fitCm,
-      frontAxis,
       regions,
       regionIds,
       textSlots: withTextSlot
@@ -370,7 +445,7 @@ export default function AssetPrepTool() {
         : [],
       humanEdited,
     });
-  }, [loaded, anchor, assetId, assetName, glbUrl, fitCm, frontAxis, regions, regionIds, withTextSlot, maxWidthCm, decalDepth, humanEdited]);
+  }, [loaded, anchor, assetId, assetName, glbUrl, fitCm, regions, regionIds, withTextSlot, maxWidthCm, decalDepth, humanEdited]);
 
   const json = descriptor ? descriptorJson(descriptor) : '';
   const copy = useCallback(() => {
@@ -474,11 +549,12 @@ export default function AssetPrepTool() {
                   generated asset. Seed bands below, then paint.
                 </p>
               )}
-              {loaded.baseLuminance === null && (
+              {hasTextureMap && !measured && (
                 <p className="font-sans text-[10px] text-amber-300/80 leading-relaxed">
-                  This material has a texture map, so the reference luminance below is a placeholder
-                  (0.18). Measure it from the region{'’'}s own texels before shipping — a wrong
-                  reference renders the part blown out, not merely off-colour.
+                  This material has a texture map, so each region{'’'}s reference luminance starts as
+                  a placeholder (0.18). Paint the regions, then press{' '}
+                  <span className="text-brand-fg">Measure from texture</span> in the regions panel —
+                  a wrong reference renders the part blown out, not merely off-colour.
                 </p>
               )}
               <label className="font-sans text-[10px] text-brand-muted/60">Real-world size (cm)</label>
@@ -572,6 +648,27 @@ export default function AssetPrepTool() {
               <p className="font-sans text-[9px] text-brand-muted/40">
                 {paintStrokes} paint {paintStrokes === 1 ? 'stroke' : 'strokes'} · {usedRegionIndices(regionIds).length} region(s) in use
               </p>
+              {hasTextureMap && (
+                <>
+                  <button
+                    onClick={measureFromTexture}
+                    className={`${btnCls} self-start bg-accent/20 text-accent-2 hover:bg-accent/30`}
+                  >
+                    Measure from texture
+                  </button>
+                  {measured && (
+                    <p className="font-mono text-[9px] text-brand-muted/60 leading-relaxed">
+                      {regions.map((r) => `${r.label} ${r.refLuminance.toFixed(3)} (${(measured.texels[r.index] ?? 0).toLocaleString()} px)`).join(' · ')}
+                    </p>
+                  )}
+                  {measured && measured.strokes !== paintStrokes && (
+                    <p className="font-sans text-[10px] text-amber-300/80">
+                      Painted since the last measure — press Measure from texture again so every
+                      reference matches the regions as they now stand.
+                    </p>
+                  )}
+                </>
+              )}
             </div>
 
             {/* TEXT SLOT */}
@@ -583,6 +680,13 @@ export default function AssetPrepTool() {
               </label>
               {withTextSlot && (
                 <>
+                  {anchor && (
+                    <p className={`font-sans text-[10px] leading-relaxed ${anchor.onSurface ? 'text-brand-muted/50' : 'text-amber-300/80'}`}>
+                      {anchor.onSurface
+                        ? 'Anchor is projected onto the mesh surface along the facing axis.'
+                        : 'The anchor line misses the model — the marker is floating on the bounding-box face. Slide the height until it lands on the surface.'}
+                    </p>
+                  )}
                   <label className="font-sans text-[10px] text-brand-muted/60">Height on the front face ({Math.round(heightFraction * 100)}%)</label>
                   <input
                     type="range" min={0} max={1} step={0.01} value={heightFraction}

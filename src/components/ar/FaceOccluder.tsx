@@ -20,7 +20,7 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import objText from '../../assets/ar/canonical_face_model.obj?raw';
-import { parseObj, CRANIUM } from '../../lib/studio/occluder';
+import { parseObj, CRANIUM, HAIR_DOME } from '../../lib/studio/occluder';
 
 const noRaycast = () => null;
 
@@ -51,7 +51,20 @@ export default function FaceOccluder({
     () =>
       debug
         ? new THREE.MeshBasicMaterial({ color: '#5B8CFF', wireframe: true, transparent: true, opacity: 0.35 })
-        : new THREE.MeshBasicMaterial({ colorWrite: false }),
+        : new THREE.MeshBasicMaterial({
+            colorWrite: false,
+            // Bias the occluder's depth AWAY from the camera by a hair. A prop
+            // that RESTS on the head (a cap's inner crown against the skull)
+            // has surfaces almost coplanar with this shell, and coplanar depth
+            // is decided by rounding — which shows up as a speckled, jagged
+            // edge eating into the prop rather than a clean silhouette. A
+            // positive offset means ties resolve in the PROP's favour, so the
+            // failure mode is "occludes a fraction of a millimetre too little"
+            // instead of "chews a hole in the brim".
+            polygonOffset: true,
+            polygonOffsetFactor: 1,
+            polygonOffsetUnits: 1,
+          }),
     [debug],
   );
 
@@ -63,6 +76,18 @@ export default function FaceOccluder({
       <mesh
         position={CRANIUM.center}
         scale={CRANIUM.radii}
+        material={material}
+        renderOrder={-2}
+        raycast={noRaycast}
+      >
+        <sphereGeometry args={[1, 24, 20]} />
+      </mesh>
+      {/* Hair dome — the cranium is a bald skull capped at ear width; a cap sits
+          on HAIR, further out. This second shell is wide up high and inside the
+          ear bound at ear level, which one ellipsoid cannot be (occluder.ts). */}
+      <mesh
+        position={HAIR_DOME.center}
+        scale={HAIR_DOME.radii}
         material={material}
         renderOrder={-2}
         raycast={noRaycast}

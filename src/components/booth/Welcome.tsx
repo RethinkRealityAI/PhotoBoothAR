@@ -5,7 +5,7 @@
  * The hero sits inside an ornate card with an animated accent sheen border that
  * slowly sweeps light around the frame — a premium, magical first impression.
  */
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { Camera } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Wordmark } from '../ui/EventLogo';
@@ -17,6 +17,14 @@ import GoldFrameCard from '../ui/GoldFrameCard';
 const IS_LEGACY_BUILD = (((import.meta.env.VITE_EVENT as string | undefined) ?? '')).trim() !== '';
 
 export default function Welcome({ onStart }: { onStart: () => void }) {
+  const reduced = useReducedMotion() ?? false;
+  /* The staged reveal used to span ~1.85s, which read as an empty dark frame
+     while it played. It now completes in ~0.7s (and is instant under
+     prefers-reduced-motion), so the card never lingers half-built. */
+  const at = (delay: number) =>
+    reduced
+      ? { delay: 0, duration: 0.2 }
+      : { delay, duration: 0.55, ease: [0.16, 1, 0.3, 1] as const };
   return (
     <motion.div
       className="absolute inset-0 z-40 flex items-center justify-center px-5"
@@ -24,17 +32,28 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
+      {/* Themed ambience behind the card — the entrance previously sat on a
+          flat near-black field, which guests read as a broken black box. */}
+      <div
+        aria-hidden
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(85% 60% at 50% 38%, rgba(var(--accent-rgb), 0.16), transparent 62%),' +
+            'radial-gradient(120% 50% at 50% 112%, rgba(var(--accent-rgb), 0.10), transparent 65%)',
+        }}
+      />
       <motion.div
         className="relative w-full max-w-sm"
-        initial={{ y: 20, opacity: 0, scale: 0.95 }}
+        initial={reduced ? { opacity: 0 } : { y: 20, opacity: 0, scale: 0.95 }}
         animate={{ y: 0, opacity: 1, scale: 1 }}
-        transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ duration: reduced ? 0.2 : 0.6, ease: [0.16, 1, 0.3, 1] }}
       >
         <GoldFrameCard>
           <motion.div
-            initial={{ y: 14, opacity: 0, scale: 0.92 }}
+            initial={reduced ? { opacity: 0 } : { y: 14, opacity: 0, scale: 0.92 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
-            transition={{ delay: 0.25, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+            transition={at(0.08)}
           >
             <Wordmark size="lg" />
           </motion.div>
@@ -43,7 +62,7 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
             className="mt-7 max-w-xs font-serif italic text-lg text-brand-muted/80 leading-relaxed"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.55, duration: 0.8 }}
+            transition={at(0.2)}
           >
             Step into the booth and capture a moment to remember.
           </motion.p>
@@ -52,9 +71,9 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
             onClick={onStart}
             whileTap={{ scale: 0.96 }}
             className="mt-9 flex items-center gap-3 px-9 py-4 bg-foil text-white rounded-full font-label uppercase tracking-luxe text-[11px] font-bold glow-accent animate-pulse-glow"
-            initial={{ opacity: 0, y: 12 }}
+            initial={{ opacity: 0, y: reduced ? 0 : 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.8, duration: 0.6 }}
+            transition={at(0.32)}
           >
             <Camera className="w-4 h-4" />
             Step Inside
@@ -72,7 +91,7 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
             className="mt-6 max-w-xs font-sans text-[13px] text-brand-muted/75 leading-relaxed"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 1.05, duration: 0.8 }}
+            transition={at(0.44)}
           >
             The camera runs on your device. Your photo only leaves it when you send it to the wall.
             {!IS_LEGACY_BUILD && (

@@ -33,7 +33,14 @@
  * browser half is src/dev/AssetPrepTool.tsx.
  */
 import { TEMPLATE_BOUNDS, type AssetRegion, type AssetTemplate, type AssetTextSlot, type Vec3 } from './assetTemplate';
-import { MAX_REGIONS, packRegionIds } from './regionTint';
+import {
+  DEFAULT_REF_LUMINANCE,
+  MAX_REGIONS,
+  MIN_REF_LUMINANCE,
+  linearLuminance,
+  packRegionIds,
+  srgbByteToLinear,
+} from './regionTint';
 
 /* ── bounds ───────────────────────────────────────────────────────────────── */
 
@@ -402,6 +409,117 @@ export function usedRegionIndices(ids: ArrayLike<number>): number[] {
   return [...seen].sort((a, b) => a - b);
 }
 
+/* ── texture measurement ──────────────────────────────────────────────────── */
+
+export interface RegionLuminanceResult {
+  /** Mean LINEAR luminance of the texels this region's UVs cover, floored at
+   *  MIN_REF_LUMINANCE — or DEFAULT_REF_LUMINANCE when nothing was covered. */
+  luminance: number;
+  /** Texels that contributed. 0 means `luminance` is only the default. */
+  texels: number;
+}
+
+/**
+ * Measure every region's `refLuminance` from the texels its UVs actually cover.
+ *
+ * This is THE step that used to be manual, and the one the warnings in this
+ * module and regionTint.ts are about: on a TEXTURED asset the reference is a
+ * property of the bake, not of the material, and shipping the 0.18 placeholder
+ * renders the region blown out (the divisor pegs every ratio at MAX_TINT_RATIO)
+ * rather than merely off-colour.
+ *
+ * Pure by the same discipline as the rest of this module: the caller (the prep
+ * tool) turns the texture into a flat RGBA buffer with a canvas; this function
+ * only rasterises. Each triangle is walked over its UV-space bounding box and
+ * every texel whose CENTRE falls inside contributes to the mean of the
+ * triangle's region — the region being the majority vote of its three vertices,
+ * so a seam triangle spanning two regions lands with the side that owns more of
+ * it. Fully transparent texels are skipped for the same reason
+ * `meanRegionLuminance` skips them: atlas padding is not surface.
+ *
+ * UV convention: glTF puts v = 0 at the TOP of the image, which is exactly
+ * where a canvas puts y = 0, and three's GLTFLoader disables `flipY` for glTF
+ * content — so v maps to y directly, with NO flip. Out-of-range UVs wrap
+ * (REPEAT, the glTF default sampler mode).
+ *
+ * `regionIds` null = the whole mesh is region 0, matching FaceRig's reading of
+ * a missing attribute. The result is always MAX_REGIONS long, indexed by
+ * region slot.
+ */
+export function measureRegionLuminances(
+  rgba: ArrayLike<number>,
+  width: number,
+  height: number,
+  uvs: ArrayLike<number>,
+  indices: ArrayLike<number> | null,
+  regionIds: ArrayLike<number> | null,
+): RegionLuminanceResult[] {
+  const out: RegionLuminanceResult[] = Array.from({ length: MAX_REGIONS }, () => ({
+    luminance: DEFAULT_REF_LUMINANCE,
+    texels: 0,
+  }));
+  const vertexCount = Math.floor(uvs.length / 2);
+  if (width <= 0 || height <= 0 || vertexCount <= 0 || rgba.length < width * height * 4) return out;
+
+  const sums = new Float64Array(MAX_REGIONS);
+  const counts = new Uint32Array(MAX_REGIONS);
+  const triCount = indices ? Math.floor(indices.length / 3) : Math.floor(vertexCount / 3);
+  const at = (i: number) => (indices ? indices[i] : i);
+  const wrap = (t: number) => (t >= 0 && t <= 1 ? t : t - Math.floor(t));
+  const regionOf = (v: number) => {
+    if (!regionIds) return 0;
+    const id = regionIds[v];
+    return Number.isFinite(id) ? Math.min(MAX_REGIONS - 1, Math.max(0, Math.round(id))) : 0;
+  };
+
+  for (let t = 0; t < triCount; t++) {
+    const a = at(t * 3), b = at(t * 3 + 1), c = at(t * 3 + 2);
+    if (a >= vertexCount || b >= vertexCount || c >= vertexCount) continue;
+    // Majority vote; a three-way tie goes to the first vertex.
+    const rb = regionOf(b);
+    const region = rb === regionOf(c) ? rb : regionOf(a);
+
+    const ax = wrap(uvs[a * 2]) * width, ay = wrap(uvs[a * 2 + 1]) * height;
+    const bx = wrap(uvs[b * 2]) * width, by = wrap(uvs[b * 2 + 1]) * height;
+    const cx = wrap(uvs[c * 2]) * width, cy = wrap(uvs[c * 2 + 1]) * height;
+    if (!Number.isFinite(ax + ay + bx + by + cx + cy)) continue;
+
+    // Signed doubled area — zero means the triangle covers no texels.
+    const area = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay);
+    if (area === 0) continue;
+    const sign = area > 0 ? 1 : -1;
+
+    const x0 = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
+    const x1 = Math.min(width - 1, Math.ceil(Math.max(ax, bx, cx)));
+    const y0 = Math.max(0, Math.floor(Math.min(ay, by, cy)));
+    const y1 = Math.min(height - 1, Math.ceil(Math.max(ay, by, cy)));
+
+    for (let y = y0; y <= y1; y++) {
+      const py = y + 0.5;
+      for (let x = x0; x <= x1; x++) {
+        const px = x + 0.5;
+        const w0 = ((bx - ax) * (py - ay) - (px - ax) * (by - ay)) * sign;
+        const w1 = ((cx - bx) * (py - by) - (px - bx) * (cy - by)) * sign;
+        const w2 = ((ax - cx) * (py - cy) - (px - cx) * (ay - cy)) * sign;
+        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+        const o = (y * width + x) * 4;
+        if (rgba[o + 3] === 0) continue; // atlas padding, not surface
+        sums[region] += linearLuminance(
+          srgbByteToLinear(rgba[o]),
+          srgbByteToLinear(rgba[o + 1]),
+          srgbByteToLinear(rgba[o + 2]),
+        );
+        counts[region] += 1;
+      }
+    }
+  }
+
+  for (let i = 0; i < MAX_REGIONS; i++) {
+    if (counts[i] > 0) out[i] = { luminance: Math.max(MIN_REF_LUMINANCE, sums[i] / counts[i]), texels: counts[i] };
+  }
+  return out;
+}
+
 /* ── descriptor assembly ──────────────────────────────────────────────────── */
 
 export interface PrepRegionDraft {
@@ -419,7 +537,6 @@ export interface PrepInput {
   name: string;
   glbUrl: string;
   fitCm: number;
-  frontAxis: AxisId;
   regions: PrepRegionDraft[];
   /** Per-vertex region indices, or null for a single-region asset. */
   regionIds: Uint8Array | null;
@@ -439,19 +556,26 @@ export interface PrepInput {
  * Regions that no vertex carries are DROPPED: a band scaffold usually leaves one
  * empty after painting, and an empty region is a colour control that does
  * nothing when the host drags it.
+ *
+ * Dropping a region REMAPS the packed ids. The contract on the render side is
+ * positional: `ensureRegionAttribute` copies each packed byte into `aRegion`
+ * as-is, and `buildRegionUniforms` fills the uniform arrays by position in
+ * `template.regions` — so a byte's value must equal its region's index in the
+ * emitted array. Filtering a hole out of the middle without rewriting the
+ * bytes would shift every later region onto its neighbour's uniforms: paint
+ * {0, 2}, drop the empty 1, and the part painted 2 silently reads region 2's
+ * slot — which now holds nothing.
  */
 export function buildTemplateDescriptor(input: PrepInput): AssetTemplate {
   const used = input.regionIds ? new Set(usedRegionIndices(input.regionIds)) : new Set([0]);
-  const regions: AssetRegion[] = input.regions
-    .filter((r) => used.has(r.index))
-    .slice(0, MAX_REGIONS)
-    .map((r) => ({
-      id: r.id,
-      label: r.label || r.id,
-      recolourable: r.recolourable,
-      defaultHex: r.defaultHex,
-      refLuminance: r.refLuminance,
-    }));
+  const kept = input.regions.filter((r) => used.has(r.index)).slice(0, MAX_REGIONS);
+  const regions: AssetRegion[] = kept.map((r) => ({
+    id: r.id,
+    label: r.label || r.id,
+    recolourable: r.recolourable,
+    defaultHex: r.defaultHex,
+    refLuminance: r.refLuminance,
+  }));
 
   const textSlots: AssetTextSlot[] = input.textSlots
     .slice(0, TEMPLATE_BOUNDS.maxTextSlots)
@@ -462,7 +586,6 @@ export function buildTemplateDescriptor(input: PrepInput): AssetTemplate {
     name: input.name || input.id,
     glbUrl: input.glbUrl,
     fitCm: input.fitCm,
-    frontAxis: AXIS_VECTORS[input.frontAxis] ?? AXIS_VECTORS[DEFAULT_FRONT_AXIS],
     regions,
     textSlots,
     preparedBy: input.humanEdited ? 'human' : 'auto',
@@ -470,7 +593,21 @@ export function buildTemplateDescriptor(input: PrepInput): AssetTemplate {
   // Only worth carrying when there is more than one region to distinguish; a
   // 30k-vertex buffer that says "everything is region 0" is 27 KB of base64
   // saying nothing (FaceRig treats a missing attribute as exactly that).
-  if (input.regionIds && regions.length > 1) out.regionIds = packRegionIds(input.regionIds);
+  if (input.regionIds && regions.length > 1) {
+    const position = new Map(kept.map((r, i) => [r.index, i]));
+    const identity = kept.every((r, i) => r.index === i);
+    if (identity) {
+      out.regionIds = packRegionIds(input.regionIds);
+    } else {
+      const remapped = new Uint8Array(input.regionIds.length);
+      for (let i = 0; i < input.regionIds.length; i++) {
+        // A byte whose region was dropped entirely (over MAX_REGIONS) lands on
+        // region 0 — same degradation packRegionIds applies to corrupt values.
+        remapped[i] = position.get(input.regionIds[i]) ?? 0;
+      }
+      out.regionIds = packRegionIds(remapped);
+    }
+  }
   return out;
 }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  stripLayout, shotsRemaining, stripComplete, stripProgressLabel,
-  STRIP_SHOTS, STRIP_GAP_MS, STRIP_LEAD_SEC,
+  stripLayout, stripPanelAspect, shotsRemaining, stripComplete, stripProgressLabel,
+  hexToRgba, STRIP_SHOTS, STRIP_GAP_MS, STRIP_LEAD_SEC, STRIP_SHOT_CHOICES,
 } from './photoStrip';
 
 describe('stripLayout', () => {
@@ -10,10 +10,32 @@ describe('stripLayout', () => {
     expect(stripLayout(1080, 1920, 4).panels).toHaveLength(4);
   });
 
-  it('keeps every panel at the source 9:16 aspect (no stretching)', () => {
-    for (const p of stripLayout(1080, 1920, 3).panels) {
-      expect(p.w / p.h).toBeCloseTo(9 / 16, 2);
+  // Panels used to pin the raw 9:16 capture aspect, which left a 3-shot strip
+  // on ~29% of the card's width. The owner's redesign maximizes the panels
+  // instead: each takes the per-count aspect from stripPanelAspect (the
+  // compositor cover-crops, never stretches).
+  it('sizes panels to the per-count aspect (space-maximizing, no stretching)', () => {
+    for (const shots of STRIP_SHOT_CHOICES) {
+      for (const p of stripLayout(1080, 1920, shots).panels) {
+        expect(p.w / p.h).toBeCloseTo(stripPanelAspect(shots), 2);
+      }
     }
+  });
+
+  it('fills most of the card width with a 3-shot strip', () => {
+    const l = stripLayout(1080, 1920, 3);
+    expect(l.panels[0].w / l.width).toBeGreaterThan(0.55);
+  });
+
+  it('keeps 2-shot panels portrait and 3-shot panels gently landscape', () => {
+    expect(stripPanelAspect(2)).toBeLessThan(1);
+    expect(stripPanelAspect(3)).toBeGreaterThan(1);
+    // Never so wide that a centered face gets cropped out of the band.
+    expect(stripPanelAspect(3)).toBeLessThanOrEqual(1.4);
+  });
+
+  it('exposes a positive corner radius for the painter', () => {
+    expect(stripLayout(1080, 1920, 3).radius).toBeGreaterThan(0);
   });
 
   it('keeps every panel inside the card', () => {
@@ -87,6 +109,27 @@ describe('strip progress', () => {
     // Never "Shot 4 of 3" if the phase machine over-runs by one.
     expect(stripProgressLabel(STRIP_SHOTS)).toBe(`Shot ${STRIP_SHOTS} of ${STRIP_SHOTS}`);
     expect(stripProgressLabel(-1)).toBe(`Shot 1 of ${STRIP_SHOTS}`);
+  });
+});
+
+describe('hexToRgba', () => {
+  it('parses 6-digit hex', () => {
+    expect(hexToRgba('#E8C766', 0.5)).toBe('rgba(232, 199, 102, 0.5)');
+    expect(hexToRgba('05060B', 1)).toBe('rgba(5, 6, 11, 1)');
+  });
+
+  it('parses 3-digit hex', () => {
+    expect(hexToRgba('#fff', 0.2)).toBe('rgba(255, 255, 255, 0.2)');
+  });
+
+  it('clamps alpha into [0, 1]', () => {
+    expect(hexToRgba('#000000', 7)).toBe('rgba(0, 0, 0, 1)');
+    expect(hexToRgba('#000000', -1)).toBe('rgba(0, 0, 0, 0)');
+  });
+
+  it('falls back to the warm gold default on garbage instead of throwing', () => {
+    expect(hexToRgba('not-a-color', 0.4)).toBe('rgba(232, 199, 102, 0.4)');
+    expect(hexToRgba('', 1)).toBe('rgba(232, 199, 102, 1)');
   });
 });
 

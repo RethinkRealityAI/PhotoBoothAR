@@ -41,19 +41,29 @@ import {
   Smile,
   Sparkles,
   Star,
+  Trash2,
   Upload,
   Wand2,
   X,
   type LucideIcon,
 } from 'lucide-react';
+import { cn } from '../../lib/cn';
 import { SHADER_MAP, FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
-import { getHeadFitEstimate } from '../../lib/faceRig';
+import { ANCHOR_PRESETS, getHeadFitEstimate } from '../../lib/faceRig';
 import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
 import { OVERLAY_SCALE, OVERLAY_POSITION, OVERLAY_ROTATION, formatAtStep, defaultAnchorConfig } from '../../lib/studio/controlSpecs';
 import { ASSET_CUSTOMIZATION, FINISH_TINT_STRENGTH } from '../../lib/studio/controlSpecs';
 import { FINISHES, normalizeFinish, normalizeTintStrength, type FinishId } from '../../lib/studio/finish';
 import { isConfigurable, normalizeTemplate, type AssetRegion } from '../../lib/studio/assetTemplate';
+import {
+  COLORWAYS,
+  COLORWAY_ROLES,
+  colorwayParts,
+  outfitColorway,
+  dominantOutfitColor,
+  type Colorway,
+} from '../../lib/studio/colorways';
 import { HOST_LIGHTING_PRESETS, type LightingPresetId } from '../../lib/studio/lighting';
 import { alignTransform, snapRotation, stepRotation, type AlignAction } from '../../lib/studio/align';
 import { HEAD_PIECE_MAP } from '../../lib/headPieces';
@@ -123,10 +133,19 @@ const RAD_TO_DEG = 180 / Math.PI;
 
 /**
  * Collapsible dock section — the one header idiom every group in this panel
- * shares: icon + name + chevron. Expand/collapse animates height/opacity via
- * the PickerDrawer motion idiom (a fixed-width column, so no layout-critical
- * width ever animates); prefers-reduced-motion collapses instantly. Children
- * mount only while open (progressive disclosure + no hidden polling).
+ * shares.
+ *
+ * It used to be a 10px label with a bare 14px glyph in front of it and a hairline
+ * under the group, which made six categories read as one long undifferentiated
+ * scroll: the host could not tell at a glance what the panel CONTAINED, only
+ * what happened to be expanded. So each section is now a CARD — an icon in a
+ * tinted chip, a larger title, an optional count/name chip, and a rotating
+ * chevron on one 44px row — and the open one is tinted and accent-bordered, so
+ * "where am I" is answerable from the corner of the eye. Expand/collapse still
+ * animates height/opacity via the PickerDrawer motion idiom (a fixed-width
+ * column, so no layout-critical width ever animates); prefers-reduced-motion
+ * collapses instantly. Children mount only while open (progressive disclosure +
+ * no hidden polling).
  */
 function DockSection({
   icon: Icon,
@@ -134,6 +153,8 @@ function DockSection({
   open,
   onToggle,
   help,
+  badge,
+  badgeTone = 'default',
   children,
 }: {
   icon: LucideIcon;
@@ -142,26 +163,65 @@ function DockSection({
   onToggle: () => void;
   /** Feature-help topic — shows a small "?" affordance beside the title. */
   help?: FeatureHelpTopic;
+  /** Right-aligned chip: a count, a cap, or the name of what the section is
+   *  currently about. Answers "is there anything in here" without opening it. */
+  badge?: ReactNode;
+  badgeTone?: 'default' | 'warn';
   children: ReactNode;
 }) {
   const reduced = useReducedMotion() ?? false;
+  // ReactNode legitimately includes false/null/undefined, so this is an explicit
+  // absence test, never a truthiness test — a badge of "0/20" must still render.
+  const hasBadge = badge !== undefined && badge !== null && badge !== false;
   return (
-    <section className="border-b border-white/5 pb-4 last:border-b-0 last:pb-0">
-      <div className="group flex items-center gap-2 w-full py-1">
+    <section
+      className={cn(
+        'rounded-2xl border transition-colors',
+        open ? 'border-accent/25 bg-accent/[0.04]' : 'border-white/[0.07] bg-white/[0.02] hover:border-white/[0.14]',
+      )}
+    >
+      <div className="flex items-center gap-0.5 pr-1.5">
         <button
           onClick={onToggle}
           aria-expanded={open}
-          className="flex flex-1 min-w-0 items-center gap-2 text-left"
+          className="group flex flex-1 min-w-0 items-center gap-2.5 min-h-11 pl-2 pr-1 text-left"
         >
-          <Icon className={`w-3.5 h-3.5 shrink-0 transition-colors ${open ? 'text-accent-2' : 'text-brand-muted/50 group-hover:text-brand-fg'}`} />
-          <span className={`flex-1 min-w-0 truncate font-label uppercase tracking-widest text-[10px] transition-colors ${open ? 'text-brand-fg' : 'text-brand-muted/60 group-hover:text-brand-fg'}`}>
+          <span
+            className={cn(
+              'grid place-items-center w-7 h-7 shrink-0 rounded-lg transition-colors',
+              open ? 'bg-accent/15 text-accent-2' : 'bg-white/[0.05] text-brand-muted/50 group-hover:text-brand-fg',
+            )}
+          >
+            <Icon className="w-3.5 h-3.5" />
+          </span>
+          {/* The TITLE never truncates and the badge always does. The title is
+              the panel's navigation — losing it to "SELECTED I…" so a filter
+              called "Golden Hour Bloom" could be spelled out in full is exactly
+              backwards, and it happened on the first screenshot at 19rem. */}
+          <span
+            className={cn(
+              'shrink-0 font-label uppercase tracking-widest text-xs transition-colors',
+              open ? 'text-brand-fg' : 'text-brand-muted/70 group-hover:text-brand-fg',
+            )}
+          >
             {title}
           </span>
+          {hasBadge && (
+            <span
+              className={cn(
+                'ml-auto min-w-0 max-w-[7rem] truncate rounded-full px-1.5 py-0.5 font-mono text-[9px]',
+                badgeTone === 'warn' ? 'bg-amber-400/12 text-amber-300' : 'bg-white/[0.06] text-brand-muted/60',
+              )}
+            >
+              {badge}
+            </span>
+          )}
+          {!hasBadge && <span className="flex-1" />}
+          <ChevronDown
+            className={cn('w-4 h-4 shrink-0 transition-transform', open ? 'text-accent-2' : 'text-brand-muted/40 -rotate-90')}
+          />
         </button>
         {help && <HelpButton topic={help} label={`How ${title} works`} side="bottom" />}
-        <button onClick={onToggle} aria-label={open ? `Collapse ${title}` : `Expand ${title}`} className="shrink-0 p-0.5">
-          <ChevronDown className={`w-3.5 h-3.5 shrink-0 text-brand-muted/40 transition-transform ${open ? '' : '-rotate-90'}`} />
-        </button>
       </div>
       <AnimatePresence initial={false}>
         {open && (
@@ -172,7 +232,7 @@ function DockSection({
             transition={reduced ? { duration: 0 } : { duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
             className="overflow-hidden"
           >
-            <div className="pt-3 flex flex-col gap-4">{children}</div>
+            <div className="px-2.5 pt-1 pb-3 flex flex-col gap-4">{children}</div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -451,6 +511,73 @@ function FinishControls({ object, dispatch }: { object: Object3D; dispatch: Reac
  */
 const NO_FINISH = '__none__';
 
+/**
+ * The ONE persistent studio camera element. StudioStage mounts it for the whole
+ * studio session (`<video id="studio-video">`, never unmounted so the stream
+ * survives 2D/3D/Preview switches), which is why "Match my outfit" can read a
+ * live frame from any view without asking for the camera itself.
+ */
+const STUDIO_VIDEO_ID = 'studio-video';
+
+/**
+ * Width the camera frame is downsampled to before its pixels are read.
+ *
+ * 160px is far more than `dominantOutfitColor`'s 12x3x3 histogram needs to be
+ * stable, and keeps the synchronous drawImage + getImageData well under a
+ * millisecond — a full-resolution read of a 1080p frame is ~2M pixels and would
+ * stall the live preview behind the dock for a visible beat.
+ */
+const OUTFIT_SAMPLE_W = 160;
+
+/** True when a stored `parts` map is exactly what this colorway would produce. */
+function partsMatchColorway(
+  want: Record<string, AssetPartStyle>,
+  have: Record<string, AssetPartStyle>,
+): boolean {
+  const ids = Object.keys(want);
+  if (ids.length === 0 || ids.length !== Object.keys(have).length) return false;
+  // `finish` is absent rather than 'original' on both sides (state.ts drops the
+  // default), so absence has to compare equal to absence — not to undefined vs
+  // a string, which is why both are coerced to null.
+  return ids.every((id) =>
+    have[id]?.hex === want[id].hex && (have[id]?.finish ?? null) === (want[id].finish ?? null));
+}
+
+/**
+ * Read the dominant colour of what the host is wearing off the live camera.
+ *
+ * Returns the hex, or a short reason the host can act on — never a throw. The
+ * <video> is CSS-mirrored (`scaleX(-1)`); `drawImage` reads the UNMIRRORED
+ * source, which makes no difference to a centre-weighted colour histogram.
+ */
+function sampleOutfitColor(): { hex: string } | { reason: string } {
+  const video = document.getElementById(STUDIO_VIDEO_ID);
+  if (!(video instanceof HTMLVideoElement)) {
+    return { reason: 'The studio camera isn’t running — open the 3D or Preview view first.' };
+  }
+  if (!video.videoWidth || !video.videoHeight) {
+    return { reason: 'The camera hasn’t sent a frame yet. Give it a second and try again.' };
+  }
+  const w = Math.min(OUTFIT_SAMPLE_W, video.videoWidth);
+  const h = Math.max(1, Math.round((video.videoHeight / video.videoWidth) * w));
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return { reason: 'This browser wouldn’t give us a canvas to read the frame with.' };
+    ctx.drawImage(video, 0, 0, w, h);
+    const hex = dominantOutfitColor(ctx.getImageData(0, 0, w, h).data, w, h);
+    return hex
+      ? { hex }
+      : { reason: 'Couldn’t find a colour in that frame — step into the light and try again.' };
+  } catch {
+    // getImageData throws SecurityError on a tainted canvas, and drawImage
+    // throws on a frame that is not decodable yet. Both are "try again".
+    return { reason: 'Couldn’t read that frame. Try again in a moment.' };
+  }
+}
+
 function RegionRow({
   region,
   style,
@@ -482,6 +609,7 @@ function RegionRow({
           part: { id: region.id, finish: e.target.value === NO_FINISH ? null : e.target.value },
         })}
         aria-label={`Finish for ${region.label}`}
+        title={`Finish · ${region.label} — how the surface catches light`}
         className="shrink-0 w-[86px] bg-white/[0.04] border border-white/10 rounded-lg px-1.5 py-1 text-[10px] text-brand-fg focus:outline-none focus:border-accent/40"
       >
         <option value={NO_FINISH}>As made</option>
@@ -601,6 +729,15 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
   const storedLabel = object.customization?.label;
   useEffect(() => { if (storedLabel) setEcho(null); }, [storedLabel]);
 
+  /**
+   * What the last "Match my outfit" read, and what it dressed the piece in —
+   * kept so the host can SEE the two colours the feature chose. Same
+   * hooks-above-the-early-return rule as `echo` above.
+   */
+  const [matched, setMatched] = useState<{ outfit: string; body: string } | null>(null);
+  /** A quiet, actionable one-liner when there was no frame to read. */
+  const [matchHint, setMatchHint] = useState<string | null>(null);
+
   if (!template || !isConfigurable(template)) return null;
 
   const custom = object.customization;
@@ -630,6 +767,50 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
     dispatch({ type: 'SET_CUSTOMIZATION', label: null });
   };
 
+  /**
+   * Apply a whole scheme, ONE region per dispatch.
+   *
+   * That is the reducer's own shape — `withCustomization` merges a single
+   * `part` at a time — so no new action variant is needed and every existing
+   * test of SET_CUSTOMIZATION still describes what happens here.
+   *
+   * `?? null` on both fields is the explicit CLEAR, and it is load-bearing:
+   * moving from a gold-accent scheme to a plain one must DROP the gold, and
+   * `undefined` means "leave it" (state.ts:374).
+   */
+  const applyParts = (next: Record<string, AssetPartStyle>) => {
+    for (const id of Object.keys(next)) {
+      dispatch({
+        type: 'SET_CUSTOMIZATION',
+        part: { id, hex: next[id].hex ?? null, finish: next[id].finish ?? null },
+      });
+    }
+  };
+
+  const applyColorway = (cw: Colorway) => {
+    setMatched(null);
+    setMatchHint(null);
+    applyParts(colorwayParts(cw, template));
+  };
+
+  const matchOutfit = () => {
+    const read = sampleOutfitColor();
+    if ('reason' in read) {
+      setMatched(null);
+      setMatchHint(read.reason);
+      return;
+    }
+    const cw = outfitColorway(read.hex);
+    applyParts(colorwayParts(cw, template));
+    setMatched({ outfit: read.hex, body: cw.styles.primary.hex });
+    setMatchHint(null);
+  };
+
+  // Which shipped scheme, if any, the piece is currently wearing — so a chip
+  // reads as selected instead of every chip looking equally untouched.
+  const activeColorwayId =
+    COLORWAYS.find((cw) => partsMatchColorway(colorwayParts(cw, template), parts))?.id ?? null;
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-1.5 pt-1">
@@ -652,7 +833,83 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
       </p>
       {recolourable.length > 0 && (
         <>
+          {/* One-tap schemes FIRST, per-part rows after: a host who just wants
+              it to look good is done in one click, and the rows below are then
+              a refinement of something rather than a blank slate. Roles are
+              resolved against this template's own regions (colorways.ts), so
+              the same eight chips work for every future asset. */}
+          <SectionLabel>Colourways</SectionLabel>
+          <p className="font-sans text-[10px] leading-relaxed text-brand-muted/50 -mt-1 mb-1.5">
+            One tap dresses the whole piece — body, trim and details together.
+          </p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {COLORWAYS.map((cw) => {
+              const active = cw.id === activeColorwayId;
+              return (
+                <button
+                  key={cw.id}
+                  onClick={() => applyColorway(cw)}
+                  aria-pressed={active}
+                  title={`${cw.name} — recolours every part of this piece`}
+                  className={`w-full flex items-center gap-1.5 rounded-lg px-1.5 py-1.5 transition-colors motion-reduce:transition-none ${
+                    active ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.03] hover:bg-white/[0.06]'
+                  }`}
+                >
+                  <span className="shrink-0 w-7 h-4 rounded-[3px] overflow-hidden flex ring-1 ring-white/10">
+                    {COLORWAY_ROLES.map((role) => (
+                      <span key={role} className="flex-1" style={{ backgroundColor: cw.styles[role].hex }} />
+                    ))}
+                  </span>
+                  <span className={`min-w-0 flex-1 truncate text-left text-[10px] ${active ? 'text-accent-2' : 'text-brand-muted/60'}`}>
+                    {cw.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* THE ONE THAT IS NOT A LIST ITEM. Same accented-card idiom as the
+              "use each guest's own name" headline below — a control nobody has
+              seen in a photo booth before does not belong in a row of chips. */}
+          <div className="rounded-xl border border-accent/30 bg-accent/[0.07] p-3 flex flex-col gap-2 mt-0.5">
+            <button
+              onClick={matchOutfit}
+              title="Reads the live camera frame and dresses this piece to go with what you're wearing"
+              className="flex items-center justify-center gap-2 w-full rounded-lg px-2.5 py-2 bg-accent/15 text-accent-2 ring-1 ring-accent/30 hover:bg-accent/25 transition-colors motion-reduce:transition-none"
+            >
+              <Wand2 className="w-3.5 h-3.5 shrink-0" />
+              <span className="font-label uppercase tracking-widest text-[10px]">Match my outfit</span>
+            </button>
+            <p className="font-sans text-[10px] leading-relaxed text-brand-muted/60">
+              {matched
+                ? 'The trim and details take your outfit’s colour; the body takes a companion shade, so the piece still reads against you instead of disappearing into you.'
+                : 'Reads what you’re wearing from the live camera and dresses this piece to go with it.'}
+            </p>
+            {matched && (
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="w-5 h-5 shrink-0 rounded-md ring-1 ring-white/15"
+                  style={{ backgroundColor: matched.outfit }}
+                  title={`Your outfit · ${matched.outfit}`}
+                />
+                <span
+                  className="w-5 h-5 shrink-0 rounded-md ring-1 ring-white/15"
+                  style={{ backgroundColor: matched.body }}
+                  title={`The piece · ${matched.body}`}
+                />
+                <span className="min-w-0 truncate text-[10px] text-accent-2">Matched to your outfit</span>
+              </div>
+            )}
+            {matchHint && (
+              <p className="font-sans text-[10px] leading-relaxed text-brand-muted/50">{matchHint}</p>
+            )}
+          </div>
+
           <SectionLabel>Colours</SectionLabel>
+          <p className="font-sans text-[10px] leading-relaxed text-brand-muted/50 -mt-1 mb-1.5">
+            One row per part. Tap the swatch to recolour it, then pick a finish —
+            {' '}“As made” leaves that part exactly as it was built.
+          </p>
           <div className="flex flex-col gap-1.5">
             {recolourable.map((r) => (
               <RegionRow key={r.id} region={r} style={parts[r.id]} dispatch={dispatch} />
@@ -674,8 +931,8 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
             <div className="flex flex-col gap-2">
               {slots.length > 1 && (
                 <div>
-                  <SectionLabel>Where</SectionLabel>
-                  <select value={label.slotId} onChange={(e) => setLabel({ slotId: e.target.value })} className={selectCls} aria-label="Engraving position">
+                  <SectionLabel>Where on the piece</SectionLabel>
+                  <select value={label.slotId} onChange={(e) => setLabel({ slotId: e.target.value })} className={selectCls} aria-label="Engraving position" title="Which surface of this piece the name is cut into">
                     {slots.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                   </select>
                 </div>
@@ -707,30 +964,41 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
                 </p>
               </div>
               {label.token === 'fixed' && (
-                <DebouncedTextInput
-                  value={label.text ?? ''}
-                  onCommit={(text) => setLabel({ text })}
-                  placeholder="Type the line to engrave…"
-                  maxLength={ASSET_CUSTOMIZATION.maxLabelLength}
-                  aria-label="Engraved text"
-                  className="w-full px-3 py-2 rounded-lg bg-white/[0.03] text-sm text-brand-fg placeholder:text-brand-muted/30 focus:outline-none focus:ring-1 focus:ring-accent/30"
-                />
+                <div>
+                  <SectionLabel>The line to engrave</SectionLabel>
+                  <DebouncedTextInput
+                    value={label.text ?? ''}
+                    onCommit={(text) => setLabel({ text })}
+                    placeholder="e.g. Tolu — or “Class of 2026”"
+                    maxLength={ASSET_CUSTOMIZATION.maxLabelLength}
+                    aria-label="Engraved text"
+                    className="w-full px-3 py-2 rounded-lg bg-white/[0.03] text-sm text-brand-fg placeholder:text-brand-muted/30 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                  />
+                  <p className="font-sans text-[10px] leading-relaxed text-brand-muted/50 mt-1">
+                    Up to {ASSET_CUSTOMIZATION.maxLabelLength} characters. Every guest gets this same line.
+                  </p>
+                </div>
               )}
               <div>
-                <SectionLabel>Style</SectionLabel>
+                <SectionLabel>Lettering style</SectionLabel>
                 <select value={label.style} onChange={(e) => setLabel({ style: e.target.value as GuestLetteringStyle })} className={selectCls} aria-label="Engraving style">
                   {LETTERING_STYLE_OPTIONS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
               </div>
               <div>
-                <SectionLabel>Colour</SectionLabel>
+                <SectionLabel>Engraving colour</SectionLabel>
                 <input
                   type="color"
                   value={label.hex}
                   onChange={(e) => setLabel({ hex: e.target.value })}
                   aria-label="Engraving colour"
+                  title="Colour of the engraved letters"
                   className="w-full h-8 rounded-lg bg-white/[0.04] border border-white/10 cursor-pointer"
                 />
+                <p className="font-sans text-[10px] leading-relaxed text-brand-muted/50 mt-1">
+                  Pick a shade that contrasts with the part underneath — the default white
+                  disappears on a pale surface.
+                </p>
               </div>
             </div>
           )}
@@ -846,17 +1114,10 @@ function GuestLetteringControls({
   );
 }
 
-/** "EDITING · <name>" caption above a properties section, so it's always clear
- *  which layer (or the filter slot) the controls directly below it act on. */
-function EditingCaption({ name }: { name: string }) {
-  return (
-    <p className="flex items-baseline gap-1.5 min-w-0">
-      <span className="font-label text-[9px] uppercase tracking-widest text-brand-muted/50 shrink-0">Editing</span>
-      <span className="text-brand-muted/30 shrink-0">·</span>
-      <span className="text-xs text-brand-fg font-medium truncate">{name}</span>
-    </p>
-  );
-}
+/* The "EDITING · <name>" caption that used to head every properties block is
+   gone. The Selected-item section header now carries that name as its badge, so
+   the caption repeated it one line lower — and for the filter slot it repeated
+   a name the body prints again two lines further down. */
 
 /* — Magic Triggers (face-triggered effects) --------------------------------- */
 
@@ -963,12 +1224,8 @@ function MagicTriggers({
 
   return (
     <div>
-      {/* The section header (DockSection) already names this group — only the
-          count rides inside. */}
-      <div className="flex items-center justify-end mb-2">
-        <span className="font-mono text-[9px] text-brand-muted/50">{draft.triggers.length}/{MAX_TRIGGERS}</span>
-      </div>
-
+      {/* No count row here: the section header's badge carries it, so an inner
+          one was the same number twice, 20px apart. */}
       {draft.triggers.length > 0 ? (
         <ul className="flex flex-col gap-1 mb-2">
           {draft.triggers.map((t) => {
@@ -1287,6 +1544,20 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   // literal 0 reset four of the five built-ins AWAY from where they belong, and
   // inverted the reset button's enabled state along with it.
   const sel3DDefaults = defaultAnchorConfig(sel3D ?? { type: 'model' }, HEAD_PIECE_MAP);
+  /** What the Selected-item header says it is about — the layer's display name,
+   *  or the filter's name when the filter slot is what the section is showing.
+   *  Undefined (no chip) when the section is empty-handed. */
+  const selectedBadge: string | undefined = selected
+    ? displayNames.get(selected.id) ?? selected.name
+    : filterActive && shaderDef
+      ? shaderDef.name
+      : undefined;
+  /** Kind chip beside the pronounced asset name. */
+  const selectedKind: string | undefined = selected
+    ? (selOverlay ? (selOverlay.overlayKind === 'border' ? 'Frame' : 'Sticker') : '3D piece')
+    : filterActive && shaderDef
+      ? 'Filter'
+      : undefined;
 
   const handleThumbInput = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -1298,11 +1569,16 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   // calibration is scene/event-level, not per-selection).
   const has3D = draft.objects.some((o) => o.type !== 'overlay');
 
-  // Collapsible-section state — Selected item + Layers open by default (the
-  // first is the editing surface, the second is how you select); everything
-  // else starts collapsed (progressive disclosure).
+  // Two high-level tabs (owner IA): "Assets" — the scene-asset hierarchy first,
+  // then the selected asset's properties — is the default, because configuring
+  // assets is what the studio session is mostly made of; "Scene" holds the
+  // scene-wide sections (Triggers · Scene · Booth look · Lighting & fit).
+  const [tab, setTab] = useState<'assets' | 'scene'>('assets');
+
+  // Collapsible-section state — Scene assets open by default (it is how you
+  // select); the scene-wide sections start collapsed (progressive disclosure).
+  // The asset-properties block is not collapsible: it IS the Assets tab.
   const [open, setOpen] = useState<Record<string, boolean>>({
-    selected: true,
     layers: true,
     triggers: false,
     scene: false,
@@ -1313,25 +1589,68 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
 
   const reduced = useReducedMotion() ?? false;
   const selectedSectionRef = useRef<HTMLDivElement>(null);
+  const sceneSectionRef = useRef<HTMLDivElement>(null);
 
-  // Picking an object on the stage (or in Layers) auto-opens the Selected-item
-  // section and brings it into view — the host immediately sees what they can
-  // edit, without hunting.
+  // Picking an object on the stage (or in Scene assets) jumps to the Assets
+  // tab and brings the properties block into view — the host immediately sees
+  // what they can edit, without hunting.
   useEffect(() => {
     if (!draft.selectedId) return;
-    setOpen((o) => (o.selected ? o : { ...o, selected: true }));
+    setTab('assets');
     const t = window.setTimeout(() => {
       selectedSectionRef.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
     }, 50);
     return () => window.clearTimeout(t);
   }, [draft.selectedId, reduced]);
 
-  /** Filter-slot params — rendered in "Selected item" when nothing is selected
-   *  (the filter IS the thing being edited) or under "Scene" otherwise. */
-  const filterParams = (withCaption: boolean): ReactNode =>
+  /**
+   * The same courtesy for the FILTER slot, which is the one thing in the studio
+   * that is picked in the left dock and edited in a section whose identity
+   * depends on the selection: its params live in the Assets tab's block when nothing
+   * is selected and under Scene when something is. Since the left dock stopped
+   * carrying its own copy of the sliders, a host who picks a filter with a layer
+   * selected would otherwise be looking at a collapsed section with no clue.
+   * Only real CHANGES fire it — `prevShader` is seeded from the current value,
+   * so loading an experience that already has a filter does not pop a section
+   * open on arrival.
+   *
+   * A WHOLESALE LOAD (starter scene, template, duplicate, undo to a different
+   * scene) changes the filter and the selection in the same commit. That is
+   * not a host reaching for the filter, and treating it as one sent the panel
+   * to the Scene tab the instant a starter look was picked — the host landed
+   * on scene settings instead of the asset they had just been given. So a
+   * shader change that arrives WITH a selection change defers to the effect
+   * above, which puts them on Assets.
+   */
+  const prevShader = useRef(draft.shaderId);
+  const prevSelectedForShader = useRef(draft.selectedId);
+  useEffect(() => {
+    const changed = prevShader.current !== draft.shaderId;
+    const selectionAlsoChanged = prevSelectedForShader.current !== draft.selectedId;
+    prevShader.current = draft.shaderId;
+    prevSelectedForShader.current = draft.selectedId;
+    if (!changed || selectionAlsoChanged || draft.shaderId === 'none') return;
+    if (draft.selectedId) {
+      // A layer is selected, so the filter edits under Scene → Scene section.
+      setTab('scene');
+      setOpen((o) => (o.scene ? o : { ...o, scene: true }));
+    } else {
+      // The filter IS the selected thing — it edits in the Assets tab's block.
+      setTab('assets');
+    }
+    const target = draft.selectedId ? sceneSectionRef : selectedSectionRef;
+    const t = window.setTimeout(() => {
+      target.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [draft.shaderId, draft.selectedId, reduced]);
+
+  /** Filter-slot params — rendered in the Assets tab's properties block when
+   *  nothing is selected (the filter IS the thing being edited) or under the
+   *  Scene tab's "Scene" section otherwise. */
+  const filterParams = (): ReactNode =>
     filterActive && shaderDef ? (
       <div className="flex flex-col gap-4">
-        {withCaption ? <EditingCaption name={shaderDef.name} /> : null}
         <div className="flex items-center justify-between">
           <p className="font-sans text-xs text-brand-fg font-medium">{shaderDef.name}</p>
           {shaderDef.params.length > 0 && (
@@ -1364,21 +1683,89 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
     ) : null;
 
   return (
-    <div className="h-full overflow-y-auto hide-scrollbar p-4 flex flex-col gap-4">
+    <div className="h-full flex flex-col">
+      {/* ASSETS | SCENE — the panel's two high-level tabs. Assets is the
+          default and holds the hierarchy + the selected asset's properties;
+          Scene holds the scene-wide sections. */}
+      <div className="shrink-0 px-3 pt-3">
+        <div role="tablist" aria-label="Properties" className="liquid-glass-inset flex gap-1 rounded-full p-1">
+          {(['assets', 'scene'] as const).map((id) => {
+            const on = tab === id;
+            return (
+              <button
+                key={id}
+                role="tab"
+                aria-selected={on}
+                onClick={() => setTab(id)}
+                className={cn(
+                  'flex-1 min-h-9 rounded-full font-label uppercase tracking-widest text-[10px] transition-colors',
+                  on ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/60 hover:text-brand-fg',
+                )}
+              >
+                {id === 'assets' ? 'Assets' : 'Scene'}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto hide-scrollbar p-3 flex flex-col gap-2.5">
+        {tab === 'assets' && (
+          <>
       {/* Empty scene + empty filter slot — the hint is the panel's only guidance. */}
       {!hasObjects && !filterActive && (
         <p className="text-[10px] text-brand-muted/40 font-sans px-1">Add a frame, sticker or 3D piece from the left dock to start a scene.</p>
       )}
 
-      {/* SELECTED ITEM — always the first section; auto-opens + scrolls into
-          view whenever the host picks an object on the stage or in Layers. */}
+      {/* SCENE ASSETS — the hierarchy leads the tab: select here, edit below.
+          ONE flat list in true paint order (LayerList); the object counter
+          rides in the badge, amber at the cap. */}
+      {hasObjects && (
+        <DockSection
+          icon={Layers}
+          title="Scene assets"
+          open={!!open.layers}
+          onToggle={() => toggleSection('layers')}
+          badge={`${counts.capped}/${MAX_OBJECTS}`}
+          badgeTone={atCap ? 'warn' : 'default'}
+        >
+          {atCap && (
+            <p role="status" className="text-[10px] text-amber-300/80 font-sans leading-snug px-1 -mt-1">
+              {SCENE_FULL_MESSAGE}
+            </p>
+          )}
+          <LayerList
+            objects={draft.objects}
+            selectedId={draft.selectedId}
+            displayNames={displayNames}
+            dispatch={dispatch}
+          />
+        </DockSection>
+      )}
+
+      {/* ASSET PROPERTIES — not collapsible: it IS the Assets tab. The header
+          carries the selected asset's name at display size (the owner's
+          "make the selected item name more pronounced"), with a kind chip. */}
       {(hasObjects || filterActive) && (
-        <div ref={selectedSectionRef}>
-          <DockSection icon={MousePointerClick} title="Selected item" open={!!open.selected} onToggle={() => toggleSection('selected')}>
+        <div ref={selectedSectionRef} className="rounded-2xl border border-accent/25 bg-accent/[0.04]">
+          <div className="flex items-center gap-2.5 px-2.5 pt-2.5">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-accent/15 text-accent-2">
+              <MousePointerClick className="h-4 w-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-label text-[9px] uppercase tracking-widest text-brand-muted/50">Asset properties</p>
+              <p className="truncate font-serif text-lg leading-snug text-brand-fg">{selectedBadge ?? 'Nothing selected'}</p>
+            </div>
+            {selectedKind && (
+              <span className="shrink-0 rounded-full bg-white/[0.06] px-2 py-0.5 font-label text-[8px] uppercase tracking-widest text-brand-muted/60">
+                {selectedKind}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-col gap-4 px-2.5 pb-3 pt-3">
             {/* Selected 2D overlay properties */}
             {selOverlay && (
               <div className="flex flex-col gap-4">
-                <EditingCaption name={displayNames.get(selOverlay.id) ?? selOverlay.name} />
                 <div className="flex items-center justify-between">
                   <p className="font-sans text-xs text-brand-fg font-medium">{selOverlay.overlayKind === 'border' ? 'Frame placement' : 'Sticker placement'}</p>
                   <button
@@ -1413,7 +1800,31 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
             {/* Selected 3D object properties */}
             {sel3D && (
               <div className="flex flex-col gap-4">
-                <EditingCaption name={displayNames.get(sel3D.id) ?? sel3D.name} />
+                {/* ATTACHMENT POINT — the first question about any 3D piece
+                    ("where on the head does this ride?"), and until now it was
+                    only answerable in the LEFT dock's inline card or by dragging
+                    onto a dot in the 3D stage view. It is a property of the
+                    selected object, so it belongs here, above the nudges that
+                    refine it. */}
+                <div>
+                  <SectionLabel>Attachment point</SectionLabel>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {ANCHOR_PRESETS.map((p) => {
+                      const active = p.id === sel3D.anchor;
+                      return (
+                        <Tooltip key={p.id} label={p.label} hint={p.hint} side="left">
+                          <button
+                            onClick={() => dispatch({ type: 'SELECT_ANCHOR', anchor: p.id })}
+                            aria-pressed={active}
+                            className={`w-full py-2 rounded-lg text-[9px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                          >
+                            {p.label}
+                          </button>
+                        </Tooltip>
+                      );
+                    })}
+                  </div>
+                </div>
                 <div className="flex items-center justify-between">
                   <p className="font-sans text-xs text-brand-fg font-medium">Placement</p>
                   <button
@@ -1488,53 +1899,52 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
               </div>
             )}
 
+            {/* THE REMOVE PATH. Before this there was none in the properties
+                panel at all: the only two ways to delete a layer were a 14px
+                trash glyph at the tail of a five-icon huddle in the layer list
+                and the Del key — which is why the owner reported "there is no
+                clear way to remove them". Danger-tinted (the repo's rose idiom,
+                ui/pillStyles.ts) and last in the section, because destructive
+                actions belong past everything you might have meant instead. */}
+            {selected && (
+              <button
+                onClick={() => dispatch({ type: 'DELETE_OBJECT', id: selected.id })}
+                aria-label={`Remove ${displayNames.get(selected.id) ?? selected.name} from the scene`}
+                className="pressable flex items-center justify-center gap-2 w-full min-h-11 rounded-xl bg-rose-500/[0.12] text-rose-300 ring-1 ring-rose-400/25 hover:bg-rose-500/20 hover:text-rose-200 transition-colors font-label uppercase tracking-widest text-[10px]"
+              >
+                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                Remove from scene
+                <span className="font-mono text-[9px] normal-case tracking-normal opacity-60">Del</span>
+              </button>
+            )}
+
             {/* No object selected: the filter (when set) IS the thing being
                 edited — otherwise a plain how-to-select hint. */}
-            {!selected && filterParams(true)}
+            {!selected && filterParams()}
             {hasObjects && !selected && !filterActive && (
-              <p className="text-[10px] text-brand-muted/40 font-sans px-1">Tap an object on the stage — or pick a layer below — to edit it.</p>
+              <p className="text-[10px] text-brand-muted/40 font-sans px-1">
+                Nothing selected — tap an item on the stage, or pick one in Scene assets above.
+              </p>
             )}
-          </DockSection>
+          </div>
         </div>
       )}
+          </>
+        )}
 
-      {/* LAYERS — ONE flat list in true paint order (LayerList). The old three
-          fixed buckets disagreed with the reducer's flat array, so a reorder
-          across a bucket boundary changed the stage and moved nothing here. */}
-      {hasObjects && (
-        <DockSection icon={Layers} title="Layers" open={!!open.layers} onToggle={() => toggleSection('layers')}>
-          {/* The object counter is ALWAYS visible, not only from 15. A host who
-              cannot see the limit cannot plan around it, and the first sign the
-              cap existed used to be an add that silently did nothing. */}
-          <div className="flex items-center justify-end -mb-1">
-            <Tooltip
-              label={`${counts.capped} / ${MAX_OBJECTS} objects`}
-              hint="Up to 20 stickers + 3D pieces per scene — the frame is exempt."
-              side="left"
-            >
-              <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded-full cursor-help ${atCap ? 'text-amber-400 bg-amber-400/10' : 'text-brand-muted/50 bg-white/[0.04]'}`}>
-                {counts.capped}/{MAX_OBJECTS}
-              </span>
-            </Tooltip>
-          </div>
-          {atCap && (
-            <p role="status" className="text-[10px] text-amber-300/80 font-sans leading-snug px-1 -mt-1">
-              {SCENE_FULL_MESSAGE}
-            </p>
-          )}
-          <LayerList
-            objects={draft.objects}
-            selectedId={draft.selectedId}
-            displayNames={displayNames}
-            dispatch={dispatch}
-          />
-        </DockSection>
-      )}
-
+        {tab === 'scene' && (
+          <>
       {/* MAGIC TRIGGERS — scene-level face-triggered effects, shown once the scene
           has content (or already carries triggers) since they ride on the scene. */}
       {(hasObjects || filterActive || draft.triggers.length > 0) && (
-        <DockSection icon={Sparkles} title="Magic Triggers" open={!!open.triggers} onToggle={() => toggleSection('triggers')} help="triggers">
+        <DockSection
+          icon={Sparkles}
+          title="Magic Triggers"
+          open={!!open.triggers}
+          onToggle={() => toggleSection('triggers')}
+          help="triggers"
+          badge={`${draft.triggers.length}/${MAX_TRIGGERS}`}
+        >
           <MagicTriggers
             draft={draft}
             dispatch={dispatch}
@@ -1545,15 +1955,22 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
       )}
 
       {/* SCENE — the filter slot (surfaced here only while an object is
-          selected; otherwise it lives in Selected item) + how this experience
+          selected; otherwise it lives in the Assets tab) + how this experience
           surfaces in the booth: Live/Hidden, Featured, Save-as-template.
           Hidden while the scene is completely EMPTY (no objects, no filter):
           flipping a blank experience to "Live" would publish nothing to
           guests, and the empty-state hint is the only guidance the panel
           should give at that point. */}
       {(hasObjects || filterActive) && (
-        <DockSection icon={Clapperboard} title="Scene" open={!!open.scene} onToggle={() => toggleSection('scene')}>
-          {selected ? filterParams(false) : null}
+        <div ref={sceneSectionRef}>
+        <DockSection
+          icon={Clapperboard}
+          title="Scene"
+          open={!!open.scene}
+          onToggle={() => toggleSection('scene')}
+          badge={selected && filterActive && shaderDef ? shaderDef.name : undefined}
+        >
+          {selected ? filterParams() : null}
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
           <Tooltip label={draft.isPublished ? 'Live' : 'Hidden'} hint="Whether guests can pick this in the booth">
@@ -1588,6 +2005,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
             {templateError && <p className="text-[9px] text-rose-400 font-sans">{templateError}</p>}
           </div>
         </DockSection>
+        </div>
       )}
 
       {/* BOOTH LOOK — how this experience presents in the guest booth picker. */}
@@ -1627,6 +2045,16 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
           <HeadSizeCalibration headScale={headScale} onHeadScaleChange={onHeadScaleChange} />
         </DockSection>
       )}
+
+      {/* An empty scene has nothing scene-wide to configure yet. */}
+      {!hasObjects && !filterActive && draft.triggers.length === 0 && (
+        <p className="text-[10px] text-brand-muted/40 font-sans px-1">
+          Scene settings appear once your scene has content — start from the Assets tab.
+        </p>
+      )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -21,6 +21,10 @@
  *  without the panels becoming letterbox slivers. */
 export const STRIP_SHOTS = 3;
 
+/** The shot counts the booth's picker offers. */
+export type StripShotCount = 2 | 3;
+export const STRIP_SHOT_CHOICES: readonly StripShotCount[] = [2, 3];
+
 /** Milliseconds of "hold that" between the shutter of one panel and the
  *  countdown of the next. Long enough to change your face, short enough that
  *  nobody in the queue thinks it has hung. */
@@ -47,34 +51,50 @@ export interface StripLayout {
   gap: number;
   /** Vertical space reserved under the last panel for the event footer. */
   footerH: number;
+  /** Panel corner radius, so painter and layout agree. */
+  radius: number;
+}
+
+/**
+ * Widest panel shape allowed per strip length. Panels used to keep the raw
+ * 9:16 capture aspect, which left a 3-shot strip using ~29% of the card's
+ * width — the "black space behind" the owner flagged. Panels now widen to
+ * fill the card and the compositor cover-crops each capture into them
+ * (face-biased, see CROP_FOCUS_Y): 2 shots stay portrait (4:5) so a pair
+ * reads like two big moments; 3 shots go gently landscape (5:4) so the
+ * classic strip fills the card edge to edge.
+ */
+export function stripPanelAspect(shots: number): number {
+  return shots <= 2 ? 4 / 5 : 5 / 4;
 }
 
 /**
  * Lay `shots` panels down a 9:16 card.
  *
- * The panels are the SAME aspect as the source captures (9:16) so nothing is
- * distorted — which means the strip cannot simply divide the height. Instead
- * the panel width is derived from the height each panel may occupy, and the
- * whole stack is centred horizontally. A 3-panel strip on 1080x1920 therefore
- * lands three ~314x559 panels, each a true 9:16 crop of its capture.
+ * Panel height divides the usable column; panel width grows toward the card
+ * edges but never past `stripPanelAspect(shots)`, so captures are cropped —
+ * never stretched — and faces keep a flattering shape. The stack is centred
+ * horizontally.
  */
 export function stripLayout(width: number, height: number, shots = STRIP_SHOTS): StripLayout {
   const safeShots = Math.max(1, Math.floor(shots));
-  const pad = Math.round(width * 0.045);
+  const pad = Math.round(width * 0.04);
   const gap = Math.round(width * 0.028);
   const footerH = Math.round(height * 0.062);
 
   const usableH = height - pad * 2 - footerH - gap * (safeShots - 1);
   const panelH = Math.max(1, Math.floor(usableH / safeShots));
-  // Keep the source aspect; never stretch a capture to fill the card.
-  const panelW = Math.min(Math.round((panelH * 9) / 16), width - pad * 2);
-  const x = Math.round((width - panelW) / 2);
+  let panelW = Math.min(Math.round(panelH * stripPanelAspect(safeShots)), width - pad * 2);
+  // Keep the leftover width even, so the stack centres exactly instead of
+  // sitting half a pixel off.
+  if ((width - panelW) % 2 !== 0) panelW -= 1;
+  const x = (width - panelW) / 2;
 
   const panels: PanelRect[] = [];
   for (let i = 0; i < safeShots; i += 1) {
     panels.push({ x, y: pad + i * (panelH + gap), w: panelW, h: panelH });
   }
-  return { width, height, panels, pad, gap, footerH };
+  return { width, height, panels, pad, gap, footerH, radius: Math.round(width * 0.024) };
 }
 
 /**
@@ -117,10 +137,13 @@ export async function composeStrip(
   opts: {
     width: number;
     height: number;
-    /** Card background — the booth passes the event's noir. */
+    /** Card base colour under the gradient wash — the booth passes the event's noir. */
     background: string;
     /** Panel border / rule colour. */
     accent: string;
+    /** Event accent palette ([0] dominant) painted as the card's gradient
+     *  ambience. Omitted ⇒ the wash derives from `accent` alone. */
+    palette?: string[];
     /** Footer line; omitted when the event has no signature to add. */
     footer?: string;
   },
@@ -132,34 +155,55 @@ export async function composeStrip(
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('no 2d context for strip');
 
-  ctx.fillStyle = opts.background;
-  ctx.fillRect(0, 0, opts.width, opts.height);
+  paintCardBackground(ctx, opts.width, opts.height, opts.background, opts.palette ?? [opts.accent]);
 
   const images = await Promise.all(sources.map(loadOrNull));
 
   images.forEach((img, i) => {
     const rect = layout.panels[i];
     if (!rect) return;
+    // Soft drop shadow behind the panel, so it floats on the card instead of
+    // sitting flat against it.
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = Math.round(opts.width * 0.022);
+    ctx.shadowOffsetY = Math.round(opts.height * 0.004);
+    ctx.fillStyle = opts.background;
+    pathRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, layout.radius);
+    ctx.fill();
+    ctx.restore();
     if (img) {
       ctx.save();
-      ctx.beginPath();
-      ctx.rect(rect.x, rect.y, rect.w, rect.h);
+      pathRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, layout.radius);
       ctx.clip();
-      // Cover-fit: sources are already 9:16 like the panel, so this is a plain
-      // scale — but a caller passing an odd source still gets a crop, never a
-      // stretch.
+      // Cover-fit crop, never a stretch. Panels are wider than the 9:16
+      // captures now, so the vertical crop is biased toward the top of the
+      // frame (CROP_FOCUS_Y) — that is where the booth asks guests to keep
+      // their face.
       const srcA = img.width / img.height;
       const dstA = rect.w / rect.h;
       let sw = img.width, sh = img.height, sx = 0, sy = 0;
       if (srcA > dstA) { sw = img.height * dstA; sx = (img.width - sw) / 2; }
-      else { sh = img.width / dstA; sy = (img.height - sh) / 2; }
+      else { sh = img.width / dstA; sy = (img.height - sh) * CROP_FOCUS_Y; }
       ctx.drawImage(img, sx, sy, sw, sh, rect.x, rect.y, rect.w, rect.h);
       ctx.restore();
     }
-    ctx.strokeStyle = opts.accent;
+    ctx.strokeStyle = hexToRgba(opts.accent, 0.75);
     ctx.lineWidth = Math.max(1, Math.round(opts.width * 0.003));
-    ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+    pathRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, layout.radius);
+    ctx.stroke();
   });
+
+  // A hairline card border ties the composition together — the strip reads as
+  // a designed keepsake rather than photos pasted on a void.
+  ctx.strokeStyle = hexToRgba(opts.accent, 0.3);
+  ctx.lineWidth = Math.max(2, Math.round(opts.width * 0.002));
+  const inset = Math.round(layout.pad * 0.45);
+  pathRoundedRect(
+    ctx, inset, inset, opts.width - inset * 2, opts.height - inset * 2,
+    Math.round(opts.width * 0.032),
+  );
+  ctx.stroke();
 
   if (opts.footer) {
     const last = layout.panels[layout.panels.length - 1];
@@ -172,6 +216,85 @@ export async function composeStrip(
   }
 
   return canvas.toDataURL('image/jpeg', 0.9);
+}
+
+/** Vertical bias of the cover-crop: keep the band starting 30% into the
+ *  leftover height, because faces sit above centre in a booth capture. */
+const CROP_FOCUS_Y = 0.3;
+
+/**
+ * Card ambience: base fill, then a vertical wash and two radial glows drawn
+ * from the event's accent palette — the canvas approximation of the app's
+ * liquid-glass look. Pure gradients, no external assets, so it can never fail
+ * a strip.
+ */
+function paintCardBackground(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  base: string,
+  palette: string[],
+) {
+  const a0 = palette[0] ?? '#E8C766';
+  const a1 = palette[1] ?? a0;
+  const a2 = palette[2] ?? a1;
+
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, w, h);
+
+  const wash = ctx.createLinearGradient(0, 0, 0, h);
+  wash.addColorStop(0, hexToRgba(a2, 0.2));
+  wash.addColorStop(0.45, hexToRgba(a0, 0.06));
+  wash.addColorStop(1, hexToRgba(a1, 0.16));
+  ctx.fillStyle = wash;
+  ctx.fillRect(0, 0, w, h);
+
+  let glow = ctx.createRadialGradient(w * 0.18, h * 0.06, 0, w * 0.18, h * 0.06, w * 0.9);
+  glow.addColorStop(0, hexToRgba(a0, 0.22));
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+
+  glow = ctx.createRadialGradient(w * 0.85, h * 0.97, 0, w * 0.85, h * 0.97, w * 0.8);
+  glow.addColorStop(0, hexToRgba(a1, 0.18));
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+}
+
+/**
+ * `#RGB` / `#RRGGBB` → `rgba(r,g,b,a)`. An unparseable value falls back to the
+ * platform's warm gold rather than throwing mid-composite — the same default
+ * the booth already uses when an event has no accent palette.
+ */
+export function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
+  if (m === null) return hexToRgba('#E8C766', alpha);
+  let s = m[1];
+  if (s.length === 3) s = s.split('').map((c) => c + c).join('');
+  const n = parseInt(s, 16);
+  const a = Math.min(1, Math.max(0, alpha));
+  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, ${a})`;
+}
+
+/** Manual rounded-rect path — `ctx.roundRect` is still missing from some
+ *  in-app browsers the booth runs in. */
+function pathRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+) {
+  const rad = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + rad, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rad);
+  ctx.arcTo(x + w, y + h, x, y + h, rad);
+  ctx.arcTo(x, y + h, x, y, rad);
+  ctx.arcTo(x, y, x + w, y, rad);
+  ctx.closePath();
 }
 
 function loadOrNull(src: string): Promise<HTMLImageElement | null> {

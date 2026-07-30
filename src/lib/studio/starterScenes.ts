@@ -9,9 +9,16 @@
  * was "Add a frame or sticker", and the only "templates" in the dock were ones
  * the host had already made themselves. So the fastest route to something that
  * looked designed was the AI Director — i.e. spending credits before seeing a
- * single result. These presets cost ZERO credits and ZERO network: every asset
- * is a built-in already bundled in the app (BUILTIN_BORDERS SVGs, the shader
- * catalogue, the procedural head pieces).
+ * single result.
+ *
+ * These presets still cost ZERO CREDITS, and every asset ships WITH THE APP:
+ * BUILTIN_BORDERS SVGs and the shader catalogue are inlined, and the three
+ * Meshy-modelled props are same-origin files under public/models/props.
+ * "Zero network" is no longer literally true for those three — a GLB is a real
+ * fetch — so `starterPropUrls()` exists to warm them through the shared GLB
+ * cache before the piece is needed. Same-origin is the load-bearing part: a
+ * third-party CDN on the booth's critical path is exactly what cost the AR
+ * layer on bad venue wifi once already (see face_landmarker in CLAUDE.md).
  *
  * GENERIC BY MANDATE (owner, verbatim): "make sure we remove all the hard-coded
  * templates, like the SCAGO gala or any that have specific branding for any of
@@ -25,6 +32,7 @@
  */
 import { BORDER_MAP, toDataUrl } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
+import { BUNDLED_PROP_MAP, propAnchorConfig } from './bundledProps';
 import {
   createObject3D,
   createOverlay,
@@ -33,7 +41,7 @@ import {
   type StudioDraft,
   type StudioObject,
 } from './state';
-import type { Transform2D } from '../../types';
+import type { HeadAnchor, Transform2D } from '../../types';
 
 /** A sticker placed within a starter scene, with its composed position. */
 export interface StarterSticker {
@@ -48,15 +56,38 @@ export interface StarterScene {
   name: string;
   /** One line the host reads before clicking — what this scene feels like. */
   blurb: string;
-  /** Two swatch colours for the gallery card, so it reads at thumbnail size. */
+  /**
+   * Bundled sample of what this scene actually produces: a photographic booth
+   * shot graded like the scene's filter and wearing its 3D piece, with the
+   * scene's OWN frame and sticker layers composited over it at the exact
+   * transforms `buildStarterDraft` produces. Two gradient swatches could say
+   * "gold" or "neon" but never which frame, which filter or which prop was
+   * coming — so the card showed a colour where the host needed a picture.
+   *
+   * App-absolute so it resolves identically on the platform build and the
+   * legacy single-event builds. The colocated test asserts the file exists in
+   * public/, so a scene can never ship pointing at a 404.
+   */
+  preview: string;
+  /** Two swatch colours, still used as the card's fallback tint while the
+   *  preview decodes and if it ever fails to load. */
   swatch: [string, string];
   /** BUILTIN_BORDERS id with kind 'border'. Optional — a scene may be frameless. */
   frameId?: string;
   stickers?: StarterSticker[];
   /** Shader catalogue id, or omitted for no scene filter. */
   shaderId?: string;
-  /** HEAD_PIECES id. */
+  /** HEAD_PIECES id — a procedural piece, used only when `propId` is absent. */
   headPieceId?: string;
+  /**
+   * BUNDLED_PROPS id (bundledProps.ts), used INSTEAD of `headPieceId`.
+   *
+   * Referenced by id rather than inlined so the studio library and the starter
+   * scenes serve the SAME prop. Inlining it here first time round is what let
+   * the library keep handing out the old procedural crown while the cards
+   * promised the new one.
+   */
+  propId?: string;
 }
 
 /**
@@ -68,6 +99,7 @@ export const STARTER_SCENES: StarterScene[] = [
     id: 'gold-classic',
     name: 'Gold Classic',
     blurb: 'A warm gold border with corner flourishes and a soft golden glow.',
+    preview: '/starters/gold-classic.webp',
     swatch: ['#E8C766', '#7A5A18'],
     frameId: 'frame-classic-gold',
     stickers: [{ borderId: 'dw-corners' }],
@@ -77,35 +109,44 @@ export const STARTER_SCENES: StarterScene[] = [
     id: 'neon-night',
     name: 'Neon Night',
     blurb: 'Neon tube frame, pulsing colour and a pair of glowing shades.',
+    preview: '/starters/neon-night.webp',
     swatch: ['#FF3DDA', '#22E7FF'],
     frameId: 'jj-neon-frame',
     shaderId: 'neon-pulse',
-    headPieceId: 'neon-shades',
+    propId: 'prop-neon-shades',
   },
   {
     id: 'confetti-party',
     name: 'Confetti Party',
     blurb: 'Clean inset frame, falling gold confetti and a crown on every guest.',
+    preview: '/starters/confetti-party.webp',
     swatch: ['#FFD966', '#2A2033'],
     frameId: 'frame-minimal-plain',
     stickers: [{ borderId: 'overlay-confetti' }],
     shaderId: 'champagne-sparkle',
-    headPieceId: 'royal-crown',
+    propId: 'prop-royal-crown',
   },
   {
     id: 'deco-glam',
     name: 'Deco Glam',
     blurb: 'Art-deco lines, a holographic shimmer and a tiara.',
+    preview: '/starters/deco-glam.webp',
     swatch: ['#C9A227', '#1B2A4A'],
     frameId: 'frame-deco-plain',
-    stickers: [{ borderId: 'sticker-crown-plain', transform: { y: -30, scale: 0.8 } }],
+    // The Golden Crown sticker that used to sit here drew ZERO pixels: its
+    // art occupies y 40-177 of a 960-tall card, and `y: -30` lifts it 30% of
+    // the card height (288px) — entirely off the top edge. Measured, not
+    // guessed. It was an invisible layer that still took a slot in the
+    // 20-object scene cap and a row in Scene layers, and the blurb never
+    // promised a crown anyway (the tiara below is the scene's head piece).
     shaderId: 'prismatic-holo',
-    headPieceId: 'queen-tiara',
+    propId: 'prop-queens-tiara',
   },
   {
     id: 'soft-portrait',
     name: 'Soft Portrait',
     blurb: 'A quiet hexagon frame with cinematic film grain — flattering on everyone.',
+    preview: '/starters/soft-portrait.webp',
     swatch: ['#D8C7A8', '#3A3630'],
     frameId: 'frame-hexagon-plain',
     shaderId: 'velvet-film',
@@ -114,15 +155,17 @@ export const STARTER_SCENES: StarterScene[] = [
     id: 'halo-light',
     name: 'Halo Light',
     blurb: 'Golden light shafts, a simple gold border and a glowing halo.',
+    preview: '/starters/halo-light.webp',
     swatch: ['#FFE9A8', '#4A3A12'],
     frameId: 'dw-frame-classic',
     shaderId: 'aureate-god-rays',
-    headPieceId: 'hope-halo',
+    propId: 'prop-halo-ring',
   },
   {
     id: 'equalizer-live',
     name: 'Equalizer',
     blurb: 'A music-bar frame with a laser sparkle — made for a dance floor.',
+    preview: '/starters/equalizer-live.webp',
     swatch: ['#5BFF9A', '#12203A'],
     frameId: 'jj-equalizer',
     stickers: [{ borderId: 'overlay-confetti', transform: { scale: 0.9 } }],
@@ -138,9 +181,34 @@ export const STARTER_SCENE_MAP: Record<string, StarterScene> = Object.fromEntrie
 export function starterAssetIds(scene: StarterScene): { borders: string[]; pieces: string[]; shaders: string[] } {
   return {
     borders: [...(scene.frameId ? [scene.frameId] : []), ...(scene.stickers ?? []).map((s) => s.borderId)],
-    pieces: scene.headPieceId ? [scene.headPieceId] : [],
+    // Bundled props are named here too, so the colocated "never names a legacy
+    // event" check inspects their file names and labels as well — otherwise a
+    // branded prop could enter the library through a door the test does not
+    // watch.
+    pieces: [
+      ...(scene.headPieceId ? [scene.headPieceId] : []),
+      ...(scene.propId && BUNDLED_PROP_MAP[scene.propId]
+        ? [BUNDLED_PROP_MAP[scene.propId].url, BUNDLED_PROP_MAP[scene.propId].name]
+        : []),
+    ],
     shaders: scene.shaderId ? [scene.shaderId] : [],
   };
+}
+
+/** Every bundled prop GLB a starter scene can pull in — the preload list. */
+export function starterPropUrls(): string[] {
+  return Array.from(new Set(
+    STARTER_SCENES.flatMap((s) => {
+      const p = s.propId ? BUNDLED_PROP_MAP[s.propId] : undefined;
+      return p ? [p.url] : [];
+    }),
+  ));
+}
+
+/** The prop URL a scene loads, or null when it uses a procedural piece. */
+export function starterPropUrl(scene: StarterScene): string | null {
+  const p = scene.propId ? BUNDLED_PROP_MAP[scene.propId] : undefined;
+  return p ? p.url : null;
 }
 
 /**
@@ -185,7 +253,16 @@ export function buildStarterDraft(sceneId: string): StudioDraft | null {
     }));
   }
 
-  if (preset.headPieceId) {
+  const bundled = preset.propId ? BUNDLED_PROP_MAP[preset.propId] : undefined;
+  if (bundled) {
+    objects.push(createObject3D('model', {
+      assetUrl: bundled.url,
+      name: bundled.name,
+      anchor: bundled.anchor,
+      finish: bundled.finish,
+      anchorConfig: propAnchorConfig(bundled),
+    }));
+  } else if (preset.headPieceId) {
     const p = HEAD_PIECE_MAP[preset.headPieceId];
     if (p) {
       objects.push(createObject3D('headpiece', {
