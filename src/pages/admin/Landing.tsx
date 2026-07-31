@@ -37,9 +37,9 @@ import {
   resolveMediaUrl,
   FAQ_MAX,
   AUDIENCE_MAX,
-  HIGHLIGHT_MAX,
   type LandingContent,
 } from '../../lib/landingContent';
+import { HERO_SLOT_IMAGES } from '../../lib/landingAssets';
 import { uploadLandingMedia } from '../../lib/landingMedia';
 
 const input =
@@ -95,11 +95,15 @@ function MediaSlot({
   kind,
   value,
   onChange,
+  fallbackPreview,
 }: {
   label: string;
   kind: 'image' | 'video';
   value: string | undefined;
   onChange: (url: string | undefined) => void;
+  /** The bundled asset this slot falls back to, so "no override" SHOWS what the
+   *  public page will render instead of only saying that it has one. */
+  fallbackPreview?: string;
 }) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -171,7 +175,12 @@ function MediaSlot({
             Stored override is not a valid {kind} URL — the public page will fall back to the bundled default.
           </p>
         ) : (
-          <p className="font-sans text-xs text-brand-muted/50">Using the bundled default shipped with the app.</p>
+          <>
+            {fallbackPreview !== undefined && (
+              <img src={fallbackPreview} alt="" className="max-h-32 rounded-lg border border-white/10 object-contain" />
+            )}
+            <p className="mt-1.5 font-sans text-xs text-brand-muted/50">Using the bundled default shipped with the app.</p>
+          </>
         )}
       </div>
     </div>
@@ -288,6 +297,8 @@ export default function AdminLanding() {
     setDraft((d) => (d === null ? d : { ...d, howSteps: d.howSteps.map((s, j) => (j === i ? { ...s, ...p } : s)) }));
   const patchFeature = (i: number, p: Partial<LandingContent['features'][number]>) =>
     setDraft((d) => (d === null ? d : { ...d, features: d.features.map((f, j) => (j === i ? { ...f, ...p } : f)) }));
+  const patchHeroSlot = (i: number, p: Partial<LandingContent['heroSlots'][number]>) =>
+    setDraft((d) => (d === null ? d : { ...d, heroSlots: d.heroSlots.map((s, j) => (j === i ? { ...s, ...p } : s)) }));
   const patchEventType = (i: number, p: Partial<LandingContent['eventTypes'][number]>) =>
     setDraft((d) => (d === null ? d : { ...d, eventTypes: d.eventTypes.map((e, j) => (j === i ? { ...e, ...p } : e)) }));
   const patchClosing = (p: Partial<LandingContent['closing']>) =>
@@ -395,6 +406,36 @@ export default function AdminLanding() {
                   onChange={(v) => patchHero({ secondaryCta: v })}
                 />
               </div>
+              <Field
+                label="Caption under the frame carousel"
+                value={draft.hero.carouselCaption}
+                onChange={(v) => patchHero({ carouselCaption: v })}
+              />
+            </Section>
+
+            <Section title="Hero frames" hint="6 fixed cards — one per event type">
+              <div className="flex items-start gap-2.5 rounded-xl border border-white/[0.06] px-3 py-2.5">
+                <Info className="w-4 h-4 shrink-0 text-brand-muted/50 mt-0.5" />
+                <p className="font-sans text-xs leading-relaxed text-brand-muted/60">
+                  The photos shipped with the app are <strong className="text-brand-fg/80">AI-generated illustrations</strong> of
+                  each event type — not photographs of real events. Keep the caption above honest about that, or replace a
+                  card with your own photo. The frame design, glow colour and card order are code, not content.
+                </p>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                {draft.heroSlots.map((s, i) => (
+                  <div key={i} className="rounded-xl border border-white/[0.06] p-3 space-y-3">
+                    <Field label={`Frame ${i + 1} — event type`} value={s.label} onChange={(v) => patchHeroSlot(i, { label: v })} />
+                    <MediaSlot
+                      label="Card photo"
+                      kind="image"
+                      value={s.imageUrl}
+                      onChange={(url) => patchHeroSlot(i, { imageUrl: url })}
+                      fallbackPreview={HERO_SLOT_IMAGES[i]}
+                    />
+                  </div>
+                ))}
+              </div>
             </Section>
 
             <Section title="How it works" hint="3 fixed steps">
@@ -421,21 +462,18 @@ export default function AdminLanding() {
                     <Field label="Eyebrow" value={f.eyebrow} onChange={(v) => patchFeature(i, { eyebrow: v })} />
                     <Field label="Title" value={f.title} onChange={(v) => patchFeature(i, { title: v })} />
                   </div>
-                  <Field label="One-liner" multiline value={f.copy} onChange={(v) => patchFeature(i, { copy: v })} />
                   <Field
-                    label={`Highlights (one per line, max ${HIGHLIGHT_MAX})`}
+                    label="Hook — ONE sentence, then the film"
                     multiline
-                    value={f.highlights.join('\n')}
-                    onChange={(v) =>
-                      patchFeature(i, {
-                        highlights: v
-                          .split('\n')
-                          .map((h) => h.trim())
-                          .filter((h) => h !== '')
-                          .slice(0, HIGHLIGHT_MAX),
-                      })
-                    }
+                    value={f.copy}
+                    onChange={(v) => patchFeature(i, { copy: v })}
+                    placeholder="One outcome sentence, under ~90 characters"
                   />
+                  {/* The keyword "highlights" row was removed from the public
+                      page (and from the stored shape) on the owner's
+                      instruction: it restated the film's own on-screen
+                      callouts. Old drafts may still carry the key; it is
+                      dropped on load and never written back. */}
                   <div className="grid lg:grid-cols-3 gap-3">
                     <MediaSlot label="Feature film" kind="video" value={f.videoUrl} onChange={(url) => patchFeature(i, { videoUrl: url })} />
                     <MediaSlot label="Film poster" kind="image" value={f.posterUrl} onChange={(url) => patchFeature(i, { posterUrl: url })} />

@@ -14,10 +14,10 @@
  * component owns scrolling via its root (h-full overflow-y-auto). All
  * ScrollTriggers therefore pass that root as their `scroller`.
  */
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
 import ReportIssueButton from '../components/support/ReportIssueButton';
-import { Check, ChevronDown, Play } from 'lucide-react';
+import { Check, ChevronDown, Pause, Play } from 'lucide-react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import SpectrumField from '../components/ui/SpectrumField';
@@ -67,7 +67,7 @@ const InteractiveShowcase = lazy(() => import('../components/landing/Interactive
 
 /* ── Content ────────────────────────────────────────────────────────── */
 
-/* Feature COPY (eyebrow/title/one-liner/highlights) now lives in
+/* Feature COPY (eyebrow/title/one-sentence hook) now lives in
  * src/lib/landingContent.ts (CMS-overridable, defaults = the shipped strings).
  * What stays here is PRESENTATION — icons, gradient colors, the decor
  * discriminator and the BUNDLED media imports the CMS falls back to. These are
@@ -260,8 +260,12 @@ function EventTypeCard({
   const src = resolveMediaUrl(content.imageUrl, 'image') ?? image;
   const showImage = src !== undefined && failedSrc !== src;
   return (
+    // Hover lift in the .pressable idiom (same easing curve, opposite
+    // direction): the tile rises toward the visitor and its own colour blooms
+    // inside the border. motion-safe keeps the movement off under
+    // prefers-reduced-motion — the glow alone still answers the pointer.
     <div
-      className="group relative aspect-[4/3] overflow-hidden rounded-2xl border border-white/10"
+      className="group relative aspect-[4/3] overflow-hidden rounded-2xl border border-white/10 transition-[transform,border-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/25 motion-safe:hover:-translate-y-1"
       style={{ boxShadow: `0 0 30px -10px rgba(${rgb}, 0.4), 0 18px 44px -20px rgba(0,0,0,0.7)` }}
     >
       {showImage ? (
@@ -283,6 +287,13 @@ function EventTypeCard({
         />
       )}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
+      {/* The tile's own colour blooming inward on hover. An inset ring rather
+          than an outer glow because the card clips its overflow. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        style={{ boxShadow: `inset 0 0 0 1px rgba(${rgb}, 0.5), inset 0 0 34px -8px rgba(${rgb}, 0.75)` }}
+      />
       <div className="absolute inset-x-0 bottom-0 p-3.5 sm:p-4">
         <p className="font-serif text-base leading-tight text-brand-fg sm:text-lg">{content.label}</p>
         <p className="mt-0.5 text-[11px] text-brand-muted/80 sm:text-xs">{content.blurb}</p>
@@ -303,47 +314,126 @@ const GHOST_FRAMES = [
 /* ── Building blocks ────────────────────────────────────────────────── */
 
 /**
- * Film embed with managed playback: plays only while ~40% in view, pauses
- * offscreen. Five looping videos on one page would otherwise decode (and
- * drain batteries) simultaneously — iOS Safari also caps concurrent video
- * pipelines, which silently freezes whichever films exceed the cap.
+ * Film embed with managed playback: plays while ≥25% in view, pauses offscreen.
+ * Five looping videos on one page would otherwise decode (and drain batteries)
+ * simultaneously — iOS Safari also caps concurrent video pipelines, which
+ * silently freezes whichever films exceed the cap.
+ *
+ * CONTROLS (owner directive, round 7): "there should be play and pause, thats
+ * it. even then make it subtle and bottom right of the video." So the native
+ * control bar is gone — including the reduced-motion branch that used to show
+ * it — replaced by ONE glass chip in the bottom-right corner. No timeline, no
+ * mute, no fullscreen, no PiP.
+ *
+ * Two rules make that chip trustworthy:
+ *   1. Its icon reflects the ELEMENT's state, read from the video's own
+ *      play/pause events — never a flag this component set optimistically. An
+ *      autoplay rejection, an offscreen pause and an iOS interruption all move
+ *      the icon without any of them going through our click handler.
+ *   2. `userPaused` is explicit and sticky: once a visitor pauses a film,
+ *      scrolling away and back must NOT restart it. Pressing play clears it.
  */
 function FilmEmbed({ src, poster, label }: { src: string; poster: string; label: string }) {
   const ref = useRef<HTMLVideoElement>(null);
-  // prefers-reduced-motion: never autoplay — the poster stays, and native
-  // controls let the visitor play the film deliberately instead.
+  // prefers-reduced-motion: never autoplay. The same subtle chip is the way in.
   const [reducedMotion] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   );
+  const [playing, setPlaying] = useState(false);
+  const userPaused = useRef(false);
+  const intersecting = useRef(false);
+
   useLayoutEffect(() => {
-    if (reducedMotion) return;
     const el = ref.current;
-    if (!el || typeof IntersectionObserver === 'undefined') return;
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) el.play().catch(() => { /* autoplay blocked — poster stays */ });
-        else el.pause();
-      },
-      // 0.25 (was 0.4): the film starts playing DURING its screen-tilt
-      // entrance rather than after it settles — "the video plays as it tilts".
-      { threshold: 0.25 },
-    );
-    io.observe(el);
-    return () => io.disconnect();
+    if (el === null) return;
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
+    el.addEventListener('play', onPlay);
+    el.addEventListener('pause', onPause);
+
+    const tryPlay = () => {
+      if (reducedMotion || userPaused.current || !intersecting.current) return;
+      void el.play().catch(() => { /* autoplay refused — the chip is the way in */ });
+    };
+    // iOS Safari can reject the FIRST play() on a preload="metadata" element
+    // that has no decodable frame yet, and nothing retries afterwards — which
+    // is exactly the "native controls over a frozen poster" state the owner
+    // photographed. Retry once the element says it has data.
+    el.addEventListener('canplay', tryPlay);
+    el.addEventListener('loadeddata', tryPlay);
+
+    let io: IntersectionObserver | undefined;
+    if (typeof IntersectionObserver === 'undefined') {
+      // No observer available: treat the film as in view so it still autoplays.
+      intersecting.current = true;
+      tryPlay();
+    } else {
+      io = new IntersectionObserver(
+        ([entry]) => {
+          intersecting.current = entry.isIntersecting;
+          // 0.25: the film starts playing DURING its screen-tilt entrance
+          // rather than after it settles — "the video plays as it tilts".
+          if (entry.isIntersecting) tryPlay();
+          else el.pause();
+        },
+        { threshold: 0.25 },
+      );
+      io.observe(el);
+    }
+    return () => {
+      el.removeEventListener('play', onPlay);
+      el.removeEventListener('pause', onPause);
+      el.removeEventListener('canplay', tryPlay);
+      el.removeEventListener('loadeddata', tryPlay);
+      io?.disconnect();
+    };
   }, [reducedMotion]);
+
+  // Branch on the ELEMENT, not on `playing` — the two can disagree for a frame,
+  // and the element is the one that decides what actually happens.
+  const toggle = () => {
+    const el = ref.current;
+    if (el === null) return;
+    if (el.paused) {
+      userPaused.current = false;
+      void el.play().catch(() => { /* nothing more to try; icon stays on Play */ });
+    } else {
+      userPaused.current = true;
+      el.pause();
+    }
+  };
+
   return (
-    <video
-      ref={ref}
-      src={src}
-      poster={poster}
-      muted
-      loop
-      playsInline
-      controls={reducedMotion}
-      preload="metadata"
-      className="block h-auto w-full"
-      aria-label={label}
-    />
+    <div className="relative">
+      <video
+        ref={ref}
+        src={src}
+        poster={poster}
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        className="block h-auto w-full"
+        aria-label={label}
+      />
+      {/* 44px hit area, 40px visual chip, resting at 55% so it decorates the
+          corner instead of competing with the film. */}
+      <button
+        type="button"
+        onClick={toggle}
+        aria-pressed={playing}
+        aria-label={playing ? 'Pause film' : 'Play film'}
+        className="absolute bottom-2 right-2 z-10 flex h-11 w-11 items-center justify-center rounded-full opacity-55 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:bottom-2.5 sm:right-2.5"
+      >
+        <span className="flex h-10 w-10 items-center justify-center rounded-full liquid-glass text-brand-fg">
+          {playing ? (
+            <Pause className="h-4 w-4 fill-current" />
+          ) : (
+            <Play className="ml-0.5 h-4 w-4 fill-current" />
+          )}
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -448,17 +538,17 @@ function FeatureSection({ feature, content }: { feature: FeaturePresentation; co
           {content.eyebrow}
         </p>
         <h2 className="mt-3 font-serif text-3xl leading-tight text-brand-fg sm:text-4xl">{content.title}</h2>
+        {/* ONE hook, then the film. The uppercase keyword strip that used to
+            sit here was removed on the owner's instruction — it restated the
+            film's own in-video callouts. Don't put a list back. */}
         <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-brand-muted/80">{content.copy}</p>
-        {/* Compact visible text alternative to the film's in-video callouts. */}
-        {content.highlights.length > 0 && (
-          <p className="mt-2 max-w-xl font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
-            {content.highlights.join(' · ')}
-          </p>
-        )}
       </div>
 
+      {/* mt-8 <sm (was mt-10): with the keyword strip gone the heading block is
+          two lines shorter, and the old gap left the film floating away from
+          its own copy on a phone. */}
       <div
-        className="relative mx-auto mt-10 w-full max-w-5xl"
+        className="relative mx-auto mt-8 w-full max-w-5xl sm:mt-10"
         style={{ perspective: '1400px' }}
         data-parallax-depth="0.06"
       >
@@ -538,14 +628,6 @@ export default function Landing() {
   usePageTitle('Beamwall · AR photo booth & live wall for events');
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  // Tri-state: null until the carousel's pools resolve. This used to start at
-  // `true` to avoid a flash from the weaker caption to the stronger one — but
-  // that meant a pulsing red LIVE dot sat over empty branded frames for the
-  // whole fetch, which is the overclaim it was trying to avoid, just earlier.
-  // Unknown now renders the modest caption and no dot; learning that the strip
-  // IS live and saying so is an honest change, in the direction that costs
-  // nobody anything if the fetch fails.
-  const [hasLiveMedia, setHasLiveMedia] = useState<boolean | null>(null);
 
   // CMS content: render the bundled defaults IMMEDIATELY (zero layout shift —
   // the defaults ARE the shipped page), then swap in validated overrides if
@@ -564,6 +646,15 @@ export default function Landing() {
       alive = false;
     };
   }, []);
+
+  // Hero frame cards: CMS labels + photo overrides, each override run through
+  // the render-boundary gate HERE so the carousel only ever receives a URL that
+  // is already safe to hand to <img src>. A refused one becomes undefined and
+  // the card falls back to its bundled illustration. Fixed length 6.
+  const heroSlots = useMemo(
+    () => content.heroSlots.map((s) => ({ label: s.label, imageUrl: resolveMediaUrl(s.imageUrl, 'image') })),
+    [content.heroSlots],
+  );
 
   // Scroll choreography. [data-reveal="up|left|right"] slide in on entry,
   // [data-reveal-stagger] cascades its children, [data-parallax-depth] drifts
@@ -859,24 +950,21 @@ export default function Landing() {
               </div>
             </div>
 
-            {/* Focal visual — a live, auto-scrolling coverflow of real event
-                frames streaming actual moderated moments from those events'
-                walls. mt-12 on mobile keeps it clear of the hero fine print. */}
-            {/* sm:mt-12 clears the hero fine print — the coverflow's focal card
-                scales up + lifts, so its top edge rises above the strip. */}
+            {/* Focal visual — an auto-scrolling coverflow of signature frame
+                designs, one per kind of event. sm:mt-12 clears the hero fine
+                print: the coverflow's focal card scales up + lifts, so its top
+                edge rises above the strip. */}
             <div className="relative z-10 mt-10 w-full max-w-6xl sm:mt-12" data-parallax-depth="0.08">
-              <LiveHeroCarousel className="w-full" onHasMedia={setHasLiveMedia} />
+              <LiveHeroCarousel className="w-full" slots={heroSlots} />
             </div>
-            {/* Prominent proof line — this strip is real events, not stock. */}
+            {/* Caption. The old line claimed "Live moments from real Beamwall
+                events" behind a pulsing LIVE dot, driven by whether a posts
+                fetch happened to return anything. The cards now carry bundled
+                AI illustrations, so the caption states what is actually true —
+                these are the frame styles, dressed for each kind of event. */}
             <div className="mt-5 flex items-center justify-center">
-              <p className="flex items-center gap-2.5 rounded-full liquid-glass px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg/85 sm:text-[11px]">
-                {hasLiveMedia === true && (
-                  <span className="relative flex h-2 w-2" aria-hidden>
-                    <span className="absolute inline-flex h-full w-full motion-safe:animate-ping rounded-full bg-rose-400 opacity-60" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-400" />
-                  </span>
-                )}
-                {hasLiveMedia === true ? 'Live moments from real Beamwall events' : 'Frame styles from real Beamwall events'}
+              <p className="rounded-full liquid-glass px-5 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg/85 sm:text-[11px]">
+                {content.hero.carouselCaption}
               </p>
             </div>
           </section>

@@ -5,7 +5,6 @@ import {
   resolveMediaUrl,
   FAQ_MAX,
   AUDIENCE_MAX,
-  HIGHLIGHT_MAX,
 } from './landingContent';
 
 const SUPA_IMG =
@@ -28,7 +27,8 @@ describe('normalizeLandingContent — total function', () => {
   it('hostile nested junk degrades per-field, never throws', () => {
     const out = normalizeLandingContent({
       hero: { tagline: {}, badge: ['x'], primaryCta: 7 },
-      features: [{ videoUrl: 'javascript:alert(1)', title: null, highlights: [1, {}, null] }],
+      features: [{ videoUrl: 'javascript:alert(1)', title: null }],
+      heroSlots: [{ label: [], imageUrl: 'javascript:alert(1)' }, 7, null],
       howSteps: [{ title: 12, body: () => 0 }],
       eventTypes: 'zip',
       closing: { title: false },
@@ -42,8 +42,29 @@ describe('normalizeLandingContent — total function', () => {
     // The hostile videoUrl survives normalize as a string but is REJECTED at
     // the render boundary — resolveMediaUrl is the gate.
     expect(resolveMediaUrl(out.features[0].videoUrl, 'video')).toBeUndefined();
-    // Junk-only highlights degrade to the defaults, not to [].
-    expect(out.features[0].highlights).toEqual(DEFAULT_LANDING_CONTENT.features[0].highlights);
+    // Same gate for a hero frame photo: stored, then refused → bundled default.
+    expect(out.heroSlots).toHaveLength(6);
+    expect(out.heroSlots[0].label).toBe(DEFAULT_LANDING_CONTENT.heroSlots[0].label);
+    expect(resolveMediaUrl(out.heroSlots[0].imageUrl, 'image')).toBeUndefined();
+  });
+
+  it('an old blob that still carries highlights normalizes cleanly (round-7 removal)', () => {
+    // Anything published before the highlights strip was removed still has the
+    // key in the DB. It must be dropped silently, never rendered, never thrown on.
+    const stored = {
+      features: [
+        { id: 'booth', copy: 'Kept copy', highlights: ['Face-tracked 3D props', 'Live effects & frames'] },
+        { id: 'wall', highlights: 'not even an array' },
+        { id: 'challenges', highlights: [] },
+        { id: 'cards', highlights: [{ nested: 'junk' }] },
+      ],
+    };
+    const out = normalizeLandingContent(stored);
+    expect(out.features).toHaveLength(4);
+    expect(out.features[0].copy).toBe('Kept copy');
+    for (const f of out.features) expect('highlights' in f).toBe(false);
+    // Everything else in those entries still falls back to the shipped copy.
+    expect(out.features[1]).toEqual(DEFAULT_LANDING_CONTENT.features[1]);
   });
 
   it('a valid partial override merges per-field and keeps the rest', () => {
@@ -74,16 +95,52 @@ describe('normalizeLandingContent — total function', () => {
       howSteps: [{}, {}, {}, { title: 'step 4?' }, {}],
       features: [{}, {}, {}, {}, { id: 'extra' }],
       eventTypes: new Array(20).fill({ label: 'x', blurb: 'y' }),
+      heroSlots: new Array(20).fill({ label: 'x' }),
     });
     expect(grow.howSteps).toHaveLength(3);
     expect(grow.features).toHaveLength(4);
     expect(grow.eventTypes).toHaveLength(6);
+    expect(grow.heroSlots).toHaveLength(6);
 
-    const shrink = normalizeLandingContent({ howSteps: [], features: [{ id: 'cards' }], eventTypes: [{}] });
+    const shrink = normalizeLandingContent({
+      howSteps: [],
+      features: [{ id: 'cards' }],
+      eventTypes: [{}],
+      heroSlots: [{ label: 'Only one' }],
+    });
     expect(shrink.howSteps).toHaveLength(3);
     expect(shrink.features).toHaveLength(4);
     expect(shrink.eventTypes).toHaveLength(6);
+    expect(shrink.heroSlots).toHaveLength(6);
     expect(shrink.features.map((f) => f.id)).toEqual(['booth', 'wall', 'challenges', 'cards']);
+    // Slot 0 took the override; slots 1-5 kept their shipped event-type labels.
+    expect(shrink.heroSlots[0].label).toBe('Only one');
+    expect(shrink.heroSlots.slice(1)).toEqual(DEFAULT_LANDING_CONTENT.heroSlots.slice(1));
+  });
+
+  it('hero frame slots merge by index and gate their photo overrides', () => {
+    const out = normalizeLandingContent({
+      hero: { carouselCaption: '  Our own caption  ' },
+      heroSlots: [{}, { label: 'Vow renewal', imageUrl: SUPA_IMG }, {}, {}, {}, { imageUrl: SUPA_VIDEO }],
+    });
+    expect(out.hero.carouselCaption).toBe('Our own caption'); // trimmed
+    expect(out.heroSlots[1]).toEqual({ label: 'Vow renewal', imageUrl: SUPA_IMG });
+    expect(resolveMediaUrl(out.heroSlots[1].imageUrl, 'image')).toBe(SUPA_IMG);
+    // A film dropped into a photo slot is stored but refused at the boundary,
+    // so the card falls back to its bundled illustration.
+    expect(resolveMediaUrl(out.heroSlots[5].imageUrl, 'image')).toBeUndefined();
+    // Untouched slots carry no imageUrl key at all (bundled default).
+    expect('imageUrl' in out.heroSlots[0]).toBe(false);
+  });
+
+  it('the feature hooks stay one short sentence, never a feature list', () => {
+    // Owner directive (round 7): "Just a nice one sentence hook then video".
+    for (const f of DEFAULT_LANDING_CONTENT.features) {
+      expect(f.copy.length, f.id).toBeLessThanOrEqual(90);
+      expect(f.copy, f.id).not.toContain(' · '); // the removed highlights separator
+      // One sentence: at most one terminal full stop, and it ends the string.
+      expect(f.copy.split('. ').length, f.id).toBe(1);
+    }
   });
 
   it('faqs and audiences are variable but capped, and junk rows are dropped', () => {
@@ -111,16 +168,18 @@ describe('normalizeLandingContent — total function', () => {
     expect(out.audiences).toEqual([]);
   });
 
-  it('strings are length-capped (titles 200, bodies 1000, highlights 200 × max 6)', () => {
+  it('strings are length-capped (titles 200, bodies 1000)', () => {
     const long = 'x'.repeat(5000);
     const out = normalizeLandingContent({
-      hero: { badge: long, tagline: long },
-      features: [{ id: 'booth', highlights: new Array(10).fill(long) }],
+      hero: { badge: long, tagline: long, carouselCaption: long },
+      features: [{ id: 'booth', copy: long }],
+      heroSlots: [{ label: long }],
     });
     expect(out.hero.badge).toHaveLength(200);
     expect(out.hero.tagline).toHaveLength(1000);
-    expect(out.features[0].highlights).toHaveLength(HIGHLIGHT_MAX);
-    for (const h of out.features[0].highlights) expect(h).toHaveLength(200);
+    expect(out.hero.carouselCaption).toHaveLength(200);
+    expect(out.features[0].copy).toHaveLength(1000);
+    expect(out.heroSlots[0].label).toHaveLength(200);
   });
 
   it('normalize(DEFAULT) is a fixed point — defaults survive a round trip', () => {

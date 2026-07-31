@@ -3,15 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * LiveHeroCarousel — the Landing hero's focal visual: a continuously
- * auto-scrolling, angled "coverflow" strip of real event frames, each streaming
- * live moderated moments from that event's actual live wall.
+ * auto-scrolling, angled "coverflow" strip of signature frame designs, one per
+ * kind of event Beamwall is built for.
  *
- * Content is pulled live from the real events' `posts` (approved + non-hidden
- * only) and cycled at random inside their real frame designs (Jenna & Jake's
- * neon festival, Detola & Wuyi's green-and-gold, the Hope Gala's classic gold).
- * When live data can't be reached (e.g. the marketing build with no Supabase
- * creds, or an event with no posts yet) each card degrades to its frame over a
- * tasteful branded glow, so the hero always looks intentional.
+ * Each card pairs a REAL frame design with a portrait photo of that event type.
+ * The bundled photos are AI-GENERATED ILLUSTRATIONS — the strip used to pull
+ * live `posts` from the three legacy single-event sites, which both branded the
+ * platform page with somebody else's wedding and made the caption underneath a
+ * claim about real moments that an empty fetch quietly broke. Photos are now
+ * static per card, swappable per slot from /admin/landing → Hero frames, and
+ * the caption promises styling, not moments. A card whose photo fails to load
+ * falls back to its branded glow, so the hero always looks intentional.
  *
  * Motion: a rAF marquee translates a 2×-duplicated track for a seamless loop;
  * it pauses on hover and can be dragged/scrubbed by pointer. Under
@@ -19,31 +21,45 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
-import { fetchPosts } from '../../lib/db';
 import { BORDER_MAP, toDataUrl } from '../../lib/borders';
-import type { Post } from '../../types';
+import { DEFAULT_LANDING_CONTENT, type LandingHeroSlotContent } from '../../lib/landingContent';
+import {
+  HERO_BIRTHDAY,
+  HERO_WEDDING,
+  HERO_ACTIVATION,
+  HERO_CONFERENCE,
+  HERO_GALA,
+  HERO_TRADESHOW,
+} from '../../lib/landingAssets';
 
 interface Slot {
-  event: string; // events.slug — posts.event_id key
-  label: string;
+  /** Event type — pairs this card with DEFAULT_LANDING_CONTENT.heroSlots[i]. */
+  id: 'wedding' | 'gala' | 'conference' | 'birthday' | 'tradeshow' | 'activation';
   frameId: string; // BORDER_MAP id
-  /** "r, g, b" for the branded glow / empty-state fill. */
+  /** "r, g, b" for the branded glow / failed-image fill. */
   rgb: string;
+  /** Bundled illustration for this event type; a CMS override wins. */
+  defaultImage: string;
 }
 
-/** Base strip — real events × their real frames; duplicated for the loop. */
+/**
+ * Base strip — one frame design per event type, ordered so no two adjacent
+ * cards share a palette; duplicated for the loop. Frames are matched to the
+ * type their palette suits: neon pink → birthday, classic gold → wedding,
+ * hexagon green → launch party, equalizer violet → conference, art deco gold →
+ * gala, gold border → trade show.
+ *
+ * INDEX IS THE CONTRACT: slot i here is labelled by content.heroSlots[i]
+ * (src/lib/landingContent.ts). Reorder one, reorder both.
+ */
 const SLOTS: Slot[] = [
-  { event: 'jenna-jake', label: 'Jenna & Jake', frameId: 'jj-neon-frame', rgb: '236, 72, 153' },
-  { event: 'hope-gala', label: 'Hope Gala', frameId: 'frame-classic-gold', rgb: '212, 175, 55' },
-  { event: 'detola-wuyi', label: 'Detola & Wuyi', frameId: 'frame-hexagon-plain', rgb: '31, 169, 113' },
-  { event: 'jenna-jake', label: 'Jenna & Jake', frameId: 'jj-equalizer', rgb: '167, 139, 250' },
-  { event: 'hope-gala', label: 'Hope Gala', frameId: 'frame-deco-plain', rgb: '212, 175, 55' },
-  { event: 'detola-wuyi', label: 'Detola & Wuyi', frameId: 'dw-frame-classic', rgb: '212, 175, 55' },
+  { id: 'birthday', frameId: 'jj-neon-frame', rgb: '236, 72, 153', defaultImage: HERO_BIRTHDAY },
+  { id: 'wedding', frameId: 'frame-classic-gold', rgb: '212, 175, 55', defaultImage: HERO_WEDDING },
+  { id: 'activation', frameId: 'frame-hexagon-plain', rgb: '31, 169, 113', defaultImage: HERO_ACTIVATION },
+  { id: 'conference', frameId: 'jj-equalizer', rgb: '167, 139, 250', defaultImage: HERO_CONFERENCE },
+  { id: 'gala', frameId: 'frame-deco-plain', rgb: '212, 175, 55', defaultImage: HERO_GALA },
+  { id: 'tradeshow', frameId: 'dw-frame-classic', rgb: '212, 175, 55', defaultImage: HERO_TRADESHOW },
 ];
-
-interface Media {
-  url: string;
-}
 
 /**
  * The frame SVGs (1080×1920) inset their art from the artboard edges, so drawn
@@ -84,25 +100,18 @@ function useCompactViewport(): boolean {
   return compact;
 }
 
-/** One framed card that cycles its event's live media. */
-function FrameCard({ slot, pool, seed }: { slot: Slot; pool: Media[]; seed: number }) {
+/** One framed event-type card: photo, its real frame design, and a type chip. */
+function FrameCard({ slot, image, label }: { slot: Slot; image: string; label: string }) {
   const compact = useCompactViewport();
   const frameUrl = useMemo(() => {
     const border = BORDER_MAP[slot.frameId];
     return border ? toDataUrl(border.svg) : '';
   }, [slot.frameId]);
 
-  // Cycle through this event's pool at random, staggered per card so the strip
-  // doesn't flip all at once.
-  const [idx, setIdx] = useState(0);
-  useEffect(() => {
-    if (pool.length <= 1) return;
-    const period = 4200 + (seed % 5) * 600;
-    const t = setInterval(() => setIdx((i) => (i + 1) % pool.length), period);
-    return () => clearInterval(t);
-  }, [pool.length, seed]);
-
-  const media = pool.length ? pool[(idx + seed) % pool.length] : undefined;
+  // Per-src failure, so a CMS override that fails cannot permanently blank a
+  // card the bundled photo would have filled (and vice versa).
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const showImage = failedSrc !== image;
 
   return (
     // Transform is driven imperatively, per frame, by the marquee rAF loop
@@ -119,23 +128,27 @@ function FrameCard({ slot, pool, seed }: { slot: Slot; pool: Media[]; seed: numb
           boxShadow: compact
             ? `0 18px 44px -18px rgba(${slot.rgb}, 0.45)`
             : `0 0 34px -6px rgba(${slot.rgb}, 0.5), 0 30px 70px -28px rgba(0,0,0,0.85)`,
-          // With live media the photo fills the card edge-to-edge — no backdrop,
-          // so no dark ring ever shows around the frame art. The branded glow
-          // fill only paints the no-media fallback.
-          background: media
+          // The photo fills the card edge-to-edge — no backdrop, so no dark
+          // ring ever shows around the frame art. The branded glow fill only
+          // paints the failed-image fallback.
+          background: showImage
             ? undefined
             : `radial-gradient(120% 90% at 50% 24%, rgba(${slot.rgb}, 0.34), rgba(${slot.rgb}, 0.08) 58%, transparent 80%), linear-gradient(180deg, rgba(24, 26, 38, 0.92), rgba(8, 9, 15, 0.94))`,
         }}
       >
-        {/* live moment (or branded fallback) — photos only: this card is
-            ~160-208px wide and up to 12 mount at once, so an unmanaged
-            <video autoPlay> here would be an iOS decode-pipeline hazard. */}
-        {media ? (
-          <img key={media.url} src={media.url} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />
-        ) : (
-          <div className="absolute inset-0 flex items-end justify-center pb-6">
-            <span className="font-label uppercase tracking-luxe text-[9px] text-white/50">{slot.label}</span>
-          </div>
+        {/* the event-type photo — stills only: this card is ~160-208px wide and
+            12 mount at once, so an unmanaged <video autoPlay> here would be an
+            iOS decode-pipeline hazard. */}
+        {showImage && (
+          <img
+            key={image}
+            src={image}
+            alt=""
+            aria-hidden
+            loading="lazy"
+            onError={() => setFailedSrc(image)}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
         )}
         {/* the event's real frame, on top — overscanned so its art reaches the card edges */}
         {frameUrl && (
@@ -153,6 +166,15 @@ function FrameCard({ slot, pool, seed }: { slot: Slot; pool: Media[]; seed: numb
           className="pointer-events-none absolute inset-0"
           style={{ background: 'linear-gradient(168deg, rgba(255,255,255,0.10), transparent 30%)' }}
         />
+        {/* event-type chip — the whole point of the strip is that the frames
+            are styled PER KIND OF EVENT, which nothing said out loud before.
+            Sits inside the frame's lower band, above the frame art (declared
+            last), and never intercepts the drag gesture. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center pb-4 sm:pb-5">
+          <span className="rounded-full bg-black/45 px-2.5 py-1 font-label uppercase tracking-luxe text-[9px] leading-none text-white/60 backdrop-blur-[2px] sm:text-[10px]">
+            {label}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -160,37 +182,31 @@ function FrameCard({ slot, pool, seed }: { slot: Slot; pool: Media[]; seed: numb
 
 export default function LiveHeroCarousel({
   className = '',
-  onHasMedia,
+  slots = DEFAULT_LANDING_CONTENT.heroSlots,
 }: {
   className?: string;
-  /** Fired once, after the live pools resolve, with whether any event had media —
-   *  so the caller can caption the strip honestly instead of always claiming
-   *  "live moments" over what may be empty branded frames. */
-  onHasMedia?: (hasMedia: boolean) => void;
+  /** CMS labels + already-validated photo overrides, merged with SLOTS BY
+   *  INDEX. Always six entries (normalizeLandingContent guarantees it); the
+   *  default keeps this component renderable on its own. */
+  slots?: LandingHeroSlotContent[];
 }): ReactNode {
   const compact = useCompactViewport();
-  // Live media pools keyed by event slug.
-  const [pools, setPools] = useState<Record<string, Media[]>>({});
 
-  useEffect(() => {
-    let alive = true;
-    const events = Array.from(new Set(SLOTS.map((s) => s.event)));
-    Promise.all(
-      events.map(async (slug) => {
-        const posts = await fetchPosts(slug, { limit: 24 }).catch(() => [] as Post[]);
-        // Photos only — video posts are dropped here (see FrameCard note).
-        const media: Media[] = posts
-          .filter((p) => p.image_url && p.media_type !== 'video')
-          .map((p) => ({ url: p.image_url }));
-        return [slug, media] as const;
+  // Presentation (frame, glow, bundled photo) zipped with content (label,
+  // override) — an override that is absent or was refused by the render-boundary
+  // gate leaves the bundled illustration in place.
+  const resolved = useMemo(
+    () =>
+      SLOTS.map((slot, i) => {
+        const c = slots[i] ?? DEFAULT_LANDING_CONTENT.heroSlots[i];
+        return {
+          slot,
+          label: c.label,
+          image: c.imageUrl === undefined || c.imageUrl === '' ? slot.defaultImage : c.imageUrl,
+        };
       }),
-    ).then((entries) => {
-      if (!alive) return;
-      setPools(Object.fromEntries(entries));
-      onHasMedia?.(entries.some(([, media]) => media.length > 0));
-    });
-    return () => { alive = false; };
-  }, []);
+    [slots],
+  );
 
   // Marquee: rAF-translated, seamless 2× loop, pausable + draggable.
   const trackRef = useRef<HTMLDivElement>(null);
@@ -334,7 +350,7 @@ export default function LiveHeroCarousel({
     // animating the way the other viewport wanted.
   }, [compact]);
 
-  const cards = [...SLOTS, ...SLOTS]; // duplicate for the seamless wrap
+  const cards = [...resolved, ...resolved]; // duplicate for the seamless wrap
 
   return (
     <div
@@ -397,8 +413,8 @@ export default function LiveHeroCarousel({
           onPointerUp={(e) => { pendingPointer.current = null; dragging.current = false; paused.current = hoverCapable.current; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
           onPointerCancel={(e) => { pendingPointer.current = null; dragging.current = false; paused.current = hoverCapable.current; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
         >
-          {cards.map((slot, i) => (
-            <FrameCard key={`${slot.event}-${slot.frameId}-${i}`} slot={slot} pool={pools[slot.event] ?? []} seed={i} />
+          {cards.map((c, i) => (
+            <FrameCard key={`${c.slot.id}-${i}`} slot={c.slot} image={c.image} label={c.label} />
           ))}
         </div>
       </div>

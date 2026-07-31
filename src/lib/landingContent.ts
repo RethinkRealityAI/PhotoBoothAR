@@ -37,6 +37,23 @@ export interface LandingHeroContent {
   tagline: string;
   primaryCta: string;
   secondaryCta: string;
+  /** The one line under the hero frame carousel. Deliberately makes NO claim
+   *  that those photos are real event moments — the bundled defaults are
+   *  AI-generated illustrations of each event type. */
+  carouselCaption: string;
+}
+
+/**
+ * One card in the hero frame carousel. FIXED length 6 — the strip's frame
+ * designs, palettes and bundled photos are PRESENTATION (they live in
+ * LiveHeroCarousel's own SLOTS table, merged with these by INDEX), so the only
+ * editable parts are the event-type label and an optional photo override.
+ */
+export interface LandingHeroSlotContent {
+  /** The event TYPE this frame is styled for ("Wedding", "Gala night", …). */
+  label: string;
+  /** Override for the card photo; undefined = the bundled AI illustration. */
+  imageUrl?: string;
 }
 
 export interface LandingStepContent {
@@ -52,9 +69,15 @@ export interface LandingFeatureContent {
   id: LandingFeatureId;
   eyebrow: string;
   title: string;
+  /**
+   * ONE outcome sentence, then the film. It must not enumerate features and
+   * must not pre-state the film's own in-video callouts — the owner's round-7
+   * note was "just a nice one sentence hook then video ... it shows in the
+   * videos already". The uppercase keyword strip that used to sit here (a
+   * `highlights: string[]` field) is gone for that reason; do not reintroduce
+   * one. Keep these under ~90 characters (asserted in landingContent.test.ts).
+   */
   copy: string;
-  /** Keyword row under the one-liner. Rendered ' · '-joined. Max 6. */
-  highlights: string[];
   /** Overrides; undefined = the bundled film / poster / decor art. */
   videoUrl?: string;
   posterUrl?: string;
@@ -80,6 +103,9 @@ export interface LandingClosingContent {
 
 export interface LandingContent {
   hero: LandingHeroContent;
+  /** FIXED length 6 — the carousel duplicates this list for its seamless loop,
+   *  so the node count the marquee measures depends on it. */
+  heroSlots: LandingHeroSlotContent[];
   /** FIXED length 3 — the GSAP steps choreography depends on the node count. */
   howSteps: LandingStepContent[];
   /** FIXED length 4, ids booth|wall|challenges|cards in that order. */
@@ -98,7 +124,6 @@ export interface LandingContent {
 
 export const FAQ_MAX = 12;
 export const AUDIENCE_MAX = 12;
-export const HIGHLIGHT_MAX = 6;
 
 export const DEFAULT_LANDING_CONTENT: LandingContent = {
   hero: {
@@ -111,7 +136,22 @@ export const DEFAULT_LANDING_CONTENT: LandingContent = {
       'Give every guest a magical photo booth in their pocket — no app to download. Photos beam onto a live wall styled with frames and 3D magic you set up in minutes.',
     primaryCta: 'Start free',
     secondaryCta: 'Try the live demo',
+    // Honest by construction: the strip shows FRAME DESIGNS over illustrative
+    // photos, so the caption promises styling, never "real moments".
+    carouselCaption: 'Signature frames, styled for every kind of event',
   },
+  // Index order is the STRIP order, chosen so adjacent frames don't repeat a
+  // palette: neon pink → classic gold → hexagon green → equalizer violet →
+  // deco gold → gold border. LiveHeroCarousel's SLOTS table holds the matching
+  // frame id / glow / bundled photo at the same index.
+  heroSlots: [
+    { label: 'Birthday' },
+    { label: 'Wedding' },
+    { label: 'Launch party' },
+    { label: 'Conference' },
+    { label: 'Gala night' },
+    { label: 'Trade show' },
+  ],
   howSteps: [
     {
       title: 'Create your event',
@@ -126,34 +166,34 @@ export const DEFAULT_LANDING_CONTENT: LandingContent = {
       body: 'Guests snap magical photos and videos that beam onto your live wall in real time, for the whole room to watch.',
     },
   ],
+  // One outcome sentence each — never a feature list, never the film's own
+  // callouts restated ("Face-tracked 3D props & frames", "Cinematic live
+  // effects", "Live leaderboard · on the wall", "A greeting card" all live IN
+  // the films). See the note on LandingFeatureContent.copy.
   features: [
     {
       id: 'booth',
       eyebrow: 'Immersive booth',
       title: 'A photo booth that lives in every pocket',
-      copy: 'One scan drops every guest into a magical, face-tracked booth — right in their browser.',
-      highlights: ['Face-tracked 3D props', 'Live effects & frames', 'Photo or video', 'No app to download'],
+      copy: 'One scan drops every guest into a magical booth — right in their browser.',
     },
     {
       id: 'wall',
       eyebrow: 'Live photo wall',
-      title: 'Every shot beams onto the wall, live',
-      copy: 'The moment a guest captures, it beams onto a cinematic wall the whole room watches.',
-      highlights: ['Real-time beam', 'Cinematic projection', 'Your frame designs', 'Host moderation'],
+      title: 'Every shot beams onto the wall',
+      copy: 'The moment a photo lands, the whole room turns to look.',
     },
     {
       id: 'challenges',
       eyebrow: 'Challenges',
       title: 'Turn the room into the game',
-      copy: 'Set photo missions — “catch the first dance” — and the leaderboard lights the wall up.',
-      highlights: ['Photo missions', 'Points & leaderboard', 'Lights up the wall'],
+      copy: 'Give guests a mission, and watch every table race to beat it.',
     },
     {
       id: 'cards',
       eyebrow: 'Keepsake cards & guestbook',
       title: 'The morning-after keepsake',
-      copy: 'Video messages and a card everyone signs — a keepsake that outlives the night.',
-      highlights: ['Video guestbook', 'A card everyone signs', 'Keepsake after the event'],
+      copy: 'Long after the lights go up, everyone still has a piece of the night.',
     },
   ],
   eventTypes: [
@@ -294,7 +334,21 @@ function normalizeHero(raw: unknown): LandingHeroContent {
     tagline: str(r.tagline, d.tagline, BODY_MAX),
     primaryCta: str(r.primaryCta, d.primaryCta, TITLE_MAX),
     secondaryCta: str(r.secondaryCta, d.secondaryCta, TITLE_MAX),
+    carouselCaption: str(r.carouselCaption, d.carouselCaption, TITLE_MAX),
   };
+}
+
+function normalizeHeroSlots(raw: unknown): LandingHeroSlotContent[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  // FIXED length: merge by index, never grow or shrink — the carousel's marquee
+  // measures a 2× duplication of this list.
+  return DEFAULT_LANDING_CONTENT.heroSlots.map((d, i) => {
+    const r = isRecord(arr[i]) ? (arr[i] as Record<string, unknown>) : {};
+    return {
+      label: str(r.label, d.label, TITLE_MAX),
+      ...maybe('imageUrl', optionalUrl(r.imageUrl)),
+    };
+  });
 }
 
 function normalizeSteps(raw: unknown): LandingStepContent[] {
@@ -318,26 +372,15 @@ function normalizeFeatures(raw: unknown): LandingFeatureContent[] {
     const byId = arr.find((o) => isRecord(o) && o.id === d.id);
     const byIndex = isRecord(arr[i]) && (arr[i] as Record<string, unknown>).id === undefined ? arr[i] : undefined;
     const r = (byId ?? byIndex ?? {}) as Record<string, unknown>;
-    const rawHighlights = Array.isArray(r.highlights) ? r.highlights : null;
-    const filtered =
-      rawHighlights === null
-        ? null
-        : rawHighlights
-            .filter((h): h is string => typeof h === 'string' && h.trim() !== '')
-            .map((h) => h.trim().slice(0, TITLE_MAX))
-            .slice(0, HIGHLIGHT_MAX);
-    // An explicitly EMPTY list is respected (the admin cleared the row); a
-    // non-empty list that filters to nothing was junk, not intent → defaults.
-    const highlights =
-      filtered === null || (filtered.length === 0 && (rawHighlights as unknown[]).length > 0)
-        ? [...d.highlights]
-        : filtered;
+    // NOTE: blobs published before round 7 still carry a `highlights` array
+    // here. It is simply not read — the output is built field-by-field, so the
+    // key is dropped like any other unknown key (test: "an old blob that still
+    // carries highlights normalizes cleanly").
     return {
       id: d.id,
       eyebrow: str(r.eyebrow, d.eyebrow, TITLE_MAX),
       title: str(r.title, d.title, TITLE_MAX),
       copy: str(r.copy, d.copy, BODY_MAX),
-      highlights,
       ...maybe('videoUrl', optionalUrl(r.videoUrl)),
       ...maybe('posterUrl', optionalUrl(r.posterUrl)),
       ...maybe('decorImageUrl', optionalUrl(r.decorImageUrl)),
@@ -397,6 +440,7 @@ export function normalizeLandingContent(raw: unknown): LandingContent {
   const r = isRecord(raw) ? raw : {};
   return {
     hero: normalizeHero(r.hero),
+    heroSlots: normalizeHeroSlots(r.heroSlots),
     howSteps: normalizeSteps(r.howSteps),
     features: normalizeFeatures(r.features),
     eventTypes: normalizeEventTypes(r.eventTypes),
