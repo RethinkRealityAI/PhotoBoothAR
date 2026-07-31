@@ -170,9 +170,33 @@
       "path": "public/samples/lettering/logo-space-bottom.png"
     },
     {
-      "comment": "MediaPipe face_landmarker (float16 v1) — the model the booth's face tracker loads. src/lib/faceTracking.ts fetched this from storage.googleapis.com at RUNTIME, on the critical path: with no model the tracker never acquires, the head group stays invisible and no 3D renders at all, so a venue with poor wifi lost the whole AR layer. Vendored for the same reason the WASM already is; faceTracking prefers this copy and falls back to the remote one when it is absent.",
+      "comment": "MediaPipe face_landmarker (float16 v1) \u2014 the model the booth's face tracker loads. src/lib/faceTracking.ts fetched this from storage.googleapis.com at RUNTIME, on the critical path: with no model the tracker never acquires, the head group stays invisible and no 3D renders at all, so a venue with poor wifi lost the whole AR layer. Vendored for the same reason the WASM already is; faceTracking prefers this copy and falls back to the remote one when it is absent.",
       "url": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
       "path": "public/models/face_landmarker.task"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260731_194540_9cd385a3-2ee0-4cc8-8e95-51f48ee65a33.png",
+      "path": "src/assets/landing/hero/hero-wedding.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260731_194550_2a493821-904c-4ee2-94d9-9cd3d5e41664.png",
+      "path": "src/assets/landing/hero/hero-gala.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260731_194553_770a775e-376b-468b-af5e-a1204aab8097.png",
+      "path": "src/assets/landing/hero/hero-conference.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260731_194558_33f07460-2ae4-4db7-b8d5-4f6a849716d3.png",
+      "path": "src/assets/landing/hero/hero-birthday.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260731_194602_e193df25-dd4a-440e-974c-857f88cea2c4.png",
+      "path": "src/assets/landing/hero/hero-tradeshow.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260731_194605_a506f979-4e8f-48ea-9035-c55350d364cf.png",
+      "path": "src/assets/landing/hero/hero-activation.png"
     }
   ]
 }
