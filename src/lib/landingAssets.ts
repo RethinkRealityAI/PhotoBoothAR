@@ -27,7 +27,10 @@ import heroGala from '../assets/landing/hero/hero-gala.webp';
 import heroConference from '../assets/landing/hero/hero-conference.webp';
 import heroBirthday from '../assets/landing/hero/hero-birthday.webp';
 import heroTradeshow from '../assets/landing/hero/hero-tradeshow.webp';
-import heroActivation from '../assets/landing/hero/hero-activation.webp';
+// v2: the first render's background carried an M-lettered light wall that read
+// as someone's logo; this one is a pure abstract emerald/gold installation.
+// v1 (hero-activation.webp) stays committed but unreferenced — owner may delete.
+import heroActivation from '../assets/landing/hero/hero-activation-v2.webp';
 
 /** Editorial portrait — person with AR glasses in beam lighting (has bg). */
 export const HERO_BOOTH_PORTRAIT = boothPortrait;
