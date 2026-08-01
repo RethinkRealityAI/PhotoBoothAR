@@ -170,6 +170,19 @@
       "path": "public/samples/lettering/logo-space-bottom.png"
     },
     {
+      "comment": "Booth AR feature film (2026-08-01, kling3_0_turbo 4s 720p image-to-video seeded from the repo's own public/starters images) — crown head-turn = 3D prop tracking beat, crown laugh+confetti burst = gesture-trigger beat, neon shades = stickers/filters beat. clip-* prefix gets CI's crf-27 -an compression.",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260801_212605_1abbaf27-7032-4e02-95dd-73866e473008.mp4",
+      "path": "hyperframes/studio/assets/clip-ar-crown-turn.mp4"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260801_212555_ffec1c38-0571-4782-b394-fc7b903e7338.mp4",
+      "path": "hyperframes/studio/assets/clip-ar-crown-burst.mp4"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260801_212558_56c5acfb-32e8-49d9-823a-f42a013ecca5.mp4",
+      "path": "hyperframes/studio/assets/clip-ar-neon.mp4"
+    },
+    {
       "comment": "MediaPipe face_landmarker (float16 v1) — the model the booth's face tracker loads. src/lib/faceTracking.ts fetched this from storage.googleapis.com at RUNTIME, on the critical path: with no model the tracker never acquires, the head group stays invisible and no 3D renders at all, so a venue with poor wifi lost the whole AR layer. Vendored for the same reason the WASM already is; faceTracking prefers this copy and falls back to the remote one when it is absent.",
       "url": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
       "path": "public/models/face_landmarker.task"
