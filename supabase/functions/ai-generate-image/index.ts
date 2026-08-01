@@ -690,6 +690,25 @@ interface HiggsfieldImageRef {
   b64?: string;
 }
 
+/** Hard ceiling on a downloaded provider image. A 2K PNG is ~5-8MB; anything
+ *  past this is not the image we asked for. */
+const HIGGSFIELD_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Identify the format from the BYTES, not from any header claim. MIRROR of
+ * sniffImage in import-asset/index.ts (edge fns cannot import from each other).
+ * Anything that is not PNG/JPEG/WebP — an HTML error page, a JSON body, a docs
+ * link the provider put in a `url` field — lands here as null.
+ */
+function sniffImageBytes(bytes: Uint8Array): boolean {
+  if (bytes.length < 16) return false;
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return true;
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return true;
+  const riff = bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46;
+  const webp = bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+  return riff && webp;
+}
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Read a secret/env value the way GEMINI_API_KEY is read: dashboard-set values
@@ -736,7 +755,16 @@ function higgsfieldHttpError(status: number, detail: string, bodyText: string): 
  * carries the url/base64 itself — because the exact shape is unverified and
  * failing a paid generation over an extra level of wrapping would be absurd.
  */
-function higgsfieldImageRef(body: Record<string, unknown>): HiggsfieldImageRef | null {
+function higgsfieldImageRef(
+  body: Record<string, unknown>,
+  /** strict=true (the SUBMIT response): only an image inside an images/result
+   *  ARRAY counts. A bare `url` on the body or the result object is far more
+   *  likely to be a self-link or an error's docs link than a finished image —
+   *  a submit normally returns a request id, so nothing is lost by refusing to
+   *  guess. The POLL keeps the permissive reading (its terminal statuses are
+   *  checked first), and every download is magic-byte-verified regardless. */
+  strict = false,
+): HiggsfieldImageRef | null {
   const asRef = (v: unknown): HiggsfieldImageRef | null => {
     if (v === null || typeof v !== 'object' || Array.isArray(v)) return null;
     const o = v as Record<string, unknown>;
@@ -758,10 +786,10 @@ function higgsfieldImageRef(body: Record<string, unknown>): HiggsfieldImageRef |
   } else if (result !== null && typeof result === 'object') {
     const ro = result as Record<string, unknown>;
     if (Array.isArray(ro.images)) pools.push(...ro.images);
-    pools.push(result);
+    if (!strict) pools.push(result);
   }
   if (Array.isArray(body.images)) pools.push(...body.images);
-  pools.push(body);
+  if (!strict) pools.push(body);
 
   for (const candidate of pools) {
     const ref = asRef(candidate);
@@ -771,14 +799,34 @@ function higgsfieldImageRef(body: Record<string, unknown>): HiggsfieldImageRef |
 }
 
 /** Materialise an image reference into bytes. Inline base64 wins (no second
- *  round trip); otherwise the URL is downloaded. */
+ *  round trip); otherwise the URL is downloaded. The bytes are then verified
+ *  by MAGIC NUMBER, never trusted: a provider body that carried a docs link or
+ *  a self-link in a url-shaped field would otherwise be stored as a "frame",
+ *  the job marked succeeded, and the credits kept — the audit's F1. A thrown
+ *  AiError here reaches the refund path. */
 async function higgsfieldDownload(ref: HiggsfieldImageRef): Promise<Uint8Array> {
-  if (ref.b64) return base64ToBytes(ref.b64);
-  if (!ref.url) throw new AiError('generation_failed', 'higgsfield_no_image');
-  const dl = await fetch(ref.url);
-  if (!dl.ok) throw new AiError('generation_failed', `higgsfield_download_${dl.status}`);
-  const bytes = new Uint8Array(await dl.arrayBuffer());
+  let bytes: Uint8Array;
+  if (ref.b64) {
+    bytes = base64ToBytes(ref.b64);
+  } else {
+    if (!ref.url) throw new AiError('generation_failed', 'higgsfield_no_image');
+    const dl = await fetch(ref.url, { signal: AbortSignal.timeout(30_000) });
+    if (!dl.ok) throw new AiError('generation_failed', `higgsfield_download_${dl.status}`);
+    const declaredLen = dl.headers.get('content-length');
+    if (declaredLen !== null && Number(declaredLen) > HIGGSFIELD_MAX_IMAGE_BYTES) {
+      await dl.body?.cancel().catch(() => {});
+      throw new AiError('generation_failed', 'higgsfield_image_too_large');
+    }
+    bytes = new Uint8Array(await dl.arrayBuffer());
+  }
   if (bytes.length === 0) throw new AiError('generation_failed', 'higgsfield_empty_download');
+  if (bytes.length > HIGGSFIELD_MAX_IMAGE_BYTES) {
+    throw new AiError('generation_failed', 'higgsfield_image_too_large');
+  }
+  if (!sniffImageBytes(bytes)) {
+    console.error('[ai-generate-image] higgsfield returned non-image bytes', bytes.length);
+    throw new AiError('generation_failed', 'higgsfield_not_an_image');
+  }
   return bytes;
 }
 
@@ -792,6 +840,11 @@ async function generateHiggsfield(
   prompt: string,
   aspect: '9:16' | '1:1',
   creds: { keyId: string; keySecret: string },
+  /** Called once with the provider's request id as soon as the submit lands —
+   *  the caller persists it on the ai_jobs row so a timeout is reconcilable
+   *  (without it, a late provider success that billed the org's own account
+   *  leaves no forensic trail at all — the audit's F3). */
+  onSubmitted?: (requestId: string) => void,
 ): Promise<Uint8Array> {
   const base = (secretEnv('HIGGSFIELD_API_URL') ?? HIGGSFIELD_API_URL_DEFAULT).replace(/\/+$/, '');
   const model = (secretEnv('HIGGSFIELD_MODEL') ?? HIGGSFIELD_MODEL_DEFAULT).replace(/^\/+|\/+$/g, '');
@@ -811,6 +864,10 @@ async function generateHiggsfield(
       aspect_ratio: aspect,
       resolution: aspect === '9:16' ? '2K' : '1K',
     }),
+    // Deno fetch has NO default timeout: one hung request would blow past the
+    // poll-loop deadline and let the runtime kill the isolate with the credits
+    // still spent (nothing would run refundAndFail).
+    signal: AbortSignal.timeout(30_000),
   });
   if (!submitRes.ok) {
     throw higgsfieldHttpError(
@@ -822,12 +879,15 @@ async function generateHiggsfield(
   const submitBody = (await submitRes.json().catch(() => null)) as Record<string, unknown> | null;
   if (!submitBody) throw new AiError('generation_failed', 'higgsfield_submit_unparseable');
   // A synchronous completion is not documented but costs one branch to honour.
-  const immediate = higgsfieldImageRef(submitBody);
+  // STRICT here: only an image inside an images/result array counts — a bare
+  // url on a submit body is a self-link or an error's docs link, not a result.
+  const immediate = higgsfieldImageRef(submitBody, true);
   if (immediate) return await higgsfieldDownload(immediate);
   const requestId = typeof submitBody.request_id === 'string' && submitBody.request_id
     ? submitBody.request_id
     : typeof submitBody.id === 'string' && submitBody.id ? submitBody.id : '';
   if (!requestId) throw new AiError('generation_failed', 'higgsfield_no_request_id');
+  try { onSubmitted?.(requestId); } catch { /* forensics only — never fail the job */ }
 
   // 2. Poll to completion.
   const deadline = Date.now() + HIGGSFIELD_MAX_WAIT_MS;
@@ -838,6 +898,7 @@ async function generateHiggsfield(
     try {
       pollRes = await fetch(`${base}/requests/${encodeURIComponent(requestId)}/status`, {
         headers: { Authorization: auth },
+        signal: AbortSignal.timeout(15_000),
       });
     } catch (e) {
       // A dropped connection is not a failed job — keep polling until the cap.
@@ -1183,7 +1244,14 @@ Deno.serve(async (req: Request) => {
       } else {
         // Resolved in 4c; re-checked so the type is not asserted away.
         if (!higgsCreds) throw new AiError('ai_not_configured');
-        bytes = await generateHiggsfield(fullPrompt, aspect, higgsCreds);
+        bytes = await generateHiggsfield(fullPrompt, aspect, higgsCreds, (rid) => {
+          // Fire-and-forget: the request id on the job row is what makes a
+          // timed-out job reconcilable (and lets the sweep recover it).
+          sb.from('ai_jobs').update({ provider_job_id: rid }).eq('id', jobId)
+            .then(({ error }) => {
+              if (error) console.warn('[ai-generate-image] provider_job_id record failed', error.message);
+            });
+        });
       }
 
       // Transparency flag: requested AND the PNG actually carries alpha.
@@ -1214,6 +1282,12 @@ Deno.serve(async (req: Request) => {
             prompt,
             provider,
             transparent,
+            // Whether this asset was generated onto a chroma-key backdrop. The
+            // client's keying decision needs it: `transparent` only proves an
+            // alpha CHANNEL exists (IHDR probe), and a green-screen asset whose
+            // encoder emitted RGBA would otherwise skip keying and place a raw
+            // green sticker (audit F2). greenScreen=true → always key.
+            ...(greenScreen ? { greenScreen: true } : {}),
             // Which archetype this frame IS — the studio needs it to reason
             // about the art (a duo-scene has two head cutouts, not a clear
             // centre). Border only; a sticker has no canvas layout.

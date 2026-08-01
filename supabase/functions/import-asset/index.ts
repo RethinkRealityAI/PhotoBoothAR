@@ -164,7 +164,10 @@ function safeSourceUrl(raw: string): URL | null {
     return null;
   }
   if (u.protocol !== 'https:') return null;
-  const host = u.hostname.toLowerCase();
+  // Trailing dot stripped BEFORE the checks: DNS resolves `localhost.` and
+  // `metadata.google.internal.` identically to the undotted forms, but every
+  // suffix test below would pass them (audit F7).
+  const host = u.hostname.toLowerCase().replace(/\.$/, '');
   if (!host) return null;
   if (isIpLiteral(host)) return null;
   if (host === 'localhost') return null;
