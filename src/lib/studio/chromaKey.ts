@@ -77,6 +77,37 @@ export function needsChromaKey(hasAlpha: boolean, keyedFraction: number): boolea
 }
 
 /**
+ * Is this asset ALREADY the transparent artefact the keyer exists to produce?
+ *
+ * Three inputs, because the first two lie in opposite directions:
+ *   • `transparentFlag` — `config.transparent`, an IHDR COLOUR-TYPE probe
+ *     (ai-generate-image / import-asset, mirrored by {@link bytesLookAlpha}).
+ *     It proves an alpha CHANNEL exists, never that one pixel is actually
+ *     transparent — a fully-opaque RGBA PNG is legal, and encoders emit them.
+ *   • `greenScreenFlag` — `config.greenScreen`, stamped when the asset was
+ *     generated ONTO a chroma-key backdrop. Such an asset must ALWAYS be keyed
+ *     whatever its colour type; skipping places raw green over the guest.
+ *   • `img` — the decoded pixels, which are ground truth and outrank both
+ *     flags, so even a mis-stamped row cannot get past this.
+ *
+ * All three must agree before keying is skipped. Erring towards keying is the
+ * safe direction: the worst case is the honesty gate rejecting the asset and
+ * offering a free retry, versus shipping a green box into a live booth.
+ */
+export function hasGenuineAlpha(
+  transparentFlag: boolean,
+  greenScreenFlag: boolean,
+  img: RgbaImage,
+): boolean {
+  if (!transparentFlag || greenScreenFlag) return false;
+  const { data } = img;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] < 255) return true;
+  }
+  return false;
+}
+
+/**
  * Probe PNG bytes for a colour type that CARRIES an alpha channel (4 =
  * grey+alpha, 6 = RGBA). Cheap and allocation-free: the answer is one byte of
  * the IHDR header, so nothing is decoded.

@@ -13,6 +13,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Loader, Wand2 } from 'lucide-react';
 import { generateImage, resolveEventUuid, aiErrorMessage, fetchEventCreditBalance } from '../../lib/ai';
 import { fetchProviderKeyStatus, type ProviderKeyStatus } from '../../lib/providerKeys';
+import {
+  PROVIDER_LABELS, effectiveProvider, higgsfieldReady as isHiggsfieldReady,
+  providerBody, providerCostLabel, providerHint, type ImageProvider,
+} from '../../lib/providerPricing';
 import { useEvent } from '../../events/EventContext';
 import {
   inferFrameLayout, normalizeLettering, LETTERING_MAX,
@@ -54,24 +58,24 @@ const LETTERING_PLACEMENT_PILLS: { id: LetteringPlacement; label: string }[] = [
 ];
 
 /* ── Provider choice (shared with DirectorPanel) ──────────────────────────
- * WHICH MODEL PAINTS THE FRAME, and what that costs the host. The server is the
- * authority on price (ai-generate-image: `cost = isFreeTrial || byoKey ? 0 :
- * COSTS[provider]`, gemini 1 / higgsfield 2), so everything below is copy that
- * mirrors that one line — never a second pricing rule.
+ * WHICH MODEL PAINTS THE FRAME, and what that costs the host. The rules — the
+ * labels, the prices, the effective-provider fallback and the hint copy — are
+ * PURE and live in src/lib/providerPricing.ts, so they are unit-tested against
+ * the server's own cost line instead of being asserted by eye in a component
+ * (audit F10). This file owns only the React around them.
  *
- * Defined ONCE here and imported by DirectorPanel so the two studio surfaces
- * cannot drift into two different pickers with two different prices.
+ * Re-exported here because DirectorPanel imports the picker from this module;
+ * the two studio surfaces must not drift into two pickers with two prices.
  */
-export type ImageProvider = 'gemini' | 'higgsfield';
+export {
+  providerBody,
+  providerCostLabel,
+  type ImageProvider,
+} from '../../lib/providerPricing';
 
 /** Remembered across sessions — a host who brought their own key should not
  *  have to re-pick it on every generation. */
 const PROVIDER_STORE_KEY = 'bw.aiProvider';
-
-const PROVIDER_LABELS: { id: ImageProvider; label: string }[] = [
-  { id: 'gemini', label: 'Beamwall AI' },
-  { id: 'higgsfield', label: 'Higgsfield' },
-];
 
 function readStoredProvider(): ImageProvider {
   if (typeof window === 'undefined') return 'gemini';
@@ -152,51 +156,31 @@ export function useImageProvider(eventId: string, eventUuid: string | null): Pro
     storeProvider(p);
   }, []);
 
-  const higgsfieldReady = status !== null && (status.configured || status.platformAvailable);
-  const effective: ImageProvider = provider === 'higgsfield' && !higgsfieldReady ? 'gemini' : provider;
+  const higgsfieldReady = isHiggsfieldReady(status);
+  const effective = effectiveProvider(provider, status);
   return { provider, effective, setProvider, status, statusFailed, higgsfieldReady };
 }
 
-/** The cost fragment for a Generate button, per the server's own rule. */
-export function providerCostLabel(provider: ImageProvider, status: ProviderKeyStatus | null): string {
-  if (provider === 'higgsfield') return status?.configured === true ? '0 credits' : '2 credits';
-  return '1 credit';
-}
-
-/** Only ever sent when it is NOT the default — the request body stays
- *  byte-identical to before this control existed for every gemini generation. */
-export function providerBody(provider: ImageProvider): { provider?: 'higgsfield' } {
-  return provider === 'higgsfield' ? { provider: 'higgsfield' } : {};
-}
-
 /**
- * Two pills + one honest line about what Higgsfield costs. The line is about
- * HIGGSFIELD in both states, because that is the side of the choice a host
- * cannot already guess; Beamwall AI's price is on the button.
+ * Two pills + one honest line about what Higgsfield costs (copy from
+ * providerPricing.providerHint).
  */
 export function ProviderSegment({ choice, freeTrial }: { choice: ProviderChoice; freeTrial: boolean }) {
   const { provider, setProvider, status, statusFailed, higgsfieldReady } = choice;
   const notConnected = status !== null && !higgsfieldReady;
-  const hint =
-    status === null
-      ? statusFailed
-        ? 'Couldn’t check your Higgsfield connection — Beamwall AI still works.'
-        : 'Checking your Higgsfield connection…'
-      : status.configured
-        ? 'Uses your connected Higgsfield account — 0 credits.'
-        : status.platformAvailable
-          // The free allowance is spent BEFORE the provider price (server:
-          // isFreeTrial wins over COSTS), so it overrides the number here too.
-          ? freeTrial
-            ? 'Free while this event has free generations left, then 2 credits.'
-            : '2 credits.'
-          : 'Not connected —';
+  const hint = providerHint(status, statusFailed, freeTrial);
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap gap-1" role="group" aria-label="Image provider">
         {PROVIDER_LABELS.map(({ id, label }) => {
           const active = id === provider;
-          const disabled = id === 'higgsfield' && notConnected;
+          // Disabled for the WHOLE time Higgsfield is unusable — including
+          // while `status` is null (still checking, or the check failed).
+          // Leaving it live there let a host pick a provider that
+          // effectiveProvider silently swapped for gemini, so the button read
+          // "2 credits" for a 1-credit gemini generation (audit F9). The hint
+          // line below already explains which of the two states we are in.
+          const disabled = id === 'higgsfield' && !higgsfieldReady;
           return (
             <button
               key={id}
@@ -204,7 +188,15 @@ export function ProviderSegment({ choice, freeTrial }: { choice: ProviderChoice;
               onClick={() => setProvider(id)}
               disabled={disabled}
               aria-pressed={active}
-              title={disabled ? 'Connect a Higgsfield account in Billing to use this' : undefined}
+              title={
+                !disabled
+                  ? undefined
+                  : notConnected
+                    ? 'Connect a Higgsfield account in Billing to use this'
+                    : statusFailed
+                      ? 'Couldn’t check your Higgsfield connection — Beamwall AI is being used'
+                      : 'Checking your Higgsfield connection…'
+              }
               className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors disabled:opacity-40 ${
                 active
                   ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'

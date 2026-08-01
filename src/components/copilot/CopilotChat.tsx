@@ -31,6 +31,7 @@ import {
   generateImage, generate3d, pollJob, resolveEventUuid, aiErrorMessage, aiErrorRetryable,
   fetchEventCreditBalance, type AiErrorCode,
 } from '../../lib/ai';
+import { providerCostLabel } from '../../lib/providerPricing';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { measureGlbFitScale } from '../../lib/studio/glbThumb';
 import { boothUrl } from '../../lib/copilotBooth';
@@ -53,14 +54,46 @@ const DEFAULT_PIECE_ID = HEAD_PIECES[0]?.id ?? '';
  *  including a missing/rejected provider key (shared list in lib/ai.ts). */
 const retryableGenError = aiErrorRetryable;
 
-/** Cost caption for paid-generation proposal cards (real server prices:
- *  ai-generate-image 1cr + 3 free/event; concept 1cr + ai-generate-3d 10cr). */
-function costNoteFor(action: CopilotAction): string | null {
-  if (action.tool === 'generate_frame') return '1 credit (your event’s first 3 AI images are free)';
-  if (action.tool === 'add_head_piece' && action.proposal.source === 'generate') {
+/**
+ * Cost caption for a paid-generation proposal card.
+ *
+ * Read from the surface's LIVE data model (not from the action that created the
+ * card) so it tracks that card's own provider picker: the caption said
+ * "1 credit" while the picker was set to Higgsfield, which the server charges 2
+ * for (audit F4). The number comes from providerPricing — the same module the
+ * studio's Generate button reads — so there is one price rule, not three.
+ *
+ * A card whose phase has moved on (generating / preview / error) has no
+ * `proposal` in its model and correctly shows no price.
+ */
+function costNoteFor(surface: SurfaceState | undefined): string | null {
+  const raw = surface?.dataModel?.proposal;
+  if (raw === null || typeof raw !== 'object') return null;
+  const p = raw as Record<string, unknown>;
+  if (p.tool === 'generate_frame') {
+    // `null` status: the copilot has no provider-key read of its own, so it
+    // quotes the PLATFORM price. The picker label carries the BYO-key case
+    // ("or your connected account" — 0 credits), which such an org knows.
+    const cost = providerCostLabel(p.provider === 'higgsfield' ? 'higgsfield' : 'gemini', null);
+    return `${cost} (your event’s first 3 AI images are free)`;
+  }
+  if (p.tool === 'add_head_piece' && p.source === 'generate') {
     return 'up to 11 credits (concept image + 10 for the 3D model — the image is free while your event has free AI images left)';
   }
   return null;
+}
+
+/**
+ * Generation-failure copy, with the one case the shared mapper cannot get
+ * right: `ai_not_configured` on a HIGGSFIELD generation is a missing key on the
+ * host's own org, not a platform outage — "our AI service is temporarily
+ * unavailable" blamed us for something only they can fix (audit F6).
+ */
+function frameErrorMessage(code: AiErrorCode, provider: FrameProvider): string {
+  if (code === 'ai_not_configured' && provider === 'higgsfield') {
+    return 'Higgsfield isn’t connected yet — add your key in Billing → Connected accounts, or switch to Beamwall AI.';
+  }
+  return aiErrorMessage(code);
 }
 
 interface ChatItem extends ChatMessage {
@@ -163,8 +196,6 @@ export default function CopilotChat({
   // Live credit balance of THIS event's org (the org generation charges) —
   // shown beside paid-generation proposal cards; refreshed after each spend.
   const [balance, setBalance] = useState<number | null>(null);
-  // sid → cost caption for paid-generation proposals (set when the card lands).
-  const genCostNote = useRef<Record<string, string>>({});
 
   const refreshBalance = async (uuid: string) => {
     const b = await fetchEventCreditBalance(uuid);
@@ -327,7 +358,9 @@ export default function CopilotChat({
       });
       if (res.error || !res.data?.experience) {
         const code = (res.error ?? 'internal') as AiErrorCode;
-        showGenError(sid, 'frame', aiErrorMessage(code), retryableGenError(code), code === 'insufficient_credits');
+        // Provider-aware: a missing Higgsfield key must not read as a platform
+        // outage the host can only wait out (audit F6).
+        showGenError(sid, 'frame', frameErrorMessage(code, provider), retryableGenError(code), code === 'insufficient_credits');
         return;
       }
       const { experience, keyed } = await processGeneratedFrame(res.data.experience, snapshot.slug);
@@ -496,8 +529,6 @@ export default function CopilotChat({
         runReadOnly(action);
       } else {
         const sid = `prop_${++seqRef.current}`;
-        const note = costNoteFor(action);
-        if (note) genCostNote.current[sid] = note;
         addSurface(buildProposalSurface(action, sid), sid);
       }
     }
@@ -615,8 +646,6 @@ export default function CopilotChat({
    *  chips use this so the whole flow works even before the edge-fn redeploy. */
   const openProposal = (action: CopilotAction) => {
     const sid = `prop_${++seqRef.current}`;
-    const note = costNoteFor(action);
-    if (note) genCostNote.current[sid] = note;
     addSurface(buildProposalSurface(action, sid), sid);
   };
 
@@ -712,6 +741,9 @@ export default function CopilotChat({
               </motion.div>
             );
           }
+          // Recomputed on every render (the picker writes straight into the
+          // surface's data model), so flipping provider re-prices the caption.
+          const costNote = m.surfaceId ? costNoteFor(surfaces[m.surfaceId]) : null;
           return (
             <motion.div
               key={i}
@@ -725,9 +757,9 @@ export default function CopilotChat({
                   {m.content}
                 </div>
               )}
-              {m.surfaceId && surfaces[m.surfaceId] && genCostNote.current[m.surfaceId] && (
+              {costNote && (
                 <p className="font-sans text-[10px] text-brand-muted/55 px-1">
-                  {genCostNote.current[m.surfaceId]}
+                  {costNote}
                   {balance !== null && (
                     <> · you have {balance} credit{balance === 1 ? '' : 's'}</>
                   )}

@@ -6,6 +6,7 @@ import {
   fitOnCanvas,
   processFrameImage,
   needsChromaKey,
+  hasGenuineAlpha,
   bytesLookAlpha,
   DEFAULT_KEY,
   FRAME_W,
@@ -358,6 +359,48 @@ describe('needsChromaKey', () => {
     // frameProcessing.ts imports this constant instead of carrying its own 0.015
     // — one number, one decision. Changing it here is a deliberate retune.
     expect(MIN_KEYED_FRACTION).toBe(0.015);
+  });
+});
+
+describe('hasGenuineAlpha', () => {
+  /** A green-screen generation whose encoder emitted RGBA: config.transparent
+   *  is true (the IHDR probe saw colour type 6) but every pixel is opaque. */
+  const OPAQUE_GREEN_RGBA = solid(8, 8, GREEN);
+  /** A real cutout — a transparent hole in the middle of opaque art. */
+  const REAL_CUTOUT = (() => {
+    const img = solid(8, 8, [255, 0, 0, 255]);
+    img.data[(3 * 8 + 3) * 4 + 3] = 0;
+    return img;
+  })();
+
+  it('keeps keying a green-screen asset that only has an alpha CHANNEL (audit F2)', () => {
+    // THE BUG: `transparent` alone short-circuited keying here, so the booth got
+    // a raw #00FF00 rectangle over the guest instead of a frame.
+    expect(hasGenuineAlpha(true, true, OPAQUE_GREEN_RGBA)).toBe(false);
+    // …and the pixel check alone would have caught it even unstamped.
+    expect(hasGenuineAlpha(true, false, OPAQUE_GREEN_RGBA)).toBe(false);
+  });
+
+  it('vetoes the skip for a green-screen asset even when pixels ARE transparent', () => {
+    // Belt-and-braces the other way: a green backdrop is keyed whatever the
+    // encoder did, because keying is what makes the centre usable.
+    expect(hasGenuineAlpha(true, true, REAL_CUTOUT)).toBe(false);
+  });
+
+  it('skips keying only when the flag, the veto and the pixels all agree', () => {
+    expect(hasGenuineAlpha(true, false, REAL_CUTOUT)).toBe(true);
+  });
+
+  it('never skips when the asset does not even claim an alpha channel', () => {
+    expect(hasGenuineAlpha(false, false, REAL_CUTOUT)).toBe(false);
+    expect(hasGenuineAlpha(false, true, REAL_CUTOUT)).toBe(false);
+  });
+
+  it('counts a single semi-transparent pixel as genuine alpha', () => {
+    // Soft-edged cutouts can be entirely partial alpha — `< 255`, not `=== 0`.
+    const soft = solid(4, 4, [10, 20, 30, 255]);
+    soft.data[3] = 254;
+    expect(hasGenuineAlpha(true, false, soft)).toBe(true);
   });
 });
 

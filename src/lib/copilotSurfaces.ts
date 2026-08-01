@@ -14,6 +14,7 @@ import { FILTER_SHADERS } from './shaders';
 import { HEAD_PIECES } from './headPieces';
 import { GENERIC_FRAMES } from './borders';
 import { frameBriefGaps, gapSummary, pieceBriefGaps } from './assetBrief';
+import { providerCostLabel } from './providerPricing';
 
 const FILTER_OPTIONS = FILTER_SHADERS.filter((s) => s.id !== 'none').map((s) => ({ label: s.name, value: s.id }));
 const PIECE_OPTIONS = HEAD_PIECES.map((p) => ({ label: p.name, value: p.id }));
@@ -109,10 +110,15 @@ const LETTERING_PLACEMENT_OPTIONS = [
  * only part of the choice a host can act on. The Higgsfield label says "or your
  * connected account" because an org that brought its own key (providerKeys.ts)
  * pays Higgsfield directly and spends ZERO platform credits — the card must not
- * imply a charge that will not happen. */
+ * imply a charge that will not happen.
+ *
+ * The numbers come from providerPricing (a `null` status = the platform price,
+ * which is what a card with no key read can honestly quote) rather than being
+ * typed out here — CopilotChat's cost caption below the card reads the same
+ * function, and the two disagreeing is exactly audit F4. */
 const PROVIDER_OPTIONS = [
-  { label: 'Beamwall AI (1 credit)', value: 'gemini' },
-  { label: 'Higgsfield (2 credits · or your connected account)', value: 'higgsfield' },
+  { label: `Beamwall AI (${providerCostLabel('gemini', null)})`, value: 'gemini' },
+  { label: `Higgsfield (${providerCostLabel('higgsfield', null)} · or your connected account)`, value: 'higgsfield' },
 ];
 
 /** [sample id, caption] for the visual legend, in style/placement order. */

@@ -18,8 +18,9 @@ import { uploadAsset, updateExperience } from '../db';
 import {
   FRAME_H,
   FRAME_W,
-  MIN_KEYED_FRACTION,
   fitOnCanvas,
+  hasGenuineAlpha,
+  needsChromaKey,
   processFrameImage,
   type RgbaImage,
 } from './chromaKey';
@@ -87,19 +88,31 @@ export async function processGeneratedFrame(
   extraConfig: Record<string, unknown> = {},
 ): Promise<{ experience: Experience; keyed: boolean }> {
   // GENUINE ALPHA SHORT-CIRCUIT. A Higgsfield marketplace-app import or a
-  // remove_background output arrives as a real transparent PNG (the edge fn
-  // stamps config.transparent after its own IHDR probe — chromaKey
-  // bytesLookAlpha is the mirror of it). There is no green backdrop to find, so
-  // the old gate below would have measured a keyedFraction of ~0 and REJECTED
-  // exactly the best inputs the pipeline can get. Skip detection and keying
-  // entirely; only the contain-fit onto the booth's 1080×1920 canvas remains
-  // (fitOnCanvas already resamples premultiplied, so soft edges survive).
-  const alreadyTransparent = configFlag(exp.config, 'transparent');
+  // remove_background output arrives as a real transparent PNG. There is no
+  // green backdrop to find, so the honesty gate below would have measured a
+  // keyedFraction of ~0 and REJECTED exactly the best inputs the pipeline can
+  // get. Skip detection and keying entirely; only the contain-fit onto the
+  // booth's 1080×1920 canvas remains (fitOnCanvas already resamples
+  // premultiplied, so soft edges survive).
+  //
+  // The decision takes THREE facts, not one (audit F2): `config.transparent` is
+  // only an IHDR colour-TYPE probe, so an opaque-RGBA green-screen sticker used
+  // to skip keying and place raw green. `config.greenScreen` (stamped by
+  // ai-generate-image) vetoes the skip, and the decoded pixels outrank both
+  // flags — see chromaKey.hasGenuineAlpha.
+  const claimsTransparent = configFlag(exp.config, 'transparent');
+  const fromGreenScreen = configFlag(exp.config, 'greenScreen');
 
   let processedUrl: string | null = null;
+  // Seeded from the flags and REPLACED by the pixel truth the moment the image
+  // decodes. It therefore keeps the flag answer on the two paths that never see
+  // pixels — no asset_url, and a decode that threw (CORS taint) — where
+  // reporting keyed:false would make the caller refuse a good transparent PNG.
+  let alreadyTransparent = claimsTransparent && !fromGreenScreen;
   if (exp.asset_url) {
     try {
       const src = await loadImageData(exp.asset_url);
+      alreadyTransparent = hasGenuineAlpha(claimsTransparent, fromGreenScreen, src);
       if (alreadyTransparent) {
         const blob = await toPngBlob(fitOnCanvas(src, FRAME_W, FRAME_H));
         processedUrl = await uploadAsset(eventId, blob, `frame-${exp.id}`);
@@ -111,9 +124,10 @@ export async function processGeneratedFrame(
         // asset is still effectively the raw GREEN image. Leave processedUrl null
         // (→ keyed:false) so the free-retry UI and DirectorPanel's failed-card
         // path fire, exactly like the CORS/decode catch below. Do NOT upload it.
-        // The threshold and its trade-off live on MIN_KEYED_FRACTION so this
-        // gate and the constant cannot drift apart.
-        if (keyedFraction < MIN_KEYED_FRACTION) {
+        // `alreadyTransparent` is false on this branch by construction; passing
+        // it anyway keeps the skip and the gate reading off ONE helper (and one
+        // threshold), so the two decisions cannot drift apart.
+        if (!needsChromaKey(alreadyTransparent, keyedFraction)) {
           console.warn('[studio] chroma-key removed too little — treating as unkeyed', {
             keyColor,
             keyedFraction,
