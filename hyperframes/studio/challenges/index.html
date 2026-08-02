@@ -1,20 +1,28 @@
 <!doctype html>
 <!--
-  Beamwall · Challenges — 30s feature film (HyperFrames composition "challenges").
-  Scene map (VO: assets/vo-challenges.m4a, 18.84s, starts at 0.8s):
-    S1 0.0–4.2   sting — trophy cutout drops in over an orange glow, title
-    S2 4.0–13.0  "Custom photo challenges" — glass challenge cards with real
-                 photo thumbs (assets/photos/cells), progress bar fills
-    S3 12.8–22.0 enactment + AI check + leaderboard — real group photo on the
-                 phone, capture flash, AI scan sweep → "AI verified ✓" and
-                 "AI verifies the winning shots" headline, +50 toast, live
-                 leaderboard (photo avatars) rows swap
-    S4 21.8–30.0 outro — wordmark, CTA pill, QR
-  Contract: root omits data-duration (timeline pins 30.0); scenes alternate
-  tracks 1/2; <audio> are direct root children (framework-owned).
-  Refinement 2026-07-21: consistent scene-head idiom (eyebrow + serif title,
-  top-center) on S2/S3, BW.sweepAt beam wipes at scene boundaries, type
-  scale bumped for ~350px-wide mobile embeds.
+  Beamwall · Challenges — 20.6s feature film (HyperFrames composition "challenges").
+  Scene map:
+    S1 0.0–3.4   HOOK — the trophy lands on frame 2 (it used to fade up out of
+                 black for a full second, which is dead air in a muted
+                 autoplaying loop), a real "loudest laugh" shot beams in beside
+                 it with its +50 badge, title by 0.6s
+    S2 3.2–9.6   "Custom photo challenges" — glass challenge cards with real
+                 photo thumbs, live progress fill
+    S3 9.4–17.0  snap · score · verify — real group photo on the phone, capture
+                 flash, AI scan sweep → "AI verified", +50 toast, then the
+                 leaderboard overtake. The gaining team's POINTS now update
+                 (180 → 230) and the rank digits stay put while the rows swap:
+                 previously the board read "2 Ada & Femi 180 / 1 Table 7 210",
+                 i.e. the wrong team on top with the wrong number.
+    S4 16.8–20.6 outro — wordmark + CTA pill (3.8s; no QR/fine-print, which are
+                 unreadable at the ~350px mobile embed width and were identical
+                 across all four films)
+  2026-07-31 pass: hook-first retime (30.0 → 20.6) — the old cut spent 8.0s,
+  27% of its runtime, on a frozen logo — plus the leaderboard correctness fix.
+  Silent by design — the landing embed is muted-autoplay and the old VO was cut
+  against the 30s timings. Add a bed at encode time for a social cut.
+  Contract: root omits data-duration (timeline pins 20.6); scenes alternate
+  tracks 1/2.
 -->
 <html lang="en">
   <head>
@@ -31,27 +39,29 @@
       @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
       #ch-root { width: 1920px; height: 1080px; }
 
-      /* Refinement pass: consistent scene headers + mobile-legible type scale */
+      /* consistent scene headers + mobile-legible type scale */
       .scene-head { position: absolute; left: 0; right: 0; top: 74px; text-align: center; z-index: 20; }
       .eyebrow-h { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4em; font-size: 30px; margin: 0 0 22px; opacity: 0; }
       .eyebrow { font-size: 30px; }
       .title-lg { font-size: 106px; }
       .title-md { font-size: 84px; }
       .pill { font-size: 32px; padding: 30px 80px; letter-spacing: 0.3em; }
-      .fine { font-size: 28px; }
 
-      /* S1 sting */
-      #ch-s1 .stack { position: relative; }
-      #ch-s1-glow { position: absolute; left: 50%; top: 150px; width: 720px; height: 720px; margin-left: -360px; border-radius: 999px; background: radial-gradient(circle, rgba(251,146,60,0.5), rgba(245,158,11,0.18) 55%, transparent 72%); filter: blur(40px); opacity: 0; }
-      #ch-s1-trophy { height: 460px; object-fit: contain; filter: drop-shadow(0 30px 60px rgba(251,146,60,0.45)); opacity: 0; position: relative; z-index: 2; }
-      #ch-s1 .eyebrow { margin-top: 44px; }
+      /* S1 hook */
+      #ch-s1 .stack { position: relative; z-index: 3; }
+      #ch-s1-glow { position: absolute; left: 50%; top: 120px; width: 760px; height: 760px; margin-left: -380px; border-radius: 999px; background: radial-gradient(circle, rgba(251,146,60,0.5), rgba(245,158,11,0.18) 55%, transparent 72%); filter: blur(40px); opacity: 0; }
+      #ch-s1-trophy { height: 430px; object-fit: contain; filter: drop-shadow(0 30px 60px rgba(251,146,60,0.45)); opacity: 0; position: relative; z-index: 2; }
+      #ch-s1 .eyebrow { margin-top: 40px; }
+      #ch-s1-shot { position: absolute; left: 214px; top: 300px; width: 320px; height: 426px; border-radius: 26px; overflow: hidden; border: 2px solid rgba(251,146,60,0.65); box-shadow: 0 0 60px -10px rgba(251,146,60,0.7); opacity: 0; z-index: 2; }
+      #ch-s1-shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #ch-s1-badge { position: absolute; left: 430px; top: 250px; font-family: "Jost", Arial, sans-serif; font-weight: 600; letter-spacing: 0.18em; font-size: 34px; color: #1a1206; padding: 16px 34px; border-radius: 999px; background: linear-gradient(115deg, #f59e0b, #fbbf24 55%, #f59e0b); box-shadow: 0 0 40px -6px rgba(245,158,11,0.8); opacity: 0; z-index: 4; }
 
       /* S2 the challenge card */
       #ch-s2-head { opacity: 0; }
       #ch-s2-deck { position: relative; perspective: 1200px; width: 640px; height: 460px; margin-top: 110px; }
       #ch-card-body { display: flex; gap: 34px; width: 100%; align-items: flex-start; }
       #ch-card-left { flex: 1; min-width: 0; }
-      #ch-thumb { width: 178px; height: 236px; border-radius: 18px; object-fit: cover; border: 1.5px solid rgba(251,146,60,0.5); box-shadow: 0 12px 34px -10px rgba(0,0,0,0.7); margin-top: 30px; opacity: 0; }
+      #ch-thumb { width: 178px; height: 236px; border-radius: 18px; object-fit: cover; object-position: 50% 28%; border: 1.5px solid rgba(251,146,60,0.5); box-shadow: 0 12px 34px -10px rgba(0,0,0,0.7); margin-top: 30px; opacity: 0; }
       #ch-thumb-2 { position: absolute; right: 40px; bottom: 34px; width: 116px; height: 116px; border-radius: 14px; object-fit: cover; border: 1.5px solid rgba(251,146,60,0.35); }
       #ch-card { position: absolute; inset: 0; border-color: rgba(251,146,60,0.55); box-shadow: 0 0 60px -14px rgba(251,146,60,0.55), 0 30px 80px -30px rgba(0,0,0,0.85); padding: 44px 48px; box-sizing: border-box; display: flex; flex-direction: column; align-items: flex-start; text-align: left; opacity: 0; z-index: 2; }
       #ch-card-2 { position: absolute; left: 480px; top: 70px; width: 460px; height: 300px; transform: rotate(6deg); border-color: rgba(251,146,60,0.3); box-shadow: 0 0 40px -14px rgba(251,146,60,0.35), 0 30px 80px -30px rgba(0,0,0,0.85); padding: 36px 40px; box-sizing: border-box; text-align: left; opacity: 0; z-index: 1; }
@@ -75,36 +85,31 @@
       #ch-verify { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); white-space: nowrap; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.18em; font-size: 24px; color: #06130c; padding: 15px 32px; border-radius: 999px; background: linear-gradient(115deg, #34d399, #6ee7b7 55%, #34d399); box-shadow: 0 0 44px -6px rgba(52, 211, 153, 0.85); opacity: 0; z-index: 5; }
       #ch-toast { position: absolute; left: 330px; top: 992px;font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.24em; font-size: 28px; color: #fff; padding: 19px 42px; border-radius: 999px; background: linear-gradient(115deg, #f59e0b, var(--orange) 55%, #f59e0b); box-shadow: 0 0 50px -8px rgba(251,146,60,0.8); opacity: 0; z-index: 14; }
       .ch-ava { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; border: 1.5px solid rgba(251, 146, 60, 0.55); flex: none; }
-      #ch-lb { position: absolute; right: 240px; top: 300px; width: 620px; border-color: rgba(251,146,60,0.45); box-shadow: 0 0 60px -14px rgba(251,146,60,0.5), 0 30px 80px -30px rgba(0,0,0,0.85); padding: 38px 42px; box-sizing: border-box; opacity: 0; }
+      #ch-lb { position: absolute; right: 190px; top: 300px; width: 700px; border-color: rgba(251,146,60,0.45); box-shadow: 0 0 60px -14px rgba(251,146,60,0.5), 0 30px 80px -30px rgba(0,0,0,0.85); padding: 38px 42px; box-sizing: border-box; opacity: 0; }
       #ch-lb-label { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3em; font-size: 26px; color: var(--orange); margin: 0 0 26px; }
       .ch-row { display: flex; align-items: center; gap: 24px; height: 72px; margin-bottom: 14px; padding: 0 24px; border-radius: 18px; background: rgba(238,243,255,0.06); font-family: "Jost", Arial, sans-serif; opacity: 0; }
       .ch-row .rank { font-weight: 600; font-size: 32px; color: var(--orange); width: 40px; }
-      .ch-row .name { font-weight: 500; font-size: 34px; color: var(--fg); flex: 1; }
-      .ch-row .pts { font-weight: 600; font-size: 32px; color: var(--muted); letter-spacing: 0.06em; }
+      .ch-row .name { font-weight: 500; font-size: 32px; color: var(--fg); flex: 1; white-space: nowrap; }
+      .ch-row .pts { position: relative; font-weight: 600; font-size: 32px; color: var(--muted); letter-spacing: 0.06em; min-width: 138px; white-space: nowrap; text-align: right; }
+      .ch-row .pts b { font-weight: 600; }
+      .ch-row .pts .after { position: absolute; right: 0; top: 0; color: var(--orange); opacity: 0; }
       #ch-lb-spark { position: absolute; left: -34px; top: 92px; opacity: 0; z-index: 3; }
-
-      /* S4 outro */
-      #ch-s4-qr { width: 128px; height: 128px; border-radius: 22px; border: 1.5px solid rgba(169,196,255,0.55); box-shadow: 0 0 36px -6px rgba(91,140,255,0.6); padding: 12px; background: rgba(8,10,20,0.9); margin-top: 52px; }
-      #ch-s4-qr img { display: block; width: 100%; height: 100%; }
-      .fine { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 22px; color: var(--muted); margin-top: 30px; letter-spacing: 0.05em; }
     </style>
   </head>
   <body>
     <div id="ch-root" class="bw-root" data-composition-id="challenges" data-start="0" data-width="1920" data-height="1080">
-      <!-- audio: narration + subtle bed (framework-owned, direct root children) -->
-      <audio id="ch-vo" src="assets/vo-challenges.m4a" data-start="0.8" data-track-index="8"></audio>
-      <audio id="ch-bed" src="assets/music-bed.m4a" data-start="0" data-duration="30" data-volume="0.16" data-track-index="9"></audio>
-
-      <div id="ch-s1" class="clip scene" data-start="0" data-duration="4.2" data-track-index="1">
+      <div id="ch-s1" class="clip scene" data-start="0" data-duration="3.4" data-track-index="1">
+        <div id="ch-s1-glow"></div>
+        <div id="ch-s1-shot"><img src="assets/photos/cells/gala-laugh.jpg" alt="" /></div>
+        <div id="ch-s1-badge">+50 pts</div>
         <div class="stack">
-          <div id="ch-s1-glow"></div>
           <img id="ch-s1-trophy" src="assets/trophy-cutout.png" alt="" />
           <p class="eyebrow" id="ch-s1-eyebrow">Beamwall · Challenges</p>
           <h1 class="title-lg" id="ch-s1-title">Turn the room into <em class="foil" style="font-style: normal">the game</em>.</h1>
         </div>
       </div>
 
-      <div id="ch-s2" class="clip scene" data-start="4.0" data-duration="9.0" data-track-index="2">
+      <div id="ch-s2" class="clip scene" data-start="3.2" data-duration="6.4" data-track-index="2">
         <div class="scene-head" id="ch-s2-headwrap">
           <p class="eyebrow-h" id="ch-s2-eyebrow" style="color: var(--orange)">Set the missions</p>
           <h2 class="title-md" id="ch-s2-head">Custom <em class="foil" style="font-style: normal">photo challenges</em>.</h2>
@@ -127,13 +132,13 @@
                 <p id="ch-count">17 / 40 guests</p>
                 <span id="ch-timer">ends 21:30</span>
               </div>
-              <img id="ch-thumb" src="assets/photos/cells/gala-laugh.jpg" alt="" />
+              <img id="ch-thumb" src="assets/photos/cells/chal-r2c1.jpg" alt="" />
             </div>
           </div>
         </div>
       </div>
 
-      <div id="ch-s3" class="clip scene" data-start="12.8" data-duration="9.2" data-track-index="1">
+      <div id="ch-s3" class="clip scene" data-start="9.4" data-duration="7.6" data-track-index="1">
         <div class="scene-head" id="ch-s3-headwrap">
           <p class="eyebrow-h" id="ch-s3-eyebrow" style="color: var(--orange)">Snap · Score · Verify</p>
           <h2 class="title-md" id="ch-s3-head">AI verifies the <em class="foil" style="font-style: normal">winning shots</em>.</h2>
@@ -147,12 +152,10 @@
         </div>
       </div>
 
-      <div id="ch-s4" class="clip scene" data-start="21.8" data-duration="8.2" data-track-index="2">
+      <div id="ch-s4" class="clip scene" data-start="16.8" data-duration="3.8" data-track-index="2">
         <div class="stack">
           <h2 class="title-xl foil" id="ch-s4-wordmark" style="font-size: 150px">Beamwall</h2>
           <div class="pill" id="ch-s4-pill" style="margin-top: 54px">Create your event</div>
-          <div id="ch-s4-qr"><img src="assets/qr.svg" alt="" /></div>
-          <p class="fine" id="ch-s4-fine">Free to start · no credit card · beamwall</p>
         </div>
       </div>
     </div>
@@ -184,10 +187,12 @@
         ph.screen.appendChild(verify);
         document.getElementById("ch-s3-phone-wrap").appendChild(ph.el);
 
-        /* leaderboard rows (avatar, rank, name, pts) — real photo avatars */
+        /* leaderboard rows (rank, avatar, name, pts) — real photo avatars.
+           Row 2 carries a SECOND points value: winning the challenge is worth
+           +50, so 180 → 230 is what actually puts it above 210. */
         var ROWS = [
           { name: "Table 7", pts: 210, ava: "chal-r3c3" },
-          { name: "Ada & Femi", pts: 180, ava: "chal-r1c1" },
+          { name: "Ada & Femi", pts: 180, after: 230, ava: "chal-r1c1" },
           { name: "The Cousins", pts: 165, ava: "chal-r2c3" },
           { name: "Table 2", pts: 140, ava: "chal-r2c2" },
         ];
@@ -198,6 +203,7 @@
           row.id = "ch-lb-row-" + (i + 1);
           var rank = document.createElement("span");
           rank.className = "rank";
+          rank.id = "ch-lb-rank-" + (i + 1);
           rank.textContent = String(i + 1);
           var ava = document.createElement("img");
           ava.className = "ch-ava";
@@ -208,7 +214,17 @@
           name.textContent = r.name;
           var pts = document.createElement("span");
           pts.className = "pts";
-          pts.textContent = r.pts + " pts";
+          var before = document.createElement("b");
+          before.id = "ch-pts-before-" + (i + 1);
+          before.textContent = r.pts + " pts";
+          pts.appendChild(before);
+          if (r.after != null) {
+            var after = document.createElement("b");
+            after.className = "after";
+            after.id = "ch-pts-after-" + (i + 1);
+            after.textContent = r.after + " pts";
+            pts.appendChild(after);
+          }
           row.appendChild(rank);
           row.appendChild(ava);
           row.appendChild(name);
@@ -221,85 +237,83 @@
 
         /* ── timeline ── */
         var EASE = "power3.out";
-        var END = 30.0;
+        var END = 20.6;
         var ROW_H = 86; /* row height 72 + 14 gap */
         var tl = gsap.timeline({ paused: true });
         BW.animateBackdrop(tl, "ch", END);
 
-        /* S1 — trophy drops in over the glow */
-        tl.fromTo("#ch-s1-glow", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 1.0, ease: "power2.out" }, 0.2);
-        tl.fromTo("#ch-s1-trophy", { opacity: 0, y: -420 }, { opacity: 1, y: 0, duration: 0.9, ease: "back.out(1.4)" }, 0.4);
-        BW.flashAt(tl, "ch", 1.1, 0.6); /* the trophy lands */
-        tl.fromTo("#ch-s1-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 1.4);
-        tl.fromTo("#ch-s1-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.8, ease: EASE }, 1.6);
-        tl.to("#ch-s1 .stack", { opacity: 0, y: -40, duration: 0.5, ease: "power2.in" }, 3.6);
-        BW.sweepAt(tl, "ch", 3.6); /* beam wipe into S2 */
+        /* S1 — the hook. Trophy lands on frame 2, headline readable by 0.6s. */
+        tl.fromTo("#ch-s1-glow", { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1, duration: 0.6, ease: "power2.out" }, 0.02);
+        tl.fromTo("#ch-s1-trophy", { opacity: 0, y: -260 }, { opacity: 1, y: 0, duration: 0.55, ease: "back.out(1.5)" }, 0.05);
+        BW.flashAt(tl, "ch", 0.5, 0.6); /* the trophy lands */
+        tl.fromTo("#ch-s1-eyebrow", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.45, ease: EASE }, 0.4);
+        tl.fromTo("#ch-s1-title", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 0.5);
+        tl.fromTo("#ch-s1-shot", { opacity: 0, x: -80, rotation: -6 }, { opacity: 1, x: 0, rotation: -3, duration: 0.6, ease: EASE }, 0.95);
+        tl.fromTo("#ch-s1-badge", { opacity: 0, scale: 0.5, y: 16 }, { opacity: 1, scale: 1, y: 0, duration: 0.5, ease: "back.out(2)" }, 1.45);
+        tl.to("#ch-s1-shot", { y: -14, duration: 1.3, ease: "sine.inOut", yoyo: true, repeat: 1 }, 1.7);
+        tl.to("#ch-s1 .stack", { opacity: 0, y: -36, duration: 0.42, ease: "power2.in" }, 2.98);
+        tl.to(["#ch-s1-shot", "#ch-s1-badge", "#ch-s1-glow"], { opacity: 0, duration: 0.42, ease: "power2.in" }, 2.98);
+        tl.set(["#ch-s1 .stack", "#ch-s1-shot", "#ch-s1-badge", "#ch-s1-glow"], { opacity: 0 }, 3.4);
+        BW.sweepAt(tl, "ch", 2.95); /* beam wipe into S2 */
 
-        /* S2 — headline, the challenge card tilts in, the deck peeks, progress fills */
-        tl.fromTo("#ch-s2-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 4.3);
-        tl.fromTo("#ch-s2-head", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.8, ease: EASE }, 4.45);
-        tl.fromTo(
-          "#ch-card",
-          { opacity: 0, x: 140, rotationY: -14 },
-          { opacity: 1, x: 0, rotationY: -4, duration: 1.1, ease: EASE },
-          4.6
-        );
-        tl.fromTo("#ch-card-2", { opacity: 0, x: 60 }, { opacity: 0.55, x: 0, duration: 0.9, ease: EASE }, 5.2);
-        tl.fromTo("#ch-chip-1", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 5.3);
-        tl.fromTo("#ch-badge", { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1, duration: 0.55, ease: "back.out(1.7)" }, 5.5);
-        tl.fromTo("#ch-card-title", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.7, ease: EASE }, 5.7);
-        tl.fromTo("#ch-thumb", { opacity: 0, scale: 0.85, rotation: 4 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.7, ease: "back.out(1.5)" }, 6.0);
-        tl.fromTo("#ch-track", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 6.2);
-        tl.fromTo("#ch-timer", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 6.6);
+        /* S2 — the challenge card tilts in, the deck peeks, progress fills */
+        tl.fromTo("#ch-s2-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 3.35);
+        tl.fromTo("#ch-s2-head", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.65, ease: EASE }, 3.45);
+        tl.fromTo("#ch-card", { opacity: 0, x: 140, rotationY: -14 }, { opacity: 1, x: 0, rotationY: -4, duration: 0.9, ease: EASE }, 3.55);
+        tl.fromTo("#ch-card-2", { opacity: 0, x: 60 }, { opacity: 0.55, x: 0, duration: 0.7, ease: EASE }, 3.95);
+        tl.fromTo("#ch-chip-1", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.45, ease: EASE }, 3.85);
+        tl.fromTo("#ch-badge", { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.7)" }, 3.95);
+        tl.fromTo("#ch-card-title", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 4.0);
+        tl.fromTo("#ch-thumb", { opacity: 0, scale: 0.85, rotation: 4 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.6, ease: "back.out(1.5)" }, 4.2);
+        tl.fromTo("#ch-track", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 4.4);
+        tl.fromTo("#ch-timer", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.45, ease: EASE }, 4.6);
         /* guests complete it live: 0 → 62% */
-        tl.fromTo("#ch-fill", { scaleX: 0 }, { scaleX: 0.62, duration: 2.0, ease: "power2.inOut" }, 8.0);
-        tl.fromTo("#ch-count", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 8.2);
+        tl.fromTo("#ch-fill", { scaleX: 0 }, { scaleX: 0.62, duration: 3.0, ease: "power2.inOut" }, 5.0);
+        tl.fromTo("#ch-count", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.45, ease: EASE }, 5.1);
         /* the deck floats subtly */
-        tl.to("#ch-s2-deck", { y: -12, duration: 3.2, ease: "sine.inOut", yoyo: true, repeat: 1 }, 5.8);
-        tl.to("#ch-s2", { opacity: 0, y: -30, duration: 0.55, ease: "power2.in" }, 12.5);
-        BW.sweepAt(tl, "ch", 12.4); /* beam wipe into S3 */
+        tl.to("#ch-s2-deck", { y: -12, duration: 2.4, ease: "sine.inOut", yoyo: true, repeat: 1 }, 4.6);
+        tl.to("#ch-s2", { opacity: 0, y: -30, duration: 0.45, ease: "power2.in" }, 9.15);
+        tl.set("#ch-s2", { opacity: 0 }, 9.6);
+        BW.sweepAt(tl, "ch", 9.1); /* beam wipe into S3 */
 
-        /* S3 — enactment, AI check, leaderboard */
-        tl.fromTo("#ch-s3-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 13.1);
-        tl.fromTo("#ch-s3-phone-wrap", { opacity: 0, y: 90 }, { opacity: 1, y: 0, duration: 0.9, ease: EASE }, 13.1);
-        tl.fromTo("#ch-lb", { opacity: 0, x: 80 }, { opacity: 1, x: 0, duration: 0.9, ease: EASE }, 13.6);
+        /* S3 — enactment, AI check, leaderboard overtake */
+        tl.fromTo("#ch-s3-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 9.55);
+        tl.fromTo("#ch-s3-phone-wrap", { opacity: 0, y: 80 }, { opacity: 1, y: 0, duration: 0.7, ease: EASE }, 9.55);
+        tl.fromTo("#ch-lb", { opacity: 0, x: 80 }, { opacity: 1, x: 0, duration: 0.7, ease: EASE }, 9.9);
         for (var r = 1; r <= 4; r++) {
-          tl.fromTo(
-            "#ch-lb-row-" + r,
-            { opacity: 0, x: 40 },
-            { opacity: 1, x: 0, duration: 0.5, ease: EASE },
-            14.0 + (r - 1) * 0.35
-          );
+          tl.fromTo("#ch-lb-row-" + r, { opacity: 0, x: 40 }, { opacity: 1, x: 0, duration: 0.45, ease: EASE }, 10.05 + (r - 1) * 0.26);
         }
-        BW.flashAt(tl, "ch", 15.4, 0.9); /* the capture moment */
-        /* the AI check sweeps the shot, then verdict */
-        tl.fromTo("#ch-s3-head", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.8, ease: EASE }, 15.9);
-        tl.fromTo("#ch-scan-frame", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 15.8);
-        tl.fromTo("#ch-scan-line", { opacity: 0, y: 0 }, { opacity: 1, y: 30, duration: 0.3 }, 15.8);
-        tl.to("#ch-scan-line", { y: 540, duration: 1.3, ease: "sine.inOut" }, 16.1);
-        tl.to("#ch-scan-line", { opacity: 0, duration: 0.25 }, 17.35);
-        tl.to("#ch-scan-frame", { opacity: 0, duration: 0.35 }, 17.4);
-        tl.fromTo("#ch-verify", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.55, ease: "back.out(1.8)" }, 17.5);
-        tl.fromTo(
-          "#ch-toast",
-          { opacity: 0, y: 24, scale: 0.6 },
-          { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "back.out(1.7)" },
-          17.9
-        );
-        /* Ada & Femi overtake Table 7 — rows 1 and 2 swap live */
-        tl.to("#ch-lb-row-1", { y: ROW_H, duration: 0.7, ease: "power2.inOut" }, 18.7);
-        tl.to("#ch-lb-row-2", { y: -ROW_H, duration: 0.7, ease: "power2.inOut" }, 18.7);
-        tl.fromTo("#ch-lb-spark", { opacity: 0, scale: 0.4, rotation: -40 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.6, ease: "back.out(1.7)" }, 19.4);
-        tl.to("#ch-s3", { opacity: 0, y: -30, duration: 0.5, ease: "power2.in" }, 21.4);
-        tl.set("#ch-s3", { opacity: 0 }, 22.0);
-        BW.sweepAt(tl, "ch", 21.5); /* beam wipe into the outro */
+        BW.flashAt(tl, "ch", 11.55, 0.9); /* the capture moment */
+        /* the AI check sweeps the shot, then the verdict */
+        tl.fromTo("#ch-s3-head", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.65, ease: EASE }, 11.95);
+        tl.fromTo("#ch-scan-frame", { opacity: 0 }, { opacity: 1, duration: 0.35 }, 11.85);
+        tl.fromTo("#ch-scan-line", { opacity: 0, y: 0 }, { opacity: 1, y: 30, duration: 0.25 }, 11.85);
+        tl.to("#ch-scan-line", { y: 540, duration: 1.1, ease: "sine.inOut" }, 12.1);
+        tl.to("#ch-scan-line", { opacity: 0, duration: 0.2 }, 13.2);
+        tl.to("#ch-scan-frame", { opacity: 0, duration: 0.3 }, 13.25);
+        tl.fromTo("#ch-verify", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.8)" }, 13.35);
+        tl.fromTo("#ch-toast", { opacity: 0, y: 24, scale: 0.6 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.7)" }, 13.7);
+        /* the +50 lands on the board BEFORE the rows move, so the overtake is
+           arithmetically true on screen: 180 + 50 = 230 > 210 */
+        tl.to("#ch-pts-before-2", { opacity: 0, y: -14, duration: 0.3, ease: "power2.in" }, 13.95);
+        tl.fromTo("#ch-pts-after-2", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.4, ease: "back.out(1.6)" }, 14.15);
+        /* Ada & Femi overtake Table 7 — the ROWS swap, the rank digits do not
+           (each rank is counter-translated so 1 and 2 stay where they belong) */
+        tl.to("#ch-lb-row-1", { y: ROW_H, duration: 0.65, ease: "power2.inOut" }, 14.5);
+        tl.to("#ch-lb-rank-1", { y: -ROW_H, duration: 0.65, ease: "power2.inOut" }, 14.5);
+        tl.to("#ch-lb-row-2", { y: -ROW_H, duration: 0.65, ease: "power2.inOut" }, 14.5);
+        tl.to("#ch-lb-rank-2", { y: ROW_H, duration: 0.65, ease: "power2.inOut" }, 14.5);
+        tl.fromTo("#ch-lb-spark", { opacity: 0, scale: 0.4, rotation: -40 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.55, ease: "back.out(1.7)" }, 15.15);
+        tl.to("#ch-lb-row-2", { backgroundColor: "rgba(251,146,60,0.18)", duration: 0.5 }, 15.15);
+        tl.to("#ch-s3", { opacity: 0, y: -30, duration: 0.45, ease: "power2.in" }, 16.55);
+        tl.set("#ch-s3", { opacity: 0 }, 17.0);
+        BW.sweepAt(tl, "ch", 16.5); /* beam wipe into the outro */
 
-        /* S4 — outro */
-        tl.fromTo("#ch-s4-wordmark", { opacity: 0, y: -70, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 1.0, ease: EASE }, 22.2);
-        tl.fromTo("#ch-s4-pill", { opacity: 0, y: 34, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: "back.out(1.6)" }, 22.9);
-        tl.fromTo("#ch-s4-qr", { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.5)" }, 23.3);
-        tl.fromTo("#ch-s4-fine", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 23.7);
-        tl.to("#ch-s4 .stack", { opacity: 0, duration: 0.6, ease: "power2.in" }, 29.2);
+        /* S4 — outro (short: it is identical across all four films) */
+        tl.fromTo("#ch-s4-wordmark", { opacity: 0, y: -70, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 0.85, ease: EASE }, 17.0);
+        tl.fromTo("#ch-s4-pill", { opacity: 0, y: 34, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "back.out(1.6)" }, 17.55);
+        tl.to("#ch-s4 .stack", { opacity: 0, duration: 0.5, ease: "power2.in" }, 20.1);
+        tl.set("#ch-s4 .stack", { opacity: 0 }, 20.6);
 
         /* pin duration */
         tl.set("#ch-bg", { opacity: 1 }, END);

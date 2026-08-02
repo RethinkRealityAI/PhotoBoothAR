@@ -70,6 +70,7 @@ const AdminCustomerDetail = lazy(() => import('./pages/admin/CustomerDetail'));
 const AdminEvents = lazy(() => import('./pages/admin/Events'));
 const AdminSupport = lazy(() => import('./pages/admin/Support'));
 const AdminFeatures = lazy(() => import('./pages/admin/Features'));
+const AdminLanding = lazy(() => import('./pages/admin/Landing'));
 const AdminCatalog = lazy(() => import('./pages/admin/Catalog'));
 const AdminPayments = lazy(() => import('./pages/admin/Payments'));
 const AdminCredits = lazy(() => import('./pages/admin/Credits'));
@@ -246,6 +247,7 @@ export default function App() {
                 <Route path="events" element={<AdminEvents />} />
                 <Route path="support" element={<AdminSupport />} />
                 <Route path="features" element={<AdminFeatures />} />
+                <Route path="landing" element={<AdminLanding />} />
                 <Route path="catalog" element={<AdminCatalog />} />
                 <Route path="payments" element={<AdminPayments />} />
                 <Route path="credits" element={<AdminCredits />} />

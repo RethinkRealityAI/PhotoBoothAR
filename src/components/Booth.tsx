@@ -14,9 +14,9 @@
 import {
   useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo,
 } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ChevronUp, RotateCcw, ScanFace, Sparkles } from 'lucide-react';
+import { AlertCircle, ChevronUp, Images, RotateCcw, ScanFace, Sparkles, Upload } from 'lucide-react';
 
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
@@ -51,6 +51,7 @@ import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { buildCatalog } from '../lib/catalog';
 import { initializeFaceLandmarker } from '../lib/faceTracking';
+import ReportIssueButton from './support/ReportIssueButton';
 import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
 import {
   collectTriggers,
@@ -265,16 +266,35 @@ export default function Booth() {
     fetchWallSettings();
   }, [fetchExperiences, fetchPresetOverrides, fetchWallSettings]);
 
-  // Face tracking init
+  // Face tracking init — tracked, not fire-and-forget: the "Center your face"
+  // hint below must not coach a guest toward a tracker that never loaded
+  // (init resolves instantly when already cached — see faceTracking.ts).
+  const [trackerReady, setTrackerReady] = useState(false);
+  const [trackerFailed, setTrackerFailed] = useState(false);
   useEffect(() => {
-    initializeFaceLandmarker().catch((e) =>
-      console.warn('[Booth] face landmarker init failed', e),
-    );
+    let alive = true;
+    initializeFaceLandmarker()
+      .then(() => { if (alive) setTrackerReady(true); })
+      .catch((e) => {
+        console.warn('[Booth] face landmarker init failed', e);
+        if (alive) setTrackerFailed(true);
+      });
+    return () => { alive = false; };
   }, []);
 
   // ── Onboarding ────────────────────────────────────────────────────────
   const { showOnboarding, dismiss: dismissOnboarding } = useOnboarding();
   const [onboardingVisible, setOnboardingVisible] = useState(showOnboarding);
+
+  // Challenge-awareness for the onboarding's optional last step. Fetched only
+  // while the (once-per-device) onboarding is actually on screen, so no build
+  // gains a network call it didn't have on every booth mount.
+  const challenges = useStore((s) => s.challenges);
+  const challengesLoaded = useStore((s) => s.challengesLoaded);
+  const fetchChallenges = useStore((s) => s.fetchChallenges);
+  useEffect(() => {
+    if (onboardingVisible && !challengesLoaded) void fetchChallenges(true);
+  }, [onboardingVisible, challengesLoaded, fetchChallenges]);
 
   // ── Camera ────────────────────────────────────────────────────────────
   const [started, setStarted] = useState(false);
@@ -606,6 +626,35 @@ export default function Booth() {
     if (revealTimeoutRef.current) window.clearTimeout(revealTimeoutRef.current);
   }, []);
 
+  /** A piece's GLB failed to load (FaceRig classified it — bad wifi, KTX2,
+   *  404…). Say so instead of rendering nothing forever: clear the orb's
+   *  pending ring (the download is over, just not with geometry), DISARM the
+   *  reveal shimmer so the magic moment doesn't celebrate an empty frame, and
+   *  hint that the rest of the booth still works. */
+  const handleAssetError = useCallback((url: string, message: string) => {
+    console.warn('[Booth] 3D asset failed to load', url, message);
+    armedRevealRef.current = null;
+    markAssetLoaded(url);
+    showBoothHint('That 3D piece didn’t load — filters and frames still work');
+  }, [markAssetLoaded, showBoothHint]);
+
+  // ── Camera taking too long ────────────────────────────────────────────
+  // "Starting camera…" used to be an unbounded spinner: some webviews neither
+  // resolve nor reject getUserMedia, and the guest had no way out. After ~8 s
+  // the wait stays honest and offers the same exits as the error screen.
+  const [cameraSlow, setCameraSlow] = useState(false);
+  useEffect(() => {
+    if (!started || error !== null || ready) {
+      setCameraSlow(false);
+      return;
+    }
+    const t = window.setTimeout(() => setCameraSlow(true), 8_000);
+    return () => window.clearTimeout(t);
+  }, [started, error, ready]);
+  /** `/e/<slug>` → slug; null on legacy builds (no support desk to route to —
+   *  same gate as BoothTopBar). */
+  const boothSlug = /^\/e\/([^/]+)/.exec(basePath)?.[1] ?? null;
+
   // ── Derived flags ─────────────────────────────────────────────────────
   const isFront = facingMode === 'user';
   // Composite carries its 2D content in config.layers (never the singular
@@ -915,12 +964,25 @@ export default function Booth() {
   const [faceVisible, setFaceVisible] = useState(false);
   const [faceHint, setFaceHint] = useState(false);
   useEffect(() => {
-    if (is3D && !faceVisible && phase === 'camera' && ready) {
+    // trackerReady gate: before the landmarker has loaded, "Center your face
+    // in the frame" is a lie — no amount of centering can be seen. The hint
+    // now only coaches a tracker that is actually looking.
+    if (is3D && !faceVisible && phase === 'camera' && ready && trackerReady) {
       const tid = setTimeout(() => setFaceHint(true), 1500);
       return () => clearTimeout(tid);
     }
     setFaceHint(false);
-  }, [is3D, faceVisible, phase, ready]);
+  }, [is3D, faceVisible, phase, ready, trackerReady]);
+
+  // Tracker init FAILED (bad venue wifi, blocked CDN): tell the guest once,
+  // the moment it matters — when a 3D piece is selected and can never appear.
+  const trackerFailHintShownRef = useRef(false);
+  useEffect(() => {
+    if (trackerFailed && is3D && phase === 'camera' && ready && !trackerFailHintShownRef.current) {
+      trackerFailHintShownRef.current = true;
+      showBoothHint('3D pieces aren’t loading on this connection — filters and frames still work');
+    }
+  }, [trackerFailed, is3D, phase, ready, showBoothHint]);
 
   // ── Shutter / countdown ───────────────────────────────────────────────
   const handleShutterPress = useCallback(() => {
@@ -1467,6 +1529,7 @@ export default function Booth() {
         {started && onboardingVisible && (
           <Onboarding
             key="onboarding"
+            withChallengesStep={wallSettings.showChallenges !== false && challenges.some((c) => c.active)}
             onDismiss={() => {
               dismissOnboarding();
               setOnboardingVisible(false);
@@ -1480,15 +1543,49 @@ export default function Booth() {
 
       {/* ── Camera starting ───────────────────────────────────────────── */}
       {started && !error && !ready && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4 animate-rise-in">
+        <div className="absolute inset-0 z-10 flex items-center justify-center px-8">
+          <div className="flex w-full max-w-xs flex-col items-center gap-4 animate-rise-in">
             <div className="relative h-12 w-12">
               <div className="absolute inset-0 rounded-full border border-gold-400/30 animate-pulse-glow" />
               <div className="absolute inset-1 animate-spin rounded-full border-2 border-white/10 border-t-[color:var(--color-accent)]" />
             </div>
             <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/40">
-              Starting camera…
+              {cameraSlow ? 'Still trying to reach your camera…' : 'Starting camera…'}
             </p>
+            {/* After ~8 s this is no longer a wait, it's a hang (some webviews
+                never resolve getUserMedia) — offer the CameraError screen's
+                ways-out so the guest is never stuck behind a spinner. */}
+            {cameraSlow && (
+              <div className="flex w-full flex-col items-stretch gap-2 animate-rise-in">
+                <Link
+                  to={`${basePath}/upload`}
+                  className="glass min-h-11 rounded-xl flex items-center justify-center gap-2 font-label uppercase tracking-luxe text-[11px] text-champagne/80"
+                >
+                  <Upload className="w-4 h-4" />
+                  Upload a photo instead
+                </Link>
+                <Link
+                  to={`${basePath}/wall`}
+                  className="glass min-h-11 rounded-xl flex items-center justify-center gap-2 font-label uppercase tracking-luxe text-[11px] text-champagne/80"
+                >
+                  <Images className="w-4 h-4" />
+                  See the wall
+                </Link>
+                {boothSlug !== null && (
+                  <ReportIssueButton
+                    label="Report a problem"
+                    iconSize={14}
+                    prefill={{
+                      source: 'guest_booth',
+                      eventSlug: boothSlug,
+                      subject: 'Camera never starts in the booth',
+                      diagnostics: { cameraState: 'starting-timeout' },
+                    }}
+                    className="pressable min-h-11 rounded-xl flex items-center justify-center gap-2 font-label uppercase tracking-luxe text-[10px] text-champagne/50 hover:text-ivory transition-colors"
+                  />
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1564,6 +1661,14 @@ export default function Booth() {
                 style={{ transform: isFront ? 'scaleX(-1)' : 'none' }}
               />
               {ready && (
+                // role="img" on this wrapper (NOT the stage box, whose hint
+                // pills must stay readable to AT; NOT StageCanvas internals):
+                // gives the otherwise-silent live canvas an accessible name.
+                <div
+                  className="absolute inset-0"
+                  role="img"
+                  aria-label="Live camera preview with your selected frame and effects"
+                >
                 <StageCanvas
                   ref={stageRef}
                   videoRef={videoRef}
@@ -1585,6 +1690,7 @@ export default function Booth() {
                   // while recording, so the viewfinder stays clean otherwise.
                   burnSignature={recording}
                 />
+                </div>
               )}
               <div ref={feedContainerRef} className="absolute inset-0">
                 {is3D && anchorConfig && (
@@ -1602,6 +1708,7 @@ export default function Booth() {
                     reveal={reveal}
                     lightingPreset={boothLighting}
                     onAssetReady={markAssetLoaded}
+                    onAssetError={handleAssetError}
                   />
                 )}
               </div>
@@ -1909,7 +2016,7 @@ export default function Booth() {
                   setAskName(false);
                 }}
                 disabled={nameDraft.trim().length < 2}
-                className="flex-1 bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 hover:brightness-110 transition-all active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+                className="flex-1 bg-foil glow-accent text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 hover:brightness-110 transition-all active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
               >
                 Use it
               </button>

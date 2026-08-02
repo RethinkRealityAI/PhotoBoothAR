@@ -13,9 +13,14 @@
  *           canFlip }
  */
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { getCameraStream, hasMultipleCameras, stopStream, Facing } from '../../lib/camera';
+import {
+  getCameraStream, hasMultipleCameras, stopStream, classifyCameraError,
+  type Facing, type CameraFailure,
+} from '../../lib/camera';
 
-export type CameraError = 'NotAllowedError' | 'NotFoundError' | 'unknown';
+/** Kept as the exported name every consumer (CameraError screen, Booth)
+ *  already imports; the vocabulary itself lives in lib/camera.ts. */
+export type CameraError = CameraFailure;
 
 interface UseCameraStream {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -103,14 +108,11 @@ export function useCameraStream(enabled = true, withAudio = false): UseCameraStr
         }
       } catch (err: unknown) {
         if (cancelled) return;
-        const name = (err as Error).name;
-        if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-          setError('NotAllowedError');
-        } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-          setError('NotFoundError');
-        } else {
-          setError('unknown');
-        }
+        // Full taxonomy (lib/camera.classifyCameraError): permission, missing
+        // hardware, camera-held-by-another-app (NotReadable), overconstrained,
+        // and the typed webview/insecure-context pre-flight throw — each gets
+        // its own copy on the error screen instead of a generic retry.
+        setError(classifyCameraError(err));
       }
     }
 

@@ -75,6 +75,10 @@ function buildRuntimeCopy(name: string, cfg: Record<string, unknown>): EventCopy
       { eyebrow: 'Step Two', title: 'Flip & Adorn', body: 'Tap to flip between front and back cameras, and try a 3D accessory tracked live to your head.' },
       { eyebrow: 'Step Three', title: 'Photo or Video', body: 'Press the shutter for a single frame, or switch to Video to capture up to 30 seconds of magic.' },
       { eyebrow: 'Step Four', title: 'Send & Shine', body: 'Set a hands-free timer for the perfect pose, then beam your moment straight to the live wall.' },
+      // Gestures exist but nothing taught them — this is the only surface that
+      // can. Legacy coded events keep their own registry copy untouched; a DB
+      // event's config.copy.onboardingSteps override also replaces this list.
+      { eyebrow: 'Step Five', title: 'Handy Moves', body: 'Swipe the camera to change your look · double-tap to flip the camera.' },
     ],
     filePrefix: name.replace(/[^a-zA-Z0-9]+/g, '') || 'PhotoBooth',
     shareTitle: name,

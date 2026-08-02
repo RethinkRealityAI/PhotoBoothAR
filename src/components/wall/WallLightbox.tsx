@@ -12,10 +12,13 @@ import { Post } from '../../types';
 import { useEvent } from '../../events/EventContext';
 import { useDialog } from '../../lib/useDialog';
 import { useStore } from '../../store';
+import { getSavedPhotos } from '../../lib/session';
 
 export default function WallLightbox({ post, onClose }: { post: Post; onClose: () => void }) {
   const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, 'Moment');
-  const { config } = useEvent();
+  const { config, eventId } = useEvent();
+  /** This device took it (booth saves post ids locally at send time). */
+  const isMine = getSavedPhotos(eventId).some((p) => p.id === post.id);
   const copy = useStore((s) => s.copy);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
@@ -76,6 +79,18 @@ export default function WallLightbox({ post, onClose }: { post: Post; onClose: (
           <img src={post.image_url} alt={post.guest_name ?? 'Moment'} className="max-w-[92vw] max-h-[64vh] object-contain rounded-2xl shadow-2xl" style={{ border: '1px solid rgba(var(--accent-rgb),0.25)' }} />
         )}
 
+        {isMine && (
+          <span
+            className="mt-3 rounded-full px-2.5 py-0.5 font-label text-[10px] uppercase tracking-wide"
+            style={{
+              background: 'rgba(10,7,3,0.72)',
+              border: '1px solid rgba(var(--accent-rgb),0.55)',
+              color: 'var(--color-accent)',
+            }}
+          >
+            Yours
+          </span>
+        )}
         {(post.guest_name || post.message) && (
           <div className="mt-3 text-center">
             {post.guest_name && <p className="font-serif italic text-xl text-ivory/90 leading-tight">{post.guest_name}</p>}

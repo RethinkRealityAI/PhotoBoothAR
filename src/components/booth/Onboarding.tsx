@@ -27,11 +27,26 @@ export function useOnboarding(): { showOnboarding: boolean; dismiss: () => void 
 
 interface Props {
   onDismiss: () => void;
+  /** True when this event has active challenges (Booth checks at mount) —
+   *  appends one teaching step. Default false = today's steps, unchanged. */
+  withChallengesStep?: boolean;
 }
 
-export default function Onboarding({ onDismiss }: Props) {
+/** Appended only when the event actually has active challenges — a generic
+ *  "challenges!" step at an event with none would teach a button that isn't
+ *  there. Defined once, appended after the event's own steps so a host's
+ *  config.copy override keeps its numbering. */
+const CHALLENGES_STEP = {
+  eyebrow: 'One More',
+  title: 'Photo Challenges',
+  body: 'This event has photo missions — open Challenges at the top of the booth, complete them all, and race for the leaderboard.',
+};
+
+export default function Onboarding({ onDismiss, withChallengesStep = false }: Props) {
   const copy = useStore((s) => s.copy);
-  const STEPS = copy.onboardingSteps;
+  const STEPS = withChallengesStep
+    ? [...copy.onboardingSteps, CHALLENGES_STEP]
+    : copy.onboardingSteps;
   const [step, setStep] = useState(0);
   const isLast = step === STEPS.length - 1;
   const current = STEPS[Math.min(step, STEPS.length - 1)];
@@ -131,7 +146,7 @@ export default function Onboarding({ onDismiss }: Props) {
         <div className="mt-7 flex flex-col gap-3">
           <button
             onClick={advance}
-            className="w-full bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-xs rounded-xl px-6 py-4 flex items-center justify-center gap-2.5 hover:brightness-110 transition-all active:scale-95"
+            className="w-full bg-foil glow-accent text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-xs rounded-xl px-6 py-4 flex items-center justify-center gap-2.5 hover:brightness-110 transition-all active:scale-95"
           >
             {isLast ? (
               <>

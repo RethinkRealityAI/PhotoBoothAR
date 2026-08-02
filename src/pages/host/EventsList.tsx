@@ -6,22 +6,24 @@
  * and the New event CTA. Empty state sells the wizard.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import Modal from '../../components/ui/Modal';
-import { ArrowUpRight, Check, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2 } from 'lucide-react';
-import { fetchMyEvents, updateEventStatus, eventOrgHasActivePro, type HostEventRow } from '../../lib/host';
+import { ArrowRight, ArrowUpRight, Check, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2 } from 'lucide-react';
+import { fetchMyEvents, updateEventStatus, eventOrgHasActivePro, invalidateProSubscriptionCache, type HostEventRow } from '../../lib/host';
 import { TierPill, UpgradeModal } from './UpgradeCard';
 import { entitlementsFor, normalizeTier } from '../../lib/entitlements';
 import { supabase } from '../../lib/supabase';
 import StatusPill from '../../components/ui/StatusPill';
+import { useToast } from '../../components/ui/Toast';
 import { copyText } from '../../lib/clipboard';
 
 function CopyLinkButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  const { push } = useToast();
   return (
     <button
-      onClick={() => copyText(text).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 2000); })}
+      onClick={() => copyText(text).then((ok) => { if (!ok) return; setCopied(true); push('Link copied', 'success'); setTimeout(() => setCopied(false), 2000); })}
       title="Copy guest link"
       className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
     >
@@ -32,6 +34,7 @@ function CopyLinkButton({ text }: { text: string }) {
 
 function QRModal({ url, name, draft, onClose }: { url: string; name: string; draft: boolean; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
+  const { push } = useToast();
   return (
     // Modal, not a bare overlay: this was openable but not dismissable or
     // operable from a keyboard, and Tab walked straight through it into the page
@@ -48,7 +51,7 @@ function QRModal({ url, name, draft, onClose }: { url: string; name: string; dra
           </p>
         )}
         <button
-          onClick={() => copyText(url).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 2000); })}
+          onClick={() => copyText(url).then((ok) => { if (!ok) return; setCopied(true); push('Link copied', 'success'); setTimeout(() => setCopied(false), 2000); })}
           className="w-full py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-xs font-label uppercase tracking-widest text-brand-fg/80 transition-colors flex items-center justify-center gap-1.5"
         >
           {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <QrCode className="w-3.5 h-3.5" />}
@@ -131,13 +134,14 @@ export default function EventsList() {
   const [qrTarget, setQrTarget] = useState<HostEventRow | null>(null);
   const [upgradeTarget, setUpgradeTarget] = useState<HostEventRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [postCounts, setPostCounts] = useState<Record<string, number>>({});
   const [showGuide, setShowGuide] = useState(() => {
     try { return !localStorage.getItem(HOST_ONBOARDED_KEY); } catch { return false; }
   });
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { push } = useToast();
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
   const dismissGuide = () => {
@@ -148,7 +152,7 @@ export default function EventsList() {
   // EventStudio bounces here with state when the studio gate denies access.
   useEffect(() => {
     if ((location.state as { studioError?: boolean } | null)?.studioError) {
-      setNotice('Couldn’t open that event’s studio — it may have been removed, or try again.');
+      push('Couldn’t open that event’s studio — it may have been removed, or try again.', 'error');
       navigate(location.pathname, { replace: true, state: null }); // don't re-show on refresh
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,17 +173,54 @@ export default function EventsList() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Checkout round-trip feedback: Stripe returns to the page the host left
+  // with ?checkout=success|cancelled (UpgradeModal's returnUrl is the current
+  // URL). Toast it once, refresh the plan data, and strip the param so a
+  // refresh doesn't re-announce it.
+  const checkoutReturn = searchParams.get('checkout');
+  useEffect(() => {
+    if (checkoutReturn !== 'success' && checkoutReturn !== 'cancelled') return;
+    if (checkoutReturn === 'success') {
+      push('Payment received — your plan and credits update within a minute of Stripe confirming.', 'success');
+      invalidateProSubscriptionCache();
+      void load();
+    } else {
+      push('Checkout cancelled — nothing was charged.', 'info');
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete('checkout');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkoutReturn]);
+
   const setStatus = async (ev: HostEventRow, status: string) => {
     setBusyId(ev.id);
     const prev = ev.status;
     setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, status } : e))); // optimistic
     const ok = await updateEventStatus(ev.id, status);
-    if (!ok) {
+    if (ok) {
+      push(status === 'live' ? 'You’re live — guests can scan now' : 'Event ended', 'success');
+    } else {
       setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, status: prev } : e))); // revert
-      setNotice(`Couldn’t update “${ev.name}” — check your connection and try again.`);
+      push(`Couldn’t update “${ev.name}” — check your connection and try again.`, 'error');
     }
     setBusyId(null);
   };
+
+  // Getting-started guide, derived from data already in hand: the newest event
+  // (fetchMyEvents orders created_at desc) anchors the links, done-ness comes
+  // from the list itself. Step 3 is optional, so the ring and the auto-hide
+  // track the two required steps only.
+  const newest = events && events.length > 0 ? events[0] : null;
+  const hasEvents = newest !== null;
+  const anyLive = (events ?? []).some((e) => e.status === 'live');
+  const guideSteps = [
+    { n: '1', title: 'Create your event', rest: 'the AI concierge sets it up in a minute', done: hasEvents, to: '/host/new' },
+    { n: '2', title: 'Go live & share the QR', rest: 'guests need no app', done: anyLive, to: newest ? `/host/events/${newest.id}/share` : '/host/new' },
+    { n: '3', title: 'Make it yours (optional)', rest: 'AI frames, 3D props & challenges in the Studio', done: false, to: newest ? `/host/events/${newest.id}/studio` : '/host/new' },
+  ];
+  const guidePct = Math.round((([hasEvents, anyLive].filter(Boolean).length) / 2) * 100);
+  const guideDone = hasEvents && anyLive;
 
   return (
     <div className="p-6 md:p-10 max-w-5xl mx-auto">
@@ -208,14 +249,7 @@ export default function EventsList() {
         </div>
       </header>
 
-      {notice && (
-        <div className="mb-5 flex items-start gap-2.5 rounded-xl bg-red-500/10 border border-red-500/25 px-4 py-3">
-          <p className="flex-1 font-sans text-xs text-red-300">{notice}</p>
-          <button onClick={() => setNotice(null)} className="pressable min-h-11 min-w-11 flex items-center justify-center rounded-lg text-red-300/60 hover:text-red-300 text-xs" aria-label="Dismiss">✕</button>
-        </div>
-      )}
-
-      {showGuide && (
+      {showGuide && !loading && events !== null && !guideDone && (
         <div className="relative liquid-glass rounded-2xl px-5 py-4 mb-6">
           <button
             onClick={dismissGuide}
@@ -224,21 +258,43 @@ export default function EventsList() {
           >
             ✕
           </button>
-          <p className="font-label uppercase tracking-luxe text-[10px] text-accent mb-3">Getting started</p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {[
-              ['1', 'Create your event', 'the AI concierge sets it up in a minute'],
-              ['2', 'Go live & share the QR', 'guests need no app'],
-              ['3', 'Make it yours (optional)', 'AI frames, 3D props & challenges in the Studio'],
-            ].map(([n, title, rest]) => (
-              <div key={n} className="flex items-start gap-2.5">
-                <span className="shrink-0 w-5 h-5 rounded-full bg-accent/15 text-accent-2 font-label text-[10px] flex items-center justify-center">
-                  {n}
-                </span>
-                <p className="font-sans text-[11px] text-brand-muted/70 leading-snug">
-                  <span className="text-brand-fg">{title}</span> — {rest}
-                </p>
+          <div className="flex items-center gap-3 mb-3">
+            {/* Conic progress ring — same pattern as the studio go-live checklist. */}
+            <div
+              className="shrink-0 flex items-center justify-center rounded-full"
+              style={{
+                width: 40, height: 40,
+                background: `conic-gradient(var(--color-accent) ${guidePct * 3.6}deg, rgba(var(--accent-rgb),0.12) 0deg)`,
+              }}
+              aria-hidden
+            >
+              <div className="rounded-full bg-[color:var(--color-brand-bg)] flex items-center justify-center" style={{ width: 32, height: 32 }}>
+                <span className="font-serif text-[10px] text-foil-static">{guidePct}%</span>
               </div>
+            </div>
+            <p className="font-label uppercase tracking-luxe text-[10px] text-accent">Getting started</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {guideSteps.map((s) => (
+              <Link
+                key={s.n}
+                to={s.to}
+                className="group flex items-start gap-2.5 rounded-xl -mx-1.5 px-1.5 py-1 hover:bg-white/[0.04] transition-colors"
+              >
+                {s.done ? (
+                  <span className="shrink-0 w-5 h-5 rounded-full bg-accent/25 flex items-center justify-center">
+                    <Check className="w-3 h-3 text-accent-2" />
+                  </span>
+                ) : (
+                  <span className="shrink-0 w-5 h-5 rounded-full bg-accent/15 text-accent-2 font-label text-[10px] flex items-center justify-center">
+                    {s.n}
+                  </span>
+                )}
+                <p className="flex-1 font-sans text-[11px] text-brand-muted/70 leading-snug">
+                  <span className={s.done ? 'text-brand-muted/60' : 'text-brand-fg'}>{s.title}</span> — {s.rest}
+                </p>
+                <ArrowRight className="shrink-0 mt-0.5 w-3 h-3 text-brand-muted/30 group-hover:text-accent-2 transition-colors" />
+              </Link>
             ))}
           </div>
           <p className="mt-3 font-sans text-[10px] text-brand-muted/40">

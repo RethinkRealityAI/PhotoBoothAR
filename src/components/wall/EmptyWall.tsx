@@ -19,6 +19,9 @@ import { QRPanel } from './WallQRCodes';
 interface Props {
   /** Site origin + event base path, same value WallQRCodes receives. */
   origin: string;
+  /** Full URL for the join QR. Defaults to `${origin}/` — today's target —
+   *  so legacy callers are unchanged; platform walls pass the /welcome hub. */
+  joinUrl?: string;
   /**
    * Render the join QR here. False when the wall footer is already showing
    * one — two identical QR panels stacked on top of each other is the one
@@ -35,7 +38,7 @@ const FRAMES = [
   { x: 30, y: -2, rot: 8, w: 15, delay: 4.8 },
 ];
 
-export default function EmptyWall({ origin, showOwnQR = true }: Props) {
+export default function EmptyWall({ origin, joinUrl, showOwnQR = true }: Props) {
   return (
     <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
       <style>{`
@@ -153,7 +156,7 @@ export default function EmptyWall({ origin, showOwnQR = true }: Props) {
 
         {showOwnQR && (
           <div style={{ marginTop: 'calc(28px * var(--wall-scale, 1))' }}>
-            <QRPanel url={`${origin}/`} label="Scan to join the booth" />
+            <QRPanel url={joinUrl ?? `${origin}/`} label="Scan to join the booth" />
           </div>
         )}
       </div>

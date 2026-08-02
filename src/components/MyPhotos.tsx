@@ -35,6 +35,7 @@
  * render inside EventProvider, so an event's own palette drives them.
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { getSavedPhotos } from '../lib/session';
 import { fetchMyPostsResult } from '../lib/db';
@@ -1403,13 +1404,13 @@ export default function MyPhotos() {
       {/* Footer link */}
       {!loading && media.length > 0 && (
         <div className="relative z-10 text-center pb-28 sm:pb-10">
-          <a
-            href={`${basePath}/booth`}
+          <Link
+            to={`${basePath}/booth`}
             className="pressable inline-flex items-center gap-2 min-h-11 px-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50 hover:text-brand-fg transition-colors"
           >
             <BackIcon size={13} />
             Back to the booth
-          </a>
+          </Link>
         </div>
       )}
 
@@ -1454,13 +1455,13 @@ function EmptyKeepsakes({ basePath }: { basePath: string }) {
         Step up to the booth and take your first shot — it lands here the moment you post it.
       </p>
 
-      <a
-        href={`${basePath}/booth`}
+      <Link
+        to={`${basePath}/booth`}
         className="pressable inline-flex items-center gap-2 bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] px-8 min-h-12 rounded-2xl glow-accent"
       >
         <CameraIcon size={15} strokeWidth={1.8} />
         Open the booth
-      </a>
+      </Link>
 
       <div className="mt-8 max-w-xs liquid-glass rounded-2xl px-4 py-3.5 text-left">
         <p className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 mb-1.5">
@@ -1470,12 +1471,12 @@ function EmptyKeepsakes({ basePath }: { basePath: string }) {
           This page shows the moments from <em>this</em> phone or browser. If you used a different
           one — or a private window — open the booth link there and they’ll be waiting.
         </p>
-        <a
-          href={`${basePath}/wall`}
+        <Link
+          to={`${basePath}/wall`}
           className="pressable mt-3 inline-flex items-center gap-2 min-h-11 font-label uppercase tracking-luxe text-[10px] text-[color:var(--color-accent)]"
         >
           See the live wall instead
-        </a>
+        </Link>
       </div>
     </motion.div>
   );

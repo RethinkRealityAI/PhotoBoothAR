@@ -11,6 +11,7 @@
  * getLandingContent() and kept live with subscribeToLanding().
  */
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Camera } from 'lucide-react';
@@ -145,13 +146,13 @@ export default function JoinBooth() {
                 ABOVE the steps because "1. Scan QR" is the one instruction they
                 cannot follow. Hidden on the large screens where the page is
                 acting as projected signage. */}
-            <a
-              href={`${basePath}/booth`}
+            <Link
+              to={`${basePath}/booth`}
               className="pressable lg:hidden mt-6 w-full inline-flex items-center justify-center gap-2 bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] min-h-12 rounded-2xl glow-accent"
             >
               <Camera className="w-4 h-4" />
               Open the booth here
-            </a>
+            </Link>
 
             {/* Big step pills */}
             <ol className="mt-7 flex flex-col gap-3 w-full">

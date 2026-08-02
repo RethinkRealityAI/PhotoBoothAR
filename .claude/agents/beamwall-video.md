@@ -477,3 +477,80 @@ re-encoded → file size sane (<2MB for landing embeds) → embedded/committed �
      branch (frameProcessing.ts MIN_KEYED_FRACTION, commit 22f7d28) and a
      CONCURRENT agent was editing the same working tree during the session —
      diff-check `git status` before claiming ownership of failures.
+- 2026-07-31: HOOK-FIRST RECUT of all four feature films (owner: "check all the
+  videos again ensure they make sense have the best visuals and not redundant
+  and are engaging and hook the user" + the landing highlights strips are being
+  REMOVED, so the in-video callouts are now the SOLE carrier of the bullets).
+  All four re-authored, re-rendered and shipped: booth 30.0→20.0s (766→742 KB),
+  wall 30.0→24.0s (1393→1252 KB), challenges 30.0→20.6s (813→686 KB), cards
+  30.0→20.0s (929→808 KB); posters regenerated at 1280×720 `-q:v 3`.
+  1. **The 30s cut was ~40% dead air and the audit tool that proves it is one
+     ffmpeg call**: `ffmpeg -i f.mp4 -vf "fps=1,scale=440:-1,drawtext=
+     text='%{eif\:n\:d}s':...,tile=5x6" -frames:v 1 -update 1 sheet.jpg`
+     gives a timestamped one-frame-per-second contact sheet of a whole film in
+     one image. It exposed instantly what snapshots at hand-picked times hide:
+     booth froze for 11s on one static row, challenges spent 8.0s (27% of
+     runtime) on a motionless logo, cards had an entirely EMPTY frame at 21s.
+     Make this the FIRST step of any "check the videos" task. Add a dense
+     0–3s sheet at `fps=5` for the hook: booth/challenges/cards were all still
+     literally black at 0.2–0.4s.
+  2. **Design rule that came out of it — the outro is a bumper, not a scene.**
+     Four films that each end on 6–8s of the identical wordmark+pill+QR+fine
+     print is the single biggest cross-film redundancy on the page. Cut to a
+     3.8s wordmark+pill; the QR (128px) and the fine print (22px) are illegible
+     at the ~350px mobile embed width anyway. Recovered 4–5s per film, which is
+     most of the file-size win.
+  3. **Hook budget: first pixels at 0.05s, headline readable by 0.6s.** The old
+     entrances started at 0.4s with 0.9–1.0s durations behind a fade-from-black.
+     New pattern: hero visual `fromTo(... duration 0.55–0.7)` at 0.05, eyebrow
+     at 0.12–0.4, title at 0.2–0.5, plus a second element landing ~0.9–1.5s so
+     0–3.4s is never static. Replaced booth's `booth-portrait.png` (a dark
+     rainbow-striped figure that reads as noise at phone size) with two real
+     event photos in glowing frames.
+  4. **`data-media-start` fixes the owner's "selfie not filling the camera
+     frame" complaint at zero cost.** `clip-booth-selfie.mp4` PUSHES IN over
+     its 5.04s — its first ~2s are wide (subject small, lots of ceiling), its
+     last ~3s are tight and joyful. `data-media-start="1.9" data-duration="3.1"`
+     plays only the tight half. ALWAYS sample a source clip at `fps=1` before
+     choosing its window; the framing inside one clip is not constant.
+  5. **A claim you only state is worse than no claim.** booth said "face-tracked
+     3D props" over a plain selfie: added an AR frame ring (`z-index` ABOVE the
+     root-child `<video>`) + in-screen sparkle props. wall said "one wall, three
+     shows" while relabelling one identical band: mosaic now drifts, SLIDESHOW
+     scales one frame 1.45× and dims the rest, MARQUEE races. challenges' board
+     read "2 Ada&Femi 180 / 1 Table 7 210" after the overtake — arithmetically
+     false; fixed by (a) a second `<b>` per row cross-faded 180→230 as the +50
+     lands, and (b) counter-translating each `.rank` by `-ROW_H` against its
+     row's `+ROW_H` so the digits stay put while the pills swap.
+  6. **Marquee/band coverage is arithmetic, do it before rendering.** A flex
+     band of N frames inside `left:-60;right:-60` spans `(-60+x)` to
+     `(-60+x+content)`. Full-frame coverage needs `-60+x <= 0` AND
+     `-60+x+content >= 1920`. cards drifted to x:-460 with content 1860 → the
+     right THIRD of the frame was empty for the last 2s. Widen the band (added
+     2 frames → 2400) rather than shortening the drift.
+  7. **A running render compiles a SNAPSHOT of the directory at start.** Editing
+     the composition after `hyperframes render` begins silently renders the OLD
+     file — verify with `grep <the-new-value>
+     renders/work-*/compiled/index.html` before trusting a long render. Kill by
+     PID found from `pgrep -f "hyperframes render"` (never by image name) and
+     `rm -rf renders/work-*`.
+  8. Dropped VO+bed from all four feature comps (`Silent by design`): the VO was
+     cut against the 30s timings and any retime desyncs it; landing embeds are
+     muted-autoplay and encoded `-an` regardless. This also sidesteps the old
+     `@ffmpeg-installer` `apad=whole_dur` mixer bug entirely (audioCount 0). Add
+     a bed at encode time for a social cut.
+  9. Verification set that worked: `lint` 0 errors ×4 → `validate` 0 errors ×4
+     (the "could not read the duration of N media element(s)" warning is the
+     known headless-probe limit, ignore) → per-second contact sheet of the
+     ENCODED file (not the render) → `blackdetect=d=0.6:pix_th=0.10` to prove
+     no dead-air run ≥0.6s → `-vf scale=350:-1` on a callout frame to prove
+     mobile legibility → poster picked from a 2×2 `select='eq(n\,N)+...'` grid
+     of candidates → `npm run lint` + `npm run build` and confirm the hashed
+     copies land in `dist/assets/`.
+  10. Timings here: 1920×1080 `--workers 4` ≈ 0.87 s/frame (booth 648 frames =
+      9m23s; wall 768 = 11m; challenges 666 = 8m; cards 648 = 8m). The render
+      still overruns the GSAP pin by ~1.6s — always `-t <END>` at encode. crf 27
+      + `scale=1280:720` gives 297–521 kbit/s on this dark motion-graphics
+      material; the recut films are DENSER per second than the old ones (frozen
+      frames cost nothing to encode), so a shorter film is not proportionally
+      smaller — budget by bitrate, not by duration.

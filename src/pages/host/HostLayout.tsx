@@ -9,28 +9,39 @@
  */
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { CalendarRange, Coins, CreditCard, LifeBuoy, LogOut, Sparkles } from 'lucide-react';
+import { CalendarRange, Coins, CreditCard, LifeBuoy, LogOut, Plus, Sparkles } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
 import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
 import { fetchMyUnreadCount } from '../../lib/support';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { haptic } from '../../lib/haptics';
 import { useAiJobSweep } from '../../lib/useAiJobSweep';
+import { ToastProvider } from '../../components/ui/Toast';
+import ConfirmModal from '../../components/ui/ConfirmModal';
+
+/** Per-path /host titles, set from the layout: a child page adopting
+ *  usePageTitle would NOT reliably override the layout's — child effects run
+ *  before parent effects on mount, so the layout's title wins on a cold load.
+ *  Route-keyed here instead, exactly as the old comment prescribed. */
+function hostTitle(pathname: string): string {
+  if (pathname === '/host') return 'Your events — Beamwall';
+  if (pathname.startsWith('/host/new')) return 'New event — Beamwall';
+  if (pathname.startsWith('/host/concierge')) return 'Concierge — Beamwall';
+  if (pathname.startsWith('/host/billing')) return 'Billing — Beamwall';
+  if (pathname.startsWith('/host/support')) return 'Support — Beamwall';
+  return 'Host studio — Beamwall';
+}
 
 export default function HostLayout() {
-  // Layout-level title for every /host screen. NOTE: a child page adopting
-  // usePageTitle would NOT reliably override this — child effects run before
-  // parent effects on mount, so the layout's title wins on a cold load. If
-  // per-page /host titles are ever wanted, set them from this layout (e.g.
-  // route-keyed), not from the children.
-  usePageTitle('Host studio — Beamwall');
   const navigate = useNavigate();
   const { session, loading } = useSession();
   const [orgName, setOrgName] = useState<string | null>(null);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
   const [unread, setUnread] = useState(0);
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const { pathname } = useLocation();
+  usePageTitle(hostTitle(pathname));
 
   // Re-checked on every /host navigation rather than by a timer or a realtime
   // channel: a support reply is not time-critical to the second, and a poll
@@ -115,6 +126,17 @@ export default function HostLayout() {
         {/* Primary destinations — icon + label rows in the sidebar; icon-first
             (labels from sm) on the mobile top bar. */}
         <nav className="flex md:flex-col gap-1 md:gap-1.5 items-center md:items-stretch ml-auto md:ml-0 md:flex-1 md:min-h-0">
+          {/* The one action every journey starts with — promoted above the
+              destinations so a returning host never hunts for it. */}
+          <Link
+            to="/host/new"
+            onClick={() => haptic('tap')}
+            aria-label="New event"
+            className="pressable flex items-center gap-2.5 rounded-xl px-3 md:px-3.5 py-2.5 min-h-11 min-w-11 justify-center md:justify-start font-label uppercase tracking-luxe text-[10px] font-bold text-white bg-foil glow-accent transition md:mb-1"
+          >
+            <Plus className="w-[18px] h-[18px] shrink-0" />
+            <span className="hidden sm:inline">New event</span>
+          </Link>
           <NavLink to="/host" end onClick={() => haptic('tap')} aria-label="Events" className={({ isActive }) => `${railLink} ${railState(isActive)}`}>
             <CalendarRange className="w-[18px] h-[18px] shrink-0" />
             <span className="hidden sm:inline">Events</span>
@@ -172,7 +194,7 @@ export default function HostLayout() {
                 {unread > 0 && <span className="ml-1.5 text-[color:var(--color-accent)]">{unread}</span>}
               </span>
             </NavLink>
-            <button onClick={handleSignOut} aria-label="Sign out" className={`${railLink} ${railState(false)}`}>
+            <button onClick={() => setConfirmingSignOut(true)} aria-label="Sign out" className={`${railLink} ${railState(false)}`}>
               <LogOut className="w-[18px] h-[18px] shrink-0" />
               <span className="hidden sm:inline">Sign out</span>
             </button>
@@ -182,8 +204,20 @@ export default function HostLayout() {
 
       {/* Content */}
       <main className="flex-1 relative overflow-y-auto">
-        <Outlet />
+        <ToastProvider>
+          <Outlet />
+        </ToastProvider>
       </main>
+
+      {confirmingSignOut && (
+        <ConfirmModal
+          title="Sign out?"
+          body="You'll be signed out of your Beamwall studio on this device. Your events keep running."
+          confirmLabel="Sign out"
+          onConfirm={handleSignOut}
+          onCancel={() => setConfirmingSignOut(false)}
+        />
+      )}
     </div>
   );
 }

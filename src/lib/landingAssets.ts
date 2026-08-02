@@ -22,6 +22,15 @@ import eventWedding from '../assets/landing/event-wedding.webp';
 import eventGala from '../assets/landing/event-gala.webp';
 import eventBirthday from '../assets/landing/event-birthday.webp';
 import eventActivation from '../assets/landing/event-activation.webp';
+import heroWedding from '../assets/landing/hero/hero-wedding.webp';
+import heroGala from '../assets/landing/hero/hero-gala.webp';
+import heroConference from '../assets/landing/hero/hero-conference.webp';
+import heroBirthday from '../assets/landing/hero/hero-birthday.webp';
+import heroTradeshow from '../assets/landing/hero/hero-tradeshow.webp';
+// v2: the first render's background carried an M-lettered light wall that read
+// as someone's logo; this one is a pure abstract emerald/gold installation.
+// v1 (hero-activation.webp) stays committed but unreferenced — owner may delete.
+import heroActivation from '../assets/landing/hero/hero-activation-v2.webp';
 
 /** Editorial portrait — person with AR glasses in beam lighting (has bg). */
 export const HERO_BOOTH_PORTRAIT = boothPortrait;
@@ -60,3 +69,31 @@ export const EVENT_WEDDING = eventWedding;
 export const EVENT_GALA = eventGala;
 export const EVENT_BIRTHDAY = eventBirthday;
 export const EVENT_ACTIVATION = eventActivation;
+
+/**
+ * Hero-carousel frame photos — one per event TYPE, portrait 9:16, matched to
+ * the frame design each card wears (LiveHeroCarousel's SLOTS table).
+ *
+ * These are AI-GENERATED ILLUSTRATIONS, not photographs of real Beamwall
+ * events, which is why the caption under the strip promises styling rather
+ * than "live moments". Any of the six is swappable per slot from
+ * /admin/landing → Hero frames.
+ */
+export const HERO_WEDDING = heroWedding;
+export const HERO_GALA = heroGala;
+export const HERO_CONFERENCE = heroConference;
+export const HERO_BIRTHDAY = heroBirthday;
+export const HERO_TRADESHOW = heroTradeshow;
+export const HERO_ACTIVATION = heroActivation;
+
+/** The same six, in STRIP ORDER — index i is hero slot i, matching
+ *  LiveHeroCarousel's SLOTS and DEFAULT_LANDING_CONTENT.heroSlots. /admin/landing
+ *  previews the bundled default for a slot by indexing this. */
+export const HERO_SLOT_IMAGES = [
+  heroBirthday,
+  heroWedding,
+  heroActivation,
+  heroConference,
+  heroGala,
+  heroTradeshow,
+];

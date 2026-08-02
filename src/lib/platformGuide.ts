@@ -32,7 +32,7 @@ HOST STUDIO (/host/events/<id>, tabs):
 - Branding: theme colours, background, fonts, copy. Settings: landing route, defaults. Manager access: mint day-of staff links.
 
 CREATING EVENTS:
-- /host/new — the Event Concierge: describe the event in chat and the AI designs it (name, style template, accent colour, date, link, remote mode) with a live preview card; or use the manual 3-step wizard. On success, the AI Frame Studio designs a signature 9:16 frame, publishes it and sets it as the booth default (drag to position, size slider).
+- /host/new — the Event Concierge: describe the event in chat and the AI designs it (name, style template, accent colour, date, link, remote mode) with a live preview card; or use the manual 3-step wizard. On success the chosen template's look is seeded and the same chat continues in build mode — add frames, filters, 3D props and challenges, go live, and grab the QR right there; frames are designed in the Studio (Director) or via that build chat.
 - /host/concierge — the Concierge workspace: every event as a card (rename inline, go live/end, copy link, open studio) beside this chat; pick an event and manage it in plain words. Ask for a "challenge pack" to get a themed set of 3-6 challenges added in one confirm.
 - Remote/virtual celebrations: guests contribute to a greeting card from anywhere; the card can be pinned as the event landing.
 

@@ -8,6 +8,7 @@
  * complete them in the booth. Themed and reachable from the shared GuestNav.
  */
 import { useEffect, useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Trophy, Check, Camera } from 'lucide-react';
 import { useStore } from '../store';
@@ -130,10 +131,10 @@ export default function ChallengesPage() {
             <p className="font-sans text-brand-muted/70 text-sm max-w-xs leading-relaxed">
               This event hasn’t added any challenges. Step into the booth and capture a moment for the wall.
             </p>
-            <a href={`${basePath}/booth`}
+            <Link to={`${basePath}/booth`}
               className="pressable mt-7 inline-flex items-center gap-2 bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] px-8 min-h-12 rounded-2xl glow-accent">
               <Camera className="w-4 h-4" /> Open the booth
-            </a>
+            </Link>
           </motion.div>
         ) : (
           <>
@@ -143,8 +144,38 @@ export default function ChallengesPage() {
                 // An unfinished challenge is a thing to go and DO, so the whole
                 // row is the tap target that takes the guest to the booth —
                 // 44px-plus by construction, and it removes the "…and how do I
-                // do it?" step the old static card left hanging.
-                const Row = done ? 'div' : 'a';
+                // do it?" step the old static card left hanging. A client-side
+                // <Link>, not an anchor: a full reload costs the guest a fresh
+                // camera-permission round-trip in the booth.
+                const rowClass = `pressable relative flex items-center gap-3.5 rounded-2xl liquid-glass p-4 min-h-[76px] ${
+                  done ? 'opacity-65' : ''
+                }`;
+                const rowContent = (
+                  <>
+                    <span className="text-3xl shrink-0 leading-none" aria-hidden>{c.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-sans text-[15px] text-brand-fg font-medium leading-tight">{c.title}</p>
+                      {c.description && (
+                        <p className="font-sans text-xs text-brand-muted/60 mt-1 leading-snug line-clamp-2">{c.description}</p>
+                      )}
+                    </div>
+                    <div className="shrink-0 flex flex-col items-end gap-1.5">
+                      <span className="font-label text-[9px] uppercase tracking-luxe text-[color:var(--color-accent)]">
+                        +{c.points}
+                      </span>
+                      {done ? (
+                        <span
+                          className="w-7 h-7 rounded-full flex items-center justify-center bg-foil"
+                          title="Completed"
+                        >
+                          <Check className="w-4 h-4 text-[color:var(--on-accent)]" />
+                        </span>
+                      ) : (
+                        <span className="w-7 h-7 rounded-full border border-white/20" aria-hidden />
+                      )}
+                    </div>
+                  </>
+                );
                 return (
                   <motion.div
                     key={c.id}
@@ -152,36 +183,17 @@ export default function ChallengesPage() {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ duration: 0.45, delay: Math.min(i * 0.05, 0.5), ease: [0.22, 1, 0.36, 1] }}
                   >
-                    <Row
-                      {...(done ? {} : { href: `${basePath}/booth` })}
-                      className={`pressable relative flex items-center gap-3.5 rounded-2xl liquid-glass p-4 min-h-[76px] ${
-                        done ? 'opacity-65' : ''
-                      }`}
-                      aria-label={done ? undefined : `${c.title} — open the booth`}
-                    >
-                      <span className="text-3xl shrink-0 leading-none" aria-hidden>{c.emoji}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-sans text-[15px] text-brand-fg font-medium leading-tight">{c.title}</p>
-                        {c.description && (
-                          <p className="font-sans text-xs text-brand-muted/60 mt-1 leading-snug line-clamp-2">{c.description}</p>
-                        )}
-                      </div>
-                      <div className="shrink-0 flex flex-col items-end gap-1.5">
-                        <span className="font-label text-[9px] uppercase tracking-luxe text-[color:var(--color-accent)]">
-                          +{c.points}
-                        </span>
-                        {done ? (
-                          <span
-                            className="w-7 h-7 rounded-full flex items-center justify-center bg-foil"
-                            title="Completed"
-                          >
-                            <Check className="w-4 h-4 text-[color:var(--on-accent)]" />
-                          </span>
-                        ) : (
-                          <span className="w-7 h-7 rounded-full border border-white/20" aria-hidden />
-                        )}
-                      </div>
-                    </Row>
+                    {done ? (
+                      <div className={rowClass}>{rowContent}</div>
+                    ) : (
+                      <Link
+                        to={`${basePath}/booth`}
+                        className={rowClass}
+                        aria-label={`${c.title} — open the booth`}
+                      >
+                        {rowContent}
+                      </Link>
+                    )}
                   </motion.div>
                 );
               })}
@@ -195,14 +207,14 @@ export default function ChallengesPage() {
                     Every one of them — go and see the leaderboard.
                   </p>
                   <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
-                    <a href={`${basePath}/wall`}
+                    <Link to={`${basePath}/wall`}
                       className="pressable inline-flex items-center gap-2 bg-foil text-[color:var(--on-accent)] rounded-2xl px-7 min-h-12 font-label uppercase tracking-luxe text-[11px] glow-accent">
                       View the wall
-                    </a>
-                    <a href={`${basePath}/me`}
+                    </Link>
+                    <Link to={`${basePath}/me`}
                       className="pressable inline-flex items-center gap-2 rounded-2xl px-7 min-h-12 font-label uppercase tracking-luxe text-[11px] text-brand-fg bg-white/[0.07] border border-white/10">
                       Your moments
-                    </a>
+                    </Link>
                   </div>
                 </>
               ) : (
@@ -210,10 +222,10 @@ export default function ChallengesPage() {
                   <p className="font-sans text-sm text-brand-muted/70 max-w-sm leading-relaxed">
                     Pick a challenge in the booth before you snap — the first guests to finish them all take the top spots.
                   </p>
-                  <a href={`${basePath}/booth`}
+                  <Link to={`${basePath}/booth`}
                     className="pressable mt-5 inline-flex items-center gap-2 bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] px-8 min-h-12 rounded-2xl glow-accent">
                     <Camera className="w-4 h-4" /> Do a challenge
-                  </a>
+                  </Link>
                 </>
               )}
             </div>

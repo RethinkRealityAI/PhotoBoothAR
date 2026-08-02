@@ -42,7 +42,7 @@ export default function Login() {
           setNeedsConfirmation(true);
           setError('This email hasn’t been confirmed yet — check your inbox for the link.');
         } else if (raw.includes('invalid login')) {
-          setError('That email and password don’t match. Check them, or reset your password below.');
+          setError('That email and password don’t match. Check them, or use the “Forgot password?” link.');
         } else {
           setError(err.message);
         }
