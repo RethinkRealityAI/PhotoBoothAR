@@ -54,6 +54,11 @@ jobs:
             mkdir -p "$(dirname "$path")"
             echo "→ $path"
             curl -fSL --retry 3 --retry-delay 2 -o "$path" "$url"
+            # Record what THIS run fetched — the compress step must only touch
+            # these. It used to re-encode every existing clip-*.mp4 on every
+            # run: lossy CRF re-compression of already-compressed files, a
+            # generation of quality lost per workflow run, committed as churn.
+            echo "$path" >> /tmp/fetched-this-run.txt
           done
 
       - name: Install ffmpeg
@@ -71,6 +76,10 @@ jobs:
             rm "$f"
           done
           for f in hyperframes/studio/assets/clip-*.mp4; do
+            # Freshly-fetched raw generations only — an already-committed clip
+            # has been compressed once and must never be re-encoded (see the
+            # note in the download step).
+            grep -qxF "$f" /tmp/fetched-this-run.txt 2>/dev/null || continue
             tmp="${f%.mp4}.tmp.mp4"
             ffmpeg -y -i "$f" -c:v libx264 -preset slow -crf 27 -pix_fmt yuv420p -movflags +faststart -an "$tmp"
             mv "$tmp" "$f"
