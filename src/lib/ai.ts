@@ -120,6 +120,8 @@ export async function resolveEventUuid(
 
 export interface GenerateImageOpts {
   prompt: string;
+  /** 'higgsfield' costs 2 platform credits — or ZERO when the org brought its own
+   *  Higgsfield key (server-resolved from org_provider_keys; see providerKeys.ts). */
   provider?: 'gemini' | 'higgsfield';
   kind?: '2d_filter' | 'border';
   transparentBackground?: boolean;

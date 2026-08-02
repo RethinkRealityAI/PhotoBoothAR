@@ -3,8 +3,9 @@
  *
  * POST (deployed with verify_jwt ON — requires a real user JWT in Authorization)
  *   { jobId }                 poll ONE job; caller must be a member of its org
- *   { sweep: true }           scheduled reconciliation across every org — see
- *                             "Sweep mode" below and migration 019
+ *   { sweep: true }           scheduled reconciliation across every org (frozen
+ *                             meshy jobs + stranded higgsfield image jobs) —
+ *                             see "Sweep mode" below and migration 019
  *
  * verify_jwt stays ON for both: the service-role key the scheduler presents is
  * itself a project-signed JWT, so it clears the gateway and is then checked
@@ -33,7 +34,9 @@
  * can't double-create the experience or double-refund.
  *
  * Image (gemini/higgsfield) jobs are synchronous — polling them just returns
- * the stored row.
+ * the stored row. The SWEEP additionally fails+refunds a higgsfield image row
+ * left at 'running' past SWEEP_STRANDED_IMAGE_MS, which can only mean the
+ * isolate died mid-generation with the credits already spent.
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
@@ -422,6 +425,10 @@ async function processMeshyJob(
  * It lives in this function rather than a new one so there is exactly ONE
  * implementation of the transition logic — the part that refunds credits and
  * creates experiences is not something to have two copies of.
+ *
+ * The sweep has a SECOND job (audit F3): synchronous higgsfield IMAGE rows
+ * stranded at 'running' by a killed isolate. Nothing polls those — there is no
+ * provider task left to ask about — so they are failed and refunded outright.
  */
 
 /** Don't touch a job younger than this — the longest UI poll budget is ~10
@@ -433,6 +440,17 @@ const SWEEP_MIN_AGE_MS = 11 * 60 * 1000;
 const SWEEP_ABANDON_MS = 24 * 60 * 60 * 1000;
 /** Jobs per run. The scheduler comes back; a burst does not help. */
 const SWEEP_BATCH = 10;
+/**
+ * How long an IMAGE job may sit at 'running' before it is presumed dead.
+ *
+ * ai-generate-image is synchronous — it spends the credits, inserts the row as
+ * 'running', and flips it to succeeded/failed before it answers. A row still
+ * 'running' well after that means the isolate was killed mid-generation, so
+ * nothing will ever finish it OR refund it and the host's credits are stranded
+ * forever. 10 minutes is far past its own ~110s Higgsfield poll cap, so this
+ * can never race a generation that is still working.
+ */
+const SWEEP_STRANDED_IMAGE_MS = 10 * 60 * 1000;
 
 /**
  * Is this request the scheduler rather than a signed-in host?
@@ -497,8 +515,70 @@ Deno.serve(async (req: Request) => {
           console.error('[ai-job-status] sweep item failed', id, e);
         }
       }
-      console.log('[ai-job-status] sweep', { considered: ids.length, resolved });
-      return json(200, { swept: ids.length, resolved });
+      // 0b. Stranded IMAGE jobs (audit F3). The loop above only reaches meshy
+      //     model3d rows; a higgsfield image row killed mid-generation keeps
+      //     its credits with nothing to show for them. These are NOT re-polled
+      //     — there is no provider task to ask about (the generation lived
+      //     inside the dead isolate) — so the only honest transition is
+      //     failed + refund. The gemini path is deliberately untouched: it is a
+      //     single round trip, not a poll loop, and has no window to die in.
+      const { data: stranded, error: strandedErr } = await sb
+        .from('ai_jobs')
+        .select('*')
+        .eq('status', 'running')
+        .eq('kind', 'image')
+        .eq('provider', 'higgsfield')
+        .lte('updated_at', new Date(now - SWEEP_STRANDED_IMAGE_MS).toISOString())
+        .order('updated_at', { ascending: true })
+        .limit(SWEEP_BATCH);
+      if (strandedErr) throw strandedErr;
+      let strandedFailed = 0;
+      let strandedRefunded = 0;
+      for (const row of stranded ?? []) {
+        const id = row.id as string;
+        try {
+          // Claim with the same `.eq('status','running')` idiom every terminal
+          // transition in this file uses, so a concurrent sweep — or a late
+          // user poll — can never double-refund.
+          const { data: claimed } = await sb
+            .from('ai_jobs')
+            .update({
+              status: 'failed',
+              error: 'higgsfield_stranded',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', id)
+            .eq('status', 'running')
+            .select()
+            .maybeSingle();
+          if (!claimed) continue; // someone else won the race
+          strandedFailed++;
+          const charged = typeof row.credits_charged === 'number' ? row.credits_charged : 0;
+          // 0 is DATA here, not "missing": a free-trial or BYO-key generation
+          // really did cost nothing. The row is still failed; there is simply
+          // nothing to give back.
+          if (charged > 0) {
+            // ai-generate-image spends against { event_uuid, prompt_hash }, but
+            // it does NOT store that ref on the row and prompt_hash cannot be
+            // reconstructed here without duplicating its hasher into a third
+            // function. So the refund carries { job_id } — the same fallback
+            // the meshy path already uses (`input.ref ?? { job_id }`), and
+            // enough to tie the grant back to the spend through ai_jobs.
+            const input = (row.input ?? {}) as Record<string, unknown>;
+            await refund(sb, row.org_id as string, charged, input.ref ?? { job_id: id });
+            strandedRefunded++;
+          }
+        } catch (e) {
+          console.error('[ai-job-status] sweep stranded image failed', id, e);
+        }
+      }
+
+      console.log('[ai-job-status] sweep', {
+        considered: ids.length, resolved, strandedFailed, strandedRefunded,
+      });
+      return json(200, {
+        swept: ids.length, resolved, stranded: strandedFailed, refunded: strandedRefunded,
+      });
     }
 
     // 1. Auth.

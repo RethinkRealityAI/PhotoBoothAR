@@ -15,7 +15,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Check, Loader2, Send } from 'lucide-react';
 import {
   askCopilot, executeAction, normalizeActions, applyGeneratedFrame, applyGeneratedPiece,
-  type CopilotAction, type CopilotCtx,
+  type CopilotAction, type CopilotCtx, type FrameProvider,
 } from '../../lib/copilot';
 import {
   buildCardLinkSurface, buildLinksSurface, buildProposalSurface, buildStatsSurface,
@@ -31,6 +31,7 @@ import {
   generateImage, generate3d, pollJob, resolveEventUuid, aiErrorMessage, aiErrorRetryable,
   fetchEventCreditBalance, type AiErrorCode,
 } from '../../lib/ai';
+import { providerCostLabel } from '../../lib/providerPricing';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { measureGlbFitScale } from '../../lib/studio/glbThumb';
 import { boothUrl } from '../../lib/copilotBooth';
@@ -53,14 +54,46 @@ const DEFAULT_PIECE_ID = HEAD_PIECES[0]?.id ?? '';
  *  including a missing/rejected provider key (shared list in lib/ai.ts). */
 const retryableGenError = aiErrorRetryable;
 
-/** Cost caption for paid-generation proposal cards (real server prices:
- *  ai-generate-image 1cr + 3 free/event; concept 1cr + ai-generate-3d 10cr). */
-function costNoteFor(action: CopilotAction): string | null {
-  if (action.tool === 'generate_frame') return '1 credit (your event’s first 3 AI images are free)';
-  if (action.tool === 'add_head_piece' && action.proposal.source === 'generate') {
+/**
+ * Cost caption for a paid-generation proposal card.
+ *
+ * Read from the surface's LIVE data model (not from the action that created the
+ * card) so it tracks that card's own provider picker: the caption said
+ * "1 credit" while the picker was set to Higgsfield, which the server charges 2
+ * for (audit F4). The number comes from providerPricing — the same module the
+ * studio's Generate button reads — so there is one price rule, not three.
+ *
+ * A card whose phase has moved on (generating / preview / error) has no
+ * `proposal` in its model and correctly shows no price.
+ */
+function costNoteFor(surface: SurfaceState | undefined): string | null {
+  const raw = surface?.dataModel?.proposal;
+  if (raw === null || typeof raw !== 'object') return null;
+  const p = raw as Record<string, unknown>;
+  if (p.tool === 'generate_frame') {
+    // `null` status: the copilot has no provider-key read of its own, so it
+    // quotes the PLATFORM price. The picker label carries the BYO-key case
+    // ("or your connected account" — 0 credits), which such an org knows.
+    const cost = providerCostLabel(p.provider === 'higgsfield' ? 'higgsfield' : 'gemini', null);
+    return `${cost} (your event’s first 3 AI images are free)`;
+  }
+  if (p.tool === 'add_head_piece' && p.source === 'generate') {
     return 'up to 11 credits (concept image + 10 for the 3D model — the image is free while your event has free AI images left)';
   }
   return null;
+}
+
+/**
+ * Generation-failure copy, with the one case the shared mapper cannot get
+ * right: `ai_not_configured` on a HIGGSFIELD generation is a missing key on the
+ * host's own org, not a platform outage — "our AI service is temporarily
+ * unavailable" blamed us for something only they can fix (audit F6).
+ */
+function frameErrorMessage(code: AiErrorCode, provider: FrameProvider): string {
+  if (code === 'ai_not_configured' && provider === 'higgsfield') {
+    return 'Higgsfield isn’t connected yet — add your key in Billing → Connected accounts, or switch to Beamwall AI.';
+  }
+  return aiErrorMessage(code);
 }
 
 interface ChatItem extends ChatMessage {
@@ -144,8 +177,12 @@ export default function CopilotChat({
   // apply). Each generation card is independent — no shared plan/epoch needed.
   // `lettering` rides along so Regenerate re-runs the SAME words on the frame —
   // re-rolling the art and silently losing the couple's names would read as a bug.
+  // `provider` rides along for the same reason: a Regenerate must not quietly
+  // move the host onto a different model (or a different price) than the one
+  // their card said it would use.
   const genState = useRef<Record<string, {
     kind: 'frame' | 'headpiece'; prompt: string; experience?: Experience; lettering?: LetteringSpec | null;
+    provider?: FrameProvider;
   }>>({});
   const runningGen = useRef<Set<string>>(new Set());
   // Surfaces the host dismissed mid-generation — a late async continuation must
@@ -159,8 +196,6 @@ export default function CopilotChat({
   // Live credit balance of THIS event's org (the org generation charges) —
   // shown beside paid-generation proposal cards; refreshed after each spend.
   const [balance, setBalance] = useState<number | null>(null);
-  // sid → cost caption for paid-generation proposals (set when the card lands).
-  const genCostNote = useRef<Record<string, string>>({});
 
   const refreshBalance = async (uuid: string) => {
     const b = await fetchEventCreditBalance(uuid);
@@ -292,11 +327,18 @@ export default function CopilotChat({
 
   /** FRAME: generate (greenScreen) → chroma-key → preview. Charge happens once
    *  in generateImage (server-metered, first 3 free); apply never re-generates. */
-  const startFrameGen = async (sid: string, prompt: string, lettering: LetteringSpec | null = null) => {
+  const startFrameGen = async (
+    sid: string,
+    prompt: string,
+    lettering: LetteringSpec | null = null,
+    /** Which model paints it. The A2UI card carries the choice (its
+     *  providerPicker always seeds one); this only threads it to the server. */
+    provider: FrameProvider = 'gemini',
+  ) => {
     if (!snapshot || runningGen.current.has(sid)) return;
     runningGen.current.add(sid);
     dismissedGen.current.delete(sid);
-    genState.current[sid] = { kind: 'frame', prompt, lettering };
+    genState.current[sid] = { kind: 'frame', prompt, lettering, provider };
     placeGen(sid, buildGeneratingSurface(sid, 'Designing your frame…'));
     try {
       const uuid = await resolveEventUuid(snapshot.slug, snapshot.eventUuid);
@@ -309,15 +351,20 @@ export default function CopilotChat({
         kind: standalone ? '2d_filter' : 'border',
         transparentBackground: standalone,
         greenScreen: true,
+        // Absent for gemini (the server default), so the body of every frame
+        // generation made before this option existed is unchanged.
+        ...(provider === 'higgsfield' ? { provider } : {}),
         ...(lettering ? { lettering } : {}),
       });
       if (res.error || !res.data?.experience) {
         const code = (res.error ?? 'internal') as AiErrorCode;
-        showGenError(sid, 'frame', aiErrorMessage(code), retryableGenError(code), code === 'insufficient_credits');
+        // Provider-aware: a missing Higgsfield key must not read as a platform
+        // outage the host can only wait out (audit F6).
+        showGenError(sid, 'frame', frameErrorMessage(code, provider), retryableGenError(code), code === 'insufficient_credits');
         return;
       }
       const { experience, keyed } = await processGeneratedFrame(res.data.experience, snapshot.slug);
-      genState.current[sid] = { kind: 'frame', prompt, lettering, experience };
+      genState.current[sid] = { kind: 'frame', prompt, lettering, provider, experience };
       if (!keyed) {
         showGenError(sid, 'frame', 'Generated, but the transparent cutout didn’t come through cleanly — Regenerate for a fresh version.', true);
         return;
@@ -463,7 +510,7 @@ export default function CopilotChat({
     }
     const feedback = String(event.context.feedback ?? '').trim();
     const prompt = feedback ? `${g.prompt}. Revision: ${feedback}` : g.prompt;
-    if (g.kind === 'frame') void startFrameGen(event.surfaceId, prompt, g.lettering ?? null);
+    if (g.kind === 'frame') void startFrameGen(event.surfaceId, prompt, g.lettering ?? null, g.provider ?? 'gemini');
     else void startPieceGen(event.surfaceId, prompt);
   };
 
@@ -482,8 +529,6 @@ export default function CopilotChat({
         runReadOnly(action);
       } else {
         const sid = `prop_${++seqRef.current}`;
-        const note = costNoteFor(action);
-        if (note) genCostNote.current[sid] = note;
         addSurface(buildProposalSurface(action, sid), sid);
       }
     }
@@ -546,7 +591,15 @@ export default function CopilotChat({
     if (tool === 'generate_frame') {
       // The lettering fields are host-editable, so they go through the SAME
       // validator as model output. An empty/partial box → null = no lettering.
-      void startFrameGen(event.surfaceId, String(proposal.prompt ?? ''), normalizeLettering(proposal.lettering));
+      // The provider pill is host-editable on the card, so it is coerced here
+      // the same way the lettering box is — anything but 'higgsfield' means the
+      // platform's own model, which is also the absent-field default.
+      void startFrameGen(
+        event.surfaceId,
+        String(proposal.prompt ?? ''),
+        normalizeLettering(proposal.lettering),
+        proposal.provider === 'higgsfield' ? 'higgsfield' : 'gemini',
+      );
       return;
     }
     if (tool === 'add_head_piece' && proposal.source === 'generate') {
@@ -593,8 +646,6 @@ export default function CopilotChat({
    *  chips use this so the whole flow works even before the edge-fn redeploy. */
   const openProposal = (action: CopilotAction) => {
     const sid = `prop_${++seqRef.current}`;
-    const note = costNoteFor(action);
-    if (note) genCostNote.current[sid] = note;
     addSurface(buildProposalSurface(action, sid), sid);
   };
 
@@ -690,6 +741,9 @@ export default function CopilotChat({
               </motion.div>
             );
           }
+          // Recomputed on every render (the picker writes straight into the
+          // surface's data model), so flipping provider re-prices the caption.
+          const costNote = m.surfaceId ? costNoteFor(surfaces[m.surfaceId]) : null;
           return (
             <motion.div
               key={i}
@@ -703,9 +757,9 @@ export default function CopilotChat({
                   {m.content}
                 </div>
               )}
-              {m.surfaceId && surfaces[m.surfaceId] && genCostNote.current[m.surfaceId] && (
+              {costNote && (
                 <p className="font-sans text-[10px] text-brand-muted/55 px-1">
-                  {genCostNote.current[m.surfaceId]}
+                  {costNote}
                   {balance !== null && (
                     <> · you have {balance} credit{balance === 1 ? '' : 's'}</>
                   )}

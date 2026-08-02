@@ -57,6 +57,7 @@ const NewEvent = lazy(() => import('./pages/host/NewEvent'));
 const Concierge = lazy(() => import('./pages/host/Concierge'));
 const Billing = lazy(() => import('./pages/host/Billing'));
 const HostSupport = lazy(() => import('./pages/host/Support'));
+const HostImport = lazy(() => import('./pages/host/HostImport'));
 const EventStudio = lazy(() => import('./pages/host/EventStudio'));
 const ManagerConsole = lazy(() => import('./pages/manager/ManagerConsole'));
 const CardViewer = lazy(() => import('./pages/cards/CardViewer'));
@@ -232,6 +233,9 @@ export default function App() {
                 <Route path="concierge" element={<Concierge />} />
                 <Route path="billing" element={<Billing />} />
                 <Route path="support" element={<HostSupport />} />
+                {/* Deep-linked asset import (?src=…) — reached from a link, not
+                    the rail, so it adds no nav row. */}
+                <Route path="import" element={<HostImport />} />
               </Route>
               <Route path="/host/events/:id/*" element={<EventStudio />} />
 

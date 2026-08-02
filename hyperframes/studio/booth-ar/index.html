@@ -1,0 +1,315 @@
+<!doctype html>
+<!--
+  Beamwall · Immersive AR Booth — 14.2s feature film (HyperFrames composition
+  "booth-ar"). Replaces the 30s "booth" film in the landing Immersive-booth
+  slot; doubles as a standalone social clip (all info carried by BIG text
+  callouts — films embed muted).
+  Scene map (persistent phone at left; each beat swaps the screen content):
+    S1  0.0–3.8   01 · 3D elements — real kling3_0_turbo footage of a guest
+                  whose gold crown stays tracked while he turns his head
+                  (clip-ar-crown-turn, seeded from public/starters/
+                  confetti-party.webp = the royal-crown.glb prop's example
+                  shot); prop tray of the REAL library props (public/models/
+                  props thumbs), crown ring-highlighted.
+    S2  3.8–7.0   02 · AI frames — three real AI frame designs
+                  (public/starters deco/gold/halo) snap around the camera
+                  view with a flash per snap.
+    S3  7.0–10.2  03 · stickers & filters — clip-ar-neon (neon-shades.glb's
+                  example shot animated), gradient-stroke sticker pops +
+                  a colour filter wash sweeping the screen.
+    S4 10.2–12.9  04 · gesture magic — clip-ar-crown-burst: the guest laughs
+                  and confetti erupts; "Smile detected" chip + a seeded
+                  particle burst fired by the gesture.
+    S5 12.9–14.2  brand beat — foil wordmark + CTA pill.
+  Contract: root omits data-duration (timeline pins 14.2 — trim the encode
+  with -t 14.2); scenes alternate tracks 1/2; the three <video> are DIRECT
+  root children (framework-owned) positioned over the phone screen rect
+  (wrap 300,170 + 19px → 319,189, 380×779).
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Beamwall · Immersive AR Booth</title>
+    <link rel="stylesheet" href="assets/kit.css" />
+    <script src="assets/gsap.min.js"></script>
+    <script src="assets/kit.js"></script>
+    <style>
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+      #root { width: 1920px; height: 1080px; }
+
+      /* mobile-legible type scale (embed renders ~350px wide) */
+      .eyebrow-h { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4em; font-size: 32px; margin: 0 0 26px; opacity: 0; }
+      .title-b { font-family: "Cormorant Garamond", Georgia, serif; font-weight: 600; font-size: 100px; line-height: 1.06; color: var(--fg); margin: 0 0 40px; opacity: 0; }
+      .chip { font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 46px; line-height: 1.25; padding: 26px 44px; opacity: 0; display: inline-block; }
+
+      /* persistent brand tag + phone */
+      #ba-brand { position: absolute; left: 90px; top: 62px; font-family: "Cormorant Garamond", Georgia, serif; font-weight: 600; font-size: 62px; opacity: 0; z-index: 20; }
+      #ba-phone-wrap { position: absolute; left: 300px; top: 170px; opacity: 0; z-index: 13; }
+      #ba-phone-wrap .bw-phone { position: relative; z-index: 13; background: transparent; }
+      #ba-phone-wrap .bw-phone .screen { background: transparent; }
+      /* screen rect = wrap(300,170) + 3px border + 16px padding, 380×779 */
+      #ba-plate { position: absolute; left: 319px; top: 189px; width: 380px; height: 779px; border-radius: 46px; background: rgba(8, 10, 20, 0.92); z-index: 11; opacity: 0; }
+      #ba-clip-turn, #ba-clip-neon, #ba-clip-burst { position: absolute; left: 319px; top: 189px; width: 380px; height: 779px; object-fit: cover; border-radius: 46px; z-index: 12; }
+
+      /* right copy column */
+      .beat { position: absolute; left: 900px; top: 300px; width: 940px; text-align: left; }
+
+      /* scenes with overlays INSIDE the phone screen must stack above
+         #ba-plate (z-11): each .scene is a stacking context (will-change),
+         so its children's z-indices are local — lift the whole scene. */
+      #s2 { z-index: 12; }
+      #s3 { z-index: 14; }
+      #s4 { z-index: 15; }
+
+      /* S1 prop tray */
+      #s1-tray { display: flex; gap: 34px; margin-top: 14px; }
+      .prop-tile { width: 152px; border-radius: 26px; padding: 14px 14px 10px; text-align: center; opacity: 0; }
+      .prop-tile img { display: block; width: 124px; height: 124px; object-fit: contain; margin: 0 auto; background: rgba(238, 243, 255, 0.1); border-radius: 18px; }
+      .prop-tile .cap { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 26px; color: var(--muted); margin-top: 8px; display: block; }
+      #tile-crown { border: 2px solid rgba(91, 140, 255, 0.85); box-shadow: 0 0 42px -8px rgba(91, 140, 255, 0.8); }
+      #tile-crown .cap { color: var(--blue); }
+
+      /* S2 frame snaps (over the phone screen) */
+      .snap-img { position: absolute; left: 319px; top: 189px; width: 380px; height: 779px; object-fit: cover; border-radius: 46px; z-index: 12; opacity: 0; }
+      .snap-lbl { position: absolute; left: 359px; top: 878px; width: 300px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.22em; font-size: 26px; color: var(--fg); padding: 14px 0; border-radius: 999px; background: rgba(8, 10, 20, 0.78); border: 1.5px solid rgba(169, 196, 255, 0.45); z-index: 15; opacity: 0; }
+
+      /* S3 stickers + filter wash */
+      .sticker { position: absolute; z-index: 15; opacity: 0; }
+      #ba-wash { position: absolute; left: 319px; top: 189px; width: 380px; height: 779px; border-radius: 46px; z-index: 14; opacity: 0; background: linear-gradient(160deg, rgba(232, 121, 249, 0.55), rgba(34, 211, 238, 0.45) 60%, rgba(124, 108, 247, 0.5)); }
+
+      /* S4 gesture */
+      #ba-smile { position: absolute; left: 349px; top: 862px; width: 320px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.2em; font-size: 26px; color: #06130c; padding: 16px 0; border-radius: 999px; background: linear-gradient(115deg, #34d399, #6ee7b7 55%, #34d399); box-shadow: 0 0 40px -6px rgba(52, 211, 153, 0.85); opacity: 0; z-index: 16; }
+      .burst-p { position: absolute; left: 505px; top: 470px; border-radius: 50%; z-index: 15; opacity: 0; }
+      #ba-ring { position: absolute; left: 389px; top: 350px; width: 240px; height: 240px; border-radius: 50%; border: 3px solid rgba(52, 211, 153, 0.9); box-shadow: 0 0 60px -8px rgba(52, 211, 153, 0.8); z-index: 15; opacity: 0; }
+
+      /* S5 outro */
+      .pill { font-size: 34px; padding: 32px 84px; letter-spacing: 0.3em; }
+      .fine { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 28px; color: var(--muted); margin-top: 34px; letter-spacing: 0.05em; }
+    </style>
+  </head>
+  <body>
+    <div id="root" class="bw-root" data-composition-id="booth-ar" data-start="0" data-width="1920" data-height="1080">
+      <!-- footage (framework-owned root children; windows match the beats) -->
+      <video id="ba-clip-turn" src="assets/clip-ar-crown-turn.mp4" data-start="0.5" data-duration="3.35" data-track-index="4" data-volume="0" muted></video>
+      <video id="ba-clip-neon" src="assets/clip-ar-neon.mp4" data-start="7.05" data-duration="3.2" data-track-index="4" data-volume="0" muted></video>
+      <video id="ba-clip-burst" src="assets/clip-ar-crown-burst.mp4" data-start="10.25" data-duration="2.65" data-track-index="5" data-volume="0" muted></video>
+
+      <!-- persistent chrome -->
+      <p id="ba-brand" class="foil">Beamwall</p>
+      <div id="ba-plate"></div>
+      <div id="ba-phone-wrap"></div>
+
+      <div id="s1" class="clip scene" data-start="0" data-duration="3.8" data-track-index="1">
+        <div class="beat" id="s1-beat">
+          <p class="eyebrow-h" id="s1-eyebrow" style="color: var(--blue)">01 · 3D elements</p>
+          <h1 class="title-b" id="s1-title">Add <em class="foil" style="font-style: normal">3D elements</em>.</h1>
+          <div class="chip glass-card" id="s1-chip" style="color: var(--blue)">Props tracked to their face — live</div>
+          <div id="s1-tray">
+            <div class="prop-tile glass-card" id="tile-crown"><img src="assets/prop-crown.webp" alt="" /><span class="cap">Crown</span></div>
+            <div class="prop-tile glass-card" id="tile-shades"><img src="assets/prop-shades.webp" alt="" /><span class="cap">Shades</span></div>
+            <div class="prop-tile glass-card" id="tile-tiara"><img src="assets/prop-tiara.webp" alt="" /><span class="cap">Tiara</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="s2" class="clip scene" data-start="3.8" data-duration="3.2" data-track-index="2">
+        <div class="beat" id="s2-beat">
+          <p class="eyebrow-h" id="s2-eyebrow" style="color: var(--violet)">02 · AI frames</p>
+          <h2 class="title-b" id="s2-title">Cool <em class="foil" style="font-style: normal">AI frames</em>.</h2>
+          <div class="chip glass-card" id="s2-chip" style="color: var(--violet)">Designed for your event — in one tap</div>
+        </div>
+        <img class="snap-img" id="snap-deco" src="assets/frame-deco.webp" alt="" />
+        <img class="snap-img" id="snap-gold" src="assets/frame-gold.webp" alt="" />
+        <img class="snap-img" id="snap-halo" src="assets/frame-halo.webp" alt="" />
+        <div class="snap-lbl" id="lbl-deco">Art deco</div>
+        <div class="snap-lbl" id="lbl-gold">Gold classic</div>
+        <div class="snap-lbl" id="lbl-halo">Halo light</div>
+      </div>
+
+      <div id="s3" class="clip scene" data-start="7.0" data-duration="3.2" data-track-index="1">
+        <div class="beat" id="s3-beat">
+          <p class="eyebrow-h" id="s3-eyebrow" style="color: var(--magenta)">03 · Stickers &amp; filters</p>
+          <h2 class="title-b" id="s3-title">Stickers &amp; <em class="foil" style="font-style: normal">face art</em>.</h2>
+          <div class="chip glass-card" id="s3-chip" style="color: var(--magenta)">Live filters, one tap</div>
+        </div>
+        <div id="ba-wash"></div>
+      </div>
+
+      <div id="s4" class="clip scene" data-start="10.2" data-duration="2.7" data-track-index="2">
+        <div class="beat" id="s4-beat">
+          <p class="eyebrow-h" id="s4-eyebrow" style="color: var(--green)">04 · Gesture magic</p>
+          <h2 class="title-b" id="s4-title">Smile — <em class="foil" style="font-style: normal">trigger effects</em>.</h2>
+          <div class="chip glass-card" id="s4-chip" style="color: var(--green)">Facial gestures fire the confetti</div>
+        </div>
+        <div id="ba-ring"></div>
+        <div id="ba-smile">Smile detected ✓</div>
+      </div>
+
+      <div id="s5" class="clip scene" data-start="12.9" data-duration="1.3" data-track-index="1">
+        <div class="stack">
+          <h2 class="title-xl foil" id="s5-wordmark" style="font-size: 150px">Beamwall</h2>
+          <div class="pill" id="s5-pill" style="margin-top: 54px">Create your event</div>
+          <p class="fine" id="s5-fine">The immersive booth · free to start</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+        var root = document.getElementById("root");
+        BW.buildBackdrop(root, "ba");
+        BW.buildSweep(root, "ba");
+
+        /* phone chrome (screen transparent; the real <video> sits under it) */
+        var ph = BW.phone("ba-phone", 380);
+        document.getElementById("ba-phone-wrap").appendChild(ph.el);
+
+        /* S3 stickers — gradient-stroked line SVGs (brand icon language) */
+        function stickerSvg(kind, hex, size) {
+          var gid = "bagrad-" + kind;
+          var paths = {
+            star: '<path d="M16 4l2.2 7.8L26 14l-7.8 2.2L16 24l-2.2-7.8L6 14l7.8-2.2z"/>',
+            heart: '<path d="M16 26c-6-4.8-10-8.6-10-13a5.4 5.4 0 0 1 10-2.6A5.4 5.4 0 0 1 26 13c0 4.4-4 8.2-10 13z"/>',
+            bolt: '<path d="M17.5 4L8 18h6l-1.5 10L22 14h-6z"/>',
+          };
+          return (
+            '<svg viewBox="0 0 32 32" width="' + size + '" height="' + size + '" fill="none" stroke="url(#' + gid +
+            ')" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
+            '<defs><linearGradient id="' + gid + '" x1="4" y1="4" x2="28" y2="28" gradientUnits="userSpaceOnUse">' +
+            '<stop offset="0" stop-color="' + hex + '"/><stop offset="1" stop-color="#eef3ff"/></linearGradient></defs>' +
+            paths[kind] + "</svg>"
+          );
+        }
+        var STICKERS = [
+          { kind: "star", hue: "magenta", x: 236, y: 250, s: 92 },
+          { kind: "heart", hue: "orange", x: 706, y: 320, s: 84 },
+          { kind: "bolt", hue: "cyan", x: 232, y: 742, s: 80 },
+          { kind: "star", hue: "violet", x: 712, y: 812, s: 70 },
+        ];
+        var s3 = document.getElementById("s3");
+        STICKERS.forEach(function (sp, i) {
+          var el = document.createElement("div");
+          el.className = "sticker";
+          el.id = "stick-" + i;
+          el.style.left = sp.x + "px";
+          el.style.top = sp.y + "px";
+          el.innerHTML = stickerSvg(sp.kind, BW.hue(sp.hue).css, sp.s);
+          s3.appendChild(el);
+        });
+
+        /* S4 burst particles — seeded scatter from the screen centre */
+        var rand = BW.mulberry32(0xba5eed);
+        var s4 = document.getElementById("s4");
+        var BURSTN = 18;
+        var bursts = [];
+        for (var i = 0; i < BURSTN; i++) {
+          var el = document.createElement("div");
+          el.className = "burst-p";
+          el.id = "bp-" + i;
+          var size = 8 + rand() * 14;
+          el.style.width = size + "px";
+          el.style.height = size + "px";
+          el.style.background = BW.HUES[i % 7].css;
+          var ang = (i / BURSTN) * Math.PI * 2 + rand() * 0.5;
+          var dist = 190 + rand() * 260;
+          bursts.push({ dx: Math.cos(ang) * dist, dy: Math.sin(ang) * dist * 0.9 });
+          s4.appendChild(el);
+        }
+
+        /* ── timeline ── */
+        var EASE = "power3.out";
+        var END = 14.2;
+        var tl = gsap.timeline({ paused: true });
+        BW.animateBackdrop(tl, "ba", END);
+
+        /* persistent chrome */
+        tl.fromTo("#ba-brand", { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.7, ease: EASE }, 0.3);
+        tl.fromTo("#ba-phone-wrap", { opacity: 0, y: 80 }, { opacity: 1, y: 0, duration: 0.9, ease: EASE }, 0.25);
+        tl.fromTo("#ba-plate", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 0.35);
+        tl.to("#ba-phone-wrap", { opacity: 0, y: 50, duration: 0.45, ease: "power2.in" }, 12.55);
+        tl.to("#ba-plate", { opacity: 0, duration: 0.4, ease: "power2.in" }, 12.55);
+        tl.to("#ba-brand", { opacity: 0, duration: 0.4, ease: "power2.in" }, 12.55);
+        tl.set("#ba-phone-wrap", { opacity: 0 }, 13.05);
+        tl.set("#ba-plate", { opacity: 0 }, 13.0);
+        tl.set("#ba-brand", { opacity: 0 }, 13.0);
+
+        /* S1 — 3D elements */
+        tl.fromTo("#s1-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.55, ease: EASE }, 0.45);
+        tl.fromTo("#s1-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.75, ease: EASE }, 0.6);
+        tl.fromTo("#s1-chip", { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.55, ease: EASE }, 1.0);
+        ["#tile-crown", "#tile-shades", "#tile-tiara"].forEach(function (id, i) {
+          tl.fromTo(id, { opacity: 0, y: 44, scale: 0.86 }, { opacity: 1, y: 0, scale: 1, duration: 0.55, ease: "back.out(1.6)" }, 1.35 + i * 0.16);
+        });
+        tl.fromTo("#tile-crown", { scale: 1 }, { scale: 1.07, duration: 0.35, ease: "sine.inOut", yoyo: true, repeat: 1 }, 2.5);
+        tl.to("#s1", { opacity: 0, y: -30, duration: 0.45, ease: "power2.in" }, 3.5);
+        BW.sweepAt(tl, "ba", 3.4);
+
+        /* S2 — AI frames snap-cycle */
+        tl.fromTo("#s2-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.55, ease: EASE }, 4.0);
+        tl.fromTo("#s2-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.75, ease: EASE }, 4.15);
+        tl.fromTo("#s2-chip", { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.55, ease: EASE }, 4.5);
+        var SNAPS = [
+          { img: "#snap-deco", lbl: "#lbl-deco", at: 3.95, out: 4.95 },
+          { img: "#snap-gold", lbl: "#lbl-gold", at: 4.95, out: 5.95 },
+          { img: "#snap-halo", lbl: "#lbl-halo", at: 5.95, out: null },
+        ];
+        SNAPS.forEach(function (sn) {
+          BW.flashAt(tl, "ba", sn.at, 0.45);
+          tl.fromTo(sn.img, { opacity: 0, scale: 1.16 }, { opacity: 1, scale: 1, duration: 0.32, ease: "power3.out" }, sn.at);
+          tl.fromTo(sn.lbl, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.3, ease: EASE }, sn.at + 0.12);
+          if (sn.out !== null) {
+            tl.set(sn.img, { opacity: 0 }, sn.out);
+            tl.set(sn.lbl, { opacity: 0 }, sn.out);
+          }
+        });
+        tl.to("#s2", { opacity: 0, y: -30, duration: 0.45, ease: "power2.in" }, 6.7);
+        BW.sweepAt(tl, "ba", 6.6);
+
+        /* S3 — stickers & filters */
+        tl.fromTo("#s3-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.55, ease: EASE }, 7.2);
+        tl.fromTo("#s3-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.75, ease: EASE }, 7.35);
+        tl.fromTo("#s3-chip", { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.55, ease: EASE }, 7.7);
+        STICKERS.forEach(function (_sp, i) {
+          tl.fromTo("#stick-" + i, { opacity: 0, scale: 0.3, rotate: -18 }, { opacity: 1, scale: 1, rotate: 0, duration: 0.5, ease: "back.out(2.1)" }, 7.6 + i * 0.22);
+        });
+        tl.fromTo("#ba-wash", { opacity: 0, x: -390 }, { opacity: 0.5, x: 0, duration: 0.55, ease: "power2.out" }, 8.8);
+        tl.to("#ba-wash", { opacity: 0, x: 390, duration: 0.55, ease: "power2.in" }, 9.45);
+        tl.set("#ba-wash", { opacity: 0 }, 10.05);
+        tl.to("#s3", { opacity: 0, y: -30, duration: 0.45, ease: "power2.in" }, 9.9);
+        BW.sweepAt(tl, "ba", 9.8);
+
+        /* S4 — gesture magic */
+        var BURST = 11.35; /* aligned to the laugh in clip-ar-crown-burst */
+        tl.fromTo("#s4-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.55, ease: EASE }, 10.4);
+        tl.fromTo("#s4-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.75, ease: EASE }, 10.55);
+        tl.fromTo("#s4-chip", { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.55, ease: EASE }, 10.9);
+        tl.fromTo("#ba-smile", { opacity: 0, y: 18, scale: 0.7 }, { opacity: 1, y: 0, scale: 1, duration: 0.45, ease: "back.out(1.7)" }, BURST - 0.35);
+        tl.fromTo("#ba-ring", { opacity: 0, scale: 0.4 }, { opacity: 0.9, scale: 1, duration: 0.4, ease: "power2.out" }, BURST - 0.1);
+        tl.to("#ba-ring", { opacity: 0, scale: 1.7, duration: 0.55, ease: "power2.out" }, BURST + 0.3);
+        tl.set("#ba-ring", { opacity: 0 }, BURST + 0.9);
+        BW.flashAt(tl, "ba", BURST, 0.75);
+        bursts.forEach(function (b, i) {
+          tl.fromTo("#bp-" + i, { opacity: 1, x: 0, y: 0, scale: 1 }, { opacity: 0, x: b.dx, y: b.dy, scale: 0.35, duration: 0.85, ease: "power2.out" }, BURST + 0.04 * (i % 5));
+          tl.set("#bp-" + i, { opacity: 0 }, BURST + 1.1);
+        });
+        tl.to("#s4", { opacity: 0, y: -30, duration: 0.45, ease: "power2.in" }, 12.55);
+        BW.sweepAt(tl, "ba", 12.45);
+
+        /* S5 — brand beat (holds to END) */
+        tl.fromTo("#s5-wordmark", { opacity: 0, y: -70, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 0.8, ease: EASE }, 13.05);
+        tl.fromTo("#s5-pill", { opacity: 0, y: 34, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "back.out(1.6)" }, 13.4);
+        tl.fromTo("#s5-fine", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 13.65);
+
+        /* pin duration */
+        tl.set("#ba-bg", { opacity: 1 }, END);
+        window.__timelines = window.__timelines || {};
+        window.__timelines["booth-ar"] = tl;
+      })();
+    </script>
+  </body>
+</html>

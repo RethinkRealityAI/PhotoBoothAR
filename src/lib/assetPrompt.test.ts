@@ -159,6 +159,30 @@ describe('FRAME_LAYOUT_SPEC', () => {
     }
   });
 
+  it('forbids the carnival-standee reading on BOTH scene archetypes', () => {
+    // Verified failure this sentence fixes: without it the model returns a
+    // PHOTOGRAPH of a cutout board — on a stand, on a floor, in perspective,
+    // with a drop shadow — instead of the overlay itself. Both scene layouts
+    // carry the identical clause (one shared const), and it must sit with the
+    // "NOT a border around an empty middle" sentence, before the cutout geometry.
+    const CLAUSE =
+      'This image IS the overlay itself viewed perfectly straight-on — NOT a photograph or picture ' +
+      'of a cutout board, standee, or panel: no stand, no floor, no room, no wall behind it, no ' +
+      "perspective, no drop shadow around the artwork's outer edge.";
+    for (const layout of ['full-scene', 'duo-scene'] as const) {
+      const spec = FRAME_LAYOUT_SPEC[layout];
+      expect(spec, layout).toContain(CLAUSE);
+      expect(spec.indexOf(CLAUSE), layout).toBeGreaterThan(spec.indexOf('NOT a border around an empty middle.'));
+      expect(spec.indexOf(CLAUSE), layout).toBeLessThan(spec.indexOf('head cutout'));
+    }
+    // The non-scene archetypes are untouched: their art hugs an edge or a
+    // corner, nothing about them invites a standee, and every changed byte of a
+    // proven prompt is a regression risk.
+    expect(FRAME_LAYOUT_SPEC['classic-border']).not.toContain('standee');
+    expect(FRAME_LAYOUT_SPEC['corner-overlay']).not.toContain('standee');
+    expect(FRAME_LAYOUT_SPEC['bottom-third']).not.toContain('standee');
+  });
+
   it('places duo cutouts apart and keeps the other two archetypes off the centre', () => {
     const duo = FRAME_LAYOUT_SPEC['duo-scene'];
     expect(duo).toContain('30%');

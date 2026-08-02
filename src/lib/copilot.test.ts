@@ -136,6 +136,26 @@ describe('normalizeActions — experience-building tools', () => {
       .toEqual([{ tool: 'generate_frame', proposal: { prompt: 'a frame' } }]);
   });
 
+  it('passes a known frame provider through and leaves it ABSENT when unstated', () => {
+    expect(normalizeActions([{ tool: 'generate_frame', prompt: 'a frame', provider: 'higgsfield' }], snapshot))
+      .toEqual([{ tool: 'generate_frame', proposal: { prompt: 'a frame', provider: 'higgsfield' } }]);
+    expect(normalizeActions([{ tool: 'generate_frame', prompt: 'a frame', provider: 'HiggsField ' }], snapshot))
+      .toEqual([{ tool: 'generate_frame', proposal: { prompt: 'a frame', provider: 'higgsfield' } }]);
+    // Absent → no key at all, so an existing proposal is byte-identical to
+    // before the option existed (the confirm card seeds 'gemini' for display).
+    const plain = normalizeActions([{ tool: 'generate_frame', prompt: 'a frame' }], snapshot);
+    expect('provider' in (plain[0] as { proposal: object }).proposal).toBe(false);
+  });
+
+  it('normalizes a hallucinated provider to gemini instead of dropping the frame', () => {
+    // A provider name the platform does not have must cost the host a provider
+    // choice, never the frame — same forgiveness lettering gets above.
+    for (const provider of ['midjourney', '', 42, {}, true]) {
+      expect(normalizeActions([{ tool: 'generate_frame', prompt: 'a frame', provider }], snapshot))
+        .toEqual([{ tool: 'generate_frame', proposal: { prompt: 'a frame', provider: 'gemini' } }]);
+    }
+  });
+
   it('accepts a known filter id, drops unknown ids and none', () => {
     expect(normalizeActions([{ tool: 'set_filter', shaderId: filterId }], snapshot))
       .toEqual([{ tool: 'set_filter', proposal: { shaderId: filterId } }]);

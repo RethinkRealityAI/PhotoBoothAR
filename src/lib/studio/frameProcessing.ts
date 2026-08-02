@@ -15,8 +15,26 @@
  * pixel maths live in ./chromaKey.ts (processFrameImage, node-tested).
  */
 import { uploadAsset, updateExperience } from '../db';
-import { processFrameImage, type RgbaImage } from './chromaKey';
+import {
+  FRAME_H,
+  FRAME_W,
+  fitOnCanvas,
+  hasGenuineAlpha,
+  needsChromaKey,
+  processFrameImage,
+  type RgbaImage,
+} from './chromaKey';
 import type { Experience } from '../../types';
+
+/**
+ * Read a boolean flag out of an experience's jsonb config. `transparent` is
+ * written by this very module (and by ai-generate-image) but is not on
+ * ExperienceConfig, so the read goes through a widened cast rather than a
+ * schema change. Only exactly `true` counts — the house rule for opt-in flags.
+ */
+function configFlag(config: Experience['config'], key: string): boolean {
+  return (config as Record<string, unknown> | null | undefined)?.[key] === true;
+}
 
 /** Decode a public image URL into an ImageData-shaped RGBA buffer. */
 async function loadImageData(url: string): Promise<RgbaImage> {
@@ -56,8 +74,10 @@ function toPngBlob(rgba: RgbaImage): Promise<Blob> {
  * into config and persisted even when processing fails, so callers can
  * piggy-back metadata (e.g. the Scene Director's scene tag).
  *
- * Returns { experience, keyed }: `keyed` is true only when the transparent
- * PNG was produced AND uploaded. When false, `experience` still references the
+ * Returns { experience, keyed }: `keyed` is true when the transparent PNG was
+ * produced AND uploaded — or when the asset ALREADY had genuine alpha (see the
+ * short-circuit below), which needs no keying to be placeable. When false,
+ * `experience` still references the
  * RAW GREEN output — callers must NOT place it in a scene (a solid green box
  * over the guest is worse than an error); offer a retry instead. Reprocessing
  * a saved raw experience costs no credits.
@@ -67,39 +87,72 @@ export async function processGeneratedFrame(
   eventId: string,
   extraConfig: Record<string, unknown> = {},
 ): Promise<{ experience: Experience; keyed: boolean }> {
+  // GENUINE ALPHA SHORT-CIRCUIT. A Higgsfield marketplace-app import or a
+  // remove_background output arrives as a real transparent PNG. There is no
+  // green backdrop to find, so the honesty gate below would have measured a
+  // keyedFraction of ~0 and REJECTED exactly the best inputs the pipeline can
+  // get. Skip detection and keying entirely; only the contain-fit onto the
+  // booth's 1080×1920 canvas remains (fitOnCanvas already resamples
+  // premultiplied, so soft edges survive).
+  //
+  // The decision takes THREE facts, not one (audit F2): `config.transparent` is
+  // only an IHDR colour-TYPE probe, so an opaque-RGBA green-screen sticker used
+  // to skip keying and place raw green. `config.greenScreen` (stamped by
+  // ai-generate-image) vetoes the skip, and the decoded pixels outrank both
+  // flags — see chromaKey.hasGenuineAlpha.
+  const claimsTransparent = configFlag(exp.config, 'transparent');
+  const fromGreenScreen = configFlag(exp.config, 'greenScreen');
+
   let processedUrl: string | null = null;
+  // Seeded from the flags and REPLACED by the pixel truth the moment the image
+  // decodes. It therefore keeps the flag answer on the two paths that never see
+  // pixels — no asset_url, and a decode that threw (CORS taint) — where
+  // reporting keyed:false would make the caller refuse a good transparent PNG.
+  let alreadyTransparent = claimsTransparent && !fromGreenScreen;
   if (exp.asset_url) {
     try {
       const src = await loadImageData(exp.asset_url);
-      // Detect the real backdrop hue, key it out, contain-fit to 1080×1920.
-      const { image, keyedFraction, keyColor } = processFrameImage(src);
-      // A key that removed almost nothing never matched the backdrop — the
-      // asset is still effectively the raw GREEN image. Leave processedUrl null
-      // (→ keyed:false) so the free-retry UI and DirectorPanel's failed-card
-      // path fire, exactly like the CORS/decode catch below. Do NOT upload it.
-      // Threshold trade-off: thin-border / sliver-green art keys out only a few
-      // percent, so 0.015 (was 0.03) avoids false "unkeyed" rejects of legit
-      // frames; a real greenScreen output is green-DOMINANT, so 1.5% still
-      // catches a total key miss.
-      if (keyedFraction < 0.015) {
-        console.warn('[studio] chroma-key removed too little — treating as unkeyed', {
-          keyColor,
-          keyedFraction,
-        });
-      } else {
-        const blob = await toPngBlob(image);
+      alreadyTransparent = hasGenuineAlpha(claimsTransparent, fromGreenScreen, src);
+      if (alreadyTransparent) {
+        const blob = await toPngBlob(fitOnCanvas(src, FRAME_W, FRAME_H));
         processedUrl = await uploadAsset(eventId, blob, `frame-${exp.id}`);
-        if (!processedUrl) console.warn('[studio] processed frame upload failed');
+        if (!processedUrl) console.warn('[studio] transparent frame upload failed');
+      } else {
+        // Detect the real backdrop hue, key it out, contain-fit to 1080×1920.
+        const { image, keyedFraction, keyColor } = processFrameImage(src);
+        // A key that removed almost nothing never matched the backdrop — the
+        // asset is still effectively the raw GREEN image. Leave processedUrl null
+        // (→ keyed:false) so the free-retry UI and DirectorPanel's failed-card
+        // path fire, exactly like the CORS/decode catch below. Do NOT upload it.
+        // `alreadyTransparent` is false on this branch by construction; passing
+        // it anyway keeps the skip and the gate reading off ONE helper (and one
+        // threshold), so the two decisions cannot drift apart.
+        if (!needsChromaKey(alreadyTransparent, keyedFraction)) {
+          console.warn('[studio] chroma-key removed too little — treating as unkeyed', {
+            keyColor,
+            keyedFraction,
+          });
+        } else {
+          const blob = await toPngBlob(image);
+          processedUrl = await uploadAsset(eventId, blob, `frame-${exp.id}`);
+          if (!processedUrl) console.warn('[studio] processed frame upload failed');
+        }
       }
     } catch (e) {
       console.warn('[studio] chroma-key processing failed', e);
     }
   }
 
+  // An already-transparent asset is PLACEABLE whatever happened above: a failed
+  // re-fit (or a CORS-tainted canvas, which is a browser-side read problem, not
+  // an asset problem) leaves a PNG the booth renders correctly as-is. Reporting
+  // keyed:false there would make the caller refuse a perfectly good frame.
+  const keyed = alreadyTransparent || !!processedUrl;
+
   const config = {
     ...(exp.config ?? {}),
     ...extraConfig,
-    ...(processedUrl ? { transparent: true } : {}),
+    ...(keyed ? { transparent: true } : {}),
   };
   const patch: Parameters<typeof updateExperience>[2] = { config };
   if (processedUrl) {
@@ -110,7 +163,7 @@ export async function processGeneratedFrame(
   // Persist when there's anything to persist (a processed URL and/or metadata).
   if (processedUrl || Object.keys(extraConfig).length > 0) {
     const saved = await updateExperience(eventId, exp.id, patch);
-    if (saved) return { experience: saved, keyed: !!processedUrl };
+    if (saved) return { experience: saved, keyed };
   }
   return {
     experience: {
@@ -118,6 +171,6 @@ export async function processGeneratedFrame(
       ...(processedUrl ? { asset_url: processedUrl, thumbnail_url: processedUrl } : {}),
       config: config as Experience['config'],
     },
-    keyed: !!processedUrl,
+    keyed,
   };
 }

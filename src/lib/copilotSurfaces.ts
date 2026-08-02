@@ -14,6 +14,7 @@ import { FILTER_SHADERS } from './shaders';
 import { HEAD_PIECES } from './headPieces';
 import { GENERIC_FRAMES } from './borders';
 import { frameBriefGaps, gapSummary, pieceBriefGaps } from './assetBrief';
+import { providerCostLabel } from './providerPricing';
 
 const FILTER_OPTIONS = FILTER_SHADERS.filter((s) => s.id !== 'none').map((s) => ({ label: s.name, value: s.id }));
 const PIECE_OPTIONS = HEAD_PIECES.map((p) => ({ label: p.name, value: p.id }));
@@ -102,6 +103,22 @@ const LETTERING_PLACEMENT_OPTIONS = [
   { label: 'Woven into the art', value: 'integrated' },
   { label: 'Overflowing the edge', value: 'beyond-edge' },
   { label: 'Name art only — no frame', value: 'standalone' },
+];
+
+/* ── Frame provider (which model paints it, and what it costs) ────────────
+ * Labelled with the PRICE, not the vendor's marketing name, because that is the
+ * only part of the choice a host can act on. The Higgsfield label says "or your
+ * connected account" because an org that brought its own key (providerKeys.ts)
+ * pays Higgsfield directly and spends ZERO platform credits — the card must not
+ * imply a charge that will not happen.
+ *
+ * The numbers come from providerPricing (a `null` status = the platform price,
+ * which is what a card with no key read can honestly quote) rather than being
+ * typed out here — CopilotChat's cost caption below the card reads the same
+ * function, and the two disagreeing is exactly audit F4. */
+const PROVIDER_OPTIONS = [
+  { label: `Beamwall AI (${providerCostLabel('gemini', null)})`, value: 'gemini' },
+  { label: `Higgsfield (${providerCostLabel('higgsfield', null)} · or your connected account)`, value: 'higgsfield' },
 ];
 
 /** [sample id, caption] for the visual legend, in style/placement order. */
@@ -230,14 +247,18 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
         style: action.proposal.lettering?.style ?? 'script-name',
         placement: action.proposal.lettering?.placement ?? 'bottom',
       };
+      // The provider is ALWAYS seeded (the agent's choice, else 'gemini') so the
+      // picker has a selection to show and the confirm payload always names a
+      // provider — the generator then never has to guess what the host chose.
+      const provider = action.proposal.provider ?? 'gemini';
       const legendIds = LETTERING_SAMPLES.map(([s]) => `lg_${s}Col`);
       const extraIds = LETTERING_EXTRA_SAMPLES.map(([s]) => `lg_${s}Col`);
-      return surface(surfaceId, { proposal: { tool: action.tool, ...p, lettering } }, [
+      return surface(surfaceId, { proposal: { tool: action.tool, ...p, lettering, provider } }, [
         { id: 'root', component: 'Card', child: 'body' },
         {
           id: 'body', component: 'Column',
           children: [
-            'heading', 'sub', 'promptField',
+            'heading', 'sub', 'promptField', 'providerPicker',
             'letterHeading', 'letterField', 'legendRow', 'stylePicker', 'placePicker', 'extraRow', 'letterHint',
             'genRow',
           ],
@@ -245,6 +266,7 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
         { id: 'heading', component: 'Text', text: 'Design a signature frame', variant: 'h5' },
         { id: 'sub', component: 'Text', variant: 'caption', text: frameHint(action.proposal.prompt) },
         textField('promptField', 'Describe your frame', '/proposal/prompt'),
+        { id: 'providerPicker', component: 'ChoicePicker', label: 'Generate with', options: PROVIDER_OPTIONS, value: { path: '/proposal/provider' } },
         { id: 'letterHeading', component: 'Text', text: 'Names on the frame (optional)', variant: 'h5' },
         textField('letterField', 'Text to letter — names, initials, a monogram', '/proposal/lettering/text'),
         { id: 'legendRow', component: 'Row', children: legendIds },

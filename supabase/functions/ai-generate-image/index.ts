@@ -59,8 +59,21 @@
  *      GEMINI_API_KEY (secret — moved server-side from the old client-only
  *      VITE_GEMINI_API_KEY), GEMINI_FRAME_MODEL (optional — model ATTEMPTED for
  *      a non-classic frame archetype before falling back to GEMINI_MODEL;
- *      default 'gemini-3-pro-image'), HIGGSFIELD_API_KEY + HIGGSFIELD_API_URL (secrets,
- *      not provisioned yet — until then higgsfield returns ai_not_configured).
+ *      default 'gemini-3-pro-image').
+ *      Higgsfield: EITHER HIGGSFIELD_API_KEY as 'keyId:keySecret' (split on the
+ *      FIRST colon) OR the HIGGSFIELD_API_KEY_ID + HIGGSFIELD_API_SECRET pair.
+ *      HIGGSFIELD_API_URL (default 'https://platform.higgsfield.ai') and
+ *      HIGGSFIELD_MODEL (default 'bytedance/seedream/v4/text-to-image') are
+ *      optional overrides. With none of these set and no org key on file, the
+ *      higgsfield path returns ai_not_configured WITHOUT spending anything.
+ *
+ * BRING-YOUR-OWN KEY: an org row in public.org_provider_keys (provider
+ * 'higgsfield') wins over the platform credentials, and then the generation
+ * costs ZERO platform credits — the org is billed by Higgsfield directly. The
+ * job records `byoKey: true` in its input so the ledger explains the 0. The
+ * aiStudio ENTITLEMENT gate still applies to BYO orgs: a plan feature is not a
+ * token balance, and "can this customer use the AI studio" is a separate
+ * question from "who pays the provider".
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
@@ -121,6 +134,19 @@ const GREEN_RULES =
 const EMPTY_ELLIPSE =
   'The ellipse contains NOTHING but flat green — no person, no face, no silhouette inside it.';
 
+/**
+ * Scene layouts only. VERIFIED FAILURE without this sentence: asked for "a scene
+ * with a head cutout", the model paints a photograph OF a carnival standee — the
+ * board as an object, on a stand, on a floor, in a room, in perspective, with a
+ * drop shadow around it. That is a picture of a frame instead of the frame, and
+ * the perspective alone makes it unusable as a 9:16 overlay. Naming the artefact
+ * we do NOT want is what fixes it; "flat" and "straight-on" alone did not.
+ */
+const NOT_A_STANDEE =
+  'This image IS the overlay itself viewed perfectly straight-on — NOT a photograph or picture ' +
+  'of a cutout board, standee, or panel: no stand, no floor, no room, no wall behind it, no ' +
+  'perspective, no drop shadow around the artwork\'s outer edge.';
+
 const FRAME_LAYOUT_SPEC: Record<FrameLayout, string> = {
   'classic-border':
     'Create a full-bleed decorative FRAME composition for a 9:16 vertical portrait canvas ' +
@@ -134,6 +160,7 @@ const FRAME_LAYOUT_SPEC: Record<FrameLayout, string> = {
   'full-scene':
     'Create a full-bleed illustrated SCENE for a 9:16 vertical portrait canvas (1080x1920) — the ' +
     'artwork runs edge to edge as a complete environment, NOT a border around an empty middle. ' +
+    `${NOT_A_STANDEE} ` +
     'Leave exactly ONE head cutout: a solid #00FF00 ellipse centred at 50% of the width and 38% of ' +
     'the height, spanning 34% of the width and 21% of the height. The scene may frame that ellipse ' +
     '(a porthole, a visor, a wreath of flowers) but must never paint over it. ' +
@@ -141,6 +168,7 @@ const FRAME_LAYOUT_SPEC: Record<FrameLayout, string> = {
   'duo-scene':
     'Create a full-bleed illustrated SCENE for a 9:16 vertical portrait canvas (1080x1920) — the ' +
     'artwork runs edge to edge as a complete environment, NOT a border around an empty middle. ' +
+    `${NOT_A_STANDEE} ` +
     'Leave exactly TWO head cutouts: solid #00FF00 ellipses centred at 30% and at 70% of the width, ' +
     'both at 38% of the height, each spanning 26% of the width and 18% of the height. The scene may ' +
     'frame those ellipses (portholes, visors, wreaths) but must never paint over them. ' +
@@ -624,52 +652,294 @@ async function generateGemini(
   throw new AiError('generation_failed', `gemini_no_image_${reason.toLowerCase()}`);
 }
 
-/** Typed Higgsfield request scaffold — keys are not provisioned yet, so this
- *  path returns ai_not_configured (with refund) until they exist. */
-interface HiggsfieldImageRequest {
-  prompt: string;
-  width: number;
-  height: number;
-  output_format: 'png';
-}
-interface HiggsfieldImageResponse {
-  images?: { url?: string; b64_json?: string }[];
+/* ── Higgsfield (platform API) ─────────────────────────────────────────────
+ * Contract taken from the official SDK READMEs, NOT from a live call — the raw
+ * HTTP body shape is therefore UNVERIFIED here, which is why every field below
+ * is probed rather than asserted and why an unrecognised body degrades to a
+ * clear error instead of a crash.
+ *
+ *   auth   Authorization: `Key ${KEY_ID}:${KEY_SECRET}`
+ *   submit POST {base}/{model path}   e.g. bytedance/seedream/v4/text-to-image
+ *          { prompt, aspect_ratio, resolution }  → { request_id | id }
+ *   poll   GET  {base}/requests/{id}/status
+ *          status ∈ queued | in_progress | completed | failed | nsfw | cancelled
+ *          completed → an image at result.images[0].url / images[0].url /
+ *          result[0].url, or the same shapes carrying inline base64.
+ */
+
+const HIGGSFIELD_API_URL_DEFAULT = 'https://platform.higgsfield.ai';
+const HIGGSFIELD_MODEL_DEFAULT = 'bytedance/seedream/v4/text-to-image';
+/** Poll cadence and the hard wall-clock cap. An edge function has a bounded
+ *  lifetime, so the cap is deliberately under it: a job we stop waiting for is
+ *  reported as generation_failed and REFUNDED, which is honest, whereas the
+ *  runtime killing us mid-request would leave the credit spent. */
+const HIGGSFIELD_POLL_MS = 2500;
+const HIGGSFIELD_MAX_WAIT_MS = 110_000;
+/** Statuses that mean "still working". Anything outside this set that is not a
+ *  known terminal failure is treated as possibly-done and probed for an image. */
+const HIGGSFIELD_PENDING = new Set(['queued', 'in_progress', 'pending', 'processing', 'starting']);
+
+interface HiggsfieldCreds {
+  keyId: string;
+  keySecret: string;
 }
 
-async function generateHiggsfield(prompt: string): Promise<Uint8Array> {
-  const key = Deno.env.get('HIGGSFIELD_API_KEY');
-  const apiUrl = Deno.env.get('HIGGSFIELD_API_URL');
-  // Intended endpoint once keys are provisioned:
-  //   POST `${HIGGSFIELD_API_URL}/v1/images/generations`
-  //   headers: { Authorization: `Bearer ${HIGGSFIELD_API_KEY}` }
-  //   body:    HiggsfieldImageRequest (portrait 1080x1920 PNG)
-  //   resp:    HiggsfieldImageResponse — b64_json inline or a downloadable url
-  if (!key || !apiUrl) throw new AiError('ai_not_configured');
+/** One image the provider handed back: a URL to download, or inline base64. */
+interface HiggsfieldImageRef {
+  url?: string;
+  b64?: string;
+}
 
-  const reqBody: HiggsfieldImageRequest = {
-    prompt,
-    width: 1080,
-    height: 1920,
-    output_format: 'png',
+/** Hard ceiling on a downloaded provider image. A 2K PNG is ~5-8MB; anything
+ *  past this is not the image we asked for. */
+const HIGGSFIELD_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Identify the format from the BYTES, not from any header claim. MIRROR of
+ * sniffImage in import-asset/index.ts (edge fns cannot import from each other).
+ * Anything that is not PNG/JPEG/WebP — an HTML error page, a JSON body, a docs
+ * link the provider put in a `url` field — lands here as null.
+ */
+function sniffImageBytes(bytes: Uint8Array): boolean {
+  if (bytes.length < 16) return false;
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return true;
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return true;
+  const riff = bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46;
+  const webp = bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+  return riff && webp;
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Read a secret/env value the way GEMINI_API_KEY is read: dashboard-set values
+ *  can arrive wrapped in quotes or with a trailing newline, and a provider then
+ *  rejects them as an invalid key. Empty → null, never ''. */
+function secretEnv(name: string): string | null {
+  const raw = Deno.env.get(name)?.trim().replace(/^["']|["']$/g, '').trim();
+  return raw ? raw : null;
+}
+
+/** Platform-owned Higgsfield credentials, or null if none are provisioned.
+ *  HIGGSFIELD_API_KEY holds both halves as 'keyId:keySecret' — split on the
+ *  FIRST colon only, because a secret may legitimately contain one. */
+function platformHiggsfieldCreds(): HiggsfieldCreds | null {
+  const combined = secretEnv('HIGGSFIELD_API_KEY');
+  if (combined) {
+    const sep = combined.indexOf(':');
+    if (sep > 0) {
+      const keyId = combined.slice(0, sep).trim();
+      const keySecret = combined.slice(sep + 1).trim();
+      if (keyId && keySecret) return { keyId, keySecret };
+    }
+  }
+  const keyId = secretEnv('HIGGSFIELD_API_KEY_ID');
+  const keySecret = secretEnv('HIGGSFIELD_API_SECRET');
+  if (keyId && keySecret) return { keyId, keySecret };
+  return null;
+}
+
+/** Map a provider HTTP status onto our error vocabulary. 429 = their quota,
+ *  401/403 = the key itself is rejected, everything else = a failed generation
+ *  (all of which refund upstream). */
+function higgsfieldHttpError(status: number, detail: string, bodyText: string): AiError {
+  console.error('[ai-generate-image] higgsfield error', status, bodyText.slice(0, 300));
+  const code = status === 429
+    ? 'ai_quota'
+    : (status === 401 || status === 403) ? 'ai_key_invalid' : 'generation_failed';
+  return new AiError(code, detail);
+}
+
+/**
+ * First image reference in a provider body. Every documented nesting is
+ * accepted — `result.images[0]`, `images[0]`, `result[0]`, or an object that
+ * carries the url/base64 itself — because the exact shape is unverified and
+ * failing a paid generation over an extra level of wrapping would be absurd.
+ */
+function higgsfieldImageRef(
+  body: Record<string, unknown>,
+  /** strict=true (the SUBMIT response): only an image inside an images/result
+   *  ARRAY counts. A bare `url` on the body or the result object is far more
+   *  likely to be a self-link or an error's docs link than a finished image —
+   *  a submit normally returns a request id, so nothing is lost by refusing to
+   *  guess. The POLL keeps the permissive reading (its terminal statuses are
+   *  checked first), and every download is magic-byte-verified regardless. */
+  strict = false,
+): HiggsfieldImageRef | null {
+  const asRef = (v: unknown): HiggsfieldImageRef | null => {
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) return null;
+    const o = v as Record<string, unknown>;
+    const url = typeof o.url === 'string' && o.url
+      ? o.url
+      : typeof o.image_url === 'string' && o.image_url ? o.image_url : undefined;
+    let b64: string | undefined;
+    for (const k of ['b64_json', 'image_base64', 'b64', 'base64']) {
+      const raw = o[k];
+      if (typeof raw === 'string' && raw) { b64 = raw; break; }
+    }
+    return url || b64 ? { url, b64 } : null;
   };
-  const res = await fetch(`${apiUrl.replace(/\/$/, '')}/v1/images/generations`, {
+
+  const pools: unknown[] = [];
+  const result = body.result;
+  if (Array.isArray(result)) {
+    pools.push(...result);
+  } else if (result !== null && typeof result === 'object') {
+    const ro = result as Record<string, unknown>;
+    if (Array.isArray(ro.images)) pools.push(...ro.images);
+    if (!strict) pools.push(result);
+  }
+  if (Array.isArray(body.images)) pools.push(...body.images);
+  if (!strict) pools.push(body);
+
+  for (const candidate of pools) {
+    const ref = asRef(candidate);
+    if (ref) return ref;
+  }
+  return null;
+}
+
+/** Materialise an image reference into bytes. Inline base64 wins (no second
+ *  round trip); otherwise the URL is downloaded. The bytes are then verified
+ *  by MAGIC NUMBER, never trusted: a provider body that carried a docs link or
+ *  a self-link in a url-shaped field would otherwise be stored as a "frame",
+ *  the job marked succeeded, and the credits kept — the audit's F1. A thrown
+ *  AiError here reaches the refund path. */
+async function higgsfieldDownload(ref: HiggsfieldImageRef): Promise<Uint8Array> {
+  let bytes: Uint8Array;
+  if (ref.b64) {
+    bytes = base64ToBytes(ref.b64);
+  } else {
+    if (!ref.url) throw new AiError('generation_failed', 'higgsfield_no_image');
+    const dl = await fetch(ref.url, { signal: AbortSignal.timeout(30_000) });
+    if (!dl.ok) throw new AiError('generation_failed', `higgsfield_download_${dl.status}`);
+    const declaredLen = dl.headers.get('content-length');
+    if (declaredLen !== null && Number(declaredLen) > HIGGSFIELD_MAX_IMAGE_BYTES) {
+      await dl.body?.cancel().catch(() => {});
+      throw new AiError('generation_failed', 'higgsfield_image_too_large');
+    }
+    bytes = new Uint8Array(await dl.arrayBuffer());
+  }
+  if (bytes.length === 0) throw new AiError('generation_failed', 'higgsfield_empty_download');
+  if (bytes.length > HIGGSFIELD_MAX_IMAGE_BYTES) {
+    throw new AiError('generation_failed', 'higgsfield_image_too_large');
+  }
+  if (!sniffImageBytes(bytes)) {
+    console.error('[ai-generate-image] higgsfield returned non-image bytes', bytes.length);
+    throw new AiError('generation_failed', 'higgsfield_not_an_image');
+  }
+  return bytes;
+}
+
+/**
+ * Higgsfield image generation — submit, then poll to completion.
+ * `creds` is passed in rather than read from the env because WHOSE key this is
+ * decides the price: an org's own key means the platform charges 0 credits (see
+ * the handler), so credential resolution has to happen before the spend.
+ */
+async function generateHiggsfield(
+  prompt: string,
+  aspect: '9:16' | '1:1',
+  creds: { keyId: string; keySecret: string },
+  /** Called once with the provider's request id as soon as the submit lands —
+   *  the caller persists it on the ai_jobs row so a timeout is reconcilable
+   *  (without it, a late provider success that billed the org's own account
+   *  leaves no forensic trail at all — the audit's F3). */
+  onSubmitted?: (requestId: string) => void,
+): Promise<Uint8Array> {
+  const base = (secretEnv('HIGGSFIELD_API_URL') ?? HIGGSFIELD_API_URL_DEFAULT).replace(/\/+$/, '');
+  const model = (secretEnv('HIGGSFIELD_MODEL') ?? HIGGSFIELD_MODEL_DEFAULT).replace(/^\/+|\/+$/g, '');
+  const keyId = creds.keyId.trim().replace(/^["']|["']$/g, '');
+  const keySecret = creds.keySecret.trim().replace(/^["']|["']$/g, '');
+  if (!keyId || !keySecret) throw new AiError('ai_not_configured');
+  const auth = `Key ${keyId}:${keySecret}`;
+
+  // 1. Submit. Frames are composited over the booth's 1080×1920 capture buffer,
+  //    so they ask for 2K; a sticker is one small centred subject, so 1K is
+  //    plenty and costs the org less.
+  const submitRes = await fetch(`${base}/${model}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify(reqBody),
+    headers: { 'Content-Type': 'application/json', Authorization: auth },
+    body: JSON.stringify({
+      prompt,
+      aspect_ratio: aspect,
+      resolution: aspect === '9:16' ? '2K' : '1K',
+    }),
+    // Deno fetch has NO default timeout: one hung request would blow past the
+    // poll-loop deadline and let the runtime kill the isolate with the credits
+    // still spent (nothing would run refundAndFail).
+    signal: AbortSignal.timeout(30_000),
   });
-  if (!res.ok) {
-    console.error('[ai-generate-image] higgsfield error', res.status, await res.text().catch(() => ''));
-    throw new AiError(res.status === 429 ? 'ai_quota' : 'generation_failed', `higgsfield_http_${res.status}`);
+  if (!submitRes.ok) {
+    throw higgsfieldHttpError(
+      submitRes.status,
+      `higgsfield_http_${submitRes.status}`,
+      await submitRes.text().catch(() => ''),
+    );
   }
-  const body = (await res.json()) as HiggsfieldImageResponse;
-  const image = body.images?.[0];
-  if (image?.b64_json) return base64ToBytes(image.b64_json);
-  if (image?.url) {
-    const dl = await fetch(image.url);
-    if (!dl.ok) throw new AiError('generation_failed', 'higgsfield_download');
-    return new Uint8Array(await dl.arrayBuffer());
+  const submitBody = (await submitRes.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!submitBody) throw new AiError('generation_failed', 'higgsfield_submit_unparseable');
+  // A synchronous completion is not documented but costs one branch to honour.
+  // STRICT here: only an image inside an images/result array counts — a bare
+  // url on a submit body is a self-link or an error's docs link, not a result.
+  const immediate = higgsfieldImageRef(submitBody, true);
+  if (immediate) return await higgsfieldDownload(immediate);
+  const requestId = typeof submitBody.request_id === 'string' && submitBody.request_id
+    ? submitBody.request_id
+    : typeof submitBody.id === 'string' && submitBody.id ? submitBody.id : '';
+  if (!requestId) throw new AiError('generation_failed', 'higgsfield_no_request_id');
+  try { onSubmitted?.(requestId); } catch { /* forensics only — never fail the job */ }
+
+  // 2. Poll to completion.
+  const deadline = Date.now() + HIGGSFIELD_MAX_WAIT_MS;
+  let lastStatus = 'queued';
+  while (Date.now() < deadline) {
+    await sleep(HIGGSFIELD_POLL_MS);
+    let pollRes: Response;
+    try {
+      pollRes = await fetch(`${base}/requests/${encodeURIComponent(requestId)}/status`, {
+        headers: { Authorization: auth },
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (e) {
+      // A dropped connection is not a failed job — keep polling until the cap.
+      console.warn('[ai-generate-image] higgsfield poll network error', e);
+      continue;
+    }
+    if (pollRes.status === 401 || pollRes.status === 403 || pollRes.status === 429) {
+      throw higgsfieldHttpError(
+        pollRes.status,
+        `higgsfield_poll_${pollRes.status}`,
+        await pollRes.text().catch(() => ''),
+      );
+    }
+    if (!pollRes.ok) {
+      // 404/5xx on a single poll: the request may not be visible yet, or their
+      // edge blipped. Retry until the deadline rather than burning the job.
+      console.warn('[ai-generate-image] higgsfield poll not ok', pollRes.status);
+      await pollRes.body?.cancel().catch(() => {});
+      continue;
+    }
+    const pollBody = (await pollRes.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!pollBody) continue;
+    const status = typeof pollBody.status === 'string' ? pollBody.status.toLowerCase() : '';
+    if (status) lastStatus = status;
+
+    if (status === 'nsfw') throw new AiError('content_blocked', 'higgsfield_nsfw');
+    if (status === 'failed' || status === 'cancelled' || status === 'canceled') {
+      console.error('[ai-generate-image] higgsfield terminal status', status,
+        JSON.stringify(pollBody).slice(0, 300));
+      throw new AiError('generation_failed', `higgsfield_${status}`);
+    }
+    if (HIGGSFIELD_PENDING.has(status)) continue;
+
+    // 'completed', or a status vocabulary we do not recognise: take the image if
+    // one is there. An explicit 'completed' with no image IS a failure.
+    const ref = higgsfieldImageRef(pollBody);
+    if (ref) return await higgsfieldDownload(ref);
+    if (status === 'completed') throw new AiError('generation_failed', 'higgsfield_no_image');
   }
-  throw new AiError('generation_failed', 'higgsfield_no_image');
+  console.error('[ai-generate-image] higgsfield timed out', { requestId, lastStatus });
+  throw new AiError('generation_failed', 'higgsfield_timeout');
 }
 
 /* ── Refund helper — never leave credits spent on a failed job ──────── */
@@ -827,9 +1097,48 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // 4c. Higgsfield credentials — resolved BEFORE the spend, because WHOSE key
+    //     is used decides the price. An org with its own key on file pays
+    //     Higgsfield directly, so the platform charges 0 credits (`byoKey`).
+    //     The aiStudio gate above still applied to them: a plan feature is not a
+    //     token balance. With neither an org key nor platform credentials we
+    //     bail with the existing ai_not_configured shape and nothing is spent —
+    //     the refund path only exists for failures AFTER the spend.
+    let higgsCreds: HiggsfieldCreds | null = null;
+    let byoKey = false;
+    if (provider === 'higgsfield') {
+      const { data: keyRow, error: keyErr } = await sb
+        .from('org_provider_keys')
+        .select('key_id, key_secret')
+        .eq('org_id', orgId)
+        .eq('provider', 'higgsfield')
+        .maybeSingle();
+      // A read failure must NOT silently fall through to the platform key: that
+      // would bill the platform for a customer who brought their own. The ONE
+      // exception is the table not existing at all (this function deployed
+      // ahead of migration 030) — then no org can have a key, so falling back
+      // to the platform credentials cannot mis-bill anyone, and the alternative
+      // is a 500 on every higgsfield generation until the migration lands.
+      const missingTable = keyErr?.code === '42P01' || keyErr?.code === 'PGRST205';
+      if (keyErr && !missingTable) throw keyErr;
+      if (missingTable) {
+        console.warn('[ai-generate-image] org_provider_keys missing — migration 030 not applied yet');
+      }
+      const orgKeyId = typeof keyRow?.key_id === 'string' ? keyRow.key_id.trim() : '';
+      const orgSecret = typeof keyRow?.key_secret === 'string' ? keyRow.key_secret.trim() : '';
+      if (orgKeyId && orgSecret) {
+        higgsCreds = { keyId: orgKeyId, keySecret: orgSecret };
+        byoKey = true;
+      } else {
+        higgsCreds = platformHiggsfieldCreds();
+      }
+      if (!higgsCreds) return json(503, { error: 'ai_not_configured' });
+    }
+
     // 5. Spend credits FIRST (atomic; raises 'insufficient_credits').
-    //    Trial generations cost 0 — nothing is spent and nothing refunds.
-    const cost = isFreeTrial ? 0 : COSTS[provider];
+    //    Trial generations cost 0 — nothing is spent and nothing refunds. So do
+    //    BYO-key generations: the org is billed by the provider, not by us.
+    const cost = isFreeTrial || byoKey ? 0 : COSTS[provider];
     const ref = { event_uuid: eventUuid, prompt_hash: await promptHash(prompt) };
     if (cost > 0) {
       const { error: spendErr } = await sb.rpc('spend_credits', {
@@ -861,6 +1170,8 @@ Deno.serve(async (req: Request) => {
           // Recorded so a regenerate/audit can see the frame carried a name.
           ...(lettering ? { lettering } : {}),
           ...(referenceImageUrl ? { referenceImageUrl } : {}),
+          // Why this job cost 0 credits without being a free-trial generation.
+          ...(byoKey ? { byoKey: true } : {}),
         },
         credits_charged: cost,
       })
@@ -927,9 +1238,21 @@ Deno.serve(async (req: Request) => {
       const frameModel = kind === 'border' && layout !== 'classic-border'
         ? (Deno.env.get('GEMINI_FRAME_MODEL')?.trim().replace(/^["']|["']$/g, '') || GEMINI_FRAME_MODEL_DEFAULT)
         : null;
-      const bytes = provider === 'gemini'
-        ? await generateGemini(fullPrompt, aspect, reference, frameModel)
-        : await generateHiggsfield(fullPrompt);
+      let bytes: Uint8Array;
+      if (provider === 'gemini') {
+        bytes = await generateGemini(fullPrompt, aspect, reference, frameModel);
+      } else {
+        // Resolved in 4c; re-checked so the type is not asserted away.
+        if (!higgsCreds) throw new AiError('ai_not_configured');
+        bytes = await generateHiggsfield(fullPrompt, aspect, higgsCreds, (rid) => {
+          // Fire-and-forget: the request id on the job row is what makes a
+          // timed-out job reconcilable (and lets the sweep recover it).
+          sb.from('ai_jobs').update({ provider_job_id: rid }).eq('id', jobId)
+            .then(({ error }) => {
+              if (error) console.warn('[ai-generate-image] provider_job_id record failed', error.message);
+            });
+        });
+      }
 
       // Transparency flag: requested AND the PNG actually carries alpha.
       // Opaque output is still accepted — just flagged config.transparent=false.
@@ -959,6 +1282,12 @@ Deno.serve(async (req: Request) => {
             prompt,
             provider,
             transparent,
+            // Whether this asset was generated onto a chroma-key backdrop. The
+            // client's keying decision needs it: `transparent` only proves an
+            // alpha CHANNEL exists (IHDR probe), and a green-screen asset whose
+            // encoder emitted RGBA would otherwise skip keying and place a raw
+            // green sticker (audit F2). greenScreen=true → always key.
+            ...(greenScreen ? { greenScreen: true } : {}),
             // Which archetype this frame IS — the studio needs it to reason
             // about the art (a duo-scene has two head cutouts, not a clear
             // centre). Border only; a sticker has no canvas layout.
