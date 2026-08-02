@@ -354,6 +354,19 @@ const EMPTY_ELLIPSE =
   'The ellipse contains NOTHING but flat green — no person, no face, no silhouette inside it.';
 
 /**
+ * Scene layouts only. VERIFIED FAILURE without this sentence: asked for "a scene
+ * with a head cutout", the model paints a photograph OF a carnival standee — the
+ * board as an object, on a stand, on a floor, in a room, in perspective, with a
+ * drop shadow around it. That is a picture of a frame instead of the frame, and
+ * the perspective alone makes it unusable as a 9:16 overlay. Naming the artefact
+ * we do NOT want is what fixes it; "flat" and "straight-on" alone did not.
+ */
+const NOT_A_STANDEE =
+  'This image IS the overlay itself viewed perfectly straight-on — NOT a photograph or picture ' +
+  'of a cutout board, standee, or panel: no stand, no floor, no room, no wall behind it, no ' +
+  'perspective, no drop shadow around the artwork\'s outer edge.';
+
+/**
  * The base mechanics prompt per archetype (green-screen border path).
  *
  * MIRRORED SERVER-SIDE in `supabase/functions/ai-generate-image/index.ts`
@@ -374,6 +387,7 @@ export const FRAME_LAYOUT_SPEC: Record<FrameLayout, string> = {
   'full-scene':
     'Create a full-bleed illustrated SCENE for a 9:16 vertical portrait canvas (1080x1920) — the ' +
     'artwork runs edge to edge as a complete environment, NOT a border around an empty middle. ' +
+    `${NOT_A_STANDEE} ` +
     'Leave exactly ONE head cutout: a solid #00FF00 ellipse centred at 50% of the width and 38% of ' +
     'the height, spanning 34% of the width and 21% of the height. The scene may frame that ellipse ' +
     '(a porthole, a visor, a wreath of flowers) but must never paint over it. ' +
@@ -381,6 +395,7 @@ export const FRAME_LAYOUT_SPEC: Record<FrameLayout, string> = {
   'duo-scene':
     'Create a full-bleed illustrated SCENE for a 9:16 vertical portrait canvas (1080x1920) — the ' +
     'artwork runs edge to edge as a complete environment, NOT a border around an empty middle. ' +
+    `${NOT_A_STANDEE} ` +
     'Leave exactly TWO head cutouts: solid #00FF00 ellipses centred at 30% and at 70% of the width, ' +
     'both at 38% of the height, each spanning 26% of the width and 18% of the height. The scene may ' +
     'frame those ellipses (portholes, visors, wreaths) but must never paint over them. ' +

@@ -12,6 +12,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Loader, Wand2 } from 'lucide-react';
 import { generateImage, resolveEventUuid, aiErrorMessage, fetchEventCreditBalance } from '../../lib/ai';
+import { fetchProviderKeyStatus, type ProviderKeyStatus } from '../../lib/providerKeys';
+import {
+  PROVIDER_LABELS, effectiveProvider, higgsfieldReady as isHiggsfieldReady,
+  providerBody, providerCostLabel, providerHint, type ImageProvider,
+} from '../../lib/providerPricing';
 import { useEvent } from '../../events/EventContext';
 import {
   inferFrameLayout, normalizeLettering, LETTERING_MAX,
@@ -52,6 +57,174 @@ const LETTERING_PLACEMENT_PILLS: { id: LetteringPlacement; label: string }[] = [
   { id: 'standalone', label: 'Name art only' },
 ];
 
+/* ── Provider choice (shared with DirectorPanel) ──────────────────────────
+ * WHICH MODEL PAINTS THE FRAME, and what that costs the host. The rules — the
+ * labels, the prices, the effective-provider fallback and the hint copy — are
+ * PURE and live in src/lib/providerPricing.ts, so they are unit-tested against
+ * the server's own cost line instead of being asserted by eye in a component
+ * (audit F10). This file owns only the React around them.
+ *
+ * Re-exported here because DirectorPanel imports the picker from this module;
+ * the two studio surfaces must not drift into two pickers with two prices.
+ */
+export {
+  providerBody,
+  providerCostLabel,
+  type ImageProvider,
+} from '../../lib/providerPricing';
+
+/** Remembered across sessions — a host who brought their own key should not
+ *  have to re-pick it on every generation. */
+const PROVIDER_STORE_KEY = 'bw.aiProvider';
+
+function readStoredProvider(): ImageProvider {
+  if (typeof window === 'undefined') return 'gemini';
+  try {
+    return localStorage.getItem(PROVIDER_STORE_KEY) === 'higgsfield' ? 'higgsfield' : 'gemini';
+  } catch {
+    return 'gemini'; // private mode / storage denied — the default still works
+  }
+}
+
+function storeProvider(p: ImageProvider): void {
+  if (typeof window === 'undefined') return;
+  try { localStorage.setItem(PROVIDER_STORE_KEY, p); } catch { /* non-fatal */ }
+}
+
+/**
+ * The org whose Higgsfield key ai-generate-image will actually read —
+ * `events.org_id`, NOT the caller's first membership (the two differ for
+ * multi-org members, which is the same trap fetchEventCreditBalance documents).
+ * Undefined on any failure: the `provider-keys` function then resolves the
+ * caller's own org, which is the right fallback and never a wrong answer for a
+ * single-org host.
+ */
+async function eventOrgId(eventUuid: string | null): Promise<string | undefined> {
+  if (!eventUuid) return undefined;
+  try {
+    const { supabase } = await import('../../lib/supabase');
+    const { data, error } = await supabase
+      .from('events')
+      .select('org_id')
+      .eq('id', eventUuid)
+      .maybeSingle();
+    if (error) { console.error('[aiFrame] eventOrgId', error); return undefined; }
+    return typeof data?.org_id === 'string' ? data.org_id : undefined;
+  } catch (e) {
+    console.error('[aiFrame] eventOrgId', e);
+    return undefined;
+  }
+}
+
+export interface ProviderChoice {
+  /** What the host picked (remembered even when this org can't use it). */
+  provider: ImageProvider;
+  /** What we will actually SEND — falls back to gemini when Higgsfield is
+   *  unusable for this org, so a stale stored pick can never fail a generation. */
+  effective: ImageProvider;
+  setProvider: (p: ImageProvider) => void;
+  /** null = not known yet (loading) or the read failed — see statusFailed. */
+  status: ProviderKeyStatus | null;
+  statusFailed: boolean;
+  higgsfieldReady: boolean;
+}
+
+/** Resolve the org's Higgsfield connection once per event and hold the pick. */
+export function useImageProvider(eventId: string, eventUuid: string | null): ProviderChoice {
+  const [provider, setProviderState] = useState<ImageProvider>(readStoredProvider);
+  const [status, setStatus] = useState<ProviderKeyStatus | null>(null);
+  const [statusFailed, setStatusFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const uuid = await resolveEventUuid(eventId, eventUuid);
+      const orgId = await eventOrgId(uuid);
+      const { data, error } = await fetchProviderKeyStatus('higgsfield', orgId);
+      if (!alive) return;
+      // A FAILED read is not "no key" — it must not paint a connection the org
+      // may well have, nor promise a price we can't stand behind.
+      if (error !== null || data === null) { setStatus(null); setStatusFailed(true); return; }
+      setStatus(data);
+      setStatusFailed(false);
+    })();
+    return () => { alive = false; };
+  }, [eventId, eventUuid]);
+
+  const setProvider = useCallback((p: ImageProvider) => {
+    setProviderState(p);
+    storeProvider(p);
+  }, []);
+
+  const higgsfieldReady = isHiggsfieldReady(status);
+  const effective = effectiveProvider(provider, status);
+  return { provider, effective, setProvider, status, statusFailed, higgsfieldReady };
+}
+
+/**
+ * Two pills + one honest line about what Higgsfield costs (copy from
+ * providerPricing.providerHint).
+ */
+export function ProviderSegment({ choice, freeTrial }: { choice: ProviderChoice; freeTrial: boolean }) {
+  const { provider, setProvider, status, statusFailed, higgsfieldReady } = choice;
+  const notConnected = status !== null && !higgsfieldReady;
+  const hint = providerHint(status, statusFailed, freeTrial);
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap gap-1" role="group" aria-label="Image provider">
+        {PROVIDER_LABELS.map(({ id, label }) => {
+          const active = id === provider;
+          // Disabled for the WHOLE time Higgsfield is unusable — including
+          // while `status` is null (still checking, or the check failed).
+          // Leaving it live there let a host pick a provider that
+          // effectiveProvider silently swapped for gemini, so the button read
+          // "2 credits" for a 1-credit gemini generation (audit F9). The hint
+          // line below already explains which of the two states we are in.
+          const disabled = id === 'higgsfield' && !higgsfieldReady;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setProvider(id)}
+              disabled={disabled}
+              aria-pressed={active}
+              title={
+                !disabled
+                  ? undefined
+                  : notConnected
+                    ? 'Connect a Higgsfield account in Billing to use this'
+                    : statusFailed
+                      ? 'Couldn’t check your Higgsfield connection — Beamwall AI is being used'
+                      : 'Checking your Higgsfield connection…'
+              }
+              className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors disabled:opacity-40 ${
+                active
+                  ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
+                  : 'text-brand-muted/60 hover:text-brand-fg'
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[9px] text-brand-muted/50 font-sans leading-relaxed">
+        Higgsfield: {hint}
+        {notConnected && (
+          <>
+            {' '}
+            {/* New tab on purpose: navigating away in place would unmount the
+                studio and lose the host's unsaved scene work. */}
+            <a href="/host/billing" target="_blank" rel="noopener" className="underline text-accent-2 hover:text-accent">
+              Connect in Billing
+            </a>
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
 export default function AiFramePanel({
   kind,
   freeTrial,
@@ -62,6 +235,7 @@ export default function AiFramePanel({
   onGenerated: (exp: Experience) => void;
 }) {
   const { eventId, eventUuid, source } = useEvent();
+  const providerChoice = useImageProvider(eventId, eventUuid);
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -115,6 +289,8 @@ export default function AiFramePanel({
         kind: genKind,
         transparentBackground: genKind === '2d_filter',
         greenScreen: true,
+        // Absent for gemini — the default path's body is unchanged.
+        ...providerBody(providerChoice.effective),
         // A sticker has one subject, not a canvas layout — only a frame carries
         // an archetype (the edge function ignores it for other kinds anyway).
         ...(genKind === 'border' ? { layout } : {}),
@@ -301,13 +477,14 @@ export default function AiFramePanel({
           )}
         </p>
       )}
+      <ProviderSegment choice={providerChoice} freeTrial={freeTrial} />
       <button
         onClick={generate}
         disabled={loading || !prompt.trim()}
         className="flex items-center justify-center gap-1.5 py-2 bg-foil text-white rounded-xl font-bold text-[10px] font-label uppercase tracking-widest disabled:opacity-40 glow-accent transition active:scale-[0.98]"
       >
         {loading ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-        {loading ? 'Generating…' : 'Generate · 1 credit'}
+        {loading ? 'Generating…' : `Generate · ${providerCostLabel(providerChoice.effective, providerChoice.status)}`}
       </button>
       {balance !== null && (
         <p className="text-[9px] text-brand-muted/50 font-sans">{balance} credit{balance === 1 ? '' : 's'} left · saved to your Library as a draft</p>
