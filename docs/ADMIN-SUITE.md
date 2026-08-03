@@ -187,6 +187,45 @@ Audit/Admins; routes added in `src/App.tsx`.
 
 ---
 
+## Phase 6 — DONE & DEPLOYED ✅ (support desk · feature flags · catalogue · landing CMS)
+
+Shipped across the 2026-07-28 support/flags/catalogue work and PR #36; full
+narrative in `CLAUDE.md`. Screens added since Phase 5: `/admin/support`
+(inbox + internal notes, via the separate `support-api` edge fn), `/admin/features`
+(capability matrix with per-flag PROVENANCE, plan defaults, kill switches),
+`/admin/catalog` (`billing_catalog` + "Provision in Stripe"), and
+**`/admin/landing`** (below).
+
+**Landing CMS — `/admin/landing`.** Migration `030_landing_content`: a singleton
+`landing_content` row holding `draft` + `published` jsonb. RLS is on with **zero
+client policies** — `draft` may contain unreviewed marketing copy, so no client
+touches the table. Anonymous visitors read the published half only, through
+`get_landing_content()` (SECURITY DEFINER, `set search_path = public`, then
+`revoke all … from public` + `grant execute to anon, authenticated` — skipping
+the revoke re-creates the bug migration 022 exists to fix).
+
+**`admin-api` (redeployed, version 16)** — four new actions, all behind the same
+pre-switch guard, all audited except the read: `get_landing_content_admin`,
+`save_landing_draft` (rejects non-objects and blobs over 200 KB; the audit row
+records the byte count, never the blob), `publish_landing_content` (copies
+draft → published, bumps `version`), `revert_landing_draft`.
+
+**Frontend:** `src/pages/admin/Landing.tsx` (draft/published state, `ConfirmModal`
+on Publish since it changes the public site, collapsible sections, per-slot media
+Replace/Reset with the bundled default previewed), `src/lib/landingMedia.ts`
+(uploads to `assets/_platform/landing/` — migration 018 already grants platform
+admins bucket-wide write and `_platform` can never be an event slug, so **no new
+storage policy was needed**), and the pure `src/lib/landingContent.ts` +
+`landingContent.test.ts` (total normalizer; `resolveMediaUrl` accepts only https
+URLs under `/storage/v1/object/public/`). `Landing.tsx` renders bundled defaults
+first and swaps overrides in after the fetch, so a failed read or an empty blob
+can never blank the marketing page.
+
+**Known limit, stated in the UI:** the OG/social-share image and `<title>` are
+static in `index.html` — scrapers don't run JS, so changing those is a code deploy.
+
+---
+
 ## Primitives: built vs to-build
 
 | Primitive | Status |
