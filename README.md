@@ -36,9 +36,9 @@ HyperFrames.
 | Area | Route | Notes |
 |------|-------|-------|
 | Marketing / auth | `/`, `/login`, `/signup` | platform landing + Supabase Auth |
-| Host dashboard | `/host`, `/host/new`, `/host/billing` | events, wizard, credits/plans |
+| Host dashboard | `/host`, `/host/new`, `/host/concierge`, `/host/billing`, `/host/support`, `/host/import` | events, AI wizard, copilot, credits/plans, support desk, Frame Forge handback |
 | Event studio | `/host/events/:id/*` | the 10 studio screens (branding, library, creator 2D/3D, moderation, challenges, settings, manager access…), gated by org membership |
-| **Platform admin** | `/admin/*` | RethinkReality super-admin across all tenants; gated by `platform_admins` (see [docs/ADMIN-SUITE.md](docs/ADMIN-SUITE.md)) |
+| **Platform admin** | `/admin/*` | RethinkReality super-admin across all tenants — customers, events, payments, catalogue, features, credits, users, support, audit, and `/admin/landing` (CMS for the marketing page's copy, images and films); gated by `platform_admins` (see [docs/ADMIN-SUITE.md](docs/ADMIN-SUITE.md)) |
 | Guest (per event) | `/e/:slug` → `/welcome` `/booth` `/wall` `/me` `/upload` `/experience/:id` | runtime-resolved tenant; `/welcome` = instruction landing for signage QRs |
 | Greeting card | `/c/:publicId`, `/c/:publicId/contribute?t=` | public viewer + token-gated contribution |
 | Day-of staff | `/m/:slug` | PIN/link manager console (moderation + wall settings) |
@@ -103,9 +103,19 @@ Resend/HeyGen setup — is in
 
 ## Backend (Supabase `zrtftliozslrjomxbfrr`)
 
-Tables: `orgs`, `org_members`, `profiles`, `events`, `experiences`, `posts`,
-`challenges`, `app_settings`, `event_catalog_links`, `event_plans`,
-`subscriptions`, `credit_balances`, `credit_ledger`, `ai_jobs`,
+Tables — tenant: `orgs`, `org_members`, `profiles`, `events`, `experiences`,
+`posts`, `challenges`, `app_settings`, `event_catalog_links`,
 `event_access_tokens`, `cards`, `card_contributions`, `card_renders`,
-`platform_admins`, `admin_audit`, `orders`, + idempotency/quota helpers. Buckets: `posts`, `assets` (public), `cards`,
-`renders` (private). RLS verified by `supabase/tests/rls-probes.sql`.
+`org_provider_keys` (BYO AI keys). Billing: `event_plans`, `subscriptions`,
+`credit_balances`, `credit_ledger`, `orders`, `billing_catalog`, `promo_codes`,
+`promo_redemptions`, `stripe_webhook_events`. Entitlements: `feature_flags`,
+`plan_feature_defaults`, `org_feature_overrides`, `event_feature_overrides`
+(resolved by `resolve_features_raw`, migration 028 — SQL, not TS, so both
+runtimes read one authority). Platform: `platform_admins`, `admin_audit`,
+`platform_config`, `landing_content` (marketing-page CMS; anon reads the
+published half only, via `get_landing_content()`), `support_tickets`,
+`support_messages`, `client_errors`, `ai_jobs`, `ai_designer_usage`, +
+idempotency/quota helpers (`guest_quota`).
+Buckets: `posts`, `assets` (public — platform-owned landing media lives under
+the admin-only `_platform/` prefix), `cards`, `renders`, `support` (private).
+RLS verified by `supabase/tests/rls-probes.sql`.
