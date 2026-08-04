@@ -193,8 +193,24 @@ export interface TriggerEngine {
    * Advance every trigger by one detection frame. `scores` null/absent decays
    * all signals toward 0 (never crashes). Returns the events that fired THIS
    * step (usually empty). `nowMs` drives cooldown — pass a monotonic clock.
+   *
+   * `staleSources` lists sources with NO new sample this tick: each is skipped
+   * ENTIRELY — value, engagement and priming all held, no fire evaluation.
+   *
+   * Holding is deliberately not the same as feeding 0. Hand inference runs at
+   * 66ms (150ms idle) against a ~33ms face clock, so the face-only ticks in
+   * between carry no information about the hand. Re-feeding the last hand score
+   * on those ticks let ONE 1.0 frame ride the EMA over `enter` by itself
+   * (α 0.5: 0.50 → 0.75 at +33ms, past 0.62) and fire with no hand in frame;
+   * feeding 0 instead would sawtooth a genuinely HELD gesture so it never fires.
+   * A hand that has actually LEFT is the third case, and the caller signals it
+   * with explicit zeros — see mergeDetectionScores + HAND_STALE_MS.
    */
-  step(scores: Record<string, number> | null, nowMs: number): TriggerEvent[];
+  step(
+    scores: Record<string, number> | null,
+    nowMs: number,
+    staleSources?: ReadonlySet<TriggerSource>,
+  ): TriggerEvent[];
 }
 
 export function createTriggerEngine(configs: TriggerConfig[]): TriggerEngine {
@@ -207,10 +223,14 @@ export function createTriggerEngine(configs: TriggerConfig[]): TriggerEngine {
   }));
 
   return {
-    step(scores, nowMs) {
+    step(scores, nowMs, staleSources) {
       const src = scores ?? EMPTY;
       const events: TriggerEvent[] = [];
       for (const ch of channels) {
+        // No sample for this source this tick → hold everything (see the doc on
+        // TriggerEngine.step). Skipped BEFORE priming so the first real sample
+        // still primes without firing.
+        if (staleSources !== undefined && staleSources.has(ch.cfg.source)) continue;
         const target = sourceSignal(ch.cfg.source, src);
         const th = THRESHOLDS[ch.cfg.source];
         if (!ch.started) {
@@ -238,6 +258,68 @@ export function createTriggerEngine(configs: TriggerConfig[]): TriggerEngine {
       return events;
     },
   };
+}
+
+/* — detection-frame merge (the booth + studio rAF loops share this) --------- */
+
+/** A hand stash older than this is treated as GONE, not as "between
+ *  inferences": the idle hand cadence is 150ms, so 250ms means the detector has
+ *  actually stopped producing (video not ready, face lockout, gate skip — every
+ *  early return in handRig.detectHandsNow leaves the stash frozen while the
+ *  ~33ms face clock keeps stepping the engine). */
+export const HAND_STALE_MS = 250;
+
+/** Every hand source, as a set — the `staleSources` argument on a face-only tick. */
+export const HAND_SOURCE_SET: ReadonlySet<TriggerSource> = new Set<TriggerSource>(HAND_TRIGGER_SOURCES);
+
+/** Explicit zeros for every hand key: an EXPIRED stash must decay the channels,
+ *  which absent keys also do — but stated outright so the intent is readable. */
+const HAND_ZEROS: Record<string, number> = Object.freeze(
+  Object.fromEntries(HAND_TRIGGER_SOURCES.map((k) => [k, 0])),
+) as Record<string, number>;
+
+export interface HandScoreFrame {
+  scores: Record<string, number>;
+  /** performance.now() of the detection that produced `scores`. */
+  t: number;
+}
+
+export interface MergedDetectionScores {
+  scores: Record<string, number> | null;
+  /** Pass straight to engine.step's third argument. */
+  stale?: ReadonlySet<TriggerSource>;
+}
+
+/**
+ * Combine the face and hand stashes for ONE engine step.
+ *
+ * The two detectors run on different clocks (face ~33ms, hands 66/150ms), and
+ * the loops step the engine whenever EITHER produced a new frame. Spreading the
+ * hand stash on every one of those ticks replays the same sample into the EMA,
+ * which is enough to fire a hand trigger on its own — the "beams fire with no
+ * hand in frame" bug. Three cases, and only the first carries new hand data:
+ *   - fresh hand frame        → merge it (hand keys last: an explicit gesture
+ *                               wins any future name collision with a blendshape)
+ *   - between inferences      → face scores only + the hand sources marked STALE
+ *                               (held, not decayed — a held fist must survive
+ *                               the ~2-4 face ticks between hand inferences)
+ *   - stash older than 250ms  → explicit hand zeros, so a gesture whose detector
+ *                               has stopped decays away instead of latching
+ * `hand === null` (no hand tracking, or none yet) leaves the hand keys absent,
+ * which sourceSignal already reads as 0 — identical to today for every scene
+ * with no hand trigger.
+ */
+export function mergeDetectionScores(
+  faceScores: Record<string, number> | null | undefined,
+  hand: HandScoreFrame | null | undefined,
+  handChanged: boolean,
+  nowMs: number,
+): MergedDetectionScores {
+  const face = faceScores ?? null;
+  if (!hand) return { scores: face };
+  if (handChanged) return { scores: { ...(face ?? {}), ...hand.scores } };
+  if (nowMs - hand.t > HAND_STALE_MS) return { scores: { ...(face ?? {}), ...HAND_ZEROS } };
+  return { scores: face, stale: HAND_SOURCE_SET };
 }
 
 /* — scene-visibility + effect resolution ----------------------------------- *

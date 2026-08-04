@@ -78,8 +78,13 @@ export function detectHandsNow(video: HTMLVideoElement): void {
   const hands = results ? toSamples(results.landmarks ?? [], results.worldLandmarks ?? []) : [];
   _misses = hands.length === 0 ? _misses + 1 : 0;
   const face = getLatestFaceKeypoints();
-  _scores = handGestureScores(hands, face);
-  _anchor = handAnchor(hands, face);
+  // Landmarks are normalized per-axis (x/W, y/H); every gesture ratio compares
+  // distances, so the scorer needs W/H to undo that anisotropy — without it a
+  // portrait feed stretches every x-distance by 1.78 and biases each band.
+  // Falls back to 1 (square) before metadata lands, never to 0/NaN.
+  const aspect = video.videoWidth > 0 && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : 1;
+  _scores = handGestureScores(hands, face, aspect);
+  _anchor = handAnchor(hands, face, aspect);
   _hands = hands;
   // MediaPipe's handedness label assumes MIRRORED input; we feed raw frames,
   // so the label is swapped here, once, and every consumer sees the REAL hand.

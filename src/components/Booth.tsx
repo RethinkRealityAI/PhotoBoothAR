@@ -56,12 +56,12 @@ import ReportIssueButton from './support/ReportIssueButton';
 import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
 import { detectHandsNow, getLatestHandFrame, resetHandRig } from '../lib/handRig';
 import { isHandAnchorId } from '../lib/handPose';
-import type { HandAnchorSample } from '../lib/handGestures';
 import {
   collectTriggers,
   createTriggerEngine,
   hasHandSource,
   isHandSource,
+  mergeDetectionScores,
   revealTargetIdsOf,
   isLayerVisible,
   resolvePulseShader,
@@ -1021,10 +1021,6 @@ export default function Booth() {
     return () => resetHandRig();
   }, [source, ready, needsHands]);
 
-  // Latest hand firing anchor for hand-emitted beams (read by BeamFX at fire
-  // time via a ref so the rAF loop never re-renders the booth).
-  const handAnchorRef = useRef<HandAnchorSample | null>(null);
-
   // Detection + engine loop — only for a DB scene with triggers while the camera
   // is live. Drives detection itself (detectFaceNow / detectHandsNow — both
   // self-throttle and interleave so the two blocking inferences never share a
@@ -1046,13 +1042,16 @@ export default function Booth() {
       const faceT = b?.t ?? -1;
       const handT = h?.t ?? -1;
       if (faceT === lastFaceT && handT === lastHandT) return;
+      const handChanged = handT !== lastHandT;
       lastFaceT = faceT;
       lastHandT = handT;
-      handAnchorRef.current = h?.anchor ?? null;
-      // Hand scores spread LAST: the namespaces are disjoint today, and if a
-      // future key ever collided the explicit gesture should win.
-      const merged = h ? { ...(b?.scores ?? {}), ...h.scores } : (b?.scores ?? null);
-      for (const ev of engine.step(merged, performance.now())) handleTriggerEventRef.current(ev);
+      // The face clock (~33ms) steps this loop 2-4x per hand inference (66/150ms).
+      // mergeDetectionScores decides whether the hand keys are new, merely
+      // between inferences (held), or a frozen stash (zeroed) — replaying the
+      // last hand sample into the EMA fires a beam with no hand in frame.
+      const now = performance.now();
+      const merged = mergeDetectionScores(b?.scores ?? null, h, handChanged, now);
+      for (const ev of engine.step(merged.scores, now, merged.stale)) handleTriggerEventRef.current(ev);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);

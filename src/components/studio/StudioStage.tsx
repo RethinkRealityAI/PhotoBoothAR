@@ -25,7 +25,7 @@ import StudioPreview from './StudioPreview';
 import Tooltip from '../ui/Tooltip';
 import ErrorBoundary from '../ui/ErrorBoundary';
 import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
-import { createTriggerEngine, hasHandSource, isHandSource, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, BEAM_STYLE_LABELS, ANIMATE_PRESET_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
+import { createTriggerEngine, hasHandSource, isHandSource, mergeDetectionScores, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, BEAM_STYLE_LABELS, ANIMATE_PRESET_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
 import { detectHandsNow, getLatestHandFrame, resetHandRig } from '../../lib/handRig';
 import { initializeHandLandmarker } from '../../lib/handTracking';
@@ -426,10 +426,15 @@ export default function StudioStage({
       const faceT = b?.t ?? -1;
       const handT = h?.t ?? -1;
       if (faceT === lastFaceT && handT === lastHandT) return;
+      const handChanged = handT !== lastHandT;
       lastFaceT = faceT;
       lastHandT = handT;
-      const merged = h ? { ...(b?.scores ?? {}), ...h.scores } : (b?.scores ?? null);
-      for (const ev of engine.step(merged, performance.now())) handlerRef.current(ev);
+      // Same staleness rule as the booth (see mergeDetectionScores): the face
+      // clock steps this loop 2-4x per hand inference, and re-feeding the last
+      // hand sample crosses `enter` on its own.
+      const now = performance.now();
+      const merged = mergeDetectionScores(b?.scores ?? null, h, handChanged, now);
+      for (const ev of engine.step(merged.scores, now, merged.stale)) handlerRef.current(ev);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
