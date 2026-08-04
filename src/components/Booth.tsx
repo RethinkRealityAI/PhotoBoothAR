@@ -99,6 +99,7 @@ import {
 import StripPicker from './booth/StripPicker';
 import type { Transform2D, Experience, AnchorConfig, Challenge } from '../types';
 import { layerToPiece } from '../lib/studio/draftMapping';
+import { applyGuestColor, guestColorSlot } from '../lib/guestPalette';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -789,7 +790,24 @@ export default function Booth() {
       }));
   }, [frameLayers, layerVisible]);
 
-  const attachLayers = attachExp?.config?.layers;
+  const rawAttachLayers = attachExp?.config?.layers;
+  // ── Guest lens colour ─────────────────────────────────────────────────
+  // Session-only: a swatch pick recolours the template's guest-pickable region
+  // through the ordinary customization path (so the lens AND an 'auto' beam
+  // follow in one move) and resets whenever the selection changes. db-only by
+  // construction — legacy/code events never carry layers or templates.
+  const [guestHex, setGuestHex] = useState<string | null>(null);
+  const colorSlot = useMemo(
+    () => (source === 'db' ? guestColorSlot(rawAttachLayers) : null),
+    [source, rawAttachLayers],
+  );
+  useEffect(() => { setGuestHex(null); }, [attachExp?.id]);
+  // Same array reference whenever no pick is active (applyGuestColor's
+  // contract), so every existing memo below is churn-free by default.
+  const attachLayers = useMemo(
+    () => applyGuestColor(rawAttachLayers, colorSlot, guestHex),
+    [rawAttachLayers, colorSlot, guestHex],
+  );
   const overlayPieces: Overlay3DPiece[] | undefined = useMemo(() => {
     if (!attachLayers || attachLayers.length === 0) return undefined;
     return attachLayers
@@ -1938,6 +1956,9 @@ export default function Booth() {
                 onStripMode={setStripMode}
                 stripShots={stripCount}
                 onOpenStripPicker={() => setStripPickerOpen(true)}
+                colorSlot={colorSlot}
+                guestHex={guestHex}
+                onGuestHex={setGuestHex}
               />
             </div>
           )}

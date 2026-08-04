@@ -673,6 +673,7 @@ export type StudioAction =
    * back to the asset exactly as it shipped.
    */
   | { type: 'SET_CUSTOMIZATION'; part?: { id: string; hex?: string | null; finish?: string | null }; label?: AssetLabelConfig | null }
+  | { type: 'SET_TEMPLATE_GUEST_PICK'; regionId: string; on: boolean }
   | { type: 'SET_SCENE_TAG'; scene: string | undefined }
   | { type: 'MARK_SAVED'; id: string }
   /* — multi-object scene actions — */
@@ -900,6 +901,31 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         ...state,
         dirty: true,
         draft: { ...d, objects: mapObjects(d, sel.id, (o) => (is3D(o) ? withCustomization(o, action) : o)) },
+      };
+    }
+    case 'SET_TEMPLATE_GUEST_PICK': {
+      // Stamp/clear `guestPick` on ONE region of the selected object's raw
+      // template (the descriptor travels opaquely — see Object3D.template).
+      // Raw-JSON clone so normalizeTemplate still owns validation downstream;
+      // a malformed template is left untouched rather than "repaired".
+      const sel = selectedObject(d);
+      if (!sel || !is3D(sel) || sel.template === null || typeof sel.template !== 'object') return state;
+      const clone = JSON.parse(JSON.stringify(sel.template)) as Record<string, unknown>;
+      const regions = clone.regions;
+      if (!Array.isArray(regions)) return state;
+      let touched = false;
+      for (const r of regions) {
+        if (r !== null && typeof r === 'object' && (r as Record<string, unknown>).id === action.regionId) {
+          if (action.on) (r as Record<string, unknown>).guestPick = true;
+          else delete (r as Record<string, unknown>).guestPick;
+          touched = true;
+        }
+      }
+      if (!touched) return state;
+      return {
+        ...state,
+        dirty: true,
+        draft: { ...d, objects: mapObjects(d, sel.id, (o) => (is3D(o) ? { ...o, template: clone } : o)) },
       };
     }
     case 'SET_SCENE_TAG':

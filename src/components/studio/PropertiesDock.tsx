@@ -48,6 +48,7 @@ import {
   Star,
   Trash2,
   Upload,
+  Users,
   Wand2,
   X,
   Zap,
@@ -637,6 +638,17 @@ function RegionRow({
         className="shrink-0 p-1 rounded text-brand-muted/40 hover:text-accent-2 transition-colors disabled:opacity-15 disabled:pointer-events-none"
       >
         <RotateCcw className="w-3 h-3" />
+      </button>
+      {/* Guest colour opt-in: a swatch row appears in the booth for this
+          region; the host's colour above stays the default. */}
+      <button
+        onClick={() => dispatch({ type: 'SET_TEMPLATE_GUEST_PICK', regionId: region.id, on: region.guestPick !== true })}
+        aria-pressed={region.guestPick === true}
+        aria-label={`Guests can pick the ${region.label} colour`}
+        title={region.guestPick === true ? 'Guests can pick this colour in the booth — tap to lock' : 'Let guests pick this colour in the booth'}
+        className={`shrink-0 p-1 rounded transition-colors ${region.guestPick === true ? 'text-accent-2' : 'text-brand-muted/30 hover:text-brand-fg'}`}
+      >
+        <Users className="w-3 h-3" />
       </button>
     </div>
   );
