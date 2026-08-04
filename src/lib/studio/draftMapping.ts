@@ -53,6 +53,7 @@ import {
   type StudioObject,
 } from './state';
 import { normalizeTemplate, scopeCustomizationToTemplate, type AssetTemplate } from './assetTemplate';
+import { isHandAnchorId } from '../handPose';
 import { parseTriggers, type TriggerConfig } from './triggers';
 import { normalizeGuestLettering } from '../letteringFit';
 
@@ -158,6 +159,9 @@ function layerToObject(l: ExperienceLayer): StudioObject {
       // scene loads with no customization key at all.
       customization: l.customization,
       template: l.template,
+      // Hand-anchored gear survives the round trip; a bogus stored id is
+      // dropped here so the object degrades to head-anchored, not broken.
+      handAnchor: isHandAnchorId(l.handAnchor) ? l.handAnchor : undefined,
     });
   } else {
     // Stored assets load as custom so builtin sync never overwrites them.
@@ -329,6 +333,8 @@ function object3DLayer(o: Object3D, r: UrlResolver): ExperienceLayer {
   // The configurator descriptor travels with the layer — the booth reads
   // nothing else, so a template stored anywhere else would need a migration.
   if (o.template) layer.template = o.template;
+  // Hand-anchored gear (written only when set — every head piece stays clean).
+  if (o.handAnchor !== undefined) layer.handAnchor = o.handAnchor;
   return layer;
 }
 
@@ -363,6 +369,9 @@ export interface ScenePiece3D {
    *  one place untrusted jsonb becomes a render spec, so no renderer has to
    *  remember to call normalizeTemplate (and none can forget). */
   template?: AssetTemplate;
+  /** Hand anchor id, ALREADY validated (isHandAnchorId) — present ⇒ render in
+   *  a HandRig instead of a FaceRig. Absent on every pre-existing scene. */
+  handAnchor?: string;
 }
 
 export interface PieceContext {
@@ -409,10 +418,10 @@ export function resolvePieceCustomization(raw: unknown, guestName = ''): AssetCu
   return { ...c, label: { ...c.label, token: 'fixed', text } };
 }
 
-type PieceExtras = Pick<ScenePiece3D, 'finish' | 'tint' | 'tintStrength' | 'customization' | 'template'>;
+type PieceExtras = Pick<ScenePiece3D, 'finish' | 'tint' | 'tintStrength' | 'customization' | 'template' | 'handAnchor'>;
 
 function pieceExtras(
-  src: { finish?: string; tint?: string; tintStrength?: number; customization?: unknown; template?: unknown },
+  src: { finish?: string; tint?: string; tintStrength?: number; customization?: unknown; template?: unknown; handAnchor?: string },
   ctx: PieceContext,
 ): PieceExtras {
   const out: PieceExtras = {
@@ -420,6 +429,9 @@ function pieceExtras(
     tint: src.tint,
     tintStrength: src.tintStrength,
   };
+  // Validated here (the untrusted-jsonb gate) so no renderer ever sees a bogus
+  // anchor id — an unknown one degrades to head-anchored, the old behaviour.
+  if (isHandAnchorId(src.handAnchor)) out.handAnchor = src.handAnchor;
   if (ctx.customizationEnabled !== false) {
     // A template with nothing customized still travels: the renderer needs it to
     // know which regions exist before anything is styled. Anything it does not
@@ -530,6 +542,10 @@ export function draftToPayload(
     // The configurator descriptor has no singular slot either, and losing it
     // makes the asset silently un-configurable in the booth.
     const anyCustom = objs.some((o) => !!o.customization || !!o.template);
+    // A hand anchor has no singular slot either — a lone wand saved through the
+    // legacy path would reload glued to the HEAD (the exact `anyCustom` trap,
+    // one field later).
+    const anyHandAnchor = objs.some((o) => o.handAnchor !== undefined);
     const layer0 = objs[0];
     if (layer0) {
       // Legacy mirror of layer 0.
@@ -544,7 +560,7 @@ export function draftToPayload(
       if (layer0.occlusion) config.occlusion = true;
       assetUrl = layer0.type === 'headpiece' && layer0.proceduralId ? null : resolve(resolvedUrls, layer0.id);
     }
-    if (objs.length > 1 || anyAnim || anyHidden || anyFinish || anyCustom || revealActive) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
+    if (objs.length > 1 || anyAnim || anyHidden || anyFinish || anyCustom || anyHandAnchor || revealActive) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
     // The scene-level filter slot ('none' = empty) can ride alongside any scene.
     if (draft.shaderId !== 'none') config.ambientShader = { shaderId: draft.shaderId, params: draft.shaderParams };
   } else {

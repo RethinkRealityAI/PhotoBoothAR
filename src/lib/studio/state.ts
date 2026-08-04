@@ -156,6 +156,9 @@ export interface Object3D {
    * not fully understand. Undefined = a plain asset with no configurator.
    */
   template?: unknown;
+  /** Hand anchor id (lib/handPose HAND_ANCHORS) — present ⇒ the piece rides
+   *  the tracked hand, not the head. Absent on every pre-existing object. */
+  handAnchor?: string;
 }
 
 export type StudioObject = Overlay2D | Object3D;
@@ -241,6 +244,8 @@ export function createObject3D(
     // The configurator descriptor rides along opaquely, and only when the asset
     // actually has one (an untemplated model keeps NO template key).
     ...(opts.template ? { template: opts.template } : {}),
+    // Hand-anchored gear: only when set, so head pieces keep NO handAnchor key.
+    ...(opts.handAnchor !== undefined ? { handAnchor: opts.handAnchor } : {}),
   };
 }
 
@@ -653,7 +658,7 @@ export type StudioAction =
   /** `template` is the asset's configurator descriptor when the library row
    *  ships one (assetTemplate.AssetTemplate). Omitting it — every caller today
    *  — adds a plain, non-configurable model exactly as before. */
-  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown; offsetCm?: { x: number; y: number; z: number } }
+  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown; offsetCm?: { x: number; y: number; z: number }; anchor?: HeadAnchor; handAnchor?: string }
   | { type: 'SET_THUMB'; url: string | null; blob: Blob | null }
   | { type: 'TOGGLE_PUBLISHED' }
   | { type: 'TOGGLE_FEATURED' }
@@ -853,6 +858,10 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         assetUrl: action.url,
         name: action.name ?? 'Model',
         template: action.template,
+        // Library entries carry their natural mount: eyewear at noseBridge,
+        // a wand at the hand's grip. Absent = the historical default (crown).
+        anchor: action.anchor,
+        handAnchor: action.handAnchor,
         // offsetCm: a library entry's authored starting nudge (e.g. a cap rides
         // at the hairline, not the brow) — same field the Placement sliders
         // edit, so the host can still move it and saved scenes are untouched.

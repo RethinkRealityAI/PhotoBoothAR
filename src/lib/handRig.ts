@@ -39,6 +39,8 @@ let _misses = 0;
 
 let _scores: Record<string, number> = {};
 let _anchor: HandAnchorSample | null = null;
+let _hands: HandSample[] = [];
+let _handedness: ('Left' | 'Right')[] = [];
 let _t = 0;
 let _has = false;
 
@@ -78,6 +80,12 @@ export function detectHandsNow(video: HTMLVideoElement): void {
   const face = getLatestFaceKeypoints();
   _scores = handGestureScores(hands, face);
   _anchor = handAnchor(hands, face);
+  _hands = hands;
+  // MediaPipe's handedness label assumes MIRRORED input; we feed raw frames,
+  // so the label is swapped here, once, and every consumer sees the REAL hand.
+  _handedness = (results?.handednesses ?? []).map((cats) =>
+    cats[0]?.categoryName === 'Left' ? 'Right' : 'Left',
+  );
   _t = now;
   _has = true;
 }
@@ -90,9 +98,12 @@ export function detectHandsNow(video: HTMLVideoElement): void {
 export function getLatestHandFrame(): {
   scores: Record<string, number>;
   anchor: HandAnchorSample | null;
+  /** Raw samples + REAL (label-swapped) handedness, index-aligned. */
+  hands: readonly HandSample[];
+  handedness: readonly ('Left' | 'Right')[];
   t: number;
 } | null {
-  return _has ? { scores: _scores, anchor: _anchor, t: _t } : null;
+  return _has ? { scores: _scores, anchor: _anchor, hands: _hands, handedness: _handedness, t: _t } : null;
 }
 
 /** Scene switch / booth unmount — forget everything (next scene must not see
@@ -100,6 +111,8 @@ export function getLatestHandFrame(): {
 export function resetHandRig(): void {
   _scores = {};
   _anchor = null;
+  _hands = [];
+  _handedness = [];
   _has = false;
   _misses = 0;
   _gate.lastDetectMs = -Infinity;

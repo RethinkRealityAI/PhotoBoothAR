@@ -7,6 +7,7 @@ import { useRef, useEffect, type ReactNode } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import type { Group } from 'three';
 import { FaceRig, Model } from '../ar/FaceRig';
+import { HandOccluder, HandRig } from '../ar/HandRig';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
 import BeamFX from '../ar/BeamFX';
 import { RIG_CAMERA } from '../../lib/faceRig';
@@ -48,6 +49,9 @@ export interface Overlay3DPiece {
    * to identity within PULSE_3D_MS, so absent/expired = today's render.
    */
   pulse?: { preset: AnimatePreset; at: number } | null;
+  /** Hand anchor id (lib/handPose HAND_ANCHORS), already validated by the
+   *  shared mapper. Present ⇒ this piece rides a HandRig, not a FaceRig. */
+  handAnchor?: string;
 }
 
 interface Props {
@@ -182,8 +186,12 @@ function AnimatedPiece({ animation, reveal, pulse, children }: { animation?: Lay
 }
 
 export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false }: Props) {
+  // Hand-anchored gear renders in a HandRig; everything else keeps the FaceRig
+  // path byte-identically (index split preserves keys within each family).
+  const headPieces = pieces ? pieces.filter((p) => p.handAnchor === undefined) : null;
+  const handPieces = pieces ? pieces.filter((p) => p.handAnchor !== undefined) : null;
   // First piece whose occlude===true wins the (single, non-duplicated) occluder.
-  const occluderIdx = pieces ? pieces.findIndex((p) => p.occlude === true) : -1;
+  const occluderIdx = headPieces ? headPieces.findIndex((p) => p.occlude === true) : -1;
   return (
     <div id="booth-3d-layer" className="absolute inset-0 pointer-events-none z-20">
       <Canvas
@@ -200,8 +208,38 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
 
         {powerFx && <BeamFX mirror={mirror} videoId={videoId} />}
 
-        {pieces ? (
-          pieces.map((p, i) => (
+        {/* Hand-anchored gear: one HandRig per piece + ONE depth-only hand
+            occluder so real fingers wrap in front of a held grip. */}
+        {handPieces && handPieces.length > 0 && (
+          <>
+            <HandOccluder videoId={videoId} mirror={mirror} />
+            {handPieces.map((p, i) => (
+              <HandRig key={`hand-${i}`} anchor={p.handAnchor as string} videoId={videoId} mirror={mirror}>
+                <AnimatedPiece animation={p.animation} reveal={reveal} pulse={p.pulse}>
+                  <group scale={p.anchor.scale} rotation={[p.anchor.rotation.x, p.anchor.rotation.y, p.anchor.rotation.z]} position={[p.anchor.offset.x, p.anchor.offset.y, p.anchor.offset.z]}>
+                    {isHeadPiece(p.proceduralId) ? (
+                      <HeadPiece id={p.proceduralId as string} />
+                    ) : p.assetUrl ? (
+                      <Model
+                        url={p.assetUrl}
+                        finish={p.finish}
+                        tint={p.tint}
+                        tintStrength={p.tintStrength}
+                        template={p.template}
+                        customization={p.customization}
+                        onReady={onAssetReady ? () => onAssetReady(p.assetUrl as string) : undefined}
+                        onError={onAssetError ? (m) => onAssetError(p.assetUrl as string, m) : undefined}
+                      />
+                    ) : null}
+                  </group>
+                </AnimatedPiece>
+              </HandRig>
+            ))}
+          </>
+        )}
+
+        {headPieces ? (
+          headPieces.map((p, i) => (
             <FaceRig
               key={i}
               videoId={videoId}
