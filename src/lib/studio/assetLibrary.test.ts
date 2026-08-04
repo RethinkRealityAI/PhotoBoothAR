@@ -154,6 +154,31 @@ describe('the baseball cap — the contracts its render depends on', () => {
   });
 });
 
+describe('Power-Ups gear — beam emitters survive validation and sit on the mesh', () => {
+  // The fired beam parents to the template emitter; a gear whose emitter is
+  // dropped by normalizeTemplate silently falls back to the generic head/hand
+  // origin — the exact "beam doesn't come from the asset" bug this fixes.
+  const cases: [string, [number, number, number]][] = [
+    ['cyclops-visor', [0, 0, 1]], // lens front, firing forward
+    // The wand's VISIBLE shaft runs along X (the +z extent is flat ribbon
+    // geometry that fools a whole-mesh PCA); grip maps +x to "up out of the
+    // fist", so the beam leaves the +x crystal along +x.
+    ['wizard-wand', [1, 0, 0]],
+    ['power-gauntlet', [0, -1, 0]], // palm, firing out of the open hand
+  ];
+  for (const [id, direction] of cases) {
+    it(`${id} carries a validated emitter firing along ${JSON.stringify(direction)}`, () => {
+      const t = assetTemplateOf(findLibraryAsset(id)!)!;
+      expect(t.emitter).toBeDefined();
+      expect(t.emitter!.direction).toEqual(direction);
+      // GLB-local space: inside the asset's roughly unit box, never at origin
+      // (an all-zero position would mean nobody measured).
+      for (const c of t.emitter!.position) expect(Math.abs(c)).toBeLessThan(1.1);
+      expect(Math.hypot(...t.emitter!.position)).toBeGreaterThan(0.1);
+    });
+  }
+});
+
 describe('GENERIC BY MANDATE — no legacy-event branding may reach the library', () => {
   // Owner, verbatim: "make sure we remove all the hard-coded templates, like the
   // SCAGO gala or any that have specific branding for any of the legacy events."

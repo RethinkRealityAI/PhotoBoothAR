@@ -49,7 +49,7 @@ import {
   type Text3DSpec,
 } from '../../lib/studio/text3d';
 import { buildText3D, exportGlb, glyphsOf, loadFont, type BuiltText3D } from '../../lib/studio/text3dBuild';
-import type { StudioAction } from '../../lib/studio/state';
+import type { StudioAction, StudioDraft } from '../../lib/studio/state';
 import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
 import SceneLighting from '../ar/SceneLighting';
 import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
@@ -58,6 +58,9 @@ interface Props {
   /** Event SLUG — uploadAsset's tenant folder. */
   eventId: string;
   dispatch: React.Dispatch<StudioAction>;
+  /** Accepted for the shared ADDON_VIEWS props contract (PowerFxBuilder uses
+   *  it for cap/conflict guards); jewelry places at the ear slots, unguarded. */
+  draft?: StudioDraft;
   onClose: () => void;
   /** Refresh the dock's Uploads list once the GLB has landed in the bucket. */
   onUploaded?: () => void;

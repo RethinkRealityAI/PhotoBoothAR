@@ -36,6 +36,9 @@ interface Props {
   headScale: number;
   occlusionEnabled: boolean;
   onFaceVisible?: (v: boolean) => void;
+  /** Hand-rig acquisition feedback — wired through to Overlay3D's first
+   *  hand-anchored piece (drives the stage's "No hand yet" chip state). */
+  onHandVisible?: (v: boolean) => void;
   /** Reveal-target object ids not yet fired — dropped from the render so a
    *  reveal trigger's piece stays hidden until it fires (booth parity). */
   hiddenObjectIds?: Set<string>;
@@ -55,7 +58,7 @@ interface Props {
   powerFx?: boolean;
 }
 
-export default function StudioPreview({ videoRef, draft, headScale, occlusionEnabled, onFaceVisible, hiddenObjectIds, revealTargetIds, effectIdOverride, reveal, lightingPreset = DEFAULT_LIGHTING, powerFx = false }: Props) {
+export default function StudioPreview({ videoRef, draft, headScale, occlusionEnabled, onFaceVisible, onHandVisible, hiddenObjectIds, revealTargetIds, effectIdOverride, reveal, lightingPreset = DEFAULT_LIGHTING, powerFx = false }: Props) {
   const targets = revealTargetIds ?? EMPTY_SET;
   // Fired = a target NOT in hiddenObjectIds (the parent tracks the un-fired set).
   // Built ONCE per render: this used to sit inside `visible`, which runs per
@@ -110,6 +113,7 @@ export default function StudioPreview({ videoRef, draft, headScale, occlusionEna
               mirror
               headScale={headScale}
               onFaceVisible={onFaceVisible}
+              onHandVisible={onHandVisible}
               reveal={reveal}
               lightingPreset={lightingPreset}
               powerFx={powerFx}

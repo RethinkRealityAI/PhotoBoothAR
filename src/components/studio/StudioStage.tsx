@@ -361,9 +361,14 @@ export default function StudioStage({
     if (a.type === 'beam') {
       if (mode === 'preview') {
         // The REAL ceremony, through the same fxBus + BeamFX the booth uses.
-        const target =
-          (a.objectId !== undefined ? draft.objects.find((o) => o.id === a.objectId) : undefined) ??
-          draft.objects.find((o) => o.type !== 'overlay');
+        // Same visibility rule as the booth's resolver: a panel-hidden or
+        // still-unrevealed piece has no mounted rig to fire from, so a
+        // named-but-hidden target degrades to the per-origin default (null)
+        // rather than borrowing a DIFFERENT piece's colour and muzzle.
+        const visible3D = (o: (typeof draft.objects)[number]) =>
+          o.type !== 'overlay' && isLayerVisible(o, revealTargetIds, revealedIds);
+        const named = a.objectId !== undefined ? draft.objects.find((o) => o.id === a.objectId) : undefined;
+        const target = named !== undefined ? (visible3D(named) ? named : undefined) : draft.objects.find(visible3D);
         const piece =
           target !== undefined && target.type !== 'overlay'
             ? objectToPiece(target, { guestName: STUDIO_SAMPLE_GUEST_NAME })
@@ -378,7 +383,7 @@ export default function StudioStage({
       const name = draft.objects.find((o) => o.id === a.objectId)?.name ?? 'piece';
       showToast(`${label} → ${ANIMATE_PRESET_LABELS[a.preset].toLowerCase()} "${name}"`);
     }
-  }, [mode, draft.objects, showToast, startPulse]);
+  }, [mode, draft.objects, showToast, startPulse, revealTargetIds, revealedIds]);
   const handlerRef = useRef(handleTriggerEvent);
   useEffect(() => { handlerRef.current = handleTriggerEvent; }, [handleTriggerEvent]);
 
@@ -387,14 +392,22 @@ export default function StudioStage({
   // and is shared with any mounted FaceRig) so blendshapes refresh even in 2D /
   // filter-only preview, and steps the engine once per NEW detection frame.
   // Rebuilds (cheaply) whenever the trigger set changes → no leaked rAF/engine.
-  // Hand landmarker joins lazily, exactly as in the booth — only when the
-  // draft's triggers name a hand gesture, so ordinary scenes never pay for it.
-  const needsHands = useMemo(() => hasHandSource(triggers), [triggers]);
+  // Hand landmarker joins lazily, exactly as in the booth — when the draft's
+  // triggers name a hand gesture OR any piece is hand-ANCHORED (a wand with no
+  // hand trigger still needs a tracked hand to sit in; the rigs self-detect,
+  // this effect owns the early 7.8MB download + the stash reset). Ordinary
+  // scenes never pay for it.
+  const needsHands = useMemo(
+    () =>
+      hasHandSource(triggers) ||
+      draft.objects.some((o) => o.type !== 'overlay' && o.handAnchor !== undefined),
+    [triggers, draft.objects],
+  );
   useEffect(() => {
-    if (!triggersActive || !needsHands) return;
+    if (!needsHands) return;
     initializeHandLandmarker().catch((e) => console.warn('[StudioStage] hand tracker init failed', e));
     return () => resetHandRig();
-  }, [triggersActive, needsHands]);
+  }, [needsHands]);
 
   useEffect(() => {
     if (!triggersActive) return;
@@ -439,8 +452,20 @@ export default function StudioStage({
   // the view is switching must not leave the hold latched.
   useEffect(() => { setGizmoDragging(false); }, [mode, threeView]);
 
+  // Hand-rig acquisition (3D Live / Preview) — local: only the status chip
+  // reads it, unlike faceVisible which the shell owns.
+  const [handVisible, setHandVisible] = useState(false);
+  useEffect(() => { setHandVisible(false); }, [mode, threeView]);
+
   // Whether the CURRENT view actually uses the tracker — orbit has no feed.
   const trackerNeeded = mode === 'preview' || mode === '2d' || (mode === '3d' && threeView === 'live');
+  // Hand-tracking chip state: a hand is "needed" when the scene carries hand
+  // gear or hand-gesture triggers; the FACE stops being needed only when the
+  // 3D scene is hand-only AND no trigger listens to a face.
+  const handOnlyScene =
+    objects3d.length > 0 &&
+    objects3d.every((o) => o.handAnchor !== undefined) &&
+    !triggers.some((t) => !isHandSource(t.source));
   const status = stageStatus({
     camError: cam.error,
     camReady: cam.ready,
@@ -448,6 +473,9 @@ export default function StudioStage({
     trackerReady: trackerNeeded ? trackerLoaded : true,
     faceVisible,
     toast: triggerToast,
+    faceNeeded: !handOnlyScene,
+    handNeeded: trackerNeeded && needsHands,
+    handVisible,
   });
 
   return (
@@ -655,6 +683,7 @@ export default function StudioStage({
               onAnchorSelect={(a) => dispatch({ type: 'SELECT_ANCHOR', anchor: a })}
               onTransformChange={(patch) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch })}
               onFaceVisible={onFaceVisible}
+              onHandVisible={setHandVisible}
               onGizmoDragStart={() => setGizmoDragging(true)}
               onGizmoDragEnd={() => setGizmoDragging(false)}
             />
@@ -672,6 +701,7 @@ export default function StudioStage({
               headScale={headScale}
               occlusionEnabled={occlusionEnabled}
               onFaceVisible={onFaceVisible}
+              onHandVisible={setHandVisible}
               hiddenObjectIds={hiddenObjectIds}
               revealTargetIds={revealTargetIds}
               effectIdOverride={pulseShaderId ?? undefined}

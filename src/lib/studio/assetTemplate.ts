@@ -185,6 +185,17 @@ export interface AssetTextSlot {
   decalDepth: number;
 }
 
+/**
+ * Where a beam/blast erupts from, in the GLB's OWN local space (the same space
+ * as AssetTextSlot.position — NOT centimetres). `direction` is the local axis
+ * the bolt extends along (unit length). Authored per asset: the visor's lens
+ * front, the wand's crystal tip, the gauntlet's palm.
+ */
+export interface AssetEmitter {
+  position: Vec3;
+  direction: Vec3;
+}
+
 export interface AssetTemplate {
   id: string;
   name: string;
@@ -198,6 +209,9 @@ export interface AssetTemplate {
    * region attribute and only whole-asset styling is possible.
    */
   regionIds?: string;
+  /** Beam origin on this asset. Absent (every pre-Power-Ups descriptor) means
+   *  beams fall back to the per-rig default origin. */
+  emitter?: AssetEmitter;
   textSlots: AssetTextSlot[];
   /**
    * 'auto' = derived by the prep pass alone. 'human' = a person checked it.
@@ -259,6 +273,24 @@ function normalizeTextSlot(raw: unknown, regionIds: ReadonlySet<string>): AssetT
   };
 }
 
+/** Largest |component| a GLB-local emitter position may carry. Meshy assets
+ *  live in a roughly unit box; anything past this is a mis-pasted value that
+ *  would put the muzzle nowhere near the mesh. */
+const EMITTER_POSITION_LIMIT = 1000;
+
+function normalizeEmitter(raw: unknown): AssetEmitter | null {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const position = readVec3(o.position);
+  // Both halves or neither: a position with a guessed direction fires the bolt
+  // through the asset; a missing emitter falls back to the per-rig default,
+  // which is the better failure.
+  const direction = unitVec3(readVec3(o.direction));
+  if (!position || !direction) return null;
+  if (position.some((v) => Math.abs(v) > EMITTER_POSITION_LIMIT)) return null;
+  return { position, direction };
+}
+
 /**
  * Validate an untrusted descriptor. Returns null — never throws, never a
  * half-built template — for anything unusable, which the caller reads as "this
@@ -309,6 +341,7 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
   // wrong without anything noticing. Descriptors that still carry the key are
   // accepted and the key ignored, like any unknown field.
   const regionIds = typeof o.regionIds === 'string' && o.regionIds.trim() ? o.regionIds.trim() : undefined;
+  const emitter = normalizeEmitter(o.emitter);
 
   return {
     id,
@@ -317,6 +350,7 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
     fitCm: clampRange(o.fitCm, TEMPLATE_BOUNDS.fitCm, 20),
     regions,
     ...(regionIds ? { regionIds } : {}),
+    ...(emitter ? { emitter } : {}),
     textSlots,
     preparedBy: typeof o.preparedBy === 'string' && PREPARED_BY.has(o.preparedBy)
       ? (o.preparedBy as 'auto' | 'human')

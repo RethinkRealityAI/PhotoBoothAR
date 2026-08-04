@@ -40,6 +40,16 @@ export interface StageStatusInput {
   faceVisible: boolean;
   /** Transient message (e.g. a trigger fired) — outranks steady state. */
   toast: string | null;
+  /**
+   * The scene actually needs a FACE. Absent = true (every pre-Power-Ups
+   * caller). A hand-only scene — a lone wand, no face triggers — passes false
+   * so the chip never coaches a face nothing is tracking.
+   */
+  faceNeeded?: boolean;
+  /** The scene needs a HAND (hand-gesture triggers or hand-anchored gear). */
+  handNeeded?: boolean;
+  /** A hand is currently detected (only meaningful when handNeeded). */
+  handVisible?: boolean;
 }
 
 /**
@@ -57,7 +67,10 @@ export function stageStatus(i: StageStatusInput): StageStatus | null {
   // Kept SHORT on purpose: the chip shares one band with the mode switcher, and
   // longer copy truncated to "Loading fa…" at the stage's real width.
   if (!i.trackerReady) return { tone: 'warn', text: 'Loading tracker', live: false };
-  if (!i.faceVisible) return { tone: 'info', text: 'No face yet', live: true };
+  if ((i.faceNeeded ?? true) && !i.faceVisible) return { tone: 'info', text: 'No face yet', live: true };
+  // Face satisfied (or not needed) but the scene's hand gear/gesture has no
+  // hand in frame yet — the one live state the host cannot otherwise see.
+  if (i.handNeeded === true && i.handVisible !== true) return { tone: 'info', text: 'No hand yet', live: true };
   return { tone: 'ok', text: 'Tracking', live: true };
 }
 

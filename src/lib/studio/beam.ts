@@ -24,6 +24,16 @@ export type BeamAction = Extract<TriggerAction, { type: 'beam' }>;
 export interface BeamSpec {
   style: BeamStyle;
   origin: 'head' | 'hand';
+  /**
+   * fxBus emitter-registry key of the piece this beam erupts from (the piece's
+   * layer/object id). BeamFX follows that registered object's live world
+   * transform — the visor's lens front, the wand's crystal tip, the gauntlet's
+   * palm — falling back to the per-`origin` default when nothing is registered
+   * under the key (asset still loading, no authored emitter, piece hidden).
+   * Absent when the author FORCED `origin` — an explicit 'head'/'hand' must
+   * never parent to a piece of the other family.
+   */
+  emitterKey?: string;
   /** Fully resolved hex — never 'auto' by the time it reaches the renderer. */
   colorHex: string;
   /** White-hot core colour, derived from colorHex. */
@@ -96,6 +106,10 @@ export function beamRegionId(template: AssetTemplate | null | undefined): string
 export interface BeamEmitterPiece {
   template?: AssetTemplate | null;
   customization?: AssetCustomization | null;
+  /** The piece's emitter-registry key (its layer/object id). */
+  fxKey?: string;
+  /** Present ⇒ the piece rides a HandRig (drives 'auto' origin resolution). */
+  handAnchor?: string;
 }
 
 /**
@@ -122,8 +136,16 @@ export function resolveBeamColor(action: BeamAction, piece: BeamEmitterPiece | n
   return OPTIC_RED;
 }
 
-/** Build the renderable spec for a fired beam action. `handFired` = the firing
- *  trigger source was a hand gesture (resolves origin 'auto'). */
+/**
+ * Build the renderable spec for a fired beam action.
+ *
+ * Origin resolution ('auto'/absent): the EMITTING PIECE decides — a
+ * hand-anchored wand fires from the hand rig even when a smile triggered it,
+ * a head-worn visor fires from the head even on a fist clench. Only with no
+ * piece at all does the firing gesture (`handFired`) break the tie. An
+ * explicit 'head'/'hand' is a forced override: it wins outright AND drops the
+ * piece emitter, so a beam can never parent to a rig of the other family.
+ */
 export function makeBeamSpec(
   action: BeamAction,
   piece: BeamEmitterPiece | null,
@@ -131,12 +153,18 @@ export function makeBeamSpec(
   nowMs: number,
 ): BeamSpec {
   const timing = BEAM_STYLE_TIMING[action.style];
+  const forced = action.origin === 'head' || action.origin === 'hand';
   const origin =
     action.origin === 'head' || action.origin === 'hand'
       ? action.origin
-      : handFired
-        ? 'hand'
-        : 'head';
+      : piece !== null
+        ? piece.handAnchor !== undefined
+          ? 'hand'
+          : 'head'
+        : handFired
+          ? 'hand'
+          : 'head';
+  const emitterKey = !forced && piece?.fxKey !== undefined && piece.fxKey !== '' ? piece.fxKey : undefined;
   const colorHex = resolveBeamColor(action, piece);
   const holdMs =
     typeof action.durationMs === 'number' && isFinite(action.durationMs) && action.durationMs > 0
@@ -145,6 +173,7 @@ export function makeBeamSpec(
   return {
     style: action.style,
     origin,
+    ...(emitterKey !== undefined ? { emitterKey } : {}),
     colorHex,
     coreHex: lightenTowardWhite(colorHex, 0.82),
     chargeMs: timing.chargeMs,

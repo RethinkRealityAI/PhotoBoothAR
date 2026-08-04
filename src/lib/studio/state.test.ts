@@ -13,6 +13,7 @@ import {
   MAX_OBJECTS,
   MAX_TRIGGERS,
   canAddObject,
+  slotConflict,
   SCENE_FULL_MESSAGE,
   type StudioState,
   type Overlay2D,
@@ -185,6 +186,80 @@ describe('head pieces and model assets', () => {
     const st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x.glb' });
     expect((selectedObject(st.draft) as Object3D).anchorConfig.scale).toBe(1);
   });
+  it('SET_OBJECT_TRACKING switches head → hand (default grip), zeroing placement but keeping scale', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/wand.glb', name: 'wand', scale: 7.4, offsetCm: { x: 0, y: 1.5, z: 1 } });
+    const id = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'SET_OBJECT_TRACKING', id, tracking: 'hand' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.handAnchor).toBe('grip');
+    expect(o.anchorConfig.scale).toBe(7.4); // auto-fit survives the family switch
+    expect(o.anchorConfig.offset).toEqual({ x: 0, y: 0, z: 0 }); // head nudge does not
+    expect(st.dirty).toBe(true);
+  });
+  it('SET_OBJECT_TRACKING hand → head clears handAnchor entirely (no stale key)', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/wand.glb', name: 'wand', handAnchor: 'grip' });
+    const id = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'SET_OBJECT_TRACKING', id, tracking: 'head' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.handAnchor).toBeUndefined();
+    expect('handAnchor' in o).toBe(false);
+  });
+  it('SET_OBJECT_TRACKING same-family mount swap (grip → wristBack) keeps placement tuning', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/wand.glb', name: 'wand', handAnchor: 'grip' });
+    const id = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { x: 1, y: 2, z: 3 } } });
+    st = studioReducer(st, { type: 'SET_OBJECT_TRACKING', id, tracking: 'hand', handAnchor: 'wristBack' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.handAnchor).toBe('wristBack');
+    expect(o.anchorConfig.offset).toEqual({ x: 1, y: 2, z: 3 });
+  });
+  it('SET_OBJECT_TRACKING is a no-op on overlays, unknown ids and no-change calls', () => {
+    const st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x' });
+    const id = st.draft.selectedId as string;
+    expect(studioReducer(st, { type: 'SET_OBJECT_TRACKING', id: 'ghost', tracking: 'hand' })).toBe(st);
+    expect(studioReducer(st, { type: 'SET_OBJECT_TRACKING', id, tracking: 'head' })).toBe(st);
+    // A bogus handAnchor id degrades to 'grip', never a broken stored string.
+    const hand = studioReducer(st, { type: 'SET_OBJECT_TRACKING', id, tracking: 'hand', handAnchor: 'elbow' });
+    expect((selectedObject(hand.draft) as Object3D).handAnchor).toBe('grip');
+  });
+
+  it('RETARGET_TRIGGERS repoints beam/animate at the selected object, leaves reveal alone', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/old.glb', name: 'old' });
+    const oldId = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'ADD_TRIGGER', trigger: { id: 't1', source: 'smile', action: { type: 'beam', style: 'optic', objectId: oldId } } });
+    st = studioReducer(st, { type: 'ADD_TRIGGER', trigger: { id: 't2', source: 'wink', action: { type: 'animate', objectId: oldId, preset: 'shake' } } });
+    st = studioReducer(st, { type: 'ADD_TRIGGER', trigger: { id: 't3', source: 'smile', action: { type: 'burst', style: 'confetti' } } });
+    // Replace flow: delete old → add new (selected) → retarget.
+    st = studioReducer(st, { type: 'DELETE_OBJECT', id: oldId });
+    st = studioReducer(st, { type: 'SET_MODEL_ASSET', url: 'https://cdn/new.glb', name: 'new' });
+    const newId = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'RETARGET_TRIGGERS', fromId: oldId });
+    const byId = Object.fromEntries(st.draft.triggers.map((t) => [t.id, t.action]));
+    expect(byId.t1).toEqual({ type: 'beam', style: 'optic', objectId: newId });
+    expect(byId.t2).toEqual({ type: 'animate', objectId: newId, preset: 'shake' });
+    expect(byId.t3).toEqual({ type: 'burst', style: 'confetti' });
+  });
+  it('RETARGET_TRIGGERS with nothing selected or nothing matching is a no-op', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x' });
+    st = studioReducer(st, { type: 'ADD_TRIGGER', trigger: { id: 't1', source: 'smile', action: { type: 'burst', style: 'confetti' } } });
+    expect(studioReducer(st, { type: 'RETARGET_TRIGGERS', fromId: 'ghost' })).toBe(st);
+  });
+
+  it('slotConflict flags only the SAME mount point, never the whole family', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/visor.glb', name: 'visor', anchor: 'noseBridge' });
+    const visorId = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'SET_MODEL_ASSET', url: 'https://cdn/wand.glb', name: 'wand', handAnchor: 'grip' });
+    // Second visor on the nose bridge → conflict with the first.
+    expect(slotConflict(st.draft, { anchor: 'noseBridge' })?.id).toBe(visorId);
+    // Crown + noseBridge is legitimate composition — no conflict.
+    expect(slotConflict(st.draft, { anchor: 'crown' })).toBeNull();
+    // Hand slots compare handAnchor: second grip prop conflicts, wrist doesn't.
+    expect(slotConflict(st.draft, { handAnchor: 'grip' })?.id).toBe(st.draft.selectedId);
+    expect(slotConflict(st.draft, { handAnchor: 'wristBack' })).toBeNull();
+    // A hand-tracked piece never blocks a head slot (its `anchor` is vestigial).
+    expect(slotConflict(st.draft, { anchor: 'crown' })).toBeNull();
+  });
+
   it('picking a second head piece ADDS it (clicks never replace — W4-D UI/UX HIGH #1)', () => {
     // Old-expected: the tiara REPLACED a still-untouched crown (1 object).
     // New-expected: it appends (2 objects) — "multiple 3D models" is the

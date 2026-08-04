@@ -55,6 +55,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { HAND_ANCHORS } from '../../lib/handPose';
 import { SHADER_MAP, FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
 import { ANCHOR_PRESETS, getHeadFitEstimate } from '../../lib/faceRig';
@@ -1952,12 +1953,62 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
             {/* Selected 3D object properties */}
             {sel3D && (
               <div className="flex flex-col gap-4">
+                {/* TRACKS ON — head or hand. The same wand can be an earring
+                    (head-tracked at the ear) or held in the fist (hand-tracked
+                    at the grip); this is the explicit family switch, so the
+                    orbit view's anchor dots never have to guess. Switching
+                    families zeroes offset/rotation (a brow nudge is
+                    meaningless on a wrist) but keeps the auto-fit scale. */}
+                <div>
+                  <SectionLabel>Tracks on</SectionLabel>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {([
+                      { id: 'head' as const, label: 'Head', Icon: ScanFace },
+                      { id: 'hand' as const, label: 'Hand', Icon: Hand },
+                    ]).map(({ id, label, Icon }) => {
+                      const active = (sel3D.handAnchor !== undefined) === (id === 'hand');
+                      return (
+                        <button
+                          key={id}
+                          onClick={() => dispatch({ type: 'SET_OBJECT_TRACKING', id: sel3D.id, tracking: id })}
+                          aria-pressed={active}
+                          className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-[9px] font-label uppercase tracking-wide transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 {/* ATTACHMENT POINT — the first question about any 3D piece
                     ("where on the head does this ride?"), and until now it was
                     only answerable in the LEFT dock's inline card or by dragging
                     onto a dot in the 3D stage view. It is a property of the
                     selected object, so it belongs here, above the nudges that
-                    refine it. */}
+                    refine it. Hand-tracked pieces swap in the hand's three
+                    mounts instead. */}
+                {sel3D.handAnchor !== undefined ? (
+                  <div>
+                    <SectionLabel>Attachment point</SectionLabel>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {HAND_ANCHORS.map((a) => {
+                        const active = a.id === sel3D.handAnchor;
+                        return (
+                          <Tooltip key={a.id} label={a.label} side="left">
+                            <button
+                              onClick={() => dispatch({ type: 'SET_OBJECT_TRACKING', id: sel3D.id, tracking: 'hand', handAnchor: a.id })}
+                              aria-pressed={active}
+                              className={`w-full py-2 rounded-lg text-[9px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                            >
+                              {a.id === 'grip' ? 'Grip' : a.id === 'wristBack' ? 'Wrist' : 'Palm'}
+                            </button>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
                 <div>
                   <SectionLabel>Attachment point</SectionLabel>
                   <div className="grid grid-cols-3 gap-1.5">
@@ -1977,6 +2028,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                     })}
                   </div>
                 </div>
+                )}
                 <div className="flex items-center justify-between">
                   <p className="font-sans text-xs text-brand-fg font-medium">Placement</p>
                   <button

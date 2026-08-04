@@ -16,7 +16,7 @@ import {
 } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ChevronUp, Images, RotateCcw, ScanFace, Sparkles, Upload } from 'lucide-react';
+import { AlertCircle, ChevronUp, Hand, Images, RotateCcw, ScanFace, Sparkles, Upload } from 'lucide-react';
 
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
@@ -55,6 +55,7 @@ import { initializeHandLandmarker } from '../lib/handTracking';
 import ReportIssueButton from './support/ReportIssueButton';
 import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
 import { detectHandsNow, getLatestHandFrame, resetHandRig } from '../lib/handRig';
+import { isHandAnchorId } from '../lib/handPose';
 import type { HandAnchorSample } from '../lib/handGestures';
 import {
   collectTriggers,
@@ -97,7 +98,7 @@ import {
   STRIP_SHOTS, STRIP_GAP_MS, STRIP_LEAD_SEC, type StripShotCount,
 } from '../lib/photoStrip';
 import StripPicker from './booth/StripPicker';
-import type { Transform2D, Experience, AnchorConfig, Challenge } from '../types';
+import type { Transform2D, Experience, ExperienceLayer, AnchorConfig, Challenge } from '../types';
 import { layerToPiece } from '../lib/studio/draftMapping';
 import { applyGuestColor, guestColorSlot } from '../lib/guestPalette';
 
@@ -952,13 +953,21 @@ export default function Booth() {
     if (a.type === 'burst') {
       triggerFxRef.current?.fire(a.style);
     } else if (a.type === 'beam') {
-      // Emitter: the named layer, else the scene's first 3D piece — its
-      // template + customization resolve `color:'auto'` (the guest's lens hex
-      // travels on the piece via the shared mapper; no extra plumbing).
+      // Emitter: the named layer, else the scene's first VISIBLE 3D piece —
+      // its template + customization resolve `color:'auto'` (the guest's lens
+      // hex travels on the piece via the shared mapper), and its fxKey routes
+      // the bolt to the piece's registered emitter point (lens front / wand
+      // tip / gauntlet palm). Visibility matters structurally now: a hidden or
+      // unrevealed piece has NO mounted rig to fire from, so a named-but-
+      // hidden target degrades to the per-origin default (null), never to a
+      // DIFFERENT asset's colour and muzzle.
       const layers = attachLayers ?? null;
+      const visible3D = (l: ExperienceLayer) => l.kind === '3d_attachment' && !!l.anchor && layerVisible(l);
+      const named = a.objectId !== undefined && layers ? layers.find((l) => l.id === a.objectId) : undefined;
       const emitterLayer =
-        (a.objectId !== undefined && layers ? layers.find((l) => l.id === a.objectId) : undefined) ??
-        layers?.find((l) => l.kind === '3d_attachment');
+        named !== undefined
+          ? visible3D(named) ? named : undefined
+          : layers?.find(visible3D);
       const piece = emitterLayer
         ? layerToPiece(emitterLayer, { guestName, occlusionEnabled: false, customizationEnabled: source === 'db' })
         : null;
@@ -985,20 +994,32 @@ export default function Booth() {
     } else if (a.type === 'filterPulse') {
       startFilterPulse(a.shaderId, a.durationMs);
     }
-  }, [startFilterPulse, attachLayers, guestName, source]);
+  }, [startFilterPulse, attachLayers, guestName, source, layerVisible]);
   const handleTriggerEventRef = useRef(handleTriggerEvent);
   useEffect(() => { handleTriggerEventRef.current = handleTriggerEvent; }, [handleTriggerEvent]);
 
   // Hand tracking is LAZY: the landmarker (7.8MB model + a second CPU inference
-  // stream) initializes only when the scene's triggers actually name a hand
-  // gesture. No stored legacy config can (parseTriggers gates the union), so
-  // every existing event stays byte-identical in behaviour AND bandwidth.
-  const needsHands = useMemo(() => hasHandSource(triggers), [triggers]);
+  // stream) initializes only when the scene's triggers name a hand gesture OR
+  // a piece is hand-ANCHORED (a wand with only a smile trigger still needs a
+  // tracked hand to sit in). Derived from the RAW layers, not the visible
+  // pieces: a reveal-gated wand must start its model download NOW, not at the
+  // moment the reveal fires. No stored legacy config can have either (the
+  // parse gates), so every existing event stays byte-identical in behaviour
+  // AND bandwidth.
+  const needsHands = useMemo(
+    () =>
+      hasHandSource(triggers) ||
+      (rawAttachLayers ?? []).some((l) => l.kind === '3d_attachment' && isHandAnchorId(l.handAnchor)),
+    [triggers, rawAttachLayers],
+  );
   useEffect(() => {
-    if (!shouldRunTriggers(source, hasTriggers, phase, ready) || !needsHands) return;
+    // No hasTriggers gate: a hand-anchored piece needs tracking even in a
+    // scene with zero triggers (the rigs self-detect; this effect owns the
+    // EARLY download + the stash reset on scene exit).
+    if (source !== 'db' || !ready || !needsHands) return;
     initializeHandLandmarker().catch((e) => console.warn('[Booth] hand tracker init failed', e));
     return () => resetHandRig();
-  }, [source, hasTriggers, phase, ready, needsHands]);
+  }, [source, ready, needsHands]);
 
   // Latest hand firing anchor for hand-emitted beams (read by BeamFX at fire
   // time via a ref so the rAF loop never re-renders the booth).
@@ -1052,22 +1073,32 @@ export default function Booth() {
     setTriggerHint(false);
   }, [source, hasTriggers, phase, ready]);
 
-  // ── Face-tracking hint ────────────────────────────────────────────────
-  // A 3D piece is invisible until the tracker finds a face — without feedback
-  // that reads as "broken". Track visibility from the rig and, after a short
-  // grace (model warm-up + brief misses), coach the guest into the frame.
+  // ── Face/hand-tracking hint ───────────────────────────────────────────
+  // A 3D piece is invisible until the tracker finds its subject — without
+  // feedback that reads as "broken". A scene whose 3D pieces are ALL
+  // hand-anchored (a lone wand) must coach "show your hand", not "center your
+  // face": it may never mount a FaceRig at all, so faceVisible would coach a
+  // face nothing is tracking.
   const [faceVisible, setFaceVisible] = useState(false);
+  const [handVisible, setHandVisible] = useState(false);
+  const handOnly3D = useMemo(
+    () => overlayPieces !== undefined && overlayPieces.length > 0 && overlayPieces.every((p) => p.handAnchor !== undefined),
+    [overlayPieces],
+  );
   const [faceHint, setFaceHint] = useState(false);
   useEffect(() => {
     // trackerReady gate: before the landmarker has loaded, "Center your face
     // in the frame" is a lie — no amount of centering can be seen. The hint
-    // now only coaches a tracker that is actually looking.
-    if (is3D && !faceVisible && phase === 'camera' && ready && trackerReady) {
-      const tid = setTimeout(() => setFaceHint(true), 1500);
+    // now only coaches a tracker that is actually looking. Hand-only scenes
+    // skip that gate (the FACE tracker may rightly never load) and get a
+    // longer grace instead — the hand model is a 7.8MB download.
+    const subjectVisible = handOnly3D ? handVisible : faceVisible;
+    if (is3D && !subjectVisible && phase === 'camera' && ready && (handOnly3D || trackerReady)) {
+      const tid = setTimeout(() => setFaceHint(true), handOnly3D ? 2500 : 1500);
       return () => clearTimeout(tid);
     }
     setFaceHint(false);
-  }, [is3D, faceVisible, phase, ready, trackerReady]);
+  }, [is3D, faceVisible, handVisible, handOnly3D, phase, ready, trackerReady]);
 
   // Tracker init FAILED (bad venue wifi, blocked CDN): tell the guest once,
   // the moment it matters — when a 3D piece is selected and can never appear.
@@ -1803,6 +1834,7 @@ export default function Booth() {
                     mirror={isFront}
                     occlude={is3D && source === 'db' && attachExp!.config?.occlusion === true}
                     onFaceVisible={is3D && anchorConfig ? setFaceVisible : undefined}
+                    onHandVisible={is3D && anchorConfig ? setHandVisible : undefined}
                     pieces={is3D && anchorConfig ? overlayPieces : null}
                     reveal={reveal}
                     lightingPreset={boothLighting}
@@ -1881,9 +1913,13 @@ export default function Booth() {
                       transition={{ duration: 0.25 }}
                       className="flex items-center gap-2 px-3.5 py-2 rounded-full glass-strong border border-gold-400/25"
                     >
-                      <ScanFace className="w-4 h-4 text-gold-300 animate-pulse" />
+                      {handOnly3D ? (
+                        <Hand className="w-4 h-4 text-gold-300 animate-pulse" />
+                      ) : (
+                        <ScanFace className="w-4 h-4 text-gold-300 animate-pulse" />
+                      )}
                       <span className="font-label text-[10px] uppercase tracking-wide text-champagne/80">
-                        Center your face in the frame
+                        {handOnly3D ? 'Show your hand to the camera' : 'Center your face in the frame'}
                       </span>
                     </motion.div>
                   )}

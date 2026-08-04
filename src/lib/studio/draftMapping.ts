@@ -372,6 +372,13 @@ export interface ScenePiece3D {
   /** Hand anchor id, ALREADY validated (isHandAnchorId) — present ⇒ render in
    *  a HandRig instead of a FaceRig. Absent on every pre-existing scene. */
   handAnchor?: string;
+  /**
+   * fxBus emitter-registry key — the source layer/object id. The renderer
+   * registers the piece's template emitter point under this key, and a fired
+   * beam whose spec carries the same key erupts from that exact point on the
+   * piece. Both mappers set it, so booth and studio agree by construction.
+   */
+  fxKey?: string;
 }
 
 export interface PieceContext {
@@ -467,6 +474,7 @@ export function layerToPiece(l: ExperienceLayer, ctx: PieceContext = {}): SceneP
     animation: l.animation ?? 'none',
     occlude: ctx.occlusionEnabled === true && l.occlusion === true,
     ...pieceExtras(l, ctx),
+    ...(l.id ? { fxKey: l.id } : {}),
   };
 }
 
@@ -484,6 +492,7 @@ export function objectToPiece(o: Object3D, ctx: PieceContext = {}): ScenePiece3D
     animation: o.animation,
     occlude: ctx.occlusionEnabled === true && o.occlusion === true,
     ...pieceExtras(o, ctx),
+    ...(o.id ? { fxKey: o.id } : {}),
   };
 }
 

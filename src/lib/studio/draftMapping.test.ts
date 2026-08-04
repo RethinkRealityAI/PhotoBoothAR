@@ -665,6 +665,17 @@ describe('layerToPiece / objectToPiece', () => {
     expect(p.assetUrl).toBeNull();
   });
 
+  it('carries the fx emitter key — the object id, identically from both sides', () => {
+    // A fired beam looks its emitter up under this key; if either mapper drops
+    // it (or they disagree), the beam falls back to the generic origin and the
+    // "blast from the asset" feature silently dies.
+    const o = styled();
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id };
+    const layer = draftToPayload(draft, resolver({ [o.id]: glb }), null).config!.layers![0];
+    expect(objectToPiece(o).fxKey).toBe(o.id);
+    expect(layerToPiece(layer).fxKey).toBe(o.id);
+  });
+
   it('occlusion needs BOTH the master gate and the per-piece opt-in', () => {
     const on = createObject3D('model', { assetUrl: glb, occlusion: true });
     const off = createObject3D('model', { assetUrl: glb, occlusion: false });

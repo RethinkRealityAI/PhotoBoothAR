@@ -18,10 +18,11 @@
  * landmark + palm slab — ~500 tris, zero extra inference) using FaceOccluder's
  * exact material recipe, shrunk ~0.9× per the never-grow z-fight rule.
  */
-import { useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { getLatestHandFrame } from '../../lib/handRig';
+import { detectHandsNow, getLatestHandFrame } from '../../lib/handRig';
+import { initializeHandLandmarker } from '../../lib/handTracking';
 import {
   anchorPointFor,
   HAND_ANCHOR_MAP,
@@ -79,11 +80,26 @@ export function HandRig({ anchor, videoId = 'booth-video', mirror = true, onVisi
   const _quat: Quat = useMemo(() => [0, 0, 0, 1], []);
   const _q = useMemo(() => new THREE.Quaternion(), []);
 
+  // SELF-INITIALIZING tracking, exactly like FaceRig: the component that NEEDS
+  // the landmarker owns starting it (idempotent — handTracking caches the init
+  // promise). Without this, a hand-anchored wand in a scene with NO hand
+  // trigger sources mounted a rig that never received a single frame: the only
+  // detectHandsNow callers were the trigger loops, and both are gated on
+  // triggers existing.
+  useEffect(() => {
+    initializeHandLandmarker().catch((e) => console.warn('[HandRig] hand tracker init failed', e));
+  }, []);
+
   useFrame(() => {
     const g = groupRef.current;
     if (!g) return;
     const s = state.current;
     const now = performance.now();
+    // Self-driven detection (the FaceRig idiom): detectHandsNow self-throttles
+    // (66ms gate, face-inference lockout, idle back-off), so extra callers in
+    // the same tick are near-free no-ops.
+    const vid = document.getElementById(videoId) as HTMLVideoElement | null;
+    if (vid) detectHandsNow(vid);
     const frame = getLatestHandFrame();
 
     let pose: HandPose | null = null;
@@ -164,6 +180,10 @@ function landmarkRadiusCm(i: number): number {
  */
 export function HandOccluder({ videoId = 'booth-video', mirror = true }: { videoId?: string; mirror?: boolean }) {
   const groupRef = useRef<THREE.Group>(null);
+  // Same self-init as HandRig — an occluder mounted alone must also track.
+  useEffect(() => {
+    initializeHandLandmarker().catch((e) => console.warn('[HandOccluder] hand tracker init failed', e));
+  }, []);
   const spheres = useMemo(() => {
     const arr: THREE.Mesh[] = [];
     for (let i = 0; i < 21; i++) {
@@ -187,6 +207,9 @@ export function HandOccluder({ videoId = 'booth-video', mirror = true }: { video
     if (!g) return;
     const s = state.current;
     const now = performance.now();
+    // Self-driven detection, same rationale as HandRig above.
+    const vid = document.getElementById(videoId) as HTMLVideoElement | null;
+    if (vid) detectHandsNow(vid);
     const frame = getLatestHandFrame();
     if (frame !== null && frame.t !== s.lastT && frame.hands.length > 0) {
       s.lastT = frame.t;

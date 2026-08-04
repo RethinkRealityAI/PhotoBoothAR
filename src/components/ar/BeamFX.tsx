@@ -29,15 +29,17 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { FaceRig } from './FaceRig';
+import { HEAD_PIECE_EMITTERS } from './HeadPieces';
 import { getHeadDepthCm } from '../../lib/faceRig';
 import { getLatestHandFrame } from '../../lib/handRig';
-import { subscribeFx } from '../../lib/studio/fxBus';
+import { getFxEmitter, registerFxEmitter, subscribeFx } from '../../lib/studio/fxBus';
 import {
   beamPhaseAt,
   estimateHandDepthCm,
   unprojectToDepth,
   type BeamSpec,
 } from '../../lib/studio/beam';
+import type { AssetEmitter } from '../../lib/studio/assetTemplate';
 import type { AnchorConfig } from '../../types';
 
 function prefersReducedMotion(): boolean {
@@ -48,13 +50,58 @@ function prefersReducedMotion(): boolean {
   }
 }
 
-/** Visor-slit origin in head space (see file docblock). */
+/** FALLBACK visor-slit origin in head space — used only when a fired spec
+ *  carries no piece emitter (no gear, gear not yet loaded, forced origin). */
 const HEAD_BEAM_ANCHOR: AnchorConfig = {
   anchor: 'noseBridge',
   offset: { x: 0, y: 0.5, z: 3.5 },
   rotation: { x: 0, y: 0, z: 0 },
   scale: 1,
 };
+
+/**
+ * The emitter this piece fires from, in the frame a SIBLING of its model
+ * renders in: the template's authored point (GLB-local) for library gear, the
+ * procedural constant for built-in pieces, null for everything else (-> the
+ * per-origin fallback). Shared by every surface that mounts FxEmitterPoint.
+ */
+export function pieceEmitterOf(piece: {
+  template?: { emitter?: AssetEmitter } | null;
+  proceduralId?: string | null;
+}): AssetEmitter | null {
+  if (piece.template?.emitter) return piece.template.emitter;
+  if (piece.proceduralId != null && piece.proceduralId in HEAD_PIECE_EMITTERS) {
+    return HEAD_PIECE_EMITTERS[piece.proceduralId];
+  }
+  return null;
+}
+
+/**
+ * An invisible object registered under the piece's fx key, mounted INSIDE the
+ * piece's own transform chain (sibling of its Model/HeadPiece). Because it
+ * lives in the chain, the rig pose, anchor offset/rotation/scale, mirror flip,
+ * headScale and every transient animation/pulse/reveal transform all apply to
+ * it for free — BeamFX just follows its world matrix. Registration is stacked,
+ * so a modal preview over a live stage resolves to the modal and hands the key
+ * back on close.
+ */
+export function FxEmitterPoint({ fxKey, emitter }: { fxKey: string; emitter: AssetEmitter }) {
+  // Value-keyed memo: `emitter` is a fresh object each mapper pass; rebuilding
+  // the Object3D on reference churn would re-register every render.
+  const valueKey = `${emitter.position.join(',')}|${emitter.direction.join(',')}`;
+  const obj = useMemo(() => {
+    const o = new THREE.Group();
+    o.position.set(emitter.position[0], emitter.position[1], emitter.position[2]);
+    o.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(emitter.direction[0], emitter.direction[1], emitter.direction[2]),
+    );
+    return o;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valueKey]);
+  useEffect(() => registerFxEmitter(fxKey, obj), [fxKey, obj]);
+  return <primitive object={obj} />;
+}
 
 const MAX_LEN_CM = 160;
 const BURST_COUNT = 64;
@@ -236,14 +283,39 @@ function buildBolt(): BoltHandles {
 
 interface ActiveBeam {
   spec: BeamSpec;
-  /** Frozen hand origin/direction (world cm) once tracking is lost mid-blast. */
+  /** Frozen origin/direction (world cm) once tracking is lost mid-blast. */
   frozen: boolean;
+  /** The spec's emitter was successfully followed at least once — if the piece
+   *  later unmounts mid-ceremony we freeze rather than snap to the fallback. */
+  hadEmitter: boolean;
 }
 
 const _origin = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _quatTarget = new THREE.Quaternion();
 const _zAxis = new THREE.Vector3(0, 0, 1);
+const _wPos = new THREE.Vector3();
+const _wQuat = new THREE.Quaternion();
+const _wScale = new THREE.Vector3();
+
+/**
+ * Place a bolt at a live scene object's world pose (position + rotation only —
+ * beam length/radius stay in world cm regardless of how the gear is scaled).
+ * 'hidden' = the object is registered but its rig chain is invisible (face or
+ * hand lost, reveal-pending) — the caller freezes and lets the envelope fade,
+ * the same grace the hand path always had. 'none' = nothing registered.
+ */
+function followObject(bolt: BoltHandles, obj: THREE.Object3D | null): 'ok' | 'hidden' | 'none' {
+  if (obj === null) return 'none';
+  for (let p: THREE.Object3D | null = obj; p !== null; p = p.parent) {
+    if (!p.visible) return 'hidden';
+  }
+  obj.updateWorldMatrix(true, false);
+  obj.matrixWorld.decompose(_wPos, _wQuat, _wScale);
+  bolt.group.position.copy(_wPos);
+  bolt.group.quaternion.copy(_wQuat);
+  return 'ok';
+}
 
 /** Per-frame drive of one bolt from its active spec. Returns false when done. */
 function driveBolt(bolt: BoltHandles, active: ActiveBeam | null, now: number, reduced: boolean): boolean {
@@ -331,26 +403,57 @@ export default function BeamFX({ mirror, videoId, staticHead = false }: BeamFXPr
 
   const headActive = useRef<ActiveBeam | null>(null);
   const handActive = useRef<ActiveBeam | null>(null);
+  const headFallback = useRef<THREE.Group>(null);
   const handAspect = useRef(9 / 16);
 
   useEffect(() => {
     return subscribeFx((e) => {
       if (e.kind !== 'beam') return;
+      // Two slots, one per origin family; a refire into an occupied slot
+      // replaces the in-flight spec (restart) — cooldowns make that rare.
       const slot = e.spec.origin === 'hand' ? handActive : headActive;
-      slot.current = { spec: e.spec, frozen: false };
+      slot.current = { spec: e.spec, frozen: false, hadEmitter: false };
     });
   }, []);
 
+  /** Follow the spec's piece emitter. True = the bolt is placed (or frozen at
+   *  the last placed pose); false = the caller should use its fallback. */
+  const followSpecEmitter = (bolt: BoltHandles, active: ActiveBeam): boolean => {
+    if (active.spec.emitterKey === undefined) return false;
+    const r = followObject(bolt, getFxEmitter(active.spec.emitterKey) as THREE.Object3D | null);
+    if (r === 'ok') {
+      active.hadEmitter = true;
+      active.frozen = false;
+      return true;
+    }
+    // Registered-but-hidden, or unmounted mid-ceremony after we followed it:
+    // freeze at the last pose and let the envelope fade — never snap the bolt
+    // to a different origin mid-blast.
+    if (r === 'hidden' || active.hadEmitter) {
+      active.frozen = true;
+      return true;
+    }
+    return false; // never registered (asset loading) — per-origin fallback
+  };
+
   useFrame(() => {
     const now = performance.now();
-    driveBolt(headBolt, headActive.current, now, reduced);
-    if (headActive.current !== null && beamPhaseAt(headActive.current.spec, now).phase === 'done') {
+
+    // Head bolt: the emitting piece's registered point (lens front), else the
+    // fallback anchor group riding this component's own FaceRig.
+    const head = headActive.current;
+    if (head !== null && !followSpecEmitter(headBolt, head)) {
+      followObject(headBolt, headFallback.current);
+    }
+    driveBolt(headBolt, head, now, reduced);
+    if (head !== null && beamPhaseAt(head.spec, now).phase === 'done') {
       headActive.current = null;
     }
 
-    // Hand bolt: reposition from the live hand anchor while tracked.
+    // Hand bolt: the emitting piece's registered point (wand tip, gauntlet
+    // palm), else the live hand-anchor unprojection.
     const active = handActive.current;
-    if (active !== null) {
+    if (active !== null && !followSpecEmitter(handBolt, active)) {
       const frame = getLatestHandFrame();
       const anchor = frame?.anchor ?? null;
       if (anchor !== null && !active.frozen) {
@@ -386,6 +489,12 @@ export default function BeamFX({ mirror, videoId, staticHead = false }: BeamFXPr
       handActive.current = null;
     }
 
+    // Billboard each bolt's muzzle flare at the camera (origin, no rotation):
+    // its local rotation cancels the group's world rotation, so the flare disc
+    // reads face-on however the beam is aimed.
+    headBolt.flare.quaternion.copy(headBolt.group.quaternion).invert();
+    handBolt.flare.quaternion.copy(handBolt.group.quaternion).invert();
+
     // Full-frame flash: max across both emitters, zero under reduced motion.
     let flash = 0;
     let flashHex = '#ff2b4a';
@@ -401,23 +510,23 @@ export default function BeamFX({ mirror, videoId, staticHead = false }: BeamFXPr
     if (flash > 0) flashMat.color.set(flashHex);
   });
 
-  // Keep flare + flash facing the camera (camera is fixed at the origin).
-  useEffect(() => {
-    headBolt.flare.lookAt(0, 0, 0);
-    handBolt.flare.lookAt(0, 0, 0);
-  }, [headBolt, handBolt]);
-
   return (
     <>
+      {/* Fallback head origin: an empty group riding a FaceRig at the classic
+          visor slit (or a static head-ish point for the builder's bust). Both
+          bolts are WORLD-SPACE and follow either a piece's registered emitter
+          or this fallback per frame — parenting a bolt into any one rig is
+          exactly the bug this replaced. */}
       {staticHead ? (
         <group position={[0, 3, -42]}>
-          <primitive object={headBolt.group} />
+          <group ref={headFallback} />
         </group>
       ) : (
         <FaceRig videoId={videoId} anchor="noseBridge" config={HEAD_BEAM_ANCHOR} mirror={mirror}>
-          <primitive object={headBolt.group} />
+          <group ref={headFallback} />
         </FaceRig>
       )}
+      <primitive object={headBolt.group} />
       <primitive object={handBolt.group} />
       {/* Full-frame eruption flash, parented to the (fixed) camera frustum:
           a 1.2cm-away plane large enough to cover any aspect. */}

@@ -40,7 +40,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { ArrowRight, Boxes, Check, ChevronDown, ChevronRight, Crown, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Palette, Search, Sparkles, Sun, Upload, Wand2, X, Zap as ZapIcon, type LucideIcon } from 'lucide-react';
 import { FILTER_SHADERS, SHADER_MAP, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
-import { HEAD_PIECES } from '../../lib/headPieces';
+import { HEAD_PIECES, HEAD_PIECE_MAP } from '../../lib/headPieces';
 import { BUNDLED_PROPS, propAnchorConfig, supersededPieceIds } from '../../lib/studio/bundledProps';
 import { uploadAsset, listAssetsResult, fetchExperiencesResult } from '../../lib/db';
 import { captureGlbThumbnail, measureGlbFitScale } from '../../lib/studio/glbThumb';
@@ -54,7 +54,8 @@ import {
 } from '../../lib/studio/assetLibrary';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
-import { SCENE_FULL_MESSAGE, canAddObject, createObject3D, selectedObject, sceneCounts, MAX_OBJECTS, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
+import { SCENE_FULL_MESSAGE, canAddObject, createObject3D, selectedObject, sceneCounts, slotConflict, MAX_OBJECTS, type Object3D, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
+import ConfirmModal from '../ui/ConfirmModal';
 import { experienceToDraft } from '../../lib/studio/draftMapping';
 import { ADD_ONS } from '../../lib/studio/addOns';
 import { ANCHOR_MAP } from '../../lib/faceRig';
@@ -307,6 +308,46 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     dispatch({ type: 'LOAD', draft: { ...rest, isPublished: true, name: stripTemplateSuffix(exp.name) }, dirty: true });
   }, [state.dirty, dispatch]);
 
+  // ── Same-slot add guard ───────────────────────────────────────────────
+  // Two pieces on ONE mount point (a second visor on the nose bridge, a second
+  // prop in the same fist) physically overlap — ask Replace-or-Add-both
+  // instead of silently stacking them. Different slots (crown + glasses) stay
+  // silent: that is ordinary multi-piece composition. Drag-drop also stays
+  // silent — a drag is a deliberate spatial placement. Replace retargets any
+  // beam/animate triggers that named the replaced piece at its successor.
+  const [conflictAdd, setConflictAdd] = useState<{
+    existing: Object3D;
+    label: string;
+    run: () => void | Promise<void>;
+  } | null>(null);
+  const guardSlotAdd = useCallback(
+    (slot: { anchor?: HeadAnchor; handAnchor?: string }, label: string, run: () => void | Promise<void>) => {
+      const existing = slotConflict(draft, slot);
+      if (existing === null) {
+        void run();
+        return;
+      }
+      setConflictAdd({ existing, label, run });
+    },
+    [draft],
+  );
+  const resolveConflict = useCallback((mode: 'replace' | 'both') => {
+    const c = conflictAdd;
+    setConflictAdd(null);
+    if (!c) return;
+    if (mode === 'both') {
+      void c.run();
+      return;
+    }
+    // Delete FIRST (a full scene must free the slot before the add), then add,
+    // then repoint the old piece's beam/animate triggers at the replacement —
+    // the run may be async (measure-then-dispatch), so retarget awaits it.
+    dispatch({ type: 'DELETE_OBJECT', id: c.existing.id });
+    void Promise.resolve(c.run()).then(() => {
+      dispatch({ type: 'RETARGET_TRIGGERS', fromId: c.existing.id });
+    });
+  }, [conflictAdd, dispatch]);
+
   // Click-to-add for an Uploads/Generated/Mine dock item — mirrors the built-in
   // library's handlers, guarded by consumedDrag() at the call site. Also flags
   // the tile as the just-added one, so its confirmation row shows.
@@ -322,7 +363,10 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
       return;
     }
     if (item.payload.proceduralId) {
-      dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: item.payload.proceduralId });
+      const pieceId = item.payload.proceduralId;
+      guardSlotAdd({ anchor: HEAD_PIECE_MAP[pieceId]?.anchor }, item.label, () =>
+        dispatch({ type: 'SELECT_HEAD_PIECE', pieceId }),
+      );
     } else if (item.payload.assetUrl) {
       // Measure-then-add: auto-fit the GLB to head-space cm at ADD time (a raw
       // Meshy model is ~1 unit ≈ 1cm — invisible). null → legacy scale 1. The
@@ -332,15 +376,19 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
       // Procedural jewelry is already life-size — add it at scale 1 without the
       // async measure, so re-adding a saved piece matches how it was authored.
       if (isAuthoredInCm(url, label)) {
-        dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: 1 });
+        guardSlotAdd({ anchor: 'crown' }, label, () =>
+          dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: 1 }),
+        );
         return;
       }
-      setPendingKey(key);
-      void measureGlbFitScale(url)
-        .then((fitScale) => dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined }))
-        .finally(() => setPendingKey((k) => (k === key ? null : k)));
+      guardSlotAdd({ anchor: 'crown' }, label, () => {
+        setPendingKey(key);
+        return measureGlbFitScale(url)
+          .then((fitScale) => dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined }))
+          .finally(() => setPendingKey((k) => (k === key ? null : k)));
+      });
     }
-  }, [dispatch, chip]);
+  }, [dispatch, chip, guardSlotAdd]);
 
   // Drag payload for a dock item — useStudioDnd's resolveDrop reads `assetUrl`
   // (not `url`) for the non-builtin overlay branch, so payload.url maps here.
@@ -702,26 +750,31 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
           kindBadge: a.demo ? 'Demo' : 'Personalise',
           drag,
           onAdd: () => {
-            setAddedKey(key);
-            setPendingKey(key);
-            void measureGlbFitScale(template.glbUrl)
-              .then((fitScale) => dispatch({
-                type: 'SET_MODEL_ASSET',
-                url: template.glbUrl,
-                name: a.name,
-                scale: fitScale != null ? (fitScale * template.fitCm) / PROP_TARGET_CM : undefined,
-                template: a.template,
-                offsetCm: a.defaultNudgeCm,
-                // The entry's natural mount: eyewear lands on the nose bridge,
-                // a wand in the tracked hand — not the historical crown default.
-                anchor: isHeadAnchor(a.anchor) ? a.anchor : undefined,
-                handAnchor: a.handAnchor,
-              }))
-              .finally(() => setPendingKey((k) => (k === key ? null : k)));
+            const slot = a.handAnchor !== undefined
+              ? { handAnchor: a.handAnchor }
+              : { anchor: isHeadAnchor(a.anchor) ? a.anchor : ('crown' as HeadAnchor) };
+            guardSlotAdd(slot, a.name, () => {
+              setAddedKey(key);
+              setPendingKey(key);
+              return measureGlbFitScale(template.glbUrl)
+                .then((fitScale) => dispatch({
+                  type: 'SET_MODEL_ASSET',
+                  url: template.glbUrl,
+                  name: a.name,
+                  scale: fitScale != null ? (fitScale * template.fitCm) / PROP_TARGET_CM : undefined,
+                  template: a.template,
+                  offsetCm: a.defaultNudgeCm,
+                  // The entry's natural mount: eyewear lands on the nose bridge,
+                  // a wand in the tracked hand — not the historical crown default.
+                  anchor: isHeadAnchor(a.anchor) ? a.anchor : undefined,
+                  handAnchor: a.handAnchor,
+                }))
+                .finally(() => setPendingKey((k) => (k === key ? null : k)));
+            });
           },
         }];
       }),
-    [q, placedRefs, pendingKey, dispatch], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
+    [q, placedRefs, pendingKey, dispatch, guardSlotAdd], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
   );
 
   // A procedural piece a bundled GLB has replaced is not offered here any more:
@@ -739,10 +792,15 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         fallbackIcon: HEAD_PIECE_ICONS[p.id] ?? Boxes,
         pending: false,
         drag: { target: 'headpiece', label: p.name, pieceId: p.id },
-        onAdd: () => { dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id }); setAddedKey(key); },
+        onAdd: () => {
+          guardSlotAdd({ anchor: p.anchor }, p.name, () => {
+            dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id });
+            setAddedKey(key);
+          });
+        },
       };
     }),
-    [q, selProceduralId, dispatch], // eslint-disable-line react-hooks/exhaustive-deps
+    [q, selProceduralId, dispatch, guardSlotAdd], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const dockTiles = useCallback((items: DockItem[], prefix: string): Tile[] =>
@@ -1149,6 +1207,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             <AddOnView
               eventId={eventId}
               dispatch={dispatch}
+              draft={draft}
               onClose={() => setOpenAddOn(null)}
               onUploaded={loadUploads}
               lighting={lighting}
@@ -1156,6 +1215,25 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
           </Suspense>
         );
       })()}
+
+      {conflictAdd !== null && (
+        <ConfirmModal
+          title="That spot is taken"
+          body={
+            <>
+              Your scene already has{' '}
+              <span className="text-brand-fg font-medium">{conflictAdd.existing.name || 'a piece'}</span> on this
+              attachment point. Replace it with{' '}
+              <span className="text-brand-fg font-medium">{conflictAdd.label}</span>? Replacing keeps its magic
+              triggers wired to the new piece.
+            </>
+          }
+          confirmLabel="Replace it"
+          onConfirm={() => resolveConflict('replace')}
+          onCancel={() => setConflictAdd(null)}
+          extraAction={{ label: 'Add both anyway', onClick: () => resolveConflict('both') }}
+        />
+      )}
     </div>
   );
 }

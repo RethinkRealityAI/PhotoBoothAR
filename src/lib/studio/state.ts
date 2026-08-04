@@ -33,6 +33,7 @@ import { CHAR_WIDTH_RATIO, DEFAULT_LETTERING_COLOR, type GuestLetteringStyle } f
 import { ASSET_CUSTOMIZATION, FINISH_TINT_STRENGTH } from './controlSpecs';
 import { DEFAULT_FINISH, normalizeFinish, normalizeTint, normalizeTintStrength } from './finish';
 import { moveByIndex } from './layerOrder';
+import { isHandAnchorId } from '../handPose';
 import type { TriggerConfig } from './triggers';
 
 export type StudioMode = '2d' | '3d' | 'preview';
@@ -547,6 +548,28 @@ export const SCENE_FULL_MESSAGE =
   `This scene is full — ${MAX_OBJECTS} stickers and 3D pieces is the limit (the frame doesn't count). Remove a layer to add another.`;
 
 /**
+ * The 3D piece already occupying the SLOT a new add would land on, or null.
+ *
+ * The slot is the exact mount point, not the whole family: a crown + glasses
+ * scene is legitimate multi-piece composition, but two visors on the nose
+ * bridge (or two props in the same fist) physically overlap — that is when
+ * the dock asks Replace-or-Add-both instead of silently stacking them.
+ * Head slots compare `anchor` (hand-tracked pieces excluded); hand slots
+ * compare `handAnchor`.
+ */
+export function slotConflict(
+  d: StudioDraft,
+  slot: { anchor?: HeadAnchor; handAnchor?: string },
+): Object3D | null {
+  const found = d.objects.find((o) => {
+    if (o.type === 'overlay') return false;
+    if (slot.handAnchor !== undefined) return o.handAnchor === slot.handAnchor;
+    return o.handAnchor === undefined && o.anchor === (slot.anchor ?? 'crown');
+  });
+  return found !== undefined && found.type !== 'overlay' ? found : null;
+}
+
+/**
  * The DERIVED draft kind from the current objects:
  *   • a 2D overlay AND a 3D object present → 'composite'
  *   • only overlays → objects[0].overlayKind ('border' | '2d_filter')
@@ -692,6 +715,24 @@ export type StudioAction =
   | { type: 'RENAME_OBJECT'; id: string; name: string }
   | { type: 'UPDATE_OBJECT'; id: string; patch: Partial<Omit<Overlay2D, 'id' | 'type'>> | Partial<Omit<Object3D, 'id' | 'type'>> }
   | { type: 'SET_OBJECT_ANIMATION'; id: string; animation: LayerAnimation }
+  /**
+   * Switch a 3D piece between HEAD tracking and HAND tracking (the
+   * wand-as-an-earring request works in both directions). `handAnchor` picks
+   * the mount for hand mode ('grip' default); head mode keeps the object's
+   * existing head anchor. A family switch zeroes offset/rotation — a visor's
+   * brow nudge is meaningless on a wrist — but KEEPS scale (auto-fit is
+   * family-independent).
+   */
+  | { type: 'SET_OBJECT_TRACKING'; id: string; tracking: 'head' | 'hand'; handAnchor?: string }
+  /**
+   * Repoint beam/animate triggers that named `fromId` at the CURRENTLY
+   * SELECTED object. Dispatched right after a Replace-style add (delete old →
+   * add new → retarget), when the reducer has already selected the
+   * replacement — so "replace my visor" keeps its blast wired. Reveal
+   * triggers are deliberately not touched (DELETE_OBJECT already drops them;
+   * auto-revealing a piece the author never marked hidden would surprise).
+   */
+  | { type: 'RETARGET_TRIGGERS'; fromId: string }
   /* — face-triggered effects (Magic Triggers) — */
   | { type: 'ADD_TRIGGER'; trigger: TriggerConfig }
   | { type: 'UPDATE_TRIGGER'; id: string; patch: Partial<Omit<TriggerConfig, 'id'>> }
@@ -1040,6 +1081,47 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         dirty: true,
         draft: { ...d, objects: mapObjects(d, action.id, (o) => ({ ...o, animation: action.animation })) },
       };
+    }
+    case 'SET_OBJECT_TRACKING': {
+      const target = d.objects.find((o) => o.id === action.id);
+      if (!target || target.type === 'overlay') return state;
+      const wantHand = action.tracking === 'hand';
+      const wasHand = target.handAnchor !== undefined;
+      const nextHandAnchor = wantHand
+        ? (isHandAnchorId(action.handAnchor) ? action.handAnchor : (target.handAnchor ?? 'grip'))
+        : undefined;
+      if (wantHand === wasHand && nextHandAnchor === target.handAnchor) return state;
+      const objects = mapObjects(d, action.id, (o) => {
+        const next = { ...(o as Object3D) };
+        if (nextHandAnchor !== undefined) next.handAnchor = nextHandAnchor;
+        else delete next.handAnchor;
+        if (wantHand !== wasHand) {
+          // Cross-family placement tuning does not transfer (a visor's brow
+          // offset floats a wand off the fist). Scale survives.
+          next.anchorConfig = {
+            ...next.anchorConfig,
+            offset: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+          };
+        }
+        return next;
+      });
+      return { ...state, dirty: true, draft: { ...d, objects } };
+    }
+    case 'RETARGET_TRIGGERS': {
+      const toId = d.selectedId;
+      if (toId === null || toId === action.fromId) return state;
+      let changed = false;
+      const triggers = d.triggers.map((t) => {
+        const a = t.action;
+        if ((a.type === 'beam' || a.type === 'animate') && a.objectId === action.fromId) {
+          changed = true;
+          return { ...t, action: { ...a, objectId: toId } };
+        }
+        return t;
+      });
+      if (!changed) return state;
+      return { ...state, dirty: true, draft: { ...d, triggers } };
     }
     case 'ADD_TRIGGER': {
       // Soft cap: adds past MAX_TRIGGERS are ignored (the dock also gates the button).

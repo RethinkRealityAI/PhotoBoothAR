@@ -24,6 +24,10 @@ import AssetGizmo from '../ar/AssetGizmo';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
 import FaceOccluder from '../ar/FaceOccluder';
 import ReferenceBust, { type BustBounds } from '../ar/ReferenceBust';
+import ReferenceHand, { HAND_REF_ANCHORS } from '../ar/ReferenceHand';
+import { HandOccluder, HandRig } from '../ar/HandRig';
+import { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
+import { HAND_ANCHOR_MAP, isHandAnchorId } from '../../lib/handPose';
 import SceneLighting from '../ar/SceneLighting';
 import AnchorDots from '../admin/creator3d/AnchorDots';
 import type { AnchorConfig, HeadAnchor } from '../../types';
@@ -51,6 +55,9 @@ interface Props {
   onAnchorSelect: (a: HeadAnchor) => void;
   onTransformChange: (patch: Partial<AnchorConfig>) => void;
   onFaceVisible?: (v: boolean) => void;
+  /** Hand-rig acquisition feedback (live view) — the hand analogue of
+   *  onFaceVisible, wired to the first hand-anchored piece's rig. */
+  onHandVisible?: (v: boolean) => void;
   onGizmoDragStart?: () => void;
   onGizmoDragEnd?: () => void;
 }
@@ -112,18 +119,30 @@ function FrameBust({ bounds }: { bounds: BustBounds | null }) {
  * STUDIO_SAMPLE_GUEST_NAME; the booth substitutes the real one.
  */
 function ObjectContent({ object }: { object: Object3D }) {
-  if (object.type === 'headpiece' && isHeadPiece(object.proceduralId)) return <HeadPiece id={object.proceduralId as string} />;
+  if (object.type === 'headpiece' && isHeadPiece(object.proceduralId)) {
+    const emitter = pieceEmitterOf({ proceduralId: object.proceduralId });
+    return (
+      <>
+        <HeadPiece id={object.proceduralId as string} />
+        {emitter !== null && <FxEmitterPoint fxKey={object.id} emitter={emitter} />}
+      </>
+    );
+  }
   if (!object.assetUrl) return null;
   const piece = objectToPiece(object, { guestName: STUDIO_SAMPLE_GUEST_NAME });
+  const emitter = pieceEmitterOf(piece);
   return (
-    <Model
-      url={object.assetUrl}
-      finish={piece.finish}
-      tint={piece.tint}
-      tintStrength={piece.tintStrength}
-      template={piece.template}
-      customization={piece.customization}
-    />
+    <>
+      <Model
+        url={object.assetUrl}
+        finish={piece.finish}
+        tint={piece.tint}
+        tintStrength={piece.tintStrength}
+        template={piece.template}
+        customization={piece.customization}
+      />
+      {emitter !== null && <FxEmitterPoint fxKey={object.id} emitter={emitter} />}
+    </>
   );
 }
 
@@ -142,6 +161,7 @@ export default function Studio3DView({
   onAnchorSelect,
   onTransformChange,
   onFaceVisible,
+  onHandVisible,
   onGizmoDragStart,
   onGizmoDragEnd,
 }: Props) {
@@ -154,8 +174,14 @@ export default function Studio3DView({
   const selected = objects.find((o) => o.id === selectedId) ?? null;
   // AnchorDots highlight the SELECTED object's anchor (or crown when none).
   const activeAnchor: HeadAnchor = selected?.anchor ?? 'crown';
-  // First object opting into occlusion wins the single (non-duplicated) occluder.
-  const occluderIdx = occlusionEnabled ? objects.findIndex((o) => o.occlusion === true) : -1;
+  // The family split Overlay3D renders with (its exact rule) — a hand-anchored
+  // wand must ride a HandRig at HAND depth here too, or the host sizes it
+  // against the head at ~2× the distance and Preview looks "way bigger".
+  const headObjects = objects.filter((o) => !isHandAnchorId(o.handAnchor));
+  const handObjects = objects.filter((o) => isHandAnchorId(o.handAnchor));
+  // First HEAD object opting into occlusion wins the single (non-duplicated)
+  // occluder — indexed over the head subset, since that is what maps below.
+  const occluderIdx = occlusionEnabled ? headObjects.findIndex((o) => o.occlusion === true) : -1;
 
   // Clicking a non-selected piece's mesh selects it (PivotControls on the
   // selected piece may swallow its own events — acceptable; the layers panel is
@@ -213,9 +239,14 @@ export default function Studio3DView({
         <ReferenceBust onFit={handleBustFit} />
         {/* Occluder shown faintly in orbit only when debugging placement. */}
         {debugOcclusion && <FaceOccluder scale={headScale} debug />}
-        <AnchorDots activeAnchor={activeAnchor} onSelect={onAnchorSelect} />
+        {/* Head-anchor dots hide while a HAND-tracked piece is selected — a
+            stray tap must not look like it could yank a wand onto the head
+            (switching families lives in Properties, an explicit control). */}
+        {!(selected !== null && isHandAnchorId(selected.handAnchor)) && (
+          <AnchorDots activeAnchor={activeAnchor} onSelect={onAnchorSelect} />
+        )}
 
-        {objects.map((o) => {
+        {headObjects.map((o) => {
           const isSel = o.id === selectedId;
           const base = ANCHOR_MAP[o.anchor]?.offset ?? ([0, 0, 0] as [number, number, number]);
           return (
@@ -233,6 +264,38 @@ export default function Studio3DView({
             </group>
           );
         })}
+
+        {/* Hand-anchored gear mounts on the reference HAND, front-right of the
+            bust — the editor's "hand masking model". The gizmo's base is the
+            mannequin's mount point, so fine-tuning drags against a visible
+            hand exactly like head gear drags against the bust; the anchor
+            def's rotation matches what HandRig applies live. */}
+        {handObjects.length > 0 && (
+          <group
+            position={[7, (bustBounds ? bustBounds.maxY : 14) - 22, 6]}
+            rotation={[0, -0.35, -0.2]}
+          >
+            <ReferenceHand />
+            {handObjects.map((o) => {
+              const isSel = o.id === selectedId;
+              const def = HAND_ANCHOR_MAP[o.handAnchor as string] ?? HAND_ANCHOR_MAP.grip;
+              return (
+                <group key={o.id} onClick={selectHandler(o)} rotation={def.rotation}>
+                  <AssetGizmo
+                    base={HAND_REF_ANCHORS[def.id] ?? [0, 0, 0]}
+                    config={o.anchorConfig}
+                    enabled={isSel}
+                    onChange={isSel ? onTransformChange : undefined}
+                    onDragStart={onGizmoDragStart}
+                    onDragEnd={onGizmoDragEnd}
+                  >
+                    <ObjectContent object={o} />
+                  </AssetGizmo>
+                </group>
+              );
+            })}
+          </group>
+        )}
         </Suspense>
       </Canvas>
     );
@@ -269,31 +332,60 @@ export default function Studio3DView({
           </mesh>
         </FaceRig>
       ) : (
-        objects.map((o, i) => {
-          const isSel = o.id === selectedId;
-          return (
+        <>
+          {/* Hand-anchored gear rides a HandRig at the ESTIMATED HAND depth —
+              the exact wrapper Overlay3D uses — plus one shared depth-only
+              hand occluder. Rendering these in a FaceRig at head depth was the
+              live-vs-preview size mismatch: apparent size ∝ 1/|z| under the
+              shared rig camera, and a raised hand sits ~2× closer than the
+              head. Gizmo editing for hand pieces lives in Properties + the
+              orbit view's reference hand (a screen gizmo cannot ride a rig
+              that only exists while a live hand is tracked). */}
+          {handObjects.length > 0 && <HandOccluder videoId={videoId} mirror />}
+          {handObjects.map((o, i) => (
             <group key={o.id} onClick={selectHandler(o)}>
-              <FaceRig
+              <HandRig
+                anchor={o.handAnchor as string}
                 videoId={videoId}
-                anchor={o.anchor}
-                config={o.anchorConfig}
-                holdPose={holdPose}
                 mirror
-                occlude={i === occluderIdx}
-                headScale={headScale}
-                debugOcclusion={debugOcclusion}
-                matrixRef={i === 0 ? matrixRef : undefined}
-                editable={isSel}
-                onVisibilityChange={i === 0 ? onFaceVisible : undefined}
-                onTransformChange={isSel ? onTransformChange : undefined}
-                onGizmoDragStart={onGizmoDragStart}
-                onGizmoDragEnd={onGizmoDragEnd}
+                onVisibilityChange={i === 0 ? onHandVisible : undefined}
               >
-                <ObjectContent object={o} />
-              </FaceRig>
+                <group
+                  scale={o.anchorConfig.scale}
+                  rotation={[o.anchorConfig.rotation.x, o.anchorConfig.rotation.y, o.anchorConfig.rotation.z]}
+                  position={[o.anchorConfig.offset.x, o.anchorConfig.offset.y, o.anchorConfig.offset.z]}
+                >
+                  <ObjectContent object={o} />
+                </group>
+              </HandRig>
             </group>
-          );
-        })
+          ))}
+          {headObjects.map((o, i) => {
+            const isSel = o.id === selectedId;
+            return (
+              <group key={o.id} onClick={selectHandler(o)}>
+                <FaceRig
+                  videoId={videoId}
+                  anchor={o.anchor}
+                  config={o.anchorConfig}
+                  holdPose={holdPose}
+                  mirror
+                  occlude={i === occluderIdx}
+                  headScale={headScale}
+                  debugOcclusion={debugOcclusion}
+                  matrixRef={i === 0 ? matrixRef : undefined}
+                  editable={isSel}
+                  onVisibilityChange={i === 0 ? onFaceVisible : undefined}
+                  onTransformChange={isSel ? onTransformChange : undefined}
+                  onGizmoDragStart={onGizmoDragStart}
+                  onGizmoDragEnd={onGizmoDragEnd}
+                >
+                  <ObjectContent object={o} />
+                </FaceRig>
+              </group>
+            );
+          })}
+        </>
       )}
       </Suspense>
     </Canvas>

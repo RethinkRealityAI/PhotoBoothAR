@@ -88,10 +88,28 @@ describe('resolveBeamColor', () => {
 });
 
 describe('makeBeamSpec', () => {
-  it("resolves origin 'auto' by the firing gesture family", () => {
+  it("resolves origin 'auto' by the firing gesture family when there is no piece", () => {
     expect(makeBeamSpec(beam(), null, true, 0).origin).toBe('hand');
     expect(makeBeamSpec(beam(), null, false, 0).origin).toBe('head');
     expect(makeBeamSpec(beam({ origin: 'head' }), null, true, 0).origin).toBe('head');
+  });
+  it("resolves origin 'auto' by the EMITTING PIECE's family, not the gesture", () => {
+    // A head-worn visor fired by a fist clench still blasts from the head…
+    const headPiece = { template: LENS_TEMPLATE, fxKey: 'obj-visor' };
+    expect(makeBeamSpec(beam(), headPiece, true, 0).origin).toBe('head');
+    // …and a hand-held wand fired by a smile blasts from the hand.
+    const handPiece = { template: LENS_TEMPLATE, fxKey: 'obj-wand', handAnchor: 'grip' };
+    expect(makeBeamSpec(beam(), handPiece, false, 0).origin).toBe('hand');
+  });
+  it('carries the piece emitter key on auto origin, never on a forced one', () => {
+    const piece = { template: LENS_TEMPLATE, fxKey: 'obj-1' };
+    expect(makeBeamSpec(beam(), piece, false, 0).emitterKey).toBe('obj-1');
+    expect(makeBeamSpec(beam({ origin: 'auto' }), piece, false, 0).emitterKey).toBe('obj-1');
+    // Forced origin must never parent to a piece of the other family.
+    expect(makeBeamSpec(beam({ origin: 'head' }), piece, false, 0).emitterKey).toBeUndefined();
+    expect(makeBeamSpec(beam({ origin: 'hand' }), piece, true, 0).emitterKey).toBeUndefined();
+    expect(makeBeamSpec(beam(), null, false, 0).emitterKey).toBeUndefined();
+    expect(makeBeamSpec(beam(), { template: LENS_TEMPLATE, fxKey: '' }, false, 0).emitterKey).toBeUndefined();
   });
   it('durationMs overrides hold, capped at 4s', () => {
     expect(makeBeamSpec(beam({ durationMs: 900 }), null, false, 0).holdMs).toBe(900);

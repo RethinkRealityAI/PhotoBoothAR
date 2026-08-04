@@ -403,6 +403,18 @@ export function isHeadPiece(id?: string | null): boolean {
   return !!id && id in COMPONENTS;
 }
 
+/**
+ * Beam-origin points for procedural pieces, in the SAME frame a sibling of
+ * `<HeadPiece>` renders in (local units × HEAD_PIECE_UNIT already applied —
+ * the anchor config's scale then applies to emitter and piece alike). Only
+ * pieces that plausibly fire carry one; everything else falls back to the
+ * rig-default origin. The visor's lens front sits at radius 3.4 local ≈ 6.5
+ * here; 6.7 puts the muzzle just OUTSIDE the glowing glass.
+ */
+export const HEAD_PIECE_EMITTERS: Record<string, { position: [number, number, number]; direction: [number, number, number] }> = {
+  'cyclops-visor': { position: [0, 0, 6.7], direction: [0, 0, 1] },
+};
+
 /** Renders the procedural head piece for the given id (or null), scaled to cm. */
 export function HeadPiece({ id }: { id: string }) {
   const Comp = COMPONENTS[id];

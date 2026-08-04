@@ -34,6 +34,24 @@ describe('stageStatus', () => {
     expect(stageStatus(base)!.text).toBe('Tracking');
   });
 
+  it('hand states: needed-but-unseen reports after the face, never before', () => {
+    // Face missing outranks hand missing (guests find faces first).
+    expect(stageStatus({ ...base, faceVisible: false, handNeeded: true, handVisible: false })!.text).toBe('No face yet');
+    // Face satisfied, hand gear/gesture waiting.
+    const s = stageStatus({ ...base, handNeeded: true, handVisible: false })!;
+    expect(s.text).toBe('No hand yet');
+    expect(s.live).toBe(true);
+    // Hand found → all good.
+    expect(stageStatus({ ...base, handNeeded: true, handVisible: true })!.text).toBe('Tracking');
+    // Absent hand fields = every pre-Power-Ups caller, byte-identical.
+    expect(stageStatus(base)!.text).toBe('Tracking');
+  });
+
+  it('a hand-only scene (faceNeeded false) never coaches a face', () => {
+    expect(stageStatus({ ...base, faceVisible: false, faceNeeded: false, handNeeded: true, handVisible: false })!.text).toBe('No hand yet');
+    expect(stageStatus({ ...base, faceVisible: false, faceNeeded: false, handNeeded: true, handVisible: true })!.text).toBe('Tracking');
+  });
+
   it('keeps every message short enough for the stage band (no truncation)', () => {
     // The chip shares one row with the mode switcher; long copy truncated to
     // "LOADIN…" in a browser probe at 1440px, which reads as broken.

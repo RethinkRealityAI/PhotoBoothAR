@@ -258,6 +258,9 @@ const CYCLOPS_VISOR_TEMPLATE = {
   name: "Cyclops Visor",
   glbUrl: "/models/cyclops-visor.glb",
   fitCm: 15,
+  // Beam origin: lens-front apex, GLB-local (measured from the lens region's
+  // own vertices — centroid x,y pushed to the front surface +2% margin).
+  emitter: { position: [0.024, 0.021, 0.984], direction: [0, 0, 1] },
   regions: [
     { id: "lens", label: "Lens", recolourable: true, defaultHex: "#ff2b4a", refLuminance: 0.052903832546146376, guestPick: true },
     { id: "frame", label: "Frame", recolourable: true, defaultHex: "#23262e", refLuminance: 0.0853432732936447 },
@@ -276,6 +279,13 @@ const WIZARD_WAND_TEMPLATE = {
   name: "Wizard Wand",
   glbUrl: "/models/wizard-wand.glb",
   fitCm: 34,
+  // Beam origin: the crystal TIP. MEASURED, twice — a whole-mesh PCA reports
+  // the shaft along +z, but that axis is flat ribbon/sparkle geometry; the
+  // VISIBLE shaft (and both gem crystals) runs along X, and the grip anchor's
+  // π/2 z-rotation maps +x to "up out of the fist" — so the business end is
+  // the +x gem cluster (535 verts, centroid x 0.909, apex 0.949, y/z ±0.03),
+  // pushed just past the crystal surface, firing along +x.
+  emitter: { position: [0.968, -0.004, 0.006], direction: [1, 0, 0] },
   regions: [
     { id: "gem", label: "Gem", recolourable: true, defaultHex: "#b388ff", refLuminance: 0.3461678364359895, guestPick: true },
     { id: "shaft", label: "Wood", recolourable: true, defaultHex: "#4a2c17", refLuminance: 0.05376708845871356 },
@@ -294,6 +304,10 @@ const POWER_GAUNTLET_TEMPLATE = {
   name: "Power Gauntlet",
   glbUrl: "/models/power-gauntlet.glb",
   fitCm: 30,
+  // Beam origin: the PALM (−y side — the energy-core disc sits on the back of
+  // the hand at +y; this is its mirror through the mesh, nudged just outside
+  // the palm skin), firing out of the open palm along −y.
+  emitter: { position: [0.026, -0.220, 0.366], direction: [0, -1, 0] },
   regions: [
     { id: "core", label: "Energy core", recolourable: true, defaultHex: "#18ffff", refLuminance: 0.5885494947701743, guestPick: true },
     { id: "trim", label: "Trim", recolourable: true, defaultHex: "#c9a227", refLuminance: 0.38607329178669747 },

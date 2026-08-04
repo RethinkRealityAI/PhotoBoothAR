@@ -42,3 +42,45 @@ export function subscribeFx(fn: FxListener): () => void {
 export function clearFxSubscribers(): void {
   listeners.clear();
 }
+
+/* ── emitter registry ─────────────────────────────────────────────────────────
+ *
+ * Live "fire from HERE" points. A rendered piece registers an object (a
+ * THREE.Object3D placed at its template's emitter point, INSIDE the piece's own
+ * transform chain) under its fx key; BeamFX looks the key up per frame and
+ * follows that object's world transform — which is how a beam rides the exact
+ * rig (face or hand), anchor offset, scale, mirror flip and animation of the
+ * piece that fired it, without this module knowing any of that exists.
+ *
+ * Values are opaque `object`s so this stays three-free and node-testable.
+ * Stack semantics per key: the same key registered twice (e.g. the Power-Ups
+ * modal over a mounted preview) resolves to the most recent registrant, and
+ * unregistering restores the previous one.
+ */
+
+const emitters = new Map<string, object[]>();
+
+export function registerFxEmitter(key: string, obj: object): () => void {
+  const stack = emitters.get(key) ?? [];
+  stack.push(obj);
+  emitters.set(key, stack);
+  return () => unregisterFxEmitter(key, obj);
+}
+
+export function unregisterFxEmitter(key: string, obj: object): void {
+  const stack = emitters.get(key);
+  if (!stack) return;
+  const i = stack.lastIndexOf(obj);
+  if (i !== -1) stack.splice(i, 1);
+  if (stack.length === 0) emitters.delete(key);
+}
+
+export function getFxEmitter(key: string): object | null {
+  const stack = emitters.get(key);
+  return stack !== undefined && stack.length > 0 ? stack[stack.length - 1] : null;
+}
+
+/** Test hygiene only. */
+export function clearFxEmitters(): void {
+  emitters.clear();
+}

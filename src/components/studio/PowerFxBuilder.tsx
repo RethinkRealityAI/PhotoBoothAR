@@ -13,7 +13,7 @@
  * translate-x'd, making it the containing block for fixed children — an
  * in-place overlay would clip to the dock column).
  */
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
@@ -21,7 +21,7 @@ import { Loader2, X, Zap } from 'lucide-react';
 import { useDialog } from '../../lib/useDialog';
 import { Model } from '../ar/FaceRig';
 import { HeadPiece } from '../ar/HeadPieces';
-import BeamFX from '../ar/BeamFX';
+import BeamFX, { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
 import SceneLighting from '../ar/SceneLighting';
 import { ANCHOR_MAP, RIG_CAMERA } from '../../lib/faceRig';
 import type { HeadAnchor } from '../../types';
@@ -31,7 +31,7 @@ import { normalizeTemplate } from '../../lib/studio/assetTemplate';
 import { measureGlbFitScale } from '../../lib/studio/glbThumb';
 import { PROP_TARGET_CM } from '../../lib/studio/bustFit';
 import { emitFx } from '../../lib/studio/fxBus';
-import { makeBeamSpec } from '../../lib/studio/beam';
+import { beamRegionId, makeBeamSpec, type BeamEmitterPiece } from '../../lib/studio/beam';
 import {
   availableGear,
   buildPowerFxAdditions,
@@ -53,12 +53,19 @@ import {
   type BeamStyle,
   type TriggerSource,
 } from '../../lib/studio/triggers';
-import type { StudioAction } from '../../lib/studio/state';
+import { canAddObject, slotConflict, MAX_TRIGGERS, type Object3D, type StudioAction, type StudioDraft } from '../../lib/studio/state';
+import { HEAD_PIECE_MAP } from '../../lib/headPieces';
 import { SectionLabel, StudioToggle } from './StudioControls';
 
 interface Props {
   eventId: string;
   dispatch: React.Dispatch<StudioAction>;
+  /** The live draft — drives the scene-full / triggers-full guards (ADD past
+   *  either cap is a SILENT reducer no-op: without this the modal would close
+   *  reporting success on a visor that never landed or never fires) and the
+   *  same-slot Replace/Add-both confirm. Optional: absent = no guards, the
+   *  pre-Power-Ups contract. */
+  draft?: StudioDraft;
   onClose: () => void;
   onUploaded?: () => void;
   lighting?: LightingPresetId;
@@ -67,6 +74,10 @@ interface Props {
 /** How often the preview re-fires the ceremony. Longer than the longest style
  *  envelope so each loop reads as a complete charge → blast → fade. */
 const PREVIEW_LOOP_MS = 2600;
+
+/** Emitter-registry key for the builder's own gear preview. Registration is
+ *  stacked, so opening the modal over a live stage shadows nothing. */
+const POWERFX_PREVIEW_KEY = '@powerfx-gear';
 
 function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -107,23 +118,29 @@ function GearPreview({ spec }: { spec: PowerFxSpec }) {
   if (gearDef === null || gearDef.refId === '') return null;
 
   if (gearDef.kind === 'headpiece') {
+    const emitter = pieceEmitterOf({ proceduralId: gearDef.refId });
     return (
       <group position={[0, 2.5, -42]}>
         <HeadPiece id={gearDef.refId} />
+        {emitter !== null && <FxEmitterPoint fxKey={POWERFX_PREVIEW_KEY} emitter={emitter} />}
       </group>
     );
   }
   if (template === null || fitScale === null) return null;
   const scale = (fitScale * template.fitCm) / PROP_TARGET_CM;
-  const customization = { parts: { [template.regions.find((r) => r.id === 'lens')?.id ?? template.regions[0]?.id ?? 'lens']: { hex: spec.hex.toLowerCase() } } };
+  // The SAME region the fired beam reads (beamRegionId), so the recoloured
+  // part and the blast can never disagree in the preview.
+  const region = beamRegionId(template);
+  const customization = region !== null ? { parts: { [region]: { hex: spec.hex.toLowerCase() } } } : null;
   return (
     <group position={[0, 2.5, -42]} scale={scale}>
       <Model url={template.glbUrl} template={template} customization={customization} />
+      {template.emitter !== undefined && <FxEmitterPoint fxKey={POWERFX_PREVIEW_KEY} emitter={template.emitter} />}
     </group>
   );
 }
 
-export default function PowerFxBuilder({ dispatch, onClose, lighting = DEFAULT_LIGHTING }: Props) {
+export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DEFAULT_LIGHTING }: Props) {
   const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, 'Power FX');
 
   const gearChoices = useMemo(
@@ -133,9 +150,25 @@ export default function PowerFxBuilder({ dispatch, onClose, lighting = DEFAULT_L
   const [spec, setSpec] = useState<PowerFxSpec>(() => defaultPowerFxSpec(gearChoices[0]));
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  /** Same-slot occupant awaiting the host's Replace / Add-both / Back call. */
+  const [conflict, setConflict] = useState<Object3D | null>(null);
   const gearDef = POWER_GEAR.find((g) => g.id === spec.gearId) ?? null;
   const isLibraryGear = gearDef !== null && gearDef.kind === 'library';
   const validation = validatePowerFxSpec(spec);
+  // Cap guards — ADD_TRIGGER and SET_MODEL_ASSET past their caps are SILENT
+  // reducer no-ops; blind dispatches would close this modal reporting success
+  // on gear that never landed (or worse, recolour the previously selected
+  // object). No draft prop = no guard, the historical behaviour.
+  const needsObjectSlot = gearDef !== null && gearDef.refId !== '';
+  const triggersFull = draft !== undefined && draft.triggers.length >= MAX_TRIGGERS;
+  const sceneFull = draft !== undefined && needsObjectSlot && !canAddObject(draft);
+  const capMessage = triggersFull
+    ? `This scene already has ${MAX_TRIGGERS} magic triggers — remove one to add a blast.`
+    : sceneFull
+      ? 'This scene is full — remove a sticker or 3D piece to add gear.'
+      : null;
+  // Any conflict resets when the host picks different gear.
+  useEffect(() => { setConflict(null); }, [spec.gearId]);
 
   const setGear = (id: string) => {
     const def = POWER_GEAR.find((g) => g.id === id);
@@ -144,36 +177,82 @@ export default function PowerFxBuilder({ dispatch, onClose, lighting = DEFAULT_L
     setSpec((s) => ({ ...defaultPowerFxSpec(def), hex: s.hex, guestPick: s.guestPick }));
   };
 
-  // The looping live ceremony — the REAL booth pipeline (fxBus → BeamFX).
+  // One preview fire — the REAL booth pipeline (fxBus → BeamFX), from the
+  // gear's registered emitter (lens front / wand tip / gauntlet palm) exactly
+  // as in the booth. Shared by the ceremony loop and the Test-blast button.
+  const firePreview = useCallback(() => {
+    const libAsset = isLibraryGear && gearDef !== null ? findLibraryAsset(gearDef.refId, import.meta.env.DEV) : null;
+    const piece: BeamEmitterPiece | null = (() => {
+      if (libAsset) {
+        const tpl = normalizeTemplate(libAsset.template);
+        const region = beamRegionId(tpl);
+        return {
+          template: tpl,
+          customization: region !== null ? { parts: { [region]: { hex: spec.hex.toLowerCase() } } } : null,
+          fxKey: POWERFX_PREVIEW_KEY,
+          handAnchor: libAsset.handAnchor,
+        };
+      }
+      // Procedural gear ('classic' visor): still a piece, so the beam rides
+      // its registered emitter; 'none' gear falls to the static head origin.
+      if (gearDef !== null && gearDef.kind === 'headpiece' && gearDef.refId !== '') {
+        return { fxKey: POWERFX_PREVIEW_KEY };
+      }
+      return null;
+    })();
+    emitFx({
+      kind: 'beam',
+      spec: makeBeamSpec(
+        { type: 'beam', style: spec.style, color: piece !== null && piece.template ? 'auto' : spec.hex },
+        piece,
+        isHandSource(spec.source),
+        performance.now(),
+      ),
+    });
+  }, [spec.style, spec.hex, spec.source, isLibraryGear, gearDef]);
+
+  // The looping live ceremony.
   useEffect(() => {
     if (!validation.ok) return;
-    const libAsset = isLibraryGear && gearDef !== null ? findLibraryAsset(gearDef.refId, import.meta.env.DEV) : null;
-    const piece = libAsset
-      ? {
-          template: normalizeTemplate(libAsset.template),
-          customization: { parts: { lens: { hex: spec.hex.toLowerCase() } } },
-        }
-      : null;
-    const fire = () =>
-      emitFx({
-        kind: 'beam',
-        spec: makeBeamSpec(
-          { type: 'beam', style: spec.style, color: piece !== null ? 'auto' : spec.hex },
-          piece,
-          isHandSource(spec.source),
-          performance.now(),
-        ),
-      });
-    fire();
-    const timer = window.setInterval(fire, PREVIEW_LOOP_MS);
+    firePreview();
+    const timer = window.setInterval(firePreview, PREVIEW_LOOP_MS);
     return () => window.clearInterval(timer);
-  }, [spec.style, spec.hex, spec.source, spec.gearId, validation.ok, isLibraryGear, gearDef]);
+  }, [firePreview, validation.ok]);
+
+  /** The mount slot the chosen gear will occupy, for the same-slot confirm. */
+  const gearSlot = (): { anchor?: HeadAnchor; handAnchor?: string } | null => {
+    if (gearDef === null || gearDef.refId === '') return null;
+    if (isLibraryGear) {
+      const libAsset = findLibraryAsset(gearDef.refId, import.meta.env.DEV);
+      if (!libAsset) return null;
+      return libAsset.handAnchor !== undefined
+        ? { handAnchor: libAsset.handAnchor }
+        : { anchor: libAsset.anchor !== undefined && libAsset.anchor in ANCHOR_MAP ? (libAsset.anchor as HeadAnchor) : 'crown' };
+    }
+    return { anchor: HEAD_PIECE_MAP[gearDef.refId]?.anchor ?? 'crown' };
+  };
 
   const addToScene = async () => {
-    if (!validation.ok || busy) return;
+    if (!validation.ok || busy || capMessage !== null) return;
+    // Same-slot check BEFORE any dispatch: adding a second visor onto the nose
+    // bridge asks Replace / Add-both instead of silently stacking them.
+    if (conflict === null && draft !== undefined) {
+      const slot = gearSlot();
+      const existing = slot !== null ? slotConflict(draft, slot) : null;
+      if (existing !== null) {
+        setConflict(existing);
+        return;
+      }
+    }
+    await performAdd(null);
+  };
+
+  const performAdd = async (replaceId: string | null) => {
     setBusy(true);
     setActionError(null);
+    setConflict(null);
     try {
+      if (replaceId !== null) dispatch({ type: 'DELETE_OBJECT', id: replaceId });
       const libAsset = isLibraryGear && gearDef !== null ? findLibraryAsset(gearDef.refId, import.meta.env.DEV) : null;
       const additions = buildPowerFxAdditions(spec, libAsset?.template ?? null);
 
@@ -209,6 +288,10 @@ export default function PowerFxBuilder({ dispatch, onClose, lighting = DEFAULT_L
           }
         }
       }
+      // Replacing: repoint the old piece's beam/animate triggers at the new
+      // gear (the reducer has just selected it), before the fresh trigger
+      // lands — "swap my visor" keeps its existing blast wired.
+      if (replaceId !== null) dispatch({ type: 'RETARGET_TRIGGERS', fromId: replaceId });
       for (const trigger of additions.triggers) {
         dispatch({ type: 'ADD_TRIGGER', trigger });
       }
@@ -274,6 +357,17 @@ export default function PowerFxBuilder({ dispatch, onClose, lighting = DEFAULT_L
                 />
               </Suspense>
             </Canvas>
+            {/* Fire on demand — the loop keeps its own rhythm; this replays the
+                ceremony NOW, from the gear's emitter, for tuning eyes. */}
+            <button
+              type="button"
+              onClick={firePreview}
+              disabled={!validation.ok}
+              className="pressable absolute bottom-2.5 right-2.5 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full glass-strong border border-white/10 text-brand-fg/90 hover:text-brand-fg font-label text-[9px] uppercase tracking-widest disabled:opacity-40 transition-colors"
+            >
+              <Zap className="w-3 h-3" />
+              Test blast
+            </button>
           </div>
 
           {/* CONTROLS */}
@@ -377,16 +471,56 @@ export default function PowerFxBuilder({ dispatch, onClose, lighting = DEFAULT_L
             {actionError !== null && (
               <p role="alert" className="font-sans text-[10px] text-rose-300/90 leading-snug">{actionError}</p>
             )}
+            {capMessage !== null && (
+              <p role="status" className="rounded-xl bg-amber-400/10 ring-1 ring-amber-400/25 px-3 py-2 font-sans text-[10px] leading-snug text-amber-200/90">
+                {capMessage}
+              </p>
+            )}
 
+            {conflict !== null ? (
+              /* Same-slot occupant: inline choice (never a modal over a modal). */
+              <div className="rounded-xl bg-white/[0.04] ring-1 ring-white/10 px-3 py-2.5 flex flex-col gap-2">
+                <p className="font-sans text-[10px] text-brand-fg/85 leading-snug">
+                  <span className="font-medium">{conflict.name || 'A piece'}</span> already sits on this attachment
+                  point. Replacing keeps its magic triggers wired to the new gear.
+                </p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void performAdd(conflict.id)}
+                    disabled={busy}
+                    className="pressable py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-label text-[9px] uppercase tracking-widest transition-colors disabled:opacity-40"
+                  >
+                    Replace it
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void performAdd(null)}
+                    disabled={busy}
+                    className="pressable py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-brand-fg/80 font-label text-[9px] uppercase tracking-widest transition-colors disabled:opacity-40"
+                  >
+                    Add both
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConflict(null)}
+                  className="font-label text-[9px] uppercase tracking-widest text-brand-muted/50 hover:text-brand-fg transition-colors py-1"
+                >
+                  Back
+                </button>
+              </div>
+            ) : (
             <button
               type="button"
               onClick={addToScene}
-              disabled={!validation.ok || busy}
+              disabled={!validation.ok || busy || capMessage !== null}
               className="pressable flex items-center justify-center gap-1.5 py-2.5 bg-foil text-white rounded-xl font-bold text-[10px] font-label uppercase tracking-widest disabled:opacity-40 glow-accent transition"
             >
               {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
               {busy ? 'Adding…' : 'Add to scene'}
             </button>
+            )}
             <p className="font-sans text-[9px] text-brand-muted/40 leading-relaxed px-1">
               Adds the gear and its trigger together. Fine-tune both any time in Properties → Magic Triggers.
             </p>
