@@ -54,6 +54,7 @@ import {
 } from './state';
 import { normalizeTemplate, scopeCustomizationToTemplate, type AssetTemplate } from './assetTemplate';
 import { isHandAnchorId } from '../handPose';
+import { normalizeHandFit } from './handedness';
 import { parseTriggers, type TriggerConfig } from './triggers';
 import { normalizeGuestLettering } from '../letteringFit';
 
@@ -162,6 +163,9 @@ function layerToObject(l: ExperienceLayer): StudioObject {
       // Hand-anchored gear survives the round trip; a bogus stored id is
       // dropped here so the object degrades to head-anchored, not broken.
       handAnchor: isHandAnchorId(l.handAnchor) ? l.handAnchor : undefined,
+      // A pin only; a stored 'auto' (or junk) reloads as the absent default, so
+      // the object is byte-identical to one saved before this field existed.
+      handFit: storedHandFit(l.handFit),
     });
   } else {
     // Stored assets load as custom so builtin sync never overwrites them.
@@ -335,6 +339,7 @@ function object3DLayer(o: Object3D, r: UrlResolver): ExperienceLayer {
   if (o.template) layer.template = o.template;
   // Hand-anchored gear (written only when set — every head piece stays clean).
   if (o.handAnchor !== undefined) layer.handAnchor = o.handAnchor;
+  if (o.handFit !== undefined) layer.handFit = o.handFit;
   return layer;
 }
 
@@ -372,6 +377,9 @@ export interface ScenePiece3D {
   /** Hand anchor id, ALREADY validated (isHandAnchorId) — present ⇒ render in
    *  a HandRig instead of a FaceRig. Absent on every pre-existing scene. */
   handAnchor?: string;
+  /** Which hand a hand-modelled asset should fit; absent = follow the tracker.
+   *  Only ever set beside `handAnchor`. */
+  handFit?: 'left' | 'right';
   /**
    * fxBus emitter-registry key — the source layer/object id. The renderer
    * registers the piece's template emitter point under this key, and a fired
@@ -425,10 +433,20 @@ export function resolvePieceCustomization(raw: unknown, guestName = ''): AssetCu
   return { ...c, label: { ...c.label, token: 'fixed', text } };
 }
 
-type PieceExtras = Pick<ScenePiece3D, 'finish' | 'tint' | 'tintStrength' | 'customization' | 'template' | 'handAnchor'>;
+/**
+ * A stored hand pin, or undefined for the 'auto' default. Shared by both
+ * directions of the mapper so a scene cannot round-trip into a stored 'auto'
+ * that an older save would not have written.
+ */
+function storedHandFit(raw: unknown): 'left' | 'right' | undefined {
+  const fit = normalizeHandFit(raw);
+  return fit === 'auto' ? undefined : fit;
+}
+
+type PieceExtras = Pick<ScenePiece3D, 'finish' | 'tint' | 'tintStrength' | 'customization' | 'template' | 'handAnchor' | 'handFit'>;
 
 function pieceExtras(
-  src: { finish?: string; tint?: string; tintStrength?: number; customization?: unknown; template?: unknown; handAnchor?: string },
+  src: { finish?: string; tint?: string; tintStrength?: number; customization?: unknown; template?: unknown; handAnchor?: string; handFit?: unknown },
   ctx: PieceContext,
 ): PieceExtras {
   const out: PieceExtras = {
@@ -438,7 +456,13 @@ function pieceExtras(
   };
   // Validated here (the untrusted-jsonb gate) so no renderer ever sees a bogus
   // anchor id — an unknown one degrades to head-anchored, the old behaviour.
-  if (isHandAnchorId(src.handAnchor)) out.handAnchor = src.handAnchor;
+  if (isHandAnchorId(src.handAnchor)) {
+    out.handAnchor = src.handAnchor;
+    // Only beside a hand anchor: a pin on a head piece would be dead data that
+    // silently came alive the day someone switched its tracking family.
+    const fit = storedHandFit(src.handFit);
+    if (fit !== undefined) out.handFit = fit;
+  }
   if (ctx.customizationEnabled !== false) {
     // A template with nothing customized still travels: the renderer needs it to
     // know which regions exist before anything is styled. Anything it does not

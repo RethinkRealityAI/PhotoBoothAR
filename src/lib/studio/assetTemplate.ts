@@ -28,6 +28,7 @@
  * throws, because the caller is a render loop.
  */
 import type { AssetCustomization, AssetLabelConfig } from '../../types';
+import { normalizeModelledHand, type ModelledHand } from './handedness';
 import type { GuestLetteringStyle } from '../letteringFit';
 import { ASSET_CUSTOMIZATION } from './controlSpecs';
 import { MAX_REGIONS, normalizeRefLuminance, unpackRegionIds } from './regionTint';
@@ -212,6 +213,17 @@ export interface AssetTemplate {
   /** Beam origin on this asset. Absent (every pre-Power-Ups descriptor) means
    *  beams fall back to the per-rig default origin. */
   emitter?: AssetEmitter;
+  /**
+   * The hand this GLB was modelled for — a gauntlet, glove or watch fits one
+   * hand and reads wrong on the other.
+   *
+   * ABSENT means hand-AGNOSTIC (a wand, a torch, anything symmetric enough that
+   * flipping it changes nothing), and the render path then never mirrors the
+   * mesh. That is every descriptor written before this field existed, so old
+   * assets are unaffected. See lib/studio/handedness.ts for the decision and
+   * mirrorGeometry.ts for the flip itself.
+   */
+  modelledHand?: ModelledHand;
   textSlots: AssetTextSlot[];
   /**
    * 'auto' = derived by the prep pass alone. 'human' = a person checked it.
@@ -342,6 +354,7 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
   // accepted and the key ignored, like any unknown field.
   const regionIds = typeof o.regionIds === 'string' && o.regionIds.trim() ? o.regionIds.trim() : undefined;
   const emitter = normalizeEmitter(o.emitter);
+  const modelledHand = normalizeModelledHand(o.modelledHand);
 
   return {
     id,
@@ -351,6 +364,7 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
     regions,
     ...(regionIds ? { regionIds } : {}),
     ...(emitter ? { emitter } : {}),
+    ...(modelledHand ? { modelledHand } : {}),
     textSlots,
     preparedBy: typeof o.preparedBy === 'string' && PREPARED_BY.has(o.preparedBy)
       ? (o.preparedBy as 'auto' | 'human')

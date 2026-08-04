@@ -58,6 +58,11 @@ export function mirrorGeometryX(src: THREE.BufferGeometry): THREE.BufferGeometry
   if (cached) return cached;
 
   const g = src.clone();
+  // three's BufferGeometry.copy assigns `userData` BY REFERENCE, so the mirror
+  // would share the source's bookkeeping — including the region-id key that
+  // FaceRig stamps to avoid re-painting an attribute. Two geometries, two
+  // records: the mirror must be able to say "I do not have that attribute yet".
+  g.userData = { ...src.userData };
 
   const position = g.getAttribute('position');
   if (position) negateComponent(position, 'x');

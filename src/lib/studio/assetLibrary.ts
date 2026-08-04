@@ -322,6 +322,12 @@ const POWER_GAUNTLET_TEMPLATE = {
   name: "Power Gauntlet",
   glbUrl: "/models/power-gauntlet.glb",
   fitCm: 30,
+  // A gauntlet is handed the way a glove is, and this one was generated for a
+  // LEFT hand (owner's phone test, 2026-08-04: "Right now, it's left-handed").
+  // Declaring it is what lets the render path mirror the mesh for a right hand
+  // instead of shipping a second 12 MB GLB — see lib/studio/handedness.ts. The
+  // visor and the wand declare nothing, because neither is handed.
+  modelledHand: "left" as const,
   // Beam origin: the PALM (−y side — the energy-core disc sits on the back of
   // the hand at +y; this is its mirror through the mesh, nudged just outside
   // the palm skin), firing out of the open palm along −y.

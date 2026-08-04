@@ -52,6 +52,9 @@ export interface Overlay3DPiece {
   /** Hand anchor id (lib/handPose HAND_ANCHORS), already validated by the
    *  shared mapper. Present ⇒ this piece rides a HandRig, not a FaceRig. */
   handAnchor?: string;
+  /** Which hand a hand-MODELLED asset should fit; absent = follow the tracker
+   *  (lib/studio/handedness). */
+  handFit?: 'left' | 'right';
   /** fx emitter-registry key (the layer/object id) — a beam whose spec names
    *  it erupts from this piece's authored emitter point. */
   fxKey?: string;
@@ -224,7 +227,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
             {handPieces.map((p, i) => {
               const emitter = p.fxKey !== undefined ? pieceEmitterOf(p) : null;
               return (
-              <HandRig key={`hand-${i}`} anchor={p.handAnchor as string} videoId={videoId} mirror={mirror} onVisibilityChange={i === 0 ? onHandVisible : undefined}>
+              <HandRig key={`hand-${i}`} anchor={p.handAnchor as string} videoId={videoId} mirror={mirror} fit={p.handFit ?? 'auto'} onVisibilityChange={i === 0 ? onHandVisible : undefined}>
                 <AnimatedPiece animation={p.animation} reveal={reveal} pulse={p.pulse}>
                   <group scale={p.anchor.scale} rotation={[p.anchor.rotation.x, p.anchor.rotation.y, p.anchor.rotation.z]} position={[p.anchor.offset.x, p.anchor.offset.y, p.anchor.offset.z]}>
                     {isHeadPiece(p.proceduralId) ? (
@@ -241,7 +244,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
                         onError={onAssetError ? (m) => onAssetError(p.assetUrl as string, m) : undefined}
                       />
                     ) : null}
-                    {emitter !== null && <FxEmitterPoint fxKey={p.fxKey as string} emitter={emitter} />}
+                    {emitter !== null && <FxEmitterPoint fxKey={p.fxKey as string} emitter={emitter} modelledHand={p.template?.modelledHand} />}
                   </group>
                 </AnimatedPiece>
               </HandRig>

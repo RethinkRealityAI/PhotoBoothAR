@@ -130,6 +130,12 @@ export interface ExperienceLayer {
    * (isHandAnchorId) like every other untrusted jsonb field.
    */
   handAnchor?: string;
+  /**
+   * Which hand a hand-MODELLED asset (one whose template declares
+   * `modelledHand`) should fit: 'left' | 'right' pins it, absent follows
+   * whichever hand the tracker sees. Only meaningful beside `handAnchor`.
+   */
+  handFit?: string;
 }
 
 /**

@@ -56,6 +56,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { HAND_ANCHORS } from '../../lib/handPose';
+import { HAND_FIT_OPTIONS } from '../../lib/studio/handedness';
 import { SHADER_MAP, FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
 import { ANCHOR_PRESETS, getHeadFitEstimate } from '../../lib/faceRig';
@@ -1698,6 +1699,11 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   // literal 0 reset four of the five built-ins AWAY from where they belong, and
   // inverted the reset button's enabled state along with it.
   const sel3DDefaults = defaultAnchorConfig(sel3D ?? { type: 'model' }, HEAD_PIECE_MAP);
+  // The hand this asset's GLB was modelled for, if it declares one. Read through
+  // normalizeTemplate rather than off the raw jsonb: `template` is stored
+  // opaquely on the object, so this is the same gate every renderer goes
+  // through. Undefined = hand-agnostic, and the "Fits" control stays hidden.
+  const sel3DModelledHand = sel3D ? normalizeTemplate(sel3D.template)?.modelledHand : undefined;
   /** What the Selected-item header says it is about — the layer's display name,
    *  or the filter's name when the filter slot is what the section is showing.
    *  Undefined (no chip) when the section is empty-handed. */
@@ -2013,6 +2019,34 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                         );
                       })}
                     </div>
+                    {/* FITS — only for an asset whose template says which hand
+                        it was MODELLED for. A gauntlet is left- or right-handed
+                        the way a glove is; a wand is not, and offering the
+                        choice there would be a control that does nothing.
+                        'Either' mirrors the mesh to follow the tracked hand;
+                        the pins never consult the tracker, which is the way out
+                        if a device reports handedness the other way round. */}
+                    {sel3DModelledHand !== undefined && (
+                      <div className="mt-3">
+                        <SectionLabel>Fits</SectionLabel>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {HAND_FIT_OPTIONS.map((o) => {
+                            const active = o.id === (sel3D.handFit ?? 'auto');
+                            return (
+                              <Tooltip key={o.id} label={o.label} hint={o.hint} side="left">
+                                <button
+                                  onClick={() => dispatch({ type: 'SET_HAND_FIT', id: sel3D.id, fit: o.id })}
+                                  aria-pressed={active}
+                                  className={`w-full py-2 rounded-lg text-[9px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                                >
+                                  {o.label}
+                                </button>
+                              </Tooltip>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                 <div>

@@ -18,7 +18,7 @@
  * landmark + palm slab — ~500 tris, zero extra inference) using FaceOccluder's
  * exact material recipe, shrunk ~0.9× per the never-grow z-fight rule.
  */
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { detectHandsNow, getLatestHandFrame } from '../../lib/handRig';
@@ -32,6 +32,8 @@ import {
 } from '../../lib/handPose';
 import { OneEuroQuat, OneEuroVec3, type OneEuroConfig, type Quat, type Vec3 } from '../../lib/smoothing';
 import { medianOf } from '../../lib/faceRig';
+import { HandMirrorContext } from './handMirror';
+import type { HandFit, TrackedHand } from '../../lib/studio/handedness';
 
 const POS_XY: OneEuroConfig = { minCutoff: 1.5, beta: 0.5, dCutoff: 1.0 };
 const POS_Z: OneEuroConfig = { minCutoff: 0.6, beta: 0.15, dCutoff: 1.0 };
@@ -52,13 +54,22 @@ export interface HandRigProps {
    *  swims under the pointer cannot be placed, but freezing the feed makes the
    *  studio look crashed. Detection keeps running; only the write is skipped. */
   holdPose?: boolean;
+  /** The host's authored hand pin for the piece in this rig ('auto' follows the
+   *  tracker). Published to descendants so a hand-modelled asset can flip
+   *  itself — see ./handMirror.ts. */
+  fit?: HandFit;
   onVisibilityChange?: (visible: boolean) => void;
   children?: ReactNode;
 }
 
-export function HandRig({ anchor, videoId = 'booth-video', mirror = true, holdPose = false, onVisibilityChange, children }: HandRigProps) {
+export function HandRig({ anchor, videoId = 'booth-video', mirror = true, holdPose = false, fit = 'auto', onVisibilityChange, children }: HandRigProps) {
   const groupRef = useRef<THREE.Group>(null);
   const def = HAND_ANCHOR_MAP[anchor] ?? HAND_ANCHOR_MAP.grip;
+  // Which hand is in frame, as STATE rather than a ref: descendants re-render on
+  // it. Written only when it CHANGES (the ref below is the per-frame value), so
+  // a guest holding one hand up costs zero renders — swapping hands costs one.
+  const [tracked, setTracked] = useState<TrackedHand>(null);
+  const trackedRef = useRef<TrackedHand>(null);
 
   const state = useRef({
     posXY: new OneEuroVec3(POS_XY),
@@ -127,6 +138,10 @@ export function HandRig({ anchor, videoId = 'booth-video', mirror = true, holdPo
       const realHand = frame.handedness[0] ?? 'Right';
       pose = solveHandPose(hand.landmarks, hand.world, realHand, s.aspect, s.lockedSpan);
       if (pose !== null) {
+        if (trackedRef.current !== realHand) {
+          trackedRef.current = realHand;
+          setTracked(realHand);
+        }
         // Feed the span lock until it freezes.
         if (s.lockedSpan === null && pose.palmSpanCm > 1) {
           s.spanRing[s.spanCount % SPAN_LOCK_SAMPLES] = pose.palmSpanCm;
@@ -165,7 +180,13 @@ export function HandRig({ anchor, videoId = 'booth-video', mirror = true, holdPo
     g.visible = visible;
   });
 
-  return <group ref={groupRef} visible={false}>{children}</group>;
+  const mirrorValue = useMemo(() => ({ tracked, fit }), [tracked, fit]);
+
+  return (
+    <group ref={groupRef} visible={false}>
+      <HandMirrorContext.Provider value={mirrorValue}>{children}</HandMirrorContext.Provider>
+    </group>
+  );
 }
 
 /* ── Hand occluder ─────────────────────────────────────────────────────── */

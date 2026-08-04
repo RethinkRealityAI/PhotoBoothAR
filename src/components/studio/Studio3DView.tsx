@@ -184,7 +184,7 @@ function ObjectContent({ object }: { object: Object3D }) {
         template={piece.template}
         customization={piece.customization}
       />
-      {emitter !== null && <FxEmitterPoint fxKey={object.id} emitter={emitter} />}
+      {emitter !== null && <FxEmitterPoint fxKey={object.id} emitter={emitter} modelledHand={piece.template?.modelledHand} />}
     </>
   );
 }
@@ -471,6 +471,7 @@ export default function Studio3DView({
                   videoId={videoId}
                   mirror
                   holdPose={holdPose}
+                  fit={o.handFit ?? 'auto'}
                   onVisibilityChange={i === 0 ? onHandVisible : undefined}
                 >
                   <AssetGizmo

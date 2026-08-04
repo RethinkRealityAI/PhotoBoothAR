@@ -34,6 +34,7 @@ import { ASSET_CUSTOMIZATION, FINISH_TINT_STRENGTH } from './controlSpecs';
 import { DEFAULT_FINISH, normalizeFinish, normalizeTint, normalizeTintStrength } from './finish';
 import { moveByIndex } from './layerOrder';
 import { isHandAnchorId } from '../handPose';
+import { normalizeHandFit, type HandFit } from './handedness';
 import type { TriggerConfig } from './triggers';
 
 export type StudioMode = '2d' | '3d' | 'preview';
@@ -160,6 +161,15 @@ export interface Object3D {
   /** Hand anchor id (lib/handPose HAND_ANCHORS) — present ⇒ the piece rides
    *  the tracked hand, not the head. Absent on every pre-existing object. */
   handAnchor?: string;
+  /**
+   * Which hand this piece should fit (lib/studio/handedness). Only meaningful
+   * beside `handAnchor`, and only for an asset whose template declares the hand
+   * it was modelled for — everything else ignores it. Absent = 'auto'.
+   *
+   * It needs no entry in the `config.layers` force predicate because it can
+   * only ever exist alongside `handAnchor`, which is already in it.
+   */
+  handFit?: HandFit;
 }
 
 export type StudioObject = Overlay2D | Object3D;
@@ -247,6 +257,8 @@ export function createObject3D(
     ...(opts.template ? { template: opts.template } : {}),
     // Hand-anchored gear: only when set, so head pieces keep NO handAnchor key.
     ...(opts.handAnchor !== undefined ? { handAnchor: opts.handAnchor } : {}),
+    // Same idiom: 'auto' IS the absent state, so only a real pin is stored.
+    ...(opts.handFit === 'left' || opts.handFit === 'right' ? { handFit: opts.handFit } : {}),
   };
 }
 
@@ -774,6 +786,8 @@ export type StudioAction =
    * family-independent).
    */
   | { type: 'SET_OBJECT_TRACKING'; id: string; tracking: 'head' | 'hand'; handAnchor?: string }
+  /** Pin a hand-modelled asset to one hand, or 'auto' to follow the tracker. */
+  | { type: 'SET_HAND_FIT'; id: string; fit: HandFit }
   /**
    * Repoint beam/animate triggers that named `fromId` at the CURRENTLY
    * SELECTED object. Dispatched right after a Replace-style add (delete old →
@@ -1169,6 +1183,23 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
           };
         }
         return next;
+      });
+      return { ...state, dirty: true, draft: { ...d, objects } };
+    }
+    case 'SET_HAND_FIT': {
+      const target = d.objects.find((o) => o.id === action.id);
+      if (!target || target.type === 'overlay') return state;
+      const fit = normalizeHandFit(action.fit);
+      // 'auto' is the absent state, not a stored value: writing it would put a
+      // key on every hand piece for the default behaviour and make old and new
+      // saves of the same scene differ for no reason.
+      const next = fit === 'auto' ? undefined : fit;
+      if (next === target.handFit) return state;
+      const objects = mapObjects(d, action.id, (o) => {
+        const o3 = { ...(o as Object3D) };
+        if (next !== undefined) o3.handFit = next;
+        else delete o3.handFit;
+        return o3;
       });
       return { ...state, dirty: true, draft: { ...d, objects } };
     }

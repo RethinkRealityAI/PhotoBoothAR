@@ -255,6 +255,39 @@ describe('head pieces and model assets', () => {
     expect(o.handAnchor).toBe('wristBack');
     expect(o.anchorConfig.offset).toEqual({ x: 1, y: 2, z: 3 });
   });
+  it('SET_HAND_FIT stores a pin and treats auto as the ABSENT state', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/g.glb', name: 'g', handAnchor: 'wristBack' });
+    const id = st.draft.selectedId as string;
+    // A fresh hand piece carries no key at all — byte-identical to one saved
+    // before this field existed.
+    expect('handFit' in (selectedObject(st.draft) as Object3D)).toBe(false);
+
+    st = studioReducer(st, { type: 'SET_HAND_FIT', id, fit: 'right' });
+    expect((selectedObject(st.draft) as Object3D).handFit).toBe('right');
+    expect(st.dirty).toBe(true);
+
+    // Back to auto DELETES the key rather than storing 'auto': otherwise the
+    // same scene would serialize differently depending on whether a host had
+    // ever touched the control.
+    st = studioReducer(st, { type: 'SET_HAND_FIT', id, fit: 'auto' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.handFit).toBeUndefined();
+    expect('handFit' in o).toBe(false);
+  });
+  it('SET_HAND_FIT is a no-op on overlays, unknown ids, junk values and no-change calls', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/g.glb', name: 'g', handAnchor: 'palm' });
+    const id = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'SET_HAND_FIT', id, fit: 'left' });
+    const settled = st;
+    // Same value again → the SAME state object, so no spurious dirty flag.
+    expect(studioReducer(settled, { type: 'SET_HAND_FIT', id, fit: 'left' })).toBe(settled);
+    expect(studioReducer(settled, { type: 'SET_HAND_FIT', id: 'nope', fit: 'right' })).toBe(settled);
+    // Junk normalizes to 'auto', which for a pinned piece is a real change to
+    // "unpinned" — and for an unpinned one is a no-op.
+    const junked = studioReducer(settled, { type: 'SET_HAND_FIT', id, fit: 'sideways' as never });
+    expect((selectedObject(junked.draft) as Object3D).handFit).toBeUndefined();
+    expect(studioReducer(junked, { type: 'SET_HAND_FIT', id, fit: 'garbage' as never })).toBe(junked);
+  });
   it('SET_OBJECT_TRACKING is a no-op on overlays, unknown ids and no-change calls', () => {
     const st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x' });
     const id = st.draft.selectedId as string;

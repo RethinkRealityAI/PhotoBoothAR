@@ -40,6 +40,9 @@ import {
   type BeamSpec,
 } from '../../lib/studio/beam';
 import type { AssetEmitter } from '../../lib/studio/assetTemplate';
+import { mirrorPoint } from '../../lib/studio/mirrorGeometry';
+import { useHandMirror } from './handMirror';
+import type { ModelledHand } from '../../lib/studio/handedness';
 import type { AnchorConfig } from '../../types';
 
 function prefersReducedMotion(): boolean {
@@ -85,16 +88,27 @@ export function pieceEmitterOf(piece: {
  * so a modal preview over a live stage resolves to the modal and hands the key
  * back on close.
  */
-export function FxEmitterPoint({ fxKey, emitter }: { fxKey: string; emitter: AssetEmitter }) {
+export function FxEmitterPoint({ fxKey, emitter, modelledHand }: {
+  fxKey: string;
+  emitter: AssetEmitter;
+  /** The template's declared hand, when this piece has one. Passing it lets the
+   *  emitter travel with a mirrored mesh — a gauntlet flipped to the other hand
+   *  whose beam still erupted from the original palm would fire out of the back
+   *  of the guest's hand. */
+  modelledHand?: ModelledHand;
+}) {
+  const flip = useHandMirror(modelledHand);
+  const position = flip ? mirrorPoint(emitter.position) : emitter.position;
+  const direction = flip ? mirrorPoint(emitter.direction) : emitter.direction;
   // Value-keyed memo: `emitter` is a fresh object each mapper pass; rebuilding
   // the Object3D on reference churn would re-register every render.
-  const valueKey = `${emitter.position.join(',')}|${emitter.direction.join(',')}`;
+  const valueKey = `${position.join(',')}|${direction.join(',')}`;
   const obj = useMemo(() => {
     const o = new THREE.Group();
-    o.position.set(emitter.position[0], emitter.position[1], emitter.position[2]);
+    o.position.set(position[0], position[1], position[2]);
     o.quaternion.setFromUnitVectors(
       new THREE.Vector3(0, 0, 1),
-      new THREE.Vector3(emitter.direction[0], emitter.direction[1], emitter.direction[2]),
+      new THREE.Vector3(direction[0], direction[1], direction[2]),
     );
     return o;
     // eslint-disable-next-line react-hooks/exhaustive-deps

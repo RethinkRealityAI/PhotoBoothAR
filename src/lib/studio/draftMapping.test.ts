@@ -188,6 +188,71 @@ describe('round-trip: single 3D', () => {
   });
 });
 
+describe('hand fit (which hand a hand-modelled asset should fit)', () => {
+  const gauntlet = (over: Partial<Object3D> = {}) =>
+    createObject3D('model', { assetUrl: 'https://cdn/g.glb', handAnchor: 'wristBack', ...over });
+
+  const save = (o: Object3D): StudioDraft => ({ ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id });
+
+  it('a pin survives save → load → save', () => {
+    const o = gauntlet({ handFit: 'right' });
+    const payload = draftToPayload(save(o), resolver({ [o.id]: 'https://cdn/g.glb' }), null);
+    expect(payload.config?.layers?.[0].handFit).toBe('right');
+    // A lone hand object already forces config.layers via anyHandAnchor, which
+    // is why handFit needs no entry of its own in that predicate.
+    const back = experienceToDraft(expFromPayload(payload))!;
+    expect((back.objects[0] as Object3D).handFit).toBe('right');
+  });
+
+  it('an unpinned hand piece writes NO key — byte-identical to a pre-feature save', () => {
+    const o = gauntlet();
+    const payload = draftToPayload(save(o), resolver({ [o.id]: 'https://cdn/g.glb' }), null);
+    const layer = payload.config?.layers?.[0] as unknown as Record<string, unknown>;
+    expect('handFit' in layer).toBe(false);
+    expect((experienceToDraft(expFromPayload(payload))!.objects[0] as Object3D).handFit).toBeUndefined();
+  });
+
+  it('junk and a stored "auto" both load as the absent default', () => {
+    for (const stored of ['auto', 'Left', 'either', '', 3, null, {}]) {
+      const exp = baseExp({
+        kind: '3d_attachment',
+        asset_url: 'https://cdn/g.glb',
+        config: { layers: [{ id: 'l1', kind: '3d_attachment', asset_url: 'https://cdn/g.glb', handAnchor: 'grip', handFit: stored }] },
+      } as Partial<Experience>);
+      expect((experienceToDraft(exp)!.objects[0] as Object3D).handFit).toBeUndefined();
+    }
+  });
+
+  it('the RENDER piece only carries a fit beside a real hand anchor', () => {
+    // Dead data that comes alive later is the bug this prevents: a pin left on
+    // a piece that was switched back to head tracking must not reappear if it
+    // is ever switched to hand tracking again.
+    expect(objectToPiece(gauntlet({ handFit: 'left' }), {}).handFit).toBe('left');
+    expect(objectToPiece(gauntlet({ handAnchor: undefined, handFit: 'left' }), {}).handFit).toBeUndefined();
+    expect(objectToPiece(gauntlet({ handAnchor: 'elbow', handFit: 'left' }), {}).handFit).toBeUndefined();
+  });
+
+  it('layerToPiece and objectToPiece agree, as they must for WYSIWYG', () => {
+    const o = gauntlet({ handFit: 'right' });
+    const payload = draftToPayload(save(o), resolver({ [o.id]: 'https://cdn/g.glb' }), null);
+    const layer = payload.config?.layers?.[0];
+    expect(layerToPiece(layer!, {}).handFit).toBe(objectToPiece(o, {}).handFit);
+  });
+});
+
+describe('modelledHand on a template', () => {
+  it('survives normalizeTemplate, and only for exact left/right', () => {
+    const base = { id: 't', glbUrl: '/m.glb', regions: [], textSlots: [] };
+    expect(normalizeTemplate({ ...base, modelledHand: 'left' })?.modelledHand).toBe('left');
+    expect(normalizeTemplate({ ...base, modelledHand: 'right' })?.modelledHand).toBe('right');
+    for (const junk of ['Left', 'either', '', 1, null, {}]) {
+      expect(normalizeTemplate({ ...base, modelledHand: junk })?.modelledHand).toBeUndefined();
+    }
+    // Absent stays absent — no key at all, so old descriptors are unchanged.
+    expect('modelledHand' in (normalizeTemplate(base) as object)).toBe(false);
+  });
+});
+
 describe('round-trip: multi 3D (model + head piece, per-layer occlusion/animation)', () => {
   it('mirrors layer 0 and preserves per-layer occlusion + animation', () => {
     const piece = createObject3D('headpiece', {

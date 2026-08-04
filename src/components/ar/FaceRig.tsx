@@ -24,6 +24,8 @@ import {
 } from '../../lib/studio/regionTint';
 import { configuratorKey, regionIdsSource, type AssetTemplate } from '../../lib/studio/assetTemplate';
 import { attachLabelDecal, type BuiltLabelDecal } from '../../lib/studio/assetDecal';
+import { mirrorGeometryX } from '../../lib/studio/mirrorGeometry';
+import { useHandMirror } from './handMirror';
 import { AnchorConfig, AssetCustomization, HeadAnchor } from '../../types';
 import AssetGizmo from './AssetGizmo';
 import FaceOccluder from './FaceOccluder';
@@ -287,6 +289,24 @@ export function Model({
   onDecalBuilt?: (info: { buildMs: number; triangles: number }) => void;
 }) {
   const [scene, setScene] = useState<THREE.Group | null>(null);
+  // BOTH HANDS FROM ONE ASSET. Inside a HandRig this asks the rig which hand it
+  // is on; everywhere else (head pieces, the studio's orbit view, the landing
+  // demo) it is a constant false and nothing below runs.
+  //
+  // The text-slot guard is a fail-safe, not a limitation we chose: a decal is
+  // carved against the surface it was built for, and mirroring the body under
+  // it would leave the engraving on the wrong side of the asset. No shipped
+  // hand asset has a slot, so this costs nothing today — and if one gains a
+  // slot, it renders un-mirrored (today's behaviour) and says so, instead of
+  // silently engraving a name into thin air.
+  const wantsMirror = useHandMirror(template?.modelledHand ?? undefined);
+  const engravable = template !== null && template !== undefined && template.textSlots.length > 0;
+  const mirrorX = wantsMirror && !engravable;
+  useEffect(() => {
+    if (wantsMirror && engravable) {
+      console.warn('[Model] template has text slots; not mirroring for the other hand', template?.id);
+    }
+  }, [wantsMirror, engravable, template?.id]);
   // Callbacks live in refs, not in the effect's deps: a caller passing an inline
   // arrow (every caller does) would otherwise re-download and re-clone the whole
   // model on every render of its parent.
@@ -331,6 +351,26 @@ export function Model({
     };
   }, [url, finish, tint, tintStrength]);
 
+  // MIRROR — declared BEFORE the tint effect so that on mount the geometry is
+  // already flipped when `ensureRegionAttribute` paints region ids onto it.
+  // Swapping geometry rather than re-cloning the model means switching hands
+  // costs a WeakMap lookup, not a 12 MB re-parse, and the guest sees no reload.
+  useEffect(() => {
+    if (!scene || !mirrorX) return;
+    const restore: { mesh: THREE.Mesh; geometry: THREE.BufferGeometry }[] = [];
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.geometry) {
+        restore.push({ mesh: obj, geometry: obj.geometry });
+        obj.geometry = mirrorGeometryX(obj.geometry);
+      }
+    });
+    // Put the originals back on teardown: they belong to the shared model cache
+    // and outlive this instance, and the mirrored copies are cached separately.
+    return () => {
+      for (const r of restore) r.mesh.geometry = r.geometry;
+    };
+  }, [scene, mirrorX]);
+
   // REGION TINT — a separate effect, deliberately, rather than more work inside
   // the load effect: a host dragging a colour swatch must not re-download and
   // re-parse the GLB on every frame of the drag. This one only re-patches
@@ -350,9 +390,11 @@ export function Model({
       scene, uniforms, bytes, template.regionIds ?? template.id, finish, tint, tintStrength,
     );
     // `template`/`customization` are read through the serialized partsKey; see
-    // the note where it is computed.
+    // the note where it is computed. `mirrorX` is a dep because the mirrored
+    // mesh is a DIFFERENT BufferGeometry: without it, flipping hands would drop
+    // the region attribute and repaint the whole asset as region 0.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, partsKey, finish, tint, tintStrength]);
+  }, [scene, partsKey, finish, tint, tintStrength, mirrorX]);
 
   // ENGRAVED NAME — async only because the webfont must be loaded before the
   // artwork is baked into a texture; the carve itself is synchronous.
