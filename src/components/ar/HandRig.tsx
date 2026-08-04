@@ -47,11 +47,16 @@ export interface HandRigProps {
   anchor: string;
   videoId?: string;
   mirror?: boolean;
+  /** Hold the RENDERED pose steady (a gizmo handle is being dragged) WITHOUT
+   *  stopping tracking — FaceRig's contract, for the same reason: a piece that
+   *  swims under the pointer cannot be placed, but freezing the feed makes the
+   *  studio look crashed. Detection keeps running; only the write is skipped. */
+  holdPose?: boolean;
   onVisibilityChange?: (visible: boolean) => void;
   children?: ReactNode;
 }
 
-export function HandRig({ anchor, videoId = 'booth-video', mirror = true, onVisibilityChange, children }: HandRigProps) {
+export function HandRig({ anchor, videoId = 'booth-video', mirror = true, holdPose = false, onVisibilityChange, children }: HandRigProps) {
   const groupRef = useRef<THREE.Group>(null);
   const def = HAND_ANCHOR_MAP[anchor] ?? HAND_ANCHOR_MAP.grip;
 
@@ -100,6 +105,15 @@ export function HandRig({ anchor, videoId = 'booth-video', mirror = true, onVisi
     // the same tick are near-free no-ops.
     const vid = document.getElementById(videoId) as HTMLVideoElement | null;
     if (vid) detectHandsNow(vid);
+    if (holdPose) {
+      // g.position / g.quaternion / g.visible stay exactly where the last
+      // tracked frame left them, so the grabbed handle does not run away.
+      // tracking=false is deliberate: on release the One-Euro filters RESET
+      // instead of resuming with a dt spanning the whole drag, which would
+      // otherwise snap the piece across the frame in one step.
+      s.tracking = false;
+      return;
+    }
     const frame = getLatestHandFrame();
 
     let pose: HandPose | null = null;

@@ -16,10 +16,11 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { Boxes, Eye, Layers, ScanFace, Smartphone, Sparkles, Rotate3d, AlertTriangle } from 'lucide-react';
+import { Axis3d, Boxes, Camera, Eye, Layers, Smartphone, Sparkles, AlertTriangle } from 'lucide-react';
 import { ShaderRunner } from '../../lib/shaders';
 import { snapTransform, type SnapResult } from '../../lib/studio/snap';
 import { selectedObject, draftHasContent, type StudioState, type StudioAction, type Overlay2D, type Object3D } from '../../lib/studio/state';
+import { isHandObject } from '../../lib/studio/sceneFamilies';
 import Studio3DView from './Studio3DView';
 import StudioPreview from './StudioPreview';
 import Tooltip from '../ui/Tooltip';
@@ -400,7 +401,7 @@ export default function StudioStage({
   const needsHands = useMemo(
     () =>
       hasHandSource(triggers) ||
-      draft.objects.some((o) => o.type !== 'overlay' && o.handAnchor !== undefined),
+      draft.objects.some((o) => o.type !== 'overlay' && isHandObject(o)),
     [triggers, draft.objects],
   );
   useEffect(() => {
@@ -469,7 +470,7 @@ export default function StudioStage({
   // 3D scene is hand-only AND no trigger listens to a face.
   const handOnlyScene =
     objects3d.length > 0 &&
-    objects3d.every((o) => o.handAnchor !== undefined) &&
+    objects3d.every(isHandObject) &&
     !triggers.some((t) => !isHandSource(t.source));
   const status = stageStatus({
     camError: cam.error,
@@ -528,8 +529,15 @@ export default function StudioStage({
             that needs 99 — it truncated to "LOADIN…" at every width, and the
             right cell was wasting all 84 on a 36px button. The bottom band is
             free, so status went there and gets its natural width. */}
-        <div className="absolute top-2.5 inset-x-2.5 z-30 flex items-start justify-center">
-          <div className="flex items-center gap-1 liquid-glass-raised rounded-full p-1 shrink-0">
+        {/* pointer-events-none on the BAND, auto on each control. The band spans
+            the full stage width at z-30 purely to centre the mode pill, so as a
+            hit target it covered the whole strip — including the 3D view's own
+            head/hand focus switch at z-20 in the free left cell, which was
+            therefore unclickable (caught by a screenshot pass: every click on it
+            timed out against this element). Anything else floated into this
+            strip later would have hit the same wall. */}
+        <div className="absolute top-2.5 inset-x-2.5 z-30 flex items-start justify-center pointer-events-none">
+          <div className="flex items-center gap-1 liquid-glass-raised rounded-full p-1 shrink-0 pointer-events-auto">
             {visibleTabs.map((t) => {
               const active = mode === t.id;
               const disabled = t.id === 'preview' && !previewReady;
@@ -563,21 +571,29 @@ export default function StudioStage({
           </div>
 
           {/* 3D view toggle — pinned right in the same band rather than a second
-              floating row stacked underneath the first. */}
-          <div className="absolute right-0 top-0">
+              floating row stacked underneath the first. It is LABELLED: as a
+              bare 36px icon nobody could tell what it switched (owner report),
+              and the two states are not opposites of one picture. The label
+              names the DESTINATION, so the button reads as the action it
+              performs. Measured for width: the band is 429px and the centred
+              mode pill takes 245, leaving 92 per side; this pill needs ~74. */}
+          <div className="absolute right-0 top-0 pointer-events-auto">
             {mode === '3d' && (
               <Tooltip
-                label={threeView === 'live' ? 'Reference head' : 'Your face'}
-                hint={threeView === 'live' ? 'Place against a reference head — no camera needed' : 'Track your real face (WYSIWYG)'}
+                label={threeView === 'live' ? 'Switch to the reference model' : 'Switch to your camera'}
+                hint={threeView === 'live' ? 'Place against a stand-in head or hand — no camera needed' : 'Track your real face and hands (WYSIWYG)'}
                 side="bottom"
               >
                 <button
                   onClick={() => dispatch({ type: 'SET_THREE_VIEW', view: threeView === 'live' ? 'orbit' : 'live' })}
                   data-testid="studio-view-toggle"
-                  aria-label={threeView === 'live' ? 'Show the reference head' : 'Show your face'}
-                  className="pressable flex items-center justify-center w-9 h-9 rounded-full liquid-glass-raised text-brand-muted/70 hover:text-brand-fg transition-colors"
+                  aria-label={threeView === 'live' ? 'Switch to the reference model' : 'Switch to your camera'}
+                  className="pressable flex items-center gap-1.5 h-9 px-2.5 rounded-full liquid-glass-raised text-brand-muted/70 hover:text-brand-fg transition-colors"
                 >
-                  {threeView === 'live' ? <Rotate3d className="w-4 h-4" /> : <ScanFace className="w-4 h-4" />}
+                  {threeView === 'live' ? <Axis3d className="w-4 h-4 shrink-0" /> : <Camera className="w-4 h-4 shrink-0" />}
+                  <span className="font-label text-[10px] uppercase tracking-widest whitespace-nowrap">
+                    {threeView === 'live' ? 'Model' : 'Live'}
+                  </span>
                 </button>
               </Tooltip>
             )}
