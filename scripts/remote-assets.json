@@ -232,6 +232,15 @@
       "path": "public/models/power-gauntlet.glb"
     },
     {
+      "comment": "Studio 3D-orbit reference HANDS — the hand-tracking analogue of reference-head.glb, so hand-anchored gear is placed against a real hand instead of the primitive-built stand-in. Meshy image_to_3d with should_texture:false (like the head bust): ~330KB, ~8k verts, no materials, one mesh — it takes the same neutral matte material the bust does. Open hand mounts wrist/palm gear; the fist mounts grip gear (a wand runs THROUGH the fist, which only reads correctly on a closed hand). Both are RIGHT hands; mirrorGeometry.ts serves the left.",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_204643_ddded0e1-d22b-4711-9dbb-54fd9019a810.glb",
+      "path": "public/models/reference-hand-open.glb"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_204934_b7cbaa47-9d08-44e0-ac87-828d4d2114e3.glb",
+      "path": "public/models/reference-hand-fist.glb"
+    },
+    {
       "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/1bc7adda-7be7-4c79-9f09-2b5c0fedd941.webp",
       "path": "public/starters/hero-visor.webp"
     },
