@@ -214,6 +214,22 @@
     {
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260731_195151_e6f3cd05-255e-4885-a4b5-e1f4ca0789e0.png",
       "path": "src/assets/landing/hero/hero-activation-v2.png"
+    },
+    {
+      "url": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+      "path": "public/models/hand_landmarker.task"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_145226_928d616c-6a5d-4609-a04b-35d718d6cecb.glb",
+      "path": "public/models/cyclops-visor.glb"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_145231_480bad8b-4f1c-468c-8e38-241651931608.glb",
+      "path": "public/models/wizard-wand.glb"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_145236_c1739059-2de9-4ab0-8c90-28988fe7d0fb.glb",
+      "path": "public/models/power-gauntlet.glb"
     }
   ]
 }
