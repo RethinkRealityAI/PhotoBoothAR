@@ -26,6 +26,7 @@ import { Bounds, OrbitControls } from '@react-three/drei';
 import { Gem, Loader2, Sparkles, X } from 'lucide-react';
 import { useDialog } from '../../lib/useDialog';
 import { uploadAsset } from '../../lib/db';
+import { thumbUploadName } from '../../lib/studio/assetSources';
 import { ANCHOR_MAP } from '../../lib/faceRig';
 import {
   CHAIN_LINKS,
@@ -187,6 +188,20 @@ export default function Text3DBuilder({ eventId, dispatch, onClose, onUploaded, 
       if (!url) {
         setActionError('Upload failed — check your connection and try again.');
         return;
+      }
+      // Paired thumbnail, best-effort: the live preview canvas already shows
+      // this exact piece under the event's lighting, so it IS the picture the
+      // dock and layer list should carry. Named from the RETURNED url (never
+      // `spec.text`) so it pairs — see assetSources.thumbUploadName.
+      const canvas = canvasRef.current;
+      if (canvas) {
+        try {
+          const shot = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+          if (shot) await uploadAsset(eventId, shot, thumbUploadName(url));
+        } catch (e) {
+          // A missing thumbnail is cosmetic; the piece itself is already saved.
+          console.warn('[Text3DBuilder] thumbnail capture failed', e);
+        }
       }
       const label = `${spec.text} ${KIND_LABEL[spec.kind]}`;
       const anchor = KIND_ANCHOR[spec.kind];

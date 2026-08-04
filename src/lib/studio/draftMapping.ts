@@ -565,8 +565,12 @@ export function draftToPayload(
         scale: layer0.anchorConfig.scale,
       };
       if (layer0.proceduralId) config.procedural = layer0.proceduralId;
-      // Occlusion is opt-IN — mirror only when layer 0 enables it.
-      if (layer0.occlusion) config.occlusion = true;
+      // Occlusion is opt-IN, and the singular mirror is SCENE-level: exactly one
+      // occluder renders per canvas, so ANY 3D piece opting in means the scene
+      // occludes. Mirroring layer 0 alone dropped the flag for a scene that had
+      // opted in on a later piece, which is how a renderer reading the singular
+      // fields lost occlusion the studio was showing.
+      if (objs.some((o) => o.occlusion)) config.occlusion = true;
       assetUrl = layer0.type === 'headpiece' && layer0.proceduralId ? null : resolve(resolvedUrls, layer0.id);
     }
     if (objs.length > 1 || anyAnim || anyHidden || anyFinish || anyCustom || anyHandAnchor || revealActive) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
@@ -598,7 +602,8 @@ export function draftToPayload(
         scale: first3D.anchorConfig.scale,
       };
       if (first3D.proceduralId) config.procedural = first3D.proceduralId;
-      if (first3D.occlusion) config.occlusion = true;
+      // Scene-level, same as the 3D branch above — any 3D piece opting in.
+      if (draft.objects.some((o) => o.type !== 'overlay' && o.occlusion)) config.occlusion = true;
     }
     // The scene-level filter slot ('none' = empty) can ride alongside any scene.
     if (draft.shaderId !== 'none') config.ambientShader = { shaderId: draft.shaderId, params: draft.shaderParams };

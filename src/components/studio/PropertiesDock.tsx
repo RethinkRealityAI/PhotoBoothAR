@@ -81,6 +81,7 @@ import {
   MAX_TRIGGERS,
   SCENE_FULL_MESSAGE,
   sceneCounts,
+  sceneOcclusion,
   selectedObject,
   type Object3D,
   type Overlay2D,
@@ -1721,6 +1722,11 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   // Any 3D piece in the scene → the Head & fit section applies (head-size
   // calibration is scene/event-level, not per-selection).
   const has3D = draft.objects.some((o) => o.type !== 'overlay');
+  // Head-ANCHORED 3D piece: what the (single, scene-global) head occluder can
+  // actually affect. A hand-only scene gets the always-on HandOccluder instead,
+  // so offering a head-occlusion switch there would be theatre.
+  const hasHead3D = draft.objects.some((o) => o.type !== 'overlay' && o.handAnchor === undefined);
+  const sceneOccludes = sceneOcclusion(draft);
 
   // Two high-level tabs (owner IA): "Assets" — the scene-asset hierarchy first,
   // then the selected asset's properties — is the default, because configuring
@@ -2084,12 +2090,10 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                 <p className="font-sans text-[9px] text-brand-muted/40 leading-relaxed -mt-2">
                   Arrow keys nudge this piece (hold Shift for a bigger step).
                 </p>
-                <StudioToggle
-                  label="Occlude behind head"
-                  hint="Hide parts of this piece behind the real head"
-                  value={sel3D.occlusion}
-                  onChange={(v) => dispatch({ type: 'SET_OCCLUSION', occlusion: v })}
-                />
+                {/* The occlusion switch used to sit HERE, per piece — but one
+                    occluder serves the whole canvas, so toggling it on any
+                    piece but the first did nothing the host could see. It is
+                    now ONE scene switch in "Lighting & fit" (state.sceneOcclusion). */}
                 {/* Finish is for IMPORTED/GENERATED geometry only: built-in head
                     pieces ship hand-authored materials that a blanket restyle
                     would flatten. */}
@@ -2246,6 +2250,18 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
       {has3D && (
         <DockSection icon={Ruler} title="Lighting & fit" open={!!open.headfit} onToggle={() => toggleSection('headfit')}>
           <LightingPicker value={lighting} onChange={onLightingChange} />
+          {/* SCENE-level, not per piece: one depth occluder serves the whole
+              canvas, so this is the only place it can be told honestly. Hidden
+              when every 3D piece is hand-tracked — the hand occluder is always
+              on and there is no head piece for this to affect. */}
+          {hasHead3D && (
+            <StudioToggle
+              label="Hide props behind head"
+              hint="Parts of your 3D pieces that fall behind the guest's real head stop showing. Applies to the whole scene."
+              value={sceneOccludes}
+              onChange={(v) => dispatch({ type: 'SET_SCENE_OCCLUSION', occlusion: v })}
+            />
+          )}
           <HeadSizeCalibration headScale={headScale} onHeadScaleChange={onHeadScaleChange} />
         </DockSection>
       )}

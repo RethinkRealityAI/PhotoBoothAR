@@ -33,31 +33,131 @@ function labelFromFilename(name: string): string {
   return withoutUuid.replace(/\.[a-z0-9]+$/i, '');
 }
 
-// Suffix AssetsDock's GLB upload flow stamps on an auto-captured thumbnail:
-// uploadAsset(blob, `${file.name}.thumb`) → `<uid>-<file.name>.thumb.png`.
+// Suffix the GLB upload flow stamps on an auto-captured thumbnail.
 const THUMB_SUFFIX = /\.thumb\.png$/i;
 
-/** True for a GLB-thumbnail companion file (named `<asset-name>.thumb.png` by
- *  AssetsDock's GLB upload flow) — paired into its model's dock item instead
- *  of being listed as its own item. */
+/** True for a GLB-thumbnail companion file (named `<model-stored-name>.thumb.png`
+ *  by the upload flow) — paired into its model's dock item instead of being
+ *  listed as its own item. */
 export function isThumbAsset(name: string): boolean {
   return THUMB_SUFFIX.test(name);
 }
 
 /**
- * Maps each non-thumb asset's normalized label to its paired thumbnail's
- * public URL. Pairing is by label match after uploadAsset's uid()-prefix and
- * extension are stripped from both sides — `<uid1>-crown.glb` pairs with
- * `<uid2>-crown.glb.thumb.png` because both normalize to "crown".
+ * The stored object filename behind a public asset URL — its last path segment,
+ * query stripped and percent-decoded. This is what the storage `list` call
+ * reports as `StoredAsset.name`, which is why it is the pairing key below.
+ */
+export function storedNameFromUrl(url: string): string {
+  const path = url.split(/[?#]/)[0];
+  const last = path.slice(path.lastIndexOf('/') + 1);
+  try {
+    return decodeURIComponent(last);
+  } catch {
+    // A malformed %-sequence must not throw here — the raw segment is still a
+    // usable (if imperfect) key, and a broken thumbnail beats a broken dock.
+    return last;
+  }
+}
+
+/**
+ * The `name` to hand `uploadAsset` for a model's paired thumbnail.
+ *
+ * MUST be derived from the model's RETURNED url, never from the picked
+ * `File.name`: uploadAsset appends an extension unconditionally, so a picked
+ * `crown.glb` is stored `<uid>-crown.glb.glb`. Naming the thumbnail from
+ * `file.name` produced `<uid2>-crown.glb.thumb.png`, which normalized to
+ * "crown" while the model normalized to "crown.glb" — they could never pair,
+ * so an uploaded model has ALWAYS shown a generic icon instead of its capture.
+ */
+export function thumbUploadName(modelUrl: string): string {
+  return `${storedNameFromUrl(modelUrl)}.thumb`;
+}
+
+/**
+ * Maps each model's STORED FILENAME to its paired thumbnail's public URL.
+ *
+ * The thumbnail is uploaded as `<model-stored-name>.thumb`, so storage holds
+ * `<uidT>-<model-stored-name>.thumb.png`. Stripping the thumbnail's OWN uid
+ * prefix and the `.thumb.png` suffix therefore yields the model's stored name
+ * exactly — an identity match, not a normalized-label guess, so two uploads
+ * that happen to share a filename can never steal each other's picture.
  */
 export function pairThumbnails(assets: StoredAsset[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const a of assets) {
     if (!isThumbAsset(a.name)) continue;
-    const label = labelFromFilename(a.name.replace(THUMB_SUFFIX, ''));
-    map.set(label, a.url);
+    const modelName = a.name.replace(UUID_PREFIX, '').replace(THUMB_SUFFIX, '');
+    map.set(modelName, a.url);
   }
   return map;
+}
+
+/* -------------------------------------------------------------------- */
+/* ONE upload zone — routing (Round 3)                                   */
+/*                                                                       */
+/* The dock used to carry TWO upload buttons, eighth of nine sections,    */
+/* each gated on a different set of kind chips — so under "Filters" there */
+/* was no upload control at all while the empty state still said "upload  */
+/* … above". The two paths differed only in TIMING and aftercare, never   */
+/* in storage: both land in `<eventId>/uploads/`. So one zone routes by   */
+/* file type, and the decision is made HERE, in pure code, not in a       */
+/* component.                                                            */
+/* -------------------------------------------------------------------- */
+
+/** The minimum a routed file has to expose (so the node suite needs no File). */
+export interface UploadCandidate {
+  name: string;
+  type?: string;
+}
+
+export interface UploadRoute<F extends UploadCandidate> {
+  file: F;
+  kind: 'image' | 'model';
+}
+
+export interface UploadPlan<F extends UploadCandidate> {
+  /** Files that will actually be uploaded, in input order. */
+  routed: UploadRoute<F>[];
+  /** Names of files whose type this studio cannot place, in input order. */
+  rejected: string[];
+  /**
+   * Whether the upload should also DROP INTO THE SCENE.
+   *
+   * Only for a single file. Every image add either replaces the scene's one
+   * frame or appends a sticker, so auto-adding a multi-file drop would make
+   * all but the last frame vanish on the way in. A batch still uploads in
+   * full and lands in the Uploads grid — the host places what they want.
+   */
+  addToScene: boolean;
+}
+
+/** What the unified file input accepts — one list, so the picker and the
+ *  drop zone can never disagree about what is allowed. */
+export const UPLOAD_ACCEPT = 'image/png,image/jpeg,image/webp,image/svg+xml,.glb,.gltf';
+
+/** Human copy for the same list, so the button never advertises less (or more)
+ *  than it takes — it used to say "PNG / JPG / SVG" while also accepting webp. */
+export const UPLOAD_ACCEPT_LABEL = 'PNG · JPG · WEBP · SVG · GLB · GLTF';
+
+/** Route a dropped/picked file set by type. Pure — `classifyAsset` (lib/studio/dnd)
+ *  is the ONE classifier; this never re-implements it. */
+export function planUploads<F extends UploadCandidate>(files: readonly F[]): UploadPlan<F> {
+  const routed: UploadRoute<F>[] = [];
+  const rejected: string[] = [];
+  for (const file of files) {
+    const cls = classifyAsset(file.name, file.type);
+    if (cls === 'unknown') rejected.push(file.name);
+    else routed.push({ file, kind: cls });
+  }
+  return { routed, rejected, addToScene: routed.length === 1 && rejected.length === 0 };
+}
+
+/** One line naming what was refused, or null when everything was accepted. */
+export function rejectedUploadMessage(rejected: readonly string[]): string | null {
+  if (rejected.length === 0) return null;
+  if (rejected.length === 1) return `${rejected[0]} isn't an image or 3D model — skipped.`;
+  return `${rejected.length} files weren't images or 3D models — skipped.`;
 }
 
 /** Normalize uploaded assets into dock items, classifying by extension/mimetype. */
@@ -85,7 +185,8 @@ export function uploadsToDockItems(assets: StoredAsset[]): DockItem[] {
         label,
         source: 'upload',
         family: '3d',
-        previewUrl: thumbs.get(label) ?? null,
+        // Keyed on the STORED filename, not the display label — see pairThumbnails.
+        previewUrl: thumbs.get(asset.name) ?? null,
         payload: { assetUrl: asset.url },
       });
     }

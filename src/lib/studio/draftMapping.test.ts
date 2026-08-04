@@ -257,6 +257,18 @@ describe('scene tag and occlusion (opt-in)', () => {
     expect(onPayload.config?.occlusion).toBe(true);
     expect((experienceToDraft(expFromPayload(onPayload))!.objects[0] as Object3D).occlusion).toBe(true);
   });
+  it('the singular mirror is SCENE-level: an opt-in on a LATER 3D layer still writes config.occlusion', () => {
+    // One occluder serves the whole canvas, so "any piece opted in" is what the
+    // scene does. Mirroring layer 0 alone dropped the flag for exactly this shape.
+    const plain = createObject3D('model', { assetUrl: 'blob:a', name: 'A' });
+    const opted = createObject3D('model', { assetUrl: 'blob:b', name: 'B', occlusion: true });
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [plain, opted], selectedId: plain.id, kind: '3d_attachment' };
+    const payload = draftToPayload(draft, resolver({ [plain.id]: 'https://cdn/a.glb', [opted.id]: 'https://cdn/b.glb' }), null);
+    expect(payload.config?.occlusion).toBe(true);
+    // …and the per-layer truth is untouched, so the flag still round-trips per piece.
+    expect(payload.config?.layers?.[0].occlusion).toBeUndefined();
+    expect(payload.config?.layers?.[1].occlusion).toBe(true);
+  });
   it('an existing experience with no occlusion flag loads as opt-in OFF (no silent change)', () => {
     const exp = baseExp({ kind: '3d_attachment', asset_url: 'https://cdn/x.glb', config: { anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } } });
     expect((experienceToDraft(exp)!.objects[0] as Object3D).occlusion).toBe(false);

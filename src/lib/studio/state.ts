@@ -569,6 +569,50 @@ export function slotConflict(
   return found !== undefined && found.type !== 'overlay' ? found : null;
 }
 
+/* ── Scene-level occlusion ────────────────────────────────────────────────
+ *
+ * Occlusion is stored PER OBJECT (`Object3D.occlusion`) but its EFFECT is
+ * scene-global: exactly one FaceOccluder renders per canvas — Overlay3D and
+ * Studio3DView both pick the FIRST head-anchored piece that opted in — and
+ * every piece in that canvas then depth-tests against it. So a per-piece
+ * switch was a lie: flipping it on any piece but the first did nothing
+ * visible, and flipping it on the first silently occluded all the others.
+ * The UI now shows ONE scene switch that reads as OR over the scene's 3D
+ * pieces and writes to all of them; the per-object FIELD stays exactly as it
+ * was, so every stored scene (and a library entry's `defaultOcclude`) keeps
+ * working unchanged.
+ */
+
+/** Does this scene occlude? OR over its 3D objects — the honest read of a
+ *  scene-global effect stored per piece. */
+export function sceneOcclusion(d: StudioDraft): boolean {
+  return d.objects.some((o) => is3D(o) && o.occlusion === true);
+}
+
+/**
+ * The occlusion flag a newly added 3D piece should carry.
+ *
+ * A scene that already has 3D pieces INHERITS its own current setting, so the
+ * scene switch never disagrees with what renders. The first 3D piece of a
+ * BRAND-NEW draft (no `id`: never saved, not opened from an existing
+ * experience) defaults ON, because hiding props behind the real head is what
+ * a host expects. An EXISTING scene is never defaulted on — that would start
+ * depth-clipping halos, back bands and oversized props at live events with no
+ * host action.
+ */
+export function nextPieceOcclusion(d: StudioDraft): boolean {
+  if (d.objects.some(is3D)) return sceneOcclusion(d);
+  return d.id === undefined;
+}
+
+/** Apply the scene's occlusion default to a 3D object on its way into the
+ *  scene. Never turns an opt-in OFF: a library entry's `defaultOcclude` (or
+ *  any caller that asked for true) wins. */
+function withSceneOcclusion(d: StudioDraft, obj: StudioObject): StudioObject {
+  if (!is3D(obj) || obj.occlusion === true) return obj;
+  return { ...obj, occlusion: nextPieceOcclusion(d) };
+}
+
 /**
  * The DERIVED draft kind from the current objects:
  *   • a 2D overlay AND a 3D object present → 'composite'
@@ -629,7 +673,8 @@ function appendObject(d: StudioDraft, obj: StudioObject): StudioDraft | null {
   // The cap counts stickers + 3D only (the frame is exempt); this helper only
   // ever adds cappable objects, so compare against the capped count.
   if (sceneCounts(d).capped >= MAX_OBJECTS) return null;
-  return { ...d, objects: [...d.objects, obj], selectedId: obj.id };
+  const placed = withSceneOcclusion(d, obj);
+  return { ...d, objects: [...d.objects, placed], selectedId: placed.id };
 }
 
 /**
@@ -685,7 +730,12 @@ export type StudioAction =
   | { type: 'SET_THUMB'; url: string | null; blob: Blob | null }
   | { type: 'TOGGLE_PUBLISHED' }
   | { type: 'TOGGLE_FEATURED' }
-  | { type: 'SET_OCCLUSION'; occlusion: boolean }
+  /**
+   * Scene-level occlusion — writes EVERY 3D object in the draft, because one
+   * occluder serves the whole canvas (see sceneOcclusion). Replaces the old
+   * per-object SET_OCCLUSION, whose UI could not match what rendered.
+   */
+  | { type: 'SET_SCENE_OCCLUSION'; occlusion: boolean }
   /**
    * Restyle the SELECTED 3D object's material. Every field is optional so the
    * dock can change one without knowing the others; `tint: null` explicitly
@@ -936,13 +986,15 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return { ...state, dirty: true, draft: { ...d, isPublished: !d.isPublished } };
     case 'TOGGLE_FEATURED':
       return { ...state, dirty: true, draft: { ...d, featured: !d.featured } };
-    case 'SET_OCCLUSION': {
-      const sel = selectedObject(d);
-      if (!sel || !is3D(sel)) return state;
+    case 'SET_SCENE_OCCLUSION': {
+      if (!d.objects.some(is3D)) return state;
       return {
         ...state,
         dirty: true,
-        draft: { ...d, objects: mapObjects(d, sel.id, (o) => (is3D(o) ? { ...o, occlusion: action.occlusion } : o)) },
+        draft: {
+          ...d,
+          objects: d.objects.map((o) => (is3D(o) ? { ...o, occlusion: action.occlusion } : o)),
+        },
       };
     }
     case 'SET_FINISH': {
@@ -998,7 +1050,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       // Mixed scenes: no family-match rejection. A 'border' overlay obeys the
       // one-frame rule (replace the existing frame in place; exempt from the
       // cap); everything else appends subject to the MAX_OBJECTS cap.
-      const obj = action.object;
+      const obj = withSceneOcclusion(d, action.object);
       let nd: StudioDraft;
       if (isFrame(obj)) {
         nd = placeFrame(d, obj);

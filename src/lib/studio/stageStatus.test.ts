@@ -35,16 +35,58 @@ describe('stageStatus', () => {
   });
 
   it('hand states: needed-but-unseen reports after the face, never before', () => {
-    // Face missing outranks hand missing (guests find faces first).
-    expect(stageStatus({ ...base, faceVisible: false, handNeeded: true, handVisible: false })!.text).toBe('No face yet');
+    // BOTH missing → ONE line naming both, not just the face.
+    expect(stageStatus({ ...base, faceVisible: false, handNeeded: true, handVisible: false })!.text).toBe('No face or hand');
     // Face satisfied, hand gear/gesture waiting.
     const s = stageStatus({ ...base, handNeeded: true, handVisible: false })!;
     expect(s.text).toBe('No hand yet');
     expect(s.live).toBe(true);
-    // Hand found → all good.
-    expect(stageStatus({ ...base, handNeeded: true, handVisible: true })!.text).toBe('Tracking');
+    // Hand found and face found → BOTH named (a bare "Tracking" never said which).
+    expect(stageStatus({ ...base, handNeeded: true, handVisible: true })!.text).toBe('Face + hand');
     // Absent hand fields = every pre-Power-Ups caller, byte-identical.
     expect(stageStatus(base)!.text).toBe('Tracking');
+  });
+
+  it('reports both families, or just the one in play', () => {
+    // Face only (the pre-Power-Ups shape) — unchanged wording in every state.
+    expect(stageStatus({ ...base, faceVisible: false })!.text).toBe('No face yet');
+    expect(stageStatus(base)!.text).toBe('Tracking');
+    // Hand only — never mentions a face nothing is tracking.
+    const handOnly = { ...base, faceNeeded: false, faceVisible: false, handNeeded: true };
+    expect(stageStatus({ ...handOnly, handVisible: false })!.text).toBe('No hand yet');
+    expect(stageStatus({ ...handOnly, handVisible: true })!.text).toBe('Tracking');
+    // Both — every combination is distinguishable.
+    const both = { ...base, handNeeded: true };
+    const texts = [
+      stageStatus({ ...both, faceVisible: false, handVisible: false })!.text,
+      stageStatus({ ...both, faceVisible: false, handVisible: true })!.text,
+      stageStatus({ ...both, faceVisible: true, handVisible: false })!.text,
+      stageStatus({ ...both, faceVisible: true, handVisible: true })!.text,
+    ];
+    expect(texts).toEqual(['No face or hand', 'No face yet', 'No hand yet', 'Face + hand']);
+    expect(new Set(texts).size).toBe(4);
+  });
+
+  it('a fired gesture reports itself, and is outranked only by the toast and a dead camera', () => {
+    // The gap this closes: a burst or an in-preview beam applies its effect with
+    // no words, so a gesture that never fired looked exactly like one that did.
+    const s = stageStatus({ ...base, gesture: 'Pinch' })!;
+    expect(s.text).toBe('Pinch detected');
+    expect(s.tone).toBe('ok');
+    expect(s.live).toBe(false); // transient, not a live tracking state
+    // The toast already names the source AND what it did — it wins.
+    expect(stageStatus({ ...base, gesture: 'Pinch', toast: 'Pinch → Optic blast' })!.text).toBe('Pinch → Optic blast');
+    // A camera that died inside the ~1.6s window must not hide behind it.
+    expect(stageStatus({ ...base, gesture: 'Pinch', camError: 'Camera blocked' })!.text).toBe('Camera blocked');
+    // It also outranks the steady tracking states — it IS the news.
+    expect(stageStatus({ ...base, gesture: 'Open palm', faceVisible: false, handNeeded: true, handVisible: false })!.text)
+      .toBe('Open palm detected');
+  });
+
+  it('an absent or EMPTY gesture is silence, not a blank chip', () => {
+    expect(stageStatus({ ...base, gesture: null })!.text).toBe('Tracking');
+    expect(stageStatus({ ...base, gesture: '' })!.text).toBe('Tracking');
+    expect(stageStatus({ ...base, gesture: undefined })!.text).toBe('Tracking');
   });
 
   it('a hand-only scene (faceNeeded false) never coaches a face', () => {
@@ -58,6 +100,15 @@ describe('stageStatus', () => {
     for (const camReady of [true, false]) for (const trackerReady of [true, false]) for (const faceVisible of [true, false]) {
       const s = stageStatus({ ...base, camReady, trackerReady, faceVisible });
       if (s) expect(s.text.length).toBeLessThanOrEqual(16);
+    }
+  });
+
+  it('the hand and both-family messages obey the same length budget', () => {
+    for (const faceNeeded of [true, false]) for (const handNeeded of [true, false]) {
+      for (const faceVisible of [true, false]) for (const handVisible of [true, false]) {
+        const s = stageStatus({ ...base, faceNeeded, handNeeded, faceVisible, handVisible });
+        if (s) expect(s.text.length).toBeLessThanOrEqual(16);
+      }
     }
   });
 

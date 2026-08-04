@@ -77,6 +77,10 @@ interface Props {
   refusal?: { message: string; at: number } | null;
 }
 
+/** How long a fired trigger stays on the status chip — the toast and the
+ *  "<Gesture> detected" confirmation share one dwell so they never disagree. */
+const TRIGGER_CHIP_MS = 1600;
+
 const MODE_TABS = [
   { id: '2d' as const, label: '2D', icon: Layers, hint: 'Frames, stickers & filters' },
   { id: '3d' as const, label: '3D', icon: Boxes, hint: 'Head-anchored AR pieces' },
@@ -326,11 +330,25 @@ export default function StudioStage({
   const showToast = useCallback((msg: string) => {
     setTriggerToast(msg);
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = window.setTimeout(() => setTriggerToast(null), 1600);
+    toastTimerRef.current = window.setTimeout(() => setTriggerToast(null), TRIGGER_CHIP_MS);
+  }, []);
+  // WHICH gesture just fired, for the status chip. Separate from the toast on
+  // purpose: a burst fires confetti and an in-preview beam erupts with no words
+  // at all, so without this a gesture that never registers and one that fires an
+  // effect the host missed look identical — which is exactly the "is the pinch
+  // even working?" question. Set for EVERY fired trigger; the toast (which also
+  // names what the trigger did) outranks it in stageStatus.
+  const [gestureLabel, setGestureLabel] = useState<string | null>(null);
+  const gestureTimerRef = useRef<number | null>(null);
+  const showGesture = useCallback((label: string) => {
+    setGestureLabel(label);
+    if (gestureTimerRef.current) window.clearTimeout(gestureTimerRef.current);
+    gestureTimerRef.current = window.setTimeout(() => setGestureLabel(null), TRIGGER_CHIP_MS);
   }, []);
   useEffect(() => () => {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     if (revealTimerRef.current) window.clearTimeout(revealTimerRef.current);
+    if (gestureTimerRef.current) window.clearTimeout(gestureTimerRef.current);
   }, []);
 
   // One fired trigger → its effect. Bursts fire the shared canvas in every view.
@@ -338,6 +356,8 @@ export default function StudioStage({
   const handleTriggerEvent = useCallback((e: TriggerEvent) => {
     const a = e.action;
     const label = TRIGGER_SOURCE_LABELS[e.source];
+    // Every fired trigger says WHICH gesture fired it, whatever the action does.
+    showGesture(label);
     if (a.type === 'burst') {
       triggerFxRef.current?.fire(a.style);
       return;
@@ -384,7 +404,7 @@ export default function StudioStage({
       const name = draft.objects.find((o) => o.id === a.objectId)?.name ?? 'piece';
       showToast(`${label} → ${ANIMATE_PRESET_LABELS[a.preset].toLowerCase()} "${name}"`);
     }
-  }, [mode, draft.objects, showToast, startPulse, revealTargetIds, revealedIds]);
+  }, [mode, draft.objects, showToast, showGesture, startPulse, revealTargetIds, revealedIds]);
   const handlerRef = useRef(handleTriggerEvent);
   useEffect(() => { handlerRef.current = handleTriggerEvent; }, [handleTriggerEvent]);
 
@@ -479,6 +499,7 @@ export default function StudioStage({
     trackerReady: trackerNeeded ? trackerLoaded : true,
     faceVisible,
     toast: triggerToast,
+    gesture: gestureLabel,
     faceNeeded: !handOnlyScene,
     handNeeded: trackerNeeded && needsHands,
     handVisible,

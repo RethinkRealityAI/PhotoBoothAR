@@ -8,6 +8,7 @@ import {
   draftHasContent,
   selectedObject,
   sceneCounts,
+  sceneOcclusion,
   createOverlay,
   createObject3D,
   MAX_OBJECTS,
@@ -213,11 +214,19 @@ describe('head pieces and model assets', () => {
     expect((selectedObject(st.draft) as Object3D).anchorConfig.rotation.y).toBeCloseTo(Math.PI / 2, 9);
   });
 
-  it('omitting the new fields is byte-identical to the old add path', () => {
+  it('omitting the new action fields keeps the old placement defaults; occlusion follows the SCENE default', () => {
     const before = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x', scale: 3 });
     const o = selectedObject(before.draft) as Object3D;
     expect(o.anchorConfig.rotation).toEqual({ x: 0, y: 0, z: 0 });
-    expect(o.occlusion).toBe(false);
+    // Occlusion is no longer a per-add constant: a BRAND-NEW draft's first piece
+    // opts in, a LOADED experience's never does (nextPieceOcclusion), so an
+    // already-saved scene can never start depth-clipping without host action.
+    expect(o.occlusion).toBe(true);
+    const onLoaded = studioReducer(
+      { ...s0(), draft: { ...initialDraft('shader'), id: 'exp-9' } },
+      { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x', scale: 3 },
+    );
+    expect((selectedObject(onLoaded.draft) as Object3D).occlusion).toBe(false);
   });
   it('SET_OBJECT_TRACKING switches head → hand (default grip), zeroing placement but keeping scale', () => {
     let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/wand.glb', name: 'wand', scale: 7.4, offsetCm: { x: 0, y: 1.5, z: 1 } });
@@ -459,11 +468,52 @@ describe('multi-object scenes', () => {
     expect((selectedObject(st.draft) as Overlay2D).transform.scale).toBe(3);
     expect((st.draft.objects[0] as Overlay2D).transform.scale).toBe(1); // border untouched
   });
-  it('SET_OCCLUSION toggles occlusion on the selected 3D object (opt-in)', () => {
+  it('SET_SCENE_OCCLUSION writes EVERY 3D object (one occluder serves the canvas)', () => {
+    // A brand-new draft's first 3D piece defaults ON (see nextPieceOcclusion).
     let st = studioReducer(initialState('3d_attachment'), { type: 'SELECT_HEAD_PIECE', pieceId: 'royal-crown' });
-    expect((selectedObject(st.draft) as Object3D).occlusion).toBe(false);
-    st = studioReducer(st, { type: 'SET_OCCLUSION', occlusion: true });
     expect((selectedObject(st.draft) as Object3D).occlusion).toBe(true);
+    st = studioReducer(st, { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'X' });
+    expect(st.draft.objects).toHaveLength(2);
+    // OFF must clear every piece, not just the selected one.
+    st = studioReducer(st, { type: 'SET_SCENE_OCCLUSION', occlusion: false });
+    expect(st.draft.objects.every((o) => (o as Object3D).occlusion === false)).toBe(true);
+    expect(sceneOcclusion(st.draft)).toBe(false);
+    st = studioReducer(st, { type: 'SET_SCENE_OCCLUSION', occlusion: true });
+    expect(st.draft.objects.every((o) => (o as Object3D).occlusion === true)).toBe(true);
+    expect(sceneOcclusion(st.draft)).toBe(true);
+  });
+
+  it('SET_SCENE_OCCLUSION is a no-op on a scene with no 3D pieces', () => {
+    const st0 = twoOverlays();
+    expect(studioReducer(st0, { type: 'SET_SCENE_OCCLUSION', occlusion: true })).toBe(st0);
+  });
+
+  it('sceneOcclusion is OR over the 3D pieces — an opt-in on a LATER layer still reads on', () => {
+    const d = {
+      ...initialDraft('3d_attachment'),
+      objects: [
+        createObject3D('model', { assetUrl: 'a.glb', occlusion: false }),
+        createObject3D('model', { assetUrl: 'b.glb', occlusion: true }),
+      ],
+    };
+    expect(sceneOcclusion(d)).toBe(true);
+    expect(sceneOcclusion({ ...d, objects: [] })).toBe(false);
+  });
+
+  it('occlusion defaults ON for a NEW draft and OFF for a loaded one; adds then inherit the scene', () => {
+    // NEW (no id) → on.
+    const fresh = studioReducer(initialState('3d_attachment'), { type: 'SELECT_HEAD_PIECE', pieceId: 'royal-crown' });
+    expect((fresh.draft.objects[0] as Object3D).occlusion).toBe(true);
+    // LOADED existing experience (has an id) → never hard-defaulted on.
+    const loaded = { ...initialState('3d_attachment'), draft: { ...initialDraft('3d_attachment'), id: 'exp-77' } };
+    const added = studioReducer(loaded, { type: 'SELECT_HEAD_PIECE', pieceId: 'royal-crown' });
+    expect((added.draft.objects[0] as Object3D).occlusion).toBe(false);
+    // A second piece inherits the scene, so the one switch never disagrees with it.
+    const second = studioReducer(added, { type: 'SET_MODEL_ASSET', url: 'https://cdn/y.glb', name: 'Y' });
+    expect((second.draft.objects[1] as Object3D).occlusion).toBe(false);
+    // …and an explicit opt-in (a library entry's defaultOcclude) always wins.
+    const forced = studioReducer(added, { type: 'SET_MODEL_ASSET', url: 'https://cdn/z.glb', name: 'Z', occlude: true });
+    expect((forced.draft.objects[1] as Object3D).occlusion).toBe(true);
   });
 });
 

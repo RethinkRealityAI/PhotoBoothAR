@@ -328,7 +328,7 @@ export function subscribeToPosts(eventId: string, handlers: {
 /* Storage                                                             */
 /* ------------------------------------------------------------------ */
 
-function extFor(file: Blob, fallback: string): string {
+function extFor(file: Blob, fallback: string, name?: string): string {
   const t = file.type;
   if (t.includes('png')) return 'png';
   if (t.includes('webp')) return 'webp';
@@ -336,7 +336,17 @@ function extFor(file: Blob, fallback: string): string {
   if (t.includes('svg')) return 'svg';
   if (t.includes('webm')) return 'webm';
   if (t.includes('mp4')) return 'mp4';
-  if (t.includes('gltf-binary') || t.includes('octet-stream')) return 'glb';
+  if (t.includes('gltf-binary')) return 'glb';
+  // A .gltf is JSON, not a binary container: it used to miss every branch above
+  // and land on the 'png' fallback, so it was stored `…gltf.png` and read back
+  // as an IMAGE (classifyAsset keys on the extension) — the model was lost.
+  if (t.includes('gltf+json')) return 'gltf';
+  // Browsers hand back 'application/octet-stream' or '' for .glb/.gltf on many
+  // platforms and OSes, so the picked filename is the only thing that can tell
+  // the two model formats apart. Checked BEFORE the octet-stream default below.
+  const named = /\.(glb|gltf)$/i.exec(name ?? '');
+  if (named) return named[1].toLowerCase();
+  if (t.includes('octet-stream')) return 'glb';
   return fallback;
 }
 
@@ -359,7 +369,7 @@ function uid(): string {
  */
 export async function uploadAsset(eventId: string, file: Blob, name?: string): Promise<string | null> {
   const safe = (name ?? 'asset').replace(/[^a-z0-9.\-_]/gi, '_');
-  const path = `${eventId}/uploads/${uid()}-${safe}.${extFor(file, 'png')}`;
+  const path = `${eventId}/uploads/${uid()}-${safe}.${extFor(file, 'png', safe)}`;
   const { error } = await supabase.storage.from(ASSETS_BUCKET).upload(path, file, {
     upsert: true,
     contentType: file.type || undefined,
