@@ -154,6 +154,33 @@ describe('the baseball cap — the contracts its render depends on', () => {
   });
 });
 
+describe('Power-Ups gear — authored placement so a fresh add fits a real guest', () => {
+  // These numbers were tuned by the owner against a live camera. The add path
+  // computes scale as fitScale * fitCm / PROP_TARGET_CM, so the REAL-WORLD size
+  // is the thing to author; the rest is placement the anchor cannot know.
+  it('the visor ships the size and brow placement that fit a real face', () => {
+    const visor = findLibraryAsset('cyclops-visor')!;
+    expect(assetTemplateOf(visor)!.fitCm).toBeCloseTo(16.33, 2);
+    expect(visor.defaultNudgeCm).toEqual({ x: 0, y: 0.4, z: -6.4 });
+    expect(visor.defaultOcclude).toBe(true);
+  });
+
+  it('the gauntlet ships the rotation that lands it ON the wrist', () => {
+    const g = findLibraryAsset('power-gauntlet')!;
+    expect(g.defaultRotationDeg).toEqual({ x: -83, y: 5, z: 174 });
+    expect(g.defaultNudgeCm).toEqual({ x: -0.7, y: -1.9, z: 2.1 });
+    // fitCm 30 already lands the owner's size — authoring a rotation must not
+    // quietly change how big the piece arrives.
+    expect(assetTemplateOf(g)!.fitCm).toBe(30);
+  });
+
+  it('an entry with no authored placement stays exactly as before', () => {
+    const cap = findLibraryAsset('baseball-cap')!;
+    expect(cap.defaultRotationDeg).toBeUndefined();
+    expect(cap.defaultOcclude).toBeUndefined();
+  });
+});
+
 describe('Power-Ups gear — beam emitters survive validation and sit on the mesh', () => {
   // The fired beam parents to the template emitter; a gear whose emitter is
   // dropped by normalizeTemplate silently falls back to the generic head/hand

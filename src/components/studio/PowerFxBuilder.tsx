@@ -275,6 +275,8 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
           scale: fitScale != null ? (fitScale * template.fitCm) / PROP_TARGET_CM : undefined,
           template: rawTemplate,
           offsetCm: libAsset.defaultNudgeCm,
+          rotationDeg: libAsset.defaultRotationDeg,
+          occlude: libAsset.defaultOcclude,
           anchor: libAsset.anchor !== undefined && libAsset.anchor in ANCHOR_MAP ? (libAsset.anchor as HeadAnchor) : undefined,
           handAnchor: libAsset.handAnchor,
         });

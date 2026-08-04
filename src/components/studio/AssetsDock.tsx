@@ -764,6 +764,8 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                   scale: fitScale != null ? (fitScale * template.fitCm) / PROP_TARGET_CM : undefined,
                   template: a.template,
                   offsetCm: a.defaultNudgeCm,
+                  rotationDeg: a.defaultRotationDeg,
+                  occlude: a.defaultOcclude,
                   // The entry's natural mount: eyewear lands on the nose bridge,
                   // a wand in the tracked hand — not the historical crown default.
                   anchor: isHeadAnchor(a.anchor) ? a.anchor : undefined,

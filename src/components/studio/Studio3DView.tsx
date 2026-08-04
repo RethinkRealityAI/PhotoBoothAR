@@ -18,7 +18,7 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import type { ThreeEvent } from '@react-three/fiber';
 import type * as THREE from 'three';
-import { ANCHOR_MAP, RIG_CAMERA } from '../../lib/faceRig';
+import { ANCHOR_MAP, RIG_CAMERA, scaledAnchorBase } from '../../lib/faceRig';
 import { FaceRig, Model } from '../ar/FaceRig';
 import AssetGizmo from '../ar/AssetGizmo';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
@@ -236,19 +236,27 @@ export default function Studio3DView({
             real floor; nothing in the product has one today. */}
         <SceneLighting preset={lightingPreset} />
 
-        <ReferenceBust onFit={handleBustFit} />
+        {/* headScale is the host's head-size calibration. Live applies it to
+            BOTH the occluder and the anchor offsets (FaceRig), so orbit has to
+            apply it to the reference head and its dots too — otherwise the two
+            views disagree the moment a host calibrates. */}
+        <group scale={headScale}>
+          <ReferenceBust onFit={handleBustFit} />
+        </group>
         {/* Occluder shown faintly in orbit only when debugging placement. */}
         {debugOcclusion && <FaceOccluder scale={headScale} debug />}
         {/* Head-anchor dots hide while a HAND-tracked piece is selected — a
             stray tap must not look like it could yank a wand onto the head
             (switching families lives in Properties, an explicit control). */}
         {!(selected !== null && isHandAnchorId(selected.handAnchor)) && (
-          <AnchorDots activeAnchor={activeAnchor} onSelect={onAnchorSelect} />
+          <AnchorDots activeAnchor={activeAnchor} onSelect={onAnchorSelect} headScale={headScale} />
         )}
 
         {headObjects.map((o) => {
           const isSel = o.id === selectedId;
-          const base = ANCHOR_MAP[o.anchor]?.offset ?? ([0, 0, 0] as [number, number, number]);
+          // The SAME anchor base live uses (FaceRig.scaledAnchorBase), so a
+          // piece placed here sits where it will sit on the guest.
+          const base = scaledAnchorBase(ANCHOR_MAP[o.anchor]?.offset ?? [0, 0, 0], headScale);
           return (
             <group key={o.id} onClick={selectHandler(o)}>
               <AssetGizmo

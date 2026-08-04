@@ -681,7 +681,7 @@ export type StudioAction =
   /** `template` is the asset's configurator descriptor when the library row
    *  ships one (assetTemplate.AssetTemplate). Omitting it — every caller today
    *  — adds a plain, non-configurable model exactly as before. */
-  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown; offsetCm?: { x: number; y: number; z: number }; anchor?: HeadAnchor; handAnchor?: string }
+  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown; offsetCm?: { x: number; y: number; z: number }; rotationDeg?: { x: number; y: number; z: number }; occlude?: boolean; anchor?: HeadAnchor; handAnchor?: string }
   | { type: 'SET_THUMB'; url: string | null; blob: Blob | null }
   | { type: 'TOGGLE_PUBLISHED' }
   | { type: 'TOGGLE_FEATURED' }
@@ -903,16 +903,28 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         // a wand at the hand's grip. Absent = the historical default (crown).
         anchor: action.anchor,
         handAnchor: action.handAnchor,
-        // offsetCm: a library entry's authored starting nudge (e.g. a cap rides
-        // at the hairline, not the brow) — same field the Placement sliders
+        // offsetCm/rotationDeg: a library entry's authored starting placement
+        // (a cap rides at the hairline, not the brow; a gauntlet lands sideways
+        // on the wrist until turned) — the same fields the Placement sliders
         // edit, so the host can still move it and saved scenes are untouched.
-        anchorConfig: action.scale != null || action.offsetCm != null
+        // DEGREES in, radians stored: the action speaks the authoring unit and
+        // anchorConfig keeps the render unit, so neither side has to remember.
+        anchorConfig: action.scale != null || action.offsetCm != null || action.rotationDeg != null
           ? {
               offset: action.offsetCm ?? { x: 0, y: 0, z: 0 },
-              rotation: { x: 0, y: 0, z: 0 },
+              rotation: action.rotationDeg
+                ? {
+                    x: (action.rotationDeg.x * Math.PI) / 180,
+                    y: (action.rotationDeg.y * Math.PI) / 180,
+                    z: (action.rotationDeg.z * Math.PI) / 180,
+                  }
+                : { x: 0, y: 0, z: 0 },
               scale: action.scale ?? 1,
             }
           : undefined,
+        // Absent stays absent: createObject3D's own `?? false` keeps every
+        // existing add path byte-identical.
+        occlusion: action.occlude,
       });
       const nd = appendObject(d, obj);
       if (!nd) return state;

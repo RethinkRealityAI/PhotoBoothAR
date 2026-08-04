@@ -186,6 +186,39 @@ describe('head pieces and model assets', () => {
     const st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x.glb' });
     expect((selectedObject(st.draft) as Object3D).anchorConfig.scale).toBe(1);
   });
+
+  it('SET_MODEL_ASSET applies an authored rotation (degrees in, radians stored) and occlusion', () => {
+    // A generated gauntlet lands sideways on the wrist until turned; shipping
+    // the turn is what makes a fresh add look right with no slider work.
+    const st = studioReducer(s0(), {
+      type: 'SET_MODEL_ASSET',
+      url: 'https://cdn/g.glb',
+      name: 'Gauntlet',
+      rotationDeg: { x: -83, y: 5, z: 174 },
+      offsetCm: { x: -0.7, y: -1.9, z: 2.1 },
+      occlude: true,
+    });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.anchorConfig.rotation.x).toBeCloseTo((-83 * Math.PI) / 180, 9);
+    expect(o.anchorConfig.rotation.y).toBeCloseTo((5 * Math.PI) / 180, 9);
+    expect(o.anchorConfig.rotation.z).toBeCloseTo((174 * Math.PI) / 180, 9);
+    expect(o.anchorConfig.offset).toEqual({ x: -0.7, y: -1.9, z: 2.1 });
+    expect(o.occlusion).toBe(true);
+  });
+
+  it('a rotation ALONE still builds an anchorConfig (the gate covers all three)', () => {
+    const st = studioReducer(s0(), {
+      type: 'SET_MODEL_ASSET', url: 'https://cdn/g.glb', name: 'g', rotationDeg: { x: 0, y: 90, z: 0 },
+    });
+    expect((selectedObject(st.draft) as Object3D).anchorConfig.rotation.y).toBeCloseTo(Math.PI / 2, 9);
+  });
+
+  it('omitting the new fields is byte-identical to the old add path', () => {
+    const before = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x', scale: 3 });
+    const o = selectedObject(before.draft) as Object3D;
+    expect(o.anchorConfig.rotation).toEqual({ x: 0, y: 0, z: 0 });
+    expect(o.occlusion).toBe(false);
+  });
   it('SET_OBJECT_TRACKING switches head → hand (default grip), zeroing placement but keeping scale', () => {
     let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/wand.glb', name: 'wand', scale: 7.4, offsetCm: { x: 0, y: 1.5, z: 1 } });
     const id = st.draft.selectedId as string;

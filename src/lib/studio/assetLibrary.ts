@@ -80,6 +80,20 @@ export interface ConfigurableAsset {
    * HAND (a wand in the fist, a gauntlet on the wrist), not the head.
    */
   handAnchor?: string;
+  /**
+   * Authored starting rotation in DEGREES, applied on add. A generated asset's
+   * own axes are whatever the generator produced: the gauntlet models a hand
+   * held one way, which lands sideways on the wrist anchor until it is turned.
+   * Without this the host has to discover three slider values before the piece
+   * looks like anything. Measured on a real hand, not computed.
+   */
+  defaultRotationDeg?: { x: number; y: number; z: number };
+  /**
+   * Whether the piece should hide behind the head by default. Eyewear wants
+   * this (the temples belong behind the face); a necklace or a hand prop does
+   * not. Absent = the historical default (off).
+   */
+  defaultOcclude?: boolean;
 }
 
 /**
@@ -257,7 +271,11 @@ const CYCLOPS_VISOR_TEMPLATE = {
   id: "cyclops-visor",
   name: "Cyclops Visor",
   glbUrl: "/models/cyclops-visor.glb",
-  fitCm: 15,
+  // 16.33, not a round 15: the add path computes anchorConfig.scale as
+  // fitScale * fitCm / PROP_TARGET_CM, and 15 landed 7.90 where a real face
+  // needs 8.60 (owner-tuned on camera). Authoring the real-world size is what
+  // makes a fresh add fit without the host touching a slider.
+  fitCm: 16.33,
   // Beam origin: lens-front apex, GLB-local (measured from the lens region's
   // own vertices — centroid x,y pushed to the front surface +2% margin).
   emitter: { position: [0.024, 0.021, 0.984], direction: [0, 0, 1] },
@@ -335,7 +353,10 @@ export const LIBRARY_ASSETS: ConfigurableAsset[] = [
     swatch: ["#23262e", "#ff2b4a"],
     template: CYCLOPS_VISOR_TEMPLATE,
     anchor: 'noseBridge',
-    defaultNudgeCm: { x: 0, y: 1.5, z: 1.0 },
+    // Owner-tuned against a live face: the visor's box centre sits forward of
+    // the lens, so it needs pulling BACK onto the brow rather than pushing out.
+    defaultNudgeCm: { x: 0, y: 0.4, z: -6.4 },
+    defaultOcclude: true,
   },
   {
     id: "wizard-wand",
@@ -352,6 +373,12 @@ export const LIBRARY_ASSETS: ConfigurableAsset[] = [
     swatch: ["#2b2e35", "#18ffff"],
     template: POWER_GAUNTLET_TEMPLATE,
     handAnchor: 'wristBack',
+    // Owner-tuned on a tracked hand. The generated gauntlet models a hand held
+    // palm-down along its own axes; the wrist anchor's frame is the tracked
+    // hand's, so it lands sideways until turned. fitCm 30 already produces the
+    // owner's 15.80 size, so only placement is authored here.
+    defaultNudgeCm: { x: -0.7, y: -1.9, z: 2.1 },
+    defaultRotationDeg: { x: -83, y: 5, z: 174 },
   },
 ];
 

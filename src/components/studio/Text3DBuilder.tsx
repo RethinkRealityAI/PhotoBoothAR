@@ -32,6 +32,7 @@ import {
   FONT_OPTIONS,
   KIND_ANCHOR,
   KIND_LABEL,
+  KIND_PLACEMENT,
   MATERIAL_PRESETS,
   SAG_CM,
   TEXT3D_KINDS,
@@ -192,9 +193,20 @@ export default function Text3DBuilder({ eventId, dispatch, onClose, onUploaded, 
       // scale 1 explicitly: the piece is authored life-size, so the auto-fit
       // that normally rescales an uploaded model must not run.
       const anchors = Array.isArray(anchor) ? anchor : [anchor];
+      const place = KIND_PLACEMENT[spec.kind];
       for (const a of anchors) {
-        dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: 1 });
-        dispatch({ type: 'SELECT_ANCHOR', anchor: a });
+        // The anchor rides the ADD, it is not a follow-up SELECT_ANCHOR — that
+        // action deliberately zeroes offset and rotation (a host switching a
+        // piece from crown to chin wants a clean slate), which silently wiped
+        // the authored placement when it ran second.
+        dispatch({
+          type: 'SET_MODEL_ASSET',
+          url,
+          name: label,
+          scale: place.scale,
+          offsetCm: place.offsetCm,
+          anchor: a,
+        });
       }
       onUploaded?.();
       onClose();
