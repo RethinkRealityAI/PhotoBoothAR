@@ -60,15 +60,19 @@ import {
   collectTriggers,
   createTriggerEngine,
   hasHandSource,
+  isHandSource,
   revealTargetIdsOf,
   isLayerVisible,
   resolvePulseShader,
   pulseRestoreValue,
   triggerHintText,
   shouldRunTriggers,
+  type AnimatePreset,
   type TriggerConfig,
   type TriggerEvent,
 } from '../lib/studio/triggers';
+import { makeBeamSpec } from '../lib/studio/beam';
+import { emitFx } from '../lib/studio/fxBus';
 import { submitPostDetailed, getStudioSettings } from '../lib/db';
 import { DEFAULT_STUDIO_SETTINGS, HEAD_SCALE_MIN, HEAD_SCALE_MAX, type StudioSettings } from '../lib/studio/occluder';
 import {
@@ -239,6 +243,15 @@ function HeadScaleOverlay3D({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Anchor for the powerFx-only Overlay3D mount (no 3D attach selected): the
+ *  rig itself renders nothing — BeamFX's own FaceRig carries the beam. */
+const POWERFX_ONLY_ANCHOR: AnchorConfig = {
+  anchor: 'noseBridge',
+  offset: { x: 0, y: 0, z: 0 },
+  rotation: { x: 0, y: 0, z: 0 },
+  scale: 1,
+};
 
 export default function Booth() {
   const { id: routeExperienceId } = useParams<{ id?: string }>();
@@ -725,11 +738,22 @@ export default function Booth() {
     [source, attachExp, frameExp, effectExp],
   );
   const hasTriggers = triggers.length > 0;
+  // A beam action anywhere in the scene mounts BeamFX inside the 3D canvas
+  // (and the canvas itself for frame/filter-only scenes). db-only, like every
+  // trigger feature — legacy events can never carry one.
+  const powerFxActive = useMemo(
+    () => source === 'db' && triggers.some((t) => t.action.type === 'beam'),
+    [source, triggers],
+  );
   // Layer ids that a reveal trigger hides until it fires; `revealedIds` is the
   // runtime set already fired. NEVER persisted — a fresh scene starts all hidden.
   const revealTargetIds = useMemo(() => revealTargetIdsOf(triggers), [triggers]);
   const [revealedIds, setRevealedIds] = useState<Set<string>>(() => new Set());
   useEffect(() => { setRevealedIds(new Set()); }, [activeTriggerExp]);
+  // One-shot `animate` pulses per layer id — a Map write per FIRE (≤ once per
+  // 2.5s cooldown), never per frame; AnimatedPiece decays each to identity.
+  const [pulseMap, setPulseMap] = useState<ReadonlyMap<string, { preset: AnimatePreset; at: number }>>(new Map());
+  useEffect(() => { setPulseMap(new Map()); }, [activeTriggerExp]);
   // A layer that is a reveal-trigger TARGET is hidden-until-fired BY DESIGN, so
   // its reveal state ALONE decides visibility — an editor "hidden" (eye toggle)
   // must not also suppress it, or the reveal could never appear. Every other
@@ -777,12 +801,17 @@ export default function Booth() {
       // three times and nothing compared them. The source==='db' gates stay
       // EXPLICIT here — legacy/code events never carry layers, and that
       // invariant is worth stating rather than inferring.
-      .map((l) => layerToPiece(l, {
-        guestName,
-        occlusionEnabled: source === 'db',
-        customizationEnabled: source === 'db',
-      }));
-  }, [attachLayers, source, layerVisible, guestName]);
+      .map((l) => {
+        const piece = layerToPiece(l, {
+          guestName,
+          occlusionEnabled: source === 'db',
+          customizationEnabled: source === 'db',
+        });
+        // One-shot `animate` trigger pulse for this layer, if one fired.
+        const pulse = pulseMap.get(l.id);
+        return pulse !== undefined ? { ...piece, pulse } : piece;
+      });
+  }, [attachLayers, source, layerVisible, guestName, pulseMap]);
 
   // ── Auto head-size (per-guest transfer) ───────────────────────────────
   // STRICTLY OPT-IN by construction: only kicks in when the occluder is actually
@@ -904,6 +933,24 @@ export default function Booth() {
     const a = e.action;
     if (a.type === 'burst') {
       triggerFxRef.current?.fire(a.style);
+    } else if (a.type === 'beam') {
+      // Emitter: the named layer, else the scene's first 3D piece — its
+      // template + customization resolve `color:'auto'` (the guest's lens hex
+      // travels on the piece via the shared mapper; no extra plumbing).
+      const layers = attachLayers ?? null;
+      const emitterLayer =
+        (a.objectId !== undefined && layers ? layers.find((l) => l.id === a.objectId) : undefined) ??
+        layers?.find((l) => l.kind === '3d_attachment');
+      const piece = emitterLayer
+        ? layerToPiece(emitterLayer, { guestName, occlusionEnabled: false, customizationEnabled: source === 'db' })
+        : null;
+      emitFx({ kind: 'beam', spec: makeBeamSpec(a, piece, isHandSource(e.source), performance.now()) });
+    } else if (a.type === 'animate') {
+      setPulseMap((prev) => {
+        const next = new Map(prev);
+        next.set(a.objectId, { preset: a.preset, at: performance.now() });
+        return next;
+      });
     } else if (a.type === 'reveal') {
       setRevealedIds((prev) => {
         if (prev.has(a.objectId)) return prev;
@@ -920,8 +967,7 @@ export default function Booth() {
     } else if (a.type === 'filterPulse') {
       startFilterPulse(a.shaderId, a.durationMs);
     }
-    // 'beam' and 'animate' are wired in the Power-FX pass (BeamFX / piece pulse).
-  }, [startFilterPulse]);
+  }, [startFilterPulse, attachLayers, guestName, source]);
   const handleTriggerEventRef = useRef(handleTriggerEvent);
   useEffect(() => { handleTriggerEventRef.current = handleTriggerEvent; }, [handleTriggerEvent]);
 
@@ -1724,22 +1770,27 @@ export default function Booth() {
                 </div>
               )}
               <div ref={feedContainerRef} className="absolute inset-0">
-                {is3D && anchorConfig && (
+                {/* Mounted for a 3D attach scene AND for any scene whose
+                    triggers carry a beam action (a frame-only scene can still
+                    blast) — the beam renders in this canvas so StageCanvas
+                    composites it into the photo and the recording for free. */}
+                {((is3D && anchorConfig) || powerFxActive) && (
                   <HeadScaleOverlay3D
                     base={studioCfg.headScale}
                     subRef={headScaleSubRef}
-                    assetUrl={attachExp!.asset_url}
-                    proceduralId={attachExp!.config?.procedural}
-                    anchor={anchorConfig}
+                    assetUrl={is3D && anchorConfig ? attachExp!.asset_url : null}
+                    proceduralId={is3D && anchorConfig ? attachExp!.config?.procedural : null}
+                    anchor={anchorConfig ?? POWERFX_ONLY_ANCHOR}
                     videoId="booth-video"
                     mirror={isFront}
-                    occlude={source === 'db' && attachExp!.config?.occlusion === true}
-                    onFaceVisible={setFaceVisible}
-                    pieces={overlayPieces}
+                    occlude={is3D && source === 'db' && attachExp!.config?.occlusion === true}
+                    onFaceVisible={is3D && anchorConfig ? setFaceVisible : undefined}
+                    pieces={is3D && anchorConfig ? overlayPieces : null}
                     reveal={reveal}
                     lightingPreset={boothLighting}
                     onAssetReady={markAssetLoaded}
                     onAssetError={handleAssetError}
+                    powerFx={powerFxActive}
                   />
                 )}
               </div>

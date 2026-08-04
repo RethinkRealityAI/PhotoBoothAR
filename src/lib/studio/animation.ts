@@ -52,6 +52,46 @@ export interface Animate3DResult {
 
 const IDENTITY_3D: Animate3DResult = { position: [0, 0, 0], rotationY: 0, scaleMul: 1 };
 
+/** How long a one-shot `animate` trigger pulse runs, ms. */
+export const PULSE_3D_MS = 900;
+
+/**
+ * One-shot 3D pulse for the `animate` trigger action — a transient transform
+ * that composes MULTIPLICATIVELY with the piece's continuous animate3D preset
+ * and decays to the exact identity by PULSE_3D_MS, so capture parity after the
+ * pulse is untouched. elapsedMs < 0 or ≥ PULSE_3D_MS → identity.
+ */
+export function animatePulse3D(
+  preset: 'shake' | 'pulse' | 'spin' | 'pop',
+  elapsedMs: number,
+): Animate3DResult {
+  if (!(elapsedMs >= 0) || elapsedMs >= PULSE_3D_MS) return IDENTITY_3D;
+  const k = elapsedMs / PULSE_3D_MS; // 0..1
+  const decay = 1 - k;
+  switch (preset) {
+    case 'shake': {
+      // Side-to-side jitter: ±0.9cm at ~7Hz, dying out.
+      const x = 0.9 * decay * Math.sin(2 * Math.PI * 7 * (elapsedMs / 1000));
+      return { position: [x, 0, 0], rotationY: 0, scaleMul: 1 };
+    }
+    case 'pulse': {
+      // Two visible breaths, dying out.
+      const scaleMul = 1 + 0.22 * decay * Math.sin(2 * Math.PI * 2.2 * (elapsedMs / 1000));
+      return { position: [0, 0, 0], rotationY: 0, scaleMul: Math.max(0.05, scaleMul) };
+    }
+    case 'spin': {
+      // Exactly one full ease-out turn, landing back at 0 rotation.
+      const eased = 1 - Math.pow(1 - k, 3);
+      return { position: [0, 0, 0], rotationY: 2 * Math.PI * eased, scaleMul: 1 };
+    }
+    case 'pop': {
+      // Overshoot spring: up to +35% early, settling to 1.
+      const scaleMul = 1 + 0.35 * decay * Math.sin(Math.PI * Math.min(1, k * 1.6));
+      return { position: [0, 0, 0], rotationY: 0, scaleMul: Math.max(0.05, scaleMul) };
+    }
+  }
+}
+
 /** 3D animation applied on top of a piece's static AnchorConfig-derived transform. */
 export function animate3D(preset: LayerAnimation, tSec: number): Animate3DResult {
   switch (preset) {

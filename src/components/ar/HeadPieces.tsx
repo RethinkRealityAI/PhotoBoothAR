@@ -315,6 +315,78 @@ function NeonShades() {
 }
 
 /* ---------------------------------------------------------------- */
+/* Optic Visor (Cyclops-style wraparound, anchored at noseBridge)   */
+/* ---------------------------------------------------------------- */
+function CyclopsVisor() {
+  // Local units × HEAD_PIECE_UNIT (1.9) ≈ centimetres. ONE continuous curved
+  // lens — a cylinder-wall segment wrapping the face — set into a dark metal
+  // band, per the visor language (never two rims + a bridge). The two-pane
+  // trick from NeonShades keeps the lens reading as glowing glass instead of
+  // an opaque slab over the guest's eyes. The lens colour here is the default
+  // ruby; the GLB library visor is the recolourable one (region tint).
+  const arc = Math.PI * 0.72; // ~130° wrap
+  return (
+    <group>
+      {/* Curved lens: open cylinder wall, axis vertical, wrapping the face.
+          Radius 3.4 local ≈ 6.5cm; rotated so the arc faces +Z (the camera). */}
+      <group rotation={[0, -Math.PI / 2 - arc / 2, 0]}>
+        <mesh>
+          <cylinderGeometry args={[3.4, 3.4, 1.35, 28, 1, true, 0, arc]} />
+          <meshStandardMaterial
+            color="#1a0508"
+            emissive="#ff2b4a"
+            emissiveIntensity={1.9}
+            metalness={0.55}
+            roughness={0.25}
+            transparent
+            opacity={0.72}
+            side={2 /* DoubleSide */}
+            toneMapped={false}
+          />
+        </mesh>
+        {/* Outer glow pane — slightly larger, faint, no depth write. */}
+        <mesh>
+          <cylinderGeometry args={[3.55, 3.55, 1.6, 28, 1, true, 0, arc]} />
+          <meshStandardMaterial
+            color="#1a0508"
+            emissive="#ff2b4a"
+            emissiveIntensity={1.4}
+            transparent
+            opacity={0.2}
+            depthWrite={false}
+            side={2}
+            toneMapped={false}
+          />
+        </mesh>
+        {/* Band: darker metal rims above and below the lens. */}
+        <mesh position={[0, 0.95, 0]}>
+          <cylinderGeometry args={[3.5, 3.45, 0.42, 28, 1, true, 0, arc]} />
+          <meshStandardMaterial color="#23262e" metalness={0.85} roughness={0.25} side={2} />
+        </mesh>
+        <mesh position={[0, -0.92, 0]}>
+          <cylinderGeometry args={[3.45, 3.5, 0.38, 28, 1, true, 0, arc]} />
+          <meshStandardMaterial color="#23262e" metalness={0.85} roughness={0.25} side={2} />
+        </mesh>
+      </group>
+      {/* Temple arms, folding back toward the ears. */}
+      <mesh position={[-3.2, 0.15, -1.4]} rotation={[0, Math.PI / 7, 0]}>
+        <boxGeometry args={[0.95, 0.34, 0.16]} />
+        <meshStandardMaterial color="#23262e" metalness={0.85} roughness={0.25} />
+      </mesh>
+      <mesh position={[3.2, 0.15, -1.4]} rotation={[0, -Math.PI / 7, 0]}>
+        <boxGeometry args={[0.95, 0.34, 0.16]} />
+        <meshStandardMaterial color="#23262e" metalness={0.85} roughness={0.25} />
+      </mesh>
+      {/* Centre brow ridge — the classic visor silhouette detail. */}
+      <mesh position={[0, 1.05, 3.35]}>
+        <boxGeometry args={[1.5, 0.3, 0.3]} />
+        <meshStandardMaterial color="#2c303a" metalness={0.9} roughness={0.2} />
+      </mesh>
+    </group>
+  );
+}
+
+/* ---------------------------------------------------------------- */
 /* Registry                                                          */
 /* ---------------------------------------------------------------- */
 const COMPONENTS: Record<string, () => ReactNode> = {
@@ -323,6 +395,7 @@ const COMPONENTS: Record<string, () => ReactNode> = {
   'cheek-stars': CheekStars,
   'hope-halo': HopeHalo,
   'neon-shades': NeonShades,
+  'cyclops-visor': CyclopsVisor,
 };
 
 /** True when a procedural head piece exists for this id. */

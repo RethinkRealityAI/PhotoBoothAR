@@ -25,10 +25,13 @@ import StudioPreview from './StudioPreview';
 import Tooltip from '../ui/Tooltip';
 import ErrorBoundary from '../ui/ErrorBoundary';
 import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
-import { createTriggerEngine, hasHandSource, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, BEAM_STYLE_LABELS, ANIMATE_PRESET_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
+import { createTriggerEngine, hasHandSource, isHandSource, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, BEAM_STYLE_LABELS, ANIMATE_PRESET_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
 import { detectHandsNow, getLatestHandFrame, resetHandRig } from '../../lib/handRig';
 import { initializeHandLandmarker } from '../../lib/handTracking';
+import { makeBeamSpec } from '../../lib/studio/beam';
+import { emitFx } from '../../lib/studio/fxBus';
+import { objectToPiece, STUDIO_SAMPLE_GUEST_NAME } from '../../lib/studio/draftMapping';
 import type { LightingPresetId } from '../../lib/studio/lighting';
 import { initializeFaceLandmarker, isFaceLandmarkerReady } from '../../lib/faceTracking';
 import { REVEAL_SHIMMER_MS } from '../../lib/studio/reveal';
@@ -356,8 +359,19 @@ export default function StudioStage({
       return;
     }
     if (a.type === 'beam') {
-      // Live beam preview arrives with BeamFX; until then, acknowledge the fire.
-      showToast(`${label} → ${BEAM_STYLE_LABELS[a.style]}`);
+      if (mode === 'preview') {
+        // The REAL ceremony, through the same fxBus + BeamFX the booth uses.
+        const target =
+          (a.objectId !== undefined ? draft.objects.find((o) => o.id === a.objectId) : undefined) ??
+          draft.objects.find((o) => o.type !== 'overlay');
+        const piece =
+          target !== undefined && target.type !== 'overlay'
+            ? objectToPiece(target, { guestName: STUDIO_SAMPLE_GUEST_NAME })
+            : null;
+        emitFx({ kind: 'beam', spec: makeBeamSpec(a, piece, isHandSource(e.source), performance.now()) });
+      } else {
+        showToast(`${label} → ${BEAM_STYLE_LABELS[a.style]}`);
+      }
       return;
     }
     if (a.type === 'animate') {
@@ -663,6 +677,7 @@ export default function StudioStage({
               effectIdOverride={pulseShaderId ?? undefined}
               reveal={reveal}
               lightingPreset={lighting}
+              powerFx={triggers.some((t) => t.action.type === 'beam')}
             />
             </ErrorBoundary>
           </div>
