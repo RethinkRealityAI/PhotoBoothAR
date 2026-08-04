@@ -57,6 +57,14 @@ import { useEntitlements } from '../../lib/entitlements';
 import { SCENE_FULL_MESSAGE, canAddObject, createObject3D, selectedObject, sceneCounts, MAX_OBJECTS, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
 import { experienceToDraft } from '../../lib/studio/draftMapping';
 import { ADD_ONS } from '../../lib/studio/addOns';
+import { ANCHOR_MAP } from '../../lib/faceRig';
+import type { HeadAnchor } from '../../types';
+
+/** Catalogue anchors are plain strings; only a real preset id may reach the
+ *  reducer (an unknown one keeps the historical crown default). */
+function isHeadAnchor(v: string | undefined): v is HeadAnchor {
+  return v !== undefined && v in ANCHOR_MAP;
+}
 import { SectionLabel } from './StudioControls';
 import AiFramePanel from './AiFramePanel';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
@@ -704,6 +712,10 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                 scale: fitScale != null ? (fitScale * template.fitCm) / PROP_TARGET_CM : undefined,
                 template: a.template,
                 offsetCm: a.defaultNudgeCm,
+                // The entry's natural mount: eyewear lands on the nose bridge,
+                // a wand in the tracked hand — not the historical crown default.
+                anchor: isHeadAnchor(a.anchor) ? a.anchor : undefined,
+                handAnchor: a.handAnchor,
               }))
               .finally(() => setPendingKey((k) => (k === key ? null : k)));
           },

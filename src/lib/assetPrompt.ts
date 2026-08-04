@@ -33,12 +33,19 @@
  * and temples and mostly empty lenses.
  */
 export type PieceKind =
-  | 'mask' | 'helmet' | 'hat' | 'crown' | 'glasses' | 'ears'
-  | 'earring' | 'piercing' | 'faceGem'
+  | 'mask' | 'helmet' | 'hat' | 'crown' | 'glasses' | 'visor' | 'ears'
+  | 'earring' | 'piercing' | 'faceGem' | 'gauntlet' | 'wand'
   | 'held' | 'generic';
 
 const KIND_PATTERNS: { kind: PieceKind; re: RegExp }[] = [
-  { kind: 'glasses', re: /\b(glasses|sunglasses|shades|spectacles|goggles|monocle|visor)\b/i },
+  // Visor BEFORE glasses: 'visor' used to route to the glasses spec, whose
+  // "lens area is EMPTY" instruction is the exact opposite of a Cyclops-style
+  // visor — one continuous SOLID lens is the whole point.
+  { kind: 'visor', re: /\b(visor|cyclops|face ?shield|wrap[- ]?around (glasses|shades))\b/i },
+  { kind: 'glasses', re: /\b(glasses|sunglasses|shades|spectacles|goggles|monocle)\b/i },
+  // Hand-worn/held power gear BEFORE `held` (wand) and `generic`.
+  { kind: 'gauntlet', re: /\b(gauntlets?|power ?gloves?|armou?red ?gloves?|bracers?)\b/i },
+  { kind: 'wand', re: /\b(wands?|sceptre|scepter|staff)\b/i },
   // Helmet BEFORE mask: a helmet was being given the mask spec, which asks for
   // "cut-through eye openings and an open lower edge" — right for a face mask,
   // wrong for a helmet, which opens at the NECK and usually has a face gap
@@ -55,7 +62,7 @@ const KIND_PATTERNS: { kind: PieceKind; re: RegExp }[] = [
   { kind: 'earring', re: /\b(earrings?|ear ?cuffs?|studs?|hoops?)\b/i },
   { kind: 'faceGem', re: /\b(face ?(gems?|stickers?|jewels?)|rhinestones?|bindis?|cheek ?gems?)\b/i },
   { kind: 'ears', re: /\b(ears?|antlers?|horns?|antennae|headband)\b/i },
-  { kind: 'held', re: /\b(trophy|cup|statue|figurine|bouquet|sign|placard|balloon|wand|sword|mug|bottle)\b/i },
+  { kind: 'held', re: /\b(trophy|cup|statue|figurine|bouquet|sign|placard|balloon|sword|mug|bottle)\b/i },
 ];
 
 /** Classify a brief. Order matters: "cat ear headband" is ears, not a hat. */
@@ -122,6 +129,30 @@ const KIND_SPEC: Record<PieceKind, KindSpec> = {
       'must be NO face, NO head and NO mannequin',
     scale: 'about 14cm wide across the front — real eyewear proportions',
     view: 'a three-quarter front view showing both the front rims and one temple arm',
+  },
+  visor: {
+    geometry:
+      'a single wraparound visor band with ONE continuous curved lens panel spanning both eyes — the ' +
+      'lens is a SOLID glossy surface roughly 2-3mm thick, NOT two separate rims and NOT an empty ' +
+      'opening. Short temple arms fold back. There must be NO face, NO head and NO mannequin',
+    scale: 'about 15cm wide across the front — sized to a real adult face',
+    view: 'a three-quarter front view showing the full sweep of the single lens and one temple arm',
+  },
+  gauntlet: {
+    geometry:
+      'a single armored gauntlet — a HOLLOW wearable glove-and-forearm shell with an open wrist ' +
+      'cavity where a hand slides in, segmented plates over the fingers and back of the hand. It is ' +
+      'an empty armour piece: there must be NO hand, NO arm, NO skin and NO mannequin inside it',
+    scale: 'about 30cm from fingertips to the forearm opening — sized to a real adult hand',
+    view: 'a three-quarter view showing the back-of-hand plates and the open wrist cavity',
+  },
+  wand: {
+    geometry:
+      'a single slender wand — one continuous shaft with a sculpted handle at the base and a ' +
+      'distinct tip. Modelled complete and free-standing: no ground plane, no stand, and NO hands ' +
+      'holding it',
+    scale: 'about 30-38cm long — real handheld wand proportions',
+    view: 'laid diagonally so the full length, the handle and the tip are all in shot',
   },
   ears: {
     geometry:

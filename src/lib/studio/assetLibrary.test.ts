@@ -19,11 +19,17 @@ import { DEFAULT_REF_LUMINANCE, MAX_REGIONS, unpackRegionIds } from './regionTin
 const ALL: ConfigurableAsset[] = [...LIBRARY_ASSETS, ...DEMO_LIBRARY_ASSETS];
 
 describe('the shelf a host actually sees', () => {
-  it('ships the baseball cap — and ONLY authored content, no demo entries', () => {
-    // This asserted `toEqual([])` while the library was honestly empty; the
-    // first real asset (descriptor authored + measured in /dev/asset-prep)
-    // changes the honest state, not the honesty rule.
-    expect(libraryAssets(false).map((a) => a.id)).toEqual(['baseball-cap']);
+  it('ships the authored shelf — and ONLY authored content, no demo entries', () => {
+    // This asserted `toEqual([])` while the library was honestly empty; each
+    // real asset (descriptor authored + refLuminance measured) changes the
+    // honest state, not the honesty rule. Power-Ups added the visor (worn),
+    // wand (held) and gauntlet (hand-worn) — the first hand-anchored entries.
+    expect(libraryAssets(false).map((a) => a.id)).toEqual([
+      'baseball-cap',
+      'cyclops-visor',
+      'wizard-wand',
+      'power-gauntlet',
+    ]);
   });
 
   it('adds the demo entries only under DEV', () => {

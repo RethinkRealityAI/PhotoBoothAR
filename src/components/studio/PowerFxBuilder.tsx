@@ -23,7 +23,8 @@ import { Model } from '../ar/FaceRig';
 import { HeadPiece } from '../ar/HeadPieces';
 import BeamFX from '../ar/BeamFX';
 import SceneLighting from '../ar/SceneLighting';
-import { RIG_CAMERA } from '../../lib/faceRig';
+import { ANCHOR_MAP, RIG_CAMERA } from '../../lib/faceRig';
+import type { HeadAnchor } from '../../types';
 import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
 import { assetTemplateOf, findLibraryAsset } from '../../lib/studio/assetLibrary';
 import { normalizeTemplate } from '../../lib/studio/assetTemplate';
@@ -195,6 +196,8 @@ export default function PowerFxBuilder({ dispatch, onClose, lighting = DEFAULT_L
           scale: fitScale != null ? (fitScale * template.fitCm) / PROP_TARGET_CM : undefined,
           template: rawTemplate,
           offsetCm: libAsset.defaultNudgeCm,
+          anchor: libAsset.anchor !== undefined && libAsset.anchor in ANCHOR_MAP ? (libAsset.anchor as HeadAnchor) : undefined,
+          handAnchor: libAsset.handAnchor,
         });
         // The new object is selected by the reducer — recolour its lens.
         const parts = additions.customization?.parts;
