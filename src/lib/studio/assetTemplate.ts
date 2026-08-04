@@ -149,6 +149,10 @@ export interface AssetRegion {
   /** Mean LINEAR luminance of the baked albedo over this region — the divisor
    *  that turns the bake into a relative shading map (see regionTint.ts). */
   refLuminance: number;
+  /** The GUEST may recolour this region in the booth (host opt-in — drives the
+   *  booth's swatch row + beam colour). Absent/false = host-only, which is
+   *  every descriptor authored before Power-Ups. */
+  guestPick?: boolean;
 }
 
 /** Where a name may be engraved, and how deep the projector may cut. */
@@ -222,6 +226,9 @@ function normalizeRegion(raw: unknown): AssetRegion | null {
     recolourable: o.recolourable !== false,
     defaultHex: normalizeTint(o.defaultHex) ?? '#ffffff',
     refLuminance: normalizeRefLuminance(o.refLuminance),
+    // Explicit === true (a truthy string must not open a region to guests);
+    // emitted only when set, so pre-Power-Ups descriptors round-trip untouched.
+    ...(o.guestPick === true ? { guestPick: true } : {}),
   };
 }
 
