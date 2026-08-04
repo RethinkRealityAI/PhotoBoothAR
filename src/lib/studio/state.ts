@@ -64,8 +64,10 @@ export const DEFAULT_ANCHOR_CONFIG: StudioAnchorConfig = {
  */
 export const MAX_OBJECTS = 20;
 
-/** Soft cap on face-triggered effects per scene (studio "Magic Triggers"). */
-export const MAX_TRIGGERS = 4;
+/** Soft cap on face/hand-triggered effects per scene (studio "Magic Triggers").
+ *  Raised 4 → 6 with the hand-gesture sources so a scene can pair face + hand
+ *  ceremonies without evicting its old triggers. */
+export const MAX_TRIGGERS = 6;
 
 /* — Scene objects ---------------------------------------------------------- */
 

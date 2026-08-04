@@ -102,13 +102,13 @@ export const FEATURE_HELP: Record<FeatureHelpTopic, FeatureHelpContent> = {
   triggers: {
     eyebrow: 'Effects & magic',
     title: 'Magic Triggers',
-    body: 'Layer cinematic filters, then add Magic Triggers so a guest’s smile, wink or open mouth sets off effects live in the booth.',
+    body: 'Layer cinematic filters, then add Magic Triggers so a guest’s smile, wink, fist or open palm sets off effects live in the booth.',
     media: { kind: 'video', src: triggersVideo, poster: triggersPoster, introSkip: 1.3 },
     detail: [
-      { icon: Smile, label: '4 face cues', blurb: 'Smile · mouth · wink · brows' },
-      { icon: PartyPopper, label: '3 actions', blurb: 'Burst · Reveal · Filter pulse' },
+      { icon: Smile, label: 'Face & hand cues', blurb: 'Smile · wink · fist · palm · temple' },
+      { icon: PartyPopper, label: '5 actions', blurb: 'Burst · Blast · Reveal · Animate · Filter' },
       { icon: Sliders, label: `Up to ${MAX_TRIGGERS} per scene`, blurb: 'Mix sources & actions freely' },
-      { icon: Timer, label: '~2.5s cooldown', blurb: 'Face resets before it fires again' },
+      { icon: Timer, label: '~2.5s cooldown', blurb: 'The cue resets before it fires again' },
     ],
   },
 };

@@ -25,7 +25,7 @@ import StudioPreview from './StudioPreview';
 import Tooltip from '../ui/Tooltip';
 import ErrorBoundary from '../ui/ErrorBoundary';
 import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
-import { createTriggerEngine, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
+import { createTriggerEngine, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, BEAM_STYLE_LABELS, ANIMATE_PRESET_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
 import type { LightingPresetId } from '../../lib/studio/lighting';
 import { initializeFaceLandmarker, isFaceLandmarkerReady } from '../../lib/faceTracking';
@@ -348,9 +348,20 @@ export default function StudioStage({
       }
       return;
     }
-    // filterPulse
-    if (mode === 'preview') startPulse(a.shaderId, a.durationMs);
-    else showToast(`${label} → filter pulse`);
+    if (a.type === 'filterPulse') {
+      if (mode === 'preview') startPulse(a.shaderId, a.durationMs);
+      else showToast(`${label} → filter pulse`);
+      return;
+    }
+    if (a.type === 'beam') {
+      // Live beam preview arrives with BeamFX; until then, acknowledge the fire.
+      showToast(`${label} → ${BEAM_STYLE_LABELS[a.style]}`);
+      return;
+    }
+    if (a.type === 'animate') {
+      const name = draft.objects.find((o) => o.id === a.objectId)?.name ?? 'piece';
+      showToast(`${label} → ${ANIMATE_PRESET_LABELS[a.preset].toLowerCase()} "${name}"`);
+    }
   }, [mode, draft.objects, showToast, startPulse]);
   const handlerRef = useRef(handleTriggerEvent);
   useEffect(() => { handlerRef.current = handleTriggerEvent; }, [handleTriggerEvent]);

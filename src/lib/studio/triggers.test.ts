@@ -4,6 +4,8 @@ import {
   parseTriggers,
   sourceSignal,
   type TriggerConfig,
+  type TriggerEvent,
+  type TriggerSource,
   revealTargetIdsOf,
   isLayerVisible,
   resolvePulseShader,
@@ -11,6 +13,8 @@ import {
   triggerHintText,
   shouldRunTriggers,
   collectTriggers,
+  isHandSource,
+  hasHandSource,
 } from './triggers';
 
 const smile = (over: Partial<TriggerConfig> = {}): TriggerConfig => ({
@@ -344,5 +348,84 @@ describe('collectTriggers', () => {
   it('drops individually malformed triggers but keeps the good ones', () => {
     const out = collectTriggers([{ id: 'e', config: { triggers: [t('ok'), { id: 'bad' }] } }]);
     expect(out.map((x) => x.id)).toEqual(['ok']);
+  });
+});
+
+/* — hand sources + new actions (Power-Ups) ---------------------------------- */
+
+describe('hand-gesture grammar', () => {
+  it('legacy jsonb blobs parse byte-identically after the union widened', () => {
+    // A config saved BEFORE hand sources / beam actions existed.
+    const legacy = [
+      { id: 'a', source: 'smile', action: { type: 'burst', style: 'confetti' } },
+      { id: 'b', source: 'wink', action: { type: 'reveal', objectId: 'obj-1' }, cooldownMs: 4000 },
+      { id: 'c', source: 'browRaise', action: { type: 'filterPulse', shaderId: 'neon-pulse', durationMs: 1200 } },
+    ];
+    expect(parseTriggers(legacy)).toEqual(legacy);
+  });
+
+  it('sourceSignal reads hand scores by their own key', () => {
+    expect(sourceSignal('fistClench', { fistClench: 0.8 })).toBe(0.8);
+    expect(sourceSignal('handToTemple', {})).toBe(0);
+    expect(sourceSignal('palmOpen', { palmOpen: NaN })).toBe(0);
+  });
+
+  it('isHandSource / hasHandSource split the families', () => {
+    expect(isHandSource('fistClench')).toBe(true);
+    expect(isHandSource('smile')).toBe(false);
+    const mk = (source: TriggerSource): TriggerConfig => ({
+      id: source,
+      source,
+      action: { type: 'burst', style: 'confetti' },
+    });
+    expect(hasHandSource([mk('smile'), mk('wink')])).toBe(false);
+    expect(hasHandSource([mk('smile'), mk('palmOpen')])).toBe(true);
+    expect(hasHandSource([])).toBe(false);
+  });
+
+  it('parses beam actions and drops invalid colours without killing the action', () => {
+    const parsed = parseTriggers([
+      { id: 'z', source: 'fistClench', action: { type: 'beam', style: 'optic', color: 'auto' } },
+      { id: 'y', source: 'palmOpen', action: { type: 'beam', style: 'sparkle', color: '#0f0', origin: 'hand', objectId: 'o1', durationMs: 800 } },
+      { id: 'x', source: 'smile', action: { type: 'beam', style: 'optic', color: 'javascript:evil' } },
+      { id: 'w', source: 'smile', action: { type: 'beam', style: 'nope' } },
+    ]);
+    expect(parsed.map((p) => p.id)).toEqual(['z', 'y', 'x']);
+    expect(parsed[0].action).toEqual({ type: 'beam', style: 'optic', color: 'auto' });
+    expect(parsed[1].action).toEqual({ type: 'beam', style: 'sparkle', color: '#0f0', origin: 'hand', objectId: 'o1', durationMs: 800 });
+    expect(parsed[2].action).toEqual({ type: 'beam', style: 'optic' }); // bad colour dropped, action kept
+  });
+
+  it('parses animate actions and rejects unknown presets or missing targets', () => {
+    const parsed = parseTriggers([
+      { id: 'a', source: 'pinch', action: { type: 'animate', objectId: 'o1', preset: 'shake' } },
+      { id: 'b', source: 'pinch', action: { type: 'animate', objectId: '', preset: 'shake' } },
+      { id: 'c', source: 'pinch', action: { type: 'animate', objectId: 'o1', preset: 'wobble' } },
+    ]);
+    expect(parsed.map((p) => p.id)).toEqual(['a']);
+  });
+
+  it('fires a hand-source trigger through the engine with merged scores', () => {
+    const engine = createTriggerEngine([
+      { id: 'h', source: 'fistClench', action: { type: 'beam', style: 'optic' } },
+    ]);
+    engine.step({ fistClench: 0 }, 0);
+    let fired: TriggerEvent[] = [];
+    for (let i = 1; i <= 10 && fired.length === 0; i++) {
+      fired = engine.step({ fistClench: 1, mouthSmileLeft: 0.2 }, i * 66);
+    }
+    expect(fired).toHaveLength(1);
+    expect(fired[0].action.type).toBe('beam');
+  });
+
+  it('mixed-family hint text names both families', () => {
+    const mk = (source: TriggerSource): TriggerConfig => ({
+      id: source,
+      source,
+      action: { type: 'burst', style: 'confetti' },
+    });
+    expect(triggerHintText([mk('smile'), mk('fistClench')])).toBe('Make a face or a gesture for a surprise');
+    expect(triggerHintText([mk('palmOpen'), mk('fistClench')])).toBe('Try a hand gesture for a surprise');
+    expect(triggerHintText([mk('fistClench')])).toBe('Make a fist to fire');
   });
 });

@@ -913,9 +913,10 @@ export default function Booth() {
         if (revealTimeoutRef.current) window.clearTimeout(revealTimeoutRef.current);
         revealTimeoutRef.current = window.setTimeout(() => setReveal(false), REVEAL_SHIMMER_MS);
       }
-    } else {
+    } else if (a.type === 'filterPulse') {
       startFilterPulse(a.shaderId, a.durationMs);
     }
+    // 'beam' and 'animate' are wired in the Power-FX pass (BeamFX / piece pulse).
   }, [startFilterPulse]);
   const handleTriggerEventRef = useRef(handleTriggerEvent);
   useEffect(() => { handleTriggerEventRef.current = handleTriggerEvent; }, [handleTriggerEvent]);
