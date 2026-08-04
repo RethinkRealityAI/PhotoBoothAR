@@ -25,8 +25,10 @@ import StudioPreview from './StudioPreview';
 import Tooltip from '../ui/Tooltip';
 import ErrorBoundary from '../ui/ErrorBoundary';
 import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
-import { createTriggerEngine, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, BEAM_STYLE_LABELS, ANIMATE_PRESET_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
+import { createTriggerEngine, hasHandSource, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, BEAM_STYLE_LABELS, ANIMATE_PRESET_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
+import { detectHandsNow, getLatestHandFrame, resetHandRig } from '../../lib/handRig';
+import { initializeHandLandmarker } from '../../lib/handTracking';
 import type { LightingPresetId } from '../../lib/studio/lighting';
 import { initializeFaceLandmarker, isFaceLandmarkerReady } from '../../lib/faceTracking';
 import { REVEAL_SHIMMER_MS } from '../../lib/studio/reveal';
@@ -371,24 +373,40 @@ export default function StudioStage({
   // and is shared with any mounted FaceRig) so blendshapes refresh even in 2D /
   // filter-only preview, and steps the engine once per NEW detection frame.
   // Rebuilds (cheaply) whenever the trigger set changes → no leaked rAF/engine.
+  // Hand landmarker joins lazily, exactly as in the booth — only when the
+  // draft's triggers name a hand gesture, so ordinary scenes never pay for it.
+  const needsHands = useMemo(() => hasHandSource(triggers), [triggers]);
+  useEffect(() => {
+    if (!triggersActive || !needsHands) return;
+    initializeHandLandmarker().catch((e) => console.warn('[StudioStage] hand tracker init failed', e));
+    return () => resetHandRig();
+  }, [triggersActive, needsHands]);
+
   useEffect(() => {
     if (!triggersActive) return;
     const engine = createTriggerEngine(triggers);
     let raf = 0;
-    let lastT = -1;
+    let lastFaceT = -1;
+    let lastHandT = -1;
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const v = cam.videoRef.current;
       if (!v) return;
       detectFaceNow(v);
+      if (needsHands) detectHandsNow(v);
       const b = getLatestBlendshapes();
-      if (!b || b.t === lastT) return;
-      lastT = b.t;
-      for (const ev of engine.step(b.scores, performance.now())) handlerRef.current(ev);
+      const h = needsHands ? getLatestHandFrame() : null;
+      const faceT = b?.t ?? -1;
+      const handT = h?.t ?? -1;
+      if (faceT === lastFaceT && handT === lastHandT) return;
+      lastFaceT = faceT;
+      lastHandT = handT;
+      const merged = h ? { ...(b?.scores ?? {}), ...h.scores } : (b?.scores ?? null);
+      for (const ev of engine.step(merged, performance.now())) handlerRef.current(ev);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [triggersActive, triggers, cam.videoRef]);
+  }, [triggersActive, triggers, cam.videoRef, needsHands]);
 
   // All three views are always available — switching can no longer destroy
   // content (SET_MODE is a pure view flip; the scene persists across 2D/3D/Preview).

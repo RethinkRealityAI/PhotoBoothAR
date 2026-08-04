@@ -51,11 +51,15 @@ import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { buildCatalog } from '../lib/catalog';
 import { initializeFaceLandmarker } from '../lib/faceTracking';
+import { initializeHandLandmarker } from '../lib/handTracking';
 import ReportIssueButton from './support/ReportIssueButton';
 import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
+import { detectHandsNow, getLatestHandFrame, resetHandRig } from '../lib/handRig';
+import type { HandAnchorSample } from '../lib/handGestures';
 import {
   collectTriggers,
   createTriggerEngine,
+  hasHandSource,
   revealTargetIdsOf,
   isLayerVisible,
   resolvePulseShader,
@@ -921,27 +925,53 @@ export default function Booth() {
   const handleTriggerEventRef = useRef(handleTriggerEvent);
   useEffect(() => { handleTriggerEventRef.current = handleTriggerEvent; }, [handleTriggerEvent]);
 
+  // Hand tracking is LAZY: the landmarker (7.8MB model + a second CPU inference
+  // stream) initializes only when the scene's triggers actually name a hand
+  // gesture. No stored legacy config can (parseTriggers gates the union), so
+  // every existing event stays byte-identical in behaviour AND bandwidth.
+  const needsHands = useMemo(() => hasHandSource(triggers), [triggers]);
+  useEffect(() => {
+    if (!shouldRunTriggers(source, hasTriggers, phase, ready) || !needsHands) return;
+    initializeHandLandmarker().catch((e) => console.warn('[Booth] hand tracker init failed', e));
+    return () => resetHandRig();
+  }, [source, hasTriggers, phase, ready, needsHands]);
+
+  // Latest hand firing anchor for hand-emitted beams (read by BeamFX at fire
+  // time via a ref so the rAF loop never re-renders the booth).
+  const handAnchorRef = useRef<HandAnchorSample | null>(null);
+
   // Detection + engine loop — only for a DB scene with triggers while the camera
-  // is live. Drives detection itself (detectFaceNow) so blendshapes refresh even
-  // with no 3D piece mounted, and steps the engine once per NEW detection frame.
+  // is live. Drives detection itself (detectFaceNow / detectHandsNow — both
+  // self-throttle and interleave so the two blocking inferences never share a
+  // tick), and steps the engine once per NEW detection of EITHER task.
   useEffect(() => {
     if (!shouldRunTriggers(source, hasTriggers, phase, ready)) return;
     const engine = createTriggerEngine(triggers);
     let raf = 0;
-    let lastT = -1;
+    let lastFaceT = -1;
+    let lastHandT = -1;
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const v = videoRef.current;
       if (!v) return;
       detectFaceNow(v);
+      if (needsHands) detectHandsNow(v);
       const b = getLatestBlendshapes();
-      if (!b || b.t === lastT) return;
-      lastT = b.t;
-      for (const ev of engine.step(b.scores, performance.now())) handleTriggerEventRef.current(ev);
+      const h = needsHands ? getLatestHandFrame() : null;
+      const faceT = b?.t ?? -1;
+      const handT = h?.t ?? -1;
+      if (faceT === lastFaceT && handT === lastHandT) return;
+      lastFaceT = faceT;
+      lastHandT = handT;
+      handAnchorRef.current = h?.anchor ?? null;
+      // Hand scores spread LAST: the namespaces are disjoint today, and if a
+      // future key ever collided the explicit gesture should win.
+      const merged = h ? { ...(b?.scores ?? {}), ...h.scores } : (b?.scores ?? null);
+      for (const ev of engine.step(merged, performance.now())) handleTriggerEventRef.current(ev);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [source, hasTriggers, phase, ready, videoRef, triggers]);
+  }, [source, hasTriggers, phase, ready, videoRef, triggers, needsHands]);
 
   // A one-off guest hint when the scene has triggers. The copy names the source
   // the HOST actually authored — it used to hard-code "Smile for a surprise", so

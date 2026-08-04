@@ -9,8 +9,22 @@ const runningMode: 'IMAGE' | 'VIDEO' = 'VIDEO';
  * version always matches the @mediapipe/tasks-vision JS we import. Loading the
  * WASM from a hardcoded CDN version that drifted away from the package produced
  * malformed facial-transform matrices, which placed AR assets off the face.
+ *
+ * Exported for handTracking.ts — both landmarkers resolve the same fileset.
  */
-const WASM_PATH = '/mediapipe/wasm';
+export const MEDIAPIPE_WASM_PATH = '/mediapipe/wasm';
+const WASM_PATH = MEDIAPIPE_WASM_PATH;
+
+/**
+ * ONE FilesetResolver promise shared by every vision task. Sharing saves the
+ * duplicate wasm download + parse when the hand landmarker joins; each task
+ * still instantiates its own wasm runtime (heaps are not shared).
+ */
+let filesetPromise: ReturnType<typeof FilesetResolver.forVisionTasks> | null = null;
+export function visionFileset() {
+  if (filesetPromise === null) filesetPromise = FilesetResolver.forVisionTasks(WASM_PATH);
+  return filesetPromise;
+}
 
 /**
  * The landmark model, preferred from our OWN origin for exactly the reason the
@@ -31,20 +45,22 @@ const REMOTE_MODEL_URL =
  * enough: both the Vite dev server and Netlify answer an unknown path with
  * index.html at 200, so an un-vendored build would "find" the model and hand
  * MediaPipe a page of HTML. Content-type is what distinguishes them.
+ *
+ * Generalized (local, remote) for handTracking.ts — same trap, same guard.
  */
-async function resolveModelUrl(): Promise<string> {
+export async function resolveModelUrl(localUrl: string, remoteUrl: string): Promise<string> {
   try {
-    const res = await fetch(LOCAL_MODEL_URL, { method: 'HEAD' });
+    const res = await fetch(localUrl, { method: 'HEAD' });
     const type = res.headers.get('content-type') ?? '';
-    if (res.ok && !type.includes('text/html')) return LOCAL_MODEL_URL;
+    if (res.ok && !type.includes('text/html')) return localUrl;
   } catch {
     // Offline, blocked, or not vendored yet — the remote copy still works.
   }
-  return REMOTE_MODEL_URL;
+  return remoteUrl;
 }
 
 async function create(delegate: 'GPU' | 'CPU', modelUrl: string): Promise<FaceLandmarker> {
-  const vision = await FilesetResolver.forVisionTasks(WASM_PATH);
+  const vision = await visionFileset();
   return FaceLandmarker.createFromOptions(vision, {
     baseOptions: { modelAssetPath: modelUrl, delegate },
     // Blendshapes power face-triggered effects (src/lib/studio/triggers.ts).
@@ -72,7 +88,7 @@ export async function initializeFaceLandmarker() {
   // The CPU delegate (XNNPACK) is plenty fast for single-face landmarks and is
   // rock-solid next to other WebGL canvases.
   initPromise = (async () => {
-    const modelUrl = await resolveModelUrl();
+    const modelUrl = await resolveModelUrl(LOCAL_MODEL_URL, REMOTE_MODEL_URL);
     try {
       faceLandmarker = await create('CPU', modelUrl);
     } catch (cpuErr) {
