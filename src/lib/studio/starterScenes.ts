@@ -33,6 +33,7 @@
 import { BORDER_MAP, toDataUrl } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
 import { BUNDLED_PROP_MAP, propAnchorConfig } from './bundledProps';
+import { findLibraryAsset, assetTemplateOf } from './assetLibrary';
 import {
   createObject3D,
   createOverlay,
@@ -41,6 +42,7 @@ import {
   type StudioDraft,
   type StudioObject,
 } from './state';
+import type { TriggerConfig } from './triggers';
 import type { HeadAnchor, Transform2D } from '../../types';
 
 /** A sticker placed within a starter scene, with its composed position. */
@@ -88,6 +90,21 @@ export interface StarterScene {
    * promised the new one.
    */
   propId?: string;
+  /**
+   * LIBRARY_ASSETS id (assetLibrary.ts) with an AUTHORED scale, used instead
+   * of propId/headPieceId. The scale is fitCm / the GLB's measured largest
+   * dimension — authored here because buildStarterDraft is pure/sync and the
+   * dock's async measureGlbFitScale cannot run inside it. The entry's own
+   * anchor/handAnchor/nudge/template all ride along, so the piece lands
+   * exactly as if added from the Personalise shelf.
+   */
+  library?: { id: string; scale: number };
+  /**
+   * Magic Triggers this scene ships with (ids generated at build time). The
+   * flagship Power-Ups scenes pair a FACE cue and a HAND cue on purpose —
+   * combinability demonstrated in the shipped default, not just documented.
+   */
+  triggers?: Omit<TriggerConfig, 'id'>[];
 }
 
 /**
@@ -171,6 +188,48 @@ export const STARTER_SCENES: StarterScene[] = [
     stickers: [{ borderId: 'overlay-confetti', transform: { scale: 0.9 } }],
     shaderId: 'laser-sparkle',
   },
+  /* — Power-Ups scenes: gear + gesture ceremonies, zero credits. Authored
+     scales = fitCm / the GLB's measured largest local dimension (see the
+     `library` field note). */
+  {
+    id: 'hero-visor',
+    name: 'Hero Visor',
+    blurb: 'A one-lens visor — touch your temple to fire an optic blast; smile for sparkles.',
+    preview: '/starters/hero-visor.webp',
+    swatch: ['#23262e', '#ff2b4a'],
+    shaderId: 'neon-pulse',
+    library: { id: 'cyclops-visor', scale: 7.9 },
+    triggers: [
+      { source: 'handToTemple', action: { type: 'beam', style: 'optic', color: 'auto' } },
+      { source: 'smile', action: { type: 'burst', style: 'sparkles' } },
+    ],
+  },
+  {
+    id: 'wizard-duel',
+    name: 'Wizard Duel',
+    blurb: 'A carved wand in your hand — pinch to stream sparkles from the gem.',
+    preview: '/starters/wizard-duel.webp',
+    swatch: ['#4a2c17', '#b388ff'],
+    shaderId: 'holo-bloom',
+    library: { id: 'wizard-wand', scale: 12.7 },
+    triggers: [
+      { source: 'pinch', action: { type: 'beam', style: 'sparkle', color: 'auto' } },
+      { source: 'browRaise', action: { type: 'burst', style: 'sparkles' } },
+    ],
+  },
+  {
+    id: 'power-surge',
+    name: 'Power Surge',
+    blurb: 'An armored gauntlet — open your palm to blast; clench a fist for fireworks.',
+    preview: '/starters/power-surge.webp',
+    swatch: ['#2b2e35', '#18ffff'],
+    shaderId: 'neon-pulse',
+    library: { id: 'power-gauntlet', scale: 15.8 },
+    triggers: [
+      { source: 'palmOpen', action: { type: 'beam', style: 'energy', color: 'auto' } },
+      { source: 'fistClench', action: { type: 'burst', style: 'fireworks' } },
+    ],
+  },
 ];
 
 export const STARTER_SCENE_MAP: Record<string, StarterScene> = Object.fromEntries(
@@ -253,6 +312,24 @@ export function buildStarterDraft(sceneId: string): StudioDraft | null {
     }));
   }
 
+  const libraryAsset = preset.library ? findLibraryAsset(preset.library.id) : null;
+  const libraryTemplate = libraryAsset ? assetTemplateOf(libraryAsset) : null;
+  if (libraryAsset && libraryTemplate && preset.library) {
+    objects.push(createObject3D('model', {
+      assetUrl: libraryTemplate.glbUrl,
+      name: libraryAsset.name,
+      // The entry's natural mount, exactly as the Personalise shelf adds it.
+      anchor: typeof libraryAsset.anchor === 'string' ? (libraryAsset.anchor as HeadAnchor) : undefined,
+      handAnchor: libraryAsset.handAnchor,
+      template: libraryAsset.template,
+      anchorConfig: {
+        offset: { ...(libraryAsset.defaultNudgeCm ?? { x: 0, y: 0, z: 0 }) },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: preset.library.scale,
+      },
+    }));
+  }
+
   const bundled = preset.propId ? BUNDLED_PROP_MAP[preset.propId] : undefined;
   if (bundled) {
     objects.push(createObject3D('model', {
@@ -294,5 +371,9 @@ export function buildStarterDraft(sceneId: string): StudioDraft | null {
     kind: 'shader',
   };
   draft.kind = deriveKind(draft);
+  // Shipped triggers, ids generated here (the same shape ADD_TRIGGER stores).
+  if (preset.triggers && preset.triggers.length > 0) {
+    draft.triggers = preset.triggers.map((t, i) => ({ ...t, id: `trg-${preset.id}-${i}` }));
+  }
   return draft;
 }

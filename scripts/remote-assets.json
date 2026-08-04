@@ -230,6 +230,18 @@
     {
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_145236_c1739059-2de9-4ab0-8c90-28988fe7d0fb.glb",
       "path": "public/models/power-gauntlet.glb"
+    },
+    {
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/1bc7adda-7be7-4c79-9f09-2b5c0fedd941.webp",
+      "path": "public/starters/hero-visor.webp"
+    },
+    {
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/5b686d1d-e83d-43d3-b0a5-a97ac8b947c4.webp",
+      "path": "public/starters/wizard-duel.webp"
+    },
+    {
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/5ca7a8bb-e755-4757-b9a1-760c5a7fb8eb.webp",
+      "path": "public/starters/power-surge.webp"
     }
   ]
 }

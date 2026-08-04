@@ -10,6 +10,7 @@ import { BORDER_MAP } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
 import { SHADER_MAP } from '../shaders';
 import { MAX_OBJECTS, sceneCounts, deriveKind } from './state';
+import { parseTriggers } from './triggers';
 
 /** Words that identify one of the three frozen legacy events. */
 const LEGACY_WORDS = ['scago', 'hope gala', 'gala', 'jenna', 'jake', 'detola', 'wuyi'];
@@ -185,6 +186,12 @@ describe('buildStarterDraft', () => {
           expect(o.builtinId).toBeTruthy();
         } else if (o.type === 'headpiece') {
           expect(o.proceduralId).toBeTruthy();
+        } else if (s.library) {
+          // A configurable LIBRARY asset (Power-Ups scenes): app-absolute path
+          // under public/models/, its descriptor riding along so the booth's
+          // configurator + guest colour picker light up.
+          expect(o.assetUrl, `${s.id} library url`).toMatch(/^\/models\/[a-z0-9-]+\.glb$/);
+          expect(o.template, `${s.id} library template`).toBeTruthy();
         } else {
           // A bundled GLB prop: an app-absolute path under public/ (never a
           // third-party URL — that would put a venue's wifi on the booth's
@@ -261,11 +268,20 @@ describe('buildStarterDraft', () => {
     expect(ids.size).toBe(a.objects.length + b.objects.length);
   });
 
-  it('starts every scene published and with no triggers', () => {
+  it('starts every scene published, with only its authored triggers — all jsonb-valid', () => {
     for (const s of STARTER_SCENES) {
       const d = buildStarterDraft(s.id)!;
       expect(d.isPublished).toBe(true);
-      expect(d.triggers).toEqual([]);
+      if (s.triggers && s.triggers.length > 0) {
+        // Shipped triggers must survive the SAME validation gate stored
+        // configs pass — a starter can never author a trigger the studio
+        // couldn't (unique ids included, or the booth dedupes them away).
+        expect(d.triggers.length).toBe(s.triggers.length);
+        expect(parseTriggers(d.triggers)).toEqual(d.triggers);
+        expect(new Set(d.triggers.map((t) => t.id)).size).toBe(d.triggers.length);
+      } else {
+        expect(d.triggers).toEqual([]);
+      }
       expect(d.thumbBlob).toBeNull();
     }
   });

@@ -15,6 +15,8 @@
  * Kept free of supabase/react imports: the network call lives in the panel.
  */
 
+import { parseTriggers, type TriggerConfig } from './triggers';
+
 export interface SceneShaderCatalogEntry {
   id: string;
   params: { key: string; min: number; max: number; default: number }[];
@@ -39,6 +41,13 @@ export interface ScenePlan {
   frame: { prompt: string } | null;
   shader: ScenePlanShader | null;
   headPiece: ScenePlanHeadPiece | null;
+  /**
+   * Magic Triggers the director proposed (face OR hand cues → burst / beam /
+   * filter pulse). Validated by REUSING parseTriggers — one grammar, one gate —
+   * so the director can never emit a trigger the studio could not have
+   * authored. Empty when the model skipped them.
+   */
+  triggers: TriggerConfig[];
 }
 
 /** One turn of the docked Director chat: the director's warm reply (always
@@ -113,13 +122,24 @@ export function normalizeScenePlan(
     }
   }
 
-  if (!frame && !shader && !headPiece) return null;
+  // Director triggers: ids are generated here (the model names none), then the
+  // whole array goes through the SAME jsonb gate stored configs pass. Capped at
+  // 3 so a chatty model cannot fill the scene's MAX_TRIGGERS budget.
+  let triggers: TriggerConfig[] = [];
+  if (Array.isArray(r.triggers)) {
+    triggers = parseTriggers(
+      r.triggers.slice(0, 3).map((t, i) => ({ ...(asRecord(t) ?? {}), id: `trg-director-${i}` })),
+    );
+  }
+
+  if (!frame && !shader && !headPiece && triggers.length === 0) return null;
 
   return {
     sceneName: cleanPrompt(r.sceneName) ?? 'Custom Scene',
     frame,
     shader,
     headPiece,
+    triggers,
   };
 }
 

@@ -148,6 +148,7 @@ describe('buildSceneContext', () => {
     frame: { prompt: 'art-deco sunburst corners in brass on matte black' },
     shader: { shaderId: 'noir-classic', params: {} },
     headPiece: { kind: 'generate', prompt: 'a gold laurel wreath' },
+    triggers: [],
   };
 
   it('is empty when there is nothing to tell the model (field then omitted)', () => {
@@ -188,6 +189,7 @@ describe('buildSceneContext', () => {
     const out = buildSceneContext(null, {
       sceneName: 'Quiet Ivory', frame: null, shader: null,
       headPiece: { kind: 'procedural', id: 'royal-crown' },
+      triggers: [],
     });
     expect(out).toContain('frame: none');
     expect(out).toContain('filter: none');
