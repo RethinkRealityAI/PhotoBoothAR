@@ -1,0 +1,711 @@
+<!doctype html>
+<!--
+  Beamwall · Teaser — 33.2s vertical (9:16) social film (HyperFrames
+  composition "teaser").
+
+  Motion language is a deliberate translation of the kinetic design-tool ad
+  form: a near-black canvas, ONE small persistent wordmark, a signature
+  letter-assembly with directional colour streaks, perspective card stacks,
+  a layer-separation beat with design-tool selection handles, a coverflow
+  carousel and a corridor flythrough — every beat carrying a real shipped
+  Beamwall feature rather than a claim.
+
+  Scene map:
+    S0  0.00– 0.85  cold open — beam-spectrum key visual + BEAMWALL flash
+    S1  0.85– 4.30  kinetic title — 8 glyphs scatter, streak to centre and
+                    land as "Beamwall"; cursor blinks; the pill types
+                    "AR PHOTO BOOTH" one character at a time
+    S2  4.30– 8.60  01 frame designs — a perspective DECK of five finished
+                    keepsake cards; the top card peels away every 0.78s
+    S3  8.60–13.20  Frame Studio — the last card separates into its real
+                    layers (photo · frame · title · name · QR) with
+                    selection handles, then collapses back
+    S4 13.20–17.20  02 personalisation — coverflow carousel, the same frame
+                    carrying a different guest name on every card
+    S5 17.20–20.40  03 AR booth — clip-ar-crown-turn inside the phone, the
+                    crown staying tracked while he turns; prop tray
+    S6 20.40–23.60  04 challenges — mission card, AI photo-check, +50, board
+    S6b 23.60–26.60 05 keepsake cards — the morning-after card slides in over
+                    a daylight plate, video-message play badge pulsing
+    S7 26.60–30.60  06 live wall — corridor flythrough of guest photos
+                    resolving onto the venue wall plate + a grid filling in
+    S8 30.60–33.20  end card — foil wordmark + CTA pill (holds to END)
+
+  Contract: root omits data-duration (the timeline pins 33.2 — trim the
+  encode with -t 33.2); scenes alternate tracks 1/2; the single <video> is a
+  DIRECT root child (framework-owned) positioned over the phone screen rect
+  (wrap 311,742 + 19px → 330,761, 420×861).
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <title>Beamwall · Teaser</title>
+    <link rel="stylesheet" href="assets/kit.css" />
+    <script src="assets/gsap.min.js"></script>
+    <script src="assets/kit.js"></script>
+    <style>
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+
+      #root { width: 1080px; height: 1920px; background: #000; }
+
+      /* The reference canvas is near-pure black: the kit backdrop's beams and
+         stars are deliberately NOT animated here — only a low bottom glow. */
+      #tz-bg { position: absolute; inset: 0; background: radial-gradient(120% 70% at 50% 108%, #0b1024 0%, #05060b 46%, #000 78%); }
+      #tz-flash { position: absolute; inset: 0; background: radial-gradient(58% 34% at 50% 46%, rgba(238,243,255,0.95), rgba(122,140,255,0.28) 52%, transparent 74%); opacity: 0; z-index: 55; pointer-events: none; }
+      #tz-vig { position: absolute; inset: 0; z-index: 60; pointer-events: none; box-shadow: inset 0 0 260px 70px rgba(0,0,0,0.82); }
+
+      /* persistent wordmark, top-left, exactly like the reference's */
+      #tz-mark { position: absolute; left: 64px; top: 66px; z-index: 40; opacity: 0; display: flex; align-items: center; gap: 14px; }
+      #tz-mark .glyph { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, var(--violet), var(--blue) 55%, var(--teal)); }
+      #tz-mark .txt { font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 30px; letter-spacing: 0.16em; color: var(--fg); }
+
+      /* ── shared type scale (frame is 1080 wide; social plays ~full width) ── */
+      .head { position: absolute; left: 0; right: 0; top: 168px; padding: 0 78px; box-sizing: border-box; text-align: center; z-index: 30; }
+      .eyebrow-t { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4em; font-size: 30px; margin: 0 0 22px; opacity: 0; }
+      .title-t { font-family: "Cormorant Garamond", Georgia, serif; font-weight: 600; font-size: 78px; line-height: 1.05; color: var(--fg); margin: 0; opacity: 0; }
+      .title-t em { font-style: normal; }
+      .sub-t { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 32px; color: var(--muted); margin: 26px 0 0; letter-spacing: 0.03em; opacity: 0; }
+
+      /* ── S0 cold open ── */
+      #s0-plate { position: absolute; inset: 0; z-index: 12; }
+      #s0-plate img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #s0-scrim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(5,6,11,0.55), rgba(5,6,11,0.15) 45%, rgba(5,6,11,0.8)); }
+      #s0-word { position: absolute; left: 0; right: 0; top: 880px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 76px; letter-spacing: 0.34em; color: #fff; z-index: 14; opacity: 0; text-shadow: 0 0 60px rgba(91,140,255,0.9); }
+
+      /* ── S1 kinetic title ── */
+      #s1 { z-index: 22; }
+      .kg { position: absolute; font-family: "Cormorant Garamond", Georgia, serif; font-weight: 600; font-size: 150px; line-height: 1; color: var(--fg); opacity: 0; z-index: 3; }
+      /* the streak is the ad's signature: a blurred, horizontally-stretched
+         colour bar that rides behind each glyph during its flight in */
+      .ks { position: absolute; height: 26px; border-radius: 999px; opacity: 0; z-index: 2; filter: blur(9px); transform-origin: 50% 50%; }
+      #s1-cursor { position: absolute; width: 9px; height: 132px; background: var(--fg); opacity: 0; z-index: 4; }
+      #s1-pill { position: absolute; left: 50%; top: 1046px; transform: translateX(-50%); background: #fff; color: #05060b; border-radius: 999px; font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 36px; letter-spacing: 0.2em; padding: 22px 0; width: 0; overflow: hidden; white-space: nowrap; text-align: center; opacity: 0; z-index: 4; }
+
+      /* ── cards (S2 deck · S3 layers · S4 carousel) ── */
+      .stage3d { position: absolute; left: 0; right: 0; top: 470px; height: 1120px; perspective: 1600px; z-index: 20; }
+      .kcard { position: absolute; left: 50%; top: 0; width: 560px; height: 996px; margin-left: -280px; border-radius: 34px; overflow: hidden; background: #0a0c15; box-shadow: 0 46px 110px -30px rgba(0,0,0,0.95), 0 0 60px -22px rgba(91,140,255,0.55); border: 1.5px solid rgba(169,196,255,0.28); opacity: 0; }
+      .kcard .ph { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      .cf { position: absolute; inset: 22px; border: 2px solid rgba(238,243,255,0.55); border-radius: 20px; }
+      .cf::before { content: ""; position: absolute; inset: 11px; border: 1px solid rgba(238,243,255,0.3); border-radius: 12px; }
+      .cf i { position: absolute; width: 20px; height: 20px; border: 2px solid rgba(238,243,255,0.85); }
+      .cf i.a { left: -2px; top: -2px; border-right: 0; border-bottom: 0; }
+      .cf i.b { right: -2px; top: -2px; border-left: 0; border-bottom: 0; }
+      .cf i.c { left: -2px; bottom: -2px; border-right: 0; border-top: 0; }
+      .cf i.d { right: -2px; bottom: -2px; border-left: 0; border-top: 0; }
+      .kcard .grad { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(5,6,11,0.5) 0%, transparent 26%, transparent 52%, rgba(5,6,11,0.9) 100%); }
+      .kcard .ttl { position: absolute; left: 46px; right: 46px; bottom: 128px; font-family: "Cormorant Garamond", Georgia, serif; font-weight: 600; font-size: 62px; line-height: 1.04; color: #fff; text-align: center; }
+      .kcard .dat { position: absolute; left: 46px; right: 46px; bottom: 84px; font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 26px; letter-spacing: 0.3em; text-transform: uppercase; text-align: center; }
+      .kcard .bwm { position: absolute; left: 0; right: 0; bottom: 36px; font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 20px; letter-spacing: 0.42em; text-transform: uppercase; color: rgba(238,243,255,0.62); text-align: center; }
+
+      /* ── S3 layer separation ── */
+      #s3 { z-index: 24; }
+      .lyr { position: absolute; left: 50%; top: 0; opacity: 0; border-radius: 22px; }
+      /* design-tool selection chrome, exactly the reference's language */
+      .lyr .sel { position: absolute; inset: -12px; border: 1.5px solid rgba(169,196,255,0.75); border-radius: 16px; }
+      .lyr .sel i { position: absolute; width: 13px; height: 13px; background: #fff; border: 1.5px solid rgba(91,140,255,0.95); border-radius: 3px; }
+      .lyr .sel i.tl { left: -7px; top: -7px; }
+      .lyr .sel i.tr { right: -7px; top: -7px; }
+      .lyr .sel i.bl { left: -7px; bottom: -7px; }
+      .lyr .sel i.br { right: -7px; bottom: -7px; }
+      #ly-photo { width: 430px; height: 764px; margin-left: -215px; overflow: hidden; box-shadow: 0 40px 90px -30px rgba(0,0,0,0.95); }
+      #ly-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #ly-frame { width: 430px; height: 764px; margin-left: -215px; }
+      .lchip { background: rgba(9,11,20,0.92); border: 1.5px solid rgba(169,196,255,0.4); box-shadow: 0 26px 60px -24px rgba(0,0,0,0.95); padding: 22px 34px; text-align: center; }
+      #ly-title { margin-left: -190px; width: 380px; font-family: "Cormorant Garamond", Georgia, serif; font-weight: 600; font-size: 52px; color: #fff; }
+      #ly-name { margin-left: -132px; width: 264px; font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 30px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--teal); }
+      #ly-qr { margin-left: -96px; width: 192px; }
+      #ly-qr img { display: block; width: 128px; height: 128px; margin: 0 auto 12px; background: #fff; border-radius: 8px; padding: 6px; box-sizing: border-box; }
+      #ly-qr span { display: block; font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 19px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--muted); }
+      .lname { position: absolute; left: 50%; top: 0; font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 24px; letter-spacing: 0.24em; text-transform: uppercase; color: rgba(169,196,255,0.9); opacity: 0; z-index: 26; white-space: nowrap; }
+
+      /* ── S4 carousel ── */
+      #s4 { z-index: 22; }
+      #s4-rail { position: absolute; left: 50%; top: 0; transform-style: preserve-3d; }
+      .ccard { position: absolute; top: 0; width: 480px; height: 854px; margin-left: -240px; border-radius: 30px; overflow: hidden; background: #0a0c15; border: 1.5px solid rgba(169,196,255,0.3); box-shadow: 0 44px 100px -32px rgba(0,0,0,0.95); }
+      .ccard img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      .ccard .cg { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 42%, rgba(5,6,11,0.92)); }
+      .ccard .cn { position: absolute; left: 0; right: 0; bottom: 104px; text-align: center; font-family: "Cormorant Garamond", Georgia, serif; font-weight: 600; font-size: 66px; color: #fff; }
+      .ccard .cl { position: absolute; left: 0; right: 0; bottom: 62px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 21px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--teal); }
+      .ccard .dim { position: absolute; inset: 0; background: rgba(5,6,11,0.62); }
+
+      /* ── S5 AR booth ── */
+      #s5 { z-index: 23; }
+      #tz-phone-wrap { position: absolute; left: 311px; top: 742px; opacity: 0; z-index: 23; }
+      #tz-phone-wrap .bw-phone { background: transparent; }
+      #tz-phone-wrap .bw-phone .screen { background: transparent; }
+      #tz-plate { position: absolute; left: 330px; top: 761px; width: 420px; height: 861px; border-radius: 46px; background: rgba(8,10,20,0.94); z-index: 21; opacity: 0; }
+      #tz-clip { position: absolute; left: 330px; top: 761px; width: 420px; height: 861px; object-fit: cover; border-radius: 46px; z-index: 22; }
+      #s5-ring { position: absolute; left: 424px; top: 900px; width: 232px; height: 232px; border-radius: 50%; border: 2.5px solid rgba(91,140,255,0.85); box-shadow: 0 0 54px -8px rgba(91,140,255,0.8); z-index: 25; opacity: 0; }
+      #s5-tray { position: absolute; left: 0; right: 0; top: 1660px; display: flex; justify-content: center; gap: 26px; z-index: 26; }
+      .ptile { width: 132px; border-radius: 22px; padding: 12px 12px 8px; text-align: center; opacity: 0; background: rgba(9,11,20,0.86); border: 1.5px solid rgba(169,196,255,0.32); }
+      .ptile img { display: block; width: 100px; height: 100px; object-fit: contain; margin: 0 auto; background: rgba(238,243,255,0.08); border-radius: 14px; }
+      .ptile span { display: block; font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 21px; color: var(--muted); margin-top: 6px; }
+      #tile-crown-t { border-color: rgba(91,140,255,0.9); box-shadow: 0 0 38px -8px rgba(91,140,255,0.8); }
+      #tile-crown-t span { color: var(--blue); }
+
+      /* ── S6 challenges ── */
+      #s6 { z-index: 22; }
+      #s6-shot { position: absolute; left: 50%; top: 560px; margin-left: -270px; width: 540px; height: 700px; border-radius: 30px; overflow: hidden; border: 1.5px solid rgba(169,196,255,0.3); box-shadow: 0 40px 96px -30px rgba(0,0,0,0.95); opacity: 0; }
+      #s6-shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #s6-mission { position: absolute; left: 50%; top: 486px; margin-left: -330px; width: 660px; box-sizing: border-box; padding: 20px 30px; border-radius: 20px; background: rgba(9,11,20,0.94); border: 1.5px solid rgba(251,146,60,0.5); font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 28px; color: var(--orange); text-align: center; letter-spacing: 0.04em; opacity: 0; z-index: 24; }
+      #s6-check { position: absolute; left: 50%; top: 1180px; margin-left: -215px; width: 430px; box-sizing: border-box; padding: 18px 0; border-radius: 999px; background: linear-gradient(115deg, #34d399, #6ee7b7 55%, #34d399); color: #06130c; font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 28px; letter-spacing: 0.14em; text-transform: uppercase; text-align: center; box-shadow: 0 0 46px -8px rgba(52,211,153,0.85); opacity: 0; z-index: 25; }
+      #s6-pts { position: absolute; left: 50%; top: 1120px; margin-left: 150px; font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 66px; color: var(--orange); text-shadow: 0 0 46px rgba(251,146,60,0.8); opacity: 0; z-index: 26; }
+      #s6-board { position: absolute; left: 50%; top: 1300px; margin-left: -270px; width: 540px; z-index: 24; }
+      .brow { display: flex; align-items: center; gap: 20px; padding: 15px 26px; margin-bottom: 12px; border-radius: 16px; background: rgba(9,11,20,0.9); border: 1.5px solid rgba(169,196,255,0.24); font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 28px; color: var(--fg); opacity: 0; }
+      .brow .rk { color: var(--muted); width: 34px; }
+      .brow .nm { flex: 1; text-align: left; }
+      .brow .sc { color: var(--teal); }
+
+      /* ── S6b keepsake cards ── */
+      #s6b { z-index: 22; }
+      #s6b-plate { position: absolute; inset: 0; z-index: 20; opacity: 0; }
+      #s6b-plate img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #s6b-plate .ms { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(5,6,11,0.9), rgba(5,6,11,0.5) 42%, rgba(5,6,11,0.94)); }
+      #s6b-card { position: absolute; left: 50%; top: 560px; margin-left: -260px; width: 520px; height: 924px; border-radius: 32px; overflow: hidden; background: #0a0c15; border: 1.5px solid rgba(232,121,249,0.45); box-shadow: 0 46px 110px -28px rgba(0,0,0,0.95), 0 0 70px -20px rgba(232,121,249,0.5); z-index: 26; opacity: 0; }
+      #s6b-card .ph { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #s6b-card .grad { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(5,6,11,0.5) 0%, transparent 26%, transparent 52%, rgba(5,6,11,0.92) 100%); }
+      #s6b-card .ttl { position: absolute; left: 42px; right: 42px; bottom: 122px; font-family: "Cormorant Garamond", Georgia, serif; font-weight: 600; font-size: 58px; line-height: 1.04; color: #fff; text-align: center; }
+      #s6b-card .dat { position: absolute; left: 42px; right: 42px; bottom: 80px; font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 25px; letter-spacing: 0.3em; text-transform: uppercase; text-align: center; }
+      #s6b-card .bwm { position: absolute; left: 0; right: 0; bottom: 34px; font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 19px; letter-spacing: 0.42em; text-transform: uppercase; color: rgba(238,243,255,0.62); text-align: center; }
+      #s6b-play { position: absolute; right: 44px; top: 44px; width: 74px; height: 74px; border-radius: 50%; background: rgba(238,243,255,0.16); border: 2px solid rgba(238,243,255,0.85); box-shadow: 0 0 44px -6px rgba(238,243,255,0.6); opacity: 0; }
+      #s6b-play::after { content: ""; position: absolute; left: 29px; top: 22px; border-style: solid; border-width: 15px 0 15px 24px; border-color: transparent transparent transparent #fff; }
+
+      /* ── S7 live wall corridor ── */
+      #s7 { z-index: 21; }
+      #s7-hall { position: absolute; inset: 0; perspective: 1100px; perspective-origin: 50% 46%; z-index: 21; overflow: hidden; }
+      #s7-rail { position: absolute; left: 50%; top: 50%; transform-style: preserve-3d; }
+      .hp { position: absolute; width: 460px; height: 580px; margin-left: -230px; margin-top: -290px; border-radius: 14px; overflow: hidden; box-shadow: 0 0 50px -14px rgba(0,0,0,0.95); }
+      .hp img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #s7-venue { position: absolute; inset: 0; z-index: 22; opacity: 0; }
+      #s7-venue img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #s7-venue .vs { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(5,6,11,0.72), rgba(5,6,11,0.28) 44%, rgba(5,6,11,0.9)); }
+      #s7-grid { position: absolute; left: 90px; top: 700px; width: 900px; display: flex; flex-wrap: wrap; gap: 12px; z-index: 24; }
+      .gcel { position: relative; box-sizing: border-box; width: 292px; height: 292px; border-radius: 12px; overflow: hidden; opacity: 0; border: 1px solid rgba(169,196,255,0.3); }
+      .gcel img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+      /* ── S8 end card ── */
+      #s8 { z-index: 30; }
+      #s8-word { font-family: "Cormorant Garamond", Georgia, serif; font-weight: 600; font-size: 156px; line-height: 1; margin: 0; opacity: 0; }
+      #s8-pill { margin-top: 56px; font-size: 32px; padding: 30px 76px; letter-spacing: 0.3em; opacity: 0; }
+      #s8-fine { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 28px; color: var(--muted); margin-top: 40px; letter-spacing: 0.08em; opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root" class="bw-root" data-composition-id="teaser" data-start="0" data-width="1080" data-height="1920">
+      <!-- footage: framework-owned root child, window matches S5 -->
+      <video id="tz-clip" src="assets/clip-ar-crown-turn.mp4" data-start="17.45" data-duration="2.75" data-track-index="6" data-volume="0" muted></video>
+
+      <div id="tz-bg"></div>
+      <div id="tz-mark"><span class="glyph"></span><span class="txt">BEAMWALL</span></div>
+      <div id="tz-plate"></div>
+      <div id="tz-phone-wrap"></div>
+
+      <!-- S0 · cold open -->
+      <div id="s0" class="clip" data-start="0" data-duration="0.9" data-track-index="1">
+        <div id="s0-plate">
+          <img id="s0-img" src="assets/photos/teaser/tz-beam-plate.webp" alt="" />
+          <div id="s0-scrim"></div>
+        </div>
+        <div id="s0-word">BEAMWALL</div>
+      </div>
+
+      <!-- S1 · kinetic title (glyphs + streaks built in script) -->
+      <div id="s1" class="clip" data-start="0.85" data-duration="3.55" data-track-index="2">
+        <div id="s1-cursor"></div>
+        <div id="s1-pill"><span id="s1-pill-tx">AR PHOTO BOOTH</span></div>
+      </div>
+
+      <!-- S2 · frame-design deck (cards built in script) -->
+      <div id="s2" class="clip" data-start="4.3" data-duration="4.4" data-track-index="1">
+        <div class="head" id="s2-head">
+          <p class="eyebrow-t" id="s2-eyebrow" style="color: var(--violet)">01 · Frame designs</p>
+          <h2 class="title-t" id="s2-title">Every event gets <em class="foil">its own look</em>.</h2>
+        </div>
+        <div class="stage3d" id="s2-stage"></div>
+      </div>
+
+      <!-- S3 · Frame Studio layer separation -->
+      <div id="s3" class="clip" data-start="8.6" data-duration="4.7" data-track-index="2">
+        <div class="head" id="s3-head">
+          <p class="eyebrow-t" id="s3-eyebrow" style="color: var(--violet)">Every layer, yours</p>
+          <h2 class="title-t" id="s3-title">Frame <em style="color: var(--violet)">Studio</em></h2>
+        </div>
+        <div class="stage3d" id="s3-stage">
+          <div class="lyr" id="ly-photo"><img src="assets/photos/teaser/hero-wedding.webp" alt="" /><span class="sel"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></span></div>
+          <div class="lyr" id="ly-frame"><span class="cf" style="border-color: rgba(251,146,60,0.95)"><i class="a"></i><i class="b"></i><i class="c"></i><i class="d"></i></span><span class="sel"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></span></div>
+          <div class="lyr lchip" id="ly-title">Amara &amp; Chidi<span class="sel"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></span></div>
+          <div class="lyr lchip" id="ly-name">Amara<span class="sel"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></span></div>
+          <div class="lyr lchip" id="ly-qr"><img src="assets/qr.svg" alt="" /><span>Scan to join</span><span class="sel"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></span></div>
+          <span class="lname" id="ln-photo">Photo</span>
+          <span class="lname" id="ln-frame">Frame</span>
+          <span class="lname" id="ln-title">Event title</span>
+          <span class="lname" id="ln-name">Guest name</span>
+          <span class="lname" id="ln-qr">Join code</span>
+        </div>
+      </div>
+
+      <!-- S4 · personalisation carousel (cards built in script) -->
+      <div id="s4" class="clip" data-start="13.2" data-duration="4.1" data-track-index="1">
+        <div class="head" id="s4-head">
+          <p class="eyebrow-t" id="s4-eyebrow" style="color: var(--teal)">02 · Personalisation</p>
+          <h2 class="title-t" id="s4-title">Their name on <em class="foil">every frame</em>.</h2>
+        </div>
+        <div class="stage3d" id="s4-stage"><div id="s4-rail"></div></div>
+      </div>
+
+      <!-- S5 · AR booth -->
+      <div id="s5" class="clip" data-start="17.2" data-duration="3.3" data-track-index="2">
+        <div class="head" id="s5-head">
+          <p class="eyebrow-t" id="s5-eyebrow" style="color: var(--blue)">03 · AR booth</p>
+          <h2 class="title-t" id="s5-title">Props that <em class="foil">track their face</em>.</h2>
+        </div>
+        <div id="s5-ring"></div>
+        <div id="s5-tray">
+          <div class="ptile" id="tile-crown-t"><img src="assets/prop-crown.webp" alt="" /><span>Crown</span></div>
+          <div class="ptile" id="tile-shades-t"><img src="assets/prop-shades.webp" alt="" /><span>Shades</span></div>
+          <div class="ptile" id="tile-tiara-t"><img src="assets/prop-tiara.webp" alt="" /><span>Tiara</span></div>
+        </div>
+      </div>
+
+      <!-- S6 · challenges -->
+      <div id="s6" class="clip" data-start="20.4" data-duration="3.3" data-track-index="1">
+        <div class="head" id="s6-head">
+          <p class="eyebrow-t" id="s6-eyebrow" style="color: var(--orange)">04 · Challenges</p>
+          <h2 class="title-t" id="s6-title">Turn the room into <em class="foil">a game</em>.</h2>
+        </div>
+        <div id="s6-mission">Get a photo with someone you just met</div>
+        <div id="s6-shot"><img src="assets/photos/teaser/tz-challenge.webp" alt="" /></div>
+        <div id="s6-check">AI checked · challenge met</div>
+        <div id="s6-pts">+50</div>
+        <div id="s6-board">
+          <div class="brow" id="br-1"><span class="rk">1</span><span class="nm">Table 7</span><span class="sc">230</span></div>
+          <div class="brow" id="br-2"><span class="rk">2</span><span class="nm">Ada &amp; Femi</span><span class="sc">180</span></div>
+        </div>
+      </div>
+
+      <!-- S6b · keepsake cards -->
+      <div id="s6b" class="clip" data-start="23.6" data-duration="3.1" data-track-index="2">
+        <div id="s6b-plate"><img src="assets/photos/teaser/tz-morning-after.webp" alt="" /><div class="ms"></div></div>
+        <div class="head" id="s6b-head" style="top: 210px">
+          <p class="eyebrow-t" id="s6b-eyebrow" style="color: var(--magenta)">05 · Keepsake cards</p>
+          <h2 class="title-t" id="s6b-title">The <em class="foil">morning-after</em> keepsake.</h2>
+        </div>
+        <div id="s6b-card">
+          <img class="ph" src="assets/photos/teaser/hero-birthday.webp" alt="" />
+          <div class="grad"></div>
+          <div class="ttl">Sofia turns 30</div>
+          <div class="dat" style="color: var(--magenta)">Friday night</div>
+          <div class="bwm">Beamwall</div>
+          <span class="cf" style="border-color: rgba(232,121,249,0.7)"><i class="a"></i><i class="b"></i><i class="c"></i><i class="d"></i></span>
+          <div id="s6b-play"></div>
+        </div>
+        <p class="sub-t" id="s6b-sub" style="position: absolute; left: 0; right: 0; top: 1712px; text-align: center; z-index: 30">Their photos, their card — in their inbox by morning</p>
+      </div>
+
+      <!-- S7 · live wall (hall planes + grid cells built in script) -->
+      <div id="s7" class="clip" data-start="26.6" data-duration="4.1" data-track-index="1">
+        <div id="s7-hall"><div id="s7-rail"></div></div>
+        <div id="s7-venue"><img src="assets/photos/teaser/tz-wall-venue.webp" alt="" /><div class="vs"></div></div>
+        <div id="s7-grid"></div>
+        <div class="head" id="s7-head" style="top: 300px">
+          <p class="eyebrow-t" id="s7-eyebrow" style="color: var(--cyan)">06 · Live wall</p>
+          <h2 class="title-t" id="s7-title">Every shot lands on <em class="foil">the wall</em>.</h2>
+          <p class="sub-t" id="s7-sub">Seconds after they tap send</p>
+        </div>
+      </div>
+
+      <!-- S8 · end card -->
+      <div id="s8" class="clip scene" data-start="30.6" data-duration="2.6" data-track-index="2">
+        <div class="stack">
+          <h2 id="s8-word" class="foil">Beamwall</h2>
+          <div class="pill" id="s8-pill">Create your event</div>
+          <p id="s8-fine">beamwall.app · free to start</p>
+        </div>
+      </div>
+
+      <div id="tz-flash"></div>
+      <div id="tz-vig"></div>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+        var root = document.getElementById("root");
+        BW.buildSweep(root, "tz");
+
+        var W = 1080;
+        var rand = BW.mulberry32(0xbea11ea5);
+
+        /* ── S1 · kinetic title ─────────────────────────────────────────
+         * Eight glyphs land as "Beamwall" at 150px. Widths are measured
+         * from the rendered nodes so the word is optically centred rather
+         * than guessed. Each glyph flies in from a seeded scatter point
+         * behind a stretched colour streak — the reference's signature. */
+        var WORD = "Beamwall";
+        var s1 = document.getElementById("s1");
+        var TITLE_Y = 880;
+        var glyphs = [];
+        for (var g = 0; g < WORD.length; g++) {
+          var el = document.createElement("span");
+          el.className = "kg";
+          el.id = "kg-" + g;
+          el.textContent = WORD[g];
+          el.style.left = "0px";
+          el.style.top = TITLE_Y + "px";
+          s1.appendChild(el);
+          var sk = document.createElement("i");
+          sk.className = "ks";
+          sk.id = "ks-" + g;
+          sk.style.top = TITLE_Y + 78 + "px";
+          sk.style.width = "150px";
+          sk.style.marginLeft = "-75px";
+          sk.style.background = BW.HUES[g % 7].css;
+          s1.appendChild(sk);
+          glyphs.push({ el: el, streak: sk });
+        }
+        /* measure + lay out the final word */
+        var widths = glyphs.map(function (o) { return o.el.getBoundingClientRect().width; });
+        var total = widths.reduce(function (a, b) { return a + b; }, 0);
+        var cursorX = (W - total) / 2;
+        var lands = [];
+        for (var i2 = 0; i2 < glyphs.length; i2++) {
+          glyphs[i2].el.style.left = cursorX + "px";
+          lands.push({ x: cursorX + widths[i2] / 2, w: widths[i2] });
+          glyphs[i2].streak.style.left = cursorX + widths[i2] / 2 + "px";
+          cursorX += widths[i2];
+        }
+        document.getElementById("s1-cursor").style.left = cursorX + 16 + "px";
+        document.getElementById("s1-cursor").style.top = TITLE_Y + 22 + "px";
+        /* seeded scatter origins, biased away from the landing line */
+        var origins = glyphs.map(function (_o, i) {
+          var side = i % 2 === 0 ? -1 : 1;
+          return {
+            dx: side * (200 + rand() * 300),
+            dy: (rand() < 0.5 ? -1 : 1) * (260 + rand() * 320),
+            sc: 1.5 + rand() * 1.1,
+          };
+        });
+
+        /* ── S2 · frame-design deck ─────────────────────────────────── */
+        /* one reusable CSS frame — the shipped frame arts are finished
+           example images, so an <img> overlay would cover the guest photo */
+        function cframe(css) {
+          return '<span class="cf" style="border-color:' + css + '"><i class="a"></i><i class="b"></i><i class="c"></i><i class="d"></i></span>';
+        }
+        var DECK = [
+          { photo: "hero-wedding", title: "Amara &amp; Chidi", date: "Sat 12 June", hue: "magenta" },
+          { photo: "hero-gala", title: "The Wilder Gala", date: "Autumn benefit", hue: "violet" },
+          { photo: "hero-birthday", title: "Sofia turns 30", date: "Friday night", hue: "orange" },
+          { photo: "hero-conference", title: "Northwind Summit", date: "Day two", hue: "teal" },
+          { photo: "hero-tradeshow", title: "Aurora Launch", date: "Opening night", hue: "cyan" },
+        ];
+        var s2stage = document.getElementById("s2-stage");
+        DECK.forEach(function (d, i) {
+          var c = document.createElement("div");
+          c.className = "kcard";
+          c.id = "dk-" + i;
+          var h = BW.hue(d.hue);
+          c.style.borderColor = "rgba(" + h.rgb + ",0.5)";
+          c.innerHTML =
+            '<img class="ph" src="assets/photos/teaser/' + d.photo + '.webp" alt="" />' +
+            '<div class="grad"></div>' +
+            cframe(h.css) +
+            '<div class="ttl">' + d.title + "</div>" +
+            '<div class="dat" style="color:' + h.css + '">' + d.date + "</div>" +
+            '<div class="bwm">Beamwall</div>';
+          s2stage.appendChild(c);
+        });
+
+        /* ── S4 · personalisation carousel ──────────────────────────── */
+        var NAMES = [
+          { photo: "hero-wedding", name: "Amara" },
+          { photo: "hero-gala", name: "Chidi" },
+          { photo: "hero-birthday", name: "Sofia" },
+          { photo: "hero-conference", name: "Ravi" },
+          { photo: "hero-tradeshow", name: "Léa" },
+        ];
+        var GAP = 560;
+        var rail = document.getElementById("s4-rail");
+        NAMES.forEach(function (n, i) {
+          var c = document.createElement("div");
+          c.className = "ccard";
+          c.id = "cc-" + i;
+          c.style.left = i * GAP + "px";
+          c.innerHTML =
+            '<img src="assets/photos/teaser/' + n.photo + '.webp" alt="" />' +
+            '<div class="cg"></div>' +
+            cframe("rgba(34,211,238,0.75)") +
+            '<div class="cn">' + n.name + "</div>" +
+            '<div class="cl">Beamwall</div>' +
+            '<div class="dim" id="cd-' + i + '"></div>';
+          rail.appendChild(c);
+        });
+
+        /* ── S5 · phone chrome (screen transparent; <video> sits under) ── */
+        var ph = BW.phone("tz-phone", 420);
+        document.getElementById("tz-phone-wrap").appendChild(ph.el);
+
+        /* ── S7 · corridor planes + wall grid ───────────────────────── */
+        var HALL = [
+          "wall-wed-r1c1", "chal-r1c2", "wall-gala-r1c3", "cards-r2c1",
+          "booth-r1c2", "wall-wed-r2c3", "chal-r2c1", "wall-gala-r2c2",
+          "cards-r1c3", "booth-r3c1", "wall-wed-r3c2", "chal-r3c3",
+          "wall-gala-r3c1", "cards-r3c2",
+        ];
+        var hrail = document.getElementById("s7-rail");
+        HALL.forEach(function (nm, i) {
+          var p = document.createElement("div");
+          p.className = "hp";
+          p.id = "hp-" + i;
+          var side = i % 2 === 0 ? -1 : 1;
+          var z = -320 * Math.floor(i / 2);
+          p.style.transform =
+            "translate3d(" + side * 340 + "px, " + (i % 4 < 2 ? -150 : 160) + "px, " + z + "px) rotateY(" + (side * -42) + "deg)";
+          p.style.filter = "blur(" + (i < 4 ? 0 : 1.6) + "px)";
+          p.innerHTML = '<img src="assets/photos/cells/' + nm + '.jpg" alt="" />';
+          hrail.appendChild(p);
+        });
+        var GRID = [
+          "wall-gala-r1c1", "wall-wed-r1c2", "chal-r1c1", "cards-r1c1", "booth-r1c1", "wall-gala-r2c3",
+          "wall-wed-r2c1", "chal-r2c2", "cards-r2c3",
+        ];
+        var grid = document.getElementById("s7-grid");
+        GRID.forEach(function (nm, i) {
+          var cel = document.createElement("div");
+          cel.className = "gcel";
+          cel.id = "gc-" + i;
+          cel.innerHTML = '<img src="assets/photos/cells/' + nm + '.jpg" alt="" />';
+          grid.appendChild(cel);
+        });
+
+        /* ══ timeline ══════════════════════════════════════════════════ */
+        var EASE = "power3.out";
+        var END = 33.2;
+        var tl = gsap.timeline({ paused: true });
+
+        /* persistent wordmark: in after the cold open, out at the end card */
+        tl.fromTo("#tz-mark", { opacity: 0, y: -14 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 1.05);
+        tl.to("#tz-mark", { opacity: 0, duration: 0.35, ease: "power2.in" }, 30.35);
+        tl.set("#tz-mark", { opacity: 0 }, 30.7);
+
+        /* ── S0 · cold open (0.00–0.85) ── */
+        tl.fromTo("#s0-plate", { opacity: 0, scale: 1.14 }, { opacity: 1, scale: 1.02, duration: 0.64, ease: "power2.out" }, 0.02);
+        tl.fromTo("#s0-word", { opacity: 0, letterSpacing: "0.62em" }, { opacity: 1, letterSpacing: "0.34em", duration: 0.55, ease: EASE }, 0.14);
+        tl.to("#s0-plate", { opacity: 0, duration: 0.16, ease: "power2.in" }, 0.7);
+        tl.to("#s0-word", { opacity: 0, duration: 0.14, ease: "power2.in" }, 0.7);
+        tl.set("#s0-plate", { opacity: 0 }, 0.88);
+        tl.set("#s0-word", { opacity: 0 }, 0.88);
+        BW.flashAt(tl, "tz", 0.72, 0.85);
+
+        /* ── S1 · kinetic title (0.85–4.30) ── */
+        glyphs.forEach(function (o, i) {
+          var org = origins[i];
+          var t0 = 0.95 + i * 0.055;
+          /* scatter pop */
+          tl.fromTo(
+            "#kg-" + i,
+            { opacity: 0, x: org.dx, y: org.dy, scale: org.sc },
+            { opacity: 1, x: org.dx, y: org.dy, scale: org.sc, duration: 0.16, ease: "power2.out" },
+            t0
+          );
+          /* flight to the word, streak riding behind it */
+          tl.to("#kg-" + i, { x: 0, y: 0, scale: 1, duration: 0.62, ease: "power3.inOut" }, t0 + 0.34);
+          tl.fromTo(
+            "#ks-" + i,
+            { opacity: 0, scaleX: 0.4, scaleY: 0.5, x: org.dx * 0.7, y: org.dy * 0.7 },
+            { opacity: 0.95, scaleX: 5.2, scaleY: 1, x: 0, y: 0, duration: 0.5, ease: "power3.inOut" },
+            t0 + 0.34
+          );
+          tl.to("#ks-" + i, { opacity: 0, scaleX: 0.2, duration: 0.22, ease: "power2.in" }, t0 + 0.8);
+          tl.set("#ks-" + i, { opacity: 0 }, t0 + 1.05);
+        });
+        /* cursor blink, then the pill types out */
+        tl.fromTo("#s1-cursor", { opacity: 0 }, { opacity: 1, duration: 0.1 }, 2.06);
+        tl.to("#s1-cursor", { opacity: 0, duration: 0.1, yoyo: true, repeat: 3 }, 2.2);
+        tl.to("#s1-cursor", { opacity: 0, duration: 0.12 }, 2.62);
+        tl.set("#s1-cursor", { opacity: 0 }, 2.78);
+        tl.fromTo("#s1-pill", { opacity: 0, width: 0 }, { opacity: 1, width: 470, duration: 0.62, ease: "power3.inOut" }, 2.66);
+        tl.to("#s1", { opacity: 0, y: -46, duration: 0.42, ease: "power2.in" }, 3.9);
+        tl.set("#s1", { opacity: 0 }, 4.34);
+        BW.sweepAt(tl, "tz", 3.82);
+
+        /* head-block entrance helper (eyebrow, then title, then optional sub) */
+        function head(prefix, t) {
+          tl.fromTo("#" + prefix + "-eyebrow", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, t);
+          tl.fromTo("#" + prefix + "-title", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.68, ease: EASE }, t + 0.12);
+        }
+
+        /* ── S2 · frame-design deck (4.30–8.60) ── */
+        head("s2", 4.42);
+        /* the deck sits as a stack: each card behind peeks a little higher */
+        DECK.forEach(function (_d, i) {
+          var depth = i;
+          tl.fromTo(
+            "#dk-" + i,
+            { opacity: 0, y: 150 + depth * 8, scale: 0.9, rotateX: 16 },
+            { opacity: 1, y: -depth * 34, scale: 1 - depth * 0.045, rotateX: 7, rotate: (depth % 2 ? 1 : -1) * depth * 0.9, duration: 0.7, ease: EASE },
+            4.5 + i * 0.07
+          );
+          tl.set("#dk-" + i, { zIndex: 40 - i }, 4.5);
+        });
+        /* riffle: the front card peels away, revealing the next */
+        var RIFFLE = 5.5;
+        for (var r = 0; r < DECK.length - 1; r++) {
+          var at = RIFFLE + r * 0.72;
+          tl.to("#dk-" + r, { y: -820, rotateX: -52, scale: 1.18, duration: 0.34, ease: "power2.in" }, at);
+          tl.to("#dk-" + r, { opacity: 0, duration: 0.18, ease: "power2.in" }, at + 0.02);
+          tl.set("#dk-" + r, { opacity: 0 }, at + 0.36);
+          /* everything behind steps forward one slot */
+          for (var q = r + 1; q < DECK.length; q++) {
+            var nd = q - r - 1;
+            tl.to("#dk-" + q, { y: -nd * 34, scale: 1 - nd * 0.045, rotate: (nd % 2 ? 1 : -1) * nd * 0.9, duration: 0.5, ease: "power2.out" }, at + 0.06);
+          }
+          BW.flashAt(tl, "tz", at, 0.55);
+        }
+        tl.to("#s2-head", { opacity: 0, y: -26, duration: 0.4, ease: "power2.in" }, 8.16);
+        tl.set("#s2-head", { opacity: 0 }, 8.6);
+        tl.to("#dk-4", { opacity: 0, scale: 0.94, duration: 0.4, ease: "power2.in" }, 8.2);
+        tl.set("#dk-4", { opacity: 0 }, 8.6);
+        tl.set("#s2", { opacity: 0 }, 8.64);
+        BW.sweepAt(tl, "tz", 8.12);
+
+        /* ── S3 · Frame Studio layer separation (8.60–13.20) ── */
+        head("s3", 8.72);
+        /* every layer starts stacked at the card's rest position, then each
+           slides to its own offset with the selection chrome showing */
+        var LAYERS = [
+          { id: "ly-photo", lbl: "ln-photo", x: -70, y: 120, rot: -2.5, lx: -275, ly: 84, z: 21 },
+          { id: "ly-frame", lbl: "ln-frame", x: 96, y: 176, rot: 3.5, lx: 240, ly: 140, z: 22 },
+          { id: "ly-qr", lbl: "ln-qr", x: -300, y: 596, rot: -5, lx: -390, ly: 558, z: 23 },
+          { id: "ly-name", lbl: "ln-name", x: 250, y: 560, rot: 3, lx: 118, ly: 522, z: 24 },
+          { id: "ly-title", lbl: "ln-title", x: -140, y: 930, rot: -2, lx: -330, ly: 892, z: 25 },
+        ];
+        LAYERS.forEach(function (L) { document.getElementById(L.id).style.zIndex = L.z; });
+        LAYERS.forEach(function (L, i) {
+          tl.fromTo(
+            "#" + L.id,
+            { opacity: 0, x: 0, y: 200, rotate: 0, scale: 0.94 },
+            { opacity: 1, x: 0, y: 200, rotate: 0, scale: 1, duration: 0.4, ease: EASE },
+            8.78 + i * 0.06
+          );
+          tl.to("#" + L.id, { x: L.x, y: L.y, rotate: L.rot, duration: 0.85, ease: "power3.out" }, 9.5 + i * 0.11);
+          tl.fromTo("#" + L.lbl, { opacity: 0, x: L.lx - 30, y: L.ly }, { opacity: 1, x: L.lx, y: L.ly, duration: 0.4, ease: EASE }, 9.9 + i * 0.11);
+          /* collapse back into one card */
+          tl.to("#" + L.lbl, { opacity: 0, duration: 0.3, ease: "power2.in" }, 11.6);
+          tl.set("#" + L.lbl, { opacity: 0 }, 11.95);
+          tl.to("#" + L.id, { x: 0, y: 200, rotate: 0, duration: 0.7, ease: "power3.inOut" }, 11.75);
+        });
+        tl.to("#s3-head", { opacity: 0, y: -26, duration: 0.4, ease: "power2.in" }, 12.72);
+        LAYERS.forEach(function (L) {
+          tl.to("#" + L.id, { opacity: 0, duration: 0.35, ease: "power2.in" }, 12.76);
+          tl.set("#" + L.id, { opacity: 0 }, 13.16);
+        });
+        tl.set("#s3", { opacity: 0 }, 13.24);
+        BW.sweepAt(tl, "tz", 12.7);
+
+        /* ── S4 · personalisation carousel (13.20–17.20) ── */
+        head("s4", 13.32);
+        tl.fromTo("#s4-rail", { opacity: 0, y: 90 }, { opacity: 1, y: 60, duration: 0.6, ease: EASE }, 13.4);
+        /* each card flat and bright when centred, tilted and dimmed otherwise */
+        NAMES.forEach(function (_n, i) {
+          tl.set("#cc-" + i, { rotateY: i === 0 ? 0 : -40, transformOrigin: "50% 50%" }, 13.4);
+          tl.set("#cd-" + i, { opacity: i === 0 ? 0 : 0.62 }, 13.4);
+        });
+        var STEP = 0.62;
+        var CAR0 = 14.05;
+        for (var k = 0; k < NAMES.length - 1; k++) {
+          var tk = CAR0 + k * STEP;
+          tl.to("#s4-rail", { x: -(k + 1) * GAP, duration: STEP, ease: "power2.inOut" }, tk);
+          tl.to("#cc-" + k, { rotateY: 40, duration: STEP, ease: "power2.inOut" }, tk);
+          tl.to("#cd-" + k, { opacity: 0.62, duration: STEP, ease: "power2.inOut" }, tk);
+          tl.to("#cc-" + (k + 1), { rotateY: 0, duration: STEP, ease: "power2.inOut" }, tk);
+          tl.to("#cd-" + (k + 1), { opacity: 0, duration: STEP, ease: "power2.inOut" }, tk);
+        }
+        tl.to("#s4-head", { opacity: 0, y: -26, duration: 0.4, ease: "power2.in" }, 16.72);
+        tl.to("#s4-rail", { opacity: 0, duration: 0.4, ease: "power2.in" }, 16.76);
+        tl.set("#s4-rail", { opacity: 0 }, 17.2);
+        tl.set("#s4", { opacity: 0 }, 17.24);
+        BW.sweepAt(tl, "tz", 16.7);
+
+        /* ── S5 · AR booth (17.20–20.40) ── */
+        head("s5", 17.32);
+        tl.fromTo("#tz-phone-wrap", { opacity: 0, y: 90 }, { opacity: 1, y: 0, duration: 0.7, ease: EASE }, 17.3);
+        tl.fromTo("#tz-plate", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 17.36);
+        tl.fromTo("#s5-ring", { opacity: 0, scale: 0.55 }, { opacity: 0.9, scale: 1, duration: 0.5, ease: "power2.out" }, 18.2);
+        tl.to("#s5-ring", { opacity: 0.35, scale: 1.06, duration: 0.5, ease: "sine.inOut", yoyo: true, repeat: 1 }, 18.8);
+        ["#tile-crown-t", "#tile-shades-t", "#tile-tiara-t"].forEach(function (id, i) {
+          tl.fromTo(id, { opacity: 0, y: 40, scale: 0.86 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.6)" }, 18.1 + i * 0.14);
+        });
+        tl.fromTo("#tile-crown-t", { scale: 1 }, { scale: 1.08, duration: 0.34, ease: "sine.inOut", yoyo: true, repeat: 1 }, 19.2);
+        tl.to("#s5-ring", { opacity: 0, duration: 0.3, ease: "power2.in" }, 19.9);
+        tl.set("#s5-ring", { opacity: 0 }, 20.25);
+        tl.to("#tz-phone-wrap", { opacity: 0, y: 60, duration: 0.42, ease: "power2.in" }, 19.98);
+        tl.to("#tz-plate", { opacity: 0, duration: 0.38, ease: "power2.in" }, 19.98);
+        tl.set("#tz-phone-wrap", { opacity: 0 }, 20.44);
+        tl.set("#tz-plate", { opacity: 0 }, 20.4);
+        tl.to("#s5", { opacity: 0, duration: 0.4, ease: "power2.in" }, 19.98);
+        tl.set("#s5", { opacity: 0 }, 20.44);
+        BW.sweepAt(tl, "tz", 19.94);
+
+        /* ── S6 · challenges (20.40–23.60) ── */
+        head("s6", 20.52);
+        tl.fromTo("#s6-shot", { opacity: 0, y: 70, scale: 0.94 }, { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: EASE }, 20.6);
+        tl.fromTo("#s6-mission", { opacity: 0, y: -22 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 20.78);
+        BW.flashAt(tl, "tz", 21.55, 0.4);
+        tl.fromTo("#s6-check", { opacity: 0, y: 22, scale: 0.82 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.7)" }, 21.58);
+        tl.fromTo("#s6-pts", { opacity: 0, y: 40, scale: 0.6 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(2)" }, 21.86);
+        tl.to("#s6-pts", { opacity: 0, y: -70, duration: 0.5, ease: "power2.in" }, 22.5);
+        tl.set("#s6-pts", { opacity: 0 }, 23.04);
+        tl.fromTo("#br-2", { opacity: 0, x: -34 }, { opacity: 1, x: 0, duration: 0.42, ease: EASE }, 22.36);
+        tl.fromTo("#br-1", { opacity: 0, x: -34 }, { opacity: 1, x: 0, duration: 0.42, ease: EASE }, 22.5);
+        tl.to("#s6", { opacity: 0, y: -26, duration: 0.42, ease: "power2.in" }, 23.16);
+        tl.set("#s6", { opacity: 0 }, 23.62);
+        BW.sweepAt(tl, "tz", 23.12);
+
+        /* ── S6b · keepsake cards (23.60–26.60) ── */
+        tl.fromTo("#s6b-plate", { opacity: 0, scale: 1.08 }, { opacity: 1, scale: 1, duration: 0.8, ease: "power2.out" }, 23.64);
+        head("s6b", 23.76);
+        tl.fromTo("#s6b-card", { opacity: 0, x: 300, rotate: 9, scale: 0.9 }, { opacity: 1, x: 0, rotate: -2.5, scale: 1, duration: 0.78, ease: EASE }, 24.1);
+        tl.fromTo("#s6b-play", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.8)" }, 24.9);
+        tl.to("#s6b-play", { scale: 1.1, duration: 0.5, ease: "sine.inOut", yoyo: true, repeat: 1 }, 25.4);
+        tl.fromTo("#s6b-sub", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.45, ease: EASE }, 25.1);
+        tl.to("#s6b", { opacity: 0, duration: 0.42, ease: "power2.in" }, 26.14);
+        tl.set("#s6b", { opacity: 0 }, 26.62);
+        BW.sweepAt(tl, "tz", 26.1);
+
+        /* ── S7 · live wall corridor (26.60–30.60) ── */
+        /* the camera flies down a hall of guest photos, then the venue wall
+           resolves behind a grid that fills in shot by shot */
+        tl.fromTo("#s7-rail", { z: -1100, opacity: 0 }, { z: -760, opacity: 1, duration: 0.2, ease: "none" }, 26.62);
+        tl.to("#s7-rail", { z: 1400, duration: 1.9, ease: "none" }, 26.82);
+        tl.to("#s7-hall", { opacity: 0, duration: 0.3, ease: "power2.in" }, 28.76);
+        tl.set("#s7-hall", { opacity: 0 }, 29.1);
+        BW.flashAt(tl, "tz", 28.82, 0.6);
+        tl.fromTo("#s7-venue", { opacity: 0, scale: 1.12 }, { opacity: 1, scale: 1, duration: 0.8, ease: "power2.out" }, 28.8);
+        head("s7", 28.94);
+        tl.fromTo("#s7-sub", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.45, ease: EASE }, 29.24);
+        GRID.forEach(function (_nm, i) {
+          tl.fromTo("#gc-" + i, { opacity: 0, y: 40, scale: 0.86 }, { opacity: 1, y: 0, scale: 1, duration: 0.4, ease: "back.out(1.5)" }, 29.06 + i * 0.075);
+        });
+        tl.to("#s7", { opacity: 0, duration: 0.42, ease: "power2.in" }, 30.26);
+        tl.set("#s7", { opacity: 0 }, 30.72);
+        BW.sweepAt(tl, "tz", 30.2);
+
+        /* ── S8 · end card (30.60–33.20, holds to END) ── */
+        BW.flashAt(tl, "tz", 30.62, 1);
+        tl.fromTo("#s8-word", { opacity: 0, scale: 1.3 }, { opacity: 1, scale: 1, duration: 0.72, ease: EASE }, 30.66);
+        tl.fromTo("#s8-pill", { opacity: 0, y: 30, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.55, ease: "back.out(1.6)" }, 31.06);
+        tl.fromTo("#s8-fine", { opacity: 0 }, { opacity: 1, duration: 0.45 }, 31.34);
+
+        /* pin duration */
+        tl.set("#tz-bg", { opacity: 1 }, END);
+        window.__timelines = window.__timelines || {};
+        window.__timelines["teaser"] = tl;
+      })();
+    </script>
+  </body>
+</html>
