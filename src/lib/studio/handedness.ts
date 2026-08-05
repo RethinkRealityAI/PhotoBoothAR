@@ -115,6 +115,22 @@ export const HAND_FIT_OPTIONS: readonly { id: HandFit; label: string; hint: stri
  * Pure and quaternion-based so it can be tested without three.js; callers
  * convert their Euler in and out.
  */
+/**
+ * Mirroring is ALL OR NOTHING, and this is the one place that says so.
+ *
+ * An engraved asset cannot have its mesh mirrored — the decal is carved against
+ * the surface it was built for, and reflecting the body under it puts the name
+ * on the wrong side. But suppressing only the MESH while the placement still
+ * reflects produces the worst of both: an un-mirrored glove flung to the far
+ * side of the hand. Whatever blocks one half must block the other.
+ *
+ * A purpose-built pair GLB is NOT blocked: that sculpt really is the other
+ * hand, so its placement still has to reflect to reach the other hand's mount.
+ */
+export function canMirrorAsset(engravable: boolean): boolean {
+  return !engravable;
+}
+
 export interface MirrorablePlacement {
   offset: { x: number; y: number; z: number };
   rotation: { x: number; y: number; z: number };

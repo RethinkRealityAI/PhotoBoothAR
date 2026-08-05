@@ -232,7 +232,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
                   {/* HandPlacement, not a plain transform group: when this piece
                       is mirrored onto the other hand its offset and rotation
                       must reflect with the mesh, or it lands beside the hand. */}
-                  <HandPlacement modelledHand={p.template?.modelledHand} config={p.anchor}>
+                  <HandPlacement template={p.template} config={p.anchor}>
                     {isHeadPiece(p.proceduralId) ? (
                       <HeadPiece id={p.proceduralId as string} />
                     ) : p.assetUrl ? (

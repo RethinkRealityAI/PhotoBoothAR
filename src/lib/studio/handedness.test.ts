@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  canMirrorAsset,
   HAND_FIT_OPTIONS,
   normalizeHandFit,
   mirrorPlacement,
@@ -147,6 +148,25 @@ describe('previewHand', () => {
         const shown = previewHand(modelled, fit);
         expect(shouldMirrorAsset(modelled, fit, null)).toBe(shown !== modelled);
       }
+    }
+  });
+});
+
+describe('canMirrorAsset', () => {
+  it('blocks an engraved asset, allows everything else', () => {
+    expect(canMirrorAsset(false)).toBe(true);
+    expect(canMirrorAsset(true)).toBe(false);
+  });
+
+  it('is the SHARED gate, so mesh and placement cannot disagree', () => {
+    // The bug this closes: the mesh mirror was blocked for engraved assets but
+    // the placement mirror was not, so the piece kept its own orientation and
+    // was flung to the far side of the hand — worse than not mirroring at all.
+    // Both call sites now ask this one question.
+    for (const engravable of [true, false]) {
+      const mesh = canMirrorAsset(engravable);
+      const placement = canMirrorAsset(engravable);
+      expect(mesh).toBe(placement);
     }
   });
 });

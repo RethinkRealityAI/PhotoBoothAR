@@ -36,11 +36,12 @@ import { OneEuroQuat, OneEuroVec3, type OneEuroConfig, type Quat, type Vec3 } fr
 import { medianOf } from '../../lib/faceRig';
 import { HandMirrorContext, useHandMirror } from './handMirror';
 import {
+  canMirrorAsset,
   mirrorPlacement,
   type HandFit,
-  type ModelledHand,
   type TrackedHand,
 } from '../../lib/studio/handedness';
+import type { AssetTemplate } from '../../lib/studio/assetTemplate';
 import type { AnchorConfig } from '../../types';
 
 const POS_XY: OneEuroConfig = { minCutoff: 1.5, beta: 0.5, dCutoff: 1.0 };
@@ -212,12 +213,15 @@ export function HandRig({ anchor, videoId = 'booth-video', mirror = true, holdPo
  * own provider) and it is self-deciding — no prop threading, so a new surface
  * cannot forget.
  */
-export function HandPlacement({ modelledHand, config, children }: {
-  modelledHand: ModelledHand | undefined;
+export function HandPlacement({ template, config, children }: {
+  /** The whole descriptor, not just its hand: whether the mesh CAN mirror
+   *  decides whether the placement may, and that depends on its text slots. */
+  template: AssetTemplate | null | undefined;
   config: AnchorConfig;
   children?: ReactNode;
 }) {
-  const flip = useHandMirror(modelledHand);
+  const wants = useHandMirror(template?.modelledHand);
+  const flip = wants && canMirrorAsset((template?.textSlots.length ?? 0) > 0);
   const { offset, rotation } = flip ? mirrorPlacement(config) : config;
   return (
     <group

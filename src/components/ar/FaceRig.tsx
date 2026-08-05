@@ -26,6 +26,7 @@ import { configuratorKey, regionIdsSource, type AssetTemplate } from '../../lib/
 import { attachLabelDecal, type BuiltLabelDecal } from '../../lib/studio/assetDecal';
 import { mirrorGeometryX } from '../../lib/studio/mirrorGeometry';
 import { useHandMirror } from './handMirror';
+import { canMirrorAsset } from '../../lib/studio/handedness';
 import { AnchorConfig, AssetCustomization, HeadAnchor } from '../../types';
 import AssetGizmo from './AssetGizmo';
 import FaceOccluder from './FaceOccluder';
@@ -306,7 +307,10 @@ export function Model({
   // that mirroring would reverse. When the pair exists we load it and skip the
   // mirror entirely; when it does not, the mirror is still exact for geometry.
   const handedUrl = wantsMirror && template?.mirroredGlbUrl ? template.mirroredGlbUrl : url;
-  const mirrorX = wantsMirror && !engravable && handedUrl === url;
+  // `canMirrorAsset` rather than a bare `!engravable`: HandPlacement asks the
+  // same question about the PLACEMENT, and the two halves must answer alike —
+  // mirroring one without the other throws the piece clear of the hand.
+  const mirrorX = wantsMirror && canMirrorAsset(engravable) && handedUrl === url;
   useEffect(() => {
     if (wantsMirror && engravable) {
       console.warn('[Model] template has text slots; not mirroring for the other hand', template?.id);

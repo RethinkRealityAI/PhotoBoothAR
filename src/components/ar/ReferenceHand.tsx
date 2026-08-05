@@ -29,6 +29,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
 import { collectWorldPositions } from '../../lib/studio/bustFit';
 import { mirrorGeometryX } from '../../lib/studio/mirrorGeometry';
+import { FOREARM_REACH_MAX_CM } from '../../lib/handPose';
 import type { ModelledHand } from '../../lib/studio/handedness';
 import {
   handRefAnchors,
@@ -200,9 +201,40 @@ function FittedHand({ scene, hand, onFit }: {
 
   if (!fitted) return null;
   return (
-    <group position={fitted.position} quaternion={fitted.quaternion} scale={fitted.scale}>
-      <primitive object={fitted.object} />
-    </group>
+    <>
+      <group position={fitted.position} quaternion={fitted.quaternion} scale={fitted.scale}>
+        <primitive object={fitted.object} />
+      </group>
+      <ForearmStub />
+    </>
+  );
+}
+
+/**
+ * A plain tapered forearm below the wrist, so arm gear has an arm to sit on.
+ *
+ * The vendored mannequins are HANDS: measured in the fitted hand frame they
+ * carry only 4.07cm of mesh below the wrist (open) and 1.02cm (fist). The
+ * `forearm` anchor mounts at −5cm, so a bracer placed on it hung 0.9cm past the
+ * end of the open mannequin and 4.0cm past the fist — in empty space. Asking a
+ * host to fit a sleeve against nothing is the same defect as fitting a
+ * left-handed glove against a right hand, just one joint further up.
+ *
+ * Deliberately a primitive, not another vendored GLB: it exists to be a
+ * placement reference, and its length is exactly the reach the forearm
+ * inference can defend (FOREARM_REACH_MAX_CM), so it also shows the host where
+ * the trustworthy region ends. Chirality-free, so it needs no mirroring.
+ */
+function ForearmStub() {
+  // Radii match HandOccluder's beads, which are what actually mask the arm at
+  // capture time — the editor should not imply a different-sized limb.
+  const geo = useMemo(
+    () => new THREE.CylinderGeometry(3.6, 2.7, FOREARM_REACH_MAX_CM, 20, 1, true),
+    [],
+  );
+  useEffect(() => () => geo.dispose(), [geo]);
+  return (
+    <mesh geometry={geo} material={SKIN} position={[0, -FOREARM_REACH_MAX_CM / 2, 0]} raycast={() => {}} />
   );
 }
 
