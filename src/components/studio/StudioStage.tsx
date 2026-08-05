@@ -790,8 +790,12 @@ export default function StudioStage({
             canvas and absolutely nothing happened, anywhere. */}
         <RefusalNotice refusal={refusal} />
 
-        {/* Camera error */}
-        {cam.error && showVideo && (
+        {/* Camera error — only in the views that actually USE the camera.
+            3D-Orbit places gear against a stand-in mannequin and needs no feed
+            at all, but `showVideo` (mode !== 'preview') was true there, so a
+            host with no webcam got a full-bleed "NO CAMERA FOUND" scrim and a
+            Retry button laid over the very view that works without one. */}
+        {cam.error && showVideo && trackerLive && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-brand-bg/80 px-8 text-center">
             <AlertTriangle className="w-8 h-8 text-amber-400" />
             <p className="font-label text-[11px] uppercase tracking-widest text-brand-muted">{cam.error}</p>

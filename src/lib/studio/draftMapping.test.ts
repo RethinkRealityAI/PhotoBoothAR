@@ -251,6 +251,20 @@ describe('modelledHand on a template', () => {
     // Absent stays absent — no key at all, so old descriptors are unchanged.
     expect('modelledHand' in (normalizeTemplate(base) as object)).toBe(false);
   });
+
+  it('a purpose-built other-hand GLB survives, but only beside modelledHand', () => {
+    const base = { id: 't', glbUrl: '/left.glb', regions: [], textSlots: [] };
+    expect(normalizeTemplate({ ...base, modelledHand: 'left', mirroredGlbUrl: '/right.glb' })?.mirroredGlbUrl)
+      .toBe('/right.glb');
+    // Without modelledHand, "the other hand" names nothing — dropping it beats
+    // storing data that would come alive the day someone adds the missing field.
+    expect(normalizeTemplate({ ...base, mirroredGlbUrl: '/right.glb' })?.mirroredGlbUrl).toBeUndefined();
+    for (const junk of ['', '   ', 3, null, {}]) {
+      expect(normalizeTemplate({ ...base, modelledHand: 'left', mirroredGlbUrl: junk })?.mirroredGlbUrl)
+        .toBeUndefined();
+    }
+    expect('mirroredGlbUrl' in (normalizeTemplate(base) as object)).toBe(false);
+  });
 });
 
 describe('round-trip: multi 3D (model + head piece, per-layer occlusion/animation)', () => {

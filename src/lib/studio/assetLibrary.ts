@@ -379,12 +379,28 @@ export const LIBRARY_ASSETS: ConfigurableAsset[] = [
     swatch: ["#2b2e35", "#18ffff"],
     template: POWER_GAUNTLET_TEMPLATE,
     handAnchor: 'wristBack',
-    // Owner-tuned on a tracked hand. The generated gauntlet models a hand held
-    // palm-down along its own axes; the wrist anchor's frame is the tracked
-    // hand's, so it lands sideways until turned. fitCm 30 already produces the
-    // owner's 15.80 size, so only placement is authored here.
+    // DERIVED from the mesh, not eyeballed. Measured headlessly over all 33,005
+    // vertices: the long PCA axis runs toward the fingers at [0.249,-0.132,0.960]
+    // and the palm-outward normal at [0.030,-0.989,-0.143] — which independently
+    // agrees with the authored palm emitter firing along GLB -y. Rotating those
+    // onto the tracked hand frame (+Y wrist->fingers, +Z out of the palm) gives
+    // the Euler below; the earlier hand-tuned values crossed the gauntlet's
+    // fingers over the mannequin's by roughly 30 degrees.
+    //
+    // The NUDGE stays owner-tuned, and that is a finding rather than laziness.
+    // Deriving it the same way — put the gauntlet's own wrist (the narrowest
+    // cross-section between cuff and hand: 189 vertices at t=-0.461, against
+    // 1041 in the cuff and 2606 in the fingers) onto the wrist anchor — gives
+    // (0.93, 3.58, -1.17) and renders the gauntlet ~5cm too far up the hand,
+    // checked against the mannequin in the orbit view. So one of the two frames
+    // this assumes is not what it looks like; until that is measured rather than
+    // guessed, the values a human tuned against a real hand win.
+    //
+    // SIZE is deliberately unchanged: the hand portion measures 1.209 units, so
+    // fitCm 30 renders it 19.1cm against an adult mean hand length of 18.6cm —
+    // inside 3%, and the owner tuned and accepted that size on a real hand.
     defaultNudgeCm: { x: -0.7, y: -1.9, z: 2.1 },
-    defaultRotationDeg: { x: -83, y: 5, z: 174 },
+    defaultRotationDeg: { x: -98.49, y: -14.01, z: -3.78 },
   },
 ];
 

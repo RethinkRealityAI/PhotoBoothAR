@@ -167,11 +167,36 @@ describe('Power-Ups gear — authored placement so a fresh add fits a real guest
 
   it('the gauntlet ships the rotation that lands it ON the wrist', () => {
     const g = findLibraryAsset('power-gauntlet')!;
-    expect(g.defaultRotationDeg).toEqual({ x: -83, y: 5, z: 174 });
+    // DERIVED from the mesh, replacing hand-tuned values that crossed the
+    // gauntlet's fingers over the mannequin's by ~30 degrees (checked in the
+    // orbit view). Measured headlessly over all 33,005 vertices: the long PCA
+    // axis runs toward the fingers at [0.249,-0.132,0.960] and the palm-outward
+    // normal at [0.030,-0.989,-0.143] — the latter independently agreeing with
+    // the authored palm emitter, which fires along GLB -y. Rotating those onto
+    // the tracked hand frame (+Y wrist->fingers, +Z out of the palm) is this.
+    expect(g.defaultRotationDeg).toEqual({ x: -98.49, y: -14.01, z: -3.78 });
+    // The NUDGE is still the owner's, deliberately: deriving it the same way
+    // put the gauntlet ~5cm too far up the hand, so one of the frames that
+    // derivation assumes is not what it appears to be. Values a human checked
+    // against a real hand beat a derivation that fails its own screenshot.
     expect(g.defaultNudgeCm).toEqual({ x: -0.7, y: -1.9, z: 2.1 });
     // fitCm 30 already lands the owner's size — authoring a rotation must not
-    // quietly change how big the piece arrives.
+    // quietly change how big the piece arrives. Measured: the hand portion is
+    // 1.209 of the mesh's 1.898 longest units, so this renders 19.1cm of hand
+    // against an adult mean of 18.6cm.
     expect(assetTemplateOf(g)!.fitCm).toBe(30);
+  });
+
+  it('the gauntlet declares the hand it was modelled for, so it can serve both', () => {
+    // Without this the mirror never engages and the orbit mannequin has nothing
+    // to hand itself by — the two halves of "fits either hand" both hang off it.
+    const g = findLibraryAsset('power-gauntlet')!;
+    expect(assetTemplateOf(g)!.modelledHand).toBe('left');
+    expect(g.handAnchor).toBe('wristBack');
+    // The symmetric gear stays agnostic: declaring a hand it does not have
+    // would make the renderer mirror a wand for no reason.
+    expect(assetTemplateOf(findLibraryAsset('wizard-wand')!)!.modelledHand).toBeUndefined();
+    expect(assetTemplateOf(findLibraryAsset('cyclops-visor')!)!.modelledHand).toBeUndefined();
   });
 
   it('an entry with no authored placement stays exactly as before', () => {

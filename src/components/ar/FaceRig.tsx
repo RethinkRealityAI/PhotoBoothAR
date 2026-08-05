@@ -301,7 +301,12 @@ export function Model({
   // silently engraving a name into thin air.
   const wantsMirror = useHandMirror(template?.modelledHand ?? undefined);
   const engravable = template !== null && template !== undefined && template.textSlots.length > 0;
-  const mirrorX = wantsMirror && !engravable;
+  // A purpose-built GLB for the other hand always beats a reflection: a sculpt
+  // can carry asymmetries — baked text, a thumb plate, an off-centre decal —
+  // that mirroring would reverse. When the pair exists we load it and skip the
+  // mirror entirely; when it does not, the mirror is still exact for geometry.
+  const handedUrl = wantsMirror && template?.mirroredGlbUrl ? template.mirroredGlbUrl : url;
+  const mirrorX = wantsMirror && !engravable && handedUrl === url;
   useEffect(() => {
     if (wantsMirror && engravable) {
       console.warn('[Model] template has text slots; not mirroring for the other hand', template?.id);
@@ -327,7 +332,7 @@ export function Model({
   useEffect(() => {
     let alive = true;
     let owned: THREE.Material[] = [];
-    loadModel(url)
+    loadModel(handedUrl)
       .then((s) => {
         if (!alive) return;
         const clone = s.clone(true);
@@ -339,7 +344,7 @@ export function Model({
       })
       .catch((e) => {
         const { message } = describeGlbError(e);
-        console.error('[Model] load failed', url, message, e);
+        console.error('[Model] load failed', handedUrl, message, e);
         if (alive) onErrorRef.current?.(message);
       });
     return () => {
@@ -349,7 +354,10 @@ export function Model({
       for (const m of owned) m.dispose();
       owned = [];
     };
-  }, [url, finish, tint, tintStrength]);
+    // `handedUrl`, not `url`: switching hands on an asset that ships a real pair
+    // must re-download the other sculpt. For everything else the two are the
+    // same string and this dep list is unchanged.
+  }, [handedUrl, url, finish, tint, tintStrength]);
 
   // MIRROR — declared BEFORE the tint effect so that on mount the geometry is
   // already flipped when `ensureRegionAttribute` paints region ids onto it.

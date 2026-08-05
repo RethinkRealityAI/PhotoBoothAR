@@ -224,6 +224,20 @@ export interface AssetTemplate {
    * mirrorGeometry.ts for the flip itself.
    */
   modelledHand?: ModelledHand;
+  /**
+   * A purpose-built GLB for the OTHER hand, when one exists.
+   *
+   * Mirroring the mesh is exact for geometry, so this is not needed for
+   * correctness — but a real sculpt can differ in ways a reflection cannot
+   * express: asymmetric decals, baked text, a thumb plate shaped for one hand.
+   * When this is present the renderer loads it instead of mirroring; when it is
+   * absent the mirror carries on doing the job. That is the whole contract, and
+   * it means a handed pair can be dropped in later without touching any
+   * render code.
+   *
+   * Ignored entirely unless `modelledHand` says which hand `glbUrl` itself is.
+   */
+  mirroredGlbUrl?: string;
   textSlots: AssetTextSlot[];
   /**
    * 'auto' = derived by the prep pass alone. 'human' = a person checked it.
@@ -355,6 +369,11 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
   const regionIds = typeof o.regionIds === 'string' && o.regionIds.trim() ? o.regionIds.trim() : undefined;
   const emitter = normalizeEmitter(o.emitter);
   const modelledHand = normalizeModelledHand(o.modelledHand);
+  // Only meaningful beside `modelledHand`: without knowing which hand `glbUrl`
+  // is, "the other one" names nothing. Dropped rather than kept as dead data
+  // that would come alive the day someone added the missing field.
+  const mirroredRaw = typeof o.mirroredGlbUrl === 'string' ? o.mirroredGlbUrl.trim() : '';
+  const mirroredGlbUrl = modelledHand && mirroredRaw ? mirroredRaw : undefined;
 
   return {
     id,
@@ -365,6 +384,7 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
     ...(regionIds ? { regionIds } : {}),
     ...(emitter ? { emitter } : {}),
     ...(modelledHand ? { modelledHand } : {}),
+    ...(mirroredGlbUrl ? { mirroredGlbUrl } : {}),
     textSlots,
     preparedBy: typeof o.preparedBy === 'string' && PREPARED_BY.has(o.preparedBy)
       ? (o.preparedBy as 'auto' | 'human')
