@@ -27,10 +27,11 @@ import FaceOccluder from '../ar/FaceOccluder';
 import ReferenceBust, { type BustBounds } from '../ar/ReferenceBust';
 import ReferenceHand, { type HandRefFit, type HandRefPose } from '../ar/ReferenceHand';
 import { HandOccluder, HandRig } from '../ar/HandRig';
+import { HandMirrorContext } from '../ar/handMirror';
 import { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
 import { HAND_ANCHOR_MAP, isHandAnchorId } from '../../lib/handPose';
 import { handRefAnchors } from '../../lib/studio/handRefAnchors';
-import { previewHand } from '../../lib/studio/handedness';
+import { mirrorPlacement, previewHand, shouldMirrorAsset } from '../../lib/studio/handedness';
 import { normalizeTemplate } from '../../lib/studio/assetTemplate';
 import { orbitMannequins, resolveFocus, splitByFamily, type SceneFamily } from '../../lib/studio/sceneFamilies';
 import SceneLighting from '../ar/SceneLighting';
@@ -396,6 +397,10 @@ export default function Studio3DView({
               const isSel = o.id === selectedId;
               const def = HAND_ANCHOR_MAP[o.handAnchor as string] ?? HAND_ANCHOR_MAP.grip;
               const base = handAnchorPoints[def.id] ?? [0, 0, 0];
+              // The orbit has no tracker, so `null` — only an explicit Left/Right
+              // pin can flip a piece here, which is exactly what the mannequin
+              // beside it is already obeying.
+              const flip = shouldMirrorAsset(normalizeTemplate(o.template)?.modelledHand, o.handFit, null);
               return (
                 // Rotate ABOUT the mount point, exactly as live does: HandRig
                 // puts the group AT the anchor and multiplies the anchor
@@ -406,13 +411,32 @@ export default function Studio3DView({
                 <group key={o.id} onClick={selectHandler(o)} position={base} rotation={def.rotation}>
                   <AssetGizmo
                     base={[0, 0, 0]}
-                    config={o.anchorConfig}
+                    // The gizmo applies the placement itself, so a mirrored piece
+                    // needs a mirrored placement here — otherwise the mesh flips
+                    // and its offset/rotation do not, and the piece mirrors into
+                    // a pose beside the hand. `mirrorPlacement` is an involution,
+                    // so the same call un-mirrors the gizmo's output on the way
+                    // back to the store and the host's saved numbers stay in the
+                    // asset's own frame.
+                    config={flip ? mirrorPlacement(o.anchorConfig) : o.anchorConfig}
                     enabled={isSel}
-                    onChange={isSel ? onTransformChange : undefined}
+                    onChange={isSel
+                      ? (flip ? (c: AnchorConfig) => onTransformChange?.(mirrorPlacement(c)) : onTransformChange)
+                      : undefined}
                     onDragStart={onGizmoDragStart}
                     onDragEnd={onGizmoDragEnd}
                   >
-                    <ObjectContent object={o} />
+                    {/* The mirror decision is published by HandRig on the live
+                        path, and the orbit has no HandRig — so without this the
+                        editor mirrored the MANNEQUIN and left the ASSET alone,
+                        which is worse than not mirroring at all: pin a
+                        left-modelled gauntlet to Right and you got a right hand
+                        wearing an unmirrored left glove. `tracked: null` means
+                        the 'auto' cases resolve to "nothing to decide from" and
+                        stay byte-identical; only the pins change. */}
+                    <HandMirrorContext.Provider value={{ tracked: null, fit: o.handFit ?? 'auto' }}>
+                      <ObjectContent object={o} />
+                    </HandMirrorContext.Provider>
                   </AssetGizmo>
                 </group>
               );

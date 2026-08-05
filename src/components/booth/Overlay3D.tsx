@@ -7,7 +7,7 @@ import { useRef, useEffect, type ReactNode } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import type { Group } from 'three';
 import { FaceRig, Model } from '../ar/FaceRig';
-import { HandOccluder, HandRig } from '../ar/HandRig';
+import { HandOccluder, HandPlacement, HandRig } from '../ar/HandRig';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
 import BeamFX, { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
 import { RIG_CAMERA } from '../../lib/faceRig';
@@ -229,7 +229,10 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
               return (
               <HandRig key={`hand-${i}`} anchor={p.handAnchor as string} videoId={videoId} mirror={mirror} fit={p.handFit ?? 'auto'} onVisibilityChange={i === 0 ? onHandVisible : undefined}>
                 <AnimatedPiece animation={p.animation} reveal={reveal} pulse={p.pulse}>
-                  <group scale={p.anchor.scale} rotation={[p.anchor.rotation.x, p.anchor.rotation.y, p.anchor.rotation.z]} position={[p.anchor.offset.x, p.anchor.offset.y, p.anchor.offset.z]}>
+                  {/* HandPlacement, not a plain transform group: when this piece
+                      is mirrored onto the other hand its offset and rotation
+                      must reflect with the mesh, or it lands beside the hand. */}
+                  <HandPlacement modelledHand={p.template?.modelledHand} config={p.anchor}>
                     {isHeadPiece(p.proceduralId) ? (
                       <HeadPiece id={p.proceduralId as string} />
                     ) : p.assetUrl ? (
@@ -245,7 +248,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
                       />
                     ) : null}
                     {emitter !== null && <FxEmitterPoint fxKey={p.fxKey as string} emitter={emitter} modelledHand={p.template?.modelledHand} />}
-                  </group>
+                  </HandPlacement>
                 </AnimatedPiece>
               </HandRig>
               );

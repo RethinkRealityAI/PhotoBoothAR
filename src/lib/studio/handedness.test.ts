@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   HAND_FIT_OPTIONS,
   normalizeHandFit,
+  mirrorPlacement,
   normalizeModelledHand,
   previewHand,
   shouldMirrorAsset,
@@ -147,6 +148,41 @@ describe('previewHand', () => {
         expect(shouldMirrorAsset(modelled, fit, null)).toBe(shown !== modelled);
       }
     }
+  });
+});
+
+describe('mirrorPlacement', () => {
+  const cfg = { offset: { x: -0.7, y: -1.9, z: 2.1 }, rotation: { x: -1.72, y: -0.24, z: -0.07 }, scale: 15.8 };
+
+  it('reflects the offset across the midline and leaves depth and height alone', () => {
+    const m = mirrorPlacement(cfg);
+    expect(m.offset).toEqual({ x: 0.7, y: -1.9, z: 2.1 });
+  });
+
+  it('keeps the X turn and flips Y and Z', () => {
+    // M·R·M for M = diag(-1,1,1): a pure X turn survives a reflection about X,
+    // a pure Y or Z turn reverses. Without this a mirrored gauntlet rolls the
+    // wrong way round the wrist.
+    const m = mirrorPlacement(cfg);
+    expect(m.rotation).toEqual({ x: -1.72, y: 0.24, z: 0.07 });
+  });
+
+  it('carries every other field through untouched', () => {
+    expect(mirrorPlacement(cfg).scale).toBe(15.8);
+  });
+
+  it('is an involution — which is what lets the gizmo edit a mirrored piece', () => {
+    // The studio hands the gizmo a mirrored placement and pushes its output back
+    // through the same function; if this were not exactly self-inverse, every
+    // drag on a pinned piece would drift.
+    expect(mirrorPlacement(mirrorPlacement(cfg))).toEqual(cfg);
+  });
+
+  it('never produces -0 for a value on the midline', () => {
+    const z = mirrorPlacement({ offset: { x: 0, y: 1, z: 2 }, rotation: { x: 0, y: 0, z: 0 } });
+    expect(Object.is(z.offset.x, -0)).toBe(false);
+    expect(Object.is(z.rotation.y, -0)).toBe(false);
+    expect(Object.is(z.rotation.z, -0)).toBe(false);
   });
 });
 

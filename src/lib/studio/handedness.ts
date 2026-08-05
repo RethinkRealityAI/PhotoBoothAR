@@ -99,6 +99,53 @@ export const HAND_FIT_OPTIONS: readonly { id: HandFit; label: string; hint: stri
 ];
 
 /**
+ * The other hand's PLACEMENT for a piece whose mesh is being mirrored.
+ *
+ * Mirroring the mesh alone is not enough, and the failure is loud: the mesh
+ * flips about its own local plane while the authored offset and rotation stay
+ * put, so a gauntlet with a real nudge and a 98° rotation mirrors into a pose
+ * beside the hand rather than onto it.
+ *
+ * The whole placement has to reflect. For a transform T·R about the hand
+ * frame's YZ plane, M(T·R)M is: negate the offset's x, and conjugate the
+ * rotation by the same reflection — which for a quaternion is (x,−y,−z,w), the
+ * identical operation `mirrorHandPose` applies to a tracked pose. Scale is
+ * uniform and unaffected.
+ *
+ * Pure and quaternion-based so it can be tested without three.js; callers
+ * convert their Euler in and out.
+ */
+export interface MirrorablePlacement {
+  offset: { x: number; y: number; z: number };
+  rotation: { x: number; y: number; z: number };
+}
+
+/**
+ * Reflect an authored placement across the hand's midline.
+ *
+ * Offset: negate x. Rotation: for a reflection M = diag(−1,1,1), M·R·M applied
+ * to an XYZ Euler keeps rx and negates ry and rz — check it on the axes, where
+ * the quaternion form (x,−y,−z,w) leaves a pure X turn alone and flips a pure Y
+ * or Z turn. Because the reflection distributes over the product, the same holds
+ * for the composed Euler and the XYZ order survives.
+ *
+ * An involution: applying it twice is the identity, which is what lets the
+ * studio's gizmo edit a mirrored piece and write the result back unmirrored
+ * through this same function.
+ */
+export function mirrorPlacement<T extends MirrorablePlacement>(p: T): T {
+  return {
+    ...p,
+    offset: { x: p.offset.x === 0 ? 0 : -p.offset.x, y: p.offset.y, z: p.offset.z },
+    rotation: {
+      x: p.rotation.x,
+      y: p.rotation.y === 0 ? 0 : -p.rotation.y,
+      z: p.rotation.z === 0 ? 0 : -p.rotation.z,
+    },
+  };
+}
+
+/**
  * Which hand the STUDIO should show while the host places this piece.
  *
  * The tracked views answer this from the camera; the orbit editor has no camera

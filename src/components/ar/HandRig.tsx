@@ -34,8 +34,14 @@ import {
 } from '../../lib/handPose';
 import { OneEuroQuat, OneEuroVec3, type OneEuroConfig, type Quat, type Vec3 } from '../../lib/smoothing';
 import { medianOf } from '../../lib/faceRig';
-import { HandMirrorContext } from './handMirror';
-import type { HandFit, TrackedHand } from '../../lib/studio/handedness';
+import { HandMirrorContext, useHandMirror } from './handMirror';
+import {
+  mirrorPlacement,
+  type HandFit,
+  type ModelledHand,
+  type TrackedHand,
+} from '../../lib/studio/handedness';
+import type { AnchorConfig } from '../../types';
 
 const POS_XY: OneEuroConfig = { minCutoff: 1.5, beta: 0.5, dCutoff: 1.0 };
 const POS_Z: OneEuroConfig = { minCutoff: 0.6, beta: 0.15, dCutoff: 1.0 };
@@ -191,6 +197,39 @@ export function HandRig({ anchor, videoId = 'booth-video', mirror = true, holdPo
   );
 }
 
+/**
+ * Applies a hand piece's authored placement, REFLECTED when this piece is being
+ * mirrored onto the other hand.
+ *
+ * This exists because mirroring the mesh is only half the job. `mirrorGeometryX`
+ * flips vertices about the model's own local plane; the offset and rotation the
+ * host tuned are applied outside it and do not move. A gauntlet nudged
+ * (-0.7, -1.9, 2.1) and rotated (-98°, -14°, -4°) therefore mirrored into a pose
+ * sitting BESIDE the hand — visibly worse than not mirroring at all. Reflecting
+ * the placement with the mesh is what makes "one asset, both hands" true.
+ *
+ * Mount it inside the mirror context (i.e. inside a HandRig, or the orbit view's
+ * own provider) and it is self-deciding — no prop threading, so a new surface
+ * cannot forget.
+ */
+export function HandPlacement({ modelledHand, config, children }: {
+  modelledHand: ModelledHand | undefined;
+  config: AnchorConfig;
+  children?: ReactNode;
+}) {
+  const flip = useHandMirror(modelledHand);
+  const { offset, rotation } = flip ? mirrorPlacement(config) : config;
+  return (
+    <group
+      position={[offset.x, offset.y, offset.z]}
+      rotation={[rotation.x, rotation.y, rotation.z]}
+      scale={config.scale}
+    >
+      {children}
+    </group>
+  );
+}
+
 /* ── Hand occluder ─────────────────────────────────────────────────────── */
 
 /** FaceOccluder's recipe: depth-only, drawn first, never raycast. Shrunk to
@@ -308,7 +347,15 @@ export function HandOccluder({ videoId = 'booth-video', mirror = true }: { video
         const k = spheres[9].position;
         palm.position.set((w.x + k.x) / 2, (w.y + k.y) / 2, (w.z + k.z) / 2);
         palm.scale.set(3.6, 4.2, 1.6);
-        palm.quaternion.copy(new THREE.Quaternion());
+        // The slab's half-extents (3.6 across, 4.2 along, 1.6 thick) describe a
+        // palm facing the camera with the fingers up — so it has to TURN with
+        // the hand. It used to be reset to identity every frame, which left it
+        // camera-aligned forever: roll the hand 90° to present a gauntlet across
+        // frame and the slab overhung the real silhouette by ~1.1cm (a visible
+        // gap between hand and prop), while edge-on it under-covered the palm's
+        // depth by ~1.5cm and let a gripped prop poke through the fist.
+        const q = mirror ? mirrorHandPose(pose).quaternion : pose.quaternion;
+        palm.quaternion.set(q[0], q[1], q[2], q[3]);
 
         // Forearm beads, from the wrist elbow-ward. The axis comes from the
         // RAW pose and is mirrored here the same way the landmarks above are

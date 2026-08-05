@@ -87,6 +87,12 @@ function FittedHand({ scene, hand, onFit }: {
   hand: ModelledHand;
   onFit?: (f: HandRefFit) => void;
 }) {
+  // Geometries this memo allocated, freed when it re-runs or the view unmounts.
+  // Only the mirrored path creates any; the right-handed path renders the
+  // cache's own geometry and must never dispose it.
+  const owned = useMemo<THREE.BufferGeometry[]>(() => [], [scene, hand]);
+  useEffect(() => () => { for (const g of owned) g.dispose(); }, [owned]);
+
   const fitted = useMemo(() => {
     const object = scene.clone(true);
     object.traverse((o) => {
@@ -148,7 +154,17 @@ function FittedHand({ scene, hand, onFit }: {
         baked.copy(bake).multiply(mesh.matrixWorld);
         // clone(): the loader's geometry is shared with the module cache and
         // with the right-handed instance — baking into it would corrupt both.
-        mesh.geometry = mirrorGeometryX(mesh.geometry.clone().applyMatrix4(baked));
+        //
+        // Both of these are OURS to free. mirrorGeometryX caches on its source,
+        // and the source here is a fresh clone every run, so the cache can never
+        // hit and each evaluation allocates two geometries — which is fine only
+        // because the effect below disposes them. Left un-freed, every click of
+        // the Fits chip leaked two copies of the mannequin's VRAM.
+        const transient = mesh.geometry.clone().applyMatrix4(baked);
+        const mirrored = mirrorGeometryX(transient);
+        transient.dispose();
+        owned.push(mirrored);
+        mesh.geometry = mirrored;
       });
       // The transform now lives in the vertices, so the node transforms must go.
       object.traverse((n) => {
