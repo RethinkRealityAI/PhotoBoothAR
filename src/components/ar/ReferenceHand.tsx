@@ -28,9 +28,12 @@ import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
 import { collectWorldPositions } from '../../lib/studio/bustFit';
+import { mirrorGeometryX } from '../../lib/studio/mirrorGeometry';
+import type { ModelledHand } from '../../lib/studio/handedness';
 import {
   handRefAnchors,
   measureHandMannequin,
+  mirrorHandLandmarks,
   type Vec3,
 } from '../../lib/studio/handRefAnchors';
 
@@ -79,7 +82,11 @@ function loadHand(pose: HandRefPose): Promise<THREE.Group | null> {
   return p;
 }
 
-function FittedHand({ scene, onFit }: { scene: THREE.Group; onFit?: (f: HandRefFit) => void }) {
+function FittedHand({ scene, hand, onFit }: {
+  scene: THREE.Group;
+  hand: ModelledHand;
+  onFit?: (f: HandRefFit) => void;
+}) {
   const fitted = useMemo(() => {
     const object = scene.clone(true);
     object.traverse((o) => {
@@ -116,6 +123,52 @@ function FittedHand({ scene, onFit }: { scene: THREE.Group; onFit?: (f: HandRefF
       if (v.y < minY) minY = v.y;
       if (v.y > maxY) maxY = v.y;
     }
+
+    // OTHER HAND: both vendored mannequins are RIGHT hands, and a left-handed
+    // asset fitted against a right hand is the mismatch this exists to remove.
+    // A human left hand IS the mirrored right hand, so this is exact.
+    //
+    // The measurement above runs on the UNMIRRORED mesh deliberately. The fit
+    // derives the palm normal's sign from which side the thumb lobe sits on and
+    // then takes right = up × normal — a cross product, which under a reflection
+    // NEGATES rather than mirrors. Measuring a mirrored mesh would therefore
+    // hand back a frame whose across-axis points the wrong way, and the finger
+    // ordering (index side vs pinky side) would silently invert. Measuring the
+    // known-good right hand and mirroring afterwards cannot hit that.
+    if (hand === 'left') {
+      // Bake the fit transform into the geometry so the mesh's own local space
+      // IS the hand frame — only then is a YZ-plane mirror the same thing as a
+      // mirror across the hand's across-axis.
+      const bake = new THREE.Matrix4().compose(o, quaternion, new THREE.Vector3(fit.scale, fit.scale, fit.scale));
+      object.updateMatrixWorld(true);
+      const baked = new THREE.Matrix4();
+      object.traverse((n) => {
+        const mesh = n as THREE.Mesh;
+        if (!mesh.isMesh || !mesh.geometry) return;
+        baked.copy(bake).multiply(mesh.matrixWorld);
+        // clone(): the loader's geometry is shared with the module cache and
+        // with the right-handed instance — baking into it would corrupt both.
+        mesh.geometry = mirrorGeometryX(mesh.geometry.clone().applyMatrix4(baked));
+      });
+      // The transform now lives in the vertices, so the node transforms must go.
+      object.traverse((n) => {
+        n.position.set(0, 0, 0);
+        n.quaternion.identity();
+        n.scale.set(1, 1, 1);
+      });
+      return {
+        object,
+        quaternion: new THREE.Quaternion(),
+        position: [0, 0, 0] as Vec3,
+        scale: 1,
+        bounds: {
+          // x mirrors with the mesh; y is untouched by a YZ reflection.
+          minX: -maxX, maxX: -minX, minY, maxY,
+          anchors: handRefAnchors(mirrorHandLandmarks(fit.landmarks)),
+        } satisfies HandRefFit,
+      };
+    }
+
     return {
       object,
       quaternion,
@@ -123,7 +176,7 @@ function FittedHand({ scene, onFit }: { scene: THREE.Group; onFit?: (f: HandRefF
       scale: fit.scale,
       bounds: { minX, maxX, minY, maxY, anchors: handRefAnchors(fit.landmarks) } satisfies HandRefFit,
     };
-  }, [scene]);
+  }, [scene, hand]);
 
   useEffect(() => {
     if (fitted && Number.isFinite(fitted.bounds.minY)) onFit?.(fitted.bounds);
@@ -139,8 +192,15 @@ function FittedHand({ scene, onFit }: { scene: THREE.Group; onFit?: (f: HandRefF
 
 export default function ReferenceHand({
   pose = 'open',
+  hand = 'right',
   onFit,
-}: { pose?: HandRefPose; onFit?: (f: HandRefFit) => void } = {}) {
+}: {
+  pose?: HandRefPose;
+  /** Which hand to show. Both vendored GLBs are RIGHT hands; 'left' mirrors
+   *  them, which is exact — the two hands are mirror images of each other. */
+  hand?: ModelledHand;
+  onFit?: (f: HandRefFit) => void;
+} = {}) {
   const [scene, setScene] = useState<THREE.Group | null>(null);
 
   useEffect(() => {
@@ -153,5 +213,5 @@ export default function ReferenceHand({
   }, [pose]);
 
   if (scene === null) return null;
-  return <FittedHand scene={scene} onFit={onFit} />;
+  return <FittedHand scene={scene} hand={hand} onFit={onFit} />;
 }

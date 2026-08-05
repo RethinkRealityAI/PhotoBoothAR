@@ -90,7 +90,35 @@ export function shouldMirrorAsset(
 
 /** Chip copy for the Properties control, in authoring order. */
 export const HAND_FIT_OPTIONS: readonly { id: HandFit; label: string; hint: string }[] = [
-  { id: 'auto', label: 'Either', hint: 'Flips to match whichever hand the camera sees' },
-  { id: 'left', label: 'Left', hint: 'Always fits a left hand' },
-  { id: 'right', label: 'Right', hint: 'Always fits a right hand' },
+  // The hints name BOTH jobs — the mannequin you place against and the flip at
+  // capture time. Describing only the render left hosts with no idea why the
+  // editor's hand changed under them.
+  { id: 'auto', label: 'Either', hint: 'Follows whichever hand the camera sees; the editor shows the hand it was built for' },
+  { id: 'left', label: 'Left', hint: 'Places and renders on a left hand, whichever hand the guest raises' },
+  { id: 'right', label: 'Right', hint: 'Places and renders on a right hand, whichever hand the guest raises' },
 ];
+
+/**
+ * Which hand the STUDIO should show while the host places this piece.
+ *
+ * The tracked views answer this from the camera; the orbit editor has no camera
+ * and used to answer it not at all — it drew the vendored RIGHT mannequin for
+ * every piece, so a left-handed gauntlet was fitted against the wrong hand and
+ * every offset the host tuned was tuned against a mirror image.
+ *
+ * Note this is defined for hand-AGNOSTIC assets too. A wand's mesh is symmetric,
+ * so nothing about the wand changes — but "which hand am I placing this in?" is
+ * still a real question the mannequin has to answer, and answering it wrongly is
+ * what makes the grip offsets feel backwards.
+ */
+export function previewHand(
+  modelled: ModelledHand | undefined,
+  fit: HandFit | undefined,
+): ModelledHand {
+  const f = fit ?? 'auto';
+  if (f === 'left' || f === 'right') return f;
+  // 'auto' with nothing tracked: show the hand the asset was built for, and
+  // fall back to the right hand, which is both the vendored mannequin's own
+  // chirality and the majority-handed default.
+  return modelled ?? 'right';
+}

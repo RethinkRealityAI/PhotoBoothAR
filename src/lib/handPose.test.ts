@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FOREARM_REACH_MAX_CM,
   HAND_ANCHOR_MAP,
   HAND_ANCHORS,
   anchorPointFor,
+  forearmAxis,
+  forearmReachCm,
   isHandAnchorId,
   mirrorHandPose,
   solveHandPose,
@@ -118,5 +121,95 @@ describe('anchors', () => {
     // Palm faces the camera (+Z normal), grip offset is negative → further
     // from the camera than the hand plane.
     expect(p[2]).toBeLessThan(-60);
+  });
+});
+
+describe('the forearm', () => {
+  const posed = () => {
+    const world = worldHand();
+    const screen = projectAt(world, 60);
+    const pose = solveHandPose(screen, world, 'Right', ASPECT, null);
+    if (pose === null) throw new Error('degenerate');
+    return { world, screen, pose };
+  };
+
+  it('points away from the fingers — it is the hand frame\'s −Y, nothing more', () => {
+    const { pose } = posed();
+    const [x, y, z] = forearmAxis(pose);
+    expect(Math.hypot(x, y, z)).toBeCloseTo(1, 6);
+    // The fixture hand points up the screen (wrist below the knuckles), so the
+    // forearm must run DOWN. A sign slip here puts a sleeve on the fingers.
+    expect(y).toBeLessThan(-0.9);
+  });
+
+  it('is exactly the negated up column of the pose quaternion', () => {
+    // Reading the axis off the same quaternion the mount points use is what
+    // stops the sleeve and the gear it continues from drifting apart.
+    const { pose } = posed();
+    const [qx, qy, qz, qw] = pose.quaternion;
+    const up: [number, number, number] = [
+      2 * (qx * qy - qw * qz),
+      1 - 2 * (qx * qx + qz * qz),
+      2 * (qy * qz + qw * qx),
+    ];
+    const f = forearmAxis(pose);
+    for (let i = 0; i < 3; i++) expect(f[i]).toBeCloseTo(-up[i], 9);
+  });
+
+  it('clamps reach to what an INFERRED axis can defend', () => {
+    // The axis is derived from the palm, not tracked. Measured error reaches
+    // ~28° on a gripping hand; at 12cm that is already ~5.7cm of drift, which
+    // is the radius of a real forearm. Past the cap the gear is not on the arm.
+    expect(forearmReachCm(5)).toBe(5);
+    expect(forearmReachCm(FOREARM_REACH_MAX_CM)).toBe(FOREARM_REACH_MAX_CM);
+    expect(forearmReachCm(1000)).toBe(FOREARM_REACH_MAX_CM);
+    // Absent/degenerate = a hand-worn anchor, which must not move at all.
+    expect(forearmReachCm(undefined)).toBe(0);
+    expect(forearmReachCm(0)).toBe(0);
+    expect(forearmReachCm(-4)).toBe(0);
+    // Every non-finite value takes the SAME exit as absent: don't move the gear.
+    // Infinity could plausibly have meant "as far as allowed", but treating it
+    // as the cap while NaN means zero is two policies for one class of corrupt
+    // input, and the quiet one is the one that cannot put a sleeve mid-air.
+    expect(forearmReachCm(NaN)).toBe(0);
+    expect(forearmReachCm(Infinity)).toBe(0);
+    expect(forearmReachCm(-Infinity)).toBe(0);
+  });
+
+  it('moves a forearm mount down the arm, and leaves hand mounts untouched', () => {
+    const { screen, pose } = posed();
+    const wrist = anchorPointFor(HAND_ANCHOR_MAP.wristBack, screen, pose, ASPECT);
+    const arm = anchorPointFor(HAND_ANCHOR_MAP.forearm, screen, pose, ASPECT);
+    const reach = forearmReachCm(HAND_ANCHOR_MAP.forearm.alongForearmCm);
+    expect(reach).toBeGreaterThan(0);
+    // The sleeve sits `reach` cm along the forearm axis from the wrist. Compare
+    // against the axis rather than a literal so the assertion survives tuning.
+    const f = forearmAxis(pose);
+    // Both mounts start at landmark 0; wristBack additionally lifts 1.2cm off
+    // the back of the hand, so remove that before comparing.
+    const [nx, ny, nz] = [
+      2 * (pose.quaternion[0] * pose.quaternion[2] + pose.quaternion[3] * pose.quaternion[1]),
+      2 * (pose.quaternion[1] * pose.quaternion[2] - pose.quaternion[3] * pose.quaternion[0]),
+      1 - 2 * (pose.quaternion[0] ** 2 + pose.quaternion[1] ** 2),
+    ];
+    const base = [
+      wrist[0] - nx * HAND_ANCHOR_MAP.wristBack.normalOffsetCm,
+      wrist[1] - ny * HAND_ANCHOR_MAP.wristBack.normalOffsetCm,
+      wrist[2] - nz * HAND_ANCHOR_MAP.wristBack.normalOffsetCm,
+    ];
+    for (let i = 0; i < 3; i++) expect(arm[i]).toBeCloseTo(base[i] + f[i] * reach, 4);
+  });
+
+  it('every hand-worn anchor stays exactly where it was', () => {
+    // The legacy guarantee: adding the forearm mount must not shift grip, wrist
+    // or palm by a millimetre, or every scene saved before it moves.
+    const { screen, pose } = posed();
+    for (const id of ['grip', 'wristBack', 'palm'] as const) {
+      const def = HAND_ANCHOR_MAP[id];
+      expect(def.alongForearmCm).toBeUndefined();
+      const p = anchorPointFor(def, screen, pose, ASPECT);
+      const noReach = anchorPointFor({ ...def, alongForearmCm: undefined }, screen, pose, ASPECT);
+      expect(p).toEqual(noReach);
+    }
   });
 });

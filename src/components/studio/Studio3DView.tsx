@@ -30,6 +30,8 @@ import { HandOccluder, HandRig } from '../ar/HandRig';
 import { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
 import { HAND_ANCHOR_MAP, isHandAnchorId } from '../../lib/handPose';
 import { handRefAnchors } from '../../lib/studio/handRefAnchors';
+import { previewHand } from '../../lib/studio/handedness';
+import { normalizeTemplate } from '../../lib/studio/assetTemplate';
 import { orbitMannequins, resolveFocus, splitByFamily, type SceneFamily } from '../../lib/studio/sceneFamilies';
 import SceneLighting from '../ar/SceneLighting';
 import AnchorDots from '../admin/creator3d/AnchorDots';
@@ -245,6 +247,15 @@ export default function Studio3DView({
   const handPose: HandRefPose = (
     selected !== null && isHandAnchorId(selected.handAnchor) ? selected.handAnchor : handObjects[0]?.handAnchor
   ) === 'grip' ? 'fist' : 'open';
+  // WHICH hand the mannequin is. Same precedence as the pose above: the piece
+  // being placed wins, so switching selection re-hands the mannequin under the
+  // host. Without this the orbit drew the vendored RIGHT hand for everything,
+  // and a left-handed gauntlet was placed against its own mirror image.
+  const handSubject = (selected !== null && isHandAnchorId(selected.handAnchor) ? selected : handObjects[0]) ?? null;
+  const previewHandSide = previewHand(
+    normalizeTemplate(handSubject?.template)?.modelledHand,
+    handSubject?.handFit,
+  );
   // While the mannequin loads (or if it cannot be measured) the mount points
   // fall back to the canonical metric hand, so a gizmo never sits at the origin.
   const handAnchorPoints = handFit?.anchors ?? handRefAnchors();
@@ -380,7 +391,7 @@ export default function Studio3DView({
             masking model" — sized and mounted from the mesh itself. */}
         {shown.hand && (
           <group position={handOrigin} rotation={[0, -0.25, 0]}>
-            <ReferenceHand pose={handPose} onFit={handleHandFit} />
+            <ReferenceHand pose={handPose} hand={previewHandSide} onFit={handleHandFit} />
             {handObjects.map((o) => {
               const isSel = o.id === selectedId;
               const def = HAND_ANCHOR_MAP[o.handAnchor as string] ?? HAND_ANCHOR_MAP.grip;

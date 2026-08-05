@@ -8,9 +8,10 @@ import {
   handRefAnchorPoint,
   handRefAnchors,
   measureHandMannequin,
+  mirrorHandLandmarks,
   type Vec3,
 } from './handRefAnchors';
-import { HAND_ANCHOR_MAP, HAND_ANCHORS } from '../handPose';
+import { forearmReachCm, FOREARM_REACH_MAX_CM, HAND_ANCHOR_MAP, HAND_ANCHORS } from '../handPose';
 
 const dist = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
@@ -66,6 +67,67 @@ describe('the canonical hand', () => {
   });
 });
 
+describe('mirrorHandLandmarks', () => {
+  it('negates x and leaves the palm plane alone', () => {
+    const m = mirrorHandLandmarks(CANONICAL_HAND_LANDMARKS);
+    for (const key of Object.keys(CANONICAL_HAND_LANDMARKS)) {
+      const i = Number(key);
+      const a = CANONICAL_HAND_LANDMARKS[i];
+      expect(m[i][0]).toBeCloseTo(-a[0], 12);
+      expect(m[i][1]).toBe(a[1]);
+      expect(m[i][2]).toBe(a[2]);
+    }
+  });
+
+  it('never hands back -0 for a landmark on the midline', () => {
+    // The wrist sits at x=0 exactly. Naive negation yields -0, which is
+    // arithmetically 0 but not Object.is-equal to it, so a mirrored wrist mount
+    // compared unequal to the original for no physical reason.
+    const m = mirrorHandLandmarks({ 0: [0, 0, 0], 9: [0, 9.85, 0] });
+    expect(Object.is(m[0][0], -0)).toBe(false);
+    expect(Object.is(m[9][0], -0)).toBe(false);
+  });
+
+  it('puts the index MCP on the other side of the palm, which IS the difference between hands', () => {
+    // The canonical hand is a RIGHT hand: index at +x, pinky at -x. A left hand
+    // is the same landmarks with that swapped — this is the whole of chirality.
+    expect(CANONICAL_HAND_LANDMARKS[5][0]).toBeGreaterThan(0);
+    expect(CANONICAL_HAND_LANDMARKS[17][0]).toBeLessThan(0);
+    const m = mirrorHandLandmarks(CANONICAL_HAND_LANDMARKS);
+    expect(m[5][0]).toBeLessThan(0);
+    expect(m[17][0]).toBeGreaterThan(0);
+  });
+
+  it('preserves every span — a mirrored hand is the same SIZE hand', () => {
+    const m = mirrorHandLandmarks(CANONICAL_HAND_LANDMARKS);
+    expect(dist(m[0], m[9])).toBeCloseTo(CANONICAL_PALM_LEN_CM, 3);
+    expect(dist(m[5], m[17])).toBeCloseTo(CANONICAL_KNUCKLE_CM, 3);
+  });
+
+  it('is an involution — mirroring twice is the identity', () => {
+    const back = mirrorHandLandmarks(mirrorHandLandmarks(CANONICAL_HAND_LANDMARKS));
+    for (const key of Object.keys(CANONICAL_HAND_LANDMARKS)) {
+      expect(back[Number(key)]).toEqual(CANONICAL_HAND_LANDMARKS[Number(key)]);
+    }
+  });
+
+  it('moves the off-centre mounts to the other side, and leaves the wrist mount put', () => {
+    // grip/palm sit at the midpoint of landmarks 9 and 13, which is off-centre
+    // toward the pinky; the wrist mount is landmark 0, which is on the midline.
+    // Mounting a left-hand wand at the right hand's grip point is exactly the
+    // "feels backwards" the owner reported.
+    const right = handRefAnchors();
+    const left = handRefAnchors(mirrorHandLandmarks(CANONICAL_HAND_LANDMARKS));
+    expect(right.grip[0]).not.toBeCloseTo(0, 2);
+    expect(left.grip[0]).toBeCloseTo(-right.grip[0], 6);
+    expect(left.grip[1]).toBeCloseTo(right.grip[1], 6);
+    // The normal offset is along +Z (out of the palm) for BOTH hands, so it must
+    // survive untouched — flipping it would put a wand out the back of the fist.
+    expect(left.grip[2]).toBeCloseTo(right.grip[2], 6);
+    expect(left.wristBack).toEqual(right.wristBack);
+  });
+});
+
 describe('handRefAnchorPoint', () => {
   it('evaluates each HAND_ANCHORS definition rather than restating it', () => {
     for (const def of HAND_ANCHORS) {
@@ -75,8 +137,11 @@ describe('handRefAnchorPoint', () => {
       const a = CANONICAL_HAND_LANDMARKS[def.between[0]];
       const b = CANONICAL_HAND_LANDMARKS[def.between[1]];
       expect(p[0]).toBeCloseTo((a[0] + b[0]) / 2, 6);
-      expect(p[1]).toBeCloseTo((a[1] + b[1]) / 2, 6);
-      // The whole offset is along the palm normal (+Z in the hand frame).
+      // Two authored offsets, and only two: normalOffsetCm along the palm
+      // normal (+Z) and alongForearmCm elbow-ward (−Y). Anything else appearing
+      // in a mount point means the definition is being restated somewhere
+      // instead of evaluated, which is the drift this whole module prevents.
+      expect(p[1]).toBeCloseTo((a[1] + b[1]) / 2 - forearmReachCm(def.alongForearmCm), 6);
       expect(p[2] - (a[2] + b[2]) / 2).toBeCloseTo(def.normalOffsetCm, 6);
     }
   });
@@ -100,7 +165,21 @@ describe('handRefAnchorPoint', () => {
 
   it('returns null for a landmark set that does not cover the pair', () => {
     expect(handRefAnchorPoint(HAND_ANCHOR_MAP.grip, { 0: [0, 0, 0] })).toBeNull();
-    expect(Object.keys(handRefAnchors({ 0: [0, 0, 0] }))).toEqual(['wristBack']);
+    // wristBack and forearm both read landmark 0 alone, so both survive a
+    // wrist-only landmark set; grip and palm need the 9/13 pair.
+    expect(Object.keys(handRefAnchors({ 0: [0, 0, 0] }))).toEqual(['wristBack', 'forearm']);
+  });
+
+  it('the forearm mount sits ELBOW-ward of the wrist, and is clamped there', () => {
+    const a = handRefAnchors();
+    // −Y is elbow-ward (+Y runs wrist→fingers), so the sleeve mount is BELOW
+    // the wrist. Sitting it at the wrist would put a bracer on the hand.
+    expect(a.forearm[1]).toBeLessThan(a.wristBack[1]);
+    expect(a.forearm[1]).toBeCloseTo(-(HAND_ANCHOR_MAP.forearm.alongForearmCm ?? 0), 6);
+    // The clamp is what stops an authored reach from wandering off the limb:
+    // the inferred forearm axis is only trustworthy for about a palm span.
+    const far = handRefAnchorPoint({ ...HAND_ANCHOR_MAP.forearm, alongForearmCm: 500 })!;
+    expect(far[1]).toBeCloseTo(-FOREARM_REACH_MAX_CM, 6);
   });
 });
 

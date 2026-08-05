@@ -25,6 +25,8 @@ import { detectHandsNow, getLatestHandFrame } from '../../lib/handRig';
 import { initializeHandLandmarker } from '../../lib/handTracking';
 import {
   anchorPointFor,
+  forearmAxis,
+  FOREARM_REACH_MAX_CM,
   HAND_ANCHOR_MAP,
   mirrorHandPose,
   solveHandPose,
@@ -209,6 +211,26 @@ function landmarkRadiusCm(i: number): number {
 }
 
 /**
+ * Beads down the forearm, so a gauntlet cuff or a sleeve is occluded by the arm
+ * it is supposed to be ON. Without these the hand shell stops dead at the wrist
+ * and everything past it floats in front of the guest's arm — which is the only
+ * part of "gear that covers more than the hand" that actually reads wrong.
+ *
+ * Every commercial WebAR stack solves wrist-worn items this way: 8th Wall pairs
+ * its wrist anchor with a `wrist-occluder`, WebAR.rocks masks the inside of a
+ * bracelet. It is the occluder, not a tracked forearm, that sells the shot.
+ *
+ * Count and reach are deliberately small: the forearm direction is INFERRED
+ * from the palm (see handPose.forearmAxis), and its measured error reaches ~28°
+ * on a gripping hand, which at 12cm is already off the edge of a real arm. So
+ * the shell covers the span the inference can defend and stops.
+ */
+const FOREARM_BEADS = 4;
+/** A forearm just past the wrist, cm. Widens toward the elbow. */
+const FOREARM_R0 = 2.7;
+const FOREARM_R1 = 3.6;
+
+/**
  * Depth-only shell over the tracked hand so real fingers occlude held gear.
  * Mount INSIDE the same Canvas as the gear (not inside HandRig — landmarks are
  * placed in world space each frame). ~21 spheres + a palm slab.
@@ -234,6 +256,16 @@ export function HandOccluder({ videoId = 'booth-video', mirror = true }: { video
     m.renderOrder = -2;
     m.raycast = () => {};
     return m;
+  }, []);
+  const forearm = useMemo(() => {
+    const arr: THREE.Mesh[] = [];
+    for (let i = 0; i < FOREARM_BEADS; i++) {
+      const m = new THREE.Mesh(SPHERE, OCCLUDER_MATERIAL);
+      m.renderOrder = -2;
+      m.raycast = () => {};
+      arr.push(m);
+    }
+    return arr;
   }, []);
   const state = useRef({ lastT: -1, lastSeen: -Infinity, aspect: 9 / 16 });
 
@@ -277,6 +309,22 @@ export function HandOccluder({ videoId = 'booth-video', mirror = true }: { video
         palm.position.set((w.x + k.x) / 2, (w.y + k.y) / 2, (w.z + k.z) / 2);
         palm.scale.set(3.6, 4.2, 1.6);
         palm.quaternion.copy(new THREE.Quaternion());
+
+        // Forearm beads, from the wrist elbow-ward. The axis comes from the
+        // RAW pose and is mirrored here the same way the landmarks above are
+        // (x only) — reusing the pose's own axis keeps this from drifting away
+        // from where the gear is mounted.
+        const [ax, ay, az] = forearmAxis(pose);
+        const dirX = mirror ? -ax : ax;
+        for (let i = 0; i < FOREARM_BEADS; i++) {
+          // Start one bead PAST the wrist so the shell does not double up on
+          // the wrist sphere, and stop at the reach the inference supports.
+          const t = (i + 1) / FOREARM_BEADS;
+          const d = FOREARM_REACH_MAX_CM * t;
+          const m = forearm[i];
+          m.position.set(w.x + dirX * d, w.y + ay * d, w.z + az * d);
+          m.scale.setScalar((FOREARM_R0 + (FOREARM_R1 - FOREARM_R0) * t) * 0.9);
+        }
       }
     }
     g.visible = now - s.lastSeen < HOLD_MS;
@@ -286,6 +334,9 @@ export function HandOccluder({ videoId = 'booth-video', mirror = true }: { video
     <group ref={groupRef} visible={false}>
       {spheres.map((m, i) => (
         <primitive key={i} object={m} />
+      ))}
+      {forearm.map((m, i) => (
+        <primitive key={`f${i}`} object={m} />
       ))}
       <primitive object={palm} />
     </group>

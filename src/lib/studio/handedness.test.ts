@@ -3,6 +3,7 @@ import {
   HAND_FIT_OPTIONS,
   normalizeHandFit,
   normalizeModelledHand,
+  previewHand,
   shouldMirrorAsset,
   targetHand,
   type HandFit,
@@ -102,6 +103,50 @@ describe('targetHand', () => {
     expect(targetHand('left', 'right', null)).toBe('right');
     expect(targetHand('left', 'auto', null)).toBeNull();
     expect(targetHand(undefined, 'right', 'Right')).toBeNull();
+  });
+});
+
+describe('previewHand', () => {
+  it('a pin decides the mannequin outright', () => {
+    for (const modelled of ['left', 'right', undefined] as (ModelledHand | undefined)[]) {
+      expect(previewHand(modelled, 'left')).toBe('left');
+      expect(previewHand(modelled, 'right')).toBe('right');
+    }
+  });
+
+  it('on auto it shows the hand the asset was built for', () => {
+    expect(previewHand('left', 'auto')).toBe('left');
+    expect(previewHand('right', 'auto')).toBe('right');
+  });
+
+  it('a symmetric asset still gets a hand — the host has to place it in ONE', () => {
+    // This is the case the old gating got wrong: a wand has no chirality, but
+    // "which hand am I putting it in" is still a real question, and answering
+    // it with the wrong mannequin makes every grip offset feel backwards.
+    expect(previewHand(undefined, 'auto')).toBe('right');
+    expect(previewHand(undefined, undefined)).toBe('right');
+  });
+
+  it('always returns a real hand — the mannequin can never be undefined', () => {
+    const fits: (HandFit | undefined)[] = ['auto', 'left', 'right', undefined];
+    for (const modelled of ['left', 'right', undefined] as (ModelledHand | undefined)[]) {
+      for (const fit of fits) {
+        expect(['left', 'right']).toContain(previewHand(modelled, fit));
+      }
+    }
+  });
+
+  it('agrees with the mirror decision: the asset never fights the mannequin', () => {
+    // If the preview shows a left hand and the asset is modelled right, the
+    // asset MUST be mirroring — otherwise the host sees a right-handed prop on
+    // a left-handed mannequin, which is the exact defect being fixed.
+    const fits: HandFit[] = ['auto', 'left', 'right'];
+    for (const modelled of ['left', 'right'] as ModelledHand[]) {
+      for (const fit of fits) {
+        const shown = previewHand(modelled, fit);
+        expect(shouldMirrorAsset(modelled, fit, null)).toBe(shown !== modelled);
+      }
+    }
   });
 });
 

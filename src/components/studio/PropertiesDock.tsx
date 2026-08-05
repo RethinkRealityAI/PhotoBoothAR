@@ -2003,30 +2003,36 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                 {sel3D.handAnchor !== undefined ? (
                   <div>
                     <SectionLabel>Attachment point</SectionLabel>
-                    <div className="grid grid-cols-3 gap-1.5">
+                    {/* 4 mounts now (Arm joined Grip/Wrist/Palm), so 4 columns —
+                        at 3 the fourth chip wrapped onto a lonely second row. */}
+                    <div className="grid grid-cols-4 gap-1.5">
                       {HAND_ANCHORS.map((a) => {
                         const active = a.id === sel3D.handAnchor;
                         return (
-                          <Tooltip key={a.id} label={a.label} side="left">
+                          <Tooltip key={a.id} label={a.label} hint={a.hint} side="left">
                             <button
                               onClick={() => dispatch({ type: 'SET_OBJECT_TRACKING', id: sel3D.id, tracking: 'hand', handAnchor: a.id })}
                               aria-pressed={active}
                               className={`w-full py-2 rounded-lg text-[9px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
                             >
-                              {a.id === 'grip' ? 'Grip' : a.id === 'wristBack' ? 'Wrist' : 'Palm'}
+                              {a.id === 'grip' ? 'Grip' : a.id === 'wristBack' ? 'Wrist' : a.id === 'forearm' ? 'Arm' : 'Palm'}
                             </button>
                           </Tooltip>
                         );
                       })}
                     </div>
-                    {/* FITS — only for an asset whose template says which hand
-                        it was MODELLED for. A gauntlet is left- or right-handed
-                        the way a glove is; a wand is not, and offering the
-                        choice there would be a control that does nothing.
-                        'Either' mirrors the mesh to follow the tracked hand;
-                        the pins never consult the tracker, which is the way out
-                        if a device reports handedness the other way round. */}
-                    {sel3DModelledHand !== undefined && (
+                    {/* FITS — shown for EVERY hand piece, not just the ones whose
+                        mesh is handed. It answers two questions at once:
+                        (a) which hand the mannequin shows while you place this,
+                        and (b) for an asset that declares the hand it was
+                        modelled for, whether the mesh mirrors to suit.
+                        Gating it on (b) was wrong: a symmetric wand still has to
+                        be placed in ONE hand, and placing it against the wrong
+                        mannequin makes every grip offset feel backwards.
+                        'Either' follows the tracked hand; the pins never consult
+                        the tracker, which is the way out if a device reports
+                        handedness the other way round. */}
+                    {(
                       <div className="mt-3">
                         <SectionLabel>Fits</SectionLabel>
                         <div className="grid grid-cols-3 gap-1.5">
@@ -2045,6 +2051,11 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                             );
                           })}
                         </div>
+                        <p className="mt-1.5 font-sans text-[10px] leading-snug text-brand-muted/60">
+                          {sel3DModelledHand === undefined
+                            ? 'This model is symmetrical, so this only sets which hand you place it against.'
+                            : `This model is built for a ${sel3DModelledHand} hand — the other one is mirrored automatically.`}
+                        </p>
                       </div>
                     )}
                   </div>

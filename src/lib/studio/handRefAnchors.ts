@@ -25,7 +25,7 @@
  * +Z out of the palm, +X = up x normal, origin at the wrist landmark (0),
  * centimetres. That is exactly the frame solveHandPose emits.
  */
-import { HAND_ANCHORS, type HandAnchorDef } from '../handPose';
+import { forearmReachCm, HAND_ANCHORS, type HandAnchorDef } from '../handPose';
 
 export type Vec3 = [number, number, number];
 
@@ -66,7 +66,46 @@ export function handRefAnchorPoint(
   const a = landmarks[def.between[0]];
   const b = landmarks[def.between[1]];
   if (!a || !b) return null;
-  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2 + def.normalOffsetCm];
+  // Elbow-ward is −Y in this frame (+Y runs wrist→fingers), and the clamp is the
+  // SAME one live applies, so a forearm sleeve sits in the same place in the
+  // orbit editor as it does on a tracked arm.
+  const reach = forearmReachCm(def.alongForearmCm);
+  return [
+    (a[0] + b[0]) / 2,
+    (a[1] + b[1]) / 2 - reach,
+    (a[2] + b[2]) / 2 + def.normalOffsetCm,
+  ];
+}
+
+/**
+ * The same hand, other chirality. Human hands are exact mirror images, so a
+ * left hand in this frame is the right hand with x negated — nothing is
+ * approximated here.
+ *
+ * Why x: the frame is +Y wrist→middle-knuckle and +Z out of the palm, which are
+ * shared by both hands (both palms face the same way when held up); only the
+ * across-the-knuckles axis distinguishes them. In CANONICAL_HAND_LANDMARKS the
+ * index MCP sits at x +2.07 and the pinky at −4.05; a left hand puts the index
+ * at −2.07 and the pinky at +4.05.
+ *
+ * Anchor points must be derived AFTER this, never mirrored themselves: the grip
+ * and palm mounts sit at the midpoint of landmarks 9 and 13, which is off-centre
+ * toward the pinky, so mirroring the landmarks moves the mount to the correct
+ * side for free.
+ */
+export function mirrorHandLandmarks(
+  landmarks: Readonly<Record<number, Vec3>>,
+): Record<number, Vec3> {
+  const out: Record<number, Vec3> = {};
+  for (const key of Object.keys(landmarks)) {
+    const p = landmarks[Number(key)];
+    // `-0` is arithmetically 0 but not `Object.is`-equal to it, and the wrist
+    // sits exactly on the midline — so a naive negation makes the mirrored wrist
+    // mount compare unequal to the original for no physical reason. NaN still
+    // negates to NaN, so a broken landmark stays visibly broken.
+    out[Number(key)] = [p[0] === 0 ? 0 : -p[0], p[1], p[2]];
+  }
+  return out;
 }
 
 /** Every HAND_ANCHORS mount point on one hand, keyed by anchor id. */

@@ -124,7 +124,7 @@ export interface ExperienceLayer {
   template?: unknown;
   /**
    * Hand anchor id (lib/handPose.ts HAND_ANCHORS: 'grip' | 'wristBack' |
-   * 'palm'). Present ⇒ this piece rides the tracked HAND (HandRig) instead of
+   * 'palm' | 'forearm'). Present ⇒ this piece rides the tracked HAND (HandRig) instead of
    * the head; `anchor` is then ignored at render time but still stored so the
    * layer round-trips. Absent on every pre-existing layer — validated at read
    * (isHandAnchorId) like every other untrusted jsonb field.

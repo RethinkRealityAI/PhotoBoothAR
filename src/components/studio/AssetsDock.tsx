@@ -829,7 +829,12 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
           // in-memory capture of the real GLB, no upload and no storage.
           modelUrl: template.glbUrl,
           pending: pendingKey === key,
-          kindBadge: a.demo ? 'Demo' : 'Personalise',
+          // "Hand" outranks "Personalise" on hand-tracked gear: a wand and a cap
+          // were previously indistinguishable in this shelf, so the one fact a
+          // host needs BEFORE adding — that this rides the hand, not the head —
+          // was the one fact the tile never carried. (The asset's own `blurb`
+          // says it, but this dock has never rendered blurbs.)
+          kindBadge: a.handAnchor !== undefined ? 'Hand' : a.demo ? 'Demo' : 'Personalise',
           drag,
           onAdd: () => {
             const slot = a.handAnchor !== undefined

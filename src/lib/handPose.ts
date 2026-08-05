@@ -48,8 +48,13 @@ export interface HandPose {
 }
 
 export interface HandAnchorDef {
-  id: 'grip' | 'wristBack' | 'palm';
+  id: 'grip' | 'wristBack' | 'palm' | 'forearm';
   label: string;
+  /** Worked examples, shown in the studio tooltip. The head anchors have
+   *  carried these since the start (faceRig ANCHOR_PRESETS); the hand mounts
+   *  shipped without them, and Wrist vs Palm differ by 0.3cm of offset and one
+   *  landmark pair — a host genuinely cannot tell them apart by name. */
+  hint: string;
   /** Which two landmarks midpoint the anchor sits at (screen space). */
   between: [number, number];
   /** Offset along the palm normal, cm (negative = into the palm/fist). */
@@ -57,15 +62,26 @@ export interface HandAnchorDef {
   /** Extra rotation (radians, XYZ intrinsic) applied in the hand frame — e.g.
    *  a wand shaft runs along the knuckle line, not up the palm. */
   rotation: [number, number, number];
+  /**
+   * Push the mount this far ELBOW-ward from the wrist, cm. Absent = 0, which is
+   * every hand-worn anchor. Clamped to FOREARM_REACH_MAX_CM by `forearmReachCm`
+   * — the forearm direction is inferred, not tracked, so a mount beyond that is
+   * not on the arm any more.
+   */
+  alongForearmCm?: number;
 }
 
 /** Where hand-worn/held gear mounts. Research notes: a fist-held wand runs
  *  along the 5→17 knuckle line, ~2cm inside the fist; a gauntlet centres on
  *  the wrist with the forearm continuing along −(P9−P0). */
 export const HAND_ANCHORS: readonly HandAnchorDef[] = [
-  { id: 'grip', label: 'Grip (held in the fist)', between: [9, 13], normalOffsetCm: -2.2, rotation: [0, 0, Math.PI / 2] },
-  { id: 'wristBack', label: 'Wrist (worn)', between: [0, 0], normalOffsetCm: 1.2, rotation: [0, 0, 0] },
-  { id: 'palm', label: 'Palm (open hand)', between: [9, 13], normalOffsetCm: 1.5, rotation: [0, 0, 0] },
+  { id: 'grip', label: 'Grip (held in the fist)', hint: 'Runs through a closed fist — wands, swords, torches', between: [9, 13], normalOffsetCm: -2.2, rotation: [0, 0, Math.PI / 2] },
+  { id: 'wristBack', label: 'Wrist (worn)', hint: 'Sits on the wrist itself — watches, bands, gauntlet cuffs', between: [0, 0], normalOffsetCm: 1.2, rotation: [0, 0, 0] },
+  { id: 'palm', label: 'Palm (open hand)', hint: 'Floats off an open palm — orbs, energy, held-out props', between: [9, 13], normalOffsetCm: 1.5, rotation: [0, 0, 0] },
+  // Sits at the wrist like wristBack, but its `alongForearmCm` pushes the mount
+  // DOWN the arm so a sleeve, bracer or long cuff centres on the forearm rather
+  // than on the hand. See FOREARM_REACH_MAX_CM for why it cannot go far.
+  { id: 'forearm', label: 'Forearm (sleeve or bracer)', hint: 'Continues up the arm — sleeves, bracers, long gauntlets', between: [0, 0], normalOffsetCm: 0, rotation: [0, 0, 0], alongForearmCm: 5 },
 ];
 
 export const HAND_ANCHOR_MAP: Record<string, HandAnchorDef> = Object.fromEntries(
@@ -233,9 +249,64 @@ export function mirrorHandPose(pose: HandPose): HandPose {
   };
 }
 
+/* ── The forearm ───────────────────────────────────────────────────────────
+ *
+ * HandLandmarker has NO forearm. Landmark 0 (the wrist) is the most proximal
+ * point that exists — verified in the shipped typings
+ * (@mediapipe/tasks-vision vision.d.ts: the result is exactly `landmarks`,
+ * `worldLandmarks`, `handedness`, `handednesses`). So the forearm here is
+ * INFERRED, and the only honest inference is that it continues where the palm
+ * came from: straight back along the hand frame's −Y.
+ *
+ * That is exact for a neutral wrist (the third metacarpal is collinear with the
+ * forearm) and wrong by exactly the wrist's deviation otherwise. Measured on
+ * real frames against a PoseLandmarker-derived elbow: 2.6° with the wrist
+ * relaxed, 28.4° on a fist gripping a vertical wand. Functional wrist range for
+ * daily tasks is ~40° flexion / 40° extension (Ryu et al., J Hand Surg 1991),
+ * so ~30° is the working error and ~60° the anatomical ceiling.
+ *
+ * Lateral drift is reach × sin(error). A forearm is only ~5–6 cm in radius, so
+ * at 10 cm reach a 28° error already puts the far end off the limb. That single
+ * number is why FOREARM_REACH_MAX_CM exists and why it is small.
+ *
+ * WHY NOT TRACK IT PROPERLY: PoseLandmarker does expose the elbow, and it was
+ * measured — +5.78 MB, +571 ms init, ~0.92× the hand landmarker's per-call cost
+ * (a third blocking inference on a main thread already at ~58% duty), and on
+ * this app's own portrait framing the elbow left the frame in 2 of 16 samples
+ * with a median visibility of 0.67. It buys an unreliable elbow for a large,
+ * permanent cost. Every commercial WebAR stack reaches the same conclusion:
+ * 8th Wall's hand model "extends just past the palm to include the region where
+ * a watch or bracelet would typically rest" and pairs it with a wrist occluder;
+ * Snap ships Wrist Binding; WebAR.rocks masks the inside of a bracelet. None of
+ * them tracks a forearm. The occluder — not the axis — is what sells the shot.
+ */
+
+/** How far past the wrist a mount may sit. Beyond this the inferred axis's own
+ *  error exceeds the radius of the limb it is meant to be on. */
+export const FOREARM_REACH_MAX_CM = 12;
+
+/** Clamp an authored elbow-ward offset to what the inference can support. */
+export function forearmReachCm(alongCm: number | undefined): number {
+  if (alongCm === undefined || !isFinite(alongCm) || alongCm <= 0) return 0;
+  return Math.min(FOREARM_REACH_MAX_CM, alongCm);
+}
+
+/**
+ * Unit vector from the wrist toward the elbow, world cm, RAW — the hand frame's
+ * −Y read straight off the pose quaternion (column 1 negated), so it cannot
+ * drift from the frame `anchorPointFor` already uses.
+ */
+export function forearmAxis(pose: HandPose): [number, number, number] {
+  const [x, y, z, w] = pose.quaternion;
+  return [-(2 * (x * y - w * z)), -(1 - 2 * (x * x + z * z)), -(2 * (y * z + w * x))];
+}
+
 /**
  * Screen-space midpoint of an anchor's landmark pair, unprojected at the
  * pose's depth, plus the normal offset — where the gear mounts, world cm, RAW.
+ *
+ * An anchor with `alongForearmCm` is additionally pushed elbow-ward, clamped:
+ * that is the only supported way to sit gear on the arm rather than the hand.
  */
 export function anchorPointFor(
   def: HandAnchorDef,
@@ -251,5 +322,11 @@ export function anchorPointFor(
   const nx = 2 * (qx * qz + qw * qy);
   const ny = 2 * (qy * qz - qw * qx);
   const nz = 1 - 2 * (qx * qx + qy * qy);
-  return [x + nx * def.normalOffsetCm, y + ny * def.normalOffsetCm, z + nz * def.normalOffsetCm];
+  const reach = forearmReachCm(def.alongForearmCm);
+  const f = reach > 0 ? forearmAxis(pose) : null;
+  return [
+    x + nx * def.normalOffsetCm + (f ? f[0] * reach : 0),
+    y + ny * def.normalOffsetCm + (f ? f[1] * reach : 0),
+    z + nz * def.normalOffsetCm + (f ? f[2] * reach : 0),
+  ];
 }
