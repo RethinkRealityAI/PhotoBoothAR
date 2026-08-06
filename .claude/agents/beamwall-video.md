@@ -554,3 +554,57 @@ re-encoded → file size sane (<2MB for landing embeds) → embedded/committed �
       material; the recut films are DENSER per second than the old ones (frozen
       frames cost nothing to encode), so a shorter film is not proportionally
       smaller — budget by bitrate, not by duration.
+
+- 2026-08-04: **First 9:16 composition** — `hyperframes/studio/teaser/` (33.2 s
+  kinetic social teaser, translating a reference ad's motion language onto the
+  real feature set). Findings:
+  1. **`frame-gold/deco/halo.webp` are finished EXAMPLE images with a model
+     baked in, NOT transparent frame overlays.** Laid over a guest photo as a
+     full-bleed `<img class="fr">` they cover it completely — the symptom was a
+     five-card personalisation carousel where every card showed the same
+     woman's face under a different name. Any composition that wants a frame
+     *around* real photography must draw it in CSS (inset border + inner rule +
+     four corner brackets is enough, and it can be hue-tinted per card). Reach
+     for the webp only when the frame design IS the subject.
+  2. **A cross-dissolve between two dark photographs reads as double exposure,
+     not as a transition.** The deck riffle's departing card fading over the
+     incoming one produced two overlapping event titles and a muddy blend.
+     Fix that worked: peel fast (0.34 s), fade in 0.18 s, and fire
+     `BW.flashAt(..., 0.55)` ON the cut so the eye is blown out through the
+     crossover. Light source material would have forgiven the dissolve; ours
+     never does.
+  3. **Corridor/flythrough geometry is arithmetic — do it before rendering.**
+     First attempt put the planes at `rotateY ±58°`, `translateX ±430`,
+     `z -420·n` with `perspective: 900`, and the rail travelling from -1500:
+     a 400 px plane came out ~89 px wide on screen and the scene read as two
+     distant specks for its first second. The visible width is
+     `plane_w · cos(rotateY) · perspective/(perspective − z_rail − z_plane)`.
+     Landing values: perspective 1100, `rotateY ±42°`, `translateX ±340`,
+     `z -320·n`, rail -760 → +1400. Rail end must EXCEED the perspective value
+     (1100) so the nearest planes pass the eye instead of freezing huge.
+  4. **`.lname`-style label elements need explicit `left/top`** before you
+     drive them with GSAP `x`/`y`: with `position:absolute` and no offsets they
+     fall back to their static flow position, so the offsets you calculated
+     against the stage's centre land somewhere else entirely.
+  5. Vertical type scale that worked at 1080×1920 (social plays ~full width):
+     eyebrow 30 px / title 78 px Cormorant 600 / chip 28-36 px / fine 28 px.
+     **`.head` needs `padding: 0 78px; box-sizing: border-box`** — at 92 px the
+     headlines ran edge-to-edge and clipped on both sides; 78 px + the padding
+     fits every line used here.
+  6. Higgsfield spend: 6 × nano_banana_pro 2k 9:16 = 12 credits, all six
+     usable first try (balance 472.03 before). Generating only what the repo
+     LACKED — after inventorying 45 committed photo cells, 7 hero captures,
+     3 frame arts and 6 clips — kept it to 6 images instead of ~20.
+  7. **Vendoring path, end to end, in one push:** add `{url,path}` entries to
+     `scripts/remote-assets.json`, push the branch (the push trigger fires the
+     "Fetch remote assets" job), then `git fetch origin <branch>` +
+     `git merge --ff-only FETCH_HEAD`. Round trip was ~40 s. Add a compress
+     rule for any new asset dir at the same time — the CDN pngs are 2k and
+     `hyperframes/studio/assets/photos/` is already 78 MB of them; a
+     `scale=1080:-2` webp rule brought 6 plates down to 1.1 MB total, and the
+     existing `${path%.png}.webp` guard already stops the re-fetch.
+  8. Render cost here: 1080×1920 is the same pixel count as 1920×1080 but this
+     composition ran ~2.5 s/frame at `--workers 4` (vs the 0.87 s/frame of the
+     landing films) — image-heavy scenes (14 corridor planes + 9 grid cells +
+     5 deck cards, all photographic) dominate capture time. Budget by element
+     count, not by resolution.

@@ -7,6 +7,15 @@ Produced 2026-08-02 with Higgsfield (Kling 3.0 pro video · Nano Banana Pro 2K i
 - **Preview thumbnails:** [`previews/`](./previews/) (tiny QC contact sheets — the real assets are the CDN links below)
 - All assets also live in the Higgsfield workspace gallery (account: dapo@rethinkreality.ai).
 
+## The 33-second kinetic teaser (2026-08-04 · committed asset, not a CDN link)
+
+A second, very different teaser: motion-graphics rather than cinematic, built to the kinetic design-tool ad form the owner referenced (near-black canvas, one small persistent wordmark, letter-assembly with directional colour streaks, perspective card decks, a layer-separation beat with selection handles, a coverflow carousel, a corridor flythrough, bloom end card). Every beat carries a real shipped feature, so nothing in it is a claim the product cannot meet.
+
+- **Source:** [`hyperframes/studio/teaser/`](../../hyperframes/studio/teaser/) — rendered locally with the HyperFrames CLI, so unlike the assets below it lives **in the repo** and can be re-cut any time.
+- **Master:** [`beamwall-teaser.mp4`](./beamwall-teaser.mp4) (1080×1920, 33.2 s, music bed baked for standalone social use) · poster [`beamwall-teaser-poster.jpg`](./previews/beamwall-teaser-poster.jpg). It lives beside this kit rather than in `src/assets/landing/` because it is a social master, not a landing embed — nothing imports it.
+- Six numbered beats: 01 frame designs · Frame Studio layer separation · 02 personalisation · 03 AR booth · 04 challenges · 05 keepsake cards · 06 live wall.
+- Imagery: 6 new Higgsfield plates (`hyperframes/studio/assets/photos/teaser/tz-*.webp`) plus the already-committed hero captures, photo cells and AR footage — see Production notes.
+
 ## The 60-second platform teaser (week anchor — post Sunday)
 
 Fully finished master: six cinematic scenes (beams ignite → AR booth → particle wall → challenges → morning-after keepsake → finale), baked Cormorant/Jost supers, Simone VO (55 s) over ducked scene audio, branded end card. 1080×1920, 62 s, H.264.

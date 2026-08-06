@@ -251,6 +251,31 @@
     {
       "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/5ca7a8bb-e755-4757-b9a1-760c5a7fb8eb.webp",
       "path": "public/starters/power-surge.webp"
+    },
+    {
+      "comment": "Teaser film art (nano_banana_pro 2k 9:16, 2026-08-04). Only what the repo lacked — the 45 committed photo cells and the 7 hero captures cover everything else. Compressed to 1080w webp by the compress step; the 2k pngs are never committed (photos/ is already 78 MB of them).",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_195838_c7e720c7-3ab2-49c5-aaa2-e607b81a3afb.png",
+      "path": "hyperframes/studio/assets/photos/teaser/tz-beam-plate.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_195837_1c765ce8-c858-4b87-9a9a-ab4e088a3aa0.png",
+      "path": "hyperframes/studio/assets/photos/teaser/tz-wall-venue.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_195837_d899a594-feb4-4962-988d-6dc915780180.png",
+      "path": "hyperframes/studio/assets/photos/teaser/tz-ar-crown.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_195837_8c767796-d111-4580-b811-3ea65f52cf72.png",
+      "path": "hyperframes/studio/assets/photos/teaser/tz-challenge.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_195837_47a9f9bb-abe9-4c0b-a8f2-0b00768bb415.png",
+      "path": "hyperframes/studio/assets/photos/teaser/tz-morning-after.png"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_195837_b74275d7-9c5c-4a7f-9b16-c7317a807138.png",
+      "path": "hyperframes/studio/assets/photos/teaser/tz-gala-portrait.png"
     }
   ]
 }
