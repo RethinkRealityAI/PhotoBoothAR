@@ -33,6 +33,8 @@ import { CHAR_WIDTH_RATIO, DEFAULT_LETTERING_COLOR, type GuestLetteringStyle } f
 import { ASSET_CUSTOMIZATION, FINISH_TINT_STRENGTH } from './controlSpecs';
 import { DEFAULT_FINISH, normalizeFinish, normalizeTint, normalizeTintStrength } from './finish';
 import { moveByIndex } from './layerOrder';
+import { isHandAnchorId } from '../handPose';
+import { normalizeHandFit, type HandFit } from './handedness';
 import type { TriggerConfig } from './triggers';
 
 export type StudioMode = '2d' | '3d' | 'preview';
@@ -64,8 +66,10 @@ export const DEFAULT_ANCHOR_CONFIG: StudioAnchorConfig = {
  */
 export const MAX_OBJECTS = 20;
 
-/** Soft cap on face-triggered effects per scene (studio "Magic Triggers"). */
-export const MAX_TRIGGERS = 4;
+/** Soft cap on face/hand-triggered effects per scene (studio "Magic Triggers").
+ *  Raised 4 → 6 with the hand-gesture sources so a scene can pair face + hand
+ *  ceremonies without evicting its old triggers. */
+export const MAX_TRIGGERS = 6;
 
 /* — Scene objects ---------------------------------------------------------- */
 
@@ -154,6 +158,18 @@ export interface Object3D {
    * not fully understand. Undefined = a plain asset with no configurator.
    */
   template?: unknown;
+  /** Hand anchor id (lib/handPose HAND_ANCHORS) — present ⇒ the piece rides
+   *  the tracked hand, not the head. Absent on every pre-existing object. */
+  handAnchor?: string;
+  /**
+   * Which hand this piece should fit (lib/studio/handedness). Only meaningful
+   * beside `handAnchor`, and only for an asset whose template declares the hand
+   * it was modelled for — everything else ignores it. Absent = 'auto'.
+   *
+   * It needs no entry in the `config.layers` force predicate because it can
+   * only ever exist alongside `handAnchor`, which is already in it.
+   */
+  handFit?: HandFit;
 }
 
 export type StudioObject = Overlay2D | Object3D;
@@ -239,6 +255,10 @@ export function createObject3D(
     // The configurator descriptor rides along opaquely, and only when the asset
     // actually has one (an untemplated model keeps NO template key).
     ...(opts.template ? { template: opts.template } : {}),
+    // Hand-anchored gear: only when set, so head pieces keep NO handAnchor key.
+    ...(opts.handAnchor !== undefined ? { handAnchor: opts.handAnchor } : {}),
+    // Same idiom: 'auto' IS the absent state, so only a real pin is stored.
+    ...(opts.handFit === 'left' || opts.handFit === 'right' ? { handFit: opts.handFit } : {}),
   };
 }
 
@@ -540,6 +560,72 @@ export const SCENE_FULL_MESSAGE =
   `This scene is full — ${MAX_OBJECTS} stickers and 3D pieces is the limit (the frame doesn't count). Remove a layer to add another.`;
 
 /**
+ * The 3D piece already occupying the SLOT a new add would land on, or null.
+ *
+ * The slot is the exact mount point, not the whole family: a crown + glasses
+ * scene is legitimate multi-piece composition, but two visors on the nose
+ * bridge (or two props in the same fist) physically overlap — that is when
+ * the dock asks Replace-or-Add-both instead of silently stacking them.
+ * Head slots compare `anchor` (hand-tracked pieces excluded); hand slots
+ * compare `handAnchor`.
+ */
+export function slotConflict(
+  d: StudioDraft,
+  slot: { anchor?: HeadAnchor; handAnchor?: string },
+): Object3D | null {
+  const found = d.objects.find((o) => {
+    if (o.type === 'overlay') return false;
+    if (slot.handAnchor !== undefined) return o.handAnchor === slot.handAnchor;
+    return o.handAnchor === undefined && o.anchor === (slot.anchor ?? 'crown');
+  });
+  return found !== undefined && found.type !== 'overlay' ? found : null;
+}
+
+/* ── Scene-level occlusion ────────────────────────────────────────────────
+ *
+ * Occlusion is stored PER OBJECT (`Object3D.occlusion`) but its EFFECT is
+ * scene-global: exactly one FaceOccluder renders per canvas — Overlay3D and
+ * Studio3DView both pick the FIRST head-anchored piece that opted in — and
+ * every piece in that canvas then depth-tests against it. So a per-piece
+ * switch was a lie: flipping it on any piece but the first did nothing
+ * visible, and flipping it on the first silently occluded all the others.
+ * The UI now shows ONE scene switch that reads as OR over the scene's 3D
+ * pieces and writes to all of them; the per-object FIELD stays exactly as it
+ * was, so every stored scene (and a library entry's `defaultOcclude`) keeps
+ * working unchanged.
+ */
+
+/** Does this scene occlude? OR over its 3D objects — the honest read of a
+ *  scene-global effect stored per piece. */
+export function sceneOcclusion(d: StudioDraft): boolean {
+  return d.objects.some((o) => is3D(o) && o.occlusion === true);
+}
+
+/**
+ * The occlusion flag a newly added 3D piece should carry.
+ *
+ * A scene that already has 3D pieces INHERITS its own current setting, so the
+ * scene switch never disagrees with what renders. The first 3D piece of a
+ * BRAND-NEW draft (no `id`: never saved, not opened from an existing
+ * experience) defaults ON, because hiding props behind the real head is what
+ * a host expects. An EXISTING scene is never defaulted on — that would start
+ * depth-clipping halos, back bands and oversized props at live events with no
+ * host action.
+ */
+export function nextPieceOcclusion(d: StudioDraft): boolean {
+  if (d.objects.some(is3D)) return sceneOcclusion(d);
+  return d.id === undefined;
+}
+
+/** Apply the scene's occlusion default to a 3D object on its way into the
+ *  scene. Never turns an opt-in OFF: a library entry's `defaultOcclude` (or
+ *  any caller that asked for true) wins. */
+function withSceneOcclusion(d: StudioDraft, obj: StudioObject): StudioObject {
+  if (!is3D(obj) || obj.occlusion === true) return obj;
+  return { ...obj, occlusion: nextPieceOcclusion(d) };
+}
+
+/**
  * The DERIVED draft kind from the current objects:
  *   • a 2D overlay AND a 3D object present → 'composite'
  *   • only overlays → objects[0].overlayKind ('border' | '2d_filter')
@@ -599,7 +685,8 @@ function appendObject(d: StudioDraft, obj: StudioObject): StudioDraft | null {
   // The cap counts stickers + 3D only (the frame is exempt); this helper only
   // ever adds cappable objects, so compare against the capped count.
   if (sceneCounts(d).capped >= MAX_OBJECTS) return null;
-  return { ...d, objects: [...d.objects, obj], selectedId: obj.id };
+  const placed = withSceneOcclusion(d, obj);
+  return { ...d, objects: [...d.objects, placed], selectedId: placed.id };
 }
 
 /**
@@ -651,11 +738,16 @@ export type StudioAction =
   /** `template` is the asset's configurator descriptor when the library row
    *  ships one (assetTemplate.AssetTemplate). Omitting it — every caller today
    *  — adds a plain, non-configurable model exactly as before. */
-  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown; offsetCm?: { x: number; y: number; z: number } }
+  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown; offsetCm?: { x: number; y: number; z: number }; rotationDeg?: { x: number; y: number; z: number }; occlude?: boolean; anchor?: HeadAnchor; handAnchor?: string }
   | { type: 'SET_THUMB'; url: string | null; blob: Blob | null }
   | { type: 'TOGGLE_PUBLISHED' }
   | { type: 'TOGGLE_FEATURED' }
-  | { type: 'SET_OCCLUSION'; occlusion: boolean }
+  /**
+   * Scene-level occlusion — writes EVERY 3D object in the draft, because one
+   * occluder serves the whole canvas (see sceneOcclusion). Replaces the old
+   * per-object SET_OCCLUSION, whose UI could not match what rendered.
+   */
+  | { type: 'SET_SCENE_OCCLUSION'; occlusion: boolean }
   /**
    * Restyle the SELECTED 3D object's material. Every field is optional so the
    * dock can change one without knowing the others; `tint: null` explicitly
@@ -671,6 +763,7 @@ export type StudioAction =
    * back to the asset exactly as it shipped.
    */
   | { type: 'SET_CUSTOMIZATION'; part?: { id: string; hex?: string | null; finish?: string | null }; label?: AssetLabelConfig | null }
+  | { type: 'SET_TEMPLATE_GUEST_PICK'; regionId: string; on: boolean }
   | { type: 'SET_SCENE_TAG'; scene: string | undefined }
   | { type: 'MARK_SAVED'; id: string }
   /* — multi-object scene actions — */
@@ -684,6 +777,26 @@ export type StudioAction =
   | { type: 'RENAME_OBJECT'; id: string; name: string }
   | { type: 'UPDATE_OBJECT'; id: string; patch: Partial<Omit<Overlay2D, 'id' | 'type'>> | Partial<Omit<Object3D, 'id' | 'type'>> }
   | { type: 'SET_OBJECT_ANIMATION'; id: string; animation: LayerAnimation }
+  /**
+   * Switch a 3D piece between HEAD tracking and HAND tracking (the
+   * wand-as-an-earring request works in both directions). `handAnchor` picks
+   * the mount for hand mode ('grip' default); head mode keeps the object's
+   * existing head anchor. A family switch zeroes offset/rotation — a visor's
+   * brow nudge is meaningless on a wrist — but KEEPS scale (auto-fit is
+   * family-independent).
+   */
+  | { type: 'SET_OBJECT_TRACKING'; id: string; tracking: 'head' | 'hand'; handAnchor?: string }
+  /** Pin a hand-modelled asset to one hand, or 'auto' to follow the tracker. */
+  | { type: 'SET_HAND_FIT'; id: string; fit: HandFit }
+  /**
+   * Repoint beam/animate triggers that named `fromId` at the CURRENTLY
+   * SELECTED object. Dispatched right after a Replace-style add (delete old →
+   * add new → retarget), when the reducer has already selected the
+   * replacement — so "replace my visor" keeps its blast wired. Reveal
+   * triggers are deliberately not touched (DELETE_OBJECT already drops them;
+   * auto-revealing a piece the author never marked hidden would surprise).
+   */
+  | { type: 'RETARGET_TRIGGERS'; fromId: string }
   /* — face-triggered effects (Magic Triggers) — */
   | { type: 'ADD_TRIGGER'; trigger: TriggerConfig }
   | { type: 'UPDATE_TRIGGER'; id: string; patch: Partial<Omit<TriggerConfig, 'id'>> }
@@ -850,16 +963,32 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         assetUrl: action.url,
         name: action.name ?? 'Model',
         template: action.template,
-        // offsetCm: a library entry's authored starting nudge (e.g. a cap rides
-        // at the hairline, not the brow) — same field the Placement sliders
+        // Library entries carry their natural mount: eyewear at noseBridge,
+        // a wand at the hand's grip. Absent = the historical default (crown).
+        anchor: action.anchor,
+        handAnchor: action.handAnchor,
+        // offsetCm/rotationDeg: a library entry's authored starting placement
+        // (a cap rides at the hairline, not the brow; a gauntlet lands sideways
+        // on the wrist until turned) — the same fields the Placement sliders
         // edit, so the host can still move it and saved scenes are untouched.
-        anchorConfig: action.scale != null || action.offsetCm != null
+        // DEGREES in, radians stored: the action speaks the authoring unit and
+        // anchorConfig keeps the render unit, so neither side has to remember.
+        anchorConfig: action.scale != null || action.offsetCm != null || action.rotationDeg != null
           ? {
               offset: action.offsetCm ?? { x: 0, y: 0, z: 0 },
-              rotation: { x: 0, y: 0, z: 0 },
+              rotation: action.rotationDeg
+                ? {
+                    x: (action.rotationDeg.x * Math.PI) / 180,
+                    y: (action.rotationDeg.y * Math.PI) / 180,
+                    z: (action.rotationDeg.z * Math.PI) / 180,
+                  }
+                : { x: 0, y: 0, z: 0 },
               scale: action.scale ?? 1,
             }
           : undefined,
+        // Absent stays absent: createObject3D's own `?? false` keeps every
+        // existing add path byte-identical.
+        occlusion: action.occlude,
       });
       const nd = appendObject(d, obj);
       if (!nd) return state;
@@ -871,13 +1000,15 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return { ...state, dirty: true, draft: { ...d, isPublished: !d.isPublished } };
     case 'TOGGLE_FEATURED':
       return { ...state, dirty: true, draft: { ...d, featured: !d.featured } };
-    case 'SET_OCCLUSION': {
-      const sel = selectedObject(d);
-      if (!sel || !is3D(sel)) return state;
+    case 'SET_SCENE_OCCLUSION': {
+      if (!d.objects.some(is3D)) return state;
       return {
         ...state,
         dirty: true,
-        draft: { ...d, objects: mapObjects(d, sel.id, (o) => (is3D(o) ? { ...o, occlusion: action.occlusion } : o)) },
+        draft: {
+          ...d,
+          objects: d.objects.map((o) => (is3D(o) ? { ...o, occlusion: action.occlusion } : o)),
+        },
       };
     }
     case 'SET_FINISH': {
@@ -900,6 +1031,31 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         draft: { ...d, objects: mapObjects(d, sel.id, (o) => (is3D(o) ? withCustomization(o, action) : o)) },
       };
     }
+    case 'SET_TEMPLATE_GUEST_PICK': {
+      // Stamp/clear `guestPick` on ONE region of the selected object's raw
+      // template (the descriptor travels opaquely — see Object3D.template).
+      // Raw-JSON clone so normalizeTemplate still owns validation downstream;
+      // a malformed template is left untouched rather than "repaired".
+      const sel = selectedObject(d);
+      if (!sel || !is3D(sel) || sel.template === null || typeof sel.template !== 'object') return state;
+      const clone = JSON.parse(JSON.stringify(sel.template)) as Record<string, unknown>;
+      const regions = clone.regions;
+      if (!Array.isArray(regions)) return state;
+      let touched = false;
+      for (const r of regions) {
+        if (r !== null && typeof r === 'object' && (r as Record<string, unknown>).id === action.regionId) {
+          if (action.on) (r as Record<string, unknown>).guestPick = true;
+          else delete (r as Record<string, unknown>).guestPick;
+          touched = true;
+        }
+      }
+      if (!touched) return state;
+      return {
+        ...state,
+        dirty: true,
+        draft: { ...d, objects: mapObjects(d, sel.id, (o) => (is3D(o) ? { ...o, template: clone } : o)) },
+      };
+    }
     case 'SET_SCENE_TAG':
       return { ...state, dirty: true, draft: { ...d, scene: action.scene } };
     case 'MARK_SAVED':
@@ -908,7 +1064,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       // Mixed scenes: no family-match rejection. A 'border' overlay obeys the
       // one-frame rule (replace the existing frame in place; exempt from the
       // cap); everything else appends subject to the MAX_OBJECTS cap.
-      const obj = action.object;
+      const obj = withSceneOcclusion(d, action.object);
       let nd: StudioDraft;
       if (isFrame(obj)) {
         nd = placeFrame(d, obj);
@@ -1003,6 +1159,64 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         dirty: true,
         draft: { ...d, objects: mapObjects(d, action.id, (o) => ({ ...o, animation: action.animation })) },
       };
+    }
+    case 'SET_OBJECT_TRACKING': {
+      const target = d.objects.find((o) => o.id === action.id);
+      if (!target || target.type === 'overlay') return state;
+      const wantHand = action.tracking === 'hand';
+      const wasHand = target.handAnchor !== undefined;
+      const nextHandAnchor = wantHand
+        ? (isHandAnchorId(action.handAnchor) ? action.handAnchor : (target.handAnchor ?? 'grip'))
+        : undefined;
+      if (wantHand === wasHand && nextHandAnchor === target.handAnchor) return state;
+      const objects = mapObjects(d, action.id, (o) => {
+        const next = { ...(o as Object3D) };
+        if (nextHandAnchor !== undefined) next.handAnchor = nextHandAnchor;
+        else delete next.handAnchor;
+        if (wantHand !== wasHand) {
+          // Cross-family placement tuning does not transfer (a visor's brow
+          // offset floats a wand off the fist). Scale survives.
+          next.anchorConfig = {
+            ...next.anchorConfig,
+            offset: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+          };
+        }
+        return next;
+      });
+      return { ...state, dirty: true, draft: { ...d, objects } };
+    }
+    case 'SET_HAND_FIT': {
+      const target = d.objects.find((o) => o.id === action.id);
+      if (!target || target.type === 'overlay') return state;
+      const fit = normalizeHandFit(action.fit);
+      // 'auto' is the absent state, not a stored value: writing it would put a
+      // key on every hand piece for the default behaviour and make old and new
+      // saves of the same scene differ for no reason.
+      const next = fit === 'auto' ? undefined : fit;
+      if (next === target.handFit) return state;
+      const objects = mapObjects(d, action.id, (o) => {
+        const o3 = { ...(o as Object3D) };
+        if (next !== undefined) o3.handFit = next;
+        else delete o3.handFit;
+        return o3;
+      });
+      return { ...state, dirty: true, draft: { ...d, objects } };
+    }
+    case 'RETARGET_TRIGGERS': {
+      const toId = d.selectedId;
+      if (toId === null || toId === action.fromId) return state;
+      let changed = false;
+      const triggers = d.triggers.map((t) => {
+        const a = t.action;
+        if ((a.type === 'beam' || a.type === 'animate') && a.objectId === action.fromId) {
+          changed = true;
+          return { ...t, action: { ...a, objectId: toId } };
+        }
+        return t;
+      });
+      if (!changed) return state;
+      return { ...state, dirty: true, draft: { ...d, triggers } };
     }
     case 'ADD_TRIGGER': {
       // Soft cap: adds past MAX_TRIGGERS are ignored (the dock also gates the button).

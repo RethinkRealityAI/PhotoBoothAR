@@ -75,6 +75,14 @@ export const ANCHOR_CLEARANCE_CM = 0.35;
 
 /** Cone half-angle used to sample the surface along an anchor direction. */
 const CONE_MIN_COS = 0.9;
+
+/** Median of a sample. Shared by the fit search and the canonical
+ *  normalization, which both need a centre robust to one odd direction. */
+function median(xs: number[]): number {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
 /** Vertices sampled by the SEARCH. The final answer is always re-checked against
  *  every vertex (see computeAnchorAlignedFit), so this trades search precision
  *  for solve time, not correctness. */
@@ -212,11 +220,6 @@ export function computeAnchorAlignedFit(
   //
   // Steps are relative to the seed for the same reason, so the search behaves
   // identically whatever units the caller works in.
-  const median = (xs: number[]) => {
-    const s = [...xs].sort((a, b) => a - b);
-    const m = s.length >> 1;
-    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-  };
   const cy = (minY + maxY) / 2;
   let minZ = Infinity, maxZ = -Infinity;
   for (let i = 2; i < src.length; i += 3) { if (src[i] < minZ) minZ = src[i]; if (src[i] > maxZ) maxZ = src[i]; }
@@ -309,6 +312,70 @@ export function computeAnchorAlignedFit(
     position: [-cx * bs, bty, btz],
     clearances,
     worstClearance: clearances.reduce((m, c) => Math.min(m, c), Infinity),
+  };
+}
+
+/**
+ * Grow an anchor-aligned fit until the fitted head is the size the TRACKER
+ * assumes — the fix for "assets look bigger on the mannequin than on my face".
+ *
+ * computeAnchorAlignedFit optimises CLEARANCE: it keeps every anchor dot a
+ * target gap proud of the skin. That is an absolute centimetre criterion, and
+ * it therefore never constrains SIZE — a head 30% too small satisfies it just
+ * as well as a correct one, only with roomier dots. Measured on the vendored
+ * bust, the clearance-optimal fit lands its surface at ~0.77x the canonical
+ * face along the anchor directions, so a prop authored against it renders
+ * ~1.3x oversized the moment a real face (which IS the canonical space, by
+ * construction) replaces it.
+ *
+ * So: measure the fitted mesh's surface radius against the canonical face's
+ * along the same directions and scale the whole fit — scale AND position, which
+ * grows it about the head-space origin the anchors are measured from — by the
+ * MEDIAN ratio. Median, not mean: a real bust's proportions differ from the
+ * canonical face by roughly +-12% direction to direction (a sculpted brow, a
+ * hair volume at the crown), and one outlier direction must not set the size of
+ * the whole head.
+ *
+ * Degrades to the input fit whenever the ratio cannot be measured or lands
+ * outside a sane band — a pathological asset must not blow up the orbit view.
+ */
+export function normalizeFitToCanonical(
+  points: ArrayLike<number>,
+  fit: { scale: number; position: readonly [number, number, number] },
+  canonicalPoints: ArrayLike<number>,
+  dirs: readonly (readonly [number, number, number])[],
+): { scale: number; position: [number, number, number]; ratio: number } {
+  const asIs = {
+    scale: fit.scale,
+    position: [fit.position[0], fit.position[1], fit.position[2]] as [number, number, number],
+    ratio: 1,
+  };
+  const n = Math.floor(points.length / 3);
+  if (n === 0 || dirs.length === 0) return asIs;
+
+  // The mesh as the orbit view actually draws it: p * scale + position.
+  const fitted = new Float64Array(n * 3);
+  for (let i = 0; i < n * 3; i += 3) {
+    fitted[i] = points[i] * fit.scale + fit.position[0];
+    fitted[i + 1] = points[i + 1] * fit.scale + fit.position[1];
+    fitted[i + 2] = points[i + 2] * fit.scale + fit.position[2];
+  }
+
+  const ratios: number[] = [];
+  for (const d of dirs) {
+    const here = surfaceRadiusAlong(fitted, d);
+    const canon = surfaceRadiusAlong(canonicalPoints, d);
+    if (here == null || canon == null || here <= 1e-6 || canon <= 1e-6) continue;
+    ratios.push(canon / here);
+  }
+  if (ratios.length === 0) return asIs;
+
+  const ratio = median(ratios);
+  if (!Number.isFinite(ratio) || ratio < 0.4 || ratio > 3) return asIs;
+  return {
+    scale: fit.scale * ratio,
+    position: [fit.position[0] * ratio, fit.position[1] * ratio, fit.position[2] * ratio],
+    ratio,
   };
 }
 

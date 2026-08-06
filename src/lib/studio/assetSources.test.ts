@@ -5,6 +5,12 @@ import {
   filterDockItems,
   isThumbAsset,
   pairThumbnails,
+  storedNameFromUrl,
+  thumbUploadName,
+  planUploads,
+  rejectedUploadMessage,
+  UPLOAD_ACCEPT,
+  UPLOAD_ACCEPT_LABEL,
   isTemplate,
   splitTemplates,
   stripTemplateSuffix,
@@ -83,9 +89,13 @@ describe('uploadsToDockItems', () => {
   });
 
   it('excludes a paired thumbnail file and attaches it as the model item preview', () => {
+    // REAL storage names. db.uploadAsset appends an extension unconditionally,
+    // so a picked `crown.glb` lands as `<uid>-crown.glb.glb` — the old fixture
+    // used `<uid>-crown.glb`, a name uploadAsset cannot produce, which is why
+    // this suite stayed green while no uploaded model ever showed its capture.
     const items = uploadsToDockItems([
-      asset({ name: `${UUID}-crown.glb`, path: `${UUID}-crown.glb`, url: 'https://cdn/crown.glb' }),
-      asset({ name: `${UUID2}-crown.glb.thumb.png`, path: `${UUID2}-crown.glb.thumb.png`, url: 'https://cdn/crown-thumb.png' }),
+      asset({ name: `${UUID}-crown.glb.glb`, path: `${UUID}-crown.glb.glb`, url: 'https://cdn/crown.glb.glb' }),
+      asset({ name: `${UUID2}-${UUID}-crown.glb.glb.thumb.png`, path: `t/${UUID2}-${UUID}-crown.glb.glb.thumb.png`, url: 'https://cdn/crown-thumb.png' }),
     ]);
     expect(items).toHaveLength(1);
     expect(items[0].family).toBe('3d');
@@ -94,11 +104,95 @@ describe('uploadsToDockItems', () => {
 
   it('leaves previewUrl null when a model has no paired thumbnail', () => {
     const items = uploadsToDockItems([
-      asset({ name: `${UUID}-crown.glb`, path: `${UUID}-crown.glb`, url: 'https://cdn/crown.glb' }),
-      asset({ name: `${UUID2}-tiara.glb.thumb.png`, path: `${UUID2}-tiara.glb.thumb.png`, url: 'https://cdn/tiara-thumb.png' }),
+      asset({ name: `${UUID}-crown.glb.glb`, path: `${UUID}-crown.glb.glb`, url: 'https://cdn/crown.glb.glb' }),
+      asset({ name: `${UUID2}-${UUID}-tiara.glb.glb.thumb.png`, path: `t/${UUID2}-${UUID}-tiara.glb.glb.thumb.png`, url: 'https://cdn/tiara-thumb.png' }),
     ]);
     expect(items).toHaveLength(1);
     expect(items[0].previewUrl).toBeNull();
+  });
+
+  it('two uploads sharing a filename keep their OWN thumbnails (stored-name identity)', () => {
+    // The normalized-label key could not tell these apart; the stored name can.
+    const items = uploadsToDockItems([
+      asset({ name: `${UUID}-crown.glb.glb`, path: `a/${UUID}-crown.glb.glb`, url: 'https://cdn/a.glb' }),
+      asset({ name: `${UUID2}-crown.glb.glb`, path: `b/${UUID2}-crown.glb.glb`, url: 'https://cdn/b.glb' }),
+      asset({ name: `aaaaaaaa-1111-2222-3333-444444444444-${UUID2}-crown.glb.glb.thumb.png`, path: 't/b.png', url: 'https://cdn/b-thumb.png' }),
+    ]);
+    expect(items).toHaveLength(2);
+    expect(items[0].previewUrl).toBeNull();
+    expect(items[1].previewUrl).toBe('https://cdn/b-thumb.png');
+  });
+});
+
+describe('planUploads (the ONE upload zone routes by type)', () => {
+  const f = (name: string, type?: string) => ({ name, type });
+
+  it('routes images and models to their own paths, in input order', () => {
+    const { routed, rejected } = planUploads([f('frame.png', 'image/png'), f('crown.glb', 'model/gltf-binary')]);
+    expect(routed.map((r) => r.kind)).toEqual(['image', 'model']);
+    expect(routed[0].file.name).toBe('frame.png');
+    expect(rejected).toEqual([]);
+  });
+
+  it('routes by MIME when the extension is missing, and by extension when the MIME is', () => {
+    expect(planUploads([f('blob', 'image/webp')]).routed[0].kind).toBe('image');
+    expect(planUploads([f('crown.gltf', '')]).routed[0].kind).toBe('model');
+    expect(planUploads([f('crown.glb')]).routed[0].kind).toBe('model');
+  });
+
+  it('collects the unplaceable rather than dropping them silently', () => {
+    const { routed, rejected } = planUploads([f('notes.txt', 'text/plain'), f('a.svg', 'image/svg+xml')]);
+    expect(routed).toHaveLength(1);
+    expect(rejected).toEqual(['notes.txt']);
+    expect(rejectedUploadMessage(rejected)).toBe("notes.txt isn't an image or 3D model — skipped.");
+    expect(rejectedUploadMessage(['a', 'b'])).toBe("2 files weren't images or 3D models — skipped.");
+    expect(rejectedUploadMessage([])).toBeNull();
+  });
+
+  it('only a clean SINGLE file drops into the scene', () => {
+    // The trap: every image add replaces the scene's one frame, so auto-adding
+    // a 3-file drop would leave two of them uploaded but invisible.
+    expect(planUploads([f('a.png', 'image/png')]).addToScene).toBe(true);
+    expect(planUploads([f('a.png', 'image/png'), f('b.png', 'image/png')]).addToScene).toBe(false);
+    expect(planUploads([f('a.png', 'image/png'), f('n.txt', 'text/plain')]).addToScene).toBe(false);
+    expect(planUploads([]).addToScene).toBe(false);
+  });
+
+  it('the accept list and its human label cover the same formats', () => {
+    for (const ext of ['png', 'jpeg', 'webp', 'svg', 'glb', 'gltf']) {
+      expect(UPLOAD_ACCEPT.toLowerCase()).toContain(ext);
+    }
+    for (const word of ['PNG', 'JPG', 'WEBP', 'SVG', 'GLB', 'GLTF']) {
+      expect(UPLOAD_ACCEPT_LABEL).toContain(word);
+    }
+    // Everything the label promises must actually route (the old button
+    // advertised "PNG / JPG / SVG" while quietly also taking webp).
+    for (const name of ['a.png', 'a.jpg', 'a.webp', 'a.svg', 'a.glb', 'a.gltf']) {
+      expect(planUploads([{ name }]).rejected).toEqual([]);
+    }
+  });
+});
+
+describe('storedNameFromUrl / thumbUploadName', () => {
+  it('takes the last path segment, stripping query and fragment', () => {
+    expect(storedNameFromUrl(`https://cdn/storage/v1/object/public/assets/ev/uploads/${UUID}-crown.glb.glb`))
+      .toBe(`${UUID}-crown.glb.glb`);
+    expect(storedNameFromUrl('https://cdn/a/b/c.glb?token=1#x')).toBe('c.glb');
+  });
+
+  it('percent-decodes, and survives a malformed sequence rather than throwing', () => {
+    expect(storedNameFromUrl('https://cdn/a/my%20model.glb')).toBe('my model.glb');
+    expect(storedNameFromUrl('https://cdn/a/100%.glb')).toBe('100%.glb');
+  });
+
+  it('names the thumbnail after the model’s STORED file, not the picked file', () => {
+    // This is the whole fix: the pair key is an identity, not a normalization.
+    const url = `https://cdn/assets/ev/uploads/${UUID}-crown.glb.glb`;
+    expect(thumbUploadName(url)).toBe(`${UUID}-crown.glb.glb.thumb`);
+    const stored = `${UUID2}-${thumbUploadName(url)}.png`;
+    expect(isThumbAsset(stored)).toBe(true);
+    expect(pairThumbnails([asset({ name: stored, url: 'https://cdn/t.png' })]).get(`${UUID}-crown.glb.glb`))
+      .toBe('https://cdn/t.png');
   });
 });
 
@@ -118,25 +212,25 @@ describe('isThumbAsset', () => {
 });
 
 describe('pairThumbnails', () => {
-  it('maps a model label to its thumbnail url', () => {
+  it('maps a model’s STORED filename to its thumbnail url', () => {
     const map = pairThumbnails([
-      asset({ name: `${UUID}-crown.glb`, path: `${UUID}-crown.glb`, url: 'https://cdn/crown.glb' }),
-      asset({ name: `${UUID2}-crown.glb.thumb.png`, path: `${UUID2}-crown.glb.thumb.png`, url: 'https://cdn/crown-thumb.png' }),
+      asset({ name: `${UUID}-crown.glb.glb`, path: `${UUID}-crown.glb.glb`, url: 'https://cdn/crown.glb.glb' }),
+      asset({ name: `${UUID2}-${UUID}-crown.glb.glb.thumb.png`, path: `t/x.png`, url: 'https://cdn/crown-thumb.png' }),
     ]);
-    expect(map.get('crown')).toBe('https://cdn/crown-thumb.png');
+    expect(map.get(`${UUID}-crown.glb.glb`)).toBe('https://cdn/crown-thumb.png');
   });
 
   it('ignores non-thumb assets and returns an empty map', () => {
-    const map = pairThumbnails([asset({ name: `${UUID}-crown.glb` })]);
+    const map = pairThumbnails([asset({ name: `${UUID}-crown.glb.glb` })]);
     expect(map.size).toBe(0);
   });
 
-  it('does not pair mismatched labels', () => {
+  it('does not pair a thumbnail with a different model', () => {
     const map = pairThumbnails([
-      asset({ name: `${UUID2}-tiara.glb.thumb.png`, path: `${UUID2}-tiara.glb.thumb.png`, url: 'https://cdn/tiara-thumb.png' }),
+      asset({ name: `${UUID2}-${UUID}-tiara.glb.glb.thumb.png`, path: `t/y.png`, url: 'https://cdn/tiara-thumb.png' }),
     ]);
-    expect(map.get('crown')).toBeUndefined();
-    expect(map.get('tiara')).toBe('https://cdn/tiara-thumb.png');
+    expect(map.get(`${UUID}-crown.glb.glb`)).toBeUndefined();
+    expect(map.get(`${UUID}-tiara.glb.glb`)).toBe('https://cdn/tiara-thumb.png');
   });
 });
 

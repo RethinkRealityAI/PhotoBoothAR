@@ -13,17 +13,27 @@
  * Replaces the deleted creator3d ModelCanvas + LiveCanvas; the live sub-view no
  * longer opens its own getUserMedia — the shell owns the one stream.
  */
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import type { ThreeEvent } from '@react-three/fiber';
 import type * as THREE from 'three';
-import { ANCHOR_MAP, RIG_CAMERA } from '../../lib/faceRig';
+import { Hand, ScanFace } from 'lucide-react';
+import { ANCHOR_MAP, RIG_CAMERA, scaledAnchorBase } from '../../lib/faceRig';
 import { FaceRig, Model } from '../ar/FaceRig';
 import AssetGizmo from '../ar/AssetGizmo';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
 import FaceOccluder from '../ar/FaceOccluder';
 import ReferenceBust, { type BustBounds } from '../ar/ReferenceBust';
+import ReferenceHand, { type HandRefFit, type HandRefPose } from '../ar/ReferenceHand';
+import { HandOccluder, HandRig } from '../ar/HandRig';
+import { HandMirrorContext } from '../ar/handMirror';
+import { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
+import { HAND_ANCHOR_MAP, isHandAnchorId } from '../../lib/handPose';
+import { handRefAnchors } from '../../lib/studio/handRefAnchors';
+import { mirrorPlacement, previewHand, shouldMirrorAsset } from '../../lib/studio/handedness';
+import { normalizeTemplate } from '../../lib/studio/assetTemplate';
+import { orbitMannequins, resolveFocus, splitByFamily, type SceneFamily } from '../../lib/studio/sceneFamilies';
 import SceneLighting from '../ar/SceneLighting';
 import AnchorDots from '../admin/creator3d/AnchorDots';
 import type { AnchorConfig, HeadAnchor } from '../../types';
@@ -51,6 +61,9 @@ interface Props {
   onAnchorSelect: (a: HeadAnchor) => void;
   onTransformChange: (patch: Partial<AnchorConfig>) => void;
   onFaceVisible?: (v: boolean) => void;
+  /** Hand-rig acquisition feedback (live view) — the hand analogue of
+   *  onFaceVisible, wired to the first hand-anchored piece's rig. */
+  onHandVisible?: (v: boolean) => void;
   onGizmoDragStart?: () => void;
   onGizmoDragEnd?: () => void;
 }
@@ -64,41 +77,81 @@ const CROWN_HEADROOM_CM = 9;
 const HEAD_FRAME_CM = 22;
 /** Breathing room around the framed extent. */
 const FRAME_PADDING = 1.12;
+/** Margin kept around the hand mannequin when it is the focus. */
+const HAND_HEADROOM_CM = 4;
+/** Where the hand stands when the head is on stage too — beside it, forward,
+ *  at about the height a guest raises a hand to. Both mannequins then read as
+ *  one figure instead of the hand sitting on the head's bottom frame edge. */
+const HAND_BESIDE_HEAD: [number, number, number] = [17, -18, 6];
 
 /**
- * Frames the orbit camera on the bust that actually loaded. The camera used to
- * be a constant tuned for a bust rendered at 2x life size; now that the bust is
- * fitted to the anchor space, the right distance depends on the asset, so it is
- * derived instead of guessed.
+ * Frames the orbit camera on whatever the scene actually contains. The camera
+ * used to be a constant tuned for a bust rendered at 2x life size; now that both
+ * mannequins are fitted from their own meshes, the right distance depends on the
+ * asset AND on which family the host is looking at, so it is derived.
  */
-function FrameBust({ bounds }: { bounds: BustBounds | null }) {
+function FrameScene({
+  focus,
+  bust,
+  hand,
+  handOrigin,
+}: {
+  focus: SceneFamily;
+  bust: BustBounds | null;
+  hand: HandRefFit | null;
+  handOrigin: [number, number, number];
+}) {
   const camera = useThree((s) => s.camera);
   // R3F types `state.controls` as a bare EventDispatcher; OrbitControls
   // (makeDefault) is what actually lands there, so narrow by shape at runtime.
   const controls = useThree((s) => s.controls) as unknown as
     | { target?: THREE.Vector3; update?: () => void; minDistance?: number; maxDistance?: number }
     | null;
+  const framing = useMemo(() => {
+    let top: number, bottom: number, tx: number, tz: number;
+    if (focus === 'hand' && hand !== null && Number.isFinite(hand.maxY)) {
+      top = handOrigin[1] + hand.maxY + HAND_HEADROOM_CM;
+      bottom = handOrigin[1] + hand.minY - HAND_HEADROOM_CM;
+      tx = handOrigin[0] + (hand.minX + hand.maxX) / 2;
+      tz = handOrigin[2];
+    } else if (bust !== null && Number.isFinite(bust.maxY) && Number.isFinite(bust.minY)) {
+      top = bust.maxY + CROWN_HEADROOM_CM;
+      bottom = Math.max(bust.minY, bust.maxY - HEAD_FRAME_CM);
+      tx = 0;
+      tz = 0;
+    } else {
+      return null;
+    }
+    return { top, bottom, tx, tz };
+  }, [focus, bust, hand, handOrigin]);
+  // Re-frame only when the framed SUBJECT actually moves. Without this the
+  // camera snapped back to its default every time the other family's mannequin
+  // reported a fit — swapping the hand pose mid-orbit would yank the host's
+  // view of the head.
+  const key = framing === null ? '' : [framing.top, framing.bottom, framing.tx, framing.tz].map((v) => v.toFixed(3)).join('|');
+  const latest = useRef(framing);
+  latest.current = framing;
   useEffect(() => {
-    if (!bounds || !Number.isFinite(bounds.maxY) || !Number.isFinite(bounds.minY)) return;
-    const top = bounds.maxY + CROWN_HEADROOM_CM;
-    const bottom = Math.max(bounds.minY, bounds.maxY - HEAD_FRAME_CM);
+    const f = latest.current;
+    if (f === null) return;
+    const { top, bottom, tx, tz } = f;
     const height = Math.max(1, top - bottom);
     const centre = (top + bottom) / 2;
     const fov = ((camera as THREE.PerspectiveCamera).fov ?? 42) * (Math.PI / 180);
     const dist = (height / 2 / Math.tan(fov / 2)) * FRAME_PADDING;
-    camera.position.set(0, centre + dist * 0.05, dist);
-    camera.lookAt(0, centre, 0);
+    camera.position.set(tx, centre + dist * 0.05, tz + dist);
+    camera.lookAt(tx, centre, tz);
     camera.updateProjectionMatrix();
     if (controls?.target && controls.update) {
-      controls.target.set(0, centre, 0);
-      // Bound the zoom to the fitted head: unbounded OrbitControls let the host
-      // dolly inside the skull (nothing but a black screen, no obvious way back)
-      // or so far out the head becomes a speck.
+      controls.target.set(tx, centre, tz);
+      // Bound the zoom to the framed subject: unbounded OrbitControls let the
+      // host dolly inside the skull (nothing but a black screen, no obvious way
+      // back) or so far out the head becomes a speck.
       controls.minDistance = dist * 0.35;
       controls.maxDistance = dist * 2.4;
       controls.update();
     }
-  }, [bounds, camera, controls]);
+  }, [key, camera, controls]);
   return null;
 }
 
@@ -112,18 +165,30 @@ function FrameBust({ bounds }: { bounds: BustBounds | null }) {
  * STUDIO_SAMPLE_GUEST_NAME; the booth substitutes the real one.
  */
 function ObjectContent({ object }: { object: Object3D }) {
-  if (object.type === 'headpiece' && isHeadPiece(object.proceduralId)) return <HeadPiece id={object.proceduralId as string} />;
+  if (object.type === 'headpiece' && isHeadPiece(object.proceduralId)) {
+    const emitter = pieceEmitterOf({ proceduralId: object.proceduralId });
+    return (
+      <>
+        <HeadPiece id={object.proceduralId as string} />
+        {emitter !== null && <FxEmitterPoint fxKey={object.id} emitter={emitter} />}
+      </>
+    );
+  }
   if (!object.assetUrl) return null;
   const piece = objectToPiece(object, { guestName: STUDIO_SAMPLE_GUEST_NAME });
+  const emitter = pieceEmitterOf(piece);
   return (
-    <Model
-      url={object.assetUrl}
-      finish={piece.finish}
-      tint={piece.tint}
-      tintStrength={piece.tintStrength}
-      template={piece.template}
-      customization={piece.customization}
-    />
+    <>
+      <Model
+        url={object.assetUrl}
+        finish={piece.finish}
+        tint={piece.tint}
+        tintStrength={piece.tintStrength}
+        template={piece.template}
+        customization={piece.customization}
+      />
+      {emitter !== null && <FxEmitterPoint fxKey={object.id} emitter={emitter} modelledHand={piece.template?.modelledHand} />}
+    </>
   );
 }
 
@@ -142,20 +207,62 @@ export default function Studio3DView({
   onAnchorSelect,
   onTransformChange,
   onFaceVisible,
+  onHandVisible,
   onGizmoDragStart,
   onGizmoDragEnd,
 }: Props) {
   const [bustBounds, setBustBounds] = useState<BustBounds | null>(null);
+  const [handFit, setHandFit] = useState<HandRefFit | null>(null);
+  // Which family the host asked to look at; null = never asked. Deliberately
+  // VIEW state, not draft state: it is a camera preference, so persisting it
+  // would add a per-scene field (and a config.layers force-predicate entry)
+  // for something that must not survive into what a guest renders.
+  const [focusPref, setFocusPref] = useState<SceneFamily | null>(null);
   // Stable identity: ReferenceBust reports its fit from an effect, so an inline
   // callback would re-run it on every render of this view.
   const handleBustFit = useCallback((b: BustBounds) => {
     setBustBounds((prev) => (prev && prev.minY === b.minY && prev.maxY === b.maxY ? prev : b));
   }, []);
+  const handleHandFit = useCallback((f: HandRefFit) => {
+    setHandFit((prev) => (
+      prev && prev.minY === f.minY && prev.maxY === f.maxY && prev.minX === f.minX && prev.maxX === f.maxX ? prev : f
+    ));
+  }, []);
   const selected = objects.find((o) => o.id === selectedId) ?? null;
   // AnchorDots highlight the SELECTED object's anchor (or crown when none).
   const activeAnchor: HeadAnchor = selected?.anchor ?? 'crown';
-  // First object opting into occlusion wins the single (non-duplicated) occluder.
-  const occluderIdx = occlusionEnabled ? objects.findIndex((o) => o.occlusion === true) : -1;
+  // The family split Overlay3D renders with (its exact rule, now shared) — a
+  // hand-anchored wand must ride a HandRig at HAND depth here too, or the host
+  // sizes it against the head at ~2× the distance and Preview looks "way bigger".
+  const { head: headObjects, hand: handObjects } = splitByFamily(objects);
+  const shown = orbitMannequins(objects);
+  const focus = resolveFocus(objects, focusPref);
+  // A lone hand stands centre stage; with a head on set it moves beside it.
+  const handOrigin = useMemo<[number, number, number]>(
+    () => (shown.head ? [HAND_BESIDE_HEAD[0], (bustBounds ? bustBounds.maxY : 14) + HAND_BESIDE_HEAD[1], HAND_BESIDE_HEAD[2]] : [0, 0, 0]),
+    [shown.head, bustBounds],
+  );
+  // A wand only reads in a closed fist; a gauntlet or palm emitter only reads on
+  // an open one. The selection wins when it is a hand piece, so the mannequin
+  // matches whatever the host is placing right now.
+  const handPose: HandRefPose = (
+    selected !== null && isHandAnchorId(selected.handAnchor) ? selected.handAnchor : handObjects[0]?.handAnchor
+  ) === 'grip' ? 'fist' : 'open';
+  // WHICH hand the mannequin is. Same precedence as the pose above: the piece
+  // being placed wins, so switching selection re-hands the mannequin under the
+  // host. Without this the orbit drew the vendored RIGHT hand for everything,
+  // and a left-handed gauntlet was placed against its own mirror image.
+  const handSubject = (selected !== null && isHandAnchorId(selected.handAnchor) ? selected : handObjects[0]) ?? null;
+  const previewHandSide = previewHand(
+    normalizeTemplate(handSubject?.template)?.modelledHand,
+    handSubject?.handFit,
+  );
+  // While the mannequin loads (or if it cannot be measured) the mount points
+  // fall back to the canonical metric hand, so a gizmo never sits at the origin.
+  const handAnchorPoints = handFit?.anchors ?? handRefAnchors();
+  // First HEAD object opting into occlusion wins the single (non-duplicated)
+  // occluder — indexed over the head subset, since that is what maps below.
+  const occluderIdx = occlusionEnabled ? headObjects.findIndex((o) => o.occlusion === true) : -1;
 
   // Clicking a non-selected piece's mesh selects it (PivotControls on the
   // selected piece may swallow its own events — acceptable; the layers panel is
@@ -168,6 +275,34 @@ export default function Studio3DView({
 
   if (view === 'orbit') {
     return (
+      <div className="relative w-full h-full">
+      {/* Head|Hand focus — shown ONLY when the scene really carries both, so a
+          single-family scene gains no chrome at all. Icon-only and tucked into
+          the free left cell of the stage's top band (the mode pill is centred,
+          the view toggle is pinned right), because the owner has asked twice
+          for the studio not to grow more visible controls. */}
+      {shown.head && shown.hand && (
+        <div className="absolute top-2.5 left-2.5 z-20 flex items-center gap-0.5 liquid-glass-raised rounded-full p-1">
+          {([
+            { id: 'head' as const, Icon: ScanFace, label: 'Frame the head' },
+            { id: 'hand' as const, Icon: Hand, label: 'Frame the hand' },
+          ]).map(({ id, Icon, label }) => (
+            <button
+              key={id}
+              onClick={() => setFocusPref(id)}
+              title={label}
+              aria-label={label}
+              aria-pressed={focus === id}
+              data-testid={`studio-focus-${id}`}
+              className={`pressable flex items-center justify-center w-7 h-7 rounded-full transition-colors ${
+                focus === id ? 'bg-accent/20 ring-1 ring-accent/40 text-accent-2' : 'text-brand-muted/60 hover:text-brand-fg'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+            </button>
+          ))}
+        </div>
+      )}
       <Canvas
         // Pulled back + aimed lower than a tight head-shot: crown-anchored
         // content (Royal Crown, halos) extends WELL above the bust, and the
@@ -193,9 +328,9 @@ export default function Studio3DView({
         {/* No fog: at the fitted head's framing every surface sits well inside
             the old 70-unit near plane, so it did nothing — and the moment the
             host zoomed out it ate the head and its anchor dots instead. */}
-        {/* Target + distance are derived from the fitted bust by FrameBust. */}
+        {/* Target + distance are derived from the fitted mannequins by FrameScene. */}
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
-        <FrameBust bounds={bustBounds} />
+        <FrameScene focus={focus} bust={bustBounds} hand={handFit} handOrigin={handOrigin} />
         {/* The shared rig — identical values to the booth's, so a crown tuned
             here does not change appearance the moment a guest wears it.
             CONTACT SHADOWS ARE OFF, and that is a measured decision, not an
@@ -210,14 +345,33 @@ export default function Studio3DView({
             real floor; nothing in the product has one today. */}
         <SceneLighting preset={lightingPreset} />
 
-        <ReferenceBust onFit={handleBustFit} />
+        {/* Only the mannequins the scene actually uses. A hand-only scene used
+            to render a head anyway, with the hand parked on the head's bottom
+            frame edge; now each family brings its own stand-in and an empty
+            scene keeps the head to place the first piece onto.
+            headScale is the host's head-size calibration. Live applies it to
+            BOTH the occluder and the anchor offsets (FaceRig), so orbit has to
+            apply it to the reference head and its dots too — otherwise the two
+            views disagree the moment a host calibrates. */}
+        {shown.head && (
+          <group scale={headScale}>
+            <ReferenceBust onFit={handleBustFit} />
+          </group>
+        )}
         {/* Occluder shown faintly in orbit only when debugging placement. */}
-        {debugOcclusion && <FaceOccluder scale={headScale} debug />}
-        <AnchorDots activeAnchor={activeAnchor} onSelect={onAnchorSelect} />
+        {debugOcclusion && shown.head && <FaceOccluder scale={headScale} debug />}
+        {/* Head-anchor dots hide while a HAND-tracked piece is selected — a
+            stray tap must not look like it could yank a wand onto the head
+            (switching families lives in Properties, an explicit control). */}
+        {shown.head && !(selected !== null && isHandAnchorId(selected.handAnchor)) && (
+          <AnchorDots activeAnchor={activeAnchor} onSelect={onAnchorSelect} headScale={headScale} />
+        )}
 
-        {objects.map((o) => {
+        {headObjects.map((o) => {
           const isSel = o.id === selectedId;
-          const base = ANCHOR_MAP[o.anchor]?.offset ?? ([0, 0, 0] as [number, number, number]);
+          // The SAME anchor base live uses (FaceRig.scaledAnchorBase), so a
+          // piece placed here sits where it will sit on the guest.
+          const base = scaledAnchorBase(ANCHOR_MAP[o.anchor]?.offset ?? [0, 0, 0], headScale);
           return (
             <group key={o.id} onClick={selectHandler(o)}>
               <AssetGizmo
@@ -233,8 +387,65 @@ export default function Studio3DView({
             </group>
           );
         })}
+
+        {/* Hand-anchored gear mounts on the reference HAND — the editor's "hand
+            masking model" — sized and mounted from the mesh itself. */}
+        {shown.hand && (
+          <group position={handOrigin} rotation={[0, -0.25, 0]}>
+            <ReferenceHand pose={handPose} hand={previewHandSide} onFit={handleHandFit} />
+            {handObjects.map((o) => {
+              const isSel = o.id === selectedId;
+              const def = HAND_ANCHOR_MAP[o.handAnchor as string] ?? HAND_ANCHOR_MAP.grip;
+              const base = handAnchorPoints[def.id] ?? [0, 0, 0];
+              // The orbit has no tracker, so `null` — only an explicit Left/Right
+              // pin can flip a piece here, which is exactly what the mannequin
+              // beside it is already obeying.
+              const flip = shouldMirrorAsset(normalizeTemplate(o.template)?.modelledHand, o.handFit, null);
+              return (
+                // Rotate ABOUT the mount point, exactly as live does: HandRig
+                // puts the group AT the anchor and multiplies the anchor
+                // rotation into its quaternion. Putting the rotation on a
+                // PARENT of the anchor instead spun the mount point itself —
+                // grip's z=PI/2 sent (0, 5.2, 1.6) to (-5.2, 0, 1.6), 5.2cm off
+                // the mannequin, so a wand hung in mid-air beside the hand.
+                <group key={o.id} onClick={selectHandler(o)} position={base} rotation={def.rotation}>
+                  <AssetGizmo
+                    base={[0, 0, 0]}
+                    // The gizmo applies the placement itself, so a mirrored piece
+                    // needs a mirrored placement here — otherwise the mesh flips
+                    // and its offset/rotation do not, and the piece mirrors into
+                    // a pose beside the hand. `mirrorPlacement` is an involution,
+                    // so the same call un-mirrors the gizmo's output on the way
+                    // back to the store and the host's saved numbers stay in the
+                    // asset's own frame.
+                    config={flip ? mirrorPlacement(o.anchorConfig) : o.anchorConfig}
+                    enabled={isSel}
+                    onChange={isSel
+                      ? (flip ? (c: AnchorConfig) => onTransformChange?.(mirrorPlacement(c)) : onTransformChange)
+                      : undefined}
+                    onDragStart={onGizmoDragStart}
+                    onDragEnd={onGizmoDragEnd}
+                  >
+                    {/* The mirror decision is published by HandRig on the live
+                        path, and the orbit has no HandRig — so without this the
+                        editor mirrored the MANNEQUIN and left the ASSET alone,
+                        which is worse than not mirroring at all: pin a
+                        left-modelled gauntlet to Right and you got a right hand
+                        wearing an unmirrored left glove. `tracked: null` means
+                        the 'auto' cases resolve to "nothing to decide from" and
+                        stay byte-identical; only the pins change. */}
+                    <HandMirrorContext.Provider value={{ tracked: null, fit: o.handFit ?? 'auto' }}>
+                      <ObjectContent object={o} />
+                    </HandMirrorContext.Provider>
+                  </AssetGizmo>
+                </group>
+              );
+            })}
+          </group>
+        )}
         </Suspense>
       </Canvas>
+      </div>
     );
   }
 
@@ -269,31 +480,75 @@ export default function Studio3DView({
           </mesh>
         </FaceRig>
       ) : (
-        objects.map((o, i) => {
-          const isSel = o.id === selectedId;
-          return (
-            <group key={o.id} onClick={selectHandler(o)}>
-              <FaceRig
-                videoId={videoId}
-                anchor={o.anchor}
-                config={o.anchorConfig}
-                holdPose={holdPose}
-                mirror
-                occlude={i === occluderIdx}
-                headScale={headScale}
-                debugOcclusion={debugOcclusion}
-                matrixRef={i === 0 ? matrixRef : undefined}
-                editable={isSel}
-                onVisibilityChange={i === 0 ? onFaceVisible : undefined}
-                onTransformChange={isSel ? onTransformChange : undefined}
-                onGizmoDragStart={onGizmoDragStart}
-                onGizmoDragEnd={onGizmoDragEnd}
-              >
-                <ObjectContent object={o} />
-              </FaceRig>
-            </group>
-          );
-        })
+        <>
+          {/* Hand-anchored gear rides a HandRig at the ESTIMATED HAND depth —
+              the exact wrapper Overlay3D uses — plus one shared depth-only
+              hand occluder. Rendering these in a FaceRig at head depth was the
+              live-vs-preview size mismatch: apparent size ∝ 1/|z| under the
+              shared rig camera, and a raised hand sits ~2× closer than the
+              head.
+              The gizmo rides the hand rig too. The old note here claimed a
+              screen gizmo cannot sit on a rig that only exists while a hand is
+              tracked — FaceRig disproves it: identical per-frame-moving parent,
+              same AssetGizmo. What makes it usable is holdPose, which keeps
+              DETECTING while a handle is grabbed but skips the pose write, so
+              the piece stops swimming under the pointer. base is [0,0,0]
+              because HandRig already positions AND orients its group at the
+              anchor, so the fine transform is purely local — exactly the
+              relationship AssetGizmo assumes. */}
+          {handObjects.length > 0 && <HandOccluder videoId={videoId} mirror />}
+          {handObjects.map((o, i) => {
+            const isSel = o.id === selectedId;
+            return (
+              <group key={o.id} onClick={selectHandler(o)}>
+                <HandRig
+                  anchor={o.handAnchor as string}
+                  videoId={videoId}
+                  mirror
+                  holdPose={holdPose}
+                  fit={o.handFit ?? 'auto'}
+                  onVisibilityChange={i === 0 ? onHandVisible : undefined}
+                >
+                  <AssetGizmo
+                    base={[0, 0, 0]}
+                    config={o.anchorConfig}
+                    enabled={isSel}
+                    onChange={isSel ? onTransformChange : undefined}
+                    onDragStart={onGizmoDragStart}
+                    onDragEnd={onGizmoDragEnd}
+                  >
+                    <ObjectContent object={o} />
+                  </AssetGizmo>
+                </HandRig>
+              </group>
+            );
+          })}
+          {headObjects.map((o, i) => {
+            const isSel = o.id === selectedId;
+            return (
+              <group key={o.id} onClick={selectHandler(o)}>
+                <FaceRig
+                  videoId={videoId}
+                  anchor={o.anchor}
+                  config={o.anchorConfig}
+                  holdPose={holdPose}
+                  mirror
+                  occlude={i === occluderIdx}
+                  headScale={headScale}
+                  debugOcclusion={debugOcclusion}
+                  matrixRef={i === 0 ? matrixRef : undefined}
+                  editable={isSel}
+                  onVisibilityChange={i === 0 ? onFaceVisible : undefined}
+                  onTransformChange={isSel ? onTransformChange : undefined}
+                  onGizmoDragStart={onGizmoDragStart}
+                  onGizmoDragEnd={onGizmoDragEnd}
+                >
+                  <ObjectContent object={o} />
+                </FaceRig>
+              </group>
+            );
+          })}
+        </>
       )}
       </Suspense>
     </Canvas>

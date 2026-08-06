@@ -19,11 +19,17 @@ import { DEFAULT_REF_LUMINANCE, MAX_REGIONS, unpackRegionIds } from './regionTin
 const ALL: ConfigurableAsset[] = [...LIBRARY_ASSETS, ...DEMO_LIBRARY_ASSETS];
 
 describe('the shelf a host actually sees', () => {
-  it('ships the baseball cap — and ONLY authored content, no demo entries', () => {
-    // This asserted `toEqual([])` while the library was honestly empty; the
-    // first real asset (descriptor authored + measured in /dev/asset-prep)
-    // changes the honest state, not the honesty rule.
-    expect(libraryAssets(false).map((a) => a.id)).toEqual(['baseball-cap']);
+  it('ships the authored shelf — and ONLY authored content, no demo entries', () => {
+    // This asserted `toEqual([])` while the library was honestly empty; each
+    // real asset (descriptor authored + refLuminance measured) changes the
+    // honest state, not the honesty rule. Power-Ups added the visor (worn),
+    // wand (held) and gauntlet (hand-worn) — the first hand-anchored entries.
+    expect(libraryAssets(false).map((a) => a.id)).toEqual([
+      'baseball-cap',
+      'cyclops-visor',
+      'wizard-wand',
+      'power-gauntlet',
+    ]);
   });
 
   it('adds the demo entries only under DEV', () => {
@@ -146,6 +152,83 @@ describe('the baseball cap — the contracts its render depends on', () => {
     expect(slot.normal).toEqual([0, 0, 1]);
     expect(slot.decalDepth).toBeLessThanOrEqual(0.4);
   });
+});
+
+describe('Power-Ups gear — authored placement so a fresh add fits a real guest', () => {
+  // These numbers were tuned by the owner against a live camera. The add path
+  // computes scale as fitScale * fitCm / PROP_TARGET_CM, so the REAL-WORLD size
+  // is the thing to author; the rest is placement the anchor cannot know.
+  it('the visor ships the size and brow placement that fit a real face', () => {
+    const visor = findLibraryAsset('cyclops-visor')!;
+    expect(assetTemplateOf(visor)!.fitCm).toBeCloseTo(16.33, 2);
+    expect(visor.defaultNudgeCm).toEqual({ x: 0, y: 0.4, z: -6.4 });
+    expect(visor.defaultOcclude).toBe(true);
+  });
+
+  it('the gauntlet ships the rotation that lands it ON the wrist', () => {
+    const g = findLibraryAsset('power-gauntlet')!;
+    // DERIVED from the mesh, replacing hand-tuned values that crossed the
+    // gauntlet's fingers over the mannequin's by ~30 degrees (checked in the
+    // orbit view). Measured headlessly over all 33,005 vertices: the long PCA
+    // axis runs toward the fingers at [0.249,-0.132,0.960] and the palm-outward
+    // normal at [0.030,-0.989,-0.143] — the latter independently agreeing with
+    // the authored palm emitter, which fires along GLB -y. Rotating those onto
+    // the tracked hand frame (+Y wrist->fingers, +Z out of the palm) is this.
+    expect(g.defaultRotationDeg).toEqual({ x: -98.49, y: -14.01, z: -3.78 });
+    // The NUDGE is still the owner's, deliberately: deriving it the same way
+    // put the gauntlet ~5cm too far up the hand, so one of the frames that
+    // derivation assumes is not what it appears to be. Values a human checked
+    // against a real hand beat a derivation that fails its own screenshot.
+    expect(g.defaultNudgeCm).toEqual({ x: -0.7, y: -1.9, z: 2.1 });
+    // fitCm 30 already lands the owner's size — authoring a rotation must not
+    // quietly change how big the piece arrives. Measured: the hand portion is
+    // 1.209 of the mesh's 1.898 longest units, so this renders 19.1cm of hand
+    // against an adult mean of 18.6cm.
+    expect(assetTemplateOf(g)!.fitCm).toBe(30);
+  });
+
+  it('the gauntlet declares the hand it was modelled for, so it can serve both', () => {
+    // Without this the mirror never engages and the orbit mannequin has nothing
+    // to hand itself by — the two halves of "fits either hand" both hang off it.
+    const g = findLibraryAsset('power-gauntlet')!;
+    expect(assetTemplateOf(g)!.modelledHand).toBe('left');
+    expect(g.handAnchor).toBe('wristBack');
+    // The symmetric gear stays agnostic: declaring a hand it does not have
+    // would make the renderer mirror a wand for no reason.
+    expect(assetTemplateOf(findLibraryAsset('wizard-wand')!)!.modelledHand).toBeUndefined();
+    expect(assetTemplateOf(findLibraryAsset('cyclops-visor')!)!.modelledHand).toBeUndefined();
+  });
+
+  it('an entry with no authored placement stays exactly as before', () => {
+    const cap = findLibraryAsset('baseball-cap')!;
+    expect(cap.defaultRotationDeg).toBeUndefined();
+    expect(cap.defaultOcclude).toBeUndefined();
+  });
+});
+
+describe('Power-Ups gear — beam emitters survive validation and sit on the mesh', () => {
+  // The fired beam parents to the template emitter; a gear whose emitter is
+  // dropped by normalizeTemplate silently falls back to the generic head/hand
+  // origin — the exact "beam doesn't come from the asset" bug this fixes.
+  const cases: [string, [number, number, number]][] = [
+    ['cyclops-visor', [0, 0, 1]], // lens front, firing forward
+    // The wand's VISIBLE shaft runs along X (the +z extent is flat ribbon
+    // geometry that fools a whole-mesh PCA); grip maps +x to "up out of the
+    // fist", so the beam leaves the +x crystal along +x.
+    ['wizard-wand', [1, 0, 0]],
+    ['power-gauntlet', [0, -1, 0]], // palm, firing out of the open hand
+  ];
+  for (const [id, direction] of cases) {
+    it(`${id} carries a validated emitter firing along ${JSON.stringify(direction)}`, () => {
+      const t = assetTemplateOf(findLibraryAsset(id)!)!;
+      expect(t.emitter).toBeDefined();
+      expect(t.emitter!.direction).toEqual(direction);
+      // GLB-local space: inside the asset's roughly unit box, never at origin
+      // (an all-zero position would mean nobody measured).
+      for (const c of t.emitter!.position) expect(Math.abs(c)).toBeLessThan(1.1);
+      expect(Math.hypot(...t.emitter!.position)).toBeGreaterThan(0.1);
+    });
+  }
 });
 
 describe('GENERIC BY MANDATE — no legacy-event branding may reach the library', () => {

@@ -7,10 +7,13 @@ import { useRef, useEffect, type ReactNode } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import type { Group } from 'three';
 import { FaceRig, Model } from '../ar/FaceRig';
+import { HandOccluder, HandPlacement, HandRig } from '../ar/HandRig';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
+import BeamFX, { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
 import { RIG_CAMERA } from '../../lib/faceRig';
 import { AnchorConfig, AssetCustomization, LayerAnimation } from '../../types';
-import { animate3D } from '../../lib/studio/animation';
+import { animate3D, animatePulse3D, PULSE_3D_MS } from '../../lib/studio/animation';
+import type { AnimatePreset } from '../../lib/studio/triggers';
 import { revealScaleAt } from '../../lib/studio/reveal';
 import SceneLighting from '../ar/SceneLighting';
 import type { LightingPresetId } from '../../lib/studio/lighting';
@@ -40,6 +43,21 @@ export interface Overlay3DPiece {
   /** The asset's configurator descriptor, already validated by the shared
    *  mapper (lib/studio/draftMapping). */
   template?: AssetTemplate | null;
+  /**
+   * Transient one-shot pulse from an `animate` trigger — `at` is the fire
+   * performance.now(). Composes multiplicatively with `animation` and decays
+   * to identity within PULSE_3D_MS, so absent/expired = today's render.
+   */
+  pulse?: { preset: AnimatePreset; at: number } | null;
+  /** Hand anchor id (lib/handPose HAND_ANCHORS), already validated by the
+   *  shared mapper. Present ⇒ this piece rides a HandRig, not a FaceRig. */
+  handAnchor?: string;
+  /** Which hand a hand-MODELLED asset should fit; absent = follow the tracker
+   *  (lib/studio/handedness). */
+  handFit?: 'left' | 'right';
+  /** fx emitter-registry key (the layer/object id) — a beam whose spec names
+   *  it erupts from this piece's authored emitter point. */
+  fxKey?: string;
 }
 
 interface Props {
@@ -52,8 +70,13 @@ interface Props {
   occlude?: boolean;
   /** Head-size calibration (event studio setting). */
   headScale?: number;
-  /** Fires when face tracking acquires/loses the face (drives the booth hint). */
+  /** Fires when face tracking acquires/loses the face (drives the booth hint).
+   *  Only wired when the scene actually has head-anchored pieces. */
   onFaceVisible?: (visible: boolean) => void;
+  /** Fires when hand tracking acquires/loses the hand — the hand-only-scene
+   *  analogue of onFaceVisible (a wand scene should coach "show your hand",
+   *  not "center your face"). Wired to the first hand piece's rig. */
+  onHandVisible?: (visible: boolean) => void;
   /**
    * Multi-object 3D scene (studio `config.layers`). When provided (non-null),
    * renders one FaceRig per piece instead of the single assetUrl/proceduralId/
@@ -117,6 +140,13 @@ interface Props {
    * to before (Model.onError is optional).
    */
   onAssetError?: (url: string, message: string) => void;
+  /**
+   * Mount the power-FX layer (BeamFX — beams/blasts fired via fxBus). Off by
+   * default: the landing showcase, demo booth and every legacy surface must
+   * not pay for shader programs they can never fire. The booth turns it on
+   * only when the scene's triggers carry a beam action.
+   */
+  powerFx?: boolean;
 }
 
 /**
@@ -134,7 +164,7 @@ interface Props {
  * undefined/false forever -> revealStartRef never set -> revealMul is always
  * exactly 1 -> byte-identical to the pre-reveal behavior.
  */
-function AnimatedPiece({ animation, reveal, children }: { animation?: LayerAnimation; reveal?: boolean; children: ReactNode }) {
+function AnimatedPiece({ animation, reveal, pulse, children }: { animation?: LayerAnimation; reveal?: boolean; pulse?: { preset: AnimatePreset; at: number } | null; children: ReactNode }) {
   const ref = useRef<Group>(null);
   const revealStartRef = useRef<number | null>(null);
   const wasRevealRef = useRef(false);
@@ -147,20 +177,32 @@ function AnimatedPiece({ animation, reveal, children }: { animation?: LayerAnima
   useFrame(() => {
     const g = ref.current;
     if (!g) return;
-    const a = animate3D(animation ?? 'none', performance.now() / 1000);
+    const now = performance.now();
+    const a = animate3D(animation ?? 'none', now / 1000);
     const start = revealStartRef.current;
-    const revealMul = start === null ? 1 : revealScaleAt(performance.now() - start);
-    const s = a.scaleMul * revealMul;
-    g.position.set(a.position[0], a.position[1], a.position[2]);
-    g.rotation.y = a.rotationY;
+    const revealMul = start === null ? 1 : revealScaleAt(now - start);
+    // One-shot `animate` trigger pulse — identity when absent or expired, so
+    // this line costs nothing on every scene without triggers.
+    const p = pulse != null && now - pulse.at < PULSE_3D_MS ? animatePulse3D(pulse.preset, now - pulse.at) : null;
+    const s = a.scaleMul * revealMul * (p !== null ? p.scaleMul : 1);
+    g.position.set(
+      a.position[0] + (p !== null ? p.position[0] : 0),
+      a.position[1] + (p !== null ? p.position[1] : 0),
+      a.position[2] + (p !== null ? p.position[2] : 0),
+    );
+    g.rotation.y = a.rotationY + (p !== null ? p.rotationY : 0);
     g.scale.set(s, s, s);
   });
   return <group ref={ref}>{children}</group>;
 }
 
-export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError }: Props) {
+export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false }: Props) {
+  // Hand-anchored gear renders in a HandRig; everything else keeps the FaceRig
+  // path byte-identically (index split preserves keys within each family).
+  const headPieces = pieces ? pieces.filter((p) => p.handAnchor === undefined) : null;
+  const handPieces = pieces ? pieces.filter((p) => p.handAnchor !== undefined) : null;
   // First piece whose occlude===true wins the (single, non-duplicated) occluder.
-  const occluderIdx = pieces ? pieces.findIndex((p) => p.occlude === true) : -1;
+  const occluderIdx = headPieces ? headPieces.findIndex((p) => p.occlude === true) : -1;
   return (
     <div id="booth-3d-layer" className="absolute inset-0 pointer-events-none z-20">
       <Canvas
@@ -175,8 +217,49 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
             across their face. */}
         <SceneLighting preset={lightingPreset} />
 
-        {pieces ? (
-          pieces.map((p, i) => (
+        {powerFx && <BeamFX mirror={mirror} videoId={videoId} />}
+
+        {/* Hand-anchored gear: one HandRig per piece + ONE depth-only hand
+            occluder so real fingers wrap in front of a held grip. */}
+        {handPieces && handPieces.length > 0 && (
+          <>
+            <HandOccluder videoId={videoId} mirror={mirror} />
+            {handPieces.map((p, i) => {
+              const emitter = p.fxKey !== undefined ? pieceEmitterOf(p) : null;
+              return (
+              <HandRig key={`hand-${i}`} anchor={p.handAnchor as string} videoId={videoId} mirror={mirror} fit={p.handFit ?? 'auto'} onVisibilityChange={i === 0 ? onHandVisible : undefined}>
+                <AnimatedPiece animation={p.animation} reveal={reveal} pulse={p.pulse}>
+                  {/* HandPlacement, not a plain transform group: when this piece
+                      is mirrored onto the other hand its offset and rotation
+                      must reflect with the mesh, or it lands beside the hand. */}
+                  <HandPlacement template={p.template} config={p.anchor}>
+                    {isHeadPiece(p.proceduralId) ? (
+                      <HeadPiece id={p.proceduralId as string} />
+                    ) : p.assetUrl ? (
+                      <Model
+                        url={p.assetUrl}
+                        finish={p.finish}
+                        tint={p.tint}
+                        tintStrength={p.tintStrength}
+                        template={p.template}
+                        customization={p.customization}
+                        onReady={onAssetReady ? () => onAssetReady(p.assetUrl as string) : undefined}
+                        onError={onAssetError ? (m) => onAssetError(p.assetUrl as string, m) : undefined}
+                      />
+                    ) : null}
+                    {emitter !== null && <FxEmitterPoint fxKey={p.fxKey as string} emitter={emitter} modelledHand={p.template?.modelledHand} />}
+                  </HandPlacement>
+                </AnimatedPiece>
+              </HandRig>
+              );
+            })}
+          </>
+        )}
+
+        {headPieces ? (
+          headPieces.map((p, i) => {
+            const emitter = p.fxKey !== undefined ? pieceEmitterOf(p) : null;
+            return (
             <FaceRig
               key={i}
               videoId={videoId}
@@ -187,7 +270,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
               headScale={headScale}
               onVisibilityChange={i === 0 ? onFaceVisible : undefined}
             >
-              <AnimatedPiece animation={p.animation} reveal={reveal}>
+              <AnimatedPiece animation={p.animation} reveal={reveal} pulse={p.pulse}>
                 {isHeadPiece(p.proceduralId) ? (
                   <HeadPiece id={p.proceduralId as string} />
                 ) : p.assetUrl ? (
@@ -202,9 +285,11 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
                     onError={onAssetError ? (m) => onAssetError(p.assetUrl as string, m) : undefined}
                   />
                 ) : null}
+                {emitter !== null && <FxEmitterPoint fxKey={p.fxKey as string} emitter={emitter} />}
               </AnimatedPiece>
             </FaceRig>
-          ))
+            );
+          })
         ) : (
           <FaceRig videoId={videoId} anchor={anchor.anchor} config={anchor} mirror={mirror} occlude={occlude} headScale={headScale} onVisibilityChange={onFaceVisible}>
             {/* No `animation` prop on the single-piece path (that field only

@@ -110,11 +110,35 @@ class AiError extends Error {
  * the geometry rules by typing "Geometry:" into their brief. */
 
 const KIND_GEOMETRY: { kind: string; re: RegExp; text: string }[] = [
+  // Visor BEFORE glasses (mirror of assetPrompt.ts): 'visor' used to get the
+  // glasses spec, whose "lens area empty" is the opposite of a Cyclops visor.
+  {
+    kind: 'visor',
+    re: /\b(visor|cyclops|face ?shield|wrap[- ]?around (glasses|shades))\b/i,
+    text: 'a single wraparound visor band with ONE continuous curved lens panel spanning both eyes — ' +
+      'the lens a SOLID glossy surface roughly 2-3mm thick, NOT two separate rims and NOT an empty ' +
+      'opening, short temple arms folding back. No face, no head, no mannequin',
+  },
   {
     kind: 'glasses',
-    re: /\b(glasses|sunglasses|shades|spectacles|goggles|monocle|visor)\b/i,
+    re: /\b(glasses|sunglasses|shades|spectacles|goggles|monocle)\b/i,
     text: 'an eyewear frame — two rims joined by a bridge with temple arms folding back, the lens area ' +
       'empty or a thin transparent sheet, NOT solid blocks. No face, no head, no mannequin',
+  },
+  // Hand-worn/held power gear (mirror order: before the generic fallback).
+  {
+    kind: 'gauntlet',
+    re: /\b(gauntlets?|power ?gloves?|armou?red ?gloves?|bracers?)\b/i,
+    text: 'a single armored gauntlet — a HOLLOW wearable glove-and-forearm shell with an open wrist ' +
+      'cavity where a hand slides in, segmented plates over the fingers and back of the hand. An ' +
+      'empty armour piece: NO hand, NO arm, NO skin, NO mannequin inside it',
+  },
+  {
+    kind: 'wand',
+    re: /\b(wands?|sceptre|scepter|staff)\b/i,
+    text: 'a single slender wand — one continuous shaft with a sculpted handle at the base and a ' +
+      'distinct tip, modelled complete and free-standing: no ground plane, no stand, NO hands ' +
+      'holding it',
   },
   // Helmet BEFORE mask: the mask rules ask for "cut-through eye openings and an
   // open lower edge", which is right for a face mask and wrong for a helmet.
@@ -189,6 +213,7 @@ const ANCHOR_BY_KIND: Record<string, string> = {
   piercing: 'noseTip',
   faceGem: 'forehead',
   glasses: 'noseBridge',
+  visor: 'noseBridge',
   mask: 'noseBridge',
 };
 

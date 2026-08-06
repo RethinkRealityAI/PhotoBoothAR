@@ -190,6 +190,17 @@ export default function DirectorPanel({
   // Synchronous approve-once latch (state re-render lags a fast double-click,
   // and SELECT_HEAD_PIECE/SET_MODEL_ASSET would append twice). Reset per plan.
   const approvedRef = useRef<Record<string, boolean>>({});
+  // Director-proposed Magic Triggers ride in with the FIRST approval of any
+  // piece from that plan (they are free and fully editable in Properties →
+  // Magic Triggers, so no card ceremony of their own). Once-per-plan latch.
+  const planTriggersAddedRef = useRef(false);
+  const maybeAddPlanTriggers = useCallback(() => {
+    const t = plan?.triggers;
+    if (planTriggersAddedRef.current || !t || t.length === 0) return;
+    planTriggersAddedRef.current = true;
+    for (const trigger of t) dispatch({ type: 'ADD_TRIGGER', trigger });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- plan/dispatch stable enough per approval tick
+  }, [plan, dispatch]);
   // Plan EPOCH, PER SLOT — bumped for a slot the instant a new plan REPLACES it
   // (send() below, where that slot's card resets). Every async generate/poll/
   // approve continuation captures its own slot's epoch at start and BAILS if it
@@ -317,6 +328,7 @@ export default function DirectorPanel({
           approvedRef.current = {};
           stopRotation();
         }
+        planTriggersAddedRef.current = false; // a fresh plan may carry fresh triggers
         setPlan({
           ...turn.plan,
           frame: keepFrame ? (prev?.frame ?? null) : turn.plan.frame,
@@ -369,6 +381,7 @@ export default function DirectorPanel({
   /* ── FILTER: free, instant → dispatch into the draft ────────────────────── */
   const approveFilter = useCallback(() => {
     if (!plan?.shader) return;
+    maybeAddPlanTriggers();
     dispatch({ type: 'SELECT_SHADER', shaderId: plan.shader.shaderId, params: plan.shader.params });
     setCard('shader', { status: 'added' });
   }, [plan, dispatch, setCard]);
@@ -426,6 +439,7 @@ export default function DirectorPanel({
     const target = url ?? cardsRef.current.frame.frameUrl;
     if (!target) return;
     // The one-frame rule swaps any existing frame in place.
+    maybeAddPlanTriggers();
     dispatch({ type: 'SET_OVERLAY_UPLOAD', url: target, blob: null, overlayKind: 'border' });
     setCard('frame', { status: 'added' });
   }, [dispatch, setCard]);
@@ -457,6 +471,7 @@ export default function DirectorPanel({
       return;
     }
     approvedRef.current.headPiece = true;
+    maybeAddPlanTriggers();
     dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: plan.headPiece.id });
     setCard('headPiece', { status: 'added', error: undefined });
   }, [plan, dispatch, setCard, sceneFull]);
@@ -632,6 +647,7 @@ export default function DirectorPanel({
       return;
     }
     approvedRef.current.headPiece = true;
+    maybeAddPlanTriggers();
     const name = artifact?.name ?? cardsRef.current.headPiece.glbName ?? plan?.headPiece?.prompt ?? plan?.sceneName ?? 'Head Piece';
     // NOTE: this intentionally dispatches into WHATEVER draft is open right now
     // — if the host loaded a template mid-generation, Approve means "add this

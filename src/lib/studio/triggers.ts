@@ -15,16 +15,34 @@
  * flicker the effect and a held expression fires exactly once.
  */
 
-export type TriggerSource = 'smile' | 'mouthOpen' | 'wink' | 'browRaise';
+export type FaceTriggerSource = 'smile' | 'mouthOpen' | 'wink' | 'browRaise';
+/** Hand-gesture sources, scored by src/lib/handGestures.ts from HandLandmarker
+ *  landmarks and fed into the SAME scores map as the face blendshapes (keys are
+ *  the source names themselves — ARKit categories are `mouthSmileLeft`-style, so
+ *  the namespaces cannot collide). */
+export type HandTriggerSource = 'fistClench' | 'palmOpen' | 'pinch' | 'peaceSign' | 'handToTemple';
+export type TriggerSource = FaceTriggerSource | HandTriggerSource;
 
 export type BurstStyle = 'confetti' | 'hearts' | 'sparkles' | 'fireworks';
 
+/** Energy-beam looks rendered by BeamFX (src/lib/studio/beam.ts owns timing). */
+export type BeamStyle = 'optic' | 'energy' | 'sparkle' | 'lightning';
+/** Where a beam erupts from. 'auto' = the firing gesture decides (hand gesture →
+ *  hand, face gesture → head). */
+export type BeamOrigin = 'auto' | 'head' | 'hand';
+/** One-shot piece animations for the `animate` action. */
+export type AnimatePreset = 'shake' | 'pulse' | 'spin' | 'pop';
+
 /** What a fired trigger does. `reveal` targets a scene object by id; `filterPulse`
- *  temporarily applies a shader (defaults to the scene's ambient filter). */
+ *  temporarily applies a shader (defaults to the scene's ambient filter); `beam`
+ *  fires an energy blast (`color: 'auto'` resolves from the emitting piece's
+ *  lens-region hex at fire time); `animate` plays a one-shot preset on a piece. */
 export type TriggerAction =
   | { type: 'burst'; style: BurstStyle }
   | { type: 'reveal'; objectId: string }
-  | { type: 'filterPulse'; shaderId?: string; durationMs?: number };
+  | { type: 'filterPulse'; shaderId?: string; durationMs?: number }
+  | { type: 'beam'; style: BeamStyle; origin?: BeamOrigin; color?: string; objectId?: string; durationMs?: number }
+  | { type: 'animate'; objectId: string; preset: AnimatePreset };
 
 export interface TriggerConfig {
   id: string;
@@ -43,8 +61,29 @@ export interface TriggerEvent {
   t: number;
 }
 
-export const TRIGGER_SOURCES: readonly TriggerSource[] = ['smile', 'mouthOpen', 'wink', 'browRaise'];
+export const FACE_TRIGGER_SOURCES: readonly FaceTriggerSource[] = ['smile', 'mouthOpen', 'wink', 'browRaise'];
+export const HAND_TRIGGER_SOURCES: readonly HandTriggerSource[] = [
+  'fistClench',
+  'palmOpen',
+  'pinch',
+  'peaceSign',
+  'handToTemple',
+];
+/** Face first, hands after — order preserved so existing chip UIs don't reshuffle. */
+export const TRIGGER_SOURCES: readonly TriggerSource[] = [...FACE_TRIGGER_SOURCES, ...HAND_TRIGGER_SOURCES];
 export const BURST_STYLES: readonly BurstStyle[] = ['confetti', 'hearts', 'sparkles', 'fireworks'];
+export const BEAM_STYLES: readonly BeamStyle[] = ['optic', 'energy', 'sparkle', 'lightning'];
+export const ANIMATE_PRESETS: readonly AnimatePreset[] = ['shake', 'pulse', 'spin', 'pop'];
+
+export function isHandSource(s: TriggerSource): s is HandTriggerSource {
+  return (HAND_TRIGGER_SOURCES as readonly string[]).includes(s);
+}
+
+/** Does this trigger set need the hand landmarker at all? Drives lazy init —
+ *  false for every legacy config, so no stored scene ever pays for hand tracking. */
+export function hasHandSource(triggers: readonly TriggerConfig[]): boolean {
+  return triggers.some((t) => isHandSource(t.source));
+}
 
 /** Human labels for the studio UI (kept here so they stay in sync with the union). */
 export const TRIGGER_SOURCE_LABELS: Record<TriggerSource, string> = {
@@ -52,6 +91,11 @@ export const TRIGGER_SOURCE_LABELS: Record<TriggerSource, string> = {
   mouthOpen: 'Open mouth',
   wink: 'Wink',
   browRaise: 'Raise brows',
+  fistClench: 'Clench fist',
+  palmOpen: 'Open palm',
+  pinch: 'Pinch',
+  peaceSign: 'Peace sign',
+  handToTemple: 'Hand to temple',
 };
 export const BURST_STYLE_LABELS: Record<BurstStyle, string> = {
   confetti: 'Confetti',
@@ -59,20 +103,48 @@ export const BURST_STYLE_LABELS: Record<BurstStyle, string> = {
   sparkles: 'Sparkles',
   fireworks: 'Fireworks',
 };
+export const BEAM_STYLE_LABELS: Record<BeamStyle, string> = {
+  optic: 'Optic blast',
+  energy: 'Energy blast',
+  sparkle: 'Sparkle stream',
+  lightning: 'Lightning arc',
+};
+export const ANIMATE_PRESET_LABELS: Record<AnimatePreset, string> = {
+  shake: 'Shake',
+  pulse: 'Pulse',
+  spin: 'Spin',
+  pop: 'Pop',
+};
 
 /** EMA weight applied per detection step (~30/s). Higher = snappier, noisier. */
 const ALPHA = 0.35;
+/** Hand detections arrive at roughly half the face cadence (~15/s), so a shared
+ *  0.35 would make a held fist take ~400ms to register — hand sources get a
+ *  snappier per-source alpha instead. */
+const SOURCE_ALPHA: Partial<Record<TriggerSource, number>> = {
+  fistClench: 0.5,
+  palmOpen: 0.5,
+  pinch: 0.5,
+  peaceSign: 0.5,
+  handToTemple: 0.5,
+};
 const DEFAULT_COOLDOWN_MS = 2500;
 /** The other eye must be at/below this for a wink to count (rejects blinks). */
 const WINK_OTHER_MAX = 0.25;
 
 /** Per-source hysteresis band: fire when the smoothed signal crosses `enter`,
- *  re-arm only once it drops back to `exit`. jawOpen sits a touch lower. */
+ *  re-arm only once it drops back to `exit`. jawOpen sits a touch lower; hand
+ *  gestures are noisier and slower-sampled, so their bands are wider. */
 const THRESHOLDS: Record<TriggerSource, { enter: number; exit: number }> = {
   smile: { enter: 0.55, exit: 0.35 },
   mouthOpen: { enter: 0.5, exit: 0.3 },
   wink: { enter: 0.55, exit: 0.35 },
   browRaise: { enter: 0.55, exit: 0.35 },
+  fistClench: { enter: 0.62, exit: 0.38 },
+  palmOpen: { enter: 0.62, exit: 0.38 },
+  pinch: { enter: 0.6, exit: 0.35 },
+  peaceSign: { enter: 0.65, exit: 0.4 },
+  handToTemple: { enter: 0.6, exit: 0.35 },
 };
 
 /** Shared empty score map for null/absent frames (drives decay-to-zero). */
@@ -84,6 +156,8 @@ export function sourceSignal(source: TriggerSource, scores: Record<string, numbe
     const v = scores[k];
     return typeof v === 'number' && isFinite(v) ? v : 0;
   };
+  // Hand sources are pre-scored by handGestures.ts under their own names.
+  if (isHandSource(source)) return g(source);
   switch (source) {
     case 'smile':
       return (g('mouthSmileLeft') + g('mouthSmileRight')) / 2;
@@ -119,8 +193,24 @@ export interface TriggerEngine {
    * Advance every trigger by one detection frame. `scores` null/absent decays
    * all signals toward 0 (never crashes). Returns the events that fired THIS
    * step (usually empty). `nowMs` drives cooldown — pass a monotonic clock.
+   *
+   * `staleSources` lists sources with NO new sample this tick: each is skipped
+   * ENTIRELY — value, engagement and priming all held, no fire evaluation.
+   *
+   * Holding is deliberately not the same as feeding 0. Hand inference runs at
+   * 66ms (150ms idle) against a ~33ms face clock, so the face-only ticks in
+   * between carry no information about the hand. Re-feeding the last hand score
+   * on those ticks let ONE 1.0 frame ride the EMA over `enter` by itself
+   * (α 0.5: 0.50 → 0.75 at +33ms, past 0.62) and fire with no hand in frame;
+   * feeding 0 instead would sawtooth a genuinely HELD gesture so it never fires.
+   * A hand that has actually LEFT is the third case, and the caller signals it
+   * with explicit zeros — see mergeDetectionScores + HAND_STALE_MS.
    */
-  step(scores: Record<string, number> | null, nowMs: number): TriggerEvent[];
+  step(
+    scores: Record<string, number> | null,
+    nowMs: number,
+    staleSources?: ReadonlySet<TriggerSource>,
+  ): TriggerEvent[];
 }
 
 export function createTriggerEngine(configs: TriggerConfig[]): TriggerEngine {
@@ -133,10 +223,14 @@ export function createTriggerEngine(configs: TriggerConfig[]): TriggerEngine {
   }));
 
   return {
-    step(scores, nowMs) {
+    step(scores, nowMs, staleSources) {
       const src = scores ?? EMPTY;
       const events: TriggerEvent[] = [];
       for (const ch of channels) {
+        // No sample for this source this tick → hold everything (see the doc on
+        // TriggerEngine.step). Skipped BEFORE priming so the first real sample
+        // still primes without firing.
+        if (staleSources !== undefined && staleSources.has(ch.cfg.source)) continue;
         const target = sourceSignal(ch.cfg.source, src);
         const th = THRESHOLDS[ch.cfg.source];
         if (!ch.started) {
@@ -147,7 +241,7 @@ export function createTriggerEngine(configs: TriggerConfig[]): TriggerEngine {
           ch.engaged = target >= th.enter;
           continue;
         }
-        ch.value += ALPHA * (target - ch.value);
+        ch.value += (SOURCE_ALPHA[ch.cfg.source] ?? ALPHA) * (target - ch.value);
         if (!ch.engaged) {
           if (ch.value >= th.enter) {
             ch.engaged = true; // enter-crossing
@@ -164,6 +258,68 @@ export function createTriggerEngine(configs: TriggerConfig[]): TriggerEngine {
       return events;
     },
   };
+}
+
+/* — detection-frame merge (the booth + studio rAF loops share this) --------- */
+
+/** A hand stash older than this is treated as GONE, not as "between
+ *  inferences": the idle hand cadence is 150ms, so 250ms means the detector has
+ *  actually stopped producing (video not ready, face lockout, gate skip — every
+ *  early return in handRig.detectHandsNow leaves the stash frozen while the
+ *  ~33ms face clock keeps stepping the engine). */
+export const HAND_STALE_MS = 250;
+
+/** Every hand source, as a set — the `staleSources` argument on a face-only tick. */
+export const HAND_SOURCE_SET: ReadonlySet<TriggerSource> = new Set<TriggerSource>(HAND_TRIGGER_SOURCES);
+
+/** Explicit zeros for every hand key: an EXPIRED stash must decay the channels,
+ *  which absent keys also do — but stated outright so the intent is readable. */
+const HAND_ZEROS: Record<string, number> = Object.freeze(
+  Object.fromEntries(HAND_TRIGGER_SOURCES.map((k) => [k, 0])),
+) as Record<string, number>;
+
+export interface HandScoreFrame {
+  scores: Record<string, number>;
+  /** performance.now() of the detection that produced `scores`. */
+  t: number;
+}
+
+export interface MergedDetectionScores {
+  scores: Record<string, number> | null;
+  /** Pass straight to engine.step's third argument. */
+  stale?: ReadonlySet<TriggerSource>;
+}
+
+/**
+ * Combine the face and hand stashes for ONE engine step.
+ *
+ * The two detectors run on different clocks (face ~33ms, hands 66/150ms), and
+ * the loops step the engine whenever EITHER produced a new frame. Spreading the
+ * hand stash on every one of those ticks replays the same sample into the EMA,
+ * which is enough to fire a hand trigger on its own — the "beams fire with no
+ * hand in frame" bug. Three cases, and only the first carries new hand data:
+ *   - fresh hand frame        → merge it (hand keys last: an explicit gesture
+ *                               wins any future name collision with a blendshape)
+ *   - between inferences      → face scores only + the hand sources marked STALE
+ *                               (held, not decayed — a held fist must survive
+ *                               the ~2-4 face ticks between hand inferences)
+ *   - stash older than 250ms  → explicit hand zeros, so a gesture whose detector
+ *                               has stopped decays away instead of latching
+ * `hand === null` (no hand tracking, or none yet) leaves the hand keys absent,
+ * which sourceSignal already reads as 0 — identical to today for every scene
+ * with no hand trigger.
+ */
+export function mergeDetectionScores(
+  faceScores: Record<string, number> | null | undefined,
+  hand: HandScoreFrame | null | undefined,
+  handChanged: boolean,
+  nowMs: number,
+): MergedDetectionScores {
+  const face = faceScores ?? null;
+  if (!hand) return { scores: face };
+  if (handChanged) return { scores: { ...(face ?? {}), ...hand.scores } };
+  if (nowMs - hand.t > HAND_STALE_MS) return { scores: { ...(face ?? {}), ...HAND_ZEROS } };
+  return { scores: face, stale: HAND_SOURCE_SET };
 }
 
 /* — scene-visibility + effect resolution ----------------------------------- *
@@ -228,6 +384,11 @@ export const TRIGGER_HINT_LABELS: Record<TriggerSource, string> = {
   mouthOpen: 'Open your mouth for a surprise',
   wink: 'Wink for a surprise',
   browRaise: 'Raise your brows for a surprise',
+  fistClench: 'Make a fist to fire',
+  palmOpen: 'Open your palm to blast',
+  pinch: 'Pinch your fingers for magic',
+  peaceSign: 'Throw a peace sign',
+  handToTemple: 'Touch your temple to fire',
 };
 
 /**
@@ -240,6 +401,10 @@ export function triggerHintText(triggers: readonly TriggerConfig[]): string | nu
   for (const t of triggers) sources.add(t.source);
   if (sources.size === 0) return null;
   if (sources.size === 1) return TRIGGER_HINT_LABELS[[...sources][0]];
+  const list = [...sources];
+  const hands = list.filter((s) => isHandSource(s)).length;
+  if (hands === list.length) return 'Try a hand gesture for a surprise';
+  if (hands > 0) return 'Make a face or a gesture for a surprise';
   return 'Make a face for a surprise';
 }
 
@@ -318,6 +483,25 @@ function parseAction(a: unknown): TriggerAction | null {
     if (typeof o.shaderId === 'string' && o.shaderId) act.shaderId = o.shaderId;
     if (typeof o.durationMs === 'number' && isFinite(o.durationMs) && o.durationMs > 0) act.durationMs = o.durationMs;
     return act;
+  }
+  if (o.type === 'beam') {
+    if (!(BEAM_STYLES as readonly string[]).includes(o.style as string)) return null;
+    const act: Extract<TriggerAction, { type: 'beam' }> = { type: 'beam', style: o.style as BeamStyle };
+    if (o.origin === 'head' || o.origin === 'hand' || o.origin === 'auto') act.origin = o.origin;
+    // `color` is 'auto' or a #rgb/#rrggbb hex; anything else is dropped, keeping
+    // the action valid (colour then resolves from the emitting piece).
+    if (o.color === 'auto' || (typeof o.color === 'string' && /^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/.test(o.color))) {
+      act.color = o.color;
+    }
+    if (typeof o.objectId === 'string' && o.objectId) act.objectId = o.objectId;
+    if (typeof o.durationMs === 'number' && isFinite(o.durationMs) && o.durationMs > 0) act.durationMs = o.durationMs;
+    return act;
+  }
+  if (o.type === 'animate') {
+    if (typeof o.objectId !== 'string' || !o.objectId) return null;
+    return (ANIMATE_PRESETS as readonly string[]).includes(o.preset as string)
+      ? { type: 'animate', objectId: o.objectId, preset: o.preset as AnimatePreset }
+      : null;
   }
   return null;
 }

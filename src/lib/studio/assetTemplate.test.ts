@@ -217,6 +217,40 @@ describe('normalizeTemplate — degrades, never throws', () => {
   });
 });
 
+describe('normalizeTemplate — beam emitter', () => {
+  it('accepts a valid emitter and unit-normalizes its direction', () => {
+    const raw = goodTemplate();
+    raw.emitter = { position: [0.024, 0.021, 0.984], direction: [0, 0, 2] };
+    const t = normalizeTemplate(raw)!;
+    expect(t.emitter).toEqual({ position: [0.024, 0.021, 0.984], direction: [0, 0, 1] });
+  });
+
+  it('is absent on a pre-Power-Ups descriptor and absent stays absent through a round trip', () => {
+    const t = normalizeTemplate(goodTemplate())!;
+    expect(t.emitter).toBeUndefined();
+    expect('emitter' in t).toBe(false);
+    // Round trip: normalize the normalized output — still no emitter key.
+    expect('emitter' in normalizeTemplate(t as unknown)!).toBe(false);
+  });
+
+  it('DROPS the whole emitter rather than guessing a half (missing/degenerate parts)', () => {
+    for (const emitter of [
+      { position: [0, 0, 1] }, // no direction
+      { direction: [0, 0, 1] }, // no position
+      { position: [0, 0, 1], direction: [0, 0, 0] }, // zero direction
+      { position: [0, 0, NaN], direction: [0, 0, 1] },
+      { position: [0, 0, 1, 0], direction: [0, 0, 1] }, // quaternion pasted
+      { position: [0, 0, 2000], direction: [0, 0, 1] }, // muzzle nowhere near the mesh
+      'front', // wrong shape entirely
+      [0, 0, 1],
+    ]) {
+      const raw = goodTemplate();
+      raw.emitter = emitter;
+      expect(normalizeTemplate(raw)!.emitter).toBeUndefined();
+    }
+  });
+});
+
 describe('normalizeTemplate — text slots', () => {
   it('DROPS a slot with no usable normal rather than guessing a direction', () => {
     const raw = goodTemplate();

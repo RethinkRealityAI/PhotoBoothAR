@@ -30,6 +30,7 @@ import {
   type DeckSelection,
 } from '../../lib/boothDeck';
 import { haptic } from '../../lib/haptics';
+import type { GuestColorSlot } from '../../lib/guestPalette';
 
 const EFFECT_GRADIENT: Record<string, string> = {
   'champagne-sparkle': 'from-yellow-200 to-amber-400',
@@ -200,6 +201,15 @@ export interface BoothControlDeckProps<T extends number = number> {
   stripShots?: number;
   /** Opens the 2-vs-3 shot picker; the deck never arms strip mode directly. */
   onOpenStripPicker?: () => void;
+  /**
+   * Guest colour picker (lib/guestPalette.ts) — present only when the active
+   * 3D piece carries a guest-pickable region. Absent ⇒ the deck renders
+   * byte-identically to today (every legacy surface).
+   */
+  colorSlot?: GuestColorSlot | null;
+  /** The guest's current pick (null = the host's default). */
+  guestHex?: string | null;
+  onGuestHex?: (hex: string | null) => void;
 }
 
 export default function BoothControlDeck<T extends number>({
@@ -209,6 +219,7 @@ export default function BoothControlDeck<T extends number>({
   mediaMode, onMediaMode, videoAllowed, timerSec, onTimerSec, timerOptions,
   recording, shutter, pendingIds, stripMode = false, onStripMode,
   stripShots, onOpenStripPicker,
+  colorSlot = null, guestHex = null, onGuestHex,
 }: BoothControlDeckProps<T>) {
   const [timerOpen, setTimerOpen] = useState(false);
   /** The open popover sits over the shutter's corner — without light dismissal
@@ -288,6 +299,41 @@ export default function BoothControlDeck<T extends number>({
           );
         })}
       </div>
+
+      {/* Guest colour row — only when the scene's 3D piece invites it. Sits
+          above the orbs, in the 3D category, so it reads as "your visor, your
+          colour" next to the piece that wears it. */}
+      {colorSlot != null && onGuestHex && active?.key === 'prop' && (
+        <div className="flex w-full max-w-md items-center gap-2 px-0.5">
+          <span className="font-label text-[9px] uppercase tracking-[0.24em] text-brand-muted/60 shrink-0">
+            {colorSlot.label}
+          </span>
+          <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar">
+            {colorSlot.swatches.map((hex) => {
+              const on = (guestHex ?? colorSlot.currentHex) === hex;
+              return (
+                <button
+                  key={hex}
+                  type="button"
+                  aria-label={`Colour ${hex}`}
+                  aria-pressed={on}
+                  onClick={() => {
+                    haptic('toggle');
+                    onGuestHex(hex === colorSlot.currentHex ? null : hex);
+                  }}
+                  className="h-7 w-7 shrink-0 rounded-full transition-shadow"
+                  style={{
+                    background: hex,
+                    boxShadow: on
+                      ? '0 0 0 1.5px var(--color-accent), 0 0 10px rgba(var(--accent-rgb),0.8)'
+                      : 'inset 0 0 0 1px rgba(255,255,255,0.18)',
+                  }}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Orb row for the active category. */}
       {active && (

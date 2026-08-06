@@ -24,6 +24,9 @@ import {
 } from '../../lib/studio/regionTint';
 import { configuratorKey, regionIdsSource, type AssetTemplate } from '../../lib/studio/assetTemplate';
 import { attachLabelDecal, type BuiltLabelDecal } from '../../lib/studio/assetDecal';
+import { mirrorGeometryX } from '../../lib/studio/mirrorGeometry';
+import { useHandMirror } from './handMirror';
+import { canMirrorAsset } from '../../lib/studio/handedness';
 import { AnchorConfig, AssetCustomization, HeadAnchor } from '../../types';
 import AssetGizmo from './AssetGizmo';
 import FaceOccluder from './FaceOccluder';
@@ -287,6 +290,32 @@ export function Model({
   onDecalBuilt?: (info: { buildMs: number; triangles: number }) => void;
 }) {
   const [scene, setScene] = useState<THREE.Group | null>(null);
+  // BOTH HANDS FROM ONE ASSET. Inside a HandRig this asks the rig which hand it
+  // is on; everywhere else (head pieces, the studio's orbit view, the landing
+  // demo) it is a constant false and nothing below runs.
+  //
+  // The text-slot guard is a fail-safe, not a limitation we chose: a decal is
+  // carved against the surface it was built for, and mirroring the body under
+  // it would leave the engraving on the wrong side of the asset. No shipped
+  // hand asset has a slot, so this costs nothing today — and if one gains a
+  // slot, it renders un-mirrored (today's behaviour) and says so, instead of
+  // silently engraving a name into thin air.
+  const wantsMirror = useHandMirror(template?.modelledHand ?? undefined);
+  const engravable = template !== null && template !== undefined && template.textSlots.length > 0;
+  // A purpose-built GLB for the other hand always beats a reflection: a sculpt
+  // can carry asymmetries — baked text, a thumb plate, an off-centre decal —
+  // that mirroring would reverse. When the pair exists we load it and skip the
+  // mirror entirely; when it does not, the mirror is still exact for geometry.
+  const handedUrl = wantsMirror && template?.mirroredGlbUrl ? template.mirroredGlbUrl : url;
+  // `canMirrorAsset` rather than a bare `!engravable`: HandPlacement asks the
+  // same question about the PLACEMENT, and the two halves must answer alike —
+  // mirroring one without the other throws the piece clear of the hand.
+  const mirrorX = wantsMirror && canMirrorAsset(engravable) && handedUrl === url;
+  useEffect(() => {
+    if (wantsMirror && engravable) {
+      console.warn('[Model] template has text slots; not mirroring for the other hand', template?.id);
+    }
+  }, [wantsMirror, engravable, template?.id]);
   // Callbacks live in refs, not in the effect's deps: a caller passing an inline
   // arrow (every caller does) would otherwise re-download and re-clone the whole
   // model on every render of its parent.
@@ -307,7 +336,7 @@ export function Model({
   useEffect(() => {
     let alive = true;
     let owned: THREE.Material[] = [];
-    loadModel(url)
+    loadModel(handedUrl)
       .then((s) => {
         if (!alive) return;
         const clone = s.clone(true);
@@ -319,7 +348,7 @@ export function Model({
       })
       .catch((e) => {
         const { message } = describeGlbError(e);
-        console.error('[Model] load failed', url, message, e);
+        console.error('[Model] load failed', handedUrl, message, e);
         if (alive) onErrorRef.current?.(message);
       });
     return () => {
@@ -329,7 +358,30 @@ export function Model({
       for (const m of owned) m.dispose();
       owned = [];
     };
-  }, [url, finish, tint, tintStrength]);
+    // `handedUrl`, not `url`: switching hands on an asset that ships a real pair
+    // must re-download the other sculpt. For everything else the two are the
+    // same string and this dep list is unchanged.
+  }, [handedUrl, url, finish, tint, tintStrength]);
+
+  // MIRROR — declared BEFORE the tint effect so that on mount the geometry is
+  // already flipped when `ensureRegionAttribute` paints region ids onto it.
+  // Swapping geometry rather than re-cloning the model means switching hands
+  // costs a WeakMap lookup, not a 12 MB re-parse, and the guest sees no reload.
+  useEffect(() => {
+    if (!scene || !mirrorX) return;
+    const restore: { mesh: THREE.Mesh; geometry: THREE.BufferGeometry }[] = [];
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.geometry) {
+        restore.push({ mesh: obj, geometry: obj.geometry });
+        obj.geometry = mirrorGeometryX(obj.geometry);
+      }
+    });
+    // Put the originals back on teardown: they belong to the shared model cache
+    // and outlive this instance, and the mirrored copies are cached separately.
+    return () => {
+      for (const r of restore) r.mesh.geometry = r.geometry;
+    };
+  }, [scene, mirrorX]);
 
   // REGION TINT — a separate effect, deliberately, rather than more work inside
   // the load effect: a host dragging a colour swatch must not re-download and
@@ -350,9 +402,11 @@ export function Model({
       scene, uniforms, bytes, template.regionIds ?? template.id, finish, tint, tintStrength,
     );
     // `template`/`customization` are read through the serialized partsKey; see
-    // the note where it is computed.
+    // the note where it is computed. `mirrorX` is a dep because the mirrored
+    // mesh is a DIFFERENT BufferGeometry: without it, flipping hands would drop
+    // the region attribute and repaint the whole asset as region 0.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, partsKey, finish, tint, tintStrength]);
+  }, [scene, partsKey, finish, tint, tintStrength, mirrorX]);
 
   // ENGRAVED NAME — async only because the webfont must be loaded before the
   // artwork is baked into a texture; the carve itself is synchronous.

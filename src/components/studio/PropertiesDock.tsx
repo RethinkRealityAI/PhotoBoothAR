@@ -27,6 +27,11 @@ import {
   Eye,
   EyeOff,
   FileStack,
+  Grab,
+  Hand,
+  HandFist,
+  HandMetal,
+  ScanFace,
   Image as ImageIcon,
   Laugh,
   Layers,
@@ -43,11 +48,15 @@ import {
   Star,
   Trash2,
   Upload,
+  Users,
   Wand2,
   X,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { HAND_ANCHORS } from '../../lib/handPose';
+import { HAND_FIT_OPTIONS } from '../../lib/studio/handedness';
 import { SHADER_MAP, FILTER_SHADERS, defaultParams } from '../../lib/shaders';
 import { HEAD_SCALE_MIN, HEAD_SCALE_MAX } from '../../lib/studio/occluder';
 import { ANCHOR_PRESETS, getHeadFitEstimate } from '../../lib/faceRig';
@@ -73,6 +82,7 @@ import {
   MAX_TRIGGERS,
   SCENE_FULL_MESSAGE,
   sceneCounts,
+  sceneOcclusion,
   selectedObject,
   type Object3D,
   type Overlay2D,
@@ -81,10 +91,18 @@ import {
   type StudioState,
 } from '../../lib/studio/state';
 import {
+  ANIMATE_PRESET_LABELS,
+  ANIMATE_PRESETS,
+  BEAM_STYLE_LABELS,
+  BEAM_STYLES,
   BURST_STYLE_LABELS,
   BURST_STYLES,
+  FACE_TRIGGER_SOURCES,
+  HAND_TRIGGER_SOURCES,
+  TRIGGER_HINT_LABELS,
   TRIGGER_SOURCE_LABELS,
-  TRIGGER_SOURCES,
+  type AnimatePreset,
+  type BeamStyle,
   type BurstStyle,
   type TriggerAction,
   type TriggerSource,
@@ -624,6 +642,17 @@ function RegionRow({
       >
         <RotateCcw className="w-3 h-3" />
       </button>
+      {/* Guest colour opt-in: a swatch row appears in the booth for this
+          region; the host's colour above stays the default. */}
+      <button
+        onClick={() => dispatch({ type: 'SET_TEMPLATE_GUEST_PICK', regionId: region.id, on: region.guestPick !== true })}
+        aria-pressed={region.guestPick === true}
+        aria-label={`Guests can pick the ${region.label} colour`}
+        title={region.guestPick === true ? 'Guests can pick this colour in the booth — tap to lock' : 'Let guests pick this colour in the booth'}
+        className={`shrink-0 p-1 rounded transition-colors ${region.guestPick === true ? 'text-accent-2' : 'text-brand-muted/30 hover:text-brand-fg'}`}
+      >
+        <Users className="w-3 h-3" />
+      </button>
     </div>
   );
 }
@@ -1126,12 +1155,19 @@ const SOURCE_ICON: Record<TriggerSource, LucideIcon> = {
   mouthOpen: Laugh,
   wink: Eye,
   browRaise: ArrowBigUp,
+  fistClench: HandFist,
+  palmOpen: Hand,
+  pinch: Grab,
+  peaceSign: HandMetal,
+  handToTemple: ScanFace,
 };
 
-type NewActionType = 'burst' | 'reveal' | 'filterPulse';
+type NewActionType = 'burst' | 'beam' | 'reveal' | 'animate' | 'filterPulse';
 const ACTION_CHOICES: { id: NewActionType; label: string; icon: LucideIcon }[] = [
   { id: 'burst', label: 'Burst', icon: PartyPopper },
+  { id: 'beam', label: 'Blast', icon: Zap },
   { id: 'reveal', label: 'Reveal', icon: Wand2 },
+  { id: 'animate', label: 'Animate', icon: Clapperboard },
   { id: 'filterPulse', label: 'Filter', icon: Palette },
 ];
 
@@ -1146,6 +1182,8 @@ function triggerActionLabel(
 ): string {
   if (a.type === 'burst') return `${BURST_STYLE_LABELS[a.style]} burst`;
   if (a.type === 'reveal') return `Reveal ${pieceName(a.objectId)}`;
+  if (a.type === 'beam') return BEAM_STYLE_LABELS[a.style];
+  if (a.type === 'animate') return `${ANIMATE_PRESET_LABELS[a.preset]} ${pieceName(a.objectId)}`;
   return `${a.shaderId ? shaderName(a.shaderId) : 'Filter'} pulse`;
 }
 
@@ -1171,6 +1209,12 @@ function MagicTriggers({
   const [source, setSource] = useState<TriggerSource>('smile');
   const [actionType, setActionType] = useState<NewActionType>('burst');
   const [burstStyle, setBurstStyle] = useState<BurstStyle>('confetti');
+  const [beamStyle, setBeamStyle] = useState<BeamStyle>('optic');
+  const [beamColorMode, setBeamColorMode] = useState<'auto' | 'custom'>('auto');
+  const [beamHex, setBeamHex] = useState<string>('#ff2b4a');
+  const [beamEmitterId, setBeamEmitterId] = useState<string>('');
+  const [animatePreset, setAnimatePreset] = useState<AnimatePreset>('shake');
+  const [animateId, setAnimateId] = useState<string>('');
   const [revealId, setRevealId] = useState<string>('');
   const [filterId, setFilterId] = useState<string>(defaultFilter);
 
@@ -1183,6 +1227,12 @@ function MagicTriggers({
     setSource('smile');
     setActionType('burst');
     setBurstStyle('confetti');
+    setBeamStyle('optic');
+    setBeamColorMode('auto');
+    setBeamHex('#ff2b4a');
+    setBeamEmitterId('');
+    setAnimatePreset('shake');
+    setAnimateId('');
     setRevealId('');
     setFilterId(defaultFilter);
   };
@@ -1192,17 +1242,34 @@ function MagicTriggers({
   // before dispatch. null when the form can't yet commit (reveal with no piece).
   const pendingAction = useMemo<TriggerAction | null>(() => {
     if (actionType === 'burst') return { type: 'burst', style: burstStyle };
+    if (actionType === 'beam') {
+      const act: Extract<TriggerAction, { type: 'beam' }> = {
+        type: 'beam',
+        style: beamStyle,
+        color: beamColorMode === 'custom' ? beamHex : 'auto',
+      };
+      if (beamEmitterId !== '') act.objectId = beamEmitterId;
+      return act;
+    }
     if (actionType === 'reveal') {
       const target = revealId || pieces[0]?.id;
       return target ? { type: 'reveal', objectId: target } : null;
     }
+    if (actionType === 'animate') {
+      const target = animateId || pieces[0]?.id;
+      return target ? { type: 'animate', objectId: target, preset: animatePreset } : null;
+    }
     return filterId ? { type: 'filterPulse', shaderId: filterId } : { type: 'filterPulse' };
-  }, [actionType, burstStyle, revealId, filterId, pieces]);
+  }, [actionType, burstStyle, beamStyle, beamColorMode, beamHex, beamEmitterId, animatePreset, animateId, revealId, filterId, pieces]);
 
   const sameAction = (a: TriggerAction, b: TriggerAction): boolean => {
     if (a.type !== b.type) return false;
     if (a.type === 'burst' && b.type === 'burst') return a.style === b.style;
+    if (a.type === 'beam' && b.type === 'beam') {
+      return a.style === b.style && (a.color ?? 'auto') === (b.color ?? 'auto') && (a.objectId ?? '') === (b.objectId ?? '');
+    }
     if (a.type === 'reveal' && b.type === 'reveal') return a.objectId === b.objectId;
+    if (a.type === 'animate' && b.type === 'animate') return a.objectId === b.objectId && a.preset === b.preset;
     if (a.type === 'filterPulse' && b.type === 'filterPulse') return (a.shaderId ?? '') === (b.shaderId ?? '');
     return false;
   };
@@ -1249,7 +1316,7 @@ function MagicTriggers({
         </ul>
       ) : (
         <p className="text-[10px] text-brand-muted/40 font-sans mb-2 px-1">
-          Guests set off effects with their face — smile, open mouth, wink, or raise brows.
+          Guests set off effects with a face or a hand — smile, wink, clench a fist, open a palm.
         </p>
       )}
 
@@ -1257,8 +1324,9 @@ function MagicTriggers({
         <div className="rounded-xl border border-accent/15 bg-accent/[0.05] p-3 flex flex-col gap-3">
           <div>
             <SectionLabel>When guest…</SectionLabel>
-            <div className="grid grid-cols-4 gap-1.5">
-              {TRIGGER_SOURCES.map((s) => {
+            <p className="text-[8px] font-label uppercase tracking-widest text-brand-muted/35 mb-1">Face</p>
+            <div className="grid grid-cols-4 gap-1.5 mb-2">
+              {FACE_TRIGGER_SOURCES.map((s) => {
                 const Icon = SOURCE_ICON[s];
                 return (
                   <button key={s} onClick={() => setSource(s)} title={TRIGGER_SOURCE_LABELS[s]} className={chip(s === source)}>
@@ -1268,11 +1336,25 @@ function MagicTriggers({
                 );
               })}
             </div>
+            <p className="text-[8px] font-label uppercase tracking-widest text-brand-muted/35 mb-1">Hands</p>
+            <div className="grid grid-cols-4 gap-1.5">
+              {HAND_TRIGGER_SOURCES.map((s) => {
+                const Icon = SOURCE_ICON[s];
+                return (
+                  <button key={s} onClick={() => setSource(s)} title={TRIGGER_SOURCE_LABELS[s]} className={chip(s === source)}>
+                    <Icon className="w-4 h-4" />
+                    <span className="text-center leading-tight">{TRIGGER_SOURCE_LABELS[s]}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {/* The exact hint the guest will read in the booth for this source. */}
+            <p className="text-[9px] text-brand-muted/45 font-sans mt-1.5">Guest sees: “{TRIGGER_HINT_LABELS[source]}”</p>
           </div>
 
           <div>
             <SectionLabel>Do…</SectionLabel>
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-5 gap-1.5">
               {ACTION_CHOICES.map(({ id, label, icon: Icon }) => (
                 <button key={id} onClick={() => setActionType(id)} className={chip(id === actionType)}>
                   <Icon className="w-4 h-4" />
@@ -1292,6 +1374,79 @@ function MagicTriggers({
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {actionType === 'beam' && (
+            <>
+              <div>
+                <SectionLabel>Blast style</SectionLabel>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {BEAM_STYLES.map((st) => (
+                    <button key={st} onClick={() => setBeamStyle(st)} className={chip(st === beamStyle)}>
+                      <span className="text-center leading-tight">{BEAM_STYLE_LABELS[st]}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {pieces.length > 0 && (
+                <div>
+                  <SectionLabel>Fires from</SectionLabel>
+                  <select value={beamEmitterId} onChange={(e) => setBeamEmitterId(e.target.value)} className={selectCls}>
+                    <option value="" className="bg-noir-900">Scene default</option>
+                    {pieces.map((o) => (
+                      <option key={o.id} value={o.id} className="bg-noir-900">{pieceName(o.id)}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <SectionLabel>Colour</SectionLabel>
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => setBeamColorMode('auto')} className={`${chip(beamColorMode === 'auto')} flex-1`}>
+                    <span>Match the piece</span>
+                  </button>
+                  <button onClick={() => setBeamColorMode('custom')} className={`${chip(beamColorMode === 'custom')} flex-1`}>
+                    <span>Override</span>
+                  </button>
+                  {beamColorMode === 'custom' && (
+                    <input
+                      type="color"
+                      value={beamHex}
+                      onChange={(e) => setBeamHex(e.target.value)}
+                      aria-label="Blast colour"
+                      className="w-9 h-9 rounded-lg bg-transparent border border-white/10 cursor-pointer shrink-0"
+                    />
+                  )}
+                </div>
+                {beamColorMode === 'auto' && (
+                  <p className="text-[9px] text-brand-muted/40 font-sans mt-1">Follows the piece's lens colour — including a guest's pick.</p>
+                )}
+              </div>
+            </>
+          )}
+
+          {actionType === 'animate' && (
+            <div>
+              <SectionLabel>Animate which piece</SectionLabel>
+              {pieces.length > 0 ? (
+                <>
+                  <select value={animateId || pieces[0].id} onChange={(e) => setAnimateId(e.target.value)} className={selectCls}>
+                    {pieces.map((o) => (
+                      <option key={o.id} value={o.id} className="bg-noir-900">{pieceName(o.id)}</option>
+                    ))}
+                  </select>
+                  <div className="grid grid-cols-4 gap-1.5 mt-2">
+                    {ANIMATE_PRESETS.map((p) => (
+                      <button key={p} onClick={() => setAnimatePreset(p)} className={chip(p === animatePreset)}>
+                        <span>{ANIMATE_PRESET_LABELS[p]}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-[10px] text-brand-muted/40 font-sans">Add a scene piece first — the gesture plays a one-shot animation on it.</p>
+              )}
             </div>
           )}
 
@@ -1327,7 +1482,7 @@ function MagicTriggers({
           <div className="flex items-center gap-2">
             <button
               onClick={commit}
-              disabled={(actionType === 'reveal' && pieces.length === 0) || isDuplicate}
+              disabled={((actionType === 'reveal' || actionType === 'animate') && pieces.length === 0) || isDuplicate}
               className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-label uppercase tracking-widest bg-accent/15 text-accent-2 ring-1 ring-accent/30 hover:bg-accent/25 transition-colors disabled:opacity-40 disabled:pointer-events-none"
             >
               <Check className="w-3.5 h-3.5" /> Add
@@ -1544,6 +1699,11 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   // literal 0 reset four of the five built-ins AWAY from where they belong, and
   // inverted the reset button's enabled state along with it.
   const sel3DDefaults = defaultAnchorConfig(sel3D ?? { type: 'model' }, HEAD_PIECE_MAP);
+  // The hand this asset's GLB was modelled for, if it declares one. Read through
+  // normalizeTemplate rather than off the raw jsonb: `template` is stored
+  // opaquely on the object, so this is the same gate every renderer goes
+  // through. Undefined = hand-agnostic, and the "Fits" control stays hidden.
+  const sel3DModelledHand = sel3D ? normalizeTemplate(sel3D.template)?.modelledHand : undefined;
   /** What the Selected-item header says it is about — the layer's display name,
    *  or the filter's name when the filter slot is what the section is showing.
    *  Undefined (no chip) when the section is empty-handed. */
@@ -1568,6 +1728,11 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   // Any 3D piece in the scene → the Head & fit section applies (head-size
   // calibration is scene/event-level, not per-selection).
   const has3D = draft.objects.some((o) => o.type !== 'overlay');
+  // Head-ANCHORED 3D piece: what the (single, scene-global) head occluder can
+  // actually affect. A hand-only scene gets the always-on HandOccluder instead,
+  // so offering a head-occlusion switch there would be theatre.
+  const hasHead3D = draft.objects.some((o) => o.type !== 'overlay' && o.handAnchor === undefined);
+  const sceneOccludes = sceneOcclusion(draft);
 
   // Two high-level tabs (owner IA): "Assets" — the scene-asset hierarchy first,
   // then the selected asset's properties — is the default, because configuring
@@ -1800,12 +1965,101 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
             {/* Selected 3D object properties */}
             {sel3D && (
               <div className="flex flex-col gap-4">
+                {/* TRACKS ON — head or hand. The same wand can be an earring
+                    (head-tracked at the ear) or held in the fist (hand-tracked
+                    at the grip); this is the explicit family switch, so the
+                    orbit view's anchor dots never have to guess. Switching
+                    families zeroes offset/rotation (a brow nudge is
+                    meaningless on a wrist) but keeps the auto-fit scale. */}
+                <div>
+                  <SectionLabel>Tracks on</SectionLabel>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {([
+                      { id: 'head' as const, label: 'Head', Icon: ScanFace },
+                      { id: 'hand' as const, label: 'Hand', Icon: Hand },
+                    ]).map(({ id, label, Icon }) => {
+                      const active = (sel3D.handAnchor !== undefined) === (id === 'hand');
+                      return (
+                        <button
+                          key={id}
+                          onClick={() => dispatch({ type: 'SET_OBJECT_TRACKING', id: sel3D.id, tracking: id })}
+                          aria-pressed={active}
+                          className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-[9px] font-label uppercase tracking-wide transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 {/* ATTACHMENT POINT — the first question about any 3D piece
                     ("where on the head does this ride?"), and until now it was
                     only answerable in the LEFT dock's inline card or by dragging
                     onto a dot in the 3D stage view. It is a property of the
                     selected object, so it belongs here, above the nudges that
-                    refine it. */}
+                    refine it. Hand-tracked pieces swap in the hand's three
+                    mounts instead. */}
+                {sel3D.handAnchor !== undefined ? (
+                  <div>
+                    <SectionLabel>Attachment point</SectionLabel>
+                    {/* 4 mounts now (Arm joined Grip/Wrist/Palm), so 4 columns —
+                        at 3 the fourth chip wrapped onto a lonely second row. */}
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {HAND_ANCHORS.map((a) => {
+                        const active = a.id === sel3D.handAnchor;
+                        return (
+                          <Tooltip key={a.id} label={a.label} hint={a.hint} side="left">
+                            <button
+                              onClick={() => dispatch({ type: 'SET_OBJECT_TRACKING', id: sel3D.id, tracking: 'hand', handAnchor: a.id })}
+                              aria-pressed={active}
+                              className={`w-full py-2 rounded-lg text-[9px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                            >
+                              {a.id === 'grip' ? 'Grip' : a.id === 'wristBack' ? 'Wrist' : a.id === 'forearm' ? 'Arm' : 'Palm'}
+                            </button>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                    {/* FITS — shown for EVERY hand piece, not just the ones whose
+                        mesh is handed. It answers two questions at once:
+                        (a) which hand the mannequin shows while you place this,
+                        and (b) for an asset that declares the hand it was
+                        modelled for, whether the mesh mirrors to suit.
+                        Gating it on (b) was wrong: a symmetric wand still has to
+                        be placed in ONE hand, and placing it against the wrong
+                        mannequin makes every grip offset feel backwards.
+                        'Either' follows the tracked hand; the pins never consult
+                        the tracker, which is the way out if a device reports
+                        handedness the other way round. */}
+                    {(
+                      <div className="mt-3">
+                        <SectionLabel>Fits</SectionLabel>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {HAND_FIT_OPTIONS.map((o) => {
+                            const active = o.id === (sel3D.handFit ?? 'auto');
+                            return (
+                              <Tooltip key={o.id} label={o.label} hint={o.hint} side="left">
+                                <button
+                                  onClick={() => dispatch({ type: 'SET_HAND_FIT', id: sel3D.id, fit: o.id })}
+                                  aria-pressed={active}
+                                  className={`w-full py-2 rounded-lg text-[9px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                                >
+                                  {o.label}
+                                </button>
+                              </Tooltip>
+                            );
+                          })}
+                        </div>
+                        <p className="mt-1.5 font-sans text-[10px] leading-snug text-brand-muted/60">
+                          {sel3DModelledHand === undefined
+                            ? 'This model is symmetrical, so this only sets which hand you place it against.'
+                            : `This model is built for a ${sel3DModelledHand} hand — the other one is mirrored automatically.`}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
                 <div>
                   <SectionLabel>Attachment point</SectionLabel>
                   <div className="grid grid-cols-3 gap-1.5">
@@ -1825,6 +2079,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                     })}
                   </div>
                 </div>
+                )}
                 <div className="flex items-center justify-between">
                   <p className="font-sans text-xs text-brand-fg font-medium">Placement</p>
                   <button
@@ -1880,12 +2135,10 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                 <p className="font-sans text-[9px] text-brand-muted/40 leading-relaxed -mt-2">
                   Arrow keys nudge this piece (hold Shift for a bigger step).
                 </p>
-                <StudioToggle
-                  label="Occlude behind head"
-                  hint="Hide parts of this piece behind the real head"
-                  value={sel3D.occlusion}
-                  onChange={(v) => dispatch({ type: 'SET_OCCLUSION', occlusion: v })}
-                />
+                {/* The occlusion switch used to sit HERE, per piece — but one
+                    occluder serves the whole canvas, so toggling it on any
+                    piece but the first did nothing the host could see. It is
+                    now ONE scene switch in "Lighting & fit" (state.sceneOcclusion). */}
                 {/* Finish is for IMPORTED/GENERATED geometry only: built-in head
                     pieces ship hand-authored materials that a blanket restyle
                     would flatten. */}
@@ -2042,6 +2295,18 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
       {has3D && (
         <DockSection icon={Ruler} title="Lighting & fit" open={!!open.headfit} onToggle={() => toggleSection('headfit')}>
           <LightingPicker value={lighting} onChange={onLightingChange} />
+          {/* SCENE-level, not per piece: one depth occluder serves the whole
+              canvas, so this is the only place it can be told honestly. Hidden
+              when every 3D piece is hand-tracked — the hand occluder is always
+              on and there is no head piece for this to affect. */}
+          {hasHead3D && (
+            <StudioToggle
+              label="Hide props behind head"
+              hint="Parts of your 3D pieces that fall behind the guest's real head stop showing. Applies to the whole scene."
+              value={sceneOccludes}
+              onChange={(v) => dispatch({ type: 'SET_SCENE_OCCLUSION', occlusion: v })}
+            />
+          )}
           <HeadSizeCalibration headScale={headScale} onHeadScaleChange={onHeadScaleChange} />
         </DockSection>
       )}

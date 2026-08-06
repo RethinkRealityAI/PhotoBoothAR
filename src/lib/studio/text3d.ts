@@ -138,6 +138,26 @@ export const KIND_ANCHOR: Record<Text3DKind, HeadAnchor | [HeadAnchor, HeadAncho
   floating: 'crown',
 };
 
+/**
+ * Where a kind LANDS when it is added, beyond its anchor — the placement an
+ * average guest needs, so the host is not handed a piece parked at the anchor's
+ * bare origin and left to discover four slider values.
+ *
+ * A necklace is the one that genuinely cannot sit at its anchor: it hangs from
+ * the CHIN anchor but belongs on the collarbone, ~6cm down and ~18cm back
+ * (the anchor is at the front of the jaw, the chain wraps the neck). Owner-
+ * tuned on a live camera. The other kinds sit where their anchor already is.
+ *
+ * The scale is `anchorConfig.scale`, not a size in cm: these pieces are built
+ * life-size and dispatched with an explicit scale, so 1 is "as authored".
+ */
+export const KIND_PLACEMENT: Record<Text3DKind, { offsetCm: { x: number; y: number; z: number }; scale: number }> = {
+  necklace: { offsetCm: { x: 0, y: -6.0, z: -18.1 }, scale: 1.89 },
+  earrings: { offsetCm: { x: 0, y: 0, z: 0 }, scale: 1 },
+  nosering: { offsetCm: { x: 0, y: 0, z: 0 }, scale: 1 },
+  floating: { offsetCm: { x: 0, y: 0, z: 0 }, scale: 1 },
+};
+
 export const KIND_LABEL: Record<Text3DKind, string> = {
   necklace: 'Necklace',
   earrings: 'Earrings',

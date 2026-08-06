@@ -17,7 +17,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
-import { computeBustFit, computeAnchorAlignedFit, collectWorldPositions } from '../../lib/studio/bustFit';
+import objText from '../../assets/ar/canonical_face_model.obj?raw';
+import { computeBustFit, computeAnchorAlignedFit, collectWorldPositions, normalizeFitToCanonical } from '../../lib/studio/bustFit';
+import { parseObj } from '../../lib/studio/occluder';
 import { ANCHOR_PRESETS } from '../../lib/faceRig';
 
 /** Served from public/; 404s (→ procedural fallback) until CI vendors it. */
@@ -25,6 +27,17 @@ const BUST_URL = `${import.meta.env.BASE_URL}models/reference-head.glb`;
 
 /** Anchor offsets the bust is aligned against (cm) — the calibration target. */
 const ANCHOR_OFFSETS = ANCHOR_PRESETS.map((a) => a.offset);
+
+/**
+ * MediaPipe's canonical face, in the same metric centimetres — the size a real
+ * tracked head actually is. Parsed once; the same asset the depth occluder
+ * uses, so "what the bust should measure" has exactly one definition.
+ */
+let _canonical: Float32Array | null = null;
+function canonicalPoints(): Float32Array {
+  if (!_canonical) _canonical = parseObj(objText).positions;
+  return _canonical;
+}
 
 /**
  * Scale + centre a raw bust mesh so its crown-to-chin height matches the head
@@ -66,8 +79,16 @@ function GlbBust({ scene, onFit }: { scene: THREE.Group; onFit?: (b: BustBounds)
     const points = collectWorldPositions(obj);
     const aligned = computeAnchorAlignedFit(points, ANCHOR_OFFSETS);
     // Degrade, never fail: an unmeasurable mesh keeps the legacy bbox fit.
-    const fit = aligned ?? computeBustFit(obj);
-    if (!fit) return null;
+    const raw = aligned ?? computeBustFit(obj);
+    if (!raw) return null;
+    // THEN size it like a real head. The clearance fit above optimises the gap
+    // between each anchor dot and the skin, which is an absolute-cm criterion
+    // and so never constrains SIZE: it happily lands this bust ~23% small,
+    // which is why a prop tuned here used to look ~30% too big the moment a
+    // real (canonical-sized) face replaced it. Normalizing against the
+    // canonical face is what makes "scale it in one view" mean the same thing
+    // in all three.
+    const fit = normalizeFitToCanonical(points, raw, canonicalPoints(), ANCHOR_OFFSETS);
     let minY = Infinity, maxY = -Infinity;
     for (let i = 1; i < points.length; i += 3) {
       const y = points[i] * fit.scale + fit.position[1];

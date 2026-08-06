@@ -8,6 +8,7 @@
  * import this from a vitest (node env) test file — assetSources.ts keeps its
  * own pairing helpers pure/DOM-free for exactly that reason.
  */
+import { useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { computePropFitScale } from './bustFit';
 import { loadModel } from '../glbCache';
@@ -126,4 +127,83 @@ export async function captureGlbThumbnail(url: string, size = 256): Promise<Blob
     // would hit the browser's ~16-context cap and could kill the live stage.
     renderer?.forceContextLoss();
   }
+}
+
+/* ── Session thumbnail cache for BUNDLED models ────────────────────────────
+ *
+ * Library gear and Power-Ups gear are `/models/*.glb` shipped with the app and
+ * shared by every tenant, so their thumbnails are not per-event content: there
+ * is nothing to upload and nothing to store. They are captured ONCE per asset
+ * per page load, in memory.
+ *
+ * SERIALIZED on purpose. Each capture builds a WebGLRenderer, and the browser
+ * caps live contexts at roughly 16 — firing one per tile as the dock mounts is
+ * exactly how the LIVE stage's context gets evicted mid-session (which is what
+ * captureGlbThumbnail's own dispose/forceContextLoss note is about). One at a
+ * time also keeps the GLB downloads off each other's backs.
+ *
+ * The object URLs are deliberately never revoked: they are module-scoped, one
+ * per bundled asset, and a revoked URL is a permanently broken tile.
+ */
+const thumbCache = new Map<string, string | null>();
+const thumbInflight = new Map<string, Promise<string | null>>();
+let thumbQueue: Promise<unknown> = Promise.resolve();
+
+/** The already-captured thumbnail for `url`, or undefined if none yet. Lets a
+ *  component paint a cached picture on its FIRST render (no empty flash). */
+export function peekGlbThumbnail(url: string): string | null | undefined {
+  return thumbCache.get(url);
+}
+
+/**
+ * Capture (or reuse) an in-memory thumbnail for a bundled model. Resolves to an
+ * object URL, or null when the capture failed — a null is CACHED, so a model
+ * that cannot be rendered is not retried on every re-render.
+ */
+export function cachedGlbThumbnail(url: string, size = 192): Promise<string | null> {
+  const hit = thumbCache.get(url);
+  if (hit !== undefined) return Promise.resolve(hit);
+  const inflight = thumbInflight.get(url);
+  if (inflight) return inflight;
+
+  const run = thumbQueue.then(async (): Promise<string | null> => {
+    try {
+      const blob = await captureGlbThumbnail(url, size);
+      const objectUrl = blob ? URL.createObjectURL(blob) : null;
+      thumbCache.set(url, objectUrl);
+      return objectUrl;
+    } catch (e) {
+      // captureGlbThumbnail already swallows its own failures; this guard keeps
+      // one unexpected throw from rejecting the shared queue and killing every
+      // capture queued behind it.
+      console.warn('[glbThumb] cachedGlbThumbnail failed', url, e);
+      thumbCache.set(url, null);
+      return null;
+    } finally {
+      thumbInflight.delete(url);
+    }
+  });
+  thumbQueue = run;
+  thumbInflight.set(url, run);
+  return run;
+}
+
+/**
+ * A bundled model's thumbnail as React state: cached value on first render,
+ * captured (once, queued) otherwise. `null` means "no picture" — every caller
+ * falls back to its icon, so a failed capture is a cosmetic non-event.
+ */
+export function useGlbThumb(url: string | null | undefined): string | null {
+  const [thumb, setThumb] = useState<string | null>(() =>
+    (url == null ? null : peekGlbThumbnail(url) ?? null));
+  useEffect(() => {
+    if (url == null) { setThumb(null); return; }
+    const cached = peekGlbThumbnail(url);
+    if (cached !== undefined) { setThumb(cached); return; }
+    setThumb(null);
+    let alive = true;
+    void cachedGlbThumbnail(url).then((u) => { if (alive) setThumb(u); });
+    return () => { alive = false; };
+  }, [url]);
+  return thumb;
 }

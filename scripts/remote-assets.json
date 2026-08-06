@@ -216,6 +216,43 @@
       "path": "src/assets/landing/hero/hero-activation-v2.png"
     },
     {
+      "url": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+      "path": "public/models/hand_landmarker.task"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_145226_928d616c-6a5d-4609-a04b-35d718d6cecb.glb",
+      "path": "public/models/cyclops-visor.glb"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_145231_480bad8b-4f1c-468c-8e38-241651931608.glb",
+      "path": "public/models/wizard-wand.glb"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_145236_c1739059-2de9-4ab0-8c90-28988fe7d0fb.glb",
+      "path": "public/models/power-gauntlet.glb"
+    },
+    {
+      "comment": "Studio 3D-orbit reference HANDS — the hand-tracking analogue of reference-head.glb, so hand-anchored gear is placed against a real hand instead of the primitive-built stand-in. Meshy image_to_3d with should_texture:false (like the head bust): ~330KB, ~8k verts, no materials, one mesh — it takes the same neutral matte material the bust does. Open hand mounts wrist/palm gear; the fist mounts grip gear (a wand runs THROUGH the fist, which only reads correctly on a closed hand). Both are RIGHT hands; mirrorGeometry.ts serves the left.",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_204643_ddded0e1-d22b-4711-9dbb-54fd9019a810.glb",
+      "path": "public/models/reference-hand-open.glb"
+    },
+    {
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_204934_b7cbaa47-9d08-44e0-ac87-828d4d2114e3.glb",
+      "path": "public/models/reference-hand-fist.glb"
+    },
+    {
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/1bc7adda-7be7-4c79-9f09-2b5c0fedd941.webp",
+      "path": "public/starters/hero-visor.webp"
+    },
+    {
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/5b686d1d-e83d-43d3-b0a5-a97ac8b947c4.webp",
+      "path": "public/starters/wizard-duel.webp"
+    },
+    {
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/5ca7a8bb-e755-4757-b9a1-760c5a7fb8eb.webp",
+      "path": "public/starters/power-surge.webp"
+    },
+    {
       "comment": "Teaser film art (nano_banana_pro 2k 9:16, 2026-08-04). Only what the repo lacked — the 45 committed photo cells and the 7 hero captures cover everything else. Compressed to 1080w webp by the compress step; the 2k pngs are never committed (photos/ is already 78 MB of them).",
       "url": "https://d8j0ntlcm91z4.cloudfront.net/user_33Txeg6YsaHeKOwmprAOf8Wr55B/hf_20260804_195838_c7e720c7-3ab2-49c5-aaa2-e607b81a3afb.png",
       "path": "hyperframes/studio/assets/photos/teaser/tz-beam-plate.png"

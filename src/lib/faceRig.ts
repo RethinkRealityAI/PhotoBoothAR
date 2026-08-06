@@ -122,6 +122,54 @@ export function getLatestBlendshapes(): { scores: Record<string, number>; t: num
   return _hasBlend ? { scores: _blendScores, t: _blendT } : null;
 }
 
+/* — Face keypoints for the hand-to-temple gesture ---------------------------
+ * The raw 478 landmarks stay unexported on purpose; the temple gesture needs
+ * exactly six of them (forehead 10, chin 152, the ear-pair midpoints 127/234
+ * and 356/454 — the anchors the PlayCanvas optic-blast reference uses), so
+ * only those are stashed, on detection frames, normalized image space, raw
+ * and UNMIRRORED like everything else in this module.
+ */
+interface FaceKeypointStash {
+  forehead: { x: number; y: number };
+  chin: { x: number; y: number };
+  leftEar: { x: number; y: number };
+  rightEar: { x: number; y: number };
+}
+let _faceKeypoints: FaceKeypointStash | null = null;
+
+function stashFaceKeypoints(results: FaceLandmarkerResult | undefined): void {
+  const lm = results?.faceLandmarks?.[0];
+  if (!lm || lm.length < 455) {
+    _faceKeypoints = null; // no face → the temple gesture must decay, not latch
+    return;
+  }
+  _faceKeypoints = {
+    forehead: { x: lm[10].x, y: lm[10].y },
+    chin: { x: lm[152].x, y: lm[152].y },
+    leftEar: { x: (lm[127].x + lm[234].x) / 2, y: (lm[127].y + lm[234].y) / 2 },
+    rightEar: { x: (lm[356].x + lm[454].x) / 2, y: (lm[356].y + lm[454].y) / 2 },
+  };
+}
+
+/** Latest temple-gesture keypoints, or null while no face is tracked. */
+export function getLatestFaceKeypoints(): FaceKeypointStash | null {
+  return _faceKeypoints;
+}
+
+/** performance.now() of the last face inference. handRig reads this to avoid
+ *  running two blocking CPU landmarkers on the same rAF tick. */
+export function lastFaceDetectMs(): number {
+  return _detectGate.lastDetectMs;
+}
+
+/** Tracked head distance from the camera in cm (positive), or null before the
+ *  first face. The monocular hand-depth estimate clamps around this. */
+export function getHeadDepthCm(): number | null {
+  if (!_gHas) return null;
+  const d = -_gPos.z;
+  return Number.isFinite(d) && d > 0 ? d : null;
+}
+
 /* ── Live head-fit estimator ───────────────────────────────────────────────
  * MediaPipe's facialTransformationMatrix carries a SCALE component — the fit of
  * the canonical head to THIS face. On every DETECTION frame we push that uniform
@@ -249,6 +297,7 @@ function detectIfDue(fl: ReturnType<typeof getFaceLandmarker>, video: HTMLVideoE
   // an empty/no-face result, so signals decay). Additive: pose consumers below
   // are untouched, so legacy events stay byte-identical.
   stashBlendshapes(results, now);
+  stashFaceKeypoints(results);
   const mats = results?.facialTransformationMatrixes;
   if (!mats || mats.length === 0) return;
   _mat.fromArray(mats[0].data);

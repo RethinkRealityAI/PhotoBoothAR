@@ -16,17 +16,23 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { Boxes, Eye, Layers, ScanFace, Smartphone, Sparkles, Rotate3d, AlertTriangle } from 'lucide-react';
+import { Axis3d, Boxes, Camera, Eye, Layers, Smartphone, Sparkles, AlertTriangle } from 'lucide-react';
 import { ShaderRunner } from '../../lib/shaders';
 import { snapTransform, type SnapResult } from '../../lib/studio/snap';
 import { selectedObject, draftHasContent, type StudioState, type StudioAction, type Overlay2D, type Object3D } from '../../lib/studio/state';
+import { isHandObject } from '../../lib/studio/sceneFamilies';
 import Studio3DView from './Studio3DView';
 import StudioPreview from './StudioPreview';
 import Tooltip from '../ui/Tooltip';
 import ErrorBoundary from '../ui/ErrorBoundary';
 import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
-import { createTriggerEngine, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
+import { createTriggerEngine, hasHandSource, isHandSource, mergeDetectionScores, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, BEAM_STYLE_LABELS, ANIMATE_PRESET_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
+import { detectHandsNow, getLatestHandFrame, resetHandRig } from '../../lib/handRig';
+import { initializeHandLandmarker } from '../../lib/handTracking';
+import { makeBeamSpec } from '../../lib/studio/beam';
+import { emitFx } from '../../lib/studio/fxBus';
+import { objectToPiece, STUDIO_SAMPLE_GUEST_NAME } from '../../lib/studio/draftMapping';
 import type { LightingPresetId } from '../../lib/studio/lighting';
 import { initializeFaceLandmarker, isFaceLandmarkerReady } from '../../lib/faceTracking';
 import { REVEAL_SHIMMER_MS } from '../../lib/studio/reveal';
@@ -70,6 +76,10 @@ interface Props {
   /** The last refused add (e.g. a drop past the object cap), surfaced on the stage. */
   refusal?: { message: string; at: number } | null;
 }
+
+/** How long a fired trigger stays on the status chip — the toast and the
+ *  "<Gesture> detected" confirmation share one dwell so they never disagree. */
+const TRIGGER_CHIP_MS = 1600;
 
 const MODE_TABS = [
   { id: '2d' as const, label: '2D', icon: Layers, hint: 'Frames, stickers & filters' },
@@ -320,11 +330,25 @@ export default function StudioStage({
   const showToast = useCallback((msg: string) => {
     setTriggerToast(msg);
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = window.setTimeout(() => setTriggerToast(null), 1600);
+    toastTimerRef.current = window.setTimeout(() => setTriggerToast(null), TRIGGER_CHIP_MS);
+  }, []);
+  // WHICH gesture just fired, for the status chip. Separate from the toast on
+  // purpose: a burst fires confetti and an in-preview beam erupts with no words
+  // at all, so without this a gesture that never registers and one that fires an
+  // effect the host missed look identical — which is exactly the "is the pinch
+  // even working?" question. Set for EVERY fired trigger; the toast (which also
+  // names what the trigger did) outranks it in stageStatus.
+  const [gestureLabel, setGestureLabel] = useState<string | null>(null);
+  const gestureTimerRef = useRef<number | null>(null);
+  const showGesture = useCallback((label: string) => {
+    setGestureLabel(label);
+    if (gestureTimerRef.current) window.clearTimeout(gestureTimerRef.current);
+    gestureTimerRef.current = window.setTimeout(() => setGestureLabel(null), TRIGGER_CHIP_MS);
   }, []);
   useEffect(() => () => {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     if (revealTimerRef.current) window.clearTimeout(revealTimerRef.current);
+    if (gestureTimerRef.current) window.clearTimeout(gestureTimerRef.current);
   }, []);
 
   // One fired trigger → its effect. Bursts fire the shared canvas in every view.
@@ -332,6 +356,8 @@ export default function StudioStage({
   const handleTriggerEvent = useCallback((e: TriggerEvent) => {
     const a = e.action;
     const label = TRIGGER_SOURCE_LABELS[e.source];
+    // Every fired trigger says WHICH gesture fired it, whatever the action does.
+    showGesture(label);
     if (a.type === 'burst') {
       triggerFxRef.current?.fire(a.style);
       return;
@@ -348,10 +374,37 @@ export default function StudioStage({
       }
       return;
     }
-    // filterPulse
-    if (mode === 'preview') startPulse(a.shaderId, a.durationMs);
-    else showToast(`${label} → filter pulse`);
-  }, [mode, draft.objects, showToast, startPulse]);
+    if (a.type === 'filterPulse') {
+      if (mode === 'preview') startPulse(a.shaderId, a.durationMs);
+      else showToast(`${label} → filter pulse`);
+      return;
+    }
+    if (a.type === 'beam') {
+      if (mode === 'preview') {
+        // The REAL ceremony, through the same fxBus + BeamFX the booth uses.
+        // Same visibility rule as the booth's resolver: a panel-hidden or
+        // still-unrevealed piece has no mounted rig to fire from, so a
+        // named-but-hidden target degrades to the per-origin default (null)
+        // rather than borrowing a DIFFERENT piece's colour and muzzle.
+        const visible3D = (o: (typeof draft.objects)[number]) =>
+          o.type !== 'overlay' && isLayerVisible(o, revealTargetIds, revealedIds);
+        const named = a.objectId !== undefined ? draft.objects.find((o) => o.id === a.objectId) : undefined;
+        const target = named !== undefined ? (visible3D(named) ? named : undefined) : draft.objects.find(visible3D);
+        const piece =
+          target !== undefined && target.type !== 'overlay'
+            ? objectToPiece(target, { guestName: STUDIO_SAMPLE_GUEST_NAME })
+            : null;
+        emitFx({ kind: 'beam', spec: makeBeamSpec(a, piece, isHandSource(e.source), performance.now()) });
+      } else {
+        showToast(`${label} → ${BEAM_STYLE_LABELS[a.style]}`);
+      }
+      return;
+    }
+    if (a.type === 'animate') {
+      const name = draft.objects.find((o) => o.id === a.objectId)?.name ?? 'piece';
+      showToast(`${label} → ${ANIMATE_PRESET_LABELS[a.preset].toLowerCase()} "${name}"`);
+    }
+  }, [mode, draft.objects, showToast, showGesture, startPulse, revealTargetIds, revealedIds]);
   const handlerRef = useRef(handleTriggerEvent);
   useEffect(() => { handlerRef.current = handleTriggerEvent; }, [handleTriggerEvent]);
 
@@ -360,24 +413,53 @@ export default function StudioStage({
   // and is shared with any mounted FaceRig) so blendshapes refresh even in 2D /
   // filter-only preview, and steps the engine once per NEW detection frame.
   // Rebuilds (cheaply) whenever the trigger set changes → no leaked rAF/engine.
+  // Hand landmarker joins lazily, exactly as in the booth — when the draft's
+  // triggers name a hand gesture OR any piece is hand-ANCHORED (a wand with no
+  // hand trigger still needs a tracked hand to sit in; the rigs self-detect,
+  // this effect owns the early 7.8MB download + the stash reset). Ordinary
+  // scenes never pay for it.
+  const needsHands = useMemo(
+    () =>
+      hasHandSource(triggers) ||
+      draft.objects.some((o) => o.type !== 'overlay' && isHandObject(o)),
+    [triggers, draft.objects],
+  );
+  useEffect(() => {
+    if (!needsHands) return;
+    initializeHandLandmarker().catch((e) => console.warn('[StudioStage] hand tracker init failed', e));
+    return () => resetHandRig();
+  }, [needsHands]);
+
   useEffect(() => {
     if (!triggersActive) return;
     const engine = createTriggerEngine(triggers);
     let raf = 0;
-    let lastT = -1;
+    let lastFaceT = -1;
+    let lastHandT = -1;
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const v = cam.videoRef.current;
       if (!v) return;
       detectFaceNow(v);
+      if (needsHands) detectHandsNow(v);
       const b = getLatestBlendshapes();
-      if (!b || b.t === lastT) return;
-      lastT = b.t;
-      for (const ev of engine.step(b.scores, performance.now())) handlerRef.current(ev);
+      const h = needsHands ? getLatestHandFrame() : null;
+      const faceT = b?.t ?? -1;
+      const handT = h?.t ?? -1;
+      if (faceT === lastFaceT && handT === lastHandT) return;
+      const handChanged = handT !== lastHandT;
+      lastFaceT = faceT;
+      lastHandT = handT;
+      // Same staleness rule as the booth (see mergeDetectionScores): the face
+      // clock steps this loop 2-4x per hand inference, and re-feeding the last
+      // hand sample crosses `enter` on its own.
+      const now = performance.now();
+      const merged = mergeDetectionScores(b?.scores ?? null, h, handChanged, now);
+      for (const ev of engine.step(merged.scores, now, merged.stale)) handlerRef.current(ev);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [triggersActive, triggers, cam.videoRef]);
+  }, [triggersActive, triggers, cam.videoRef, needsHands]);
 
   // All three views are always available — switching can no longer destroy
   // content (SET_MODE is a pure view flip; the scene persists across 2D/3D/Preview).
@@ -396,8 +478,20 @@ export default function StudioStage({
   // the view is switching must not leave the hold latched.
   useEffect(() => { setGizmoDragging(false); }, [mode, threeView]);
 
+  // Hand-rig acquisition (3D Live / Preview) — local: only the status chip
+  // reads it, unlike faceVisible which the shell owns.
+  const [handVisible, setHandVisible] = useState(false);
+  useEffect(() => { setHandVisible(false); }, [mode, threeView]);
+
   // Whether the CURRENT view actually uses the tracker — orbit has no feed.
   const trackerNeeded = mode === 'preview' || mode === '2d' || (mode === '3d' && threeView === 'live');
+  // Hand-tracking chip state: a hand is "needed" when the scene carries hand
+  // gear or hand-gesture triggers; the FACE stops being needed only when the
+  // 3D scene is hand-only AND no trigger listens to a face.
+  const handOnlyScene =
+    objects3d.length > 0 &&
+    objects3d.every(isHandObject) &&
+    !triggers.some((t) => !isHandSource(t.source));
   const status = stageStatus({
     camError: cam.error,
     camReady: cam.ready,
@@ -405,6 +499,10 @@ export default function StudioStage({
     trackerReady: trackerNeeded ? trackerLoaded : true,
     faceVisible,
     toast: triggerToast,
+    gesture: gestureLabel,
+    faceNeeded: !handOnlyScene,
+    handNeeded: trackerNeeded && needsHands,
+    handVisible,
   });
 
   return (
@@ -452,8 +550,15 @@ export default function StudioStage({
             that needs 99 — it truncated to "LOADIN…" at every width, and the
             right cell was wasting all 84 on a 36px button. The bottom band is
             free, so status went there and gets its natural width. */}
-        <div className="absolute top-2.5 inset-x-2.5 z-30 flex items-start justify-center">
-          <div className="flex items-center gap-1 liquid-glass-raised rounded-full p-1 shrink-0">
+        {/* pointer-events-none on the BAND, auto on each control. The band spans
+            the full stage width at z-30 purely to centre the mode pill, so as a
+            hit target it covered the whole strip — including the 3D view's own
+            head/hand focus switch at z-20 in the free left cell, which was
+            therefore unclickable (caught by a screenshot pass: every click on it
+            timed out against this element). Anything else floated into this
+            strip later would have hit the same wall. */}
+        <div className="absolute top-2.5 inset-x-2.5 z-30 flex items-start justify-center pointer-events-none">
+          <div className="flex items-center gap-1 liquid-glass-raised rounded-full p-1 shrink-0 pointer-events-auto">
             {visibleTabs.map((t) => {
               const active = mode === t.id;
               const disabled = t.id === 'preview' && !previewReady;
@@ -487,21 +592,29 @@ export default function StudioStage({
           </div>
 
           {/* 3D view toggle — pinned right in the same band rather than a second
-              floating row stacked underneath the first. */}
-          <div className="absolute right-0 top-0">
+              floating row stacked underneath the first. It is LABELLED: as a
+              bare 36px icon nobody could tell what it switched (owner report),
+              and the two states are not opposites of one picture. The label
+              names the DESTINATION, so the button reads as the action it
+              performs. Measured for width: the band is 429px and the centred
+              mode pill takes 245, leaving 92 per side; this pill needs ~74. */}
+          <div className="absolute right-0 top-0 pointer-events-auto">
             {mode === '3d' && (
               <Tooltip
-                label={threeView === 'live' ? 'Reference head' : 'Your face'}
-                hint={threeView === 'live' ? 'Place against a reference head — no camera needed' : 'Track your real face (WYSIWYG)'}
+                label={threeView === 'live' ? 'Switch to the reference model' : 'Switch to your camera'}
+                hint={threeView === 'live' ? 'Place against a stand-in head or hand — no camera needed' : 'Track your real face and hands (WYSIWYG)'}
                 side="bottom"
               >
                 <button
                   onClick={() => dispatch({ type: 'SET_THREE_VIEW', view: threeView === 'live' ? 'orbit' : 'live' })}
                   data-testid="studio-view-toggle"
-                  aria-label={threeView === 'live' ? 'Show the reference head' : 'Show your face'}
-                  className="pressable flex items-center justify-center w-9 h-9 rounded-full liquid-glass-raised text-brand-muted/70 hover:text-brand-fg transition-colors"
+                  aria-label={threeView === 'live' ? 'Switch to the reference model' : 'Switch to your camera'}
+                  className="pressable flex items-center gap-1.5 h-9 px-2.5 rounded-full liquid-glass-raised text-brand-muted/70 hover:text-brand-fg transition-colors"
                 >
-                  {threeView === 'live' ? <Rotate3d className="w-4 h-4" /> : <ScanFace className="w-4 h-4" />}
+                  {threeView === 'live' ? <Axis3d className="w-4 h-4 shrink-0" /> : <Camera className="w-4 h-4 shrink-0" />}
+                  <span className="font-label text-[10px] uppercase tracking-widest whitespace-nowrap">
+                    {threeView === 'live' ? 'Model' : 'Live'}
+                  </span>
                 </button>
               </Tooltip>
             )}
@@ -612,6 +725,7 @@ export default function StudioStage({
               onAnchorSelect={(a) => dispatch({ type: 'SELECT_ANCHOR', anchor: a })}
               onTransformChange={(patch) => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch })}
               onFaceVisible={onFaceVisible}
+              onHandVisible={setHandVisible}
               onGizmoDragStart={() => setGizmoDragging(true)}
               onGizmoDragEnd={() => setGizmoDragging(false)}
             />
@@ -629,11 +743,13 @@ export default function StudioStage({
               headScale={headScale}
               occlusionEnabled={occlusionEnabled}
               onFaceVisible={onFaceVisible}
+              onHandVisible={setHandVisible}
               hiddenObjectIds={hiddenObjectIds}
               revealTargetIds={revealTargetIds}
               effectIdOverride={pulseShaderId ?? undefined}
               reveal={reveal}
               lightingPreset={lighting}
+              powerFx={triggers.some((t) => t.action.type === 'beam')}
             />
             </ErrorBoundary>
           </div>
@@ -674,8 +790,12 @@ export default function StudioStage({
             canvas and absolutely nothing happened, anywhere. */}
         <RefusalNotice refusal={refusal} />
 
-        {/* Camera error */}
-        {cam.error && showVideo && (
+        {/* Camera error — only in the views that actually USE the camera.
+            3D-Orbit places gear against a stand-in mannequin and needs no feed
+            at all, but `showVideo` (mode !== 'preview') was true there, so a
+            host with no webcam got a full-bleed "NO CAMERA FOUND" scrim and a
+            Retry button laid over the very view that works without one. */}
+        {cam.error && showVideo && trackerLive && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-brand-bg/80 px-8 text-center">
             <AlertTriangle className="w-8 h-8 text-amber-400" />
             <p className="font-label text-[11px] uppercase tracking-widest text-brand-muted">{cam.error}</p>

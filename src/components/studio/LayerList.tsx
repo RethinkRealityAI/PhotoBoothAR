@@ -42,6 +42,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { layerRows, stepTargetIndex, rowAtPointer, dropIndexForRow, paintOrderHint } from '../../lib/studio/layerOrder';
+import { useGlbThumb } from '../../lib/studio/glbThumb';
 import type { StudioAction, StudioObject } from '../../lib/studio/state';
 import Tooltip from '../ui/Tooltip';
 
@@ -56,6 +57,21 @@ interface Props {
 function objectIcon(o: StudioObject) {
   if (o.type === 'overlay') return o.overlayKind === 'border' ? LayoutTemplate : ImageIcon;
   return o.type === 'headpiece' ? Crown : Boxes;
+}
+
+/**
+ * The row's picture: a real capture of the model where one exists, else the
+ * kind glyph. A scene of four GLB props used to be four identical cubes, which
+ * is precisely when a host needs to tell them apart. A COMPONENT because the
+ * capture arrives through a hook and the rows are produced by a `.map`.
+ */
+function LayerThumb({ object: o, selected }: { object: StudioObject; selected: boolean }) {
+  const Icon = objectIcon(o);
+  const thumb = useGlbThumb(o.type === 'model' ? o.assetUrl : null);
+  if (thumb !== null) {
+    return <img src={thumb} alt="" draggable={false} className="w-4 h-4 shrink-0 object-contain rounded-[3px] bg-white/[0.06]" />;
+  }
+  return <Icon className={`w-3.5 h-3.5 shrink-0 ${selected ? 'text-accent-2' : 'text-brand-muted/50'}`} />;
 }
 
 /** The badge that carries the kind information the old buckets used to. */
@@ -156,7 +172,6 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
       <ul ref={listRef} className="flex flex-col gap-1.5">
         {rows.map(({ object: o, index, row, isTop, isBottom }) => {
           const isSel = o.id === selectedId;
-          const Icon = objectIcon(o);
           const hidden = !!o.hidden;
           const isDragging = drag?.fromRow === row;
           const isDropTarget = !!drag && drag.overRow === row && drag.fromRow !== row;
@@ -192,7 +207,7 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
                     with a venue are actually about. */}
                 <span className="shrink-0 w-3 text-center font-mono text-[8px] text-brand-muted/40 tabular-nums">{row + 1}</span>
 
-                <Icon className={`w-3.5 h-3.5 shrink-0 ${isSel ? 'text-accent-2' : 'text-brand-muted/50'}`} />
+                <LayerThumb object={o} selected={isSel} />
 
                 {renaming ? (
                   <input

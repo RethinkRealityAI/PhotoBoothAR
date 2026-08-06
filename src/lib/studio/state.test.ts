@@ -8,11 +8,13 @@ import {
   draftHasContent,
   selectedObject,
   sceneCounts,
+  sceneOcclusion,
   createOverlay,
   createObject3D,
   MAX_OBJECTS,
   MAX_TRIGGERS,
   canAddObject,
+  slotConflict,
   SCENE_FULL_MESSAGE,
   type StudioState,
   type Overlay2D,
@@ -185,6 +187,154 @@ describe('head pieces and model assets', () => {
     const st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x.glb' });
     expect((selectedObject(st.draft) as Object3D).anchorConfig.scale).toBe(1);
   });
+
+  it('SET_MODEL_ASSET applies an authored rotation (degrees in, radians stored) and occlusion', () => {
+    // A generated gauntlet lands sideways on the wrist until turned; shipping
+    // the turn is what makes a fresh add look right with no slider work.
+    const st = studioReducer(s0(), {
+      type: 'SET_MODEL_ASSET',
+      url: 'https://cdn/g.glb',
+      name: 'Gauntlet',
+      rotationDeg: { x: -83, y: 5, z: 174 },
+      offsetCm: { x: -0.7, y: -1.9, z: 2.1 },
+      occlude: true,
+    });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.anchorConfig.rotation.x).toBeCloseTo((-83 * Math.PI) / 180, 9);
+    expect(o.anchorConfig.rotation.y).toBeCloseTo((5 * Math.PI) / 180, 9);
+    expect(o.anchorConfig.rotation.z).toBeCloseTo((174 * Math.PI) / 180, 9);
+    expect(o.anchorConfig.offset).toEqual({ x: -0.7, y: -1.9, z: 2.1 });
+    expect(o.occlusion).toBe(true);
+  });
+
+  it('a rotation ALONE still builds an anchorConfig (the gate covers all three)', () => {
+    const st = studioReducer(s0(), {
+      type: 'SET_MODEL_ASSET', url: 'https://cdn/g.glb', name: 'g', rotationDeg: { x: 0, y: 90, z: 0 },
+    });
+    expect((selectedObject(st.draft) as Object3D).anchorConfig.rotation.y).toBeCloseTo(Math.PI / 2, 9);
+  });
+
+  it('omitting the new action fields keeps the old placement defaults; occlusion follows the SCENE default', () => {
+    const before = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x', scale: 3 });
+    const o = selectedObject(before.draft) as Object3D;
+    expect(o.anchorConfig.rotation).toEqual({ x: 0, y: 0, z: 0 });
+    // Occlusion is no longer a per-add constant: a BRAND-NEW draft's first piece
+    // opts in, a LOADED experience's never does (nextPieceOcclusion), so an
+    // already-saved scene can never start depth-clipping without host action.
+    expect(o.occlusion).toBe(true);
+    const onLoaded = studioReducer(
+      { ...s0(), draft: { ...initialDraft('shader'), id: 'exp-9' } },
+      { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x', scale: 3 },
+    );
+    expect((selectedObject(onLoaded.draft) as Object3D).occlusion).toBe(false);
+  });
+  it('SET_OBJECT_TRACKING switches head → hand (default grip), zeroing placement but keeping scale', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/wand.glb', name: 'wand', scale: 7.4, offsetCm: { x: 0, y: 1.5, z: 1 } });
+    const id = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'SET_OBJECT_TRACKING', id, tracking: 'hand' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.handAnchor).toBe('grip');
+    expect(o.anchorConfig.scale).toBe(7.4); // auto-fit survives the family switch
+    expect(o.anchorConfig.offset).toEqual({ x: 0, y: 0, z: 0 }); // head nudge does not
+    expect(st.dirty).toBe(true);
+  });
+  it('SET_OBJECT_TRACKING hand → head clears handAnchor entirely (no stale key)', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/wand.glb', name: 'wand', handAnchor: 'grip' });
+    const id = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'SET_OBJECT_TRACKING', id, tracking: 'head' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.handAnchor).toBeUndefined();
+    expect('handAnchor' in o).toBe(false);
+  });
+  it('SET_OBJECT_TRACKING same-family mount swap (grip → wristBack) keeps placement tuning', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/wand.glb', name: 'wand', handAnchor: 'grip' });
+    const id = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { x: 1, y: 2, z: 3 } } });
+    st = studioReducer(st, { type: 'SET_OBJECT_TRACKING', id, tracking: 'hand', handAnchor: 'wristBack' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.handAnchor).toBe('wristBack');
+    expect(o.anchorConfig.offset).toEqual({ x: 1, y: 2, z: 3 });
+  });
+  it('SET_HAND_FIT stores a pin and treats auto as the ABSENT state', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/g.glb', name: 'g', handAnchor: 'wristBack' });
+    const id = st.draft.selectedId as string;
+    // A fresh hand piece carries no key at all — byte-identical to one saved
+    // before this field existed.
+    expect('handFit' in (selectedObject(st.draft) as Object3D)).toBe(false);
+
+    st = studioReducer(st, { type: 'SET_HAND_FIT', id, fit: 'right' });
+    expect((selectedObject(st.draft) as Object3D).handFit).toBe('right');
+    expect(st.dirty).toBe(true);
+
+    // Back to auto DELETES the key rather than storing 'auto': otherwise the
+    // same scene would serialize differently depending on whether a host had
+    // ever touched the control.
+    st = studioReducer(st, { type: 'SET_HAND_FIT', id, fit: 'auto' });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.handFit).toBeUndefined();
+    expect('handFit' in o).toBe(false);
+  });
+  it('SET_HAND_FIT is a no-op on overlays, unknown ids, junk values and no-change calls', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/g.glb', name: 'g', handAnchor: 'palm' });
+    const id = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'SET_HAND_FIT', id, fit: 'left' });
+    const settled = st;
+    // Same value again → the SAME state object, so no spurious dirty flag.
+    expect(studioReducer(settled, { type: 'SET_HAND_FIT', id, fit: 'left' })).toBe(settled);
+    expect(studioReducer(settled, { type: 'SET_HAND_FIT', id: 'nope', fit: 'right' })).toBe(settled);
+    // Junk normalizes to 'auto', which for a pinned piece is a real change to
+    // "unpinned" — and for an unpinned one is a no-op.
+    const junked = studioReducer(settled, { type: 'SET_HAND_FIT', id, fit: 'sideways' as never });
+    expect((selectedObject(junked.draft) as Object3D).handFit).toBeUndefined();
+    expect(studioReducer(junked, { type: 'SET_HAND_FIT', id, fit: 'garbage' as never })).toBe(junked);
+  });
+  it('SET_OBJECT_TRACKING is a no-op on overlays, unknown ids and no-change calls', () => {
+    const st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x' });
+    const id = st.draft.selectedId as string;
+    expect(studioReducer(st, { type: 'SET_OBJECT_TRACKING', id: 'ghost', tracking: 'hand' })).toBe(st);
+    expect(studioReducer(st, { type: 'SET_OBJECT_TRACKING', id, tracking: 'head' })).toBe(st);
+    // A bogus handAnchor id degrades to 'grip', never a broken stored string.
+    const hand = studioReducer(st, { type: 'SET_OBJECT_TRACKING', id, tracking: 'hand', handAnchor: 'elbow' });
+    expect((selectedObject(hand.draft) as Object3D).handAnchor).toBe('grip');
+  });
+
+  it('RETARGET_TRIGGERS repoints beam/animate at the selected object, leaves reveal alone', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/old.glb', name: 'old' });
+    const oldId = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'ADD_TRIGGER', trigger: { id: 't1', source: 'smile', action: { type: 'beam', style: 'optic', objectId: oldId } } });
+    st = studioReducer(st, { type: 'ADD_TRIGGER', trigger: { id: 't2', source: 'wink', action: { type: 'animate', objectId: oldId, preset: 'shake' } } });
+    st = studioReducer(st, { type: 'ADD_TRIGGER', trigger: { id: 't3', source: 'smile', action: { type: 'burst', style: 'confetti' } } });
+    // Replace flow: delete old → add new (selected) → retarget.
+    st = studioReducer(st, { type: 'DELETE_OBJECT', id: oldId });
+    st = studioReducer(st, { type: 'SET_MODEL_ASSET', url: 'https://cdn/new.glb', name: 'new' });
+    const newId = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'RETARGET_TRIGGERS', fromId: oldId });
+    const byId = Object.fromEntries(st.draft.triggers.map((t) => [t.id, t.action]));
+    expect(byId.t1).toEqual({ type: 'beam', style: 'optic', objectId: newId });
+    expect(byId.t2).toEqual({ type: 'animate', objectId: newId, preset: 'shake' });
+    expect(byId.t3).toEqual({ type: 'burst', style: 'confetti' });
+  });
+  it('RETARGET_TRIGGERS with nothing selected or nothing matching is a no-op', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x' });
+    st = studioReducer(st, { type: 'ADD_TRIGGER', trigger: { id: 't1', source: 'smile', action: { type: 'burst', style: 'confetti' } } });
+    expect(studioReducer(st, { type: 'RETARGET_TRIGGERS', fromId: 'ghost' })).toBe(st);
+  });
+
+  it('slotConflict flags only the SAME mount point, never the whole family', () => {
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/visor.glb', name: 'visor', anchor: 'noseBridge' });
+    const visorId = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'SET_MODEL_ASSET', url: 'https://cdn/wand.glb', name: 'wand', handAnchor: 'grip' });
+    // Second visor on the nose bridge → conflict with the first.
+    expect(slotConflict(st.draft, { anchor: 'noseBridge' })?.id).toBe(visorId);
+    // Crown + noseBridge is legitimate composition — no conflict.
+    expect(slotConflict(st.draft, { anchor: 'crown' })).toBeNull();
+    // Hand slots compare handAnchor: second grip prop conflicts, wrist doesn't.
+    expect(slotConflict(st.draft, { handAnchor: 'grip' })?.id).toBe(st.draft.selectedId);
+    expect(slotConflict(st.draft, { handAnchor: 'wristBack' })).toBeNull();
+    // A hand-tracked piece never blocks a head slot (its `anchor` is vestigial).
+    expect(slotConflict(st.draft, { anchor: 'crown' })).toBeNull();
+  });
+
   it('picking a second head piece ADDS it (clicks never replace — W4-D UI/UX HIGH #1)', () => {
     // Old-expected: the tiara REPLACED a still-untouched crown (1 object).
     // New-expected: it appends (2 objects) — "multiple 3D models" is the
@@ -351,11 +501,52 @@ describe('multi-object scenes', () => {
     expect((selectedObject(st.draft) as Overlay2D).transform.scale).toBe(3);
     expect((st.draft.objects[0] as Overlay2D).transform.scale).toBe(1); // border untouched
   });
-  it('SET_OCCLUSION toggles occlusion on the selected 3D object (opt-in)', () => {
+  it('SET_SCENE_OCCLUSION writes EVERY 3D object (one occluder serves the canvas)', () => {
+    // A brand-new draft's first 3D piece defaults ON (see nextPieceOcclusion).
     let st = studioReducer(initialState('3d_attachment'), { type: 'SELECT_HEAD_PIECE', pieceId: 'royal-crown' });
-    expect((selectedObject(st.draft) as Object3D).occlusion).toBe(false);
-    st = studioReducer(st, { type: 'SET_OCCLUSION', occlusion: true });
     expect((selectedObject(st.draft) as Object3D).occlusion).toBe(true);
+    st = studioReducer(st, { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'X' });
+    expect(st.draft.objects).toHaveLength(2);
+    // OFF must clear every piece, not just the selected one.
+    st = studioReducer(st, { type: 'SET_SCENE_OCCLUSION', occlusion: false });
+    expect(st.draft.objects.every((o) => (o as Object3D).occlusion === false)).toBe(true);
+    expect(sceneOcclusion(st.draft)).toBe(false);
+    st = studioReducer(st, { type: 'SET_SCENE_OCCLUSION', occlusion: true });
+    expect(st.draft.objects.every((o) => (o as Object3D).occlusion === true)).toBe(true);
+    expect(sceneOcclusion(st.draft)).toBe(true);
+  });
+
+  it('SET_SCENE_OCCLUSION is a no-op on a scene with no 3D pieces', () => {
+    const st0 = twoOverlays();
+    expect(studioReducer(st0, { type: 'SET_SCENE_OCCLUSION', occlusion: true })).toBe(st0);
+  });
+
+  it('sceneOcclusion is OR over the 3D pieces — an opt-in on a LATER layer still reads on', () => {
+    const d = {
+      ...initialDraft('3d_attachment'),
+      objects: [
+        createObject3D('model', { assetUrl: 'a.glb', occlusion: false }),
+        createObject3D('model', { assetUrl: 'b.glb', occlusion: true }),
+      ],
+    };
+    expect(sceneOcclusion(d)).toBe(true);
+    expect(sceneOcclusion({ ...d, objects: [] })).toBe(false);
+  });
+
+  it('occlusion defaults ON for a NEW draft and OFF for a loaded one; adds then inherit the scene', () => {
+    // NEW (no id) → on.
+    const fresh = studioReducer(initialState('3d_attachment'), { type: 'SELECT_HEAD_PIECE', pieceId: 'royal-crown' });
+    expect((fresh.draft.objects[0] as Object3D).occlusion).toBe(true);
+    // LOADED existing experience (has an id) → never hard-defaulted on.
+    const loaded = { ...initialState('3d_attachment'), draft: { ...initialDraft('3d_attachment'), id: 'exp-77' } };
+    const added = studioReducer(loaded, { type: 'SELECT_HEAD_PIECE', pieceId: 'royal-crown' });
+    expect((added.draft.objects[0] as Object3D).occlusion).toBe(false);
+    // A second piece inherits the scene, so the one switch never disagrees with it.
+    const second = studioReducer(added, { type: 'SET_MODEL_ASSET', url: 'https://cdn/y.glb', name: 'Y' });
+    expect((second.draft.objects[1] as Object3D).occlusion).toBe(false);
+    // …and an explicit opt-in (a library entry's defaultOcclude) always wins.
+    const forced = studioReducer(added, { type: 'SET_MODEL_ASSET', url: 'https://cdn/z.glb', name: 'Z', occlude: true });
+    expect((forced.draft.objects[1] as Object3D).occlusion).toBe(true);
   });
 });
 

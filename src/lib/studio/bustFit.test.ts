@@ -1,15 +1,20 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import {
   computeBustFit,
   computePropFitScale,
   computeAnchorAlignedFit,
   collectWorldPositions,
+  normalizeFitToCanonical,
   surfaceRadiusAlong,
   ANCHOR_CLEARANCE_CM,
   HEAD_HEIGHT_CM,
   PROP_TARGET_CM,
 } from './bustFit';
+import { parseObj } from './occluder';
+import { ANCHOR_PRESETS } from '../faceRig';
 
 /** Build a mesh like the vendored bust: a box with a tiny native size AND a
  *  90° X-axis node rotation (the case that broke the orbit view). */
@@ -252,5 +257,73 @@ describe('collectWorldPositions', () => {
 
   it('returns an empty array for an object with no meshes', () => {
     expect(collectWorldPositions(new THREE.Group()).length).toBe(0);
+  });
+});
+
+describe('normalizeFitToCanonical', () => {
+  const DIRS = ANCHOR_PRESETS.map((a) => a.offset);
+  const canonical = (() => {
+    const p = fileURLToPath(new URL('../../assets/ar/canonical_face_model.obj', import.meta.url));
+    return parseObj(readFileSync(p, 'utf8')).positions;
+  })();
+  const scaled = (k: number) => {
+    const out = new Float64Array(canonical.length);
+    for (let i = 0; i < canonical.length; i++) out[i] = canonical[i] * k;
+    return out;
+  };
+  /** Mean surface-radius ratio of a cloud against the canonical face. */
+  const sizeVsCanonical = (pts: ArrayLike<number>) => {
+    const rs: number[] = [];
+    for (const d of DIRS) {
+      const a = surfaceRadiusAlong(pts, d);
+      const b = surfaceRadiusAlong(canonical, d);
+      if (a != null && b != null && b > 1e-6) rs.push(a / b);
+    }
+    return rs.reduce((s, r) => s + r, 0) / rs.length;
+  };
+
+  it('THE SIZE BUG: a head fitted 23% small is corrected to canonical size', () => {
+    // The clearance-optimal fit lands the vendored bust at ~0.77x canonical, so
+    // props authored against it render ~1.3x oversized on a real face. This is
+    // that exact situation, built from the canonical face itself so the
+    // expected answer is known rather than eyeballed.
+    const small = scaled(0.77);
+    expect(sizeVsCanonical(small)).toBeCloseTo(0.77, 2);
+
+    const fixed = normalizeFitToCanonical(small, { scale: 1, position: [0, 0, 0] }, canonical, DIRS);
+    expect(fixed.ratio).toBeCloseTo(1 / 0.77, 1);
+
+    const corrected = new Float64Array(small.length);
+    for (let i = 0; i < small.length; i += 3) {
+      corrected[i] = small[i] * fixed.scale + fixed.position[0];
+      corrected[i + 1] = small[i + 1] * fixed.scale + fixed.position[1];
+      corrected[i + 2] = small[i + 2] * fixed.scale + fixed.position[2];
+    }
+    expect(sizeVsCanonical(corrected)).toBeCloseTo(1, 2);
+  });
+
+  it('leaves an already-canonical fit alone', () => {
+    const same = normalizeFitToCanonical(canonical, { scale: 1, position: [0, 0, 0] }, canonical, DIRS);
+    expect(same.ratio).toBeCloseTo(1, 6);
+    expect(same.scale).toBeCloseTo(1, 6);
+  });
+
+  it('grows about the head-space ORIGIN, so scale and position move together', () => {
+    const fit = { scale: 2, position: [1, -3, 0.5] as [number, number, number] };
+    const out = normalizeFitToCanonical(scaled(0.5), fit, canonical, DIRS);
+    expect(out.scale).toBeCloseTo(fit.scale * out.ratio, 6);
+    expect(out.position[0]).toBeCloseTo(fit.position[0] * out.ratio, 6);
+    expect(out.position[1]).toBeCloseTo(fit.position[1] * out.ratio, 6);
+    expect(out.position[2]).toBeCloseTo(fit.position[2] * out.ratio, 6);
+  });
+
+  it('degrades to the input fit rather than exploding the view', () => {
+    const fit = { scale: 3, position: [0, 1, 2] as [number, number, number] };
+    // Nothing measurable.
+    expect(normalizeFitToCanonical(new Float32Array(0), fit, canonical, DIRS)).toMatchObject({ scale: 3, ratio: 1 });
+    expect(normalizeFitToCanonical(canonical, fit, canonical, [])).toMatchObject({ scale: 3, ratio: 1 });
+    // A pathological asset (100x too small) would demand a ratio outside the
+    // sane band — better an un-normalized head than a head filling the sky.
+    expect(normalizeFitToCanonical(scaled(0.01), { scale: 1, position: [0, 0, 0] }, canonical, DIRS).ratio).toBe(1);
   });
 });

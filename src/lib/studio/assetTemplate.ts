@@ -28,6 +28,7 @@
  * throws, because the caller is a render loop.
  */
 import type { AssetCustomization, AssetLabelConfig } from '../../types';
+import { normalizeModelledHand, type ModelledHand } from './handedness';
 import type { GuestLetteringStyle } from '../letteringFit';
 import { ASSET_CUSTOMIZATION } from './controlSpecs';
 import { MAX_REGIONS, normalizeRefLuminance, unpackRegionIds } from './regionTint';
@@ -149,6 +150,10 @@ export interface AssetRegion {
   /** Mean LINEAR luminance of the baked albedo over this region — the divisor
    *  that turns the bake into a relative shading map (see regionTint.ts). */
   refLuminance: number;
+  /** The GUEST may recolour this region in the booth (host opt-in — drives the
+   *  booth's swatch row + beam colour). Absent/false = host-only, which is
+   *  every descriptor authored before Power-Ups. */
+  guestPick?: boolean;
 }
 
 /** Where a name may be engraved, and how deep the projector may cut. */
@@ -181,6 +186,17 @@ export interface AssetTextSlot {
   decalDepth: number;
 }
 
+/**
+ * Where a beam/blast erupts from, in the GLB's OWN local space (the same space
+ * as AssetTextSlot.position — NOT centimetres). `direction` is the local axis
+ * the bolt extends along (unit length). Authored per asset: the visor's lens
+ * front, the wand's crystal tip, the gauntlet's palm.
+ */
+export interface AssetEmitter {
+  position: Vec3;
+  direction: Vec3;
+}
+
 export interface AssetTemplate {
   id: string;
   name: string;
@@ -194,6 +210,34 @@ export interface AssetTemplate {
    * region attribute and only whole-asset styling is possible.
    */
   regionIds?: string;
+  /** Beam origin on this asset. Absent (every pre-Power-Ups descriptor) means
+   *  beams fall back to the per-rig default origin. */
+  emitter?: AssetEmitter;
+  /**
+   * The hand this GLB was modelled for — a gauntlet, glove or watch fits one
+   * hand and reads wrong on the other.
+   *
+   * ABSENT means hand-AGNOSTIC (a wand, a torch, anything symmetric enough that
+   * flipping it changes nothing), and the render path then never mirrors the
+   * mesh. That is every descriptor written before this field existed, so old
+   * assets are unaffected. See lib/studio/handedness.ts for the decision and
+   * mirrorGeometry.ts for the flip itself.
+   */
+  modelledHand?: ModelledHand;
+  /**
+   * A purpose-built GLB for the OTHER hand, when one exists.
+   *
+   * Mirroring the mesh is exact for geometry, so this is not needed for
+   * correctness — but a real sculpt can differ in ways a reflection cannot
+   * express: asymmetric decals, baked text, a thumb plate shaped for one hand.
+   * When this is present the renderer loads it instead of mirroring; when it is
+   * absent the mirror carries on doing the job. That is the whole contract, and
+   * it means a handed pair can be dropped in later without touching any
+   * render code.
+   *
+   * Ignored entirely unless `modelledHand` says which hand `glbUrl` itself is.
+   */
+  mirroredGlbUrl?: string;
   textSlots: AssetTextSlot[];
   /**
    * 'auto' = derived by the prep pass alone. 'human' = a person checked it.
@@ -222,6 +266,9 @@ function normalizeRegion(raw: unknown): AssetRegion | null {
     recolourable: o.recolourable !== false,
     defaultHex: normalizeTint(o.defaultHex) ?? '#ffffff',
     refLuminance: normalizeRefLuminance(o.refLuminance),
+    // Explicit === true (a truthy string must not open a region to guests);
+    // emitted only when set, so pre-Power-Ups descriptors round-trip untouched.
+    ...(o.guestPick === true ? { guestPick: true } : {}),
   };
 }
 
@@ -250,6 +297,24 @@ function normalizeTextSlot(raw: unknown, regionIds: ReadonlySet<string>): AssetT
     ...(regionId && regionIds.has(regionId) ? { regionId } : {}),
     decalDepth: clampRange(o.decalDepth, TEMPLATE_BOUNDS.decalDepth, 0.5),
   };
+}
+
+/** Largest |component| a GLB-local emitter position may carry. Meshy assets
+ *  live in a roughly unit box; anything past this is a mis-pasted value that
+ *  would put the muzzle nowhere near the mesh. */
+const EMITTER_POSITION_LIMIT = 1000;
+
+function normalizeEmitter(raw: unknown): AssetEmitter | null {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const position = readVec3(o.position);
+  // Both halves or neither: a position with a guessed direction fires the bolt
+  // through the asset; a missing emitter falls back to the per-rig default,
+  // which is the better failure.
+  const direction = unitVec3(readVec3(o.direction));
+  if (!position || !direction) return null;
+  if (position.some((v) => Math.abs(v) > EMITTER_POSITION_LIMIT)) return null;
+  return { position, direction };
 }
 
 /**
@@ -302,6 +367,13 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
   // wrong without anything noticing. Descriptors that still carry the key are
   // accepted and the key ignored, like any unknown field.
   const regionIds = typeof o.regionIds === 'string' && o.regionIds.trim() ? o.regionIds.trim() : undefined;
+  const emitter = normalizeEmitter(o.emitter);
+  const modelledHand = normalizeModelledHand(o.modelledHand);
+  // Only meaningful beside `modelledHand`: without knowing which hand `glbUrl`
+  // is, "the other one" names nothing. Dropped rather than kept as dead data
+  // that would come alive the day someone added the missing field.
+  const mirroredRaw = typeof o.mirroredGlbUrl === 'string' ? o.mirroredGlbUrl.trim() : '';
+  const mirroredGlbUrl = modelledHand && mirroredRaw ? mirroredRaw : undefined;
 
   return {
     id,
@@ -310,6 +382,9 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
     fitCm: clampRange(o.fitCm, TEMPLATE_BOUNDS.fitCm, 20),
     regions,
     ...(regionIds ? { regionIds } : {}),
+    ...(emitter ? { emitter } : {}),
+    ...(modelledHand ? { modelledHand } : {}),
+    ...(mirroredGlbUrl ? { mirroredGlbUrl } : {}),
     textSlots,
     preparedBy: typeof o.preparedBy === 'string' && PREPARED_BY.has(o.preparedBy)
       ? (o.preparedBy as 'auto' | 'human')

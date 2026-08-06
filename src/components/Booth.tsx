@@ -16,7 +16,7 @@ import {
 } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ChevronUp, Images, RotateCcw, ScanFace, Sparkles, Upload } from 'lucide-react';
+import { AlertCircle, ChevronUp, Hand, Images, RotateCcw, ScanFace, Sparkles, Upload } from 'lucide-react';
 
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
@@ -51,20 +51,29 @@ import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { buildCatalog } from '../lib/catalog';
 import { initializeFaceLandmarker } from '../lib/faceTracking';
+import { initializeHandLandmarker } from '../lib/handTracking';
 import ReportIssueButton from './support/ReportIssueButton';
 import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
+import { detectHandsNow, getLatestHandFrame, resetHandRig } from '../lib/handRig';
+import { isHandAnchorId } from '../lib/handPose';
 import {
   collectTriggers,
   createTriggerEngine,
+  hasHandSource,
+  isHandSource,
+  mergeDetectionScores,
   revealTargetIdsOf,
   isLayerVisible,
   resolvePulseShader,
   pulseRestoreValue,
   triggerHintText,
   shouldRunTriggers,
+  type AnimatePreset,
   type TriggerConfig,
   type TriggerEvent,
 } from '../lib/studio/triggers';
+import { makeBeamSpec } from '../lib/studio/beam';
+import { emitFx } from '../lib/studio/fxBus';
 import { submitPostDetailed, getStudioSettings } from '../lib/db';
 import { DEFAULT_STUDIO_SETTINGS, HEAD_SCALE_MIN, HEAD_SCALE_MAX, type StudioSettings } from '../lib/studio/occluder';
 import {
@@ -89,8 +98,9 @@ import {
   STRIP_SHOTS, STRIP_GAP_MS, STRIP_LEAD_SEC, type StripShotCount,
 } from '../lib/photoStrip';
 import StripPicker from './booth/StripPicker';
-import type { Transform2D, Experience, AnchorConfig, Challenge } from '../types';
+import type { Transform2D, Experience, ExperienceLayer, AnchorConfig, Challenge } from '../types';
 import { layerToPiece } from '../lib/studio/draftMapping';
+import { applyGuestColor, guestColorSlot } from '../lib/guestPalette';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -235,6 +245,15 @@ function HeadScaleOverlay3D({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Anchor for the powerFx-only Overlay3D mount (no 3D attach selected): the
+ *  rig itself renders nothing — BeamFX's own FaceRig carries the beam. */
+const POWERFX_ONLY_ANCHOR: AnchorConfig = {
+  anchor: 'noseBridge',
+  offset: { x: 0, y: 0, z: 0 },
+  rotation: { x: 0, y: 0, z: 0 },
+  scale: 1,
+};
 
 export default function Booth() {
   const { id: routeExperienceId } = useParams<{ id?: string }>();
@@ -721,11 +740,22 @@ export default function Booth() {
     [source, attachExp, frameExp, effectExp],
   );
   const hasTriggers = triggers.length > 0;
+  // A beam action anywhere in the scene mounts BeamFX inside the 3D canvas
+  // (and the canvas itself for frame/filter-only scenes). db-only, like every
+  // trigger feature — legacy events can never carry one.
+  const powerFxActive = useMemo(
+    () => source === 'db' && triggers.some((t) => t.action.type === 'beam'),
+    [source, triggers],
+  );
   // Layer ids that a reveal trigger hides until it fires; `revealedIds` is the
   // runtime set already fired. NEVER persisted — a fresh scene starts all hidden.
   const revealTargetIds = useMemo(() => revealTargetIdsOf(triggers), [triggers]);
   const [revealedIds, setRevealedIds] = useState<Set<string>>(() => new Set());
   useEffect(() => { setRevealedIds(new Set()); }, [activeTriggerExp]);
+  // One-shot `animate` pulses per layer id — a Map write per FIRE (≤ once per
+  // 2.5s cooldown), never per frame; AnimatedPiece decays each to identity.
+  const [pulseMap, setPulseMap] = useState<ReadonlyMap<string, { preset: AnimatePreset; at: number }>>(new Map());
+  useEffect(() => { setPulseMap(new Map()); }, [activeTriggerExp]);
   // A layer that is a reveal-trigger TARGET is hidden-until-fired BY DESIGN, so
   // its reveal state ALONE decides visibility — an editor "hidden" (eye toggle)
   // must not also suppress it, or the reveal could never appear. Every other
@@ -761,7 +791,24 @@ export default function Booth() {
       }));
   }, [frameLayers, layerVisible]);
 
-  const attachLayers = attachExp?.config?.layers;
+  const rawAttachLayers = attachExp?.config?.layers;
+  // ── Guest lens colour ─────────────────────────────────────────────────
+  // Session-only: a swatch pick recolours the template's guest-pickable region
+  // through the ordinary customization path (so the lens AND an 'auto' beam
+  // follow in one move) and resets whenever the selection changes. db-only by
+  // construction — legacy/code events never carry layers or templates.
+  const [guestHex, setGuestHex] = useState<string | null>(null);
+  const colorSlot = useMemo(
+    () => (source === 'db' ? guestColorSlot(rawAttachLayers) : null),
+    [source, rawAttachLayers],
+  );
+  useEffect(() => { setGuestHex(null); }, [attachExp?.id]);
+  // Same array reference whenever no pick is active (applyGuestColor's
+  // contract), so every existing memo below is churn-free by default.
+  const attachLayers = useMemo(
+    () => applyGuestColor(rawAttachLayers, colorSlot, guestHex),
+    [rawAttachLayers, colorSlot, guestHex],
+  );
   const overlayPieces: Overlay3DPiece[] | undefined = useMemo(() => {
     if (!attachLayers || attachLayers.length === 0) return undefined;
     return attachLayers
@@ -773,12 +820,17 @@ export default function Booth() {
       // three times and nothing compared them. The source==='db' gates stay
       // EXPLICIT here — legacy/code events never carry layers, and that
       // invariant is worth stating rather than inferring.
-      .map((l) => layerToPiece(l, {
-        guestName,
-        occlusionEnabled: source === 'db',
-        customizationEnabled: source === 'db',
-      }));
-  }, [attachLayers, source, layerVisible, guestName]);
+      .map((l) => {
+        const piece = layerToPiece(l, {
+          guestName,
+          occlusionEnabled: source === 'db',
+          customizationEnabled: source === 'db',
+        });
+        // One-shot `animate` trigger pulse for this layer, if one fired.
+        const pulse = pulseMap.get(l.id);
+        return pulse !== undefined ? { ...piece, pulse } : piece;
+      });
+  }, [attachLayers, source, layerVisible, guestName, pulseMap]);
 
   // ── Auto head-size (per-guest transfer) ───────────────────────────────
   // STRICTLY OPT-IN by construction: only kicks in when the occluder is actually
@@ -900,6 +952,32 @@ export default function Booth() {
     const a = e.action;
     if (a.type === 'burst') {
       triggerFxRef.current?.fire(a.style);
+    } else if (a.type === 'beam') {
+      // Emitter: the named layer, else the scene's first VISIBLE 3D piece —
+      // its template + customization resolve `color:'auto'` (the guest's lens
+      // hex travels on the piece via the shared mapper), and its fxKey routes
+      // the bolt to the piece's registered emitter point (lens front / wand
+      // tip / gauntlet palm). Visibility matters structurally now: a hidden or
+      // unrevealed piece has NO mounted rig to fire from, so a named-but-
+      // hidden target degrades to the per-origin default (null), never to a
+      // DIFFERENT asset's colour and muzzle.
+      const layers = attachLayers ?? null;
+      const visible3D = (l: ExperienceLayer) => l.kind === '3d_attachment' && !!l.anchor && layerVisible(l);
+      const named = a.objectId !== undefined && layers ? layers.find((l) => l.id === a.objectId) : undefined;
+      const emitterLayer =
+        named !== undefined
+          ? visible3D(named) ? named : undefined
+          : layers?.find(visible3D);
+      const piece = emitterLayer
+        ? layerToPiece(emitterLayer, { guestName, occlusionEnabled: false, customizationEnabled: source === 'db' })
+        : null;
+      emitFx({ kind: 'beam', spec: makeBeamSpec(a, piece, isHandSource(e.source), performance.now()) });
+    } else if (a.type === 'animate') {
+      setPulseMap((prev) => {
+        const next = new Map(prev);
+        next.set(a.objectId, { preset: a.preset, at: performance.now() });
+        return next;
+      });
     } else if (a.type === 'reveal') {
       setRevealedIds((prev) => {
         if (prev.has(a.objectId)) return prev;
@@ -913,34 +991,71 @@ export default function Booth() {
         if (revealTimeoutRef.current) window.clearTimeout(revealTimeoutRef.current);
         revealTimeoutRef.current = window.setTimeout(() => setReveal(false), REVEAL_SHIMMER_MS);
       }
-    } else {
+    } else if (a.type === 'filterPulse') {
       startFilterPulse(a.shaderId, a.durationMs);
     }
-  }, [startFilterPulse]);
+  }, [startFilterPulse, attachLayers, guestName, source, layerVisible]);
   const handleTriggerEventRef = useRef(handleTriggerEvent);
   useEffect(() => { handleTriggerEventRef.current = handleTriggerEvent; }, [handleTriggerEvent]);
 
+  // Hand tracking is LAZY: the landmarker (7.8MB model + a second CPU inference
+  // stream) initializes only when the scene's triggers name a hand gesture OR
+  // a piece is hand-ANCHORED (a wand with only a smile trigger still needs a
+  // tracked hand to sit in). Derived from the RAW layers, not the visible
+  // pieces: a reveal-gated wand must start its model download NOW, not at the
+  // moment the reveal fires. No stored legacy config can have either (the
+  // parse gates), so every existing event stays byte-identical in behaviour
+  // AND bandwidth.
+  const needsHands = useMemo(
+    () =>
+      hasHandSource(triggers) ||
+      (rawAttachLayers ?? []).some((l) => l.kind === '3d_attachment' && isHandAnchorId(l.handAnchor)),
+    [triggers, rawAttachLayers],
+  );
+  useEffect(() => {
+    // No hasTriggers gate: a hand-anchored piece needs tracking even in a
+    // scene with zero triggers (the rigs self-detect; this effect owns the
+    // EARLY download + the stash reset on scene exit).
+    if (source !== 'db' || !ready || !needsHands) return;
+    initializeHandLandmarker().catch((e) => console.warn('[Booth] hand tracker init failed', e));
+    return () => resetHandRig();
+  }, [source, ready, needsHands]);
+
   // Detection + engine loop — only for a DB scene with triggers while the camera
-  // is live. Drives detection itself (detectFaceNow) so blendshapes refresh even
-  // with no 3D piece mounted, and steps the engine once per NEW detection frame.
+  // is live. Drives detection itself (detectFaceNow / detectHandsNow — both
+  // self-throttle and interleave so the two blocking inferences never share a
+  // tick), and steps the engine once per NEW detection of EITHER task.
   useEffect(() => {
     if (!shouldRunTriggers(source, hasTriggers, phase, ready)) return;
     const engine = createTriggerEngine(triggers);
     let raf = 0;
-    let lastT = -1;
+    let lastFaceT = -1;
+    let lastHandT = -1;
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const v = videoRef.current;
       if (!v) return;
       detectFaceNow(v);
+      if (needsHands) detectHandsNow(v);
       const b = getLatestBlendshapes();
-      if (!b || b.t === lastT) return;
-      lastT = b.t;
-      for (const ev of engine.step(b.scores, performance.now())) handleTriggerEventRef.current(ev);
+      const h = needsHands ? getLatestHandFrame() : null;
+      const faceT = b?.t ?? -1;
+      const handT = h?.t ?? -1;
+      if (faceT === lastFaceT && handT === lastHandT) return;
+      const handChanged = handT !== lastHandT;
+      lastFaceT = faceT;
+      lastHandT = handT;
+      // The face clock (~33ms) steps this loop 2-4x per hand inference (66/150ms).
+      // mergeDetectionScores decides whether the hand keys are new, merely
+      // between inferences (held), or a frozen stash (zeroed) — replaying the
+      // last hand sample into the EMA fires a beam with no hand in frame.
+      const now = performance.now();
+      const merged = mergeDetectionScores(b?.scores ?? null, h, handChanged, now);
+      for (const ev of engine.step(merged.scores, now, merged.stale)) handleTriggerEventRef.current(ev);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [source, hasTriggers, phase, ready, videoRef, triggers]);
+  }, [source, hasTriggers, phase, ready, videoRef, triggers, needsHands]);
 
   // A one-off guest hint when the scene has triggers. The copy names the source
   // the HOST actually authored — it used to hard-code "Smile for a surprise", so
@@ -957,22 +1072,32 @@ export default function Booth() {
     setTriggerHint(false);
   }, [source, hasTriggers, phase, ready]);
 
-  // ── Face-tracking hint ────────────────────────────────────────────────
-  // A 3D piece is invisible until the tracker finds a face — without feedback
-  // that reads as "broken". Track visibility from the rig and, after a short
-  // grace (model warm-up + brief misses), coach the guest into the frame.
+  // ── Face/hand-tracking hint ───────────────────────────────────────────
+  // A 3D piece is invisible until the tracker finds its subject — without
+  // feedback that reads as "broken". A scene whose 3D pieces are ALL
+  // hand-anchored (a lone wand) must coach "show your hand", not "center your
+  // face": it may never mount a FaceRig at all, so faceVisible would coach a
+  // face nothing is tracking.
   const [faceVisible, setFaceVisible] = useState(false);
+  const [handVisible, setHandVisible] = useState(false);
+  const handOnly3D = useMemo(
+    () => overlayPieces !== undefined && overlayPieces.length > 0 && overlayPieces.every((p) => p.handAnchor !== undefined),
+    [overlayPieces],
+  );
   const [faceHint, setFaceHint] = useState(false);
   useEffect(() => {
     // trackerReady gate: before the landmarker has loaded, "Center your face
     // in the frame" is a lie — no amount of centering can be seen. The hint
-    // now only coaches a tracker that is actually looking.
-    if (is3D && !faceVisible && phase === 'camera' && ready && trackerReady) {
-      const tid = setTimeout(() => setFaceHint(true), 1500);
+    // now only coaches a tracker that is actually looking. Hand-only scenes
+    // skip that gate (the FACE tracker may rightly never load) and get a
+    // longer grace instead — the hand model is a 7.8MB download.
+    const subjectVisible = handOnly3D ? handVisible : faceVisible;
+    if (is3D && !subjectVisible && phase === 'camera' && ready && (handOnly3D || trackerReady)) {
+      const tid = setTimeout(() => setFaceHint(true), handOnly3D ? 2500 : 1500);
       return () => clearTimeout(tid);
     }
     setFaceHint(false);
-  }, [is3D, faceVisible, phase, ready, trackerReady]);
+  }, [is3D, faceVisible, handVisible, handOnly3D, phase, ready, trackerReady]);
 
   // Tracker init FAILED (bad venue wifi, blocked CDN): tell the guest once,
   // the moment it matters — when a 3D piece is selected and can never appear.
@@ -1693,22 +1818,28 @@ export default function Booth() {
                 </div>
               )}
               <div ref={feedContainerRef} className="absolute inset-0">
-                {is3D && anchorConfig && (
+                {/* Mounted for a 3D attach scene AND for any scene whose
+                    triggers carry a beam action (a frame-only scene can still
+                    blast) — the beam renders in this canvas so StageCanvas
+                    composites it into the photo and the recording for free. */}
+                {((is3D && anchorConfig) || powerFxActive) && (
                   <HeadScaleOverlay3D
                     base={studioCfg.headScale}
                     subRef={headScaleSubRef}
-                    assetUrl={attachExp!.asset_url}
-                    proceduralId={attachExp!.config?.procedural}
-                    anchor={anchorConfig}
+                    assetUrl={is3D && anchorConfig ? attachExp!.asset_url : null}
+                    proceduralId={is3D && anchorConfig ? attachExp!.config?.procedural : null}
+                    anchor={anchorConfig ?? POWERFX_ONLY_ANCHOR}
                     videoId="booth-video"
                     mirror={isFront}
-                    occlude={source === 'db' && attachExp!.config?.occlusion === true}
-                    onFaceVisible={setFaceVisible}
-                    pieces={overlayPieces}
+                    occlude={is3D && source === 'db' && attachExp!.config?.occlusion === true}
+                    onFaceVisible={is3D && anchorConfig ? setFaceVisible : undefined}
+                    onHandVisible={is3D && anchorConfig ? setHandVisible : undefined}
+                    pieces={is3D && anchorConfig ? overlayPieces : null}
                     reveal={reveal}
                     lightingPreset={boothLighting}
                     onAssetReady={markAssetLoaded}
                     onAssetError={handleAssetError}
+                    powerFx={powerFxActive}
                   />
                 )}
               </div>
@@ -1781,9 +1912,13 @@ export default function Booth() {
                       transition={{ duration: 0.25 }}
                       className="flex items-center gap-2 px-3.5 py-2 rounded-full glass-strong border border-gold-400/25"
                     >
-                      <ScanFace className="w-4 h-4 text-gold-300 animate-pulse" />
+                      {handOnly3D ? (
+                        <Hand className="w-4 h-4 text-gold-300 animate-pulse" />
+                      ) : (
+                        <ScanFace className="w-4 h-4 text-gold-300 animate-pulse" />
+                      )}
                       <span className="font-label text-[10px] uppercase tracking-wide text-champagne/80">
-                        Center your face in the frame
+                        {handOnly3D ? 'Show your hand to the camera' : 'Center your face in the frame'}
                       </span>
                     </motion.div>
                   )}
@@ -1856,6 +1991,9 @@ export default function Booth() {
                 onStripMode={setStripMode}
                 stripShots={stripCount}
                 onOpenStripPicker={() => setStripPickerOpen(true)}
+                colorSlot={colorSlot}
+                guestHex={guestHex}
+                onGuestHex={setGuestHex}
               />
             </div>
           )}

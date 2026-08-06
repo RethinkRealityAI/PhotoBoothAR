@@ -15,6 +15,14 @@ import { isLayerVisible } from '../../lib/studio/triggers';
 import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
 
 const EMPTY_SET: Set<string> = new Set();
+
+/** Anchor for the powerFx-only mount — renders nothing itself (booth parity). */
+const POWERFX_ONLY_ANCHOR = {
+  anchor: 'noseBridge',
+  offset: { x: 0, y: 0, z: 0 },
+  rotation: { x: 0, y: 0, z: 0 },
+  scale: 1,
+} as const;
 /** Reveal targets minus the ones still waiting = the ones that have fired. */
 function firedOf(targets: ReadonlySet<string>, pending: ReadonlySet<string> | undefined): Set<string> {
   const out = new Set<string>();
@@ -28,6 +36,9 @@ interface Props {
   headScale: number;
   occlusionEnabled: boolean;
   onFaceVisible?: (v: boolean) => void;
+  /** Hand-rig acquisition feedback — wired through to Overlay3D's first
+   *  hand-anchored piece (drives the stage's "No hand yet" chip state). */
+  onHandVisible?: (v: boolean) => void;
   /** Reveal-target object ids not yet fired — dropped from the render so a
    *  reveal trigger's piece stays hidden until it fires (booth parity). */
   hiddenObjectIds?: Set<string>;
@@ -43,9 +54,11 @@ interface Props {
   /** The event's lighting rig. Preview exists to be pixel-parity with the guest
    *  capture, so it must pass the SAME preset the booth will render with. */
   lightingPreset?: LightingPresetId;
+  /** Mount BeamFX (booth parity for scenes whose triggers carry a beam action). */
+  powerFx?: boolean;
 }
 
-export default function StudioPreview({ videoRef, draft, headScale, occlusionEnabled, onFaceVisible, hiddenObjectIds, revealTargetIds, effectIdOverride, reveal, lightingPreset = DEFAULT_LIGHTING }: Props) {
+export default function StudioPreview({ videoRef, draft, headScale, occlusionEnabled, onFaceVisible, onHandVisible, hiddenObjectIds, revealTargetIds, effectIdOverride, reveal, lightingPreset = DEFAULT_LIGHTING, powerFx = false }: Props) {
   const targets = revealTargetIds ?? EMPTY_SET;
   // Fired = a target NOT in hiddenObjectIds (the parent tracks the un-fired set).
   // Built ONCE per render: this used to sit inside `visible`, which runs per
@@ -70,7 +83,9 @@ export default function StudioPreview({ videoRef, draft, headScale, occlusionEna
     .map((o) => objectToPiece(o, { occlusionEnabled, guestName: STUDIO_SAMPLE_GUEST_NAME }));
 
   const hasOverlays = overlaySpecs.length > 0;
-  const has3D = pieces.length > 0;
+  // The 3D canvas mounts for 3D pieces AND for beam-carrying scenes with none
+  // (a frame-only scene can still blast) — exact booth behaviour.
+  const has3D = pieces.length > 0 || powerFx;
 
   return (
     <div className="relative h-full w-full flex items-center justify-center">
@@ -92,14 +107,16 @@ export default function StudioPreview({ videoRef, draft, headScale, occlusionEna
         {has3D && (
           <div className="absolute inset-0">
             <Overlay3D
-              pieces={pieces}
-              anchor={pieces[0].anchor}
+              pieces={pieces.length > 0 ? pieces : null}
+              anchor={pieces.length > 0 ? pieces[0].anchor : POWERFX_ONLY_ANCHOR}
               videoId={videoRef.current?.id || 'studio-video'}
               mirror
               headScale={headScale}
               onFaceVisible={onFaceVisible}
+              onHandVisible={onHandVisible}
               reveal={reveal}
               lightingPreset={lightingPreset}
+              powerFx={powerFx}
             />
           </div>
         )}

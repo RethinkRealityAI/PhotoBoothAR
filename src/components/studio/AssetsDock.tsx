@@ -37,13 +37,13 @@
  */
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { ArrowRight, Boxes, Check, ChevronDown, ChevronRight, Crown, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Palette, Search, Sparkles, Sun, Upload, Wand2, X } from 'lucide-react';
+import { ArrowRight, Boxes, Check, ChevronDown, ChevronRight, Crown, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Palette, Search, Sparkles, Sun, Upload, Wand2, X, Zap as ZapIcon, type LucideIcon } from 'lucide-react';
 import { FILTER_SHADERS, SHADER_MAP, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
-import { HEAD_PIECES } from '../../lib/headPieces';
+import { HEAD_PIECES, HEAD_PIECE_MAP } from '../../lib/headPieces';
 import { BUNDLED_PROPS, propAnchorConfig, supersededPieceIds } from '../../lib/studio/bundledProps';
 import { uploadAsset, listAssetsResult, fetchExperiencesResult } from '../../lib/db';
-import { captureGlbThumbnail, measureGlbFitScale } from '../../lib/studio/glbThumb';
+import { captureGlbThumbnail, measureGlbFitScale, useGlbThumb } from '../../lib/studio/glbThumb';
 import type { LightingPresetId } from '../../lib/studio/lighting';
 import { PROP_TARGET_CM } from '../../lib/studio/bustFit';
 import {
@@ -54,8 +54,18 @@ import {
 } from '../../lib/studio/assetLibrary';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
-import { SCENE_FULL_MESSAGE, canAddObject, createObject3D, selectedObject, sceneCounts, MAX_OBJECTS, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
+import { SCENE_FULL_MESSAGE, canAddObject, createObject3D, selectedObject, sceneCounts, slotConflict, MAX_OBJECTS, type Object3D, type Overlay2D, type StudioAction, type StudioState } from '../../lib/studio/state';
+import ConfirmModal from '../ui/ConfirmModal';
 import { experienceToDraft } from '../../lib/studio/draftMapping';
+import { ADD_ONS } from '../../lib/studio/addOns';
+import { ANCHOR_MAP } from '../../lib/faceRig';
+import type { HeadAnchor } from '../../types';
+
+/** Catalogue anchors are plain strings; only a real preset id may reach the
+ *  reducer (an unknown one keeps the historical crown default). */
+function isHeadAnchor(v: string | undefined): v is HeadAnchor {
+  return v !== undefined && v in ANCHOR_MAP;
+}
 import { SectionLabel } from './StudioControls';
 import AiFramePanel from './AiFramePanel';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
@@ -70,6 +80,11 @@ import {
   stripTemplateSuffix,
   dockItemKind,
   isDockItemInScene,
+  thumbUploadName,
+  planUploads,
+  rejectedUploadMessage,
+  UPLOAD_ACCEPT,
+  UPLOAD_ACCEPT_LABEL,
   type DockItem,
   type AssetChip,
 } from '../../lib/studio/assetSources';
@@ -77,6 +92,16 @@ import {
 // Lazy: the jewelry builder pulls in TextGeometry, the GLTF exporter and the
 // bundled typefaces, none of which the dock needs until the host opens it.
 const Text3DBuilder = lazy(() => import('./Text3DBuilder'));
+const PowerFxBuilder = lazy(() => import('./PowerFxBuilder'));
+
+/** Power-Up modal per registry id (lib/studio/addOns.ts). Both share the same
+ *  props contract, so future add-ons register here with one line each. */
+const ADDON_VIEWS = {
+  'power-fx': PowerFxBuilder,
+  'name-jewelry': Text3DBuilder,
+} as const;
+/** lucide icons for the React-free registry's icon names. */
+const ADDON_ICONS: Record<string, LucideIcon> = { Zap: ZapIcon, Gem };
 
 interface Props {
   state: StudioState;
@@ -133,7 +158,66 @@ interface Tile {
   /** Short label for what clicking this tile ADDS ('Frame' / 'Sticker' / '3D').
    *  Omitted where the section header already makes it unambiguous. */
   kindBadge?: string;
+  /**
+   * A BUNDLED model this tile can be pictured with when it has no `previewUrl`.
+   * These GLBs ship with the app and are shared by every tenant, so there is no
+   * per-event thumbnail to store — one offscreen capture per asset per page
+   * load (glbThumb.useGlbThumb) turns a wall of identical glyphs into a shelf
+   * you can actually shop from.
+   */
+  modelUrl?: string;
   onAdd: () => void;
+}
+
+/**
+ * One asset tile. A COMPONENT (not inlined into renderTiles) because a bundled
+ * model's thumbnail is captured through a hook, and hooks cannot run inside the
+ * `.map` of a plain render helper.
+ */
+function AssetTile({
+  tile,
+  aspectCls,
+  beginDrag,
+  consumedDrag,
+}: {
+  tile: Tile;
+  aspectCls: string;
+  beginDrag: (payload: DragPayload, e: React.PointerEvent) => void;
+  consumedDrag: () => boolean;
+}) {
+  const Icon = tile.fallbackIcon;
+  // Only ever asked for when the tile has no stored picture of its own.
+  const captured = useGlbThumb(tile.previewUrl === null ? tile.modelUrl : null);
+  const preview = tile.previewUrl ?? captured;
+  return (
+    <button
+      onPointerDown={(e) => beginDrag(tile.drag, e)}
+      onClick={() => { if (consumedDrag()) return; tile.onAdd(); }}
+      title={`${tile.label} · click to add · drag to place`}
+      className={`group relative ${aspectCls} rounded-lg overflow-hidden cursor-grab active:cursor-grabbing transition-colors border ${tile.active ? 'border-accent/40 ring-1 ring-accent/30 bg-accent/[0.06]' : 'border-white/5 bg-white/[0.03] hover:bg-white/[0.06] hover:border-accent/25'}`}
+    >
+      {preview ? (
+        <img src={preview} alt={tile.label} draggable={false} className="w-full h-full object-contain p-1.5" />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center"><Icon className="w-4 h-4 text-brand-muted/40" /></div>
+      )}
+      <span className={`absolute inset-x-0 bottom-0 px-1 py-0.5 text-[7px] font-label uppercase tracking-wide truncate ${tile.active ? 'bg-accent/30 text-accent-2' : 'bg-black/60 text-white/80'}`}>{tile.label}</span>
+      {/* What this tile becomes when clicked. A bare uploaded image shows under
+          BOTH the Frames and Stickers chips but lands as a FRAME under "All" —
+          which silently replaces the scene's existing frame. Saying so up front
+          is the difference between a choice and a surprise. */}
+      {tile.kindBadge && (
+        <span className="absolute top-0.5 left-0.5 px-1 py-px rounded-full bg-black/70 text-accent-2 font-label text-[7px] uppercase tracking-widest">
+          {tile.kindBadge}
+        </span>
+      )}
+      {tile.pending && (
+        <span className="absolute inset-0 flex items-center justify-center bg-black/50">
+          <Loader2 className="w-4 h-4 animate-spin text-accent-2" />
+        </span>
+      )}
+    </button>
+  );
 }
 
 /** Badge copy per resolved tile kind. A bare uploaded image has no declared
@@ -204,8 +288,10 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const { draft } = state;
   const { source, eventId } = useEvent();
   const entitlements = useEntitlements();
-  const imgInputRef = useRef<HTMLInputElement>(null);
-  const glbInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  /** dragenter/dragleave fire per child element crossed — count them, never
+   *  toggle a boolean, or the drop highlight strobes across the zone. */
+  const dragDepth = useRef(0);
 
   const show3dAi = source === 'db' && entitlements.aiStudio;
 
@@ -231,9 +317,13 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   // Auto-captured thumbnail for the most recently uploaded GLB — shown on the
   // "Upload model" tile itself (best-effort; null while capturing/on failure).
   const [modelThumb, setModelThumb] = useState<string | null>(null);
-  /** Busy/error for the GLB upload — a failed storage write used to be silent. */
-  const [glbUpload, setGlbUpload] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
-  const [jewelryOpen, setJewelryOpen] = useState(false);
+  /** ONE busy/error surface for every upload — a failed IMAGE write used to be
+   *  completely silent (it was deferred to save time and then swallowed). */
+  const [upload, setUpload] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
+  /** Highlight state for the file drop zone. */
+  const [dragOver, setDragOver] = useState(false);
+  /** Which Power-Up modal is open (lib/studio/addOns.ts id), or null. */
+  const [openAddOn, setOpenAddOn] = useState<keyof typeof ADDON_VIEWS | null>(null);
 
   // Both remote sources load eagerly on mount — the point of the single surface
   // is to show everything at once, so there are no tabs to lazy-load behind.
@@ -287,6 +377,46 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     dispatch({ type: 'LOAD', draft: { ...rest, isPublished: true, name: stripTemplateSuffix(exp.name) }, dirty: true });
   }, [state.dirty, dispatch]);
 
+  // ── Same-slot add guard ───────────────────────────────────────────────
+  // Two pieces on ONE mount point (a second visor on the nose bridge, a second
+  // prop in the same fist) physically overlap — ask Replace-or-Add-both
+  // instead of silently stacking them. Different slots (crown + glasses) stay
+  // silent: that is ordinary multi-piece composition. Drag-drop also stays
+  // silent — a drag is a deliberate spatial placement. Replace retargets any
+  // beam/animate triggers that named the replaced piece at its successor.
+  const [conflictAdd, setConflictAdd] = useState<{
+    existing: Object3D;
+    label: string;
+    run: () => void | Promise<void>;
+  } | null>(null);
+  const guardSlotAdd = useCallback(
+    (slot: { anchor?: HeadAnchor; handAnchor?: string }, label: string, run: () => void | Promise<void>) => {
+      const existing = slotConflict(draft, slot);
+      if (existing === null) {
+        void run();
+        return;
+      }
+      setConflictAdd({ existing, label, run });
+    },
+    [draft],
+  );
+  const resolveConflict = useCallback((mode: 'replace' | 'both') => {
+    const c = conflictAdd;
+    setConflictAdd(null);
+    if (!c) return;
+    if (mode === 'both') {
+      void c.run();
+      return;
+    }
+    // Delete FIRST (a full scene must free the slot before the add), then add,
+    // then repoint the old piece's beam/animate triggers at the replacement —
+    // the run may be async (measure-then-dispatch), so retarget awaits it.
+    dispatch({ type: 'DELETE_OBJECT', id: c.existing.id });
+    void Promise.resolve(c.run()).then(() => {
+      dispatch({ type: 'RETARGET_TRIGGERS', fromId: c.existing.id });
+    });
+  }, [conflictAdd, dispatch]);
+
   // Click-to-add for an Uploads/Generated/Mine dock item — mirrors the built-in
   // library's handlers, guarded by consumedDrag() at the call site. Also flags
   // the tile as the just-added one, so its confirmation row shows.
@@ -302,7 +432,10 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
       return;
     }
     if (item.payload.proceduralId) {
-      dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: item.payload.proceduralId });
+      const pieceId = item.payload.proceduralId;
+      guardSlotAdd({ anchor: HEAD_PIECE_MAP[pieceId]?.anchor }, item.label, () =>
+        dispatch({ type: 'SELECT_HEAD_PIECE', pieceId }),
+      );
     } else if (item.payload.assetUrl) {
       // Measure-then-add: auto-fit the GLB to head-space cm at ADD time (a raw
       // Meshy model is ~1 unit ≈ 1cm — invisible). null → legacy scale 1. The
@@ -312,15 +445,19 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
       // Procedural jewelry is already life-size — add it at scale 1 without the
       // async measure, so re-adding a saved piece matches how it was authored.
       if (isAuthoredInCm(url, label)) {
-        dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: 1 });
+        guardSlotAdd({ anchor: 'crown' }, label, () =>
+          dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: 1 }),
+        );
         return;
       }
-      setPendingKey(key);
-      void measureGlbFitScale(url)
-        .then((fitScale) => dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined }))
-        .finally(() => setPendingKey((k) => (k === key ? null : k)));
+      guardSlotAdd({ anchor: 'crown' }, label, () => {
+        setPendingKey(key);
+        return measureGlbFitScale(url)
+          .then((fitScale) => dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined }))
+          .finally(() => setPendingKey((k) => (k === key ? null : k)));
+      });
     }
-  }, [dispatch, chip]);
+  }, [dispatch, chip, guardSlotAdd]);
 
   // Drag payload for a dock item — useStudioDnd's resolveDrop reads `assetUrl`
   // (not `url`) for the non-builtin overlay branch, so payload.url maps here.
@@ -340,60 +477,101 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     return { target: 'model', label: item.label, previewUrl: item.previewUrl, assetUrl: item.payload.assetUrl };
   }, [chip]);
 
-  const onImageUpload = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    // The active chip names the intended sub-kind (sticker → 2d_filter, else frame).
-    const overlayKind = chip === 'sticker' ? '2d_filter' as const : 'border' as const;
-    // Carry the picked file's name through. Every 2D upload used to be stamped
-    // 'Custom overlay', so the Uploads grid became N identical tiles a host had
-    // no way to tell apart.
-    dispatch({
-      type: 'SET_OVERLAY_UPLOAD',
-      url: URL.createObjectURL(file),
-      blob: file,
-      overlayKind,
-      name: file.name.replace(/\.[^.]+$/, ''),
-    });
-    e.target.value = '';
-  }, [dispatch, chip]);
-
-  const onGlbUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    setModelThumb(null);
-    // A GLB upload + fit measurement can take many seconds. Without a busy state
-    // the host gets no feedback at all, and `if (!url) return` turned a failed
-    // storage write (quota, RLS, offline) into a silent no-op — they picked a
-    // file and the studio simply ignored it.
-    setGlbUpload({ busy: true, error: null });
-    let url: string | null = null;
-    try {
-      url = await uploadAsset(eventId, file, file.name);
-    } catch {
-      url = null;
-    }
-    if (!url) {
-      setGlbUpload({ busy: false, error: "Upload failed — check your connection and try again." });
+  /**
+   * ONE upload path for every file type.
+   *
+   * Both halves already wrote to `<eventId>/uploads/`; they differed only in
+   * TIMING (the image add deferred its upload to save time) and AFTERCARE (only
+   * the model half refreshed the list or reported a failure). Uploading the
+   * image here too costs one round trip and buys three things the deferred path
+   * could not give: the file appears in the Uploads grid immediately, a failed
+   * write is SAID rather than swallowed, and a save can no longer silently
+   * persist a layer whose asset never made it to storage.
+   */
+  const runUpload = useCallback(async (files: readonly File[]) => {
+    const { routed, rejected, addToScene } = planUploads(files);
+    const skipped = rejectedUploadMessage(rejected);
+    if (routed.length === 0) {
+      setUpload({ busy: false, error: skipped ?? 'Nothing to upload.' });
       return;
     }
-    setGlbUpload({ busy: false, error: null });
-    loadUploads();
-    const fitScale = await measureGlbFitScale(url);
-    dispatch({ type: 'SET_MODEL_ASSET', url, name: file.name, scale: fitScale ?? undefined });
-    // Best-effort thumbnail capture — the model is already saved and selected
-    // above, so a capture/upload failure here must never surface as a failed
-    // model upload; it just leaves the tile on its plain Upload-icon look.
-    try {
-      const thumbBlob = await captureGlbThumbnail(url);
-      if (!thumbBlob) return;
-      const thumbUrl = await uploadAsset(eventId, thumbBlob, `${file.name}.thumb`);
-      if (thumbUrl) setModelThumb(thumbUrl);
-    } catch (err) {
-      console.error('[AssetsDock] GLB thumbnail capture failed', err);
+    setModelThumb(null);
+    setUpload({ busy: true, error: null });
+    // The active chip names the intended sub-kind (sticker → 2d_filter, else frame).
+    const overlayKind = chip === 'sticker' ? '2d_filter' as const : 'border' as const;
+    const failed: string[] = [];
+
+    for (const { file, kind } of routed) {
+      let url: string | null = null;
+      try {
+        url = await uploadAsset(eventId, file, file.name);
+      } catch {
+        url = null;
+      }
+      if (!url) { failed.push(file.name); continue; }
+
+      if (kind === 'image') {
+        // Carry the picked file's name through. Every 2D upload used to be
+        // stamped 'Custom overlay', so the Uploads grid became N identical
+        // tiles a host had no way to tell apart.
+        if (addToScene) {
+          dispatch({
+            type: 'SET_OVERLAY_UPLOAD',
+            url,
+            blob: null,
+            overlayKind,
+            name: file.name.replace(/\.[^.]+$/, ''),
+          });
+        }
+        continue;
+      }
+
+      // Model: measure-then-add (a raw ~1-unit export renders ~1cm), then a
+      // best-effort thumbnail. The model is already saved either way, so a
+      // capture failure must never read as a failed upload.
+      if (addToScene) {
+        const fitScale = await measureGlbFitScale(url);
+        dispatch({ type: 'SET_MODEL_ASSET', url, name: file.name, scale: fitScale ?? undefined });
+      }
+      try {
+        const thumbBlob = await captureGlbThumbnail(url);
+        if (thumbBlob) {
+          // Named from the RETURNED url, not `file.name`: uploadAsset appends an
+          // extension, so `crown.glb` is stored `<uid>-crown.glb.glb` and a
+          // file.name-derived thumb could never pair with it (assetSources).
+          const thumbUrl = await uploadAsset(eventId, thumbBlob, thumbUploadName(url));
+          if (thumbUrl) setModelThumb(thumbUrl);
+        }
+      } catch (err) {
+        console.error('[AssetsDock] GLB thumbnail capture failed', err);
+      }
     }
-  }, [dispatch, eventId, loadUploads]);
+
+    const failMsg = failed.length
+      ? `Upload failed for ${failed.length === 1 ? failed[0] : `${failed.length} files`} — check your connection and try again.`
+      : null;
+    setUpload({ busy: false, error: failMsg ?? skipped });
+    loadUploads();
+  }, [chip, dispatch, eventId, loadUploads]);
+
+  const onFilesPicked = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length) void runUpload(files);
+  }, [runUpload]);
+
+  /* Drag-and-drop onto the zone. A dragenter/dragleave COUNTER, not a boolean:
+     both events fire for every child element crossed, so a boolean flickers the
+     highlight off the moment the pointer enters the label inside the zone.
+     Note this is HTML5 file DnD — useStudioDnd is pointer-events only and never
+     touches dragover/drop, so the two cannot collide. */
+  const onZoneDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length) void runUpload(files);
+  }, [runUpload]);
 
   // The selected object drives which library item reads as "active" and which
   // name the confirmation row shows (the reducer selects each just-added object).
@@ -524,40 +702,9 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
           return (
             <div key={ri} className="flex flex-col gap-1.5">
               <div className="grid grid-cols-3 gap-1.5">
-                {row.map((t) => {
-                  const Icon = t.fallbackIcon;
-                  return (
-                    <button
-                      key={t.key}
-                      onPointerDown={(e) => beginDrag(t.drag, e)}
-                      onClick={() => { if (consumedDrag()) return; t.onAdd(); }}
-                      title={`${t.label} · click to add · drag to place`}
-                      className={`group relative ${aspectCls} rounded-lg overflow-hidden cursor-grab active:cursor-grabbing transition-colors border ${t.active ? 'border-accent/40 ring-1 ring-accent/30 bg-accent/[0.06]' : 'border-white/5 bg-white/[0.03] hover:bg-white/[0.06] hover:border-accent/25'}`}
-                    >
-                      {t.previewUrl ? (
-                        <img src={t.previewUrl} alt={t.label} draggable={false} className="w-full h-full object-contain p-1.5" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center"><Icon className="w-4 h-4 text-brand-muted/40" /></div>
-                      )}
-                      <span className={`absolute inset-x-0 bottom-0 px-1 py-0.5 text-[7px] font-label uppercase tracking-wide truncate ${t.active ? 'bg-accent/30 text-accent-2' : 'bg-black/60 text-white/80'}`}>{t.label}</span>
-                      {/* What this tile becomes when clicked. A bare uploaded
-                          image shows under BOTH the Frames and Stickers chips
-                          but lands as a FRAME under "All" — which silently
-                          replaces the scene's existing frame. Saying so up front
-                          is the difference between a choice and a surprise. */}
-                      {t.kindBadge && (
-                        <span className="absolute top-0.5 left-0.5 px-1 py-px rounded-full bg-black/70 text-accent-2 font-label text-[7px] uppercase tracking-widest">
-                          {t.kindBadge}
-                        </span>
-                      )}
-                      {t.pending && (
-                        <span className="absolute inset-0 flex items-center justify-center bg-black/50">
-                          <Loader2 className="w-4 h-4 animate-spin text-accent-2" />
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+                {row.map((t) => (
+                  <AssetTile key={t.key} tile={t} aspectCls={aspectCls} beginDrag={beginDrag} consumedDrag={consumedDrag} />
+                ))}
               </div>
               <Collapse show={!!expanded}>{expanded ? renderAddedRow(expanded.key) : null}</Collapse>
             </div>
@@ -678,26 +825,45 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
           previewUrl: null,
           active: placedRefs.some((p) => p.assetUrl === template.glbUrl || p.url === template.glbUrl),
           fallbackIcon: Palette,
+          // Bundled gear (visor / wand / gauntlet / cap) — pictured from an
+          // in-memory capture of the real GLB, no upload and no storage.
+          modelUrl: template.glbUrl,
           pending: pendingKey === key,
-          kindBadge: a.demo ? 'Demo' : 'Personalise',
+          // "Hand" outranks "Personalise" on hand-tracked gear: a wand and a cap
+          // were previously indistinguishable in this shelf, so the one fact a
+          // host needs BEFORE adding — that this rides the hand, not the head —
+          // was the one fact the tile never carried. (The asset's own `blurb`
+          // says it, but this dock has never rendered blurbs.)
+          kindBadge: a.handAnchor !== undefined ? 'Hand' : a.demo ? 'Demo' : 'Personalise',
           drag,
           onAdd: () => {
-            setAddedKey(key);
-            setPendingKey(key);
-            void measureGlbFitScale(template.glbUrl)
-              .then((fitScale) => dispatch({
-                type: 'SET_MODEL_ASSET',
-                url: template.glbUrl,
-                name: a.name,
-                scale: fitScale != null ? (fitScale * template.fitCm) / PROP_TARGET_CM : undefined,
-                template: a.template,
-                offsetCm: a.defaultNudgeCm,
-              }))
-              .finally(() => setPendingKey((k) => (k === key ? null : k)));
+            const slot = a.handAnchor !== undefined
+              ? { handAnchor: a.handAnchor }
+              : { anchor: isHeadAnchor(a.anchor) ? a.anchor : ('crown' as HeadAnchor) };
+            guardSlotAdd(slot, a.name, () => {
+              setAddedKey(key);
+              setPendingKey(key);
+              return measureGlbFitScale(template.glbUrl)
+                .then((fitScale) => dispatch({
+                  type: 'SET_MODEL_ASSET',
+                  url: template.glbUrl,
+                  name: a.name,
+                  scale: fitScale != null ? (fitScale * template.fitCm) / PROP_TARGET_CM : undefined,
+                  template: a.template,
+                  offsetCm: a.defaultNudgeCm,
+                  rotationDeg: a.defaultRotationDeg,
+                  occlude: a.defaultOcclude,
+                  // The entry's natural mount: eyewear lands on the nose bridge,
+                  // a wand in the tracked hand — not the historical crown default.
+                  anchor: isHeadAnchor(a.anchor) ? a.anchor : undefined,
+                  handAnchor: a.handAnchor,
+                }))
+                .finally(() => setPendingKey((k) => (k === key ? null : k)));
+            });
           },
         }];
       }),
-    [q, placedRefs, pendingKey, dispatch], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
+    [q, placedRefs, pendingKey, dispatch, guardSlotAdd], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
   );
 
   // A procedural piece a bundled GLB has replaced is not offered here any more:
@@ -715,10 +881,15 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         fallbackIcon: HEAD_PIECE_ICONS[p.id] ?? Boxes,
         pending: false,
         drag: { target: 'headpiece', label: p.name, pieceId: p.id },
-        onAdd: () => { dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id }); setAddedKey(key); },
+        onAdd: () => {
+          guardSlotAdd({ anchor: p.anchor }, p.name, () => {
+            dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id });
+            setAddedKey(key);
+          });
+        },
       };
     }),
-    [q, selProceduralId, dispatch], // eslint-disable-line react-hooks/exhaustive-deps
+    [q, selProceduralId, dispatch, guardSlotAdd], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const dockTiles = useCallback((items: DockItem[], prefix: string): Tile[] =>
@@ -732,6 +903,10 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         // as already-in-scene even though built-in tiles did.
         active: isDockItemInScene(item, placedRefs),
         fallbackIcon: item.family === '3d' ? Boxes : ImageIcon,
+        // Models uploaded before thumbnails paired correctly have no stored
+        // capture and never will (nothing re-uploads them), so fall back to an
+        // in-memory capture rather than leaving them as anonymous cubes.
+        modelUrl: item.family === '3d' ? item.payload.assetUrl : undefined,
         pending: pendingKey === key,
         kindBadge: KIND_BADGE[dockItemKind(item)],
         drag: dragPayloadFor(item),
@@ -833,14 +1008,15 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   // Templates are whole scenes, not a single kind — only under the 'all' chip.
   const templates = (chip === 'all' ? experiences.templates : []).filter((t) => matchQuery(t.name));
 
-  const showImageUpload = chip === 'all' || chip === 'frame' || chip === 'sticker';
-  const showGlbUpload = chip === 'all' || chip === '3d';
-  const showUploadsSection = showImageUpload || showGlbUpload || uploadTiles.length > 0 || mineTiles.length > 0;
+  // The Uploads SECTION is now purely a list — the upload control moved to the
+  // top of the panel and is never chip-gated — so it shows only when it has
+  // something to show, instead of "for every chip except Filters".
+  const showUploadsSection =
+    uploads.status === 'loading' || uploads.status === 'error' || uploadTiles.length > 0 || mineTiles.length > 0;
   // Whether the panel has any ASSET to show. Deliberately excludes the upload
-  // buttons: `showUploadsSection` is true for every chip except Filters, so the
-  // old `anythingVisible` was effectively always true and the "no results" line
-  // could never render — a search matching nothing showed a blank panel with two
-  // upload buttons and no explanation.
+  // control: the old `anythingVisible` was effectively always true and the "no
+  // results" line could never render — a search matching nothing showed a blank
+  // panel with two upload buttons and no explanation.
   const hasContent =
     libraryCount > 0 || generatedTiles.length > 0 || uploadTiles.length > 0 || mineTiles.length > 0 || templates.length > 0;
 
@@ -894,6 +1070,65 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
           </p>
         )}
 
+        {/* UPLOAD — FIRST, and ungated by the kind chips. It used to be the
+            EIGHTH of nine sections, and each of its two buttons was gated on a
+            different chip set, so under "Filters" there was no upload control
+            at all while the empty state still told hosts to "upload … above".
+            One zone, one button, one busy/error line; the file type decides
+            where it goes (assetSources.planUploads). */}
+        <div className="flex flex-col gap-1.5">
+          <div
+            onDragEnter={(e) => { e.preventDefault(); dragDepth.current += 1; setDragOver(true); }}
+            onDragOver={(e) => { e.preventDefault(); }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              dragDepth.current = Math.max(0, dragDepth.current - 1);
+              if (dragDepth.current === 0) setDragOver(false);
+            }}
+            onDrop={onZoneDrop}
+            className={`rounded-xl border border-dashed transition-colors ${
+              dragOver ? 'border-accent/60 bg-accent/[0.1]' : 'border-white/12 bg-white/[0.02] hover:border-accent/30'
+            }`}
+          >
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={upload.busy}
+              className="w-full flex items-center gap-2.5 px-3 py-3 text-left disabled:opacity-60"
+            >
+              <span aria-hidden className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center bg-accent/[0.1]">
+                {upload.busy
+                  ? <Loader2 className="w-3.5 h-3.5 text-accent-2 animate-spin" />
+                  : modelThumb
+                    ? <img src={modelThumb} alt="" className="w-5 h-5 object-contain" />
+                    : <Upload className="w-3.5 h-3.5 text-accent-2" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11px] font-sans text-brand-fg truncate">
+                  {upload.busy ? 'Uploading…' : dragOver ? 'Drop to upload' : 'Upload art or a 3D model'}
+                </span>
+                <span className="block text-[9px] font-sans text-brand-muted/50 leading-tight truncate">
+                  Drag files here or click · {UPLOAD_ACCEPT_LABEL}
+                </span>
+              </span>
+            </button>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={UPLOAD_ACCEPT}
+            className="sr-only"
+            onChange={onFilesPicked}
+          />
+          {upload.error && (
+            <p role="alert" className="font-sans text-[10px] text-rose-300/90 leading-relaxed px-1">{upload.error}</p>
+          )}
+          <p className="font-sans text-[9px] text-brand-muted/40 leading-relaxed px-1">
+            Transparent PNGs work best for frames. A single file drops straight into your scene; a batch lands in
+            Uploads below for you to place.
+          </p>
+        </div>
+
         {/* AI generate — collapsible, chip-adaptive */}
         {showAi && (
           <div className="flex flex-col gap-2">
@@ -929,6 +1164,38 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             </Collapse>
           </div>
         )}
+
+        {/* POWER-UPS — self-contained mini-app builders (lib/studio/addOns.ts).
+            Each opens a full modal and writes ordinary objects/triggers back
+            into the scene, keeping this dock and Properties uncluttered. */}
+        <div className="flex flex-col gap-2">
+          <SectionLabel><span className="inline-flex items-center gap-1.5"><ZapIcon className="w-3 h-3 text-accent-2" /> Power-Ups</span></SectionLabel>
+          <div className="flex flex-col gap-1.5">
+            {ADD_ONS.map((a) => {
+              const Icon = ADDON_ICONS[a.icon] ?? ZapIcon;
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => setOpenAddOn(a.id)}
+                  className="pressable group flex items-center gap-2.5 w-full rounded-xl px-2.5 py-2 bg-accent/[0.06] hover:bg-accent/[0.1] border border-accent/15 transition-colors text-left"
+                >
+                  <span
+                    aria-hidden
+                    className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center"
+                    style={{ background: `linear-gradient(135deg, ${a.swatch[0]}33, ${a.swatch[1]}33)` }}
+                  >
+                    <Icon className="w-3.5 h-3.5 text-accent-2" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[11px] font-sans text-brand-fg truncate">{a.name}</span>
+                    <span className="block text-[9px] font-sans text-brand-muted/50 leading-tight truncate">{a.blurb}</span>
+                  </span>
+                  <ChevronRight className="w-3.5 h-3.5 text-brand-muted/30 group-hover:text-accent-2 transition-colors shrink-0" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         {/* STUDIO LIBRARY — built-ins, collapsible sub-groups */}
         {(libraryCount > 0 || showCfgEmpty) && (
@@ -977,49 +1244,8 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         {showUploadsSection && (
           <div className="flex flex-col gap-4">
             <SectionLabel>Uploads</SectionLabel>
-            {(showImageUpload || showGlbUpload) && (
-              <div className="flex flex-col gap-1.5">
-                {showImageUpload && (
-                  <button
-                    onClick={() => imgInputRef.current?.click()}
-                    className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-xs text-brand-muted/70"
-                  >
-                    <Upload className="w-3.5 h-3.5 text-accent-2" /> Upload image (PNG / JPG / SVG)
-                  </button>
-                )}
-                {showGlbUpload && (
-                  <button
-                    onClick={() => glbInputRef.current?.click()}
-                    disabled={glbUpload.busy}
-                    className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-xs text-brand-muted/70 overflow-hidden disabled:opacity-60"
-                  >
-                    {glbUpload.busy
-                      ? <Loader2 className="w-3.5 h-3.5 text-accent-2 shrink-0 animate-spin" />
-                      : modelThumb
-                        ? <img src={modelThumb} alt="" className="w-5 h-5 object-contain shrink-0" />
-                        : <Upload className="w-3.5 h-3.5 text-accent-2 shrink-0" />}
-                    <span className="truncate">{glbUpload.busy ? 'Uploading model…' : 'Upload model (.glb / .gltf)'}</span>
-                  </button>
-                )}
-                {showGlbUpload && (
-                  <button
-                    onClick={() => setJewelryOpen(true)}
-                    className="pressable flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-accent/[0.06] hover:bg-accent/[0.1] border border-accent/15 transition-colors text-xs text-brand-muted/70 overflow-hidden"
-                  >
-                    <Gem className="w-3.5 h-3.5 text-accent-2 shrink-0" />
-                    <span className="truncate">3D Name Jewelry — build a name piece</span>
-                  </button>
-                )}
-                {glbUpload.error && (
-                  <p role="alert" className="font-sans text-[10px] text-rose-300/90 leading-relaxed px-1">{glbUpload.error}</p>
-                )}
-                <input ref={imgInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="sr-only" onChange={onImageUpload} />
-                <input ref={glbInputRef} type="file" accept=".glb,.gltf" className="sr-only" onChange={onGlbUpload} />
-                <p className="font-sans text-[9px] text-brand-muted/40 leading-relaxed px-1">
-                  Transparent PNGs work best for frames — your upload drops straight into the scene.
-                </p>
-              </div>
-            )}
+            {/* The two upload buttons that used to sit here are now the single
+                drop zone at the TOP of the panel; this section is the LIST. */}
             {uploads.status === 'loading' && (
               <div className="flex items-center justify-center py-4"><Loader2 className="w-4 h-4 animate-spin text-brand-muted/40" /></div>
             )}
@@ -1094,16 +1320,39 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         )}
       </div>
 
-      {jewelryOpen && (
-        <Suspense fallback={null}>
-          <Text3DBuilder
-            eventId={eventId}
-            dispatch={dispatch}
-            onClose={() => setJewelryOpen(false)}
-            onUploaded={loadUploads}
-            lighting={lighting}
-          />
-        </Suspense>
+      {openAddOn !== null && (() => {
+        const AddOnView = ADDON_VIEWS[openAddOn];
+        return (
+          <Suspense fallback={null}>
+            <AddOnView
+              eventId={eventId}
+              dispatch={dispatch}
+              draft={draft}
+              onClose={() => setOpenAddOn(null)}
+              onUploaded={loadUploads}
+              lighting={lighting}
+            />
+          </Suspense>
+        );
+      })()}
+
+      {conflictAdd !== null && (
+        <ConfirmModal
+          title="That spot is taken"
+          body={
+            <>
+              Your scene already has{' '}
+              <span className="text-brand-fg font-medium">{conflictAdd.existing.name || 'a piece'}</span> on this
+              attachment point. Replace it with{' '}
+              <span className="text-brand-fg font-medium">{conflictAdd.label}</span>? Replacing keeps its magic
+              triggers wired to the new piece.
+            </>
+          }
+          confirmLabel="Replace it"
+          onConfirm={() => resolveConflict('replace')}
+          onCancel={() => setConflictAdd(null)}
+          extraAction={{ label: 'Add both anyway', onClick: () => resolveConflict('both') }}
+        />
       )}
     </div>
   );

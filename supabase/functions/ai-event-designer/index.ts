@@ -421,9 +421,10 @@ Always fill "reply" (no markdown; at most 3 sentences — unless you are listing
 - COMMITTING (the host picks one of your directions, describes a look/occasion/vibe to build, or greenlights an idea): design THAT scene and return it in "planJson".
 
 "planJson" (ONLY when you are designing a scene) is a JSON STRING (not an object) with EXACTLY this shape:
-{"sceneName":"2-4 word name","frame":{"prompt":"<detailed prompt for a 9:16 decorative BORDER that frames a portrait, transparent centre>"} or null,"shader":{"shaderId":"<one id from FILTER EFFECTS>","params":{<only that shader's params, each within its range>}} or null,"headPiece":{"kind":"procedural","id":"<one id from HEAD PIECES>"} or {"kind":"generate","prompt":"<text-to-3D prompt for a single head-worn accessory>"} or null}
+{"sceneName":"2-4 word name","frame":{"prompt":"<detailed prompt for a 9:16 decorative BORDER that frames a portrait, transparent centre>"} or null,"shader":{"shaderId":"<one id from FILTER EFFECTS>","params":{<only that shader's params, each within its range>}} or null,"headPiece":{"kind":"procedural","id":"<one id from HEAD PIECES>"} or {"kind":"generate","prompt":"<text-to-3D prompt for a single head-worn accessory>"} or null,"triggers":[{"source":"<one of: smile, mouthOpen, wink, browRaise, fistClench, palmOpen, pinch, peaceSign, handToTemple>","action":{"type":"burst","style":"confetti|hearts|sparkles|fireworks"} or {"type":"beam","style":"optic|energy|sparkle|lightning","color":"auto"} or {"type":"filterPulse","shaderId":"<a FILTER EFFECTS id>"}}] or []}
 
 RULES (when a plan is present):
+- MAGIC TRIGGERS (free, up to 2 per scene): a guest's FACE cue (smile, wink…) or HAND gesture (fistClench, palmOpen, pinch, peaceSign, handToTemple) sets off a live effect. Pair them with the theme — a hero visor wants handToTemple → beam "optic"; a wizard wand wants pinch → beam "sparkle"; a party scene wants smile → burst "confetti". Beam color "auto" follows the piece's lens colour. Omit triggers ([]) for calm/elegant scenes.
 - Pick shaderId ONLY from the FILTER EFFECTS list; pick a procedural head-piece id ONLY from the HEAD PIECES list. Never invent an id.
 - Use headPiece "generate" ONLY when no listed procedural piece fits the theme.
 - Any element that doesn't suit the scene can be null, but include at least ONE non-null element.

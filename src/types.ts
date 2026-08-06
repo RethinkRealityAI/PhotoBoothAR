@@ -122,6 +122,20 @@ export interface ExperienceLayer {
    * Absent on every pre-existing layer.
    */
   template?: unknown;
+  /**
+   * Hand anchor id (lib/handPose.ts HAND_ANCHORS: 'grip' | 'wristBack' |
+   * 'palm' | 'forearm'). Present ⇒ this piece rides the tracked HAND (HandRig) instead of
+   * the head; `anchor` is then ignored at render time but still stored so the
+   * layer round-trips. Absent on every pre-existing layer — validated at read
+   * (isHandAnchorId) like every other untrusted jsonb field.
+   */
+  handAnchor?: string;
+  /**
+   * Which hand a hand-MODELLED asset (one whose template declares
+   * `modelledHand`) should fit: 'left' | 'right' pins it, absent follows
+   * whichever hand the tracker sees. Only meaningful beside `handAnchor`.
+   */
+  handFit?: string;
 }
 
 /**

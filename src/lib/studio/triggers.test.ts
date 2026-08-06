@@ -4,6 +4,8 @@ import {
   parseTriggers,
   sourceSignal,
   type TriggerConfig,
+  type TriggerEvent,
+  type TriggerSource,
   revealTargetIdsOf,
   isLayerVisible,
   resolvePulseShader,
@@ -11,6 +13,14 @@ import {
   triggerHintText,
   shouldRunTriggers,
   collectTriggers,
+  isHandSource,
+  hasHandSource,
+  mergeDetectionScores,
+  HAND_STALE_MS,
+  HAND_SOURCE_SET,
+  HAND_TRIGGER_SOURCES,
+  FACE_TRIGGER_SOURCES,
+  type HandTriggerSource,
 } from './triggers';
 
 const smile = (over: Partial<TriggerConfig> = {}): TriggerConfig => ({
@@ -344,5 +354,263 @@ describe('collectTriggers', () => {
   it('drops individually malformed triggers but keeps the good ones', () => {
     const out = collectTriggers([{ id: 'e', config: { triggers: [t('ok'), { id: 'bad' }] } }]);
     expect(out.map((x) => x.id)).toEqual(['ok']);
+  });
+});
+
+/* — hand sources + new actions (Power-Ups) ---------------------------------- */
+
+describe('hand-gesture grammar', () => {
+  it('legacy jsonb blobs parse byte-identically after the union widened', () => {
+    // A config saved BEFORE hand sources / beam actions existed.
+    const legacy = [
+      { id: 'a', source: 'smile', action: { type: 'burst', style: 'confetti' } },
+      { id: 'b', source: 'wink', action: { type: 'reveal', objectId: 'obj-1' }, cooldownMs: 4000 },
+      { id: 'c', source: 'browRaise', action: { type: 'filterPulse', shaderId: 'neon-pulse', durationMs: 1200 } },
+    ];
+    expect(parseTriggers(legacy)).toEqual(legacy);
+  });
+
+  it('sourceSignal reads hand scores by their own key', () => {
+    expect(sourceSignal('fistClench', { fistClench: 0.8 })).toBe(0.8);
+    expect(sourceSignal('handToTemple', {})).toBe(0);
+    expect(sourceSignal('palmOpen', { palmOpen: NaN })).toBe(0);
+  });
+
+  it('isHandSource / hasHandSource split the families', () => {
+    expect(isHandSource('fistClench')).toBe(true);
+    expect(isHandSource('smile')).toBe(false);
+    const mk = (source: TriggerSource): TriggerConfig => ({
+      id: source,
+      source,
+      action: { type: 'burst', style: 'confetti' },
+    });
+    expect(hasHandSource([mk('smile'), mk('wink')])).toBe(false);
+    expect(hasHandSource([mk('smile'), mk('palmOpen')])).toBe(true);
+    expect(hasHandSource([])).toBe(false);
+  });
+
+  it('parses beam actions and drops invalid colours without killing the action', () => {
+    const parsed = parseTriggers([
+      { id: 'z', source: 'fistClench', action: { type: 'beam', style: 'optic', color: 'auto' } },
+      { id: 'y', source: 'palmOpen', action: { type: 'beam', style: 'sparkle', color: '#0f0', origin: 'hand', objectId: 'o1', durationMs: 800 } },
+      { id: 'x', source: 'smile', action: { type: 'beam', style: 'optic', color: 'javascript:evil' } },
+      { id: 'w', source: 'smile', action: { type: 'beam', style: 'nope' } },
+    ]);
+    expect(parsed.map((p) => p.id)).toEqual(['z', 'y', 'x']);
+    expect(parsed[0].action).toEqual({ type: 'beam', style: 'optic', color: 'auto' });
+    expect(parsed[1].action).toEqual({ type: 'beam', style: 'sparkle', color: '#0f0', origin: 'hand', objectId: 'o1', durationMs: 800 });
+    expect(parsed[2].action).toEqual({ type: 'beam', style: 'optic' }); // bad colour dropped, action kept
+  });
+
+  it('parses animate actions and rejects unknown presets or missing targets', () => {
+    const parsed = parseTriggers([
+      { id: 'a', source: 'pinch', action: { type: 'animate', objectId: 'o1', preset: 'shake' } },
+      { id: 'b', source: 'pinch', action: { type: 'animate', objectId: '', preset: 'shake' } },
+      { id: 'c', source: 'pinch', action: { type: 'animate', objectId: 'o1', preset: 'wobble' } },
+    ]);
+    expect(parsed.map((p) => p.id)).toEqual(['a']);
+  });
+
+  it('fires a hand-source trigger through the engine with merged scores', () => {
+    const engine = createTriggerEngine([
+      { id: 'h', source: 'fistClench', action: { type: 'beam', style: 'optic' } },
+    ]);
+    engine.step({ fistClench: 0 }, 0);
+    let fired: TriggerEvent[] = [];
+    for (let i = 1; i <= 10 && fired.length === 0; i++) {
+      fired = engine.step({ fistClench: 1, mouthSmileLeft: 0.2 }, i * 66);
+    }
+    expect(fired).toHaveLength(1);
+    expect(fired[0].action.type).toBe('beam');
+  });
+
+  it('mixed-family hint text names both families', () => {
+    const mk = (source: TriggerSource): TriggerConfig => ({
+      id: source,
+      source,
+      action: { type: 'burst', style: 'confetti' },
+    });
+    expect(triggerHintText([mk('smile'), mk('fistClench')])).toBe('Make a face or a gesture for a surprise');
+    expect(triggerHintText([mk('palmOpen'), mk('fistClench')])).toBe('Try a hand gesture for a surprise');
+    expect(triggerHintText([mk('fistClench')])).toBe('Make a fist to fire');
+  });
+});
+
+/* — hand staleness --------------------------------------------------------- *
+ * The two detectors run on different clocks: faceRig 33ms, handRig 66ms (150ms
+ * once it has lost the hand), and both booth + studio step the engine whenever
+ * EITHER produced a frame. Everything below simulates that interleave exactly
+ * as the components do — a hand sample must influence the EMA ONCE.
+ */
+
+const FACE_TICK = 33; // faceRig DETECT_INTERVAL_MS
+const HAND_TICK = 66; // handRig HAND_DETECT_INTERVAL_MS
+
+const handCfg = (source: HandTriggerSource, over: Partial<TriggerConfig> = {}): TriggerConfig => ({
+  id: `t-${source}`,
+  source,
+  action: { type: 'beam', style: 'optic' },
+  cooldownMs: 0,
+  ...over,
+});
+
+/**
+ * Run the real rAF-loop shape: a face detection every 33ms, hand detections
+ * only at the timestamps given. A hand frame that never arrives leaves the
+ * stash frozen — exactly what every early return in detectHandsNow does.
+ */
+function simulate(
+  engine: ReturnType<typeof createTriggerEngine>,
+  source: HandTriggerSource,
+  handFrames: Array<{ t: number; score: number }>,
+  endMs: number,
+): number[] {
+  const fired: number[] = [];
+  let stash: { scores: Record<string, number>; t: number } | null = null;
+  let lastHandT = -1;
+  let next = 0;
+  for (let t = 0; t <= endMs; t += FACE_TICK) {
+    while (next < handFrames.length && handFrames[next].t <= t) {
+      stash = { scores: { [source]: handFrames[next].score }, t: handFrames[next].t };
+      next++;
+    }
+    const handT = stash?.t ?? -1;
+    const handChanged = handT !== lastHandT;
+    lastHandT = handT;
+    const merged = mergeDetectionScores({ jawOpen: 0 }, stash, handChanged, t);
+    for (const e of engine.step(merged.scores, t, merged.stale)) fired.push(e.t);
+  }
+  return fired;
+}
+
+describe('a hand sample is never replayed into the EMA', () => {
+  it('ONE 1.0 frame followed by zeros fires nothing', () => {
+    // The reported bug: with the stash re-fed on the face-only ticks the single
+    // 1.0 sample walked 0.50 → 0.75 by itself and crossed enter (0.62) before
+    // the next inference could zero it — a beam with no hand in frame.
+    const engine = createTriggerEngine([handCfg('fistClench')]);
+    const frames = [
+      { t: 0, score: 0 },
+      { t: HAND_TICK, score: 1 },
+      { t: HAND_TICK * 2, score: 0 },
+      { t: HAND_TICK * 3, score: 0 },
+      { t: HAND_TICK * 4, score: 0 },
+    ];
+    expect(simulate(engine, 'fistClench', frames, 600)).toEqual([]);
+  });
+
+  it('a genuinely held gesture DOES fire, on the second inference', () => {
+    const engine = createTriggerEngine([handCfg('fistClench')]);
+    const frames = Array.from({ length: 8 }, (_, i) => ({ t: i * HAND_TICK, score: i === 0 ? 0 : 1 }));
+    const fired = simulate(engine, 'fistClench', frames, 600);
+    expect(fired).toHaveLength(1);
+    // α=0.5: 0 → 0.5 (1st sample) → 0.75 (2nd) ≥ 0.62. The fire lands on the
+    // face tick that carries the 2nd hand frame, never before it.
+    expect(fired[0]).toBeGreaterThanOrEqual(HAND_TICK * 2);
+    expect(fired[0]).toBeLessThan(HAND_TICK * 3);
+  });
+
+  it('stale ticks between inferences neither fire NOR decay the channel', () => {
+    // 198ms of face-only ticks (6 of them) separate the two hand samples. If a
+    // stale tick decayed the channel, the second sample would restart from ~0
+    // and could not cross; if it re-fed, the first sample alone would fire.
+    const engine = createTriggerEngine([handCfg('palmOpen')]);
+    const frames = [
+      { t: 0, score: 0 },
+      { t: 66, score: 1 },
+      { t: 264, score: 1 },
+    ];
+    const fired = simulate(engine, 'palmOpen', frames, 297);
+    expect(fired).toEqual([264]);
+  });
+
+  it('a stash older than HAND_STALE_MS decays the channel to zero', () => {
+    // Hand detection stops mid-gesture (video not ready / face lockout / gate
+    // skip all freeze the stash). The gesture must fall away, not latch — and
+    // it must be a real decay: the next burst needs TWO samples to re-cross.
+    const engine = createTriggerEngine([handCfg('pinch')]);
+    const frames = [
+      { t: 0, score: 0 },
+      { t: 66, score: 1 },
+      { t: 132, score: 1 }, // fires here
+      // …detector stops for ~1.2s…
+      { t: 1320, score: 1 },
+      { t: 1386, score: 1 },
+    ];
+    const fired = simulate(engine, 'pinch', frames, 1500);
+    expect(fired).toHaveLength(2);
+    expect(fired[0]).toBe(132);
+    expect(fired[1]).toBeGreaterThanOrEqual(1386); // two samples needed ⇒ it decayed
+  });
+
+  it('the expiry window is longer than the idle hand cadence', () => {
+    // handRig backs off to 150ms when no hand is found; expiring at anything
+    // below that would zero a hand that IS being tracked, just slowly.
+    expect(HAND_STALE_MS).toBeGreaterThan(150);
+  });
+});
+
+describe('mergeDetectionScores', () => {
+  const face = { jawOpen: 0.4 };
+  const hand = { scores: { fistClench: 0.9 }, t: 1000 };
+
+  it('passes the face map straight through when there is no hand frame', () => {
+    const m = mergeDetectionScores(face, null, false, 1000);
+    expect(m.scores).toBe(face); // same reference: no allocation, no hand keys
+    expect(m.stale).toBeUndefined();
+    expect(mergeDetectionScores(null, null, false, 0).scores).toBeNull();
+  });
+
+  it('merges a NEW hand frame, hand keys last', () => {
+    const m = mergeDetectionScores(face, hand, true, 1000);
+    expect(m.scores).toEqual({ jawOpen: 0.4, fistClench: 0.9 });
+    expect(m.stale).toBeUndefined();
+  });
+
+  it('marks the hand sources stale between inferences — and leaks no hand key', () => {
+    const m = mergeDetectionScores(face, hand, false, 1000 + 100);
+    expect(m.scores).toBe(face);
+    expect(m.stale).toBe(HAND_SOURCE_SET);
+    for (const k of HAND_TRIGGER_SOURCES) expect(m.scores?.[k]).toBeUndefined();
+  });
+
+  it('feeds explicit zeros once the stash is older than HAND_STALE_MS', () => {
+    const m = mergeDetectionScores(face, hand, false, 1000 + HAND_STALE_MS + 1);
+    expect(m.stale).toBeUndefined();
+    expect(m.scores?.jawOpen).toBe(0.4);
+    for (const k of HAND_TRIGGER_SOURCES) expect(m.scores?.[k]).toBe(0);
+    // exactly AT the boundary it is still merely "between inferences"
+    expect(mergeDetectionScores(face, hand, false, 1000 + HAND_STALE_MS).stale).toBe(HAND_SOURCE_SET);
+  });
+
+  it('never marks a FACE source stale', () => {
+    for (const s of FACE_TRIGGER_SOURCES) expect(HAND_SOURCE_SET.has(s)).toBe(false);
+    for (const s of HAND_TRIGGER_SOURCES) expect(HAND_SOURCE_SET.has(s)).toBe(true);
+  });
+});
+
+describe('step(staleSources) holds a channel', () => {
+  it('a stale source is neither primed, advanced, nor fired', () => {
+    const engine = createTriggerEngine([handCfg('peaceSign')]);
+    const stale = new Set<TriggerSource>(['peaceSign']);
+    // 30 ticks of a full-strength score, all stale → nothing happens at all,
+    // including the priming first sample.
+    for (let i = 0; i < 30; i++) expect(engine.step({ peaceSign: 1 }, i * 33, stale)).toEqual([]);
+    // Real samples now: the first PRIMES (at 0, no crossing to fire on), then
+    // 0.5, then 0.75 ≥ enter 0.65 → one fire on the third. Had the stale ticks
+    // primed the channel at 1.0 it would have started engaged and this whole
+    // sequence would fire nothing.
+    expect(engine.step({ peaceSign: 0 }, 1000)).toEqual([]);
+    expect(engine.step({ peaceSign: 1 }, 1066)).toEqual([]);
+    expect(engine.step({ peaceSign: 1 }, 1132)).toHaveLength(1);
+  });
+
+  it('face channels are untouched by a hand-only stale set (legacy scenes)', () => {
+    // A scene with no hand trigger never passes a stale set at all, but even a
+    // hand-anchored scene that does must leave every face channel stepping.
+    const engine = createTriggerEngine([smile()]);
+    const frames = [{ scores: smileScore(0), t: 0 }, ...hold(0.9, 33, 5)]; // prime low
+    const fired = frames.map((f) => engine.step(f.scores, f.t, HAND_SOURCE_SET).length);
+    expect(fired.reduce((a, b) => a + b, 0)).toBe(1);
   });
 });
