@@ -93,6 +93,15 @@ jobs:
             ffmpeg -y -i "$f" -vf "scale=720:-2" -c:v libwebp -lossless 0 -compression_level 6 -q:v 82 "$out"
             rm "$f"
           done
+          # Teaser film art: the composition renders 1080×1920, so a 1080-wide
+          # webp is the largest size any of it can ever be shown at. The 2k
+          # sources are NOT committed — photos/ is already 78 MB of them, and
+          # the .webp sibling marks the png vendored (see the download guard).
+          for f in hyperframes/studio/assets/photos/teaser/*.png; do
+            out="${f%.png}.webp"
+            ffmpeg -y -i "$f" -vf "scale=1080:-2" -c:v libwebp -lossless 0 -compression_level 6 -q:v 86 "$out"
+            rm "$f"
+          done
 
       - name: Commit vendored assets
         run: |
