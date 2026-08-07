@@ -11,6 +11,9 @@
     { "id": "cultural-asoebi-arch", "raw": "src/assets/guides/_raw/cultural-asoebi-arch__v1.png" },
     { "id": "cultural-mehndi-arch", "raw": "src/assets/guides/_raw/cultural-mehndi-arch__v1.png" },
     { "id": "christmas-santa-cover", "raw": "src/assets/guides/_raw/christmas-santa-cover__v1.png" },
-    { "id": "nye-countdown", "raw": "src/assets/guides/_raw/nye-countdown__v1.png" }
+    { "id": "nye-countdown", "raw": "src/assets/guides/_raw/nye-countdown__v1.png" },
+    { "id": "gala-artdeco-mask", "raw": "src/assets/guides/_raw/gala-artdeco-mask__r2.png" },
+    { "id": "birthday-character-hands", "raw": "src/assets/guides/_raw/birthday-character-hands__r2.png" },
+    { "id": "christmas-elf-hands", "raw": "src/assets/guides/_raw/christmas-elf-hands__r1.png" }
   ]
 }
