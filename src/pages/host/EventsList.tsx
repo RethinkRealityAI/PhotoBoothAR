@@ -300,6 +300,12 @@ export default function EventsList() {
           <p className="mt-3 font-sans text-[10px] text-brand-muted/40">
             Credits power the AI studio — top up any time in Billing.
           </p>
+          <p className="mt-1 font-sans text-[10px] text-brand-muted/40">
+            New to Beamwall?{' '}
+            <Link to="/guides" className="rounded underline underline-offset-2 hover:text-brand-fg transition-colors">
+              Read the guides
+            </Link>
+          </p>
         </div>
       )}
 

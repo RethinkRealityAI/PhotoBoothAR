@@ -16,12 +16,15 @@
  */
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
-import ReportIssueButton from '../components/support/ReportIssueButton';
-import { Check, ChevronDown, Pause, Play } from 'lucide-react';
+import MarketingHeader from '../components/landing/MarketingHeader';
+import MarketingFooter from '../components/landing/MarketingFooter';
+import { applyReveals, applyReducedReveals } from '../components/landing/scrollReveal';
+import { Check, ChevronDown, Play } from 'lucide-react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import SpectrumField from '../components/ui/SpectrumField';
 import LiveHeroCarousel from '../components/ui/LiveHeroCarousel';
+import FilmEmbed from '../components/ui/FilmEmbed';
 import { BoothIcon, WallIcon, ChallengeIcon, CardIcon, type BeamIconProps } from '../components/ui/BeamIcons';
 import {
   BOOTH_GUY_CUTOUT,
@@ -313,143 +316,6 @@ const GHOST_FRAMES = [
 
 /* ── Building blocks ────────────────────────────────────────────────── */
 
-/**
- * Film embed with managed playback: plays while ≥25% in view, pauses offscreen.
- * Five looping videos on one page would otherwise decode (and drain batteries)
- * simultaneously — iOS Safari also caps concurrent video pipelines, which
- * silently freezes whichever films exceed the cap.
- *
- * CONTROLS (owner directive, round 7): "there should be play and pause, thats
- * it. even then make it subtle and bottom right of the video." So the native
- * control bar is gone — including the reduced-motion branch that used to show
- * it — replaced by ONE glass chip in the bottom-right corner. No timeline, no
- * mute, no fullscreen, no PiP.
- *
- * Two rules make that chip trustworthy:
- *   1. Its icon reflects the ELEMENT's state, read from the video's own
- *      play/pause events — never a flag this component set optimistically. An
- *      autoplay rejection, an offscreen pause and an iOS interruption all move
- *      the icon without any of them going through our click handler.
- *   2. `userPaused` is explicit and sticky: once a visitor pauses a film,
- *      scrolling away and back must NOT restart it. Pressing play clears it.
- */
-function FilmEmbed({ src, poster, label }: { src: string; poster: string; label: string }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const userPaused = useRef(false);
-  const intersecting = useRef(false);
-
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (el === null) return;
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    el.addEventListener('play', onPlay);
-    el.addEventListener('pause', onPause);
-
-    const tryPlay = () => {
-      if (userPaused.current || !intersecting.current) return;
-      void el.play().catch(() => { /* autoplay refused — the chip is the way in */ });
-    };
-    // NO prefers-reduced-motion gate here, deliberately (owner directive,
-    // round 7 follow-up): these muted films ARE the section content, and the
-    // owner's own device reports Reduce Motion — gating on it meant the films
-    // never autoplayed for exactly the person who required them to. Reduced
-    // motion still disables the page's decorative animation; a visitor who
-    // wants a film stopped has the pause chip, and the pause is sticky.
-    // iOS Safari can reject the FIRST play() on a preload="metadata" element
-    // that has no decodable frame yet, and nothing retries afterwards — which
-    // is exactly the "native controls over a frozen poster" state the owner
-    // photographed. Retry once the element says it has data.
-    el.addEventListener('canplay', tryPlay);
-    el.addEventListener('loadeddata', tryPlay);
-    // iOS Low Power Mode rejects even muted play() until the page receives a
-    // real user gesture — retry on the first one, then unhook.
-    const onFirstGesture = () => {
-      tryPlay();
-      window.removeEventListener('touchstart', onFirstGesture);
-      window.removeEventListener('pointerdown', onFirstGesture);
-    };
-    window.addEventListener('touchstart', onFirstGesture, { passive: true, once: true });
-    window.addEventListener('pointerdown', onFirstGesture, { passive: true, once: true });
-
-    let io: IntersectionObserver | undefined;
-    if (typeof IntersectionObserver === 'undefined') {
-      // No observer available: treat the film as in view so it still autoplays.
-      intersecting.current = true;
-      tryPlay();
-    } else {
-      io = new IntersectionObserver(
-        ([entry]) => {
-          intersecting.current = entry.isIntersecting;
-          // 0.25: the film starts playing DURING its screen-tilt entrance
-          // rather than after it settles — "the video plays as it tilts".
-          if (entry.isIntersecting) tryPlay();
-          else el.pause();
-        },
-        { threshold: 0.25 },
-      );
-      io.observe(el);
-    }
-    return () => {
-      el.removeEventListener('play', onPlay);
-      el.removeEventListener('pause', onPause);
-      el.removeEventListener('canplay', tryPlay);
-      el.removeEventListener('loadeddata', tryPlay);
-      window.removeEventListener('touchstart', onFirstGesture);
-      window.removeEventListener('pointerdown', onFirstGesture);
-      io?.disconnect();
-    };
-  }, []);
-
-  // Branch on the ELEMENT, not on `playing` — the two can disagree for a frame,
-  // and the element is the one that decides what actually happens.
-  const toggle = () => {
-    const el = ref.current;
-    if (el === null) return;
-    if (el.paused) {
-      userPaused.current = false;
-      void el.play().catch(() => { /* nothing more to try; icon stays on Play */ });
-    } else {
-      userPaused.current = true;
-      el.pause();
-    }
-  };
-
-  return (
-    <div className="relative">
-      <video
-        ref={ref}
-        src={src}
-        poster={poster}
-        muted
-        loop
-        playsInline
-        preload="metadata"
-        className="block h-auto w-full"
-        aria-label={label}
-      />
-      {/* 44px hit area, 40px visual chip, resting at 55% so it decorates the
-          corner instead of competing with the film. */}
-      <button
-        type="button"
-        onClick={toggle}
-        aria-pressed={playing}
-        aria-label={playing ? 'Pause film' : 'Play film'}
-        className="absolute bottom-2 right-2 z-10 flex h-11 w-11 items-center justify-center rounded-full opacity-55 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:bottom-2.5 sm:right-2.5"
-      >
-        <span className="flex h-10 w-10 items-center justify-center rounded-full liquid-glass text-brand-fg">
-          {playing ? (
-            <Pause className="h-4 w-4 fill-current" />
-          ) : (
-            <Play className="ml-0.5 h-4 w-4 fill-current" />
-          )}
-        </span>
-      </button>
-    </div>
-  );
-}
-
 /** The floating cutout inside a "how it works" step. Tiny by design — its
  *  parent owns the 3D tilt and the scroll parallax; this just floats (with a
  *  per-step phase offset) and degrades to a soft glow if the art fails to load. */
@@ -681,40 +547,10 @@ export default function Landing() {
     if (!scroller || !content) return;
     const mm = gsap.matchMedia();
     mm.add('(prefers-reduced-motion: no-preference)', () => {
-      const OFFSETS: Record<string, { x: number; y: number }> = {
-        up: { x: 0, y: 64 },
-        left: { x: -80, y: 0 },
-        right: { x: 80, y: 0 },
-      };
-      gsap.utils.toArray<HTMLElement>('[data-reveal]', content).forEach((el) => {
-        const o = OFFSETS[el.dataset.reveal || 'up'] ?? OFFSETS.up;
-        gsap.fromTo(
-          el,
-          { x: o.x, y: o.y, opacity: 0 },
-          {
-            x: 0,
-            y: 0,
-            opacity: 1,
-            duration: 1,
-            ease: 'power3.out',
-            scrollTrigger: { trigger: el, scroller, start: 'top 85%' },
-          },
-        );
-      });
-      gsap.utils.toArray<HTMLElement>('[data-reveal-stagger]', content).forEach((group) => {
-        gsap.fromTo(
-          group.children,
-          { y: 30, opacity: 0 },
-          {
-            y: 0,
-            opacity: 1,
-            duration: 0.7,
-            stagger: 0.09,
-            ease: 'power2.out',
-            scrollTrigger: { trigger: group, scroller, start: 'top 88%' },
-          },
-        );
-      });
+      // [data-reveal], [data-reveal-stagger] and [data-screen-tilt] are the
+      // shared marketing reveals (same tweens, now in one module the guides
+      // page reads too); everything below is Landing's own choreography.
+      applyReveals(content, scroller);
       // How-it-works steps get their own, punchier stagger (bigger rise +
       // wider gap between steps) than the generic [data-reveal-stagger] used
       // for bullet lists / pricing tiers, so the three steps read as a
@@ -730,24 +566,6 @@ export default function Landing() {
             stagger: 0.16,
             ease: 'power3.out',
             scrollTrigger: { trigger: group, scroller, start: 'top 85%' },
-          },
-        );
-      });
-      // Feature films lean back like a screen settling upright: a scrubbed
-      // rotateX from a deep recline to a slight resting tilt as the film
-      // scrolls up into view (perspective lives on the film's wrapper).
-      gsap.utils.toArray<HTMLElement>('[data-screen-tilt]', content).forEach((el) => {
-        gsap.fromTo(
-          el,
-          // Deeper entry + a longer scrub window (98%→35%) + snappier scrub:
-          // on phones a fast flick used to blow through the old 95→40 range
-          // before a frame rendered, so the tilt was never seen on mobile.
-          { rotateX: 24, scale: 0.93, transformOrigin: 'center 85%' },
-          {
-            rotateX: 5,
-            scale: 1,
-            ease: 'power2.out',
-            scrollTrigger: { trigger: el, scroller, scrub: 0.35, start: 'top 98%', end: 'top 35%' },
           },
         );
       });
@@ -807,16 +625,15 @@ export default function Landing() {
       }
     });
     mm.add('(prefers-reduced-motion: reduce)', () => {
-      gsap.utils.toArray<HTMLElement>('[data-reveal], [data-reveal-stagger], [data-steps-reveal], [data-decor-pop]', content).forEach((el) => {
+      // The shared three ([data-reveal], [data-reveal-stagger] and the resting
+      // [data-screen-tilt]); Landing's own two selectors fade the same way.
+      applyReducedReveals(content, scroller);
+      gsap.utils.toArray<HTMLElement>('[data-steps-reveal], [data-decor-pop]', content).forEach((el) => {
         gsap.fromTo(
           el,
           { opacity: 0 },
           { opacity: 1, duration: 0.5, scrollTrigger: { trigger: el, scroller, start: 'top 90%' } },
         );
-      });
-      // Screens rest at their settled tilt — no scrubbed motion.
-      gsap.utils.toArray<HTMLElement>('[data-screen-tilt]', content).forEach((el) => {
-        gsap.set(el, { rotateX: 5, transformOrigin: 'center 85%' });
       });
     });
     return () => mm.revert();
@@ -881,34 +698,9 @@ export default function Landing() {
         {/* Top bar — sticky so the primary CTA stays reachable down the whole
             page (a long scroll should never leave a visitor without a way to
             convert). Blurred glass so content reads as it passes underneath. */}
-        <header className="sticky top-0 z-40 -mx-6 flex items-center justify-between border-b border-white/5 bg-brand-bg/70 px-6 py-3 backdrop-blur-md">
-          <span className="font-serif text-xl sm:text-2xl font-semibold tracking-wide text-foil-static">Beamwall</span>
-          <nav className="liquid-glass flex items-center gap-1.5 rounded-full p-1.5">
-            <a href="#demo" className="hidden sm:inline rounded-full px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]">
-              Demo
-            </a>
-            <a href="#pricing" className="hidden sm:inline rounded-full px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]">
-              Pricing
-            </a>
-            {/* Sign in stays reachable on phones too (tighter padding <sm);
-                Create your event keeps the primary treatment. Both pills are
-                nowrap with a short signup label <sm — at 390px the wrapped
-                two-line pills collided with the wordmark. */}
-            <Link
-              to="/login"
-              className="inline-flex whitespace-nowrap rounded-full border border-white/15 bg-white/[0.04] px-3 py-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg transition hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:px-5"
-            >
-              Sign in
-            </Link>
-            <Link
-              to="/signup"
-              className="whitespace-nowrap rounded-full bg-foil px-3 py-2 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:px-5"
-            >
-              <span className="sm:hidden">Create event</span>
-              <span className="hidden sm:inline">Create your event</span>
-            </Link>
-          </nav>
-        </header>
+        {/* anchorBase '' keeps #demo/#pricing same-page jumps; another surface
+            passes '/' so the same header links back here. */}
+        <MarketingHeader anchorBase="" />
 
         {/* Hero — copy floats ABOVE the frame arc (z-20 vs z-10); the arc is
             pulled up behind it and the two move at different parallax depths
@@ -1197,26 +989,7 @@ export default function Landing() {
         </main>
 
         {/* Footer */}
-        <footer className="flex flex-col items-center gap-3 pb-6 pt-20 text-center">
-          <span className="font-serif text-lg text-foil-static">Beamwall</span>
-          <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
-            {content.footerTagline}
-          </p>
-          <nav className="flex items-center gap-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
-            <Link to="/privacy" className="rounded transition hover:text-brand-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]">Privacy</Link>
-            <span className="text-brand-muted/25" aria-hidden>·</span>
-            <Link to="/terms" className="rounded transition hover:text-brand-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]">Terms</Link>
-            <span className="text-brand-muted/25" aria-hidden>·</span>
-            {/* The marketing surface had no contact route at all — see the note
-                above the pricing bullets about claims we could not honour. */}
-            <ReportIssueButton
-              label="Contact"
-              showIcon={false}
-              prefill={{ source: 'landing' }}
-              className="rounded transition hover:text-brand-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
-            />
-          </nav>
-        </footer>
+        <MarketingFooter tagline={content.footerTagline} />
       </div>
     </div>
   );

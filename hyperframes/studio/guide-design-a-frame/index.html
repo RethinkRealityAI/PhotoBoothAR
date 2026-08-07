@@ -1,0 +1,501 @@
+<!doctype html>
+<!--
+  Beamwall · Guide — "Design a frame that stops the room" (composition id
+  "guide-design-a-frame"). 50.0s, 1920x1080, silent by design.
+
+  Scene map:
+    S1  0.0-4.2    HOOK — a real generated frame beams in beside the headline.
+    S2  4.0-12.0   WHAT A FRAME IS — a transparent 1080x1920 layer descends
+                   onto the booth shot; the checkerboard middle keys away and
+                   the guest's face comes through it. Nothing is stated that
+                   the picture does not already show.
+    S3  11.8-21.0  THE FIVE ARCHETYPES — Border / Full scene / Two faces /
+                   Corners / Banner, drawn to the REAL geometry the product
+                   prompts for (src/lib/assetPrompt.ts FRAME_LAYOUT_SPEC):
+                   the head cutouts sit at 50%/38% (34x21%) and 30%+70%/38%
+                   (26x18%), corner clusters are 40x25%, the banner lives
+                   below 66% of the height. The green is deliberately left
+                   unexplained here — S5 answers it.
+    S4  20.8-29.5  LETTERING — four REAL frames from the shipped sample set
+                   (public/samples/lettering/*), one per style/placement.
+    S5  29.3-38.5  THE KEY — the same canvas: art on #00FF00, a wipe turns the
+                   green into transparency, a guest photo arrives behind it.
+    S6  38.3-45.0  BRING YOUR OWN — a transparent PNG dropped straight in.
+    S7  44.8-50.0  LIVE IN THE BOOTH — one frame, every guest, plus a compact
+                   brand bumper (a strip, never a full outro scene).
+  Contract: root omits data-duration (the timeline pins 50.0); scenes alternate
+  tracks 1/2; no <video>/<audio> anywhere, so the render is video-only.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Beamwall · Guide — Design a frame</title>
+    <link rel="stylesheet" href="assets/kit.css" />
+    <script src="assets/gsap.min.js"></script>
+    <script src="assets/kit.js"></script>
+    <style>
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Cormorant Garamond"; src: url("assets/fonts/cormorant-garamond-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+      @font-face { font-family: "Jost"; src: url("assets/fonts/jost-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+      #root { width: 1920px; height: 1080px; }
+      .glass-card, .lcard { box-sizing: border-box; }
+
+      .scene-head { position: absolute; left: 0; right: 0; top: 66px; text-align: center; z-index: 20; }
+      .eyebrow-h { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4em; font-size: 30px; margin: 0 0 20px; opacity: 0; }
+      .eyebrow { font-size: 30px; }
+      .title-lg { font-size: 104px; }
+      .title-md { font-size: 78px; }
+      .pill { font-size: 32px; padding: 30px 80px; letter-spacing: 0.3em; }
+      .chip-lg { font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 40px; line-height: 1.25; padding: 22px 32px; opacity: 0; position: absolute; }
+      .cap { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.24em; font-size: 27px; color: var(--muted); }
+
+      /* the alpha checkerboard — the universal "this is transparent" sign */
+      .checker { position: absolute; inset: 0; background-color: #e6ebf6;
+        background-image: linear-gradient(45deg, #b9c2d6 25%, transparent 25%), linear-gradient(-45deg, #b9c2d6 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #b9c2d6 75%), linear-gradient(-45deg, transparent 75%, #b9c2d6 75%);
+        background-size: 40px 40px; background-position: 0 0, 0 20px, 20px -20px, -20px 0; }
+      /* CSS-drawn gold frame art — the shipped webp samples are finished
+         EXAMPLE images with a model baked in, so anything that must sit AROUND
+         real photography has to be drawn, not overlaid. */
+      .goldfr { position: absolute; inset: 0; box-sizing: border-box; border: 6px solid rgba(232, 200, 138, 0.95); box-shadow: inset 0 0 0 15px rgba(0, 0, 0, 0), inset 0 0 0 17px rgba(232, 200, 138, 0.5), 0 0 46px -10px rgba(232, 200, 138, 0.75); }
+      .goldfr i { position: absolute; width: 46px; height: 46px; border: 3px solid rgba(247, 227, 182, 0.95); }
+      .goldfr i.tl { left: 26px; top: 26px; border-right: 0; border-bottom: 0; }
+      .goldfr i.tr { right: 26px; top: 26px; border-left: 0; border-bottom: 0; }
+      .goldfr i.bl { left: 26px; bottom: 26px; border-right: 0; border-top: 0; }
+      .goldfr i.br { right: 26px; bottom: 26px; border-left: 0; border-top: 0; }
+
+      /* S1 hook */
+      #s1 { text-align: left; }
+      #s1-copy { position: absolute; left: 170px; top: 380px; width: 900px; z-index: 4; }
+      .hero-fr { position: absolute; border-radius: 22px; overflow: hidden; background: rgba(7, 9, 16, 0.75); }
+      .hero-fr img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #s1-b { right: 610px; top: 300px; width: 270px; height: 483px; transform: rotate(-7deg); border: 2px solid rgba(124, 108, 247, 0.6); box-shadow: 0 0 50px -10px rgba(124, 108, 247, 0.7); z-index: 2; opacity: 0; }
+      #s1-a { right: 210px; top: 176px; width: 380px; height: 680px; border: 2px solid rgba(232, 200, 138, 0.7); box-shadow: 0 0 66px -8px rgba(232, 200, 138, 0.7); z-index: 3; opacity: 0; }
+
+      /* S2 what a frame is — phone 280 wide → screen (459, 319, 280, 574);
+         the face ring is centred at 38% of the screen height, where the real
+         cutout archetypes put it */
+      #s2-phone-wrap { position: absolute; left: 440px; top: 300px; opacity: 0; }
+      #s2-layer { position: absolute; left: 459px; top: 319px; width: 280px; height: 574px; border-radius: 42px; overflow: hidden; opacity: 0; z-index: 16; }
+      #s2-face { position: absolute; left: 512px; top: 430px; width: 174px; height: 214px; border-radius: 50%; border: 3px dashed rgba(34, 211, 238, 0.9); opacity: 0; z-index: 18; }
+      #s2-facelbl { position: absolute; left: 432px; top: 662px; width: 334px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.18em; font-size: 24px; color: var(--teal); opacity: 0; z-index: 18; }
+      #s2-chips { position: absolute; left: 880px; top: 342px; width: 800px; display: flex; flex-direction: column; gap: 30px; text-align: left; }
+      .s2chip { font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 42px; line-height: 1.25; padding: 24px 36px; opacity: 0; }
+
+      /* S3 archetypes */
+      #s3-row { position: absolute; left: 255px; top: 292px; display: flex; gap: 40px; }
+      .arch { width: 250px; opacity: 0; }
+      .arch .cv { position: relative; width: 250px; height: 444px; border-radius: 14px; overflow: hidden; background: #00ff00; border: 2px solid rgba(169, 196, 255, 0.4); }
+      .arch .plate { position: absolute; background: linear-gradient(150deg, #f7e3b6, #c9a25c 45%, #7d5f2a); box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.35); }
+      .arch .hole { position: absolute; background: #00ff00; border-radius: 50%; }
+      .arch .alb { display: block; margin-top: 20px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; font-size: 25px; color: var(--muted); }
+      #s3-note { position: absolute; left: 0; right: 0; top: 812px; text-align: center; opacity: 0; }
+
+      /* S4 lettering */
+      #s4-row { position: absolute; left: 291px; top: 268px; display: flex; gap: 46px; }
+      .lcard { width: 300px; opacity: 0; }
+      .lcard .art { position: relative; width: 300px; height: 537px; border-radius: 16px; overflow: hidden; border: 2px solid rgba(232, 200, 138, 0.45); box-shadow: 0 0 40px -12px rgba(232, 200, 138, 0.6); }
+      .lcard .art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      .lcard .llb { display: block; margin-top: 18px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; font-size: 24px; color: var(--muted); }
+      #s4-chips { position: absolute; left: 0; right: 0; top: 892px; display: flex; justify-content: center; gap: 24px; }
+      .pchip { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; font-size: 26px; padding: 16px 30px; border-radius: 999px; border: 1.5px solid rgba(169, 196, 255, 0.4); background: rgba(9, 11, 20, 0.8); color: var(--fg); opacity: 0; }
+
+      /* S5 the key */
+      #s5-cv { position: absolute; left: 770px; top: 244px; width: 380px; height: 676px; border-radius: 18px; overflow: hidden; border: 2px solid rgba(169, 196, 255, 0.4); opacity: 0; }
+      #s5-green { position: absolute; inset: 0; background: #00ff00; }
+      #s5-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+      #s5-wipe { position: absolute; left: 0; right: 0; top: -60px; height: 60px; background: linear-gradient(180deg, transparent, rgba(238, 243, 255, 0.95)); z-index: 6; opacity: 0; }
+      #s5-cap-a { position: absolute; left: 690px; top: 946px; width: 540px; text-align: center; opacity: 0; }
+      #s5-cap-b { position: absolute; left: 690px; top: 946px; width: 540px; text-align: center; opacity: 0; color: var(--teal); }
+      #s5-l { left: 150px; top: 420px; width: 400px; color: var(--green); }
+      #s5-r { right: 150px; top: 560px; width: 400px; color: var(--teal); }
+
+      /* S6 bring your own */
+      #s6-drop { position: absolute; left: 220px; top: 330px; width: 720px; height: 400px; border-radius: 28px; border: 3px dashed rgba(251, 146, 60, 0.6); background: rgba(251, 146, 60, 0.06); opacity: 0; }
+      #s6-file { position: absolute; left: 400px; top: 396px; width: 360px; padding: 22px; display: flex; align-items: center; gap: 24px; opacity: 0; z-index: 14; }
+      #s6-file .th { position: relative; width: 92px; height: 164px; border-radius: 10px; overflow: hidden; flex: none; }
+      #s6-file .fn { font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 30px; color: var(--fg); }
+      #s6-file .fs { font-family: "Jost", Arial, sans-serif; font-weight: 500; font-size: 24px; color: var(--muted); margin-top: 10px; }
+      #s6-ok { position: absolute; left: 460px; top: 760px; width: 240px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.2em; font-size: 24px; color: #06130c; padding: 16px 0; border-radius: 999px; background: linear-gradient(115deg, #34d399, #6ee7b7 55%, #34d399); box-shadow: 0 0 44px -8px rgba(52, 211, 153, 0.85); opacity: 0; }
+      #s6-out { position: absolute; left: 1230px; top: 300px; width: 300px; height: 534px; border-radius: 18px; overflow: hidden; border: 2px solid rgba(169, 196, 255, 0.35); opacity: 0; }
+      #s6-out img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #s6-arrow { position: absolute; left: 990px; top: 548px; width: 190px; height: 6px; border-radius: 999px; background: linear-gradient(90deg, rgba(251, 146, 60, 0), rgba(251, 146, 60, 0.95)); opacity: 0; }
+      #s6-chip { left: 1240px; top: 872px; width: 300px; color: var(--orange); }
+
+      /* S7 live in the booth — phone 280 wide → screen (399, 279, 280, 574) */
+      #s7-phone-wrap { position: absolute; left: 380px; top: 260px; opacity: 0; }
+      #s7-ov { position: absolute; left: 399px; top: 279px; width: 280px; height: 574px; border-radius: 42px; overflow: hidden; opacity: 0; z-index: 16; }
+      #s7-send { position: absolute; left: 399px; top: 770px; width: 280px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.2em; font-size: 24px; color: #041014; padding: 18px 0; border-radius: 999px; background: linear-gradient(115deg, #22d3ee, #a5f3fc 55%, #22d3ee); box-shadow: 0 0 50px -8px rgba(34, 211, 238, 0.9); opacity: 0; z-index: 18; }
+      .gshot { position: absolute; width: 280px; height: 498px; border-radius: 16px; overflow: hidden; opacity: 0; }
+      .gshot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #g-0 { left: 900px; top: 270px; }
+      #g-1 { left: 1240px; top: 330px; }
+      #s7-brand { position: absolute; left: 0; right: 0; bottom: 48px; display: flex; align-items: center; justify-content: center; gap: 46px; opacity: 0; z-index: 24; }
+      #s7-brand h2 { font-size: 68px; font-weight: 600; margin: 0; line-height: 1; }
+    </style>
+  </head>
+  <body>
+    <div id="root" class="bw-root" data-composition-id="guide-design-a-frame" data-start="0" data-width="1920" data-height="1080">
+      <div id="s1" class="clip scene" data-start="0" data-duration="4.2" data-track-index="1">
+        <div id="s1-copy">
+          <p class="eyebrow" id="s1-eyebrow">Beamwall · Guide</p>
+          <h1 class="title-lg" id="s1-title">Design a frame that <em class="foil" style="font-style: normal">stops the room</em>.</h1>
+        </div>
+        <div class="hero-fr" id="s1-b"><img src="media/cursive-monogram-bottom.jpg" alt="" /></div>
+        <div class="hero-fr" id="s1-a"><img src="media/block-name-integrated.jpg" alt="" /></div>
+      </div>
+
+      <div id="s2" class="clip scene" data-start="4" data-duration="8" data-track-index="2">
+        <div class="scene-head">
+          <p class="eyebrow-h" id="s2-eyebrow" style="color: var(--blue)">What a frame is</p>
+          <h2 class="title-md" id="s2-title">A layer that lands on <em class="foil" style="font-style: normal">every shot</em>.</h2>
+        </div>
+        <div id="s2-phone-wrap"></div>
+        <div id="s2-layer"></div>
+        <div id="s2-face"></div>
+        <div id="s2-facelbl">Face zone stays clear</div>
+        <div id="s2-chips">
+          <div class="s2chip glass-card" id="s2chip-0" style="color: var(--blue)">1080 × 1920, portrait</div>
+          <div class="s2chip glass-card" id="s2chip-1" style="color: var(--teal)">See-through middle</div>
+          <div class="s2chip glass-card" id="s2chip-2" style="color: var(--violet)">Sits on photos and video</div>
+        </div>
+      </div>
+
+      <div id="s3" class="clip scene" data-start="11.8" data-duration="9.2" data-track-index="1">
+        <div class="scene-head">
+          <p class="eyebrow-h" id="s3-eyebrow" style="color: var(--green)">Five layouts</p>
+          <h2 class="title-md" id="s3-title">Pick the <em class="foil" style="font-style: normal">shape of the art</em>.</h2>
+        </div>
+        <div id="s3-row"></div>
+        <div id="s3-note"><span class="cap">One brief · the studio drafts it</span></div>
+      </div>
+
+      <div id="s4" class="clip scene" data-start="20.8" data-duration="8.7" data-track-index="2">
+        <div class="scene-head">
+          <p class="eyebrow-h" id="s4-eyebrow" style="color: var(--magenta)">Lettering</p>
+          <h2 class="title-md" id="s4-title">Put their name <em class="foil" style="font-style: normal">in the art</em>.</h2>
+        </div>
+        <div id="s4-row"></div>
+        <div id="s4-chips">
+          <span class="pchip" id="pc-0">Top</span>
+          <span class="pchip" id="pc-1">Bottom</span>
+          <span class="pchip" id="pc-2">Woven in</span>
+          <span class="pchip" id="pc-3">Past the edge</span>
+          <span class="pchip" id="pc-4">Name art only</span>
+        </div>
+      </div>
+
+      <div id="s5" class="clip scene" data-start="29.3" data-duration="9.2" data-track-index="1">
+        <div class="scene-head">
+          <p class="eyebrow-h" id="s5-eyebrow" style="color: var(--teal)">How it works</p>
+          <h2 class="title-md" id="s5-title">The green <em class="foil" style="font-style: normal">disappears</em>.</h2>
+        </div>
+        <div id="s5-cv">
+          <div id="s5-green"></div>
+          <img id="s5-photo" src="assets/photos/cells/booth-capture.jpg" alt="" />
+          <div id="s5-wipe"></div>
+        </div>
+        <div id="s5-cap-a"><span class="cap">As the studio draws it</span></div>
+        <div id="s5-cap-b"><span class="cap">As the booth ships it</span></div>
+        <div class="chip-lg glass-card" id="s5-l">Flat #00FF00 while it is drawn</div>
+        <div class="chip-lg glass-card" id="s5-r">Punched out, down to the pixel</div>
+      </div>
+
+      <div id="s6" class="clip scene" data-start="38.3" data-duration="6.7" data-track-index="2">
+        <div class="scene-head">
+          <p class="eyebrow-h" id="s6-eyebrow" style="color: var(--orange)">Already have artwork?</p>
+          <h2 class="title-md" id="s6-title">Drop in <em class="foil" style="font-style: normal">your own PNG</em>.</h2>
+        </div>
+        <div id="s6-drop"></div>
+        <div id="s6-file" class="glass-card">
+          <div class="th"><div class="checker"></div></div>
+          <div>
+            <div class="fn">maya-and-sam.png</div>
+            <div class="fs">1080 × 1920 · transparent</div>
+          </div>
+        </div>
+        <div id="s6-ok">Frame set</div>
+        <div id="s6-arrow"></div>
+        <div id="s6-out"><img src="assets/photos/cells/wall-phone.jpg" alt="" /></div>
+        <div class="chip-lg glass-card" id="s6-chip">Live on the next shot</div>
+      </div>
+
+      <div id="s7" class="clip scene" data-start="44.8" data-duration="5.2" data-track-index="1">
+        <div class="scene-head">
+          <p class="eyebrow-h" id="s7-eyebrow" style="color: var(--blue)">Live in the booth</p>
+          <h2 class="title-md" id="s7-title">Every guest, <em class="foil" style="font-style: normal">on brand</em>.</h2>
+        </div>
+        <div id="s7-phone-wrap"></div>
+        <div id="s7-ov"></div>
+        <div id="s7-send">Send to wall</div>
+        <div class="gshot" id="g-0"><img src="assets/photos/cells/wall-wed-r1c2.jpg" alt="" /></div>
+        <div class="gshot" id="g-1"><img src="assets/photos/cells/wall-gala-r1c3.jpg" alt="" /></div>
+        <div id="s7-brand">
+          <h2 class="foil">Beamwall</h2>
+          <div class="pill">Design your frame</div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+        var root = document.getElementById("root");
+        BW.buildBackdrop(root, "gd");
+        BW.buildSweep(root, "gd");
+
+        /* a drawn gold frame + its four corner brackets */
+        function goldFrame(id) {
+          var d = document.createElement("div");
+          d.className = "goldfr";
+          d.id = id;
+          d.innerHTML = '<i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i>';
+          return d;
+        }
+        function checker(id) {
+          var c = document.createElement("div");
+          c.className = "checker";
+          c.id = id;
+          return c;
+        }
+
+        /* ── S2 · the overlay lands on the booth shot ──────────────────── */
+        var ph2 = BW.phone("s2-phone", 280);
+        var shot2 = document.createElement("img");
+        shot2.src = "assets/photos/cells/wall-phone.jpg";
+        shot2.alt = "";
+        ph2.screen.appendChild(shot2);
+        document.getElementById("s2-phone-wrap").appendChild(ph2.el);
+        var layer = document.getElementById("s2-layer");
+        layer.appendChild(checker("s2-checker"));
+        layer.appendChild(goldFrame("s2-gold"));
+
+        /* ── S3 · the five archetypes, at the geometry the prompts ask for */
+        var ARCH = [
+          { id: "border", lbl: "Border", art: [{ l: 0, t: 0, w: 100, h: 100, inset: true }], holes: [] },
+          { id: "scene", lbl: "Full scene", art: [{ l: 0, t: 0, w: 100, h: 100 }], holes: [{ l: 33, t: 27.5, w: 34, h: 21 }] },
+          { id: "duo", lbl: "Two faces", art: [{ l: 0, t: 0, w: 100, h: 100 }], holes: [{ l: 17, t: 29, w: 26, h: 18 }, { l: 57, t: 29, w: 26, h: 18 }] },
+          { id: "corners", lbl: "Corners", art: [{ l: 0, t: 0, w: 40, h: 25 }, { l: 60, t: 75, w: 40, h: 25 }], holes: [] },
+          { id: "banner", lbl: "Banner", art: [{ l: 0, t: 66, w: 100, h: 34 }], holes: [] },
+        ];
+        var arow = document.getElementById("s3-row");
+        ARCH.forEach(function (a) {
+          var col = document.createElement("div");
+          col.className = "arch";
+          col.id = "ar-" + a.id;
+          var cv = document.createElement("div");
+          cv.className = "cv";
+          a.art.forEach(function (p) {
+            var el = document.createElement("div");
+            el.className = "plate";
+            el.style.left = p.l + "%";
+            el.style.top = p.t + "%";
+            el.style.width = p.w + "%";
+            el.style.height = p.h + "%";
+            cv.appendChild(el);
+            if (p.inset) {
+              /* the border archetype: art hugs the edges, the middle is green */
+              var mid = document.createElement("div");
+              mid.className = "hole";
+              mid.style.left = "9%";
+              mid.style.top = "5%";
+              mid.style.width = "82%";
+              mid.style.height = "90%";
+              mid.style.borderRadius = "4px";
+              cv.appendChild(mid);
+            }
+          });
+          a.holes.forEach(function (h) {
+            var el = document.createElement("div");
+            el.className = "hole";
+            el.style.left = h.l + "%";
+            el.style.top = h.t + "%";
+            el.style.width = h.w + "%";
+            el.style.height = h.h + "%";
+            cv.appendChild(el);
+          });
+          var lb = document.createElement("span");
+          lb.className = "alb";
+          lb.id = "alb-" + a.id;
+          lb.textContent = a.lbl;
+          col.appendChild(cv);
+          col.appendChild(lb);
+          arow.appendChild(col);
+        });
+
+        /* ── S4 · real generated frames, one per lettering treatment ───── */
+        var LET = [
+          { id: "mono", img: "media/cursive-monogram-bottom.jpg", lbl: "Monogram · bottom" },
+          { id: "script", img: "media/script-name-extending.jpg", lbl: "Script · past the edge" },
+          { id: "block", img: "media/block-name-integrated.jpg", lbl: "Block · woven in" },
+          { id: "art", img: "media/name-art-standalone.jpg", lbl: "Name art only" },
+        ];
+        var lrow = document.getElementById("s4-row");
+        LET.forEach(function (l) {
+          var d = document.createElement("div");
+          d.className = "lcard";
+          d.id = "lc-" + l.id;
+          d.innerHTML = '<div class="art"><img src="' + l.img + '" alt="" /></div><span class="llb">' + l.lbl + "</span>";
+          lrow.appendChild(d);
+        });
+
+        /* ── S5 · the key ──────────────────────────────────────────────── */
+        var cv5 = document.getElementById("s5-cv");
+        var ck5 = checker("s5-checker");
+        ck5.style.opacity = "0";
+        cv5.insertBefore(ck5, document.getElementById("s5-photo"));
+        cv5.appendChild(goldFrame("s5-gold"));
+
+        /* ── S6 · the uploaded PNG lands over a real shot ──────────────── */
+        document.getElementById("s6-out").appendChild(goldFrame("s6-gold"));
+
+        /* ── S7 · the finished frame, on three different guests ────────── */
+        var ph7 = BW.phone("s7-phone", 280);
+        var shot7 = document.createElement("img");
+        shot7.src = "assets/photos/cells/booth-capture.jpg";
+        shot7.alt = "";
+        ph7.screen.appendChild(shot7);
+        document.getElementById("s7-phone-wrap").appendChild(ph7.el);
+        document.getElementById("s7-ov").appendChild(goldFrame("s7-gold"));
+        document.getElementById("g-0").appendChild(goldFrame("g0-gold"));
+        document.getElementById("g-1").appendChild(goldFrame("g1-gold"));
+
+        /* ── timeline ──────────────────────────────────────────────────── */
+        var EASE = "power3.out";
+        var END = 50.0;
+        var tl = gsap.timeline({ paused: true });
+        BW.animateBackdrop(tl, "gd", END);
+
+        /* S1 — hook */
+        tl.fromTo("#s1-a", { opacity: 0, y: -90, scaleY: 0.55 }, { opacity: 1, y: 0, scaleY: 1, duration: 0.7, ease: EASE }, 0.05);
+        tl.fromTo("#s1-copy", { opacity: 0, x: -60 }, { opacity: 1, x: 0, duration: 0.55, ease: EASE }, 0.12);
+        tl.fromTo("#s1-b", { opacity: 0, x: 70, rotation: 4 }, { opacity: 0.95, x: 0, rotation: -7, duration: 0.6, ease: EASE }, 0.8);
+        BW.flashAt(tl, "gd", 0.7, 0.45);
+        tl.to("#s1-a", { scale: 1.05, duration: 2.8, ease: "sine.inOut" }, 0.8);
+        tl.to(["#s1-copy", "#s1-a", "#s1-b"], { opacity: 0, y: -30, duration: 0.42, ease: "power2.in" }, 3.78);
+        tl.set(["#s1-copy", "#s1-a", "#s1-b"], { opacity: 0 }, 4.2);
+        BW.sweepAt(tl, "gd", 3.7);
+
+        /* S2 — the transparent layer */
+        tl.fromTo("#s2-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 4.15);
+        tl.fromTo("#s2-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 4.25);
+        tl.fromTo("#s2-phone-wrap", { opacity: 0, y: 80 }, { opacity: 1, y: 0, duration: 0.65, ease: EASE }, 4.2);
+        /* the layer hovers above the phone, then locks onto the screen */
+        tl.fromTo("#s2-layer", { opacity: 0, y: -150, scale: 1.16 }, { opacity: 1, y: -80, scale: 1.1, duration: 0.6, ease: EASE }, 5.1);
+        tl.to("#s2-layer", { y: 0, scale: 1, duration: 0.7, ease: "power3.inOut" }, 6.3);
+        BW.flashAt(tl, "gd", 6.95, 0.6);
+        /* …and its middle keys away, so the guest comes through it */
+        tl.to("#s2-checker", { opacity: 0, duration: 0.55, ease: "power2.inOut" }, 7.05);
+        tl.set("#s2-checker", { opacity: 0 }, 7.62);
+        tl.fromTo("#s2-face", { opacity: 0, scale: 1.25 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.8)" }, 7.7);
+        tl.fromTo("#s2-facelbl", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.4, ease: EASE }, 7.95);
+        tl.to("#s2-face", { scale: 1.06, duration: 0.9, ease: "sine.inOut", yoyo: true, repeat: 2 }, 8.3);
+        ["s2chip-0", "s2chip-1", "s2chip-2"].forEach(function (id, i) {
+          tl.fromTo("#" + id, { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.45, ease: EASE }, 5.5 + i * 0.5);
+        });
+        tl.to("#s2", { opacity: 0, y: -30, duration: 0.45, ease: "power2.in" }, 11.55);
+        tl.set("#s2", { opacity: 0 }, 12.0);
+        BW.sweepAt(tl, "gd", 11.5);
+
+        /* S3 — the five archetypes */
+        tl.fromTo("#s3-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 11.95);
+        tl.fromTo("#s3-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 12.05);
+        ARCH.forEach(function (a, i) {
+          tl.fromTo("#ar-" + a.id, { opacity: 0, y: -110, scaleY: 0.5 }, { opacity: 1, y: 0, scaleY: 1, duration: 0.6, ease: EASE }, 12.3 + i * 0.19);
+          /* each one takes the spotlight in turn — nothing sits still */
+          var at = 14.3 + i * 1.12;
+          tl.to("#ar-" + a.id, { scale: 1.09, duration: 0.4, ease: "power2.out" }, at);
+          tl.to("#alb-" + a.id, { color: "#eef3ff", duration: 0.4 }, at);
+          tl.to("#ar-" + a.id, { scale: 1, duration: 0.5, ease: "power2.inOut" }, at + 0.72);
+          tl.to("#alb-" + a.id, { color: "#a9b4cc", duration: 0.5 }, at + 0.72);
+        });
+        tl.fromTo("#s3-note", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.45, ease: EASE }, 13.7);
+        tl.to("#s3", { opacity: 0, y: -30, duration: 0.45, ease: "power2.in" }, 20.55);
+        tl.set("#s3", { opacity: 0 }, 21.0);
+        BW.sweepAt(tl, "gd", 20.5);
+
+        /* S4 — lettering */
+        tl.fromTo("#s4-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 20.95);
+        tl.fromTo("#s4-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 21.05);
+        LET.forEach(function (l, i) {
+          tl.fromTo("#lc-" + l.id, { opacity: 0, y: 90, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 0.6, ease: EASE }, 21.3 + i * 0.22);
+        });
+        ["pc-0", "pc-1", "pc-2", "pc-3", "pc-4"].forEach(function (id, i) {
+          tl.fromTo("#" + id, { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.35, ease: EASE }, 23.0 + i * 0.17);
+        });
+        tl.to("#lc-script", { scale: 1.07, duration: 0.5, ease: "power2.out" }, 24.6);
+        tl.to("#lc-script", { scale: 1, duration: 0.6, ease: "power2.inOut" }, 25.5);
+        tl.to("#lc-block", { scale: 1.07, duration: 0.5, ease: "power2.out" }, 26.2);
+        tl.to("#lc-block", { scale: 1, duration: 0.6, ease: "power2.inOut" }, 27.1);
+        BW.flashAt(tl, "gd", 26.2, 0.35);
+        tl.to("#lc-art", { scale: 1.07, duration: 0.5, ease: "power2.out" }, 27.6);
+        tl.to("#lc-art", { scale: 1, duration: 0.6, ease: "power2.inOut" }, 28.5);
+        tl.to("#s4", { opacity: 0, y: -30, duration: 0.45, ease: "power2.in" }, 29.05);
+        tl.set("#s4", { opacity: 0 }, 29.5);
+        BW.sweepAt(tl, "gd", 29.0);
+
+        /* S5 — the key: green → transparency → a real face behind it */
+        tl.fromTo("#s5-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 29.45);
+        tl.fromTo("#s5-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 29.55);
+        tl.fromTo("#s5-cv", { opacity: 0, y: -100, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 0.7, ease: EASE }, 29.6);
+        tl.fromTo("#s5-cap-a", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.4, ease: EASE }, 30.3);
+        tl.fromTo("#s5-l", { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.45, ease: EASE }, 30.6);
+        /* the wipe travels the canvas; the green turns to checkerboard behind it */
+        tl.fromTo("#s5-wipe", { opacity: 0, y: 0 }, { opacity: 1, duration: 0.2 }, 31.5);
+        tl.to("#s5-wipe", { y: 736, duration: 0.9, ease: "power1.inOut" }, 31.6);
+        tl.to("#s5-green", { opacity: 0, duration: 0.75, ease: "none" }, 31.75);
+        tl.fromTo("#s5-checker", { opacity: 0 }, { opacity: 1, duration: 0.75, ease: "none" }, 31.75);
+        tl.to("#s5-wipe", { opacity: 0, duration: 0.25 }, 32.5);
+        tl.set(["#s5-wipe", "#s5-green"], { opacity: 0 }, 32.78);
+        /* then the guest arrives behind the art */
+        BW.flashAt(tl, "gd", 33.5, 0.7);
+        tl.to("#s5-checker", { opacity: 0, duration: 0.6, ease: "power2.inOut" }, 33.55);
+        tl.set("#s5-checker", { opacity: 0 }, 34.17);
+        tl.fromTo("#s5-photo", { opacity: 0, scale: 1.14 }, { opacity: 1, scale: 1, duration: 0.75, ease: "power2.out" }, 33.55);
+        tl.to("#s5-cap-a", { opacity: 0, duration: 0.35, ease: "power2.in" }, 33.6);
+        tl.set("#s5-cap-a", { opacity: 0 }, 33.96);
+        tl.fromTo("#s5-cap-b", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.45, ease: EASE }, 34.1);
+        tl.fromTo("#s5-r", { opacity: 0, x: 40 }, { opacity: 1, x: 0, duration: 0.45, ease: EASE }, 34.5);
+        tl.to("#s5-cv", { scale: 1.045, duration: 2.6, ease: "sine.out" }, 34.8);
+        tl.to("#s5", { opacity: 0, y: -30, duration: 0.45, ease: "power2.in" }, 38.05);
+        tl.set("#s5", { opacity: 0 }, 38.5);
+        BW.sweepAt(tl, "gd", 38.0);
+
+        /* S6 — bring your own PNG */
+        tl.fromTo("#s6-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 38.45);
+        tl.fromTo("#s6-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 38.55);
+        tl.fromTo("#s6-drop", { opacity: 0, scale: 0.94 }, { opacity: 1, scale: 1, duration: 0.5, ease: EASE }, 38.6);
+        tl.fromTo("#s6-file", { opacity: 0, y: -180, rotation: -6, scale: 1.1 }, { opacity: 1, y: 0, rotation: 0, scale: 1, duration: 0.75, ease: "power3.out" }, 39.2);
+        BW.flashAt(tl, "gd", 39.9, 0.45);
+        tl.to("#s6-drop", { borderColor: "rgba(52,211,153,0.9)", backgroundColor: "rgba(52,211,153,0.09)", duration: 0.4 }, 39.95);
+        tl.fromTo("#s6-ok", { opacity: 0, y: 18, scale: 0.8 }, { opacity: 1, y: 0, scale: 1, duration: 0.42, ease: "back.out(1.8)" }, 40.3);
+        tl.fromTo("#s6-arrow", { opacity: 0, scaleX: 0, transformOrigin: "0% 50%" }, { opacity: 1, scaleX: 1, duration: 0.45, ease: "power2.out" }, 40.9);
+        tl.fromTo("#s6-out", { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.6, ease: EASE }, 41.2);
+        tl.fromTo("#s6-chip", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.45, ease: EASE }, 42.0);
+        tl.to("#s6-out", { scale: 1.04, duration: 2.0, ease: "sine.out" }, 42.2);
+        tl.to("#s6", { opacity: 0, y: -30, duration: 0.45, ease: "power2.in" }, 44.55);
+        tl.set("#s6", { opacity: 0 }, 45.0);
+        BW.sweepAt(tl, "gd", 44.5);
+
+        /* S7 — live in the booth, then a compact bumper */
+        tl.fromTo("#s7-eyebrow", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: EASE }, 44.95);
+        tl.fromTo("#s7-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 45.05);
+        tl.fromTo("#s7-phone-wrap", { opacity: 0, y: 70 }, { opacity: 1, y: 0, duration: 0.6, ease: EASE }, 45.0);
+        tl.fromTo("#s7-ov", { opacity: 0, y: -70, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 0.55, ease: EASE }, 45.35);
+        BW.flashAt(tl, "gd", 45.8, 0.5);
+        tl.fromTo("#g-0", { opacity: 0, y: 80, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 0.6, ease: EASE }, 45.9);
+        tl.fromTo("#g-1", { opacity: 0, y: 80, scaleY: 0.6 }, { opacity: 1, y: 0, scaleY: 1, duration: 0.6, ease: EASE }, 46.2);
+        tl.fromTo("#s7-send", { opacity: 0, y: 18, scale: 0.88 }, { opacity: 1, y: 0, scale: 1, duration: 0.42, ease: "back.out(1.8)" }, 46.6);
+        tl.fromTo("#s7-brand", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.65, ease: EASE }, 47.5);
+        tl.to("#s7-phone-wrap", { scale: 1.03, duration: 2.2, ease: "sine.out" }, 47.6);
+        tl.to("#s7-ov", { scale: 1.03, duration: 2.2, ease: "sine.out" }, 47.6);
+
+        /* pin duration */
+        tl.set("#gd-bg", { opacity: 1 }, END);
+        window.__timelines = window.__timelines || {};
+        window.__timelines["guide-design-a-frame"] = tl;
+      })();
+    </script>
+  </body>
+</html>
