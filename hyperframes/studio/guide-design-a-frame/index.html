@@ -78,8 +78,10 @@
          cutout archetypes put it */
       #s2-phone-wrap { position: absolute; left: 440px; top: 300px; opacity: 0; }
       #s2-layer { position: absolute; left: 459px; top: 319px; width: 280px; height: 574px; border-radius: 42px; overflow: hidden; opacity: 0; z-index: 16; }
-      #s2-face { position: absolute; left: 512px; top: 430px; width: 174px; height: 214px; border-radius: 50%; border: 3px dashed rgba(34, 211, 238, 0.9); opacity: 0; z-index: 18; }
-      #s2-facelbl { position: absolute; left: 432px; top: 662px; width: 334px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.18em; font-size: 24px; color: var(--teal); opacity: 0; z-index: 18; }
+      #s2-face { position: absolute; left: 512px; top: 430px; width: 174px; height: 214px; border-radius: 50%; border: 4px dashed rgba(34, 211, 238, 1); box-shadow: 0 0 0 2px rgba(5, 6, 11, 0.6), inset 0 0 34px rgba(5, 6, 11, 0.45); opacity: 0; z-index: 18; }
+      /* the label lives BELOW the phone: over a busy guest photo it was
+         unreadable, and a caption about the photo must not sit on it */
+      #s2-facelbl { position: absolute; left: 349px; top: 936px; width: 500px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.18em; font-size: 26px; color: var(--teal); opacity: 0; z-index: 18; }
       #s2-chips { position: absolute; left: 880px; top: 342px; width: 800px; display: flex; flex-direction: column; gap: 30px; text-align: left; }
       .s2chip { font-family: "Jost", Arial, sans-serif; font-weight: 600; font-size: 42px; line-height: 1.25; padding: 24px 36px; opacity: 0; }
 
@@ -90,7 +92,8 @@
       .arch .plate { position: absolute; background: linear-gradient(150deg, #f7e3b6, #c9a25c 45%, #7d5f2a); box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.35); }
       .arch .hole { position: absolute; background: #00ff00; border-radius: 50%; }
       .arch .alb { display: block; margin-top: 20px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; font-size: 25px; color: var(--muted); }
-      #s3-note { position: absolute; left: 0; right: 0; top: 812px; text-align: center; opacity: 0; }
+      /* clear of a spotlit card: a 1.09 scale pushes its label down to ~809 */
+      #s3-note { position: absolute; left: 0; right: 0; top: 852px; text-align: center; opacity: 0; }
 
       /* S4 lettering */
       #s4-row { position: absolute; left: 291px; top: 268px; display: flex; gap: 46px; }
@@ -98,7 +101,7 @@
       .lcard .art { position: relative; width: 300px; height: 537px; border-radius: 16px; overflow: hidden; border: 2px solid rgba(232, 200, 138, 0.45); box-shadow: 0 0 40px -12px rgba(232, 200, 138, 0.6); }
       .lcard .art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
       .lcard .llb { display: block; margin-top: 18px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; font-size: 24px; color: var(--muted); }
-      #s4-chips { position: absolute; left: 0; right: 0; top: 892px; display: flex; justify-content: center; gap: 24px; }
+      #s4-chips { position: absolute; left: 0; right: 0; top: 908px; display: flex; justify-content: center; gap: 24px; }
       .pchip { font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; font-size: 26px; padding: 16px 30px; border-radius: 999px; border: 1.5px solid rgba(169, 196, 255, 0.4); background: rgba(9, 11, 20, 0.8); color: var(--fg); opacity: 0; }
 
       /* S5 the key */
@@ -120,7 +123,7 @@
       #s6-ok { position: absolute; left: 460px; top: 760px; width: 240px; text-align: center; font-family: "Jost", Arial, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.2em; font-size: 24px; color: #06130c; padding: 16px 0; border-radius: 999px; background: linear-gradient(115deg, #34d399, #6ee7b7 55%, #34d399); box-shadow: 0 0 44px -8px rgba(52, 211, 153, 0.85); opacity: 0; }
       #s6-out { position: absolute; left: 1230px; top: 300px; width: 300px; height: 534px; border-radius: 18px; overflow: hidden; border: 2px solid rgba(169, 196, 255, 0.35); opacity: 0; }
       #s6-out img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-      #s6-arrow { position: absolute; left: 990px; top: 548px; width: 190px; height: 6px; border-radius: 999px; background: linear-gradient(90deg, rgba(251, 146, 60, 0), rgba(251, 146, 60, 0.95)); opacity: 0; }
+      #s6-arrow { position: absolute; left: 970px; top: 544px; width: 220px; height: 10px; border-radius: 999px; background: linear-gradient(90deg, rgba(251, 146, 60, 0), rgba(251, 146, 60, 1)); box-shadow: 0 0 30px -4px rgba(251, 146, 60, 0.9); opacity: 0; }
       #s6-chip { left: 1240px; top: 872px; width: 300px; color: var(--orange); }
 
       /* S7 live in the booth — phone 280 wide → screen (399, 279, 280, 574) */
@@ -326,10 +329,12 @@
 
         /* ── S4 · real generated frames, one per lettering treatment ───── */
         var LET = [
-          { id: "mono", img: "media/cursive-monogram-bottom.jpg", lbl: "Monogram · bottom" },
-          { id: "script", img: "media/script-name-extending.jpg", lbl: "Script · past the edge" },
-          { id: "block", img: "media/block-name-integrated.jpg", lbl: "Block · woven in" },
-          { id: "art", img: "media/name-art-standalone.jpg", lbl: "Name art only" },
+          /* one word per card — two-line labels grew into the placement chips
+             when a card takes its 1.07 spotlight scale */
+          { id: "mono", img: "media/cursive-monogram-bottom.jpg", lbl: "Monogram" },
+          { id: "script", img: "media/script-name-extending.jpg", lbl: "Script" },
+          { id: "block", img: "media/block-name-integrated.jpg", lbl: "Block caps" },
+          { id: "art", img: "media/name-art-standalone.jpg", lbl: "Name art" },
         ];
         var lrow = document.getElementById("s4-row");
         LET.forEach(function (l) {
