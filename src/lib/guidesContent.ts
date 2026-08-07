@@ -34,9 +34,12 @@ export type GuideSlug =
  *  with the renders (see guidesMedia.GUIDE_VIDEO). */
 export type GuideVideoKey = 'first-event' | 'design-a-frame';
 
-/** Annotated product screenshots. The images are shot in a later phase — the
- *  entries below already exist so the layout is authored against them. */
-export type HotspotShotKey = 'studio-editor' | 'event-chrome';
+/** Annotated product screenshots. One key: the studio editor, captured from
+ *  the /dev/studio harness at a fixed viewport. An event-chrome shot was
+ *  considered and dropped — EventStudio's chrome renders around live event
+ *  fetches, so no harness can capture it deterministically; that chrome is
+ *  described in a steps block instead. */
+export type HotspotShotKey = 'studio-editor';
 
 export interface Hotspot {
   id: string;
@@ -64,17 +67,95 @@ export interface HotspotShot {
 export const HOTSPOT_SHOTS: Record<HotspotShotKey, HotspotShot> = {
   'studio-editor': {
     key: 'studio-editor',
-    width: 0,
-    height: 0,
-    alt: 'The Beamwall studio with the stage in the middle, the library on the left and the properties panel on the right',
-    hotspots: [],
-  },
-  'event-chrome': {
-    key: 'event-chrome',
-    width: 0,
-    height: 0,
-    alt: 'An event dashboard showing the live status pill, the guest link and the tab rail',
-    hotspots: [],
+    width: 2880,
+    height: 1800,
+    alt: 'The Beamwall studio with the stage in the middle, the asset library on the left and the properties panel on the right',
+    hotspots: [
+      {
+        id: 'rename',
+        x: 0.112, y: 0.032, side: 'right',
+        label: 'Name it',
+        title: 'Your experience’s name',
+        body: 'Tap the pencil to rename it right here. Guests see this name when your booth offers more than one look.',
+      },
+      {
+        id: 'director',
+        x: 0.867, y: 0.032, side: 'left',
+        label: 'AI Director',
+        title: 'Describe it — the AI builds it',
+        body: 'Tell the Director the vibe and it designs a matching frame, filter and head-piece as one scene. You preview each piece and only keep what you love.',
+      },
+      {
+        id: 'save',
+        x: 0.956, y: 0.032, side: 'left',
+        label: 'Save',
+        title: 'Save your scene',
+        body: 'Saves your work to this experience. Your drafts are also kept locally as you edit, so a refresh never loses the scene.',
+      },
+      {
+        id: 'search',
+        x: 0.104, y: 0.172, side: 'right',
+        label: 'Find fast',
+        title: 'Search and filter chips',
+        body: 'Everything lives in one library. The chips — Frames, Stickers, Filters, 3D — narrow it, and the active chip also decides what kind of thing your next upload becomes.',
+      },
+      {
+        id: 'upload',
+        x: 0.105, y: 0.250, side: 'right',
+        label: 'Bring your own',
+        title: 'Upload art or a 3D model',
+        body: 'PNG, JPG, WEBP and SVG for flat art — transparent PNGs at 1080 × 1920 work best for frames — and GLB or GLTF for 3D. One file drops straight onto your scene.',
+      },
+      {
+        id: 'quick-ai',
+        x: 0.105, y: 0.382, side: 'right',
+        label: 'Quick AI',
+        title: 'A frame in one tap',
+        body: 'Type what you want and get a single frame back. Your first three AI images per event are free, and a failed generation never costs a retry.',
+      },
+      {
+        id: 'power-ups',
+        x: 0.105, y: 0.518, side: 'right',
+        label: 'Power-Ups',
+        title: 'Gesture-fired magic',
+        body: 'Power FX arms a visor, wand or gauntlet that fires when a guest clenches a fist or opens a palm. 3D Name Jewelry builds a necklace or floating text from a name.',
+      },
+      {
+        id: 'library',
+        x: 0.105, y: 0.780, side: 'right',
+        label: 'The library',
+        title: 'Built-in frames and props',
+        body: 'Ready-made frames, stickers, filters and 3D head pieces. Tap any tile to add it to the scene — its settings open in the panel on the right.',
+      },
+      {
+        id: 'modes',
+        x: 0.499, y: 0.118, side: 'right',
+        label: 'Three views',
+        title: '2D, 3D and Preview',
+        body: 'One scene, three views. 2D places flat frames and filters, 3D anchors face-tracked props, and Preview shows the finished result exactly as a guest will see it.',
+      },
+      {
+        id: 'starters',
+        x: 0.499, y: 0.312, side: 'right',
+        label: 'Start with a look',
+        title: 'Starter scenes',
+        body: 'Each card is a real shot from that scene. Tap one to start from it, then make it yours — nothing is locked.',
+      },
+      {
+        id: 'test-on-phone',
+        x: 0.598, y: 0.944, side: 'left',
+        label: 'Test on phone',
+        title: 'Your own face, no publishing',
+        body: 'Scan the QR with your handset and try the scene on a real camera. Nothing is shown to guests until you publish.',
+      },
+      {
+        id: 'properties',
+        x: 0.894, y: 0.336, side: 'left',
+        label: 'Fine-tune',
+        title: 'The properties panel',
+        body: 'Whatever you select opens here — position, size, colour, finish, an engraved name, magic triggers. The Scene tab beside it lists every layer in your scene.',
+      },
+    ],
   },
 };
 
@@ -772,10 +853,27 @@ const USE_THE_STUDIO: GuideDoc = {
       ],
     },
     {
-      kind: 'hotspots',
-      shot: 'event-chrome',
+      kind: 'steps',
       title: 'The bar above the tabs',
-      blurb: 'The live pill, the guest link and the controls that follow you across every tab.',
+      steps: [
+        {
+          title: 'Your event, at the top',
+          body: 'The event name, its address, and a pill telling you whether it is a draft, live, or ended. The back arrow beside it returns you to your events list.',
+        },
+        {
+          title: 'The credit pill',
+          body: 'Your AI credit balance rides along on every tab. It turns red at zero — which is also the answer if a generation ever seems to do nothing.',
+          tip: 'Tapping it takes you straight to Billing.',
+        },
+        {
+          title: 'The sparkle button',
+          body: 'Opens the Copilot anywhere in your event. Describe what you want; it proposes, you confirm.',
+        },
+        {
+          title: 'The guest link chip',
+          body: 'One tap copies your event’s welcome link — the exact address your QR signage points at. Report a problem sits beside it if anything ever feels off.',
+        },
+      ],
     },
     {
       kind: 'prose',

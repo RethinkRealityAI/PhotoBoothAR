@@ -12,6 +12,10 @@
  * for the gallery grid.
  */
 import type { FramePackId, GuideVideoKey, HotspotShotKey } from './guidesContent';
+import firstEventMp4 from '../assets/guides/guide-first-event.mp4';
+import firstEventPoster from '../assets/guides/guide-first-event.jpg';
+import designAFrameMp4 from '../assets/guides/guide-design-a-frame.mp4';
+import designAFramePoster from '../assets/guides/guide-design-a-frame.jpg';
 
 /**
  * An annotated product screenshot. Served by URL for the same reason the
@@ -48,15 +52,12 @@ export function frameDownloadName(id: FramePackId): string {
 }
 
 /**
- * Guide films. `null` = not rendered yet; GuideBlock draws a styled placeholder
- * rather than a <video> pointed at a 404.
- *
- * The compositions exist (hyperframes/studio/guide-first-event and
- * guide-design-a-frame) — media lands in phase 3, and these entries become
- * `{ src, poster }` imports then. Deliberately NOT imported today: a bundler
- * import of a missing file is a build failure, not a graceful gap.
+ * Guide films, rendered by the beamwall-video pipeline from the compositions in
+ * hyperframes/studio/guide-*. `null` remains legal for a film whose media has
+ * not landed yet — GuideBlock draws a styled placeholder rather than a <video>
+ * pointed at a 404 — so a future guide can ship copy-first.
  */
 export const GUIDE_VIDEO: Record<GuideVideoKey, { src: string; poster: string } | null> = {
-  'first-event': null,
-  'design-a-frame': null,
+  'first-event': { src: firstEventMp4, poster: firstEventPoster },
+  'design-a-frame': { src: designAFrameMp4, poster: designAFramePoster },
 };

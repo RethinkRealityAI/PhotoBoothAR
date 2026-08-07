@@ -53,7 +53,7 @@ const fail = (msg) => { failures++; console.log(`  ✗ ${msg}`); };
 
 try {
   if (mode === 'shots') {
-    mkdirSync('src/assets/guides/shots', { recursive: true });
+    mkdirSync('public/guides/shots', { recursive: true });
     const ctx = await browser.newContext({
       viewport: { width: 1440, height: 900 },
       deviceScaleFactor: 2,
@@ -65,8 +65,7 @@ try {
     page.on('pageerror', (e) => errors.push(e.message));
 
     for (const [route, out] of [
-      ['/dev/studio', 'src/assets/guides/shots/studio-editor.png'],
-      ['/dev/event-chrome', 'src/assets/guides/shots/event-chrome.png'],
+      ['/dev/studio', 'public/guides/shots/studio-editor.png'],
     ]) {
       const res = await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => null);
       if (!res) { console.log(`! ${route} unreachable — skipped`); continue; }
@@ -154,11 +153,14 @@ try {
           if (await marker.count()) {
             await marker.click();
             await page.waitForTimeout(500);
+            // Two dialogs exist per open hotspot (the md popover is
+            // display:none on phone) — pass if ANY dialog is actually visible
+            // and fully on-screen.
             const sheetVisible = await page.evaluate(() => {
-              const el = document.querySelector('[role="dialog"]');
-              if (!el) return false;
-              const r = el.getBoundingClientRect();
-              return r.height > 60 && r.top >= 0 && r.bottom <= window.innerHeight + 1;
+              return [...document.querySelectorAll('[role="dialog"]')].some((el) => {
+                const r = el.getBoundingClientRect();
+                return r.height > 60 && r.top >= 0 && r.bottom <= window.innerHeight + 1;
+              });
             });
             if (!sheetVisible) fail('hotspot bottom sheet did not open on-screen');
             else console.log('  ✓ hotspot sheet opens on-screen');

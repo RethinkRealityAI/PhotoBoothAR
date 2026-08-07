@@ -11,11 +11,14 @@
  * wedding, so the failure mode it has to be protected from is drifting back
  * into the flat internal register the rest of the repo is written in.
  *
- * NO FILE-EXISTENCE ASSERTIONS YET. The frame PNGs and thumbs are shipped and
- * the film sources are not; phase 3 renders them and adds those checks (walk
- * FRAME_PACK against public/guides/frames/ and GUIDE_VIDEO against its poster
- * and mp4) once every referenced file is real.
+ * Media existence is asserted at the bottom of this file: every FRAME_PACK id
+ * must have its PNG + thumb on disk, every film its mp4 + poster, and every
+ * hotspot shot's recorded width/height must equal the committed PNG's real
+ * IHDR bytes — so re-shooting a screenshot at a different viewport goes red
+ * instead of silently invalidating every hotspot coordinate.
  */
+import { readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   FRAME_CATEGORY_LABELS,
@@ -404,6 +407,51 @@ describe('voice', () => {
       if (block.kind !== 'callout') continue;
       expect(['tip', 'watch']).toContain(block.tone);
       expect(block.body.length).toBeGreaterThan(60);
+    }
+  });
+});
+
+describe('media files', () => {
+  const repo = join(__dirname, '..', '..');
+  const exists = (rel: string) => {
+    try {
+      return statSync(join(repo, rel)).size > 0;
+    } catch {
+      return false;
+    }
+  };
+
+  it('ships a PNG and a thumb for every frame in the pack', () => {
+    // A missing file under public/ is served as index.html at HTTP 200, so
+    // only an on-disk check catches it before deploy.
+    for (const f of FRAME_PACK) {
+      expect(exists(`public/guides/frames/${f.id}.png`), `${f.id}.png missing from public/guides/frames`).toBe(true);
+      expect(exists(`public/guides/frames/thumb/${f.id}.webp`), `${f.id}.webp thumb missing`).toBe(true);
+    }
+  });
+
+  it('ships the mp4 and poster behind every film block', () => {
+    for (const key of Object.keys(KNOWN_VIDEOS) as GuideVideoKey[]) {
+      expect(exists(`src/assets/guides/guide-${key}.mp4`), `guide-${key}.mp4 missing`).toBe(true);
+      expect(exists(`src/assets/guides/guide-${key}.jpg`), `guide-${key}.jpg poster missing`).toBe(true);
+    }
+  });
+
+  it('records each hotspot shot at the exact size of its committed PNG', () => {
+    // IHDR width/height live at fixed offsets in every PNG. A re-shoot at a
+    // different viewport changes them, and every fractional hotspot coordinate
+    // silently lands on the wrong UI — this makes that a red test instead.
+    for (const shot of Object.values(HOTSPOT_SHOTS)) {
+      const rel = `public/guides/shots/${shot.key}.png`;
+      expect(exists(rel), `${rel} missing — run: node scripts/shoot-guides.mjs shots`).toBe(true);
+      const b = readFileSync(join(repo, rel));
+      const w = b.readUInt32BE(16);
+      const h = b.readUInt32BE(20);
+      expect(
+        { width: w, height: h },
+        `${shot.key}: PNG is ${w}x${h} but HOTSPOT_SHOTS records ${shot.width}x${shot.height} — re-verify every hotspot coordinate against the new capture, then update width/height`,
+      ).toEqual({ width: shot.width, height: shot.height });
+      expect(shot.hotspots.length, `${shot.key} is shot but has no hotspots authored`).toBeGreaterThan(3);
     }
   });
 });

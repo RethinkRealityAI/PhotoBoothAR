@@ -99,6 +99,7 @@ export default function HotspotShot({
             >
               <button
                 type="button"
+                data-hotspot-marker
                 ref={(el) => {
                   buttons.current[i] = el;
                 }}
