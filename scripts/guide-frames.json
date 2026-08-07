@@ -1,4 +1,16 @@
 {
   "comment": "Chosen raw variant per /guides downloadable frame. key-guide-frames.mjs (run by the fetch-remote-assets workflow, or locally) keys each raw's green window to transparency at 1080x1920 into public/guides/frames/<id>.png plus a thumb webp, then deletes every _raw/<id>__v*.png. Empty until the vendored variants have been reviewed and winners picked.",
-  "frames": []
+  "frames": [
+    { "id": "wedding-magazine-cover", "raw": "src/assets/guides/_raw/wedding-magazine-cover__v1.png" },
+    { "id": "wedding-monogram-drop", "raw": "src/assets/guides/_raw/wedding-monogram-drop__v1.png" },
+    { "id": "wedding-arch-mask", "raw": "src/assets/guides/_raw/wedding-arch-mask__v1.png" },
+    { "id": "gala-magazine-cover", "raw": "src/assets/guides/_raw/gala-magazine-cover__v1.png" },
+    { "id": "birthday-monogram-corner", "raw": "src/assets/guides/_raw/birthday-monogram-corner__v1.png" },
+    { "id": "launch-product-side", "raw": "src/assets/guides/_raw/launch-product-side__v1.png" },
+    { "id": "corporate-badge-mask", "raw": "src/assets/guides/_raw/corporate-badge-mask__v2.png" },
+    { "id": "cultural-asoebi-arch", "raw": "src/assets/guides/_raw/cultural-asoebi-arch__v1.png" },
+    { "id": "cultural-mehndi-arch", "raw": "src/assets/guides/_raw/cultural-mehndi-arch__v1.png" },
+    { "id": "christmas-santa-cover", "raw": "src/assets/guides/_raw/christmas-santa-cover__v1.png" },
+    { "id": "nye-countdown", "raw": "src/assets/guides/_raw/nye-countdown__v1.png" }
+  ]
 }
