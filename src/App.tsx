@@ -13,7 +13,7 @@
  * Legacy mode (VITE_EVENT set): behaves exactly like the original single-event
  * build — registry event at the top-level routes, studio at /admin/*.
  */
-import { lazy, Suspense, type ReactNode } from 'react';
+import { lazy, Suspense, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 // Eager: the marketing entry + auth/legal surfaces a first-time visitor hits.
 // Kept in the initial bundle so first paint doesn't wait on a chunk fetch.
@@ -84,6 +84,17 @@ const CopilotFab = lazy(() => import('./components/copilot/CopilotFab'));
 const CopilotPanel = lazy(() => import('./components/copilot/CopilotPanel'));
 // Lazy too: nothing is loaded until somebody actually reports something.
 const SupportDialog = lazy(() => import('./components/support/SupportDialog'));
+
+/**
+ * Public guides. Runtime-mode only, and folded out of legacy builds the same
+ * way the DEV tools below are: with VITE_EVENT set, the ternary's dynamic
+ * import is in the dead branch, so Rollup drops the whole guides tree —
+ * content, prompt library, frame gallery — from the three frozen event sites,
+ * which have no marketing surface to reach it from.
+ */
+const Guides = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/Guides'));
 
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
@@ -225,6 +236,10 @@ export default function App() {
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/privacy" element={<Legal doc="privacy" />} />
               <Route path="/terms" element={<Legal doc="terms" />} />
+              {/* Public guides. The bare path is the hub; an unknown :slug
+                  renders the hub with a note rather than 404ing a printed link. */}
+              <Route path="/guides" element={<Guides />} />
+              <Route path="/guides/:slug" element={<Guides />} />
 
               {/* Host platform (session-gated) */}
               <Route path="/host" element={<HostLayout />}>
