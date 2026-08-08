@@ -4,15 +4,18 @@
  *
  * The free frame pack.
  *
- * Two things make this more than a grid of links:
+ * Three things make this more than a grid of links:
  *
- *  1. The DASHED FACE WINDOW. Every entry carries a measured faceBox, drawn
+ *  1. The CHEQUERBOARD (FrameThumb). These are transparent PNGs and the hole in
+ *     the middle is the whole product; on a flat dark tile it just looked like
+ *     black artwork.
+ *  2. The DASHED FACE WINDOW. Every entry carries a measured faceBox, drawn
  *     over the thumbnail. A host choosing a frame is really choosing how much
  *     room a person gets, and no thumbnail communicates that on its own — the
  *     arch designs in particular look generous and leave a narrow slot. On a
  *     phone the overlay is always on (there is no hover); on a pointer device
  *     it fades in, so the artwork is unobstructed while browsing.
- *  2. The thumbnails are WebP and lazy — the full 1080 × 1920 PNGs are only
+ *  3. The thumbnails are WebP and lazy — the full 1080 × 1920 PNGs are only
  *     fetched when somebody actually downloads one.
  */
 import { useState } from 'react';
@@ -23,7 +26,9 @@ import {
   type FrameCategory,
   type FramePackId,
 } from '../../lib/guidesContent';
-import { frameDownloadName, framePng, frameThumb } from '../../lib/guidesMedia';
+import { frameDownloadName, framePng } from '../../lib/guidesMedia';
+import FrameThumb from './FrameThumb';
+import SectionHead, { CountChip } from './SectionHead';
 
 type Filter = FrameCategory | 'all';
 
@@ -57,10 +62,13 @@ export default function DownloadGallery({
 
   return (
     <section data-guide-block="downloads" data-reveal="up" className="w-full">
-      <h3 className="mb-2 font-serif text-2xl text-brand-fg">{title}</h3>
-      <p className="mb-5 max-w-2xl text-sm leading-relaxed text-brand-muted">{blurb}</p>
+      <SectionHead
+        title={title}
+        blurb={blurb}
+        meta={<CountChip>{entries.length} free frames</CountChip>}
+      />
 
-      <div className="liquid-glass mb-6 flex flex-wrap items-center gap-1 rounded-full p-1.5">
+      <div className="liquid-glass mb-5 flex flex-wrap items-center gap-1 rounded-full p-1.5">
         <button type="button" onClick={() => setFilter('all')} className={chip(filter === 'all')}>
           All {entries.length}
         </button>
@@ -79,13 +87,7 @@ export default function DownloadGallery({
             download={frameDownloadName(e.id)}
             className="group liquid-glass pressable flex flex-col overflow-hidden rounded-2xl transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
           >
-            <span className="relative block aspect-[9/16] w-full overflow-hidden bg-black/40">
-              <img
-                src={frameThumb(e.id)}
-                alt={e.title}
-                loading="lazy"
-                className="h-full w-full object-cover"
-              />
+            <FrameThumb id={e.id} alt={e.title}>
               {/* The measured face window. Always visible on touch (no hover
                   exists there); fades in on pointer devices. */}
               <span
@@ -105,7 +107,7 @@ export default function DownloadGallery({
                   your face goes here
                 </span>
               </span>
-            </span>
+            </FrameThumb>
             <span className="flex flex-1 flex-col gap-1.5 p-3.5">
               <span className="font-serif text-sm leading-tight text-brand-fg">{e.title}</span>
               <span className="text-[11px] leading-snug text-brand-muted/85">{e.blurb}</span>

@@ -1,13 +1,19 @@
 /**
  * key-guide-frames — turn vendored green-screen frame art into the transparent
  * 1080×1920 PNGs the /guides download gallery ships, plus 540w webp thumbnails
- * composited on the brand void so the transparent hole reads as a hole.
+ * that KEEP that transparency so the page can say what the hole is.
  *
  * Input:  scripts/guide-frames.json  { frames: [{ id, raw }] }
  *         where raw is a repo-relative PNG under src/assets/guides/_raw/
  *         (vendored there by the fetch-remote-assets workflow).
  * Output: public/guides/frames/<id>.png        (real alpha, 1080×1920)
- *         public/guides/frames/thumb/<id>.webp (540w, composited on #05060B)
+ *         public/guides/frames/thumb/<id>.webp (540w, real alpha)
+ *
+ * The thumbs used to be flattened onto the page's own near-black — which made
+ * every face window render as a black void, indistinguishable from black
+ * ARTWORK on the dark designs, and it is the first thing a host has to
+ * understand about a frame. They now carry alpha (~20% more bytes, still
+ * 16-50 KB) and the gallery paints a chequerboard behind them.
  *
  * The actual keying is src/lib/studio/chromaKey.ts — the same tested
  * YCbCr-chroma + despill + contain-fit pipeline the product's AI Frame Studio
@@ -21,8 +27,10 @@
  * has its PNG, so a gated frame turns CI red instead of shipping green.
  *
  * Runs both locally (ffmpeg via @ffmpeg-installer in node_modules) and in the
- * fetch-remote-assets workflow (apt ffmpeg). Idempotent: existing outputs are
- * never re-keyed; successful ids get their _raw/<id>__v*.png variants deleted.
+ * fetch-remote-assets workflow (apt ffmpeg). Idempotent: an existing PNG is
+ * never re-keyed (that half consumes the raw); its thumb IS re-derived every
+ * run, because a thumb is a pure function of a committed lossless PNG, so it
+ * can never drift from the frame it stands for.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, readdirSync } from 'node:fs';
@@ -37,8 +45,6 @@ const OUT_DIR = join(repo, 'public', 'guides', 'frames');
 const THUMB_DIR = join(OUT_DIR, 'thumb');
 const W = 1080;
 const H = 1920;
-/** Thumb composite ground — matches the guides page's dark void. */
-const THUMB_BG = '0x05060B';
 
 function bin(name, pkgPath) {
   const vendored = join(repo, 'node_modules', pkgPath);
@@ -65,6 +71,20 @@ function probeSize(file) {
     throw new Error(`ffprobe returned unusable dimensions "${out}" for ${file}`);
   }
   return { w, h };
+}
+
+/**
+ * The gallery thumbnail: 540w webp, alpha intact, derived from the committed
+ * transparent PNG. libwebp carries the alpha channel straight through — the
+ * flattening that used to happen here was an explicit colour overlay, not a
+ * codec limit.
+ */
+function writeThumb(srcPng, outWebp) {
+  run(FFMPEG, [
+    '-v', 'error', '-y', '-i', srcPng,
+    '-vf', 'scale=540:-2',
+    '-frames:v', '1', '-update', '1', '-c:v', 'libwebp', '-q:v', '82', outWebp,
+  ]);
 }
 
 async function loadChromaKey() {
@@ -104,7 +124,13 @@ for (const { id, raw } of frames) {
   }
   const outPng = join(OUT_DIR, `${id}.png`);
   const outThumb = join(THUMB_DIR, `${id}.webp`);
-  if (existsSync(outPng) && existsSync(outThumb)) {
+  if (existsSync(outPng)) {
+    // Keying is the half that consumes the raw, so a committed PNG is never
+    // re-keyed. The thumb is re-derived: ~50ms, no generation loss (the source
+    // is the committed lossless PNG, unlike the mp4 re-encode trap in
+    // fetch-remote-assets), and it means a recipe change here reaches every
+    // shipped thumb on the next run instead of only the next new frame.
+    writeThumb(outPng, outThumb);
     skipped++;
     continue;
   }
@@ -135,12 +161,7 @@ for (const { id, raw } of frames) {
       '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${W}x${H}`, '-i', '-',
       '-frames:v', '1', '-update', '1', outPng,
     ], Buffer.from(image.data.buffer, image.data.byteOffset, image.data.length));
-    run(FFMPEG, [
-      '-v', 'error', '-y', '-i', outPng,
-      '-filter_complex',
-      `color=${THUMB_BG}:s=${W}x${H}[bg];[bg][0:v]overlay=shortest=1,scale=540:-2`,
-      '-frames:v', '1', '-update', '1', '-c:v', 'libwebp', '-q:v', '82', outThumb,
-    ]);
+    writeThumb(outPng, outThumb);
     // Success — every variant of this id has served its purpose.
     if (existsSync(RAW_DIR)) {
       for (const f of readdirSync(RAW_DIR)) {

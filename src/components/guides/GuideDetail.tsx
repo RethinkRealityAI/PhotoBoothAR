@@ -9,6 +9,7 @@
  * to want the next one than the index — and the header already carries the way
  * back.
  */
+import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Clock } from 'lucide-react';
 import { GUIDES, GUIDE_ORDER, type GuideDoc } from '../../lib/guidesContent';
@@ -52,7 +53,14 @@ export default function GuideDetail({ doc }: { doc: GuideDoc }) {
         </p>
       </header>
 
-      <div className="mt-14 flex w-full max-w-3xl flex-col items-start gap-12 text-left sm:mt-16 sm:gap-14">
+      {/* --guide-hue is read by SectionHead's rule, so every block heading down
+          the page carries the same colour the hub card and this hero use. It is
+          set here rather than passed as a prop: the blocks are recursive-ish
+          content and threading a colour through nine renderers would drift. */}
+      <div
+        className="mt-14 flex w-full max-w-3xl flex-col items-start gap-14 text-left sm:mt-16 sm:gap-16"
+        style={{ '--guide-hue': doc.hue } as CSSProperties}
+      >
         {doc.blocks.map((block, bi) => (
           <GuideBlock key={`${block.kind}-${bi}`} block={block} />
         ))}

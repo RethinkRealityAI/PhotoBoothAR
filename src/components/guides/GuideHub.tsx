@@ -11,7 +11,7 @@
  */
 import { Link } from 'react-router-dom';
 import { ArrowRight, Clock } from 'lucide-react';
-import { GUIDES, GUIDE_ORDER } from '../../lib/guidesContent';
+import { GUIDES, GUIDE_ORDER, guideHighlights } from '../../lib/guidesContent';
 
 export default function GuideHub({ notice }: { notice?: string }) {
   return (
@@ -75,6 +75,19 @@ export default function GuideHub({ notice }: { notice?: string }) {
               </span>
               <h2 className="relative font-serif text-2xl leading-tight text-brand-fg">{g.title}</h2>
               <p className="relative max-w-lg text-sm leading-relaxed text-brand-muted">{g.hook}</p>
+              {/* What the guide hands you, counted from its own blocks — five
+                  cards that differ only in their title are five cards nobody
+                  can choose between. */}
+              <ul className="relative flex flex-wrap gap-1.5 pt-0.5">
+                {guideHighlights(g).map((h) => (
+                  <li
+                    key={h}
+                    className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-brand-muted/80"
+                  >
+                    {h}
+                  </li>
+                ))}
+              </ul>
               <span className="relative mt-auto inline-flex items-center gap-1.5 pt-2 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/70 transition group-hover:text-brand-fg">
                 Read it
                 <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden />

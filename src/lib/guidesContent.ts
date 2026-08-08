@@ -351,7 +351,12 @@ export const FRAME_PACK_BY_ID: Record<string, FramePackEntry> = Object.fromEntri
 export const GREEN_TAIL =
   'Vertical 9:16 poster, 1080 × 1920. Where people will appear, paint one flat pure green (#00FF00) shape with hard edges — no gradients, no shadows, and no green anywhere else. Keep every bit of artwork and text outside the green shape. No watermarks.';
 
-export type PromptCategory = FrameCategory | 'technique';
+/**
+ * Prompts are filed under the same event categories as the frame pack, so the
+ * two galleries filter alike and a host who liked a pack frame can find the
+ * prompt that makes more of them.
+ */
+export type PromptCategory = FrameCategory;
 
 export interface PromptCard {
   id: string;
@@ -361,6 +366,18 @@ export interface PromptCard {
   prompt: string;
   /** Which engine renders this best. 'any' = all of them handle it. */
   bestWith: 'higgsfield' | 'gemini' | 'chatgpt' | 'any';
+  /**
+   * The frame in the pack that a prompt like this one produced — shown beside
+   * the words so a host can SEE the result before spending a render on it.
+   *
+   * These are the real, shipped frames: the pack was generated from this same
+   * set of briefs. It is captioned as "a prompt like this" rather than "this
+   * exact prompt" on purpose — a couple of the finished designs moved an
+   * element (the birthday balloons, the product's side of the frame) between
+   * brief and render, and claiming an exact reproduction would be a promise
+   * the next generator run cannot keep.
+   */
+  exampleId?: FramePackId;
 }
 
 export const PROMPT_CARDS: readonly PromptCard[] = [
@@ -369,6 +386,7 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'wedding',
     label: 'Wedding · magazine cover',
     bestWith: 'higgsfield',
+    exampleId: 'wedding-magazine-cover',
     prompt: `A luxury bridal magazine cover. Ivory and champagne palette, soft film grain, one elegant serif masthead across the top reading "VOWS", small cover lines stacked down the left and right edges, a thin gold rule under the masthead. Peonies and eucalyptus spill in from the top corners. ${GREEN_TAIL}`,
   },
   {
@@ -376,6 +394,7 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'wedding',
     label: 'Wedding · floral arch window',
     bestWith: 'gemini',
+    exampleId: 'wedding-arch-mask',
     prompt: `A wedding ceremony arch built from garden roses, ranunculus and trailing eucalyptus, photographed straight on against a warm cream backdrop. The arch opening is an oval in the upper middle of the poster. The green shape is COMPLETELY BLANK — no face, no head, no person inside it. ${GREEN_TAIL}`,
   },
   {
@@ -383,6 +402,7 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'wedding',
     label: 'Wedding · monogram + side rails',
     bestWith: 'any',
+    exampleId: 'wedding-monogram-drop',
     prompt: `An elegant wedding poster: a large interlocking gold-foil monogram "A & J" hanging at the top centre, the date "12 · 09" in small caps beneath it, and two thin vertical rails of tiny script text running down the far left and far right edges. Deep midnight-blue background with a subtle linen texture. ${GREEN_TAIL}`,
   },
   {
@@ -390,6 +410,7 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'gala',
     label: 'Gala · black-tie cover',
     bestWith: 'higgsfield',
+    exampleId: 'gala-magazine-cover',
     prompt: `A black-tie charity gala magazine cover. Matte black background, brushed gold masthead across the top reading "THE GALA", three short cover lines in the lower left, a hairline gold border 40px inside the edges, and a scatter of tiny bokeh lights along the top. Editorial, expensive, restrained. ${GREEN_TAIL}`,
   },
   {
@@ -397,6 +418,7 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'gala',
     label: 'Gala · art deco window',
     bestWith: 'gemini',
+    exampleId: 'gala-artdeco-mask',
     prompt: `An Art Deco poster in black, gold and deep emerald: symmetrical sunburst fans, stepped geometric columns down both sides, and a chevron crest at the top. The centre opening is a tall rounded arch. The green shape is COMPLETELY BLANK — no face, no head, no person inside it. ${GREEN_TAIL}`,
   },
   {
@@ -404,6 +426,7 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'birthday',
     label: 'Birthday · balloon masthead',
     bestWith: 'gemini',
+    exampleId: 'birthday-monogram-corner',
     prompt: `A joyful birthday poster: a fat cluster of pink, coral and gold foil balloons filling the top quarter of the canvas like a masthead, a hand-lettered "HAPPY BIRTHDAY" arcing under them, and confetti drifting down the outer edges. Bright, glossy, party-lit. ${GREEN_TAIL}`,
   },
   {
@@ -411,6 +434,7 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'birthday',
     label: 'Birthday · character hands',
     bestWith: 'higgsfield',
+    exampleId: 'birthday-character-hands',
     prompt: `A playful illustrated flamingo in a party hat, seen from the chest up at the bottom of the poster, holding up a large empty oval tray with both wings so the tray opening sits in the upper middle. Pastel pink and mint palette, thick clean outlines, flat cartoon shading. The tray opening is the green shape and it is COMPLETELY BLANK — no face, no head, no person inside it. ${GREEN_TAIL}`,
   },
   {
@@ -418,6 +442,7 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'corporate',
     label: 'Launch · product on the side',
     bestWith: 'higgsfield',
+    exampleId: 'launch-product-side',
     prompt: `A premium product-launch poster. A sleek matte-black cosmetics bottle stands on a stone plinth hugging the RIGHT edge of the canvas, lit by a single studio softbox, with its reflection on a wet floor. The brand name sits small in the top-left corner. The left two thirds of the canvas stay clear for the guest. ${GREEN_TAIL}`,
   },
   {
@@ -425,6 +450,7 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'corporate',
     label: 'Conference · badge window',
     bestWith: 'chatgpt',
+    exampleId: 'corporate-badge-mask',
     prompt: `A modern tech-conference poster: an oversized illustrated event lanyard and badge holder occupying the lower third, a bold sans-serif event name across the top on a deep indigo gradient, and thin circuit-line decoration along both edges. The badge window is a rounded rectangle in the upper middle. The green shape is COMPLETELY BLANK — no face, no head, no person inside it. ${GREEN_TAIL}`,
   },
   {
@@ -432,6 +458,7 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'cultural',
     label: 'Aso ebi · gold arch',
     bestWith: 'higgsfield',
+    exampleId: 'cultural-asoebi-arch',
     prompt: `A Nigerian owambe celebration poster: two carved gold pillars draped in rich burgundy and emerald aso ebi lace rising up both sides into a decorated arch, gele-fabric folds curling in at the top corners, and small gold beadwork along the base. Warm, opulent, ceremonial. ${GREEN_TAIL}`,
   },
   {
@@ -439,6 +466,7 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'cultural',
     label: 'Mehndi · henna vines',
     bestWith: 'gemini',
+    exampleId: 'cultural-mehndi-arch',
     prompt: `A mehndi celebration poster on a warm saffron background: intricate henna vine work drawn in deep russet climbing both side edges and meeting in a paisley crown at the top, tiny marigold garlands strung across the upper corners, and a fine dotted border 50px inside the canvas edge. ${GREEN_TAIL}`,
   },
   {
@@ -446,6 +474,7 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'holiday',
     label: 'Christmas · elf hands',
     bestWith: 'higgsfield',
+    exampleId: 'christmas-elf-hands',
     prompt: `A cheerful illustrated elf in a green and red suit, seen from the shoulders up at the bottom of the poster, reaching both mittened hands upward to hold a large empty round ornament so the ornament sits in the upper middle. Snowy pine branches and warm fairy lights fill the corners. Storybook illustration, thick outlines. The ornament opening is the green shape and it is COMPLETELY BLANK — no face, no head, no person inside it. ${GREEN_TAIL}`,
   },
   {
@@ -453,6 +482,7 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'holiday',
     label: 'Christmas · cover shoot',
     bestWith: 'gemini',
+    exampleId: 'christmas-santa-cover',
     prompt: `A festive magazine cover: deep red velvet background with gold foil snowflakes, an ornate gold masthead across the top reading "NOEL", small cover lines down the right edge, and a garland of holly and warm bulbs draped across the very top. Rich, glossy, vintage-Christmas. ${GREEN_TAIL}`,
   },
   {
@@ -460,14 +490,8 @@ export const PROMPT_CARDS: readonly PromptCard[] = [
     category: 'holiday',
     label: 'New Year · countdown banner',
     bestWith: 'any',
+    exampleId: 'nye-countdown',
     prompt: `A New Year's Eve poster: a burst of gold and silver confetti frozen mid-air across the top third, a champagne-gold "MIDNIGHT" banner arcing beneath it, streamers falling down both outer edges, and a soft bokeh city skyline glowing along the very bottom. Black background, high contrast. ${GREEN_TAIL}`,
-  },
-  {
-    id: 'empty-window-clause',
-    category: 'technique',
-    label: 'Fix · the window came back with a face in it',
-    bestWith: 'any',
-    prompt: `[Describe your design here — for example: a carved marble arch with ivy at a summer wedding.] The green shape is COMPLETELY BLANK — no face, no head, no person inside it. Do not draw eyes, hair, a silhouette, a mannequin or a portrait in the green area. It is an empty hole in the artwork. ${GREEN_TAIL}`,
   },
 ];
 
@@ -602,7 +626,7 @@ const MAKE_A_FRAME: GuideDoc = {
         },
         {
           title: 'Write the prompt yourself, anywhere',
-          body: 'Use any image generator you already pay for — the prompts further down are written to work in all of them. Save the result, then upload it. The only rule is the green-screen rule in the box below.',
+          body: 'Use any image generator you already pay for — the prompts further down are written to work in all of them, and each one shows you the frame it makes. Save the result, then upload it. The only rule is the green-window rule those prompts all end with.',
           tip: 'Beamwall’s own AI Frame Studio runs on these same engines, so a prompt that works there works here.',
         },
         {
@@ -612,8 +636,29 @@ const MAKE_A_FRAME: GuideDoc = {
       ],
     },
     {
+      kind: 'downloads',
+      title: 'Start with a ready-made one',
+      blurb: 'Fourteen finished frames, already the right size and already cut out. Download the one closest to your night, upload it, go live. The chequered part is see-through — that is where your guest lands — and the dashed window shows how much room the design leaves them.',
+      entryIds: [
+        'wedding-magazine-cover',
+        'wedding-monogram-drop',
+        'wedding-arch-mask',
+        'gala-magazine-cover',
+        'gala-artdeco-mask',
+        'birthday-monogram-corner',
+        'birthday-character-hands',
+        'launch-product-side',
+        'corporate-badge-mask',
+        'cultural-asoebi-arch',
+        'cultural-mehndi-arch',
+        'christmas-elf-hands',
+        'christmas-santa-cover',
+        'nye-countdown',
+      ],
+    },
+    {
       kind: 'spec',
-      title: 'The frame spec, in one card',
+      title: 'What every frame has to be',
       rows: [
         {
           label: 'Size',
@@ -648,36 +693,9 @@ const MAKE_A_FRAME: GuideDoc = {
       ],
     },
     {
-      kind: 'callout',
-      tone: 'watch',
-      title: 'The green shape has to be EMPTY',
-      body: 'Face-window designs tempt every image generator into being helpful: you ask for an arch with a hole in it and it paints a lovely stranger standing in the hole. Then the window keys out around them and your guests appear behind somebody else’s face. We hit exactly this in production. The fix is one blunt sentence in the prompt — "the green shape is COMPLETELY BLANK — no face, no head, no person inside it" — and it is in the fix-it card below.',
-    },
-    {
-      kind: 'downloads',
-      title: 'The free frame pack',
-      blurb: 'Fourteen finished frames, already sized and already cut out. Download, upload, go live. The dashed window shows you where a guest’s face lands.',
-      entryIds: [
-        'wedding-magazine-cover',
-        'wedding-monogram-drop',
-        'wedding-arch-mask',
-        'gala-magazine-cover',
-        'gala-artdeco-mask',
-        'birthday-monogram-corner',
-        'birthday-character-hands',
-        'launch-product-side',
-        'corporate-badge-mask',
-        'cultural-asoebi-arch',
-        'cultural-mehndi-arch',
-        'christmas-elf-hands',
-        'christmas-santa-cover',
-        'nye-countdown',
-      ],
-    },
-    {
       kind: 'prompts',
-      title: 'Prompts you can paste',
-      blurb: 'One per event type, plus the fix for the most common failure. Copy, swap the names and colours for yours, and paste into any image generator.',
+      title: 'Or write your own — here are fourteen that work',
+      blurb: 'One for every kind of night, each shown beside a frame it made. Copy it, swap the names and colours for yours, and paste it into any image generator.',
       cardIds: [
         'wedding-cover-story',
         'wedding-arch-window',
@@ -693,8 +711,13 @@ const MAKE_A_FRAME: GuideDoc = {
         'christmas-elf-hands',
         'christmas-santa-cover',
         'nye-countdown-banner',
-        'empty-window-clause',
       ],
+    },
+    {
+      kind: 'callout',
+      tone: 'watch',
+      title: 'A face in your window? One sentence fixes it',
+      body: 'Window designs tempt every image generator into being helpful: ask for an arch with a hole in it and it paints a lovely stranger standing in the hole. The window then cuts out around them, and your guests appear behind somebody else’s face. Every window design we tried came back that way until we added one blunt line — so if it happens to you, paste this on the end of your prompt: "The green shape is COMPLETELY BLANK — no face, no head, no person inside it."',
     },
     {
       kind: 'tools',
@@ -1129,6 +1152,39 @@ export const GUIDE_ORDER: readonly GuideSlug[] = [
 
 export function isGuideSlug(v: string): v is GuideSlug {
   return Object.prototype.hasOwnProperty.call(GUIDES, v);
+}
+
+/**
+ * What is actually inside a guide, for the hub cards — "14 free frames",
+ * "14 prompts", "Film".
+ *
+ * DERIVED from the guide's own blocks rather than authored beside them. Five
+ * cards that differ only in their title all look like the same card, and the
+ * thing that makes one worth opening is usually what it hands you. Counting it
+ * here means the promise on the hub cannot outlive the block that keeps it.
+ */
+export function guideHighlights(doc: GuideDoc): string[] {
+  let frames = 0;
+  let prompts = 0;
+  let films = 0;
+  let shots = 0;
+  let steps = 0;
+  for (const b of doc.blocks) {
+    if (b.kind === 'downloads') frames += b.entryIds.length;
+    else if (b.kind === 'prompts') prompts += b.cardIds.length;
+    else if (b.kind === 'film') films += 1;
+    else if (b.kind === 'hotspots') shots += 1;
+    else if (b.kind === 'steps') steps += b.steps.length;
+  }
+  const out: string[] = [];
+  if (frames > 0) out.push(`${frames} free frames`);
+  if (prompts > 0) out.push(`${prompts} prompts`);
+  if (films > 0) out.push(films === 1 ? 'Film' : `${films} films`);
+  if (shots > 0) out.push('Labelled screenshot');
+  // Steps are the filler chip: every guide has them, so they only say anything
+  // on a card that has nothing rarer to offer.
+  if (steps > 0 && out.length < 2) out.push(`${steps} steps`);
+  return out;
 }
 
 /* ------------------------------------------------------------------ */

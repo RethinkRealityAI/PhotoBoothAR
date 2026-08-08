@@ -9,6 +9,7 @@
  */
 import { ArrowUpRight } from 'lucide-react';
 import { TOOL_CARD_BY_NAME } from '../../lib/guidesContent';
+import SectionHead from './SectionHead';
 
 export default function ToolCards({
   title,
@@ -24,8 +25,7 @@ export default function ToolCards({
 
   return (
     <section data-guide-block="tools" data-reveal="up" className="w-full">
-      <h3 className="mb-2 font-serif text-2xl text-brand-fg">{title}</h3>
-      <p className="mb-5 max-w-2xl text-sm leading-relaxed text-brand-muted">{blurb}</p>
+      <SectionHead title={title} blurb={blurb} />
       <div
         data-reveal-stagger
         className={`grid gap-3 ${tools.length > 1 ? 'sm:grid-cols-2' : 'sm:max-w-md'}`}

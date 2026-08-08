@@ -33,6 +33,7 @@ import {
   TOOL_CARDS,
   TOOL_CARD_BY_NAME,
   TOOL_HOST_ALLOWLIST,
+  guideHighlights,
   isGuideSlug,
   type FrameCategory,
   type GuideBlock,
@@ -152,6 +153,23 @@ describe('GUIDES — shape', () => {
       const ctas = doc.blocks.filter((b) => b.kind === 'cta');
       expect(ctas.length).toBeGreaterThan(0);
     }
+  });
+
+  it('gives every hub card something concrete to promise, counted from its blocks', () => {
+    // The hub chips are derived, never authored, so this asserts the derivation
+    // rather than the words: a guide with nothing countable in it would show a
+    // bare card, and make-a-frame's two galleries have to be counted as they
+    // are actually rendered, not as somebody once typed.
+    for (const doc of ALL_GUIDES) {
+      expect(guideHighlights(doc).length, `${doc.slug} offers the hub no highlights`).toBeGreaterThan(0);
+    }
+    const frame = GUIDES['make-a-frame'];
+    const downloads = frame.blocks.find((b) => b.kind === 'downloads');
+    const prompts = frame.blocks.find((b) => b.kind === 'prompts');
+    const counted = guideHighlights(frame);
+    expect(counted).toContain(`${downloads?.kind === 'downloads' ? downloads.entryIds.length : 0} free frames`);
+    expect(counted).toContain(`${prompts?.kind === 'prompts' ? prompts.cardIds.length : 0} prompts`);
+    expect(counted).toContain('Film');
   });
 
   it('points every call to action at an in-app route', () => {
@@ -291,11 +309,48 @@ describe('PROMPT_CARDS', () => {
   });
 
   it('teaches the empty-window fix somewhere, because production hit it', () => {
+    // This knowledge used to be asserted on a fill-in prompt card. The card is
+    // gone — a host does not want a template with a [describe your design
+    // here] in it — but the assertion is not: 6 of 6 window designs painted a
+    // stranger into the hole in the first production run, so the page has to
+    // keep saying how to stop it. It now has to say it in the guide itself.
     const teaches = PROMPT_CARDS.filter((p) => /COMPLETELY BLANK/.test(p.prompt));
     expect(teaches.length).toBeGreaterThan(0);
-    const fixCard = PROMPT_CARDS.find((p) => p.category === 'technique');
-    expect(fixCard).toBeDefined();
-    expect(fixCard?.prompt).toMatch(/no face, no head, no person/);
+    const bodies = blocksOf('callout')
+      .filter(({ slug }) => slug === 'make-a-frame')
+      .map(({ block }) => (block.kind === 'callout' ? block.body : ''));
+    const fix = bodies.find((b) => /COMPLETELY BLANK/.test(b));
+    expect(
+      fix,
+      'no make-a-frame callout tells a host how to empty a window that came back with a face painted in it',
+    ).toBeDefined();
+    expect(fix).toMatch(/no face, no head, no person/);
+  });
+
+  it('shows every prompt beside the frame it produces', () => {
+    // A wall of prose prompts is unreadable and unsellable. Every card carries
+    // an exampleId into FRAME_PACK so a host sees the result before spending a
+    // render on it — and an id that resolves to nothing renders a broken tile.
+    for (const p of PROMPT_CARDS) {
+      expect(
+        p.exampleId,
+        `prompt '${p.id}' has no exampleId — nobody can judge a prompt whose result they cannot see`,
+      ).toBeDefined();
+      expect(
+        FRAME_PACK_BY_ID[p.exampleId as string],
+        `prompt '${p.id}' shows example '${p.exampleId}', which is not in FRAME_PACK`,
+      ).toBeDefined();
+    }
+  });
+
+  it('files every prompt under a category the frame pack also uses', () => {
+    // Prompts and downloads share one set of chips; a category with prompts and
+    // no frames (or the reverse) makes one of the two filters a dead end.
+    const packed = new Set(FRAME_PACK.map((f) => f.category));
+    for (const p of PROMPT_CARDS) {
+      expect(FRAME_CATEGORY_LABELS[p.category], `prompt '${p.id}' has no category label`).toBeDefined();
+      expect(packed.has(p.category), `prompt '${p.id}' is filed under '${p.category}', which no frame in the pack uses`).toBe(true);
+    }
   });
 });
 
@@ -427,6 +482,16 @@ describe('media files', () => {
     for (const f of FRAME_PACK) {
       expect(exists(`public/guides/frames/${f.id}.png`), `${f.id}.png missing from public/guides/frames`).toBe(true);
       expect(exists(`public/guides/frames/thumb/${f.id}.webp`), `${f.id}.webp thumb missing`).toBe(true);
+    }
+  });
+
+  it('ships the example thumb every prompt card renders', () => {
+    for (const p of PROMPT_CARDS) {
+      if (p.exampleId === undefined) continue;
+      expect(
+        exists(`public/guides/frames/thumb/${p.exampleId}.webp`),
+        `prompt '${p.id}' shows example '${p.exampleId}' but public/guides/frames/thumb/${p.exampleId}.webp is missing`,
+      ).toBe(true);
     }
   });
 

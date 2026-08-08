@@ -150,3 +150,32 @@ placeholder, never a 404 video.
   hotspot shot, on purpose. Sweep runs against dev with placeholder
   VITE_SUPABASE_* env inline (no .env.local — another agent might inherit
   it); without env the whole app renders blank (supabase.ts throws at import).
+
+- 2026-08-08 — Owner round 2 (visual prompt library). THE FRAME THUMBS HAD NO
+  ALPHA: key-guide-frames composited each 540w webp onto `#05060B`, so every
+  face window shipped as a BLACK RECTANGLE — indistinguishable from black
+  artwork on the deco/midnight designs, and it is the first fact a host needs
+  about a frame. libwebp carries alpha straight through (the flattening was an
+  explicit `color=…[bg];overlay` filter, never a codec limit); thumbs are now
+  transparent (+~20% bytes: 16-50 KB each, 676 KB for all 14) and `FrameThumb`
+  paints a low-contrast chequerboard behind them. The script's skip rule
+  changed with it: a committed PNG is still never re-keyed (that half consumes
+  the raw), but the THUMB is re-derived from that PNG on every run, so a recipe
+  change reaches all 14 instead of only the next new frame — safe here because
+  the source is lossless and committed, unlike the mp4 re-encode trap.
+  CLAMP TRAP, cost one wrong fix: `-webkit-line-clamp` sizes the CONTENT box to
+  N lines while `overflow:hidden` clips at the PADDING box, so a padded clamped
+  element paints ~80% of line N+1 under its own ellipsis (measured
+  clientHeight 117px = 5 × 17.875 + 28). Padding goes on a WRAPPER, never on
+  the clamped element. Related: a clamped box that is a grid item stretches to
+  the tallest cell (a row-spanning thumbnail), so `items-start` too.
+  Screenshots: `fullPage:true` is USELESS on /guides — the page owns its own
+  scroll container (AppShell is h-screen overflow-hidden), so it captures one
+  viewport. Either shoot per-block, or force the reveals to their end state and
+  set the scroller to `height:auto; overflow:visible` before a full-page shot;
+  element screenshots of tall blocks stitch and can show phantom slabs where
+  backdrop-filter re-renders — verify any "artifact" in a plain viewport shot
+  before chasing it. Prompt→example mapping was verified against a 14-tile
+  contact sheet, not the ids: two shipped frames moved an element between
+  brief and render (birthday balloons, the product's side), which is why the
+  caption says "Made this" and not "run this and get exactly this".

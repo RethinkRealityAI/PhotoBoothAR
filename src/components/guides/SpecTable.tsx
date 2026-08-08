@@ -9,6 +9,8 @@
  * whether they got it right. On phones the three columns stack into one block
  * per row so nothing is squeezed into a 90px column.
  */
+import SectionHead from './SectionHead';
+
 export default function SpecTable({
   title,
   rows,
@@ -18,7 +20,7 @@ export default function SpecTable({
 }) {
   return (
     <section data-guide-block="spec" data-reveal="up" className="w-full">
-      <h3 className="mb-4 font-serif text-2xl text-brand-fg">{title}</h3>
+      <SectionHead title={title} />
       <div className="liquid-glass overflow-hidden rounded-2xl">
         <dl className="divide-y divide-white/5">
           {rows.map((r) => (

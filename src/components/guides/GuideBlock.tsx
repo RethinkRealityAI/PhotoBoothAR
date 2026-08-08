@@ -21,14 +21,19 @@ import { GUIDE_VIDEO } from '../../lib/guidesMedia';
 import DownloadGallery from './DownloadGallery';
 import HotspotShot from './HotspotShot';
 import PromptLibrary from './PromptLibrary';
+import SectionHead from './SectionHead';
 import SpecTable from './SpecTable';
 import ToolCards from './ToolCards';
 
 function Prose({ title, body }: { title?: string; body: string[] }) {
   return (
-    <section data-guide-block="prose" data-reveal="up" className="w-full max-w-2xl">
-      {title !== undefined && <h3 className="mb-4 font-serif text-2xl text-brand-fg">{title}</h3>}
-      <div className="space-y-4">
+    // Full width so the heading rule lines up with every other block, with the
+    // reading column held at one measure inside it — the mismatch between a
+    // max-w-2xl prose section and full-width cards is what made the page look
+    // ragged down the left of the scroll.
+    <section data-guide-block="prose" data-reveal="up" className="w-full">
+      {title !== undefined && <SectionHead title={title} />}
+      <div className="max-w-2xl space-y-4">
         {body.map((p) => (
           <p key={p.slice(0, 40)} className="text-[15px] leading-relaxed text-brand-muted">
             {p}
@@ -42,7 +47,7 @@ function Prose({ title, body }: { title?: string; body: string[] }) {
 function Steps({ title, steps }: { title: string; steps: { title: string; body: string; tip?: string }[] }) {
   return (
     <section data-guide-block="steps" data-reveal="up" className="w-full">
-      <h3 className="mb-5 font-serif text-2xl text-brand-fg">{title}</h3>
+      <SectionHead title={title} />
       <ol data-reveal-stagger className="space-y-3">
         {steps.map((s, i) => (
           <li key={s.title} className="liquid-glass rounded-2xl p-5">
@@ -80,8 +85,7 @@ function Film({ videoKey, title, caption }: { videoKey: keyof typeof GUIDE_VIDEO
   const media = GUIDE_VIDEO[videoKey];
   return (
     <section data-guide-block="film" data-reveal="up" className="w-full">
-      <h3 className="mb-2 font-serif text-2xl text-brand-fg">{title}</h3>
-      <p className="mb-5 max-w-2xl text-sm leading-relaxed text-brand-muted">{caption}</p>
+      <SectionHead title={title} blurb={caption} />
       {media === null ? (
         // The caption already sits directly above this panel — repeating it
         // inside was the first thing that read as a bug in review.

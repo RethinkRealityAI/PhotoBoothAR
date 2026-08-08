@@ -26,6 +26,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent }
 import { X } from 'lucide-react';
 import { HOTSPOT_SHOTS, type HotspotShotKey } from '../../lib/guidesContent';
 import { hotspotShotPng } from '../../lib/guidesMedia';
+import SectionHead from './SectionHead';
 
 export default function HotspotShot({
   shot: shotKey,
@@ -75,8 +76,7 @@ export default function HotspotShot({
 
   return (
     <section data-guide-block="hotspots" data-reveal="up" className="w-full">
-      <h3 className="mb-2 font-serif text-2xl text-brand-fg">{title}</h3>
-      <p className="mb-5 max-w-2xl text-sm leading-relaxed text-brand-muted">{blurb}</p>
+      <SectionHead title={title} blurb={blurb} />
 
       <div
         className="liquid-glass relative overflow-hidden rounded-2xl p-2"
