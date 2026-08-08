@@ -13,6 +13,7 @@ on:
   push:
     paths:
       - "scripts/remote-assets.json"
+      - "scripts/guide-frames.json"
       - ".github/workflows/fetch-remote-assets.yml"
 
 permissions:
@@ -51,6 +52,19 @@ jobs:
               echo "✓ ${path%.png}.webp (already vendored as webp — skipping)"
               continue
             fi
+            # Guide-frame raws (src/assets/guides/_raw/<id>__v<n>.png): once the
+            # keyed public/guides/frames/<id>.png exists, the raw was consumed
+            # and deleted by key-guide-frames.mjs — never re-fetch it.
+            case "$path" in
+              src/assets/guides/_raw/*)
+                base=$(basename "$path")
+                keyed="public/guides/frames/${base%%__*}.png"
+                if [ -f "$keyed" ]; then
+                  echo "✓ $keyed (raw already keyed — skipping $path)"
+                  continue
+                fi
+                ;;
+            esac
             mkdir -p "$(dirname "$path")"
             echo "→ $path"
             curl -fSL --retry 3 --retry-delay 2 -o "$path" "$url"
@@ -102,6 +116,18 @@ jobs:
             ffmpeg -y -i "$f" -vf "scale=1080:-2" -c:v libwebp -lossless 0 -compression_level 6 -q:v 86 "$out"
             rm "$f"
           done
+
+      - name: Key guide frames (green screen → transparent PNG + thumb)
+        run: |
+          set -euo pipefail
+          # Only pay for npm ci when scripts/guide-frames.json actually lists
+          # work: the keyer imports src/lib/studio/chromaKey.ts via esbuild.
+          if jq -e '.frames | length > 0' scripts/guide-frames.json >/dev/null 2>&1; then
+            npm ci --ignore-scripts
+            node scripts/key-guide-frames.mjs
+          else
+            echo "guide-frames.json lists no frames — skipping."
+          fi
 
       - name: Commit vendored assets
         run: |

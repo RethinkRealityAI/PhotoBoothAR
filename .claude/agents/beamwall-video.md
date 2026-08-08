@@ -608,3 +608,76 @@ re-encoded → file size sane (<2MB for landing embeds) → embedded/committed �
      landing films) — image-heavy scenes (14 corridor planes + 9 grid cells +
      5 deck cards, all photographic) dominate capture time. Budget by element
      count, not by resolution.
+
+- 2026-08-07: **First two GUIDE films** — `hyperframes/studio/guide-first-event/`
+  (45.0 s, five-step host onboarding) and `hyperframes/studio/guide-design-a-frame/`
+  (50.0 s, the AI Frame Studio explained), shipped to `src/assets/guides/`.
+  A guide film is a different genre from a feature film and the differences are
+  worth writing down:
+  1. **A persistent progress rail is the single best guide device** and it costs
+     one extra clip. `#rail` is its own `class="clip"` on track 5 spanning the
+     whole body of the film (3.4→41.8), with five nodes at `left: 300 + i*330`
+     and a `#rail-fill` bar driven `scaleX: (i+0.5)/5` at each step boundary.
+     GSAP animates `backgroundColor`/`borderColor`/`color` fine — the active dot
+     takes that step's hue, the previous one dims. It orients the viewer at
+     every scene cut for free, and it is the thing that makes a 45 s film not
+     feel long. WATCHOUT: it eats the bottom ~165 px (`bottom: 66`, 96 tall), so
+     every scene's tallest element must clear y≈918 — a `BW.phone(300)` is
+     653 px tall in total (`w*2.05` content + 32 pad + 6 border), so 280–300 px
+     wide is the ceiling for a phone in a railed scene. Compute the phone's
+     TOTAL height before choosing its `top`, not after seeing the collision.
+  2. **The static-tail rule inverts for a guide.** The 2026-07-31 recut treated
+     ~2 s of stillness at the end of a scene as dead air to be cut. In a guide
+     that stillness is READING TIME: the per-second sheet of guide-first-event
+     shows a ~2 s hold at the end of S2/S3/S4/S5 and it plays as
+     comprehensible, not slow. `blackdetect=d=0.5:pix_th=0.10` returned nothing
+     on both films, which is the actual bar — no dead FRAMES, holds are fine.
+  3. **"Typing" is a word-stagger, not a width reveal.** A clip-path/width
+     reveal breaks the moment the sentence wraps to a second line. Splitting on
+     spaces into `<span id="w-N">` and tweening each to `opacity: 1` over 0.16 s
+     at `4.55 + i*0.085` reads as typing at 30 fps, wraps naturally, and stays
+     deterministic. Pair it with a caret block on a finite `yoyo/repeat: 5`.
+  4. **`assets/qr.svg` is stroked `#EEF3FF`** — it is INVISIBLE on the white
+     "printed card" background the signage scene wanted. Every QR in this studio
+     must sit on a dark tile (`#05060b` + a light border), which is what
+     booth/index.html already did; copy that, don't invent a paper look.
+  5. **Explaining chroma key with zero new media**: layer a canvas as
+     `photo (opacity 0)` / `checker (opacity 0)` / `#00FF00 fill` / CSS gold
+     frame, then (a) run a 60 px bright `#s5-wipe` bar down the canvas while
+     cross-fading green→checkerboard, (b) `BW.flashAt` and cross-fade
+     checkerboard→photo. The checkerboard is pure CSS (four 45° linear-gradients
+     at `background-size: 40px`). Caption cross-fade "As the studio draws it" →
+     "As the booth ships it" carries the whole idea with two short lines.
+  6. **The five frame archetypes are drawable from the spec numbers.** Read the
+     real geometry out of `src/lib/assetPrompt.ts` FRAME_LAYOUT_SPEC rather than
+     eyeballing: head cutout at 50%/38% spanning 34%×21% (full-scene), 30% and
+     70% at 38% spanning 26%×18% (duo), corner clusters 40%×25% top-left +
+     bottom-right, banner below 66% of the height. Five 250×444 CSS cards with
+     a `#00ff00` base and gold-gradient plates teach it exactly, and they stay
+     true if the prompts change only if you re-read the file.
+  7. **`public/samples/lettering/*.png` are the best real frame art in the repo**
+     (768×1376, six finished navy-and-gold frames with actual lettering: "A&J",
+     "Amara", "SUMMIT 2026", "Zara"). They are rgb24 with NO alpha, so they can
+     only be used where the frame IS the subject — derived to 400 px jpgs in the
+     composition's own `media/` dir (16–45 KB each). Two of the six
+     (`serif-initials-top`, `logo-space-bottom`) are photographed at an angle
+     like a standee; skip those. Anything that must sit AROUND live photography
+     is still CSS-drawn (2026-08-04 finding 1 stands).
+  8. **Label length is a layout constraint when a card takes a spotlight scale.**
+     Two-line labels under the lettering cards grew into the placement-chip row
+     the moment a card scaled 1.07 (block height/2 × 0.07 ≈ +20 px). One word
+     per card, and put the taxonomy in the chip row instead.
+  9. Numbers this round: 1398 frames = 20m27s and 1548 frames = 18m10s at
+     1920×1080 `--workers 4` (~0.88/0.70 s per frame; mostly-vector scenes are
+     cheaper than photo grids). Discovered duration overran the GSAP pin by
+     exactly 1.6 s BOTH times again — `-t <END>` at encode remains mandatory.
+     crf 27 put guide-first-event at 1.90 MB (over the 1.5 MB brief), so the
+     dial for a 45–50 s guide is **crf 29–30 at `scale=1280:720`** → 1.37 MB
+     (244 kb/s) and 1.23 MB (197 kb/s), both still legible at a 350 px embed.
+  10. **A concurrent agent was building `/guides` in the same working tree** and
+      committed my two composition dirs mid-session (commit f80c6e5) plus an
+      empty `src/assets/guides/_raw/`. `src/lib/guidesMedia.ts` holds
+      `GUIDE_VIDEO = { 'first-event': null, 'design-a-frame': null }` waiting for
+      the media — so the video files are the handoff, and the import wiring
+      belongs to whoever owns that file. Always `git status` before assuming a
+      change or a commit is yours.

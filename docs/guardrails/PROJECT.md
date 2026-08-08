@@ -88,3 +88,7 @@ Leave the map accurate for the next agent. When you finish a unit of work, updat
 5. `README.md` / `docs/DEPLOYMENT-CHECKLIST.md` — when you add tables, functions, routes, or
    new go-live secrets.
 6. Keep `npm run lint && npm test && npm run build` green before every push.
+7. Guides currency: if the task added, removed, or renamed a host- or guest-facing surface,
+   update `src/lib/guidesContent.ts` (real copy + the `GUIDE_COVERAGE` map) and any affected
+   screenshot in the same branch — `src/lib/guidesDrift.test.ts` fails the PR otherwise.
+   Procedure, voice rules and media pipelines: `.claude/agents/beamwall-guides.md`.
