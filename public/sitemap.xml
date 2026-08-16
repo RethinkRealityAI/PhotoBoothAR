@@ -16,6 +16,36 @@
     <priority>0.5</priority>
   </url>
   <url>
+    <loc>https://beamwall.netlify.app/guides</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://beamwall.netlify.app/guides/first-event</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://beamwall.netlify.app/guides/make-a-frame</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://beamwall.netlify.app/guides/make-3d-props</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://beamwall.netlify.app/guides/use-the-studio</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://beamwall.netlify.app/guides/run-the-night</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://beamwall.netlify.app/privacy</loc>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>

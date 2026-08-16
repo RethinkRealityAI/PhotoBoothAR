@@ -9,7 +9,7 @@
  */
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { CalendarRange, Coins, CreditCard, LifeBuoy, LogOut, Plus, Sparkles } from 'lucide-react';
+import { BookOpen, CalendarRange, Coins, CreditCard, LifeBuoy, LogOut, Plus, Sparkles } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
 import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
 import { fetchMyUnreadCount } from '../../lib/support';
@@ -172,6 +172,18 @@ export default function HostLayout() {
                 </span>
               </Link>
             )}
+            {/* Guides are a PUBLIC route, so they never render inside this
+                layout — a plain Link with the resting rail state, not a
+                NavLink whose isActive could never be true. */}
+            <Link
+              to="/guides"
+              onClick={() => haptic('tap')}
+              aria-label="Guides"
+              className={`${railLink} ${railState(false)}`}
+            >
+              <BookOpen className="w-[18px] h-[18px] shrink-0" />
+              <span className="hidden sm:inline">Guides</span>
+            </Link>
             {/* Was a mailto: into a personal inbox — no ticket, no status, no
                 record. Now a real thread the customer can come back to. */}
             <NavLink
