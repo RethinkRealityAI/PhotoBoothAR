@@ -14,15 +14,18 @@
  * policy in 023 puts `internal = false` in its USING clause, and support.ts
  * repeats the filter. Both are load-bearing.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle, ArrowLeft, Bug, Inbox, Loader2, Lock, Mail, MailX, Send,
 } from 'lucide-react';
 import StatusPill from '../../components/ui/StatusPill';
 import LoadError from '../../components/ui/LoadError';
+import ListMore from '../../components/ui/ListMore';
 import { useToast } from '../../components/ui/Toast';
 import { listState } from '../../lib/listState';
+import { listFootnote, type ListQuery } from '../../lib/serverList';
+import { useServerList } from '../../lib/useServerList';
 import { categoryDef, SUPPORT_CATEGORIES } from '../../lib/supportModel';
 import type { SupportPriority, SupportStatus } from '../../lib/supportModel';
 import {
@@ -43,6 +46,9 @@ const STATUS_FILTERS: Array<{ id: string; label: string }> = [
 const SETTABLE_STATUS: SupportStatus[] = ['open', 'waiting_on_customer', 'waiting_on_us', 'resolved', 'closed'];
 const PRIORITIES: SupportPriority[] = ['low', 'normal', 'high', 'urgent'];
 
+/** Tickets per request — the same page size the other admin lists use. */
+const PAGE_SIZE = 50;
+
 function when(iso: string | null): string {
   if (iso === null) return '';
   const d = new Date(iso);
@@ -58,11 +64,39 @@ export default function AdminSupport() {
   const [status, setStatus] = useState('open');
   const [category, setCategory] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const [search, setSearch] = useState('');
 
-  const [tickets, setTickets] = useState<SupportTicket[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [listErr, setListErr] = useState<string | null>(null);
+  // Server-paged, on the same hook the Users/Events/Customers screens use. The
+  // inbox used to ask for a flat 100 tickets with no offset and no Load more,
+  // so the 101st report was simply unreachable from this screen — and unlike a
+  // table of customers, an old ticket is exactly the thing an operator comes
+  // here to find. support-api caps a page at 200 regardless of what we ask for.
+  const fetchPage = useCallback(async (q: ListQuery) => {
+    const { data, error } = await adminListTickets({
+      status, category, unreadOnly, search: q.search, limit: q.limit, offset: q.offset,
+    });
+    return { rows: data?.tickets ?? [], hasMore: data?.hasMore ?? false, error };
+  }, [status, category, unreadOnly]);
+  const list = useServerList<SupportTicket>(fetchPage, PAGE_SIZE);
+  // Every mutation below refetches page one rather than patching its row in
+  // place: a reply sets the ticket to waiting_on_customer, and a status change
+  // is one by definition, so either can move it OUT of the filter that is
+  // showing it — which an in-place patch cannot express.
+  const reload = list.reload;
+
+  // The hook owns the search term and debounces it; the filter chips sit
+  // outside it, so a change to one has to ask for the first page again. Keyed
+  // on the filters' VALUES rather than a "have I mounted yet" flag: the hook's
+  // own first load is already in flight on mount, and under StrictMode the
+  // effect is deliberately run twice against a ref that survives it — a boolean
+  // would let that second run fire a duplicate request.
+  const applied = useRef<string | null>(null);
+  useEffect(() => {
+    const signature = `${status}|${category}|${unreadOnly}`;
+    if (applied.current === signature) return;
+    const first = applied.current === null;
+    applied.current = signature;
+    if (!first) reload();
+  }, [status, category, unreadOnly, reload]);
 
   const [detail, setDetail] = useState<AdminTicketDetail | null>(null);
   const [detailErr, setDetailErr] = useState<string | null>(null);
@@ -72,20 +106,7 @@ export default function AdminSupport() {
   const [internal, setInternal] = useState(false);
   const [sending, setSending] = useState(false);
 
-  const loadList = useCallback(async () => {
-    const { data, error } = await adminListTickets({
-      status, category, unreadOnly, search, limit: 100,
-    });
-    setListErr(error);
-    setTickets(data?.tickets ?? []);
-    setLoaded(true);
-  }, [status, category, unreadOnly, search]);
-
-  useEffect(() => {
-    const id = setTimeout(() => { void loadList(); }, search === '' ? 0 : 300);
-    return () => clearTimeout(id);
-  }, [loadList, search]);
-
+  const patchRows = list.patchRows;
   const loadDetail = useCallback(async (id: string) => {
     setDetailLoading(true);
     const { data, error } = await adminGetTicket(id);
@@ -93,11 +114,12 @@ export default function AdminSupport() {
     setDetailErr(error);
     setDetailLoading(false);
     if (data !== null) {
-      // Opening it is reading it.
+      // Opening it is reading it. Patched in place rather than reloaded: a
+      // reload would throw away every page loaded past the first.
       void adminMarkRead(id);
-      setTickets((list) => list.map((t) => (t.id === id ? { ...t, admin_unread: false } : t)));
+      patchRows((rows) => rows.map((t) => (t.id === id ? { ...t, admin_unread: false } : t)));
     }
-  }, []);
+  }, [patchRows]);
 
   useEffect(() => {
     if (selectedId === null) { setDetail(null); return; }
@@ -127,7 +149,7 @@ export default function AdminSupport() {
     );
     setReply('');
     await loadDetail(selectedId);
-    await loadList();
+    reload();
   }
 
   async function patchStatus(next: SupportStatus) {
@@ -135,7 +157,7 @@ export default function AdminSupport() {
     const { error } = await adminSetStatus(selectedId, next);
     if (error !== null) { toast.push(`Couldn't change status: ${error}`, 'error'); return; }
     await loadDetail(selectedId);
-    await loadList();
+    reload();
   }
 
   async function patchPriority(next: SupportPriority) {
@@ -143,10 +165,10 @@ export default function AdminSupport() {
     const { error } = await adminSetPriority(selectedId, next);
     if (error !== null) { toast.push(`Couldn't change priority: ${error}`, 'error'); return; }
     await loadDetail(selectedId);
-    await loadList();
+    reload();
   }
 
-  const state = listState({ count: tickets.length, loaded, failed: listErr !== null });
+  const state = listState({ count: list.rows.length, loaded: !list.loading, failed: list.error !== null });
   const chip = 'pressable rounded-full px-3 py-1.5 min-h-9 font-label uppercase tracking-luxe text-[10px] border transition-colors';
   const chipOn = 'bg-[color:var(--color-accent)]/15 border-[color:var(--color-accent)]/50 text-brand-fg';
   const chipOff = 'bg-white/[0.03] border-white/10 text-brand-muted/60 hover:text-brand-fg';
@@ -185,15 +207,15 @@ export default function AdminSupport() {
             ))}
           </select>
           <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={list.query}
+            onChange={(e) => list.setQuery(e.target.value)}
             placeholder="Search ref, subject, email…"
             className="ml-auto rounded-xl bg-white/[0.04] border border-white/10 px-3.5 min-h-9 text-sm text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-[color:var(--color-accent)]/50"
           />
         </div>
 
-        {listErr !== null && (
-          <LoadError what="tickets" code={listErr} onRetry={() => void loadList()} />
+        {list.error !== null && (
+          <LoadError what="tickets" code={list.error} onRetry={reload} />
         )}
 
         <div className="grid lg:grid-cols-[380px_1fr] gap-4">
@@ -212,7 +234,7 @@ export default function AdminSupport() {
                 </p>
               </div>
             )}
-            {state === 'ready' && tickets.map((t) => (
+            {state === 'ready' && list.rows.map((t) => (
               <button key={t.id} onClick={() => select(t.id)}
                 className={`pressable w-full text-left rounded-2xl p-3.5 border transition-colors ${
                   t.id === selectedId
@@ -236,6 +258,12 @@ export default function AdminSupport() {
                 </p>
               </button>
             ))}
+            <ListMore
+              hasMore={list.hasMore}
+              loading={list.loadingMore}
+              onMore={list.loadMore}
+              note={listFootnote(list.rows.length, list.hasMore, 'ticket')}
+            />
           </div>
 
           {/* ── Detail ── */}
