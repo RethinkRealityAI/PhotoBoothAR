@@ -199,36 +199,36 @@ export default function PickerDrawer({
               {effectId !== 'none' && (
                 <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gold-400/15 border border-gold-400/25">
                   <Sparkles className="w-3 h-3 text-gold-400" />
-                  <span className="font-label text-[8px] uppercase tracking-wide text-gold-300">{effectName}</span>
+                  <span className="font-label text-[10px] uppercase tracking-wide text-gold-300">{effectName}</span>
                 </span>
               )}
               {sparkles && (
                 <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gold-400/15 border border-gold-400/25">
                   <Sparkles className="w-3 h-3 text-gold-400" />
-                  <span className="font-label text-[8px] uppercase tracking-wide text-gold-300">Sparkles</span>
+                  <span className="font-label text-[10px] uppercase tracking-wide text-gold-300">Sparkles</span>
                 </span>
               )}
               {frameId !== null && (
                 <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gold-400/10 border border-gold-400/20">
                   <Square className="w-3 h-3 text-gold-400" />
-                  <span className="font-label text-[8px] uppercase tracking-wide text-gold-300">{frameName}</span>
+                  <span className="font-label text-[10px] uppercase tracking-wide text-gold-300">{frameName}</span>
                 </span>
               )}
               {attachmentId !== null && (
                 <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gold-400/10 border border-gold-400/20">
                   <Box className="w-3 h-3 text-gold-400" />
-                  <span className="font-label text-[8px] uppercase tracking-wide text-gold-300">{attachName}</span>
+                  <span className="font-label text-[10px] uppercase tracking-wide text-gold-300">{attachName}</span>
                 </span>
               )}
             </>
           ) : (
-            <span className="font-label text-[9px] uppercase tracking-luxe text-champagne/40">
+            <span className="font-label text-[10px] uppercase tracking-luxe text-champagne/40">
               Choose Effects · Frames · 3D
             </span>
           )}
         </div>
         <div className="flex items-center gap-1.5 text-champagne/40">
-          <span className="font-label text-[8px] uppercase tracking-wide">{open ? 'Close' : 'Customise'}</span>
+          <span className="font-label text-[10px] uppercase tracking-wide">{open ? 'Close' : 'Customise'}</span>
           {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
         </div>
       </button>
