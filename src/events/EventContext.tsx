@@ -11,7 +11,7 @@
  * that used to be hard-wired to the build-time active event.
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import type { EventConfig } from './types';
 import { getRegisteredEvent } from './registry';
 import { codeRuntimeEvent, loadEventConfig, type EventLoad, type RuntimeEvent } from './runtime';
@@ -148,6 +148,7 @@ function CenterScreen({
   title,
   body,
   onRetry,
+  action,
 }: {
   eyebrow: string;
   title: string;
@@ -155,6 +156,9 @@ function CenterScreen({
   /** Renders a retry control. Only passed for recoverable states — a genuine
    *  "no such event" has nothing to retry. */
   onRetry?: () => void;
+  /** A way onward for a screen that is not an error. The ended screen uses it
+   *  to hand the guest the event's album instead of a dead end. */
+  action?: ReactNode;
 }) {
   return (
     <div className="absolute inset-0 flex items-center justify-center app-bg p-6">
@@ -174,6 +178,7 @@ function CenterScreen({
             Try again
           </button>
         )}
+        {action}
       </div>
     </div>
   );
@@ -355,6 +360,18 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
         eyebrow={event.config.copy.eyebrow}
         title="This event has ended"
         body={event.config.copy.thankYou}
+        // The booth is closed, but the night still exists — /r/:slug is the
+        // album, and it is a sibling route precisely so it keeps working once
+        // this screen is what guests get. Gated on source === 'db': the three
+        // frozen coded sites have no recap route and must stay byte-identical.
+        action={event.source === 'db' ? (
+          <Link
+            to={`/r/${event.eventId}`}
+            className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-full bg-foil px-6 font-label uppercase tracking-luxe text-[11px] text-[color:var(--on-accent)]"
+          >
+            See the event album →
+          </Link>
+        ) : undefined}
       />
     ) : (
       <CenterScreen

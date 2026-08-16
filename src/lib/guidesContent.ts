@@ -1086,6 +1086,16 @@ const RUN_THE_NIGHT: GuideDoc = {
       ],
     },
     {
+      kind: 'prose',
+      title: 'Send everyone the album',
+      body: [
+        'The album is a public page holding every photo from the night, plus a collage each guest can build and save on their own phone — mosaic, filmstrip or scattered prints, their pick. Their own shots go in first and never get cut.',
+        'It has its own QR card in Share & Print, next to the booth and wall ones. That code is the one worth putting in a thank-you message, because unlike the others it keeps working after you end the event — the thank-you screen a late scanner gets now links straight to it.',
+        'Getting it into inboxes takes one press. Guests are offered a "Send me the album" box in the booth after they send their first photo — nobody has to fill it in, and nobody is asked twice. Once the night is over and you have hit End, open Share & Print and press Send keepsakes: everyone who left an address gets one email, with an unsubscribe link at the bottom. Nobody else is contacted.',
+        'Send yourself a preview first if you want to see exactly what lands. That button works at any stage, including before the doors open, and it touches nothing but your own inbox.',
+      ],
+    },
+    {
       kind: 'spec',
       title: 'What things cost',
       rows: [
