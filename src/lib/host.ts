@@ -10,6 +10,7 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import type { ListResult } from './db';
 import { sha256Hex } from './hash';
+import { mapBytesToChars, TOKEN_ALPHABET, TOKEN_LENGTH } from './token';
 
 /* ------------------------------------------------------------------ */
 /* Orgs & credits                                                      */
@@ -29,27 +30,91 @@ export interface MyOrgResult {
   failed: boolean;
 }
 
+/** The org half of an `org_members` row as PostgREST returns it. A to-one
+ *  embed comes back as an object, but the client has historically handed back a
+ *  one-element ARRAY for the same shape — both are handled below. */
+interface OrgJoin {
+  id: string;
+  name: string;
+  owner_id?: string | null;
+}
+
+/** One membership row of the caller's, joined to its org. */
+export interface OrgMembershipRow {
+  role: string;
+  created_at?: string | null;
+  orgs: OrgJoin | OrgJoin[] | null;
+}
+
+/**
+ * Which of several memberships is "the" org — for billing, credits and the host
+ * header. This is deliberately NOT an org switcher (a separate feature); it is
+ * the rule that makes a multi-org host land on the SAME org every time instead
+ * of on whatever row Postgres happened to return first:
+ *
+ *   1. the org this user OWNS (`orgs.owner_id` = them) — the one they created,
+ *      and the one whose card is on file;
+ *   2. else the org where their own membership role is 'owner' (migration 011
+ *      enrols an org's owner as an 'owner' member, so this is the same fact
+ *      read from the other side — and it still holds when `orgs.owner_id` was
+ *      nulled out by a user deletion);
+ *   3. else their earliest-joined membership.
+ *
+ * Ties within a tier fall to join order, because the caller asks the DB for
+ * `created_at` ascending. `rows` must contain only the CALLER's memberships —
+ * `org_members` RLS (`is_org_member(org_id)`) also exposes colleagues' rows.
+ */
+export function pickPrimaryOrg(rows: OrgMembershipRow[], userId: string | null): HostOrg | null {
+  const joined = rows
+    .map((row) => ({ row, org: (Array.isArray(row.orgs) ? row.orgs[0] ?? null : row.orgs) }))
+    .filter((entry): entry is { row: OrgMembershipRow; org: OrgJoin } => entry.org !== null);
+  if (joined.length === 0) return null;
+
+  const owned =
+    userId === null || userId === ''
+      ? undefined
+      : joined.find((entry) => entry.org.owner_id === userId);
+  const chosen = owned ?? joined.find((entry) => entry.row.role === 'owner') ?? joined[0];
+  return {
+    orgId: chosen.org.id,
+    name: chosen.org.name,
+    role: chosen.row.role as 'owner' | 'editor',
+  };
+}
+
 /** Like {@link fetchMyOrg} but distinguishes a query failure from a genuine
  *  no-org result. Mirrors fetchMyEvents' null-vs-[] contract. */
 export async function fetchMyOrgResult(): Promise<MyOrgResult> {
+  // The caller's own id is needed twice: to keep the query to THEIR membership
+  // rows (RLS alone also returns co-members of the same org), and to spot the
+  // org they own. Without it there is no answer to give, so a session read that
+  // throws is a failure, not a no-org.
+  let userId: string | null = null;
+  try {
+    const { data: sess } = await supabase.auth.getSession();
+    userId = sess.session?.user?.id ?? null;
+  } catch (e) {
+    console.error('[host] fetchMyOrg (session)', e);
+    return { org: null, failed: true };
+  }
+  // Signed out: RLS would return nothing anyway. Genuinely no org, not an error.
+  if (userId === null || userId === '') return { org: null, failed: false };
+
   const { data, error } = await supabase
     .from('org_members')
-    .select('role, orgs(id, name)')
-    .limit(1)
-    .maybeSingle();
+    .select('role, created_at, orgs(id, name, owner_id)')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
   if (error) {
     console.error('[host] fetchMyOrg', error);
     return { org: null, failed: true };
   }
-  if (!data) return { org: null, failed: false };
-  const org = (Array.isArray(data.orgs) ? data.orgs[0] : data.orgs) as { id: string; name: string } | null;
-  if (!org) return { org: null, failed: false };
-  return { org: { orgId: org.id, name: org.name, role: data.role as 'owner' | 'editor' }, failed: false };
+  return { org: pickPrimaryOrg((data ?? []) as unknown as OrgMembershipRow[], userId), failed: false };
 }
 
-/** The caller's org membership (first one; Phase 2a assumes a single org).
- *  Returns null on BOTH failure and no-org — use fetchMyOrgResult when the
- *  distinction matters. */
+/** The caller's primary org — see {@link pickPrimaryOrg} for which one that is
+ *  when they belong to several. Returns null on BOTH failure and no-org — use
+ *  fetchMyOrgResult when the distinction matters. */
 export async function fetchMyOrg(): Promise<HostOrg | null> {
   return (await fetchMyOrgResult()).org;
 }
@@ -486,15 +551,18 @@ export interface ManagerTokenRow {
   expires_at: string | null;
 }
 
-const TOKEN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-const TOKEN_LENGTH = 24;
-
+/** TOKEN_LENGTH characters drawn UNIFORMLY from TOKEN_ALPHABET.
+ *  `mapBytesToChars` (src/lib/token.ts) discards the byte values that cannot be
+ *  mapped without bias — 8 of every 256 — so one draw yields ~97% of the
+ *  characters it asks for and the loop tops up whatever fell short. */
 function randomToken(): string {
-  const bytes = new Uint8Array(TOKEN_LENGTH);
-  crypto.getRandomValues(bytes);
   let out = '';
-  for (const b of bytes) out += TOKEN_ALPHABET[b % TOKEN_ALPHABET.length];
-  return out;
+  while (out.length < TOKEN_LENGTH) {
+    const bytes = new Uint8Array(TOKEN_LENGTH);
+    crypto.getRandomValues(bytes);
+    out += mapBytesToChars(bytes, TOKEN_ALPHABET);
+  }
+  return out.slice(0, TOKEN_LENGTH);
 }
 
 /**
