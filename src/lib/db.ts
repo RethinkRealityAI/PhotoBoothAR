@@ -27,6 +27,7 @@ import {
   MediaType,
 } from '../types';
 import { getSessionId } from './session';
+import { isDeleteToken } from './postDelete';
 import { normalizeStudioSettings, DEFAULT_STUDIO_SETTINGS, type StudioSettings } from './studio/occluder';
 
 /** The grandfathered single-tenant events whose RLS still permits the direct
@@ -249,13 +250,15 @@ export async function fetchMyPosts(eventId: string): Promise<Post[]> {
 export type DeleteMyPostError =
   | 'event_not_found'
   | 'post_not_found'
-  /** The post belongs to a different device/session. */
+  /** The supplied token doesn't match this post's — or the post predates them. */
   | 'not_yours'
   | 'rate_limited'
   /** The object could not be removed, so the row was deliberately kept. */
   | 'storage_failed'
   | 'invalid_post_id'
   | 'invalid_session_id'
+  /** No usable delete token was held for this post; nothing was sent. */
+  | 'invalid_delete_token'
   | 'invalid_path'
   | 'internal'
   | 'network';
@@ -267,9 +270,16 @@ export type DeleteMyPostError =
  * `.delete()`: anonymous guests have no delete policy on `posts` (migration 003
  * grants delete to members only), and a client delete could not remove the
  * storage object either — the file would keep serving from its public URL after
- * the moment "disappeared". The function proves ownership by matching the row's
- * `session_id` to this device's, removes the object first, and only then the
- * row.
+ * the moment "disappeared". The function removes the object first, and only
+ * then the row.
+ *
+ * `deleteToken` is the proof of ownership: the one-time secret `finalize`
+ * returned when this device made the post (`post_secrets`, migration 035),
+ * stored on its local `SavedPhoto`. It replaces the old proof — matching the
+ * row's `session_id` — which every wall viewer could read off `select('*')` and
+ * off the realtime frame, and could therefore use to delete anyone's photo.
+ * A post this device holds no token for cannot be deleted from here, which is
+ * why the caller asks `removeKindFor` before offering the control at all.
  *
  * Returns `deleted:false` with a code rather than throwing; the caller decides
  * what the guest is told.
@@ -277,13 +287,23 @@ export type DeleteMyPostError =
 export async function deleteMyPost(
   eventId: string,
   postId: string,
+  deleteToken: string,
 ): Promise<{ deleted: boolean; error: DeleteMyPostError | null }> {
+  // Answer locally rather than spending a round trip to be told what we already
+  // know. The server applies the same rule; this just doesn't make a guest wait
+  // for it.
+  if (!isDeleteToken(deleteToken)) {
+    return { deleted: false, error: 'invalid_delete_token' };
+  }
   try {
     const { data, error } = await supabase.functions.invoke('submit-post', {
       body: {
         action: 'delete_post',
         eventSlug: eventId,
         postId,
+        deleteToken,
+        // Belt-and-braces only — the server checks it against the row when
+        // present, but it proves nothing on its own any more.
         sessionId: getSessionId(eventId),
       },
     });
@@ -558,6 +578,14 @@ async function submitPostDirect(eventId: string, input: SubmitPostInput): Promis
 export interface SubmitPostResult {
   post: Post | null;
   error?: string;
+  /**
+   * The one-time delete capability for the post just created (`post_secrets`,
+   * migration 035) — store it on this device's `SavedPhoto` and nowhere else.
+   * Absent when the server couldn't mint one (deliberately non-fatal: the photo
+   * is on the wall either way, it just can't be self-deleted) and always absent
+   * on the legacy direct-insert fallback below, which bypasses `finalize`.
+   */
+  deleteToken?: string;
 }
 
 /** Decode the `{ error }` body of a submit-post FunctionsHttpError, same idiom
@@ -617,9 +645,16 @@ export async function submitPostDetailed(eventId: string, input: SubmitPostInput
       },
     });
     if (finErr) throw finErr;
-    const post = ((fin as { post?: Post } | null)?.post ?? fin) as Post | null;
+    const finBody = (fin ?? null) as { post?: Post; deleteToken?: string } | null;
+    const post = (finBody?.post ?? fin) as Post | null;
     if (!post?.id) throw new Error('submit-post finalize returned no post');
-    return { post };
+    // The delete token rides the finalize RESPONSE and nothing else — never a
+    // posts payload, so it cannot reach the wall or a realtime frame. (Named
+    // `minted`, not `token`: `token` is already the signed-UPLOAD token above,
+    // and two different secrets under one name in one scope is how they get
+    // swapped.)
+    const minted = finBody?.deleteToken;
+    return isDeleteToken(minted) ? { post, deleteToken: minted } : { post };
   } catch (e) {
     if (LEGACY_EVENT_IDS.has(eventId)) {
       console.warn('[db] submitPost edge function failed — falling back to direct upload', e);
@@ -632,7 +667,10 @@ export async function submitPostDetailed(eventId: string, input: SubmitPostInput
 }
 
 /** Back-compat wrapper: same signature as before SubmitPostResult existed —
- *  null on any failure. Kept so existing callers (UploadToWall) stay as-is. */
+ *  null on any failure. It has no callers left (UploadToWall moved to
+ *  submitPostDetailed) and NEW code that saves a local gallery record must not
+ *  use it: it drops `deleteToken`, and that token is minted exactly once, so a
+ *  post saved through here can never be self-deleted by the guest again. */
 export async function submitPost(eventId: string, input: SubmitPostInput): Promise<Post | null> {
   return (await submitPostDetailed(eventId, input)).post;
 }

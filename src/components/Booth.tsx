@@ -1330,7 +1330,7 @@ export default function Booth() {
 
       // Bounded wait: a stalled upload resolves as a 'network' failure (the
       // honest SendFailed screen with Retry) instead of "Beaming…" forever.
-      const { post, error } = await withTimeout(
+      const { post, error, deleteToken } = await withTimeout(
         submitPostDetailed(eventId, {
           blob,
           mediaType: isVideo ? 'video' : 'image',
@@ -1367,6 +1367,11 @@ export default function Booth() {
         media_type: isVideo ? 'video' : 'image',
         message: message || undefined,
         createdAt: Date.now(),
+        // This device's proof it made the post — the ONLY copy that ever leaves
+        // the server (post_secrets, migration 035). Without it stored here the
+        // guest keeps the photo but loses the ability to take it down, so it
+        // rides the local record, never a posts field.
+        deleteToken,
       });
       // Remember the name (so challenge mode doesn't re-ask) + mark the
       // challenge complete so it drops off this guest's list.

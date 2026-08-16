@@ -27,7 +27,7 @@ import DetailsAndPost, { PostProgress } from './upload/DetailsAndPost';
 import { UploadItem } from './upload/types';
 import { compositeUpload, DEFAULT_CROP } from './booth/capture';
 import { buildCatalog } from '../lib/catalog';
-import { submitPost } from '../lib/db';
+import { submitPostDetailed } from '../lib/db';
 import { savePhoto, getGuestName, setGuestName as persistGuestName } from '../lib/session';
 import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
@@ -248,7 +248,11 @@ function UploadInner() {
           height = item.naturalH;
         }
 
-        const post = await submitPost(eventId, {
+        // The detailed variant, not `submitPost`, purely so the one-time delete
+        // token comes back with the post — the plain wrapper drops it, and it is
+        // never recoverable afterwards (post_secrets, migration 035). The
+        // failure branch is unchanged: a null post still just counts as failed.
+        const { post, deleteToken } = await submitPostDetailed(eventId, {
           blob,
           mediaType: item.kind,
           message: item.message || undefined,
@@ -265,6 +269,7 @@ function UploadInner() {
             media_type: item.kind,
             message: item.message || undefined,
             createdAt: Date.now(),
+            deleteToken,
           });
           done += 1;
         } else {

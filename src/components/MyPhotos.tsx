@@ -39,6 +39,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { clearGallery, getSavedPhotos, savePhoto } from '../lib/session';
 import { deleteMyPost, fetchMyPostsResult } from '../lib/db';
+import { isDeleteToken, removeKindFor } from '../lib/postDelete';
 import ConfirmModal from './ui/ConfirmModal';
 import { SavedPhoto, Post, MediaType } from '../types';
 import { useEvent } from '../events/EventContext';
@@ -113,9 +114,14 @@ interface GalaMedia {
    *  from the wall); 'local' exists only in this device's gallery — usually a
    *  capture whose upload never landed — so removing it is a local erase. */
   origin: 'db' | 'local';
+  /** This device's proof it made the post (post_secrets, migration 035). Comes
+   *  from the LOCAL record only — it is not a posts column, precisely so the
+   *  wall read and the realtime frame cannot carry it. Absent = this phone
+   *  cannot prove ownership, so no Remove control (see removeKindFor). */
+  deleteToken?: string;
 }
 
-function postToMedia(p: Post): GalaMedia {
+function postToMedia(p: Post, deleteToken?: string): GalaMedia {
   return {
     id: p.id,
     image_url: p.image_url,
@@ -123,6 +129,7 @@ function postToMedia(p: Post): GalaMedia {
     message: p.message,
     createdAt: new Date(p.created_at).getTime(),
     origin: 'db',
+    deleteToken,
   };
 }
 
@@ -134,6 +141,7 @@ function savedToMedia(s: SavedPhoto): GalaMedia {
     message: s.message,
     createdAt: s.createdAt,
     origin: 'local',
+    deleteToken: s.deleteToken,
   };
 }
 
@@ -1206,7 +1214,9 @@ export default function MyPhotos() {
   /* ── Removing a moment ─────────────────────────────────────────────
      Gated on `source === 'db'`: the three frozen coded events keep this
      screen byte-identical, and their posts were written by a pinned build
-     through a path the delete op deliberately refuses. */
+     through a path the delete op deliberately refuses.
+     A SECOND gate is per-tile (removeKindFor, below): a wall post also needs
+     this device's delete token, which only the phone that made it holds. */
   const canRemove = source === 'db';
   const [removeTarget, setRemoveTarget] = useState<GalaMedia | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -1232,10 +1242,21 @@ export default function MyPhotos() {
     setServerFailed(server.failed);
     const serverPosts = server.rows;
 
+    // This device's delete tokens, by post id. They exist ONLY in the local
+    // record (post_secrets, migration 035 — never a posts column, so neither the
+    // wall read nor a realtime frame can carry one), and the server half of the
+    // merge below is authoritative for everything else — so without this index
+    // every post present in BOTH lists would come back tokenless and lose its
+    // Remove control.
+    const tokens = new Map<string, string>();
+    saved.forEach((s) => {
+      if (isDeleteToken(s.deleteToken)) tokens.set(s.id, s.deleteToken);
+    });
+
     const map = new Map<string, GalaMedia>();
 
     // Server posts first (more authoritative)
-    serverPosts.forEach((p) => map.set(p.id, postToMedia(p)));
+    serverPosts.forEach((p) => map.set(p.id, postToMedia(p, tokens.get(p.id))));
 
     // Local saved fills gaps / adds any not on server yet
     saved.forEach((s) => {
@@ -1275,11 +1296,17 @@ export default function MyPhotos() {
    */
   const removeMedia = async (m: GalaMedia) => {
     setRemovingId(m.id);
+    const kind = removeKindFor(m);
+    const token = m.deleteToken;
     // A local-only entry never reached the wall, so there is nothing to ask the
-    // server for — this is purely a local erase.
-    const res = m.origin === 'db'
-      ? await deleteMyPost(eventId, m.id)
-      : { deleted: true, error: null as null };
+    // server for — this is purely a local erase. A wall post needs this device's
+    // delete token; without one it answers exactly what the server would, minus
+    // the round trip, and 'not_yours' is already the right words for it.
+    const res = kind === 'local'
+      ? { deleted: true, error: null as null }
+      : isDeleteToken(token)
+        ? await deleteMyPost(eventId, m.id, token)
+        : { deleted: false, error: 'not_yours' as const };
 
     // 'post_not_found' is the guest's goal already achieved (a second tab, or a
     // retry after a lost response) — finish the local half rather than reporting
@@ -1539,7 +1566,7 @@ export default function MyPhotos() {
                         register={register}
                         onView={setLightbox}
                         filePrefix={config.copy.filePrefix}
-                        onRemove={canRemove ? setRemoveTarget : undefined}
+                        onRemove={canRemove && removeKindFor(m) !== 'none' ? setRemoveTarget : undefined}
                         removing={removingId === m.id}
                       />
                     );
