@@ -56,6 +56,11 @@ export function useOptionalEvent(): EventContextValue | null {
   return useContext(EventContext);
 }
 
+/** Upper bound on "Setting the stage…" before the honest unreachable/fallback
+ *  state renders. The fast-reject network path settles itself in ~9s; this
+ *  exists for blackhole venue wifi, where nothing else bounds the wait. */
+const EVENT_LOAD_DEADLINE_MS = 10_000;
+
 /* ── Theme application ──────────────────────────────────────────────── */
 
 const THEME_STYLE_ID = 'pbar-event-theme';
@@ -233,6 +238,18 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
     if (loadedSlugRef.current === slug) return;
     let alive = true;
     setState({ phase: 'loading' });
+    // Venue-wifi deadline: a blackhole network (packets swallowed, no fast
+    // rejection) holds the fetch far past its retry backoff, so the guest
+    // would sit on "Setting the stage…" indefinitely — the fast-reject path
+    // settles in ~9s, but nothing bounded the hang. After 10s show the honest
+    // unreachable state (which has Try again); this is provisional — a late
+    // success still lands below and upgrades it to ready. Coded (legacy)
+    // events resolve from the registry before any network, so the timer
+    // always clears immediately for them.
+    let settled = false;
+    const deadline = setTimeout(() => {
+      if (alive && !settled) setState({ phase: 'unreachable' });
+    }, EVENT_LOAD_DEADLINE_MS);
     loadEventConfig(slug)
       // A rejected promise (total network drop) used to leave the provider in
       // 'loading' forever — "Setting the stage…" with no cancel and no retry.
@@ -241,6 +258,8 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
         return { event: null, error: 'unreachable' };
       })
       .then(({ event, error }) => {
+        settled = true;
+        clearTimeout(deadline);
         if (!alive) return;
         if (error === 'unreachable') {
           // Not cached as "loaded": a retry must be able to re-resolve it.
@@ -262,11 +281,19 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
           return;
         }
         setAccess(null); // deciding
+        // Same deadline class as the load above: if the membership probe
+        // hangs, fall back to the non-member decision — for draft/ended/
+        // archived that is the correct guest-facing screen, and a late true
+        // answer still upgrades it.
+        const memberDeadline = setTimeout(() => {
+          if (alive) setAccess((cur) => cur ?? guestAccess(event.status, false));
+        }, EVENT_LOAD_DEADLINE_MS);
         void isEventMember(event.eventId).then((member) => {
+          clearTimeout(memberDeadline);
           if (alive) setAccess(guestAccess(event.status, member));
         });
       });
-    return () => { alive = false; };
+    return () => { alive = false; clearTimeout(deadline); };
   }, [slug, attempt]);
 
   // Refresh mechanism for admin config patches (least-invasive correct path):
