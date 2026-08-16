@@ -10,9 +10,9 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { QRCodeSVG } from 'qrcode.react';
 import Modal from '../../components/ui/Modal';
 import ConfirmModal from '../../components/ui/ConfirmModal';
-import { Archive, ArchiveRestore, ArrowRight, ArrowUpRight, Check, ChevronDown, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2 } from 'lucide-react';
-import { fetchMyEvents, updateEventStatus, eventOrgHasActivePro, invalidateProSubscriptionCache, type HostEventRow } from '../../lib/host';
-import { RESTORE_STATUS, archivedLabel, canArchiveStatus, isArchivedStatus, partitionByArchived } from '../../lib/eventArchive';
+import { Archive, ArchiveRestore, ArrowRight, ArrowUpRight, Check, ChevronDown, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2, Trash2 } from 'lucide-react';
+import { fetchMyEvents, updateEventStatus, deleteEvent, eventOrgHasActivePro, invalidateProSubscriptionCache, type HostEventRow } from '../../lib/host';
+import { RESTORE_STATUS, archivedLabel, canArchiveStatus, canDeleteStatus, confirmNameMatches, isArchivedStatus, partitionByArchived } from '../../lib/eventArchive';
 import { TierPill, UpgradeModal } from './UpgradeCard';
 import { entitlementsFor, normalizeTier } from '../../lib/entitlements';
 import { supabase } from '../../lib/supabase';
@@ -159,6 +159,12 @@ export default function EventsList() {
   const [upgradeTarget, setUpgradeTarget] = useState<HostEventRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<HostEventRow | null>(null);
+  /** The permanent-delete dialog: its target, what the host has typed so far,
+   *  and whether the sweep is running. Typed text is state, not a ref, because
+   *  the confirm button's availability is derived from it on every keystroke. */
+  const [deleteTarget, setDeleteTarget] = useState<HostEventRow | null>(null);
+  const [deleteTyped, setDeleteTyped] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [postCounts, setPostCounts] = useState<Record<string, PostCount>>({});
   const [showGuide, setShowGuide] = useState(() => {
@@ -240,6 +246,65 @@ export default function EventsList() {
       push(`Couldn’t update “${ev.name}” — check your connection and try again.`, 'error');
     }
     setBusyId(null);
+  };
+
+  /**
+   * Permanent delete. NOT optimistic — the opposite of `setStatus` above.
+   *
+   * There is nothing to revert to if this goes wrong, and the edge function has
+   * a third outcome the UI has to tell the truth about: when the storage sweep
+   * cannot finish it deletes NOTHING, so a card that vanished optimistically
+   * would have to reappear, which reads as a bug at exactly the moment a host
+   * needs to trust the screen. The card leaves the list only after the server
+   * says the row is gone.
+   */
+  const runDelete = async (ev: HostEventRow) => {
+    setDeleting(true);
+    const res = await deleteEvent(ev.id, deleteTyped);
+    setDeleting(false);
+
+    if (res.deleted) {
+      setEvents((list) => (list ?? []).filter((e) => e.id !== ev.id));
+      setDeleteTarget(null);
+      setDeleteTyped('');
+      push(
+        res.objectsRemoved > 0
+          ? `“${ev.name}” deleted — ${res.objectsRemoved} file${res.objectsRemoved === 1 ? '' : 's'} removed`
+          : `“${ev.name}” deleted`,
+        'success',
+      );
+      return;
+    }
+
+    // Already gone (a second tab, or a retry after a lost response): the outcome
+    // the host asked for is the outcome they have, so the card goes.
+    if (res.error === 'not_found') {
+      setEvents((list) => (list ?? []).filter((e) => e.id !== ev.id));
+      setDeleteTarget(null);
+      setDeleteTyped('');
+      push(`“${ev.name}” was already deleted`, 'info');
+      return;
+    }
+
+    if (res.error === null && res.remaining.length > 0) {
+      // Partial sweep. The dialog stays open — this one is worth retrying, and
+      // the event is provably intact.
+      push(
+        `Couldn’t clear all of “${ev.name}”’s files, so nothing was deleted. Try again in a minute.`,
+        'error',
+      );
+      return;
+    }
+
+    const message =
+      res.error === 'must_archive_first'
+        ? 'Archive the event first, then delete it.'
+        : res.error === 'name_mismatch'
+          ? 'That name doesn’t match — check it letter for letter.'
+          : res.error === 'forbidden' || res.error === 'unauthorized'
+            ? 'You don’t have access to delete that event.'
+            : `Couldn’t delete “${ev.name}” — check your connection and try again.`;
+    push(message, 'error');
   };
 
   // Archived events are retired, not deleted: they come back in the same
@@ -370,6 +435,19 @@ export default function EventsList() {
               className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors disabled:opacity-40"
             >
               <ArchiveRestore className="w-3.5 h-3.5" /> Restore
+            </button>
+          )}
+          {/* Permanent delete, archived events only — two deliberate acts, and
+              the second one is guarded by typing the event's name. Styled quiet
+              (not a red slab) so it is never the loud thing on an archived card;
+              the dialog is where the danger is stated. */}
+          {canDeleteStatus(ev.status) && (
+            <button
+              onClick={() => { setDeleteTarget(ev); setDeleteTyped(''); }}
+              disabled={busy}
+              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.04] hover:bg-red-500/15 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 hover:text-red-300 transition-colors disabled:opacity-40"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete forever
             </button>
           )}
           {/* No upgrade CTA on an archived event — selling a bigger plan for
@@ -584,6 +662,55 @@ export default function EventsList() {
             void setStatus(ev, 'archived', `“${ev.name}” archived`).then(() => setArchiveTarget(null));
           }}
           onCancel={() => setArchiveTarget(null)}
+        />
+      )}
+      {/* Permanent delete. Every claim below is one the edge function keeps:
+          it sweeps the posts, assets, cards and renders buckets and only then
+          deletes the row (whose cascades take the posts, cards, challenges,
+          experiences and settings with it). The QR sentence is here because a
+          printed sign is the one piece of this a host cannot take back. */}
+      {deleteTarget && (
+        <ConfirmModal
+          title={`Delete “${deleteTarget.name}” forever?`}
+          tone="danger"
+          confirmLabel="Delete forever"
+          busy={deleting}
+          confirmDisabled={!confirmNameMatches(deleteTyped, deleteTarget.name)}
+          body={
+            <>
+              <span className="text-red-300">This cannot be undone.</span> It erases the event and
+              everything under it — every guest photo and video, the guest galleries, keepsake cards
+              and their films, your frames, 3D props, challenges and studio settings. The files are
+              removed from storage, not just hidden.
+              <span className="block mt-2">
+                The guest link <span className="font-mono text-brand-fg/80">/e/{deleteTarget.slug}</span>{' '}
+                and its QR code stop working — anything already printed or shared leads nowhere, and
+                guests lose the moments saved on this wall.
+              </span>
+              <span className="block mt-2">
+                Your billing history stays; credits already spent are not refunded.
+              </span>
+              <label htmlFor="delete-confirm-name" className="block mt-4 text-brand-muted/70">
+                Type <span className="text-brand-fg">{deleteTarget.name}</span> to confirm
+              </label>
+              <input
+                id="delete-confirm-name"
+                value={deleteTyped}
+                onChange={(e) => setDeleteTyped(e.target.value)}
+                placeholder={deleteTarget.name}
+                autoComplete="off"
+                spellCheck={false}
+                disabled={deleting}
+                className="mt-2 w-full min-h-11 rounded-xl bg-white/[0.06] border border-white/10 px-3 font-sans text-xs text-brand-fg placeholder:text-brand-muted/25 focus:outline-none focus:border-red-400/40 disabled:opacity-50"
+              />
+            </>
+          }
+          onConfirm={() => { void runDelete(deleteTarget); }}
+          onCancel={() => {
+            if (deleting) return; // never abandon a sweep mid-flight
+            setDeleteTarget(null);
+            setDeleteTyped('');
+          }}
         />
       )}
     </div>

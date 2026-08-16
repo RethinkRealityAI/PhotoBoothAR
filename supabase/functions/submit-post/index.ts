@@ -12,9 +12,27 @@
  *     -> verifies the uploaded object (tenant-scoped path, size cap) and
  *        inserts the public.posts row via service role: { post }. Honors
  *        events.config.moderation: 'pre' inserts approved=false.
+ *   { action: 'delete_post', eventSlug, postId, sessionId }
+ *     -> a guest removing their OWN moment: removes the storage object first,
+ *        then the row: { deleted: true }. Deliberately NOT gated on the event
+ *        being live — the wall closes, the right to withdraw your own photo
+ *        does not.
  *
  * Anonymous guests never get direct write access to posts/storage; this
  * function is the only write path and enforces tenancy + quotas.
+ *
+ * SECURITY NOTE ON delete_post — READ BEFORE HARDENING ANYTHING ELSE.
+ * Ownership is proved by (postId, sessionId) matching the row. That pair is NOT
+ * a secret today: `posts_public_read` (migration 003) lets anon SELECT every
+ * approved, non-hidden post of a public event, the wall reads `select('*')`
+ * (src/lib/db.ts fetchPostsResult), the realtime payload carries the whole row,
+ * and fetchLeaderboard selects session_id by name — so anyone who can see the
+ * wall can read any post's session_id and delete that post. The pair is the
+ * strongest proof available without a schema change, so it is what ships, and
+ * the blast radius is bounded by BOTH rate buckets below. The real fix is
+ * server-side and belongs in a migration: stop exposing posts.session_id to
+ * anon (a column-level revoke plus a view/RPC for the wall read), or issue a
+ * per-post delete token at finalize time.
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
@@ -35,6 +53,14 @@ const IP_QUOTA_MAX = 150;
 /** Absolute per-event daily ceiling — applies to EVERY tier, including
  *  unlimited ones (an abuse backstop, not a plan limit). */
 const EVENT_DAILY_MAX = 2000;
+/** Self-deletes per (event, session) per hour. A guest clearing out a night's
+ *  worth of shots stays well inside it; a loop does not. */
+const DELETE_QUOTA_MAX = 30;
+/** Self-deletes per (event, IP) per hour. This is the one that matters: the
+ *  session bucket is keyed on the session id the CALLER supplies, so a client
+ *  deleting other guests' posts would open a fresh bucket for every victim.
+ *  Set above a whole family sharing a venue's NAT but far below a wall. */
+const DELETE_IP_QUOTA_MAX = 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8MB
 const MAX_VIDEO_BYTES = 60 * 1024 * 1024; // 60MB
@@ -70,8 +96,8 @@ function serviceClient() {
 
 type Client = ReturnType<typeof serviceClient>;
 
-/** Returns the live event row, or null if missing / not live. */
-async function getLiveEvent(sb: Client, eventSlug: unknown) {
+/** Returns the event row whatever its status, or null if missing. */
+async function getEventRow(sb: Client, eventSlug: unknown) {
   if (typeof eventSlug !== 'string' || !eventSlug) return null;
   const { data, error } = await sb
     .from('events')
@@ -79,6 +105,12 @@ async function getLiveEvent(sb: Client, eventSlug: unknown) {
     .eq('slug', eventSlug)
     .maybeSingle();
   if (error) throw error;
+  return data;
+}
+
+/** Returns the live event row, or null if missing / not live. */
+async function getLiveEvent(sb: Client, eventSlug: unknown) {
+  const data = await getEventRow(sb, eventSlug);
   if (!data || data.status !== 'live') return null;
   return data;
 }
@@ -153,6 +185,30 @@ function trimmedOrNull(value: unknown, maxLen: number): string | null {
   if (typeof value !== 'string') return null;
   const t = value.trim().slice(0, maxLen);
   return t.length > 0 ? t : null;
+}
+
+/**
+ * The posts-bucket object key a public `image_url` was built from, or null.
+ *
+ * MIRRORS `publicObjectPath` in src/lib/mediaUrl.ts (tested in
+ * mediaUrl.test.ts) — Deno cannot import from src/, so that test file is the
+ * contract both halves are written against. Same three rules: the origin is
+ * matched as a literal PREFIX (an indexOf would accept
+ * `https://evil.example/?u=/storage/v1/object/public/posts/…`), the query and
+ * fragment are dropped, and the key is never percent-decoded (decoding could
+ * only ever manufacture a traversal out of `%2e%2e`).
+ */
+function objectKeyForUrl(url: unknown): string | null {
+  if (typeof url !== 'string' || !url) return null;
+  const origin = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/+$/, '');
+  if (!origin) return null;
+  const prefix = `${origin}/storage/v1/object/public/${POSTS_BUCKET}/`;
+  if (!url.startsWith(prefix)) return null;
+  const rest = url.slice(prefix.length);
+  const cut = rest.search(/[?#]/);
+  const key = cut === -1 ? rest : rest.slice(0, cut);
+  if (!key || key.includes('..') || key.startsWith('/')) return null;
+  return key;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +396,94 @@ async function handleFinalize(sb: Client, body: Record<string, unknown>): Promis
 }
 
 // ---------------------------------------------------------------------------
+// delete_post — a guest withdrawing their own moment
+// ---------------------------------------------------------------------------
+async function handleDeletePost(
+  sb: Client,
+  body: Record<string, unknown>,
+  ip: string,
+): Promise<Response> {
+  const { eventSlug, postId, sessionId } = body;
+
+  // NOT getLiveEvent: a guest must still be able to take their photo down after
+  // the party ends, and an ended/archived event is exactly when they ask.
+  const event = await getEventRow(sb, eventSlug);
+  if (!event) return json(404, { error: 'event_not_found' });
+
+  if (typeof sessionId !== 'string' || !SESSION_ID_RE.test(sessionId)) {
+    return json(400, { error: 'invalid_session_id' });
+  }
+  if (typeof postId !== 'string' || !UUID_RE.test(postId)) {
+    return json(400, { error: 'invalid_post_id' });
+  }
+
+  const { data: post, error: postErr } = await sb
+    .from('posts')
+    .select('id, event_id, session_id, image_url')
+    .eq('id', postId)
+    .eq('event_id', event.slug)
+    .maybeSingle();
+  if (postErr) throw postErr;
+  if (!post) return json(404, { error: 'post_not_found' });
+
+  // Ownership. `post.session_id` can be null (a legacy-era row) — null is not
+  // ownership, and === would already say so, but the explicit check keeps the
+  // intent readable next to a comparison the whole endpoint rests on.
+  if (typeof post.session_id !== 'string' || post.session_id !== sessionId) {
+    return json(403, { error: 'not_yours' });
+  }
+
+  // Metered only once ownership holds — see the header note: the session bucket
+  // cannot bound a caller who supplies someone else's session id, which is what
+  // the IP bucket is for.
+  if (!(await bumpQuota(sb, event.slug, `del:${sessionId}`, QUOTA_WINDOW_MS, DELETE_QUOTA_MAX))) {
+    return json(429, { error: 'rate_limited' });
+  }
+  if (!(await bumpQuota(sb, event.slug, `delip:${ip}`, QUOTA_WINDOW_MS, DELETE_IP_QUOTA_MAX))) {
+    return json(429, { error: 'rate_limited' });
+  }
+
+  // Storage FIRST, row second. The other order deletes the guest's proof that
+  // anything is left while the object keeps serving from a public URL — the
+  // exact thing a privacy-motivated delete is asking us to remove.
+  const key = objectKeyForUrl(post.image_url);
+  if (key) {
+    // Re-assert the shape submit-post itself wrote: `<slug>/<sessionId>/<file>`.
+    // The key comes from the row, not the caller, so this is belt-and-braces —
+    // but a stored URL is still data, and a remove() is not a reversible call.
+    const expected = `${event.slug}/${post.session_id}/`;
+    if (!key.startsWith(expected)) {
+      console.error('[submit-post] delete_post: key outside its own prefix', key);
+      return json(400, { error: 'invalid_path' });
+    }
+    const { error: rmErr } = await sb.storage.from(POSTS_BUCKET).remove([key]);
+    if (rmErr) {
+      // Keep the row: the moment stays visible and retryable rather than
+      // vanishing from the wall while the file is still public. (A key that is
+      // simply already gone is NOT an error — remove() reports no rows, not a
+      // failure — so a retry after a half-finished delete still completes.)
+      console.error('[submit-post] delete_post: storage remove failed', rmErr);
+      return json(502, { error: 'storage_failed' });
+    }
+  }
+  // key === null: the URL is not one of our public posts objects (an
+  // externally-hosted legacy row). Nothing to remove; the row still goes.
+
+  const { data: gone, error: delErr } = await sb
+    .from('posts')
+    .delete()
+    .eq('id', postId)
+    .eq('event_id', event.slug)
+    .eq('session_id', sessionId) // last-line tenancy check, in the statement itself
+    .select('id');
+  if (delErr) throw delErr;
+  // Zero rows is not success (a no-match DELETE returns no error at all).
+  if ((gone?.length ?? 0) === 0) return json(404, { error: 'post_not_found' });
+
+  return json(200, { deleted: true });
+}
+
+// ---------------------------------------------------------------------------
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -362,6 +506,8 @@ Deno.serve(async (req: Request) => {
         return await handleInit(sb, body, clientIp(req));
       case 'finalize':
         return await handleFinalize(sb, body);
+      case 'delete_post':
+        return await handleDeletePost(sb, body, clientIp(req));
       default:
         return json(400, { error: 'unknown_action' });
     }

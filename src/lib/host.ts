@@ -567,6 +567,78 @@ export async function updateEventName(eventUuid: string, name: string): Promise<
   return (data?.length ?? 0) > 0;
 }
 
+export type DeleteEventError =
+  | 'invalid_json'
+  | 'invalid_body'
+  /** The typed confirmation did not match the row's own name. */
+  | 'name_mismatch'
+  | 'unauthorized'
+  /** Not a member of the event's org. */
+  | 'forbidden'
+  /** Delete is offered on archived events only — archive it first. */
+  | 'must_archive_first'
+  | 'not_found'
+  | 'internal'
+  | 'network';
+
+export interface DeleteEventResult {
+  /** True only when the storage sweep AND the row delete both completed. */
+  deleted: boolean;
+  /** Storage objects actually removed — reported even on a partial sweep. */
+  objectsRemoved: number;
+  /** Bucket prefixes the sweep could not clear. Non-empty means the event row
+   *  is still THERE, on purpose: see below. */
+  remaining: string[];
+  error: DeleteEventError | null;
+}
+
+/**
+ * Permanently delete an ARCHIVED event through the `delete-event` edge function.
+ *
+ * Not a client DELETE, even though `events_member_delete` (migration 003) would
+ * allow one: the dependent ROWS cascade (all 13 FKs to public.events are
+ * declared), but a Postgres cascade cannot reach Storage, so a client-side
+ * delete would leave every capture, asset, card file and rendered film orphaned
+ * in the buckets — two of which are PUBLIC. The function sweeps those buckets
+ * first and deletes the row last.
+ *
+ * PARTIAL IS NOT SUCCESS AND NOT AN ERROR. If the sweep cannot finish, the
+ * function deletes nothing and returns `deleted:false` with the prefixes it
+ * could not clear; the host still has an intact archived event and retrying is
+ * safe (the sweep is idempotent). Callers must branch on `deleted`, never on
+ * `error === null`.
+ */
+export async function deleteEvent(eventUuid: string, confirmName: string): Promise<DeleteEventResult> {
+  const fail = (error: DeleteEventError): DeleteEventResult =>
+    ({ deleted: false, objectsRemoved: 0, remaining: [], error });
+  try {
+    const { data, error } = await supabase.functions.invoke('delete-event', {
+      body: { eventUuid, confirmName },
+    });
+    if (error) {
+      if (error instanceof FunctionsHttpError) {
+        try {
+          const body = (await error.context.json()) as { error?: string };
+          return fail((body.error as DeleteEventError) ?? 'internal');
+        } catch {
+          return fail('internal');
+        }
+      }
+      return fail('network');
+    }
+    const res = (data ?? {}) as { deleted?: boolean; objectsRemoved?: number; remaining?: string[] };
+    return {
+      deleted: res.deleted === true,
+      objectsRemoved: typeof res.objectsRemoved === 'number' ? res.objectsRemoved : 0,
+      remaining: Array.isArray(res.remaining) ? res.remaining : [],
+      error: null,
+    };
+  } catch (e) {
+    console.error('[host] deleteEvent', e);
+    return fail('network');
+  }
+}
+
 /** Client-side availability hint for the wizard. RLS hides other orgs' drafts,
  *  so a "free" answer here isn't final — the server has the last word. */
 export async function isSlugVisiblyTaken(slug: string): Promise<boolean> {

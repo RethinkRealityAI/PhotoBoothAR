@@ -244,6 +244,60 @@ export async function fetchMyPosts(eventId: string): Promise<Post[]> {
   return (await fetchMyPostsResult(eventId)).rows;
 }
 
+/** Why a guest self-delete didn't go through. Server codes pass through
+ *  verbatim; 'network' is the undecodable case (offline, malformed body). */
+export type DeleteMyPostError =
+  | 'event_not_found'
+  | 'post_not_found'
+  /** The post belongs to a different device/session. */
+  | 'not_yours'
+  | 'rate_limited'
+  /** The object could not be removed, so the row was deliberately kept. */
+  | 'storage_failed'
+  | 'invalid_post_id'
+  | 'invalid_session_id'
+  | 'invalid_path'
+  | 'internal'
+  | 'network';
+
+/**
+ * A guest removing their OWN post — from the wall and from storage.
+ *
+ * Goes through the `submit-post` edge function (`delete_post`), never a direct
+ * `.delete()`: anonymous guests have no delete policy on `posts` (migration 003
+ * grants delete to members only), and a client delete could not remove the
+ * storage object either — the file would keep serving from its public URL after
+ * the moment "disappeared". The function proves ownership by matching the row's
+ * `session_id` to this device's, removes the object first, and only then the
+ * row.
+ *
+ * Returns `deleted:false` with a code rather than throwing; the caller decides
+ * what the guest is told.
+ */
+export async function deleteMyPost(
+  eventId: string,
+  postId: string,
+): Promise<{ deleted: boolean; error: DeleteMyPostError | null }> {
+  try {
+    const { data, error } = await supabase.functions.invoke('submit-post', {
+      body: {
+        action: 'delete_post',
+        eventSlug: eventId,
+        postId,
+        sessionId: getSessionId(eventId),
+      },
+    });
+    if (error) throw error;
+    const res = (data ?? {}) as { deleted?: boolean };
+    return res.deleted === true
+      ? { deleted: true, error: null }
+      : { deleted: false, error: 'internal' };
+  } catch (e) {
+    console.error('[db] deleteMyPost', e);
+    return { deleted: false, error: (await decodeSubmitPostError(e)) as DeleteMyPostError };
+  }
+}
+
 export async function setPostHidden(eventId: string, id: string, hidden: boolean): Promise<boolean> {
   const { error } = await supabase.from('posts').update({ hidden }).eq('id', id).eq('event_id', eventId);
   if (error) {

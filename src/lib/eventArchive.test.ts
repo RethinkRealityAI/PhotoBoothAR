@@ -3,6 +3,8 @@ import {
   RESTORE_STATUS,
   archivedLabel,
   canArchiveStatus,
+  canDeleteStatus,
+  confirmNameMatches,
   isArchivedStatus,
   partitionByArchived,
 } from './eventArchive';
@@ -111,6 +113,60 @@ describe('archivedLabel', () => {
   it('floors a future timestamp to today rather than counting backwards', () => {
     const now = at(2026, 7, 16, 12).getTime();
     expect(archivedLabel(at(2026, 7, 20, 12).toISOString(), now)).toBe('Archived today');
+  });
+});
+
+describe('canDeleteStatus', () => {
+  it('offers permanent delete only on an archived event', () => {
+    expect(canDeleteStatus('archived')).toBe(true);
+    expect(canDeleteStatus(' ARCHIVED ')).toBe(true);
+  });
+
+  it('refuses every reachable non-archived status, and fails closed on the unknown', () => {
+    for (const s of ['draft', 'live', 'ended', 'paused', '', null, undefined]) {
+      expect(canDeleteStatus(s)).toBe(false);
+    }
+  });
+
+  it('is the exact complement of the restore target — you cannot delete what you just restored', () => {
+    expect(canDeleteStatus(RESTORE_STATUS)).toBe(false);
+  });
+});
+
+describe('confirmNameMatches', () => {
+  it('accepts the exact name', () => {
+    expect(confirmNameMatches('Hope Gala 2026', 'Hope Gala 2026')).toBe(true);
+  });
+
+  it('trims both sides — a pasted name carries whitespace', () => {
+    expect(confirmNameMatches('  Hope Gala 2026 ', 'Hope Gala 2026')).toBe(true);
+    expect(confirmNameMatches('Hope Gala 2026', '  Hope Gala 2026  ')).toBe(true);
+  });
+
+  it('is case-sensitive — the last gate before an irreversible delete', () => {
+    expect(confirmNameMatches('hope gala 2026', 'Hope Gala 2026')).toBe(false);
+    expect(confirmNameMatches('HOPE GALA 2026', 'Hope Gala 2026')).toBe(false);
+  });
+
+  it('refuses a near miss', () => {
+    expect(confirmNameMatches('Hope Gala', 'Hope Gala 2026')).toBe(false);
+    expect(confirmNameMatches('Hope  Gala 2026', 'Hope Gala 2026')).toBe(false); // doubled inner space
+  });
+
+  it('never confirms on empty input, and a nameless row cannot be deleted by typing nothing', () => {
+    expect(confirmNameMatches('', 'Hope Gala')).toBe(false);
+    expect(confirmNameMatches('   ', 'Hope Gala')).toBe(false);
+    expect(confirmNameMatches('', '')).toBe(false);
+    expect(confirmNameMatches('   ', '   ')).toBe(false);
+    expect(confirmNameMatches(null, null)).toBe(false);
+    expect(confirmNameMatches(undefined, undefined)).toBe(false);
+    expect(confirmNameMatches('anything', null)).toBe(false);
+  });
+
+  it('handles the punctuation and emoji real event names carry', () => {
+    expect(confirmNameMatches('Jenna & Jake — 09/14', 'Jenna & Jake — 09/14')).toBe(true);
+    expect(confirmNameMatches('Dami’s 30th 🎉', 'Dami’s 30th 🎉')).toBe(true);
+    expect(confirmNameMatches("Dami's 30th 🎉", 'Dami’s 30th 🎉')).toBe(false); // straight vs curly apostrophe
   });
 });
 

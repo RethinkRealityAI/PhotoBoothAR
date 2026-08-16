@@ -11,8 +11,17 @@
  * the headroom escape hatch — and it destroys nothing (posts, cards and the
  * credit ledger are untouched, and Restore puts the event back).
  *
- * Deliberately NOT here: any delete. `posts`/`cards`/`app_settings` key on
- * events.slug with no FK cascade, so removing an event row would orphan them.
+ * Permanent delete lives at the bottom of this file, and the reason it needs a
+ * service-role edge function is NOT the one first written here. Verified against
+ * the live catalog: all 13 FKs to `public.events` are declared — posts, cards,
+ * challenges, app_settings, experiences, event_catalog_links and guest_quota
+ * CASCADE from `events.slug`; event_plans, event_access_tokens and
+ * event_feature_overrides CASCADE from `events.id`; ai_jobs, orders and
+ * support_tickets SET NULL (business records outlive the event). The DB rows
+ * take care of themselves. What does NOT cascade is STORAGE: every capture,
+ * asset, card media file and rendered film would be orphaned bytes with no row
+ * left pointing at them — which is why `deleteEvent` sweeps the buckets first
+ * and deletes the row last.
  */
 import { formatDate } from './adminFormat';
 
@@ -92,4 +101,43 @@ export function archivedLabel(
   if (days === 1) return 'Archived yesterday';
   if (days < RELATIVE_DAYS_MAX) return `Archived ${days} days ago`;
   return `Archived on ${formatDate(archivedAt)}`;
+}
+
+/* ── Permanent delete ─────────────────────────────────────────────── */
+
+/**
+ * Permanent delete is offered ONLY on an already-archived event.
+ *
+ * Two steps, not one: archiving is the reversible retirement, and a host who
+ * has lived with an event on the archived shelf for a while is a host who is
+ * actually finished with it. `delete-event` re-checks this server-side (403
+ * `must_archive_first`) — a client-only gate is a suggestion.
+ */
+export function canDeleteStatus(status: string | null | undefined): boolean {
+  return isArchivedStatus(status);
+}
+
+/**
+ * Type-to-confirm gate for the permanent delete: the host must retype the
+ * event's own name.
+ *
+ * MIRRORED — `supabase/functions/delete-event/index.ts` (`confirmMatches`)
+ * applies the identical rule to the name it reads from the row itself; Deno
+ * cannot import from src/, so the tests beside this file are the contract both
+ * halves are written against. Change one, change both.
+ *
+ * Rules: both sides trimmed (a name pasted out of the UI arrives with
+ * whitespace, and "you typed a space" is a cruel failure); case-SENSITIVE
+ * (this is the last gate in front of an irreversible delete, and case is the
+ * cheapest evidence that the host read the name rather than pattern-matched
+ * it); an empty target name can never be confirmed, so a nameless row cannot
+ * be deleted by typing nothing.
+ */
+export function confirmNameMatches(
+  typed: string | null | undefined,
+  actual: string | null | undefined,
+): boolean {
+  const a = (typed ?? '').trim();
+  const b = (actual ?? '').trim();
+  return a.length > 0 && a === b;
 }
