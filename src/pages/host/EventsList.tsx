@@ -9,8 +9,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import Modal from '../../components/ui/Modal';
-import { ArrowRight, ArrowUpRight, Check, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2 } from 'lucide-react';
+import ConfirmModal from '../../components/ui/ConfirmModal';
+import { Archive, ArchiveRestore, ArrowRight, ArrowUpRight, Check, ChevronDown, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2 } from 'lucide-react';
 import { fetchMyEvents, updateEventStatus, eventOrgHasActivePro, invalidateProSubscriptionCache, type HostEventRow } from '../../lib/host';
+import { RESTORE_STATUS, archivedLabel, canArchiveStatus, isArchivedStatus, partitionByArchived } from '../../lib/eventArchive';
 import { TierPill, UpgradeModal } from './UpgradeCard';
 import { entitlementsFor, normalizeTier } from '../../lib/entitlements';
 import { supabase } from '../../lib/supabase';
@@ -70,37 +72,59 @@ function capFor(ev: HostEventRow): number | null {
   return entitlementsFor(normalizeTier(ev.plan_tier)).maxPosts;
 }
 
+/** A capped event's posts-used count, or 'unknown' when the count did not load.
+ *  Absent from the map = no meter belongs on that card at all. */
+type PostCount = number | 'unknown';
+
 /**
  * Posts-used counts for the capped events, keyed by event id. One head-only
  * count query per capped event, fired once per list load (no polling) — the
  * same count the submit-post edge fn caps on (all posts for the slug; RLS may
  * hide a few hidden posts from this session, close enough for a meter). An
  * active org Pro subscription lifts the cap to unlimited (mirrors submit-post),
- * so those events are skipped. Failures are simply omitted — no meter beats a
- * wrong one.
+ * so those events are skipped — that is a genuine no-meter and stays absent.
+ *
+ * A FAILED count is different, and used to be flattened into the same absence:
+ * the meter silently disappeared, so a host near their cap saw exactly what a
+ * host on an uncapped plan sees. It now records 'unknown' and the card says so.
+ * Still no invented number.
  */
-async function fetchPostCounts(list: HostEventRow[]): Promise<Record<string, number>> {
+async function fetchPostCounts(list: HostEventRow[]): Promise<Record<string, PostCount>> {
   const capped = list.filter((ev) => capFor(ev) !== null);
   const entries = await Promise.all(
     capped.map(async (ev) => {
       try {
-        if (await eventOrgHasActivePro(ev.id)) return null;
+        if (await eventOrgHasActivePro(ev.id)) return null; // cap lifted → no meter
         const { count, error } = await supabase
           .from('posts')
           .select('id', { count: 'exact', head: true })
           .eq('event_id', ev.slug);
-        if (error || count === null) return null;
+        if (error || count === null) return [ev.id, 'unknown'] as const;
         return [ev.id, count] as const;
       } catch {
-        return null;
+        // Includes an eventOrgHasActivePro that threw: the cap itself is then
+        // unknown, so claiming a number would be a guess either way.
+        return [ev.id, 'unknown'] as const;
       }
     }),
   );
-  return Object.fromEntries(entries.filter((e): e is readonly [string, number] => e !== null));
+  return Object.fromEntries(entries.filter((e): e is readonly [string, PostCount] => e !== null));
 }
 
 /** Compact posts-used / cap meter with an upgrade nudge from 80% full. */
-function CapMeter({ used, cap, onUpgrade }: { used: number; cap: number; onUpgrade: () => void }) {
+function CapMeter({ used, cap, onUpgrade }: { used: PostCount; cap: number; onUpgrade: () => void }) {
+  if (used === 'unknown') {
+    // The track stays so the card keeps its shape, but nothing fills it and the
+    // label says why — an empty bar on its own would read as "0 posts used".
+    return (
+      <div className="space-y-1">
+        <span className="font-sans text-[10px] text-brand-muted/50">
+          Usage unavailable — couldn’t count posts. {cap}-post plan.
+        </span>
+        <div className="h-1 rounded-full bg-white/[0.06]" />
+      </div>
+    );
+  }
   const nearCap = cap > 0 && used / cap >= 0.8;
   const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 100;
   return (
@@ -134,7 +158,9 @@ export default function EventsList() {
   const [qrTarget, setQrTarget] = useState<HostEventRow | null>(null);
   const [upgradeTarget, setUpgradeTarget] = useState<HostEventRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [postCounts, setPostCounts] = useState<Record<string, number>>({});
+  const [archiveTarget, setArchiveTarget] = useState<HostEventRow | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [postCounts, setPostCounts] = useState<Record<string, PostCount>>({});
   const [showGuide, setShowGuide] = useState(() => {
     try { return !localStorage.getItem(HOST_ONBOARDED_KEY); } catch { return false; }
   });
@@ -193,25 +219,40 @@ export default function EventsList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkoutReturn]);
 
-  const setStatus = async (ev: HostEventRow, status: string) => {
+  /**
+   * Optimistic lifecycle flip, reverted on failure. `done` names the outcome in
+   * the host's words because the status alone cannot: a restore and an "End"
+   * both write 'ended'.
+   *
+   * `archived_at` is mirrored locally with the same rule host.ts applies
+   * server-side, so the "Archived today" line appears without re-fetching.
+   */
+  const setStatus = async (ev: HostEventRow, status: string, done: string) => {
     setBusyId(ev.id);
-    const prev = ev.status;
-    setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, status } : e))); // optimistic
+    const prev = { status: ev.status, archived_at: ev.archived_at ?? null };
+    const next = { status, archived_at: status === 'archived' ? new Date().toISOString() : null };
+    setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, ...next } : e))); // optimistic
     const ok = await updateEventStatus(ev.id, status);
     if (ok) {
-      push(status === 'live' ? 'You’re live — guests can scan now' : 'Event ended', 'success');
+      push(done, 'success');
     } else {
-      setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, status: prev } : e))); // revert
+      setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, ...prev } : e))); // revert
       push(`Couldn’t update “${ev.name}” — check your connection and try again.`, 'error');
     }
     setBusyId(null);
   };
 
+  // Archived events are retired, not deleted: they come back in the same
+  // fetchMyEvents payload and are split here, so the "Archived (N)" shelf costs
+  // no second query. Order is preserved (created_at desc).
+  const { active, archived } = partitionByArchived(events ?? []);
+
   // Getting-started guide, derived from data already in hand: the newest event
   // (fetchMyEvents orders created_at desc) anchors the links, done-ness comes
   // from the list itself. Step 3 is optional, so the ring and the auto-hide
-  // track the two required steps only.
-  const newest = events && events.length > 0 ? events[0] : null;
+  // track the two required steps only. An archived event only anchors the
+  // guide when there is nothing active left to point at.
+  const newest = active[0] ?? (events && events.length > 0 ? events[0] : null);
   const hasEvents = newest !== null;
   const anyLive = (events ?? []).some((e) => e.status === 'live');
   const guideSteps = [
@@ -222,13 +263,141 @@ export default function EventsList() {
   const guidePct = Math.round((([hasEvents, anyLive].filter(Boolean).length) / 2) * 100);
   const guideDone = hasEvents && anyLive;
 
+  /** One event card. Shared verbatim by the live grid and the archived shelf so
+   *  the two can never drift into looking like different products. */
+  const renderCard = (ev: HostEventRow) => {
+    const guestUrl = `${origin}/e/${ev.slug}`;
+    // Guests should land on the welcome page — the product's own
+    // recommended entry — so copy-link and the QR both point there.
+    const welcomeUrl = `${origin}/e/${ev.slug}/welcome`;
+    const busy = busyId === ev.id;
+    const isArchived = isArchivedStatus(ev.status);
+    return (
+      <div key={ev.id} className="liquid-glass rounded-2xl p-5 flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-serif text-lg text-brand-fg leading-tight truncate">{ev.name}</p>
+            <p className="font-sans text-[10px] uppercase tracking-widest text-brand-muted/40 mt-0.5">{ev.event_type}</p>
+          </div>
+          <div className="shrink-0 flex items-center gap-1.5">
+            <TierPill tier={ev.plan_tier} />
+            <StatusPill status={ev.status} />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <p className="flex-1 font-mono text-[11px] text-brand-muted/70 truncate">/e/{ev.slug}</p>
+          <CopyLinkButton text={welcomeUrl} />
+          <button
+            onClick={() => setQrTarget(ev)}
+            title="QR code"
+            className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
+          >
+            <QrCode className="w-3.5 h-3.5" />
+          </button>
+          <a
+            href={guestUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open guest view"
+            className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
+        {ev.status === 'draft' && (
+          <p className="font-sans text-[10px] text-amber-400/90 leading-snug">
+            Guests can’t open this link until you Go live.
+          </p>
+        )}
+        {isArchived && (
+          <p className="font-sans text-[10px] text-brand-muted/50 leading-snug">
+            {archivedLabel(ev.archived_at)} — nothing was deleted. Restore it to bring it back.
+          </p>
+        )}
+        {/* Posts-used / plan-cap meter — only for capped tiers whose
+            count actually loaded (0 is a real count, keep !== undefined). */}
+        {capFor(ev) !== null && postCounts[ev.id] !== undefined && (
+          <CapMeter
+            used={postCounts[ev.id]}
+            cap={capFor(ev) as number}
+            onUpgrade={() => setUpgradeTarget(ev)}
+          />
+        )}
+
+        {/* flex-wrap: four 44px-tall pills do not fit one line on a 390px
+            phone, and a card that overflows sideways is worse than one row. */}
+        <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
+          <Link
+            to={`/host/events/${ev.id}`}
+            className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors"
+          >
+            <Settings2 className="w-3.5 h-3.5" /> Open studio
+          </Link>
+          {(ev.status === 'draft' || ev.status === 'ended') && (
+            <button
+              onClick={() => setStatus(ev, 'live', 'You’re live — guests can scan now')}
+              disabled={busy}
+              className="rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-emerald-400 transition-colors disabled:opacity-40"
+            >
+              Go live
+            </button>
+          )}
+          {ev.status === 'live' && (
+            <button
+              onClick={() => setStatus(ev, 'ended', 'Event ended')}
+              disabled={busy}
+              className="rounded-full bg-amber-500/15 hover:bg-amber-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-amber-400 transition-colors disabled:opacity-40"
+            >
+              End
+            </button>
+          )}
+          {/* Archiving a LIVE event is deliberately not offered — end it first,
+              so nobody retires a party that is still running. */}
+          {canArchiveStatus(ev.status) && (
+            <button
+              onClick={() => setArchiveTarget(ev)}
+              disabled={busy}
+              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 hover:text-brand-fg transition-colors disabled:opacity-40"
+            >
+              <Archive className="w-3.5 h-3.5" /> Archive
+            </button>
+          )}
+          {isArchived && (
+            <button
+              onClick={() => setStatus(ev, RESTORE_STATUS, `“${ev.name}” is back in your events`)}
+              disabled={busy}
+              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors disabled:opacity-40"
+            >
+              <ArchiveRestore className="w-3.5 h-3.5" /> Restore
+            </button>
+          )}
+          {/* No upgrade CTA on an archived event — selling a bigger plan for
+              something the host has just retired is the wrong ask. */}
+          {!isArchived && normalizeTier(ev.plan_tier) !== 'deluxe' && (
+            <button
+              onClick={() => setUpgradeTarget(ev)}
+              className="ml-auto flex items-center gap-1 rounded-full bg-accent/10 hover:bg-accent/20 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-accent-2 transition-colors"
+            >
+              Upgrade <ArrowUpRight className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="p-6 md:p-10 max-w-5xl mx-auto">
+    // pb-24 on phones: the Copilot FAB is fixed at bottom-6 right-6 and 56px
+    // square, so it sat on top of the last card's actions at 390px.
+    <div className="p-6 pb-24 md:p-10 md:pb-10 max-w-5xl mx-auto">
       <header className="flex items-center justify-between mb-8">
         <div>
           <h1 className="font-serif text-3xl text-foil-static">Your events</h1>
           <p className="mt-1 font-sans text-xs text-brand-muted/60">
-            {loading ? 'Loading…' : events === null ? '' : `${events.length} event${events.length === 1 ? '' : 's'}`}
+            {/* Counts what the grid is showing — archived events have their own
+                labelled shelf below, so folding them in here would not add up. */}
+            {loading ? 'Loading…' : events === null ? '' : `${active.length} event${active.length === 1 ? '' : 's'}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -341,99 +510,38 @@ export default function EventsList() {
           </Link>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {events.map((ev) => {
-            const guestUrl = `${origin}/e/${ev.slug}`;
-            // Guests should land on the welcome page — the product's own
-            // recommended entry — so copy-link and the QR both point there.
-            const welcomeUrl = `${origin}/e/${ev.slug}/welcome`;
-            const busy = busyId === ev.id;
-            return (
-              <div key={ev.id} className="liquid-glass rounded-2xl p-5 flex flex-col gap-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-serif text-lg text-brand-fg leading-tight truncate">{ev.name}</p>
-                    <p className="font-sans text-[10px] uppercase tracking-widest text-brand-muted/40 mt-0.5">{ev.event_type}</p>
-                  </div>
-                  <div className="shrink-0 flex items-center gap-1.5">
-                    <TierPill tier={ev.plan_tier} />
-                    <StatusPill status={ev.status} />
-                  </div>
-                </div>
+        <>
+          {active.length > 0 ? (
+            <div className="grid gap-4 sm:grid-cols-2">{active.map(renderCard)}</div>
+          ) : (
+            <p className="font-sans text-sm text-brand-muted/60 text-center py-8">
+              Everything here is archived — open the shelf below to restore one, or start a new event.
+            </p>
+          )}
 
-                <div className="flex items-center gap-1.5">
-                  <p className="flex-1 font-mono text-[11px] text-brand-muted/70 truncate">/e/{ev.slug}</p>
-                  <CopyLinkButton text={welcomeUrl} />
-                  <button
-                    onClick={() => setQrTarget(ev)}
-                    title="QR code"
-                    className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
-                  >
-                    <QrCode className="w-3.5 h-3.5" />
-                  </button>
-                  <a
-                    href={guestUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Open guest view"
-                    className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </div>
-                {ev.status === 'draft' && (
-                  <p className="font-sans text-[10px] text-amber-400/90 leading-snug">
-                    Guests can’t open this link until you Go live.
-                  </p>
-                )}
-                {/* Posts-used / plan-cap meter — only for capped tiers whose
-                    count actually loaded (0 is a real count, keep !== undefined). */}
-                {capFor(ev) !== null && postCounts[ev.id] !== undefined && (
-                  <CapMeter
-                    used={postCounts[ev.id]}
-                    cap={capFor(ev) as number}
-                    onUpgrade={() => setUpgradeTarget(ev)}
-                  />
-                )}
-
-                <div className="mt-auto flex items-center gap-2 pt-1">
-                  <Link
-                    to={`/host/events/${ev.id}`}
-                    className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors"
-                  >
-                    <Settings2 className="w-3.5 h-3.5" /> Open studio
-                  </Link>
-                  {(ev.status === 'draft' || ev.status === 'ended') && (
-                    <button
-                      onClick={() => setStatus(ev, 'live')}
-                      disabled={busy}
-                      className="rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-emerald-400 transition-colors disabled:opacity-40"
-                    >
-                      Go live
-                    </button>
-                  )}
-                  {ev.status === 'live' && (
-                    <button
-                      onClick={() => setStatus(ev, 'ended')}
-                      disabled={busy}
-                      className="rounded-full bg-amber-500/15 hover:bg-amber-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-amber-400 transition-colors disabled:opacity-40"
-                    >
-                      End
-                    </button>
-                  )}
-                  {normalizeTier(ev.plan_tier) !== 'deluxe' && (
-                    <button
-                      onClick={() => setUpgradeTarget(ev)}
-                      className="ml-auto flex items-center gap-1 rounded-full bg-accent/10 hover:bg-accent/20 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-accent-2 transition-colors"
-                    >
-                      Upgrade <ArrowUpRight className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+          {/* Archived shelf. Collapsed by default and rendered from the list
+              already in hand — archiving is the product's soft-delete, so the
+              events have to stay reachable, just out of the way. */}
+          {archived.length > 0 && (
+            <div className="mt-8">
+              <button
+                onClick={() => setShowArchived((v) => !v)}
+                aria-expanded={showArchived}
+                className="pressable inline-flex items-center gap-2 rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 hover:text-brand-fg transition-colors"
+              >
+                <Archive className="w-3.5 h-3.5" />
+                Archived ({archived.length})
+                <ChevronDown
+                  className={`w-3 h-3 transition-transform motion-reduce:transition-none ${showArchived ? 'rotate-180' : ''}`}
+                  aria-hidden
+                />
+              </button>
+              {showArchived && (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">{archived.map(renderCard)}</div>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {qrTarget && (
@@ -449,6 +557,33 @@ export default function EventsList() {
           eventUuid={upgradeTarget.id}
           currentTier={upgradeTarget.plan_tier}
           onClose={() => setUpgradeTarget(null)}
+        />
+      )}
+      {/* Archiving is reversible and destroys nothing, so the copy says exactly
+          that — every claim here is one the code actually keeps. Notably absent:
+          "the wall stays live for guests". A signed-out guest gets the same
+          "This event has ended" screen on an archived event as on an ended one
+          (guestAccess in src/lib/eventAccess.ts), so promising otherwise would
+          be a lie the host would only discover at the venue. */}
+      {archiveTarget && (
+        <ConfirmModal
+          title={`Archive “${archiveTarget.name}”?`}
+          body={
+            <>
+              It moves out of your events list and into the Archived shelf below it.
+              Guests see no change — it isn’t live now and it won’t be after — and{' '}
+              <span className="text-brand-fg">nothing is deleted</span>: the photos, the
+              wall, keepsake cards and any credits you spent all stay where they are.
+              Restore is one click, any time.
+            </>
+          }
+          confirmLabel="Archive event"
+          busy={busyId === archiveTarget.id}
+          onConfirm={() => {
+            const ev = archiveTarget;
+            void setStatus(ev, 'archived', `“${ev.name}” archived`).then(() => setArchiveTarget(null));
+          }}
+          onCancel={() => setArchiveTarget(null)}
         />
       )}
     </div>

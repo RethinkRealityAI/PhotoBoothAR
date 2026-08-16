@@ -1,14 +1,32 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchMyOrg, fetchMyOrgResult, pickPrimaryOrg } from './host';
+import {
+  fetchMyOrg,
+  fetchMyOrgResult,
+  pickPrimaryOrg,
+  updateEventDate,
+  updateEventName,
+  updateEventStatus,
+} from './host';
 
 // host.ts creates the supabase client at module load — mock it (same pattern
 // as eventDesigner.test.ts). Only the org_members select→eq→order chain used
-// by fetchMyOrgResult, plus the auth.getSession it scopes that query with, are
-// stubbed.
-const { order, getSession } = vi.hoisted(() => ({ order: vi.fn(), getSession: vi.fn() }));
+// by fetchMyOrgResult, the events update→eq→select chain used by the lifecycle
+// writers, plus the auth.getSession the org query is scoped with, are stubbed.
+const { order, getSession, update, updateSelect } = vi.hoisted(() => ({
+  order: vi.fn(),
+  getSession: vi.fn(),
+  update: vi.fn(),
+  updateSelect: vi.fn(),
+}));
 vi.mock('./supabase', () => ({
   supabase: {
-    from: () => ({ select: () => ({ eq: () => ({ order }) }) }),
+    from: () => ({
+      select: () => ({ eq: () => ({ order }) }),
+      update: (patch: Record<string, unknown>) => {
+        update(patch);
+        return { eq: () => ({ select: updateSelect }) };
+      },
+    }),
     auth: { getSession },
     functions: { invoke: vi.fn() },
   },
@@ -16,9 +34,16 @@ vi.mock('./supabase', () => ({
 
 const SIGNED_IN = { data: { session: { user: { id: 'user-1' } } } };
 
+/** What PostgREST hands back for an UPDATE … RETURNING id that matched a row. */
+const ONE_ROW = { data: [{ id: 'ev-1' }], error: null };
+/** …and for one that matched none: 204, no error. The whole point of the tests. */
+const NO_ROWS = { data: [], error: null };
+
 beforeEach(() => {
   order.mockReset();
   getSession.mockReset();
+  update.mockReset();
+  updateSelect.mockReset();
   getSession.mockResolvedValue(SIGNED_IN);
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -131,6 +156,81 @@ describe('pickPrimaryOrg (multi-org determinism)', () => {
     expect(pickPrimaryOrg([], 'user-1')).toBeNull();
     expect(pickPrimaryOrg([{ role: 'owner', orgs: null }, row('editor', 'org-a', 'Agency')], 'user-1'))
       .toEqual({ orgId: 'org-a', name: 'Agency', role: 'editor' });
+  });
+});
+
+describe('lifecycle writes report a zero-row UPDATE as failure', () => {
+  // An UPDATE filtered out by tenant RLS (or aimed at a stale id) returns 204
+  // with error === null. Reading only `error` made that indistinguishable from
+  // success, which is how the copilot came to announce "Your event is LIVE"
+  // over a write that changed nothing.
+  it('updateEventStatus: one row → true, no rows → false, error → false', async () => {
+    updateSelect.mockResolvedValueOnce(ONE_ROW);
+    await expect(updateEventStatus('ev-1', 'live')).resolves.toBe(true);
+    updateSelect.mockResolvedValueOnce(NO_ROWS);
+    await expect(updateEventStatus('ev-1', 'live')).resolves.toBe(false);
+    updateSelect.mockResolvedValueOnce({ data: null, error: { message: 'denied' } });
+    await expect(updateEventStatus('ev-1', 'live')).resolves.toBe(false);
+  });
+
+  it('updateEventDate: one row → true, no rows → false, error → false', async () => {
+    updateSelect.mockResolvedValueOnce(ONE_ROW);
+    await expect(updateEventDate('ev-1', '2026-09-12')).resolves.toBe(true);
+    updateSelect.mockResolvedValueOnce(NO_ROWS);
+    await expect(updateEventDate('ev-1', '2026-09-12')).resolves.toBe(false);
+    updateSelect.mockResolvedValueOnce({ data: null, error: { message: 'denied' } });
+    await expect(updateEventDate('ev-1', '2026-09-12')).resolves.toBe(false);
+  });
+
+  it('updateEventName: one row → true, no rows → false, error → false', async () => {
+    updateSelect.mockResolvedValueOnce(ONE_ROW);
+    await expect(updateEventName('ev-1', 'Gala')).resolves.toBe(true);
+    updateSelect.mockResolvedValueOnce(NO_ROWS);
+    await expect(updateEventName('ev-1', 'Gala')).resolves.toBe(false);
+    updateSelect.mockResolvedValueOnce({ data: null, error: { message: 'denied' } });
+    await expect(updateEventName('ev-1', 'Gala')).resolves.toBe(false);
+  });
+
+  it('updateEventName still refuses an empty name without touching the DB', async () => {
+    await expect(updateEventName('ev-1', '   ')).resolves.toBe(false);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('updateEventDate still sends start-of-day, and null for an empty date', async () => {
+    updateSelect.mockResolvedValue(ONE_ROW);
+    await updateEventDate('ev-1', '2026-09-12');
+    expect(update).toHaveBeenLastCalledWith({ starts_at: new Date('2026-09-12T00:00:00').toISOString() });
+    await updateEventDate('ev-1', '');
+    expect(update).toHaveBeenLastCalledWith({ starts_at: null });
+  });
+
+  it('updateEventName still trims', async () => {
+    updateSelect.mockResolvedValue(ONE_ROW);
+    await updateEventName('ev-1', '  Gala  ');
+    expect(update).toHaveBeenLastCalledWith({ name: 'Gala' });
+  });
+});
+
+describe('updateEventStatus stamps archived_at', () => {
+  it('sets it to now when archiving', async () => {
+    updateSelect.mockResolvedValue(ONE_ROW);
+    const before = Date.now();
+    await updateEventStatus('ev-1', 'archived');
+    const patch = update.mock.calls[0][0] as { status: string; archived_at: string | null };
+    expect(patch.status).toBe('archived');
+    expect(typeof patch.archived_at).toBe('string');
+    const stamped = Date.parse(patch.archived_at as string);
+    expect(Number.isNaN(stamped)).toBe(false);
+    expect(stamped).toBeGreaterThanOrEqual(before);
+    expect(stamped).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('CLEARS it on every other status, so a restored event keeps no stale date', async () => {
+    updateSelect.mockResolvedValue(ONE_ROW);
+    for (const status of ['ended', 'live', 'draft']) {
+      await updateEventStatus('ev-1', status);
+      expect(update).toHaveBeenLastCalledWith({ status, archived_at: null });
+    }
   });
 });
 

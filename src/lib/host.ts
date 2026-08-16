@@ -284,6 +284,10 @@ export interface HostEventRow {
   plan_tier: string;
   created_at: string;
   config: Record<string, unknown> | null;
+  /** When the event was archived (migration 031), for display only — `status`
+   *  is the authority. Optional because rows that predate the column, and the
+   *  create-event edge function's own returned row, simply do not carry it. */
+  archived_at?: string | null;
 }
 
 /**
@@ -308,7 +312,7 @@ export const DEMO_EVENT_SLUG = 'demo';
 export const SHOW_DEMO_EVENT =
   ((import.meta.env.VITE_SHOW_DEMO_EVENT as string | undefined) ?? '').trim() === 'true';
 
-const EVENT_COLUMNS = 'id, slug, name, event_type, status, plan_tier, created_at, config';
+const EVENT_COLUMNS = 'id, slug, name, event_type, status, plan_tier, created_at, config, archived_at';
 
 /** The caller's org_id memberships. Returned as a plain array — duplicates
  *  are harmless for the `.in('org_id', ...)` filters callers use it for, and
@@ -489,25 +493,50 @@ export async function updateEventConfig(
   return true;
 }
 
+/**
+ * Set an event's lifecycle status, stamping `archived_at` (migration 031)
+ * alongside it. The timestamp is a pure function of the status — written on the
+ * way into 'archived', cleared on every way out — so a restored event can never
+ * keep a stale "Archived 3 days ago" line, and `status` stays the single
+ * authority (001's CHECK) that every guard already reads.
+ *
+ * ZERO ROWS IS NOT SUCCESS: an UPDATE that matches nothing — filtered out by
+ * tenant RLS, or aimed at an id that has since moved — returns 204 with
+ * `error === null`, indistinguishable from a real write unless the rows are
+ * asked for. That is how the copilot came to announce "Your event is LIVE" over
+ * a write that changed nothing. `.select('id')` costs no extra round trip, and
+ * `events_public_read` (003) covers a member reading back their own row,
+ * drafts included.
+ */
 export async function updateEventStatus(eventUuid: string, status: string): Promise<boolean> {
-  const { error } = await supabase.from('events').update({ status }).eq('id', eventUuid);
+  const archivedAt = status === 'archived' ? new Date().toISOString() : null;
+  const { data, error } = await supabase
+    .from('events')
+    .update({ status, archived_at: archivedAt })
+    .eq('id', eventUuid)
+    .select('id');
   if (error) {
     console.error('[host] updateEventStatus', error);
     return false;
   }
-  return true;
+  return (data?.length ?? 0) > 0;
 }
 
 /** Set an event's date (YYYY-MM-DD → start-of-day ISO, same as createEvent).
- *  An empty string clears it. Returns false on error. */
+ *  An empty string clears it. Returns false on error, and on a zero-row write
+ *  (see updateEventStatus — a no-match UPDATE reports no error at all). */
 export async function updateEventDate(eventUuid: string, date: string): Promise<boolean> {
   const startsAt = date ? new Date(`${date}T00:00:00`).toISOString() : null;
-  const { error } = await supabase.from('events').update({ starts_at: startsAt }).eq('id', eventUuid);
+  const { data, error } = await supabase
+    .from('events')
+    .update({ starts_at: startsAt })
+    .eq('id', eventUuid)
+    .select('id');
   if (error) {
     console.error('[host] updateEventDate', error);
     return false;
   }
-  return true;
+  return (data?.length ?? 0) > 0;
 }
 
 /** Current lifecycle status of an event (draft/live/ended/archived), or null.
@@ -521,15 +550,21 @@ export async function fetchEventStatus(eventUuid: string): Promise<string | null
   return (data.status as string) ?? null;
 }
 
+/** Rename an event. False on an empty name, on error, and on a zero-row write
+ *  (see updateEventStatus — a no-match UPDATE reports no error at all). */
 export async function updateEventName(eventUuid: string, name: string): Promise<boolean> {
   const trimmed = name.trim();
   if (!trimmed) return false;
-  const { error } = await supabase.from('events').update({ name: trimmed }).eq('id', eventUuid);
+  const { data, error } = await supabase
+    .from('events')
+    .update({ name: trimmed })
+    .eq('id', eventUuid)
+    .select('id');
   if (error) {
     console.error('[host] updateEventName', error);
     return false;
   }
-  return true;
+  return (data?.length ?? 0) > 0;
 }
 
 /** Client-side availability hint for the wizard. RLS hides other orgs' drafts,

@@ -1078,6 +1078,14 @@ const RUN_THE_NIGHT: GuideDoc = {
       ],
     },
     {
+      kind: 'prose',
+      title: 'After the event',
+      body: [
+        'When the party is over, hit End on the event. The booth shuts to new photos immediately — anyone who scans the QR after that gets your thank-you screen instead of a camera, so give guests their last call before you press it.',
+        'Later, once an old event is just taking up room in Your events, hit Archive. It slides into a collapsed Archived shelf at the bottom of the page and nothing is deleted — the wall, every photo, the keepsake cards and the credits you spent are all exactly where you left them, and one click brings it back.',
+      ],
+    },
+    {
       kind: 'spec',
       title: 'What things cost',
       rows: [
