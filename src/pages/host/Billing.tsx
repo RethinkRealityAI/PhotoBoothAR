@@ -243,7 +243,9 @@ export default function Billing() {
   const noOrg = !loading && !org && !orgLoadFailed;
 
   return (
-    <div className="p-6 md:p-10 max-w-4xl mx-auto">
+    /* pb-24 on phones: the floating Copilot FAB is fixed bottom-right on every
+       /host/** page and sat on top of this page's last control. */
+    <div className="p-6 pb-24 md:p-10 md:pb-10 max-w-4xl mx-auto">
       <header className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-serif text-3xl text-foil-static">Billing</h1>

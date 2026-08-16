@@ -660,10 +660,26 @@ const DEFAULT_WALL_SETTINGS: WallSettings = {
   defaultExperienceId: null,
 };
 
-export async function getWallSettings(eventId: string): Promise<WallSettings> {
+/**
+ * Wall settings, distinguishing "never configured" (no row — the defaults ARE
+ * the truth) from "we couldn't ask". `getWallSettings` folds both into the
+ * defaults, which is right for the wall itself (a projector must render
+ * something) but wrong for a reader that REPORTS the values: the copilot's event
+ * snapshot rendered a failed read as `challenges feature ON` and told the host so.
+ * `*Result` sibling convention, so no existing caller changes.
+ */
+export async function getWallSettingsResult(eventId: string): Promise<{ settings: WallSettings; failed: boolean }> {
   const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'wall').eq('event_id', eventId).maybeSingle();
-  if (error || !data) return DEFAULT_WALL_SETTINGS;
-  return { ...DEFAULT_WALL_SETTINGS, ...(data.value as Partial<WallSettings>) };
+  if (error) {
+    console.error('[db] getWallSettings', error);
+    return { settings: DEFAULT_WALL_SETTINGS, failed: true };
+  }
+  if (!data) return { settings: DEFAULT_WALL_SETTINGS, failed: false };
+  return { settings: { ...DEFAULT_WALL_SETTINGS, ...(data.value as Partial<WallSettings>) }, failed: false };
+}
+
+export async function getWallSettings(eventId: string): Promise<WallSettings> {
+  return (await getWallSettingsResult(eventId)).settings;
 }
 
 export async function setWallSettings(eventId: string, patch: Partial<WallSettings>): Promise<WallSettings> {

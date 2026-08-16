@@ -199,6 +199,8 @@ export default function Concierge() {
       eventType: selected.event_type,
     })
       .then((snap) => { setSnapshot(snap); setSnapFailed(false); })
+      // (snap.failed — a snapshot that LOADED but whose contents could not be
+      //  read — is surfaced separately below; it still scopes the tools.)
       // Nulling the snapshot on failure left the header still naming the event
       // while every tool proposal answered "pick which event this is for first".
       .catch(() => { setSnapshot(null); setSnapFailed(true); })
@@ -313,11 +315,16 @@ export default function Concierge() {
                 <p className="font-serif text-sm text-foil-static leading-tight truncate">
                   {selected ? selected.name : 'Pick an event'}
                 </p>
-                <p className={`font-sans text-[10px] truncate ${snapFailed ? 'text-amber-300/90' : 'text-brand-muted/60'}`}>
+                <p className={`font-sans text-[10px] truncate ${snapFailed || snapshot?.failed ? 'text-amber-300/90' : 'text-brand-muted/60'}`}>
                   {/* When the snapshot fails the header used to keep naming the
-                      event while every tool answered "pick an event first". */}
+                      event while every tool answered "pick an event first".
+                      `snapshot.failed` is the softer case: the event IS scoped,
+                      but its contents could not be read, so the assistant must
+                      not describe them (and won't — formatSnapshot says so). */}
                   {snapFailed
                     ? 'Couldn’t load this event — the assistant can’t act on it yet'
+                    : snapshot?.failed
+                    ? 'Couldn’t read what’s in this event — the assistant won’t guess'
                     : selected
                     ? `/e/${selected.slug} · ${selected.status}`
                     : 'Select a card on the left to begin'}

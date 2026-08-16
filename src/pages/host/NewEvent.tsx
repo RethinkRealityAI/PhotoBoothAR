@@ -23,6 +23,7 @@ import { designEvent, normalizePlan, type ChatMessage, type DesignImage, type Ev
 import { fileToImagePart } from '../../lib/imageInput';
 import CopilotChat from '../../components/copilot/CopilotChat';
 import { loadEventSnapshot, type EventSnapshot } from '../../lib/eventSnapshot';
+import { useKeyboardInset } from '../../components/copilot/useKeyboardInset';
 import { applySurfaceMessages, getPath, setPath, type A2uiActionEvent, type SurfaceState } from '../../lib/a2ui';
 import A2uiSurface from '../../components/a2ui/A2uiSurface';
 import TemplatePreview from '../../components/ui/TemplatePreview';
@@ -107,6 +108,8 @@ export default function NewEvent() {
   // ── Post-create build phase: the same chat continues, now event-aware, so
   //    the host adds frame/filter/3D/challenges, tests, and goes live inline. ──
   const [buildSnapshot, setBuildSnapshot] = useState<EventSnapshot | null>(null);
+  /** The build-phase snapshot load threw — show a retry, never an endless spinner. */
+  const [buildFailed, setBuildFailed] = useState(false);
 
   // ── Concierge chat (default path; the greeting lives outside the
   //    transcript so the edge fn always sees a user-first conversation) ──
@@ -116,7 +119,18 @@ export default function NewEvent() {
   const [chatBusy, setChatBusy] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const kbInset = useKeyboardInset();
+
+  // Auto-grow the concierge input up to ~4 lines; also snaps back after send.
+  // (Same effect CopilotChat runs — the two fields now behave identically.)
+  useEffect(() => {
+    const el = chatInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [chatInput]);
 
   // ── A2UI surfaces (generative UI): each concierge turn streams an A2UI
   //    plan-editor card; the reducer folds the messages into surface state
@@ -311,16 +325,26 @@ export default function NewEvent() {
    *  in-chat "go live" flips the Test card + checklist to live. */
   const reloadBuild = useCallback(async () => {
     if (!created) return;
-    const status = (await fetchEventStatus(created.id)) ?? created.status;
-    const snap = await loadEventSnapshot({
-      eventUuid: created.id,
-      slug: created.slug,
-      name: created.name,
-      status,
-      planTier: created.plan_tier,
-      eventType: created.event_type,
-    });
-    setBuildSnapshot(snap);
+    setBuildFailed(false);
+    try {
+      const status = (await fetchEventStatus(created.id)) ?? created.status;
+      const snap = await loadEventSnapshot({
+        eventUuid: created.id,
+        slug: created.slug,
+        name: created.name,
+        status,
+        planTier: created.plan_tier,
+        eventType: created.event_type,
+      });
+      setBuildSnapshot(snap);
+    } catch (e) {
+      // Nothing here used to catch: one rejected promise left buildSnapshot null
+      // forever, and the branch below renders an indefinite spinner — "Preparing
+      // your build studio…" spinning for the rest of the session, right after the
+      // host paid us their attention to create the event.
+      console.error('[new-event] reloadBuild', e);
+      setBuildFailed(true);
+    }
   }, [created]);
 
   useEffect(() => { if (created) void reloadBuild(); }, [created, reloadBuild]);
@@ -491,6 +515,27 @@ export default function NewEvent() {
               mode="build"
               greeting={BUILD_GREETING}
             />
+          ) : buildFailed ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
+              <p className="font-sans text-xs text-amber-200/90 leading-relaxed max-w-sm">
+                Your event is created and safe — we just couldn’t load its details for the
+                assistant. Retry, or open the Studio and build it there.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  onClick={() => void reloadBuild()}
+                  className="inline-flex items-center rounded-full bg-white/[0.08] hover:bg-white/[0.14] px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors"
+                >
+                  Retry
+                </button>
+                <button
+                  onClick={() => navigate(`/host/events/${created.id}`)}
+                  className="inline-flex items-center rounded-full border border-white/15 px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 hover:text-brand-fg transition-colors"
+                >
+                  Open studio
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="flex-1 flex items-center justify-center gap-2 text-brand-muted/60">
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -511,7 +556,13 @@ export default function NewEvent() {
   const conciergeStep = step === 1 && concierge;
 
   return (
-    <div className={`p-4 md:p-8 max-w-6xl mx-auto ${conciergeStep ? 'h-full flex flex-col min-h-0' : ''}`}>
+    <div
+      className={`p-4 md:p-8 max-w-6xl mx-auto ${conciergeStep ? 'h-full flex flex-col min-h-0' : ''}`}
+      /* The concierge step is a full-height flex column whose input row sits at
+         the bottom — on a phone the soft keyboard covered the very field the
+         host had just tapped. Lift the whole column above it. Desktop reads 0. */
+      style={kbInset > 0 ? { paddingBottom: `calc(1rem + ${kbInset}px)` } : undefined}
+    >
       <Link to="/host" className="inline-flex items-center gap-1.5 mb-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/60 hover:text-brand-fg transition-colors shrink-0">
         <ArrowLeft className="w-3.5 h-3.5" /> Events
       </Link>
@@ -604,7 +655,7 @@ export default function NewEvent() {
               </div>
             )}
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-end gap-2 shrink-0">
               <button
                 onClick={() => photoInputRef.current?.click()}
                 disabled={chatBusy || photoBusy}
@@ -614,16 +665,27 @@ export default function NewEvent() {
               >
                 {photoBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
               </button>
-              <input
-                autoFocus
+              {/* Same field as the copilot's: multiline-friendly, Enter sends,
+                  Shift+Enter adds a line, grows to ~4 lines then scrolls. The
+                  single-line <input> here made the OPENING act of the product —
+                  "describe your event" — the one box you could not see your own
+                  sentence in. `autoFocus` is gone too: on a phone it threw the
+                  keyboard up over the suggestion chips before the host had read
+                  a single word of the page. */}
+              <textarea
+                ref={chatInputRef}
                 value={chatInput}
+                rows={1}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') sendChat(chatInput);
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendChat(chatInput);
+                  }
                 }}
                 maxLength={2000}
                 placeholder="Describe your event, or add a photo of your invitation…"
-                className={inputClass}
+                className={`${inputClass} resize-none hide-scrollbar`}
               />
               {/* Subtle counter once the 2000-char limit comes into view —
                   before this, typing simply stopped with no explanation. */}

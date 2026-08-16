@@ -51,7 +51,10 @@ export default function CopilotFab() {
           onClick={open}
           title="Beamwall Copilot"
           aria-label="Open the Beamwall Copilot"
-          className="fixed bottom-6 right-6 z-[70] w-14 h-14 rounded-full bg-foil glow-accent shadow-[0_10px_40px_rgba(0,0,0,0.5)] flex items-center justify-center text-white active:scale-95 transition-transform"
+          /* The 1.5rem anchor put the button ON the iOS home indicator, where
+             the system swipe wins the touch — max() keeps it clear on notched
+             phones and is a no-op everywhere else. */
+          className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-6 z-[70] w-14 h-14 rounded-full bg-foil glow-accent shadow-[0_10px_40px_rgba(0,0,0,0.5)] flex items-center justify-center text-white active:scale-95 transition-transform"
         >
           <Sparkles className="w-6 h-6" />
         </motion.button>

@@ -21,6 +21,7 @@ import {
   buildCardLinkSurface, buildLinksSurface, buildProposalSurface, buildStatsSurface,
   buildGeneratingSurface, buildFramePreviewSurface, buildHeadPiecePreviewSurface,
   buildGenErrorSurface, buildBoothTestSurface, buildChecklistSurface,
+  type ProposalChallenge,
 } from '../../lib/copilotSurfaces';
 import { gapPrompt, proposalGaps, requiredGaps } from '../../lib/proposalGaps';
 import {
@@ -42,6 +43,7 @@ import type { EventSnapshot } from '../../lib/eventSnapshot';
 import type { Experience } from '../../types';
 import A2uiSurface from '../a2ui/A2uiSurface';
 import { haptic } from '../../lib/haptics';
+import { useKeyboardInset } from './useKeyboardInset';
 import { buildConceptPrompt, normalizeLettering, type LetteringSpec } from '../../lib/assetPrompt';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -103,6 +105,9 @@ interface ChatItem extends ChatMessage {
    *  persisted transcripts, which are then rendered neutrally rather than
    *  being retro-labelled as successes. */
   ok?: boolean;
+  /** This assistant turn is the OFFLINE fallback text, not a model reply. Absent
+   *  on older persisted transcripts, which stay rendered as normal replies. */
+  offline?: boolean;
 }
 
 const STORE_KEY = 'beamwall:copilot:v1';
@@ -140,6 +145,7 @@ export default function CopilotChat({
   onMutated,
   greeting,
   mode = 'default',
+  liftAboveKeyboard = true,
 }: {
   snapshot: EventSnapshot | null;
   onMutated: () => void;
@@ -147,6 +153,9 @@ export default function CopilotChat({
   greeting?: string;
   /** 'build' swaps the quick-action chips to the experience-building set. */
   mode?: 'default' | 'build';
+  /** Pad the bottom by the mobile keyboard's height. Pass false when the HOST
+   *  container already lifts itself above the keyboard (the floating panel). */
+  liftAboveKeyboard?: boolean;
 }) {
   const storeKey = snapshot?.eventUuid ?? 'platform';
   const [messages, setMessages] = useState<ChatItem[]>(() => loadSaved(storeKey).chat);
@@ -157,6 +166,7 @@ export default function CopilotChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const reduced = useReducedMotion() ?? false;
+  const kbInset = useKeyboardInset();
   // Messages restored from sessionStorage must not replay their entrance
   // animation — only messages added after mount animate in.
   const mountCountRef = useRef(messages.length);
@@ -185,6 +195,9 @@ export default function CopilotChat({
     provider?: FrameProvider;
   }>>({});
   const runningGen = useRef<Set<string>>(new Set());
+  // Same latch for APPLY: the card now waits for the publish to answer before it
+  // leaves, so without this a second tap would publish-and-pin twice.
+  const applyingGen = useRef<Set<string>>(new Set());
   // Surfaces the host dismissed mid-generation — a late async continuation must
   // NOT re-materialise a card the host already closed (F2).
   const dismissedGen = useRef<Set<string>>(new Set());
@@ -242,6 +255,13 @@ export default function CopilotChat({
     setMessages((m) => [...m, { role: 'assistant', content: '', surfaceId: sid }]);
   };
 
+  /** The snapshot row an update/delete proposal points at, so its confirm card
+   *  can NAME the challenge instead of showing the host a bare uuid. */
+  const targetChallenge = (action: CopilotAction): ProposalChallenge =>
+    action.tool === 'update_challenge' || action.tool === 'delete_challenge'
+      ? snapshot?.challenges.find((c) => c.id === action.proposal.challengeId) ?? null
+      : null;
+
   /** Swap the CONTENT of an existing surface in place (the chat message that
    *  references it stays put) — used to drive a generation card through its
    *  proposal → working → preview → error phases. */
@@ -276,9 +296,26 @@ export default function CopilotChat({
 
   /** Read-only tools run instantly from the snapshot — no confirm, no wire. */
   const runReadOnly = (action: CopilotAction) => {
-    if (!snapshot) return;
+    // Bailing in silence meant the model could answer "here are your stats" and
+    // then nothing at all appeared — the host was left staring at a promise.
+    if (!snapshot) {
+      setMessages((m) => [...m, {
+        role: 'user', kind: 'tool_result', ok: false,
+        content: '[tool_result] I can only look that up for one event at a time — pick an event above and ask me again.',
+      }]);
+      return;
+    }
     const sid = `ro_${++seqRef.current}`;
     if (action.tool === 'get_stats') {
+      // A failed snapshot renders every count as 0. Four confident zeroes about
+      // an event that is actually full is worse than no answer at all.
+      if (snapshot.failed) {
+        setMessages((m) => [...m, {
+          role: 'user', kind: 'tool_result', ok: false,
+          content: '[tool_result] I couldn’t read this event just now, so I won’t show you numbers I can’t stand behind — try again in a moment.',
+        }]);
+        return;
+      }
       addSurface(buildStatsSurface([
         { label: 'Wall posts', value: snapshot.postCount },
         { label: 'Challenges', value: snapshot.challenges.length },
@@ -305,6 +342,15 @@ export default function CopilotChat({
   /** Build-mode "beam-ready" checklist, computed from the live snapshot. */
   const showChecklist = () => {
     if (!snapshot) return;
+    // Same reason as get_stats: on a failed read every item computes ○, which
+    // would tell a host who has built everything that they have built nothing.
+    if (snapshot.failed) {
+      setMessages((m) => [...m, {
+        role: 'user', kind: 'tool_result', ok: false,
+        content: '[tool_result] I couldn’t read this event just now, so the checklist would be wrong — try again in a moment.',
+      }]);
+      return;
+    }
     const sid = `chk_${++seqRef.current}`;
     // Count only PUBLISHED experiences — an unapproved/dismissed generation
     // leaves an unpublished row that must not tick the checklist (F7).
@@ -458,15 +504,19 @@ export default function CopilotChat({
   /** Approve a generated asset: publish + pin as booth default (NO regen). */
   const applyGenerated = async (event: A2uiActionEvent) => {
     const sid = event.surfaceId;
+    // The card now stays mounted until the publish resolves (see below), so it
+    // needs the same synchronous double-fire latch Generate has.
+    if (applyingGen.current.has(sid)) return;
     const g = genState.current[sid];
     const kind = event.context.kind === 'headpiece' ? 'headpiece' : 'frame';
     const experienceId = String(event.context.experienceId ?? g?.experience?.id ?? '');
-    if (experienceId) flashThenDrop(sid); else dropSurfaceById(sid);
     delete genState.current[sid];
     if (!experienceId) {
+      dropSurfaceById(sid);
       setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] The generated asset was lost — please generate it again.' }]);
       return;
     }
+    applyingGen.current.add(sid);
     let result;
     if (kind === 'frame') {
       result = await applyGeneratedFrame(ctx(), experienceId);
@@ -488,6 +538,13 @@ export default function CopilotChat({
       if (glbUrl) { try { fitScale = await measureGlbFitScale(glbUrl); } catch { /* best-effort fit */ } }
       result = await applyGeneratedPiece(ctx(), experienceId, fitScale);
     }
+    applyingGen.current.delete(sid);
+    // The success flash used to fire BEFORE this await, so a publish that FAILED
+    // still played its ✓ animation and the card slid away as though applied —
+    // the host walked off believing their paid-for asset was live on the booth.
+    // The ✓ is now the publish's own answer; a failure just closes the card and
+    // the amber result line beneath says what to do instead.
+    if (result.ok) flashThenDrop(sid); else dropSurfaceById(sid);
     setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: result.ok, content: `[tool_result] ${result.summary}` }]);
     if (result.ok) onMutated();
   };
@@ -523,13 +580,25 @@ export default function CopilotChat({
     setBusy(true);
     const wire: ChatMessage[] = next.map(({ role, content: c }) => ({ role, content: c }));
     const res = await askCopilot(wire, snapshot); // never throws
-    setMessages((m) => [...m, { role: 'assistant', content: res.reply }]);
+    // `offline` marks a reply the built-in fallback wrote, not the model — it
+    // reads exactly like a real answer otherwise, and a host who cannot tell
+    // "the AI said no" from "the AI is unreachable" stops trusting both.
+    setMessages((m) => [...m, { role: 'assistant', content: res.reply, offline: res.source === 'offline' }]);
+    // The prose almost always claims the dropped proposals happened. Say so.
+    if (res.dropped > 0) {
+      setMessages((m) => [...m, {
+        role: 'user', kind: 'tool_result', ok: false,
+        content: res.dropped === 1
+          ? '[tool_result] I couldn’t act on that one — tell me the exact challenge name and I’ll redo it.'
+          : `[tool_result] I couldn’t act on ${res.dropped} of those — tell me the exact challenge names and I’ll redo them.`,
+      }]);
+    }
     for (const action of res.actions) {
       if (action.tool === 'get_stats' || action.tool === 'share_links' || action.tool === 'test_experience') {
         runReadOnly(action);
       } else {
         const sid = `prop_${++seqRef.current}`;
-        addSurface(buildProposalSurface(action, sid), sid);
+        addSurface(buildProposalSurface(action, sid, targetChallenge(action)), sid);
       }
     }
     setBusy(false);
@@ -544,23 +613,33 @@ export default function CopilotChat({
       askedGaps.current.delete(event.surfaceId);
       return;
     }
-    if (event.name === 'apply_generated') { await applyGenerated(event); return; }
-    if (event.name === 'regenerate_generated') { regenerate(event); return; }
-    if (event.name !== 'confirm_action') return;
-
-    const proposal = (event.context.proposal ?? {}) as Record<string, unknown> & { tool?: string };
-    const tool = proposal.tool;
-    if (typeof tool !== 'string') return;
+    if (event.name !== 'confirm_action' && event.name !== 'apply_generated'
+      && event.name !== 'regenerate_generated' && event.name !== 'open_go_live_card') return;
 
     // Every tool here acts on the selected event; with none selected ctx().slug
     // is empty and any write hits the tenant RLS wall (403). Guard the whole
     // confirm path — including async generation, which runs before executeAction
     // — with one clear prompt to pick an event first.
+    //
+    // This guard sits ABOVE the apply/regenerate branches on purpose: they used
+    // to return before reaching it, so on a snapshot-less panel "Try again" and
+    // "Regenerate" were dead buttons — a tap, no card change, no message, and a
+    // host who had just been charged for a generation with nothing to show.
     if (!snapshot) {
       dropSurfaceById(event.surfaceId);
       setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] Pick which event this is for first — select one of your events, then ask me again.' }]);
       return;
     }
+
+    if (event.name === 'apply_generated') { await applyGenerated(event); return; }
+    if (event.name === 'regenerate_generated') { regenerate(event); return; }
+    // The booth-test card's Go-live button OPENS the confirm card instead of
+    // publishing on the spot — the host reads what going live means first.
+    if (event.name === 'open_go_live_card') { openProposal({ tool: 'go_live' }); return; }
+
+    const proposal = (event.context.proposal ?? {}) as Record<string, unknown> & { tool?: string };
+    const tool = proposal.tool;
+    if (typeof tool !== 'string') return;
 
     // Does the card actually carry everything the action needs? The fields are
     // host-editable, and the generation tools below skip normalizeActions
@@ -646,7 +725,7 @@ export default function CopilotChat({
    *  chips use this so the whole flow works even before the edge-fn redeploy. */
   const openProposal = (action: CopilotAction) => {
     const sid = `prop_${++seqRef.current}`;
-    addSurface(buildProposalSurface(action, sid), sid);
+    addSurface(buildProposalSurface(action, sid, targetChallenge(action)), sid);
   };
 
   /** Quick-action chips: the experience-building set in build mode, else the
@@ -681,7 +760,16 @@ export default function CopilotChat({
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col px-4 pb-4 pt-3 gap-2.5">
+    <div
+      className="flex-1 min-h-0 flex flex-col px-4 pb-4 pt-3 gap-2.5"
+      /* Mobile soft keyboard: this chat is also mounted INLINE (on
+         /host/concierge and /host/new's build phase), where nothing else lifts
+         it — so the input row sat under the keyboard the moment it was tapped.
+         OFF inside the floating panel, which already raises its own bottom edge
+         by the same amount: doing both would strand the input a whole keyboard
+         above the keyboard. Desktop reads 0 either way. */
+      style={liftAboveKeyboard && kbInset > 0 ? { paddingBottom: `calc(1rem + ${kbInset}px)` } : undefined}
+    >
       <div ref={scrollRef} onScroll={handleListScroll} className="flex-1 min-h-0 overflow-y-auto rounded-2xl bg-white/[0.02] border border-white/10 p-3.5 flex flex-col gap-2.5">
         <div className="max-w-[90%] self-start rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg/90">
           {greeting ?? GREETING}
@@ -753,7 +841,21 @@ export default function CopilotChat({
               className="max-w-[92%] self-start flex flex-col gap-2"
             >
               {m.content && (
-                <div className="liquid-glass-inset rounded-2xl rounded-tl-md px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg/90">
+                /* An offline reply is the built-in fallback, not the assistant
+                   thinking — amber says "this is a service notice", so a host
+                   never mistakes "I can't reach the AI" for a considered no. */
+                <div
+                  className={
+                    m.offline
+                      ? 'rounded-2xl rounded-tl-md border border-amber-300/25 bg-amber-400/[0.07] px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-amber-100/90'
+                      : 'liquid-glass-inset rounded-2xl rounded-tl-md px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg/90'
+                  }
+                >
+                  {m.offline && (
+                    <span className="block font-label uppercase tracking-luxe text-[8.5px] text-amber-300/80 mb-1">
+                      Offline · built-in guide
+                    </span>
+                  )}
                   {m.content}
                 </div>
               )}
@@ -832,7 +934,7 @@ export default function CopilotChat({
               key={q.label}
               onClick={() => { haptic('tap'); q.run(); }}
               disabled={busy}
-              className="pressable liquid-glass-inset rounded-full px-3 min-h-9 font-sans text-[10.5px] text-brand-muted/80 hover:text-brand-fg transition-colors disabled:opacity-40"
+              className="pressable liquid-glass-inset rounded-full px-3.5 min-h-11 font-sans text-[10.5px] text-brand-muted/80 hover:text-brand-fg transition-colors disabled:opacity-40"
             >
               {q.label}
             </button>

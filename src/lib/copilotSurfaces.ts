@@ -145,9 +145,51 @@ function sampleCell(prefix: string, sample: string, caption: string): A2uiCompon
   ];
 }
 
+/**
+ * The snapshot row for the challenge a proposal targets, when the caller could
+ * find one. `null` (no snapshot, or an id the snapshot does not know) keeps the
+ * id-only rendering these cards always had.
+ */
+export type ProposalChallenge = { id: string; title: string; emoji: string; points: number } | null;
+
+/**
+ * Identity line for a card that acts on an EXISTING challenge. The card used to
+ * show the raw uuid and nothing else, so "Delete it" asked the host to approve
+ * destroying `9f3c1a…` — a string they have never seen anywhere in the product.
+ * The name goes on top; the id stays, demoted to a caption, because it is still
+ * the thing the executor keys on.
+ *
+ * `withPoints` is false on the EDIT card: its points box is seeded with the
+ * PROPOSED value, so repeating the current one beside it reads as a
+ * contradiction rather than as context.
+ */
+function challengeTarget(challenge: ProposalChallenge, withPoints: boolean): { ids: string[]; components: A2uiComponent[] } {
+  const idRow: A2uiComponent = {
+    id: 'targetId', component: 'Text', variant: 'caption', text: { path: '/proposal/challengeId' },
+  };
+  if (!challenge) return { ids: ['targetId'], components: [idRow] };
+  return {
+    ids: ['target', 'targetId'],
+    components: [
+      {
+        id: 'target', component: 'Text',
+        text: withPoints
+          ? `${challenge.emoji} ${challenge.title} · ${challenge.points} pts`
+          : `${challenge.emoji} ${challenge.title}`,
+      },
+      idRow,
+    ],
+  };
+}
+
 /** Confirm card for a MUTATION proposal — every field the executor will use
- *  is editable in the card. Returns [] for read-only tools (no confirm). */
-export function buildProposalSurface(action: CopilotAction, surfaceId: string): A2uiMessage[] {
+ *  is editable in the card. Returns [] for read-only tools (no confirm).
+ *  `challenge` names the row an update/delete targets (see challengeTarget). */
+export function buildProposalSurface(
+  action: CopilotAction,
+  surfaceId: string,
+  challenge: ProposalChallenge = null,
+): A2uiMessage[] {
   const p = 'proposal' in action ? action.proposal : undefined;
   switch (action.tool) {
     case 'add_challenge': {
@@ -189,14 +231,15 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
     }
     case 'update_challenge': {
       const confirm = confirmRow('Apply changes');
+      const target = challengeTarget(challenge, false);
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
         {
           id: 'body', component: 'Column',
-          children: ['heading', 'target', 'titleField', 'emojiField', 'pointsField', 'activeCheck', ...confirm.ids],
+          children: ['heading', ...target.ids, 'titleField', 'emojiField', 'pointsField', 'activeCheck', ...confirm.ids],
         },
         { id: 'heading', component: 'Text', text: 'Edit challenge', variant: 'h5' },
-        { id: 'target', component: 'Text', variant: 'caption', text: { path: '/proposal/challengeId' } },
+        ...target.components,
         textField('titleField', 'Title', '/proposal/title'),
         textField('emojiField', 'Emoji', '/proposal/emoji'),
         textField('pointsField', 'Points', '/proposal/points'),
@@ -206,15 +249,16 @@ export function buildProposalSurface(action: CopilotAction, surfaceId: string): 
     }
     case 'delete_challenge': {
       const confirm = confirmRow('Delete it');
+      const target = challengeTarget(challenge, true);
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
-        { id: 'body', component: 'Column', children: ['heading', 'warning', 'target', ...confirm.ids] },
+        { id: 'body', component: 'Column', children: ['heading', ...target.ids, 'warning', ...confirm.ids] },
         { id: 'heading', component: 'Text', text: 'Delete challenge', variant: 'h5' },
+        ...target.components,
         {
           id: 'warning', component: 'Text', variant: 'caption',
           text: 'This permanently removes the challenge (completed posts keep their points).',
         },
-        { id: 'target', component: 'Text', variant: 'caption', text: { path: '/proposal/challengeId' } },
         ...confirm.components,
       ]);
     }
@@ -521,7 +565,11 @@ export function buildBoothTestSurface(
   if (!live) {
     comps.push(
       { id: 'goLiveRow', component: 'Row', justify: 'center', children: ['goLiveBtn'] },
-      { id: 'goLiveBtn', component: 'Button', variant: 'primary', child: 'goLiveLabel', action: { event: { name: 'confirm_action', context: { proposal: { tool: 'go_live' } } } } },
+      // OPENS the go-live confirm card; it must not fire confirm_action itself.
+      // Doing that skipped the one card that tells the host what going live
+      // means ("anyone with the link can post to your wall") — a preview card
+      // publishing the event on a single tap, with no warning and no undo.
+      { id: 'goLiveBtn', component: 'Button', variant: 'primary', child: 'goLiveLabel', action: { event: { name: 'open_go_live_card', context: {} } } },
       { id: 'goLiveLabel', component: 'Text', text: '🚀 Go live' },
     );
   }
