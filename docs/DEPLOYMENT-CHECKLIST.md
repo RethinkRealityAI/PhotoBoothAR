@@ -171,6 +171,15 @@ credits refunded). To enable:
 
 - [ ] Upload the composition `hyperframes/keepsake-film/` (index.html +
       gsap.min.js) to HeyGen HyperFrames once → record its **asset id**.
+- [ ] ⚠️ **RE-UPLOAD after any change to `hyperframes/keepsake-film/index.html`.**
+      HeyGen renders the ASSET it holds, not the repo file, so an edit here is
+      invisible in production until the bundle is re-uploaded (and, if the
+      upload mints a new id, `HEYGEN_HYPERFRAMES_ASSET_ID` is updated). This is
+      outstanding NOW: the composition gained a late-`--variables` wait (it
+      polls up to 3s and rebuilds the film in place when the payload lands),
+      which is what stops a cloud render from silently producing a film with no
+      card data in it. Verified in a real browser — with the runtime populating
+      at 400ms, the film rebuilds into the SAME paused timeline instance.
 - [ ] `RENDER_BACKEND=hyperframes`, `HEYGEN_HYPERFRAMES_API_KEY`,
       `HEYGEN_HYPERFRAMES_ASSET_ID` (+ optional `HEYGEN_HYPERFRAMES_API_URL`).
 - [ ] ⚠️ **Validate the cloud render contract** — the submit/poll API shape is an
