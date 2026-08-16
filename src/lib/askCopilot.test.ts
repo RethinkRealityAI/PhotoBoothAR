@@ -14,7 +14,7 @@ vi.mock('./supabase', () => ({ supabase: { functions: { invoke: invokeMock } } }
 
 const snapshot = {
   eventUuid: 'u-1', slug: 'daps-35th', name: "Dapo's 35th", status: 'live',
-  planTier: 'deluxe', eventType: 'birthday', postCount: 3, showChallenges: true,
+  planTier: 'deluxe', eventType: 'birthday', failed: false, postCount: 3, showChallenges: true,
   challenges: [], experiences: [], cards: [],
 } satisfies EventSnapshot;
 
@@ -106,5 +106,29 @@ describe('askCopilot request body (credits awareness)', () => {
     const [, { body }] = invokeMock.mock.calls[0] as [string, { body: Record<string, unknown> }];
     expect('eventUuid' in body).toBe(false);
     expect(body.context).toBe('');
+  });
+});
+
+describe('askCopilot reports silently-dropped proposals', () => {
+  it('surfaces the rejected count so the chat can contradict the reply prose', async () => {
+    // The model claims it bumped a challenge, naming an id no longer in the
+    // snapshot. The action is (correctly) refused — but the prose still says
+    // it happened, so the count has to come back with it.
+    invokeMock.mockResolvedValue({
+      data: {
+        reply: 'Done — that challenge is worth 30 points now.',
+        actions: [{ tool: 'update_challenge', challengeId: 'ch-ghost', points: 30 }],
+      },
+      error: null,
+    });
+    const res = await askCopilot(messages, snapshot);
+    expect(res.actions).toEqual([]);
+    expect(res.dropped).toBe(1);
+  });
+
+  it('is 0 on a clean turn and on every offline path', async () => {
+    invokeMock.mockResolvedValue({ data: { reply: 'Sure.', actions: [] }, error: null });
+    expect((await askCopilot(messages, snapshot)).dropped).toBe(0);
+    expect((await askWithError('rate_limited')).dropped).toBe(0);
   });
 });

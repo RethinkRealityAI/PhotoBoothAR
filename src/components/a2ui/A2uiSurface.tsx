@@ -209,6 +209,10 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
 
       case 'Button': {
         const primary = c.variant !== 'borderless';
+        // min-h-11 on BOTH: at 10px type these rendered ~31px (primary) and
+        // ~15px (borderless) tall. That is the Dismiss sitting a thumb's width
+        // from a Confirm that spends credits or deletes a challenge — the
+        // cheapest possible place to mis-tap, and the most expensive.
         return (
           <button
             key={key}
@@ -216,8 +220,8 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
             disabled={busy}
             className={
               primary
-                ? 'rounded-full bg-foil px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.97] disabled:opacity-40'
-                : 'font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-40'
+                ? 'inline-flex items-center justify-center rounded-full bg-foil px-4 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.97] disabled:opacity-40'
+                : 'inline-flex items-center justify-center px-3 min-h-11 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-40'
             }
           >
             {typeof c.child === 'string' ? render(c.child, scope) : null}
@@ -289,7 +293,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
                     key={`${key}-opt-${i}`}
                     onClick={() => path !== null && onDataChange(surfaceId, path, value)}
                     aria-pressed={selected}
-                    className={`rounded-full border px-3 py-1.5 font-sans text-[11px] transition-colors ${
+                    className={`inline-flex items-center rounded-full border px-3.5 min-h-11 font-sans text-[11px] transition-colors ${
                       selected
                         ? 'border-[color:var(--color-accent)]/70 bg-[color:var(--color-accent)]/15 text-brand-fg'
                         : 'border-white/10 bg-white/[0.03] text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.06]'
@@ -332,16 +336,24 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
               {options.map((hex) => {
                 const selected = current === hex;
                 return (
+                  /* 44px HIT AREA around a 28px dot. Growing the dot itself to
+                     44px would have rewritten this card's visual language to fix
+                     a touch target, so the target grows and the swatch stays the
+                     size it has always been. */
                   <button
                     key={`${key}-sw-${hex}`}
                     onClick={() => path !== null && onDataChange(surfaceId, path, selected ? null : hex)}
                     aria-pressed={selected}
                     title={hex}
-                    className={`w-7 h-7 rounded-full border-2 transition-transform active:scale-90 ${
-                      selected ? 'border-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.35)]' : 'border-white/20'
-                    }`}
-                    style={{ background: hex }}
-                  />
+                    className="w-11 h-11 rounded-full inline-flex items-center justify-center"
+                  >
+                    <span
+                      className={`w-7 h-7 rounded-full border-2 transition-transform active:scale-90 ${
+                        selected ? 'border-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.35)]' : 'border-white/20'
+                      }`}
+                      style={{ background: hex }}
+                    />
+                  </button>
                 );
               })}
               <span className="font-sans text-[10px] text-brand-muted/50">{current ? '' : 'template default'}</span>

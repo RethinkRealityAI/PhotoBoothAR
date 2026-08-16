@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeActions, mergeWireTurns, executeAction } from './copilot';
+import { normalizeActions, normalizeActionsResult, mergeWireTurns, executeAction } from './copilot';
 import type { EventSnapshot } from './eventSnapshot';
 import type { ChatMessage } from './eventDesigner';
 import { FILTER_SHADERS } from './shaders';
@@ -7,7 +7,7 @@ import { HEAD_PIECES } from './headPieces';
 
 const snapshot = {
   eventUuid: 'u-1', slug: 'daps-35th', name: "Dapo's 35th", status: 'live',
-  planTier: 'deluxe', eventType: 'birthday', postCount: 3, showChallenges: true,
+  planTier: 'deluxe', eventType: 'birthday', failed: false, postCount: 3, showChallenges: true,
   challenges: [{ id: 'ch-real', title: 'Dunk pose', emoji: '🏀', points: 20, active: true }],
   experiences: [], cards: [],
 } satisfies EventSnapshot;
@@ -211,6 +211,48 @@ describe('normalizeActions — experience-building tools', () => {
     expect(normalizeActions([{ tool: 'rename_event', name: '  Gala 2.0 ' }], snapshot))
       .toEqual([{ tool: 'rename_event', proposal: { name: 'Gala 2.0' } }]);
     expect(normalizeActions([{ tool: 'rename_event', name: '' }], snapshot)).toEqual([]);
+  });
+});
+
+describe('normalizeActionsResult — dropped count', () => {
+  it('counts every proposal the gate rejected, so the chat can say so', () => {
+    const res = normalizeActionsResult([
+      { tool: 'update_challenge', challengeId: 'ch-fake', points: 30 }, // id not in snapshot
+      { tool: 'launch_missiles' },                                     // unknown tool
+      { tool: 'add_challenge' },                                       // no title
+    ], snapshot);
+    expect(res.actions).toEqual([]);
+    expect(res.dropped).toBe(3);
+  });
+
+  it('counts only the rejected half of a mixed batch', () => {
+    const res = normalizeActionsResult([
+      { tool: 'delete_challenge', challengeId: 'ch-real' },  // valid
+      { tool: 'delete_challenge', challengeId: 'ch-ghost' }, // hallucinated id
+    ], snapshot);
+    expect(res.actions).toEqual([{ tool: 'delete_challenge', proposal: { challengeId: 'ch-real' } }]);
+    expect(res.dropped).toBe(1);
+  });
+
+  it('is 0 for an all-valid batch, an empty array, and a non-array', () => {
+    expect(normalizeActionsResult([{ tool: 'get_stats' }], snapshot).dropped).toBe(0);
+    expect(normalizeActionsResult([], snapshot).dropped).toBe(0);
+    expect(normalizeActionsResult(null, snapshot)).toEqual({ actions: [], dropped: 0 });
+  });
+
+  it('does NOT count actions truncated by the MAX_ACTIONS cap as rejected', () => {
+    // Four valid tools: three run, the fourth is capped — never judged invalid,
+    // so it must not trigger the "I couldn't act on that one" line.
+    const res = normalizeActionsResult([
+      { tool: 'get_stats' }, { tool: 'share_links' }, { tool: 'go_live' }, { tool: 'test_experience' },
+    ], snapshot);
+    expect(res.actions).toHaveLength(3);
+    expect(res.dropped).toBe(0);
+  });
+
+  it('normalizeActions stays the actions-only sibling', () => {
+    const raw = [{ tool: 'get_stats' }, { tool: 'nope' }];
+    expect(normalizeActions(raw, snapshot)).toEqual(normalizeActionsResult(raw, snapshot).actions);
   });
 });
 

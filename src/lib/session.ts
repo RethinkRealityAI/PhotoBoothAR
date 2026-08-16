@@ -14,7 +14,13 @@ import { SavedPhoto } from '../types';
 
 const LEGACY_EVENT_IDS = new Set(['hope-gala', 'jenna-jake', 'detola-wuyi']);
 
-type KeySuffix = 'session' | 'gallery' | 'guestName' | 'completedChallenges' | 'guestNameSkipped';
+type KeySuffix =
+  | 'session'
+  | 'gallery'
+  | 'guestName'
+  | 'completedChallenges'
+  | 'guestNameSkipped'
+  | 'keepsakeOptIn';
 
 function scopedKey(eventId: string, suffix: KeySuffix): string {
   return `pbar.${eventId}.${suffix}`;
@@ -146,4 +152,32 @@ export function addCompletedChallenges(eventId: string, ids: string[]): void {
 
 export function addCompletedChallenge(eventId: string, id: string): void {
   addCompletedChallenges(eventId, [id]);
+}
+
+/* ── Keepsake email opt-in (one post-event email, consented at the booth) ── */
+
+/**
+ * Whether this device already gave an address for this event's keepsake email.
+ *
+ * Only the FLAG is kept locally, never the address — a shared party phone must
+ * not hand the next guest someone else's email, and the row itself is
+ * write-only from the browser anyway (migration 034). Purpose is the same as
+ * `hasSkippedGuestName`: ask once. Being asked again after saying yes reads as
+ * "it didn't work", which is the fastest way to lose the guest's trust in the
+ * thing we just promised to send them.
+ */
+export function hasKeepsakeOptIn(eventId: string): boolean {
+  try {
+    return readKey(eventId, 'keepsakeOptIn') === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markKeepsakeOptIn(eventId: string): void {
+  try {
+    localStorage.setItem(scopedKey(eventId, 'keepsakeOptIn'), '1');
+  } catch {
+    /* non-fatal */
+  }
 }

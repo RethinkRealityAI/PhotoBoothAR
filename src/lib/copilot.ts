@@ -122,19 +122,35 @@ function draftValidation(d: ChallengeDraft) {
   return normalizeValidation({ enabled: !!d.validationPrompt, prompt: d.validationPrompt ?? '' });
 }
 
+export interface NormalizedActions {
+  actions: CopilotAction[];
+  /**
+   * How many proposals this gate EXAMINED and rejected (unknown tool, missing
+   * required arg, hallucinated or unknown-to-the-snapshot id). The model's prose
+   * almost always promises them ("done — I've bumped that challenge to 30"), so
+   * a silent drop makes the assistant a liar; the chat owes the host one line
+   * saying it could not act. Items never reached because of MAX_ACTIONS are not
+   * counted here — they were not judged invalid.
+   */
+  dropped: number;
+}
+
 /**
  * Validate raw model actions into executable ones. Strict on ids: update /
  * delete proposals must reference a challengeId that exists in the snapshot
  * (kills hallucinated ids). Unknown tools and missing required args drop the
- * action silently — the reply text still renders.
+ * action — the reply text still renders, and `dropped` counts them so the
+ * caller can say so out loud.
  */
-export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): CopilotAction[] {
-  if (!Array.isArray(raw)) return [];
+export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | null): NormalizedActions {
+  if (!Array.isArray(raw)) return { actions: [], dropped: 0 };
   const knownIds = new Set((snapshot?.challenges ?? []).map((c) => c.id));
   const expIds = new Set((snapshot?.experiences ?? []).map((e) => e.id));
   const out: CopilotAction[] = [];
+  let dropped = 0;
   for (const item of raw) {
     if (out.length >= MAX_ACTIONS) break;
+    const before = out.length;
     const a = (item ?? {}) as Record<string, unknown>;
     switch (a.tool) {
       case 'add_challenge': {
@@ -264,8 +280,14 @@ export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): 
       default:
         break; // unknown tool — dropped
     }
+    if (out.length === before) dropped++;
   }
-  return out;
+  return { actions: out, dropped };
+}
+
+/** Actions only. `*Result` sibling convention — no existing caller changes. */
+export function normalizeActions(raw: unknown, snapshot: EventSnapshot | null): CopilotAction[] {
+  return normalizeActionsResult(raw, snapshot).actions;
 }
 
 /**
@@ -380,12 +402,16 @@ async function publishAndPin(
       const anchor = (config.anchor ?? {}) as Record<string, unknown>;
       patch.config = { ...config, anchor: { ...anchor, scale: fitScale } };
     }
-    const { error: pubErr } = await supabase
+    // `.select('id')` is load-bearing: without it PostgREST answers a matched-
+    // NOTHING update with 204 and no error, so a row hidden by RLS or already
+    // deleted reported "your frame is live" while nothing had changed.
+    const { data: updated, error: pubErr } = await supabase
       .from('experiences')
       .update(patch)
       .eq('id', experienceId)
-      .eq('event_id', ctx.slug);
-    if (pubErr) {
+      .eq('event_id', ctx.slug)
+      .select('id');
+    if (pubErr || !updated || updated.length === 0) {
       return { ok: false, summary: `The ${noun} was generated but could not be published — publish it from your studio Library.` };
     }
     const pinned = await pinDefault(ctx, experienceId);
@@ -397,6 +423,27 @@ async function publishAndPin(
     return { ok: false, summary: `Applying the ${noun} failed unexpectedly.` };
   }
 }
+
+/** Host-facing name for each tool, for the one line a host reads when something
+ *  breaks. Typed over the whole union so a new tool cannot ship label-less. */
+const TOOL_LABELS: Record<CopilotAction['tool'], string> = {
+  add_challenge: 'Adding the challenge',
+  add_challenge_pack: 'Adding the challenge pack',
+  update_challenge: 'Updating the challenge',
+  delete_challenge: 'Deleting the challenge',
+  create_card: 'Creating the card',
+  generate_frame: 'Designing the frame',
+  add_frame: 'Adding the frame',
+  set_filter: 'Adding the filter',
+  add_head_piece: 'Adding the 3D prop',
+  set_default_experience: 'Setting the booth default',
+  set_event_date: 'Updating the event date',
+  rename_event: 'Renaming the event',
+  go_live: 'Going live',
+  test_experience: 'Opening the booth test',
+  get_stats: 'Reading your event stats',
+  share_links: 'Building your share links',
+};
 
 export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Promise<ExecResult> {
   // Every copilot tool acts on a specific event. With no event selected, ctx.slug
@@ -417,8 +464,12 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
           title: p.title, emoji: p.emoji, points: points(p.points), description: p.description || null, active: true,
           validation: draftValidation(p),
         });
+        // The row id used to ride along here. This summary is rendered to the
+        // HOST as a chip, and a bare uuid means nothing to them; the model does
+        // not need it either, because onMutated() re-reads the snapshot and the
+        // new challenge arrives there with its id attached.
         return row
-          ? { ok: true, summary: `Challenge "${row.title}" added (id ${row.id})${p.validationPrompt ? ' with an AI photo check' : ''}.` }
+          ? { ok: true, summary: `Challenge "${row.title}" added${p.validationPrompt ? ' with an AI photo check' : ''}.` }
           : { ok: false, summary: 'Adding the challenge failed.' };
       }
       case 'add_challenge_pack': {
@@ -445,12 +496,15 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
         const { updateChallenge } = await import('./db');
         const { challengeId, ...patch } = action.proposal;
         const ok = await updateChallenge(ctx.slug, challengeId, { ...patch, ...(patch.points !== undefined ? { points: points(patch.points) } : {}) });
-        return { ok, summary: ok ? `Challenge ${challengeId} updated.` : 'Updating the challenge failed.' };
+        // Name it when the patch renames it; otherwise stay generic. The raw
+        // uuid that used to be here is our vocabulary, not the host's.
+        const named = patch.title ? `“${patch.title}”` : 'that challenge';
+        return { ok, summary: ok ? `Updated ${named}.` : `Updating ${named} failed.` };
       }
       case 'delete_challenge': {
         const { deleteChallenge } = await import('./db');
         const ok = await deleteChallenge(ctx.slug, action.proposal.challengeId);
-        return { ok, summary: ok ? `Challenge ${action.proposal.challengeId} deleted.` : 'Deleting the challenge failed.' };
+        return { ok, summary: ok ? 'Challenge deleted.' : 'Deleting the challenge failed.' };
       }
       case 'create_card': {
         const { createCard, contributeUrl, viewerPath } = await import('./cards');
@@ -543,7 +597,9 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
     }
   } catch (e) {
     console.error('[copilot] executeAction', action.tool, e);
-    return { ok: false, summary: `${action.tool} failed unexpectedly.` };
+    // The raw tool id ("add_challenge_pack failed unexpectedly") is our internal
+    // vocabulary. The operator still gets it above, in the console.
+    return { ok: false, summary: `${TOOL_LABELS[action.tool]} failed unexpectedly — try again in a moment.` };
   }
 }
 
@@ -553,6 +609,9 @@ export interface CopilotResult {
   reply: string;
   actions: CopilotAction[];
   source: 'ai' | 'offline';
+  /** Proposals the normalizer rejected (see NormalizedActions.dropped). The
+   *  reply prose usually claims they happened, so the chat must say otherwise. */
+  dropped: number;
 }
 
 const OFFLINE_REPLY =
@@ -613,15 +672,16 @@ export async function askCopilot(
               : '');
         } catch { /* body unreadable */ }
       }
-      return { reply: offlineReplyFor(reason), actions: [], source: 'offline' };
+      return { reply: offlineReplyFor(reason), actions: [], source: 'offline', dropped: 0 };
     }
     const res = (data ?? {}) as { reply?: string; actions?: unknown };
     if (typeof res.reply !== 'string' || !res.reply) {
-      return { reply: OFFLINE_REPLY, actions: [], source: 'offline' };
+      return { reply: OFFLINE_REPLY, actions: [], source: 'offline', dropped: 0 };
     }
-    return { reply: res.reply, actions: normalizeActions(res.actions, snapshot), source: 'ai' };
+    const { actions, dropped } = normalizeActionsResult(res.actions, snapshot);
+    return { reply: res.reply, actions, source: 'ai', dropped };
   } catch (e) {
     console.warn('[copilot] askCopilot failed', e);
-    return { reply: OFFLINE_REPLY, actions: [], source: 'offline' };
+    return { reply: OFFLINE_REPLY, actions: [], source: 'offline', dropped: 0 };
   }
 }

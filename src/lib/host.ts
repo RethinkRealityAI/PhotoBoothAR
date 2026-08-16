@@ -10,6 +10,7 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import type { ListResult } from './db';
 import { sha256Hex } from './hash';
+import { mapBytesToChars, TOKEN_ALPHABET, TOKEN_LENGTH } from './token';
 
 /* ------------------------------------------------------------------ */
 /* Orgs & credits                                                      */
@@ -29,27 +30,91 @@ export interface MyOrgResult {
   failed: boolean;
 }
 
+/** The org half of an `org_members` row as PostgREST returns it. A to-one
+ *  embed comes back as an object, but the client has historically handed back a
+ *  one-element ARRAY for the same shape — both are handled below. */
+interface OrgJoin {
+  id: string;
+  name: string;
+  owner_id?: string | null;
+}
+
+/** One membership row of the caller's, joined to its org. */
+export interface OrgMembershipRow {
+  role: string;
+  created_at?: string | null;
+  orgs: OrgJoin | OrgJoin[] | null;
+}
+
+/**
+ * Which of several memberships is "the" org — for billing, credits and the host
+ * header. This is deliberately NOT an org switcher (a separate feature); it is
+ * the rule that makes a multi-org host land on the SAME org every time instead
+ * of on whatever row Postgres happened to return first:
+ *
+ *   1. the org this user OWNS (`orgs.owner_id` = them) — the one they created,
+ *      and the one whose card is on file;
+ *   2. else the org where their own membership role is 'owner' (migration 011
+ *      enrols an org's owner as an 'owner' member, so this is the same fact
+ *      read from the other side — and it still holds when `orgs.owner_id` was
+ *      nulled out by a user deletion);
+ *   3. else their earliest-joined membership.
+ *
+ * Ties within a tier fall to join order, because the caller asks the DB for
+ * `created_at` ascending. `rows` must contain only the CALLER's memberships —
+ * `org_members` RLS (`is_org_member(org_id)`) also exposes colleagues' rows.
+ */
+export function pickPrimaryOrg(rows: OrgMembershipRow[], userId: string | null): HostOrg | null {
+  const joined = rows
+    .map((row) => ({ row, org: (Array.isArray(row.orgs) ? row.orgs[0] ?? null : row.orgs) }))
+    .filter((entry): entry is { row: OrgMembershipRow; org: OrgJoin } => entry.org !== null);
+  if (joined.length === 0) return null;
+
+  const owned =
+    userId === null || userId === ''
+      ? undefined
+      : joined.find((entry) => entry.org.owner_id === userId);
+  const chosen = owned ?? joined.find((entry) => entry.row.role === 'owner') ?? joined[0];
+  return {
+    orgId: chosen.org.id,
+    name: chosen.org.name,
+    role: chosen.row.role as 'owner' | 'editor',
+  };
+}
+
 /** Like {@link fetchMyOrg} but distinguishes a query failure from a genuine
  *  no-org result. Mirrors fetchMyEvents' null-vs-[] contract. */
 export async function fetchMyOrgResult(): Promise<MyOrgResult> {
+  // The caller's own id is needed twice: to keep the query to THEIR membership
+  // rows (RLS alone also returns co-members of the same org), and to spot the
+  // org they own. Without it there is no answer to give, so a session read that
+  // throws is a failure, not a no-org.
+  let userId: string | null = null;
+  try {
+    const { data: sess } = await supabase.auth.getSession();
+    userId = sess.session?.user?.id ?? null;
+  } catch (e) {
+    console.error('[host] fetchMyOrg (session)', e);
+    return { org: null, failed: true };
+  }
+  // Signed out: RLS would return nothing anyway. Genuinely no org, not an error.
+  if (userId === null || userId === '') return { org: null, failed: false };
+
   const { data, error } = await supabase
     .from('org_members')
-    .select('role, orgs(id, name)')
-    .limit(1)
-    .maybeSingle();
+    .select('role, created_at, orgs(id, name, owner_id)')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
   if (error) {
     console.error('[host] fetchMyOrg', error);
     return { org: null, failed: true };
   }
-  if (!data) return { org: null, failed: false };
-  const org = (Array.isArray(data.orgs) ? data.orgs[0] : data.orgs) as { id: string; name: string } | null;
-  if (!org) return { org: null, failed: false };
-  return { org: { orgId: org.id, name: org.name, role: data.role as 'owner' | 'editor' }, failed: false };
+  return { org: pickPrimaryOrg((data ?? []) as unknown as OrgMembershipRow[], userId), failed: false };
 }
 
-/** The caller's org membership (first one; Phase 2a assumes a single org).
- *  Returns null on BOTH failure and no-org — use fetchMyOrgResult when the
- *  distinction matters. */
+/** The caller's primary org — see {@link pickPrimaryOrg} for which one that is
+ *  when they belong to several. Returns null on BOTH failure and no-org — use
+ *  fetchMyOrgResult when the distinction matters. */
 export async function fetchMyOrg(): Promise<HostOrg | null> {
   return (await fetchMyOrgResult()).org;
 }
@@ -219,6 +284,10 @@ export interface HostEventRow {
   plan_tier: string;
   created_at: string;
   config: Record<string, unknown> | null;
+  /** When the event was archived (migration 031), for display only — `status`
+   *  is the authority. Optional because rows that predate the column, and the
+   *  create-event edge function's own returned row, simply do not carry it. */
+  archived_at?: string | null;
 }
 
 /**
@@ -243,7 +312,7 @@ export const DEMO_EVENT_SLUG = 'demo';
 export const SHOW_DEMO_EVENT =
   ((import.meta.env.VITE_SHOW_DEMO_EVENT as string | undefined) ?? '').trim() === 'true';
 
-const EVENT_COLUMNS = 'id, slug, name, event_type, status, plan_tier, created_at, config';
+const EVENT_COLUMNS = 'id, slug, name, event_type, status, plan_tier, created_at, config, archived_at';
 
 /** The caller's org_id memberships. Returned as a plain array — duplicates
  *  are harmless for the `.in('org_id', ...)` filters callers use it for, and
@@ -424,25 +493,50 @@ export async function updateEventConfig(
   return true;
 }
 
+/**
+ * Set an event's lifecycle status, stamping `archived_at` (migration 031)
+ * alongside it. The timestamp is a pure function of the status — written on the
+ * way into 'archived', cleared on every way out — so a restored event can never
+ * keep a stale "Archived 3 days ago" line, and `status` stays the single
+ * authority (001's CHECK) that every guard already reads.
+ *
+ * ZERO ROWS IS NOT SUCCESS: an UPDATE that matches nothing — filtered out by
+ * tenant RLS, or aimed at an id that has since moved — returns 204 with
+ * `error === null`, indistinguishable from a real write unless the rows are
+ * asked for. That is how the copilot came to announce "Your event is LIVE" over
+ * a write that changed nothing. `.select('id')` costs no extra round trip, and
+ * `events_public_read` (003) covers a member reading back their own row,
+ * drafts included.
+ */
 export async function updateEventStatus(eventUuid: string, status: string): Promise<boolean> {
-  const { error } = await supabase.from('events').update({ status }).eq('id', eventUuid);
+  const archivedAt = status === 'archived' ? new Date().toISOString() : null;
+  const { data, error } = await supabase
+    .from('events')
+    .update({ status, archived_at: archivedAt })
+    .eq('id', eventUuid)
+    .select('id');
   if (error) {
     console.error('[host] updateEventStatus', error);
     return false;
   }
-  return true;
+  return (data?.length ?? 0) > 0;
 }
 
 /** Set an event's date (YYYY-MM-DD → start-of-day ISO, same as createEvent).
- *  An empty string clears it. Returns false on error. */
+ *  An empty string clears it. Returns false on error, and on a zero-row write
+ *  (see updateEventStatus — a no-match UPDATE reports no error at all). */
 export async function updateEventDate(eventUuid: string, date: string): Promise<boolean> {
   const startsAt = date ? new Date(`${date}T00:00:00`).toISOString() : null;
-  const { error } = await supabase.from('events').update({ starts_at: startsAt }).eq('id', eventUuid);
+  const { data, error } = await supabase
+    .from('events')
+    .update({ starts_at: startsAt })
+    .eq('id', eventUuid)
+    .select('id');
   if (error) {
     console.error('[host] updateEventDate', error);
     return false;
   }
-  return true;
+  return (data?.length ?? 0) > 0;
 }
 
 /** Current lifecycle status of an event (draft/live/ended/archived), or null.
@@ -456,15 +550,93 @@ export async function fetchEventStatus(eventUuid: string): Promise<string | null
   return (data.status as string) ?? null;
 }
 
+/** Rename an event. False on an empty name, on error, and on a zero-row write
+ *  (see updateEventStatus — a no-match UPDATE reports no error at all). */
 export async function updateEventName(eventUuid: string, name: string): Promise<boolean> {
   const trimmed = name.trim();
   if (!trimmed) return false;
-  const { error } = await supabase.from('events').update({ name: trimmed }).eq('id', eventUuid);
+  const { data, error } = await supabase
+    .from('events')
+    .update({ name: trimmed })
+    .eq('id', eventUuid)
+    .select('id');
   if (error) {
     console.error('[host] updateEventName', error);
     return false;
   }
-  return true;
+  return (data?.length ?? 0) > 0;
+}
+
+export type DeleteEventError =
+  | 'invalid_json'
+  | 'invalid_body'
+  /** The typed confirmation did not match the row's own name. */
+  | 'name_mismatch'
+  | 'unauthorized'
+  /** Not a member of the event's org. */
+  | 'forbidden'
+  /** Delete is offered on archived events only — archive it first. */
+  | 'must_archive_first'
+  | 'not_found'
+  | 'internal'
+  | 'network';
+
+export interface DeleteEventResult {
+  /** True only when the storage sweep AND the row delete both completed. */
+  deleted: boolean;
+  /** Storage objects actually removed — reported even on a partial sweep. */
+  objectsRemoved: number;
+  /** Bucket prefixes the sweep could not clear. Non-empty means the event row
+   *  is still THERE, on purpose: see below. */
+  remaining: string[];
+  error: DeleteEventError | null;
+}
+
+/**
+ * Permanently delete an ARCHIVED event through the `delete-event` edge function.
+ *
+ * Not a client DELETE, even though `events_member_delete` (migration 003) would
+ * allow one: the dependent ROWS cascade (all 13 FKs to public.events are
+ * declared), but a Postgres cascade cannot reach Storage, so a client-side
+ * delete would leave every capture, asset, card file and rendered film orphaned
+ * in the buckets — two of which are PUBLIC. The function sweeps those buckets
+ * first and deletes the row last.
+ *
+ * PARTIAL IS NOT SUCCESS AND NOT AN ERROR. If the sweep cannot finish, the
+ * function deletes nothing and returns `deleted:false` with the prefixes it
+ * could not clear; the host still has an intact archived event and retrying is
+ * safe (the sweep is idempotent). Callers must branch on `deleted`, never on
+ * `error === null`.
+ */
+export async function deleteEvent(eventUuid: string, confirmName: string): Promise<DeleteEventResult> {
+  const fail = (error: DeleteEventError): DeleteEventResult =>
+    ({ deleted: false, objectsRemoved: 0, remaining: [], error });
+  try {
+    const { data, error } = await supabase.functions.invoke('delete-event', {
+      body: { eventUuid, confirmName },
+    });
+    if (error) {
+      if (error instanceof FunctionsHttpError) {
+        try {
+          const body = (await error.context.json()) as { error?: string };
+          return fail((body.error as DeleteEventError) ?? 'internal');
+        } catch {
+          return fail('internal');
+        }
+      }
+      return fail('network');
+    }
+    const res = (data ?? {}) as { deleted?: boolean; objectsRemoved?: number; remaining?: string[] };
+    return {
+      deleted: res.deleted === true,
+      objectsRemoved: typeof res.objectsRemoved === 'number' ? res.objectsRemoved : 0,
+      remaining: Array.isArray(res.remaining) ? res.remaining : [],
+      error: null,
+    };
+  } catch (e) {
+    console.error('[host] deleteEvent', e);
+    return fail('network');
+  }
 }
 
 /** Client-side availability hint for the wizard. RLS hides other orgs' drafts,
@@ -486,15 +658,18 @@ export interface ManagerTokenRow {
   expires_at: string | null;
 }
 
-const TOKEN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-const TOKEN_LENGTH = 24;
-
+/** TOKEN_LENGTH characters drawn UNIFORMLY from TOKEN_ALPHABET.
+ *  `mapBytesToChars` (src/lib/token.ts) discards the byte values that cannot be
+ *  mapped without bias — 8 of every 256 — so one draw yields ~97% of the
+ *  characters it asks for and the loop tops up whatever fell short. */
 function randomToken(): string {
-  const bytes = new Uint8Array(TOKEN_LENGTH);
-  crypto.getRandomValues(bytes);
   let out = '';
-  for (const b of bytes) out += TOKEN_ALPHABET[b % TOKEN_ALPHABET.length];
-  return out;
+  while (out.length < TOKEN_LENGTH) {
+    const bytes = new Uint8Array(TOKEN_LENGTH);
+    crypto.getRandomValues(bytes);
+    out += mapBytesToChars(bytes, TOKEN_ALPHABET);
+  }
+  return out.slice(0, TOKEN_LENGTH);
 }
 
 /**

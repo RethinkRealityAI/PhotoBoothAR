@@ -64,7 +64,11 @@ export default function Storybook({
   const isEnd = page === total - 1;
   const contribution = !isCover && !isEnd ? contributions[page - 1] : null;
 
-  const transition = reducedMotion ? { duration: 0 } : { duration: 0.45, ease: 'easeOut' as const };
+  // A page turn should settle like paper, not stop dead: a light spring gives
+  // the leaf a touch of overshoot where the old fixed easeOut felt mechanical.
+  const transition = reducedMotion
+    ? { duration: 0 }
+    : ({ type: 'spring', stiffness: 190, damping: 24, mass: 0.9 } as const);
 
   return (
     <div className="relative w-full h-full flex flex-col items-center">
@@ -91,7 +95,7 @@ export default function Storybook({
                     <p className="mt-4 font-sans text-sm text-brand-muted/80">for {card.recipientName}</p>
                   )}
                   <div className="mt-8 h-px w-24 bg-accent/40" />
-                  <p className="mt-6 font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">
+                  <p className="mt-6 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
                     {contributions.length} {contributions.length === 1 ? 'message' : 'messages'} inside
                   </p>
                 </>
@@ -134,10 +138,10 @@ export default function Storybook({
                     <p className="mt-3 font-sans text-sm text-brand-muted/70">With love, from everyone — to {card.recipientName}.</p>
                   )}
                   <div className="mt-8 h-px w-24 bg-accent/40" />
-                  <p className="mt-7 font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">Made with Beamwall</p>
+                  <p className="mt-7 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">Made with Beamwall</p>
                   <Link
                     to="/"
-                    className="mt-4 rounded-full border border-white/15 bg-white/[0.05] px-6 py-2.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg hover:bg-white/[0.1] transition"
+                    className="mt-4 inline-flex min-h-[44px] items-center rounded-full border border-white/15 bg-white/[0.05] px-6 font-label uppercase tracking-luxe text-[10px] text-brand-fg hover:bg-white/[0.1] transition"
                   >
                     Create your own
                   </Link>
@@ -164,7 +168,7 @@ export default function Storybook({
             onClick={onPrev}
             disabled={page === 0}
             aria-label="Previous page"
-            className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center text-brand-fg/80 hover:bg-white/[0.12] transition disabled:opacity-30"
+            className="w-11 h-11 rounded-full bg-white/[0.06] flex items-center justify-center text-brand-fg/80 hover:bg-white/[0.12] transition disabled:opacity-30"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -173,7 +177,11 @@ export default function Storybook({
           {Array.from({ length: total }, (_, i) => (
             <span
               key={i}
-              className={`rounded-full transition-all ${i === page ? 'w-5 h-1.5 bg-accent/80' : 'w-1.5 h-1.5 bg-white/20'}`}
+              className={`rounded-full transition-all ${
+                i === page
+                  ? 'w-5 h-1.5 bg-accent/80 shadow-[0_0_10px_rgba(var(--accent-rgb),0.55)]'
+                  : 'w-1.5 h-1.5 bg-white/20'
+              }`}
             />
           ))}
         </div>
@@ -182,7 +190,7 @@ export default function Storybook({
             onClick={onNext}
             disabled={page === total - 1}
             aria-label="Next page"
-            className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center text-brand-fg/80 hover:bg-white/[0.12] transition disabled:opacity-30"
+            className="w-11 h-11 rounded-full bg-white/[0.06] flex items-center justify-center text-brand-fg/80 hover:bg-white/[0.12] transition disabled:opacity-30"
           >
             <ChevronRight className="w-4 h-4" />
           </button>

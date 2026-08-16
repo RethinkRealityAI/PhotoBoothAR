@@ -29,6 +29,7 @@ import {
   signContributionUrls, unpublishCard, updateContribution, viewerPath,
   type CardRenderRow, type CardRow, type ContributionRow,
 } from '../../lib/cards';
+import { CARD_TEMPLATE_OPTIONS, DEFAULT_CARD_TEMPLATE } from '../../lib/cardTemplates';
 import { UpgradeModal } from './UpgradeCard';
 import StatusPill from '../../components/ui/StatusPill';
 import { copyText } from '../../lib/clipboard';
@@ -370,10 +371,11 @@ function CreateCardForm({ eventSlug, onCreated, onClose }: {
   const [title, setTitle] = useState('');
   const [recipientName, setRecipientName] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
-  const [template, setTemplate] = useState('storybook');
+  const [template, setTemplate] = useState<string>(DEFAULT_CARD_TEMPLATE);
   const [deadline, setDeadline] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(false);
+  const templateOption = CARD_TEMPLATE_OPTIONS.find((o) => o.id === template);
 
   const submit = async () => {
     if (!title.trim() || busy) return;
@@ -418,9 +420,13 @@ function CreateCardForm({ eventSlug, onCreated, onClose }: {
         <label className="flex flex-col gap-1">
           <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Template</span>
           <select value={template} onChange={(e) => setTemplate(e.target.value)} className={inputClass}>
-            <option value="storybook">Storybook</option>
-            <option value="filmstrip">Film strip</option>
+            {CARD_TEMPLATE_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>{o.label}</option>
+            ))}
           </select>
+          {templateOption && (
+            <span className="font-sans text-[10px] leading-snug text-brand-muted/60">{templateOption.description}</span>
+          )}
         </label>
         <label className="flex flex-col gap-1">
           <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Collection deadline (optional)</span>

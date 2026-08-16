@@ -19,7 +19,7 @@ const OPERATOR = 'Beamwall, operated by RethinkReality';
 /** One address, one definition. This was a second literal of the same value
  *  that errorReport.ts already owned, so the two could drift. */
 const CONTACT = SUPPORT_EMAIL;
-const UPDATED = 'July 15, 2026';
+const UPDATED = 'August 16, 2026';
 
 interface Section {
   heading: string;
@@ -44,6 +44,7 @@ const PRIVACY: Section[] = [
     body: [
       'Host accounts: your name, email address, and the password or Google sign-in you use to log in, plus the events, settings and designs you create.',
       'Event content: when a guest captures a photo or video, records a guestbook message, or signs a card, that content — and any caption or name they add — is stored so it can appear on the event wall and in the host’s gallery.',
+      'Guest keepsake email: a guest can choose to leave an email address at a booth so the host can send them their photos afterwards. It is always optional — booths work exactly the same without it — and it is used for one email per event, linking that event’s photos. Every one of those emails carries an unsubscribe link, and we don’t use the address for marketing.',
       'Payments: if you purchase a plan or credits, payment is handled by Stripe. We receive confirmation and billing metadata (amount, plan, status) but never your full card number.',
       'Technical data: basic logs and device/browser information needed to operate and secure the service.',
       'Camera: the live camera preview and face tracking that power the AR effects run entirely in your browser on your device. Frames are only sent anywhere when you deliberately capture and submit a photo or video.',
@@ -83,6 +84,7 @@ const PRIVACY: Section[] = [
     body: [
       'Event content is retained for the host’s event and account; hosts can moderate and remove captures, and can request deletion of an event’s data by contacting us.',
       'Hosts can update their account details or ask us to delete their account. Guests who want a capture removed should ask the event host or contact us.',
+      `A guest email given at a booth is kept only for that event’s keepsake email and goes when that event’s data goes. Unsubscribing — there’s a link in every one of those emails — stops us sending to it, and you can ask us to delete it at any time by emailing ${CONTACT}.`,
       `To exercise any data right — access, correction or deletion — email ${CONTACT}.`,
     ],
   },

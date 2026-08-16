@@ -576,6 +576,7 @@ export default function Wall() {
               posts={posts}
               scrollSpeed={wallSettings.galleryScrollSpeed ?? 1}
               viewportH={viewport.height}
+              savedIds={savedIds}
               onSelect={setLightboxPost}
             />
           ) : (
@@ -606,6 +607,7 @@ export default function Wall() {
               showLeaderboard={wallSettings.showLeaderboard}
               showChallenges={wallSettings.showChallenges}
               origin={`${origin}${basePath}`}
+              joinUrl={joinUrl}
             />
           )}
         </div>

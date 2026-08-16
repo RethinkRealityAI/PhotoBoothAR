@@ -13,9 +13,12 @@
  *   get_wall_settings                       → { data: object | null }
  *   set_wall_settings { value }             → { data: value }    (upsert app_settings key 'wall')
  *
+ * Every op above is gated on the TOKEN'S ROLE (event_access_tokens.role) before
+ * dispatch — see ROLE_OPS.
+ *
  * 400 → { error: 'invalid_json' | 'invalid_body' | 'unknown_op' | 'invalid_args' }
  * 404 → { error: 'event_not_found' }
- * 403 → { error: 'bad_token' }
+ * 403 → { error: 'bad_token' | 'forbidden_role' | 'forbidden_op' }
  * 500 → { error: 'internal' }
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
@@ -28,6 +31,36 @@ const corsHeaders = {
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Every op `handleOp` implements — keep in lockstep with its switch. An op
+ *  missing from this list is not refused, it simply falls through to the
+ *  switch's `unknown_op`, so the gate can never mistake a typo for a denial. */
+const ALL_OPS: readonly string[] = [
+  'list_posts',
+  'set_post_hidden',
+  'set_post_approved',
+  'delete_post',
+  'get_wall_settings',
+  'set_wall_settings',
+];
+
+/**
+ * role → the ops a token of that role may call.
+ *
+ * `event_access_tokens.role` has existed since migration 002 and was read by
+ * NOBODY: every valid token, whatever its role said, could call everything.
+ * Only 'manager' is minted today (src/lib/host.ts createManagerToken), so
+ * 'manager' is deliberately mapped to the FULL op set — this gate is a no-op
+ * for every token currently in the wild. What it buys is that adding a
+ * lower-trust role (a 'viewer' pass for a projectionist, say) becomes one entry
+ * here instead of a silent grant of delete_post.
+ *
+ * A role that is not a key of this map is refused outright — fail closed, which
+ * also covers a hand-edited or typo'd row.
+ */
+const ROLE_OPS: Record<string, readonly string[]> = {
+  manager: ALL_OPS,
+};
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -190,7 +223,7 @@ Deno.serve(async (req: Request) => {
     const hash = await sha256Hex(token);
     const { data: tokenRow, error: tokErr } = await sb
       .from('event_access_tokens')
-      .select('id, expires_at')
+      .select('id, expires_at, role')
       .eq('event_id', event.id)
       .eq('token_hash', hash)
       .maybeSingle();
@@ -198,6 +231,19 @@ Deno.serve(async (req: Request) => {
     if (!tokenRow) return json(403, { error: 'bad_token' });
     if (tokenRow.expires_at && new Date(tokenRow.expires_at).getTime() < Date.now()) {
       return json(403, { error: 'bad_token' });
+    }
+
+    // Role gate — asserted BEFORE the op dispatch, the same structural shape as
+    // admin-api's is_platform_admin assert. Authenticated is not authorized.
+    const role = typeof tokenRow.role === 'string' ? tokenRow.role : '';
+    const allowedOps = ROLE_OPS[role];
+    if (allowedOps === undefined) {
+      console.warn('[manager-api] refused: role has no op grant', { slug, role });
+      return json(403, { error: 'forbidden_role' });
+    }
+    if (ALL_OPS.includes(op) && !allowedOps.includes(op)) {
+      console.warn('[manager-api] refused: op not granted to role', { slug, role, op });
+      return json(403, { error: 'forbidden_op' });
     }
 
     return await handleOp(sb, event as { id: string; slug: string }, op, args);

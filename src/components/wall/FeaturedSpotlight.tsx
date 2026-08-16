@@ -43,6 +43,11 @@ interface Props {
   showChallenges: boolean;
   /** Site origin + event base path (QR base URL), as passed to WallQRCodes. */
   origin: string;
+  /** Full URL for the join-QR card. Defaults to `${origin}/` — today's target —
+   *  so every caller that doesn't pass it (legacy builds) is unchanged. Wall
+   *  passes the same source-gated URL the footer QR uses: platform (db) events
+   *  point at the /welcome guest hub, legacy coded builds at the event root. */
+  joinUrl?: string;
 }
 
 type KbConfig = { from: { scale: number; x: number; y: number }; to: { scale: number; x: number; y: number } };
@@ -164,6 +169,7 @@ export default function FeaturedSpotlight({
   showLeaderboard,
   showChallenges,
   origin,
+  joinUrl,
 }: Props) {
   const { leaderboard, fetchLeaderboard, challenges, fetchChallenges } = useStore();
   const [active, setActive] = useState<ActiveSpotlight | null>(null);
@@ -346,7 +352,7 @@ export default function FeaturedSpotlight({
             ) : active.cta === 'qr' ? (
               <div className="glass-strong rounded-3xl px-12 py-9 flex flex-col items-center gap-5" style={CARD_FRAME}>
                 <p className="font-serif italic text-3xl text-foil-static">Join the booth</p>
-                <QRPanel url={`${origin}/`} label="Scan to join the booth" size={160} />
+                <QRPanel url={joinUrl ?? `${origin}/`} label="Scan to join the booth" size={160} />
               </div>
             ) : active.cta === 'leaderboard' ? (
               <LeaderboardSnippet entries={leaderboard} />

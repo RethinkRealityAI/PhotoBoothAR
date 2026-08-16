@@ -16,7 +16,9 @@
     - root OMITS data-duration on purpose → render length is derived from the
       GSAP timeline, so the film grows/shrinks with the number of contributions.
     - exactly one paused gsap.timeline registered at window.__timelines.keepsake,
-      built synchronously at load.
+      built synchronously at load. A late `payload` variable REFILLS that same
+      timeline instance (tl.clear() + rebuild) — it is never replaced, so a
+      reference the renderer captured early stays valid.
     - all clips are DIRECT children of #root; <video> clips are direct root
       children with framework-owned playback (no .play()/seek in our code).
     - deterministic: no clocks, no Math.random for visual state, GSAP only, no
@@ -27,7 +29,18 @@
 
   Local preview/render works with the built-in default `payload`; the edge
   function (supabase/functions/card-render) overrides it per card via
-  --variables at cloud-render time.
+  --variables at cloud-render time — and because those variables land only
+  AFTER the initial synchronous build, the init script keeps asking for one for
+  up to 3s and rebuilds the film in place when it arrives (see "Boot" at the
+  bottom of that script). Without that wait a cloud render silently produces
+  the FIXTURE film below.
+
+  ⚠ OWNER STEP — RE-UPLOAD REQUIRED. HeyGen renders the composition ASSET that
+  was uploaded to it (HEYGEN_HYPERFRAMES_ASSET_ID), not this file in the repo.
+  No change here — the late-variable wait included — reaches production until
+  this bundle (index.html + gsap.min.js) is re-uploaded to HeyGen and, if the
+  upload mints a new id, HEYGEN_HYPERFRAMES_ASSET_ID is updated to match.
+  See docs/DEPLOYMENT-CHECKLIST.md §5.
 -->
 <html
   lang="en"
@@ -44,14 +57,16 @@
     <title>Keepsake Film</title>
     <script src="./gsap.min.js"></script>
     <!--
-      Payload injection slot. The render harness (local build-render.mjs and the
-      card-render edge function) replaces the contents of this script with
+      Payload injection slot. The render harness (local build-render.mjs)
+      replaces the contents of this script with
       `window.__KEEPSAKE_PAYLOAD__ = { card, contributions };` BEFORE the init
       script below runs. This is the reliable, deterministic injection channel:
       HyperFrames `--variables` overrides are only populated AFTER the initial
-      synchronous build, so a data-driven composition must read its data from a
-      pre-script global (or the declared default) — see the init script's
-      resolution order. Left empty here so standalone preview uses the default.
+      synchronous build, so a baked global is the one channel guaranteed to be
+      there at build time — and it always wins the resolution order. When it is
+      absent (the cloud path, where card-render passes `variables.payload`), the
+      init script polls for the late variable and rebuilds. Left empty here so
+      standalone preview uses the declared default.
     -->
     <script id="kf-payload-data">/* window.__KEEPSAKE_PAYLOAD__ = … (injected at render time) */</script>
     <style>
@@ -350,8 +365,6 @@
           }
         }
 
-        var vars = readVars();
-
         /* ── Parse the payload ─────────────────────────────────────────── */
         function parsePayload(raw) {
           if (raw && typeof raw === "object") return raw; // already an object
@@ -362,266 +375,336 @@
           }
         }
 
-        // Resolution order: baked global (reliable, injected into the bundle)
-        // → the `payload` runtime variable (HyperFrames --variables / cloud API,
-        // when the runtime makes it available) → the declared default.
-        var injected = typeof window !== "undefined" ? window.__KEEPSAKE_PAYLOAD__ : null;
-        var data = parsePayload(injected) || parsePayload(vars.payload) || {};
-        var card = data.card && typeof data.card === "object" ? data.card : {};
-        var contributions = Array.isArray(data.contributions) ? data.contributions : [];
-
-        /* ── Theme resolution: card.theme overrides the colour variables ── */
-        function pick(obj, keys, fallback) {
-          for (var i = 0; i < keys.length; i++) {
-            var v = obj && obj[keys[i]];
-            if (typeof v === "string" && v.trim()) return v.trim();
+        /* The RUNTIME payload only — never the declared default. This is the
+           channel the cloud renderer populates (`variables.payload`) and the
+           one the poll at the bottom of this script waits for; readVars()
+           cannot serve that purpose because it falls back to the declared
+           default, which is indistinguishable from a real late arrival. */
+        function runtimePayload() {
+          try {
+            if (window.__hyperframes && typeof window.__hyperframes.getVariables === "function") {
+              return parsePayload((window.__hyperframes.getVariables() || {}).payload);
+            }
+          } catch (e) {
+            /* no runtime in this context */
           }
-          return fallback;
-        }
-        function hexToRgb(hex, fallback) {
-          if (typeof hex !== "string") return fallback;
-          var m = hex.trim().replace(/^#/, "");
-          if (m.length === 3) m = m[0] + m[0] + m[1] + m[1] + m[2] + m[2];
-          if (!/^[0-9a-fA-F]{6}$/.test(m)) return fallback;
-          return (
-            parseInt(m.slice(0, 2), 16) +
-            ", " +
-            parseInt(m.slice(2, 4), 16) +
-            ", " +
-            parseInt(m.slice(4, 6), 16)
-          );
+          return null;
         }
 
-        var theme = card.theme && typeof card.theme === "object" ? card.theme : {};
-        var accent = pick(theme, ["accent", "primary", "gold", "foil"], vars.accent || "#d4af37");
-        var bg = pick(theme, ["bg", "background", "noir", "ink"], vars.bg || "#0c0906");
-        var fg = pick(theme, ["fg", "foreground", "text", "cream", "paper"], vars.fg || "#f5efe2");
-
-        var root = document.getElementById("root");
-        root.style.setProperty("--accent", accent);
-        root.style.setProperty("--bg", bg);
-        root.style.setProperty("--fg", fg);
-        root.style.setProperty("--accent-rgb", hexToRgb(accent, "212, 175, 55"));
-        root.style.setProperty("--fg-rgb", hexToRgb(fg, "245, 239, 226"));
-        // Slightly lifted second background stop for the radial gradient.
-        root.style.setProperty("--bg2", bg);
-
-        /* ── Scene plan ────────────────────────────────────────────────── */
-        var FADE = 0.85; // cross-dissolve to/from background, seconds
-        var DUR = { title: 4.2, text: 4.4, photo: 5.4, video: 6.5, closing: 4.6 };
-        var VIDEO_MIN = 3.0;
-        var VIDEO_MAX = 15.0;
-
-        var scenes = [];
-        scenes.push({ kind: "title" });
-        contributions.forEach(function (c) {
-          var type = c && c.mediaType;
-          if (type === "photo" && c.url) scenes.push({ kind: "photo", c: c });
-          else if (type === "video" && c.url) scenes.push({ kind: "video", c: c });
-          else scenes.push({ kind: "text", c: c }); // text, or media with no url
-        });
-        scenes.push({ kind: "closing" });
-
-        /* ── DOM helpers ───────────────────────────────────────────────── */
-        function el(tag, cls, id) {
-          var n = document.createElement(tag);
-          if (cls) n.className = cls;
-          if (id) n.id = id;
-          return n;
-        }
-        function txt(tag, cls, text) {
-          var n = el(tag, cls);
-          n.textContent = text == null ? "" : String(text);
-          return n;
-        }
-
-        var count = contributions.length;
-        var countLabel =
-          count === 0
-            ? "A keepsake film"
-            : count + (count === 1 ? " message, gathered with love" : " messages, gathered with love");
-
-        function buildTitle(scene, idx) {
-          var s = el("section", "kf-scene");
-          s.id = "kf-scene-" + idx;
-          var inner = el("div", "kf-inner");
-          if (card.eventName) inner.appendChild(txt("p", "kf-eyebrow", card.eventName));
-          else inner.appendChild(txt("p", "kf-eyebrow", "A Keepsake Film"));
-          inner.appendChild(txt("h1", "kf-title", card.title || "A Card For You"));
-          if (card.recipientName)
-            inner.appendChild(txt("p", "kf-recipient", "for " + card.recipientName));
-          inner.appendChild(txt("p", "kf-count", countLabel));
-          inner.appendChild(el("div", "kf-rule"));
-          s.appendChild(inner);
-          scene.anim = { title: inner.querySelector(".kf-title"), rest: inner };
-          return s;
-        }
-
-        function buildClosing(scene, idx) {
-          var s = el("section", "kf-scene");
-          s.id = "kf-scene-" + idx;
-          var inner = el("div", "kf-inner");
-          inner.appendChild(txt("p", "kf-eyebrow", "With love"));
-          inner.appendChild(
-            txt("h1", "kf-title", card.recipientName ? "For " + card.recipientName : "Thank you")
-          );
-          inner.appendChild(el("div", "kf-rule"));
-          inner.appendChild(txt("p", "kf-count", "Made with Beamwall"));
-          s.appendChild(inner);
-          scene.anim = { title: inner.querySelector(".kf-title"), rest: inner };
-          return s;
-        }
-
-        function buildText(scene, idx) {
-          var c = scene.c || {};
-          var s = el("section", "kf-scene");
-          s.id = "kf-scene-" + idx;
-          var inner = el("div", "kf-inner");
-          inner.appendChild(txt("p", "kf-quotemark", "“"));
-          inner.appendChild(txt("p", "kf-message", c.message || ""));
-          if (c.contributorName) inner.appendChild(txt("p", "kf-from", c.contributorName));
-          s.appendChild(inner);
-          scene.anim = { msg: inner.querySelector(".kf-message"), from: inner.querySelector(".kf-from") };
-          return s;
-        }
-
-        function buildPhoto(scene, idx) {
-          var c = scene.c || {};
-          var s = el("section", "kf-scene");
-          s.id = "kf-scene-" + idx;
-          var frame = el("div", "kf-media-frame");
-          var img = el("img", "kf-photo", "kf-photo-" + idx);
-          img.setAttribute("crossorigin", "anonymous");
-          img.setAttribute("alt", "");
-          img.src = c.url;
-          frame.appendChild(img);
-          frame.appendChild(el("div", "kf-media-scrim"));
-          s.appendChild(frame);
-          var cap = el("div", "kf-caption");
-          if (c.message) cap.appendChild(txt("p", "kf-cap-msg", c.message));
-          if (c.contributorName) cap.appendChild(txt("p", "kf-cap-from", c.contributorName));
-          s.appendChild(cap);
-          scene.anim = { img: img, cap: cap };
-          return s;
-        }
-
-        // Video contributions render as a framework-owned <video> (direct root
-        // child, no class="clip") plus a separate caption clip. Returns the two
-        // clip nodes so the caller can append both and time them together.
-        function buildVideo(scene, idx, start, dur) {
-          var c = scene.c || {};
-          var v = el("video", "kf-video", "kf-video-" + idx);
-          v.src = c.url;
-          v.muted = true;
-          v.setAttribute("muted", "");
-          v.setAttribute("playsinline", "");
-          v.setAttribute("data-start", start.toFixed(3));
-          v.setAttribute("data-duration", dur.toFixed(3));
-          v.setAttribute("data-track-index", "1");
-          var cap = el("section", "kf-scene");
-          cap.id = "kf-scene-" + idx;
-          cap.style.pointerEvents = "none";
-          var scrim = el("div", "kf-media-scrim");
-          cap.appendChild(scrim);
-          var box = el("div", "kf-caption");
-          if (c.message) box.appendChild(txt("p", "kf-cap-msg", c.message));
-          if (c.contributorName) box.appendChild(txt("p", "kf-cap-from", c.contributorName));
-          cap.appendChild(box);
-          scene.anim = { video: v, cap: box };
-          return { video: v, caption: cap };
-        }
-
-        /* ── Build DOM + timeline synchronously ─────────────────────────── */
+        /* ── ONE paused timeline, registered SYNCHRONOUSLY ─────────────────
+           The contract is that a paused timeline exists at
+           window.__timelines.keepsake at the end of the initial synchronous
+           build, so it is created and registered HERE, before any content. A
+           late payload REFILLS this same instance (resetFilm → buildFilm)
+           instead of replacing it, so a reference captured early keeps
+           pointing at the film that actually renders. */
         var tl = gsap.timeline({ paused: true });
-        var t = 0;
-
-        scenes.forEach(function (scene, i) {
-          var dur =
-            scene.kind === "video"
-              ? Math.min(VIDEO_MAX, Math.max(VIDEO_MIN, Number((scene.c || {}).durationSeconds) || DUR.video))
-              : DUR[scene.kind];
-          var start = t;
-          // Alternate the primary track so consecutive scenes never share a
-          // track window (crossfade-safe), and pick a stable node to fade.
-          var track = 1 + (i % 2);
-
-          var fadeTarget;
-          if (scene.kind === "video") {
-            var pair = buildVideo(scene, i, start, dur);
-            // caption clip
-            pair.caption.setAttribute("data-start", start.toFixed(3));
-            pair.caption.setAttribute("data-duration", dur.toFixed(3));
-            pair.caption.setAttribute("data-track-index", String(track + 2));
-            pair.caption.classList.add("clip");
-            root.appendChild(pair.video);
-            root.appendChild(pair.caption);
-            // Fade the video and caption in/out (opacity is allowed on video).
-            tl.fromTo(pair.video, { opacity: 0 }, { opacity: 1, duration: FADE, ease: "power2.out" }, start);
-            tl.to(pair.video, { opacity: 0, duration: FADE, ease: "power2.in" }, start + dur - FADE);
-            if (scene.anim.cap) {
-              tl.from(scene.anim.cap, { y: 30, opacity: 0, duration: 1.0, ease: "power3.out" }, start + 0.5);
-            }
-            fadeTarget = pair.caption;
-            tl.fromTo(pair.caption, { opacity: 0 }, { opacity: 1, duration: FADE, ease: "power2.out" }, start);
-            tl.to(pair.caption, { opacity: 0, duration: FADE, ease: "power2.in" }, start + dur - FADE);
-          } else {
-            var node;
-            if (scene.kind === "title") node = buildTitle(scene, i);
-            else if (scene.kind === "closing") node = buildClosing(scene, i);
-            else if (scene.kind === "photo") node = buildPhoto(scene, i);
-            else node = buildText(scene, i);
-
-            node.classList.add("clip");
-            node.setAttribute("data-start", start.toFixed(3));
-            node.setAttribute("data-duration", dur.toFixed(3));
-            node.setAttribute("data-track-index", String(track));
-            root.appendChild(node);
-            fadeTarget = node;
-
-            // Scene cross-dissolve (through the persistent background).
-            tl.fromTo(node, { opacity: 0 }, { opacity: 1, duration: FADE, ease: "power2.out" }, start);
-            tl.to(node, { opacity: 0, duration: FADE, ease: "power2.in" }, start + dur - FADE);
-
-            // Per-kind internal motion.
-            if (scene.kind === "photo" && scene.anim.img) {
-              // Slow Ken-Burns pan+zoom across the whole scene window.
-              var dir = i % 2 === 0 ? 1 : -1;
-              tl.fromTo(
-                scene.anim.img,
-                { scale: 1.14, xPercent: -3 * dir, yPercent: -2 },
-                { scale: 1.0, xPercent: 3 * dir, yPercent: 2, duration: dur, ease: "sine.inOut" },
-                start
-              );
-              if (scene.anim.cap) {
-                tl.from(scene.anim.cap, { y: 34, opacity: 0, duration: 1.05, ease: "power3.out" }, start + 0.55);
-              }
-            } else if (scene.kind === "text") {
-              if (scene.anim.msg)
-                tl.from(scene.anim.msg, { y: 30, opacity: 0, duration: 1.1, ease: "power3.out" }, start + 0.35);
-              if (scene.anim.from)
-                tl.from(scene.anim.from, { y: 18, opacity: 0, duration: 0.9, ease: "power3.out" }, start + 0.75);
-            } else if (scene.kind === "title" || scene.kind === "closing") {
-              if (scene.anim.title)
-                tl.from(scene.anim.title, { y: 42, opacity: 0, duration: 1.15, ease: "power3.out" }, start + 0.3);
-              if (scene.anim.rest)
-                tl.from(
-                  scene.anim.rest.querySelectorAll(".kf-eyebrow, .kf-recipient, .kf-count, .kf-rule"),
-                  { y: 20, opacity: 0, duration: 0.9, ease: "power2.out", stagger: 0.12 },
-                  start + 0.55
-                );
-            }
-          }
-
-          t += dur;
-        });
-
-        // Pin the timeline's total length to the last scene's end so the render
-        // duration (root omits data-duration ⇒ derived from the timeline) is
-        // exactly the film length.
-        tl.set("#kf-bg", { opacity: 1 }, t);
-
         window.__timelines = window.__timelines || {};
         window.__timelines["keepsake"] = tl;
+
+        var root = document.getElementById("root");
+
+        /* Drop the previous build's clips (the persistent chrome children —
+           #kf-bg, vignette, bars, watermark — carry no marker and stay). */
+        function resetFilm() {
+          tl.clear();
+          var built = root.querySelectorAll("[data-kf-built]");
+          for (var i = 0; i < built.length; i++) built[i].parentNode.removeChild(built[i]);
+        }
+
+        /* Append a clip, marked so resetFilm() can find it again. */
+        function addClip(node) {
+          node.setAttribute("data-kf-built", "");
+          root.appendChild(node);
+        }
+
+        /* Build the whole film from one payload. Safe to call again: every
+           clip and tween it creates is removed by resetFilm() first. */
+        function buildFilm(data) {
+          resetFilm();
+          var vars = readVars();
+          var card = data.card && typeof data.card === "object" ? data.card : {};
+          var contributions = Array.isArray(data.contributions) ? data.contributions : [];
+
+          /* ── Theme resolution: card.theme overrides the colour variables ── */
+          function pick(obj, keys, fallback) {
+            for (var i = 0; i < keys.length; i++) {
+              var v = obj && obj[keys[i]];
+              if (typeof v === "string" && v.trim()) return v.trim();
+            }
+            return fallback;
+          }
+          function hexToRgb(hex, fallback) {
+            if (typeof hex !== "string") return fallback;
+            var m = hex.trim().replace(/^#/, "");
+            if (m.length === 3) m = m[0] + m[0] + m[1] + m[1] + m[2] + m[2];
+            if (!/^[0-9a-fA-F]{6}$/.test(m)) return fallback;
+            return (
+              parseInt(m.slice(0, 2), 16) +
+              ", " +
+              parseInt(m.slice(2, 4), 16) +
+              ", " +
+              parseInt(m.slice(4, 6), 16)
+            );
+          }
+
+          var theme = card.theme && typeof card.theme === "object" ? card.theme : {};
+          var accent = pick(theme, ["accent", "primary", "gold", "foil"], vars.accent || "#d4af37");
+          var bg = pick(theme, ["bg", "background", "noir", "ink"], vars.bg || "#0c0906");
+          var fg = pick(theme, ["fg", "foreground", "text", "cream", "paper"], vars.fg || "#f5efe2");
+
+          root.style.setProperty("--accent", accent);
+          root.style.setProperty("--bg", bg);
+          root.style.setProperty("--fg", fg);
+          root.style.setProperty("--accent-rgb", hexToRgb(accent, "212, 175, 55"));
+          root.style.setProperty("--fg-rgb", hexToRgb(fg, "245, 239, 226"));
+          // Slightly lifted second background stop for the radial gradient.
+          root.style.setProperty("--bg2", bg);
+
+          /* ── Scene plan ────────────────────────────────────────────────── */
+          var FADE = 0.85; // cross-dissolve to/from background, seconds
+          var DUR = { title: 4.2, text: 4.4, photo: 5.4, video: 6.5, closing: 4.6 };
+          var VIDEO_MIN = 3.0;
+          var VIDEO_MAX = 15.0;
+
+          var scenes = [];
+          scenes.push({ kind: "title" });
+          contributions.forEach(function (c) {
+            var type = c && c.mediaType;
+            if (type === "photo" && c.url) scenes.push({ kind: "photo", c: c });
+            else if (type === "video" && c.url) scenes.push({ kind: "video", c: c });
+            else scenes.push({ kind: "text", c: c }); // text, or media with no url
+          });
+          scenes.push({ kind: "closing" });
+
+          /* ── DOM helpers ───────────────────────────────────────────────── */
+          function el(tag, cls, id) {
+            var n = document.createElement(tag);
+            if (cls) n.className = cls;
+            if (id) n.id = id;
+            return n;
+          }
+          function txt(tag, cls, text) {
+            var n = el(tag, cls);
+            n.textContent = text == null ? "" : String(text);
+            return n;
+          }
+
+          var count = contributions.length;
+          var countLabel =
+            count === 0
+              ? "A keepsake film"
+              : count + (count === 1 ? " message, gathered with love" : " messages, gathered with love");
+
+          function buildTitle(scene, idx) {
+            var s = el("section", "kf-scene");
+            s.id = "kf-scene-" + idx;
+            var inner = el("div", "kf-inner");
+            if (card.eventName) inner.appendChild(txt("p", "kf-eyebrow", card.eventName));
+            else inner.appendChild(txt("p", "kf-eyebrow", "A Keepsake Film"));
+            inner.appendChild(txt("h1", "kf-title", card.title || "A Card For You"));
+            if (card.recipientName)
+              inner.appendChild(txt("p", "kf-recipient", "for " + card.recipientName));
+            inner.appendChild(txt("p", "kf-count", countLabel));
+            inner.appendChild(el("div", "kf-rule"));
+            s.appendChild(inner);
+            scene.anim = { title: inner.querySelector(".kf-title"), rest: inner };
+            return s;
+          }
+
+          function buildClosing(scene, idx) {
+            var s = el("section", "kf-scene");
+            s.id = "kf-scene-" + idx;
+            var inner = el("div", "kf-inner");
+            inner.appendChild(txt("p", "kf-eyebrow", "With love"));
+            inner.appendChild(
+              txt("h1", "kf-title", card.recipientName ? "For " + card.recipientName : "Thank you")
+            );
+            inner.appendChild(el("div", "kf-rule"));
+            inner.appendChild(txt("p", "kf-count", "Made with Beamwall"));
+            s.appendChild(inner);
+            scene.anim = { title: inner.querySelector(".kf-title"), rest: inner };
+            return s;
+          }
+
+          function buildText(scene, idx) {
+            var c = scene.c || {};
+            var s = el("section", "kf-scene");
+            s.id = "kf-scene-" + idx;
+            var inner = el("div", "kf-inner");
+            inner.appendChild(txt("p", "kf-quotemark", "“"));
+            inner.appendChild(txt("p", "kf-message", c.message || ""));
+            if (c.contributorName) inner.appendChild(txt("p", "kf-from", c.contributorName));
+            s.appendChild(inner);
+            scene.anim = { msg: inner.querySelector(".kf-message"), from: inner.querySelector(".kf-from") };
+            return s;
+          }
+
+          function buildPhoto(scene, idx) {
+            var c = scene.c || {};
+            var s = el("section", "kf-scene");
+            s.id = "kf-scene-" + idx;
+            var frame = el("div", "kf-media-frame");
+            var img = el("img", "kf-photo", "kf-photo-" + idx);
+            img.setAttribute("crossorigin", "anonymous");
+            img.setAttribute("alt", "");
+            img.src = c.url;
+            frame.appendChild(img);
+            frame.appendChild(el("div", "kf-media-scrim"));
+            s.appendChild(frame);
+            var cap = el("div", "kf-caption");
+            if (c.message) cap.appendChild(txt("p", "kf-cap-msg", c.message));
+            if (c.contributorName) cap.appendChild(txt("p", "kf-cap-from", c.contributorName));
+            s.appendChild(cap);
+            scene.anim = { img: img, cap: cap };
+            return s;
+          }
+
+          // Video contributions render as a framework-owned <video> (direct root
+          // child, no class="clip") plus a separate caption clip. Returns the two
+          // clip nodes so the caller can append both and time them together.
+          function buildVideo(scene, idx, start, dur) {
+            var c = scene.c || {};
+            var v = el("video", "kf-video", "kf-video-" + idx);
+            v.src = c.url;
+            v.muted = true;
+            v.setAttribute("muted", "");
+            v.setAttribute("playsinline", "");
+            v.setAttribute("data-start", start.toFixed(3));
+            v.setAttribute("data-duration", dur.toFixed(3));
+            v.setAttribute("data-track-index", "1");
+            var cap = el("section", "kf-scene");
+            cap.id = "kf-scene-" + idx;
+            cap.style.pointerEvents = "none";
+            var scrim = el("div", "kf-media-scrim");
+            cap.appendChild(scrim);
+            var box = el("div", "kf-caption");
+            if (c.message) box.appendChild(txt("p", "kf-cap-msg", c.message));
+            if (c.contributorName) box.appendChild(txt("p", "kf-cap-from", c.contributorName));
+            cap.appendChild(box);
+            scene.anim = { video: v, cap: box };
+            return { video: v, caption: cap };
+          }
+
+          /* ── Build DOM + timeline synchronously ─────────────────────────── */
+          var t = 0;
+
+          scenes.forEach(function (scene, i) {
+            var dur =
+              scene.kind === "video"
+                ? Math.min(VIDEO_MAX, Math.max(VIDEO_MIN, Number((scene.c || {}).durationSeconds) || DUR.video))
+                : DUR[scene.kind];
+            var start = t;
+            // Alternate the primary track so consecutive scenes never share a
+            // track window (crossfade-safe), and pick a stable node to fade.
+            var track = 1 + (i % 2);
+
+            var fadeTarget;
+            if (scene.kind === "video") {
+              var pair = buildVideo(scene, i, start, dur);
+              // caption clip
+              pair.caption.setAttribute("data-start", start.toFixed(3));
+              pair.caption.setAttribute("data-duration", dur.toFixed(3));
+              pair.caption.setAttribute("data-track-index", String(track + 2));
+              pair.caption.classList.add("clip");
+              addClip(pair.video);
+              addClip(pair.caption);
+              // Fade the video and caption in/out (opacity is allowed on video).
+              tl.fromTo(pair.video, { opacity: 0 }, { opacity: 1, duration: FADE, ease: "power2.out" }, start);
+              tl.to(pair.video, { opacity: 0, duration: FADE, ease: "power2.in" }, start + dur - FADE);
+              if (scene.anim.cap) {
+                tl.from(scene.anim.cap, { y: 30, opacity: 0, duration: 1.0, ease: "power3.out" }, start + 0.5);
+              }
+              fadeTarget = pair.caption;
+              tl.fromTo(pair.caption, { opacity: 0 }, { opacity: 1, duration: FADE, ease: "power2.out" }, start);
+              tl.to(pair.caption, { opacity: 0, duration: FADE, ease: "power2.in" }, start + dur - FADE);
+            } else {
+              var node;
+              if (scene.kind === "title") node = buildTitle(scene, i);
+              else if (scene.kind === "closing") node = buildClosing(scene, i);
+              else if (scene.kind === "photo") node = buildPhoto(scene, i);
+              else node = buildText(scene, i);
+
+              node.classList.add("clip");
+              node.setAttribute("data-start", start.toFixed(3));
+              node.setAttribute("data-duration", dur.toFixed(3));
+              node.setAttribute("data-track-index", String(track));
+              addClip(node);
+              fadeTarget = node;
+
+              // Scene cross-dissolve (through the persistent background).
+              tl.fromTo(node, { opacity: 0 }, { opacity: 1, duration: FADE, ease: "power2.out" }, start);
+              tl.to(node, { opacity: 0, duration: FADE, ease: "power2.in" }, start + dur - FADE);
+
+              // Per-kind internal motion.
+              if (scene.kind === "photo" && scene.anim.img) {
+                // Slow Ken-Burns pan+zoom across the whole scene window.
+                var dir = i % 2 === 0 ? 1 : -1;
+                tl.fromTo(
+                  scene.anim.img,
+                  { scale: 1.14, xPercent: -3 * dir, yPercent: -2 },
+                  { scale: 1.0, xPercent: 3 * dir, yPercent: 2, duration: dur, ease: "sine.inOut" },
+                  start
+                );
+                if (scene.anim.cap) {
+                  tl.from(scene.anim.cap, { y: 34, opacity: 0, duration: 1.05, ease: "power3.out" }, start + 0.55);
+                }
+              } else if (scene.kind === "text") {
+                if (scene.anim.msg)
+                  tl.from(scene.anim.msg, { y: 30, opacity: 0, duration: 1.1, ease: "power3.out" }, start + 0.35);
+                if (scene.anim.from)
+                  tl.from(scene.anim.from, { y: 18, opacity: 0, duration: 0.9, ease: "power3.out" }, start + 0.75);
+              } else if (scene.kind === "title" || scene.kind === "closing") {
+                if (scene.anim.title)
+                  tl.from(scene.anim.title, { y: 42, opacity: 0, duration: 1.15, ease: "power3.out" }, start + 0.3);
+                if (scene.anim.rest)
+                  tl.from(
+                    scene.anim.rest.querySelectorAll(".kf-eyebrow, .kf-recipient, .kf-count, .kf-rule"),
+                    { y: 20, opacity: 0, duration: 0.9, ease: "power2.out", stagger: 0.12 },
+                    start + 0.55
+                  );
+              }
+            }
+
+            t += dur;
+          });
+
+          // Pin the timeline's total length to the last scene's end so the render
+          // duration (root omits data-duration ⇒ derived from the timeline) is
+          // exactly the film length.
+          tl.set("#kf-bg", { opacity: 1 }, t);
+        }
+
+        /* ── Boot: build now, then adopt a LATE payload if one arrives ──────
+           The resolution order is unchanged — baked global → the `payload`
+           runtime variable → the declared default. What is new is the WAIT:
+           HyperFrames populates --variables only AFTER this initial
+           synchronous build, so when neither the baked global nor an
+           already-populated runtime variable is there, we keep asking for up
+           to POLL_LIMIT_MS and rebuild the film in place the moment a real
+           payload appears. Without this a cloud render silently produces the
+           FIXTURE film. An explicitly baked payload always wins and never
+           polls, so build-render.mjs bundles stay deterministic. */
+        var POLL_MS = 50;
+        var POLL_LIMIT_MS = 3000;
+
+        var baked = parsePayload(typeof window !== "undefined" ? window.__KEEPSAKE_PAYLOAD__ : null);
+        var early = runtimePayload();
+        buildFilm(baked || early || parsePayload(readVars().payload) || {});
+
+        if (!baked && !early) {
+          var waited = 0;
+          var poll = setInterval(function () {
+            waited += POLL_MS;
+            var late = runtimePayload();
+            if (late) {
+              clearInterval(poll);
+              buildFilm(late);
+            } else if (waited >= POLL_LIMIT_MS) {
+              clearInterval(poll);
+            }
+          }, POLL_MS);
+        }
       })();
     </script>
   </body>

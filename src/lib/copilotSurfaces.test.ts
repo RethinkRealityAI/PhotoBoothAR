@@ -71,6 +71,41 @@ describe('buildProposalSurface', () => {
     expect((s.components.cancelBtn.action as { event: { name: string } }).event.name).toBe('cancel_action');
   });
 
+  it('names the challenge a delete targets — the uuid alone told the host nothing', () => {
+    const row = { id: 'ch-1', title: 'Dunk pose', emoji: '🏀', points: 20 };
+    const s = applySurfaceMessages(
+      {},
+      buildProposalSurface({ tool: 'delete_challenge', proposal: { challengeId: 'ch-1' } }, 'pd', row),
+    ).pd;
+    assertReducerValid(s);
+    expect(s.components.target.text).toBe('🏀 Dunk pose · 20 pts');
+    // The id stays, demoted to a caption — the executor still keys on it.
+    expect(s.components.targetId.variant).toBe('caption');
+    expect(s.components.targetId.text).toEqual({ path: '/proposal/challengeId' });
+  });
+
+  it('falls back to the id alone when no snapshot row was found', () => {
+    const s = applySurfaceMessages(
+      {},
+      buildProposalSurface({ tool: 'delete_challenge', proposal: { challengeId: 'ch-1' } }, 'pn'),
+    ).pn;
+    assertReducerValid(s);
+    expect(s.components.target).toBeUndefined();
+    expect(s.components.targetId.text).toEqual({ path: '/proposal/challengeId' });
+  });
+
+  it('the EDIT card names the challenge WITHOUT its current points (the box holds the new one)', () => {
+    const row = { id: 'ch-1', title: 'Dunk pose', emoji: '🏀', points: 20 };
+    const s = applySurfaceMessages(
+      {},
+      buildProposalSurface({ tool: 'update_challenge', proposal: { challengeId: 'ch-1', points: 30 } }, 'pu', row),
+    ).pu;
+    assertReducerValid(s);
+    expect(s.components.target.text).toBe('🏀 Dunk pose');
+    expect(String(s.components.target.text)).not.toContain('20 pts');
+    expect(getPath(s.dataModel, '/proposal/points')).toBe(30);
+  });
+
   it('returns no surface for read-only tools', () => {
     expect(buildProposalSurface({ tool: 'get_stats' }, 'p3')).toEqual([]);
     expect(buildProposalSurface({ tool: 'share_links' }, 'p4')).toEqual([]);
@@ -139,7 +174,7 @@ describe('proposal round-trip: surface /proposal survives normalizeActions', () 
   const filterId = FILTER_SHADERS.find((s) => s.id !== 'none')!.id;
   const snap = {
     eventUuid: 'u-1', slug: 'e', name: 'E', status: 'draft', planTier: 'free', eventType: 'party',
-    postCount: 0, showChallenges: true,
+    failed: false, postCount: 0, showChallenges: true,
     challenges: [{ id: 'ch-1', title: 'C', emoji: '⭐', points: 10, active: true }],
     experiences: [{ id: 'exp-1', name: 'Frame', kind: 'border', published: true }],
     cards: [],
@@ -237,8 +272,11 @@ describe('test + checklist surfaces', () => {
     expect(draft.components.test.component).toBe('BoothTest');
     expect(draft.components.goLiveBtn).toBeDefined();
     const goLive = (draft.components.goLiveBtn.action as { event: { name: string; context: Record<string, unknown> } }).event;
-    expect(goLive.name).toBe('confirm_action');
-    expect((goLive.context.proposal as { tool: string }).tool).toBe('go_live');
+    // It OPENS the go-live confirm card — it must never fire the mutation
+    // itself, which is what skipped the "anyone with the link can post" warning.
+    expect(goLive.name).toBe('open_go_live_card');
+    expect(goLive.name).not.toBe('confirm_action');
+    expect(goLive.context.proposal).toBeUndefined();
 
     const live = applySurfaceMessages({}, buildBoothTestSurface('t2', { slug: 'gala', status: 'live', boothUrl: 'https://x/e/gala/booth' })).t2;
     expect(live.components.goLiveBtn).toBeUndefined();
