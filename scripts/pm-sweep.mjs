@@ -37,6 +37,7 @@ const ROUTES = [
   { path: '/e/demo/welcome', name: 'guest-welcome', settle: 4000 },
   { path: '/e/demo', name: 'guest-booth', settle: 4000 },
   { path: '/e/demo/wall', name: 'guest-wall', settle: 4000 },
+  { path: '/r/demo', name: 'recap', settle: 4000 },
   { path: '/dev/studio', name: 'dev-studio', settle: 3000, escape: true },
   { path: '/dev/asset-prep', name: 'dev-asset-prep', settle: 2500 },
   { path: '/definitely-not-a-route', name: 'not-found', settle: 1500 },
