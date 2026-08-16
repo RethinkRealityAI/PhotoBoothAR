@@ -288,7 +288,7 @@ export default function PickerDrawer({
               <div>
                 <div className="flex items-center gap-2 px-3 mb-2">
                   <Sparkles className="w-3 h-3 text-gold-400/70" />
-                  <span className="font-label uppercase tracking-luxe text-[8px] text-champagne/40">Effects</span>
+                  <span className="font-label uppercase tracking-luxe text-[10px] text-champagne/40">Effects</span>
                 </div>
                 <div className="flex gap-3 px-3 overflow-x-auto hide-scrollbar pb-1">
                   {/* None */}
@@ -317,7 +317,7 @@ export default function PickerDrawer({
               <div>
                 <div className="flex items-center gap-2 px-3 mb-2">
                   <Square className="w-3 h-3 text-gold-400/70" />
-                  <span className="font-label uppercase tracking-luxe text-[8px] text-champagne/40">Frames</span>
+                  <span className="font-label uppercase tracking-luxe text-[10px] text-champagne/40">Frames</span>
                 </div>
                 <div className="flex gap-3 px-3 overflow-x-auto hide-scrollbar pb-1">
                   <FrameThumb exp={null} selected={frameId === null} onSelect={() => onSelectFrame(null)} />
@@ -358,7 +358,7 @@ export default function PickerDrawer({
                 <div>
                   <div className="flex items-center gap-2 px-3 mb-2">
                     <Box className="w-3 h-3 text-gold-400/70" />
-                    <span className="font-label uppercase tracking-luxe text-[8px] text-champagne/40">3D</span>
+                    <span className="font-label uppercase tracking-luxe text-[10px] text-champagne/40">3D</span>
                   </div>
                   <div className="flex gap-3 px-3 overflow-x-auto hide-scrollbar pb-1">
                     <AttachmentThumb exp={null} selected={attachmentId === null} onSelect={() => onSelectAttachment(null)} />
