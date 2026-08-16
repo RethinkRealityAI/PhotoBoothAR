@@ -15,18 +15,18 @@
 
     <link rel="canonical" href="https://beamwall.netlify.app/" />
 
-    <!-- Fonts: preconnect + async-friendly stylesheet links replace the old
-         render-blocking @import chain in src/index.css. Families/weights are
-         the ones the platform theme actually uses (Cormorant = --font-serif,
-         Inter = --font-sans, Jost = --font-label). Pinyon Script is NOT
-         loaded here: only the legacy gala events use it, and their configs
-         inject their own fontHref (which includes it) at runtime. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=Jost:wght@300;400;500;600&display=swap"
-    />
+    <!-- Fonts: SELF-HOSTED (public/fonts/, latin + latin-ext woff2 vendored
+         from the exact css2 set this file used to fetch from Google at
+         runtime). A venue with bad wifi must never block on fonts.gstatic.com
+         — same reasoning as the vendored MediaPipe/Draco/face-landmarker
+         assets. Families/weights are the ones the platform theme actually
+         uses (Cormorant = --font-serif, Inter = --font-sans, Jost =
+         --font-label). Pinyon Script is NOT loaded here: only the legacy gala
+         events use it, and their configs inject their own fontHref (still
+         remote, frozen) at runtime. -->
+    <link rel="preload" href="/fonts/inter-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/cormorant-garamond-500-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/fonts/fonts.css" />
 
     <!-- Open Graph / share preview -->
     <meta property="og:title" content="Beamwall · AR photo booth & live wall for events" />
