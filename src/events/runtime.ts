@@ -123,6 +123,8 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
   const primaryCard = (cfg.primary_card ?? null) as { publicId?: unknown } | null;
   const primaryCardPublicId =
     primaryCard && typeof primaryCard === 'object' ? str(primaryCard.publicId) : undefined;
+  // Keepsake style new cards start from. Host-only setting; guests never pick.
+  const defaultCardTemplate = str(cfg.default_card_template);
 
   return {
     id: row.slug,
@@ -135,6 +137,7 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     backgroundTemplateId: background.id,
     landingRoute: str(cfg.landingRoute) ?? '/booth',
     primaryCardPublicId,
+    defaultCardTemplate,
     arContent,
     accentHexes,
     defaultExperienceId: str(cfg.defaultExperienceId),

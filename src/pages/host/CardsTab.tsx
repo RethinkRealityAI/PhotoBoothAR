@@ -14,8 +14,18 @@
  * "Make event landing" toggle that pins the published card as the /e/:slug
  * guest landing via events.config.primary_card (see EventIndexRedirect in
  * App.tsx).
+ *
+ * The KEEPSAKE STYLE is host-only — guests contributing to a card never choose
+ * one, so a keepsake reads as a single designed object. The event carries a
+ * default (events.config.default_card_template) that new cards start from, and
+ * any card's style can be changed afterwards, including once published.
+ *
+ * Each card also stores a SNAPSHOT of the event's look (lib/cardTheme.ts): the
+ * public viewer renders outside EventProvider, so without it a guest arriving
+ * from the keepsake email would land on neutral platform styling instead of
+ * their event's colours.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown, ArrowUp, Check, Copy, Download, Eye, EyeOff, ExternalLink, Film, Gift, Home,
   Loader2, Mail, Plus, Trash2, X,
@@ -26,9 +36,13 @@ import { updateEventConfig } from '../../lib/host';
 import {
   contributeUrl, createCard, deleteCard, deleteContribution, fetchRenderStatus, latestRender,
   listCardsResult, listContributionsResult, publishCard, renderCard, renderDownloadUrl, sendCardEmail,
-  signContributionUrls, unpublishCard, updateContribution, viewerPath,
+  signContributionUrls, unpublishCard, updateCard, updateContribution, viewerPath,
   type CardRenderRow, type CardRow, type ContributionRow,
 } from '../../lib/cards';
+import { buildCardTheme } from '../../lib/cardTheme';
+import { DEFAULT_CARD_TEMPLATE, resolveCardTemplate } from '../../components/cards/templates/registry';
+import TemplatePicker from '../../components/cards/TemplatePicker';
+import { useStore } from '../../store';
 import { UpgradeModal } from './UpgradeCard';
 import StatusPill from '../../components/ui/StatusPill';
 import { copyText } from '../../lib/clipboard';
@@ -57,12 +71,23 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 
 /* ── Contributions manager ─────────────────────────────────────────── */
 
+/**
+ * Curates what actually ends up in the keepsake.
+ *
+ * "Hidden" is the include/exclude switch guests' contributions pass through —
+ * it used to be a bare eye icon whose meaning was ambiguous (does the open eye
+ * mean it IS shown, or that clicking will show it?) with no way to see how many
+ * would appear. It now reads as inclusion: a running count of what guests will
+ * see, an explicit Included/Hidden pill per item, and a filter for cards with
+ * enough contributions that scrolling to find the hidden ones is a chore.
+ */
 function ContributionsManager({ cardId }: { cardId: string }) {
   const [rows, setRows] = useState<ContributionRow[] | null>(null);
   const [thumbs, setThumbs] = useState<Map<string, string>>(new Map());
   const [busy, setBusy] = useState(false);
   /** The contributions read failed — not the same as nobody having contributed. */
   const [loadFailed, setLoadFailed] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'included' | 'hidden'>('all');
 
   const load = useCallback(async () => {
     const { rows: list, failed } = await listContributionsResult(cardId);
@@ -85,6 +110,21 @@ function ContributionsManager({ cardId }: { cardId: string }) {
     if (await deleteContribution(row.id)) {
       setRows((prev) => prev?.filter((r) => r.id !== row.id) ?? null);
     }
+  };
+
+  /** Un-hide everything — the way back from over-zealous curating. */
+  const includeAll = async () => {
+    if (!rows || busy) return;
+    const hiddenRows = rows.filter((r) => r.hidden);
+    if (hiddenRows.length === 0) return;
+    setBusy(true);
+    setRows(rows.map((r) => ({ ...r, hidden: false })));
+    const results = await Promise.all(
+      hiddenRows.map((r) => updateContribution(r.id, { hidden: false })),
+    );
+    setBusy(false);
+    // Any write that failed would leave the optimistic state lying; re-read.
+    if (results.some((ok) => !ok)) load();
   };
 
   /** Move a contribution up/down and persist sequential sort_order. */
@@ -136,9 +176,58 @@ function ContributionsManager({ cardId }: { cardId: string }) {
     );
   }
 
+  const includedCount = rows.filter((r) => !r.hidden).length;
+  const hiddenCount = rows.length - includedCount;
+  const shown = rows.filter((r) =>
+    filter === 'all' ? true : filter === 'included' ? !r.hidden : r.hidden,
+  );
+
   return (
-    <div className="grid gap-2.5 sm:grid-cols-2">
-      {rows.map((row, i) => {
+    <div className="flex flex-col gap-3">
+      {/* What guests will actually see */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-sans text-[11px] text-brand-muted/70">
+          <span className="text-brand-fg">{includedCount}</span> of {rows.length}{' '}
+          {rows.length === 1 ? 'contribution' : 'contributions'} will appear in the keepsake
+        </p>
+        <div className="flex items-center gap-1.5">
+          {hiddenCount > 0 && (
+            <button
+              onClick={includeAll}
+              disabled={busy}
+              className="rounded-full bg-white/[0.06] px-3 py-1 font-label uppercase tracking-luxe text-[9px] text-brand-fg transition hover:bg-white/[0.1] disabled:opacity-40"
+            >
+              Include all
+            </button>
+          )}
+          {rows.length > 3 && (
+            <div className="flex rounded-full bg-white/[0.04] p-0.5">
+              {(['all', 'included', 'hidden'] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  aria-pressed={filter === f}
+                  className={`rounded-full px-2.5 py-1 font-label uppercase tracking-luxe text-[9px] transition ${
+                    filter === f ? 'bg-white/[0.1] text-brand-fg' : 'text-brand-muted/55 hover:text-brand-fg'
+                  }`}
+                >
+                  {f === 'all' ? 'All' : f === 'included' ? `In (${includedCount})` : `Hidden (${hiddenCount})`}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {shown.length === 0 && (
+        <p className="py-3 text-center font-sans text-[11px] text-brand-muted/50">
+          Nothing {filter === 'hidden' ? 'hidden' : 'included'} right now.
+        </p>
+      )}
+
+      <div className="grid gap-2.5 sm:grid-cols-2">
+      {shown.map((row) => {
+        const i = rows.indexOf(row);
         const url = row.media_path ? thumbs.get(row.media_path) : undefined;
         return (
           <div
@@ -187,12 +276,20 @@ function ContributionsManager({ cardId }: { cardId: string }) {
                 </button>
               </div>
               <div className="flex gap-1">
+                {/* Labelled, not a bare eye: the pill states the CURRENT state
+                    and the title says what clicking does. */}
                 <button
                   onClick={() => toggleHidden(row)}
-                  title={row.hidden ? 'Show on the card' : 'Hide from the card'}
-                  className="p-1 rounded-md bg-white/[0.05] text-brand-muted/60 hover:text-brand-fg transition"
+                  aria-pressed={!row.hidden}
+                  title={row.hidden ? 'Include in the keepsake' : 'Hide from the keepsake'}
+                  className={`flex items-center gap-1 rounded-md px-1.5 py-1 font-label uppercase tracking-luxe text-[8px] transition ${
+                    row.hidden
+                      ? 'bg-white/[0.05] text-brand-muted/60 hover:text-brand-fg'
+                      : 'bg-[color:var(--color-accent)]/15 text-[color:var(--color-accent)]'
+                  }`}
                 >
                   {row.hidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  {row.hidden ? 'Hidden' : 'In'}
                 </button>
                 <button
                   onClick={() => remove(row)}
@@ -206,6 +303,7 @@ function ContributionsManager({ cardId }: { cardId: string }) {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
@@ -362,15 +460,17 @@ function KeepsakeFilmSection({ card, onUpgrade }: { card: CardRow; onUpgrade: ()
 
 /* ── Create form ───────────────────────────────────────────────────── */
 
-function CreateCardForm({ eventSlug, onCreated, onClose }: {
+function CreateCardForm({ eventSlug, defaultTemplate, themeSnapshot, onCreated, onClose }: {
   eventSlug: string;
+  defaultTemplate: string;
+  themeSnapshot: Record<string, unknown>;
   onCreated: (card: CardRow) => void;
   onClose: () => void;
 }) {
   const [title, setTitle] = useState('');
   const [recipientName, setRecipientName] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
-  const [template, setTemplate] = useState('storybook');
+  const [template, setTemplate] = useState(defaultTemplate);
   const [deadline, setDeadline] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(false);
@@ -384,6 +484,9 @@ function CreateCardForm({ eventSlug, onCreated, onClose }: {
       recipientName,
       recipientEmail,
       template,
+      // The card carries the event's look so the public viewer — which renders
+      // outside EventProvider — can wear it (see lib/cardTheme.ts).
+      theme: themeSnapshot,
       deadline: deadline ? new Date(`${deadline}T23:59:59`).toISOString() : undefined,
     });
     setBusy(false);
@@ -416,16 +519,20 @@ function CreateCardForm({ eventSlug, onCreated, onClose }: {
           <input value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)} type="email" placeholder="mum@example.com" className={inputClass} />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Template</span>
-          <select value={template} onChange={(e) => setTemplate(e.target.value)} className={inputClass}>
-            <option value="storybook">Storybook</option>
-            <option value="filmstrip">Film strip</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
           <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Collection deadline (optional)</span>
           <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className={inputClass} />
         </label>
+        <div className="flex flex-col gap-2 sm:col-span-2">
+          <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
+            Keepsake style · what guests will see
+          </span>
+          <TemplatePicker
+            value={template}
+            onChange={setTemplate}
+            defaultId={defaultTemplate}
+            idPrefix="new-card-tpl"
+          />
+        </div>
       </div>
       {err && <p className="mt-3 font-sans text-xs text-red-400">Couldn't create the card — please try again.</p>}
       <button
@@ -444,6 +551,21 @@ function CreateCardForm({ eventSlug, onCreated, onClose }: {
 export default function CardsTab() {
   const { eventId, eventUuid, planTier, source, config, refreshConfig } = useEvent();
   const entitlements = useEntitlements();
+  const branding = useStore((s) => s.branding);
+  const defaultTemplate = config.defaultCardTemplate ?? DEFAULT_CARD_TEMPLATE;
+  const [savingDefault, setSavingDefault] = useState(false);
+
+  /** The event's resolved look, snapshotted onto every card this tab writes. */
+  const themeSnapshot = useMemo(
+    () =>
+      buildCardTheme({
+        themeVars: config.themeVars,
+        branding,
+        fontHref: config.fontHref,
+        eventName: config.copy.fullName,
+      }) as unknown as Record<string, unknown>,
+    [config.themeVars, config.fontHref, config.copy.fullName, branding],
+  );
   const [cards, setCards] = useState<CardRow[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -556,6 +678,39 @@ export default function CardsTab() {
     }
   };
 
+  /**
+   * Restyle one card. Also refreshes its theme snapshot: a host adjusting the
+   * look is the moment to re-capture the event's current colours, so a card
+   * made before a rebrand stops looking stale.
+   */
+  const setCardTemplate = async (card: CardRow, template: string) => {
+    if (card.template === template) return;
+    setBusyCard(card.id);
+    const updated = await updateCard(card.id, { template, theme: themeSnapshot });
+    setBusyCard(null);
+    if (!updated) {
+      setNotice("Couldn't change the keepsake style — please try again.");
+      return;
+    }
+    setCards((prev) =>
+      prev?.map((c) =>
+        c.id === card.id
+          ? { ...c, template: updated.template, theme: updated.theme, contribution_count: c.contribution_count }
+          : c,
+      ) ?? null,
+    );
+  };
+
+  /** Event-wide default new cards start from (host-only; guests never pick). */
+  const saveDefaultTemplate = async (template: string) => {
+    if (!eventUuid || template === defaultTemplate) return;
+    setSavingDefault(true);
+    const ok = await updateEventConfig(eventUuid, { default_card_template: template });
+    if (ok) await refreshConfig();
+    else setNotice("Couldn't save the default style — please try again.");
+    setSavingDefault(false);
+  };
+
   const primaryCardId = config.primaryCardPublicId ?? null;
   const setLanding = async (card: CardRow, on: boolean) => {
     if (!eventUuid) return;
@@ -615,9 +770,43 @@ export default function CardsTab() {
           </div>
         )}
 
+        {/* Event-wide default. Set the look once here and every new keepsake
+            starts from it; any single card can still be restyled. */}
+        {!creating && cards !== null && (
+          <details className="group rounded-2xl border border-white/8 bg-white/[0.02]">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+              <span className="flex flex-col">
+                <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
+                  Default keepsake style
+                </span>
+                <span className="mt-0.5 font-sans text-[11px] text-brand-muted/50">
+                  New cards start as {resolveCardTemplate(defaultTemplate).name}
+                </span>
+              </span>
+              <span className="font-label uppercase tracking-luxe text-[9px] text-[color:var(--color-accent)]">
+                {savingDefault ? 'Saving…' : 'Change'}
+              </span>
+            </summary>
+            <div className="px-4 pb-4">
+              <TemplatePicker
+                value={defaultTemplate}
+                onChange={saveDefaultTemplate}
+                busy={savingDefault}
+                idPrefix="default-tpl"
+              />
+              <p className="mt-2.5 font-sans text-[11px] leading-relaxed text-brand-muted/50">
+                Guests never choose a style — you set the look for the whole event. Changing this
+                affects new cards; restyle an existing card from its own panel.
+              </p>
+            </div>
+          </details>
+        )}
+
         {creating && (
           <CreateCardForm
             eventSlug={eventId}
+            defaultTemplate={defaultTemplate}
+            themeSnapshot={themeSnapshot}
             onClose={() => setCreating(false)}
             onCreated={(card) => {
               setCards((prev) => [{ ...card, contribution_count: 0 }, ...(prev ?? [])]);
@@ -669,7 +858,7 @@ export default function CardsTab() {
                     <p className="font-serif text-base text-brand-fg truncate">{card.title}</p>
                     <p className="font-sans text-[10px] text-brand-muted/50">
                       {card.recipient_name ? `for ${card.recipient_name} · ` : ''}
-                      {card.template} · {card.contribution_count ?? 0}{' '}
+                      {resolveCardTemplate(card.template).name} · {card.contribution_count ?? 0}{' '}
                       {(card.contribution_count ?? 0) === 1 ? 'contribution' : 'contributions'}
                       {isLanding ? ' · event landing' : ''}
                     </p>
@@ -747,6 +936,26 @@ export default function CardsTab() {
                         Collecting until {new Date(card.contribution_deadline).toLocaleDateString()}
                       </p>
                     )}
+
+                    {/* Keepsake style — host-only; changeable after publishing
+                        so a host can fix the look without re-collecting. */}
+                    <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-4">
+                      <div className="flex items-baseline justify-between gap-3 mb-3">
+                        <h4 className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
+                          Keepsake style
+                        </h4>
+                        <span className="font-sans text-[10px] text-brand-muted/45">
+                          {published ? 'Applies to everyone with the link' : 'What guests will see'}
+                        </span>
+                      </div>
+                      <TemplatePicker
+                        value={card.template}
+                        onChange={(id) => setCardTemplate(card, id)}
+                        busy={busyCard === card.id}
+                        defaultId={defaultTemplate}
+                        idPrefix={`card-tpl-${card.id}`}
+                      />
+                    </div>
 
                     {/* Keepsake film (deluxe MP4 render) — published cards only */}
                     {entitlements.cardsPremiumRender && published && (

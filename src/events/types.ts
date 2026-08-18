@@ -75,6 +75,10 @@ export interface EventConfig {
    *  guest "/" redirect goes to the published greeting card at /c/:publicId
    *  instead of landingRoute — the remote-event card landing. */
   primaryCardPublicId?: string;
+  /** Keepsake style new cards start from (events.config.default_card_template).
+   *  Host-only: guests never choose a keepsake style — the host sets the look
+   *  once and every card of the event follows it unless overridden per card. */
+  defaultCardTemplate?: string;
   arContent: EventARContent;
   /** Event palette as hex strings — for canvas/JS color needs (confetti, the
    *  captured-photo watermark) that can't read CSS variables. Brightest first. */

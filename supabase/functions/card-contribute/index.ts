@@ -9,7 +9,7 @@
  * Three actions (JSON POST body):
  *   { action: 'meta', token }  (or { action: 'meta', publicId } for read-only)
  *     -> public metadata for the contribute page:
- *        { card: { title, recipientName, eventName, deadline, status, template } }
+ *        { card: { title, recipientName, eventName, deadline, status, template, theme } }
  *   { action: 'init', token, sessionId, mediaType: 'photo'|'video', contentType, ext }
  *     -> validates the card is collecting (status + deadline), the ext /
  *        content type, and the per-session quota (10 contributions per hour
@@ -80,10 +80,12 @@ interface CardRow {
   title: string;
   recipient_name: string | null;
   template: string;
+  theme: Record<string, unknown> | null;
   contribution_deadline: string | null;
 }
 
-const CARD_COLUMNS = 'id, event_id, status, title, recipient_name, template, contribution_deadline';
+const CARD_COLUMNS =
+  'id, event_id, status, title, recipient_name, template, theme, contribution_deadline';
 
 async function getCardByToken(sb: Client, token: unknown): Promise<CardRow | null> {
   if (typeof token !== 'string' || !UUID_RE.test(token)) return null;
@@ -172,6 +174,10 @@ async function handleMeta(sb: Client, body: Record<string, unknown>): Promise<Re
       // Surface an already-passed deadline as closed so the page needs no clock math.
       status: card.status === 'collecting' && deadlinePassed(card) ? 'closed' : card.status,
       template: card.template,
+      // The event's look, snapshotted by the host — lets the contribute page
+      // wear the event's colours instead of neutral platform styling. Clients
+      // treat it as optional, so an older deployment simply stays neutral.
+      theme: card.theme ?? {},
     },
   });
 }
