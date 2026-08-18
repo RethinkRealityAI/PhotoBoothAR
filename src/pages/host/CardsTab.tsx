@@ -40,6 +40,7 @@ import {
   type CardRenderRow, type CardRow, type ContributionRow,
 } from '../../lib/cards';
 import { buildCardTheme } from '../../lib/cardTheme';
+import { curationSummary, filterContributions, shouldOfferFilter } from '../../lib/cardCuration';
 import { DEFAULT_CARD_TEMPLATE, resolveCardTemplate } from '../../components/cards/templates/registry';
 import TemplatePicker from '../../components/cards/TemplatePicker';
 import { useStore } from '../../store';
@@ -176,11 +177,8 @@ function ContributionsManager({ cardId }: { cardId: string }) {
     );
   }
 
-  const includedCount = rows.filter((r) => !r.hidden).length;
-  const hiddenCount = rows.length - includedCount;
-  const shown = rows.filter((r) =>
-    filter === 'all' ? true : filter === 'included' ? !r.hidden : r.hidden,
-  );
+  const { included: includedCount, hidden: hiddenCount, canIncludeAll } = curationSummary(rows);
+  const shown = filterContributions(rows, filter);
 
   return (
     <div className="flex flex-col gap-3">
@@ -191,23 +189,23 @@ function ContributionsManager({ cardId }: { cardId: string }) {
           {rows.length === 1 ? 'contribution' : 'contributions'} will appear in the keepsake
         </p>
         <div className="flex items-center gap-1.5">
-          {hiddenCount > 0 && (
+          {canIncludeAll && (
             <button
               onClick={includeAll}
               disabled={busy}
-              className="rounded-full bg-white/[0.06] px-3 py-1 font-label uppercase tracking-luxe text-[9px] text-brand-fg transition hover:bg-white/[0.1] disabled:opacity-40"
+              className="min-h-9 rounded-full bg-white/[0.06] px-3.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg transition hover:bg-white/[0.1] disabled:opacity-40"
             >
               Include all
             </button>
           )}
-          {rows.length > 3 && (
+          {shouldOfferFilter(rows) && (
             <div className="flex rounded-full bg-white/[0.04] p-0.5">
               {(['all', 'included', 'hidden'] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
                   aria-pressed={filter === f}
-                  className={`rounded-full px-2.5 py-1 font-label uppercase tracking-luxe text-[9px] transition ${
+                  className={`min-h-8 rounded-full px-3 font-label uppercase tracking-luxe text-[9px] transition ${
                     filter === f ? 'bg-white/[0.1] text-brand-fg' : 'text-brand-muted/55 hover:text-brand-fg'
                   }`}
                 >
@@ -257,24 +255,29 @@ function ContributionsManager({ cardId }: { cardId: string }) {
               )}
             </div>
             <div className="flex flex-col items-center gap-1 shrink-0">
-              <div className="flex gap-1">
-                <button
-                  onClick={() => move(i, -1)}
-                  disabled={i === 0 || busy}
-                  title="Move up"
-                  className="p-1 rounded-md bg-white/[0.05] text-brand-muted/60 hover:text-brand-fg disabled:opacity-30 transition"
-                >
-                  <ArrowUp className="w-3 h-3" />
-                </button>
-                <button
-                  onClick={() => move(i, 1)}
-                  disabled={i === rows.length - 1 || busy}
-                  title="Move down"
-                  className="p-1 rounded-md bg-white/[0.05] text-brand-muted/60 hover:text-brand-fg disabled:opacity-30 transition"
-                >
-                  <ArrowDown className="w-3 h-3" />
-                </button>
-              </div>
+              {/* Reordering is offered only on the unfiltered list: sort_order is
+                  global, so a swap under a filter can trade places with a row
+                  the host cannot see and read as a dead button. */}
+              {filter === 'all' && (
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => move(i, -1)}
+                    disabled={i === 0 || busy}
+                    title="Move up"
+                    className="p-1 rounded-md bg-white/[0.05] text-brand-muted/60 hover:text-brand-fg disabled:opacity-30 transition"
+                  >
+                    <ArrowUp className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => move(i, 1)}
+                    disabled={i === rows.length - 1 || busy}
+                    title="Move down"
+                    className="p-1 rounded-md bg-white/[0.05] text-brand-muted/60 hover:text-brand-fg disabled:opacity-30 transition"
+                  >
+                    <ArrowDown className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
               <div className="flex gap-1">
                 {/* Labelled, not a bare eye: the pill states the CURRENT state
                     and the title says what clicking does. */}
