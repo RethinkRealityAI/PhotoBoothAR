@@ -21,7 +21,9 @@ export const CARDS_BUCKET = 'cards';
 /* ------------------------------------------------------------------ */
 
 export type CardStatus = 'collecting' | 'published' | 'rendered';
-export type CardTemplateId = 'storybook' | 'filmstrip';
+/** Ids the registry ships. `template` is stored as free text, so a card made
+ *  by a newer build still opens on an older one — see templates/registry. */
+export type CardTemplateId = 'storybook' | 'filmstrip' | 'carousel';
 export type ContributionMediaType = 'photo' | 'video' | 'text';
 
 export interface CardRow {

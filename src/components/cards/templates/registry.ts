@@ -17,6 +17,7 @@ import type { ComponentType } from 'react';
 import type { CardTemplateProps } from './types';
 import Storybook from './Storybook';
 import FilmStrip from './FilmStrip';
+import Carousel from './Carousel';
 
 export interface CardTemplateDef {
   id: string;
@@ -38,6 +39,12 @@ export const CARD_TEMPLATES: CardTemplateDef[] = [
     name: 'Film strip',
     blurb: 'A cinematic reel of frames, closer to a photo gallery.',
     Component: FilmStrip,
+  },
+  {
+    id: 'carousel',
+    name: 'Carousel',
+    blurb: 'A 3D ring of photos that turns as you read — the showpiece.',
+    Component: Carousel,
   },
 ];
 

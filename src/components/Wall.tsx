@@ -46,6 +46,8 @@ import GuestNav from './ui/GuestNav';
 import ShareButton from './ui/ShareButton';
 import ArrivalBeam from './wall/ArrivalBeam';
 import MosaicGrid from './wall/MosaicGrid';
+import CarouselView from './wall/CarouselView';
+import { hasWebGL } from './carousel/PhotoCarousel';
 import MarqueeGrid from './wall/MarqueeGrid';
 import SlideshowView from './wall/SlideshowView';
 import LeaderboardView from './wall/LeaderboardView';
@@ -81,7 +83,10 @@ import {
   useWallViewport,
 } from './wall/wallHooks';
 
-type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard';
+type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard' | 'carousel';
+
+/** Set for the three frozen single-event deploys (see App.tsx). */
+const IS_LEGACY_BUILD = (((import.meta.env.VITE_EVENT as string | undefined) ?? '')).trim() !== '';
 
 /**
  * Discreet realtime-health indicator.
@@ -133,7 +138,10 @@ function readPersistedWallState(eventId: string): {
     if (!raw) return {};
     const v = JSON.parse(raw) as { mode?: unknown; projectionMode?: unknown; qrOverride?: unknown };
     return {
-      mode: v.mode === 'mosaic' || v.mode === 'slideshow' || v.mode === 'leaderboard' ? v.mode : undefined,
+      mode:
+        v.mode === 'mosaic' || v.mode === 'slideshow' || v.mode === 'leaderboard' || v.mode === 'carousel'
+          ? v.mode
+          : undefined,
       projectionMode: typeof v.projectionMode === 'boolean' ? v.projectionMode : undefined,
       // Explicitly null-vs-undefined: null is a stored "follow the host's
       // setting", undefined is "nothing stored". Truthiness would merge them.
@@ -161,7 +169,15 @@ export default function Wall() {
 
   // View state — default to Gallery (static masonry grid: clickable, no
   // duplicates); restored from localStorage so a projector refresh recovers.
-  const [mode, setMode] = useState<ViewMode>(() => readPersistedWallState(eventId).mode ?? 'mosaic');
+  // Never on the three frozen legacy sites: they are finished events, and a
+  // new tab on their wall is a change to something nobody asked to change.
+  const [carouselUsable] = useState(() => !IS_LEGACY_BUILD && hasWebGL());
+  const [mode, setMode] = useState<ViewMode>(() => {
+    const saved = readPersistedWallState(eventId).mode ?? 'mosaic';
+    // A wall reopened on a machine without WebGL must not restore into a view
+    // that machine cannot draw.
+    return saved === 'carousel' && (IS_LEGACY_BUILD || !hasWebGL()) ? 'mosaic' : saved;
+  });
   const [projectionMode, setProjectionMode] = useState(
     () => readPersistedWallState(eventId).projectionMode ?? false,
   );
@@ -525,8 +541,12 @@ export default function Wall() {
   }, [wallSettings.showQR]);
 
   // Available mode tabs (leaderboard gated by setting)
+  // The carousel is a WebGL view; a machine that cannot render it must not be
+  // offered a tab that opens onto a black rectangle at an event. Probed once —
+  // the answer cannot change while the page is open.
   const modeTabs: { id: ViewMode; label: string }[] = [
     { id: 'mosaic', label: 'Gallery' },
+    ...(carouselUsable ? [{ id: 'carousel' as ViewMode, label: 'Carousel' }] : []),
     { id: 'slideshow', label: 'Slideshow' },
     ...(wallSettings.showLeaderboard
       ? [{ id: 'leaderboard' as ViewMode, label: 'Leaderboard' }]
@@ -606,6 +626,25 @@ export default function Wall() {
               showLeaderboard={wallSettings.showLeaderboard}
               showChallenges={wallSettings.showChallenges}
               origin={`${origin}${basePath}`}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ── Carousel: a turning ring of photos. The arrival beam still plays —
+             CarouselView reports the destination CARD's projected screen rect
+             through the same onTileRect contract the mosaic uses. ── */}
+      {mode === 'carousel' && (
+        <div className="absolute inset-0" style={{ paddingTop: projectionMode ? 0 : headerH }}>
+          {galleryState !== 'ready' ? (
+            galleryPlaceholder
+          ) : (
+            <CarouselView
+              posts={posts}
+              beamingIds={beamingIds}
+              onTileRect={handleTileRect}
+              onSelect={setLightboxPost}
+              projectionMode={projectionMode}
             />
           )}
         </div>

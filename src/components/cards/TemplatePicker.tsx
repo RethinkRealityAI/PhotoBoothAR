@@ -34,6 +34,20 @@ function TemplateMini({ id, active }: { id: string; active: boolean }) {
       </span>
     );
   }
+  if (id === 'carousel') {
+    // A ring seen at an angle: the front card upright, its neighbours receding.
+    return (
+      <span className="flex h-full w-full items-end justify-center gap-1 px-2 pb-2" aria-hidden>
+        {[0.45, 0.7, 1, 0.7, 0.45].map((h, i) => (
+          <span
+            key={i}
+            className="w-[9px] rounded-[2px]"
+            style={{ height: `${h * 70}%`, background: h === 1 ? ink : soft, opacity: 0.35 + h * 0.65 }}
+          />
+        ))}
+      </span>
+    );
+  }
   // storybook (and any future page-turn style): a spread with a text column.
   return (
     <span className="flex h-full w-full items-center justify-center gap-1.5 px-3" aria-hidden>
