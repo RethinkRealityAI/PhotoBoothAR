@@ -29,14 +29,26 @@
  * instead of a card the ring is still turning.
  *
  * WHY A WINDOW. Every card is a GPU texture and a wall runs for hours, so the
- * ring shows a recent window (carouselRing.ringWindow) rather than the whole
- * night. The mosaic remains the mode for seeing everything.
+ * ring shows a recent window rather than the whole night — and how wide that
+ * window is comes from the SCREEN (`ringSlotsFor`), not from however many
+ * photos happen to exist. Sizing it by the photo count left a small ring
+ * marooned in the middle of a wide wall; sizing it by the viewport fills the
+ * frame and simply asks for more photos to do it. The mosaic remains the mode
+ * for seeing everything.
+ *
+ * VIDEOS ARE ON THE RING. A clip's `image_url` is the clip, so it cannot be a
+ * texture as-is — which is why the ring used to drop videos, and a dropped
+ * video is a card that does not exist, so a guest's arriving clip beamed to
+ * nowhere. `cardTexture` seeks a frame out of it (the same trick ArrivalBeam
+ * already uses to compose a ceremony) and bakes a play glyph into it. The
+ * card is a still on purpose: thirty simultaneous decoders is not something a
+ * venue laptop survives, and the mosaic is still the mode that plays clips.
  *
  * FALLBACK. No WebGL → render nothing and let the parent keep the mosaic; the
  * wall must never become a black rectangle at an event.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import PhotoCarousel, { hasWebGL, type CarouselItem } from '../carousel/PhotoCarousel';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import PhotoCarousel, { hasWebGL, ringSlotsFor, type CarouselItem } from '../carousel/PhotoCarousel';
 import { ringWindow } from '../../lib/carouselRing';
 import type { BeamRect } from '../../lib/wallArrivals';
 import type { Post } from '../../types';
@@ -63,15 +75,34 @@ export default function CarouselView({
 }: Props) {
   const [usable] = useState(() => hasWebGL());
 
-  // Photos only: a video's poster frame is not a texture, and the ring is a
-  // gallery of stills. Videos remain visible in the mosaic.
-  const ringPosts = useMemo(
-    () => ringWindow(posts.filter((p) => p.media_type !== 'video')),
-    [posts],
+  // Measure the box the ring actually gets, not the window: the wall insets
+  // this for its header and for the QR rail, and a ring sized to the window
+  // would ask for cards that turn behind them.
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [box, setBox] = useState({ width: 1440, height: 900 });
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const measure = () => setBox({ width: el.clientWidth, height: el.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const slots = useMemo(
+    () => ringSlotsFor(box.width, box.height, 'ring'),
+    [box.width, box.height],
   );
 
+  const ringPosts = useMemo(() => ringWindow(posts, slots), [posts, slots]);
+
   const items = useMemo<CarouselItem[]>(
-    () => ringPosts.map((p, i) => ({ id: `${p.id}::${i}`, url: p.image_url })),
+    () => ringPosts.map((p, i) => ({
+      id: `${p.id}::${i}`,
+      url: p.image_url,
+      media: p.media_type === 'video' ? 'video' : 'photo',
+    })),
     [ringPosts],
   );
 
@@ -125,23 +156,31 @@ export default function CarouselView({
     [items, ringPosts, onSelect],
   );
 
-  if (!usable || items.length === 0) return null;
+  if (!usable) return null;
 
   return (
-    <PhotoCarousel
-      items={items}
-      focusIndex={beamingIndex}
-      autoSpin={beamingIndex === undefined ? IDLE_SPIN : 0}
-      hiddenIds={hiddenIds}
-      onFrontRect={handleFrontRect}
-      onSelect={onSelect ? onSelectItem : undefined}
-      accent={accent}
-      pointerParallax={!projectionMode}
-      // A narrow wall pulls BACK rather than closing in: its header, QR panels
-      // and bottom bar overlay this same canvas, and a lone giant photo stops
-      // reading as a carousel at all.
-      framing="ring"
-      className="absolute inset-0"
-    />
+    // Normal flow, NOT `absolute inset-0`: an absolutely positioned child
+    // resolves its insets against the ancestor's PADDING box, so it would
+    // ignore the room the wall reserves for its header and QR rail and spin
+    // the ring straight back underneath them.
+    <div ref={boxRef} className="relative h-full w-full">
+      {items.length > 0 && (
+        <PhotoCarousel
+          items={items}
+          focusIndex={beamingIndex}
+          autoSpin={beamingIndex === undefined ? IDLE_SPIN : 0}
+          hiddenIds={hiddenIds}
+          onFrontRect={handleFrontRect}
+          onSelect={onSelect ? onSelectItem : undefined}
+          accent={accent}
+          pointerParallax={!projectionMode}
+          // A narrow wall pulls BACK rather than closing in: its header, QR panels
+          // and bottom bar overlay this same canvas, and a lone giant photo stops
+          // reading as a carousel at all.
+          framing="ring"
+          className="absolute inset-0"
+        />
+      )}
+    </div>
   );
 }

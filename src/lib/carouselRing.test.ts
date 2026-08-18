@@ -15,6 +15,9 @@ import {
   cameraDistanceForCard,
   safeThreeColor,
   cardHeightFraction,
+  ringSlotsForViewport,
+  aimHeightForFrontCard,
+  RING_MAX_REPEATS,
   DEFAULT_RADIUS,
   RING_MAX_CARDS,
   RING_MIN_CARDS,
@@ -112,9 +115,30 @@ describe('ringWindow', () => {
     expect(out[3]).toBe(1);
   });
 
-  it('leaves a comfortable count untouched', () => {
+  it('leaves the list untouched when the target is what it already has', () => {
     const ten = Array.from({ length: 10 }, (_, i) => i);
-    expect(ringWindow(ten)).toEqual(ten);
+    expect(ringWindow(ten, 10)).toEqual(ten);
+  });
+
+  it('pads toward the target, but never past RING_MAX_REPEATS copies', () => {
+    const six = Array.from({ length: 6 }, (_, i) => i);
+    const out = ringWindow(six, 30);
+    expect(out).toHaveLength(6 * RING_MAX_REPEATS);
+    expect(out.slice(0, 6)).toEqual(six);
+    expect(out.slice(6)).toEqual(six);
+  });
+
+  it('still fills a very short list to the minimum — an arc is not a ring', () => {
+    // The repeat cap yields into RING_MIN_CARDS: three photos would otherwise
+    // give six slots, and one photo would give two.
+    expect(ringWindow([1, 2, 3], 30)).toHaveLength(RING_MIN_CARDS);
+    expect(ringWindow([1], 30)).toHaveLength(RING_MIN_CARDS);
+  });
+
+  it('never exceeds the target', () => {
+    const many2 = Array.from({ length: 100 }, (_, i) => i);
+    expect(ringWindow(many2, 12)).toHaveLength(12);
+    expect(ringWindow(many2, 25)).toHaveLength(25);
   });
 
   it('returns empty for empty — callers render their own empty state', () => {
@@ -298,6 +322,46 @@ describe('safeThreeColor', () => {
   });
 });
 
+describe('ringSlotsForViewport', () => {
+  const CARD_H = 2.4;
+  const CARD_W = CARD_H * (9 / 16);
+  const base = { cardWidth: CARD_W, cardHeight: CARD_H, fovDeg: 32 };
+
+  it('fills a wide screen with more cards than a narrow one', () => {
+    const wide = ringSlotsForViewport(16 / 9, base);
+    const narrow = ringSlotsForViewport(390 / 844, { ...base, heroFraction: 0.3 });
+    expect(wide).toBeGreaterThan(narrow);
+    expect(wide).toBeGreaterThan(20);
+  });
+
+  it('produces a ring that really does span about `fill` of the width', () => {
+    // Round-trip through the two functions the renderer actually uses: the
+    // slot count sets the radius, the radius sets the camera distance.
+    const aspect = 16 / 9;
+    const slots = ringSlotsForViewport(aspect, base);
+    const radius = ringRadiusForCount(slots, CARD_W);
+    const camera = radius + cameraDistanceForCard(CARD_H, 32);
+    const halfVisible = camera * Math.tan((32 * Math.PI) / 360) * aspect;
+    expect(radius / halfVisible).toBeGreaterThan(0.8);
+    expect(radius / halfVisible).toBeLessThanOrEqual(1);
+  });
+
+  it('stays inside the ring bounds for any aspect', () => {
+    for (let a = 0.3; a <= 4; a += 0.1) {
+      const n = ringSlotsForViewport(a, base);
+      expect(n).toBeGreaterThanOrEqual(RING_MIN_CARDS);
+      expect(n).toBeLessThanOrEqual(RING_MAX_CARDS);
+      expect(Number.isInteger(n)).toBe(true);
+    }
+  });
+
+  it('falls back to the minimum on nonsense input', () => {
+    expect(ringSlotsForViewport(0, base)).toBe(RING_MIN_CARDS);
+    expect(ringSlotsForViewport(Number.NaN, base)).toBe(RING_MIN_CARDS);
+    expect(ringSlotsForViewport(1.6, { ...base, cardWidth: 0 })).toBe(RING_MIN_CARDS);
+  });
+});
+
 describe('cardHeightFraction', () => {
   it('holds the hero smaller on a wide canvas than a tall one', () => {
     expect(cardHeightFraction(16 / 9)).toBeCloseTo(0.45, 6);
@@ -328,5 +392,42 @@ describe('cardHeightFraction', () => {
     expect(cardHeightFraction(0)).toBeCloseTo(0.45, 6);
     expect(cardHeightFraction(-2)).toBeCloseTo(0.45, 6);
     expect(cardHeightFraction(Number.NaN)).toBeCloseTo(0.45, 6);
+  });
+});
+
+describe('aimHeightForFrontCard', () => {
+  /** Height of the view axis at `depth` in front of the camera. */
+  const axisAt = (camH: number, aimY: number, camZ: number, depth: number) =>
+    camH - (depth * (camH - aimY)) / camZ;
+
+  it('puts the view axis exactly through the front card', () => {
+    const camH = 1.4;
+    const lift = 0.45;
+    const radius = 6.94;
+    const front = 7.61;
+    const aim = aimHeightForFrontCard(camH, lift, radius, front);
+    expect(axisAt(camH, aim, radius + front, front)).toBeCloseTo(lift, 9);
+  });
+
+  it('aims below the ring — the correction that looks wrong and is right', () => {
+    expect(aimHeightForFrontCard(1.4, 0.45, 6.94, 7.61)).toBeLessThan(0.45);
+  });
+
+  it('needs no correction when the camera is level with the ring', () => {
+    expect(aimHeightForFrontCard(0.45, 0.45, 6.94, 7.61)).toBeCloseTo(0.45, 9);
+  });
+
+  it('holds for any ring size', () => {
+    for (const radius of [2.2, 4, 6.94, 9.5]) {
+      for (const front of [6, 7.61, 12]) {
+        const aim = aimHeightForFrontCard(1.4, 0.45, radius, front);
+        expect(axisAt(1.4, aim, radius + front, front)).toBeCloseTo(0.45, 9);
+      }
+    }
+  });
+
+  it('falls back to the ring height on a degenerate distance', () => {
+    expect(aimHeightForFrontCard(1.4, 0.45, 5, 0)).toBe(0.45);
+    expect(aimHeightForFrontCard(1.4, 0.45, 5, Number.NaN)).toBe(0.45);
   });
 });

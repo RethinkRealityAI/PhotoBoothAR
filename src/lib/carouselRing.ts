@@ -99,24 +99,44 @@ export function shortestAngleDelta(current: number, target: number): number {
  * everything. Below the minimum the ring reads as a gappy arc instead of a
  * circle, so a small event repeats what it has to keep the shape.
  */
-export const RING_MAX_CARDS = 18;
+export const RING_MAX_CARDS = 32;
 export const RING_MIN_CARDS = 8;
+
+/**
+ * The most times one photo may appear on the ring.
+ *
+ * Repetition is what keeps a young event's ring a circle instead of an arc,
+ * but it stops being a full ring and starts being a hall of mirrors: six
+ * photos stretched around thirty slots is the SAME six photos five times, and
+ * the room notices. Two copies reads as a full carousel; three does not.
+ */
+export const RING_MAX_REPEATS = 2;
 
 /**
  * Choose the ring's contents from a newest-first list.
  *
- * Returns newest-first, capped at RING_MAX_CARDS. When there are fewer than
- * RING_MIN_CARDS the list repeats to fill the ring — the repeat is deliberate
- * and keeps the circle whole at an event that has only had three photos so
- * far. An empty input yields an empty ring; callers render their own empty
- * state rather than a circle of nothing.
+ * `target` is how many SLOTS the ring wants — normally what
+ * `ringSlotsForViewport` says will fill the screen. What comes back is
+ * newest-first, never longer than the target or RING_MAX_CARDS, and padded by
+ * repetition only up to RING_MAX_REPEATS copies of each photo: an event with
+ * six photos gets a twelve-card ring rather than a thirty-card wall of the
+ * same six faces. An empty input yields an empty ring; callers render their
+ * own empty state rather than a circle of nothing.
  */
-export function ringWindow<T>(items: readonly T[], max = RING_MAX_CARDS): T[] {
+export function ringWindow<T>(items: readonly T[], target = RING_MAX_CARDS): T[] {
   if (items.length === 0) return [];
-  const capped = items.slice(0, max);
-  if (capped.length >= RING_MIN_CARDS) return capped;
+  const want = Math.min(Math.max(Math.round(target), RING_MIN_CARDS), RING_MAX_CARDS);
+  const unique = items.slice(0, want);
+  // The repeat cap applies ABOVE the minimum only. A three-photo event still
+  // fills its small ring — an arc of three is not a carousel — but a
+  // six-photo event stops at twelve rather than being stretched to thirty.
+  const slots = Math.max(
+    Math.min(want, RING_MIN_CARDS),
+    Math.min(want, unique.length * RING_MAX_REPEATS),
+  );
+  if (unique.length >= slots) return unique.slice(0, slots);
   const out: T[] = [];
-  while (out.length < RING_MIN_CARDS) out.push(capped[out.length % capped.length]);
+  while (out.length < slots) out.push(unique[out.length % unique.length]);
   return out;
 }
 
@@ -266,4 +286,78 @@ export function cardHeightFraction(aspect: number, wide = 0.45, tall = 0.62): nu
   if (!Number.isFinite(aspect) || aspect <= 0) return wide;
   const t = (Math.min(Math.max(aspect, 0.7), 1.3) - 0.7) / 0.6; // 0 at 0.7, 1 at 1.3
   return tall + (wide - tall) * t;
+}
+
+/**
+ * How many cards it takes to fill the screen, at this canvas shape.
+ *
+ * The ring used to take its size from the photo COUNT alone, which meant a
+ * fourteen-photo event drew a small ring in the middle of a wide wall with
+ * dead space either side of it — the screen was paying for pixels it never
+ * used. This inverts that: work out the radius whose ring spans `fill` of the
+ * frame at the distance the hero card wants to be seen from, then say how many
+ * cards go round it at the usual spacing.
+ *
+ * The default fill is deliberately just OVER 1 — the ring runs a little past
+ * the edges of the frame. The cards out there are nearly edge-on slivers, so
+ * cropping them costs nothing to look at and buys the screen two more cards
+ * that can actually be seen.
+ *
+ * The camera stands at radius + `cameraDistanceForCard(...)`, so the radius
+ * appears on both sides of the equation; solving it rather than iterating is
+ * what keeps this a pure function the caller can use before anything renders.
+ * A very wide canvas can ask for a ring wider than any distance would bound —
+ * that falls out as a non-positive denominator, and the answer is simply the
+ * maximum.
+ */
+export function ringSlotsForViewport(
+  aspect: number,
+  opts: {
+    cardWidth: number;
+    cardHeight: number;
+    fovDeg: number;
+    /** Fraction of frame WIDTH the ring should span. */
+    fill?: number;
+    /** Fraction of frame HEIGHT the front card should fill. */
+    heroFraction?: number;
+    gap?: number;
+  },
+): number {
+  const { cardWidth, cardHeight, fovDeg } = opts;
+  const fill = opts.fill ?? 1.02;
+  const gap = opts.gap ?? 1.25;
+  if (!Number.isFinite(aspect) || aspect <= 0 || cardWidth <= 0) return RING_MIN_CARDS;
+
+  const k = Math.tan((fovDeg * Math.PI) / 360);
+  const front = cameraDistanceForCard(cardHeight, fovDeg, opts.heroFraction);
+  const spread = fill * k * aspect;
+  const denom = 1 - spread;
+  if (denom <= 0) return RING_MAX_CARDS;
+
+  const radius = (spread * front) / denom;
+  const slots = Math.floor((Math.PI * 2 * radius) / (cardWidth * gap));
+  return Math.min(Math.max(slots, RING_MIN_CARDS), RING_MAX_CARDS);
+}
+
+/**
+ * Where to aim the camera so the FRONT card sits centred in frame.
+ *
+ * The obvious aim — the middle of the ring — is wrong, and wrong by a lot. The
+ * camera stands above the ring so the circle reads as a circle rather than a
+ * row, which tilts the view axis down; and the front card is barely half as
+ * far away as the point being aimed at, so the axis has not yet descended to
+ * card height by the time it passes the card. The result is a hero photo
+ * riding low with a band of empty floor above it — measured at ~10% of frame
+ * height, which is what the wall's dead space at the top actually was.
+ *
+ * So aim at the height that puts the view axis through the front card's centre
+ * AT THE FRONT CARD'S DEPTH. That is usually below the ring entirely, which
+ * looks wrong written down and is right on screen.
+ */
+export function aimHeightForFrontCard(
+  cameraHeight: number, ringLift: number, radius: number, frontDistance: number,
+): number {
+  if (!Number.isFinite(frontDistance) || frontDistance <= 0) return ringLift;
+  const cameraZ = radius + frontDistance;
+  return cameraHeight - (cameraHeight - ringLift) * (cameraZ / frontDistance);
 }

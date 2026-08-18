@@ -30,6 +30,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import * as THREE from 'three';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Image } from '@react-three/drei';
+import { cardTexture, type CardMedia } from './cardTexture';
 import {
   ringLayout,
   rotationForIndex,
@@ -39,6 +40,8 @@ import {
   ringRadiusForCount,
   cameraDistanceForCard,
   cardHeightFraction,
+  ringSlotsForViewport,
+  aimHeightForFrontCard,
   safeThreeColor,
   type ScreenRect,
 } from '../../lib/carouselRing';
@@ -46,6 +49,8 @@ import {
 export interface CarouselItem {
   id: string;
   url: string;
+  /** A video's url IS the clip — it becomes a poster frame. Default 'photo'. */
+  media?: CardMedia;
 }
 
 export interface PhotoCarouselProps {
@@ -122,6 +127,39 @@ const FALLBACK_ACCENT = '#5B8CFF';
 const CAMERA_HEIGHT = 1.4;
 const CAMERA_FOV = 32;
 
+/**
+ * How much of the frame height the hero card takes, for a canvas of this shape.
+ * The two surfaces want opposite things on a narrow screen — see `framing`.
+ */
+function heroFractionFor(aspect: number, framing: 'hero' | 'ring'): number {
+  return framing === 'hero'
+    ? cardHeightFraction(aspect)
+    // The wall runs its hero taller than the keepsake does. It has the room:
+    // the ring now spans the full width of the screen, so leaving the cards at
+    // the keepsake's proportion left a band of empty floor above and below the
+    // only thing anyone is looking at.
+    : cardHeightFraction(aspect, 0.55, 0.32);
+}
+
+/**
+ * How many cards fill a canvas of this size — ask BEFORE building the item
+ * list, so the ring can be sized to the screen rather than to however many
+ * photos happen to exist. The card size and lens live here, so this is the
+ * only place that has to know them; a caller passing its own copies is how
+ * the two quietly drift apart.
+ */
+export function ringSlotsFor(
+  width: number, height: number, framing: 'hero' | 'ring' = 'ring',
+): number {
+  const aspect = height > 0 ? width / height : 1;
+  return ringSlotsForViewport(aspect, {
+    cardWidth: CARD_W,
+    cardHeight: CARD_H,
+    fovDeg: CAMERA_FOV,
+    heroFraction: heroFractionFor(aspect, framing),
+  });
+}
+
 /** WebGL support, probed once — a projector without it must fall back. */
 let webglOk: boolean | null = null;
 export function hasWebGL(): boolean {
@@ -153,6 +191,20 @@ function Card({
   onClick?: () => void;
 }) {
   const ref = useRef<THREE.Mesh>(null);
+
+  // The card loads its OWN texture, downscaled (see cardTexture) — which is
+  // also what lets a video be a card at all. Nothing suspends: an unloaded
+  // card renders nothing and appears when it is ready, so a slow photo can
+  // never take the canvas down with it (the forceContextLoss trap below).
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
+  useEffect(() => {
+    let live = true;
+    void cardTexture(item.url, item.media ?? 'photo').then((t) => {
+      if (live) setTexture(t);
+    });
+    return () => { live = false; };
+  }, [item.url, item.media]);
+
   useFrame((_, delta) => {
     const mesh = ref.current;
     if (!mesh) return;
@@ -170,22 +222,24 @@ function Card({
     mat.opacity = THREE.MathUtils.damp(mat.opacity, hidden ? 0 : presence, 10, d);
   });
 
+  if (texture === null) return null;
+
   return (
     <group position={slotPosition} rotation={[0, slotRotationY, 0]}>
       {/*
-        In-canvas Suspense, PER CARD — the house pattern (see Studio3DView), and
-        here it is load-bearing twice over. drei's <Image> suspends while its
-        texture loads; a suspension that escapes the Canvas makes R3F's own
-        CanvasImpl throw, React hides the subtree, its layout-effect cleanup
-        calls forceContextLoss() — and because R3F keeps its root in a ref, the
-        canvas comes back attached to a DEAD context and renders black forever.
-        Per card rather than one boundary round the ring so photos appear as
-        they arrive instead of the wall staying empty until the slowest lands.
+        In-canvas Suspense — the house pattern (see Studio3DView), kept as a
+        guard rather than a need. It used to be load-bearing: drei's <Image>
+        suspends while its own texture loads, a suspension that escapes the
+        Canvas makes R3F's CanvasImpl throw, React hides the subtree, its
+        layout-effect cleanup calls forceContextLoss() — and because R3F keeps
+        its root in a ref the canvas comes back attached to a DEAD context and
+        renders black forever. Passing a ready texture means nothing suspends
+        now, but anything added inside here later must not reopen that door.
       */}
       <Suspense fallback={null}>
         <Image
           ref={ref}
-          url={item.url}
+          texture={texture}
           transparent
           radius={0.06}
           scale={[CARD_W, CARD_H]}
@@ -200,9 +254,12 @@ function Card({
 }
 
 function Ring({
-  items, focusIndex, autoSpin, hiddenIds, onFrontRect, onSelect, radius, pointerParallax,
+  items, focusIndex, autoSpin, hiddenIds, onFrontRect, onSelect, radius, pointerParallax, aimY,
 }: Required<Pick<PhotoCarouselProps, 'items' | 'radius'>> &
-  Pick<PhotoCarouselProps, 'focusIndex' | 'autoSpin' | 'hiddenIds' | 'onFrontRect' | 'onSelect' | 'pointerParallax'>) {
+  Pick<PhotoCarouselProps, 'focusIndex' | 'autoSpin' | 'hiddenIds' | 'onFrontRect' | 'onSelect' | 'pointerParallax'> & {
+    /** Live camera aim, owned above and written by <Framing>. */
+    aimY: { current: number };
+  }) {
   const group = useRef<THREE.Group>(null);
   const ringRotation = useRef(0);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -237,7 +294,7 @@ function Ring({
       camera.position.y = THREE.MathUtils.damp(
         camera.position.y, state.pointer.y * 1.2 + CAMERA_HEIGHT, 3, d,
       );
-      camera.lookAt(0, RING_LIFT, 0);
+      camera.lookAt(0, aimY.current, 0);
     }
 
     // Project the FRONT slot to a screen rect for the arrival ceremony. The
@@ -289,18 +346,19 @@ function Ring({
  * ring centre — without this a projector (which has no pointer, so nothing
  * else ever calls lookAt) would sight on the origin and tilt the ring.
  */
-function Framing({ radius, aimY, framing }: { radius: number; aimY: number; framing: 'hero' | 'ring' }) {
+function Framing({
+  radius, framing, onAim,
+}: { radius: number; framing: 'hero' | 'ring'; onAim: (y: number) => void }) {
   const { camera, size } = useThree();
   const aspect = size.width / size.height;
-  const fraction = framing === 'hero'
-    ? cardHeightFraction(aspect)
-    : cardHeightFraction(aspect, 0.45, 0.3);
-  const z = radius + cameraDistanceForCard(CARD_H, CAMERA_FOV, fraction);
+  const front = cameraDistanceForCard(CARD_H, CAMERA_FOV, heroFractionFor(aspect, framing));
+  const aimY = aimHeightForFrontCard(CAMERA_HEIGHT, RING_LIFT, radius, front);
   useEffect(() => {
-    camera.position.z = z;
+    camera.position.z = radius + front;
     camera.lookAt(0, aimY, 0);
     camera.updateProjectionMatrix();
-  }, [camera, z, aimY]);
+    onAim(aimY);
+  }, [camera, radius, front, aimY, onAim]);
   return null;
 }
 
@@ -374,6 +432,12 @@ export default function PhotoCarousel({
     return safeThreeColor(v, FALLBACK_ACCENT);
   }, [accent]);
 
+  // <Framing> computes where the camera aims and the ring's pointer parallax
+  // has to keep aiming at the same place, so the value is owned here — in a
+  // ref, because it changes with layout and must not re-render the ring.
+  const aimY = useRef(RING_LIFT);
+  const handleAim = useCallback((y: number) => { aimY.current = y; }, []);
+
   const ringRadius = radius ?? ringRadiusForCount(items.length, CARD_W);
 
   if (failed || items.length === 0) return null;
@@ -391,7 +455,7 @@ export default function PhotoCarousel({
         style={{ width: '100%', height: '100%' }}
       >
         <ambientLight intensity={1.4} />
-        <Framing radius={ringRadius} aimY={RING_LIFT} framing={framing} />
+        <Framing radius={ringRadius} framing={framing} onAim={handleAim} />
         <Floor accent={ringAccent} radius={ringRadius} />
         <Ring
           items={items}
@@ -402,6 +466,7 @@ export default function PhotoCarousel({
           onSelect={onSelect}
           radius={ringRadius}
           pointerParallax={pointerParallax}
+          aimY={aimY}
         />
       </Canvas>
     </div>
