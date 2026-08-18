@@ -1042,8 +1042,8 @@ const RUN_THE_NIGHT: GuideDoc = {
       steps: [
         {
           title: 'Pick how it shows',
-          body: 'Gallery lays every photo out in a grid. Slideshow gives each one the whole screen in turn. Leaderboard puts the challenge scores up so the room starts competing. Projection mode is the one to use on an actual projector — it drops the interface and goes edge to edge.',
-          tip: 'Slideshow reads best on a big screen far from the crowd; Gallery reads best on a TV people can walk up to.',
+          body: 'Gallery lays every photo out in a grid. Carousel turns a slow 3D ring of them, and a new photo beams straight onto the card at the front. Slideshow gives each one the whole screen in turn. Leaderboard puts the challenge scores up so the room starts competing. Projection mode is the one to use on an actual projector — it drops the interface and goes edge to edge.',
+          tip: 'Slideshow reads best on a big screen far from the crowd; Gallery reads best on a TV people can walk up to; Carousel is the one people stop and watch.',
         },
         {
           title: 'Open it on the screen itself',
@@ -1074,6 +1074,7 @@ const RUN_THE_NIGHT: GuideDoc = {
       title: 'Keepsake cards, after the night',
       body: [
         'A keepsake card is a shareable page for one person or one couple. Friends and family add photos and messages to it — up to 8 MB per photo, 60 MB and 20 seconds for a video — and it becomes something worth keeping rather than a folder of files.',
+        'You choose how it looks, and everyone who opens it sees the same thing: Storybook turns page by page, Film strip reads as a reel, and Carousel spins the photos in a 3D ring. You can set a default for the whole event and still change any single card.',
         'When it is full you can render it into a short film, which costs around 30 credits. Guests can also bulk-save everything they appear in from their own gallery, so nobody has to ask you for their photos afterwards.',
       ],
     },
@@ -1219,9 +1220,9 @@ export const GUIDE_COVERAGE: {
     studio: { guide: 'use-the-studio', note: 'What each tab is for — Studio; the 2D/3D/Preview split and the editor hotspots.' },
     experiences: { guide: 'use-the-studio', note: 'What each tab is for — Experiences (more than one look per booth).' },
     assets: { guide: 'make-a-frame', note: 'Four ways to get your frame — upload path, and the frame-or-sticker chip.' },
-    wall: { guide: 'run-the-night', note: 'Set up the wall — the four modes and the projector link.' },
+    wall: { guide: 'run-the-night', note: 'Set up the wall — the five modes (Gallery, Carousel, Slideshow, Leaderboard, Projection) and the projector link.' },
     challenges: { guide: 'run-the-night', note: 'Challenges give people a reason to keep going, including the AI photo check.' },
-    cards: { guide: 'run-the-night', note: 'Keepsake cards, after the night — contribution limits and the film render.' },
+    cards: { guide: 'run-the-night', note: 'Keepsake cards, after the night — the three styles (Storybook, Film strip, Carousel), contribution limits and the film render.' },
     share: { guide: 'first-event', note: 'Five steps to a live booth — Print the signage (QR kit).' },
   },
   hostNav: {

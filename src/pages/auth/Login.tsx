@@ -131,9 +131,11 @@ export default function Login() {
               />
             </label>
 
+            {/* Standalone control (not a word inside a sentence), so it carries
+                its own 44px tap height instead of its 16px line box. */}
             <Link
               to="/forgot-password"
-              className="-mt-1 self-end text-xs text-brand-muted/60 underline-offset-4 transition hover:text-brand-fg hover:underline"
+              className="-mt-2 -mr-2 inline-flex min-h-11 items-center self-end px-2 text-xs text-brand-muted/60 underline-offset-4 transition hover:text-brand-fg hover:underline"
             >
               Forgot password?
             </Link>

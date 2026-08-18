@@ -8,14 +8,19 @@
  * chosen template through the normalized progress model (index held HERE, the
  * templates are pure — see components/cards/templates/types.ts). Keyboard
  * arrows + on-screen controls advance pages; prefers-reduced-motion disables
- * page-turn animation. Theme-neutral platform styling (outside EventProvider).
+ * page-turn animation.
+ *
+ * This page renders OUTSIDE EventProvider (it is anonymous and the event is not
+ * in the URL), so it wears the theme the host snapshotted into the card itself
+ * — a guest arriving from the keepsake email lands in their event's colours,
+ * not generic platform styling. No snapshot (older cards) → platform look.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useReducedMotion } from 'motion/react';
 import { viewCard, type CardViewContribution, type CardViewData } from '../../lib/cards';
-import Storybook from '../../components/cards/templates/Storybook';
-import FilmStrip from '../../components/cards/templates/FilmStrip';
+import { resolveCardTemplate } from '../../components/cards/templates/registry';
+import { useCardTheme } from '../../components/cards/useCardTheme';
 import { clampIndex } from '../../components/cards/templates/types';
 
 type LoadState =
@@ -41,6 +46,8 @@ export default function CardViewer() {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const [index, setIndex] = useState(0);
   const reducedMotion = useReducedMotion() ?? false;
+  // Paint the event's look before anything else renders (no-op without a snapshot).
+  const theme = useCardTheme(state.phase === 'ready' ? state.card.theme : null);
 
   useEffect(() => {
     let alive = true;
@@ -94,11 +101,12 @@ export default function CardViewer() {
   }
 
   const { card } = state;
-  const Template = card.template === 'filmstrip' ? FilmStrip : Storybook;
+  const { Component: Template } = resolveCardTemplate(card.template);
+  const fromEvent = theme?.eventName ?? card.eventName;
 
   return (
     <div className="absolute inset-0 app-bg flex flex-col overflow-hidden">
-      {/* soft ambient glow — neutral, no event theme */}
+      {/* Ambient glow — reads the accent, so it follows the event's snapshot. */}
       <div
         className="pointer-events-none absolute inset-0"
         style={{ background: 'radial-gradient(90% 60% at 50% 0%, rgba(var(--accent-rgb),0.07) 0%, transparent 60%)' }}
@@ -114,6 +122,13 @@ export default function CardViewer() {
           reducedMotion={reducedMotion}
         />
       </main>
+      {fromEvent && (
+        <footer className="relative shrink-0 pb-3 text-center">
+          <p className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/45">
+            From {fromEvent}
+          </p>
+        </footer>
+      )}
     </div>
   );
 }

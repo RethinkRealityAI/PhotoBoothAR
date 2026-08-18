@@ -90,13 +90,18 @@ export default function Signup() {
                 we didn&rsquo;t send a new email. Sign in below, or reset your password if you
                 don&rsquo;t remember it.
               </p>
-              <div className="mt-6 flex flex-col items-center gap-2 text-sm">
-                <Link to="/login" className="text-accent underline-offset-4 hover:underline">
+              {/* Standalone stacked actions — each carries its own 44px tap
+                  height rather than sitting at its 16px line box. */}
+              <div className="mt-6 flex flex-col items-center gap-1 text-sm">
+                <Link
+                  to="/login"
+                  className="inline-flex min-h-11 items-center px-3 text-accent underline-offset-4 hover:underline"
+                >
                   Sign in
                 </Link>
                 <Link
                   to="/forgot-password"
-                  className="text-brand-muted/60 underline-offset-4 hover:underline"
+                  className="inline-flex min-h-11 items-center px-3 text-brand-muted/60 underline-offset-4 hover:underline"
                 >
                   Forgot password?
                 </Link>

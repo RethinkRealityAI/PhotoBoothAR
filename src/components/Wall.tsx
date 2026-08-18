@@ -46,6 +46,8 @@ import GuestNav from './ui/GuestNav';
 import ShareButton from './ui/ShareButton';
 import ArrivalBeam from './wall/ArrivalBeam';
 import MosaicGrid from './wall/MosaicGrid';
+import CarouselView from './wall/CarouselView';
+import { hasWebGL } from './carousel/PhotoCarousel';
 import MarqueeGrid from './wall/MarqueeGrid';
 import SlideshowView from './wall/SlideshowView';
 import LeaderboardView from './wall/LeaderboardView';
@@ -81,7 +83,10 @@ import {
   useWallViewport,
 } from './wall/wallHooks';
 
-type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard';
+type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard' | 'carousel';
+
+/** Set for the three frozen single-event deploys (see App.tsx). */
+const IS_LEGACY_BUILD = (((import.meta.env.VITE_EVENT as string | undefined) ?? '')).trim() !== '';
 
 /**
  * Discreet realtime-health indicator.
@@ -133,7 +138,10 @@ function readPersistedWallState(eventId: string): {
     if (!raw) return {};
     const v = JSON.parse(raw) as { mode?: unknown; projectionMode?: unknown; qrOverride?: unknown };
     return {
-      mode: v.mode === 'mosaic' || v.mode === 'slideshow' || v.mode === 'leaderboard' ? v.mode : undefined,
+      mode:
+        v.mode === 'mosaic' || v.mode === 'slideshow' || v.mode === 'leaderboard' || v.mode === 'carousel'
+          ? v.mode
+          : undefined,
       projectionMode: typeof v.projectionMode === 'boolean' ? v.projectionMode : undefined,
       // Explicitly null-vs-undefined: null is a stored "follow the host's
       // setting", undefined is "nothing stored". Truthiness would merge them.
@@ -161,7 +169,15 @@ export default function Wall() {
 
   // View state — default to Gallery (static masonry grid: clickable, no
   // duplicates); restored from localStorage so a projector refresh recovers.
-  const [mode, setMode] = useState<ViewMode>(() => readPersistedWallState(eventId).mode ?? 'mosaic');
+  // Never on the three frozen legacy sites: they are finished events, and a
+  // new tab on their wall is a change to something nobody asked to change.
+  const [carouselUsable] = useState(() => !IS_LEGACY_BUILD && hasWebGL());
+  const [mode, setMode] = useState<ViewMode>(() => {
+    const saved = readPersistedWallState(eventId).mode ?? 'mosaic';
+    // A wall reopened on a machine without WebGL must not restore into a view
+    // that machine cannot draw.
+    return saved === 'carousel' && (IS_LEGACY_BUILD || !hasWebGL()) ? 'mosaic' : saved;
+  });
   const [projectionMode, setProjectionMode] = useState(
     () => readPersistedWallState(eventId).projectionMode ?? false,
   );
@@ -233,6 +249,7 @@ export default function Wall() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [projectionMode]);
+
 
   // ----------------------------------------------------------------
   // Initial data load
@@ -492,6 +509,52 @@ export default function Wall() {
    *  Declared here because the empty-wall placeholder below needs it. */
   const showQR = qrOverride ?? wallSettings.showQR;
 
+  /**
+   * Where the two QR panels live.
+   *
+   * Centred at the bottom they sit ON the wall — which the mosaic tolerated
+   * and the carousel does not: the ring's front card lands exactly there, so
+   * the photo the room is meant to look at arrives behind a pair of QR codes.
+   * On anything wide enough they move to a rail down the right-hand edge,
+   * where they are still scannable from across a room and cover nothing.
+   * Narrow screens keep the footer — a vertical stack would eat a phone's
+   * width — and the three frozen legacy walls keep it unconditionally.
+   */
+  const qrRail = !IS_LEGACY_BUILD && !projectionMode && viewport.width >= 1024;
+
+  // Measure the QR rail for the same reason the header is measured: the
+  // carousel's canvas is sized to fill what is left, so the ring turns BESIDE
+  // the codes instead of behind them.
+  // A CALLBACK ref, not a plain one: the rail mounts inside an AnimatePresence
+  // further down the tree, so a layout effect declared here runs while the node
+  // is still null and would leave the width pinned at 0 forever.
+  const [qrRailW, setQrRailW] = useState(0);
+  const qrRailObserver = useRef<ResizeObserver | null>(null);
+  const qrRailRef = useCallback((el: HTMLDivElement | null) => {
+    qrRailObserver.current?.disconnect();
+    qrRailObserver.current = null;
+    if (el === null) { setQrRailW(0); return; }
+    // Its own width plus the gap it sits in, so a card never touches it.
+    const measure = () => setQrRailW(el.offsetWidth + 32);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    qrRailObserver.current = ro;
+  }, []);
+  useEffect(() => () => qrRailObserver.current?.disconnect(), []);
+
+  /**
+   * The room every view mode gets: below the header, and clear of the QR rail.
+   *
+   * Reserving the rail's width rather than floating over it is the whole point
+   * of moving the codes — a mosaic whose last column sits behind a QR panel is
+   * no better off than a carousel that turns behind one.
+   */
+  const modeAreaStyle: React.CSSProperties = {
+    paddingTop: projectionMode ? 0 : headerH,
+    paddingRight: qrRail && showQR ? qrRailW : 0,
+  };
+
   /** The placeholder shown in place of the grid when there is nothing to draw.
    *  Declared after `origin` because EmptyWall needs it. */
   const galleryPlaceholder =
@@ -525,8 +588,12 @@ export default function Wall() {
   }, [wallSettings.showQR]);
 
   // Available mode tabs (leaderboard gated by setting)
+  // The carousel is a WebGL view; a machine that cannot render it must not be
+  // offered a tab that opens onto a black rectangle at an event. Probed once —
+  // the answer cannot change while the page is open.
   const modeTabs: { id: ViewMode; label: string }[] = [
     { id: 'mosaic', label: 'Gallery' },
+    ...(carouselUsable ? [{ id: 'carousel' as ViewMode, label: 'Carousel' }] : []),
     { id: 'slideshow', label: 'Slideshow' },
     ...(wallSettings.showLeaderboard
       ? [{ id: 'leaderboard' as ViewMode, label: 'Leaderboard' }]
@@ -568,7 +635,7 @@ export default function Wall() {
 
       {/* ── Gallery: Marquee (scrolling rows) or Mosaic (masonry grid) ── */}
       {mode === 'mosaic' && (
-        <div className="absolute inset-0" style={{ paddingTop: projectionMode ? 0 : headerH }}>
+        <div className="absolute inset-0" style={modeAreaStyle}>
           {galleryState !== 'ready' ? (
             galleryPlaceholder
           ) : wallSettings.galleryScroll ? (
@@ -611,9 +678,28 @@ export default function Wall() {
         </div>
       )}
 
+      {/* ── Carousel: a turning ring of photos. The arrival beam still plays —
+             CarouselView reports the destination CARD's projected screen rect
+             through the same onTileRect contract the mosaic uses. ── */}
+      {mode === 'carousel' && (
+        <div className="absolute inset-0" style={modeAreaStyle}>
+          {galleryState !== 'ready' ? (
+            galleryPlaceholder
+          ) : (
+            <CarouselView
+              posts={posts}
+              beamingIds={beamingIds}
+              onTileRect={handleTileRect}
+              onSelect={setLightboxPost}
+              projectionMode={projectionMode}
+            />
+          )}
+        </div>
+      )}
+
       {/* ── Slideshow ── */}
       {mode === 'slideshow' && (
-        <div className="absolute inset-0">
+        <div className="absolute inset-0" style={{ paddingRight: modeAreaStyle.paddingRight }}>
           {galleryState !== 'ready' ? (
             galleryPlaceholder
           ) : (
@@ -630,7 +716,7 @@ export default function Wall() {
 
       {/* ── Leaderboard ── */}
       {mode === 'leaderboard' && (
-        <div className="absolute inset-0" style={{ paddingTop: projectionMode ? 0 : headerH }}>
+        <div className="absolute inset-0" style={modeAreaStyle}>
           <LeaderboardView />
         </div>
       )}
@@ -761,10 +847,11 @@ export default function Wall() {
             {/* Left spacer */}
             <div className="flex-1" />
 
-            {/* QR codes centred — gated by wallSettings.showQR */}
+            {/* QR codes centred — gated by wallSettings.showQR. On a wide
+                platform wall these move to the right-hand rail instead. */}
             <div className="flex-1 flex justify-center">
               <AnimatePresence>
-                {showQR && (
+                {showQR && !qrRail && (
                   <motion.div
                     key="qr"
                     initial={{ opacity: 0, scale: 0.92, y: 8 }}
@@ -798,6 +885,29 @@ export default function Wall() {
               )}
             </div>
           </motion.footer>
+        )}
+      </AnimatePresence>
+
+      {/* ── Right-hand QR rail: out of the wall's way, still scannable ── */}
+      <AnimatePresence>
+        {qrRail && showQR && (
+          <motion.div
+            key="qr-rail"
+            className="fixed right-4 top-1/2 z-30 -translate-y-1/2"
+            initial={{ opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 16 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            style={driftStyle}
+            ref={qrRailRef}
+          >
+            <WallQRCodes
+              origin={`${origin}${basePath}`}
+              joinUrl={joinUrl}
+              layout="column"
+              size={Math.round(88 * Math.min(viewport.scale, 1.6))}
+            />
+          </motion.div>
         )}
       </AnimatePresence>
 

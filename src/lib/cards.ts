@@ -21,7 +21,9 @@ export const CARDS_BUCKET = 'cards';
 /* ------------------------------------------------------------------ */
 
 export type CardStatus = 'collecting' | 'published' | 'rendered';
-export type CardTemplateId = 'storybook' | 'filmstrip';
+/** Ids the registry ships. `template` is stored as free text, so a card made
+ *  by a newer build still opens on an older one — see templates/registry. */
+export type CardTemplateId = 'storybook' | 'filmstrip' | 'carousel';
 export type ContributionMediaType = 'photo' | 'video' | 'text';
 
 export interface CardRow {
@@ -66,6 +68,9 @@ export interface ContributeMeta {
   /** 'collecting' | 'closed' (deadline passed) | 'published' | 'rendered' */
   status: string;
   template: string;
+  /** Event look snapshot (see lib/cardTheme.ts). Optional: an older deployment
+   *  of card-contribute omits it, and the page stays platform-neutral. */
+  theme?: Record<string, unknown>;
 }
 
 /** Viewer payload (card-view). */
@@ -166,6 +171,10 @@ export interface CreateCardInput {
   template?: CardTemplateId | string;
   /** ISO timestamp; contributions close after this. */
   deadline?: string;
+  /** Event look snapshot (lib/cardTheme.ts) so the public card can wear the
+   *  event's colours — it renders outside EventProvider and has no other
+   *  way to know them. */
+  theme?: Record<string, unknown>;
 }
 
 /** Insert a card for the event (member RLS). org_id is derived from the event. */
@@ -188,6 +197,7 @@ export async function createCard(eventSlug: string, input: CreateCardInput): Pro
       recipient_name: input.recipientName?.trim() || null,
       recipient_email: input.recipientEmail?.trim() || null,
       template: input.template ?? 'storybook',
+      theme: input.theme ?? {},
       contribution_deadline: input.deadline || null,
     })
     .select()
@@ -221,6 +231,46 @@ export async function listCardsResult(eventSlug: string): Promise<ListResult<Car
 
 export async function listCards(eventSlug: string): Promise<CardRow[]> {
   return (await listCardsResult(eventSlug)).rows;
+}
+
+export interface UpdateCardInput {
+  /** Keepsake style guests will see. Host-only: guests never pick this. */
+  template?: string;
+  /** Refreshed event look snapshot. */
+  theme?: Record<string, unknown>;
+  title?: string;
+  recipientName?: string | null;
+  recipientEmail?: string | null;
+}
+
+/**
+ * Patch a card (member RLS). Returns the updated row, or null on failure so
+ * callers can leave their optimistic state alone and surface an error.
+ *
+ * Changing `template` re-styles an ALREADY-PUBLISHED card the next time a guest
+ * opens it — deliberate: a host who dislikes the look should be able to fix it
+ * without re-collecting every contribution or re-sending the email.
+ */
+export async function updateCard(cardId: string, patch: UpdateCardInput): Promise<CardRow | null> {
+  const row: Record<string, unknown> = {};
+  if (patch.template !== undefined) row.template = patch.template;
+  if (patch.theme !== undefined) row.theme = patch.theme;
+  if (patch.title !== undefined) row.title = patch.title.trim();
+  if (patch.recipientName !== undefined) row.recipient_name = patch.recipientName?.trim() || null;
+  if (patch.recipientEmail !== undefined) row.recipient_email = patch.recipientEmail?.trim() || null;
+  if (Object.keys(row).length === 0) return null;
+
+  const { data, error } = await supabase
+    .from('cards')
+    .update(row)
+    .eq('id', cardId)
+    .select()
+    .single();
+  if (error) {
+    console.error('[cards] updateCard', error);
+    return null;
+  }
+  return data as CardRow;
 }
 
 export async function deleteCard(cardId: string): Promise<boolean> {
