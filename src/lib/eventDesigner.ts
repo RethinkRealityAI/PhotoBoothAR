@@ -24,6 +24,45 @@ export interface ChatMessage {
   content: string;
 }
 
+/* ── Wire-turn window (shared by the concierge and the copilot) ─────────
+ * ai-event-designer rejects more than 20 turns (index.ts MAX_TURNS) with
+ * 400 invalid_body, and both chats persist their transcript — so a long
+ * thread used to go permanently "offline". 16 leaves headroom under the
+ * server cap. Runs AFTER any merge/empty-drop step (copilot.mergeWireTurns)
+ * and after the concierge strips its localOnly nudges. */
+export const MAX_WIRE_TURNS = 16;
+
+/**
+ * Keep the LAST `MAX_WIRE_TURNS` turns, then drop leading turns until the
+ * first is a user turn: Gemini needs strict user/model alternation starting
+ * with the user, and tool-result turns are user turns, so cutting on a user
+ * boundary keeps alternation intact. The last turn is never touched (the
+ * caller always appends the host's latest message last). Returns a copy;
+ * a short transcript comes back with identical content.
+ */
+export function trimWireTurns(turns: ChatMessage[]): ChatMessage[] {
+  const out = turns.length > MAX_WIRE_TURNS ? turns.slice(turns.length - MAX_WIRE_TURNS) : turns.slice();
+  while (out.length > 0 && out[0].role !== 'user') out.shift();
+  return out;
+}
+
+/**
+ * Fire-and-forget telemetry for an AI-module failure. errorReport imports the
+ * supabase client statically, so it is loaded lazily here — the pure planner
+ * half of this module (and every node test) never reaches it. Never throws,
+ * never rejects: telemetry is not load-bearing.
+ */
+export function reportAiError(tag: string, err: unknown, context: Record<string, unknown> = {}): void {
+  try {
+    void import('./errorReport').then(
+      ({ reportError }) => reportError(err, { tag, ...context }),
+      () => {},
+    );
+  } catch {
+    /* telemetry must never break the caller */
+  }
+}
+
 /** Everything the concierge can fill in. Nulls mean "not decided yet". */
 export interface EventPlan {
   name: string | null;
@@ -47,6 +86,14 @@ export interface DesignResult {
   surfaceId: string;
   /** 'ai' when the edge function answered; 'local' for the keyword fallback. */
   source: 'ai' | 'local';
+  /**
+   * Why the AI path failed, when `source` is 'local' because of a failure:
+   * the edge fn's error code ('ai_key_invalid' | 'rate_limited' | 'ai_quota' |
+   * 'invalid_body' | …), 'network' when the call never got an HTTP answer,
+   * 'empty_reply' when it answered with nothing usable. Absent on the AI path.
+   * The page renders per-code copy from it (copilot.offlineReplyFor).
+   */
+  reason?: string;
   /** Which plan fields the planner actively decided this turn. Undecided
    *  fields must not overwrite what the host set by hand (the local keyword
    *  planner defaults templateId/remote when it finds no signal). */
@@ -139,6 +186,16 @@ export function extractDate(text: string): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Natural-language date → YYYY-MM-DD, or null. The copilot normalizer runs
+ * this on `set_event_date.date` / `create_card.deadline` AFTER the strict ISO
+ * check, so "July 12 2026" lands instead of being dropped. Same parser as the
+ * local keyword planner (extractDate) — one behaviour, two entry points.
+ */
+export function parseNaturalDate(text: string): string | null {
+  return extractDate(text);
 }
 
 export function detectRemote(text: string): boolean {
@@ -313,9 +370,9 @@ export async function designEvent(messages: ChatMessage[], image?: DesignImage):
     const a2ui = streamed.length > 0 ? streamed : buildPlanSurface(plan, sid);
     return { reply, plan, a2ui, surfaceId: surfaceIdOf(a2ui) ?? sid, source, decided };
   };
-  const localFallback = (): DesignResult => {
+  const localFallback = (reason: string): DesignResult => {
     const local = localDesign(messages);
-    return withUi(local.reply, local.plan, 'local', local.decided);
+    return { ...withUi(local.reply, local.plan, 'local', local.decided), reason };
   };
 
   try {
@@ -324,7 +381,8 @@ export async function designEvent(messages: ChatMessage[], image?: DesignImage):
     const { supabase } = await import('./supabase');
     const { data, error } = await supabase.functions.invoke('ai-event-designer', {
       body: {
-        messages,
+        // The concierge shares the server's turn cap with the copilot.
+        messages: trimWireTurns(messages),
         // The live template catalog rides along so the agent's prompt/schema
         // can never drift from the app's real templates (edge fn validates
         // and falls back to its built-in list).
@@ -335,23 +393,29 @@ export async function designEvent(messages: ChatMessage[], image?: DesignImage):
       },
     });
     if (error) {
+      // Same extraction as copilot.askCopilot: a non-2xx answer carries the
+      // fn's error code in its JSON body; anything else never reached HTTP.
+      let reason = 'network';
       if (error instanceof FunctionsHttpError) {
         try {
           const res = (await error.context.json()) as { error?: string };
-          console.warn('[eventDesigner] edge fn error, using local planner:', res.error);
-        } catch { /* body unreadable — fall through to local */ }
+          if (typeof res.error === 'string' && res.error) reason = res.error;
+        } catch { /* body unreadable — keep the transport-level reason */ }
+        console.warn('[eventDesigner] edge fn error, using local planner:', reason);
       }
-      return localFallback();
+      reportAiError(`ai_event_designer:create:${reason}`, error, { reason });
+      return localFallback(reason);
     }
     const res = (data ?? {}) as { reply?: string; plan?: unknown; a2ui?: unknown };
     if (typeof res.reply !== 'string' || !res.reply) {
-      return localFallback();
+      return localFallback('empty_reply');
     }
     // The AI sees the whole conversation and always takes a position on
     // template + remote, so both count as decided.
     return withUi(res.reply, normalizePlan(res.plan), 'ai', { template: true, remote: true }, res.a2ui);
   } catch (e) {
     console.warn('[eventDesigner] designEvent failed, using local planner', e);
-    return localFallback();
+    reportAiError('ai_event_designer:create:network', e, { reason: 'network' });
+    return localFallback('network');
   }
 }

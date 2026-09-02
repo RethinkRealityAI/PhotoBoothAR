@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeActions, normalizeActionsResult, mergeWireTurns, executeAction } from './copilot';
+import {
+  normalizeActions, normalizeActionsResult, mergeWireTurns, executeAction,
+  trimWireTurns, MAX_WIRE_TURNS, formatToolResult, toolResultSummary, toolResultCode,
+  offlineReplyFor, TOOL_LABELS,
+} from './copilot';
+import { COPILOT_TOOLS } from './copilotTools';
 import type { EventSnapshot } from './eventSnapshot';
 import type { ChatMessage } from './eventDesigner';
 import { FILTER_SHADERS } from './shaders';
@@ -237,7 +242,7 @@ describe('normalizeActionsResult — dropped count', () => {
   it('is 0 for an all-valid batch, an empty array, and a non-array', () => {
     expect(normalizeActionsResult([{ tool: 'get_stats' }], snapshot).dropped).toBe(0);
     expect(normalizeActionsResult([], snapshot).dropped).toBe(0);
-    expect(normalizeActionsResult(null, snapshot)).toEqual({ actions: [], dropped: 0 });
+    expect(normalizeActionsResult(null, snapshot)).toEqual({ actions: [], dropped: 0, droppedReasons: [] });
   });
 
   it('does NOT count actions truncated by the MAX_ACTIONS cap as rejected', () => {
@@ -323,5 +328,170 @@ describe('mergeWireTurns', () => {
   it('returns [] when every turn is empty', () => {
     expect(mergeWireTurns([{ role: 'assistant', content: '' }, { role: 'assistant', content: ' ' }])).toEqual([]);
     expect(mergeWireTurns([])).toEqual([]);
+  });
+});
+
+describe('trimWireTurns — the server turn window', () => {
+  const turn = (i: number): ChatMessage => ({ role: i % 2 === 0 ? 'user' : 'assistant', content: `t${i}` });
+
+  it('keeps at most MAX_WIRE_TURNS (16) of a 24-turn thread, ending on the latest turn', () => {
+    const many = Array.from({ length: 24 }, (_v, i) => turn(i)); // ends on an assistant turn? no: 23 is odd → assistant
+    const out = trimWireTurns(many);
+    expect(MAX_WIRE_TURNS).toBe(16);
+    expect(out.length).toBeLessThanOrEqual(16);
+    expect(out[out.length - 1]).toEqual(many[many.length - 1]);
+  });
+
+  it('starts on a user turn and preserves strict alternation (25 turns → last is user)', () => {
+    const many = Array.from({ length: 25 }, (_v, i) => turn(i)); // 0..24: even = user, so last is user
+    const out = trimWireTurns(many);
+    expect(out.length).toBeLessThanOrEqual(16);
+    expect(out[0].role).toBe('user');
+    expect(out[out.length - 1].role).toBe('user');
+    for (let i = 1; i < out.length; i++) expect(out[i].role).not.toBe(out[i - 1].role);
+  });
+
+  it('drops a leading assistant turn left by the cut (cuts on a user boundary)', () => {
+    // 17 turns, user-first: the last 16 start on an assistant turn → one more drops.
+    const many = Array.from({ length: 17 }, (_v, i) => turn(i));
+    const out = trimWireTurns(many);
+    expect(out).toHaveLength(15);
+    expect(out[0]).toEqual(many[2]);
+  });
+
+  it('leaves a short transcript untouched (same content, a fresh array)', () => {
+    const short = [turn(0), turn(1), turn(2)];
+    const out = trimWireTurns(short);
+    expect(out).toEqual(short);
+    expect(out).not.toBe(short);
+  });
+
+  it('composes with mergeWireTurns: a tool_result user turn is a user turn', () => {
+    const thread: ChatMessage[] = [];
+    for (let i = 0; i < 30; i++) {
+      thread.push({ role: 'user', content: `ask ${i}` });
+      thread.push({ role: 'assistant', content: `reply ${i}` });
+      thread.push({ role: 'user', content: `[tool_result] tool=get_stats ok=true — ${i}` });
+    }
+    thread.push({ role: 'user', content: 'and now?' });
+    const out = trimWireTurns(mergeWireTurns(thread));
+    expect(out.length).toBeLessThanOrEqual(16);
+    expect(out[0].role).toBe('user');
+    expect(out[out.length - 1].role).toBe('user');
+    expect(out[out.length - 1].content).toContain('and now?');
+  });
+});
+
+describe('normalizeActionsResult — droppedReasons', () => {
+  it('names why each proposal was refused, in input order', () => {
+    const res = normalizeActionsResult([
+      { tool: 'launch_missiles' },
+      { tool: 'add_challenge' },
+      { tool: 'update_challenge', challengeId: 'ch-fake', points: 30 },
+      { tool: 'set_filter', shaderId: 'made-up' },
+    ], snapshot);
+    expect(res.dropped).toBe(4);
+    expect(res.droppedReasons).toEqual([
+      { tool: 'launch_missiles', reason: 'unknown_tool' },
+      { tool: 'add_challenge', reason: 'invalid_args' },
+      { tool: 'update_challenge', reason: 'unknown_id' },
+      { tool: 'set_filter', reason: 'unknown_id' },
+    ]);
+  });
+
+  it('records the MAX_ACTIONS cut as over_cap WITHOUT counting it in dropped', () => {
+    const res = normalizeActionsResult([
+      { tool: 'get_stats' }, { tool: 'share_links' }, { tool: 'go_live' }, { tool: 'test_experience' },
+    ], snapshot);
+    expect(res.actions).toHaveLength(3);
+    expect(res.dropped).toBe(0);
+    expect(res.droppedReasons).toEqual([{ tool: 'test_experience', reason: 'over_cap' }]);
+  });
+
+  it('is empty for a clean batch and for a non-array', () => {
+    expect(normalizeActionsResult([{ tool: 'get_stats' }], snapshot).droppedReasons).toEqual([]);
+    expect(normalizeActionsResult('nope', snapshot)).toEqual({ actions: [], dropped: 0, droppedReasons: [] });
+  });
+});
+
+describe('normalizeActions — natural-language dates', () => {
+  it('set_event_date accepts "July 12 2026" and normalises it; ISO still wins verbatim', () => {
+    expect(normalizeActions([{ tool: 'set_event_date', date: 'July 12 2026' }], snapshot))
+      .toEqual([{ tool: 'set_event_date', proposal: { date: '2026-07-12' } }]);
+    expect(normalizeActions([{ tool: 'set_event_date', date: '12 September 2026' }], snapshot))
+      .toEqual([{ tool: 'set_event_date', proposal: { date: '2026-09-12' } }]);
+    expect(normalizeActions([{ tool: 'set_event_date', date: '2026-09-12' }], snapshot))
+      .toEqual([{ tool: 'set_event_date', proposal: { date: '2026-09-12' } }]);
+  });
+
+  it('still drops an unparseable date, and create_card.deadline gets the same parser', () => {
+    expect(normalizeActions([{ tool: 'set_event_date', date: 'soon' }], snapshot)).toEqual([]);
+    const [card] = normalizeActions([{ tool: 'create_card', cardTitle: 'Hi', deadline: 'June 1, 2026' }], snapshot);
+    expect((card as { proposal: { deadline: string } }).proposal.deadline).toBe('2026-06-01');
+  });
+});
+
+describe('handoff tools', () => {
+  it('open_scene_director needs a brief of 6+ chars; contact_support needs a summary; both cap at 600', () => {
+    expect(normalizeActions([{ tool: 'open_scene_director', brief: 'jungle' }], snapshot))
+      .toEqual([{ tool: 'open_scene_director', proposal: { brief: 'jungle' } }]);
+    expect(normalizeActions([{ tool: 'open_scene_director', brief: 'no' }], snapshot)).toEqual([]);
+    expect(normalizeActions([{ tool: 'contact_support', summary: '' }], snapshot)).toEqual([]);
+    const long = 'x'.repeat(700);
+    const [sup] = normalizeActions([{ tool: 'contact_support', summary: long }], snapshot);
+    expect((sup as { proposal: { summary: string } }).proposal.summary).toHaveLength(600);
+  });
+
+  it('executeAction returns a handoff and touches nothing', async () => {
+    const ctx = { slug: 'e', eventUuid: 'u', origin: 'https://x' };
+    const d = await executeAction({ tool: 'open_scene_director', proposal: { brief: 'a jungle at dusk' } }, ctx);
+    expect(d).toEqual({ ok: true, summary: 'Opening the Scene Director…', handoff: { kind: 'scene_director', brief: 'a jungle at dusk' } });
+    const s = await executeAction({ tool: 'contact_support', proposal: { summary: 'it broke twice' } }, ctx);
+    expect(s).toEqual({ ok: true, summary: 'Opening support…', handoff: { kind: 'support', summary: 'it broke twice' } });
+  });
+
+  it('the no-event guard now carries a code', async () => {
+    const r = await executeAction({ tool: 'add_challenge', proposal: { title: 't', emoji: '⭐', points: 1, description: '' } }, { slug: '', eventUuid: '', origin: '' });
+    expect(r).toMatchObject({ ok: false, code: 'no_event', retryable: false });
+  });
+});
+
+describe('formatToolResult / toolResultSummary', () => {
+  it('renders the machine prefix exactly, and the summary comes back out', () => {
+    const line = formatToolResult('add_challenge', { ok: false, code: 'rls_denied', retryable: false, summary: 'Adding the challenge failed.' });
+    expect(line).toBe('[tool_result] tool=add_challenge ok=false code=rls_denied retryable=false — Adding the challenge failed.');
+    expect(toolResultSummary(line)).toBe('Adding the challenge failed.');
+    expect(formatToolResult('get_stats', { ok: true, summary: '3 posts' })).toBe('[tool_result] tool=get_stats ok=true — 3 posts');
+  });
+
+  it('a legacy turn without a dash loses only its prefix', () => {
+    expect(toolResultSummary('[tool_result] I couldn’t read this event just now.')).toBe('I couldn’t read this event just now.');
+    expect(toolResultSummary('plain')).toBe('plain');
+  });
+});
+
+describe('toolResultCode', () => {
+  it('maps Supabase / fetch errors', () => {
+    expect(toolResultCode({ code: '42501', message: 'permission denied for table challenges' })).toEqual({ code: 'rls_denied', retryable: false });
+    expect(toolResultCode({ message: 'new row violates row-level security policy' })).toEqual({ code: 'rls_denied', retryable: false });
+    expect(toolResultCode({ code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' })).toEqual({ code: 'not_found', retryable: false });
+    expect(toolResultCode(new TypeError('Failed to fetch'))).toEqual({ code: 'network', retryable: true });
+    expect(toolResultCode(Object.assign(new Error('aborted'), { name: 'AbortError' }))).toEqual({ code: 'timeout', retryable: true });
+    expect(toolResultCode(new Error('something else'))).toEqual({ code: 'unknown', retryable: true });
+    expect(toolResultCode(null).code).toBe('unknown');
+  });
+});
+
+describe('offlineReplyFor + TOOL_LABELS', () => {
+  it('is exported and customer-safe per code', () => {
+    expect(offlineReplyFor('rate_limited')).toMatch(/hourly AI limit/i);
+    expect(offlineReplyFor('ai_key_invalid')).not.toMatch(/GEMINI|API key/i);
+    expect(offlineReplyFor(undefined)).toMatch(/built-in guide/i);
+  });
+
+  it('TOOL_LABELS is the registry label for every tool', () => {
+    for (const [tool, spec] of Object.entries(COPILOT_TOOLS)) {
+      expect(TOOL_LABELS[tool as keyof typeof TOOL_LABELS]).toBe(spec.label);
+    }
   });
 });

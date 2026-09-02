@@ -9,8 +9,11 @@ import type { ChatMessage } from './eventDesigner';
 // gate-0 offline-reply mapping and the eventUuid credits passthrough are
 // testable without a live client. normalizeActions/mergeWireTurns have their
 // own coverage in copilot.test.ts.
-const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+const { invokeMock, reportMock } = vi.hoisted(() => ({ invokeMock: vi.fn(), reportMock: vi.fn() }));
 vi.mock('./supabase', () => ({ supabase: { functions: { invoke: invokeMock } } }));
+// askCopilot's error branch lazy-imports ./errorReport (which imports the
+// supabase client statically) — mocked so the tag it sends is observable.
+vi.mock('./errorReport', () => ({ reportError: reportMock }));
 
 const snapshot = {
   eventUuid: 'u-1', slug: 'daps-35th', name: "Dapo's 35th", status: 'live',
@@ -32,6 +35,7 @@ async function askWithError(code: string) {
 
 beforeEach(() => {
   invokeMock.mockReset();
+  reportMock.mockReset();
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -130,5 +134,72 @@ describe('askCopilot reports silently-dropped proposals', () => {
     invokeMock.mockResolvedValue({ data: { reply: 'Sure.', actions: [] }, error: null });
     expect((await askCopilot(messages, snapshot)).dropped).toBe(0);
     expect((await askWithError('rate_limited')).dropped).toBe(0);
+  });
+});
+
+describe('askCopilot turn window (server MAX_TURNS = 20)', () => {
+  beforeEach(() => {
+    invokeMock.mockResolvedValue({ data: { reply: 'ok', actions: [] }, error: null });
+  });
+
+  it('sends at most 16 merged turns, user-first and user-last, for a 41-turn thread', async () => {
+    const thread: ChatMessage[] = [];
+    for (let i = 0; i < 20; i++) {
+      thread.push({ role: 'user', content: `q${i}` });
+      thread.push({ role: 'assistant', content: `a${i}` });
+    }
+    thread.push({ role: 'user', content: 'latest' });
+    await askCopilot(thread, snapshot);
+    const [, { body }] = invokeMock.mock.calls[0] as [string, { body: { messages: ChatMessage[] } }];
+    expect(body.messages.length).toBeLessThanOrEqual(16);
+    expect(body.messages[0].role).toBe('user');
+    expect(body.messages[body.messages.length - 1]).toEqual({ role: 'user', content: 'latest' });
+    for (let i = 1; i < body.messages.length; i++) {
+      expect(body.messages[i].role).not.toBe(body.messages[i - 1].role);
+    }
+  });
+
+  it('leaves a short thread as-is', async () => {
+    await askCopilot(messages, snapshot);
+    const [, { body }] = invokeMock.mock.calls[0] as [string, { body: { messages: ChatMessage[] } }];
+    expect(body.messages).toEqual(messages);
+  });
+});
+
+describe('askCopilot droppedReasons + telemetry', () => {
+  it('carries the per-proposal reasons alongside the count', async () => {
+    invokeMock.mockResolvedValue({
+      data: { reply: 'Done.', actions: [{ tool: 'update_challenge', challengeId: 'ch-ghost', points: 30 }, { tool: 'nope' }] },
+      error: null,
+    });
+    const res = await askCopilot(messages, snapshot);
+    expect(res.dropped).toBe(2);
+    expect(res.droppedReasons).toEqual([
+      { tool: 'update_challenge', reason: 'unknown_id' },
+      { tool: 'nope', reason: 'unknown_tool' },
+    ]);
+    expect(reportMock).not.toHaveBeenCalled();
+  });
+
+  it('is an empty array on every offline path', async () => {
+    expect((await askWithError('rate_limited')).droppedReasons).toEqual([]);
+    invokeMock.mockResolvedValue({ data: { reply: '' }, error: null });
+    expect((await askCopilot(messages, snapshot)).droppedReasons).toEqual([]);
+  });
+
+  it('reports an edge-fn error with a mode+code tag, without blocking the reply', async () => {
+    const res = await askWithError('ai_quota');
+    expect(res.source).toBe('offline');
+    // The lazy import resolves on a microtask after the reply is returned.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reportMock).toHaveBeenCalledTimes(1);
+    expect(reportMock.mock.calls[0][1]).toMatchObject({ tag: 'ai_event_designer:copilot:ai_quota', reason: 'ai_quota' });
+  });
+
+  it('tags a transport failure as network', async () => {
+    invokeMock.mockResolvedValue({ data: null, error: new Error('fetch failed') });
+    await askCopilot(messages, snapshot);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reportMock.mock.calls[0][1]).toMatchObject({ tag: 'ai_event_designer:copilot:network' });
   });
 });

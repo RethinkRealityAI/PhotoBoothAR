@@ -1,15 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   inferTemplate, extractName, extractDate, detectRemote, localDesign, normalizePlan,
-  buildPlanSurface, surfaceIdOf, designEvent, type EventPlan,
+  buildPlanSurface, surfaceIdOf, designEvent, parseNaturalDate, trimWireTurns,
+  type ChatMessage, type EventPlan,
 } from './eventDesigner';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { applySurfaceMessages, getPath, resolveContext } from './a2ui';
 
 // The vision wire: designEvent lazy-imports ./supabase and calls
 // functions.invoke. Mock it so we can assert the request body shape without a
 // live client (the rest of this file tests pure planners that never touch it).
-const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+const { invokeMock, reportMock } = vi.hoisted(() => ({ invokeMock: vi.fn(), reportMock: vi.fn() }));
 vi.mock('./supabase', () => ({ supabase: { functions: { invoke: invokeMock } } }));
+// The error branch lazy-imports ./errorReport (static supabase import) —
+// mocked so the telemetry tag is observable and the graph never reaches it.
+vi.mock('./errorReport', () => ({ reportError: reportMock }));
 
 describe('inferTemplate', () => {
   it('maps occasion keywords to templates', () => {
@@ -224,5 +229,96 @@ describe('designEvent — vision wire body', () => {
     await designEvent([{ role: 'user', content: 'design from this' }], { data: 'AAAA', mimeType: 'image/jpeg' });
     const body = (invokeMock.mock.calls[0][1] as { body: Record<string, unknown> }).body;
     expect(body.image).toEqual({ data: 'AAAA', mimeType: 'image/jpeg' });
+  });
+});
+
+describe('parseNaturalDate', () => {
+  it('normalises host phrasing to YYYY-MM-DD and passes ISO through', () => {
+    expect(parseNaturalDate('July 12 2026')).toBe('2026-07-12');
+    expect(parseNaturalDate('July 12, 2026')).toBe('2026-07-12');
+    expect(parseNaturalDate('12th of September 2026')).toBe('2026-09-12');
+    expect(parseNaturalDate('Sept. 12 2026')).toBe('2026-09-12');
+    expect(parseNaturalDate('2026-09-12')).toBe('2026-09-12');
+  });
+
+  it('returns null for nothing usable (no year, bad month, empty)', () => {
+    expect(parseNaturalDate('next friday')).toBeNull();
+    expect(parseNaturalDate('Foo 12 2026')).toBeNull();
+    expect(parseNaturalDate('2026-13-40')).toBeNull();
+    expect(parseNaturalDate('')).toBeNull();
+  });
+});
+
+describe('designEvent — honest reason on the local fallback', () => {
+  const messages: ChatMessage[] = [{ role: 'user', content: 'a wedding in June' }];
+  const httpError = (body: unknown, status = 503) =>
+    new FunctionsHttpError(new Response(JSON.stringify(body), { status }));
+
+  beforeEach(() => {
+    invokeMock.mockReset();
+    reportMock.mockReset();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  it('carries the edge fn error code and reports it with a create-mode tag', async () => {
+    invokeMock.mockResolvedValue({ data: null, error: httpError({ error: 'ai_key_invalid' }) });
+    const res = await designEvent(messages);
+    expect(res.source).toBe('local');
+    expect(res.reason).toBe('ai_key_invalid');
+    expect(res.plan.templateId).toBe('wedding'); // the local planner still answered
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reportMock).toHaveBeenCalledTimes(1);
+    expect(reportMock.mock.calls[0][1]).toMatchObject({ tag: 'ai_event_designer:create:ai_key_invalid', reason: 'ai_key_invalid' });
+  });
+
+  it('maps rate_limited / invalid_body through unchanged', async () => {
+    invokeMock.mockResolvedValue({ data: null, error: httpError({ error: 'rate_limited' }, 429) });
+    expect((await designEvent(messages)).reason).toBe('rate_limited');
+    invokeMock.mockResolvedValue({ data: null, error: httpError({ error: 'invalid_body' }, 400) });
+    expect((await designEvent(messages)).reason).toBe('invalid_body');
+  });
+
+  it('a non-HTTP error is "network"; an unreadable body keeps "network"', async () => {
+    invokeMock.mockResolvedValue({ data: null, error: new Error('fetch failed') });
+    expect((await designEvent(messages)).reason).toBe('network');
+    invokeMock.mockResolvedValue({ data: null, error: new FunctionsHttpError(new Response('not json', { status: 502 })) });
+    expect((await designEvent(messages)).reason).toBe('network');
+  });
+
+  it('an empty reply is "empty_reply"; a thrown invoke is "network"', async () => {
+    invokeMock.mockResolvedValue({ data: { reply: '' }, error: null });
+    expect((await designEvent(messages)).reason).toBe('empty_reply');
+    invokeMock.mockRejectedValue(new Error('boom'));
+    expect((await designEvent(messages)).reason).toBe('network');
+  });
+
+  it('has NO reason on the AI path', async () => {
+    invokeMock.mockResolvedValue({ data: { reply: 'ok', plan: {} }, error: null });
+    const res = await designEvent(messages);
+    expect(res.source).toBe('ai');
+    expect('reason' in res).toBe(false);
+    expect(reportMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('designEvent — turn window on the wire', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue({ data: { reply: 'ok', plan: {} }, error: null });
+  });
+
+  it('sends at most 16 turns, user-first, for a long concierge thread', async () => {
+    const thread: ChatMessage[] = [];
+    for (let i = 0; i < 12; i++) {
+      thread.push({ role: 'user', content: `u${i}` });
+      thread.push({ role: 'assistant', content: `a${i}` });
+    }
+    thread.push({ role: 'user', content: 'last' });
+    await designEvent(thread);
+    const body = (invokeMock.mock.calls[0][1] as { body: { messages: ChatMessage[] } }).body;
+    expect(body.messages.length).toBeLessThanOrEqual(16);
+    expect(body.messages[0].role).toBe('user');
+    expect(body.messages[body.messages.length - 1].content).toBe('last');
+    expect(body.messages).toEqual(trimWireTurns(thread));
   });
 });

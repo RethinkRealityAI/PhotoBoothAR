@@ -10,6 +10,7 @@
  */
 import { A2UI_VERSION, BEAMWALL_CATALOG_ID, type A2uiComponent, type A2uiMessage } from './a2ui';
 import type { CopilotAction } from './copilot';
+import { COPILOT_TOOLS } from './copilotTools';
 import { FILTER_SHADERS } from './shaders';
 import { HEAD_PIECES } from './headPieces';
 import { GENERIC_FRAMES } from './borders';
@@ -81,6 +82,12 @@ function pieceHint(prompt: unknown): string {
 
 function textField(id: string, label: string, path: string): A2uiComponent {
   return { id, component: 'TextField', label, value: { path } };
+}
+
+/** Card heading — the tool's registry label, so the card, the failure line
+ *  and the prompt all call the tool the same thing. */
+function heading(tool: CopilotAction['tool'], suffix = ''): A2uiComponent {
+  return { id: 'heading', component: 'Text', text: `${COPILOT_TOOLS[tool].label}${suffix}`, variant: 'h5' };
 }
 
 /* ── Frame lettering (the "put our names on it" choice) ───────────────────
@@ -200,7 +207,7 @@ export function buildProposalSurface(
           id: 'body', component: 'Column',
           children: ['heading', 'titleField', 'emojiField', 'pointsField', 'descField', 'checkField', 'checkHint', ...confirm.ids],
         },
-        { id: 'heading', component: 'Text', text: 'New photo challenge', variant: 'h5' },
+        heading(action.tool),
         textField('titleField', 'Title', '/proposal/title'),
         textField('emojiField', 'Emoji', '/proposal/emoji'),
         textField('pointsField', 'Points', '/proposal/points'),
@@ -219,7 +226,7 @@ export function buildProposalSurface(
       return surface(surfaceId, { proposal: { tool: action.tool, ...action.proposal } }, [
         { id: 'root', component: 'Card', child: 'body' },
         { id: 'body', component: 'Column', children: ['heading', 'themeField', ...rowIds, ...confirm.ids] },
-        { id: 'heading', component: 'Text', text: `Challenge pack · ${rows.length} challenges`, variant: 'h5' },
+        heading(action.tool, ` · ${rows.length} challenges`),
         textField('themeField', 'Theme', '/proposal/theme'),
         ...rows.flatMap((c, i): A2uiComponent[] => [
           { id: `chal_${i}`, component: 'Column', children: [`chal_${i}_t`, `chal_${i}_d`] },
@@ -238,7 +245,7 @@ export function buildProposalSurface(
           id: 'body', component: 'Column',
           children: ['heading', ...target.ids, 'titleField', 'emojiField', 'pointsField', 'activeCheck', ...confirm.ids],
         },
-        { id: 'heading', component: 'Text', text: 'Edit challenge', variant: 'h5' },
+        heading(action.tool),
         ...target.components,
         textField('titleField', 'Title', '/proposal/title'),
         textField('emojiField', 'Emoji', '/proposal/emoji'),
@@ -253,7 +260,7 @@ export function buildProposalSurface(
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
         { id: 'body', component: 'Column', children: ['heading', ...target.ids, 'warning', ...confirm.ids] },
-        { id: 'heading', component: 'Text', text: 'Delete challenge', variant: 'h5' },
+        heading(action.tool),
         ...target.components,
         {
           id: 'warning', component: 'Text', variant: 'caption',
@@ -270,7 +277,7 @@ export function buildProposalSurface(
           id: 'body', component: 'Column',
           children: ['heading', 'titleField', 'recipientField', 'deadlineField', ...confirm.ids],
         },
-        { id: 'heading', component: 'Text', text: 'New greeting card', variant: 'h5' },
+        heading(action.tool),
         textField('titleField', 'Card title', '/proposal/cardTitle'),
         textField('recipientField', 'For (recipient)', '/proposal/recipientName'),
         { id: 'deadlineField', component: 'DateTimeInput', label: 'Contribution deadline (optional)', enableDate: true, enableTime: false, value: { path: '/proposal/deadline' } },
@@ -307,7 +314,7 @@ export function buildProposalSurface(
             'genRow',
           ],
         },
-        { id: 'heading', component: 'Text', text: 'Design a signature frame', variant: 'h5' },
+        heading(action.tool),
         { id: 'sub', component: 'Text', variant: 'caption', text: frameHint(action.proposal.prompt) },
         textField('promptField', 'Describe your frame', '/proposal/prompt'),
         { id: 'providerPicker', component: 'ChoicePicker', label: 'Generate with', options: PROVIDER_OPTIONS, value: { path: '/proposal/provider' } },
@@ -337,7 +344,7 @@ export function buildProposalSurface(
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
         { id: 'body', component: 'Column', children: ['heading', 'picker', 'desc', ...confirm.ids] },
-        { id: 'heading', component: 'Text', text: 'Add a booth filter', variant: 'h5' },
+        heading(action.tool),
         { id: 'picker', component: 'ChoicePicker', label: 'Filter', options: FILTER_OPTIONS, value: { path: '/proposal/shaderId' } },
         { id: 'desc', component: 'Text', variant: 'caption', text: 'Applied to the whole booth and set as the default look.' },
         ...confirm.components,
@@ -349,7 +356,7 @@ export function buildProposalSurface(
         return surface(surfaceId, { proposal: { tool: action.tool, source: 'generate', prompt: action.proposal.prompt } }, [
           { id: 'root', component: 'Card', child: 'body' },
           { id: 'body', component: 'Column', children: ['heading', 'sub', 'promptField', 'genRow'] },
-          { id: 'heading', component: 'Text', text: 'Generate a 3D prop', variant: 'h5' },
+          heading(action.tool),
           { id: 'sub', component: 'Text', variant: 'caption', text: pieceHint(action.proposal.prompt) },
           textField('promptField', 'Describe your 3D prop', '/proposal/prompt'),
           { id: 'genRow', component: 'Row', justify: 'end', children: ['cancelBtn', 'genBtn'] },
@@ -363,7 +370,7 @@ export function buildProposalSurface(
       return surface(surfaceId, { proposal: { tool: action.tool, source: 'builtin', pieceId: action.proposal.pieceId } }, [
         { id: 'root', component: 'Card', child: 'body' },
         { id: 'body', component: 'Column', children: ['heading', 'picker', 'desc', ...confirm.ids] },
-        { id: 'heading', component: 'Text', text: 'Add a 3D prop', variant: 'h5' },
+        heading(action.tool),
         { id: 'picker', component: 'ChoicePicker', label: 'Prop', options: PIECE_OPTIONS, value: { path: '/proposal/pieceId' } },
         { id: 'desc', component: 'Text', variant: 'caption', text: 'A face-tracked 3D piece guests wear in the booth — set as the booth default.' },
         ...confirm.components,
@@ -375,7 +382,7 @@ export function buildProposalSurface(
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
         { id: 'body', component: 'Column', children: ['heading', 'picker', 'desc', ...confirm.ids] },
-        { id: 'heading', component: 'Text', text: 'Add a ready-made frame', variant: 'h5' },
+        heading(action.tool),
         { id: 'picker', component: 'ChoicePicker', label: 'Frame', options: FRAME_OPTIONS, value: { path: '/proposal/borderId' } },
         { id: 'desc', component: 'Text', variant: 'caption', text: 'A clean, event-neutral frame — set as the booth default. Want it personalised? Ask me to generate one instead.' },
         ...confirm.components,
@@ -386,7 +393,7 @@ export function buildProposalSurface(
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
         { id: 'body', component: 'Column', children: ['heading', 'desc', ...confirm.ids] },
-        { id: 'heading', component: 'Text', text: 'Set the booth default', variant: 'h5' },
+        heading(action.tool),
         { id: 'desc', component: 'Text', variant: 'caption', text: 'This is what the booth opens with when guests scan in.' },
         ...confirm.components,
       ]);
@@ -396,7 +403,7 @@ export function buildProposalSurface(
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
         { id: 'body', component: 'Column', children: ['heading', 'dateField', ...confirm.ids] },
-        { id: 'heading', component: 'Text', text: 'Update the event date', variant: 'h5' },
+        heading(action.tool),
         { id: 'dateField', component: 'DateTimeInput', label: 'Event date', enableDate: true, enableTime: false, value: { path: '/proposal/date' } },
         ...confirm.components,
       ]);
@@ -406,7 +413,7 @@ export function buildProposalSurface(
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
         { id: 'body', component: 'Column', children: ['heading', 'nameField', ...confirm.ids] },
-        { id: 'heading', component: 'Text', text: 'Rename the event', variant: 'h5' },
+        heading(action.tool),
         textField('nameField', 'Event name', '/proposal/name'),
         ...confirm.components,
       ]);
@@ -416,14 +423,44 @@ export function buildProposalSurface(
       return surface(surfaceId, { proposal: { tool: 'go_live' } }, [
         { id: 'root', component: 'Card', child: 'body' },
         { id: 'body', component: 'Column', children: ['heading', 'warn', ...confirm.ids] },
-        { id: 'heading', component: 'Text', text: 'Take your event live', variant: 'h5' },
+        heading(action.tool),
         { id: 'warn', component: 'Text', variant: 'caption', text: 'Going live lets anyone with the link take pictures and post to your wall. You can pause it again anytime.' },
         ...confirm.components,
       ]);
     }
+    case 'open_scene_director':
+    case 'contact_support':
+      return buildHandoffSurface(action, surfaceId);
     default:
       return []; // read-only tools auto-execute — no confirm card
   }
+}
+
+/** The two handoff tools: an editable brief / summary and the standard
+ *  cancel + confirm row. Confirm is the same `confirm_action` every proposal
+ *  card fires, so the chat's one handler runs — executeAction then returns
+ *  `handoff` and the chat navigates / opens the support dialog. */
+export function buildHandoffSurface(
+  action: Extract<CopilotAction, { tool: 'open_scene_director' | 'contact_support' }>,
+  surfaceId: string,
+): A2uiMessage[] {
+  const director = action.tool === 'open_scene_director';
+  const confirm = confirmRow(director ? 'Open the Director' : 'Contact support');
+  return surface(surfaceId, { proposal: { tool: action.tool, ...action.proposal } }, [
+    { id: 'root', component: 'Card', child: 'body' },
+    { id: 'body', component: 'Column', children: ['heading', 'desc', 'textField', ...confirm.ids] },
+    heading(action.tool),
+    {
+      id: 'desc', component: 'Text', variant: 'caption',
+      text: director
+        ? 'The studio Scene Director designs the whole look — frame, filter and 3D piece together — from this brief.'
+        : 'A person will read this and get back to you by email.',
+    },
+    director
+      ? textField('textField', 'Brief for the Director', '/proposal/brief')
+      : textField('textField', 'What should support know?', '/proposal/summary'),
+    ...confirm.components,
+  ]);
 }
 
 /* ── Generation two-phase surfaces (frame / 3D prop) ─────────────────── */

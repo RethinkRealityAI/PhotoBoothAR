@@ -14,7 +14,8 @@
  * modules) — normalizeActions/mergeWireTurns are node-tested.
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import type { ChatMessage } from './eventDesigner';
+import { parseNaturalDate, reportAiError, trimWireTurns, type ChatMessage } from './eventDesigner';
+import { COPILOT_TOOLS, TOOL_NAMES } from './copilotTools';
 import { PLATFORM_GUIDE } from './platformGuide';
 import type { EventSnapshot } from './eventSnapshot';
 import { FILTER_SHADERS } from './shaders';
@@ -23,6 +24,10 @@ import { BORDER_MAP, GENERIC_FRAMES, GENERIC_FRAME_IDS } from './borders';
 import { normalizeValidation } from './challengeValidation';
 import { normalizeLettering, type LetteringSpec } from './assetPrompt';
 import { PROP_TARGET_CM } from './studio/bustFit';
+
+/** The wire-turn window lives beside ChatMessage (eventDesigner.ts) because
+ *  both chats share it; re-exported here so copilot callers need one import. */
+export { MAX_WIRE_TURNS, trimWireTurns } from './eventDesigner';
 
 /* ── Action types (post-normalization) ───────────────────────────────── */
 
@@ -73,9 +78,15 @@ export type CopilotAction =
   | { tool: 'go_live' }
   | { tool: 'test_experience' }
   | { tool: 'get_stats' }
-  | { tool: 'share_links' };
+  | { tool: 'share_links' }
+  // Handoff tools: executeAction returns `handoff` and the chat acts on it
+  // (navigates / opens the support dialog) — nothing runs in this module.
+  | { tool: 'open_scene_director'; proposal: { brief: string } }
+  | { tool: 'contact_support'; proposal: { summary: string } };
 
 const MAX_ACTIONS = 3;
+const HANDOFF_BRIEF_MIN = 6;
+const HANDOFF_TEXT_MAX = 600;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** The filter ids the model may pick from (the same list the studio Director
  *  is given). 'none' is excluded — an empty filter is never worth an action. */
@@ -133,6 +144,18 @@ export interface NormalizedActions {
    * counted here — they were not judged invalid.
    */
   dropped: number;
+  /**
+   * WHY each proposal did not run, in input order — including the ones the
+   * MAX_ACTIONS cap cut ('over_cap', which `dropped` deliberately excludes).
+   * `tool` is the raw tool name the model sent (unknown tools included) so a
+   * telemetry row or a debug line can name it.
+   */
+  droppedReasons: DroppedReason[];
+}
+
+export interface DroppedReason {
+  tool: string;
+  reason: 'unknown_tool' | 'invalid_args' | 'over_cap' | 'unknown_id';
 }
 
 /**
@@ -143,15 +166,23 @@ export interface NormalizedActions {
  * caller can say so out loud.
  */
 export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | null): NormalizedActions {
-  if (!Array.isArray(raw)) return { actions: [], dropped: 0 };
+  if (!Array.isArray(raw)) return { actions: [], dropped: 0, droppedReasons: [] };
   const knownIds = new Set((snapshot?.challenges ?? []).map((c) => c.id));
   const expIds = new Set((snapshot?.experiences ?? []).map((e) => e.id));
   const out: CopilotAction[] = [];
   let dropped = 0;
+  const droppedReasons: DroppedReason[] = [];
   for (const item of raw) {
-    if (out.length >= MAX_ACTIONS) break;
-    const before = out.length;
     const a = (item ?? {}) as Record<string, unknown>;
+    const toolName = str(a.tool, 40) || '?';
+    if (out.length >= MAX_ACTIONS) {
+      droppedReasons.push({ tool: toolName, reason: 'over_cap' });
+      continue;
+    }
+    const before = out.length;
+    // Every drop site below is "missing/invalid argument" unless a case says
+    // the argument was present but named an id we do not know.
+    let reason: DroppedReason['reason'] = 'invalid_args';
     switch (a.tool) {
       case 'add_challenge': {
         const draft = challengeDraft(a);
@@ -173,7 +204,8 @@ export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | n
       }
       case 'update_challenge': {
         const challengeId = str(a.challengeId, 64);
-        if (!challengeId || !knownIds.has(challengeId)) break;
+        if (!challengeId) break;
+        if (!knownIds.has(challengeId)) { reason = 'unknown_id'; break; }
         const proposal: Extract<CopilotAction, { tool: 'update_challenge' }>['proposal'] = { challengeId };
         if (str(a.title)) proposal.title = str(a.title);
         if (str(a.emoji, 8)) proposal.emoji = str(a.emoji, 8);
@@ -184,7 +216,8 @@ export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | n
       }
       case 'delete_challenge': {
         const challengeId = str(a.challengeId, 64);
-        if (!challengeId || !knownIds.has(challengeId)) break;
+        if (!challengeId) break;
+        if (!knownIds.has(challengeId)) { reason = 'unknown_id'; break; }
         out.push({ tool: 'delete_challenge', proposal: { challengeId } });
         break;
       }
@@ -197,7 +230,7 @@ export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | n
             cardTitle,
             recipientName: str(a.recipientName, 80),
             cardTemplate: a.cardTemplate === 'filmstrip' ? 'filmstrip' : 'storybook',
-            deadline: DATE_RE.test(str(a.deadline, 10)) ? str(a.deadline, 10) : '',
+            deadline: isoDate(a.deadline) ?? '',
           },
         });
         break;
@@ -225,13 +258,14 @@ export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | n
       case 'add_frame': {
         // Only the generic (no event-locked text) built-ins may be added as-is.
         const borderId = str(a.borderId, 40);
-        if (!borderId || !GENERIC_FRAME_IDS.has(borderId)) break;
+        if (!borderId) break;
+        if (!GENERIC_FRAME_IDS.has(borderId)) { reason = 'unknown_id'; break; }
         out.push({ tool: 'add_frame', proposal: { borderId } });
         break;
       }
       case 'set_event_date': {
-        const date = str(a.date, 10);
-        if (!DATE_RE.test(date)) break;
+        const date = isoDate(a.date);
+        if (date === null) break;
         out.push({ tool: 'set_event_date', proposal: { date } });
         break;
       }
@@ -243,7 +277,8 @@ export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | n
       }
       case 'set_filter': {
         const shaderId = str(a.shaderId, 40);
-        if (!shaderId || !FILTER_IDS.has(shaderId)) break;
+        if (!shaderId) break;
+        if (!FILTER_IDS.has(shaderId)) { reason = 'unknown_id'; break; }
         out.push({ tool: 'set_filter', proposal: { shaderId } });
         break;
       }
@@ -262,12 +297,15 @@ export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | n
           // generate proposal instead of silently dropping the host's request
           // (mirrors sceneDirector.ts's forgiving coercion).
           out.push({ tool: 'add_head_piece', proposal: { source: 'generate', prompt } });
+        } else if (pieceId) {
+          reason = 'unknown_id';
         }
         break;
       }
       case 'set_default_experience': {
         const experienceId = str(a.experienceId, 64);
-        if (!experienceId || !expIds.has(experienceId)) break;
+        if (!experienceId) break;
+        if (!expIds.has(experienceId)) { reason = 'unknown_id'; break; }
         out.push({ tool: 'set_default_experience', proposal: { experienceId } });
         break;
       }
@@ -277,12 +315,39 @@ export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | n
       case 'share_links':
         out.push({ tool: a.tool });
         break;
+      case 'open_scene_director': {
+        const brief = str(a.brief, HANDOFF_TEXT_MAX);
+        if (brief.length < HANDOFF_BRIEF_MIN) break;
+        out.push({ tool: 'open_scene_director', proposal: { brief } });
+        break;
+      }
+      case 'contact_support': {
+        const summary = str(a.summary, HANDOFF_TEXT_MAX);
+        if (!summary) break;
+        out.push({ tool: 'contact_support', proposal: { summary } });
+        break;
+      }
       default:
+        reason = 'unknown_tool';
         break; // unknown tool — dropped
     }
-    if (out.length === before) dropped++;
+    if (out.length === before) {
+      dropped++;
+      droppedReasons.push({ tool: toolName, reason });
+    }
   }
-  return { actions: out, dropped };
+  return { actions: out, dropped, droppedReasons };
+}
+
+/**
+ * A date argument as YYYY-MM-DD. Strict ISO wins; otherwise the natural-
+ * language parser the concierge already uses ("July 12 2026") gets a turn,
+ * so a host-phrased date is normalised instead of dropped. null = unusable.
+ */
+function isoDate(v: unknown): string | null {
+  const raw = str(v, 80);
+  if (DATE_RE.test(raw)) return raw;
+  return raw ? parseNaturalDate(raw) : null;
 }
 
 /** Actions only. `*Result` sibling convention — no existing caller changes. */
@@ -329,14 +394,84 @@ export interface CopilotCtx {
   origin: string;
 }
 
+/** Why a tool did not do what was asked — the machine-readable half of a
+ *  [tool_result] turn, so the model can choose between "re-read the event
+ *  data and try once more" and "say it plainly and offer support". */
+export type ToolResultCode =
+  | 'no_event'    // no event selected — ask the host to pick one
+  | 'invalid'     // the proposal cannot run as given (unusable args, wrong phase)
+  | 'unknown_id'  // an id the event does not have
+  | 'rls_denied'  // Postgres refused the write (permission / row-level security)
+  | 'network'     // the request never got an answer
+  | 'not_found'   // the row is gone (or hidden) — zero rows matched
+  | 'timeout'     // the call was aborted for time
+  | 'gap'         // the confirm card is missing a required field (proposalGaps)
+  | 'unknown';
+
 export interface ExecResult {
   ok: boolean;
   /** One-line outcome fed back to the model as a [tool_result] turn. */
   summary: string;
+  /** Set on EVERY ok:false result (see ToolResultCode). */
+  code?: ToolResultCode;
+  /** Whether the same proposal is worth one more try as-is. */
+  retryable?: boolean;
   /** create_card success payload — the chat renders it as a QR link card. */
   card?: { title: string; contributeUrl: string; viewerUrl: string };
   /** go_live success → the event's new lifecycle status ('live'). */
   status?: string;
+  /** Handoff tools: nothing ran here — the chat navigates / opens the dialog. */
+  handoff?: { kind: 'scene_director'; brief: string } | { kind: 'support'; summary: string };
+}
+
+/** Classify a thrown/returned error into a ToolResultCode. Supabase/PostgREST
+ *  errors carry `code` (42501 = insufficient_privilege, PGRST116 = zero rows
+ *  for a single-object request); fetch failures are TypeErrors. */
+export function toolResultCode(e: unknown): { code: ToolResultCode; retryable: boolean } {
+  const err = (e ?? {}) as { code?: unknown; message?: unknown; name?: unknown; status?: unknown };
+  const code = typeof err.code === 'string' ? err.code : '';
+  const message = typeof err.message === 'string' ? err.message : '';
+  const name = typeof err.name === 'string' ? err.name : '';
+  if (code === '42501' || /permission denied|row-level security|violates row-level/i.test(message) || err.status === 403) {
+    return { code: 'rls_denied', retryable: false };
+  }
+  if (code === 'PGRST116' || err.status === 404) return { code: 'not_found', retryable: false };
+  if (name === 'AbortError' || name === 'TimeoutError' || /timed? ?out/i.test(message)) {
+    return { code: 'timeout', retryable: true };
+  }
+  if (e instanceof TypeError || /fetch|network|Failed to fetch|Load failed/i.test(message)) {
+    return { code: 'network', retryable: true };
+  }
+  return { code: 'unknown', retryable: true };
+}
+
+/** A failed ExecResult with its code attached, in one expression. */
+function fail(summary: string, code: ToolResultCode, retryable: boolean): ExecResult {
+  return { ok: false, summary, code, retryable };
+}
+
+/**
+ * The [tool_result] turn the model reads. Machine-readable prefix, then the
+ * human summary after ' — '; the chat shows only the summary (toolResultSummary).
+ *   "[tool_result] tool=add_challenge ok=false code=rls_denied retryable=false — <summary>"
+ */
+export function formatToolResult(
+  tool: string,
+  r: { ok: boolean; code?: string; retryable?: boolean; summary: string },
+): string {
+  const parts = [`tool=${tool}`, `ok=${r.ok ? 'true' : 'false'}`];
+  if (r.code !== undefined) parts.push(`code=${r.code}`);
+  if (r.retryable !== undefined) parts.push(`retryable=${r.retryable ? 'true' : 'false'}`);
+  return `[tool_result] ${parts.join(' ')} — ${r.summary}`;
+}
+
+/** The host-readable part of a [tool_result] turn: everything after the first
+ *  ' — ', or the content without its `[tool_result] ` prefix when there is no
+ *  dash (older, hand-written turns persisted in sessionStorage). */
+export function toolResultSummary(content: string): string {
+  const dash = content.indexOf(' — ');
+  if (dash >= 0) return content.slice(dash + 3);
+  return content.startsWith('[tool_result] ') ? content.slice('[tool_result] '.length) : content;
 }
 
 /**
@@ -412,7 +547,8 @@ async function publishAndPin(
       .eq('event_id', ctx.slug)
       .select('id');
     if (pubErr || !updated || updated.length === 0) {
-      return { ok: false, summary: `The ${noun} was generated but could not be published — publish it from your studio Library.` };
+      const why = pubErr ? toolResultCode(pubErr) : { code: 'not_found' as const, retryable: false };
+      return fail(`The ${noun} was generated but could not be published — publish it from your studio Library.`, why.code, why.retryable);
     }
     const pinned = await pinDefault(ctx, experienceId);
     return pinned
@@ -420,30 +556,17 @@ async function publishAndPin(
       : { ok: true, summary: `Your ${noun} is published, but setting it as the booth default failed — set it in the studio Library.` };
   } catch (e) {
     console.error('[copilot] publishAndPin', kind, e);
-    return { ok: false, summary: `Applying the ${noun} failed unexpectedly.` };
+    const why = toolResultCode(e);
+    return fail(`Applying the ${noun} failed unexpectedly.`, why.code, why.retryable);
   }
 }
 
-/** Host-facing name for each tool, for the one line a host reads when something
- *  breaks. Typed over the whole union so a new tool cannot ship label-less. */
-const TOOL_LABELS: Record<CopilotAction['tool'], string> = {
-  add_challenge: 'Adding the challenge',
-  add_challenge_pack: 'Adding the challenge pack',
-  update_challenge: 'Updating the challenge',
-  delete_challenge: 'Deleting the challenge',
-  create_card: 'Creating the card',
-  generate_frame: 'Designing the frame',
-  add_frame: 'Adding the frame',
-  set_filter: 'Adding the filter',
-  add_head_piece: 'Adding the 3D prop',
-  set_default_experience: 'Setting the booth default',
-  set_event_date: 'Updating the event date',
-  rename_event: 'Renaming the event',
-  go_live: 'Going live',
-  test_experience: 'Opening the booth test',
-  get_stats: 'Reading your event stats',
-  share_links: 'Building your share links',
-};
+/** Host-facing name for each tool, for the card heading and the one line a
+ *  host reads when something breaks. Derived from the registry, and typed over
+ *  the whole union so a new tool cannot ship label-less. */
+export const TOOL_LABELS: Record<CopilotAction['tool'], string> = Object.fromEntries(
+  TOOL_NAMES.map((n) => [n, COPILOT_TOOLS[n].label]),
+) as Record<CopilotAction['tool'], string>;
 
 export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Promise<ExecResult> {
   // Every copilot tool acts on a specific event. With no event selected, ctx.slug
@@ -453,7 +576,7 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
   // instead of a bare "…failed". (The floating panel leaves no event selected for
   // hosts with more than one event until they pick one.)
   if (!ctx.slug) {
-    return { ok: false, summary: 'I’m not pointed at an event yet — pick one in the panel above and I’ll set it up right away.' };
+    return fail('I’m not pointed at an event yet — pick one in the panel above and I’ll set it up right away.', 'no_event', false);
   }
   try {
     switch (action.tool) {
@@ -470,7 +593,7 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
         // new challenge arrives there with its id attached.
         return row
           ? { ok: true, summary: `Challenge "${row.title}" added${p.validationPrompt ? ' with an AI photo check' : ''}.` }
-          : { ok: false, summary: 'Adding the challenge failed.' };
+          : fail('Adding the challenge failed.', 'unknown', true);
       }
       case 'add_challenge_pack': {
         const { createChallenge } = await import('./db');
@@ -479,7 +602,7 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
         const drafts = (Array.isArray(action.proposal.challenges) ? action.proposal.challenges : [])
           .map(challengeDraft)
           .filter((c): c is ChallengeDraft => c !== null);
-        if (drafts.length === 0) return { ok: false, summary: 'The pack had no usable challenges.' };
+        if (drafts.length === 0) return fail('The pack had no usable challenges.', 'invalid', false);
         let added = 0;
         for (const d of drafts) {
           const row = await createChallenge(ctx.slug, {
@@ -490,7 +613,7 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
         }
         return added > 0
           ? { ok: true, summary: `Added ${added} of ${drafts.length} "${action.proposal.theme}" challenges.` }
-          : { ok: false, summary: 'Adding the challenge pack failed.' };
+          : fail('Adding the challenge pack failed.', 'unknown', true);
       }
       case 'update_challenge': {
         const { updateChallenge } = await import('./db');
@@ -499,12 +622,14 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
         // Name it when the patch renames it; otherwise stay generic. The raw
         // uuid that used to be here is our vocabulary, not the host's.
         const named = patch.title ? `“${patch.title}”` : 'that challenge';
-        return { ok, summary: ok ? `Updated ${named}.` : `Updating ${named} failed.` };
+        // db.updateChallenge folds "zero rows matched" and a refused write into
+        // one boolean, so the code cannot be more specific than unknown here.
+        return ok ? { ok: true, summary: `Updated ${named}.` } : fail(`Updating ${named} failed.`, 'unknown', true);
       }
       case 'delete_challenge': {
         const { deleteChallenge } = await import('./db');
         const ok = await deleteChallenge(ctx.slug, action.proposal.challengeId);
-        return { ok, summary: ok ? 'Challenge deleted.' : 'Deleting the challenge failed.' };
+        return ok ? { ok: true, summary: 'Challenge deleted.' } : fail('Deleting the challenge failed.', 'unknown', true);
       }
       case 'create_card': {
         const { createCard, contributeUrl, viewerPath } = await import('./cards');
@@ -515,7 +640,7 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
           template: p.cardTemplate,
           deadline: p.deadline || undefined,
         });
-        if (!card) return { ok: false, summary: 'Creating the card failed.' };
+        if (!card) return fail('Creating the card failed.', 'unknown', true);
         const cUrl = contributeUrl(card, ctx.origin);
         const vUrl = `${ctx.origin}${viewerPath(card.public_id)}`;
         return {
@@ -528,9 +653,9 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
         const { buildFilterExperienceDraft } = await import('./studio/copilotExperience');
         const { createExperience } = await import('./db');
         const draft = buildFilterExperienceDraft(action.proposal.shaderId);
-        if (!draft) return { ok: false, summary: 'That filter isn’t available.' };
+        if (!draft) return fail('That filter isn’t available.', 'unknown_id', false);
         const exp = await createExperience(ctx.slug, draft);
-        if (!exp) return { ok: false, summary: 'Adding the filter failed.' };
+        if (!exp) return fail('Adding the filter failed.', 'unknown', true);
         const pinned = await pinDefault(ctx, exp.id);
         return {
           ok: true,
@@ -540,14 +665,14 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
       case 'add_head_piece': {
         // Generated pieces run through the async preview card, not here.
         if (action.proposal.source !== 'builtin') {
-          return { ok: false, summary: 'That 3D piece needs generating first.' };
+          return fail('That 3D piece needs generating first.', 'invalid', false);
         }
         const { buildHeadPieceExperienceDraft } = await import('./studio/copilotExperience');
         const { createExperience } = await import('./db');
         const draft = buildHeadPieceExperienceDraft(action.proposal.pieceId);
-        if (!draft) return { ok: false, summary: 'That 3D piece isn’t available.' };
+        if (!draft) return fail('That 3D piece isn’t available.', 'unknown_id', false);
         const exp = await createExperience(ctx.slug, draft);
-        if (!exp) return { ok: false, summary: 'Adding the 3D piece failed.' };
+        if (!exp) return fail('Adding the 3D piece failed.', 'unknown', true);
         const pinned = await pinDefault(ctx, exp.id);
         return {
           ok: true,
@@ -556,15 +681,15 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
       }
       case 'add_frame': {
         const border = BORDER_MAP[action.proposal.borderId];
-        if (!border || !GENERIC_FRAME_IDS.has(border.id)) return { ok: false, summary: 'That frame isn’t available.' };
+        if (!border || !GENERIC_FRAME_IDS.has(border.id)) return fail('That frame isn’t available.', 'unknown_id', false);
         const { uploadAsset, createExperience } = await import('./db');
         const url = await uploadAsset(ctx.slug, new Blob([border.svg], { type: 'image/svg+xml' }), `${border.id}.svg`);
-        if (!url) return { ok: false, summary: 'Adding the frame failed.' };
+        if (!url) return fail('Adding the frame failed.', 'unknown', true);
         const exp = await createExperience(ctx.slug, {
           name: border.name, kind: border.kind, asset_url: url,
           config: {}, is_published: true, featured: true, sort_order: 0,
         });
-        if (!exp) return { ok: false, summary: 'Adding the frame failed.' };
+        if (!exp) return fail('Adding the frame failed.', 'unknown', true);
         const pinned = await pinDefault(ctx, exp.id);
         return {
           ok: true,
@@ -573,33 +698,44 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
       }
       case 'set_default_experience': {
         const ok = await pinDefault(ctx, action.proposal.experienceId);
-        return { ok, summary: ok ? 'Booth default updated.' : 'Setting the booth default failed.' };
+        return ok ? { ok: true, summary: 'Booth default updated.' } : fail('Setting the booth default failed.', 'unknown', true);
       }
       case 'set_event_date': {
         const { updateEventDate } = await import('./host');
         const ok = await updateEventDate(ctx.eventUuid, action.proposal.date);
-        return { ok, summary: ok ? `Event date set to ${action.proposal.date}.` : 'Updating the date failed.' };
+        return ok
+          ? { ok: true, summary: `Event date set to ${action.proposal.date}.` }
+          : fail('Updating the date failed.', 'unknown', true);
       }
       case 'rename_event': {
         const { updateEventName } = await import('./host');
         const ok = await updateEventName(ctx.eventUuid, action.proposal.name);
-        return { ok, summary: ok ? `Event renamed to "${action.proposal.name}".` : 'Renaming the event failed.' };
+        return ok
+          ? { ok: true, summary: `Event renamed to "${action.proposal.name}".` }
+          : fail('Renaming the event failed.', 'unknown', true);
       }
       case 'go_live': {
         const { updateEventStatus } = await import('./host');
         const ok = await updateEventStatus(ctx.eventUuid, 'live');
         return ok
           ? { ok: true, summary: 'Your event is LIVE — guests can now take pictures and post to the wall.', status: 'live' }
-          : { ok: false, summary: 'Going live failed — try again in a moment.' };
+          : fail('Going live failed — try again in a moment.', 'unknown', true);
       }
+      // Handoffs: no navigation and no dialog here — the chat reads `handoff`
+      // and does the UI part with the plumbing it already has.
+      case 'open_scene_director':
+        return { ok: true, summary: 'Opening the Scene Director…', handoff: { kind: 'scene_director', brief: action.proposal.brief } };
+      case 'contact_support':
+        return { ok: true, summary: 'Opening support…', handoff: { kind: 'support', summary: action.proposal.summary } };
       default:
-        return { ok: false, summary: 'Nothing to execute.' };
+        return fail('Nothing to execute.', 'invalid', false);
     }
   } catch (e) {
     console.error('[copilot] executeAction', action.tool, e);
     // The raw tool id ("add_challenge_pack failed unexpectedly") is our internal
     // vocabulary. The operator still gets it above, in the console.
-    return { ok: false, summary: `${TOOL_LABELS[action.tool]} failed unexpectedly — try again in a moment.` };
+    const why = toolResultCode(e);
+    return fail(`“${TOOL_LABELS[action.tool]}” failed unexpectedly — try again in a moment.`, why.code, why.retryable);
   }
 }
 
@@ -612,6 +748,8 @@ export interface CopilotResult {
   /** Proposals the normalizer rejected (see NormalizedActions.dropped). The
    *  reply prose usually claims they happened, so the chat must say otherwise. */
   dropped: number;
+  /** Per-proposal reasons, cap cuts included (see NormalizedActions.droppedReasons). */
+  droppedReasons: DroppedReason[];
 }
 
 const OFFLINE_REPLY =
@@ -620,8 +758,10 @@ const OFFLINE_REPLY =
 
 /** Turn the edge fn's error code into an honest, CUSTOMER-SAFE message.
  *  The technical cause (rejected key, provider quota) is a platform config
- *  problem — it goes to console.error for the operator, never into chat. */
-function offlineReplyFor(reason?: string): string {
+ *  problem — it goes to console.error for the operator, never into chat.
+ *  Exported so the concierge page renders the same copy from
+ *  DesignResult.reason instead of one flat "offline" line. */
+export function offlineReplyFor(reason?: string): string {
   switch (reason) {
     case 'ai_not_configured':
     case 'ai_key_invalid':
@@ -646,7 +786,9 @@ export async function askCopilot(
     const { data, error } = await supabase.functions.invoke('ai-event-designer', {
       body: {
         mode: 'copilot',
-        messages: mergeWireTurns(messages),
+        // Merge first (alternation + empty-turn drop), THEN window: the trim
+        // cuts on a user boundary, which only holds on merged turns.
+        messages: trimWireTurns(mergeWireTurns(messages)),
         context: snapshot ? formatSnapshot(snapshot) : '',
         // Credits awareness: the fn resolves this event's org balance + free-image
         // allowance server-side and injects it into the model context.
@@ -672,16 +814,18 @@ export async function askCopilot(
               : '');
         } catch { /* body unreadable */ }
       }
-      return { reply: offlineReplyFor(reason), actions: [], source: 'offline', dropped: 0 };
+      reportAiError(`ai_event_designer:copilot:${reason ?? 'network'}`, error, { reason: reason ?? 'network' });
+      return { reply: offlineReplyFor(reason), actions: [], source: 'offline', dropped: 0, droppedReasons: [] };
     }
     const res = (data ?? {}) as { reply?: string; actions?: unknown };
     if (typeof res.reply !== 'string' || !res.reply) {
-      return { reply: OFFLINE_REPLY, actions: [], source: 'offline', dropped: 0 };
+      return { reply: OFFLINE_REPLY, actions: [], source: 'offline', dropped: 0, droppedReasons: [] };
     }
-    const { actions, dropped } = normalizeActionsResult(res.actions, snapshot);
-    return { reply: res.reply, actions, source: 'ai', dropped };
+    const { actions, dropped, droppedReasons } = normalizeActionsResult(res.actions, snapshot);
+    return { reply: res.reply, actions, source: 'ai', dropped, droppedReasons };
   } catch (e) {
     console.warn('[copilot] askCopilot failed', e);
-    return { reply: OFFLINE_REPLY, actions: [], source: 'offline', dropped: 0 };
+    reportAiError('ai_event_designer:copilot:network', e, { reason: 'network' });
+    return { reply: OFFLINE_REPLY, actions: [], source: 'offline', dropped: 0, droppedReasons: [] };
   }
 }

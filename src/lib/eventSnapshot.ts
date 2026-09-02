@@ -83,6 +83,17 @@ export async function loadEventSnapshot(meta: EventSnapshotMeta): Promise<EventS
   };
 }
 
+/**
+ * Make a host-authored string safe to sit inside the prompt's fenced
+ * `--- CURRENT EVENT --- … --- END CURRENT EVENT ---` block: newlines and
+ * carriage returns collapse to one space (so a title can never open a new
+ * line), and any run of three or more hyphens becomes an em dash (so no line
+ * can ever read as a fence marker). Ordinary titles pass through unchanged.
+ */
+export function fenceSafe(s: string): string {
+  return s.replace(/[\r\n]+/g, ' ').replace(/-{3,}/g, '—').trim();
+}
+
 function capped<T>(items: T[], cap: number, line: (t: T) => string): string {
   const shown = items.slice(0, cap).map(line);
   if (items.length > cap) shown.push(`…and ${items.length - cap} more`);
@@ -94,7 +105,7 @@ function capped<T>(items: T[], cap: number, line: (t: T) => string): string {
  *  exactly in update/delete proposals. */
 export function formatSnapshot(s: EventSnapshot): string {
   const head = [
-    `EVENT: "${s.name}" — slug ${s.slug}, uuid ${s.eventUuid}`,
+    `EVENT: "${fenceSafe(s.name)}" — slug ${s.slug}, uuid ${s.eventUuid}`,
     `status ${s.status} · tier ${s.planTier} · type ${s.eventType}`,
   ];
   // A failed read must never render as "(none)" — that is a confident claim the
@@ -113,12 +124,12 @@ export function formatSnapshot(s: EventSnapshot): string {
     `wall posts: ${s.postCount} · challenges feature ${s.showChallenges ? 'ON' : 'OFF'}`,
     `CHALLENGES (${s.challenges.length}):`,
     capped(s.challenges, SNAPSHOT_CAPS.challenges, (c) =>
-      `- [${c.id}] ${c.emoji} ${c.title} · ${c.points} pts · ${c.active ? 'active' : 'inactive'}`),
+      `- [${c.id}] ${fenceSafe(c.emoji)} ${fenceSafe(c.title)} · ${c.points} pts · ${c.active ? 'active' : 'inactive'}`),
     `EXPERIENCES (${s.experiences.length}):`,
     capped(s.experiences, SNAPSHOT_CAPS.experiences, (e) =>
-      `- [${e.id}] ${e.name} (${e.kind}) · ${e.published ? 'published' : 'draft'}`),
+      `- [${e.id}] ${fenceSafe(e.name)} (${e.kind}) · ${e.published ? 'published' : 'draft'}`),
     `CARDS (${s.cards.length}):`,
     capped(s.cards, SNAPSHOT_CAPS.cards, (k) =>
-      `- [${k.id}] "${k.title}" · ${k.status} · /c/${k.publicId}`),
+      `- [${k.id}] "${fenceSafe(k.title)}" · ${k.status} · /c/${k.publicId}`),
   ].join('\n');
 }

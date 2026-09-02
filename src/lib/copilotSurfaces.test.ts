@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   buildProposalSurface, buildCardLinkSurface, buildStatsSurface, buildLinksSurface,
   buildFramePreviewSurface, buildHeadPiecePreviewSurface, buildGenErrorSurface,
-  buildBoothTestSurface, buildChecklistSurface,
+  buildBoothTestSurface, buildChecklistSurface, buildHandoffSurface,
 } from './copilotSurfaces';
 import { applySurfaceMessages, getPath, resolveContext, setPath, type SurfaceState } from './a2ui';
 import { normalizeActions, type CopilotAction } from './copilot';
+import { COPILOT_TOOLS } from './copilotTools';
 import type { EventSnapshot } from './eventSnapshot';
 import { FILTER_SHADERS } from './shaders';
 
@@ -317,5 +318,47 @@ describe('result/readonly surfaces', () => {
     )).l1;
     expect(links.components.qr0.component).toBe('QrCode');
     expect(links.components.qr1.value).toBe('https://x/e/a/wall');
+  });
+});
+
+describe('handoff surfaces (open_scene_director / contact_support)', () => {
+  it('scene-director card: editable brief bound to /proposal/brief, standard confirm_action', () => {
+    const msgs = buildHandoffSurface({ tool: 'open_scene_director', proposal: { brief: 'a jungle at dusk' } }, 'h1');
+    const s = applySurfaceMessages({}, msgs).h1;
+    assertReducerValid(s);
+    expect(String(s.components.heading.text)).toBe('Open the Scene Director');
+    expect(s.components.textField).toMatchObject({ component: 'TextField', value: { path: '/proposal/brief' } });
+    const confirm = s.components.confirmBtn as unknown as { action: { event: { name: string; context: unknown } } };
+    expect(confirm.action.event.name).toBe('confirm_action');
+    const edited = setPath(s.dataModel, '/proposal/brief', 'a moonlit jungle, emerald and brass');
+    const ctx = resolveContext(confirm.action.event.context as Record<string, unknown>, edited) as { proposal: Record<string, unknown> };
+    expect(ctx.proposal).toEqual({ tool: 'open_scene_director', brief: 'a moonlit jungle, emerald and brass' });
+    expect(s.components.cancelBtn !== undefined).toBe(true);
+  });
+
+  it('support card: editable summary bound to /proposal/summary', () => {
+    const s = applySurfaceMessages({}, buildHandoffSurface({ tool: 'contact_support', proposal: { summary: 'it failed twice' } }, 'h2')).h2;
+    assertReducerValid(s);
+    expect(String(s.components.heading.text)).toBe('Contact support');
+    expect(s.components.textField).toMatchObject({ value: { path: '/proposal/summary' } });
+    expect(getPath(s.dataModel, '/proposal/summary')).toBe('it failed twice');
+  });
+
+  it('buildProposalSurface routes both handoff tools to the handoff card, and they round-trip', () => {
+    for (const action of [
+      { tool: 'open_scene_director', proposal: { brief: 'a jungle at dusk' } },
+      { tool: 'contact_support', proposal: { summary: 'it failed twice' } },
+    ] as CopilotAction[]) {
+      const msgs = buildProposalSurface(action, 'r');
+      expect(msgs).toEqual(buildHandoffSurface(action as Extract<CopilotAction, { tool: 'open_scene_director' | 'contact_support' }>, 'r'));
+      const s = applySurfaceMessages({}, msgs).r;
+      const [re] = normalizeActions([getPath(s.dataModel, '/proposal')], null);
+      expect(re.tool).toBe(action.tool);
+    }
+  });
+
+  it('every confirm card heading is the registry label', () => {
+    const s = applySurfaceMessages({}, buildProposalSurface({ tool: 'rename_event', proposal: { name: 'X' } }, 'l')).l;
+    expect(String(s.components.heading.text)).toBe(COPILOT_TOOLS.rename_event.label);
   });
 });
