@@ -9,8 +9,22 @@
  * mode's prompt, so the agent states costs, flags unaffordable generations,
  * and points to Billing instead of proposing spends that will 402.
  *
+ * v17 — transport + telemetry: per-mode AGENT PROFILES (./profiles.ts —
+ * model, temperature, thinking budget, output cap, timeout; env-overridable
+ * via GEMINI_MODEL_<MODE> / GEMINI_THINKING_<MODE> / GEMINI_TEMPERATURE_<MODE>
+ * / GEMINI_MAX_TOKENS_<MODE>), a per-attempt AbortSignal timeout with ONE
+ * retry on network/abort/5xx (never 4xx/429), and one `agent_turns` row per
+ * turn (migration 036 — sizes/tokens/latency/model/proposals/codes/feedback,
+ * NO message text; never load-bearing) plus a `feedback` mode for thumbs.
+ *
  * POST (deployed with verify_jwt ON — requires a real user JWT in Authorization)
- *   { mode?: 'create' (default) | 'copilot' | 'scene',
+ *   { mode?: 'create' (default) | 'copilot' | 'scene' | 'feedback',
+ *     surface?: 'build' | 'platform' | 'studio' | 'concierge'   (any chat mode
+ *       — which UI the turn came from; anything else → 'platform'. Recorded in
+ *       telemetry; the prompt does not read it yet.)
+ *     lastTurn?: { turnId: number, dropped: number }   (any chat mode, or null
+ *       — the client's report on the PREVIOUS turn: how many proposals its
+ *       normalizer dropped. Best-effort update of that row, caller-scoped.)
  *     messages: { role: 'user' | 'assistant', content: string }[]   (1–20 turns)
  *     eventUuid?: string   (any mode — events.id; scopes the credits context to
  *       that event's org (membership-verified) + its free-image allowance.
@@ -27,6 +41,15 @@
  *       compact summary of the OPEN DRAFT + the plan proposed last turn, so the
  *       Director can iterate on what exists instead of restarting every turn.
  *       Absent (older clients) → the prompt is byte-identical to before.) }
+ *
+ *   mode 'feedback' sends NO messages: { turnId: number, feedback: 1 | -1,
+ *     note?: string ≤500 } → 200 { ok: true }. Handled after auth but BEFORE
+ *     the rate limiter (it spends no ai_designer_usage) — the update is scoped
+ *     to the caller's own agent_turns rows.
+ *
+ * Every chat-mode 200 below also carries `turnId: number | null` — the
+ * agent_turns row for this turn (null when the telemetry write failed), which
+ * the client echoes back in `lastTurn` and in mode 'feedback'.
  *
  * 200 scene   → { reply, planJson } reply = the director's chat line (always).
  *   planJson = a JSON STRING (client parses + clamps via
@@ -54,7 +77,8 @@
  * 429 → { error: 'rate_limited' }        over RATE_LIMIT_PER_HOUR for this user
  *                                        (platform admins are exempt)
  * 500 → { error: 'internal' }
- * 502 → { error: 'generation_failed' }   provider errored / unparseable output
+ * 502 → { error: 'generation_failed' }   provider errored / unparseable output /
+ *                                        timed out or unreachable after the retry
  * 503 → { error: 'ai_not_configured' }   GEMINI_API_KEY missing
  * 503 → { error: 'ai_key_invalid' }       GEMINI_API_KEY set but rejected by
  *                                          Google (rotated / wrong / restricted)
@@ -67,10 +91,13 @@
  * to a local keyword planner on any error, so failures degrade gracefully.
  *
  * Env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY (injected),
- *      GEMINI_API_KEY (secret).
+ *      GEMINI_API_KEY (secret); optional per-mode profile overrides
+ *      GEMINI_MODEL_{CREATE,COPILOT,SCENE} / GEMINI_THINKING_* /
+ *      GEMINI_TEMPERATURE_* / GEMINI_MAX_TOKENS_* (see ./profiles.ts).
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
+import { type AgentMode, type AgentProfile, resolveProfile } from './profiles.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -78,7 +105,6 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
 const MAX_TURNS = 20;
 const MAX_CONTENT_CHARS = 2000;
 /** Free endpoint → cap per user. 40/h ≈ a long design session, far under abuse. */
@@ -86,6 +112,11 @@ const RATE_LIMIT_PER_HOUR = 40;
 const MAX_TEMPLATES = 10;
 const TEMPLATE_ID_RE = /^[a-z0-9][a-z0-9-]{1,29}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Client UIs a turn can come from; anything else is recorded as 'platform'. */
+const SURFACES = ['build', 'platform', 'studio', 'concierge'] as const;
+type Surface = (typeof SURFACES)[number];
+/** Env reader handed to resolveProfile (profiles.ts stays runtime-agnostic). */
+const envGet = (key: string): string | undefined => Deno.env.get(key);
 
 /* ── Credits awareness ────────────────────────────────────────────────
  * Real numbers mirrored from the charging fns (keep in sync):
@@ -110,6 +141,8 @@ interface CreditsInfo {
   balance: number | null;
   /** Free image generations remaining for the scoped event; null = no event scope. */
   freeImagesLeft: number | null;
+  /** The org the credits were read for (reused by telemetry); null = unknown. */
+  orgId: string | null;
 }
 
 /**
@@ -157,7 +190,7 @@ async function fetchCreditsInfo(
         .maybeSingle();
       orgId = (mem?.org_id as string | undefined) ?? null;
     }
-    if (orgId === null) return { balance: null, freeImagesLeft };
+    if (orgId === null) return { balance: null, freeImagesLeft, orgId: null };
     const { data: bal } = await sb
       .from('credit_balances')
       .select('balance')
@@ -166,10 +199,11 @@ async function fetchCreditsInfo(
     return {
       balance: typeof bal?.balance === 'number' ? bal.balance : null,
       freeImagesLeft,
+      orgId,
     };
   } catch (e) {
     console.error('[ai-event-designer] credits fetch failed', e);
-    return { balance: null, freeImagesLeft: null };
+    return { balance: null, freeImagesLeft: null, orgId: null };
   }
 }
 
@@ -463,16 +497,33 @@ function buildSceneSchema() {
 }
 
 /* ── Shared Gemini call (structured output; prompt+schema per mode) ──── */
+/* Generation settings live in ./profiles.ts (AGENT_PROFILES + env overrides),
+ * including WHY create/copilot run with thinking OFF and scene with a budget. */
 
-interface GenOpts {
-  /** Lower = more deterministic. Extraction/proposals want ~0.2; creative ~0.6. */
-  temperature?: number;
-  /** 0 disables thinking (billed as output tokens). Off is right for structured
-   *  JSON extraction — it removes cost AND the "spent the budget thinking →
-   *  empty MAX_TOKENS response" failure mode. */
-  thinkingBudget?: number;
-  /** Hard cap on output (reply + JSON payload are small; guards runaway cost). */
-  maxOutputTokens?: number;
+/** Token accounting from Gemini's `usageMetadata` (null when absent). */
+interface GeminiUsage {
+  promptTokens: number | null;
+  outputTokens: number | null;
+  /** Prompt tokens served from the implicit cache — the byte-stable prefix pays off here. */
+  cachedTokens: number | null;
+  thoughtsTokens: number | null;
+}
+
+interface GeminiResult {
+  parsed: Record<string, unknown>;
+  usage: GeminiUsage | null;
+  model: string;
+  /** 1 on a clean call; 2 when the single transient retry ran. */
+  attempts: number;
+  latencyMs: number;
+}
+
+/** Transient transport failures worth ONE retry: a network-level TypeError
+ *  (DNS/reset/refused) or an abort from AbortSignal.timeout. HTTP statuses are
+ *  decided separately (5xx only — never 4xx/429, which would double-count quota). */
+function isAbortLike(err: unknown): boolean {
+  const name = (err as { name?: unknown } | null)?.name;
+  return name === 'AbortError' || name === 'TimeoutError';
 }
 
 /** A host-supplied photo (invitation / mood board / venue) for vision analysis. */
@@ -511,13 +562,16 @@ function buildContents(messages: ChatMessage[], image?: InputImage) {
   return contents;
 }
 
+/** Max attempts per call: the first, plus ONE retry on a transient failure. */
+const GEMINI_MAX_ATTEMPTS = 2;
+
 async function callGemini(
   messages: ChatMessage[],
   systemText: string,
   schema: Record<string, unknown>,
-  opts: GenOpts = {},
+  profile: AgentProfile,
   image?: InputImage,
-): Promise<Record<string, unknown>> {
+): Promise<GeminiResult> {
   // Secrets set via the dashboard sometimes arrive wrapped in quotes or with a
   // trailing newline; Google then rejects them as API_KEY_INVALID. Strip both.
   const key = Deno.env.get('GEMINI_API_KEY')?.trim().replace(/^["']|["']$/g, '');
@@ -526,63 +580,210 @@ async function callGemini(
   const generationConfig: Record<string, unknown> = {
     responseMimeType: 'application/json',
     responseSchema: schema,
-    temperature: opts.temperature ?? 0.6,
-    maxOutputTokens: opts.maxOutputTokens ?? 2048,
+    temperature: profile.temperature,
+    maxOutputTokens: profile.maxOutputTokens,
+    thinkingConfig: { thinkingBudget: profile.thinkingBudget },
   };
-  if (opts.thinkingBudget !== undefined) {
-    generationConfig.thinkingConfig = { thinkingBudget: opts.thinkingBudget };
-  }
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${profile.model}:generateContent`;
+  const payload = JSON.stringify({
+    systemInstruction: { parts: [{ text: systemText }] },
+    contents: buildContents(messages, image),
+    generationConfig,
+  });
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemText }] },
-        contents: buildContents(messages, image),
-        generationConfig,
-      }),
-    },
-  );
-  if (!res.ok) {
-    const bodyText = await res.text().catch(() => '');
-    console.error('[ai-event-designer] gemini error', res.status, bodyText);
-    // A rejected/rotated/missing-billing key fails FAST with 400 API_KEY_INVALID
-    // or 401/403 — a CONFIG problem, not a transient generation failure. Report
-    // it distinctly so the app can tell the owner the key needs attention
-    // instead of a vague "couldn't generate".
-    const keyRejected =
-      res.status === 401 ||
-      res.status === 403 ||
-      (res.status === 400 && /API_KEY_INVALID|api key not valid|PERMISSION_DENIED/i.test(bodyText));
-    const code = res.status === 429 ? 'ai_quota' : keyRejected ? 'ai_key_invalid' : 'generation_failed';
-    throw new AiError(code, `gemini_http_${res.status}`);
-  }
-  const body = (await res.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  const started = Date.now();
+  const elapsed = () => Date.now() - started;
+  // Retry ONCE, and only while the total wall clock is still under 1.5× one
+  // attempt's budget — a second full-length attempt after a full-length
+  // timeout is the worst case (2× timeoutMs), never more.
+  const mayRetry = (attempt: number) =>
+    attempt < GEMINI_MAX_ATTEMPTS && elapsed() < profile.timeoutMs * 1.5;
+  const fail = (code: AiError['code'], detail: string, attempt: number): AiError => {
+    const e = new AiError(code, detail);
+    e.attempts = attempt;
+    return e;
   };
-  const text = body.candidates?.[0]?.content?.parts?.find((p) => typeof p.text === 'string')?.text;
-  if (!text) throw new AiError('generation_failed', 'gemini_no_text');
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    throw new AiError('generation_failed', 'gemini_bad_json');
+
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: payload,
+        signal: AbortSignal.timeout(profile.timeoutMs),
+      });
+      if (!res.ok) {
+        const bodyText = await res.text().catch(() => '');
+        console.error('[ai-event-designer] gemini error', res.status, bodyText);
+        if (res.status >= 500 && mayRetry(attempt)) {
+          console.warn('[ai-event-designer] gemini retry', { attempt, reason: `http_${res.status}`, elapsedMs: elapsed() });
+          continue;
+        }
+        // A rejected/rotated/missing-billing key fails FAST with 400 API_KEY_INVALID
+        // or 401/403 — a CONFIG problem, not a transient generation failure. Report
+        // it distinctly so the app can tell the owner the key needs attention
+        // instead of a vague "couldn't generate".
+        const keyRejected =
+          res.status === 401 ||
+          res.status === 403 ||
+          (res.status === 400 && /API_KEY_INVALID|api key not valid|PERMISSION_DENIED/i.test(bodyText));
+        const code = res.status === 429 ? 'ai_quota' : keyRejected ? 'ai_key_invalid' : 'generation_failed';
+        throw fail(code, `gemini_http_${res.status}`, attempt);
+      }
+      const body = (await res.json()) as {
+        candidates?: { content?: { parts?: { text?: string }[] } }[];
+        usageMetadata?: {
+          promptTokenCount?: unknown;
+          candidatesTokenCount?: unknown;
+          cachedContentTokenCount?: unknown;
+          thoughtsTokenCount?: unknown;
+        };
+      };
+      const text = body.candidates?.[0]?.content?.parts?.find((p) => typeof p.text === 'string')?.text;
+      if (!text) throw fail('generation_failed', 'gemini_no_text', attempt);
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        throw fail('generation_failed', 'gemini_bad_json', attempt);
+      }
+      if (typeof parsed.reply !== 'string' || !parsed.reply.trim()) {
+        throw fail('generation_failed', 'gemini_no_reply', attempt);
+      }
+      const um = body.usageMetadata;
+      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+      const usage: GeminiUsage | null = um
+        ? {
+          promptTokens: num(um.promptTokenCount),
+          outputTokens: num(um.candidatesTokenCount),
+          cachedTokens: num(um.cachedContentTokenCount),
+          thoughtsTokens: num(um.thoughtsTokenCount),
+        }
+        : null;
+      return { parsed, usage, model: profile.model, attempts: attempt, latencyMs: elapsed() };
+    } catch (err) {
+      if (err instanceof AiError) throw err;
+      const abort = isAbortLike(err);
+      const network = err instanceof TypeError;
+      if ((abort || network) && mayRetry(attempt)) {
+        console.warn('[ai-event-designer] gemini retry', { attempt, reason: abort ? 'timeout' : 'network', elapsedMs: elapsed() });
+        continue;
+      }
+      // Final abort → the existing 502 code with a distinct detail (client copy unchanged).
+      if (abort) throw fail('generation_failed', 'gemini_timeout', attempt);
+      if (network) throw fail('generation_failed', 'gemini_network', attempt);
+      throw err;
+    }
   }
-  if (typeof parsed.reply !== 'string' || !parsed.reply.trim()) {
-    throw new AiError('generation_failed', 'gemini_no_reply');
-  }
-  return parsed;
 }
 
 class AiError extends Error {
+  /** Attempts the transport made before giving up (telemetry). */
+  attempts = 1;
   constructor(
     public code: 'ai_not_configured' | 'ai_key_invalid' | 'generation_failed' | 'ai_quota',
     detail?: string,
   ) {
     super(detail ?? code);
   }
+}
+
+/* ── Telemetry: agent_turns (migration 036, service-role only) ────────── */
+
+const ACTIONS_JSON_MAX_BYTES = 8192;
+const FEEDBACK_NOTE_MAX_CHARS = 500;
+/** Sanity ceiling for lastTurn.dropped (a turn proposes ≤ MAX_ACTIONS). */
+const MAX_DROPPED = 100;
+
+/** Cut to at most maxBytes of UTF-8 without splitting a multibyte character
+ *  (the column CHECK is octet_length; JS .length counts UTF-16 units). */
+function truncateUtf8(s: string, maxBytes: number): string {
+  const bytes = new TextEncoder().encode(s);
+  if (bytes.length <= maxBytes) return s;
+  let end = maxBytes;
+  while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--; // step back off a continuation byte
+  return new TextDecoder().decode(bytes.subarray(0, end));
+}
+
+function isPosInt(v: unknown): v is number {
+  return typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
+}
+
+interface TurnBase {
+  user_id: string;
+  org_id: string | null;
+  event_id: string | null;
+  mode: AgentMode;
+  surface: Surface;
+}
+
+/** Insert one agent_turns row. NEVER load-bearing: every failure is logged
+ *  and yields null — the chat response must not depend on telemetry. */
+async function recordTurn(
+  sb: ReturnType<typeof createClient>,
+  row: Record<string, unknown>,
+): Promise<number | null> {
+  try {
+    const { data, error } = await sb.from('agent_turns').insert(row).select('id').single();
+    if (error) {
+      console.error('[ai-event-designer] agent_turns insert failed', error);
+      return null;
+    }
+    const id = (data as { id?: unknown } | null)?.id;
+    if (typeof id === 'number' && Number.isSafeInteger(id)) return id;
+    if (typeof id === 'string' && /^\d+$/.test(id)) return Number(id); // int8 can serialise as a string
+    return null;
+  } catch (e) {
+    console.error('[ai-event-designer] agent_turns insert failed', e);
+    return null;
+  }
+}
+
+/** Run one Gemini turn and record it whatever the outcome — an error row
+ *  carries error_code (the AiError detail, e.g. gemini_timeout) and no
+ *  tokens. The throw reaches the handler's error map unchanged. */
+async function runTurn(
+  sb: ReturnType<typeof createClient>,
+  base: TurnBase,
+  profile: AgentProfile,
+  call: () => Promise<GeminiResult>,
+  actionsOf: (parsed: Record<string, unknown>) => string | null,
+): Promise<{ result: GeminiResult; turnId: number | null }> {
+  const started = Date.now();
+  const common = {
+    ...base,
+    model: profile.model,
+    temperature: profile.temperature,
+    thinking_budget: profile.thinkingBudget,
+    dropped_count: 0,
+  };
+  let result: GeminiResult;
+  try {
+    result = await call();
+  } catch (err) {
+    await recordTurn(sb, {
+      ...common,
+      latency_ms: Date.now() - started,
+      attempts: err instanceof AiError ? err.attempts : 1,
+      error_code: err instanceof AiError ? err.message : 'internal',
+    });
+    throw err;
+  }
+  const actions = actionsOf(result.parsed);
+  const turnId = await recordTurn(sb, {
+    ...common,
+    model: result.model,
+    latency_ms: result.latencyMs,
+    attempts: result.attempts,
+    prompt_tokens: result.usage?.promptTokens ?? null,
+    cached_tokens: result.usage?.cachedTokens ?? null,
+    output_tokens: result.usage?.outputTokens ?? null,
+    thoughts_tokens: result.usage?.thoughtsTokens ?? null,
+    reply_chars: typeof result.parsed.reply === 'string' ? result.parsed.reply.length : null,
+    actions_json: actions === null ? null : truncateUtf8(actions, ACTIONS_JSON_MAX_BYTES),
+    error_code: null,
+  });
+  return { result, turnId };
 }
 
 Deno.serve(async (req: Request) => {
@@ -617,6 +818,32 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
       { auth: { persistSession: false } },
     );
+
+    // 1c. Feedback mode — a host rating an earlier turn (thumbs + note).
+    //     Needs the auth above, but makes no Gemini call and sends no
+    //     messages, so it is handled BEFORE the rate limiter (must not spend
+    //     ai_designer_usage) and before the conversation validation. The
+    //     update is scoped to the caller's OWN rows; a foreign/unknown id
+    //     matches nothing and still answers ok (no id-enumeration oracle).
+    if (body.mode === 'feedback') {
+      const { turnId, feedback, note } = body;
+      if (!isPosInt(turnId) || (feedback !== 1 && feedback !== -1)) return json(400, { error: 'invalid_body' });
+      if (note !== undefined && note !== null && (typeof note !== 'string' || note.length > FEEDBACK_NOTE_MAX_CHARS)) {
+        return json(400, { error: 'invalid_body' });
+      }
+      const feedbackNote = typeof note === 'string' && note.trim() ? note.trim() : null;
+      const { error: fbErr } = await sb
+        .from('agent_turns')
+        .update({ feedback, feedback_note: feedbackNote })
+        .eq('id', turnId)
+        .eq('user_id', userId);
+      if (fbErr) {
+        console.error('[ai-event-designer] feedback update failed', fbErr);
+        return json(500, { error: 'internal' });
+      }
+      return json(200, { ok: true });
+    }
+
     const { data: isAdmin } = await sb.rpc('is_platform_admin', { p_user: userId });
     const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     if (isAdmin !== true) {
@@ -647,13 +874,42 @@ Deno.serve(async (req: Request) => {
       messages.push({ role, content });
     }
     if (messages[messages.length - 1].role !== 'user') return json(400, { error: 'invalid_body' });
+    // Which UI the turn came from (client-declared; unknown → 'platform').
+    // Recorded in telemetry now; the prompt specialisation reads it next.
+    const surface: Surface =
+      typeof body.surface === 'string' && (SURFACES as readonly string[]).includes(body.surface)
+        ? (body.surface as Surface)
+        : 'platform';
 
     // 2b. Credits context (any mode) — event-scoped when the client sends a
     //     valid eventUuid (membership-verified), else the caller's org.
     //     Best-effort: an unknown balance yields an empty block, never an error.
     const eventUuid =
       typeof body.eventUuid === 'string' && UUID_RE.test(body.eventUuid) ? body.eventUuid : null;
-    const creditsBlock = formatCreditsBlock(await fetchCreditsInfo(sb, userId, eventUuid));
+    const credits = await fetchCreditsInfo(sb, userId, eventUuid);
+    const creditsBlock = formatCreditsBlock(credits);
+    const turnBase = { user_id: userId, org_id: credits.orgId, event_id: eventUuid, surface };
+
+    // 2c. The client's report on the PREVIOUS turn — how many of its proposals
+    //     the normalizer dropped. Best-effort, scoped to the caller's own row,
+    //     applied before the new call. `null` = no previous turn (absent).
+    if (body.lastTurn !== undefined && body.lastTurn !== null) {
+      const lt = body.lastTurn;
+      if (typeof lt !== 'object') return json(400, { error: 'invalid_body' });
+      const { turnId, dropped } = lt as Record<string, unknown>;
+      if (
+        !isPosInt(turnId) ||
+        typeof dropped !== 'number' || !Number.isSafeInteger(dropped) || dropped < 0 || dropped > MAX_DROPPED
+      ) {
+        return json(400, { error: 'invalid_body' });
+      }
+      const { error: ltErr } = await sb
+        .from('agent_turns')
+        .update({ dropped_count: dropped })
+        .eq('id', turnId)
+        .eq('user_id', userId);
+      if (ltErr) console.error('[ai-event-designer] dropped_count update failed', ltErr);
+    }
 
     // 3a. Copilot mode — event-aware Q&A + tool proposals.
     if (body.mode === 'copilot') {
@@ -671,13 +927,20 @@ Deno.serve(async (req: Request) => {
       // actionsJson STRING carrying a 6-challenge pack (each with a
       // validationPrompt), doubly escaped, can approach 2048 and truncate →
       // invalid JSON → the whole turn falls back to the offline reply.
-      const parsed = await callGemini(messages, buildCopilotPrompt(docs, context, filters, headPieces, frames) + creditsBlock, buildCopilotSchema(), { temperature: 0.2, thinkingBudget: 0, maxOutputTokens: 3072 });
+      const profile = resolveProfile('copilot', envGet);
+      const { result: { parsed }, turnId } = await runTurn(
+        sb,
+        { ...turnBase, mode: 'copilot' },
+        profile,
+        () => callGemini(messages, buildCopilotPrompt(docs, context, filters, headPieces, frames) + creditsBlock, buildCopilotSchema(), profile),
+        (p) => (typeof p.actionsJson === 'string' ? p.actionsJson : null),
+      );
       let actions: unknown[] = [];
       try {
         const decoded = JSON.parse(typeof parsed.actionsJson === 'string' ? parsed.actionsJson : '[]');
         if (Array.isArray(decoded)) actions = decoded.slice(0, MAX_ACTIONS);
       } catch { /* malformed actionsJson → no actions; reply still ships */ }
-      return json(200, { reply: parsed.reply, actions });
+      return json(200, { reply: parsed.reply, actions, turnId });
     }
 
     // 3a-scene. Scene Director — one coordinated frame + filter + 3D piece.
@@ -695,8 +958,15 @@ Deno.serve(async (req: Request) => {
       const sceneContext = typeof body.sceneContext === 'string'
         ? body.sceneContext.slice(0, MAX_SCENE_CONTEXT_CHARS)
         : '';
-      const parsed = await callGemini(messages, buildScenePrompt(shaders, pieceIds, sceneContext) + creditsBlock, buildSceneSchema(), { temperature: 0.5, thinkingBudget: 0 });
-      return json(200, { reply: parsed.reply, planJson: typeof parsed.planJson === 'string' ? parsed.planJson : '' });
+      const profile = resolveProfile('scene', envGet);
+      const { result: { parsed }, turnId } = await runTurn(
+        sb,
+        { ...turnBase, mode: 'scene' },
+        profile,
+        () => callGemini(messages, buildScenePrompt(shaders, pieceIds, sceneContext) + creditsBlock, buildSceneSchema(), profile),
+        (p) => (typeof p.planJson === 'string' ? p.planJson : null),
+      );
+      return json(200, { reply: parsed.reply, planJson: typeof parsed.planJson === 'string' ? parsed.planJson : '', turnId });
     }
 
     // 3b. Create mode — against the client's live template catalog. An optional
@@ -704,14 +974,15 @@ Deno.serve(async (req: Request) => {
     //     seed the plan (colours → accent, occasion → template, names, date).
     const templates = resolveTemplates(body.templates);
     const image = resolveImage(body.image);
-    const parsed = await callGemini(
-      messages,
-      buildSystemPrompt(templates, !!image) + creditsBlock,
-      buildResponseSchema(templates),
-      { temperature: 0.6, thinkingBudget: 0 },
-      image,
+    const profile = resolveProfile('create', envGet);
+    const { result: { parsed }, turnId } = await runTurn(
+      sb,
+      { ...turnBase, mode: 'create' },
+      profile,
+      () => callGemini(messages, buildSystemPrompt(templates, !!image) + creditsBlock, buildResponseSchema(templates), profile, image),
+      (p) => JSON.stringify(p.plan ?? null),
     );
-    return json(200, { reply: parsed.reply, plan: parsed.plan ?? null });
+    return json(200, { reply: parsed.reply, plan: parsed.plan ?? null, turnId });
   } catch (err) {
     if (err instanceof AiError) {
       if (err.code === 'ai_not_configured') return json(503, { error: 'ai_not_configured' });
