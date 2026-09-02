@@ -179,3 +179,20 @@ placeholder, never a 404 video.
   contact sheet, not the ids: two shipped frames moved an element between
   brief and render (birthday balloons, the product's side), which is why the
   caption says "Made this" and not "run this and get exactly this".
+
+- 2026-09-02 — Copilot round (handoff cards, thumbs, Keep waiting, per-reason
+  concierge note). Copy-only refresh; the drift test was already green because
+  none of it touched a registry the test reads — which is exactly the class of
+  change the test CANNOT see, so the skim (§Refresh step 4) is the only net.
+  Two things worth keeping: (1) the 12 `studio-editor` hotspot markers are all
+  editor spots (Name it · AI Director · Save …), so a Copilot UI change never
+  needs a re-shoot — check the marker labels before starting a dev server.
+  (2) docs/STATE.md `## Constraints` carries "DO NOT EDIT src/lib/guidesContent.ts"
+  lines from OTHER waves' briefs (2026-08-16, another branch); read the date and
+  branch on a constraint before treating it as binding — the current brief
+  naming the file as the target supersedes them. Numbers: "at most 3 changes"
+  is `MAX_ACTIONS = 3` in BOTH src/lib/copilot.ts and
+  supabase/functions/ai-event-designer/prompt.ts, not in GUIDE_COUNTS — it was
+  re-verified by hand this run and is a candidate for a registry assertion.
+  The thumbs store a per-turn verdict and nothing else the host can see, so the
+  copy says "rate it" and promises nothing about what the rating does.

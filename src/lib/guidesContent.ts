@@ -904,6 +904,8 @@ const USE_THE_STUDIO: GuideDoc = {
       body: [
         'Test on phone does what it says: it gives you a link to open on your own handset so you can check the AR on a real camera without publishing anything to guests.',
         'The Copilot floats on every host screen. It plans with you rather than acting behind your back — it proposes at most 3 changes at a time, and every one of them shows you a confirm card before anything is written. It also knows what things cost, so it will tell you before it spends a credit.',
+        'Ask it for a whole look — "put my guests in a moonlit jungle, with a filter to match" — and instead of guessing at three separate pieces it offers to open the Scene Director, the studio tool that designs frame, filter and 3D prop together, with your brief already typed in. Ask for a person, or for help with billing or your account, and it offers to open a support message for you, pre-filled with what you were trying to do. Both are cards you confirm; nothing happens on its own.',
+        'Two small things. Rate any reply with a thumb up or down — hover it on a desktop, or just look under it on a phone. And if a 3D prop it ordered is still sculpting when the wait runs long, the card offers Keep waiting: it picks the same job back up, so nothing is charged twice.',
       ],
     },
     {
@@ -983,7 +985,7 @@ const FIRST_EVENT: GuideDoc = {
       steps: [
         {
           title: 'Describe your event',
-          body: 'Start a new event and write one sentence about it — occasion, vibe, colours. Or upload a photo of the invitation and let it design from that.',
+          body: 'Start a new event and write one sentence about it — occasion, vibe, colours. Or upload a photo of the invitation and let it design from that. If the AI designer is ever unavailable, the Concierge says why in plain words and builds from a quick template match instead; you can restyle all of it in the studio.',
           tip: 'Be specific about mood and colour. "Elegant, ivory and gold, evening" gets you much further than "wedding".',
         },
         {
@@ -1246,7 +1248,7 @@ export const GUIDE_COVERAGE: {
     events: { guide: 'first-event', note: 'Five steps to a live booth — creating and going live with an event.' },
     concierge: { guide: 'first-event', note: 'Describe your event — the Concierge designs from a sentence or a photo.' },
     billing: { guide: 'run-the-night', note: 'What things cost — the credit table covers what billing buys.' },
-    support: { guide: 'use-the-studio', note: 'Two things worth knowing early — the Copilot, and where help lives on every host screen.' },
+    support: { guide: 'use-the-studio', note: 'Two things worth knowing early — the Copilot (which can open a support message for you), and where help lives on every host screen.' },
   },
   addOns: {
     'power-fx': { guide: 'make-3d-props', note: 'Make it react — Power FX pairs a visor/wand/gauntlet with a gesture-fired blast.' },
