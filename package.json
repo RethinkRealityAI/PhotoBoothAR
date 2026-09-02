@@ -16,6 +16,7 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "gen:agent-tools": "tsx scripts/gen-agent-tools.ts",
+    "bench:agent": "tsx scripts/agent-bench.ts",
     "test": "vitest run"
   },
   "dependencies": {

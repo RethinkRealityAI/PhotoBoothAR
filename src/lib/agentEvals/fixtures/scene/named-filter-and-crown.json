@@ -1,0 +1,111 @@
+{
+  "mode": "scene",
+  "surface": "studio",
+  "shaderCatalog": [
+    {
+      "id": "champagne-sparkle",
+      "params": [
+        {
+          "key": "uSparkle",
+          "min": 0,
+          "max": 1.2,
+          "default": 0.75
+        },
+        {
+          "key": "uWarmth",
+          "min": 0,
+          "max": 1,
+          "default": 0.5
+        }
+      ]
+    },
+    {
+      "id": "golden-hour-bloom",
+      "params": [
+        {
+          "key": "uBloom",
+          "min": 0,
+          "max": 1,
+          "default": 0.6
+        },
+        {
+          "key": "uWarmth",
+          "min": 0,
+          "max": 1.5,
+          "default": 0.6
+        },
+        {
+          "key": "uVignette",
+          "min": 0,
+          "max": 1,
+          "default": 0.4
+        },
+        {
+          "key": "uContrast",
+          "min": 0.5,
+          "max": 2,
+          "default": 1.1
+        }
+      ]
+    },
+    {
+      "id": "velvet-film",
+      "params": [
+        {
+          "key": "uGrain",
+          "min": 0,
+          "max": 1,
+          "default": 0.35
+        },
+        {
+          "key": "uWarmth",
+          "min": 0,
+          "max": 1,
+          "default": 0.6
+        },
+        {
+          "key": "uContrast",
+          "min": 0.5,
+          "max": 2,
+          "default": 1.15
+        },
+        {
+          "key": "uVignette",
+          "min": 0,
+          "max": 1,
+          "default": 0.55
+        }
+      ]
+    },
+    {
+      "id": "neon-pulse",
+      "params": [
+        {
+          "key": "uIntensity",
+          "min": 0,
+          "max": 1.5,
+          "default": 0.8
+        }
+      ]
+    }
+  ],
+  "headPieceIds": [
+    "royal-crown",
+    "queen-tiara",
+    "cheek-stars",
+    "neon-shades",
+    "cyclops-visor"
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "content": "use the golden-hour-bloom filter with the royal crown and a gilded border"
+    }
+  ],
+  "expect": {
+    "scene": {
+      "hasPlan": true,
+      "shaderId": "golden-hour-bloom"
+    }
+  }
+}
