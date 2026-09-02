@@ -750,6 +750,22 @@ export interface CopilotResult {
   dropped: number;
   /** Per-proposal reasons, cap cuts included (see NormalizedActions.droppedReasons). */
   droppedReasons: DroppedReason[];
+  /** The server's agent_turns row for this reply — the handle thumbs feedback
+   *  and the next turn's `lastTurn` refer to. null on every offline path and
+   *  when an older server sends none. */
+  turnId: number | null;
+}
+
+/** Which chat surface is asking — the server picks its static prompt
+ *  variant by it. 'build' = the post-create build phase (/host/new). */
+export type CopilotSurface = 'build' | 'platform';
+
+export interface AskCopilotOptions {
+  surface?: CopilotSurface;
+  /** The previous assistant turn's server id + how many of its proposals the
+   *  normalizer dropped, so telemetry can stamp the drop count on THAT row.
+   *  Omitted from the wire when null/absent. */
+  lastTurn?: { turnId: number; dropped: number } | null;
 }
 
 const OFFLINE_REPLY =
@@ -779,13 +795,20 @@ export function offlineReplyFor(reason?: string): string {
 export async function askCopilot(
   messages: ChatMessage[],
   snapshot: EventSnapshot | null,
+  opts: AskCopilotOptions = {},
 ): Promise<CopilotResult> {
+  const offline = (reply: string): CopilotResult =>
+    ({ reply, actions: [], source: 'offline', dropped: 0, droppedReasons: [], turnId: null });
   try {
     const { supabase } = await import('./supabase');
     const { formatSnapshot } = await import('./eventSnapshot');
     const { data, error } = await supabase.functions.invoke('ai-event-designer', {
       body: {
         mode: 'copilot',
+        // Which chat is asking (static prompt variant server-side). Older
+        // servers ignore it; `lastTurn` rides only when the chat has one.
+        surface: opts.surface ?? 'platform',
+        ...(opts.lastTurn ? { lastTurn: opts.lastTurn } : {}),
         // Merge first (alternation + empty-turn drop), THEN window: the trim
         // cuts on a user boundary, which only holds on merged turns.
         messages: trimWireTurns(mergeWireTurns(messages)),
@@ -815,17 +838,46 @@ export async function askCopilot(
         } catch { /* body unreadable */ }
       }
       reportAiError(`ai_event_designer:copilot:${reason ?? 'network'}`, error, { reason: reason ?? 'network' });
-      return { reply: offlineReplyFor(reason), actions: [], source: 'offline', dropped: 0, droppedReasons: [] };
+      return offline(offlineReplyFor(reason));
     }
-    const res = (data ?? {}) as { reply?: string; actions?: unknown };
+    const res = (data ?? {}) as { reply?: string; actions?: unknown; turnId?: unknown };
     if (typeof res.reply !== 'string' || !res.reply) {
-      return { reply: OFFLINE_REPLY, actions: [], source: 'offline', dropped: 0, droppedReasons: [] };
+      return offline(OFFLINE_REPLY);
     }
     const { actions, dropped, droppedReasons } = normalizeActionsResult(res.actions, snapshot);
-    return { reply: res.reply, actions, source: 'ai', dropped, droppedReasons };
+    // Absent on servers older than the telemetry deploy — tolerate, never assume.
+    const turnId = typeof res.turnId === 'number' && Number.isFinite(res.turnId) ? res.turnId : null;
+    return { reply: res.reply, actions, source: 'ai', dropped, droppedReasons, turnId };
   } catch (e) {
     console.warn('[copilot] askCopilot failed', e);
     reportAiError('ai_event_designer:copilot:network', e, { reason: 'network' });
-    return { reply: OFFLINE_REPLY, actions: [], source: 'offline', dropped: 0, droppedReasons: [] };
+    return offline(OFFLINE_REPLY);
+  }
+}
+
+/**
+ * Thumbs up/down on an assistant turn → agent_turns.feedback (server
+ * mode:'feedback'; auth required, not rate-limited). Never throws: false on
+ * any failure so the chat can revert its optimistic mark quietly.
+ */
+export async function sendFeedback(turnId: number, feedback: 1 | -1, note?: string): Promise<boolean> {
+  try {
+    const { supabase } = await import('./supabase');
+    const { error } = await supabase.functions.invoke('ai-event-designer', {
+      body: {
+        mode: 'feedback',
+        turnId,
+        feedback,
+        ...(note ? { note: note.slice(0, 500) } : {}),
+      },
+    });
+    if (error) {
+      console.warn('[copilot] sendFeedback failed', error);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('[copilot] sendFeedback failed', e);
+    return false;
   }
 }

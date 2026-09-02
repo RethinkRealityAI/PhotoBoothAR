@@ -381,6 +381,9 @@ export async function designEvent(messages: ChatMessage[], image?: DesignImage):
     const { supabase } = await import('./supabase');
     const { data, error } = await supabase.functions.invoke('ai-event-designer', {
       body: {
+        // Which chat is asking (server picks its prompt variant; older
+        // servers ignore the field).
+        surface: 'concierge',
         // The concierge shares the server's turn cap with the copilot.
         messages: trimWireTurns(messages),
         // The live template catalog rides along so the agent's prompt/schema

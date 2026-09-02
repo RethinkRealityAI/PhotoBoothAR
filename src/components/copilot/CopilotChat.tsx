@@ -11,12 +11,16 @@
  * Transcripts persist per event in sessionStorage ('beamwall:copilot:v1').
  */
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Check, Loader2, Send } from 'lucide-react';
+import { Check, Loader2, Send, ThumbsDown, ThumbsUp } from 'lucide-react';
 import {
   askCopilot, executeAction, normalizeActions, applyGeneratedFrame, applyGeneratedPiece,
-  type CopilotAction, type CopilotCtx, type FrameProvider,
+  formatToolResult, toolResultSummary, sendFeedback,
+  type CopilotAction, type CopilotCtx, type ExecResult, type FrameProvider,
 } from '../../lib/copilot';
+import { useCopilotStore } from '../../lib/copilotStore';
+import { openSupportDialog } from '../../lib/supportStore';
 import {
   buildCardLinkSurface, buildLinksSurface, buildProposalSurface, buildStatsSurface,
   buildGeneratingSurface, buildFramePreviewSurface, buildHeadPiecePreviewSurface,
@@ -108,7 +112,57 @@ interface ChatItem extends ChatMessage {
   /** This assistant turn is the OFFLINE fallback text, not a model reply. Absent
    *  on older persisted transcripts, which stay rendered as normal replies. */
   offline?: boolean;
+  /** Server id of this assistant turn (agent_turns) — the handle thumbs send.
+   *  Absent on offline replies, older servers, and older persisted transcripts,
+   *  none of which render the thumbs. */
+  turnId?: number;
+  /** The host's thumbs verdict on this turn, once sent successfully. */
+  feedback?: 1 | -1;
 }
+
+/** The host-readable text of a [tool_result] pill. Machine-form turns
+ *  (`[tool_result] tool=… ok=… — summary`) show the summary only; older
+ *  hand-written turns persisted in sessionStorage keep their whole sentence
+ *  (toolResultSummary would cut those at their first ' — '). */
+function pillText(content: string): string {
+  return /^\[tool_result\] tool=/.test(content)
+    ? toolResultSummary(content)
+    : content.replace(/^\[tool_result\]\s*/, '');
+}
+
+/** Plain-text tail of the transcript for a support handoff: the last `n`
+ *  turns that carry text, tool results as their host-readable summary. */
+function transcriptTail(items: ChatItem[], n: number): string {
+  return items
+    .filter((m) => m.content.trim().length > 0)
+    .slice(-n)
+    .map((m) => {
+      if (m.kind === 'tool_result') return `Result: ${pillText(m.content)}`;
+      return `${m.role === 'user' ? 'Host' : 'Copilot'}: ${m.content}`;
+    })
+    .join('\n');
+}
+
+/** Relabel one Text component inside an A2UI stream — used to turn the shared
+ *  gen-error card's "Try again" into "Keep waiting" for a stalled Meshy job
+ *  without a second card builder. */
+function relabelComponent(msgs: A2uiMessage[], id: string, text: string): A2uiMessage[] {
+  return msgs.map((msg) => msg.updateComponents
+    ? {
+        ...msg,
+        updateComponents: {
+          ...msg.updateComponents,
+          components: msg.updateComponents.components.map((c) => (c.id === id ? { ...c, text } : c)),
+        },
+      }
+    : msg);
+}
+
+/** Honest copy for a Meshy job that outlived the client poll: the job is still
+ *  running server-side and its credits are already spent, so the ONLY offer is
+ *  to keep polling the same job (free). */
+const MESHY_STALLED_COPY =
+  'Still sculpting on our side — this can take several minutes. Keep waiting here, or check the Library later; nothing is charged twice.';
 
 const STORE_KEY = 'beamwall:copilot:v1';
 
@@ -158,7 +212,14 @@ export default function CopilotChat({
   liftAboveKeyboard?: boolean;
 }) {
   const storeKey = snapshot?.eventUuid ?? 'platform';
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<ChatItem[]>(() => loadSaved(storeKey).chat);
+  // The previous assistant turn's server id + its dropped-proposal count, sent
+  // as `lastTurn` with the next ask so telemetry can stamp that row. Not
+  // persisted: after a refresh the count is unknown, so nothing is claimed.
+  const lastTurnRef = useRef<{ turnId: number; dropped: number } | null>(null);
+  // Turn ids with a thumbs request in flight (the pair is disabled meanwhile).
+  const [feedbackPending, setFeedbackPending] = useState<Set<number>>(() => new Set());
   const [surfaces, setSurfaces] = useState<Record<string, SurfaceState>>(() => loadSaved(storeKey).surfaces);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -190,9 +251,11 @@ export default function CopilotChat({
   // `provider` rides along for the same reason: a Regenerate must not quietly
   // move the host onto a different model (or a different price) than the one
   // their card said it would use.
+  // `jobId` is set ONLY while a Meshy job is stalled (outlived the client poll):
+  // "Keep waiting" resumes polling that same job instead of paying for a new one.
   const genState = useRef<Record<string, {
     kind: 'frame' | 'headpiece'; prompt: string; experience?: Experience; lettering?: LetteringSpec | null;
-    provider?: FrameProvider;
+    provider?: FrameProvider; jobId?: string;
   }>>({});
   const runningGen = useRef<Set<string>>(new Set());
   // Same latch for APPLY: the card now waits for the publish to answer before it
@@ -288,21 +351,25 @@ export default function CopilotChat({
    *  (re-proposing the same asset, or denying it existed). Terse on purpose —
    *  this rides the wire like every other [tool_result] turn. */
   const noteGenerated = (tool: 'generate_frame' | 'add_head_piece', prompt: string) => {
-    setMessages((m) => [...m, {
-      role: 'user', kind: 'tool_result', ok: true,
-      content: `[tool_result] ${tool} succeeded — preview shown, not applied yet (prompt: "${prompt.slice(0, 140)}").`,
-    }]);
+    pushResult(tool, { ok: true, summary: `Preview shown, not applied yet (prompt: "${prompt.slice(0, 140)}").` });
   };
+
+  /** Append one [tool_result] turn in the machine form the model reads
+   *  (formatToolResult); the pill renders only its summary. Hoisted so the
+   *  helpers above it may call it at event time. */
+  function pushResult(tool: string, r: { ok: boolean; code?: string; retryable?: boolean; summary: string }) {
+    setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: r.ok, content: formatToolResult(tool, r) }]);
+  }
 
   /** Read-only tools run instantly from the snapshot — no confirm, no wire. */
   const runReadOnly = (action: CopilotAction) => {
     // Bailing in silence meant the model could answer "here are your stats" and
     // then nothing at all appeared — the host was left staring at a promise.
     if (!snapshot) {
-      setMessages((m) => [...m, {
-        role: 'user', kind: 'tool_result', ok: false,
-        content: '[tool_result] I can only look that up for one event at a time — pick an event above and ask me again.',
-      }]);
+      pushResult(action.tool, {
+        ok: false, code: 'no_event', retryable: false,
+        summary: 'I can only look that up for one event at a time — pick an event above and ask me again.',
+      });
       return;
     }
     const sid = `ro_${++seqRef.current}`;
@@ -310,10 +377,10 @@ export default function CopilotChat({
       // A failed snapshot renders every count as 0. Four confident zeroes about
       // an event that is actually full is worse than no answer at all.
       if (snapshot.failed) {
-        setMessages((m) => [...m, {
-          role: 'user', kind: 'tool_result', ok: false,
-          content: '[tool_result] I couldn’t read this event just now, so I won’t show you numbers I can’t stand behind — try again in a moment.',
-        }]);
+        pushResult(action.tool, {
+          ok: false, code: 'network', retryable: true,
+          summary: 'I couldn’t read this event just now, so I won’t show you numbers I can’t stand behind — try again in a moment.',
+        });
         return;
       }
       addSurface(buildStatsSurface([
@@ -345,10 +412,10 @@ export default function CopilotChat({
     // Same reason as get_stats: on a failed read every item computes ○, which
     // would tell a host who has built everything that they have built nothing.
     if (snapshot.failed) {
-      setMessages((m) => [...m, {
-        role: 'user', kind: 'tool_result', ok: false,
-        content: '[tool_result] I couldn’t read this event just now, so the checklist would be wrong — try again in a moment.',
-      }]);
+      pushResult('checklist', {
+        ok: false, code: 'network', retryable: true,
+        summary: 'I couldn’t read this event just now, so the checklist would be wrong — try again in a moment.',
+      });
       return;
     }
     const sid = `chk_${++seqRef.current}`;
@@ -460,44 +527,80 @@ export default function CopilotChat({
         showGenError(sid, 'headpiece', aiErrorMessage(code), retryableGenError(code), code === 'insufficient_credits');
         return;
       }
-      let experience: Experience | undefined;
-      for (let i = 0; i < MAX_POLLS; i++) {
-        await sleep(POLL_MS);
-        const p = await pollJob(g.data.job.id);
-        const job = p.data?.job;
-        if (job?.status === 'succeeded') { experience = p.data?.experience; break; }
-        if (job?.status === 'failed' || job?.status === 'refunded') {
-          showGenError(sid, 'headpiece', job.error ? `Generation failed — credits refunded. (${job.error})` : 'Generation failed — credits refunded.', true);
-          return;
-        }
-        // Real progress when the job reports it (0 is a legitimate value, so
-        // check the type, never truthiness): a card that read the same static
-        // line for four minutes looked hung.
-        const pct = typeof p.data?.progress === 'number' ? p.data.progress : null;
-        if (pct !== null) {
-          placeGen(sid, buildGeneratingSurface(sid, `Sculpting your 3D prop… ${Math.round(pct)}% — this can take a minute.`));
-        }
-      }
-      if (!experience) {
-        // Client-side poll timeout — the Meshy job usually still finishes
-        // server-side, so DON'T offer a retry (it would re-spend ~11 credits on
-        // a fresh job); point the host to the Library where it'll land (F5).
-        showGenError(sid, 'headpiece', 'Your 3D model is taking longer than usual — it will finish and appear in your studio Library shortly.', false);
-        return;
-      }
-      genState.current[sid] = { kind: 'headpiece', prompt, experience };
-      placeGen(sid, buildHeadPiecePreviewSurface(sid, {
-        experienceId: experience.id,
-        thumbUrl: experience.thumbnail_url ?? null,
-        label: prompt,
-      }));
-      noteGenerated('add_head_piece', prompt);
+      await pollPieceJob(sid, prompt, g.data.job.id);
     } catch (e) {
       console.error('[copilot] startPieceGen', e);
       showGenError(sid, 'headpiece', '3D generation failed — try again.', true);
     } finally {
       runningGen.current.delete(sid);
       if (snapshot?.eventUuid) void refreshBalance(snapshot.eventUuid);
+    }
+  };
+
+  /** Poll ONE Meshy job to its end (first run AND "Keep waiting" resumes).
+   *  Every exit clears `jobId` except the stall, which keeps it so the card's
+   *  button resumes THIS job. Caller owns the runningGen latch. */
+  const pollPieceJob = async (sid: string, prompt: string, jobId: string) => {
+    const cur = genState.current[sid];
+    if (cur) delete cur.jobId;
+    let experience: Experience | undefined;
+    for (let i = 0; i < MAX_POLLS; i++) {
+      await sleep(POLL_MS);
+      const p = await pollJob(jobId);
+      const job = p.data?.job;
+      if (job?.status === 'succeeded') { experience = p.data?.experience; break; }
+      if (job?.status === 'failed' || job?.status === 'refunded') {
+        showGenError(sid, 'headpiece', job.error ? `Generation failed — credits refunded. (${job.error})` : 'Generation failed — credits refunded.', true);
+        return;
+      }
+      // Real progress when the job reports it (0 is a legitimate value, so
+      // check the type, never truthiness): a card that read the same static
+      // line for four minutes looked hung.
+      const pct = typeof p.data?.progress === 'number' ? p.data.progress : null;
+      if (pct !== null) {
+        placeGen(sid, buildGeneratingSurface(sid, `Sculpting your 3D prop… ${Math.round(pct)}% — this can take a minute.`));
+      }
+    }
+    if (!experience) {
+      // Client-side poll timeout, NOT a failure: the Meshy job is still running
+      // server-side and its credits are already spent. The card's button is
+      // "Keep waiting" (same job, free) — never a regenerate, which would spend
+      // ~11 credits on a second job. Nothing else re-polls a job once every
+      // poller has given up, so "it will land in your Library" would be a lie.
+      genState.current[sid] = { kind: 'headpiece', prompt, jobId };
+      placeGen(sid, relabelComponent(
+        buildGenErrorSurface(sid, MESHY_STALLED_COPY, { kind: 'headpiece', retryable: true }),
+        'retryLabel', 'Keep waiting',
+      ));
+      return;
+    }
+    genState.current[sid] = { kind: 'headpiece', prompt, experience };
+    placeGen(sid, buildHeadPiecePreviewSurface(sid, {
+      experienceId: experience.id,
+      thumbUrl: experience.thumbnail_url ?? null,
+      label: prompt,
+    }));
+    noteGenerated('add_head_piece', prompt);
+  };
+
+  /** Stalled Meshy job → keep polling the SAME job. Free; never regenerates. */
+  const resumePieceGen = async (sid: string, prompt: string, jobId: string) => {
+    if (!snapshot || runningGen.current.has(sid)) return;
+    runningGen.current.add(sid);
+    dismissedGen.current.delete(sid);
+    placeGen(sid, buildGeneratingSurface(sid, 'Still sculpting your 3D prop… checking the same job.'));
+    try {
+      await pollPieceJob(sid, prompt, jobId);
+    } catch (e) {
+      console.error('[copilot] resumePieceGen', e);
+      // The job is untouched by a client-side error — offer to keep waiting again.
+      genState.current[sid] = { kind: 'headpiece', prompt, jobId };
+      placeGen(sid, relabelComponent(
+        buildGenErrorSurface(sid, MESHY_STALLED_COPY, { kind: 'headpiece', retryable: true }),
+        'retryLabel', 'Keep waiting',
+      ));
+    } finally {
+      runningGen.current.delete(sid);
     }
   };
 
@@ -513,7 +616,10 @@ export default function CopilotChat({
     delete genState.current[sid];
     if (!experienceId) {
       dropSurfaceById(sid);
-      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] The generated asset was lost — please generate it again.' }]);
+      pushResult(kind === 'frame' ? 'generate_frame' : 'add_head_piece', {
+        ok: false, code: 'not_found', retryable: false,
+        summary: 'The generated asset was lost — please generate it again.',
+      });
       return;
     }
     applyingGen.current.add(sid);
@@ -545,7 +651,7 @@ export default function CopilotChat({
     // The ✓ is now the publish's own answer; a failure just closes the card and
     // the amber result line beneath says what to do instead.
     if (result.ok) flashThenDrop(sid); else dropSurfaceById(sid);
-    setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: result.ok, content: `[tool_result] ${result.summary}` }]);
+    pushResult(kind === 'frame' ? 'generate_frame' : 'add_head_piece', result);
     if (result.ok) onMutated();
   };
 
@@ -562,7 +668,16 @@ export default function CopilotChat({
       // genState is a ref (not persisted) — after a refresh the prompt is gone,
       // so a restored card's Regenerate/Try-again would be a dead button (F1).
       dropSurfaceById(event.surfaceId);
-      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] I lost the details for that one — tell me what to make and I’ll generate a fresh version.' }]);
+      pushResult(event.context.kind === 'headpiece' ? 'add_head_piece' : 'generate_frame', {
+        ok: false, code: 'not_found', retryable: false,
+        summary: 'I lost the details for that one — tell me what to make and I’ll generate a fresh version.',
+      });
+      return;
+    }
+    // A stalled Meshy job: the card's button is "Keep waiting" — resume THAT
+    // job. Never re-submit a paid generation from here.
+    if (g.kind === 'headpiece' && g.jobId) {
+      void resumePieceGen(event.surfaceId, g.prompt, g.jobId);
       return;
     }
     const feedback = String(event.context.feedback ?? '').trim();
@@ -579,19 +694,40 @@ export default function CopilotChat({
     setInput('');
     setBusy(true);
     const wire: ChatMessage[] = next.map(({ role, content: c }) => ({ role, content: c }));
-    const res = await askCopilot(wire, snapshot); // never throws
+    const res = await askCopilot(wire, snapshot, {
+      surface: mode === 'build' ? 'build' : 'platform',
+      lastTurn: lastTurnRef.current,
+    }); // never throws
+    lastTurnRef.current = res.turnId !== null ? { turnId: res.turnId, dropped: res.dropped } : null;
     // `offline` marks a reply the built-in fallback wrote, not the model — it
     // reads exactly like a real answer otherwise, and a host who cannot tell
     // "the AI said no" from "the AI is unreachable" stops trusting both.
-    setMessages((m) => [...m, { role: 'assistant', content: res.reply, offline: res.source === 'offline' }]);
-    // The prose almost always claims the dropped proposals happened. Say so.
-    if (res.dropped > 0) {
-      setMessages((m) => [...m, {
-        role: 'user', kind: 'tool_result', ok: false,
-        content: res.dropped === 1
-          ? '[tool_result] I couldn’t act on that one — tell me the exact challenge name and I’ll redo it.'
-          : `[tool_result] I couldn’t act on ${res.dropped} of those — tell me the exact challenge names and I’ll redo them.`,
-      }]);
+    setMessages((m) => [...m, {
+      role: 'assistant', content: res.reply, offline: res.source === 'offline',
+      ...(res.turnId !== null ? { turnId: res.turnId } : {}),
+    }]);
+    // The prose almost always claims the dropped proposals happened. Say so —
+    // specifically, per reason, so the host knows what to change.
+    const byReason = (...reasons: string[]) => res.droppedReasons.filter((d) => reasons.includes(d.reason));
+    const ghosts = byReason('unknown_id');
+    if (ghosts.length > 0) {
+      pushResult(ghosts[0].tool, {
+        ok: false, code: 'unknown_id', retryable: false,
+        summary: 'I couldn’t match one of those to an existing challenge/experience — tell me the exact name and I’ll redo it.',
+      });
+    }
+    const overCap = byReason('over_cap');
+    if (overCap.length > 0) {
+      pushResult(overCap[0].tool, { ok: false, code: 'invalid', retryable: false, summary: 'I can do three at a time — ask again for the rest.' });
+    }
+    const malformed = byReason('unknown_tool', 'invalid_args');
+    if (malformed.length > 0) {
+      pushResult(malformed[0].tool, {
+        ok: false, code: 'invalid', retryable: false,
+        summary: malformed.length === 1
+          ? 'I couldn’t act on that one — tell me the exact challenge name and I’ll redo it.'
+          : `I couldn’t act on ${malformed.length} of those — tell me the exact challenge names and I’ll redo them.`,
+      });
     }
     for (const action of res.actions) {
       if (action.tool === 'get_stats' || action.tool === 'share_links' || action.tool === 'test_experience') {
@@ -627,7 +763,11 @@ export default function CopilotChat({
     // host who had just been charged for a generation with nothing to show.
     if (!snapshot) {
       dropSurfaceById(event.surfaceId);
-      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] Pick which event this is for first — select one of your events, then ask me again.' }]);
+      const guardTool = (event.context.proposal as { tool?: unknown } | undefined)?.tool;
+      pushResult(typeof guardTool === 'string' ? guardTool : event.name, {
+        ok: false, code: 'no_event', retryable: false,
+        summary: 'Pick which event this is for first — select one of your events, then ask me again.',
+      });
       return;
     }
 
@@ -656,10 +796,10 @@ export default function CopilotChat({
       const alreadyAsked = askedGaps.current.has(event.surfaceId);
       if (hard.length > 0 || !alreadyAsked) {
         askedGaps.current.add(event.surfaceId);
-        setMessages((m) => [...m, {
-          role: 'user', kind: 'tool_result', ok: false,
-          content: `[tool_result] ${gapPrompt(hard.length > 0 ? hard : gaps, { spending, canProceed: hard.length === 0 })}`,
-        }]);
+        pushResult(tool, {
+          ok: false, code: 'gap', retryable: true,
+          summary: gapPrompt(hard.length > 0 ? hard : gaps, { spending, canProceed: hard.length === 0 }),
+        });
         return;
       }
     }
@@ -692,7 +832,10 @@ export default function CopilotChat({
     const [validated] = normalizeActions([proposal], snapshot);
     if (!validated) {
       dropSurfaceById(event.surfaceId);
-      setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: false, content: '[tool_result] That didn’t look valid, so nothing changed — tell me again and I’ll redo it.' }]);
+      pushResult(tool, {
+        ok: false, code: 'invalid', retryable: false,
+        summary: 'That didn’t look valid, so nothing changed — tell me again and I’ll redo it.',
+      });
       return;
     }
     // The success flash used to fire here, BEFORE executeAction — so a failing
@@ -700,12 +843,34 @@ export default function CopilotChat({
     // let the result message carry the outcome.
     dropSurfaceById(event.surfaceId);
     const result = await executeAction(validated, ctx());
-    setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: result.ok, content: `[tool_result] ${result.summary}` }]);
+    pushResult(validated.tool, result);
     if (result.ok && result.card) {
       const sid = `card_${++seqRef.current}`;
       addSurface(buildCardLinkSurface(result.card, sid), sid);
     }
     if (result.ok) onMutated();
+    if (result.ok && result.handoff) runHandoff(result.handoff);
+  };
+
+  /** Handoff tools ran nothing server-side (executeAction returns `handoff`);
+   *  the chat does the hand-off itself — a navigation or the support dialog. */
+  const runHandoff = (handoff: NonNullable<ExecResult['handoff']>) => {
+    if (!snapshot) return;
+    if (handoff.kind === 'scene_director') {
+      // /host/events/:id is the event UUID (EventStudio loads `.eq('id', id)`);
+      // StudioShell opens the Director prefilled from `?scene=`.
+      useCopilotStore.getState().close(); // the floating panel would hide the studio
+      navigate(`/host/events/${snapshot.eventUuid}/studio?scene=${encodeURIComponent(handoff.brief)}`);
+      return;
+    }
+    // 'host_rail' is an existing support_tickets.source value (CHECK-constrained);
+    // the subject prefix is what marks the ticket as a copilot hand-off.
+    openSupportDialog({
+      source: 'host_rail',
+      eventSlug: snapshot.slug,
+      subject: `[Copilot handoff] ${handoff.summary.slice(0, 60)}`,
+      body: `${handoff.summary}\n\n${transcriptTail(messages, 6)}`,
+    });
   };
 
   const handleSurfaceData = (surfaceId: string, path: string, value: unknown) => {
@@ -719,6 +884,20 @@ export default function CopilotChat({
           : {};
       return { ...s, [surfaceId]: { ...surf, dataModel } };
     });
+  };
+
+  /** Thumbs on an assistant turn: optimistic mark, one request, quiet revert
+   *  on failure (this chat has no toasts by design). The pair is disabled
+   *  while in flight and once a verdict has landed. */
+  const giveFeedback = async (turnId: number, value: 1 | -1) => {
+    if (feedbackPending.has(turnId)) return;
+    setFeedbackPending((s) => new Set(s).add(turnId));
+    const mark = (fb: 1 | -1 | undefined) =>
+      setMessages((m) => m.map((it) => (it.turnId === turnId ? { ...it, feedback: fb } : it)));
+    mark(value);
+    const ok = await sendFeedback(turnId, value); // never throws
+    if (!ok) mark(undefined);
+    setFeedbackPending((s) => { const n = new Set(s); n.delete(turnId); return n; });
   };
 
   /** Inject a client-built proposal card (no AI round-trip) — the build-mode
@@ -807,11 +986,9 @@ export default function CopilotChat({
                 }`}
               >
                 {/* Every tool result used to be prefixed "✓ " regardless of
-                    whether it worked, so a failed action read as a success. */}
-                {m.content.replace(
-                  /^\[tool_result\]\s*/,
-                  m.ok === false ? '✕ ' : m.ok === true ? '✓ ' : '',
-                )}
+                    whether it worked, so a failed action read as a success.
+                    The machine prefix (tool=… code=…) is for the model only. */}
+                {(m.ok === false ? '✕ ' : m.ok === true ? '✓ ' : '') + pillText(m.content)}
               </motion.div>
             );
           }
@@ -838,7 +1015,7 @@ export default function CopilotChat({
               initial={entrance}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-              className="max-w-[92%] self-start flex flex-col gap-2"
+              className="group max-w-[92%] self-start flex flex-col gap-2"
             >
               {m.content && (
                 /* An offline reply is the built-in fallback, not the assistant
@@ -857,6 +1034,37 @@ export default function CopilotChat({
                     </span>
                   )}
                   {m.content}
+                </div>
+              )}
+              {/* Thumbs — only on a real model reply the server recorded
+                  (turnId). Quiet: on pointer devices it appears on hover/focus
+                  of the bubble; on touch it is always visible. A landed verdict
+                  stays visible either way. */}
+              {m.content && m.turnId !== undefined && !m.offline && (
+                <div
+                  className={`flex items-center gap-0.5 -mt-1 transition-opacity motion-reduce:transition-none ${
+                    m.feedback === undefined
+                      ? 'pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100'
+                      : ''
+                  }`}
+                >
+                  {([[1, 'Helpful', ThumbsUp], [-1, 'Not helpful', ThumbsDown]] as const).map(([value, label, Icon]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      aria-label={label}
+                      aria-pressed={m.feedback === value}
+                      disabled={m.feedback !== undefined || feedbackPending.has(m.turnId as number)}
+                      onClick={() => { haptic('tap'); void giveFeedback(m.turnId as number, value); }}
+                      className={`pressable liquid-glass-inset min-w-11 min-h-11 rounded-full flex items-center justify-center transition-colors disabled:cursor-default ${
+                        m.feedback === value
+                          ? 'text-[color:var(--color-accent)]'
+                          : 'text-brand-muted/50 hover:text-brand-fg disabled:opacity-40'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                    </button>
+                  ))}
                 </div>
               )}
               {costNote && (

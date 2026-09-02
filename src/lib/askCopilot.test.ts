@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import { askCopilot } from './copilot';
+import { askCopilot, sendFeedback } from './copilot';
 import type { EventSnapshot } from './eventSnapshot';
 import type { ChatMessage } from './eventDesigner';
 
@@ -201,5 +201,70 @@ describe('askCopilot droppedReasons + telemetry', () => {
     await askCopilot(messages, snapshot);
     await new Promise((r) => setTimeout(r, 0));
     expect(reportMock.mock.calls[0][1]).toMatchObject({ tag: 'ai_event_designer:copilot:network' });
+  });
+});
+
+describe('askCopilot surface + lastTurn (wire) and turnId (reply)', () => {
+  const bodyOf = () => (invokeMock.mock.calls[0] as [string, { body: Record<string, unknown> }])[1].body;
+
+  beforeEach(() => {
+    invokeMock.mockResolvedValue({ data: { reply: 'ok', actions: [], turnId: 42 }, error: null });
+  });
+
+  it('defaults surface to platform and omits lastTurn when none is given', async () => {
+    await askCopilot(messages, snapshot);
+    const body = bodyOf();
+    expect(body.surface).toBe('platform');
+    expect('lastTurn' in body).toBe(false);
+  });
+
+  it('puts the build surface and the previous turn on the wire when provided', async () => {
+    await askCopilot(messages, snapshot, { surface: 'build', lastTurn: { turnId: 41, dropped: 2 } });
+    const body = bodyOf();
+    expect(body.surface).toBe('build');
+    expect(body.lastTurn).toEqual({ turnId: 41, dropped: 2 });
+  });
+
+  it('omits lastTurn when it is explicitly null', async () => {
+    await askCopilot(messages, snapshot, { surface: 'platform', lastTurn: null });
+    expect('lastTurn' in bodyOf()).toBe(false);
+  });
+
+  it('parses a numeric turnId from the reply', async () => {
+    const res = await askCopilot(messages, snapshot);
+    expect(res.turnId).toBe(42);
+  });
+
+  it('is null when the server sends none (older deploy), a non-number, or on every offline path', async () => {
+    invokeMock.mockResolvedValue({ data: { reply: 'ok', actions: [] }, error: null });
+    expect((await askCopilot(messages, snapshot)).turnId).toBeNull();
+    invokeMock.mockResolvedValue({ data: { reply: 'ok', actions: [], turnId: '42' }, error: null });
+    expect((await askCopilot(messages, snapshot)).turnId).toBeNull();
+    expect((await askWithError('rate_limited')).turnId).toBeNull();
+    invokeMock.mockResolvedValue({ data: { reply: '' }, error: null });
+    expect((await askCopilot(messages, snapshot)).turnId).toBeNull();
+    invokeMock.mockResolvedValue({ data: null, error: new Error('fetch failed') });
+    expect((await askCopilot(messages, snapshot)).turnId).toBeNull();
+  });
+});
+
+describe('sendFeedback', () => {
+  it('invokes mode:feedback with the turn id and value, note only when given', async () => {
+    invokeMock.mockResolvedValue({ data: { ok: true }, error: null });
+    expect(await sendFeedback(7, 1)).toBe(true);
+    expect(invokeMock.mock.calls[0][0]).toBe('ai-event-designer');
+    const body = (invokeMock.mock.calls[0] as [string, { body: Record<string, unknown> }])[1].body;
+    expect(body).toEqual({ mode: 'feedback', turnId: 7, feedback: 1 });
+    invokeMock.mockClear();
+    expect(await sendFeedback(7, -1, 'wrong event')).toBe(true);
+    const body2 = (invokeMock.mock.calls[0] as [string, { body: Record<string, unknown> }])[1].body;
+    expect(body2).toEqual({ mode: 'feedback', turnId: 7, feedback: -1, note: 'wrong event' });
+  });
+
+  it('returns false (never throws) on an HTTP error and on a thrown transport error', async () => {
+    invokeMock.mockResolvedValue({ data: null, error: httpError({ error: 'unauthorized' }) });
+    expect(await sendFeedback(7, 1)).toBe(false);
+    invokeMock.mockRejectedValue(new Error('fetch failed'));
+    expect(await sendFeedback(7, -1)).toBe(false);
   });
 });

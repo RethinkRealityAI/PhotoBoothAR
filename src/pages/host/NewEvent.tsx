@@ -20,6 +20,7 @@ import { createEvent, updateEventConfig, updateEventStatus, fetchEventStatus, is
 import { useToast } from '../../components/ui/Toast';
 import { accentThemePatch, EVENT_TEMPLATES, templateById, templateConfigPatch } from '../../lib/eventTemplates';
 import { designEvent, normalizePlan, type ChatMessage, type DesignImage, type EventPlan } from '../../lib/eventDesigner';
+import { offlineReplyFor } from '../../lib/copilot';
 import { fileToImagePart } from '../../lib/imageInput';
 import CopilotChat from '../../components/copilot/CopilotChat';
 import { loadEventSnapshot, type EventSnapshot } from '../../lib/eventSnapshot';
@@ -241,9 +242,11 @@ export default function NewEvent() {
       .map(({ role, content: c }) => ({ role, content: c }));
     const res = await designEvent(history, image); // never throws — falls back to the local planner
     // Honesty: when the AI was unreachable and the local keyword planner answered,
-    // say so instead of passing the template match off as the AI designer.
+    // say so instead of passing the template match off as the AI designer —
+    // per failure code (rate limit / capacity / service down) via the same
+    // customer-safe copy the copilot uses, then what happened instead.
     const reply = res.source === 'local'
-      ? `${res.reply}\n\n(Heads up: our AI designer is offline right now, so I used a quick template match instead — you can restyle everything in the studio.)`
+      ? `${res.reply}\n\n(${res.reason !== undefined ? offlineReplyFor(res.reason) : 'Heads up: our AI designer is offline right now.'} I used a quick template match instead — you can restyle everything in the studio.)`
       : res.reply;
     applyPlan(res.plan, res.decided);
     setSurfaces((s) => {

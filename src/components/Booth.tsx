@@ -84,6 +84,7 @@ import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/re
 import { useEntitlements } from '../lib/entitlements';
 import { dataUrlToBlob } from './booth/capture';
 import { challengeNeedsCheck, validateChallengePhoto } from '../lib/challengeValidation';
+import { reportError } from '../lib/errorReport';
 import { fileToImagePart } from '../lib/imageInput';
 import RevealShimmer from './booth/RevealShimmer';
 import { REVEAL_SHIMMER_MS } from '../lib/studio/reveal';
@@ -1407,6 +1408,12 @@ export default function Booth() {
               { pass: true, reason: '' },
             )
           : { pass: true, reason: '' };
+        // The check failed OPEN (AI/network error let the shot through) — the
+        // guest never sees this; the operator does, in client_errors. Platform
+        // events only (legacy coded events never reach the check anyway).
+        if (source === 'db' && 'failedOpen' in outcome && outcome.failedOpen === true) {
+          reportError(new Error('challenge_check_failed_open'), { challengeId: selectedChallenge.id, eventSlug: eventId });
+        }
         if (!outcome.pass) {
           setCheckReason(outcome.reason);
           setPhase('checkFailed');
@@ -1415,7 +1422,7 @@ export default function Booth() {
       }
       await doSubmit(guestName, message, true);
     },
-    [capturedDataUrl, selectedChallenge, eventId, doSubmit],
+    [capturedDataUrl, selectedChallenge, eventId, doSubmit, source],
   );
 
   // Re-arm the scene's surprises for the next capture. `revealedIds` was only
