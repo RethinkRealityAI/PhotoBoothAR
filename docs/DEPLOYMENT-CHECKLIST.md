@@ -4,8 +4,10 @@ Everything needed to take the platform (PR #5) from "merged" to "live and
 charging". The platform is **safe-by-default**: every integration below degrades
 gracefully until its key is set, so you can enable them one at a time.
 
-Supabase project: `zrtftliozslrjomxbfrr`. All migrations 001–010 and all edge
-functions (incl. `admin-api`, `stripe-webhook`) are **already applied/deployed** to it. Set secrets in
+Supabase project: `zrtftliozslrjomxbfrr`. Migrations 001–035 (two files are
+numbered 030 — do not renumber) and all edge functions (incl. `admin-api`,
+`stripe-webhook`) are **already applied/deployed** to it; `036_agent_turns`
+ships with PR #44 and is applied at its merge (§2a). Set secrets in
 **Supabase → Project Settings → Edge Functions → Secrets** (or `supabase secrets set`).
 
 ---
@@ -120,6 +122,65 @@ Until the remaining boxes are checked, treat beta invites as **blocked**.
 - [ ] `MESHY_API_KEY` — enables 3D-prop generation (image/text → GLB).
 - [ ] `HIGGSFIELD_API_KEY` + `HIGGSFIELD_API_URL` — optional premium image
       provider; Gemini is the default and works alone.
+
+### 2a. AI agent functions — multi-file deploys, model overrides, telemetry (added 2026-09-02, PR #44)
+
+Four AI functions now deploy as MORE THAN ONE FILE. The MCP
+`deploy_edge_function` call takes an explicit `files[]` — **a missing sibling
+is an import error at boot, and every request to that function 500s** (the
+PR #28 class: nothing in the repo gates a Deno import). Deploy lists:
+
+| Function | Files (all required) | verify_jwt |
+|---|---|---|
+| `ai-event-designer` | `index.ts` · `prompt.ts` · `tools.generated.ts` · `profiles.ts` · `deno.json` | ON |
+| `validate-challenge-photo` | `index.ts` · `deno.json` | **OFF** (anon guest check, as today) |
+| `ai-generate-image` | `index.ts` · `frameLayout.ts` · `deno.json` | ON |
+| `ai-generate-3d` | `index.ts` · `pieceGeometry.ts` · `deno.json` | ON |
+
+`tools.generated.ts` is GENERATED — never hand-edit it; run
+`npm run gen:agent-tools` after any change to `src/lib/copilotTools.ts`
+(`src/lib/copilotTools.drift.test.ts` fails CI otherwise).
+
+**Optional secrets** (all read at request time — a change is a secret edit,
+not a redeploy; an invalid value is ignored and the default stands):
+
+| Secret | Default | Range |
+|---|---|---|
+| `GEMINI_MODEL_CREATE` / `_COPILOT` / `_SCENE` | `gemini-2.5-flash` | model id, `/^[a-z0-9.-]+$/i` |
+| `GEMINI_THINKING_CREATE` / `_COPILOT` / `_SCENE` | 0 / 0 / 512 | integer 0..8192 |
+| `GEMINI_TEMPERATURE_CREATE` / `_COPILOT` / `_SCENE` | 0.6 / 0.2 / 0.5 | number 0..2 |
+| `GEMINI_MAX_TOKENS_CREATE` / `_COPILOT` / `_SCENE` | 2048 / 3072 / 4096 | integer 256..8192 (raised automatically to clear the thinking budget) |
+| `GEMINI_MODEL_VALIDATE` | `gemini-2.5-flash-lite` | model id, for `validate-challenge-photo` |
+
+Per-attempt timeouts are fixed in code (create/copilot 25s, scene 40s,
+validate 12s) with ONE retry on network/abort/5xx only.
+
+**Deploy sequence at merge** (order matters — the function inserts into the
+table, and the client tolerates absent `turnId` but the server must accept
+absent `surface`/`lastTurn`):
+
+- [ ] 1. Apply `supabase/migrations/036_agent_turns.sql` (MCP `apply_migration`),
+      then read back with `execute_sql`: `select count(*) from public.agent_turns`
+      → 0, and `get_advisors` shows no new security finding (RLS on, no policies).
+- [ ] 2. `get_edge_function` snapshot of the live `ai-event-designer` source →
+      deploy with all FIVE files → read the deployed source back and diff every
+      file (hand-transcribed payloads have lost bytes before) → boot-probe once
+      without a JWT expecting **401**, never 500.
+- [ ] 3. Deploy `validate-challenge-photo` (verify_jwt OFF), `ai-generate-image`
+      (3 files), `ai-generate-3d` (3 files) the same way.
+- [ ] 4. Live checks: two consecutive copilot turns in `/host/concierge`, then
+      `select id, mode, surface, model, attempts, latency_ms, prompt_tokens,
+      cached_tokens, error_code from agent_turns order by id desc limit 3`
+      — expect `cached_tokens > 0` on the second turn (proves the static prompt
+      prefix stayed byte-stable); press thumbs on a reply → that row's
+      `feedback` = 1 or -1; `query_logs` shows no `agent_turns insert failed`;
+      compare `validate-challenge-photo` latency in `query_logs` for a day and
+      keep or revert `GEMINI_MODEL_VALIDATE` on the numbers.
+
+`agent_turns` stores no message text (sizes, tokens, latency, model, the
+proposal JSON ≤ 8 KB, error code, feedback); retention is intended at 90 days
+but no purge job exists yet — `delete from public.agent_turns where created_at
+< now() - interval '90 days'` is the manual step.
 
 ## 3. Billing — Stripe (test first)
 

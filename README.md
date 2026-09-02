@@ -55,12 +55,18 @@ npm run dev                  # http://localhost:5173
 Platform build uses **no `VITE_EVENT`** (so `/` is the marketing/login page).
 Legacy single-event builds set `VITE_EVENT=<slug>` and render exactly as before.
 
+Agent tooling: `npm run gen:agent-tools` regenerates the Copilot's `# Tools`
+prompt section from `src/lib/copilotTools.ts`; `npm run bench:agent` replays
+the agent eval fixtures against real Gemini models (owner-run locally with
+`GEMINI_API_KEY`; `--record` saves outputs that `src/lib/agentEvals.test.ts`
+replays deterministically).
+
 ## Architecture
 
 - **Multi-tenant data** — Supabase Postgres with real RLS. `orgs → events`
   tenancy; `event_id` (= `events.slug`) partitions the existing content tables.
-  Migrations are checked in under `supabase/migrations/` (001–029) and mirror
-  what's applied to the live project. The three legacy slugs keep working via
+  Migrations are checked in under `supabase/migrations/` (001–036; two files
+  are numbered 030) and mirror what's applied to the live project. The three legacy slugs keep working via
   **grandfather RLS policies**.
 - **Runtime tenancy** — `src/events/runtime.ts` + `EventContext.tsx` resolve an
   event by slug at runtime (replacing the old build-time `VITE_EVENT`). The
@@ -72,7 +78,12 @@ Legacy single-event builds set `VITE_EVENT=<slug>` and render exactly as before.
   Platform Copilot's tool proposals; falls back to a client-side keyword planner
   when unprovisioned; replies render as interactive **A2UI v0.9.1** generative-UI
   cards — protocol core in `src/lib/a2ui.ts`, themed renderer in
-  `src/components/a2ui/`) · `validate-challenge-photo` (anonymous guest photo
+  `src/components/a2ui/`; deploys as FIVE files — `index.ts` transport ·
+  `prompt.ts` pure sectioned prompts · `tools.generated.ts`, GENERATED from the
+  typed tool registry `src/lib/copilotTools.ts` by `npm run gen:agent-tools` and
+  drift-tested · `profiles.ts` per-mode model profiles with `GEMINI_*_<MODE>`
+  secret overrides · `deno.json`; every turn logs to `agent_turns`) ·
+  `validate-challenge-photo` (anonymous guest photo
   check for challenges that require an AI visual match — reads the requirement
   server-side from the challenge's `validation` config, SSRF-guards any reference
   image to the public `assets` bucket, and treats the guest photo as data-only) ·
@@ -114,7 +125,8 @@ Tables — tenant: `orgs`, `org_members`, `profiles`, `events`, `experiences`,
 runtimes read one authority). Platform: `platform_admins`, `admin_audit`,
 `platform_config`, `landing_content` (marketing-page CMS; anon reads the
 published half only, via `get_landing_content()`), `support_tickets`,
-`support_messages`, `client_errors`, `ai_jobs`, `ai_designer_usage`, +
+`support_messages`, `client_errors`, `ai_jobs`, `ai_designer_usage`,
+`agent_turns` (per-turn AI telemetry — no message text; service-role only), +
 idempotency/quota helpers (`guest_quota`).
 Buckets: `posts`, `assets` (public — platform-owned landing media lives under
 the admin-only `_platform/` prefix), `cards`, `renders`, `support` (private).

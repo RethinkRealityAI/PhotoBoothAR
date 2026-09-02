@@ -70,6 +70,12 @@ no SQL injection. Worth picking up opportunistically, not blocking launch:
   `send_later`/`AskUserQuestion`/`ExitPlanMode` sometimes fail on a closed permission stream).
 - Legacy sites build from `legacy-events` and read the same DB via grandfather RLS — don't
   change their behavior from platform work.
+- Multi-file edge functions (since PR #44): `ai-event-designer` deploys FIVE files
+  (`index.ts` · `prompt.ts` · generated `tools.generated.ts` · `profiles.ts` · `deno.json`),
+  `ai-generate-image` and `ai-generate-3d` three each — the MCP deploy takes an explicit
+  `files[]`, and a missing sibling is an import error at boot that 500s every request while
+  passing every repo gate. Lists + secrets: `docs/DEPLOYMENT-CHECKLIST.md` §2a; regenerate
+  `tools.generated.ts` with `npm run gen:agent-tools` (drift-tested).
 
 ## Finishing a task
 
