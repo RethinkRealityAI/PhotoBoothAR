@@ -159,15 +159,23 @@ validate 12s) with ONE retry on network/abort/5xx only.
 table, and the client tolerates absent `turnId` but the server must accept
 absent `surface`/`lastTurn`):
 
-- [ ] 1. Apply `supabase/migrations/036_agent_turns.sql` (MCP `apply_migration`),
+- [x] 1. Apply `supabase/migrations/036_agent_turns.sql` (MCP `apply_migration`),
       then read back with `execute_sql`: `select count(*) from public.agent_turns`
       → 0, and `get_advisors` shows no new security finding (RLS on, no policies).
-- [ ] 2. `get_edge_function` snapshot of the live `ai-event-designer` source →
+      DONE 2026-09-02 (`20260902131409 036_agent_turns`; RLS on, 0 policies).
+- [x] 2. `get_edge_function` snapshot of the live `ai-event-designer` source →
       deploy with all FIVE files → read the deployed source back and diff every
-      file (hand-transcribed payloads have lost bytes before) → boot-probe once
-      without a JWT expecting **401**, never 500.
-- [ ] 3. Deploy `validate-challenge-photo` (verify_jwt OFF), `ai-generate-image`
+      file (hand-transcribed payloads have lost bytes before) → boot-probe TWICE:
+      once without a JWT (expect the gateway's `401 UNAUTHORIZED_NO_AUTH_HEADER` —
+      proves routing only, the isolate never runs) and once with the anon key as
+      `Bearer` (expect the function's OWN `401 {"error":"unauthorized"}` — that
+      body only exists if index.ts and every sibling import booted). Never 500.
+      DONE 2026-09-02: **v22**, five files byte-identical, both probes as expected.
+- [x] 3. Deploy `validate-challenge-photo` (verify_jwt OFF), `ai-generate-image`
       (3 files), `ai-generate-3d` (3 files) the same way.
+      DONE 2026-09-02: validate-challenge-photo **v4** (verify_jwt off, `{}` →
+      handled `400 invalid_body`), ai-generate-image **v21**, ai-generate-3d **v11**
+      — all byte-identical read-backs, handler-level 401 on the anon-key probe.
 - [ ] 4. Live checks: two consecutive copilot turns in `/host/concierge`, then
       `select id, mode, surface, model, attempts, latency_ms, prompt_tokens,
       cached_tokens, error_code from agent_turns order by id desc limit 3`
