@@ -15,6 +15,7 @@
     "preview": "vite preview --host",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
+    "gen:agent-tools": "tsx scripts/gen-agent-tools.ts",
     "test": "vitest run"
   },
   "dependencies": {
