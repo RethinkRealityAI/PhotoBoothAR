@@ -489,6 +489,16 @@ describe('offlineReplyFor + TOOL_LABELS', () => {
     expect(offlineReplyFor(undefined)).toMatch(/built-in guide/i);
   });
 
+  it('network / invalid_body copy is surface-neutral (also rendered on /host/new)', () => {
+    for (const reason of ['network', 'invalid_body']) {
+      const copy = offlineReplyFor(reason);
+      expect(copy).not.toMatch(/studio tab/i);
+      expect(copy).not.toMatch(/GEMINI|API key|edge function/i);
+    }
+    expect(offlineReplyFor('network')).toMatch(/connection/i);
+    expect(offlineReplyFor('invalid_body')).toMatch(/shorter/i);
+  });
+
   it('TOOL_LABELS is the registry label for every tool', () => {
     for (const [tool, spec] of Object.entries(COPILOT_TOOLS)) {
       expect(TOOL_LABELS[tool as keyof typeof TOOL_LABELS]).toBe(spec.label);

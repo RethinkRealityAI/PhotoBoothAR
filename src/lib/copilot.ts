@@ -787,6 +787,12 @@ export function offlineReplyFor(reason?: string): string {
       return 'You’ve hit the hourly AI limit — give it a few minutes and ask me again.';
     case 'ai_quota':
       return 'Our AI service is over capacity right now — try me again in a little while. All the manual tools still work in the meantime.';
+    // Surface-neutral wording: these two also render inside the concierge's
+    // note on /host/new, where "use the studio tabs" would be the wrong advice.
+    case 'network':
+      return 'I couldn’t reach our AI service just now — check your connection and try again in a moment.';
+    case 'invalid_body':
+      return 'That message was too long for me — try a shorter one.';
     default:
       return OFFLINE_REPLY;
   }
