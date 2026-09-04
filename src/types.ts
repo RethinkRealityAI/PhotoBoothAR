@@ -366,6 +366,10 @@ export interface BrandingOverrides {
   shareTitle?: string;
   momentTitle?: string;
   shareText?: string;
+  /** Host edits over the AI-generated guest lines (EventCopy.welcomeIntro /
+   *  keepsakeIntro); blank = keep the generated/built-in line. */
+  welcomeIntro?: string;
+  keepsakeIntro?: string;
   /** First-launch onboarding cards; replaces the coded steps when non-empty. */
   onboardingSteps?: OnboardingStep[];
   /** Theme color overrides applied as CSS variables at runtime. */
@@ -402,4 +406,15 @@ export interface SavedPhoto {
   media_type?: MediaType;
   message?: string;
   createdAt: number;
+  /**
+   * This device's proof that it made the post — the one-time token `submit-post`
+   * returns from `finalize` (`post_secrets`, migration 035). LOCAL RECORD ONLY:
+   * it is deliberately absent from `Post`, because a field on the posts row is a
+   * field every wall viewer can read (and realtime ships whole rows regardless
+   * of the client's column list) — which is exactly the hole that made
+   * `session_id` unusable as ownership proof. Absent on posts made before the
+   * token shipped, or read back from the server on another phone; `removeKindFor`
+   * in lib/postDelete.ts turns that absence into "no Remove control".
+   */
+  deleteToken?: string;
 }

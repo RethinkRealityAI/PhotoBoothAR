@@ -28,6 +28,8 @@
  * source. No React, no supabase.
  */
 import { frameBriefGaps, pieceBriefGaps, type BriefGap } from './assetBrief';
+import { COPILOT_TOOLS, type ToolParam, type ToolSpec } from './copilotTools';
+import { packById } from './contentPacks';
 
 export interface ProposalGap extends BriefGap {
   /**
@@ -50,6 +52,46 @@ function need(id: string, question: string, example: string): ProposalGap[] {
 }
 
 /**
+ * Gap ids are the host-facing vocabulary the chat and its tests key on; where
+ * a parameter's wire name differs from that id, this map keeps the id stable.
+ */
+const GAP_IDS: Record<string, string> = {
+  challengeId: 'challenge',
+  borderId: 'frame',
+  shaderId: 'filter',
+  experienceId: 'experience',
+  pieceId: 'piece',
+};
+
+function present(p: ToolParam, v: unknown): boolean {
+  if (p.type === 'array') return Array.isArray(v) && v.length > 0;
+  return filled(v);
+}
+
+/** One gap per REQUIRED registry parameter the proposal leaves empty. */
+function requiredParamGaps(tool: string, proposal: Record<string, unknown>): ProposalGap[] {
+  const spec = (COPILOT_TOOLS as Record<string, ToolSpec>)[tool];
+  if (!spec) return [];
+  const out: ProposalGap[] = [];
+  for (const [name, p] of Object.entries(spec.params)) {
+    if (!p.required || present(p, proposal[name])) continue;
+    out.push({
+      id: GAP_IDS[name] ?? name,
+      question: p.ask?.question ?? p.description,
+      example: p.ask?.example ?? p.example,
+      required: true,
+    });
+  }
+  return out;
+}
+
+/** The registry's ask for one parameter, as a required gap. */
+function needParam(tool: keyof typeof COPILOT_TOOLS, name: string): ProposalGap[] {
+  const p = (COPILOT_TOOLS[tool].params as Record<string, ToolParam>)[name];
+  return need(GAP_IDS[name] ?? name, p.ask?.question ?? p.description, p.ask?.example ?? p.example);
+}
+
+/**
  * A brief's quality gaps, promoted to `required` only when the brief is
  * effectively absent. assetBrief reports that case as `detail` — under three
  * meaningful words — and `normalizeActions` would reject an empty prompt
@@ -69,42 +111,11 @@ function briefGaps(gaps: BriefGap[]): ProposalGap[] {
  */
 export function proposalGaps(tool: string, proposal: Record<string, unknown>): ProposalGap[] {
   switch (tool) {
-    case 'add_challenge':
-      return filled(proposal.title) ? []
-        : need('title', 'What should the challenge be called?', 'Best dance move');
-
-    case 'add_challenge_pack':
-      return Array.isArray(proposal.challenges) && proposal.challenges.length > 0 ? []
-        : need('challenges', 'What should the challenges be?', 'a five-challenge pack for a wedding reception');
-
-    case 'update_challenge':
-    case 'delete_challenge':
-      return filled(proposal.challengeId) ? []
-        : need('challenge', 'Which challenge do you mean?', 'the name of the one you want to change');
-
-    case 'create_card':
-      return filled(proposal.cardTitle) ? []
-        : need('cardTitle', 'What should the card be called?', 'Happy 40th, Maya!');
-
-    case 'add_frame':
-      return filled(proposal.borderId) ? []
-        : need('frame', 'Which ready-made frame?', 'pick one from the list');
-
-    case 'set_filter':
-      return filled(proposal.shaderId) ? []
-        : need('filter', 'Which filter?', 'pick one from the list');
-
-    case 'set_default_experience':
-      return filled(proposal.experienceId) ? []
-        : need('experience', 'Which experience should the booth open with?', 'one of the experiences in your studio');
-
-    case 'rename_event':
-      return filled(proposal.name) ? []
-        : need('name', 'What should the event be called?', 'Maya & Sam’s Wedding');
-
+    // The date must already be in the ISO shape normalizeActions accepts —
+    // a present-but-unparsed date is as much a gap as an empty one.
     case 'set_event_date':
       return typeof proposal.date === 'string' && DATE_RE.test(proposal.date.trim()) ? []
-        : need('date', 'What date is the event?', '2026-09-12');
+        : needParam('set_event_date', 'date');
 
     // Spending tools: an empty brief is a hard gap, and a brief too vague to be
     // worth a credit is a soft one — that judgement lives in assetBrief.ts.
@@ -115,11 +126,25 @@ export function proposalGaps(tool: string, proposal: Record<string, unknown>): P
       if (proposal.source === 'generate') {
         return briefGaps(pieceBriefGaps(typeof proposal.prompt === 'string' ? proposal.prompt : ''));
       }
-      return filled(proposal.pieceId) ? []
-        : need('piece', 'Which 3D prop?', 'pick one from the list');
+      return filled(proposal.pieceId) ? [] : needParam('add_head_piece', 'pieceId');
 
+    // A known packId is a complete pack (the normalizer expands it); otherwise
+    // the challenges must be there — the registry marks them optional only
+    // because of packId.
+    case 'add_challenge_pack':
+      if (packById(typeof proposal.packId === 'string' ? proposal.packId : null)) return [];
+      return Array.isArray(proposal.challenges) && proposal.challenges.length > 0 ? []
+        : needParam('add_challenge_pack', 'challenges');
+
+    // Every field is optional, but ALL of them blank is nothing to record.
+    case 'update_brief':
+      return (['occasion', 'honorees', 'palette', 'tone', 'avoid', 'notes'] as const).some((k) => filled(proposal[k])) ? []
+        : need('brief', 'What should I note about the event?', 'the palette is gold and navy, and please avoid balloons');
+
+    // Every other tool: its REQUIRED registry parameters, nothing more. An
+    // unknown tool has no registry entry and so returns [] (see the doc above).
     default:
-      return [];
+      return requiredParamGaps(tool, proposal);
   }
 }
 

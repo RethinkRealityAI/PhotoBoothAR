@@ -14,6 +14,7 @@ import { fetchAdmins, addAdmin, removeAdmin, type AdminRow } from '../../lib/adm
 import { useSession } from '../../lib/auth';
 import { formatDate } from '../../lib/adminFormat';
 import { canRemoveAdmin } from '../../lib/adminAuth';
+import { registryNote } from './registryNote';
 import { useToast } from '../../components/ui/Toast';
 import LoadError from '../../components/ui/LoadError';
 
@@ -80,7 +81,7 @@ export default function Admins() {
       <header className="flex items-center justify-between mb-8">
         <div>
           <h1 className="font-serif text-3xl text-foil-static">Admins</h1>
-          <p className="mt-1 font-sans text-xs text-brand-muted/60">{totalAdmins} platform admin{totalAdmins === 1 ? '' : 's'}</p>
+          <p className="mt-1 font-sans text-xs text-brand-muted/60">{registryNote(totalAdmins, 'platform admin')}</p>
         </div>
         <button
           onClick={load}

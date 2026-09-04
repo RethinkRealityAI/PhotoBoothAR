@@ -222,7 +222,9 @@ export default function HostImport() {
   };
 
   return (
-    <div className="p-6 md:p-10 max-w-3xl mx-auto">
+    /* pb-24 on phones: the floating Copilot FAB is fixed bottom-right on every
+       /host/** page and sat on top of this page's last control. */
+    <div className="p-6 pb-24 md:p-10 md:pb-10 max-w-3xl mx-auto">
       <header className="mb-6">
         <h1 className="font-serif text-3xl text-foil-static">Import an asset</h1>
         <p className="mt-1 font-sans text-xs text-brand-muted/60">

@@ -582,6 +582,12 @@ export const GUIDE_COUNTS = {
   maxTriggers: 6,
   studioTabs: 8,
   powerUps: 2,
+  /** copilot.ts MAX_ACTIONS — the most changes the Copilot proposes in one turn. */
+  copilotMaxActions: 5,
+  /** contentPacks.ts PACK_IDS — one starter pack per event style. */
+  starterPacks: 5,
+  /** Missions inside every starter pack (asserted per pack, not on average). */
+  starterPackMissions: 5,
 } as const;
 
 /* ------------------------------------------------------------------ */
@@ -870,7 +876,7 @@ const USE_THE_STUDIO: GuideDoc = {
         'Experiences — a booth can offer more than one look. Each experience is its own scene, and guests pick from them when they arrive.',
         'Assets — your uploads and your AI generations. Frames, stickers and 3D files all land here, and the chip you have active decides which kind an upload becomes.',
         'Wall — the big screen. Choose how photos arrive and how they are laid out, and get the link you open on the projector.',
-        'Challenges — little missions for guests, worth points, optionally checked by AI from the photo itself.',
+        'Challenges — little missions for guests, worth points, optionally checked by AI from the photo itself, with a running count of how many passed.',
         'Cards — keepsake cards: a shareable page friends and family contribute photos and messages to, which can be rendered into a short film.',
         'Share — the print kit. QR signage, table cards and the links you hand to your venue.',
       ],
@@ -890,7 +896,7 @@ const USE_THE_STUDIO: GuideDoc = {
         },
         {
           title: 'The sparkle button',
-          body: 'Opens the Copilot anywhere in your event. Describe what you want; it proposes, you confirm.',
+          body: 'Opens the Copilot anywhere in your event. Describe what you want — type it, or tap the microphone and say it — and it proposes; you confirm.',
         },
         {
           title: 'The guest link chip',
@@ -900,10 +906,14 @@ const USE_THE_STUDIO: GuideDoc = {
     },
     {
       kind: 'prose',
-      title: 'Two things worth knowing early',
+      title: 'Worth knowing early',
       body: [
         'Test on phone does what it says: it gives you a link to open on your own handset so you can check the AR on a real camera without publishing anything to guests.',
-        'The Copilot floats on every host screen. It plans with you rather than acting behind your back — it proposes at most 3 changes at a time, and every one of them shows you a confirm card before anything is written. It also knows what things cost, so it will tell you before it spends a credit.',
+        `The Copilot floats on every host screen. It plans with you rather than acting behind your back — it proposes up to ${GUIDE_COUNTS.copilotMaxActions} changes at a time, and every one of them is a card you confirm before anything is written. One change is one card. Two or more arrive together as a single plan card with a box ticked beside each step: untick what you do not want and press Run selected. The free steps run in order, and a step that spends credits opens its own card last, so you always see the cost before it goes. While it is thinking there is a Stop button; press it and the chat simply says Stopped.`,
+        'Ask it for a whole look — "put my guests in a moonlit jungle, with a filter to match" — and instead of guessing at three separate pieces it offers to open the Scene Director, the studio tool that designs frame, filter and 3D prop together, with your brief already typed in. Ask for a person, or for help with billing or your account, and it offers to open a support message for you, pre-filled with what you were trying to do. Both are cards you confirm; nothing happens on its own.',
+        'The cards show their work. Rename the event, move the date or edit a challenge and the card shows a before → after line. Pick a frame or a 3D prop and you choose from thumbnails, not names. A pack of challenges arrives as a list you can untick or retitle one mission at a time. And the chips under its hello change with your event — while it has no challenges, one of them adds the starter pack in a single tap, and the greeting says so.',
+        'Three small things. Rate any reply with a thumb up or down — hover it on a desktop, or just look under it on a phone. The microphone in the message box takes dictation on browsers that can listen (Chrome and Safari can; where the browser cannot, the button simply is not there) — what you say lands in the box for you to read and edit, and nothing is sent until you press send. And if a 3D prop it ordered is still sculpting when the wait runs long, the card offers Keep waiting: it picks the same job back up, so nothing is charged twice.',
+        'Small type is a choice, not a rule. Larger text, in the host menu beside Support, scales the chats and their cards up on that device — the studio canvas stays exactly as it is — and stays on until you tap it again.',
       ],
     },
     {
@@ -961,7 +971,7 @@ const FIRST_EVENT: GuideDoc = {
   eyebrow: 'Start here',
   title: 'Your first event, start to finish',
   hook: 'One sentence in, a live booth out. No design skills, no app for your guests to install.',
-  minutes: 6,
+  minutes: 7,
   hue: '#34D399',
   blocks: [
     {
@@ -973,7 +983,7 @@ const FIRST_EVENT: GuideDoc = {
     {
       kind: 'prose',
       body: [
-        'You do not build an event here so much as describe one. Tell the Concierge what the night is — "a 40th birthday, garden party, pink and gold" — and it designs the whole thing: the look, a frame, a wall, a set of challenges. You can also just hand it a photo of your invitation and let it read the palette off that.',
+        'You do not build an event here so much as describe one. Tell the Concierge what the night is — "a 40th birthday, garden party, pink and gold" — and it designs the whole thing: the look, a frame, a wall, a set of challenges. You can also just hand it a photo of your invitation and let it read the palette off that. Not in the mood to decide? Say "you decide" — or press Set it all up for me on the plan card — and it chooses everything still open, tells you in one line what it picked, and points you at Create.',
         'Then you adjust what you want and go live. Guests scan a QR code and their camera opens in the browser. Nothing to install, on any phone.',
       ],
     },
@@ -983,7 +993,7 @@ const FIRST_EVENT: GuideDoc = {
       steps: [
         {
           title: 'Describe your event',
-          body: 'Start a new event and write one sentence about it — occasion, vibe, colours. Or upload a photo of the invitation and let it design from that.',
+          body: `Start a new event and write one sentence about it — occasion, vibe, colours. Or upload a photo of the invitation and let it design from that. The plan card has a box ticked for you, Start with a challenge pack + a keepsake card: leave it on and your event opens with ${GUIDE_COUNTS.starterPackMissions} ready-made photo missions and a card guests can sign, from the starter pack that matches your style — Wedding, Gala, Birthday, Corporate or Party. Untick it to start empty. If the AI designer is ever unavailable, the Concierge says why in plain words and builds from a quick template match instead; you can restyle all of it in the studio.`,
           tip: 'Be specific about mood and colour. "Elegant, ivory and gold, evening" gets you much further than "wedding".',
         },
         {
@@ -1004,6 +1014,14 @@ const FIRST_EVENT: GuideDoc = {
           body: 'The Share kit gives you QR signage and table cards pointing at your welcome page. Print them, put one on every table, and your job on the night is basically done.',
           tip: 'Put a card at the bar and one by the door. Those two spots get scanned more than every table combined.',
         },
+      ],
+    },
+    {
+      kind: 'prose',
+      title: 'The brief every assistant reads',
+      body: [
+        'While you describe the event, the Concierge keeps a short brief: the occasion, who it is for, the colours, the mood, and anything to avoid ("no balloons"). Every AI helper in your event reads it on every turn, so the Copilot and the Scene Director already know your palette and never suggest the thing you ruled out. Change it any time in your event under Settings, then Branding — the Event brief card has a box for each — and when you tell the Copilot something new about the night, it offers to update the brief too.',
+        'Two lines for your guests are written from that brief as well: the welcome line on your guest page, and the opening line of the keepsake email you send after the night. They are written once, when the event is created (or when it goes live, if you skipped the brief), and never rewritten — so anything you change in Branding stays yours.',
       ],
     },
     {
@@ -1067,6 +1085,7 @@ const RUN_THE_NIGHT: GuideDoc = {
       body: [
         'A challenge is a small mission worth points: "get a photo with someone you have never met", "find the couple’s parents". Guests see them in the booth, and the Leaderboard wall mode turns the whole thing into a game.',
         'You can also have AI check the photo against the mission before it counts. Worth knowing how that behaves: if the check cannot run — bad wifi, a slow response — it lets the photo through anyway. A guest is never blocked by a hiccup on our side. If the check runs and disagrees, the guest can retake it or post without the challenge tag.',
+        'Back in the Challenges tab, every checked mission shows a running score — "12 checked · 9 passed" — and the last few reasons a photo did not pass, so a mission that turns out too strict is easy to spot and soften.',
       ],
     },
     {
@@ -1075,6 +1094,24 @@ const RUN_THE_NIGHT: GuideDoc = {
       body: [
         'A keepsake card is a shareable page for one person or one couple. Friends and family add photos and messages to it — up to 8 MB per photo, 60 MB and 20 seconds for a video — and it becomes something worth keeping rather than a folder of files.',
         'When it is full you can render it into a short film, which costs around 30 credits. Guests can also bulk-save everything they appear in from their own gallery, so nobody has to ask you for their photos afterwards.',
+      ],
+    },
+    {
+      kind: 'prose',
+      title: 'After the event',
+      body: [
+        'When the party is over, hit End on the event. The booth shuts to new photos immediately — anyone who scans the QR after that gets your thank-you screen instead of a camera, so give guests their last call before you press it.',
+        'Later, once an old event is just taking up room in Your events, hit Archive. It slides into a collapsed Archived shelf at the bottom of the page and nothing is deleted — the wall, every photo, the keepsake cards and the credits you spent are all exactly where you left them, and one click brings it back.',
+      ],
+    },
+    {
+      kind: 'prose',
+      title: 'Send everyone the album',
+      body: [
+        'The album is a public page holding every photo from the night, plus a collage each guest can build and save on their own phone — mosaic, filmstrip or scattered prints, their pick. Their own shots go in first and never get cut.',
+        'It has its own QR card in Share & Print, next to the booth and wall ones. That code is the one worth putting in a thank-you message, because unlike the others it keeps working after you end the event — the thank-you screen a late scanner gets now links straight to it.',
+        'Getting it into inboxes takes one press. Guests are offered a "Send me the album" box in the booth after they send their first photo — nobody has to fill it in, and nobody is asked twice. Once the night is over and you have hit End, open Share & Print and press Send keepsakes: everyone who left an address gets one email, with an unsubscribe link at the bottom. Nobody else is contacted.',
+        'Send yourself a preview first if you want to see exactly what lands. That button works at any stage, including before the doors open, and it touches nothing but your own inbox.',
       ],
     },
     {
@@ -1220,15 +1257,15 @@ export const GUIDE_COVERAGE: {
     experiences: { guide: 'use-the-studio', note: 'What each tab is for — Experiences (more than one look per booth).' },
     assets: { guide: 'make-a-frame', note: 'Four ways to get your frame — upload path, and the frame-or-sticker chip.' },
     wall: { guide: 'run-the-night', note: 'Set up the wall — the four modes and the projector link.' },
-    challenges: { guide: 'run-the-night', note: 'Challenges give people a reason to keep going, including the AI photo check.' },
+    challenges: { guide: 'run-the-night', note: 'Challenges give people a reason to keep going, including the AI photo check and its checked/passed counts.' },
     cards: { guide: 'run-the-night', note: 'Keepsake cards, after the night — contribution limits and the film render.' },
     share: { guide: 'first-event', note: 'Five steps to a live booth — Print the signage (QR kit).' },
   },
   hostNav: {
     events: { guide: 'first-event', note: 'Five steps to a live booth — creating and going live with an event.' },
-    concierge: { guide: 'first-event', note: 'Describe your event — the Concierge designs from a sentence or a photo.' },
+    concierge: { guide: 'first-event', note: 'Describe your event — the Concierge designs from a sentence or a photo, "Set it all up for me", the starter pack, and the brief every assistant reads.' },
     billing: { guide: 'run-the-night', note: 'What things cost — the credit table covers what billing buys.' },
-    support: { guide: 'use-the-studio', note: 'Two things worth knowing early — the Copilot, and where help lives on every host screen.' },
+    support: { guide: 'use-the-studio', note: 'Worth knowing early — the Copilot (which can open a support message for you), and where help lives on every host screen.' },
   },
   addOns: {
     'power-fx': { guide: 'make-3d-props', note: 'Make it react — Power FX pairs a visor/wand/gauntlet with a gesture-fired blast.' },

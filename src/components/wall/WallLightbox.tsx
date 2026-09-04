@@ -102,7 +102,7 @@ export default function WallLightbox({ post, onClose }: { post: Post; onClose: (
           <button
             onClick={download}
             disabled={busy}
-            className="bg-foil glow-accent text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl px-5 py-3 flex items-center gap-2 hover:brightness-110 transition-all active:scale-95 disabled:opacity-60"
+            className="bg-foil glow-accent text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] rounded-xl px-5 py-3 flex items-center gap-2 hover:brightness-110 transition-all active:scale-95 disabled:opacity-60"
           >
             {done ? <Check className="w-4 h-4" /> : <Download className="w-4 h-4" />}
             {done ? 'Saved' : busy ? 'Saving…' : 'Download'}

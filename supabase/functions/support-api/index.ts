@@ -15,7 +15,7 @@
  *
  * PLATFORM ADMIN (is_platform_admin asserted BEFORE the dispatch switch)
  *   admin_list_tickets { search?, status?, priority?, category?, unreadOnly?,
- *                        limit?, offset? }  → { tickets, hasMore }
+ *                        limit?, offset? }  → { tickets, hasMore, total }
  *   admin_get_ticket   { ticketId }         → { ticket, messages, org, event, recentErrors }
  *   admin_reply        { ticketId, body, internal? } → { message, emailed }
  *   admin_set_status   { ticketId, status } → { ticket }
@@ -508,7 +508,11 @@ const TICKET_COLS =
 
 async function adminListTickets(sb: Client, args: Record<string, unknown>): Promise<Response> {
   const { limit, offset, search } = paging(args);
-  let q = sb.from('support_tickets').select(TICKET_COLS)
+  // `count: 'exact'` rides the SAME request (PostgREST answers it in
+  // Content-Range), so how many tickets match the filter costs no extra round
+  // trip — and `.range()` here is offset/limit query params, not a Range
+  // header, so an offset past the end is an empty page rather than a 416.
+  let q = sb.from('support_tickets').select(TICKET_COLS, { count: 'exact' })
     .order('last_message_at', { ascending: false })
     .range(offset, offset + limit); // +1 sentinel row
 
@@ -531,7 +535,7 @@ async function adminListTickets(sb: Client, args: Record<string, unknown>): Prom
     q = q.or(`subject.ilike.${term},public_ref.ilike.${term},reporter_email.ilike.${term},event_slug.ilike.${term}`);
   }
 
-  const { data, error } = await q;
+  const { data, error, count } = await q;
   if (error) throw error;
 
   const { rows: trimmed, hasMore } = page(data ?? [], limit);
@@ -548,6 +552,12 @@ async function adminListTickets(sb: Client, args: Record<string, unknown>): Prom
   return ok({
     tickets: trimmed.map((t) => ({ ...t, org_name: orgNames.get(t.org_id as string) ?? null })),
     hasMore,
+    // How many match the filter, not how many were sent. `hasMore` stays the
+    // sentinel and remains the authority for "is there another page": the count
+    // and the page are one statement apart, but a concurrent write between the
+    // two would still be a disagreement, and the sentinel is the half that
+    // cannot disagree with itself.
+    total: count ?? null,
   });
 }
 

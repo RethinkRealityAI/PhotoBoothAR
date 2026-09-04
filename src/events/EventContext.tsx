@@ -11,7 +11,7 @@
  * that used to be hard-wired to the build-time active event.
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import type { EventConfig } from './types';
 import { getRegisteredEvent } from './registry';
 import { codeRuntimeEvent, loadEventConfig, type EventLoad, type RuntimeEvent } from './runtime';
@@ -55,6 +55,11 @@ export function useEvent(): EventContextValue {
 export function useOptionalEvent(): EventContextValue | null {
   return useContext(EventContext);
 }
+
+/** Upper bound on "Setting the stage…" before the honest unreachable/fallback
+ *  state renders. The fast-reject network path settles itself in ~9s; this
+ *  exists for blackhole venue wifi, where nothing else bounds the wait. */
+const EVENT_LOAD_DEADLINE_MS = 10_000;
 
 /* ── Theme application ──────────────────────────────────────────────── */
 
@@ -143,6 +148,7 @@ function CenterScreen({
   title,
   body,
   onRetry,
+  action,
 }: {
   eyebrow: string;
   title: string;
@@ -150,6 +156,9 @@ function CenterScreen({
   /** Renders a retry control. Only passed for recoverable states — a genuine
    *  "no such event" has nothing to retry. */
   onRetry?: () => void;
+  /** A way onward for a screen that is not an error. The ended screen uses it
+   *  to hand the guest the event's album instead of a dead end. */
+  action?: ReactNode;
 }) {
   return (
     <div className="absolute inset-0 flex items-center justify-center app-bg p-6">
@@ -169,6 +178,7 @@ function CenterScreen({
             Try again
           </button>
         )}
+        {action}
       </div>
     </div>
   );
@@ -233,6 +243,18 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
     if (loadedSlugRef.current === slug) return;
     let alive = true;
     setState({ phase: 'loading' });
+    // Venue-wifi deadline: a blackhole network (packets swallowed, no fast
+    // rejection) holds the fetch far past its retry backoff, so the guest
+    // would sit on "Setting the stage…" indefinitely — the fast-reject path
+    // settles in ~9s, but nothing bounded the hang. After 10s show the honest
+    // unreachable state (which has Try again); this is provisional — a late
+    // success still lands below and upgrades it to ready. Coded (legacy)
+    // events resolve from the registry before any network, so the timer
+    // always clears immediately for them.
+    let settled = false;
+    const deadline = setTimeout(() => {
+      if (alive && !settled) setState({ phase: 'unreachable' });
+    }, EVENT_LOAD_DEADLINE_MS);
     loadEventConfig(slug)
       // A rejected promise (total network drop) used to leave the provider in
       // 'loading' forever — "Setting the stage…" with no cancel and no retry.
@@ -241,6 +263,8 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
         return { event: null, error: 'unreachable' };
       })
       .then(({ event, error }) => {
+        settled = true;
+        clearTimeout(deadline);
         if (!alive) return;
         if (error === 'unreachable') {
           // Not cached as "loaded": a retry must be able to re-resolve it.
@@ -262,11 +286,19 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
           return;
         }
         setAccess(null); // deciding
+        // Same deadline class as the load above: if the membership probe
+        // hangs, fall back to the non-member decision — for draft/ended/
+        // archived that is the correct guest-facing screen, and a late true
+        // answer still upgrades it.
+        const memberDeadline = setTimeout(() => {
+          if (alive) setAccess((cur) => cur ?? guestAccess(event.status, false));
+        }, EVENT_LOAD_DEADLINE_MS);
         void isEventMember(event.eventId).then((member) => {
+          clearTimeout(memberDeadline);
           if (alive) setAccess(guestAccess(event.status, member));
         });
       });
-    return () => { alive = false; };
+    return () => { alive = false; clearTimeout(deadline); };
   }, [slug, attempt]);
 
   // Refresh mechanism for admin config patches (least-invasive correct path):
@@ -328,6 +360,18 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
         eyebrow={event.config.copy.eyebrow}
         title="This event has ended"
         body={event.config.copy.thankYou}
+        // The booth is closed, but the night still exists — /r/:slug is the
+        // album, and it is a sibling route precisely so it keeps working once
+        // this screen is what guests get. Gated on source === 'db': the three
+        // frozen coded sites have no recap route and must stay byte-identical.
+        action={event.source === 'db' ? (
+          <Link
+            to={`/r/${event.eventId}`}
+            className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-full bg-foil px-6 font-label uppercase tracking-luxe text-[11px] text-[color:var(--on-accent)]"
+          >
+            See the event album →
+          </Link>
+        ) : undefined}
       />
     ) : (
       <CenterScreen

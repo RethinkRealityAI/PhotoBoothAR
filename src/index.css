@@ -86,6 +86,14 @@
      the host's accent luminance by branding.ts; this is the default-theme
      value. Event theme.css files may override it alongside --color-accent. */
   --on-accent: #0A0806;
+  /* Text-size control (textSize.ts): the chat + A2UI card roots carry
+     `.ui-scalable`, and their `.ui-*` type utilities multiply by this. Scoped
+     on purpose — never `html{font-size}`, so the studio canvas cannot move. */
+  --ui-scale: 1;
+}
+
+[data-textsize="lg"] .ui-scalable {
+  --ui-scale: 1.15;
 }
 
 html, body, #root {
@@ -103,6 +111,15 @@ body {
 /* Utilities                                                          */
 /* ----------------------------------------------------------------- */
 @layer utilities {
+  /* Type floor for the chat and A2UI surfaces: 12px minimum, scaled by the
+     host's text-size choice (--ui-scale, see :root). Uppercase/tracking
+     treatments stay on the element; only the size lives here. */
+  .ui-body { font-size: calc(14px * var(--ui-scale)); }
+  .ui-label { font-size: calc(12px * var(--ui-scale)); }
+  .ui-caption { font-size: calc(12px * var(--ui-scale)); }
+  .ui-btn { font-size: calc(12px * var(--ui-scale)); }
+  .ui-chat { font-size: calc(13px * var(--ui-scale)); }
+
   /* Frosted glass, warm gold-tinted */
   .glass {
     background: rgba(40, 30, 18, 0.35);

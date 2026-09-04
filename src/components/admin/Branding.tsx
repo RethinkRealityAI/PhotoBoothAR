@@ -12,13 +12,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Palette, Type, ListOrdered, Image as ImageIcon, Save, Check,
-  Upload, Trash2, Plus, RefreshCw, Wallpaper,
+  Upload, Trash2, Plus, RefreshCw, Wallpaper, NotebookPen, Sparkles,
 } from 'lucide-react';
 import EventBackground from '../ui/EventBackground';
 import { Wordmark } from '../ui/EventLogo';
 import { useEvent } from '../../events/EventContext';
 import { getBranding, setBranding, uploadAsset } from '../../lib/db';
 import { updateEventConfig } from '../../lib/host';
+import { mergeBrief, type BriefPatch, type EventBrief } from '../../lib/eventBrief';
 import { BACKGROUND_TEMPLATES, DEFAULT_BACKGROUND_ID } from '../theme/backgrounds';
 import { useStore } from '../../store';
 import type { BrandingColors, BrandingOverrides } from '../../types';
@@ -44,10 +45,35 @@ type Draft = {
   shareTitle: string;
   momentTitle: string;
   shareText: string;
+  /** Generated-once guest lines (eventCopy.ts); a host edit overlays them. */
+  welcomeIntro: string;
+  keepsakeIntro: string;
   onboardingSteps: OnboardingStep[];
   colors: Record<keyof BrandingColors, string>;
   logoUrl: string | null;
 };
+
+/** The Event brief form — lists as comma-separated text (mergeBrief splits). */
+type BriefDraft = Record<'occasion' | 'honorees' | 'palette' | 'tone' | 'avoid' | 'notes', string>;
+
+function briefToDraft(b: EventBrief | undefined): BriefDraft {
+  return {
+    occasion: b?.occasion ?? '',
+    honorees: b?.honorees.join(', ') ?? '',
+    palette: b?.palette ?? '',
+    tone: b?.tone ?? '',
+    avoid: b?.avoid.join(', ') ?? '',
+    notes: b?.notes ?? '',
+  };
+}
+
+/** "4 Sept 2026" from a full ISO-Z stamp; null when it does not parse, so the
+ *  caller shows nothing rather than "Invalid Date". Display only — no date
+ *  arithmetic happens here. */
+function formatStamp(iso: string): string | null {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
 
 function readCssColor(cssVar: string): string {
   if (typeof window === 'undefined') return '#000000';
@@ -71,6 +97,8 @@ function buildInitialDraft(): Draft {
     shareTitle: copy.shareTitle,
     momentTitle: copy.momentTitle,
     shareText: copy.shareText,
+    welcomeIntro: copy.welcomeIntro ?? '',
+    keepsakeIntro: copy.keepsakeIntro ?? '',
     onboardingSteps: copy.onboardingSteps.map((s) => ({ ...s })),
     colors,
     logoUrl: useStore.getState().logoUrl,
@@ -87,6 +115,8 @@ function draftToOverrides(d: Draft): BrandingOverrides {
     shareTitle: d.shareTitle,
     momentTitle: d.momentTitle,
     shareText: d.shareText,
+    welcomeIntro: d.welcomeIntro,
+    keepsakeIntro: d.keepsakeIntro,
     onboardingSteps: d.onboardingSteps,
     colors: { ...d.colors },
     logoUrl: d.logoUrl,
@@ -176,6 +206,45 @@ export default function Branding() {
     setDraft(buildInitialDraft());
   };
 
+  // ── Event brief (runtime DB events only; events.config.brief) ──
+  // The one shared memory the concierge, Platform Copilot and Scene Director
+  // all read. Saved through updateEventConfig (a SHALLOW config merge — the
+  // whole `brief` object is rebuilt by mergeBrief), then the EventProvider is
+  // refreshed so the studio's Director sees the new line on its next turn.
+  const [briefDraft, setBriefDraft] = useState<BriefDraft>(() => briefToDraft(config.brief));
+  const [briefSaving, setBriefSaving] = useState(false);
+  const [briefStatus, setBriefStatus] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const briefStamp = config.brief?.updatedAt ?? null;
+  // Re-seed when the stored brief changes underneath us (our own save's
+  // refresh, or a copilot `update_brief` on another tab) — keyed on the stamp
+  // so typing never resets the form.
+  useEffect(() => { setBriefDraft(briefToDraft(config.brief)); }, [briefStamp]); // eslint-disable-line react-hooks/exhaustive-deps
+  const patchBrief = (p: Partial<BriefDraft>) => {
+    setBriefStatus(null);
+    setBriefDraft((d) => ({ ...d, ...p }));
+  };
+
+  const saveBrief = async () => {
+    if (!eventUuid || briefSaving) return;
+    setBriefSaving(true);
+    setBriefStatus(null);
+    // Every field is sent: the form IS the brief, so a cleared box clears the
+    // field ('' → cleared per BriefPatch's contract).
+    const patch: BriefPatch = { ...briefDraft };
+    const next = mergeBrief(config.brief ?? null, patch, new Date().toISOString());
+    const ok = await updateEventConfig(eventUuid, { brief: next });
+    if (ok) {
+      await refreshConfig();
+      setBriefStatus({ tone: 'ok', text: 'Brief saved — the AI assistants read it on their next turn.' });
+    } else {
+      // false = the read failed OR the write touched zero rows (RLS-hidden or
+      // deleted event) — either way nothing was stored; say so, never "Saved".
+      setBriefStatus({ tone: 'error', text: 'Couldn’t save the brief — nothing was written. Check your connection and try again.' });
+    }
+    setBriefSaving(false);
+  };
+  const generatedOn = config.copy.generatedAt ? formatStamp(config.copy.generatedAt) : null;
+
   return (
     <div className="absolute inset-0 overflow-y-auto hide-scrollbar">
       <EventBackground density={26} />
@@ -237,6 +306,33 @@ export default function Branding() {
             <TextField label="Full name" value={draft.fullName} onChange={(v) => patch({ fullName: v })} />
             <TextField label="Tagline" value={draft.tagline} onChange={(v) => patch({ tagline: v })} />
             <TextArea label="Thank-you message" value={draft.thankYou} onChange={(v) => patch({ thankYou: v })} rows={2} />
+            {/* Generated guest lines — the values start as the AI's (or the
+                built-in) text; clearing a box falls back to it (mergeCopy
+                ignores blanks). Only DB events ever carry these keys. */}
+            {isDbEvent && (
+              <>
+                <TextArea
+                  label="Welcome intro (guest welcome page)"
+                  value={draft.welcomeIntro}
+                  onChange={(v) => patch({ welcomeIntro: v })}
+                  placeholder={config.copy.welcomeIntro ?? 'Leave blank for the built-in intro'}
+                  rows={2}
+                />
+                <TextArea
+                  label="Keepsake email intro"
+                  value={draft.keepsakeIntro}
+                  onChange={(v) => patch({ keepsakeIntro: v })}
+                  placeholder={config.copy.keepsakeIntro ?? 'Leave blank for the built-in intro'}
+                  rows={2}
+                />
+                {generatedOn !== null && (
+                  <p className="font-sans text-[11px] text-champagne/40 flex items-center gap-1.5">
+                    <Sparkles className="w-3 h-3 text-gold-300 shrink-0" />
+                    Tagline, thank-you, welcome and keepsake lines written by AI on {generatedOn} — edit any of them above.
+                  </p>
+                )}
+              </>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <TextField label="Share title" value={draft.shareTitle} onChange={(v) => patch({ shareTitle: v })} />
               <TextField label="Moment title" value={draft.momentTitle} onChange={(v) => patch({ momentTitle: v })} />
@@ -244,6 +340,46 @@ export default function Branding() {
             <TextArea label="Share text" value={draft.shareText} onChange={(v) => patch({ shareText: v })} rows={2} />
           </div>
         </section>
+
+        {/* Event brief (runtime DB events only) */}
+        {isDbEvent && (
+          <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
+            <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1 flex items-center gap-2">
+              <NotebookPen className="w-3.5 h-3.5" /> Event brief
+            </h2>
+            <p className="font-sans text-[11px] text-champagne/40 mb-4">
+              Who it’s for, the colours, the mood, what to avoid. The AI assistants read this on every turn.
+            </p>
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <TextField label="Occasion" value={briefDraft.occasion} onChange={(v) => patchBrief({ occasion: v })} placeholder="e.g. Maya’s 40th" />
+                <TextField label="Honorees (comma-separated)" value={briefDraft.honorees} onChange={(v) => patchBrief({ honorees: v })} placeholder="e.g. Maya, Sam" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <TextField label="Palette" value={briefDraft.palette} onChange={(v) => patchBrief({ palette: v })} placeholder="e.g. gold and navy" />
+                <TextField label="Tone" value={briefDraft.tone} onChange={(v) => patchBrief({ tone: v })} placeholder="e.g. elegant, a little playful" />
+              </div>
+              <TextField label="Avoid (comma-separated)" value={briefDraft.avoid} onChange={(v) => patchBrief({ avoid: v })} placeholder="e.g. balloons, puns" />
+              <TextArea label="Notes" value={briefDraft.notes} onChange={(v) => patchBrief({ notes: v })} rows={2} placeholder="Anything else the assistants should know" />
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                onClick={saveBrief}
+                disabled={briefSaving}
+                className="min-h-11 px-5 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl glow-accent flex items-center justify-center gap-2 hover:brightness-110 transition-all disabled:opacity-50"
+              >
+                {briefSaving ? 'Saving…' : <><Save className="w-4 h-4" /> Save brief</>}
+              </button>
+              {briefStatus !== null ? (
+                <p role="status" className={`font-sans text-[11px] ${briefStatus.tone === 'ok' ? 'text-emerald-300' : 'text-red-300'}`}>
+                  {briefStatus.text}
+                </p>
+              ) : briefStamp !== null && formatStamp(briefStamp) !== null ? (
+                <p className="font-sans text-[11px] text-champagne/40">Last updated {formatStamp(briefStamp)}</p>
+              ) : null}
+            </div>
+          </section>
+        )}
 
         {/* Theme colors */}
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">

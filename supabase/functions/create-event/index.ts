@@ -41,7 +41,9 @@ const RESERVED_SLUGS = new Set([
   'demo',
 ]);
 
-const EVENT_TYPES = new Set(['wedding', 'gala', 'birthday', 'party', 'remote']);
+// Every TemplateId src/lib/eventTemplates.ts sends (+ the 'remote' modifier):
+// the Corporate template used to be rejected here with 400 invalid_body.
+const EVENT_TYPES = new Set(['wedding', 'gala', 'birthday', 'corporate', 'party', 'remote']);
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {

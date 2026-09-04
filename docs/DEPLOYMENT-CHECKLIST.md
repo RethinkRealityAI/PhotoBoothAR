@@ -4,8 +4,11 @@ Everything needed to take the platform (PR #5) from "merged" to "live and
 charging". The platform is **safe-by-default**: every integration below degrades
 gracefully until its key is set, so you can enable them one at a time.
 
-Supabase project: `zrtftliozslrjomxbfrr`. All migrations 001–010 and all edge
-functions (incl. `admin-api`, `stripe-webhook`) are **already applied/deployed** to it. Set secrets in
+Supabase project: `zrtftliozslrjomxbfrr`. Migrations 001–036 (two files are
+numbered 030 — do not renumber) and all edge functions (incl. `admin-api`,
+`stripe-webhook`) are **already applied/deployed** to it; `037` and `038`
+ship with the Wave A+B commits on the PR #44 branch and are applied at its
+merge (§2a, sequence B). Set secrets in
 **Supabase → Project Settings → Edge Functions → Secrets** (or `supabase secrets set`).
 
 ---
@@ -121,6 +124,127 @@ Until the remaining boxes are checked, treat beta invites as **blocked**.
 - [ ] `HIGGSFIELD_API_KEY` + `HIGGSFIELD_API_URL` — optional premium image
       provider; Gemini is the default and works alone.
 
+### 2a. AI agent functions — multi-file deploys, model overrides, telemetry (added 2026-09-02, PR #44)
+
+Four AI functions now deploy as MORE THAN ONE FILE. The MCP
+`deploy_edge_function` call takes an explicit `files[]` — **a missing sibling
+is an import error at boot, and every request to that function 500s** (the
+PR #28 class: nothing in the repo gates a Deno import). Deploy lists:
+
+| Function | Files (all required) | verify_jwt |
+|---|---|---|
+| `ai-event-designer` | `index.ts` · `prompt.ts` · `tools.generated.ts` · `profiles.ts` · `deno.json` | ON |
+| `validate-challenge-photo` | `index.ts` · `deno.json` | **OFF** (anon guest check, as today) |
+| `ai-generate-image` | `index.ts` · `frameLayout.ts` · `deno.json` | ON |
+| `ai-generate-3d` | `index.ts` · `pieceGeometry.ts` · `deno.json` | ON |
+
+`tools.generated.ts` is GENERATED — never hand-edit it; run
+`npm run gen:agent-tools` after any change to `src/lib/copilotTools.ts`
+(`src/lib/copilotTools.drift.test.ts` fails CI otherwise).
+
+**Optional secrets** (all read at request time — a change is a secret edit,
+not a redeploy; an invalid value is ignored and the default stands):
+
+| Secret | Default | Range |
+|---|---|---|
+| `GEMINI_MODEL_CREATE` / `_COPILOT` / `_SCENE` | `gemini-2.5-flash` | model id, `/^[a-z0-9.-]+$/i` |
+| `GEMINI_THINKING_CREATE` / `_COPILOT` / `_SCENE` | 0 / 0 / 512 | integer 0..8192 |
+| `GEMINI_TEMPERATURE_CREATE` / `_COPILOT` / `_SCENE` | 0.6 / 0.2 / 0.5 | number 0..2 |
+| `GEMINI_MAX_TOKENS_CREATE` / `_COPILOT` / `_SCENE` | 2048 / 3072 / 4096 | integer 256..8192 (raised automatically to clear the thinking budget) |
+| `GEMINI_MODEL_COPY` / `GEMINI_THINKING_COPY` / `GEMINI_TEMPERATURE_COPY` / `GEMINI_MAX_TOKENS_COPY` (added with Wave A+B) | `gemini-2.5-flash-lite` / 0 / 0.7 / 1024 | same ranges as above — the `copy` mode (four guest lines written once per event) |
+| `GEMINI_MODEL_VALIDATE` | `gemini-2.5-flash-lite` | model id, for `validate-challenge-photo` |
+
+Per-attempt timeouts are fixed in code (create/copilot 25s, scene 40s,
+copy 15s, validate 12s) with ONE retry on network/abort/5xx only.
+
+**Deploy sequence A — PR #44 playbook hardening** (order matters — the
+function inserts into the table, and the client tolerates absent `turnId` but
+the server must accept absent `surface`/`lastTurn`):
+
+- [x] 1. Apply `supabase/migrations/036_agent_turns.sql` (MCP `apply_migration`),
+      then read back with `execute_sql`: `select count(*) from public.agent_turns`
+      → 0, and `get_advisors` shows no new security finding (RLS on, no policies).
+      DONE 2026-09-02 (`20260902131409 036_agent_turns`; RLS on, 0 policies).
+- [x] 2. `get_edge_function` snapshot of the live `ai-event-designer` source →
+      deploy with all FIVE files → read the deployed source back and diff every
+      file (hand-transcribed payloads have lost bytes before) → boot-probe TWICE:
+      once without a JWT (expect the gateway's `401 UNAUTHORIZED_NO_AUTH_HEADER` —
+      proves routing only, the isolate never runs) and once with the anon key as
+      `Bearer` (expect the function's OWN `401 {"error":"unauthorized"}` — that
+      body only exists if index.ts and every sibling import booted). Never 500.
+      DONE 2026-09-02: **v22**, five files byte-identical, both probes as expected.
+- [x] 3. Deploy `validate-challenge-photo` (verify_jwt OFF), `ai-generate-image`
+      (3 files), `ai-generate-3d` (3 files) the same way.
+      DONE 2026-09-02: validate-challenge-photo **v4** (verify_jwt off, `{}` →
+      handled `400 invalid_body`), ai-generate-image **v21**, ai-generate-3d **v11**
+      — all byte-identical read-backs, handler-level 401 on the anon-key probe.
+- [ ] 4. Live checks: two consecutive copilot turns in `/host/concierge`, then
+      `select id, mode, surface, model, attempts, latency_ms, prompt_tokens,
+      cached_tokens, error_code from agent_turns order by id desc limit 3`
+      — expect `cached_tokens > 0` on the second turn (proves the static prompt
+      prefix stayed byte-stable); press thumbs on a reply → that row's
+      `feedback` = 1 or -1; `query_logs` shows no `agent_turns insert failed`;
+      compare `validate-challenge-photo` latency in `query_logs` for a day and
+      keep or revert `GEMINI_MODEL_VALIDATE` on the numbers.
+
+`agent_turns` stores no message text (sizes, tokens, latency, model, the
+proposal JSON ≤ 8 KB, error code, feedback); retention is intended at 90 days
+but no purge job exists yet — `delete from public.agent_turns where created_at
+< now() - interval '90 days'` is the manual step.
+
+**Deploy sequence B — Wave A+B (same branch, commits `3764c16` → `1bb879a` +
+the concierge-ui work; server-first, order matters).** Live before this wave:
+`ai-event-designer` **v22** · `validate-challenge-photo` **v4** ·
+`send-keepsakes` **v1** · `create-event` **v9**; migrations through `036`.
+
+- [ ] 1. Apply `supabase/migrations/037_agent_turns_copy_mode.sql` — the
+      `agent_turns.mode` CHECK gains `'copy'`. MUST land before the
+      `ai-event-designer` deploy: without it a copy turn still answers, but every
+      one logs `agent_turns insert failed` and returns `turnId` null. Read back:
+      `select pg_get_constraintdef(oid) from pg_constraint where conname =
+      'agent_turns_mode_check'` → contains `'copy'`.
+- [ ] 2. Apply `supabase/migrations/038_challenge_checks.sql` — NEW table
+      `challenge_checks` (one row per AI photo-check verdict: event slug,
+      challenge uuid, pass, confidence, reason ≤240, model, latency_ms; NO session
+      id / IP / image), RLS on with ONE policy (`challenge_checks_member_read`,
+      members of the event's org, select only), client write grants revoked, and a
+      2000-per-event-per-24h cap trigger that RAISES `challenge_check_cap`. MUST
+      land before the `validate-challenge-photo` deploy (its insert is
+      fire-and-forget, so a missing table is only a warning — but the stats stay
+      empty). Read back: `list_tables` shows RLS on + 1 policy, the trigger
+      `challenge_check_cap_trg` exists, `get_advisors` shows no new security
+      finding.
+- [ ] 3. `ai-event-designer` — all FIVE files (`index.ts` · `prompt.ts` ·
+      `tools.generated.ts` · `profiles.ts` · `deno.json`), verify_jwt ON, the same
+      snapshot → deploy → byte-diff read-back → two-probe boot check as step 2 of
+      sequence A above. This version adds the fourth request mode `copy` (needs
+      `eventUuid` + `copyInput {name, eventType, brief, tagline}`, answers
+      `{reply, copy: {tagline, welcomeIntro, thankYou, keepsakeIntro}, turnId}`,
+      `403 forbidden` for a non-member), the create-mode `# Deferral` section +
+      `plan.brief`, the copilot `update_brief` tool + `add_challenge_pack.packId`,
+      `MAX_ACTIONS` 5 (one spender, last) and `sceneContext` ≤1500 chars.
+- [ ] 4. `validate-challenge-photo` (`index.ts` · `deno.json`, verify_jwt
+      **OFF** as today) — inserts one `challenge_checks` row per verdict.
+- [ ] 5. `send-keepsakes` (`index.ts` · `deno.json`, verify_jwt **OFF** as
+      today — the mail-client unsubscribe GET carries no headers) — reads
+      `events.config.copy.keepsakeIntro` (string ≤160) into the email intro, stock
+      intro otherwise.
+- [ ] 6. `create-event` (`index.ts` · `deno.json`, verify_jwt ON) — `eventType`
+      `'corporate'` is now accepted (the Corporate template used to get `400
+      invalid_body`).
+- [ ] 7. Live checks: in `/host/new` say "you decide" → the plan card fills
+      name/template/accent and the event is created with a starter pack (N
+      challenges + 1 card) and `events.config->'brief'` set; then `select id,
+      mode, model, error_code from agent_turns where mode = 'copy' order by id
+      desc limit 3` → one row per new event with `model =
+      'gemini-2.5-flash-lite'` and `error_code` null, and that event's
+      `config->'copy'->>'generatedAt'` set (go live again → no second copy row);
+      a guest photo-check on a validating challenge → `select count(*) from
+      challenge_checks` grows by 1 and the Challenges tab shows "1 checked";
+      `send-keepsakes` preview op renders the `keepsakeIntro` line; create an
+      event from the Corporate template → 200. `query_logs` shows no
+      `agent_turns insert failed` / `challenge_checks insert failed`.
+
 ## 3. Billing — Stripe (test first)
 
 - [x] `STRIPE_SECRET_KEY` (test/sandbox mode) — set 2026-07-06.
@@ -171,6 +295,15 @@ credits refunded). To enable:
 
 - [ ] Upload the composition `hyperframes/keepsake-film/` (index.html +
       gsap.min.js) to HeyGen HyperFrames once → record its **asset id**.
+- [ ] ⚠️ **RE-UPLOAD after any change to `hyperframes/keepsake-film/index.html`.**
+      HeyGen renders the ASSET it holds, not the repo file, so an edit here is
+      invisible in production until the bundle is re-uploaded (and, if the
+      upload mints a new id, `HEYGEN_HYPERFRAMES_ASSET_ID` is updated). This is
+      outstanding NOW: the composition gained a late-`--variables` wait (it
+      polls up to 3s and rebuilds the film in place when the payload lands),
+      which is what stops a cloud render from silently producing a film with no
+      card data in it. Verified in a real browser — with the runtime populating
+      at 400ms, the film rebuilds into the SAME paused timeline instance.
 - [ ] `RENDER_BACKEND=hyperframes`, `HEYGEN_HYPERFRAMES_API_KEY`,
       `HEYGEN_HYPERFRAMES_ASSET_ID` (+ optional `HEYGEN_HYPERFRAMES_API_URL`).
 - [ ] ⚠️ **Validate the cloud render contract** — the submit/poll API shape is an

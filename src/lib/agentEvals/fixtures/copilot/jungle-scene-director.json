@@ -1,0 +1,101 @@
+{
+  "mode": "copilot",
+  "surface": "platform",
+  "snapshot": {
+    "eventUuid": "0d6c1b7e-2b4a-4f1e-9c3d-7a8b9c0d1e2f",
+    "slug": "maya-sam",
+    "name": "Maya & Sam's Wedding",
+    "status": "draft",
+    "planTier": "premium",
+    "eventType": "wedding",
+    "startsAt": null,
+    "brief": null,
+    "copy": null,
+    "failed": false,
+    "postCount": 0,
+    "showChallenges": true,
+    "defaultExperienceId": null,
+    "challenges": [
+      {
+        "id": "ch-1",
+        "title": "First dance",
+        "emoji": "💃",
+        "points": 20,
+        "active": true,
+        "hasCheck": false
+      }
+    ],
+    "experiences": [
+      {
+        "id": "exp-1",
+        "name": "Classic Gold",
+        "kind": "border",
+        "published": true
+      }
+    ],
+    "cards": []
+  },
+  "catalogs": {
+    "filters": [
+      {
+        "id": "champagne-sparkle",
+        "name": "Champagne Sparkle"
+      },
+      {
+        "id": "golden-hour-bloom",
+        "name": "Golden Hour Bloom"
+      },
+      {
+        "id": "velvet-film",
+        "name": "Velvet Film"
+      },
+      {
+        "id": "neon-pulse",
+        "name": "Neon Pulse"
+      }
+    ],
+    "headPieces": [
+      {
+        "id": "royal-crown",
+        "name": "Royal Crown"
+      },
+      {
+        "id": "queen-tiara",
+        "name": "Queen's Tiara"
+      },
+      {
+        "id": "neon-shades",
+        "name": "Neon Shades"
+      },
+      {
+        "id": "cyclops-visor",
+        "name": "Optic Visor"
+      }
+    ],
+    "frames": [
+      {
+        "id": "dw-frame-classic",
+        "name": "Classic Gold Border"
+      },
+      {
+        "id": "frame-deco-plain",
+        "name": "Art Deco"
+      },
+      {
+        "id": "frame-minimal-plain",
+        "name": "Minimal Inset"
+      }
+    ]
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "put my guests in a jungle scene with a matching filter"
+    }
+  ],
+  "expect": {
+    "tools": [
+      "open_scene_director"
+    ]
+  }
+}

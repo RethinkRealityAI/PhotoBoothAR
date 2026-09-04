@@ -179,3 +179,42 @@ placeholder, never a 404 video.
   contact sheet, not the ids: two shipped frames moved an element between
   brief and render (birthday balloons, the product's side), which is why the
   caption says "Made this" and not "run this and get exactly this".
+
+- 2026-09-02 — Copilot round (handoff cards, thumbs, Keep waiting, per-reason
+  concierge note). Copy-only refresh; the drift test was already green because
+  none of it touched a registry the test reads — which is exactly the class of
+  change the test CANNOT see, so the skim (§Refresh step 4) is the only net.
+  Two things worth keeping: (1) the 12 `studio-editor` hotspot markers are all
+  editor spots (Name it · AI Director · Save …), so a Copilot UI change never
+  needs a re-shoot — check the marker labels before starting a dev server.
+  (2) docs/STATE.md `## Constraints` carries "DO NOT EDIT src/lib/guidesContent.ts"
+  lines from OTHER waves' briefs (2026-08-16, another branch); read the date and
+  branch on a constraint before treating it as binding — the current brief
+  naming the file as the target supersedes them. Numbers: "at most 3 changes"
+  is `MAX_ACTIONS = 3` in BOTH src/lib/copilot.ts and
+  supabase/functions/ai-event-designer/prompt.ts, not in GUIDE_COUNTS — it was
+  re-verified by hand this run and is a candidate for a registry assertion.
+  The thumbs store a per-turn verdict and nothing else the host can see, so the
+  copy says "rate it" and promises nothing about what the rating does.
+
+- 2026-09-04 — Wave A+B refresh (concierge deferral + starter packs + brief,
+  5-action plan cards + Stop, dictation, Larger text, check counts, generated
+  guest lines). Copy-only again, and again the drift test was green throughout
+  (no registry gained a key) — the skim is the net. The 2026-09-02 candidate
+  is now real: `GUIDE_COUNTS.copilotMaxActions` is asserted against
+  `copilot.ts MAX_ACTIONS` (its colocated node test proves the module is
+  node-safe to import), plus `starterPacks` vs `PACK_IDS.length` and
+  `starterPackMissions` per pack (asserted on EVERY pack, not the average —
+  "five ready-made missions" is printed for every style). Two brief-vs-source
+  mismatches worth remembering: the bundle card's confirm reads "Run selected"
+  (copilotSurfaces.ts), not "Do these", and the rail control is labelled
+  "Larger text" (HostLayout.tsx aria-label) — the icon is an Aa glyph, the
+  word a host reads is not. Always write the label from the JSX, never the
+  brief. Branding is NOT a studio tab (visibleStudioTabs is 8 without it): it
+  sits under the Settings group beside the tabs, so the path in copy is
+  "Settings, then Branding". Guest lines: generated at CREATE only when a brief
+  exists (NewEvent `if (brief) generateEventCopy`), else at go-live via
+  `host.goLive`; `generatedAt` is the never-rewrite stamp, so the copy promises
+  host edits survive. The 12 studio-editor markers are still all editor spots,
+  so no re-shoot. Sweep ran on :5184 (shared tree; a concierge follow-up was
+  landing in NewEvent/CopilotChat mid-run — lint stayed 0 anyway).

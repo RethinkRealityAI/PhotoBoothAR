@@ -29,6 +29,7 @@ import { formatAmount } from '../../lib/planSync';
 import {
   fetchCatalog, updateCatalogItem, syncCatalogToStripe, type CatalogItem,
 } from '../../lib/admin';
+import { registryNote } from './registryNote';
 
 const KIND_LABEL: Record<CatalogItem['kind'], string> = {
   event_package: 'Event packages',
@@ -120,6 +121,11 @@ export default function AdminCatalog() {
             <p className="font-sans text-sm text-brand-muted/60 mt-1">
               What Beamwall sells, what each purchase grants, and its Stripe product.
             </p>
+            {loaded && (
+              <p className="font-sans text-[11px] text-brand-muted/50 mt-1" aria-live="polite">
+                {registryNote(items.length, 'product')}
+              </p>
+            )}
           </div>
           <button onClick={() => void sync()} disabled={syncing}
             className={`${btn} bg-foil text-[color:var(--on-accent)] inline-flex items-center gap-2 disabled:opacity-40`}>

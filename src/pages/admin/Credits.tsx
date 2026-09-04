@@ -15,6 +15,7 @@ import {
   fetchPlatformConfig, setSignupCredits, fetchPromos, createPromo, setPromoActive, type PromoCode,
 } from '../../lib/admin';
 import ConfirmModal from '../../components/ui/ConfirmModal';
+import { registryNote } from './registryNote';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-3.5 py-2.5 text-sm text-brand-fg ' +
@@ -218,6 +219,11 @@ export default function Credits() {
         </form>
 
         <div className="mt-6 flex flex-col gap-2">
+          {!loadingPromos && promos.length > 0 && (
+            <p className="font-sans text-[11px] text-brand-muted/50" aria-live="polite">
+              {registryNote(promos.length, 'promo code')}
+            </p>
+          )}
           {loadingPromos ? (
             <p className="text-sm text-brand-muted/50">Loading…</p>
           ) : promos.length === 0 && promosFailed ? (

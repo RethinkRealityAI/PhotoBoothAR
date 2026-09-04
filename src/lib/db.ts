@@ -27,6 +27,8 @@ import {
   MediaType,
 } from '../types';
 import { getSessionId } from './session';
+import { isDeleteToken } from './postDelete';
+import type { ChallengeCheckRow } from './challengeChecks';
 import { normalizeStudioSettings, DEFAULT_STUDIO_SETTINGS, type StudioSettings } from './studio/occluder';
 
 /** The grandfathered single-tenant events whose RLS still permits the direct
@@ -242,6 +244,79 @@ export async function fetchMyPostsResult(eventId: string): Promise<ListResult<Po
 
 export async function fetchMyPosts(eventId: string): Promise<Post[]> {
   return (await fetchMyPostsResult(eventId)).rows;
+}
+
+/** Why a guest self-delete didn't go through. Server codes pass through
+ *  verbatim; 'network' is the undecodable case (offline, malformed body). */
+export type DeleteMyPostError =
+  | 'event_not_found'
+  | 'post_not_found'
+  /** The supplied token doesn't match this post's — or the post predates them. */
+  | 'not_yours'
+  | 'rate_limited'
+  /** The object could not be removed, so the row was deliberately kept. */
+  | 'storage_failed'
+  | 'invalid_post_id'
+  | 'invalid_session_id'
+  /** No usable delete token was held for this post; nothing was sent. */
+  | 'invalid_delete_token'
+  | 'invalid_path'
+  | 'internal'
+  | 'network';
+
+/**
+ * A guest removing their OWN post — from the wall and from storage.
+ *
+ * Goes through the `submit-post` edge function (`delete_post`), never a direct
+ * `.delete()`: anonymous guests have no delete policy on `posts` (migration 003
+ * grants delete to members only), and a client delete could not remove the
+ * storage object either — the file would keep serving from its public URL after
+ * the moment "disappeared". The function removes the object first, and only
+ * then the row.
+ *
+ * `deleteToken` is the proof of ownership: the one-time secret `finalize`
+ * returned when this device made the post (`post_secrets`, migration 035),
+ * stored on its local `SavedPhoto`. It replaces the old proof — matching the
+ * row's `session_id` — which every wall viewer could read off `select('*')` and
+ * off the realtime frame, and could therefore use to delete anyone's photo.
+ * A post this device holds no token for cannot be deleted from here, which is
+ * why the caller asks `removeKindFor` before offering the control at all.
+ *
+ * Returns `deleted:false` with a code rather than throwing; the caller decides
+ * what the guest is told.
+ */
+export async function deleteMyPost(
+  eventId: string,
+  postId: string,
+  deleteToken: string,
+): Promise<{ deleted: boolean; error: DeleteMyPostError | null }> {
+  // Answer locally rather than spending a round trip to be told what we already
+  // know. The server applies the same rule; this just doesn't make a guest wait
+  // for it.
+  if (!isDeleteToken(deleteToken)) {
+    return { deleted: false, error: 'invalid_delete_token' };
+  }
+  try {
+    const { data, error } = await supabase.functions.invoke('submit-post', {
+      body: {
+        action: 'delete_post',
+        eventSlug: eventId,
+        postId,
+        deleteToken,
+        // Belt-and-braces only — the server checks it against the row when
+        // present, but it proves nothing on its own any more.
+        sessionId: getSessionId(eventId),
+      },
+    });
+    if (error) throw error;
+    const res = (data ?? {}) as { deleted?: boolean };
+    return res.deleted === true
+      ? { deleted: true, error: null }
+      : { deleted: false, error: 'internal' };
+  } catch (e) {
+    console.error('[db] deleteMyPost', e);
+    return { deleted: false, error: (await decodeSubmitPostError(e)) as DeleteMyPostError };
+  }
 }
 
 export async function setPostHidden(eventId: string, id: string, hidden: boolean): Promise<boolean> {
@@ -504,6 +579,14 @@ async function submitPostDirect(eventId: string, input: SubmitPostInput): Promis
 export interface SubmitPostResult {
   post: Post | null;
   error?: string;
+  /**
+   * The one-time delete capability for the post just created (`post_secrets`,
+   * migration 035) — store it on this device's `SavedPhoto` and nowhere else.
+   * Absent when the server couldn't mint one (deliberately non-fatal: the photo
+   * is on the wall either way, it just can't be self-deleted) and always absent
+   * on the legacy direct-insert fallback below, which bypasses `finalize`.
+   */
+  deleteToken?: string;
 }
 
 /** Decode the `{ error }` body of a submit-post FunctionsHttpError, same idiom
@@ -563,9 +646,16 @@ export async function submitPostDetailed(eventId: string, input: SubmitPostInput
       },
     });
     if (finErr) throw finErr;
-    const post = ((fin as { post?: Post } | null)?.post ?? fin) as Post | null;
+    const finBody = (fin ?? null) as { post?: Post; deleteToken?: string } | null;
+    const post = (finBody?.post ?? fin) as Post | null;
     if (!post?.id) throw new Error('submit-post finalize returned no post');
-    return { post };
+    // The delete token rides the finalize RESPONSE and nothing else — never a
+    // posts payload, so it cannot reach the wall or a realtime frame. (Named
+    // `minted`, not `token`: `token` is already the signed-UPLOAD token above,
+    // and two different secrets under one name in one scope is how they get
+    // swapped.)
+    const minted = finBody?.deleteToken;
+    return isDeleteToken(minted) ? { post, deleteToken: minted } : { post };
   } catch (e) {
     if (LEGACY_EVENT_IDS.has(eventId)) {
       console.warn('[db] submitPost edge function failed — falling back to direct upload', e);
@@ -578,7 +668,10 @@ export async function submitPostDetailed(eventId: string, input: SubmitPostInput
 }
 
 /** Back-compat wrapper: same signature as before SubmitPostResult existed —
- *  null on any failure. Kept so existing callers (UploadToWall) stay as-is. */
+ *  null on any failure. It has no callers left (UploadToWall moved to
+ *  submitPostDetailed) and NEW code that saves a local gallery record must not
+ *  use it: it drops `deleteToken`, and that token is minted exactly once, so a
+ *  post saved through here can never be self-deleted by the guest again. */
 export async function submitPost(eventId: string, input: SubmitPostInput): Promise<Post | null> {
   return (await submitPostDetailed(eventId, input)).post;
 }
@@ -644,6 +737,27 @@ export async function deleteChallenge(eventId: string, id: string): Promise<bool
   return true;
 }
 
+/**
+ * AI photo-check verdicts for one event (`challenge_checks`, migration 038):
+ * service-role written, member-readable, no guest identity. Newest first,
+ * capped at 500 rows — enough for every challenge's counts and its last five
+ * fail reasons (challengeChecks.summarizeChallengeChecks). `*Result` shape:
+ * a failed read is reported, never rendered as "0 checked".
+ */
+export async function fetchChallengeCheckStats(eventId: string): Promise<ListResult<ChallengeCheckRow>> {
+  const { data, error } = await supabase
+    .from('challenge_checks')
+    .select('challenge_id, pass, confidence, reason, created_at')
+    .eq('event_id', eventId)
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) {
+    console.error('[db] fetchChallengeCheckStats', error);
+    return { rows: [], failed: true };
+  }
+  return { rows: (data as ChallengeCheckRow[]) ?? [], failed: false };
+}
+
 /* ------------------------------------------------------------------ */
 /* App settings (live-synced feature flags, e.g. wall QR visibility)   */
 /* ------------------------------------------------------------------ */
@@ -660,10 +774,26 @@ const DEFAULT_WALL_SETTINGS: WallSettings = {
   defaultExperienceId: null,
 };
 
-export async function getWallSettings(eventId: string): Promise<WallSettings> {
+/**
+ * Wall settings, distinguishing "never configured" (no row — the defaults ARE
+ * the truth) from "we couldn't ask". `getWallSettings` folds both into the
+ * defaults, which is right for the wall itself (a projector must render
+ * something) but wrong for a reader that REPORTS the values: the copilot's event
+ * snapshot rendered a failed read as `challenges feature ON` and told the host so.
+ * `*Result` sibling convention, so no existing caller changes.
+ */
+export async function getWallSettingsResult(eventId: string): Promise<{ settings: WallSettings; failed: boolean }> {
   const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'wall').eq('event_id', eventId).maybeSingle();
-  if (error || !data) return DEFAULT_WALL_SETTINGS;
-  return { ...DEFAULT_WALL_SETTINGS, ...(data.value as Partial<WallSettings>) };
+  if (error) {
+    console.error('[db] getWallSettings', error);
+    return { settings: DEFAULT_WALL_SETTINGS, failed: true };
+  }
+  if (!data) return { settings: DEFAULT_WALL_SETTINGS, failed: false };
+  return { settings: { ...DEFAULT_WALL_SETTINGS, ...(data.value as Partial<WallSettings>) }, failed: false };
+}
+
+export async function getWallSettings(eventId: string): Promise<WallSettings> {
+  return (await getWallSettingsResult(eventId)).settings;
 }
 
 export async function setWallSettings(eventId: string, patch: Partial<WallSettings>): Promise<WallSettings> {

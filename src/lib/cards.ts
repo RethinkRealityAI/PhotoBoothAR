@@ -13,6 +13,7 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import type { ListResult } from './db';
+import type { CardTemplateId } from './cardTemplates';
 
 export const CARDS_BUCKET = 'cards';
 
@@ -21,7 +22,9 @@ export const CARDS_BUCKET = 'cards';
 /* ------------------------------------------------------------------ */
 
 export type CardStatus = 'collecting' | 'published' | 'rendered';
-export type CardTemplateId = 'storybook' | 'filmstrip';
+/** The closed set lives in the PURE lib/cardTemplates.ts (node-testable — this
+ *  module reaches the Supabase client, so tests can't import it). */
+export type { CardTemplateId };
 export type ContributionMediaType = 'photo' | 'video' | 'text';
 
 export interface CardRow {
@@ -76,6 +79,10 @@ export interface CardViewData {
   theme: Record<string, unknown>;
   publishedAt: string | null;
   eventName: string | null;
+  /** 1h signed MP4 of the keepsake film — present only when the card has a
+   *  finished render. Absent/null whenever there is none (or signing failed),
+   *  so the viewer's film affordance simply doesn't appear. */
+  filmUrl?: string | null;
 }
 
 export interface CardViewContribution {

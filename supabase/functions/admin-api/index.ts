@@ -37,7 +37,12 @@
  *   set_event_tier   → { data: { id, plan_tier } } (args: { eventId, tier }) — audited;
  *                       admin comp, does not insert an event_plans purchase row
  *   list_audit       → { data: { entries: [...], hasMore } }
- *   list_admins      → { data: { admins: [...] } }
+ * The four registry lists are not paged — they are capped instead, at
+ * REGISTRY_CAP, and report how many rows exist. See that constant for why:
+ *   list_admins        → { data: { admins: [...], total } }
+ *   list_promos        → { data: [...] }  (bare array — no room for a total)
+ *   list_feature_flags → { data: { flags, planDefaults, totals: {…} } }
+ *   list_catalog       → { data: { items: [...], total } }
  *   add_admin        → { data: { userId, email, invited } } (args: { email }) — audited;
  *                       resolves an existing user by email, else invites one
  *   remove_admin     → { data: { userId } } (args: { userId }) — audited;
@@ -153,6 +158,25 @@ async function overviewMetrics(sb: Client): Promise<Response> {
 
 const DEFAULT_PAGE = 100;
 const MAX_PAGE = 500;
+
+/**
+ * Ceiling for the lists that are NOT paged: the promo codes, the admin roster,
+ * the feature-flag registry and the billing catalogue.
+ *
+ * Those four are small by construction — flags and catalogue rows are seeded by
+ * migration and only an operator ever adds one — so a Load-more pager on them
+ * would be furniture. What they were missing is a ceiling: each one selected
+ * its whole table with no `limit` at all, so the size of the response was
+ * whatever the table happened to hold. This is the same backstop reasoning as
+ * `admin_list_users`'s own 1000-row cap (migration 020): not a page size, a
+ * refusal to ship an unbounded payload.
+ *
+ * Each of these also reports a `total`, so the response says how many rows
+ * exist even when the cap trimmed them. `list_promos` is the one exception —
+ * its response body is a bare ARRAY that src/lib/admin.ts's `fetchPromos` is
+ * typed against, and an array cannot carry a sibling field.
+ */
+const REGISTRY_CAP = 500;
 
 interface Paging {
   limit: number;
@@ -653,9 +677,11 @@ async function revertLandingDraft(sb: Client, actorUserId: string): Promise<Resp
 
 /* ── Promo codes ───────────────────────────────────────────────────────── */
 async function listPromos(sb: Client): Promise<Response> {
+  // Bare-array response (see REGISTRY_CAP): the cap is the whole guarantee here.
   const { data, error } = await sb.from('promo_codes')
     .select('id, code, credits, max_redemptions, redemptions, expires_at, active, created_at')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(REGISTRY_CAP);
   if (error) throw error;
   return json(200, { data: data ?? [] });
 }
@@ -747,10 +773,11 @@ async function listAudit(sb: Client, args: Record<string, unknown>): Promise<Res
 }
 
 async function listAdmins(sb: Client): Promise<Response> {
-  const { data: admins, error } = await sb
+  const { data: admins, error, count } = await sb
     .from('platform_admins')
-    .select('user_id, email, added_by, created_at')
-    .order('created_at', { ascending: true });
+    .select('user_id, email, added_by, created_at', { count: 'exact' })
+    .order('created_at', { ascending: true })
+    .limit(REGISTRY_CAP);
   if (error) throw error;
 
   const ids = [...new Set([
@@ -776,7 +803,7 @@ async function listAdmins(sb: Client): Promise<Response> {
     addedByEmail: a.added_by ? emailById.get(a.added_by as string) ?? null : null,
     createdAt: a.created_at,
   }));
-  return json(200, { data: { admins: rows } });
+  return json(200, { data: { admins: rows, total: count ?? rows.length } });
 }
 
 async function findUserIdByEmail(sb: Client, email: string): Promise<string | null> {
@@ -819,20 +846,24 @@ async function removeAdmin(sb: Client, actorUserId: string, args: Record<string,
   if (!userId) return json(400, { error: 'invalid_args' });
   if (userId === actorUserId) return json(400, { error: 'cannot_remove_self' });
 
-  const { count, error: countErr } = await sb
-    .from('platform_admins')
-    .select('*', { count: 'exact', head: true });
-  if (countErr) throw countErr;
-  if ((count ?? 0) <= 1) return json(400, { error: 'cannot_remove_last_admin' });
-
-  const { data, error } = await sb
-    .from('platform_admins')
-    .delete()
-    .eq('user_id', userId)
-    .select('user_id')
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) return json(404, { error: 'not_found' });
+  // Guard and delete in ONE locked statement (migration 033). This was a
+  // count-then-delete: two admins removing each other at the same moment both
+  // read "there are 2 of us", both passed, and both deletes landed — zero
+  // admins, and platform_admins has no client write policy, so /admin would be
+  // locked out permanently. The RPC serializes removals and raises instead.
+  const { data, error } = await sb.rpc('admin_remove_platform_admin', { p_user: userId });
+  if (error) {
+    // Same two answers as before, now decided by the database. Matched on the
+    // raised message (support-api's `support_rate_limited` precedent); the
+    // function raises nothing else.
+    const msg = error.message ?? '';
+    if (msg.includes('cannot_remove_last_admin')) return json(400, { error: 'cannot_remove_last_admin' });
+    if (msg.includes('admin_not_found')) return json(404, { error: 'not_found' });
+    throw error;
+  }
+  // Unreachable while 033 is the deployed body (it raises rather than returning
+  // null), so this is the "someone changed the function" path, not a real case.
+  if (data === null || data === undefined) return json(404, { error: 'not_found' });
 
   await auditLog(sb, actorUserId, 'remove_admin', 'user', userId);
   return json(200, { data: { userId } });
@@ -870,12 +901,22 @@ async function flagType(sb: Client, key: string): Promise<string | null> {
 
 async function listFeatureFlags(sb: Client): Promise<Response> {
   const [flags, defaults] = await Promise.all([
-    sb.from('feature_flags').select('*').order('sort'),
-    sb.from('plan_feature_defaults').select('tier, flag_key, value'),
+    sb.from('feature_flags').select('*', { count: 'exact' }).order('sort').limit(REGISTRY_CAP),
+    // tiers × flags, so it grows as the product of two registries — capped on
+    // the same reasoning, at the same ceiling.
+    sb.from('plan_feature_defaults').select('tier, flag_key, value', { count: 'exact' }).limit(REGISTRY_CAP),
   ]);
   if (flags.error) throw flags.error;
   if (defaults.error) throw defaults.error;
-  return json(200, { data: { flags: flags.data ?? [], planDefaults: defaults.data ?? [] } });
+  const flagRows = flags.data ?? [];
+  const defaultRows = defaults.data ?? [];
+  return json(200, {
+    data: {
+      flags: flagRows,
+      planDefaults: defaultRows,
+      totals: { flags: flags.count ?? flagRows.length, planDefaults: defaults.count ?? defaultRows.length },
+    },
+  });
 }
 
 async function setPlanDefault(
@@ -1096,9 +1137,11 @@ async function setOrgPlan(
 /* ── Billing catalogue ────────────────────────────────────────────────── */
 
 async function listCatalog(sb: Client): Promise<Response> {
-  const { data, error } = await sb.from('billing_catalog').select('*').order('sort');
+  const { data, error, count } = await sb
+    .from('billing_catalog').select('*', { count: 'exact' }).order('sort').limit(REGISTRY_CAP);
   if (error) throw error;
-  return json(200, { data: { items: data ?? [] } });
+  const items = data ?? [];
+  return json(200, { data: { items, total: count ?? items.length } });
 }
 
 async function upsertCatalogItem(
