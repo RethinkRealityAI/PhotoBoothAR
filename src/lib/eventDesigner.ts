@@ -18,6 +18,7 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import { slugify } from './slug';
 import { ACCENT_SWATCHES, EVENT_TEMPLATES, templateById, type TemplateId } from './eventTemplates';
 import { A2UI_VERSION, BEAMWALL_CATALOG_ID, type A2uiMessage } from './a2ui';
+import { EMPTY_BRIEF, briefFromPlanRaw, isEmptyBrief, normalizeBrief, type EventBrief } from './eventBrief';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -74,6 +75,9 @@ export interface EventPlan {
   /** '#RRGGBB' accent override for the template look, or null (client-side
    *  concierge choice — the AI never sets this). */
   accent: string | null;
+  /** What the host said about who/mood/colours/avoid (eventBrief.ts), or
+   *  null. Opaque to the wizard; written to events.config.brief on create. */
+  brief: EventBrief | null;
 }
 
 export interface DesignResult {
@@ -128,25 +132,26 @@ export function inferTemplate(text: string): TemplateId | null {
 const NON_PERSON_WORDS =
   /^(Christmas|Easter|Halloween|Thanksgiving|New|Eid|Diwali|Hanukkah|Valentine|Ramadan|Summer|Winter|Spring|Autumn)$/;
 
+// No /i flag: the leading [A-Z] must stay a real capital ("my sister's
+// birthday" is not a name); occasion words tolerate either case inline.
+const OWNED_RE =
+  /\b([A-Z][A-Za-z'’-]+(?:\s+(?:and|&)\s+[A-Z][A-Za-z'’-]+)?)['’]s\s+(?:\d{1,3}(?:st|nd|rd|th)\s+)?([Ww]edding|[Bb]irthday|[Gg]ala|[Bb]ash|[Pp]arty|[Cc]elebration|[Aa]nniversary|[Gg]raduation|[Qq]uincea\w*)\b/;
+const WHO_RE =
+  /\b(?:for|celebrating|named|called)\s+(?:my\s+|someone\s+named\s+)?([A-Z][A-Za-z'’-]+(?:\s+(?:and|&)\s+[A-Z][A-Za-z'’-]+)?)/;
+
 export function extractName(text: string, templateId: TemplateId | null): string | null {
   // Real quote marks only — a straight apostrophe also appears in "It's" and
   // "Jake's", where treating it as a quote captured garbage between two
   // unrelated apostrophes.
   const quoted = text.match(/["“”]([^"“”]{3,60})["“”]/);
   if (quoted) return quoted[1].trim();
-  // No /i flag: the leading [A-Z] must stay a real capital ("my sister's
-  // birthday" is not a name); occasion words tolerate either case inline.
-  const owned = text.match(
-    /\b([A-Z][A-Za-z'’-]+(?:\s+(?:and|&)\s+[A-Z][A-Za-z'’-]+)?)['’]s\s+(?:\d{1,3}(?:st|nd|rd|th)\s+)?([Ww]edding|[Bb]irthday|[Gg]ala|[Bb]ash|[Pp]arty|[Cc]elebration|[Aa]nniversary|[Gg]raduation|[Qq]uincea\w*)\b/,
-  );
+  const owned = text.match(OWNED_RE);
   if (owned) {
     const person = owned[1].replace(/\s+and\s+/, ' & ');
     const occasion = owned[2][0].toUpperCase() + owned[2].slice(1).toLowerCase();
     return `${person}'s ${occasion}`;
   }
-  const who = text.match(
-    /\b(?:for|celebrating|named|called)\s+(?:my\s+|someone\s+named\s+)?([A-Z][A-Za-z'’-]+(?:\s+(?:and|&)\s+[A-Z][A-Za-z'’-]+)?)/,
-  );
+  const who = text.match(WHO_RE);
   if (who && !NON_PERSON_WORDS.test(who[1])) {
     const label = templateById(templateId ?? undefined)?.label ?? 'Celebration';
     const person = who[1].replace(/\s+and\s+/, ' & ');
@@ -202,6 +207,99 @@ export function detectRemote(text: string): boolean {
   return /\b(remote|virtual|online|zoom|livestream|live[- ]stream|long[- ]distance|can'?t\s+(attend|be\s+there)|far\s+away|overseas)\b/i.test(text);
 }
 
+/** "You decide" — the host hands every open choice to the concierge. */
+export function detectDeferral(text: string): boolean {
+  return /\b(you\s+(decide|choose|pick)|(just\s+)?set\s+it\s+(all\s+)?up(\s+for\s+me)?|surprise\s+me|whatever\s+you\s+think|i\s+don'?t\s+mind|up\s+to\s+you|your\s+call|dealer'?s\s+choice|do\s+it\s+all\s+for\s+me|you\s+take\s+it\s+from\s+here)\b/i.test(text);
+}
+
+/* ── Local brief extraction (keyword-level; the AI path does this properly) ── */
+
+const COLOUR_RE = /\b(rose gold|gold|golden|navy|blush|pink|emerald|green|black|white|silver|red|purple|blue|teal|coral|lavender|burgundy|champagne|orange|yellow|ivory|cream)\b/gi;
+const TONE_RE = /\b(elegant|classy|playful|fun|loud|wild|warm|cosy|cozy|romantic|minimal|modern|vintage|retro|glam|glamorous|intimate|relaxed|chill|bold|festive|sophisticated|cheeky)\b/gi;
+/** "no balloons", "avoid puns", "without confetti" → the thing to avoid. */
+const AVOID_RE = /\b(?:no|avoid|without|don'?t want(?: any)?)\s+([a-z][a-z -]{2,30}?)(?=\s*[,.;!?]|\s+(?:and|or|please|though|but)\b|$)/gi;
+
+/** Palette words → an accent hex for fillPlanGaps (first match wins). */
+const PALETTE_HEX: [RegExp, string][] = [
+  [/rose gold/i, '#B76E79'], [/\bgold(en)?\b/i, '#D4AF37'], [/\bnavy\b/i, '#1F3A5F'], [/\bblush\b|\bpink\b/i, '#F4A6C1'],
+  [/\bemerald\b|\bgreen\b/i, '#2E8B57'], [/\bsilver\b/i, '#C0C0C0'], [/\bred\b|\bburgundy\b/i, '#B0223B'],
+  [/\bpurple\b|\blavender\b/i, '#7A2BFF'], [/\bblue\b|\bteal\b/i, '#2E6DF6'], [/\bcoral\b|\borange\b/i, '#FF6F61'],
+  [/\bchampagne\b|\bcream\b|\bivory\b/i, '#E8D9B5'], [/\byellow\b/i, '#FFD166'],
+];
+
+function uniqueMatches(text: string, re: RegExp): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(re)) {
+    const w = m[1].toLowerCase();
+    if (!out.includes(w)) out.push(w);
+  }
+  return out;
+}
+
+/** The brief the keyword planner can see: occasion from the template match
+ *  (with a stated ordinal), honorees from the name patterns, palette/tone
+ *  words, and "no X" items. Null when nothing was said. */
+export function localBrief(userTexts: string[], templateId: TemplateId | null): EventBrief | null {
+  const all = userTexts.join('\n');
+  const ordinal = all.match(/\b(\d{1,3})(?:st|nd|rd|th)\b/);
+  const occasionWord = templateId ? all.match(TEMPLATE_KEYWORDS[templateId])?.[0]?.toLowerCase() ?? null : null;
+  const occasion = occasionWord
+    ? (ordinal && templateId === 'birthday' && !occasionWord.includes(ordinal[0]) ? `${ordinal[0]} ${occasionWord}` : occasionWord)
+    : '';
+  const honorees: string[] = [];
+  for (const text of userTexts) {
+    const person = text.match(OWNED_RE)?.[1] ?? text.match(WHO_RE)?.[1];
+    if (person && !NON_PERSON_WORDS.test(person)) honorees.push(...person.split(/\s+(?:and|&)\s+/));
+  }
+  const brief = normalizeBrief({
+    occasion,
+    honorees,
+    palette: uniqueMatches(all, COLOUR_RE).join(' and '),
+    tone: uniqueMatches(all, TONE_RE).join(', '),
+    avoid: uniqueMatches(all, AVOID_RE),
+  });
+  return isEmptyBrief(brief) ? null : brief;
+}
+
+/** Palette text → '#RRGGBB': an explicit hex wins, then the colour the host
+ *  MENTIONED FIRST ("navy and gold" → navy), whatever the table order. */
+export function accentFromPalette(palette: string): string | null {
+  const hex = palette.match(/#[0-9a-fA-F]{6}\b/);
+  if (hex) return hex[0].toUpperCase();
+  let best: { at: number; value: string } | null = null;
+  for (const [re, value] of PALETTE_HEX) {
+    const m = re.exec(palette);
+    if (m && (best === null || m.index < best.at)) best = { at: m.index, value };
+  }
+  return best?.value ?? null;
+}
+
+function possessive(who: string): string {
+  return who.endsWith('s') ? `${who}'` : `${who}'s`;
+}
+
+/**
+ * "Set it all up for me": decide every still-open field from the brief so
+ * the plan is creatable in one press. Name from the honorees + the template
+ * label (else "Our Celebration"), template from the occasion, accent from the
+ * palette, slug from the name; the date stays as it is (never invented).
+ * Pure — the AI path's deferral rule and the concierge's button share it.
+ */
+export function fillPlanGaps(plan: EventPlan, brief: EventBrief | null): EventPlan {
+  const b = brief ?? EMPTY_BRIEF;
+  const templateId = (b.occasion ? inferTemplate(b.occasion) : null) ?? plan.templateId;
+  const label = templateById(templateId)?.label ?? 'Celebration';
+  const name = plan.name ?? (b.honorees.length > 0 ? `${possessive(b.honorees.join(' & '))} ${label}` : 'Our Celebration');
+  return {
+    ...plan,
+    name,
+    templateId,
+    slug: plan.slug ?? slugify(name),
+    accent: plan.accent ?? accentFromPalette(b.palette),
+    brief: brief ?? plan.brief,
+  };
+}
+
 /**
  * Keyword planner over the whole conversation. Later user messages win, so
  * "actually make it a gala" flips the template mid-chat. Always returns a
@@ -216,37 +314,46 @@ export function localDesign(
   let name: string | null = null;
   let date: string | null = null;
   let remote = false;
+  let deferred = false;
   for (const text of userTexts) {
     templateId = inferTemplate(text) ?? templateId;
     date = extractDate(text) ?? date;
     if (detectRemote(text)) remote = true;
+    if (detectDeferral(text)) deferred = true;
   }
   // Name needs the final template for its label, so resolve it second.
   for (const text of userTexts) {
     name = extractName(text, templateId) ?? name;
   }
+  const brief = localBrief(userTexts, templateId);
 
   const tpl = templateById(templateId ?? undefined) ?? EVENT_TEMPLATES.find((t) => t.id === 'party')!;
-  const plan: EventPlan = {
+  let plan: EventPlan = {
     name,
     templateId: tpl.id,
     remote,
     date,
     slug: name ? slugify(name) : null,
     accent: null,
+    brief,
   };
+  // "You decide": fill every open field and ask nothing.
+  if (deferred) plan = fillPlanGaps(plan, brief);
+  const finalTpl = templateById(plan.templateId) ?? tpl;
 
   const bits: string[] = [];
-  bits.push(`I set you up with the ${tpl.emoji} ${tpl.label} look — ${tpl.blurb.toLowerCase()}`);
-  if (name) bits.push(`I'm calling it “${name}”.`);
+  bits.push(`I set you up with the ${finalTpl.emoji} ${finalTpl.label} look — ${finalTpl.blurb.toLowerCase()}`);
+  if (plan.name) bits.push(deferred && !name ? `I went with “${plan.name}” as the name.` : `I'm calling it “${plan.name}”.`);
   if (date) bits.push(`Date noted: ${date}.`);
   if (remote) bits.push('Since guests join from afar, I flagged it as a remote celebration.');
   bits.push(
-    name
-      ? 'Review everything on the right — tweak anything, then create your event!'
-      : 'What should we call the event? You can also just type a name in the form.',
+    deferred
+      ? 'Everything is filled in — hit Create, or tweak any detail on the right first.'
+      : plan.name
+        ? 'Review everything on the right — tweak anything, then create your event!'
+        : 'What should we call the event? You can also just type a name in the form.',
   );
-  return { reply: bits.join(' '), plan, decided: { template: templateId !== null, remote } };
+  return { reply: bits.join(' '), plan, decided: { template: templateId !== null || deferred, remote } };
 }
 
 /* ── Plan hygiene (shared by AI + local paths) ───────────────────────── */
@@ -267,6 +374,7 @@ export function normalizePlan(raw: unknown): EventPlan {
     date,
     slug: slugRaw ? slugify(slugRaw) : null,
     accent: /^#[0-9a-fA-F]{6}$/.test(accentRaw) ? accentRaw : null,
+    brief: briefFromPlanRaw(r.brief),
   };
 }
 
@@ -286,7 +394,10 @@ export function buildPlanSurface(plan: EventPlan, surfaceId: string): A2uiMessag
     { version: A2UI_VERSION, createSurface: { surfaceId, catalogId: BEAMWALL_CATALOG_ID } },
     {
       version: A2UI_VERSION,
-      updateDataModel: { surfaceId, path: '/', value: { plan: { ...plan } } },
+      // `seedPack` rides in the plan model (default ON — the grandparent who
+      // wants it all done is the point; the manager unticks it). The wizard
+      // reads it beside the plan; normalizePlan ignores the extra key.
+      updateDataModel: { surfaceId, path: '/', value: { plan: { ...plan, seedPack: true } } },
     },
     {
       version: A2UI_VERSION,
@@ -297,7 +408,7 @@ export function buildPlanSurface(plan: EventPlan, surfaceId: string): A2uiMessag
           {
             id: 'body',
             component: 'Column',
-            children: ['heading', 'preview', 'nameField', 'styleChoice', 'accentChoice', 'dateField', 'remoteCheck', 'slugField', 'divider', 'actions'],
+            children: ['heading', 'preview', 'nameField', 'styleChoice', 'accentChoice', 'dateField', 'remoteCheck', 'slugField', 'packCheck', 'divider', 'actions'],
           },
           { id: 'heading', component: 'Text', text: 'Your event, so far', variant: 'h4' },
           // Beamwall custom widget: live look preview bound to the SAME data
@@ -321,8 +432,19 @@ export function buildPlanSurface(plan: EventPlan, surfaceId: string): A2uiMessag
           { id: 'dateField', component: 'DateTimeInput', label: 'Date', enableDate: true, enableTime: false, value: { path: '/plan/date' } },
           { id: 'remoteCheck', component: 'CheckBox', label: 'Remote / virtual celebration', value: { path: '/plan/remote' } },
           { id: 'slugField', component: 'TextField', label: 'Guest link (/e/…)', value: { path: '/plan/slug' } },
+          { id: 'packCheck', component: 'CheckBox', label: 'Start with a challenge pack + a keepsake card', value: { path: '/plan/seedPack' } },
           { id: 'divider', component: 'Divider', axis: 'horizontal' },
-          { id: 'actions', component: 'Row', justify: 'end', children: ['confirmBtn'] },
+          { id: 'actions', component: 'Row', justify: 'end', children: ['allBtn', 'confirmBtn'] },
+          // Deferral: the wizard fills every open field (fillPlanGaps), forces
+          // the starter pack on, and creates — no further questions.
+          {
+            id: 'allBtn',
+            component: 'Button',
+            variant: 'borderless',
+            child: 'allLabel',
+            action: { event: { name: 'set_it_all_up', context: { plan: { path: '/plan' } } } },
+          },
+          { id: 'allLabel', component: 'Text', text: 'Set it all up for me' },
           {
             id: 'confirmBtn',
             component: 'Button',

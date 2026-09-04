@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import { askCopilot, sendFeedback } from './copilot';
+import { askCopilot, executeAction, sendFeedback } from './copilot';
 import type { EventSnapshot } from './eventSnapshot';
 import type { ChatMessage } from './eventDesigner';
 
@@ -9,11 +9,13 @@ import type { ChatMessage } from './eventDesigner';
 // gate-0 offline-reply mapping and the eventUuid credits passthrough are
 // testable without a live client. normalizeActions/mergeWireTurns have their
 // own coverage in copilot.test.ts.
-const { invokeMock, reportMock } = vi.hoisted(() => ({ invokeMock: vi.fn(), reportMock: vi.fn() }));
+const { invokeMock, reportMock, updateEventConfig } = vi.hoisted(() => ({ invokeMock: vi.fn(), reportMock: vi.fn(), updateEventConfig: vi.fn() }));
 vi.mock('./supabase', () => ({ supabase: { functions: { invoke: invokeMock } } }));
 // askCopilot's error branch lazy-imports ./errorReport (which imports the
 // supabase client statically) — mocked so the tag it sends is observable.
 vi.mock('./errorReport', () => ({ reportError: reportMock }));
+// executeAction('update_brief') lazy-imports ./host (static supabase import).
+vi.mock('./host', () => ({ updateEventConfig }));
 
 const snapshot = {
   eventUuid: 'u-1', slug: 'daps-35th', name: "Dapo's 35th", status: 'live',
@@ -36,6 +38,7 @@ async function askWithError(code: string) {
 beforeEach(() => {
   invokeMock.mockReset();
   reportMock.mockReset();
+  updateEventConfig.mockReset();
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -266,5 +269,71 @@ describe('sendFeedback', () => {
     expect(await sendFeedback(7, 1)).toBe(false);
     invokeMock.mockRejectedValue(new Error('fetch failed'));
     expect(await sendFeedback(7, -1)).toBe(false);
+  });
+});
+
+describe('askCopilot cancel (AbortSignal)', () => {
+  it('passes the signal to functions.invoke', async () => {
+    const controller = new AbortController();
+    invokeMock.mockResolvedValue({ data: { reply: 'hi', actions: [] }, error: null });
+    const res = await askCopilot(messages, snapshot, { signal: controller.signal });
+    expect(res.source).toBe('ai');
+    expect(res.aborted).toBeUndefined();
+    expect(invokeMock.mock.calls[0][1]).toMatchObject({ signal: controller.signal });
+  });
+
+  it('omits `signal` from the call when none is given (older callers byte-identical)', async () => {
+    invokeMock.mockResolvedValue({ data: { reply: 'hi' }, error: null });
+    await askCopilot(messages, snapshot);
+    expect('signal' in invokeMock.mock.calls[0][1]).toBe(false);
+  });
+
+  it('an aborted call resolves aborted:true with an empty reply — no offline copy, no telemetry', async () => {
+    const controller = new AbortController();
+    invokeMock.mockImplementation(async () => {
+      controller.abort();
+      return { data: null, error: new Error('The user aborted a request.') };
+    });
+    const res = await askCopilot(messages, snapshot, { signal: controller.signal });
+    expect(res).toEqual({ reply: '', actions: [], source: 'offline', dropped: 0, droppedReasons: [], turnId: null, aborted: true });
+    expect(reportMock).not.toHaveBeenCalled();
+  });
+
+  it('a signal already aborted short-circuits before any network call', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const res = await askCopilot(messages, snapshot, { signal: controller.signal });
+    expect(res.aborted).toBe(true);
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('an abort that surfaces as a THROW is still a clean stop', async () => {
+    const controller = new AbortController();
+    invokeMock.mockImplementation(async () => { controller.abort(); throw new DOMException('aborted', 'AbortError'); });
+    const res = await askCopilot(messages, snapshot, { signal: controller.signal });
+    expect(res.aborted).toBe(true);
+    expect(reportMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('executeAction update_brief', () => {
+  const ctx = { slug: 'daps-35th', eventUuid: 'u-1', origin: 'https://x', brief: { occasion: '35th', honorees: ['Dapo'], palette: '', tone: '', avoid: [], notes: '', updatedAt: null } };
+
+  it('merges the patch onto ctx.brief and writes events.config.brief through updateEventConfig', async () => {
+    updateEventConfig.mockResolvedValue(true);
+    const r = await executeAction({ tool: 'update_brief', proposal: { palette: 'gold and navy', avoid: 'balloons, puns' } }, ctx);
+    expect(r).toEqual({ ok: true, summary: 'Brief updated (palette, avoid).' });
+    expect(updateEventConfig).toHaveBeenCalledTimes(1);
+    const [uuid, patch] = updateEventConfig.mock.calls[0] as [string, { brief: Record<string, unknown> }];
+    expect(uuid).toBe('u-1');
+    expect(patch.brief).toMatchObject({ occasion: '35th', honorees: ['Dapo'], palette: 'gold and navy', avoid: ['balloons', 'puns'] });
+    expect(typeof patch.brief.updatedAt).toBe('string');
+  });
+
+  it('starts from an empty brief when ctx has none, and reports a zero-row write honestly', async () => {
+    updateEventConfig.mockResolvedValue(false);
+    const r = await executeAction({ tool: 'update_brief', proposal: { tone: 'loud' } }, { ...ctx, brief: null });
+    expect(r).toMatchObject({ ok: false, code: 'unknown', retryable: true });
+    expect((updateEventConfig.mock.calls[0] as [string, { brief: { tone: string; honorees: string[] } }])[1].brief).toMatchObject({ tone: 'loud', honorees: [] });
   });
 });

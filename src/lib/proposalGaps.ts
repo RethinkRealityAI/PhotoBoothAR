@@ -29,6 +29,7 @@
  */
 import { frameBriefGaps, pieceBriefGaps, type BriefGap } from './assetBrief';
 import { COPILOT_TOOLS, type ToolParam, type ToolSpec } from './copilotTools';
+import { packById } from './contentPacks';
 
 export interface ProposalGap extends BriefGap {
   /**
@@ -126,6 +127,19 @@ export function proposalGaps(tool: string, proposal: Record<string, unknown>): P
         return briefGaps(pieceBriefGaps(typeof proposal.prompt === 'string' ? proposal.prompt : ''));
       }
       return filled(proposal.pieceId) ? [] : needParam('add_head_piece', 'pieceId');
+
+    // A known packId is a complete pack (the normalizer expands it); otherwise
+    // the challenges must be there — the registry marks them optional only
+    // because of packId.
+    case 'add_challenge_pack':
+      if (packById(typeof proposal.packId === 'string' ? proposal.packId : null)) return [];
+      return Array.isArray(proposal.challenges) && proposal.challenges.length > 0 ? []
+        : needParam('add_challenge_pack', 'challenges');
+
+    // Every field is optional, but ALL of them blank is nothing to record.
+    case 'update_brief':
+      return (['occasion', 'honorees', 'palette', 'tone', 'avoid', 'notes'] as const).some((k) => filled(proposal[k])) ? []
+        : need('brief', 'What should I note about the event?', 'the palette is gold and navy, and please avoid balloons');
 
     // Every other tool: its REQUIRED registry parameters, nothing more. An
     // unknown tool has no registry entry and so returns [] (see the doc above).

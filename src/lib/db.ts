@@ -28,6 +28,7 @@ import {
 } from '../types';
 import { getSessionId } from './session';
 import { isDeleteToken } from './postDelete';
+import type { ChallengeCheckRow } from './challengeChecks';
 import { normalizeStudioSettings, DEFAULT_STUDIO_SETTINGS, type StudioSettings } from './studio/occluder';
 
 /** The grandfathered single-tenant events whose RLS still permits the direct
@@ -734,6 +735,27 @@ export async function deleteChallenge(eventId: string, id: string): Promise<bool
     return false;
   }
   return true;
+}
+
+/**
+ * AI photo-check verdicts for one event (`challenge_checks`, migration 038):
+ * service-role written, member-readable, no guest identity. Newest first,
+ * capped at 500 rows — enough for every challenge's counts and its last five
+ * fail reasons (challengeChecks.summarizeChallengeChecks). `*Result` shape:
+ * a failed read is reported, never rendered as "0 checked".
+ */
+export async function fetchChallengeCheckStats(eventId: string): Promise<ListResult<ChallengeCheckRow>> {
+  const { data, error } = await supabase
+    .from('challenge_checks')
+    .select('challenge_id, pass, confidence, reason, created_at')
+    .eq('event_id', eventId)
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) {
+    console.error('[db] fetchChallengeCheckStats', error);
+    return { rows: [], failed: true };
+  }
+  return { rows: (data as ChallengeCheckRow[]) ?? [], failed: false };
 }
 
 /* ------------------------------------------------------------------ */

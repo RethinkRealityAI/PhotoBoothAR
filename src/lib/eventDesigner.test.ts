@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   inferTemplate, extractName, extractDate, detectRemote, localDesign, normalizePlan,
+  detectDeferral, fillPlanGaps, localBrief, accentFromPalette,
   buildPlanSurface, surfaceIdOf, designEvent, parseNaturalDate, trimWireTurns,
   type ChatMessage, type EventPlan,
 } from './eventDesigner';
@@ -149,6 +150,7 @@ describe('normalizePlan', () => {
       date: null,
       slug: 'starlight-gala',
       accent: null,
+      brief: null,
     });
   });
 
@@ -174,7 +176,22 @@ describe('buildPlanSurface (A2UI generative UI)', () => {
     date: '2026-09-12',
     slug: 'jenna-jakes-wedding',
     accent: null,
+    brief: null,
   };
+
+  it('carries seedPack (default ON) beside the plan and a "Set it all up for me" deferral button', () => {
+    const s = applySurfaceMessages({}, buildPlanSurface(plan, 'p')).p;
+    expect(getPath(s.dataModel, '/plan/seedPack')).toBe(true);
+    expect(s.components.packCheck).toMatchObject({ component: 'CheckBox', value: { path: '/plan/seedPack' } });
+    expect(String(s.components.packCheck.label)).toMatch(/challenge pack/i);
+    const all = (s.components.allBtn.action as { event: { name: string; context: Record<string, unknown> } }).event;
+    expect(all.name).toBe('set_it_all_up');
+    const ctx = resolveContext(all.context, { plan: { ...plan, seedPack: false } });
+    expect((ctx.plan as { seedPack: boolean }).seedPack).toBe(false);
+    expect(s.components.allBtn.variant).toBe('borderless');
+    // normalizePlan ignores the extra key — the wizard reads it separately.
+    expect('seedPack' in normalizePlan({ ...plan, seedPack: true })).toBe(false);
+  });
 
   it('streams a valid A2UI surface the reducer can fold into state', () => {
     const messages = buildPlanSurface(plan, 'plan_1');
@@ -320,5 +337,66 @@ describe('designEvent — turn window on the wire', () => {
     expect(body.messages[0].role).toBe('user');
     expect(body.messages[body.messages.length - 1].content).toBe('last');
     expect(body.messages).toEqual(trimWireTurns(thread));
+  });
+});
+
+describe('brief: normalizePlan / localBrief / fillPlanGaps / deferral', () => {
+  it('normalizePlan lifts plan.brief (nullable strings) into an EventBrief, null when empty', () => {
+    expect(normalizePlan({ name: 'X', brief: { occasion: '60th birthday', honorees: 'Adaeze', palette: null, avoid: 'balloons' } }).brief)
+      .toEqual({ occasion: '60th birthday', honorees: ['Adaeze'], palette: '', tone: '', avoid: ['balloons'], notes: '', updatedAt: null });
+    expect(normalizePlan({ brief: { occasion: null } }).brief).toBeNull();
+    expect(normalizePlan({ brief: 'x' }).brief).toBeNull();
+  });
+
+  it('localBrief reads occasion + ordinal, honorees, colours, tone and "no X" items', () => {
+    const b = localBrief(["It's my mum Adaeze's 60th birthday — gold and navy, warm and playful, no balloons please, and avoid puns."], 'birthday');
+    expect(b).toEqual({
+      occasion: '60th birthday', honorees: ['Adaeze'], palette: 'gold and navy', tone: 'warm, playful',
+      avoid: ['balloons', 'puns'], notes: '', updatedAt: null,
+    });
+    expect(localBrief(['hello there'], null)).toBeNull();
+    expect(localBrief(['a gala for Christmas'], 'gala')!.honorees).toEqual([]);
+  });
+
+  it('detectDeferral matches the deferral phrases and nothing ordinary', () => {
+    for (const t of ['Just set it all up for me', 'you decide', 'Surprise me!', "I don't mind, up to you", 'set it up']) {
+      expect(detectDeferral(t), t).toBe(true);
+    }
+    for (const t of ["Jenna and Jake's wedding on 2026-09-12", 'a black-tie gala', 'set the date to June']) {
+      expect(detectDeferral(t), t).toBe(false);
+    }
+  });
+
+  it('fillPlanGaps decides every open field from the brief and never the date', () => {
+    const open = normalizePlan({});
+    const brief = { occasion: 'charity gala', honorees: ['Adaeze'], palette: 'navy and gold', tone: '', avoid: [], notes: '', updatedAt: null };
+    expect(fillPlanGaps(open, brief)).toEqual({
+      name: "Adaeze's Gala", templateId: 'gala', remote: false, date: null, slug: 'adaeze-s-gala', accent: '#1F3A5F', brief,
+    });
+    // a name ending in s gets the bare apostrophe; no honoree → "Our Celebration"
+    expect(fillPlanGaps(open, { ...brief, honorees: ['James'] }).name).toBe("James' Gala");
+    expect(fillPlanGaps(open, null)).toMatchObject({ name: 'Our Celebration', slug: 'our-celebration', templateId: 'party', accent: null, brief: null });
+    // decided fields are kept
+    const decided = { ...open, name: 'Keep', slug: 'keep', accent: '#000000', templateId: 'birthday' as const };
+    expect(fillPlanGaps(decided, brief)).toMatchObject({ name: 'Keep', slug: 'keep', accent: '#000000', templateId: 'gala' });
+  });
+
+  it('accentFromPalette: explicit hex wins, then the first named colour', () => {
+    expect(accentFromPalette('use #ff00aa and gold')).toBe('#FF00AA');
+    expect(accentFromPalette('rose gold and cream')).toBe('#B76E79');
+    expect(accentFromPalette('greige')).toBeNull();
+  });
+
+  it('localDesign with a deferral fills the plan and says hit Create; without one it still asks for a name', () => {
+    const deferred = localDesign([{ role: 'user', content: "A gala for Adaeze in navy — just set it all up for me" }]);
+    expect(deferred.plan).toMatchObject({ name: "Adaeze's Gala", templateId: 'gala', slug: 'adaeze-s-gala', accent: '#1F3A5F' });
+    expect(deferred.plan.brief).toMatchObject({ occasion: 'gala', honorees: ['Adaeze'], palette: 'navy' });
+    expect(deferred.reply).toMatch(/hit Create/);
+    expect(deferred.reply).not.toMatch(/What should we call/);
+    expect(deferred.decided.template).toBe(true);
+    const plain = localDesign([{ role: 'user', content: 'a gala in navy' }]);
+    expect(plain.plan.name).toBeNull();
+    expect(plain.reply).toMatch(/What should we call/);
+    expect(plain.plan.brief).toMatchObject({ occasion: 'gala', palette: 'navy' });
   });
 });

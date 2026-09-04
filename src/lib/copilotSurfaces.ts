@@ -16,10 +16,42 @@ import { HEAD_PIECES } from './headPieces';
 import { GENERIC_FRAMES } from './borders';
 import { frameBriefGaps, gapSummary, pieceBriefGaps } from './assetBrief';
 import { providerCostLabel } from './providerPricing';
+import type { EventSnapshot } from './eventSnapshot';
+import type { EventBrief } from './eventBrief';
 
 const FILTER_OPTIONS = FILTER_SHADERS.filter((s) => s.id !== 'none').map((s) => ({ label: s.name, value: s.id }));
-const PIECE_OPTIONS = HEAD_PIECES.map((p) => ({ label: p.name, value: p.id }));
-const FRAME_OPTIONS = GENERIC_FRAMES.map((f) => ({ label: f.name, value: f.id }));
+
+/** Emoji tiles for the built-in 3D pieces (the catalog carries no thumbnails;
+ *  a ThumbPicker needs SOMETHING to show besides the label). */
+const PIECE_EMOJI: Record<string, string> = {
+  'royal-crown': '👑', 'queen-tiara': '👸', 'cheek-stars': '✨', 'hope-halo': '😇', 'neon-shades': '🕶️', 'cyclops-visor': '🥽',
+};
+const PIECE_THUMBS = HEAD_PIECES.map((p) => ({ value: p.id, label: p.name, emoji: PIECE_EMOJI[p.id] ?? '🎭' }));
+/** `frameId` lets the renderer draw the real SVG (toDataUrl at render time —
+ *  no SVG bytes persist in the surface data model). */
+const FRAME_THUMBS = GENERIC_FRAMES.map((f) => ({ value: f.id, label: f.name, frameId: f.id }));
+
+/** What a proposal card may read from the live event to show BEFORE → AFTER
+ *  (Diff rows) — the snapshot slice the chat already holds. Optional so every
+ *  existing caller keeps its id-only rendering. */
+export interface ProposalContext {
+  snapshot?: EventSnapshot | null;
+}
+
+/** One `Diff` row: `after` may be a `{ path }` binding so it tracks edits. */
+interface DiffRow { label: string; before: string; after: string | { path: string } }
+
+function diff(id: string, rows: DiffRow[]): A2uiComponent {
+  return { id, component: 'Diff', rows };
+}
+
+function divider(id: string): A2uiComponent {
+  return { id, component: 'Divider', axis: 'horizontal' };
+}
+
+function clip(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
+}
 
 function surface(
   surfaceId: string,
@@ -196,8 +228,12 @@ export function buildProposalSurface(
   action: CopilotAction,
   surfaceId: string,
   challenge: ProposalChallenge = null,
+  ctx: ProposalContext = {},
 ): A2uiMessage[] {
   const p = 'proposal' in action ? action.proposal : undefined;
+  const snap = ctx.snapshot ?? null;
+  const expName = (id: string | null | undefined): string =>
+    (id && snap?.experiences.find((e) => e.id === id)?.name) || (id ? id : 'none');
   switch (action.tool) {
     case 'add_challenge': {
       const confirm = confirmRow('Add challenge');
@@ -220,33 +256,49 @@ export function buildProposalSurface(
       ]);
     }
     case 'add_challenge_pack': {
-      const confirm = confirmRow('Add all');
-      const rows = action.proposal.challenges;
-      const rowIds = rows.map((_, i) => `chal_${i}`);
-      return surface(surfaceId, { proposal: { tool: action.tool, ...action.proposal } }, [
+      // Templated ChildList: ONE row template rendered per challenge, each
+      // scoped to `/proposal/challenges/<i>` so the relative bindings
+      // (`include`, `title`, …) read and write that row. The confirm handler
+      // runs applyIncludeFlags BEFORE normalizeActions to honour the ticks.
+      const confirm = confirmRow('Add selected');
+      const rows = action.proposal.challenges.map((c) => ({ ...c, include: true }));
+      return surface(surfaceId, { proposal: { tool: action.tool, ...action.proposal, challenges: rows } }, [
         { id: 'root', component: 'Card', child: 'body' },
-        { id: 'body', component: 'Column', children: ['heading', 'themeField', ...rowIds, ...confirm.ids] },
+        { id: 'body', component: 'Column', children: ['heading', 'themeField', 'packList', 'packHint', ...confirm.ids] },
         heading(action.tool, ` · ${rows.length} challenges`),
         textField('themeField', 'Theme', '/proposal/theme'),
-        ...rows.flatMap((c, i): A2uiComponent[] => [
-          { id: `chal_${i}`, component: 'Column', children: [`chal_${i}_t`, `chal_${i}_d`] },
-          { id: `chal_${i}_t`, component: 'Text', text: `${c.emoji} ${c.title} · ${c.points} pts` },
-          { id: `chal_${i}_d`, component: 'Text', variant: 'caption', text: c.description || '—' },
-        ]),
+        { id: 'packList', component: 'List', children: { path: '/proposal/challenges', componentId: 'packRow' } },
+        { id: 'packRow', component: 'Column', children: ['packRowTop', 'packRowTitle'] },
+        { id: 'packRowTop', component: 'Row', justify: 'start', children: ['packInclude', 'packPoints'] },
+        { id: 'packInclude', component: 'CheckBox', label: { path: 'emoji' }, value: { path: 'include' } },
+        { id: 'packPoints', component: 'Text', variant: 'caption', text: { path: 'points' } },
+        { id: 'packRowTitle', component: 'TextField', label: 'Title', value: { path: 'title' } },
+        { id: 'packHint', component: 'Text', variant: 'caption', text: 'Untick any mission you don’t want; edit titles freely.' },
         ...confirm.components,
       ]);
     }
     case 'update_challenge': {
       const confirm = confirmRow('Apply changes');
       const target = challengeTarget(challenge, false);
+      // BEFORE → AFTER for each field the proposal touches (after tracks edits).
+      const cur = snap?.challenges.find((c) => c.id === action.proposal.challengeId) ?? challenge;
+      const rows: DiffRow[] = [];
+      if (cur && action.proposal.title !== undefined) rows.push({ label: 'Title', before: cur.title, after: { path: '/proposal/title' } });
+      if (cur && action.proposal.emoji !== undefined) rows.push({ label: 'Emoji', before: cur.emoji, after: { path: '/proposal/emoji' } });
+      if (cur && action.proposal.points !== undefined) rows.push({ label: 'Points', before: String(cur.points), after: { path: '/proposal/points' } });
+      if (cur && 'active' in cur && action.proposal.active !== undefined) {
+        rows.push({ label: 'Status', before: cur.active ? 'Active' : 'Paused', after: action.proposal.active ? 'Active' : 'Paused' });
+      }
+      const diffIds = rows.length > 0 ? ['diff', 'diffDivider'] : [];
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
         {
           id: 'body', component: 'Column',
-          children: ['heading', ...target.ids, 'titleField', 'emojiField', 'pointsField', 'activeCheck', ...confirm.ids],
+          children: ['heading', ...target.ids, ...diffIds, 'titleField', 'emojiField', 'pointsField', 'activeCheck', ...confirm.ids],
         },
         heading(action.tool),
         ...target.components,
+        ...(rows.length > 0 ? [diff('diff', rows), divider('diffDivider')] : []),
         textField('titleField', 'Title', '/proposal/title'),
         textField('emojiField', 'Emoji', '/proposal/emoji'),
         textField('pointsField', 'Points', '/proposal/points'),
@@ -341,12 +393,34 @@ export function buildProposalSurface(
       const confirm = confirmRow('Add filter');
       // A picker (bound to /proposal/shaderId) lets the host swap the suggested
       // filter — so the build-mode chip works even before an AI round-trip.
+      const diffIds = snap ? ['diff', 'diffDivider'] : [];
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
-        { id: 'body', component: 'Column', children: ['heading', 'picker', 'desc', ...confirm.ids] },
+        { id: 'body', component: 'Column', children: ['heading', ...diffIds, 'picker', 'desc', ...confirm.ids] },
         heading(action.tool),
+        ...(snap ? [diff('diff', [{ label: 'Booth default', before: expName(snap.defaultExperienceId), after: { path: '/proposal/shaderId' } }]), divider('diffDivider')] : []),
         { id: 'picker', component: 'ChoicePicker', label: 'Filter', options: FILTER_OPTIONS, value: { path: '/proposal/shaderId' } },
         { id: 'desc', component: 'Text', variant: 'caption', text: 'Applied to the whole booth and set as the default look.' },
+        ...confirm.components,
+      ]);
+    }
+    case 'update_brief': {
+      const confirm = confirmRow('Update brief');
+      const fields = (['occasion', 'honorees', 'palette', 'tone', 'avoid', 'notes'] as const).filter((k) => action.proposal[k] !== undefined);
+      const label = (k: string) => k[0].toUpperCase() + k.slice(1);
+      const before = (k: keyof EventBrief): string => {
+        const v = snap?.brief?.[k];
+        return Array.isArray(v) ? (v.length > 0 ? v.join(', ') : '—') : (typeof v === 'string' && v ? v : '—');
+      };
+      const rows: DiffRow[] = fields.map((k) => ({ label: label(k), before: before(k), after: { path: `/proposal/${k}` } }));
+      return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
+        { id: 'root', component: 'Card', child: 'body' },
+        { id: 'body', component: 'Column', children: ['heading', 'diff', 'diffDivider', ...fields.map((k) => `${k}Field`), 'briefHint', ...confirm.ids] },
+        heading(action.tool),
+        diff('diff', rows),
+        divider('diffDivider'),
+        ...fields.map((k) => textField(`${k}Field`, label(k), `/proposal/${k}`)),
+        { id: 'briefHint', component: 'Text', variant: 'caption', text: 'Only these fields change; everything else in the brief stays as it is.' },
         ...confirm.components,
       ]);
     }
@@ -371,49 +445,55 @@ export function buildProposalSurface(
         { id: 'root', component: 'Card', child: 'body' },
         { id: 'body', component: 'Column', children: ['heading', 'picker', 'desc', ...confirm.ids] },
         heading(action.tool),
-        { id: 'picker', component: 'ChoicePicker', label: 'Prop', options: PIECE_OPTIONS, value: { path: '/proposal/pieceId' } },
+        { id: 'picker', component: 'ThumbPicker', label: 'Prop', options: PIECE_THUMBS, value: { path: '/proposal/pieceId' } },
         { id: 'desc', component: 'Text', variant: 'caption', text: 'A face-tracked 3D piece guests wear in the booth — set as the booth default.' },
         ...confirm.components,
       ]);
     }
     case 'add_frame': {
       const confirm = confirmRow('Add frame');
-      // Picker of generic (no event-locked text) built-in frames.
+      // Thumbnail picker of generic (no event-locked text) built-in frames.
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
         { id: 'body', component: 'Column', children: ['heading', 'picker', 'desc', ...confirm.ids] },
         heading(action.tool),
-        { id: 'picker', component: 'ChoicePicker', label: 'Frame', options: FRAME_OPTIONS, value: { path: '/proposal/borderId' } },
+        { id: 'picker', component: 'ThumbPicker', label: 'Frame', options: FRAME_THUMBS, value: { path: '/proposal/borderId' } },
         { id: 'desc', component: 'Text', variant: 'caption', text: 'A clean, event-neutral frame — set as the booth default. Want it personalised? Ask me to generate one instead.' },
         ...confirm.components,
       ]);
     }
     case 'set_default_experience': {
       const confirm = confirmRow('Set as default');
+      const diffIds = snap ? ['diff', 'diffDivider'] : [];
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
-        { id: 'body', component: 'Column', children: ['heading', 'desc', ...confirm.ids] },
+        { id: 'body', component: 'Column', children: ['heading', ...diffIds, 'desc', ...confirm.ids] },
         heading(action.tool),
+        ...(snap ? [diff('diff', [{ label: 'Booth default', before: expName(snap.defaultExperienceId), after: expName(action.proposal.experienceId) }]), divider('diffDivider')] : []),
         { id: 'desc', component: 'Text', variant: 'caption', text: 'This is what the booth opens with when guests scan in.' },
         ...confirm.components,
       ]);
     }
     case 'set_event_date': {
       const confirm = confirmRow('Update date');
+      const diffIds = snap ? ['diff', 'diffDivider'] : [];
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
-        { id: 'body', component: 'Column', children: ['heading', 'dateField', ...confirm.ids] },
+        { id: 'body', component: 'Column', children: ['heading', ...diffIds, 'dateField', ...confirm.ids] },
         heading(action.tool),
+        ...(snap ? [diff('diff', [{ label: 'Date', before: snap.startsAt ?? 'not set', after: { path: '/proposal/date' } }]), divider('diffDivider')] : []),
         { id: 'dateField', component: 'DateTimeInput', label: 'Event date', enableDate: true, enableTime: false, value: { path: '/proposal/date' } },
         ...confirm.components,
       ]);
     }
     case 'rename_event': {
       const confirm = confirmRow('Rename');
+      const diffIds = snap ? ['diff', 'diffDivider'] : [];
       return surface(surfaceId, { proposal: { tool: action.tool, ...p } }, [
         { id: 'root', component: 'Card', child: 'body' },
-        { id: 'body', component: 'Column', children: ['heading', 'nameField', ...confirm.ids] },
+        { id: 'body', component: 'Column', children: ['heading', ...diffIds, 'nameField', ...confirm.ids] },
         heading(action.tool),
+        ...(snap ? [diff('diff', [{ label: 'Name', before: snap.name, after: { path: '/proposal/name' } }]), divider('diffDivider')] : []),
         textField('nameField', 'Event name', '/proposal/name'),
         ...confirm.components,
       ]);
@@ -434,6 +514,139 @@ export function buildProposalSurface(
     default:
       return []; // read-only tools auto-execute — no confirm card
   }
+}
+
+/* ── Bundles (several mutating proposals in one card) ────────────────── */
+
+export interface BundleStep {
+  /** The normalized action — lives in the data model as JSON so a refreshed
+   *  page keeps a working card. */
+  action: CopilotAction;
+  /** ≤90-char host line (summarizeAction). */
+  summary: string;
+  include: boolean;
+  /** Spends credits: runs LAST and opens its own generation card. */
+  paid: boolean;
+  /** '' for free steps; the caption under a paid one. */
+  paidNote: string;
+}
+
+const SUMMARY_MAX = 90;
+
+/** Spends credits (the two generation tools). */
+export function isPaidAction(action: CopilotAction): boolean {
+  return action.tool === 'generate_frame'
+    || (action.tool === 'add_head_piece' && action.proposal.source === 'generate');
+}
+
+/** One host-readable line (≤ 90 chars) for ANY action — bundle rows, the
+ *  "Stopped." recap, telemetry. Names things from the snapshot when it can. */
+export function summarizeAction(action: CopilotAction, snapshot: EventSnapshot | null = null): string {
+  const ch = (id: string) => snapshot?.challenges.find((c) => c.id === id)?.title ?? id;
+  const ex = (id: string) => snapshot?.experiences.find((e) => e.id === id)?.name ?? id;
+  let line: string;
+  switch (action.tool) {
+    case 'add_challenge':
+      line = `Add challenge “${clip(action.proposal.title, 40)}” (${action.proposal.points} pts)`;
+      break;
+    case 'add_challenge_pack':
+      line = `Add ${action.proposal.challenges.length} challenges — ${clip(action.proposal.theme, 40)}`;
+      break;
+    case 'update_challenge': {
+      const p = action.proposal;
+      const bits = [
+        ...(p.title !== undefined ? [`title → “${clip(p.title, 24)}”`] : []),
+        ...(p.points !== undefined ? [`${p.points} pts`] : []),
+        ...(p.emoji !== undefined ? [p.emoji] : []),
+        ...(p.active !== undefined ? [p.active ? 'resume' : 'pause'] : []),
+      ];
+      line = `Edit “${clip(ch(p.challengeId), 30)}”${bits.length > 0 ? `: ${bits.join(', ')}` : ''}`;
+      break;
+    }
+    case 'delete_challenge':
+      line = `Delete challenge “${clip(ch(action.proposal.challengeId), 40)}”`;
+      break;
+    case 'create_card':
+      line = `Create card “${clip(action.proposal.cardTitle, 40)}”${action.proposal.recipientName ? ` for ${clip(action.proposal.recipientName, 20)}` : ''}`;
+      break;
+    case 'generate_frame':
+      line = `Generate a frame: ${clip(action.proposal.prompt, 60)}`;
+      break;
+    case 'add_frame':
+      line = `Add frame “${GENERIC_FRAMES.find((f) => f.id === action.proposal.borderId)?.name ?? action.proposal.borderId}”`;
+      break;
+    case 'set_filter':
+      line = `Set filter “${FILTER_SHADERS.find((s) => s.id === action.proposal.shaderId)?.name ?? action.proposal.shaderId}”`;
+      break;
+    case 'add_head_piece': {
+      const hp = action.proposal;
+      line = hp.source === 'builtin'
+        ? `Add 3D prop “${HEAD_PIECES.find((h) => h.id === hp.pieceId)?.name ?? hp.pieceId}”`
+        : `Generate a 3D prop: ${clip(hp.prompt, 60)}`;
+      break;
+    }
+    case 'set_default_experience':
+      line = `Set the booth default to “${clip(ex(action.proposal.experienceId), 40)}”`;
+      break;
+    case 'set_event_date':
+      line = `Set the date to ${action.proposal.date}`;
+      break;
+    case 'rename_event':
+      line = `Rename the event to “${clip(action.proposal.name, 50)}”`;
+      break;
+    case 'update_brief':
+      line = `Update the brief (${Object.keys(action.proposal).join(', ')})`;
+      break;
+    case 'go_live': line = 'Take the event live'; break;
+    case 'test_experience': line = 'Show the booth test link'; break;
+    case 'get_stats': line = 'Show event stats'; break;
+    case 'share_links': line = 'Show the share links'; break;
+    case 'open_scene_director': line = 'Open the Scene Director'; break;
+    case 'contact_support': line = 'Contact support'; break;
+  }
+  return clip(line, SUMMARY_MAX);
+}
+
+/** Actions → bundle steps: everything included, paid steps moved LAST (stable). */
+export function bundleStepsFor(actions: CopilotAction[], snapshot: EventSnapshot | null = null): BundleStep[] {
+  const step = (action: CopilotAction): BundleStep => {
+    const paid = isPaidAction(action);
+    return {
+      action, summary: summarizeAction(action, snapshot), include: true, paid,
+      paidNote: paid ? `Spends credits — ${COPILOT_TOOLS[action.tool].costNote ?? ''} Opens its own card last.`.replace(/\s+/g, ' ').trim() : '',
+    };
+  };
+  return [...actions.filter((a) => !isPaidAction(a)), ...actions.filter(isPaidAction)].map(step);
+}
+
+/**
+ * One card for a multi-step proposal: a templated list with a CheckBox per
+ * step, and ONE confirm (`confirm_bundle`, context `{ steps }` resolved from
+ * the data model at click time — so unticks and a page refresh both survive).
+ */
+export function buildBundleSurface(steps: BundleStep[], surfaceId: string): A2uiMessage[] {
+  return surface(surfaceId, { bundle: { steps } }, [
+    { id: 'root', component: 'Card', child: 'body' },
+    { id: 'body', component: 'Column', children: ['heading', 'sub', 'stepList', 'divider', 'actionsRow'] },
+    { id: 'heading', component: 'Text', text: `Set it up in ${steps.length} steps`, variant: 'h5' },
+    {
+      id: 'sub', component: 'Text', variant: 'caption',
+      text: 'Untick anything you don’t want. Free steps run in order; a step that spends credits opens its own card last.',
+    },
+    { id: 'stepList', component: 'List', children: { path: '/bundle/steps', componentId: 'bundleRow' } },
+    { id: 'bundleRow', component: 'Column', children: ['bundleInclude', 'bundleNote'] },
+    { id: 'bundleInclude', component: 'CheckBox', label: { path: 'summary' }, value: { path: 'include' } },
+    { id: 'bundleNote', component: 'Text', variant: 'caption', text: { path: 'paidNote' } },
+    divider('divider'),
+    { id: 'actionsRow', component: 'Row', justify: 'end', children: ['cancelBtn', 'confirmBtn'] },
+    { id: 'cancelBtn', component: 'Button', variant: 'borderless', child: 'cancelLabel', action: { event: { name: 'cancel_action', context: {} } } },
+    { id: 'cancelLabel', component: 'Text', text: 'Dismiss' },
+    {
+      id: 'confirmBtn', component: 'Button', variant: 'primary', child: 'confirmLabel',
+      action: { event: { name: 'confirm_bundle', context: { steps: { path: '/bundle/steps' } } } },
+    },
+    { id: 'confirmLabel', component: 'Text', text: 'Run selected' },
+  ]);
 }
 
 /** The two handoff tools: an editable brief / summary and the standard

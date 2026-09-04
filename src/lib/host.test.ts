@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   fetchMyOrg,
   fetchMyOrgResult,
+  goLive,
   pickPrimaryOrg,
+  updateEventConfig,
   updateEventDate,
   updateEventName,
   updateEventStatus,
@@ -12,16 +14,18 @@ import {
 // as eventDesigner.test.ts). Only the org_members select→eq→order chain used
 // by fetchMyOrgResult, the events update→eq→select chain used by the lifecycle
 // writers, plus the auth.getSession the org query is scoped with, are stubbed.
-const { order, getSession, update, updateSelect } = vi.hoisted(() => ({
+const { order, maybeSingle, getSession, update, updateSelect, generateEventCopy } = vi.hoisted(() => ({
   order: vi.fn(),
+  maybeSingle: vi.fn(),
   getSession: vi.fn(),
   update: vi.fn(),
   updateSelect: vi.fn(),
+  generateEventCopy: vi.fn(),
 }));
 vi.mock('./supabase', () => ({
   supabase: {
     from: () => ({
-      select: () => ({ eq: () => ({ order }) }),
+      select: () => ({ eq: () => ({ order, maybeSingle }) }),
       update: (patch: Record<string, unknown>) => {
         update(patch);
         return { eq: () => ({ select: updateSelect }) };
@@ -39,11 +43,18 @@ const ONE_ROW = { data: [{ id: 'ev-1' }], error: null };
 /** …and for one that matched none: 204, no error. The whole point of the tests. */
 const NO_ROWS = { data: [], error: null };
 
+// goLive lazy-imports ./eventCopy (whose impure half reaches supabase) — mocked
+// so the fire-and-forget is observable and never touches a client.
+vi.mock('./eventCopy', () => ({ generateEventCopy }));
+
 beforeEach(() => {
   order.mockReset();
+  maybeSingle.mockReset();
   getSession.mockReset();
   update.mockReset();
   updateSelect.mockReset();
+  generateEventCopy.mockReset();
+  generateEventCopy.mockResolvedValue({ ok: true });
   getSession.mockResolvedValue(SIGNED_IN);
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -208,6 +219,51 @@ describe('lifecycle writes report a zero-row UPDATE as failure', () => {
     updateSelect.mockResolvedValue(ONE_ROW);
     await updateEventName('ev-1', '  Gala  ');
     expect(update).toHaveBeenLastCalledWith({ name: 'Gala' });
+  });
+});
+
+describe('updateEventConfig — shallow merge, zero-row write is failure', () => {
+  it('merges the patch over the stored config and reports true on one matched row', async () => {
+    maybeSingle.mockResolvedValue({ data: { config: { copy: { fullName: 'E' }, keep: 1 } }, error: null });
+    updateSelect.mockResolvedValue(ONE_ROW);
+    await expect(updateEventConfig('ev-1', { brief: { occasion: 'x' } })).resolves.toBe(true);
+    expect(update).toHaveBeenCalledWith({ config: { copy: { fullName: 'E' }, keep: 1, brief: { occasion: 'x' } } });
+  });
+
+  it('reports false when the UPDATE matched no row, and on read/write errors', async () => {
+    maybeSingle.mockResolvedValue({ data: { config: {} }, error: null });
+    updateSelect.mockResolvedValue(NO_ROWS);
+    await expect(updateEventConfig('ev-1', { a: 1 })).resolves.toBe(false);
+    updateSelect.mockResolvedValue({ data: null, error: { message: 'denied' } });
+    await expect(updateEventConfig('ev-1', { a: 1 })).resolves.toBe(false);
+    maybeSingle.mockResolvedValue({ data: null, error: null });
+    await expect(updateEventConfig('ev-1', { a: 1 })).resolves.toBe(false);
+    expect(update).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('goLive', () => {
+  it('flips the status and fires generateEventCopy once, after the flip', async () => {
+    updateSelect.mockResolvedValue(ONE_ROW);
+    await expect(goLive('ev-1')).resolves.toBe(true);
+    expect(update).toHaveBeenCalledWith({ status: 'live', archived_at: null });
+    await vi.waitFor(() => expect(generateEventCopy).toHaveBeenCalledWith('ev-1'));
+    expect(generateEventCopy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT generate copy when the flip matched no row', async () => {
+    updateSelect.mockResolvedValue(NO_ROWS);
+    await expect(goLive('ev-1')).resolves.toBe(false);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(generateEventCopy).not.toHaveBeenCalled();
+  });
+
+  it('a copy generator that rejects cannot undo a successful go-live', async () => {
+    updateSelect.mockResolvedValue(ONE_ROW);
+    generateEventCopy.mockRejectedValue(new Error('boom'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(goLive('ev-1')).resolves.toBe(true);
+    await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
   });
 });
 

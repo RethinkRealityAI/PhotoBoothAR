@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   normalizeActions, normalizeActionsResult, mergeWireTurns, executeAction,
   trimWireTurns, MAX_WIRE_TURNS, formatToolResult, toolResultSummary, toolResultCode,
-  offlineReplyFor, TOOL_LABELS,
+  offlineReplyFor, TOOL_LABELS, MAX_ACTIONS, applyIncludeFlags,
 } from './copilot';
+import { CONTENT_PACKS } from './contentPacks';
+import { CARD_TEMPLATE_IDS } from './cardTemplates';
 import { COPILOT_TOOLS } from './copilotTools';
 import type { EventSnapshot } from './eventSnapshot';
 import type { ChatMessage } from './eventDesigner';
@@ -47,10 +49,10 @@ describe('normalizeActions', () => {
     expect(out).toEqual([{ tool: 'delete_challenge', proposal: { challengeId: 'ch-real' } }]);
   });
 
-  it('caps at 3 actions and clamps points into [0,1000]', () => {
-    const many = Array.from({ length: 6 }, (_v, i) => ({ tool: 'add_challenge', title: `c${i}`, points: 99999 }));
+  it('caps at MAX_ACTIONS actions and clamps points into [0,1000]', () => {
+    const many = Array.from({ length: MAX_ACTIONS + 3 }, (_v, i) => ({ tool: 'add_challenge', title: `c${i}`, points: 99999 }));
     const out = normalizeActions(many, snapshot);
-    expect(out).toHaveLength(3);
+    expect(out).toHaveLength(MAX_ACTIONS);
     expect((out[0] as { proposal: { points: number } }).proposal.points).toBe(1000);
   });
 
@@ -246,12 +248,13 @@ describe('normalizeActionsResult — dropped count', () => {
   });
 
   it('does NOT count actions truncated by the MAX_ACTIONS cap as rejected', () => {
-    // Four valid tools: three run, the fourth is capped — never judged invalid,
-    // so it must not trigger the "I couldn't act on that one" line.
+    // Six valid tools: MAX_ACTIONS (5) run, the sixth is capped — never judged
+    // invalid, so it must not trigger the "I couldn't act on that one" line.
     const res = normalizeActionsResult([
       { tool: 'get_stats' }, { tool: 'share_links' }, { tool: 'go_live' }, { tool: 'test_experience' },
+      { tool: 'get_stats' }, { tool: 'test_experience' },
     ], snapshot);
-    expect(res.actions).toHaveLength(3);
+    expect(res.actions).toHaveLength(MAX_ACTIONS);
     expect(res.dropped).toBe(0);
   });
 
@@ -402,8 +405,9 @@ describe('normalizeActionsResult — droppedReasons', () => {
   it('records the MAX_ACTIONS cut as over_cap WITHOUT counting it in dropped', () => {
     const res = normalizeActionsResult([
       { tool: 'get_stats' }, { tool: 'share_links' }, { tool: 'go_live' }, { tool: 'test_experience' },
+      { tool: 'get_stats' }, { tool: 'test_experience' },
     ], snapshot);
-    expect(res.actions).toHaveLength(3);
+    expect(res.actions).toHaveLength(MAX_ACTIONS);
     expect(res.dropped).toBe(0);
     expect(res.droppedReasons).toEqual([{ tool: 'test_experience', reason: 'over_cap' }]);
   });
@@ -503,5 +507,97 @@ describe('offlineReplyFor + TOOL_LABELS', () => {
     for (const [tool, spec] of Object.entries(COPILOT_TOOLS)) {
       expect(TOOL_LABELS[tool as keyof typeof TOOL_LABELS]).toBe(spec.label);
     }
+  });
+});
+
+describe('MAX_ACTIONS (exported, 5)', () => {
+  it('is 5 and is the cap the normalizer applies', () => {
+    expect(MAX_ACTIONS).toBe(5);
+    const raw = Array.from({ length: MAX_ACTIONS + 2 }, () => ({ tool: 'get_stats' }));
+    const res = normalizeActionsResult(raw, snapshot);
+    expect(res.actions).toHaveLength(MAX_ACTIONS);
+    expect(res.droppedReasons.filter((d) => d.reason === 'over_cap')).toHaveLength(2);
+  });
+});
+
+describe('add_challenge_pack.packId (registry packs)', () => {
+  it('a known packId with no challenges expands from the registry, keeps packId and the pack theme', () => {
+    const [out] = normalizeActions([{ tool: 'add_challenge_pack', packId: 'birthday' }], snapshot);
+    expect(out).toEqual({
+      tool: 'add_challenge_pack',
+      proposal: { theme: 'Birthday party', packId: 'birthday', challenges: CONTENT_PACKS.birthday.challenges },
+    });
+    // a copy, not the registry
+    expect((out as { proposal: { challenges: unknown[] } }).proposal.challenges[0]).not.toBe(CONTENT_PACKS.birthday.challenges[0]);
+  });
+
+  it('model-authored challenges win over the pack; a host theme wins over the pack theme', () => {
+    const [out] = normalizeActions([{ tool: 'add_challenge_pack', packId: 'gala', theme: 'Our gala', challenges: [{ title: 'Only one' }] }], snapshot);
+    expect(out).toMatchObject({ proposal: { theme: 'Our gala', packId: 'gala' } });
+    expect((out as { proposal: { challenges: { title: string }[] } }).proposal.challenges.map((c) => c.title)).toEqual(['Only one']);
+  });
+
+  it('an unknown packId with no challenges is dropped as invalid_args; with challenges it is simply ignored', () => {
+    const res = normalizeActionsResult([{ tool: 'add_challenge_pack', packId: 'circus' }], snapshot);
+    expect(res.actions).toEqual([]);
+    expect(res.droppedReasons).toEqual([{ tool: 'add_challenge_pack', reason: 'invalid_args' }]);
+    const [out] = normalizeActions([{ tool: 'add_challenge_pack', packId: 'circus', challenges: [{ title: 'x' }] }], snapshot);
+    expect(out).toEqual({ tool: 'add_challenge_pack', proposal: { theme: 'Challenge pack', challenges: [{ title: 'x', emoji: '⭐', points: 10, description: '' }] } });
+    expect('packId' in (out as { proposal: object }).proposal).toBe(false);
+  });
+});
+
+describe('create_card.cardTemplate accepts every CardTemplateId', () => {
+  it.each([...CARD_TEMPLATE_IDS])('%s survives', (id) => {
+    const [out] = normalizeActions([{ tool: 'create_card', cardTitle: 'Hi', cardTemplate: id }], snapshot);
+    expect(out).toMatchObject({ proposal: { cardTemplate: id } });
+  });
+});
+
+describe('update_brief', () => {
+  it('keeps only present, non-empty fields, trimmed and capped', () => {
+    const [out] = normalizeActions([{ tool: 'update_brief', palette: '  gold and navy ', tone: '', avoid: 'balloons, puns', notes: 42 }], snapshot);
+    expect(out).toEqual({ tool: 'update_brief', proposal: { palette: 'gold and navy', avoid: 'balloons, puns' } });
+    const [long] = normalizeActions([{ tool: 'update_brief', occasion: 'o'.repeat(500) }], snapshot);
+    expect((long as { proposal: { occasion: string } }).proposal.occasion).toHaveLength(80);
+  });
+
+  it('with every field blank it is dropped as invalid_args (nothing to record)', () => {
+    const res = normalizeActionsResult([{ tool: 'update_brief' }, { tool: 'update_brief', palette: '   ' }], snapshot);
+    expect(res.actions).toEqual([]);
+    expect(res.droppedReasons.map((d) => d.reason)).toEqual(['invalid_args', 'invalid_args']);
+  });
+
+  it('with no event selected the executor refuses like every other tool', async () => {
+    const r = await executeAction({ tool: 'update_brief', proposal: { palette: 'gold' } }, { slug: '', eventUuid: '', origin: '' });
+    expect(r).toMatchObject({ ok: false, code: 'no_event' });
+  });
+});
+
+describe('applyIncludeFlags', () => {
+  it('drops rows with include === false and strips the flag from the rest; nothing else changes', () => {
+    const proposal = {
+      tool: 'add_challenge_pack', theme: 'T',
+      challenges: [
+        { title: 'keep', include: true, points: 5 },
+        { title: 'drop', include: false },
+        { title: 'untagged' },
+        null,
+      ],
+    };
+    const out = applyIncludeFlags(proposal);
+    expect(out).toEqual({ tool: 'add_challenge_pack', theme: 'T', challenges: [{ title: 'keep', points: 5 }, { title: 'untagged' }, null] });
+    expect(proposal.challenges).toHaveLength(4); // input untouched
+  });
+
+  it('passes non-pack proposals through untouched (same reference)', () => {
+    const p = { tool: 'add_challenge', title: 'x', include: false };
+    expect(applyIncludeFlags(p)).toBe(p);
+  });
+
+  it('is the step BEFORE normalizeActions: the flags would otherwise be ignored', () => {
+    const raw = { tool: 'add_challenge_pack', challenges: [{ title: 'keep' }, { title: 'drop', include: false }] };
+    expect((normalizeActions([raw], snapshot)[0] as { proposal: { challenges: unknown[] } }).proposal.challenges).toHaveLength(2);
+    expect((normalizeActions([applyIncludeFlags(raw)], snapshot)[0] as { proposal: { challenges: unknown[] } }).proposal.challenges).toHaveLength(1);
   });
 });

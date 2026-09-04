@@ -24,6 +24,10 @@ import { BORDER_MAP, GENERIC_FRAMES, GENERIC_FRAME_IDS } from './borders';
 import { normalizeValidation } from './challengeValidation';
 import { normalizeLettering, type LetteringSpec } from './assetPrompt';
 import { PROP_TARGET_CM } from './studio/bustFit';
+import { CARD_TEMPLATE_IDS, type CardTemplateId } from './cardTemplates';
+import { packById } from './contentPacks';
+import { BRIEF_CAPS, mergeBrief, type BriefPatch, type EventBrief } from './eventBrief';
+import type { TemplateId } from './eventTemplates';
 
 /** The wire-turn window lives beside ChatMessage (eventDesigner.ts) because
  *  both chats share it; re-exported here so copilot callers need one import. */
@@ -61,12 +65,20 @@ export interface ChallengeDraft {
   validationPrompt?: string;
 }
 
+/** `update_brief`'s proposal: every field optional, absent = unchanged. Lists
+ *  travel as delimited STRINGS ("Maya, Sam") so the confirm card can edit them
+ *  in a text box; mergeBrief splits them. */
+export type BriefFieldsPatch = Partial<Record<'occasion' | 'honorees' | 'palette' | 'tone' | 'avoid' | 'notes', string>>;
+
 export type CopilotAction =
   | { tool: 'add_challenge'; proposal: ChallengeDraft }
-  | { tool: 'add_challenge_pack'; proposal: { theme: string; challenges: ChallengeDraft[] } }
+  /** `packId` names a registry pack (contentPacks.ts) the challenges came from
+   *  or should come from; absent on a model-authored pack. */
+  | { tool: 'add_challenge_pack'; proposal: { theme: string; packId?: TemplateId; challenges: ChallengeDraft[] } }
   | { tool: 'update_challenge'; proposal: { challengeId: string; title?: string; emoji?: string; points?: number; active?: boolean } }
   | { tool: 'delete_challenge'; proposal: { challengeId: string } }
-  | { tool: 'create_card'; proposal: { cardTitle: string; recipientName: string; cardTemplate: 'storybook' | 'filmstrip'; deadline: string } }
+  | { tool: 'create_card'; proposal: { cardTitle: string; recipientName: string; cardTemplate: CardTemplateId; deadline: string } }
+  | { tool: 'update_brief'; proposal: BriefFieldsPatch }
   // Experience-building tools (Event Concierge post-create build phase).
   | { tool: 'generate_frame'; proposal: { prompt: string; lettering?: LetteringSpec; provider?: FrameProvider } }
   | { tool: 'add_frame'; proposal: { borderId: string } }
@@ -84,7 +96,9 @@ export type CopilotAction =
   | { tool: 'open_scene_director'; proposal: { brief: string } }
   | { tool: 'contact_support'; proposal: { summary: string } };
 
-const MAX_ACTIONS = 3;
+/** Proposals per turn the normalizer executes; the rest are `over_cap`. The
+ *  prompt's Routing rule keeps at most ONE spending tool per turn, last. */
+export const MAX_ACTIONS = 5;
 const HANDOFF_BRIEF_MIN = 6;
 const HANDOFF_TEXT_MAX = 600;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -191,14 +205,22 @@ export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | n
         break;
       }
       case 'add_challenge_pack': {
-        const drafts = (Array.isArray(a.challenges) ? a.challenges : [])
+        // A known packId with no challenges expands from the registry (zero
+        // AI-authored content); model-authored challenges win when present.
+        const pack = packById(str(a.packId, 20));
+        const authored = (Array.isArray(a.challenges) ? a.challenges : [])
           .map(challengeDraft)
           .filter((c): c is ChallengeDraft => c !== null)
           .slice(0, 6);
+        const drafts = authored.length > 0 ? authored : pack ? pack.challenges.map((c) => ({ ...c })) : [];
         if (drafts.length === 0) break;
         out.push({
           tool: 'add_challenge_pack',
-          proposal: { theme: str(a.theme, 80) || 'Challenge pack', challenges: drafts },
+          proposal: {
+            theme: str(a.theme, 80) || pack?.theme || 'Challenge pack',
+            ...(pack ? { packId: pack.id } : {}),
+            challenges: drafts,
+          },
         });
         break;
       }
@@ -229,7 +251,7 @@ export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | n
           proposal: {
             cardTitle,
             recipientName: str(a.recipientName, 80),
-            cardTemplate: a.cardTemplate === 'filmstrip' ? 'filmstrip' : 'storybook',
+            cardTemplate: cardTemplate(a.cardTemplate),
             deadline: isoDate(a.deadline) ?? '',
           },
         });
@@ -273,6 +295,12 @@ export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | n
         const name = str(a.name, 80);
         if (!name) break;
         out.push({ tool: 'rename_event', proposal: { name } });
+        break;
+      }
+      case 'update_brief': {
+        const patch = briefFields(a);
+        if (Object.keys(patch).length === 0) break; // nothing to change
+        out.push({ tool: 'update_brief', proposal: patch });
         break;
       }
       case 'set_filter': {
@@ -339,6 +367,52 @@ export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | n
   return { actions: out, dropped, droppedReasons };
 }
 
+/** The stored card template for an untrusted value; unknown → storybook
+ *  (the default the cards table falls back to), never a dropped card. */
+function cardTemplate(v: unknown): CardTemplateId {
+  return (CARD_TEMPLATE_IDS as readonly string[]).includes(typeof v === 'string' ? v : '')
+    ? (v as CardTemplateId)
+    : 'storybook';
+}
+
+/** The present, non-empty brief fields of a raw proposal, each capped like
+ *  the brief itself (lists are strings here — mergeBrief splits them). */
+function briefFields(a: Record<string, unknown>): BriefFieldsPatch {
+  const caps: Record<keyof BriefFieldsPatch, number> = {
+    occasion: BRIEF_CAPS.occasion,
+    honorees: BRIEF_CAPS.honorees * (BRIEF_CAPS.honoree + 2),
+    palette: BRIEF_CAPS.palette,
+    tone: BRIEF_CAPS.tone,
+    avoid: BRIEF_CAPS.avoid * (BRIEF_CAPS.avoidItem + 2),
+    notes: BRIEF_CAPS.notes,
+  };
+  const out: BriefFieldsPatch = {};
+  for (const key of Object.keys(caps) as (keyof BriefFieldsPatch)[]) {
+    const v = str(a[key], caps[key]);
+    if (v) out[key] = v;
+  }
+  return out;
+}
+
+/**
+ * Strip the confirm card's per-row `include` flags from a pack proposal:
+ * rows the host unticked are DROPPED, and the key is removed from the rest.
+ * Must run BEFORE normalizeActions — challengeDraft keeps only the keys it
+ * knows, so an `include: false` row would otherwise be silently kept.
+ * Non-pack proposals (no `challenges` array) pass through untouched.
+ */
+export function applyIncludeFlags(proposal: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(proposal.challenges)) return proposal;
+  const challenges = proposal.challenges
+    .filter((c) => !(c !== null && typeof c === 'object' && (c as Record<string, unknown>).include === false))
+    .map((c) => {
+      if (c === null || typeof c !== 'object') return c;
+      const { include: _include, ...rest } = c as Record<string, unknown>;
+      return rest;
+    });
+  return { ...proposal, challenges };
+}
+
 /**
  * A date argument as YYYY-MM-DD. Strict ISO wins; otherwise the natural-
  * language parser the concierge already uses ("July 12 2026") gets a turn,
@@ -389,9 +463,12 @@ export function mergeWireTurns(messages: ChatMessage[]): ChatMessage[] {
 export interface CopilotCtx {
   /** events.slug — the content-table partition key (challenges/cards/etc). */
   slug: string;
-  /** events.id — for config-level operations (unused by v1 tools). */
+  /** events.id — for config-level operations (update_brief, the booth default mirror). */
   eventUuid: string;
   origin: string;
+  /** The event's current brief (snapshot meta), the base `update_brief` merges
+   *  onto. Absent/null = start from an empty brief. */
+  brief?: EventBrief | null;
 }
 
 /** Why a tool did not do what was asked — the machine-readable half of a
@@ -714,6 +791,17 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
           ? { ok: true, summary: `Event renamed to "${action.proposal.name}".` }
           : fail('Renaming the event failed.', 'unknown', true);
       }
+      case 'update_brief': {
+        const { updateEventConfig } = await import('./host');
+        const patch: BriefPatch = action.proposal;
+        const changed = Object.keys(patch);
+        if (changed.length === 0) return fail('Nothing to change in the brief.', 'invalid', false);
+        const brief = mergeBrief(ctx.brief ?? null, patch, new Date().toISOString());
+        const ok = await updateEventConfig(ctx.eventUuid, { brief });
+        return ok
+          ? { ok: true, summary: `Brief updated (${changed.join(', ')}).` }
+          : fail('Updating the brief failed.', 'unknown', true);
+      }
       case 'go_live': {
         const { updateEventStatus } = await import('./host');
         const ok = await updateEventStatus(ctx.eventUuid, 'live');
@@ -754,6 +842,10 @@ export interface CopilotResult {
    *  and the next turn's `lastTurn` refer to. null on every offline path and
    *  when an older server sends none. */
   turnId: number | null;
+  /** true when the caller's AbortSignal stopped the turn: reply is '', nothing
+   *  was reported as an error, and the chat should say "Stopped." itself. The
+   *  server still completes the turn and logs it (no streaming to cancel). */
+  aborted?: boolean;
 }
 
 /** Which chat surface is asking — the server picks its static prompt
@@ -766,6 +858,9 @@ export interface AskCopilotOptions {
    *  normalizer dropped, so telemetry can stamp the drop count on THAT row.
    *  Omitted from the wire when null/absent. */
   lastTurn?: { turnId: number; dropped: number } | null;
+  /** Cancel the in-flight request (a Stop button). supabase-js ≥2.108 passes
+   *  it to fetch; an aborted call resolves with `aborted: true`. */
+  signal?: AbortSignal;
 }
 
 const OFFLINE_REPLY =
@@ -805,10 +900,13 @@ export async function askCopilot(
 ): Promise<CopilotResult> {
   const offline = (reply: string): CopilotResult =>
     ({ reply, actions: [], source: 'offline', dropped: 0, droppedReasons: [], turnId: null });
+  const aborted = (): CopilotResult => ({ ...offline(''), aborted: true });
+  if (opts.signal?.aborted) return aborted();
   try {
     const { supabase } = await import('./supabase');
     const { formatSnapshot } = await import('./eventSnapshot');
     const { data, error } = await supabase.functions.invoke('ai-event-designer', {
+      ...(opts.signal ? { signal: opts.signal } : {}),
       body: {
         mode: 'copilot',
         // Which chat is asking (static prompt variant server-side). Older
@@ -831,6 +929,8 @@ export async function askCopilot(
       },
     });
     if (error) {
+      // The host pressed Stop: not an outage, not telemetry — just done.
+      if (opts.signal?.aborted) return aborted();
       let reason: string | undefined;
       if (error instanceof FunctionsHttpError) {
         try {
@@ -855,6 +955,7 @@ export async function askCopilot(
     const turnId = typeof res.turnId === 'number' && Number.isFinite(res.turnId) ? res.turnId : null;
     return { reply: res.reply, actions, source: 'ai', dropped, droppedReasons, turnId };
   } catch (e) {
+    if (opts.signal?.aborted) return aborted();
     console.warn('[copilot] askCopilot failed', e);
     reportAiError('ai_event_designer:copilot:network', e, { reason: 'network' });
     return offline(OFFLINE_REPLY);

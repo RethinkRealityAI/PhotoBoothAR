@@ -288,6 +288,9 @@ export interface HostEventRow {
    *  is the authority. Optional because rows that predate the column, and the
    *  create-event edge function's own returned row, simply do not carry it. */
   archived_at?: string | null;
+  /** The event date (ISO timestamp, written by updateEventDate), null when
+   *  unset; optional for the same reason as archived_at. */
+  starts_at?: string | null;
 }
 
 /**
@@ -312,7 +315,7 @@ export const DEMO_EVENT_SLUG = 'demo';
 export const SHOW_DEMO_EVENT =
   ((import.meta.env.VITE_SHOW_DEMO_EVENT as string | undefined) ?? '').trim() === 'true';
 
-const EVENT_COLUMNS = 'id, slug, name, event_type, status, plan_tier, created_at, config, archived_at';
+const EVENT_COLUMNS = 'id, slug, name, event_type, status, plan_tier, created_at, config, archived_at, starts_at';
 
 /** The caller's org_id memberships. Returned as a plain array — duplicates
  *  are harmless for the `.in('org_id', ...)` filters callers use it for, and
@@ -466,6 +469,11 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
  * Fetches the current config, merges, and writes it back — member RLS allows
  * both steps. Note: read-merge-write, so concurrent editors can race; fine for
  * the low-frequency admin settings stored here (e.g. background_template).
+ *
+ * ZERO ROWS IS NOT SUCCESS (same class as updateEventStatus below): the write
+ * asks for its rows back, so a row the member can read but not update — or
+ * one that moved between the read and the write — reports false instead of a
+ * silent 204.
  */
 export async function updateEventConfig(
   eventUuid: string,
@@ -482,15 +490,34 @@ export async function updateEventConfig(
   }
   const current = (data.config ?? {}) as Record<string, unknown>;
   const merged = { ...current, ...patch };
-  const { error: writeError } = await supabase
+  const { data: updated, error: writeError } = await supabase
     .from('events')
     .update({ config: merged })
-    .eq('id', eventUuid);
+    .eq('id', eventUuid)
+    .select('id');
   if (writeError) {
     console.error('[host] updateEventConfig (write)', writeError);
     return false;
   }
-  return true;
+  return (updated?.length ?? 0) > 0;
+}
+
+/**
+ * Take an event live — the ONE path every go-live button uses (copilot,
+ * dashboard, wizard, events list, concierge). After a successful flip the
+ * guest copy is generated once, fire-and-forget: `generateEventCopy` is
+ * idempotent on `config.copy.generatedAt` and never throws, so a failed or
+ * slow AI call can neither block nor undo going live.
+ */
+export async function goLive(eventUuid: string): Promise<boolean> {
+  const ok = await updateEventStatus(eventUuid, 'live');
+  if (ok) {
+    // fire-and-forget — copy is a nicety, the status flip is the job
+    void import('./eventCopy')
+      .then(({ generateEventCopy }) => generateEventCopy(eventUuid))
+      .catch((e) => console.warn('[host] goLive copy', e));
+  }
+  return ok;
 }
 
 /**

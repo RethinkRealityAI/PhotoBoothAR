@@ -24,6 +24,8 @@
  */
 import type { CopilotAction } from './copilot';
 import { FRAME_CREDIT_COST, GENERATE_3D_CREDIT_COST } from './studio/sceneDirector';
+import { CARD_TEMPLATE_IDS } from './cardTemplates';
+import { PACK_IDS } from './contentPacks';
 
 export interface ToolParam {
   type: 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array';
@@ -286,12 +288,17 @@ export const COPILOT_TOOLS = {
     params: {
       theme: {
         type: 'string', required: false,
-        description: 'The pack\'s theme in 2-5 words; omit to get "Challenge pack".',
+        description: 'The pack\'s theme in 2-5 words; omit to get the pack\'s own theme or "Challenge pack".',
         example: 'Wedding reception',
       },
+      packId: {
+        type: 'enum', required: false, enum: PACK_IDS,
+        description: 'The ready-made starter pack for an event type; set it (and omit challenges) when the host asks for the standard, starter or default set. Omit for a themed set you write yourself.',
+        example: 'birthday',
+      },
       challenges: {
-        type: 'array', required: true,
-        description: '3-6 entries, each shaped like add_challenge (title, emoji?, points?, description?, validationPrompt?).',
+        type: 'array', required: false,
+        description: '3-6 entries, each shaped like add_challenge (title, emoji?, points?, description?, validationPrompt?). Required unless packId is set.',
         example: '[{ "title": "First dance", "emoji": "💃", "points": 20 }, …]',
         ask: { question: 'What should the challenges be?', example: 'a five-challenge pack for a wedding reception' },
       },
@@ -307,6 +314,10 @@ export const COPILOT_TOOLS = {
         { title: 'Group toast', emoji: '🥂', points: 10 },
       ],
     },
+    rules: [
+      'packId alone is a complete proposal: the app expands it into that pack\'s missions and the host unticks any they do not want on the card.',
+      'When the event data already lists challenges, write NEW missions that do not repeat them; a packId the host already added is not worth proposing again.',
+    ],
   },
   update_challenge: {
     name: 'update_challenge',
@@ -362,8 +373,8 @@ export const COPILOT_TOOLS = {
       },
       recipientName: { type: 'string', required: false, description: 'Who the card is for, when the host named them.', example: 'Maya' },
       cardTemplate: {
-        type: 'enum', required: false, enum: ['storybook', 'filmstrip'],
-        description: 'The card layout; omit for storybook.',
+        type: 'enum', required: false, enum: CARD_TEMPLATE_IDS,
+        description: 'The card layout: storybook (pages), filmstrip (a strip of frames) or polaroid (scattered prints); omit for storybook.',
         example: 'storybook',
       },
       deadline: {
@@ -376,6 +387,29 @@ export const COPILOT_TOOLS = {
     confirm: true,
     readOnly: false,
     example: { cardTitle: 'Happy 40th, Maya!', recipientName: 'Maya' },
+  },
+  update_brief: {
+    name: 'update_brief',
+    label: 'Update the event brief',
+    description: 'Record or correct the event brief: honorees, occasion, palette, mood, things to avoid.',
+    whenToUse: 'Use when the host states or corrects who it is for, the occasion, colours, mood or things to avoid.',
+    whenNotToUse: 'a rename (rename_event), a date (set_event_date), or any detail the host did not say.',
+    params: {
+      occasion: { type: 'string', required: false, description: 'The occasion in a few words, only if it changed.', example: "Maya's 40th" },
+      honorees: { type: 'string', required: false, description: 'Who it is for, comma-separated, only names the host gave.', example: 'Maya' },
+      palette: { type: 'string', required: false, description: 'The colours or palette, only if stated.', example: 'gold and navy' },
+      tone: { type: 'string', required: false, description: 'The mood in a few words, only if stated.', example: 'warm, a little cheeky' },
+      avoid: { type: 'string', required: false, description: 'Things never to propose, comma-separated, only if stated.', example: 'balloons, puns' },
+      notes: { type: 'string', required: false, description: 'Anything else worth remembering, one sentence.', example: 'Her dad is flying in from Lagos.' },
+    },
+    costNote: null,
+    confirm: true,
+    readOnly: false,
+    example: { palette: 'gold and navy', tone: 'warm, a little cheeky' },
+    rules: [
+      'Send ONLY the fields that changed; an absent field keeps its current value.',
+      'Propose it beside the change it informs (a brief update and a matching add_challenge in one turn is fine).',
+    ],
   },
   go_live: {
     name: 'go_live',

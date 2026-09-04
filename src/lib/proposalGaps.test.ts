@@ -118,3 +118,20 @@ describe('gapPrompt', () => {
     expect(msg.split(' And ')).toHaveLength(2);
   });
 });
+
+describe('proposalGaps — packs and briefs', () => {
+  it('a known packId is a complete pack; an unknown one still needs challenges', () => {
+    expect(proposalGaps('add_challenge_pack', { packId: 'wedding' })).toEqual([]);
+    expect(proposalGaps('add_challenge_pack', { packId: 'wedding', challenges: [] })).toEqual([]);
+    expect(proposalGaps('add_challenge_pack', { packId: 'circus' }).map((g) => g.id)).toEqual(['challenges']);
+    expect(proposalGaps('add_challenge_pack', { packId: 'circus', challenges: [{ title: 'x' }] })).toEqual([]);
+  });
+
+  it('update_brief needs at least one filled field', () => {
+    const gaps = proposalGaps('update_brief', { palette: '  ', tone: '' });
+    expect(gaps.map((g) => g.id)).toEqual(['brief']);
+    expect(gaps[0].required).toBe(true);
+    expect(proposalGaps('update_brief', { notes: 'Her dad flies in.' })).toEqual([]);
+    expect(proposalGaps('update_brief', {})).toHaveLength(1);
+  });
+});
