@@ -15,6 +15,7 @@ import { getRegisteredEvent } from './registry';
 import { supabase } from '../lib/supabase';
 import { createGenericVisuals } from './generic';
 import { resolveBackgroundTemplate } from '../components/theme/backgrounds';
+import { isEmptyBrief, normalizeBrief } from '../lib/eventBrief';
 
 export interface RuntimeEvent {
   /** slug — doubles as the posts/experiences/app_settings event_id. */
@@ -91,6 +92,9 @@ function buildRuntimeCopy(name: string, cfg: Record<string, unknown>): EventCopy
   for (const key of [
     'eyebrow', 'eventName', 'tagline', 'fullName', 'thankYou',
     'filePrefix', 'shareTitle', 'momentTitle', 'shareText',
+    // Generated-once guest lines (eventCopy.ts) — optional on EventCopy, so a
+    // blank/absent value leaves the key off the object entirely.
+    'welcomeIntro', 'keepsakeIntro', 'generatedAt',
   ] as const) {
     const v = str(overrides[key]);
     if (v) out[key] = v;
@@ -123,6 +127,10 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
   const primaryCard = (cfg.primary_card ?? null) as { publicId?: unknown } | null;
   const primaryCardPublicId =
     primaryCard && typeof primaryCard === 'object' ? str(primaryCard.publicId) : undefined;
+  // Shared event brief (config.brief): normalized through the one coercer the
+  // copilot/concierge use; a missing or content-free brief stays undefined so
+  // consumers can `?? null` it without a second emptiness check.
+  const brief = cfg.brief === null || cfg.brief === undefined ? undefined : normalizeBrief(cfg.brief);
 
   return {
     id: row.slug,
@@ -141,6 +149,7 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     themeVars: (cfg.themeVars && typeof cfg.themeVars === 'object'
       ? (cfg.themeVars as Record<string, string>)
       : {}),
+    ...(brief !== undefined && !isEmptyBrief(brief) ? { brief } : {}),
   };
 }
 

@@ -204,8 +204,12 @@ export interface SceneContextDraft {
   objects: readonly SceneContextObject[];
 }
 
-/** Cap so a busy 20-object scene can never crowd out the prompt. */
-export const MAX_SCENE_CONTEXT_CHARS = 800;
+/** Cap so a busy 20-object scene can never crowd out the prompt. 800 covers
+ *  the draft + last-plan lines; the extra 300 is headroom for the one-line
+ *  event brief (`formatSceneBrief`, ≤ SCENE_BRIEF_MAX = 240 chars + newline)
+ *  DirectorPanel prepends, so the brief never evicts the draft line. The edge
+ *  function's own MAX_SCENE_CONTEXT_CHARS (1500) stays above this. */
+export const MAX_SCENE_CONTEXT_CHARS = 1100;
 const MAX_LISTED_OBJECTS = 8;
 const MAX_PROMPT_ECHO = 80;
 

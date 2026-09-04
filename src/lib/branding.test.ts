@@ -42,6 +42,33 @@ describe('mergeCopy', () => {
     mergeCopy(base, { eventName: 'X', onboardingSteps: [{ eyebrow: 'z', title: 'z', body: 'z' }] });
     expect(base).toEqual(snapshot);
   });
+
+  it('overlays the generated guest lines (welcomeIntro / keepsakeIntro) like any other copy field', () => {
+    const generated: EventCopy = {
+      ...base,
+      welcomeIntro: 'Generated welcome.',
+      keepsakeIntro: 'Generated keepsake.',
+      generatedAt: '2026-09-04T00:00:00.000Z',
+    };
+    const out = mergeCopy(generated, { welcomeIntro: 'Host welcome.', keepsakeIntro: 'Host keepsake.' });
+    expect(out.welcomeIntro).toBe('Host welcome.');
+    expect(out.keepsakeIntro).toBe('Host keepsake.');
+    // The AI stamp is not a Branding field: it survives untouched.
+    expect(out.generatedAt).toBe('2026-09-04T00:00:00.000Z');
+    // Blank edits keep the generated line (same rule as tagline/thankYou).
+    const kept = mergeCopy(generated, { welcomeIntro: '  ', keepsakeIntro: '' });
+    expect(kept.welcomeIntro).toBe('Generated welcome.');
+    expect(kept.keepsakeIntro).toBe('Generated keepsake.');
+  });
+
+  it('leaves the optional guest lines ABSENT on a legacy copy that never had them', () => {
+    // A coded event's EventCopy carries no welcomeIntro; an override object
+    // without one must not conjure the key (GuestWelcome renders its literal).
+    const out = mergeCopy(base, { eventName: 'X' });
+    expect('welcomeIntro' in out).toBe(false);
+    expect('keepsakeIntro' in out).toBe(false);
+    expect(mergeCopy(base, { welcomeIntro: '' }).welcomeIntro).toBeUndefined();
+  });
 });
 
 describe('hexToRgbTriplet', () => {

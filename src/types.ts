@@ -366,6 +366,10 @@ export interface BrandingOverrides {
   shareTitle?: string;
   momentTitle?: string;
   shareText?: string;
+  /** Host edits over the AI-generated guest lines (EventCopy.welcomeIntro /
+   *  keepsakeIntro); blank = keep the generated/built-in line. */
+  welcomeIntro?: string;
+  keepsakeIntro?: string;
   /** First-launch onboarding cards; replaces the coded steps when non-empty. */
   onboardingSteps?: OnboardingStep[];
   /** Theme color overrides applied as CSS variables at runtime. */

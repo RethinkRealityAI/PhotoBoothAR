@@ -49,6 +49,7 @@ import {
   type AiErrorCode,
 } from '../../lib/ai';
 import { uploadAsset } from '../../lib/db';
+import { formatSceneBrief } from '../../lib/eventBrief';
 import { reportAiError } from '../../lib/eventDesigner';
 import { useEntitlements } from '../../lib/entitlements';
 // Defined ONCE in AiFramePanel so both studio surfaces offer the same picker at
@@ -146,7 +147,7 @@ export default function DirectorPanel({
   initialPrompt?: string;
   onClose: () => void;
 }) {
-  const { eventId, eventUuid } = useEvent();
+  const { eventId, eventUuid, config } = useEvent();
   const entitlements = useEntitlements();
   // Which model paints the FRAME (the 3D concept leg stays gemini — see below).
   const providerChoice = useImageProvider(eventId, eventUuid);
@@ -274,8 +275,13 @@ export default function DirectorPanel({
       // proposed last turn. Without it every turn started from zero — it
       // re-proposed pieces already in the scene and could not honour "swap the
       // frame, keep the rest". Optional field: '' → omitted → the edge function
-      // behaves exactly as it does for the older deployed client.
-      const sceneContext = buildSceneContext(draftRef.current, planRef.current);
+      // behaves exactly as it does for the older deployed client. The shared
+      // event brief (who / palette / tone / avoid) rides first as ONE line so
+      // the Director honours it without a prompt change; '' when absent.
+      const sceneContext = [
+        formatSceneBrief(config.brief ?? null),
+        buildSceneContext(draftRef.current, planRef.current),
+      ].filter(Boolean).join('\n');
       const { supabase } = await import('../../lib/supabase');
       const { data, error } = await supabase.functions.invoke('ai-event-designer', {
         // eventUuid → the fn injects this event's live credit balance + free-image
