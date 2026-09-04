@@ -803,8 +803,10 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
           : fail('Updating the brief failed.', 'unknown', true);
       }
       case 'go_live': {
-        const { updateEventStatus } = await import('./host');
-        const ok = await updateEventStatus(ctx.eventUuid, 'live');
+        // The ONE go-live path (host.goLive): flips status, then generates the
+        // guest copy once, fire-and-forget — same as every go-live button.
+        const { goLive } = await import('./host');
+        const ok = await goLive(ctx.eventUuid);
         return ok
           ? { ok: true, summary: 'Your event is LIVE — guests can now take pictures and post to the wall.', status: 'live' }
           : fail('Going live failed — try again in a moment.', 'unknown', true);

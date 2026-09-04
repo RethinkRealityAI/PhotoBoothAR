@@ -13,7 +13,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Check, Loader2, Send, Square, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { Check, Loader2, Square, ThumbsDown, ThumbsUp } from 'lucide-react';
+import ChatComposer from './ChatComposer';
 import {
   askCopilot, executeAction, normalizeActions, applyGeneratedFrame, applyGeneratedPiece,
   applyIncludeFlags, formatToolResult, toolResultSummary, sendFeedback, MAX_ACTIONS,
@@ -230,9 +231,6 @@ export default function CopilotChat({
   const [surfaces, setSurfaces] = useState<Record<string, SurfaceState>>(() => loadSaved(storeKey).surfaces);
   const [input, setInput] = useState('');
   const [pending, setPending] = useState<Pending>(null);
-  // The composer block below still reads `busy` — it is swapped for the shared
-  // ChatComposer in a later step; until then only a model TURN counts as busy.
-  const busy = pending?.kind === 'turn';
   const chipMode = mode === 'build' ? 'build' : 'platform';
   // ONE checklist feeds the greeting, the chips and the beam-ready card. A
   // failed snapshot yields no checklist at all — an empty "missing" list, never
@@ -308,14 +306,6 @@ export default function CopilotChat({
     if (!nearBottomRef.current) return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: reduced ? 'auto' : 'smooth' });
   }, [messages, pending, reduced]);
-
-  // Auto-grow the input up to ~4 lines; also snaps back when send() clears it.
-  useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-  }, [input]);
 
   useEffect(() => {
     try {
@@ -1296,37 +1286,20 @@ export default function CopilotChat({
         </div>
       )}
 
-      <div className="shrink-0 flex items-end gap-2">
-        {/* Multiline-friendly: Enter sends, Shift+Enter adds a line; the field
-            grows to ~4 lines then scrolls (auto-grow effect above). */}
-        <textarea
-          ref={inputRef}
-          value={input}
-          rows={1}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              // The Enter key is the "enter button" — it gets the same
-              // acknowledgement as tapping send.
-              if (input.trim() && !busy) haptic('tap');
-              send(input);
-            }
-          }}
-          maxLength={2000}
-          placeholder={snapshot ? `Ask about “${snapshot.name}” or tell me what to change…` : 'Ask how Beamwall works…'}
-          className="liquid-glass-inset flex-1 resize-none hide-scrollbar rounded-2xl px-3.5 py-2.5 text-[13px] leading-snug text-brand-fg placeholder:text-brand-muted/40 outline-none transition-shadow focus:shadow-[0_0_0_1px_var(--color-accent),0_0_18px_-6px_rgba(var(--accent-rgb),0.9)]"
-        />
-        <button
-          onClick={() => { if (input.trim() && !busy) haptic('tap'); send(input); }}
-          disabled={!input.trim() || busy}
-          aria-label={busy ? 'Waiting for reply' : 'Send'}
-          className="pressable shrink-0 w-11 h-11 rounded-full bg-foil glow-accent flex items-center justify-center text-[color:var(--on-accent)] disabled:opacity-40"
-          style={{ boxShadow: '0 4px 16px -6px rgba(var(--accent-rgb),0.9), inset 0 1px 0 rgba(255,255,255,0.4)' }}
-        >
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-        </button>
-      </div>
+      {/* The shared composer (ChatComposer): multiline, Enter sends, Shift+Enter
+          adds a line, auto-grow, counter near the cap, dictation where the
+          browser offers it. Only a model TURN disables send — a per-card
+          action never locks the field. The composer never sends on its own
+          and never haptics; both stay here, beside send(). */}
+      <ChatComposer
+        value={input}
+        onChange={setInput}
+        onSend={(v) => { haptic('tap'); void send(v); }}
+        disabled={pending?.kind === 'turn'}
+        inputRef={inputRef}
+        maxLength={2000}
+        placeholder={snapshot ? `Ask about “${snapshot.name}” or tell me what to change…` : 'Ask how Beamwall works…'}
+      />
     </div>
   );
 }

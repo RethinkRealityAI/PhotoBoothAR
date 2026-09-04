@@ -14,16 +14,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { ArrowLeft, ArrowRight, Check, Copy, ImagePlus, Loader2, PartyPopper, Printer, Rocket, Send, Sparkles } from 'lucide-react';
+import { useReducedMotion } from 'motion/react';
+import { ArrowLeft, ArrowRight, Check, Copy, ImagePlus, Loader2, PartyPopper, Printer, Rocket, Sparkles } from 'lucide-react';
 import { slugify, SLUG_RE, RESERVED_SLUGS } from '../../lib/slug';
-import { createEvent, updateEventConfig, updateEventStatus, fetchEventStatus, isSlugVisiblyTaken, type CreateEventError, type HostEventRow } from '../../lib/host';
+import { createEvent, updateEventConfig, goLive as takeEventLive, fetchEventStatus, isSlugVisiblyTaken, type CreateEventError, type HostEventRow } from '../../lib/host';
 import { useToast } from '../../components/ui/Toast';
 import { accentThemePatch, EVENT_TEMPLATES, templateById, templateConfigPatch } from '../../lib/eventTemplates';
-import { designEvent, normalizePlan, type ChatMessage, type DesignImage, type EventPlan } from '../../lib/eventDesigner';
-import { offlineReplyFor } from '../../lib/copilot';
+import { designEvent, fillPlanGaps, normalizePlan, type ChatMessage, type DesignImage, type EventPlan } from '../../lib/eventDesigner';
+import { executeAction, offlineReplyFor, type CopilotCtx } from '../../lib/copilot';
+import type { EventBrief } from '../../lib/eventBrief';
+import { conciergeSuggestionsFor, greetingFor } from '../../lib/hostChips';
+import { checklistFromSnapshot, computeChecklist, missingIds } from '../../lib/eventChecklist';
+import { packAction, packForEventType } from '../../lib/contentPacks';
+import { generateEventCopy } from '../../lib/eventCopy';
+import { fetchChallengesResult } from '../../lib/db';
 import { fileToImagePart } from '../../lib/imageInput';
 import CopilotChat from '../../components/copilot/CopilotChat';
-import { loadEventSnapshot, type EventSnapshot } from '../../lib/eventSnapshot';
+import ChatComposer from '../../components/copilot/ChatComposer';
+import { loadEventSnapshot, snapshotMetaFromRow, type EventSnapshot } from '../../lib/eventSnapshot';
 import { useKeyboardInset } from '../../components/copilot/useKeyboardInset';
 import { applySurfaceMessages, getPath, setPath, type A2uiActionEvent, type SurfaceState } from '../../lib/a2ui';
 import A2uiSurface from '../../components/a2ui/A2uiSurface';
@@ -51,20 +59,50 @@ function slugClientError(slug: string): string | null {
 
 const CHAT_STORE_KEY = 'beamwall:concierge:v1';
 
-const CHAT_GREETING =
-  "Tell me about your event — who or what are we celebrating? I'll design the whole thing: " +
-  'the look, the name, the guest link. You can fine-tune every detail afterwards.';
+// Greeting + suggestion chips come from the shared registry (hostChips.ts);
+// the build-phase greeting is computed per event below, from what the
+// checklist says is still missing.
+const CHAT_GREETING = greetingFor({ mode: 'concierge' });
+const CHAT_SUGGESTIONS = conciergeSuggestionsFor();
 
-const BUILD_GREETING =
-  'Your event is created — in draft for now. The moment you go live, guests can scan in, take ' +
-  'pictures, and beam them to your wall. Want to add a frame, a filter, a 3D prop, or some ' +
-  'challenges? Tap a chip below or just tell me — and I can test it or take you live right here.';
+/** What the starter-pack seed did, for the success banner. `null` = nothing
+ *  to say (the host unticked it, or the event already had challenges). */
+type SeedNote = { tone: 'ok' | 'warn'; text: string } | null;
 
-const CHAT_SUGGESTIONS = [
-  "Jenna and Jake's wedding on 2026-09-12",
-  'A black-tie charity gala in November',
-  "My mum's 60th — family joins from abroad",
-];
+/**
+ * Seed the pack + keepsake card for a freshly created event through the SAME
+ * `executeAction` path the copilot's confirm cards use (RLS-scoped inserts).
+ * Idempotent: an event that already has challenges is left alone. Sequential
+ * on purpose — a midway failure still leaves N real rows, and the banner says
+ * exactly how many landed.
+ */
+async function seedStarterPack(ev: HostEventRow, ctx: CopilotCtx): Promise<SeedNote> {
+  const existing = await fetchChallengesResult(ev.slug);
+  if (existing.failed) {
+    return { tone: 'warn', text: 'We couldn’t check your challenges, so the starter pack was skipped — it’s one tap away in Challenges.' };
+  }
+  if (existing.rows.length > 0) return null;
+  const pack = packForEventType(ev.event_type);
+  const total = pack.challenges.length;
+  const packRes = await executeAction(packAction(pack), ctx);
+  // Count what actually landed rather than parsing the summary line: the
+  // re-read is the truth a midway failure cannot fake.
+  const after = await fetchChallengesResult(ev.slug);
+  const added = packRes.ok && !after.failed ? after.rows.length : 0;
+  if (added === 0) {
+    return { tone: 'warn', text: 'We couldn’t add the starter pack — it’s one tap away in Challenges.' };
+  }
+  const cardRes = await executeAction(
+    { tool: 'create_card', proposal: { cardTitle: pack.cardTitle(ev.name), recipientName: '', cardTemplate: pack.cardTemplate, deadline: '' } },
+    ctx,
+  );
+  const cardText = cardRes.ok ? ' and a keepsake card' : '';
+  const cardWarn = cardRes.ok ? '' : ' The keepsake card didn’t save — make one in Cards.';
+  if (added < total) {
+    return { tone: 'warn', text: `Added ${added} of ${total} starter challenges${cardText} — the rest are one tap away in Challenges.${cardWarn}` };
+  }
+  return { tone: cardRes.ok ? 'ok' : 'warn', text: `Starter pack added: ${added} challenges${cardText}.${cardWarn}` };
+}
 
 /** A transcript entry: the wire ChatMessage plus the id of the A2UI surface
  *  (generative UI card) streamed with that assistant turn, if any.
@@ -104,7 +142,16 @@ export default function NewEvent() {
   const [goingLive, setGoingLive] = useState(false);
   const [wentLive, setWentLive] = useState(false);
   const [goLiveError, setGoLiveError] = useState<string | null>(null);
+  /** Outcome of the starter-pack seed, shown beside the seed-failed line. */
+  const [seedNote, setSeedNote] = useState<SeedNote>(null);
   const { push } = useToast();
+  const reduced = useReducedMotion() ?? false;
+
+  // ── What the concierge learned (who / mood / colours / avoid) and whether
+  //    to seed the starter pack + keepsake card on create. The brief is
+  //    written to events.config.brief so every later agent shares it. ──
+  const [brief, setBrief] = useState<EventBrief | null>(null);
+  const [seedPack, setSeedPack] = useState(true);
 
   // ── Post-create build phase: the same chat continues, now event-aware, so
   //    the host adds frame/filter/3D/challenges, tests, and goes live inline. ──
@@ -123,15 +170,6 @@ export default function NewEvent() {
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const kbInset = useKeyboardInset();
-
-  // Auto-grow the concierge input up to ~4 lines; also snaps back after send.
-  // (Same effect CopilotChat runs — the two fields now behave identically.)
-  useEffect(() => {
-    const el = chatInputRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-  }, [chatInput]);
 
   // ── A2UI surfaces (generative UI): each concierge turn streams an A2UI
   //    plan-editor card; the reducer folds the messages into surface state
@@ -181,7 +219,7 @@ export default function NewEvent() {
    * button) validates and applies the same plan the same way, so edits can
    * never be silently dropped and invalid slugs are caught before create.
    */
-  const confirmPlan = useCallback((plan: ReturnType<typeof normalizePlan>) => {
+  const confirmPlan = useCallback((plan: ReturnType<typeof normalizePlan>, opts?: { seedPack?: boolean }) => {
     if (!plan.name) {
       nudge('Give your event a name first — type it in the card or tell me here.');
       return;
@@ -200,17 +238,34 @@ export default function NewEvent() {
     setDate(plan.date ?? '');
     setSlug(finalSlug);
     setSlugTouched(true);
+    // The latest NON-null brief wins — a card confirmed after a plain turn must
+    // not erase what an earlier turn learned.
+    if (plan.brief) setBrief(plan.brief);
+    if (opts?.seedPack !== undefined) setSeedPack(opts.seedPack);
     setStep(3);
   }, [nudge]);
 
+  /** The card's `/plan` model carries `seedPack` beside the plan fields
+   *  (default ON); absent reads as ON, only an explicit untick turns it off. */
+  const seedPackFromContext = (raw: unknown): boolean =>
+    !(raw !== null && typeof raw === 'object' && (raw as { seedPack?: unknown }).seedPack === false);
+
   const handleSurfaceAction = useCallback((event: A2uiActionEvent) => {
-    if (event.name !== 'confirm_plan') return;
-    confirmPlan(normalizePlan(event.context.plan));
-  }, [confirmPlan]);
+    if (event.name === 'confirm_plan') {
+      confirmPlan(normalizePlan(event.context.plan), { seedPack: seedPackFromContext(event.context.plan) });
+      return;
+    }
+    if (event.name === 'set_it_all_up') {
+      // "Set it all up for me": fill every open field from the brief, force
+      // the starter pack on, and go straight to review — no further questions.
+      const plan = normalizePlan(event.context.plan);
+      confirmPlan(fillPlanGaps(plan, plan.brief ?? brief), { seedPack: true });
+    }
+  }, [confirmPlan, brief]);
 
   useEffect(() => {
-    chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [chatMessages, chatBusy]);
+    chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: reduced ? 'auto' : 'smooth' });
+  }, [chatMessages, chatBusy, reduced]);
 
   /** Chat drives the SAME wizard state as the manual form — only fields the
    *  planner actively decided this turn overwrite what the host set by hand
@@ -221,6 +276,7 @@ export default function NewEvent() {
     if (plan.accent) setAccent(plan.accent); // AI-extracted colour restyles the preview live
     if (plan.name) setName(plan.name);
     if (plan.date) setDate(plan.date);
+    if (plan.brief) setBrief(plan.brief);
     if (plan.slug) {
       setSlug(plan.slug);
       setSlugTouched(true);
@@ -294,10 +350,11 @@ export default function NewEvent() {
   const reviewAndCreate = () => {
     const latest = [...chatMessages].reverse().find((m) => m.surfaceId)?.surfaceId;
     const surf = latest ? surfaces[latest] : undefined;
+    const rawPlan = surf ? getPath(surf.dataModel, '/plan') : undefined;
     const plan = surf
-      ? normalizePlan(getPath(surf.dataModel, '/plan'))
+      ? normalizePlan(rawPlan)
       : normalizePlan({ name, templateId, remote, date: date || null, slug, accent });
-    confirmPlan(plan);
+    confirmPlan(plan, surf ? { seedPack: seedPackFromContext(rawPlan) } : undefined);
   };
 
   // Auto-suggest the slug from the name until the user edits it themselves.
@@ -331,14 +388,7 @@ export default function NewEvent() {
     setBuildFailed(false);
     try {
       const status = (await fetchEventStatus(created.id)) ?? created.status;
-      const snap = await loadEventSnapshot({
-        eventUuid: created.id,
-        slug: created.slug,
-        name: created.name,
-        status,
-        planTier: created.plan_tier,
-        eventType: created.event_type,
-      });
+      const snap = await loadEventSnapshot(snapshotMetaFromRow(created, status));
       setBuildSnapshot(snap);
     } catch (e) {
       // Nothing here used to catch: one rejected promise left buildSnapshot null
@@ -369,11 +419,30 @@ export default function NewEvent() {
       if (accent) {
         patch.themeVars = { ...(patch.themeVars as Record<string, string>), ...accentThemePatch(accent) };
       }
+      // The concierge's brief rides in config so the copilot, the Scene
+      // Director and the copy generator all start from the same facts.
+      if (brief) patch.brief = brief;
       // Both attempts failing is surfaced on the success screen — the event
       // exists but opened plain, and silence here left the host to discover
       // an unstyled booth at the venue.
       const seeded = await updateEventConfig(res.event.id, patch);
       if (!seeded) setSeedFailed(!(await updateEventConfig(res.event.id, patch)));
+      // Starter content (pack + keepsake card) BEFORE the build chat mounts, so
+      // its first snapshot — and greeting — already know the challenges exist.
+      // The event is created either way; anything short of full is said on
+      // the banner in plain numbers.
+      if (seedPack) {
+        const ctx: CopilotCtx = { slug: res.event.slug, eventUuid: res.event.id, origin: window.location.origin, brief };
+        try {
+          setSeedNote(await seedStarterPack(res.event, ctx));
+        } catch (e) {
+          console.error('[new-event] seedStarterPack', e);
+          setSeedNote({ tone: 'warn', text: 'We couldn’t add the starter pack — it’s one tap away in Challenges.' });
+        }
+      }
+      // Guest copy from the brief, once (idempotent on copy.generatedAt, never
+      // throws). No brief → host.goLive generates it at go-live instead.
+      if (brief) void generateEventCopy(res.event.id); // fire-and-forget
     }
     setCreating(false);
     if (res.event) {
@@ -406,7 +475,7 @@ export default function NewEvent() {
     if (!created || goingLive || wentLive) return;
     setGoingLive(true);
     setGoLiveError(null);
-    const ok = await updateEventStatus(created.id, 'live');
+    const ok = await takeEventLive(created.id);
     setGoingLive(false);
     if (ok) {
       setWentLive(true);
@@ -428,17 +497,28 @@ export default function NewEvent() {
         event-aware, so the host builds the whole experience inline. ── */
   if (created) {
     const isLive = wentLive || created.status === 'live';
+    const riseIn = reduced ? '' : 'animate-rise-in';
+    // The build greeting names the event and what the checklist says is still
+    // missing — computed from the snapshot that just loaded, never a constant.
+    const buildGreeting = buildSnapshot
+      ? greetingFor({
+          mode: 'build',
+          eventType: buildSnapshot.eventType,
+          name: buildSnapshot.name,
+          missing: missingIds(computeChecklist(checklistFromSnapshot(buildSnapshot), 'build')),
+        })
+      : '';
     return (
-      <div className="h-full flex flex-col p-4 md:p-6 max-w-3xl mx-auto w-full min-h-0">
+      <div className="ui-scalable h-full flex flex-col p-4 md:p-6 max-w-3xl mx-auto w-full min-h-0">
         {/* Celebratory header + instant share, kept compact above the chat. */}
-        <div className="shrink-0 liquid-glass rounded-2xl p-3.5 md:p-4 mb-3 flex items-center gap-3 md:gap-4 animate-rise-in">
+        <div className={`shrink-0 liquid-glass rounded-2xl p-3.5 md:p-4 mb-3 flex items-center gap-3 md:gap-4 ${riseIn}`}>
           <div className="w-10 h-10 rounded-full bg-foil glow-accent flex items-center justify-center shrink-0">
             <PartyPopper className="w-5 h-5 text-white" />
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="font-serif text-lg md:text-xl text-foil-static truncate">{created.name}</h1>
             <div className="flex items-center gap-1.5">
-              <p className="font-mono text-[11px] text-brand-muted/70 truncate">{guestUrl.replace(/^https?:\/\//, '')}</p>
+              <p className="font-mono ui-caption text-brand-muted/70 truncate">{guestUrl.replace(/^https?:\/\//, '')}</p>
               <button
                 onClick={() => copyText(guestUrl).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 2000); })}
                 className="p-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors shrink-0"
@@ -451,20 +531,25 @@ export default function NewEvent() {
                 a link and a QR with no hint that guests can't open them yet —
                 exactly the thing a host would print. EventsList already warns. */}
             {isLive ? (
-              <p className="mt-0.5 font-sans text-[11px] text-emerald-300/90 leading-snug animate-rise-in">
+              <p className={`mt-0.5 font-sans ui-caption text-emerald-300/90 leading-snug ${riseIn}`}>
                 Live — guests can scan and join right now.
               </p>
             ) : (
-              <p className="mt-0.5 font-sans text-[11px] text-amber-300/80 leading-snug">
+              <p className="mt-0.5 font-sans ui-caption text-amber-300/80 leading-snug">
                 Draft — this link won’t open for guests until you go live.
               </p>
             )}
             {goLiveError && (
-              <p role="alert" className="mt-0.5 font-sans text-[11px] text-red-400 leading-snug">{goLiveError}</p>
+              <p role="alert" className="mt-0.5 font-sans ui-caption text-red-400 leading-snug">{goLiveError}</p>
             )}
             {seedFailed && (
-              <p className="mt-0.5 font-sans text-[11px] text-amber-300/80 leading-snug">
+              <p className="mt-0.5 font-sans ui-caption text-amber-300/80 leading-snug">
                 We couldn’t apply the template look — open the Studio to style your event.
+              </p>
+            )}
+            {seedNote !== null && (
+              <p className={`mt-0.5 font-sans ui-caption leading-snug ${seedNote.tone === 'ok' ? 'text-emerald-300/90' : 'text-amber-300/80'}`}>
+                {seedNote.text}
               </p>
             )}
           </div>
@@ -479,26 +564,26 @@ export default function NewEvent() {
                 onClick={goLive}
                 disabled={goingLive}
                 title="Publish this event so guests can scan in"
-                className="rounded-full bg-foil glow-accent px-3.5 py-1.5 font-label uppercase tracking-luxe text-[9px] font-bold text-white transition active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-1"
+                className="rounded-full bg-foil glow-accent px-3.5 py-1.5 font-label uppercase tracking-luxe ui-caption font-bold text-white transition active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-1"
               >
                 {goingLive ? <Loader2 className="w-3 h-3 animate-spin" /> : <Rocket className="w-3 h-3" />} Go live
               </button>
             )}
             <button
               onClick={() => navigate(`/host/events/${created.id}`)}
-              className="rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3.5 py-1.5 font-label uppercase tracking-luxe text-[9px] font-bold text-brand-fg/90 transition-colors"
+              className="rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3.5 py-1.5 font-label uppercase tracking-luxe ui-caption font-bold text-brand-fg/90 transition-colors"
             >
               Open studio
             </button>
             <Link
               to={`/host/events/${created.id}/share`}
-              className="rounded-full border border-white/15 px-3.5 py-1.5 font-label uppercase tracking-luxe text-[9px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors text-center flex items-center justify-center gap-1"
+              className="rounded-full border border-white/15 px-3.5 py-1.5 font-label uppercase tracking-luxe ui-caption font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors text-center flex items-center justify-center gap-1"
             >
               <Printer className="w-3 h-3" /> Print signage
             </Link>
             <Link
               to="/host"
-              className="rounded-full border border-white/15 px-3.5 py-1.5 font-label uppercase tracking-luxe text-[9px] font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors text-center"
+              className="rounded-full border border-white/15 px-3.5 py-1.5 font-label uppercase tracking-luxe ui-caption font-semibold text-brand-muted/70 hover:text-brand-fg transition-colors text-center"
             >
               Events
             </Link>
@@ -516,7 +601,7 @@ export default function NewEvent() {
               snapshot={buildSnapshot}
               onMutated={reloadBuild}
               mode="build"
-              greeting={BUILD_GREETING}
+              greeting={buildGreeting}
             />
           ) : buildFailed ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
@@ -527,13 +612,13 @@ export default function NewEvent() {
               <div className="flex flex-wrap items-center justify-center gap-2">
                 <button
                   onClick={() => void reloadBuild()}
-                  className="inline-flex items-center rounded-full bg-white/[0.08] hover:bg-white/[0.14] px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors"
+                  className="inline-flex items-center rounded-full bg-white/[0.08] hover:bg-white/[0.14] px-5 min-h-11 font-label uppercase tracking-luxe ui-btn text-brand-fg/90 transition-colors"
                 >
                   Retry
                 </button>
                 <button
                   onClick={() => navigate(`/host/events/${created.id}`)}
-                  className="inline-flex items-center rounded-full border border-white/15 px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 hover:text-brand-fg transition-colors"
+                  className="inline-flex items-center rounded-full border border-white/15 px-5 min-h-11 font-label uppercase tracking-luxe ui-btn text-brand-muted/70 hover:text-brand-fg transition-colors"
                 >
                   Open studio
                 </button>
@@ -560,18 +645,18 @@ export default function NewEvent() {
 
   return (
     <div
-      className={`p-4 md:p-8 max-w-6xl mx-auto ${conciergeStep ? 'h-full flex flex-col min-h-0' : ''}`}
+      className={`ui-scalable p-4 md:p-8 max-w-6xl mx-auto ${conciergeStep ? 'h-full flex flex-col min-h-0' : ''}`}
       /* The concierge step is a full-height flex column whose input row sits at
          the bottom — on a phone the soft keyboard covered the very field the
          host had just tapped. Lift the whole column above it. Desktop reads 0. */
       style={kbInset > 0 ? { paddingBottom: `calc(1rem + ${kbInset}px)` } : undefined}
     >
-      <Link to="/host" className="inline-flex items-center gap-1.5 mb-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/60 hover:text-brand-fg transition-colors shrink-0">
+      <Link to="/host" className="inline-flex items-center gap-1.5 mb-4 min-h-11 font-label uppercase tracking-luxe ui-btn text-brand-muted/60 hover:text-brand-fg transition-colors shrink-0">
         <ArrowLeft className="w-3.5 h-3.5" /> Events
       </Link>
 
       <div className={`grid gap-6 items-start lg:grid-cols-[minmax(0,1fr)_280px] ${conciergeStep ? 'flex-1 min-h-0' : ''}`}>
-      <div className={`liquid-glass rounded-3xl animate-rise-in ${conciergeStep ? 'p-5 md:p-6 flex flex-col min-h-0 overflow-hidden' : 'p-8'}`}>
+      <div className={`liquid-glass rounded-3xl ${reduced ? '' : 'animate-rise-in'} ${conciergeStep ? 'p-5 md:p-6 flex flex-col min-h-0 overflow-hidden' : 'p-8'}`}>
         {/* Step dots — the concierge path really has two steps (describe →
             review), so it renders two dots; three dots that visibly skipped
             the middle one read as a broken wizard. */}
@@ -595,27 +680,32 @@ export default function NewEvent() {
               </div>
               <button
                 onClick={() => setConcierge(false)}
-                className="shrink-0 font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 hover:text-brand-fg transition-colors underline underline-offset-4 decoration-white/20"
+                className="shrink-0 min-h-11 font-label uppercase tracking-luxe ui-caption text-brand-muted/60 hover:text-brand-fg transition-colors underline underline-offset-4 decoration-white/20"
               >
                 Fill in manually
               </button>
             </div>
 
+            {/* A live log: screen readers hear each new turn as it lands,
+                without re-reading the whole transcript. */}
             <div
               ref={chatScrollRef}
+              role="log"
+              aria-live="polite"
+              aria-relevant="additions"
               className="flex-1 min-h-0 overflow-y-auto rounded-2xl bg-white/[0.02] border border-white/10 p-4 flex flex-col gap-2.5"
             >
-              <div className="max-w-[85%] self-start rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[13px] leading-relaxed text-brand-fg/90">
+              <div className="max-w-[85%] self-start rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans ui-chat leading-relaxed text-brand-fg/90">
                 {CHAT_GREETING}
               </div>
               {chatMessages.map((m, i) =>
                 m.role === 'user' ? (
-                  <div key={i} className="max-w-[85%] self-end rounded-2xl rounded-tr-md bg-[color:var(--color-accent)]/15 border border-[color:var(--color-accent)]/30 px-3.5 py-2.5 font-sans text-[13px] leading-relaxed text-brand-fg">
+                  <div key={i} className="max-w-[85%] self-end rounded-2xl rounded-tr-md bg-[color:var(--color-accent)]/15 border border-[color:var(--color-accent)]/30 px-3.5 py-2.5 font-sans ui-chat leading-relaxed text-brand-fg">
                     {m.content}
                   </div>
                 ) : (
                   <div key={i} className="max-w-[92%] self-start flex flex-col gap-2">
-                    <div className="rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[13px] leading-relaxed text-brand-fg/90">
+                    <div className="rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans ui-chat leading-relaxed text-brand-fg/90">
                       {m.content}
                     </div>
                     {m.surfaceId && surfaces[m.surfaceId] && (
@@ -630,9 +720,9 @@ export default function NewEvent() {
                 ),
               )}
               {chatBusy && (
-                <div className="self-start flex items-center gap-1.5 rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5">
+                <div role="status" className="self-start flex items-center gap-1.5 rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5">
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-muted/60" />
-                  <span className="font-sans text-[12px] text-brand-muted/60">Designing…</span>
+                  <span className="font-sans ui-caption text-brand-muted/60">Designing…</span>
                 </div>
               )}
             </div>
@@ -642,7 +732,7 @@ export default function NewEvent() {
                 <button
                   onClick={() => photoInputRef.current?.click()}
                   disabled={photoBusy}
-                  className="rounded-full border border-[color:var(--color-accent)]/30 bg-[color:var(--color-accent)]/10 px-3 py-1.5 font-sans text-[11px] text-brand-fg hover:bg-[color:var(--color-accent)]/15 transition-colors inline-flex items-center gap-1.5 disabled:opacity-40"
+                  className="rounded-full border border-[color:var(--color-accent)]/30 bg-[color:var(--color-accent)]/10 px-3 min-h-11 font-sans ui-caption text-brand-fg hover:bg-[color:var(--color-accent)]/15 transition-colors inline-flex items-center gap-1.5 disabled:opacity-40"
                 >
                   <ImagePlus className="w-3 h-3" /> Start from your invitation
                 </button>
@@ -650,7 +740,7 @@ export default function NewEvent() {
                   <button
                     key={s}
                     onClick={() => sendChat(s)}
-                    className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-sans text-[11px] text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.06] transition-colors"
+                    className="rounded-full border border-white/10 bg-white/[0.03] px-3 min-h-11 font-sans ui-caption text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.06] transition-colors"
                   >
                     {s}
                   </button>
@@ -658,55 +748,31 @@ export default function NewEvent() {
               </div>
             )}
 
-            <div className="flex items-end gap-2 shrink-0">
-              <button
-                onClick={() => photoInputRef.current?.click()}
-                disabled={chatBusy || photoBusy}
-                aria-label="Design from a photo"
-                title="Design from a photo — invitation, mood board, or venue"
-                className="shrink-0 w-11 h-11 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center text-brand-muted/70 hover:text-brand-fg transition active:scale-95 disabled:opacity-40"
-              >
-                {photoBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
-              </button>
-              {/* Same field as the copilot's: multiline-friendly, Enter sends,
-                  Shift+Enter adds a line, grows to ~4 lines then scrolls. The
-                  single-line <input> here made the OPENING act of the product —
-                  "describe your event" — the one box you could not see your own
-                  sentence in. `autoFocus` is gone too: on a phone it threw the
-                  keyboard up over the suggestion chips before the host had read
-                  a single word of the page. */}
-              <textarea
-                ref={chatInputRef}
-                value={chatInput}
-                rows={1}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    sendChat(chatInput);
-                  }
-                }}
-                maxLength={2000}
-                placeholder="Describe your event, or add a photo of your invitation…"
-                className={`${inputClass} resize-none hide-scrollbar`}
-              />
-              {/* Subtle counter once the 2000-char limit comes into view —
-                  before this, typing simply stopped with no explanation. */}
-              {chatInput.length >= 1800 && (
-                <span className="shrink-0 font-mono text-[10px] text-brand-muted/50" aria-live="polite">
-                  {chatInput.length}/2000
-                </span>
-              )}
-              <button
-                onClick={() => sendChat(chatInput)}
-                disabled={!chatInput.trim() || chatBusy}
-                aria-label="Send"
-                className="shrink-0 w-11 h-11 rounded-full bg-foil glow-accent flex items-center justify-center text-white transition active:scale-95 disabled:opacity-40"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-              <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={onPhoto} />
-            </div>
+            {/* The shared composer (ChatComposer): multiline, Enter sends,
+                Shift+Enter adds a line, grows to ~4 lines, counter near the
+                cap, dictation where the browser offers it. No `autoFocus`: on
+                a phone it threw the keyboard up over the suggestion chips
+                before the host had read a single word of the page. */}
+            <ChatComposer
+              value={chatInput}
+              onChange={setChatInput}
+              onSend={(text) => { void sendChat(text); }}
+              disabled={chatBusy}
+              inputRef={chatInputRef}
+              placeholder="Describe your event, or add a photo of your invitation…"
+              leading={
+                <button
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={chatBusy || photoBusy}
+                  aria-label="Design from a photo"
+                  title="Design from a photo — invitation, mood board, or venue"
+                  className="shrink-0 w-11 h-11 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center text-brand-muted/70 hover:text-brand-fg transition active:scale-95 disabled:opacity-40"
+                >
+                  {photoBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+                </button>
+              }
+            />
+            <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={onPhoto} />
 
             <button
               onClick={reviewAndCreate}
@@ -718,12 +784,12 @@ export default function NewEvent() {
                   ? 'Your event needs a guest link first — describe it above'
                   : 'Review the plan and create your event'
               }
-              className="shrink-0 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+              className="shrink-0 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
             >
               Review &amp; create <ArrowRight className="w-4 h-4" />
             </button>
             {(!name.trim() || !slug) && (
-              <p className="shrink-0 -mt-1.5 text-center font-sans text-[10px] text-brand-muted/50">
+              <p className="shrink-0 -mt-1.5 text-center font-sans ui-caption text-brand-muted/50">
                 {!name.trim()
                   ? 'Ready once your event has a name — describe it above and I’ll set one.'
                   : 'Ready once your event has a guest link — ask me to pick one, or edit it in the card.'}
@@ -741,13 +807,13 @@ export default function NewEvent() {
               </div>
               <button
                 onClick={() => setConcierge(true)}
-                className="shrink-0 inline-flex items-center gap-1 font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 hover:text-brand-fg transition-colors underline underline-offset-4 decoration-white/20"
+                className="shrink-0 inline-flex items-center gap-1 font-label uppercase tracking-luxe ui-caption text-brand-muted/60 hover:text-brand-fg transition-colors underline underline-offset-4 decoration-white/20"
               >
                 <Sparkles className="w-3 h-3" /> Use the concierge
               </button>
             </div>
             <label className="flex flex-col gap-1.5">
-              <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Event name</span>
+              <span className="font-label uppercase tracking-luxe ui-caption text-brand-muted/70">Event name</span>
               <input
                 autoFocus
                 value={name}
@@ -758,7 +824,7 @@ export default function NewEvent() {
               />
             </label>
             <div className="flex flex-col gap-2">
-              <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Choose a style</span>
+              <span className="font-label uppercase tracking-luxe ui-caption text-brand-muted/70">Choose a style</span>
               <div className="grid grid-cols-3 gap-2">
                 {EVENT_TEMPLATES.map((t) => {
                   const on = t.id === templateId;
@@ -774,7 +840,7 @@ export default function NewEvent() {
                       <div className="h-9 rounded-lg mb-1.5 shadow-[inset_0_1px_8px_rgba(0,0,0,0.4)]" style={{ background: t.swatch }} />
                       <div className="flex items-center gap-1">
                         <span className="text-[13px] leading-none">{t.emoji}</span>
-                        <span className="font-label uppercase tracking-luxe text-[8.5px] text-brand-fg">{t.label}</span>
+                        <span className="font-label uppercase tracking-luxe ui-caption text-brand-fg">{t.label}</span>
                       </div>
                       {on && (
                         <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[color:var(--color-accent)] flex items-center justify-center">
@@ -785,23 +851,23 @@ export default function NewEvent() {
                   );
                 })}
               </div>
-              <p className="font-sans text-[11px] text-brand-muted/60 leading-relaxed min-h-[2.5em]">{template.blurb}</p>
+              <p className="font-sans ui-caption text-brand-muted/60 leading-relaxed min-h-[2.5em]">{template.blurb}</p>
 
               <label className="mt-0.5 flex items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5 cursor-pointer hover:bg-white/[0.04] transition-colors">
                 <input type="checkbox" checked={remote} onChange={(e) => setRemote(e.target.checked)} className="mt-0.5 accent-[color:var(--color-accent)]" />
-                <span className="font-sans text-[11px] leading-relaxed text-brand-muted/70">
+                <span className="font-sans ui-caption leading-relaxed text-brand-muted/70">
                   <span className="text-brand-fg">Remote / virtual celebration.</span> Guests can’t attend in person — we’ll open the studio to a shareable greeting card where anyone, anywhere adds photos, videos &amp; notes. Your chosen style still applies.
                 </span>
               </label>
             </div>
             <label className="flex flex-col gap-1.5">
-              <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Date (optional)</span>
+              <span className="font-label uppercase tracking-luxe ui-caption text-brand-muted/70">Date (optional)</span>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} />
             </label>
             <button
               onClick={() => setStep(2)}
               disabled={!canNext1}
-              className="mt-2 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+              className="mt-2 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
             >
               Next <ArrowRight className="w-4 h-4" />
             </button>
@@ -815,7 +881,7 @@ export default function NewEvent() {
               <p className="mt-1 font-sans text-xs text-brand-muted/60">Guests will open the booth at this address.</p>
             </div>
             <label className="flex flex-col gap-1.5">
-              <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Event link</span>
+              <span className="font-label uppercase tracking-luxe ui-caption text-brand-muted/70">Event link</span>
               <div className="flex items-center gap-0 rounded-xl bg-white/[0.04] border border-white/10 focus-within:border-[color:var(--color-accent)]/60 transition">
                 <span className="pl-4 font-mono text-sm text-brand-muted/50 select-none">/e/</span>
                 <input
@@ -836,20 +902,20 @@ export default function NewEvent() {
               {slugHint.kind === 'taken' && <span className="text-red-400">That link is already taken — try another.</span>}
               {slugHint.kind === 'invalid' && <span className="text-red-400">{slugHint.message}</span>}
             </div>
-            <p className="font-sans text-[10px] text-brand-muted/40 leading-relaxed">
+            <p className="font-sans ui-caption text-brand-muted/40 leading-relaxed">
               Availability is a best-effort check — unpublished events from other hosts aren't visible here, so the final word comes when you create.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setStep(1)}
-                className="flex-1 rounded-full border border-white/15 bg-white/[0.04] px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08]"
+                className="flex-1 rounded-full border border-white/15 bg-white/[0.04] px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-semibold text-brand-fg transition hover:bg-white/[0.08]"
               >
                 Back
               </button>
               <button
                 onClick={() => setStep(3)}
                 disabled={!canNext2}
-                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
               >
                 Next <ArrowRight className="w-4 h-4" />
               </button>
@@ -893,14 +959,14 @@ export default function NewEvent() {
               <button
                 onClick={() => setStep(2)}
                 disabled={creating}
-                className="flex-1 rounded-full border border-white/15 bg-white/[0.04] px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08] disabled:opacity-40"
+                className="flex-1 rounded-full border border-white/15 bg-white/[0.04] px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-semibold text-brand-fg transition hover:bg-white/[0.08] disabled:opacity-40"
               >
                 Back
               </button>
               <button
                 onClick={doCreate}
                 disabled={creating}
-                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
+                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating…</> : 'Create event'}
               </button>
@@ -916,7 +982,7 @@ export default function NewEvent() {
         <TemplatePreview template={template} eventName={name.trim() || template.label} accent={accent} className="w-full max-w-[260px] mx-auto" />
         <div className="text-center">
           <p className="font-serif italic text-lg text-foil-static leading-tight">{name.trim() || 'Your event'}</p>
-          <p className="mt-0.5 font-label uppercase tracking-luxe text-[9px] text-brand-muted/55">
+          <p className="mt-0.5 font-label uppercase tracking-luxe ui-caption text-brand-muted/55">
             {template.emoji} {template.label}{remote ? ' · Remote' : ''} · live preview
           </p>
         </div>
