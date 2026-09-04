@@ -18,7 +18,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { BookOpen, ChevronDown, Loader2, PartyPopper, Sparkles, X } from 'lucide-react';
 import { useCopilotStore } from '../../lib/copilotStore';
 import { fetchMyEvents, type HostEventRow } from '../../lib/host';
-import { loadEventSnapshot, type EventSnapshot } from '../../lib/eventSnapshot';
+import { loadEventSnapshot, snapshotMetaFromRow, type EventSnapshot } from '../../lib/eventSnapshot';
 import CopilotChat from './CopilotChat';
 import { useKeyboardInset } from './useKeyboardInset';
 
@@ -73,14 +73,8 @@ export default function CopilotPanel() {
     if (!selected) { setSnapshot(null); return; }
     let alive = true;
     setSnapLoading(true);
-    loadEventSnapshot({
-      eventUuid: selected.id,
-      slug: selected.slug,
-      name: selected.name,
-      status: selected.status,
-      planTier: selected.plan_tier,
-      eventType: selected.event_type,
-    })
+    // ONE meta builder for every screen (date, brief, copy stamp ride along).
+    loadEventSnapshot(snapshotMetaFromRow(selected))
       .then((s) => { if (alive) setSnapshot(s); })
       .catch(() => { if (alive) setSnapshot(null); })
       .finally(() => { if (alive) setSnapLoading(false); });

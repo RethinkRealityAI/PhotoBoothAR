@@ -13,10 +13,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Check, Loader2, Send, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { Check, Loader2, Send, Square, ThumbsDown, ThumbsUp } from 'lucide-react';
 import {
   askCopilot, executeAction, normalizeActions, applyGeneratedFrame, applyGeneratedPiece,
-  formatToolResult, toolResultSummary, sendFeedback,
+  applyIncludeFlags, formatToolResult, toolResultSummary, sendFeedback, MAX_ACTIONS,
   type CopilotAction, type CopilotCtx, type ExecResult, type FrameProvider,
 } from '../../lib/copilot';
 import { useCopilotStore } from '../../lib/copilotStore';
@@ -25,8 +25,14 @@ import {
   buildCardLinkSurface, buildLinksSurface, buildProposalSurface, buildStatsSurface,
   buildGeneratingSurface, buildFramePreviewSurface, buildHeadPiecePreviewSurface,
   buildGenErrorSurface, buildBoothTestSurface, buildChecklistSurface,
+  buildBundleSurface, bundleStepsFor, isPaidAction,
   type ProposalChallenge,
 } from '../../lib/copilotSurfaces';
+import { computeChecklist, checklistFromSnapshot, missingIds } from '../../lib/eventChecklist';
+import { greetingFor, quickChipsFor, examplePromptsFor, type ChipRun } from '../../lib/hostChips';
+import { packAction, packById } from '../../lib/contentPacks';
+import { fetchChallengeCheckStats } from '../../lib/db';
+import { summarizeChallengeChecks, formatCheckStats } from '../../lib/challengeChecks';
 import { gapPrompt, proposalGaps, requiredGaps } from '../../lib/proposalGaps';
 import {
   applySurfaceMessages, setPath,
@@ -40,8 +46,6 @@ import { providerCostLabel } from '../../lib/providerPricing';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { measureGlbFitScale } from '../../lib/studio/glbThumb';
 import { boothUrl } from '../../lib/copilotBooth';
-import { FILTER_SHADERS } from '../../lib/shaders';
-import { HEAD_PIECES } from '../../lib/headPieces';
 import type { ChatMessage } from '../../lib/eventDesigner';
 import type { EventSnapshot } from '../../lib/eventSnapshot';
 import type { Experience } from '../../types';
@@ -53,8 +57,20 @@ import { buildConceptPrompt, normalizeLettering, type LetteringSpec } from '../.
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const POLL_MS = 5000;
 const MAX_POLLS = 60; // ~5 minutes — matches the studio Director's Meshy poll
-const DEFAULT_FILTER_ID = FILTER_SHADERS.find((s) => s.id !== 'none')?.id ?? 'none';
-const DEFAULT_PIECE_ID = HEAD_PIECES[0]?.id ?? '';
+
+/** The read-only tools run instantly from the snapshot (no confirm card). */
+const READ_ONLY_TOOLS: ReadonlySet<CopilotAction['tool']> = new Set(['get_stats', 'share_links', 'test_experience']);
+
+/**
+ * What the chat is waiting on. A model TURN locks the composer and the chips
+ * and shows the Stop button; an ACTION (a confirm card executing, a bundle
+ * running its steps) locks only ITS card. Nothing else is disabled — a host
+ * may read, scroll, and confirm another card while the model thinks.
+ */
+type Pending =
+  | null
+  | { kind: 'turn'; controller: AbortController }
+  | { kind: 'action'; surfaceId: string };
 
 /** A retry is pointless (and unfair) for hard, non-transient failures —
  *  including a missing/rejected provider key (shared list in lib/ai.ts). */
@@ -118,6 +134,9 @@ interface ChatItem extends ChatMessage {
   turnId?: number;
   /** The host's thumbs verdict on this turn, once sent successfully. */
   feedback?: 1 | -1;
+  /** The host pressed Stop on this turn: a local "Stopped." marker, never sent
+   *  on the wire (the model has no reply to pair it with). */
+  stopped?: boolean;
 }
 
 /** The host-readable text of a [tool_result] pill. Machine-form turns
@@ -166,18 +185,6 @@ const MESHY_STALLED_COPY =
 
 const STORE_KEY = 'beamwall:copilot:v1';
 
-const GREETING =
-  'Ask me anything — how Beamwall works, what’s in your event, or tell me what to change ' +
-  '(“add a scavenger-hunt challenge worth 20 points”, “make a card for Grandma”).';
-
-/** First-time helper chips (empty thread only) — each prefills the input so the
- *  host can read, tweak, then send. Drawn from the copilot's real tool set. */
-const EXAMPLE_PROMPTS = [
-  'Add a photo challenge worth 20 points',
-  'Generate a frame that matches my theme',
-  'Make me a 3D crown to wear',
-];
-
 /** How close to the bottom (px) still counts as "following the conversation". */
 const NEAR_BOTTOM_PX = 80;
 
@@ -222,7 +229,15 @@ export default function CopilotChat({
   const [feedbackPending, setFeedbackPending] = useState<Set<number>>(() => new Set());
   const [surfaces, setSurfaces] = useState<Record<string, SurfaceState>>(() => loadSaved(storeKey).surfaces);
   const [input, setInput] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<Pending>(null);
+  // The composer block below still reads `busy` — it is swapped for the shared
+  // ChatComposer in a later step; until then only a model TURN counts as busy.
+  const busy = pending?.kind === 'turn';
+  const chipMode = mode === 'build' ? 'build' : 'platform';
+  // ONE checklist feeds the greeting, the chips and the beam-ready card. A
+  // failed snapshot yields no checklist at all — an empty "missing" list, never
+  // a list that claims everything is missing.
+  const checklist = snapshot && !snapshot.failed ? computeChecklist(checklistFromSnapshot(snapshot), 'build') : [];
   const seqRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -269,6 +284,9 @@ export default function CopilotChat({
   // and chosen to go ahead — asking twice is arguing, not helping. Required
   // fields are never in here: those block every time.
   const askedGaps = useRef<Set<string>>(new Set());
+  // Bundle cards stay mounted while their steps run — the same synchronous
+  // double-fire latch the generation cards use.
+  const runningBundle = useRef<Set<string>>(new Set());
   // Live credit balance of THIS event's org (the org generation charges) —
   // shown beside paid-generation proposal cards; refreshed after each spend.
   const [balance, setBalance] = useState<number | null>(null);
@@ -289,7 +307,7 @@ export default function CopilotChat({
   useEffect(() => {
     if (!nearBottomRef.current) return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: reduced ? 'auto' : 'smooth' });
-  }, [messages, busy, reduced]);
+  }, [messages, pending, reduced]);
 
   // Auto-grow the input up to ~4 lines; also snaps back when send() clears it.
   useEffect(() => {
@@ -311,6 +329,7 @@ export default function CopilotChat({
     slug: snapshot?.slug ?? '',
     eventUuid: snapshot?.eventUuid ?? '',
     origin: window.location.origin,
+    brief: snapshot?.brief ?? null,
   });
 
   const addSurface = (msgs: A2uiMessage[], sid: string) => {
@@ -389,6 +408,28 @@ export default function CopilotChat({
         { label: 'Experiences', value: snapshot.experiences.length },
         { label: 'Cards', value: snapshot.cards.length },
       ], sid), sid);
+      // AI photo-check pass rates, one tile per validating challenge — a second
+      // read (challenge_checks), so it lands as its own card after the counts.
+      const validating = snapshot.challenges.filter((c) => c.hasCheck === true);
+      if (validating.length > 0) {
+        const slug = snapshot.slug;
+        void (async () => {
+          const res = await fetchChallengeCheckStats(slug);
+          if (res.failed) {
+            pushResult(action.tool, {
+              ok: false, code: 'network', retryable: true,
+              summary: 'I couldn’t read the photo-check results just now — the counts above still stand.',
+            });
+            return;
+          }
+          const stats = summarizeChallengeChecks(res.rows);
+          const csid = `ro_${++seqRef.current}`;
+          addSurface(buildStatsSurface(validating.map((c) => ({
+            label: `${c.emoji} ${c.title}`,
+            value: stats[c.id] ? formatCheckStats(stats[c.id]) : 'No checks yet',
+          })), csid), csid);
+        })();
+      }
     } else if (action.tool === 'share_links') {
       const base = `${window.location.origin}/e/${snapshot.slug}`;
       addSurface(buildLinksSurface([
@@ -419,15 +460,9 @@ export default function CopilotChat({
       return;
     }
     const sid = `chk_${++seqRef.current}`;
-    // Count only PUBLISHED experiences — an unapproved/dismissed generation
-    // leaves an unpublished row that must not tick the checklist (F7).
-    addSurface(buildChecklistSurface(sid, [
-      { label: 'Add a frame', done: snapshot.experiences.some((e) => e.kind === 'border' && e.published) },
-      { label: 'Add a filter', done: snapshot.experiences.some((e) => e.kind === 'shader' && e.published) },
-      { label: 'Add a 3D prop', done: snapshot.experiences.some((e) => e.kind === '3d_attachment' && e.published) },
-      { label: 'Add challenges', done: snapshot.challenges.length > 0 },
-      { label: 'Go live', done: snapshot.status === 'live' },
-    ]), sid);
+    // eventChecklist counts only PUBLISHED experiences — an unapproved/dismissed
+    // generation leaves an unpublished row that must not tick the checklist (F7).
+    addSurface(buildChecklistSurface(sid, computeChecklist(checklistFromSnapshot(snapshot), 'build')), sid);
   };
 
   /** `topUp` adds a "Top up credits" button (absolute URL — openUrl is http(s)-only). */
@@ -688,16 +723,34 @@ export default function CopilotChat({
 
   const send = async (text: string) => {
     const content = text.trim();
-    if (!content || busy) return;
+    if (!content || pending?.kind === 'turn') return;
     const next: ChatItem[] = [...messages, { role: 'user', content }];
     setMessages(next);
     setInput('');
-    setBusy(true);
-    const wire: ChatMessage[] = next.map(({ role, content: c }) => ({ role, content: c }));
+    const controller = new AbortController();
+    setPending({ kind: 'turn', controller });
+    try {
+      await runTurn(next, controller);
+    } finally {
+      // Only THIS turn's lock — an action lock taken meanwhile stays put.
+      setPending((p) => (p?.kind === 'turn' && p.controller === controller ? null : p));
+    }
+  };
+
+  const runTurn = async (next: ChatItem[], controller: AbortController) => {
+    // "Stopped." markers are local: the model never saw a reply for them.
+    const wire: ChatMessage[] = next.filter((m) => !m.stopped).map(({ role, content: c }) => ({ role, content: c }));
     const res = await askCopilot(wire, snapshot, {
       surface: mode === 'build' ? 'build' : 'platform',
       lastTurn: lastTurnRef.current,
+      signal: controller.signal,
     }); // never throws
+    if (res.aborted) {
+      // No result turn, no lastTurn update: the server still completes and
+      // logs the turn, but the host asked not to see it.
+      setMessages((m) => [...m, { role: 'assistant', content: 'Stopped.', stopped: true }]);
+      return;
+    }
     lastTurnRef.current = res.turnId !== null ? { turnId: res.turnId, dropped: res.dropped } : null;
     // `offline` marks a reply the built-in fallback wrote, not the model — it
     // reads exactly like a real answer otherwise, and a host who cannot tell
@@ -718,7 +771,7 @@ export default function CopilotChat({
     }
     const overCap = byReason('over_cap');
     if (overCap.length > 0) {
-      pushResult(overCap[0].tool, { ok: false, code: 'invalid', retryable: false, summary: 'I can do three at a time — ask again for the rest.' });
+      pushResult(overCap[0].tool, { ok: false, code: 'invalid', retryable: false, summary: `I can do ${MAX_ACTIONS} at a time — ask again for the rest.` });
     }
     const malformed = byReason('unknown_tool', 'invalid_args');
     if (malformed.length > 0) {
@@ -729,15 +782,18 @@ export default function CopilotChat({
           : `I couldn’t act on ${malformed.length} of those — tell me the exact challenge names and I’ll redo them.`,
       });
     }
-    for (const action of res.actions) {
-      if (action.tool === 'get_stats' || action.tool === 'share_links' || action.tool === 'test_experience') {
-        runReadOnly(action);
-      } else {
-        const sid = `prop_${++seqRef.current}`;
-        addSurface(buildProposalSurface(action, sid, targetChallenge(action)), sid);
-      }
+    const readOnly = res.actions.filter((a) => READ_ONLY_TOOLS.has(a.tool));
+    const mutating = res.actions.filter((a) => !READ_ONLY_TOOLS.has(a.tool));
+    readOnly.forEach(runReadOnly);
+    if (mutating.length >= 2) {
+      // Several changes in one reply → ONE bundle card (free steps in order,
+      // a paid step opens its own generation card last) instead of a stack of
+      // confirm cards the host has to approve one by one.
+      const sid = `bundle_${++seqRef.current}`;
+      addSurface(buildBundleSurface(bundleStepsFor(mutating, snapshot), sid), sid);
+    } else {
+      for (const action of mutating) openProposal(action);
     }
-    setBusy(false);
   };
 
   const handleSurfaceAction = async (event: A2uiActionEvent) => {
@@ -749,7 +805,7 @@ export default function CopilotChat({
       askedGaps.current.delete(event.surfaceId);
       return;
     }
-    if (event.name !== 'confirm_action' && event.name !== 'apply_generated'
+    if (event.name !== 'confirm_action' && event.name !== 'confirm_bundle' && event.name !== 'apply_generated'
       && event.name !== 'regenerate_generated' && event.name !== 'open_go_live_card') return;
 
     // Every tool here acts on the selected event; with none selected ctx().slug
@@ -773,11 +829,14 @@ export default function CopilotChat({
 
     if (event.name === 'apply_generated') { await applyGenerated(event); return; }
     if (event.name === 'regenerate_generated') { regenerate(event); return; }
+    if (event.name === 'confirm_bundle') { await runBundle(event); return; }
     // The booth-test card's Go-live button OPENS the confirm card instead of
     // publishing on the spot — the host reads what going live means first.
     if (event.name === 'open_go_live_card') { openProposal({ tool: 'go_live' }); return; }
 
-    const proposal = (event.context.proposal ?? {}) as Record<string, unknown> & { tool?: string };
+    // Per-row ticks (the pack card) are honoured HERE, before the gap check and
+    // the normalizer — both would otherwise read rows the host unticked.
+    const proposal = applyIncludeFlags((event.context.proposal ?? {}) as Record<string, unknown>) as Record<string, unknown> & { tool?: string };
     const tool = proposal.tool;
     if (typeof tool !== 'string') return;
 
@@ -842,7 +901,13 @@ export default function CopilotChat({
     // action still played its confirmation animation. Drop the card now, and
     // let the result message carry the outcome.
     dropSurfaceById(event.surfaceId);
-    const result = await executeAction(validated, ctx());
+    setPending((p) => (p?.kind === 'turn' ? p : { kind: 'action', surfaceId: event.surfaceId }));
+    let result: ExecResult;
+    try {
+      result = await executeAction(validated, ctx());
+    } finally {
+      setPending((p) => (p?.kind === 'action' && p.surfaceId === event.surfaceId ? null : p));
+    }
     pushResult(validated.tool, result);
     if (result.ok && result.card) {
       const sid = `card_${++seqRef.current}`;
@@ -850,6 +915,71 @@ export default function CopilotChat({
     }
     if (result.ok) onMutated();
     if (result.ok && result.handoff) runHandoff(result.handoff);
+  };
+
+  /**
+   * The bundle card's "Run selected": every ticked step in order, each
+   * re-validated through the SAME normalizer gate as a single confirm. A paid
+   * step never runs here — it opens its own generation card (single charge
+   * point, preview-first) and the loop moves on. The first failure stops the
+   * run: later steps may depend on the earlier one, and "3 of 5 done, the
+   * rest didn't run" is a truth the host can act on.
+   */
+  const runBundle = async (event: A2uiActionEvent) => {
+    const sid = event.surfaceId;
+    if (!snapshot || runningBundle.current.has(sid)) return;
+    const rawSteps = Array.isArray(event.context.steps) ? (event.context.steps as unknown[]) : [];
+    const steps = rawSteps.filter(
+      (s): s is { action?: { tool?: unknown; proposal?: unknown }; include?: unknown } =>
+        s !== null && typeof s === 'object' && (s as { include?: unknown }).include !== false,
+    );
+    if (steps.length === 0) {
+      dropSurfaceById(sid);
+      pushResult('bundle', { ok: false, code: 'invalid', retryable: false, summary: 'Nothing was ticked, so nothing ran.' });
+      return;
+    }
+    runningBundle.current.add(sid);
+    setPending((p) => (p?.kind === 'turn' ? p : { kind: 'action', surfaceId: sid }));
+    let anyOk = false;
+    try {
+      for (const step of steps) {
+        const tool = typeof step.action?.tool === 'string' ? step.action.tool : '?';
+        const proposal = step.action?.proposal !== null && typeof step.action?.proposal === 'object'
+          ? (step.action.proposal as Record<string, unknown>)
+          : {};
+        // normalizeActions reads FLAT items ({ tool, ...fields }) — the same
+        // shape the confirm card's data model already has.
+        const [validated] = normalizeActions([{ ...applyIncludeFlags(proposal), tool }], snapshot);
+        if (!validated) {
+          pushResult(tool, {
+            ok: false, code: 'invalid', retryable: false,
+            summary: 'One step didn’t look valid, so I stopped there — nothing after it ran. Tell me again and I’ll redo it.',
+          });
+          break;
+        }
+        if (isPaidAction(validated)) { openProposal(validated); continue; }
+        const result = await executeAction(validated, ctx());
+        pushResult(validated.tool, result);
+        if (!result.ok) break;
+        anyOk = true;
+        if (result.card) {
+          const csid = `card_${++seqRef.current}`;
+          addSurface(buildCardLinkSurface(result.card, csid), csid);
+        }
+        if (result.handoff) runHandoff(result.handoff);
+      }
+    } catch (e) {
+      console.error('[copilot] runBundle', e);
+      pushResult('bundle', {
+        ok: false, code: 'unknown', retryable: true,
+        summary: 'Something went wrong part-way — the steps that finished are in place; the rest didn’t run.',
+      });
+    } finally {
+      runningBundle.current.delete(sid);
+      dropSurfaceById(sid);
+      setPending((p) => (p?.kind === 'action' && p.surfaceId === sid ? null : p));
+      if (anyOk) onMutated();
+    }
   };
 
   /** Handoff tools ran nothing server-side (executeAction returns `handoff`);
@@ -904,43 +1034,37 @@ export default function CopilotChat({
    *  chips use this so the whole flow works even before the edge-fn redeploy. */
   const openProposal = (action: CopilotAction) => {
     const sid = `prop_${++seqRef.current}`;
-    addSurface(buildProposalSurface(action, sid, targetChallenge(action)), sid);
+    addSurface(buildProposalSurface(action, sid, targetChallenge(action), { snapshot }), sid);
   };
 
-  /** Quick-action chips: the experience-building set in build mode, else the
-   *  original platform-copilot set. */
-  const quickChips = (): { label: string; run: () => void }[] => {
-    if (!snapshot) return [];
-    if (mode === 'build') {
-      const chips: { label: string; run: () => void }[] = [
-        { label: '🖼 Frame', run: () => openProposal({ tool: 'generate_frame', proposal: { prompt: `An elegant frame for "${snapshot.name}" — refined ornament hugging the edges, centre fully clear` } }) },
-        { label: '🎨 Filter', run: () => openProposal({ tool: 'set_filter', proposal: { shaderId: DEFAULT_FILTER_ID } }) },
-        { label: '👑 3D prop', run: () => openProposal({ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId: DEFAULT_PIECE_ID } }) },
-        { label: '🏆 Challenge', run: () => openProposal({ tool: 'add_challenge', proposal: { title: 'New photo mission', emoji: '⭐', points: 10, description: '' } }) },
-        { label: '🎁 Pack', run: () => send('Design a themed pack of 5 photo challenges that fit this event.') },
-        { label: '📱 Test', run: () => runReadOnly({ tool: 'test_experience' }) },
-        { label: '📋 Checklist', run: showChecklist },
-        { label: '✨ Recommend', run: () => send('Recommend a frame and a filter that fit this event, and propose them.') },
-      ];
-      if (snapshot.status !== 'live') {
-        chips.splice(6, 0, { label: '🚀 Go live', run: () => openProposal({ tool: 'go_live' }) });
+  /** A chip is data (hostChips.ChipRun); this maps each kind onto the plumbing
+   *  above. The pack chip opens the registry pack as a confirm card — zero AI
+   *  round-trip. */
+  const runChip = (run: ChipRun) => {
+    switch (run.kind) {
+      case 'open': openProposal(run.action); break;
+      case 'send': void send(run.text); break;
+      case 'readonly': runReadOnly(run.action); break;
+      case 'checklist': showChecklist(); break;
+      case 'pack': {
+        const pack = packById(run.packId);
+        if (pack) openProposal(packAction(pack));
+        break;
       }
-      return chips;
     }
-    return [
-      { label: '📊 Stats', run: () => runReadOnly({ tool: 'get_stats' }) },
-      { label: '🔗 Share links', run: () => runReadOnly({ tool: 'share_links' }) },
-      { label: '🏆 New challenge', run: () => openProposal({ tool: 'add_challenge', proposal: { title: 'New photo mission', emoji: '⭐', points: 10, description: '' } }) },
-      { label: '💌 New card', run: () => openProposal({ tool: 'create_card', proposal: { cardTitle: `Memories for ${snapshot.name}`, recipientName: '', cardTemplate: 'storybook', deadline: '' } }) },
-      // AI round-trip on purpose: the model designs a THEMED set from the live
-      // event snapshot, then it arrives as one confirm card.
-      { label: '🎁 Challenge pack', run: () => send('Design a themed pack of 5 photo challenges that fit this event.') },
-    ];
   };
+
+  /** Quick-action chips: what is still missing comes first, done items drop
+   *  out, and "Go live" appears only while not live (hostChips.quickChipsFor). */
+  const quickChips = quickChipsFor({ mode: chipMode, snapshot, checklist });
+  const greetingText = greeting ?? greetingFor({
+    mode: chipMode, eventType: snapshot?.eventType, name: snapshot?.name, missing: missingIds(checklist),
+  });
+  const examplePrompts = examplePromptsFor({ mode: chipMode, eventType: snapshot?.eventType });
 
   return (
     <div
-      className="flex-1 min-h-0 flex flex-col px-4 pb-4 pt-3 gap-2.5"
+      className="ui-scalable flex-1 min-h-0 flex flex-col px-4 pb-4 pt-3 gap-2.5"
       /* Mobile soft keyboard: this chat is also mounted INLINE (on
          /host/concierge and /host/new's build phase), where nothing else lifts
          it — so the input row sat under the keyboard the moment it was tapped.
@@ -949,20 +1073,29 @@ export default function CopilotChat({
          above the keyboard. Desktop reads 0 either way. */
       style={liftAboveKeyboard && kbInset > 0 ? { paddingBottom: `calc(1rem + ${kbInset}px)` } : undefined}
     >
-      <div ref={scrollRef} onScroll={handleListScroll} className="flex-1 min-h-0 overflow-y-auto rounded-2xl bg-white/[0.02] border border-white/10 p-3.5 flex flex-col gap-2.5">
-        <div className="max-w-[90%] self-start rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg/90">
-          {greeting ?? GREETING}
+      {/* role="log": a screen reader announces new turns/results as they land
+          (additions only — edits to a card's fields stay quiet). */}
+      <div
+        ref={scrollRef}
+        onScroll={handleListScroll}
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions"
+        className="flex-1 min-h-0 overflow-y-auto rounded-2xl bg-white/[0.02] border border-white/10 p-3.5 flex flex-col gap-2.5"
+      >
+        <div className="max-w-[90%] self-start rounded-2xl rounded-tl-md bg-white/[0.05] border border-white/10 px-3.5 py-2.5 font-sans ui-chat leading-relaxed text-brand-fg/90">
+          {greetingText}
         </div>
         {/* First-visit helper — example prompts that prefill the input so a new
             host can read, tweak, then send. Gone once the thread has messages. */}
         {messages.length === 0 && (
           <div className="self-start flex flex-col items-start gap-1.5 px-0.5">
-            <p className="font-sans text-[10px] text-brand-muted/50">Try one of these:</p>
-            {EXAMPLE_PROMPTS.map((p) => (
+            <p className="font-sans ui-caption text-brand-muted/50">Try one of these:</p>
+            {examplePrompts.map((p) => (
               <button
                 key={p}
                 onClick={() => { setInput(p); inputRef.current?.focus(); }}
-                className="rounded-full border border-[color:var(--color-accent)]/25 bg-[color:var(--color-accent)]/[0.07] px-3 py-1.5 font-sans text-[11px] text-brand-fg/85 hover:bg-[color:var(--color-accent)]/15 transition-colors text-left"
+                className="rounded-full border border-[color:var(--color-accent)]/25 bg-[color:var(--color-accent)]/[0.07] px-3 min-h-11 font-sans ui-caption text-brand-fg/85 hover:bg-[color:var(--color-accent)]/15 transition-colors text-left"
               >
                 {p}
               </button>
@@ -979,7 +1112,7 @@ export default function CopilotChat({
                 initial={entrance}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                className={`self-center rounded-full px-3 py-1 font-mono text-[10px] ${
+                className={`self-center rounded-full px-3 py-1 font-mono ui-caption ${
                   m.ok === false
                     ? 'bg-amber-400/10 border border-amber-300/30 text-amber-200/90'
                     : 'bg-white/[0.04] border border-white/10 text-brand-muted/70'
@@ -999,7 +1132,7 @@ export default function CopilotChat({
                 initial={entrance}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                className="max-w-[90%] self-end rounded-2xl rounded-tr-md bg-[color:var(--color-accent)]/15 border border-[color:var(--color-accent)]/30 px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg"
+                className="max-w-[90%] self-end rounded-2xl rounded-tr-md bg-[color:var(--color-accent)]/15 border border-[color:var(--color-accent)]/30 px-3.5 py-2.5 font-sans ui-chat leading-relaxed text-brand-fg"
                 style={{ boxShadow: '0 2px 6px -2px rgba(0,0,0,0.5), 0 10px 26px -18px rgba(var(--accent-rgb),0.8), inset 0 1px 0 rgba(255,255,255,0.18)' }}
               >
                 {m.content}
@@ -1024,12 +1157,12 @@ export default function CopilotChat({
                 <div
                   className={
                     m.offline
-                      ? 'rounded-2xl rounded-tl-md border border-amber-300/25 bg-amber-400/[0.07] px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-amber-100/90'
-                      : 'liquid-glass-inset rounded-2xl rounded-tl-md px-3.5 py-2.5 font-sans text-[12.5px] leading-relaxed text-brand-fg/90'
+                      ? 'rounded-2xl rounded-tl-md border border-amber-300/25 bg-amber-400/[0.07] px-3.5 py-2.5 font-sans ui-chat leading-relaxed text-amber-100/90'
+                      : `liquid-glass-inset rounded-2xl rounded-tl-md px-3.5 py-2.5 font-sans ui-chat leading-relaxed ${m.stopped ? 'text-brand-muted/70 italic' : 'text-brand-fg/90'}`
                   }
                 >
                   {m.offline && (
-                    <span className="block font-label uppercase tracking-luxe text-[8.5px] text-amber-300/80 mb-1">
+                    <span className="block font-label uppercase tracking-luxe ui-caption text-amber-300/80 mb-1">
                       Offline · built-in guide
                     </span>
                   )}
@@ -1068,7 +1201,7 @@ export default function CopilotChat({
                 </div>
               )}
               {costNote && (
-                <p className="font-sans text-[10px] text-brand-muted/55 px-1">
+                <p className="font-sans ui-caption text-brand-muted/55 px-1">
                   {costNote}
                   {balance !== null && (
                     <> · you have {balance} credit{balance === 1 ? '' : 's'}</>
@@ -1081,7 +1214,9 @@ export default function CopilotChat({
                     surface={surfaces[m.surfaceId]}
                     onAction={handleSurfaceAction}
                     onDataChange={handleSurfaceData}
-                    busy={busy}
+                    /* Only the card whose action is running is locked; the
+                       model thinking never freezes every card in the thread. */
+                    busy={pending?.kind === 'action' && pending.surfaceId === m.surfaceId}
                   />
                   {/* Success flash — a brief check over the card when its action
                       applies, so it reads as "done", not "gone". */}
@@ -1110,12 +1245,13 @@ export default function CopilotChat({
             </motion.div>
           );
         })}
-        {busy && (
+        {pending?.kind === 'turn' && (
           <motion.div
+            role="status"
             initial={reduced ? false : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-            className="liquid-glass-inset self-start flex items-center gap-2 rounded-2xl rounded-tl-md px-3.5 py-3"
+            className="liquid-glass-inset self-start flex items-center gap-2 rounded-2xl rounded-tl-md pl-3.5 pr-1.5 py-1"
           >
             {/* Three dots breathing in sequence reads as "composing" in a way a
                 spinner never does. Static under reduced motion. */}
@@ -1129,7 +1265,17 @@ export default function CopilotChat({
                 />
               ))}
             </span>
-            <span className="font-sans text-[11px] text-brand-muted/60">Thinking…</span>
+            <span className="font-sans ui-caption text-brand-muted/60">Thinking…</span>
+            {/* Stop: aborts the request. The server still finishes and logs
+                the turn; the chat just shows "Stopped." instead of a reply. */}
+            <button
+              type="button"
+              onClick={() => { haptic('tap'); pending.controller.abort(); }}
+              aria-label="Stop"
+              className="pressable inline-flex items-center gap-1.5 rounded-full px-3 min-h-11 min-w-11 font-label uppercase tracking-luxe ui-caption text-brand-muted/70 hover:text-brand-fg transition-colors"
+            >
+              <Square className="w-3 h-3 fill-current" aria-hidden="true" /> Stop
+            </button>
           </motion.div>
         )}
       </div>
@@ -1137,12 +1283,12 @@ export default function CopilotChat({
       {/* Quick actions — launch widgets instantly, no AI round-trip. */}
       {snapshot && (
         <div className="shrink-0 flex flex-wrap gap-1.5">
-          {quickChips().map((q) => (
+          {quickChips.map((q) => (
             <button
-              key={q.label}
-              onClick={() => { haptic('tap'); q.run(); }}
-              disabled={busy}
-              className="pressable liquid-glass-inset rounded-full px-3.5 min-h-11 font-sans text-[10.5px] text-brand-muted/80 hover:text-brand-fg transition-colors disabled:opacity-40"
+              key={q.id}
+              onClick={() => { haptic('tap'); runChip(q.run); }}
+              disabled={pending?.kind === 'turn'}
+              className="pressable liquid-glass-inset rounded-full px-3.5 min-h-11 font-sans ui-caption text-brand-muted/80 hover:text-brand-fg transition-colors disabled:opacity-40"
             >
               {q.label}
             </button>

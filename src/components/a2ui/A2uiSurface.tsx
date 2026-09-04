@@ -9,12 +9,16 @@
  * the trusted catalog — that's the A2UI security model).
  *
  * Supported subset: Card, Column, Row, List (static + templated), Text, Image,
- * Icon, Divider, Button, TextField, DateTimeInput, CheckBox, ChoicePicker.
+ * Icon, Divider, Button, TextField, DateTimeInput, CheckBox, ChoicePicker,
+ * plus the Beamwall widgets ThumbPicker (tile picker) and Diff (before → after).
  * Two-way input bindings write through `onDataChange`; Button `action.event`
  * fires `onAction` with its context resolved against the data model at
  * trigger time, per the spec.
+ *
+ * Type floor: every size here is a `ui-*` utility (index.css) — 12px minimum,
+ * scaled by the host's text-size choice through `--ui-scale` on the root.
  */
-import { memo } from 'react';
+import { Fragment, memo } from 'react';
 import { CalendarDays, Check, Heart, PartyPopper, Sparkles, Star } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
@@ -22,6 +26,7 @@ import {
   type A2uiActionEvent, type A2uiComponent, type SurfaceState,
 } from '../../lib/a2ui';
 import { EVENT_TEMPLATES, templateById } from '../../lib/eventTemplates';
+import { BORDER_MAP, toDataUrl } from '../../lib/borders';
 import TemplatePreview from '../ui/TemplatePreview';
 
 interface Props {
@@ -47,8 +52,8 @@ const TEXT_VARIANTS: Record<string, string> = {
   h3: 'font-serif text-lg text-foil-static',
   h4: 'font-serif text-base text-foil-static',
   h5: 'font-serif text-sm text-foil-static',
-  caption: 'font-sans text-[11px] text-brand-muted/60',
-  body: 'font-sans text-[13px] leading-relaxed text-brand-fg/90',
+  caption: 'font-sans ui-caption text-brand-muted/60',
+  body: 'font-sans ui-body leading-relaxed text-brand-fg/90',
 };
 
 const JUSTIFY: Record<string, string> = {
@@ -70,7 +75,11 @@ const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2 text-[13px] text-brand-fg ' +
   'placeholder:text-brand-muted/40 outline-none transition focus:border-[color:var(--color-accent)]/60';
 
-const labelClass = 'font-label uppercase tracking-luxe text-[9px] text-brand-muted/70';
+const labelClass = 'font-label uppercase tracking-luxe ui-label text-brand-muted/70';
+
+/** Tile picker (ThumbPicker) options: a frame tile draws the built-in SVG,
+ *  an emoji tile shows the glyph, anything else is a label tile. */
+interface ThumbOption { value?: unknown; label?: unknown; frameId?: unknown; emoji?: unknown }
 
 const warned = new Set<string>();
 
@@ -129,8 +138,10 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
         const base = resolveBindingPath(t.path, scope);
         const items = resolveDynamic({ path: base }, dataModel);
         if (Array.isArray(items)) {
+          // Fragment, not a wrapper element: a <span> around each instance
+          // broke a flex Row template (the span became the flex item).
           return items.map((_item, i) => (
-            <span key={`${t.componentId}-${i}`}>{render(t.componentId!, `${base}/${i}`)}</span>
+            <Fragment key={`${t.componentId}-${i}`}>{render(t.componentId!, `${base}/${i}`)}</Fragment>
           ));
         }
       }
@@ -220,8 +231,8 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
             disabled={busy}
             className={
               primary
-                ? 'inline-flex items-center justify-center rounded-full bg-foil px-4 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.97] disabled:opacity-40'
-                : 'inline-flex items-center justify-center px-3 min-h-11 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-40'
+                ? 'inline-flex items-center justify-center rounded-full bg-foil px-4 min-h-11 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.97] disabled:opacity-40'
+                : 'inline-flex items-center justify-center px-3 min-h-11 font-label uppercase tracking-luxe ui-btn text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-40'
             }
           >
             {typeof c.child === 'string' ? render(c.child, scope) : null}
@@ -293,7 +304,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
                     key={`${key}-opt-${i}`}
                     onClick={() => path !== null && onDataChange(surfaceId, path, value)}
                     aria-pressed={selected}
-                    className={`inline-flex items-center rounded-full border px-3.5 min-h-11 font-sans text-[11px] transition-colors ${
+                    className={`inline-flex items-center rounded-full border px-3.5 min-h-11 font-sans ui-caption transition-colors ${
                       selected
                         ? 'border-[color:var(--color-accent)]/70 bg-[color:var(--color-accent)]/15 text-brand-fg'
                         : 'border-white/10 bg-white/[0.03] text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.06]'
@@ -309,6 +320,76 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
       }
 
       /* ── Beamwall custom catalog (BEAMWALL_CATALOG_ID) ─────────────── */
+
+      case 'ThumbPicker': {
+        // Tile picker bound like ChoicePicker: frames render their real SVG
+        // (toDataUrl at render time — no SVG bytes in the data model), head
+        // pieces their emoji, anything unknown falls back to a label tile.
+        const path = bindingPath(c.value, scope);
+        const current = resolveDynamic(c.value, dataModel, scope);
+        const options = Array.isArray(c.options) ? (c.options as ThumbOption[]) : [];
+        return (
+          <div key={key} className="flex flex-col gap-1">
+            {c.label !== undefined && <span className={labelClass}>{str(c.label, scope)}</span>}
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+              {options.map((o, i) => {
+                const value = str(o.value, scope);
+                const label = str(o.label, scope) || value;
+                const selected = current === value;
+                const frameId = typeof o.frameId === 'string' ? o.frameId : null;
+                const frame = frameId !== null ? BORDER_MAP[frameId] : undefined;
+                const emoji = typeof o.emoji === 'string' && o.emoji ? o.emoji : null;
+                return (
+                  <button
+                    key={`${key}-thumb-${i}`}
+                    type="button"
+                    onClick={() => path !== null && onDataChange(surfaceId, path, value)}
+                    aria-pressed={selected}
+                    title={label}
+                    className={`flex flex-col items-center justify-center gap-1 rounded-xl border p-2 min-h-11 min-w-11 transition-colors ${
+                      selected
+                        ? 'border-[color:var(--color-accent)]/70 bg-[color:var(--color-accent)]/15 text-brand-fg'
+                        : 'border-white/10 bg-white/[0.03] text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.06]'
+                    }`}
+                  >
+                    {frame ? (
+                      <img
+                        src={toDataUrl(frame.svg)}
+                        alt=""
+                        className="w-full aspect-[9/16] max-h-24 object-contain rounded-md bg-brand-bg/60"
+                      />
+                    ) : emoji ? (
+                      <span className="text-2xl leading-none" aria-hidden="true">{emoji}</span>
+                    ) : null}
+                    <span className="font-sans ui-caption text-center leading-tight">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      }
+
+      case 'Diff': {
+        // BEFORE → AFTER rows. `after` may be a `{ path }` binding so it
+        // tracks the host's edits in the fields beneath it.
+        const rows = Array.isArray(c.rows) ? (c.rows as { label?: unknown; before?: unknown; after?: unknown }[]) : [];
+        if (rows.length === 0) return null;
+        return (
+          <div key={key} className="flex flex-col gap-1.5">
+            {rows.map((r, i) => (
+              <div key={`${key}-diff-${i}`} className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 items-baseline">
+                <span className={labelClass}>{str(r.label, scope)}</span>
+                <span className="font-sans ui-caption min-w-0 flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-brand-muted/50 line-through break-words">{str(r.before, scope) || '—'}</span>
+                  <span className="text-brand-muted/50" aria-hidden="true">→</span>
+                  <span className="text-brand-fg/90 break-words">{str(r.after, scope) || '—'}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        );
+      }
 
       case 'TemplatePreview': {
         // Live look preview — updates as bindings (style chips, name field)
@@ -356,7 +437,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
                   </button>
                 );
               })}
-              <span className="font-sans text-[10px] text-brand-muted/50">{current ? '' : 'template default'}</span>
+              <span className="font-sans text-[11px] text-brand-muted/50">{current ? '' : 'template default'}</span>
             </div>
           </div>
         );
@@ -367,7 +448,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
         return (
           <div key={key} className="flex flex-col items-center gap-0.5 px-3 py-2">
             <span className="font-serif text-lg text-foil-static leading-none">{str(c.value, scope)}</span>
-            <span className="font-label uppercase tracking-luxe text-[8px] text-brand-muted/60">{str(c.label, scope)}</span>
+            <span className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/60">{str(c.label, scope)}</span>
           </div>
         );
       }
@@ -381,7 +462,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
               <QRCodeSVG value={value} size={104} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
             </div>
             {c.caption !== undefined && (
-              <p className="font-sans text-[10px] text-brand-muted/60">{str(c.caption, scope)}</p>
+              <p className="font-sans ui-caption text-brand-muted/60">{str(c.caption, scope)}</p>
             )}
           </div>
         );
@@ -419,7 +500,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
             {coarse ? (
               <button
                 onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
-                className="rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.97]"
+                className="rounded-full bg-foil px-5 min-h-11 font-label uppercase tracking-luxe ui-caption font-bold text-white glow-accent transition active:scale-[0.97]"
               >
                 Open booth
               </button>
@@ -430,7 +511,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
             )}
             <button
               onClick={() => navigator.clipboard?.writeText(url).catch(() => { /* denied — ignore */ })}
-              className="font-mono text-[10px] text-brand-muted/50 hover:text-brand-fg transition-colors break-all max-w-full text-center"
+              className="font-mono ui-caption min-h-11 text-brand-muted/50 hover:text-brand-fg transition-colors break-all max-w-full text-center"
             >
               {url.replace(/^https?:\/\//, '')}
             </button>
@@ -448,7 +529,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
   };
 
   if (!components.root) return null;
-  return <div className="w-full">{render('root', '')}</div>;
+  return <div className="w-full ui-scalable">{render('root', '')}</div>;
 }
 
 /** Memoized: the surfaces map preserves object identity for untouched

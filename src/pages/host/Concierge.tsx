@@ -15,8 +15,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Check, Copy, ExternalLink, Loader2, PartyPopper, Pencil, Settings2, Sparkles, X } from 'lucide-react';
-import { fetchMyEvents, updateEventName, updateEventStatus, type HostEventRow } from '../../lib/host';
-import { loadEventSnapshot, type EventSnapshot } from '../../lib/eventSnapshot';
+import { fetchMyEvents, goLive, updateEventName, updateEventStatus, type HostEventRow } from '../../lib/host';
+import { loadEventSnapshot, snapshotMetaFromRow, type EventSnapshot } from '../../lib/eventSnapshot';
 import { TierPill } from './UpgradeCard';
 import StatusPill from '../../components/ui/StatusPill';
 import CopilotChat from '../../components/copilot/CopilotChat';
@@ -190,14 +190,8 @@ export default function Concierge() {
   const refreshSnapshot = useCallback(() => {
     if (!selected) { setSnapshot(null); return; }
     setSnapLoading(true);
-    loadEventSnapshot({
-      eventUuid: selected.id,
-      slug: selected.slug,
-      name: selected.name,
-      status: selected.status,
-      planTier: selected.plan_tier,
-      eventType: selected.event_type,
-    })
+    // ONE meta builder for every screen (date, brief, copy stamp ride along).
+    loadEventSnapshot(snapshotMetaFromRow(selected))
       .then((snap) => { setSnapshot(snap); setSnapFailed(false); })
       // (snap.failed — a snapshot that LOADED but whose contents could not be
       //  read — is surfaced separately below; it still scopes the tools.)
@@ -227,7 +221,9 @@ export default function Concierge() {
     setBusyId(ev.id);
     const prev = ev.status;
     setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, status } : e))); // optimistic
-    const ok = await updateEventStatus(ev.id, status);
+    // Going live is the ONE path every button shares (host.goLive — it also
+    // generates the guest copy once); other statuses stay a plain flip.
+    const ok = status === 'live' ? await goLive(ev.id) : await updateEventStatus(ev.id, status);
     if (ok) {
       push(status === 'live' ? 'You’re live — guests can scan now' : 'Event ended', 'success');
     } else {

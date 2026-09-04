@@ -11,7 +11,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import Modal from '../../components/ui/Modal';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import { Archive, ArchiveRestore, ArrowRight, ArrowUpRight, Check, ChevronDown, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2, Trash2 } from 'lucide-react';
-import { fetchMyEvents, updateEventStatus, deleteEvent, eventOrgHasActivePro, invalidateProSubscriptionCache, type HostEventRow } from '../../lib/host';
+import { fetchMyEvents, goLive, updateEventStatus, deleteEvent, eventOrgHasActivePro, invalidateProSubscriptionCache, type HostEventRow } from '../../lib/host';
 import { RESTORE_STATUS, archivedLabel, canArchiveStatus, canDeleteStatus, confirmNameMatches, isArchivedStatus, partitionByArchived } from '../../lib/eventArchive';
 import { TierPill, UpgradeModal } from './UpgradeCard';
 import { entitlementsFor, normalizeTier } from '../../lib/entitlements';
@@ -238,7 +238,9 @@ export default function EventsList() {
     const prev = { status: ev.status, archived_at: ev.archived_at ?? null };
     const next = { status, archived_at: status === 'archived' ? new Date().toISOString() : null };
     setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, ...next } : e))); // optimistic
-    const ok = await updateEventStatus(ev.id, status);
+    // Going live is the ONE path every button shares (host.goLive — it also
+    // generates the guest copy once); archive/restore/end stay a plain flip.
+    const ok = status === 'live' ? await goLive(ev.id) : await updateEventStatus(ev.id, status);
     if (ok) {
       push(done, 'success');
     } else {
