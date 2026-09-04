@@ -4,10 +4,11 @@ Everything needed to take the platform (PR #5) from "merged" to "live and
 charging". The platform is **safe-by-default**: every integration below degrades
 gracefully until its key is set, so you can enable them one at a time.
 
-Supabase project: `zrtftliozslrjomxbfrr`. Migrations 001–035 (two files are
+Supabase project: `zrtftliozslrjomxbfrr`. Migrations 001–036 (two files are
 numbered 030 — do not renumber) and all edge functions (incl. `admin-api`,
-`stripe-webhook`) are **already applied/deployed** to it; `036_agent_turns`
-ships with PR #44 and is applied at its merge (§2a). Set secrets in
+`stripe-webhook`) are **already applied/deployed** to it; `037` and `038`
+ship with the Wave A+B commits on the PR #44 branch and are applied at its
+merge (§2a, sequence B). Set secrets in
 **Supabase → Project Settings → Edge Functions → Secrets** (or `supabase secrets set`).
 
 ---
@@ -150,14 +151,15 @@ not a redeploy; an invalid value is ignored and the default stands):
 | `GEMINI_THINKING_CREATE` / `_COPILOT` / `_SCENE` | 0 / 0 / 512 | integer 0..8192 |
 | `GEMINI_TEMPERATURE_CREATE` / `_COPILOT` / `_SCENE` | 0.6 / 0.2 / 0.5 | number 0..2 |
 | `GEMINI_MAX_TOKENS_CREATE` / `_COPILOT` / `_SCENE` | 2048 / 3072 / 4096 | integer 256..8192 (raised automatically to clear the thinking budget) |
+| `GEMINI_MODEL_COPY` / `GEMINI_THINKING_COPY` / `GEMINI_TEMPERATURE_COPY` / `GEMINI_MAX_TOKENS_COPY` (added with Wave A+B) | `gemini-2.5-flash-lite` / 0 / 0.7 / 1024 | same ranges as above — the `copy` mode (four guest lines written once per event) |
 | `GEMINI_MODEL_VALIDATE` | `gemini-2.5-flash-lite` | model id, for `validate-challenge-photo` |
 
 Per-attempt timeouts are fixed in code (create/copilot 25s, scene 40s,
-validate 12s) with ONE retry on network/abort/5xx only.
+copy 15s, validate 12s) with ONE retry on network/abort/5xx only.
 
-**Deploy sequence at merge** (order matters — the function inserts into the
-table, and the client tolerates absent `turnId` but the server must accept
-absent `surface`/`lastTurn`):
+**Deploy sequence A — PR #44 playbook hardening** (order matters — the
+function inserts into the table, and the client tolerates absent `turnId` but
+the server must accept absent `surface`/`lastTurn`):
 
 - [x] 1. Apply `supabase/migrations/036_agent_turns.sql` (MCP `apply_migration`),
       then read back with `execute_sql`: `select count(*) from public.agent_turns`
@@ -189,6 +191,59 @@ absent `surface`/`lastTurn`):
 proposal JSON ≤ 8 KB, error code, feedback); retention is intended at 90 days
 but no purge job exists yet — `delete from public.agent_turns where created_at
 < now() - interval '90 days'` is the manual step.
+
+**Deploy sequence B — Wave A+B (same branch, commits `3764c16` → `1bb879a` +
+the concierge-ui work; server-first, order matters).** Live before this wave:
+`ai-event-designer` **v22** · `validate-challenge-photo` **v4** ·
+`send-keepsakes` **v1** · `create-event` **v9**; migrations through `036`.
+
+- [ ] 1. Apply `supabase/migrations/037_agent_turns_copy_mode.sql` — the
+      `agent_turns.mode` CHECK gains `'copy'`. MUST land before the
+      `ai-event-designer` deploy: without it a copy turn still answers, but every
+      one logs `agent_turns insert failed` and returns `turnId` null. Read back:
+      `select pg_get_constraintdef(oid) from pg_constraint where conname =
+      'agent_turns_mode_check'` → contains `'copy'`.
+- [ ] 2. Apply `supabase/migrations/038_challenge_checks.sql` — NEW table
+      `challenge_checks` (one row per AI photo-check verdict: event slug,
+      challenge uuid, pass, confidence, reason ≤240, model, latency_ms; NO session
+      id / IP / image), RLS on with ONE policy (`challenge_checks_member_read`,
+      members of the event's org, select only), client write grants revoked, and a
+      2000-per-event-per-24h cap trigger that RAISES `challenge_check_cap`. MUST
+      land before the `validate-challenge-photo` deploy (its insert is
+      fire-and-forget, so a missing table is only a warning — but the stats stay
+      empty). Read back: `list_tables` shows RLS on + 1 policy, the trigger
+      `challenge_check_cap_trg` exists, `get_advisors` shows no new security
+      finding.
+- [ ] 3. `ai-event-designer` — all FIVE files (`index.ts` · `prompt.ts` ·
+      `tools.generated.ts` · `profiles.ts` · `deno.json`), verify_jwt ON, the same
+      snapshot → deploy → byte-diff read-back → two-probe boot check as step 2 of
+      sequence A above. This version adds the fourth request mode `copy` (needs
+      `eventUuid` + `copyInput {name, eventType, brief, tagline}`, answers
+      `{reply, copy: {tagline, welcomeIntro, thankYou, keepsakeIntro}, turnId}`,
+      `403 forbidden` for a non-member), the create-mode `# Deferral` section +
+      `plan.brief`, the copilot `update_brief` tool + `add_challenge_pack.packId`,
+      `MAX_ACTIONS` 5 (one spender, last) and `sceneContext` ≤1500 chars.
+- [ ] 4. `validate-challenge-photo` (`index.ts` · `deno.json`, verify_jwt
+      **OFF** as today) — inserts one `challenge_checks` row per verdict.
+- [ ] 5. `send-keepsakes` (`index.ts` · `deno.json`, verify_jwt **OFF** as
+      today — the mail-client unsubscribe GET carries no headers) — reads
+      `events.config.copy.keepsakeIntro` (string ≤160) into the email intro, stock
+      intro otherwise.
+- [ ] 6. `create-event` (`index.ts` · `deno.json`, verify_jwt ON) — `eventType`
+      `'corporate'` is now accepted (the Corporate template used to get `400
+      invalid_body`).
+- [ ] 7. Live checks: in `/host/new` say "you decide" → the plan card fills
+      name/template/accent and the event is created with a starter pack (N
+      challenges + 1 card) and `events.config->'brief'` set; then `select id,
+      mode, model, error_code from agent_turns where mode = 'copy' order by id
+      desc limit 3` → one row per new event with `model =
+      'gemini-2.5-flash-lite'` and `error_code` null, and that event's
+      `config->'copy'->>'generatedAt'` set (go live again → no second copy row);
+      a guest photo-check on a validating challenge → `select count(*) from
+      challenge_checks` grows by 1 and the Challenges tab shows "1 checked";
+      `send-keepsakes` preview op renders the `keepsakeIntro` line; create an
+      event from the Corporate template → 200. `query_logs` shows no
+      `agent_turns insert failed` / `challenge_checks insert failed`.
 
 ## 3. Billing — Stripe (test first)
 

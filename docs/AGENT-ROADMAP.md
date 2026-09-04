@@ -16,6 +16,7 @@ guest landing at `/e/:slug/welcome`.
 | Credit math | 1 credit = 1 gemini image | ~26x margin at $1/credit | Free allowance: `FREE_IMAGES_PER_EVENT = 3` in `ai-generate-image` |
 | Guest challenge photo-check (2026-09-02) | `gemini-2.5-flash-lite` (default; `GEMINI_MODEL_VALIDATE` overrides) | see flash-lite row | Guest-blocking latency check; 12s timeout on the existing fail-open path |
 | Scene Director (2026-09-02) | `gemini-2.5-flash` + `thinkingBudget 512` | thoughts bill as output tokens | Creative direction, not extraction — the one mode that thinks; `GEMINI_THINKING_SCENE` overrides |
+| Guest copy — `copy` mode (2026-09-04) | `gemini-2.5-flash-lite` · temp 0.7 · thinking 0 · 1024 tok · 15s | see flash-lite row; ONE call per event lifetime | Four short guest lines from the event brief, generated once (`config.copy.generatedAt`); `GEMINI_*_COPY` overrides |
 
 ## 2026-09-02 — Playbook hardening (PR #44) — ✅ SHIPPED (deploys at merge)
 
@@ -75,7 +76,8 @@ typechecked through `src/lib/agentPrompt.test.ts`) · `tools.generated.ts`
 flash 0.2 / 0 / 3072 / 25s · scene flash 0.5 / thinking 512 / 4096 / 40s; env
 overrides `GEMINI_MODEL_<MODE>` / `GEMINI_THINKING_<MODE>` /
 `GEMINI_TEMPERATURE_<MODE>` / `GEMINI_MAX_TOKENS_<MODE>`, MODE ∈
-CREATE | COPILOT | SCENE, an invalid value is ignored) · `deno.json`. The same
+CREATE | COPILOT | SCENE — plus COPY since Wave A+B below — an invalid value is
+ignored) · `deno.json`. The same
 pure-sibling + drift-test idiom pins the hand-mirrored image/3D prompt
 constants: `ai-generate-image/frameLayout.ts` and
 `ai-generate-3d/pieceGeometry.ts` against `src/lib/assetPrompt.ts`
@@ -107,6 +109,83 @@ tightens once the bench shows it is safe; follow-ups: a `copilot` value for
 purge job, an `/admin` view of `agent_turns` + stuck `ai_jobs`;
 `FrameStudio.tsx` is orphaned (not routed) — delete or route is the owner's
 call.
+
+## 2026-09-04 — Wave A+B: dynamic concierge, content packs, shared brief, A2UI widgets — ✅ SHIPPED (same branch; deploys at merge)
+
+Commits `3764c16` (server) · `077ae91` (agent-core) · `1bb879a` (copilot-ui)
+· `6b035c2` (warmth+checks) + the concierge-ui work (`ChatComposer`, the rail
+text-size toggle, the `/host/new` deferral path). Answer to the persona review
+(grandparent · event manager · couple): the flow was built for a confident host
+and static for everyone else. Deploy order + live checks: DEPLOYMENT-CHECKLIST
+§2a sequence B.
+
+**What shipped**
+- **Deferral** — create mode has a `# Deferral` section (`prompt.ts`): "you
+  decide" / "just set it all up" makes the model fill every open field in that
+  reply; the plan card gains a "Set it all up for me" button and the client
+  mirror `fillPlanGaps` (`src/lib/eventDesigner.ts`) fills whatever the model
+  left blank (name from honoree + template, template from occasion, accent from
+  palette, slug from name, date stays null).
+- **Event brief** — `src/lib/eventBrief.ts` (`occasion · honorees · palette ·
+  tone · avoid · notes`, ≤600 chars after `fenceSafe`) stored in
+  `events.config.brief` (no migration). Create returns it as `plan.brief`; the
+  copilot proposes `update_brief` when the host corrects who/colours/mood/avoid;
+  the snapshot formats it after CARDS; the Scene Director prepends a one-line
+  `formatSceneBrief` (client cap 1100 / server 1500); the Branding tab edits it.
+- **Content packs** — `src/lib/contentPacks.ts`, one pack per `TemplateId`
+  (wedding · gala · birthday · corporate · party; `remote`/unknown → party): 4-6
+  challenges + a keepsake-card template/title. Seeded client-side at create
+  through the existing RLS-scoped `createChallenge` loop ("Added N of M starter
+  challenges", idempotent when challenges exist); the copilot's
+  `add_challenge_pack` accepts `packId` (model-authored packs stay allowed).
+- **Checklist + chips derived, not constant** — `src/lib/eventChecklist.ts` is
+  the single source for the build-step checklist AND the dashboard checklist;
+  `src/lib/hostChips.ts` derives greeting, quick chips (missing items first,
+  done items dropped, `Go live` only when not live) and example prompts from
+  it.
+- **`MAX_ACTIONS` 3 → 5** (exported from `src/lib/copilot.ts`, mirrored in
+  `prompt.ts`) with the rule "at most ONE spending tool per turn, and it goes
+  LAST"; a reply with ≥2 mutating actions renders as ONE **bundle card**
+  (`buildBundleSurface`, `confirm_bundle`) that runs the free steps in order and
+  opens the paid one as its own card.
+- **A2UI widgets** — `ThumbPicker` (frames via `toDataUrl(border.svg)`, head
+  pieces via emoji; unknown id → label tile) and `Diff` (before muted +
+  line-through, `after` may be a path binding) in `A2uiSurface.tsx`; the pack
+  card is the first producer of the templated `List` (`{path, componentId}` —
+  per-row CheckBox `include` + editable title; the wrapper became a `Fragment`
+  so rows no longer stack). Filters deliberately keep `ChoicePicker` label
+  tiles — their thumbs would be live GPU renders on the shared GL context.
+- **Cancel instead of streaming** — `askCopilot` takes an `AbortSignal`; the
+  thinking row shows **Stop** (a local "Stopped." marker, never sent to the
+  wire; the server turn still completes and lands in `agent_turns`). `busy` is
+  per card, not global — one executing card no longer disables every other
+  button.
+- **Guest warmth** — `copy` mode + `src/lib/eventCopy.ts` write tagline ·
+  `welcomeIntro` · `thankYou` · `keepsakeIntro` ONCE per event (at create when
+  a brief exists, else at `goLive` — the one go-live path every button now
+  uses); `GuestWelcome` renders `welcomeIntro`, `send-keepsakes` reads
+  `keepsakeIntro`, Branding edits both.
+- **Photo-check reasons persist** — migration `038_challenge_checks` (verdict
+  rows, no guest identity) written by `validate-challenge-photo`; the
+  Challenges tab shows "N checked · M passed" + the last 5 fail reasons.
+- **Accessibility floor** — chat/card type ≥12px through `--ui-scale` `.ui-*`
+  utilities; an "Aa / Larger text" rail toggle (`src/lib/textSize.ts`,
+  `data-textsize="lg"` = 1.15×, chats and cards only — the studio canvas never
+  moves); `ChatComposer` with dictation where the browser has
+  `SpeechRecognition` (interim results, never auto-sends); transcripts are
+  `role="log" aria-live="polite"`.
+- Migration `037` widens `agent_turns.mode` to include `'copy'`; `create-event`
+  accepts `'corporate'` (the template used to 400).
+- Evals: 12 copilot · 5 create · 4 scene fixtures (`src/lib/agentEvals/`),
+  adding prompt injection through a challenge title, a failed snapshot, a
+  brief's `avoid` list, `packId` and the deferral rule; copy mode has no
+  fixtures (single free-text turn, pinned by `agentPrompt.test.ts` instead).
+
+**Decided, not built** — no token streaming (structured JSON + the
+`actionsJson` STRING contract make partial replies unusable); filter thumbs;
+items 10-13 and 16 of the persona review (duplication/brand kit, second host +
+client viewer, language, tool-section trim, tier-routed models + `/admin/ai`)
+are the next wave.
 
 ## Phase 1 — Studio Copilot — ✅ SHIPPED (2026-07-07)
 
@@ -153,10 +232,11 @@ colour / venue follow-ups) + AI-set `plan.accent`.
   | Widget | Previews |
   |---|---|
   | `FramePreview { assetUrl, transform }` | a generated/selected frame over a sample photo |
-  | `ChallengeList { path }` (templated) | challenge set being added/edited |
+  | ✅ `ChallengeList` = templated `List { path, componentId }` (2026-09-04) | the pack card: one row per challenge with an `include` CheckBox + editable title |
   | `EventStat { label, value }` | query answers ("how many wall posts?") |
   | `BoothMock { experienceId }` | booth orb-bar with the new default highlighted |
-  | `Diff { before, after }` | copy/theme changes before applying |
+  | ✅ `Diff { rows: [{label, before, after}] }` (2026-09-04) | rename / date / challenge edit / default experience / filter / brief changes before applying |
+  | ✅ `ThumbPicker { options, value }` (2026-09-04) | frame + head-piece choice as thumbnail tiles (filters stay `ChoicePicker`) |
   | `Modal` (basic catalog) | destructive-action confirmations |
   The renderer's action contract generalizes from `confirm_plan` to a
   `name`-dispatched handler map on the consumer side.
@@ -173,6 +253,11 @@ concierge, so the studio dashboard's only remaining step is the test photo.
   (kind `border`, 9:16/1080×1920, transparent, clear centre) → in-place
   preview → one tap publishes the experience AND pins it as the booth
   default. First 3 free per event.
+- ✅ SHIPPED (2026-09-04, Wave A+B above): "you decide" **deferral** fills
+  the whole plan card; a **starter content pack** (challenges + keepsake card,
+  CheckBox on by default) seeds at create; the **event brief** is extracted in
+  chat, stored in `events.config.brief` and shared by concierge, copilot and
+  Scene Director; the guest lines are written once from it.
 - ⏳ REMAINING: draggable position/scale on the FrameStudio preview (drag =
   editing the experience `transform`, save in place); accent choice carried
   into freshly streamed cards mid-conversation (today it persists in wizard
@@ -207,16 +292,23 @@ the audit trail (`admin_audit`) for free. See docs/ADMIN-SUITE.md Phase 4.
 - Server-streamed A2UI: document the action-name contract (`confirm_plan`,
   context bound to `/plan`) so server-authored cards stay compatible; share
   template ids with the edge fn from one source (build-time constant or
-  fetch) to kill the "keep in lockstep" comment.
+  fetch) to kill the "keep in lockstep" comment. Token streaming itself is
+  DECIDED AGAINST (2026-09-04): the `actionsJson` STRING contract makes a
+  partial reply unusable, so the client got an `AbortSignal` **Stop** and
+  per-card busy instead.
 - ◐ PARTIAL (2026-09-02): `agent_turns` carries `mode` / `surface` /
   `event_id` / `error_code` / `feedback` per turn, so concierge-vs-manual and
   turns-to-create are queryable in SQL; no dashboard or `/admin` view yet.
+  `mode` admits `'copy'` since migration `037` (one row per generated guest
+  copy set), and `challenge_checks` (`038`) does the same job for guest
+  photo-check verdicts.
 
 ## Known accepted tradeoffs
 
-- Renderer implements catalog components no local producer emits yet
-  (Icon/Image/templated List) — kept deliberately: they're the A2UI basic
-  catalog and phase-1 tools will emit them.
+- The renderer once implemented catalog components no local producer emitted
+  (Icon/Image/templated List), kept because they are the A2UI basic catalog —
+  all three now have producers in `copilotSurfaces.ts` (handoff icon, frame /
+  lettering thumbnails, the templated pack rows).
 - `smoothing.ts` hand-rolls slerp to stay three.js-free for node vitest.
 - Free-image count is best-effort under exact concurrency (worst case: one
   extra free image).

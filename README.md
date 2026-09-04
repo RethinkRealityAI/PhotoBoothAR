@@ -65,7 +65,7 @@ replays deterministically).
 
 - **Multi-tenant data** — Supabase Postgres with real RLS. `orgs → events`
   tenancy; `event_id` (= `events.slug`) partitions the existing content tables.
-  Migrations are checked in under `supabase/migrations/` (001–036; two files
+  Migrations are checked in under `supabase/migrations/` (001–038; two files
   are numbered 030) and mirror what's applied to the live project. The three legacy slugs keep working via
   **grandfather RLS policies**.
 - **Runtime tenancy** — `src/events/runtime.ts` + `EventContext.tsx` resolve an
@@ -82,11 +82,22 @@ replays deterministically).
   `prompt.ts` pure sectioned prompts · `tools.generated.ts`, GENERATED from the
   typed tool registry `src/lib/copilotTools.ts` by `npm run gen:agent-tools` and
   drift-tested · `profiles.ts` per-mode model profiles with `GEMINI_*_<MODE>`
-  secret overrides · `deno.json`; every turn logs to `agent_turns`) ·
+  secret overrides · `deno.json`; every turn logs to `agent_turns`. Four request
+  modes: `create` (the concierge — "you decide" fills the whole plan from a
+  `# Deferral` rule, and the plan carries a nested `brief`), `copilot` (up to
+  `MAX_ACTIONS = 5` tool proposals per turn, at most one credit-spender and it
+  goes last; a ≥2-step reply renders as one bundle card), `scene` (Studio
+  Director) and `copy` (the four guest lines — tagline · welcomeIntro · thankYou
+  · keepsakeIntro — written ONCE per event on `gemini-2.5-flash-lite` by
+  `src/lib/eventCopy.ts` at create-success or go-live, stamped
+  `config.copy.generatedAt`). The event brief itself (`src/lib/eventBrief.ts`)
+  lives in `events.config.brief` — no table — and is read by all three chat
+  modes) ·
   `validate-challenge-photo` (anonymous guest photo
   check for challenges that require an AI visual match — reads the requirement
   server-side from the challenge's `validation` config, SSRF-guards any reference
-  image to the public `assets` bucket, and treats the guest photo as data-only) ·
+  image to the public `assets` bucket, treats the guest photo as data-only, and
+  records one `challenge_checks` verdict row per call, fire-and-forget) ·
   `card-contribute`/`-view`/`-publish` · `card-render`/`-render-status`. All AI
   and payment keys live here, never in the client.
 - **Billing & credits** — Stripe (per-event packages + Pro subscription + credit
@@ -126,7 +137,11 @@ runtimes read one authority). Platform: `platform_admins`, `admin_audit`,
 `platform_config`, `landing_content` (marketing-page CMS; anon reads the
 published half only, via `get_landing_content()`), `support_tickets`,
 `support_messages`, `client_errors`, `ai_jobs`, `ai_designer_usage`,
-`agent_turns` (per-turn AI telemetry — no message text; service-role only), +
+`agent_turns` (per-turn AI telemetry — no message text; service-role only;
+`mode` ∈ create · copilot · scene · copy), `challenge_checks` (one row per AI
+photo-check verdict — pass/confidence/reason/model/latency, NO guest identity;
+written by `validate-challenge-photo` on the service role, readable by the
+event's org members; 2000/event/day cap), +
 idempotency/quota helpers (`guest_quota`).
 Buckets: `posts`, `assets` (public — platform-owned landing media lives under
 the admin-only `_platform/` prefix), `cards`, `renders`, `support` (private).
