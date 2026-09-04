@@ -147,17 +147,26 @@ function unsubUrlFor(token: string): string {
  *
  * `unsubUrl` null = preview: there is no contact row and therefore no token, so
  * the footer says what it is instead of showing a link that cannot work.
+ *
+ * `intro` = the host's keepsake line (events.config.copy.keepsakeIntro —
+ * generated once by the AI copy mode, editable in Branding); null falls back
+ * to the stock two-line intro so pre-copy events read exactly as before.
  */
 function keepsakeEmailHtml(opts: {
   eventName: string;
   recapUrl: string;
   heroUrl: string | null;
   unsubUrl: string | null;
+  intro: string | null;
 }): string {
   const name = escapeHtml(opts.eventName);
   const recap = escapeHtml(opts.recapUrl);
   const hero = opts.heroUrl ? escapeHtml(opts.heroUrl) : null;
   const unsub = opts.unsubUrl ? escapeHtml(opts.unsubUrl) : null;
+  const introHtml = opts.intro
+    ? escapeHtml(opts.intro)
+    : `The night in pictures — every photo from ${name}, in one place.<br />
+                      Yours are in there. Have a look, and take home the ones you love.`;
 
   const heroRow = hero
     ? `<tr><td style="padding:0 0 28px;">
@@ -192,8 +201,7 @@ function keepsakeEmailHtml(opts: {
                   </tr>
                   <tr>
                     <td align="center" style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#5c564c;padding:0 0 28px;">
-                      The night in pictures — every photo from ${name}, in one place.<br />
-                      Yours are in there. Have a look, and take home the ones you love.
+                      ${introHtml}
                     </td>
                   </tr>
                   <tr>
@@ -361,7 +369,7 @@ Deno.serve(async (req: Request) => {
     const sb = serviceClient();
     const { data: event, error: evErr } = await sb
       .from('events')
-      .select('id, org_id, slug, name, status')
+      .select('id, org_id, slug, name, status, config')
       .eq('id', eventUuid)
       .maybeSingle();
     if (evErr) throw evErr;
@@ -384,6 +392,13 @@ Deno.serve(async (req: Request) => {
       rawCollage.startsWith('https://') && rawCollage.length <= 500 ? rawCollage : null;
     const eventName = ((event.name as string | null) ?? '').trim() || 'our event';
     const recapUrl = `${siteBase()}/r/${event.slug}`;
+    // The host's keepsake line (config.copy.keepsakeIntro — written once by
+    // the AI copy mode, editable in Branding). Read from the row, never the
+    // body; blank / non-string / over the 160-char client cap → the stock intro.
+    const copyCfg = (event.config as { copy?: { keepsakeIntro?: unknown } } | null)?.copy;
+    const rawIntro = copyCfg?.keepsakeIntro;
+    const intro =
+      typeof rawIntro === 'string' && rawIntro.trim() !== '' && rawIntro.length <= 160 ? rawIntro.trim() : null;
 
     /* ── op: preview ── */
     if (op === 'preview') {
@@ -406,7 +421,7 @@ Deno.serve(async (req: Request) => {
         resendKey,
         testEmail,
         `[Preview] Your photos from ${eventName}`,
-        keepsakeEmailHtml({ eventName, recapUrl, heroUrl, unsubUrl: null }),
+        keepsakeEmailHtml({ eventName, recapUrl, heroUrl, unsubUrl: null, intro }),
       );
       if (!ok) return json(502, { error: 'email_failed' });
 
@@ -477,6 +492,7 @@ Deno.serve(async (req: Request) => {
             recapUrl,
             heroUrl,
             unsubUrl: unsubUrlFor(c.unsubscribe_token as string),
+            intro,
           }),
         );
         if (!ok) {

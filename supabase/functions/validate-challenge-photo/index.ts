@@ -19,6 +19,11 @@
  *   -> 502 { error } on a generation failure — the caller FAILS OPEN (a party
  *      booth must never hard-block a guest on an AI hiccup).
  *
+ * Telemetry: after every real verdict ONE `challenge_checks` row (migration
+ * 038 — event slug, challenge id, pass, confidence, the reason sentence, model,
+ * latency; NO session id, IP or image) is inserted on the service role,
+ * fire-and-forget: the guest's answer never waits on it or fails with it.
+ *
  * Model: defaults to `gemini-2.5-flash-lite` (latency-optimized for this
  * guest-blocking check); override via the GEMINI_MODEL_VALIDATE secret
  * (validated shape, else the default — see resolveModel()) so a model swap
@@ -209,12 +214,15 @@ const RESPONSE_SCHEMA = {
 };
 
 interface Verdict { pass: boolean; confidence: number; reason: string }
+/** The verdict plus what telemetry needs; the handler strips latencyMs
+ *  before answering so the guest-facing shape stays { pass, confidence, reason }. */
+interface CheckResult extends Verdict { latencyMs: number }
 
 async function runVisionCheck(
   requirement: string,
   guest: InlineImage,
   reference: InlineImage | null,
-): Promise<Verdict> {
+): Promise<CheckResult> {
   // Secrets set via the dashboard sometimes arrive quoted / newline-wrapped;
   // Google then rejects them as API_KEY_INVALID. Strip both (mirrors the other fns).
   const key = Deno.env.get('GEMINI_API_KEY')?.trim().replace(/^["']|["']$/g, '');
@@ -282,15 +290,46 @@ async function runVisionCheck(
   const reason = typeof parsed.reason === 'string' && parsed.reason.trim()
     ? parsed.reason.trim().slice(0, 240)
     : (pass ? 'Looks great!' : "That doesn't match the challenge — try again!");
+  const latencyMs = Date.now() - startedAt;
   // No guest data, no requirement text — just enough to compare models in
   // query_logs (see CLAUDE.md's owner decision on the flash-lite switch).
   console.log('[validate-challenge-photo] verdict', {
     model: GEMINI_MODEL,
-    latencyMs: Date.now() - startedAt,
+    latencyMs,
     pass,
     confidence,
   });
-  return { pass, confidence, reason };
+  return { pass, confidence, reason, latencyMs };
+}
+
+/**
+ * One challenge_checks row per verdict (migration 038) — service role,
+ * fire-and-forget, NEVER load-bearing: the guest's verdict is already decided
+ * and must neither wait on nor fail with telemetry. Carries no session id, IP
+ * or image. Any failure (table missing before 038 is applied, the 2000/day cap
+ * guard RAISING, a network blip) is a warning. The promise is handed to the
+ * runtime's waitUntil when it exists (Supabase's EdgeRuntime global, reached
+ * through globalThis so this file declares nothing the bundle cannot resolve)
+ * so the isolate is kept alive for the insert after the response is sent.
+ */
+function recordCheck(
+  sb: Client,
+  row: { event_id: string; challenge_id: string; pass: boolean; confidence: number; reason: string; model: string; latency_ms: number },
+): void {
+  try {
+    // Promise.resolve: the query builder is a thenable (PromiseLike), and
+    // waitUntil wants a real Promise.
+    const p: Promise<void> = Promise.resolve(sb.from('challenge_checks').insert(row)).then(
+      ({ error }) => {
+        if (error) console.warn('[validate-challenge-photo] challenge_checks insert failed', error.message);
+      },
+      (e: unknown) => console.warn('[validate-challenge-photo] challenge_checks insert failed', e),
+    );
+    const rt = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+    if (rt && typeof rt.waitUntil === 'function') rt.waitUntil(p);
+  } catch (e) {
+    console.warn('[validate-challenge-photo] challenge_checks insert failed', e);
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -363,7 +402,16 @@ Deno.serve(async (req: Request) => {
   const reference = await fetchReferenceInline(v.referenceImageUrl);
 
   try {
-    const verdict = await runVisionCheck(requirement.slice(0, 500), guest, reference);
+    const { latencyMs, ...verdict } = await runVisionCheck(requirement.slice(0, 500), guest, reference);
+    recordCheck(sb, {
+      event_id: eventSlug,
+      challenge_id: challengeId,
+      pass: verdict.pass,
+      confidence: verdict.confidence,
+      reason: verdict.reason.slice(0, 240),
+      model: GEMINI_MODEL.slice(0, 60),
+      latency_ms: latencyMs,
+    });
     return json(200, verdict);
   } catch (err) {
     const code = err instanceof Error ? err.message : 'generation_failed';

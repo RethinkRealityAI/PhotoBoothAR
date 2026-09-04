@@ -8,16 +8,21 @@
     "status": "draft",
     "planTier": "premium",
     "eventType": "wedding",
+    "startsAt": null,
+    "brief": null,
+    "copy": null,
     "failed": false,
     "postCount": 0,
     "showChallenges": true,
+    "defaultExperienceId": null,
     "challenges": [
       {
         "id": "ch-1",
         "title": "First dance",
         "emoji": "💃",
         "points": 20,
-        "active": true
+        "active": true,
+        "hasCheck": false
       }
     ],
     "experiences": [

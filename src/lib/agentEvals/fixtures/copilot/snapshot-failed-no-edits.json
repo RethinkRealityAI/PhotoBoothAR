@@ -11,7 +11,7 @@
     "startsAt": null,
     "brief": null,
     "copy": null,
-    "failed": false,
+    "failed": true,
     "postCount": 0,
     "showChallenges": true,
     "defaultExperienceId": null,
@@ -90,17 +90,15 @@
   "messages": [
     {
       "role": "user",
-      "content": "I want a 3D gold trophy the guests can hold"
+      "content": "rename my first challenge to Cake smash and make Classic Gold the default frame"
     }
   ],
   "expect": {
-    "tools": [
-      "add_head_piece"
-    ],
-    "args": {
-      "add_head_piece": {
-        "source": "generate"
-      }
-    }
+    "toolsNoneOf": [
+      "update_challenge",
+      "delete_challenge",
+      "set_default_experience",
+      "go_live"
+    ]
   }
 }

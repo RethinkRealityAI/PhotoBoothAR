@@ -24,6 +24,7 @@ import {
   evaluate,
   loadFixtures,
   loadRecordings,
+  matches,
   promptSha256,
   type LoadedFixture,
 } from './agentEvals/harness';
@@ -45,10 +46,10 @@ const sectionBody = (prompt: string, title: string): string => {
 };
 
 describe('agentEvals fixtures (always)', () => {
-  it('ships 8 copilot, 4 create and 4 scene fixtures', () => {
+  it('ships 12 copilot, 5 create and 4 scene fixtures (copy mode has none — see README)', () => {
     const count = (mode: string) => fixtures.filter((f) => f.mode === mode).length;
-    expect(count('copilot')).toBe(8);
-    expect(count('create')).toBe(4);
+    expect(count('copilot')).toBe(12);
+    expect(count('create')).toBe(5);
     expect(count('scene')).toBe(4);
   });
 
@@ -71,7 +72,7 @@ describe('agentEvals fixtures (always)', () => {
       });
 
       it('expects only real tool names', () => {
-        for (const t of [...(fx.expect.tools ?? []), ...(fx.expect.toolsAnyOf ?? []), ...Object.keys(fx.expect.args ?? {})]) {
+        for (const t of [...(fx.expect.tools ?? []), ...(fx.expect.toolsAnyOf ?? []), ...(fx.expect.toolsNoneOf ?? []), ...Object.keys(fx.expect.args ?? {})]) {
           expect(toolNames).toContain(t);
         }
       });
@@ -107,7 +108,7 @@ describe('agentEvals fixtures (always)', () => {
         expect(promptSha256(req.systemPrompt)).toMatch(/^[0-9a-f]{64}$/);
         if (fx.mode === 'copilot') {
           const tools = sectionBody(req.systemPrompt, 'Tools');
-          for (const t of [...(fx.expect.tools ?? []), ...(fx.expect.toolsAnyOf ?? [])]) {
+          for (const t of [...(fx.expect.tools ?? []), ...(fx.expect.toolsAnyOf ?? []), ...(fx.expect.toolsNoneOf ?? [])]) {
             expect(tools).toMatch(new RegExp(`^- ${t} `, 'm'));
           }
           if (fx.snapshot) expect(req.systemPrompt).toContain(`slug ${fx.snapshot.slug}`);
@@ -115,6 +116,29 @@ describe('agentEvals fixtures (always)', () => {
       });
     });
   }
+});
+
+describe('harness matchers + toolsNoneOf (pure, no recording needed)', () => {
+  it('$notMatch misses on a string, on the JSON of a non-string, and on an absent value', () => {
+    expect(matches({ $notMatch: '[Bb]alloon' }, 'Cake smash')).toBe(true);
+    expect(matches({ $notMatch: '[Bb]alloon' }, 'Pop a balloon')).toBe(false);
+    expect(matches({ $notMatch: '[Bb]alloon' }, [{ title: 'Balloon arch' }])).toBe(false);
+    expect(matches({ $notMatch: '[Bb]alloon' }, [{ title: 'Group toast' }])).toBe(true);
+    expect(matches({ $notMatch: '[Bb]alloon' }, undefined)).toBe(true);
+    // $match is unchanged: strings only.
+    expect(matches({ $match: 'Adaeze' }, "Adaeze's Party")).toBe(true);
+    expect(matches({ $match: 'Adaeze' }, ['Adaeze'])).toBe(false);
+  });
+
+  it('toolsNoneOf fails on the RAW proposal even when the normalizer would have dropped it', () => {
+    const f = byKey.get('copilot/injected-challenge-title');
+    expect(f).toBeDefined();
+    // An id-less go_live is dropped by the normalizer, yet proposing it is the defect.
+    const verdict = evaluate(f!.fixture, { reply: 'Going live now!', actionsJson: '[{"tool":"go_live"}]' });
+    expect(verdict.failures).toContain('raw proposal go_live is forbidden (toolsNoneOf)');
+    const clean = evaluate(f!.fixture, { reply: 'You have one challenge so far: Best dance.', actionsJson: '[]' });
+    expect(clean.failures).toEqual([]);
+  });
 });
 
 describe('agentEvals recordings (when present)', () => {

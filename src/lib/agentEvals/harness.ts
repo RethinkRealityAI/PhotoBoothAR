@@ -41,12 +41,21 @@ export const MODES: readonly AgentMode[] = ['copilot', 'create', 'scene'];
 
 /** `{ "$match": "<regex>" }` in `planFields` / `args` matches a string by regex. */
 type Matcher = { $match: string };
+/** `{ "$notMatch": "<regex>" }` must NOT match — against the string itself, or
+ *  the JSON of a non-string value (so an array of challenges can be screened
+ *  for a forbidden word). A missing value reads as '' and passes. */
+type NotMatcher = { $notMatch: string };
 
 export interface EvalExpect {
   /** copilot: the EXACT set of tool names a correct answer proposes ([] = propose nothing). */
   tools?: string[];
   /** copilot: every proposed tool must be one of these (zero proposals allowed). */
   toolsAnyOf?: string[];
+  /** copilot: none of these may appear among the RAW decoded proposals — checked
+   *  BEFORE the client normalizer, so a forbidden tool the normalizer would
+   *  have dropped anyway (an id-less go_live, say) still fails the fixture:
+   *  the model proposing it at all is the defect. */
+  toolsNoneOf?: string[];
   /** copilot: at most this many proposals survive normalization. */
   maxActions?: number;
   /** copilot: per-tool argument checks against the normalized proposal. */
@@ -208,9 +217,18 @@ function isMatcher(v: unknown): v is Matcher {
   return v !== null && typeof v === 'object' && typeof (v as Matcher).$match === 'string';
 }
 
-/** Literal deep-equality via JSON, or a `$match` regex against a string. */
-function matches(expected: unknown, actual: unknown): boolean {
+function isNotMatcher(v: unknown): v is NotMatcher {
+  return v !== null && typeof v === 'object' && typeof (v as NotMatcher).$notMatch === 'string';
+}
+
+/** Literal deep-equality via JSON, a `$match` regex against a string, or a
+ *  `$notMatch` regex that must miss (string, else its JSON; absent = ''). */
+export function matches(expected: unknown, actual: unknown): boolean {
   if (isMatcher(expected)) return typeof actual === 'string' && new RegExp(expected.$match).test(actual);
+  if (isNotMatcher(expected)) {
+    const hay = typeof actual === 'string' ? actual : (JSON.stringify(actual) ?? '');
+    return !new RegExp(expected.$notMatch).test(hay);
+  }
   return JSON.stringify(expected) === JSON.stringify(actual);
 }
 
@@ -248,10 +266,18 @@ export function evaluate(f: EvalFixture, raw: unknown): Verdict {
       failures.push('actionsJson is not a JSON array');
       decoded = [];
     }
+    // RAW tool names — what the model proposed, before the normalizer gets
+    // to drop anything. `toolsNoneOf` reads these on purpose (see EvalExpect).
+    const rawTools = (decoded as unknown[])
+      .map((a) => asRecord(a)?.tool)
+      .filter((t): t is string => typeof t === 'string');
     const norm = normalizeActionsResult(decoded, f.snapshot ?? null);
     proposedTools = norm.actions.map((a) => a.tool);
     dropped = norm.dropped;
     const e = f.expect;
+    if (e.toolsNoneOf !== undefined) {
+      for (const t of rawTools) if (e.toolsNoneOf.includes(t)) failures.push(`raw proposal ${t} is forbidden (toolsNoneOf)`);
+    }
     if (e.tools !== undefined) {
       const want = [...new Set(e.tools)].sort();
       const got = [...new Set(proposedTools)].sort();

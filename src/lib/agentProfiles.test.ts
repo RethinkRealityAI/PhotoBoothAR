@@ -12,7 +12,7 @@ import {
   type AgentMode,
 } from '../../supabase/functions/ai-event-designer/profiles.ts';
 
-const MODES: AgentMode[] = ['create', 'copilot', 'scene'];
+const MODES: AgentMode[] = ['create', 'copilot', 'scene', 'copy'];
 const noEnv = () => undefined;
 const envOf = (vars: Record<string, string | undefined>) => (key: string) => vars[key];
 
@@ -21,12 +21,25 @@ describe('AGENT_PROFILES defaults', () => {
     expect(AGENT_PROFILES.create).toEqual({ model: 'gemini-2.5-flash', temperature: 0.6, thinkingBudget: 0, maxOutputTokens: 2048, timeoutMs: 25_000 });
     expect(AGENT_PROFILES.copilot).toEqual({ model: 'gemini-2.5-flash', temperature: 0.2, thinkingBudget: 0, maxOutputTokens: 3072, timeoutMs: 25_000 });
     expect(AGENT_PROFILES.scene).toEqual({ model: 'gemini-2.5-flash', temperature: 0.5, thinkingBudget: 512, maxOutputTokens: 4096, timeoutMs: 40_000 });
+    // 1024, not the plan's 512: the headroom invariant (`> thinkingBudget + 512`)
+    // would raise 512 to exactly 1024 at resolve time, so 1024 is the truthful default.
+    expect(AGENT_PROFILES.copy).toEqual({ model: 'gemini-2.5-flash-lite', temperature: 0.7, thinkingBudget: 0, maxOutputTokens: 1024, timeoutMs: 15_000 });
   });
 
-  it('only scene thinks (create/copilot are structured extraction → budget 0)', () => {
+  it('only scene thinks (create/copilot are structured extraction, copy is a tiny creative job → budget 0)', () => {
     expect(AGENT_PROFILES.create.thinkingBudget).toBe(0);
     expect(AGENT_PROFILES.copilot.thinkingBudget).toBe(0);
+    expect(AGENT_PROFILES.copy.thinkingBudget).toBe(0);
     expect(AGENT_PROFILES.scene.thinkingBudget).toBeGreaterThan(0);
+  });
+
+  it('copy runs on flash-lite with the standard GEMINI_*_COPY overrides', () => {
+    expect(AGENT_PROFILES.copy.model).toBe('gemini-2.5-flash-lite');
+    expect(resolveProfile('copy', envOf({ GEMINI_MODEL_COPY: 'gemini-2.5-flash' })).model).toBe('gemini-2.5-flash');
+    expect(resolveProfile('copy', envOf({ GEMINI_TEMPERATURE_COPY: '0.3' })).temperature).toBe(0.3);
+    expect(resolveProfile('copy', envOf({ GEMINI_MAX_TOKENS_COPY: '1024' })).maxOutputTokens).toBe(1024);
+    // Another mode's key never leaks into copy.
+    expect(resolveProfile('copy', envOf({ GEMINI_MODEL_SCENE: 'gemini-2.5-pro' })).model).toBe('gemini-2.5-flash-lite');
   });
 
   it('every default already satisfies maxOutputTokens > thinkingBudget + headroom', () => {

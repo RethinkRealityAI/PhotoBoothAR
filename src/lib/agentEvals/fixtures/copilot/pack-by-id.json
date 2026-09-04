@@ -1,13 +1,13 @@
 {
   "mode": "copilot",
-  "surface": "platform",
+  "surface": "build",
   "snapshot": {
     "eventUuid": "0d6c1b7e-2b4a-4f1e-9c3d-7a8b9c0d1e2f",
-    "slug": "maya-sam",
-    "name": "Maya & Sam's Wedding",
+    "slug": "tomi-40",
+    "name": "Tomi's 40th",
     "status": "draft",
     "planTier": "premium",
-    "eventType": "wedding",
+    "eventType": "birthday",
     "startsAt": null,
     "brief": null,
     "copy": null,
@@ -15,16 +15,7 @@
     "postCount": 0,
     "showChallenges": true,
     "defaultExperienceId": null,
-    "challenges": [
-      {
-        "id": "ch-1",
-        "title": "First dance",
-        "emoji": "💃",
-        "points": 20,
-        "active": true,
-        "hasCheck": false
-      }
-    ],
+    "challenges": [],
     "experiences": [
       {
         "id": "exp-1",
@@ -90,16 +81,16 @@
   "messages": [
     {
       "role": "user",
-      "content": "I want a 3D gold trophy the guests can hold"
+      "content": "just give me the standard birthday set of challenges"
     }
   ],
   "expect": {
     "tools": [
-      "add_head_piece"
+      "add_challenge_pack"
     ],
     "args": {
-      "add_head_piece": {
-        "source": "generate"
+      "add_challenge_pack": {
+        "packId": "birthday"
       }
     }
   }

@@ -26,12 +26,23 @@
  * This fn is now transport only: auth, rate limit, validation, credits,
  * the Gemini call, telemetry.
  *
+ * v19 — copy mode: the four guest-facing lines (tagline · welcomeIntro ·
+ * thankYou · keepsakeIntro) written ONCE per event by the client's
+ * generateEventCopy (src/lib/eventCopy.ts) at create-success / go-live. The
+ * caller must be a member of the event's org (403 otherwise); the prompt is
+ * static sections + a fenced EVENT BRIEF tail; the answer is flat strings.
+ * Copilot proposals per turn are now MAX_ACTIONS = 5 (one spender, last);
+ * the create plan carries an optional nested `brief` object; scene context
+ * grows to 1500 chars so a one-line brief fits beside the draft summary.
+ *
  * DEPLOY FILES (all five, every time — a missing sibling is an import error
  * that 500s EVERY mode): index.ts · prompt.ts · tools.generated.ts ·
- * profiles.ts · deno.json.
+ * profiles.ts · deno.json. Migration 037 must be applied BEFORE this version
+ * ships (agent_turns.mode CHECK gains 'copy'; without it copy turns still
+ * answer, but every one logs `agent_turns insert failed` and turnId null).
  *
  * POST (deployed with verify_jwt ON — requires a real user JWT in Authorization)
- *   { mode?: 'create' (default) | 'copilot' | 'scene' | 'feedback',
+ *   { mode?: 'create' (default) | 'copilot' | 'scene' | 'copy' | 'feedback',
  *     surface?: 'build' | 'platform' | 'studio' | 'concierge'   (any chat mode
  *       — which UI the turn came from; anything else → 'platform'. Recorded in
  *       telemetry AND, in copilot mode, selects the prompt's static
@@ -55,10 +66,22 @@
  *       guide digest; falls back to a one-liner)
  *     shaderCatalog?: { id, params?: {key,min,max,default}[] }[]  (scene mode)
  *     headPieceIds?: string[]        (scene mode — built-in head-piece ids)
- *     sceneContext?: string ≤1200 chars   (scene mode, OPTIONAL — the client's
+ *     sceneContext?: string ≤1500 chars   (scene mode, OPTIONAL — the client's
  *       compact summary of the OPEN DRAFT + the plan proposed last turn, so the
  *       Director can iterate on what exists instead of restarting every turn.
- *       Absent (older clients) → the prompt is byte-identical to before.) }
+ *       Absent (older clients) → the prompt is byte-identical to before.)
+ *     copyInput?: { name: string ≤80, eventType: string ≤20, brief: string ≤600,
+ *       tagline: string ≤160 }   (copy mode, REQUIRED, every field a string —
+ *       '' allowed except name; the client sends them already formatted and
+ *       fence-safe. eventUuid is REQUIRED in copy mode and the caller must be
+ *       a member of that event's org → 403 { error: 'forbidden' } otherwise;
+ *       messages is the usual 1-20 turns, in practice one "Write the guest
+ *       copy." user turn.) }
+ *
+ * 200 copy    → { reply, copy: { tagline, welcomeIntro, thankYou, keepsakeIntro },
+ *                 turnId }  every copy value a string ('' when the model
+ *   omitted it — the client normalizer decides what to keep). The
+ *   agent_turns row carries mode 'copy' and the four strings as actions_json.
  *
  *   mode 'feedback' sends NO messages: { turnId: number, feedback: 1 | -1,
  *     note?: string ≤500 } → 200 { ok: true }. Handled after auth but BEFORE
@@ -93,6 +116,7 @@
  *   preview-first by construction. Revisit if Google lifts the exclusion.
  * 400 → { error: 'invalid_json' | 'invalid_body' }
  * 401 → { error: 'unauthorized' }
+ * 403 → { error: 'forbidden' }           copy mode: not a member of the event's org
  * 429 → { error: 'rate_limited' }        over RATE_LIMIT_PER_HOUR for this user
  *                                        (platform admins are exempt)
  * 500 → { error: 'internal' }
@@ -111,14 +135,17 @@
  *
  * Env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY (injected),
  *      GEMINI_API_KEY (secret); optional per-mode profile overrides
- *      GEMINI_MODEL_{CREATE,COPILOT,SCENE} / GEMINI_THINKING_* /
+ *      GEMINI_MODEL_{CREATE,COPILOT,SCENE,COPY} / GEMINI_THINKING_* /
  *      GEMINI_TEMPERATURE_* / GEMINI_MAX_TOKENS_* (see ./profiles.ts).
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
 import { type AgentMode, type AgentProfile, resolveProfile } from './profiles.ts';
 import {
+  COPY_FIELDS,
+  COPY_INPUT_CAPS,
   type CatalogEntry,
+  type CopyPromptInput,
   type CreditsInfo,
   DEFAULT_TEMPLATES,
   FREE_IMAGES_PER_EVENT,
@@ -129,6 +156,8 @@ import {
   type TemplateInfo,
   buildCopilotPrompt,
   buildCopilotSchema,
+  buildCopyPrompt,
+  buildCopySchema,
   buildCreatePrompt,
   buildResponseSchema,
   buildScenePrompt,
@@ -214,6 +243,32 @@ async function fetchCreditsInfo(
   }
 }
 
+/**
+ * Is the caller a member of the org that owns this event? The same two reads
+ * fetchCreditsInfo makes (events → org_members, service role, never trusted
+ * from the body), returned as a plain yes/no for the modes that must REFUSE
+ * rather than degrade. A missing event and a non-member both read as false —
+ * one 403, no existence oracle. A read error THROWS (→ 500 internal): an
+ * authorization check must never fail open.
+ */
+async function isMemberOfEvent(
+  sb: ReturnType<typeof createClient>,
+  userId: string,
+  eventUuid: string,
+): Promise<boolean> {
+  const { data: ev, error: evErr } = await sb.from('events').select('org_id').eq('id', eventUuid).maybeSingle();
+  if (evErr) throw evErr;
+  if (!ev?.org_id) return false;
+  const { data: member, error: memErr } = await sb
+    .from('org_members')
+    .select('org_id')
+    .eq('org_id', ev.org_id as string)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (memErr) throw memErr;
+  return member !== null && member !== undefined;
+}
+
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -267,8 +322,39 @@ function resolveCatalog(raw: unknown, max: number): CatalogEntry[] {
 
 /* ── Scene Director mode (coordinated frame + filter + 3D piece) ─────── */
 
-/** Scene-mode client context cap (draft + last plan summary). */
-const MAX_SCENE_CONTEXT_CHARS = 1200;
+/** Scene-mode client context cap (one-line brief + draft + last plan summary;
+ *  the client composes at ≤1100, src/lib/studio/sceneDirector.ts). */
+const MAX_SCENE_CONTEXT_CHARS = 1500;
+
+/* ── Copy mode (four guest lines, once per event) ────────────────────── */
+
+/** Validate `copyInput` — every field a string within COPY_INPUT_CAPS, name
+ *  non-blank. Anything else → undefined (→ 400). The values are NOT trimmed
+ *  or reshaped here: the client formats them, and prompt.ts fence-guards them. */
+function resolveCopyInput(raw: unknown): CopyPromptInput | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const str = (key: keyof typeof COPY_INPUT_CAPS): string | undefined => {
+    const v = r[key];
+    return typeof v === 'string' && v.length <= COPY_INPUT_CAPS[key] ? v : undefined;
+  };
+  const name = str('name');
+  const eventType = str('eventType');
+  const brief = str('brief');
+  const tagline = str('tagline');
+  if (name === undefined || !name.trim() || eventType === undefined || brief === undefined || tagline === undefined) {
+    return undefined;
+  }
+  return { name, eventType, brief, tagline };
+}
+
+/** Lift the four COPY_FIELDS out of the model output as strings ('' when
+ *  missing or not a string) — the client normalizer applies the real caps. */
+function pickCopy(parsed: Record<string, unknown>): Record<(typeof COPY_FIELDS)[number], string> {
+  const out = {} as Record<(typeof COPY_FIELDS)[number], string>;
+  for (const f of COPY_FIELDS) out[f] = typeof parsed[f] === 'string' ? (parsed[f] as string) : '';
+  return out;
+}
 
 /* ── Shared Gemini call (structured output; prompt+schema per mode) ──── */
 /* Generation settings live in ./profiles.ts (AGENT_PROFILES + env overrides),
@@ -684,6 +770,30 @@ Deno.serve(async (req: Request) => {
         .eq('id', turnId)
         .eq('user_id', userId);
       if (ltErr) console.error('[ai-event-designer] dropped_count update failed', ltErr);
+    }
+
+    // 2d. Copy mode — the four guest lines for ONE event. Unlike the chat
+    //     modes this WRITES nothing and READS nothing beyond the body, but the
+    //     lines name the event's honorees, so the caller must belong to the
+    //     event's org: a valid eventUuid is required (400) and non-membership
+    //     is refused (403) — never degraded the way the credits context is.
+    //     Counts against the hourly limiter like any turn (one call per event
+    //     lifetime in practice; the client stamps config.copy.generatedAt).
+    //     No credits block: the lines are free and the fenced brief must be
+    //     the LAST thing in the prompt.
+    if (body.mode === 'copy') {
+      const copyInput = resolveCopyInput(body.copyInput);
+      if (!copyInput || eventUuid === null) return json(400, { error: 'invalid_body' });
+      if (!(await isMemberOfEvent(sb, userId, eventUuid))) return json(403, { error: 'forbidden' });
+      const profile = resolveProfile('copy', envGet);
+      const { result: { parsed }, turnId } = await runTurn(
+        sb,
+        { ...turnBase, mode: 'copy' },
+        profile,
+        () => callGemini(messages, buildCopyPrompt(copyInput), buildCopySchema(), profile),
+        (p) => JSON.stringify(pickCopy(p)),
+      );
+      return json(200, { reply: parsed.reply, copy: pickCopy(parsed), turnId });
     }
 
     // 3a. Copilot mode — event-aware Q&A + tool proposals.
