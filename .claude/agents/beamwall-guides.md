@@ -196,3 +196,25 @@ placeholder, never a 404 video.
   re-verified by hand this run and is a candidate for a registry assertion.
   The thumbs store a per-turn verdict and nothing else the host can see, so the
   copy says "rate it" and promises nothing about what the rating does.
+
+- 2026-09-04 — Wave A+B refresh (concierge deferral + starter packs + brief,
+  5-action plan cards + Stop, dictation, Larger text, check counts, generated
+  guest lines). Copy-only again, and again the drift test was green throughout
+  (no registry gained a key) — the skim is the net. The 2026-09-02 candidate
+  is now real: `GUIDE_COUNTS.copilotMaxActions` is asserted against
+  `copilot.ts MAX_ACTIONS` (its colocated node test proves the module is
+  node-safe to import), plus `starterPacks` vs `PACK_IDS.length` and
+  `starterPackMissions` per pack (asserted on EVERY pack, not the average —
+  "five ready-made missions" is printed for every style). Two brief-vs-source
+  mismatches worth remembering: the bundle card's confirm reads "Run selected"
+  (copilotSurfaces.ts), not "Do these", and the rail control is labelled
+  "Larger text" (HostLayout.tsx aria-label) — the icon is an Aa glyph, the
+  word a host reads is not. Always write the label from the JSX, never the
+  brief. Branding is NOT a studio tab (visibleStudioTabs is 8 without it): it
+  sits under the Settings group beside the tabs, so the path in copy is
+  "Settings, then Branding". Guest lines: generated at CREATE only when a brief
+  exists (NewEvent `if (brief) generateEventCopy`), else at go-live via
+  `host.goLive`; `generatedAt` is the never-rewrite stamp, so the copy promises
+  host edits survive. The 12 studio-editor markers are still all editor spots,
+  so no re-shoot. Sweep ran on :5184 (shared tree; a concierge follow-up was
+  landing in NewEvent/CopilotChat mid-run — lint stayed 0 anyway).
