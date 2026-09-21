@@ -25,7 +25,7 @@
  *    the EXACT screen point of the knuckles, so depth error never reads as a
  *    beam floating off the hand. A hand lost mid-blast freezes and fades.
  */
-import { useEffect, useMemo, useRef } from 'react';
+import { useContext, useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { FaceRig } from './FaceRig';
@@ -41,7 +41,8 @@ import {
 } from '../../lib/studio/beam';
 import type { AssetEmitter } from '../../lib/studio/assetTemplate';
 import { mirrorPoint } from '../../lib/studio/mirrorGeometry';
-import { useHandMirror } from './handMirror';
+import { HandMirrorContext, useHandMirror } from './handMirror';
+import { apparentHand } from '../../lib/studio/handedness';
 import type { ModelledHand } from '../../lib/studio/handedness';
 import type { AnchorConfig } from '../../types';
 
@@ -113,8 +114,26 @@ export function FxEmitterPoint({ fxKey, emitter, modelledHand }: {
     return o;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [valueKey]);
-  useEffect(() => registerFxEmitter(fxKey, obj), [fxKey, obj]);
+  // Registered under the piece's key AND, inside a hand rig, under the key of
+  // the hand it is drawn on: an 'auto' piece rides one rig per hand, both
+  // register the bare key, and a fist on the LEFT must erupt from the LEFT
+  // gauntlet — not from whichever rig mounted last. Keyed by the DRAWN hand,
+  // which is what BeamFX derives from the firing hand's label + mirror.
+  const drawn = useContext(HandMirrorContext)?.tracked ?? null;
+  useEffect(() => {
+    const unregister = registerFxEmitter(fxKey, obj);
+    const unregisterHand = drawn !== null ? registerFxEmitter(handEmitterKey(fxKey, drawn), obj) : null;
+    return () => {
+      unregister();
+      unregisterHand?.();
+    };
+  }, [fxKey, obj, drawn]);
   return <primitive object={obj} />;
+}
+
+/** The per-hand emitter registry key for a piece drawn on `drawn`. */
+export function handEmitterKey(fxKey: string, drawn: 'Left' | 'Right'): string {
+  return `${fxKey}@${drawn}`;
 }
 
 const MAX_LEN_CM = 160;
@@ -434,7 +453,21 @@ export default function BeamFX({ mirror, videoId, staticHead = false }: BeamFXPr
    *  the last placed pose); false = the caller should use its fallback. */
   const followSpecEmitter = (bolt: BoltHandles, active: ActiveBeam): boolean => {
     if (active.spec.emitterKey === undefined) return false;
-    const r = followObject(bolt, getFxEmitter(active.spec.emitterKey) as THREE.Object3D | null);
+    // A hand-origin beam erupts from the gauntlet on the hand that FIRED: the
+    // anchor sample names the firing hand's index, handRig's labels are
+    // index-aligned, and the emitter registered under that drawn hand wins.
+    // The bare key (last-mounted rig) is the fallback, so a scene with one rig
+    // per piece behaves exactly as before.
+    let target: THREE.Object3D | null = null;
+    if (active.spec.origin === 'hand') {
+      const frame = getLatestHandFrame();
+      const idx = frame?.anchor?.handIndex;
+      const real = idx !== undefined ? frame?.handedness[idx] ?? null : null;
+      const drawn = apparentHand(real, mirror);
+      if (drawn !== null) target = getFxEmitter(handEmitterKey(active.spec.emitterKey, drawn)) as THREE.Object3D | null;
+    }
+    if (target === null) target = getFxEmitter(active.spec.emitterKey) as THREE.Object3D | null;
+    const r = followObject(bolt, target);
     if (r === 'ok') {
       active.hadEmitter = true;
       active.frozen = false;

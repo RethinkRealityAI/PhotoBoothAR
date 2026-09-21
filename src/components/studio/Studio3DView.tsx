@@ -27,11 +27,17 @@ import FaceOccluder from '../ar/FaceOccluder';
 import ReferenceBust, { type BustBounds } from '../ar/ReferenceBust';
 import ReferenceHand, { type HandRefFit, type HandRefPose } from '../ar/ReferenceHand';
 import { HandOccluder, HandRig } from '../ar/HandRig';
-import { HandMirrorContext } from '../ar/handMirror';
+import { HandMirrorContext, useHandRender } from '../ar/handMirror';
 import { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
 import { HAND_ANCHOR_MAP, isHandAnchorId } from '../../lib/handPose';
 import { handRefAnchors } from '../../lib/studio/handRefAnchors';
-import { mirrorPlacement, previewHand, shouldMirrorAsset } from '../../lib/studio/handedness';
+import {
+  anchorFrameRotation,
+  mirrorPlacement,
+  previewHand,
+  resolveHandRender,
+  type TrackedHand,
+} from '../../lib/studio/handedness';
 import { normalizeTemplate } from '../../lib/studio/assetTemplate';
 import { orbitMannequins, resolveFocus, splitByFamily, type SceneFamily } from '../../lib/studio/sceneFamilies';
 import SceneLighting from '../ar/SceneLighting';
@@ -164,6 +170,41 @@ function FrameScene({
  * The studio has no guest, so a `token: 'guestName'` engraving previews with
  * STUDIO_SAMPLE_GUEST_NAME; the booth substitutes the real one.
  */
+/**
+ * The live view's gizmo for a hand piece. The stored placement is in the
+ * asset's own frame; when the rig is drawing the piece on the other hand the
+ * gizmo must show the REFLECTED placement (or the mesh flips and its offset
+ * does not — the "gauntlet beside the hand" failure), and un-reflect what the
+ * host drags before it reaches the store. `mirrorPlacement` is an involution,
+ * so both directions are the same call. Self-deciding through the rig's
+ * context, exactly like HandPlacement on the booth path.
+ */
+function HandGizmo({ object, enabled, onChange, onDragStart, onDragEnd, children }: {
+  object: Object3D;
+  enabled: boolean;
+  onChange?: (patch: Partial<AnchorConfig>) => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+  children: React.ReactNode;
+}) {
+  const tpl = normalizeTemplate(object.template);
+  const { reflectPlacement } = useHandRender(tpl?.modelledHand, (tpl?.textSlots.length ?? 0) > 0);
+  return (
+    <AssetGizmo
+      base={[0, 0, 0]}
+      config={reflectPlacement ? mirrorPlacement(object.anchorConfig) : object.anchorConfig}
+      enabled={enabled}
+      onChange={onChange
+        ? (reflectPlacement ? (c: Partial<AnchorConfig>) => onChange(mirrorPlacement(c as AnchorConfig)) : onChange)
+        : undefined}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    >
+      {children}
+    </AssetGizmo>
+  );
+}
+
 function ObjectContent({ object }: { object: Object3D }) {
   if (object.type === 'headpiece' && isHeadPiece(object.proceduralId)) {
     const emitter = pieceEmitterOf({ proceduralId: object.proceduralId });
@@ -257,6 +298,11 @@ export default function Studio3DView({
     normalizeTemplate(handSubject?.template)?.modelledHand,
     handSubject?.handFit,
   );
+  // The orbit has no tracker; the mannequin IS the drawn hand. Publishing it as
+  // the context's hand lets every piece on it decide mesh + placement with the
+  // one rule the live rigs use (resolveHandRender), instead of `null`, which
+  // could only ever flip a pinned piece.
+  const shownHand: TrackedHand = previewHandSide === 'left' ? 'Left' : 'Right';
   // While the mannequin loads (or if it cannot be measured) the mount points
   // fall back to the canonical metric hand, so a gizmo never sits at the origin.
   const handAnchorPoints = handFit?.anchors ?? handRefAnchors();
@@ -308,7 +354,7 @@ export default function Studio3DView({
         // content (Royal Crown, halos) extends WELL above the bust, and the
         // floating mode pills occupy the stage's top band — this framing keeps
         // tall pieces fully visible below the chrome.
-        camera={{ position: [0, 2.5, 46], fov: 42, near: 0.1, far: 2000 }}
+        camera={{ position: [0, 2.5, 46], fov: 42, near: 1, far: 2000 }}
         // preserveDrawingBuffer dropped: NOTHING reads back from this canvas
         // (the only in-studio readback is Text3DBuilder's own export canvas), and
         // it forces the driver to keep the back buffer alive after every frame.
@@ -397,10 +443,11 @@ export default function Studio3DView({
               const isSel = o.id === selectedId;
               const def = HAND_ANCHOR_MAP[o.handAnchor as string] ?? HAND_ANCHOR_MAP.grip;
               const base = handAnchorPoints[def.id] ?? [0, 0, 0];
-              // The orbit has no tracker, so `null` — only an explicit Left/Right
-              // pin can flip a piece here, which is exactly what the mannequin
-              // beside it is already obeying.
-              const flip = shouldMirrorAsset(normalizeTemplate(o.template)?.modelledHand, o.handFit, null);
+              const tpl = normalizeTemplate(o.template);
+              // The same decision the live rig makes, against the mannequin's
+              // hand: reflect the placement when it was authored in the other
+              // hand's frame; mirror the mesh when the asset is chiral for it.
+              const flip = resolveHandRender(tpl?.modelledHand, o.handFit, shownHand, (tpl?.textSlots.length ?? 0) > 0).reflectPlacement;
               return (
                 // Rotate ABOUT the mount point, exactly as live does: HandRig
                 // puts the group AT the anchor and multiplies the anchor
@@ -408,7 +455,7 @@ export default function Studio3DView({
                 // PARENT of the anchor instead spun the mount point itself —
                 // grip's z=PI/2 sent (0, 5.2, 1.6) to (-5.2, 0, 1.6), 5.2cm off
                 // the mannequin, so a wand hung in mid-air beside the hand.
-                <group key={o.id} onClick={selectHandler(o)} position={base} rotation={def.rotation}>
+                <group key={o.id} onClick={selectHandler(o)} position={base} rotation={anchorFrameRotation(def.rotation, previewHandSide)}>
                   <AssetGizmo
                     base={[0, 0, 0]}
                     // The gizmo applies the placement itself, so a mirrored piece
@@ -434,7 +481,7 @@ export default function Studio3DView({
                         wearing an unmirrored left glove. `tracked: null` means
                         the 'auto' cases resolve to "nothing to decide from" and
                         stay byte-identical; only the pins change. */}
-                    <HandMirrorContext.Provider value={{ tracked: null, fit: o.handFit ?? 'auto' }}>
+                    <HandMirrorContext.Provider value={{ tracked: shownHand, fit: o.handFit ?? 'auto' }}>
                       <ObjectContent object={o} />
                     </HandMirrorContext.Provider>
                   </AssetGizmo>
@@ -496,7 +543,12 @@ export default function Studio3DView({
               because HandRig already positions AND orients its group at the
               anchor, so the fine transform is purely local — exactly the
               relationship AssetGizmo assumes. */}
-          {handObjects.length > 0 && <HandOccluder videoId={videoId} mirror />}
+          {handObjects.length > 0 && (
+            <>
+              <HandOccluder videoId={videoId} mirror which="Left" />
+              <HandOccluder videoId={videoId} mirror which="Right" />
+            </>
+          )}
           {handObjects.map((o, i) => {
             const isSel = o.id === selectedId;
             return (
@@ -507,18 +559,18 @@ export default function Studio3DView({
                   mirror
                   holdPose={holdPose}
                   fit={o.handFit ?? 'auto'}
+                  modelledHand={normalizeTemplate(o.template)?.modelledHand}
                   onVisibilityChange={i === 0 ? onHandVisible : undefined}
                 >
-                  <AssetGizmo
-                    base={[0, 0, 0]}
-                    config={o.anchorConfig}
+                  <HandGizmo
+                    object={o}
                     enabled={isSel}
                     onChange={isSel ? onTransformChange : undefined}
                     onDragStart={onGizmoDragStart}
                     onDragEnd={onGizmoDragEnd}
                   >
                     <ObjectContent object={o} />
-                  </AssetGizmo>
+                  </HandGizmo>
                 </HandRig>
               </group>
             );

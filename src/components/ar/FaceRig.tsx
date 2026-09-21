@@ -505,10 +505,19 @@ export function FaceRig({
   // snaps drops to where the head WAS. Clear on unmount.
   useEffect(() => () => { if (matrixRef) matrixRef.current = null; }, [matrixRef]);
 
+  // The <video> is looked up once and re-queried only if it is missing or has
+  // left the DOM — a getElementById per rig per frame was pure overhead.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => { videoRef.current = null; }, [videoId]);
+
   useFrame(() => {
     const group = head.current;
     if (!group) return;
-    const video = document.getElementById(videoId) as HTMLVideoElement | null;
+    let video = videoRef.current;
+    if (video === null || !video.isConnected) {
+      video = document.getElementById(videoId) as HTMLVideoElement | null;
+      videoRef.current = video;
+    }
     if (holdPose) {
       // Keep DETECTING — blendshapes, the trigger engine and the head-fit
       // estimator all read the shared detection, and the host should never see
@@ -522,7 +531,12 @@ export function FaceRig({
     if (matrixRef) {
       if (visible) {
         group.updateWorldMatrix(true, false);
-        matrixRef.current = group.matrixWorld.elements.slice();
+        // Copy in place: the consumer reads through the ref on demand (a drop),
+        // so a fresh 16-element array per frame bought nothing but garbage.
+        const e = group.matrixWorld.elements;
+        const m = matrixRef.current ?? new Array<number>(16);
+        for (let i = 0; i < 16; i++) m[i] = e[i];
+        matrixRef.current = m;
       } else {
         matrixRef.current = null;
       }

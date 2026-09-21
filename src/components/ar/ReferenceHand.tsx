@@ -30,6 +30,7 @@ import { GLTFLoader } from 'three-stdlib';
 import { collectWorldPositions } from '../../lib/studio/bustFit';
 import { mirrorGeometryX } from '../../lib/studio/mirrorGeometry';
 import { FOREARM_REACH_MAX_CM } from '../../lib/handPose';
+import { FOREARM_R0, FOREARM_R1 } from './HandRig';
 import type { ModelledHand } from '../../lib/studio/handedness';
 import {
   handRefAnchors,
@@ -227,9 +228,14 @@ function FittedHand({ scene, hand, onFit }: {
  */
 function ForearmStub() {
   // Radii match HandOccluder's beads, which are what actually mask the arm at
-  // capture time — the editor should not imply a different-sized limb.
+  // capture time — the editor should not imply a different-sized limb. The
+  // mesh sits BELOW the wrist (y = −reach/2), so its TOP radius is the wrist end
+  // (FOREARM_R0) and the bottom widens toward the elbow (FOREARM_R1); the first
+  // draft had them swapped and drew an arm that narrowed toward the elbow. The
+  // 0.9 is the occluder's own shrink, so a bracer fitted flush here is flush
+  // on the shell too.
   const geo = useMemo(
-    () => new THREE.CylinderGeometry(3.6, 2.7, FOREARM_REACH_MAX_CM, 20, 1, true),
+    () => new THREE.CylinderGeometry(FOREARM_R0 * 0.9, FOREARM_R1 * 0.9, FOREARM_REACH_MAX_CM, 20, 1, true),
     [],
   );
   useEffect(() => () => geo.dispose(), [geo]);

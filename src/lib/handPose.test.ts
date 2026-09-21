@@ -3,8 +3,12 @@ import {
   FOREARM_REACH_MAX_CM,
   HAND_ANCHOR_MAP,
   HAND_ANCHORS,
+  anchorLocalOffset,
+  anchorLocalPoint,
   anchorPointFor,
   forearmAxis,
+  landmarkLocalPositions,
+  rotateByQuat,
   forearmReachCm,
   isHandAnchorId,
   mirrorHandPose,
@@ -211,5 +215,72 @@ describe('the forearm', () => {
       const noReach = anchorPointFor({ ...def, alongForearmCm: undefined }, screen, pose, ASPECT);
       expect(p).toEqual(noReach);
     }
+  });
+});
+
+describe('palm-local landmark cloud (the one frame gear and occluder share)', () => {
+  const setup = () => {
+    const world = worldHand();
+    const screen = projectAt(world, 60);
+    const pose = solveHandPose(screen, world, 'Right', ASPECT, null);
+    if (pose === null) throw new Error('degenerate');
+    return { world, screen, pose };
+  };
+
+  it('reproduces the metric hand: wrist→middle-MCP is the frame\'s +Y at the palm span', () => {
+    const { world, screen, pose } = setup();
+    const local = landmarkLocalPositions(screen, world, pose, ASPECT, new Float32Array(63));
+    const dx = local[27] - local[0];
+    const dy = local[28] - local[1];
+    const dz = local[29] - local[2];
+    expect(Math.abs(dx)).toBeLessThan(0.3);
+    expect(dy).toBeCloseTo(pose.palmSpanCm, 0);
+    expect(Math.abs(dz)).toBeLessThan(0.3);
+  });
+
+  it('centres the rigid palm on the origin and keeps a flat palm at z≈0', () => {
+    const { world, screen, pose } = setup();
+    const local = landmarkLocalPositions(screen, world, pose, ASPECT, new Float32Array(63));
+    let cx = 0, cy = 0, cz = 0;
+    for (const i of [0, 5, 9, 13, 17]) { cx += local[i * 3]; cy += local[i * 3 + 1]; cz += local[i * 3 + 2]; }
+    expect(Math.abs(cx / 5)).toBeLessThan(0.3);
+    expect(Math.abs(cy / 5)).toBeLessThan(0.3);
+    expect(Math.abs(cz / 5)).toBeLessThan(0.3);
+    for (const i of [0, 5, 9, 13, 17]) expect(Math.abs(local[i * 3 + 2])).toBeLessThan(0.3);
+  });
+
+  it('a landmark nearer the camera than the palm lands at +z (toward the viewer)', () => {
+    const { world, screen, pose } = setup();
+    const w = world.map((p) => ({ ...p }));
+    w[8] = { x: 0.01, y: -0.09, z: -0.03 }; // index tip 3cm TOWARD the camera (world z away is +)
+    const local = landmarkLocalPositions(screen, w, pose, ASPECT, new Float32Array(63));
+    expect(local[8 * 3 + 2]).toBeGreaterThan(2.5);
+    expect(local[8 * 3 + 2]).toBeLessThan(3.5);
+  });
+
+  it('anchorLocalPoint agrees with the world-space anchorPointFor for every anchor', () => {
+    const { world, screen, pose } = setup();
+    const local = landmarkLocalPositions(screen, world, pose, ASPECT, new Float32Array(63));
+    for (const def of HAND_ANCHORS) {
+      const l = anchorLocalPoint(def, local);
+      const r = rotateByQuat(pose.quaternion, l);
+      const viaLocal = [r[0] + pose.position[0], r[1] + pose.position[1], r[2] + pose.position[2]];
+      const viaWorld = anchorPointFor(def, screen, pose, ASPECT, world);
+      for (let k = 0; k < 3; k++) expect(viaLocal[k]).toBeCloseTo(viaWorld[k], 1);
+    }
+  });
+
+  it('anchorLocalOffset is the local form of normal offset + clamped forearm reach', () => {
+    expect(anchorLocalOffset(HAND_ANCHOR_MAP.grip)).toEqual([0, 0, -2.2]);
+    expect(anchorLocalOffset(HAND_ANCHOR_MAP.forearm)).toEqual([0, -5, 0]);
+    expect(anchorLocalOffset({ ...HAND_ANCHOR_MAP.forearm, alongForearmCm: 99 })).toEqual([0, -FOREARM_REACH_MAX_CM, 0]);
+  });
+
+  it('rotateByQuat matches the axis-angle it encodes', () => {
+    const q: [number, number, number, number] = [0, Math.SQRT1_2, 0, Math.SQRT1_2]; // +90° about Y
+    const v = rotateByQuat(q, [1, 0, 0]);
+    expect(v[0]).toBeCloseTo(0, 9);
+    expect(v[1]).toBeCloseTo(0, 9);
+    expect(v[2]).toBeCloseTo(-1, 9);
   });
 });

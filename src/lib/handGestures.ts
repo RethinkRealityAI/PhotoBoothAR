@@ -48,6 +48,10 @@ export interface HandAnchorSample {
   spanNorm: number;
   /** Unit palm normal in the hand's METRIC world frame (out of the palm). */
   normal: [number, number, number];
+  /** Index of the firing hand in the `hands` array this sample was scored
+   *  from — index-aligned with handRig's handedness, so a consumer can find
+   *  out WHICH hand fired (a beam must erupt from that hand's gauntlet). */
+  handIndex: number;
 }
 
 const FINGERS = [
@@ -264,8 +268,9 @@ export function handAnchor(
   aspect = 1,
 ): HandAnchorSample | null {
   const ax = isFinite(aspect) && aspect > 0 ? aspect : 1;
-  let best: { hand: HandSample; strength: number; span: number } | null = null;
-  for (const hand of hands) {
+  let best: { hand: HandSample; strength: number; span: number; index: number } | null = null;
+  for (let index = 0; index < hands.length; index++) {
+    const hand = hands[index];
     if (!validHand(hand)) continue;
     const s = scoreOneHand(hand, face, aspect);
     let strength = 0;
@@ -280,7 +285,7 @@ export function handAnchor(
       strength > best.strength ||
       (strength === best.strength && span > best.span)
     ) {
-      best = { hand, strength, span };
+      best = { hand, strength, span, index };
     }
   }
   if (best === null) return null;
@@ -309,5 +314,5 @@ export function handAnchor(
     if (len > 1e-9 && isFinite(len)) normal = [cx / len, cy / len, cz / len];
   }
 
-  return { originX: ox, originY: oy, spanNorm: best.span, normal };
+  return { originX: ox, originY: oy, spanNorm: best.span, normal, handIndex: best.index };
 }

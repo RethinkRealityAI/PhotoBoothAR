@@ -9,11 +9,39 @@
  * Registered ONLY when import.meta.env.DEV is true (see App.tsx), so it never
  * ships to production and never bypasses the real /host auth gate.
  */
+import { useEffect } from 'react';
 import EventProvider from '../events/EventContext';
 import { StudioBaseContext } from '../components/admin/studioBase';
 import StudioShell from '../components/studio/StudioShell';
+import { faceTrackingStats } from '../lib/faceRig';
+import { handTrackingStats } from '../lib/handRig';
+import { getFaceLandmarker } from '../lib/faceTracking';
+import { inferenceSource } from '../lib/trackingFrame';
+
+/**
+ * DEV-only diagnostics seam for scripts/check-tracking-latency.mjs: the
+ * headless harness samples inference timings and sample age through it. Lives
+ * here, not in the tracking modules, so production bundles carry no window
+ * globals.
+ */
+declare global {
+  interface Window {
+    __beamwallTracking?: {
+      face: typeof faceTrackingStats;
+      hand: typeof handTrackingStats;
+      /** The live landmarker (null until loaded) — for direct probes. */
+      landmarker: typeof getFaceLandmarker;
+      /** The exact image the landmarkers see for a video. */
+      inferenceSource: typeof inferenceSource;
+    };
+  }
+}
 
 export default function StudioHarness() {
+  useEffect(() => {
+    window.__beamwallTracking = { face: faceTrackingStats, hand: handTrackingStats, landmarker: getFaceLandmarker, inferenceSource };
+    return () => { delete window.__beamwallTracking; };
+  }, []);
   return (
     <StudioBaseContext.Provider value="/dev/studio">
       <EventProvider slug="hope-gala" basePath="">

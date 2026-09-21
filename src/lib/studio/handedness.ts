@@ -185,3 +185,93 @@ export function previewHand(
   // chirality and the majority-handed default.
   return modelled ?? 'right';
 }
+
+/* ── The apparent hand, and the one rule that renders a piece on it ───────
+ *
+ * A selfie feed is drawn MIRRORED, and a mirrored right hand is, to every eye
+ * in the room, a LEFT hand. The rig that tracks it composes the raw pose with
+ * the same reflection (faceRig/handPose `mirror`), so the frame a piece renders
+ * in is the anatomical frame of the hand as it APPEARS — not of the hand the
+ * tracker labelled. Every chiral decision below therefore takes the apparent
+ * hand. Deciding from the real label instead put a right-modelled gauntlet's
+ * thumb plate on the pinky side of every selfie, and flipped a wand's tip to
+ * the other side of the fist between the editor and the booth.
+ */
+
+/** The hand as drawn: the real one through a back camera, the other one in a
+ *  mirrored selfie. */
+export function apparentHand(real: TrackedHand, mirror: boolean): TrackedHand {
+  if (real === null || !mirror) return real;
+  return real === 'Left' ? 'Right' : 'Left';
+}
+
+/** How one piece renders on the hand it is on. */
+export interface HandRender {
+  /** Chirality of the frame the piece renders in; null = nothing to decide
+   *  from yet ('auto' with no hand in frame). */
+  hand: ModelledHand | null;
+  /** Reflect the authored offset/rotation through `mirrorPlacement`. */
+  reflectPlacement: boolean;
+  /** Reflect the mesh through `mirrorGeometryX` — chiral assets only. */
+  mirrorMesh: boolean;
+}
+
+const NONE: HandRender = { hand: null, reflectPlacement: false, mirrorMesh: false };
+
+/**
+ * The hand a piece's STORED placement is expressed in. Chiral assets store it
+ * in the modelled hand's frame (the orbit editor reflects it for display when
+ * it shows the other mannequin, and un-reflects the gizmo's output — an
+ * involution). Hand-agnostic assets have no modelled hand, so their placement
+ * is in the frame of the mannequin the host actually saw: the pinned hand, or
+ * the right hand (the vendored mannequin's own chirality) for 'auto'.
+ */
+export function authoredHand(modelled: ModelledHand | undefined, fit: HandFit | undefined): ModelledHand {
+  if (modelled !== undefined) return modelled;
+  const f = fit ?? 'auto';
+  return f === 'left' || f === 'right' ? f : 'right';
+}
+
+/**
+ * THE rule. `apparent` is the hand as drawn (see `apparentHand`); a pin never
+ * consults it, which keeps a pin deterministic even if the label swap is wrong.
+ *
+ *  - The frame is the target hand's: the pin, else the apparent hand.
+ *  - The placement reflects when that frame is not the one it was authored in.
+ *  - The mesh reflects when the asset is chiral and modelled for the other
+ *    hand — never for an agnostic asset (a wand mirrored is the same wand).
+ *  - All or nothing for a chiral asset that cannot mirror (engraved): an
+ *    un-mirrored glove flung to the far side of the hand is the worst of both.
+ */
+export function resolveHandRender(
+  modelled: ModelledHand | undefined,
+  fit: HandFit | undefined,
+  apparent: TrackedHand,
+  engravable = false,
+): HandRender {
+  const f = fit ?? 'auto';
+  const target: ModelledHand | null =
+    f === 'left' || f === 'right' ? f : apparent === 'Left' ? 'left' : apparent === 'Right' ? 'right' : null;
+  if (target === null) return NONE;
+  const mirrorMesh = modelled !== undefined && target !== modelled;
+  if (mirrorMesh && !canMirrorAsset(engravable)) {
+    return { hand: target, reflectPlacement: false, mirrorMesh: false };
+  }
+  return { hand: target, reflectPlacement: target !== authoredHand(modelled, fit), mirrorMesh };
+}
+
+/**
+ * A hand anchor's own rotation (handPose HAND_ANCHORS — authored for the RIGHT
+ * hand, whose frame the canonical landmarks are measured in) expressed in the
+ * frame of `hand`: reflected for a left hand exactly as `mirrorPlacement`
+ * reflects a rotation (keep rx, negate ry and rz). Without this a fist-held
+ * wand's tip pointed out of the pinky side on one hand and the thumb side on
+ * the other.
+ */
+export function anchorFrameRotation(
+  rotation: readonly [number, number, number],
+  hand: ModelledHand,
+): [number, number, number] {
+  if (hand !== 'left') return [rotation[0], rotation[1], rotation[2]];
+  return [rotation[0], rotation[1] === 0 ? 0 : -rotation[1], rotation[2] === 0 ? 0 : -rotation[2]];
+}

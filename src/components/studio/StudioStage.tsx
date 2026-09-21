@@ -16,13 +16,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { Axis3d, Boxes, Camera, Eye, Layers, Smartphone, Sparkles, AlertTriangle } from 'lucide-react';
+import { Axis3d, Boxes, Camera, Eye, EyeOff, Layers, Smartphone, Sparkles, AlertTriangle } from 'lucide-react';
 import { ShaderRunner } from '../../lib/shaders';
 import { snapTransform, type SnapResult } from '../../lib/studio/snap';
-import { selectedObject, draftHasContent, type StudioState, type StudioAction, type Overlay2D, type Object3D } from '../../lib/studio/state';
+import { selectedObject, draftHasContent, sceneOcclusion, type StudioState, type StudioAction, type Overlay2D, type Object3D } from '../../lib/studio/state';
 import { isHandObject } from '../../lib/studio/sceneFamilies';
 import Studio3DView from './Studio3DView';
 import StudioPreview from './StudioPreview';
+import TrackingReadout from './TrackingReadout';
 import Tooltip from '../ui/Tooltip';
 import ErrorBoundary from '../ui/ErrorBoundary';
 import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffects';
@@ -558,6 +559,36 @@ export default function StudioStage({
             timed out against this element). Anything else floated into this
             strip later would have hit the same wall. */}
         <div className="absolute top-2.5 inset-x-2.5 z-30 flex items-start justify-center pointer-events-none">
+          {/* Occlusion switch — the LIVE 3D view's free left cell (the orbit view
+              keeps that cell for its head/hand focus switch). This is the one
+              place a host can SEE what the switch does: the same setting also
+              lives in the Scene tab's Lighting & fit section, collapsed, which
+              is where it went unfound. Head pieces only: the hand shell is
+              always on and there is nothing for this to change. */}
+          {mode === '3d' && threeView === 'live' && occlusionEnabled && objects3d.some((o) => o.handAnchor === undefined) && (
+            <div className="absolute left-0 top-0 pointer-events-auto">
+              <Tooltip
+                label={sceneOcclusion(draft) ? 'Head hides props: on' : 'Head hides props: off'}
+                hint={sceneOcclusion(draft)
+                  ? 'Parts of a prop that fall behind the real head are hidden. Applies to the whole scene.'
+                  : 'Props draw over the head everywhere, even where they should be behind it. Turn on for real depth.'}
+                side="bottom"
+              >
+                <button
+                  onClick={() => dispatch({ type: 'SET_SCENE_OCCLUSION', occlusion: !sceneOcclusion(draft) })}
+                  data-testid="studio-occlusion-toggle"
+                  aria-pressed={sceneOcclusion(draft)}
+                  aria-label={sceneOcclusion(draft) ? 'Head hides props: on' : 'Head hides props: off'}
+                  className={`pressable flex items-center gap-1.5 h-9 px-2.5 rounded-full liquid-glass-raised transition-colors ${
+                    sceneOcclusion(draft) ? 'text-accent-2' : 'text-brand-muted/70 hover:text-brand-fg'
+                  }`}
+                >
+                  {sceneOcclusion(draft) ? <Eye className="w-4 h-4 shrink-0" /> : <EyeOff className="w-4 h-4 shrink-0" />}
+                  <span className="font-label text-[10px] uppercase tracking-widest whitespace-nowrap">Occlusion</span>
+                </button>
+              </Tooltip>
+            </div>
+          )}
           <div className="flex items-center gap-1 liquid-glass-raised rounded-full p-1 shrink-0 pointer-events-auto">
             {visibleTabs.map((t) => {
               const active = mode === t.id;
@@ -772,6 +803,7 @@ export default function StudioStage({
               justify-between, an absent first child sends Test-on-phone to the
               left edge. */}
           <div className="min-w-0">
+            <TrackingReadout className="mb-1.5" />
             <StageStatusChip status={status} />
           </div>
           {onTestOnPhone ? (

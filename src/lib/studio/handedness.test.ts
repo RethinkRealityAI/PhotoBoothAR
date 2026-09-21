@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+  anchorFrameRotation,
+  apparentHand,
+  authoredHand,
   canMirrorAsset,
   HAND_FIT_OPTIONS,
+  resolveHandRender,
   normalizeHandFit,
   mirrorPlacement,
   normalizeModelledHand,
@@ -214,5 +218,82 @@ describe('HAND_FIT_OPTIONS', () => {
       expect(o.label.length).toBeGreaterThan(0);
       expect(o.hint.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('apparentHand', () => {
+  it('is the real hand through a back camera and the other one in a mirror', () => {
+    expect(apparentHand('Left', false)).toBe('Left');
+    expect(apparentHand('Right', false)).toBe('Right');
+    expect(apparentHand('Left', true)).toBe('Right');
+    expect(apparentHand('Right', true)).toBe('Left');
+    expect(apparentHand(null, true)).toBeNull();
+    expect(apparentHand(null, false)).toBeNull();
+  });
+});
+
+describe('authoredHand', () => {
+  it('is the modelled hand for a chiral asset, whatever the pin', () => {
+    expect(authoredHand('right', 'left')).toBe('right');
+    expect(authoredHand('left', 'auto')).toBe('left');
+  });
+  it('is the pinned hand, else the right mannequin, for an agnostic asset', () => {
+    expect(authoredHand(undefined, 'left')).toBe('left');
+    expect(authoredHand(undefined, 'right')).toBe('right');
+    expect(authoredHand(undefined, 'auto')).toBe('right');
+    expect(authoredHand(undefined, undefined)).toBe('right');
+  });
+});
+
+describe('resolveHandRender', () => {
+  const none = { hand: null, reflectPlacement: false, mirrorMesh: false };
+
+  it("'auto' with nothing in frame decides nothing", () => {
+    expect(resolveHandRender(undefined, 'auto', null)).toEqual(none);
+    expect(resolveHandRender('right', undefined, null)).toEqual(none);
+  });
+
+  it('an AGNOSTIC asset reflects its PLACEMENT onto the other hand, never its mesh', () => {
+    // Authored on the right mannequin; drawn on an apparent left hand.
+    expect(resolveHandRender(undefined, 'auto', 'Left')).toEqual({ hand: 'left', reflectPlacement: true, mirrorMesh: false });
+    expect(resolveHandRender(undefined, 'auto', 'Right')).toEqual({ hand: 'right', reflectPlacement: false, mirrorMesh: false });
+    // Pinned: authored on that mannequin, so nothing reflects, whatever is tracked.
+    expect(resolveHandRender(undefined, 'left', 'Right')).toEqual({ hand: 'left', reflectPlacement: false, mirrorMesh: false });
+    expect(resolveHandRender(undefined, 'right', 'Left')).toEqual({ hand: 'right', reflectPlacement: false, mirrorMesh: false });
+  });
+
+  it('a CHIRAL asset reflects mesh and placement together, or neither', () => {
+    expect(resolveHandRender('right', 'auto', 'Left')).toEqual({ hand: 'left', reflectPlacement: true, mirrorMesh: true });
+    expect(resolveHandRender('right', 'auto', 'Right')).toEqual({ hand: 'right', reflectPlacement: false, mirrorMesh: false });
+    expect(resolveHandRender('left', 'auto', 'Right')).toEqual({ hand: 'right', reflectPlacement: true, mirrorMesh: true });
+    // A pin ignores the tracker entirely.
+    expect(resolveHandRender('right', 'left', 'Right')).toEqual({ hand: 'left', reflectPlacement: true, mirrorMesh: true });
+    expect(resolveHandRender('right', 'right', 'Left')).toEqual({ hand: 'right', reflectPlacement: false, mirrorMesh: false });
+  });
+
+  it('an ENGRAVED chiral asset mirrors neither half (all or nothing)', () => {
+    expect(resolveHandRender('right', 'auto', 'Left', true)).toEqual({ hand: 'left', reflectPlacement: false, mirrorMesh: false });
+    // …but an engraved AGNOSTIC asset still reflects its placement: no mesh is
+    // being mirrored, so there is no half to keep in step with.
+    expect(resolveHandRender(undefined, 'auto', 'Left', true)).toEqual({ hand: 'left', reflectPlacement: true, mirrorMesh: false });
+  });
+
+  it('agrees with shouldMirrorAsset on the mesh for every non-engraved case', () => {
+    const modelled = [undefined, 'left', 'right'] as const;
+    const fits = ['auto', 'left', 'right', undefined] as const;
+    const tracked = [null, 'Left', 'Right'] as const;
+    for (const m of modelled) for (const f of fits) for (const t of tracked) {
+      expect(resolveHandRender(m, f, t).mirrorMesh).toBe(shouldMirrorAsset(m, f, t));
+    }
+  });
+});
+
+describe('anchorFrameRotation', () => {
+  it('keeps a right-hand anchor rotation and reflects it for a left hand', () => {
+    expect(anchorFrameRotation([0.1, 0.2, Math.PI / 2], 'right')).toEqual([0.1, 0.2, Math.PI / 2]);
+    expect(anchorFrameRotation([0.1, 0.2, Math.PI / 2], 'left')).toEqual([0.1, -0.2, -Math.PI / 2]);
+    // No -0: a zero component compares equal to itself after reflection.
+    expect(Object.is(anchorFrameRotation([0, 0, 0], 'left')[1], 0)).toBe(true);
+    expect(Object.is(anchorFrameRotation([0, 0, 0], 'left')[2], 0)).toBe(true);
   });
 });

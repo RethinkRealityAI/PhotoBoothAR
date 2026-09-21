@@ -605,16 +605,18 @@ export function sceneOcclusion(d: StudioDraft): boolean {
  * The occlusion flag a newly added 3D piece should carry.
  *
  * A scene that already has 3D pieces INHERITS its own current setting, so the
- * scene switch never disagrees with what renders. The first 3D piece of a
- * BRAND-NEW draft (no `id`: never saved, not opened from an existing
- * experience) defaults ON, because hiding props behind the real head is what
- * a host expects. An EXISTING scene is never defaulted on — that would start
- * depth-clipping halos, back bands and oversized props at live events with no
- * host action.
+ * scene switch never disagrees with what renders. The FIRST 3D piece of any
+ * scene defaults ON, because hiding props behind the real head is what a host
+ * expects — and nothing already placed can be affected, since there is nothing
+ * placed. (It used to default on only for a never-saved draft: every scene
+ * opened from an existing experience got its first prop with occlusion OFF,
+ * the switch that turns it on lives in a collapsed section, and "occlusion
+ * isn't working" was the result.) A scene whose existing 3D pieces are all
+ * off stays off — a saved scene is never changed from under its host.
  */
 export function nextPieceOcclusion(d: StudioDraft): boolean {
   if (d.objects.some(is3D)) return sceneOcclusion(d);
-  return d.id === undefined;
+  return true;
 }
 
 /** Apply the scene's occlusion default to a 3D object on its way into the
