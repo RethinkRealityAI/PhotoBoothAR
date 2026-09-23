@@ -75,17 +75,17 @@ export function targetHand(
 }
 
 /**
- * True when the mesh must be mirrored through its YZ plane to fit the target
- * hand. False for every agnostic asset and every already-correct hand, which is
- * the overwhelmingly common case and costs nothing.
+ * True when the mesh must be mirrored through its YZ plane — i.e. when the piece
+ * is drawn on the other hand than it was placed on (see `resolveHandRender`,
+ * which this is the mesh half of). `tracked` is the hand AS DRAWN.
  */
 export function shouldMirrorAsset(
   modelled: ModelledHand | undefined,
   fit: HandFit | undefined,
   tracked: TrackedHand,
+  engravable = false,
 ): boolean {
-  const target = targetHand(modelled, fit, tracked);
-  return target !== null && target !== modelled;
+  return resolveHandRender(modelled, fit, tracked, engravable).mirrorMesh;
 }
 
 /** Chip copy for the Properties control, in authoring order. */
@@ -207,16 +207,20 @@ export function apparentHand(real: TrackedHand, mirror: boolean): TrackedHand {
 
 /** How one piece renders on the hand it is on. */
 export interface HandRender {
-  /** Chirality of the frame the piece renders in; null = nothing to decide
+  /** Chirality of the hand the piece is drawn on; null = nothing to decide
    *  from yet ('auto' with no hand in frame). */
   hand: ModelledHand | null;
   /** Reflect the authored offset/rotation through `mirrorPlacement`. */
   reflectPlacement: boolean;
-  /** Reflect the mesh through `mirrorGeometryX` — chiral assets only. */
+  /** Reflect the mesh through `mirrorGeometryX`. */
   mirrorMesh: boolean;
+  /** Whose version of the anchor's own rotation to use (`anchorFrameRotation`):
+   *  the drawn hand's when mirroring, else the hand the piece was placed on.
+   *  null only with `hand` null. */
+  anchorHand: ModelledHand | null;
 }
 
-const NONE: HandRender = { hand: null, reflectPlacement: false, mirrorMesh: false };
+const NONE: HandRender = { hand: null, reflectPlacement: false, mirrorMesh: false, anchorHand: null };
 
 /**
  * The hand a piece's STORED placement is expressed in. Chiral assets store it
@@ -236,12 +240,23 @@ export function authoredHand(modelled: ModelledHand | undefined, fit: HandFit | 
  * THE rule. `apparent` is the hand as drawn (see `apparentHand`); a pin never
  * consults it, which keeps a pin deterministic even if the label swap is wrong.
  *
- *  - The frame is the target hand's: the pin, else the apparent hand.
- *  - The placement reflects when that frame is not the one it was authored in.
- *  - The mesh reflects when the asset is chiral and modelled for the other
- *    hand — never for an agnostic asset (a wand mirrored is the same wand).
- *  - All or nothing for a chiral asset that cannot mirror (engraved): an
- *    un-mirrored glove flung to the far side of the hand is the worst of both.
+ * A piece is placed on ONE hand (`authoredHand`). Drawn on that hand, nothing
+ * changes. Drawn on the other hand, it becomes the exact MIRROR IMAGE of what
+ * the host placed: mesh, placement and the anchor's own rotation all reflect,
+ * together — and that holds for hand-agnostic assets too.
+ *
+ * Why agnostic assets mirror as well (2026-09-22, reversing the 2026-08-04
+ * "never mirror an agnostic asset" rule): reflecting the placement and the
+ * anchor rotation WITHOUT the mesh is not a mirror image, it is a different
+ * pose. Measured on the wand: the grip's +90° anchor turn became −90° on the
+ * other hand and the gem pointed at the wrist — on a right-handed guest in a
+ * selfie, whose real right hand is drawn as a left one. A wand is symmetric
+ * about its own axis, not end to end; only the full mirror is right for every
+ * asset. Nothing legacy is affected: no coded event has a hand piece.
+ *
+ * All or nothing: an engraved asset cannot mirror (its name would read
+ * backwards), so on the other hand it keeps its authored placement and
+ * anchor rotation unreflected — never half of each.
  */
 export function resolveHandRender(
   modelled: ModelledHand | undefined,
@@ -253,11 +268,9 @@ export function resolveHandRender(
   const target: ModelledHand | null =
     f === 'left' || f === 'right' ? f : apparent === 'Left' ? 'left' : apparent === 'Right' ? 'right' : null;
   if (target === null) return NONE;
-  const mirrorMesh = modelled !== undefined && target !== modelled;
-  if (mirrorMesh && !canMirrorAsset(engravable)) {
-    return { hand: target, reflectPlacement: false, mirrorMesh: false };
-  }
-  return { hand: target, reflectPlacement: target !== authoredHand(modelled, fit), mirrorMesh };
+  const authored = authoredHand(modelled, fit);
+  const mirror = target !== authored && canMirrorAsset(engravable);
+  return { hand: target, reflectPlacement: mirror, mirrorMesh: mirror, anchorHand: mirror ? target : authored };
 }
 
 /**

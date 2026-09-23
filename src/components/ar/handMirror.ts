@@ -46,17 +46,16 @@ export interface HandMirrorValue {
 export const HandMirrorContext = createContext<HandMirrorValue | null>(null);
 
 /**
- * True when an asset modelled for `modelled` must be mirrored to fit the hand
- * this rig is drawing on. Always false outside a HandRig, and always false for
- * a hand-agnostic asset (no `modelledHand` on its template).
+ * True when an asset must be mirrored because this rig is drawing it on the
+ * other hand than it was placed on. Always false outside a HandRig.
  */
-export function useHandMirror(modelled: ModelledHand | undefined): boolean {
+export function useHandMirror(modelled: ModelledHand | undefined, engravable = false): boolean {
   const ctx = useContext(HandMirrorContext);
   if (ctx === null) return false;
-  return shouldMirrorAsset(modelled, ctx.fit, ctx.tracked);
+  return shouldMirrorAsset(modelled, ctx.fit, ctx.tracked, engravable);
 }
 
-const OUTSIDE: HandRender = { hand: null, reflectPlacement: false, mirrorMesh: false };
+const OUTSIDE: HandRender = { hand: null, reflectPlacement: false, mirrorMesh: false, anchorHand: null };
 
 /**
  * The full render decision for a piece in this rig — which frame it is in,

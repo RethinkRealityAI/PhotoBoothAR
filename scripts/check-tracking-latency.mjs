@@ -63,7 +63,7 @@ const clickIn = async (scope, text, label) => {
   return false;
 };
 
-async function scenario(query, shotName, { hand = false } = {}) {
+async function scenario(query, shotName, { hand = false, both = false, powerfx = false } = {}) {
   const ctx = await freshPage();
   await page.goto(`${BASE}/dev/studio${query}`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2000);
@@ -71,7 +71,24 @@ async function scenario(query, shotName, { hand = false } = {}) {
   await page.waitForTimeout(600);
   await clickIn('[data-panel="assets"]', 'Royal Crown', 'Royal Crown');
   await page.waitForTimeout(600);
-  if (hand) {
+  if (powerfx) {
+    // A face piece (the crown, above) + the Power FX gauntlet: a HAND piece
+    // plus a palmOpen trigger — which is what starts the stage's trigger loop,
+    // the path that asks for face inference first on every frame.
+    await clickIn('[data-panel="assets"]', 'Power FX', 'Power FX card');
+    await page.waitForTimeout(800);
+    await page.locator('[role="dialog"] button', { hasText: process.env.GEAR ?? 'Power Gauntlet' }).first().click({ timeout: 8000, force: true }).catch((e) => console.log('click gear: FAILED', String(e).split('\n')[0]));
+    await page.waitForTimeout(400);
+    await page.locator('[role="dialog"] button', { hasText: 'Add to scene' }).first().click({ timeout: 30000, force: true }).catch((e) => console.log('click add: FAILED', String(e).split('\n')[0]));
+    await page.waitForTimeout(2500);
+  }
+  if (both) {
+    // A HEAD piece (the crown) AND a HAND piece (a tiara re-homed onto the
+    // hand) in one scene — the concurrency case: both trackers must run.
+    await clickIn('[data-panel="assets"]', "Queen's Tiara", "Queen's Tiara");
+    await page.waitForTimeout(600);
+  }
+  if (hand || both) {
     // "Tracks on: Hand" re-homes the piece onto a HandRig (grip anchor) — the
     // cheapest way to mount the hand pipeline without driving the Power FX modal.
     const btn = page.locator('button', { hasText: /^Hand$/ }).last();
@@ -89,10 +106,11 @@ async function scenario(query, shotName, { hand = false } = {}) {
   // Let the wasm + model load and the tracker acquire.
   await page.waitForFunction(
     (wantHand) => (wantHand ? (window.__beamwallTracking?.hand().hands ?? 0) > 0 : window.__beamwallTracking?.face().hasFace === true),
-    hand,
+    hand || both || powerfx,
     { timeout: 40000 },
   ).catch(() => {});
   await page.waitForTimeout(1500);
+  const counts0 = await page.evaluate(() => ({ f: window.__beamwallTracking?.face().detections ?? 0, h: window.__beamwallTracking?.hand().detections ?? 0, t: performance.now() }));
   const samples = await page.evaluate(async () => {
     const out = [];
     const t0 = performance.now();
@@ -104,6 +122,9 @@ async function scenario(query, shotName, { hand = false } = {}) {
     }
     return out;
   });
+  const counts1 = await page.evaluate(() => ({ f: window.__beamwallTracking?.face().detections ?? 0, h: window.__beamwallTracking?.hand().detections ?? 0, t: performance.now() }));
+  const secs = (counts1.t - counts0.t) / 1000;
+  samples.rates = { faceInferPerSec: +((counts1.f - counts0.f) / secs).toFixed(1), handInferPerSec: +((counts1.h - counts0.h) / secs).toFixed(1) };
   const shot = path.join(outDir, shotName);
   await page.screenshot({ path: shot });
   const occl = await page.locator('[data-testid="studio-occlusion-toggle"]').getAttribute('aria-pressed').catch(() => null);
@@ -140,6 +161,24 @@ function stats(samples) {
   };
 }
 
+if (process.env.MODE === 'powerfx') {
+  // Face piece + Power FX gauntlet (hand piece + trigger) on a face+hand video.
+  // GEAR picks the shelf item; QS=?debug=occluder draws both depth shells.
+  const c = await scenario(process.env.QS ?? '?debug=tracking', 'tl-5-powerfx.png', { powerfx: true });
+  console.log('POWERFX:', JSON.stringify({ ...stats(c.samples), ...handStats(c.samples), ...c.samples.rates }), 'shot=', c.shot);
+  console.log('PAGEERRORS:', errors.length ? errors.join(' | ') : 'none');
+  await browser.close();
+  process.exit(0);
+}
+if (process.env.MODE === 'concurrent') {
+  // One video with a face AND a hand; one scene with a head piece AND a hand
+  // piece. Both trackers must keep their cadence — neither may starve.
+  const c = await scenario('?debug=tracking', 'tl-4-concurrent.png', { both: true });
+  console.log('CONCURRENT:', JSON.stringify({ ...stats(c.samples), ...handStats(c.samples), ...c.samples.rates }), 'shot=', c.shot);
+  console.log('PAGEERRORS:', errors.length ? errors.join(' | ') : 'none');
+  await browser.close();
+  process.exit(0);
+}
 const plain = await scenario('', 'tl-1-live-crown.png');
 console.log('LIVE:', JSON.stringify(stats(plain.samples)), 'occlusionChip=', plain.occl, 'shot=', plain.shot);
 const dbg = await scenario('?debug=occluder', 'tl-2-live-occluder-debug.png');

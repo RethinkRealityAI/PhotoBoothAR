@@ -745,7 +745,7 @@ const MAKE_3D_PROPS: GuideDoc = {
     {
       kind: 'prose',
       body: [
-        'A 3D prop is an object that sticks to your guest as they move: a crown on the head, a visor over the eyes, a gauntlet on the hand. It tracks their face in real time, so it stays put when they laugh, lean in or pull a friend into the shot.',
+        'A 3D prop is an object that sticks to your guest as they move: a crown on the head, a visor over the eyes, a gauntlet on the hand. It tracks their face and hands at the same time, so it stays put when they laugh, lean in, raise a hand or pull a friend into the shot.',
         'This is the part guests film themselves doing. A frame gets a photo; a prop gets a video of someone discovering they have antlers.',
         'There are four ways to get one, and the first two cost you nothing at all.',
       ],

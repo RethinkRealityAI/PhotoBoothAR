@@ -89,16 +89,19 @@ export function pieceEmitterOf(piece: {
  * so a modal preview over a live stage resolves to the modal and hands the key
  * back on close.
  */
-export function FxEmitterPoint({ fxKey, emitter, modelledHand }: {
+export function FxEmitterPoint({ fxKey, emitter, modelledHand, engravable = false }: {
   fxKey: string;
   emitter: AssetEmitter;
+  /** The asset carries text slots — it never mirrors, so neither may its
+   *  emitter (the same all-or-nothing rule as the mesh). */
+  engravable?: boolean;
   /** The template's declared hand, when this piece has one. Passing it lets the
    *  emitter travel with a mirrored mesh — a gauntlet flipped to the other hand
    *  whose beam still erupted from the original palm would fire out of the back
    *  of the guest's hand. */
   modelledHand?: ModelledHand;
 }) {
-  const flip = useHandMirror(modelledHand);
+  const flip = useHandMirror(modelledHand, engravable);
   const position = flip ? mirrorPoint(emitter.position) : emitter.position;
   const direction = flip ? mirrorPoint(emitter.direction) : emitter.direction;
   // Value-keyed memo: `emitter` is a fresh object each mapper pass; rebuilding

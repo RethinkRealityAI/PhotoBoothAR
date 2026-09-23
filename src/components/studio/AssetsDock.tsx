@@ -46,6 +46,7 @@ import { uploadAsset, listAssetsResult, fetchExperiencesResult } from '../../lib
 import { captureGlbThumbnail, measureGlbFitScale, useGlbThumb } from '../../lib/studio/glbThumb';
 import type { LightingPresetId } from '../../lib/studio/lighting';
 import { PROP_TARGET_CM } from '../../lib/studio/bustFit';
+import { libraryAddPlacement } from '../../lib/studio/gearFit';
 import {
   LIBRARY_ASSET_CHECKLIST,
   LIBRARY_EMPTY_MESSAGE,
@@ -844,14 +845,24 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
               setAddedKey(key);
               setPendingKey(key);
               return measureGlbFitScale(template.glbUrl)
-                .then((fitScale) => dispatch({
+                .then((fitScale) => ({
+                  fitScale,
+                  // Hand-worn gear with a measured hand frame is seated on the
+                  // hand (gearFit); everything else keeps its authored defaults.
+                  placement: libraryAddPlacement(
+                    a,
+                    template,
+                    fitScale != null ? (fitScale * template.fitCm) / PROP_TARGET_CM : undefined,
+                  ),
+                }))
+                .then(({ placement }) => dispatch({
                   type: 'SET_MODEL_ASSET',
                   url: template.glbUrl,
                   name: a.name,
-                  scale: fitScale != null ? (fitScale * template.fitCm) / PROP_TARGET_CM : undefined,
+                  scale: placement.scale,
                   template: a.template,
-                  offsetCm: a.defaultNudgeCm,
-                  rotationDeg: a.defaultRotationDeg,
+                  offsetCm: placement.offsetCm,
+                  rotationDeg: placement.rotationDeg,
                   occlude: a.defaultOcclude,
                   // The entry's natural mount: eyewear lands on the nose bridge,
                   // a wand in the tracked hand — not the historical crown default.

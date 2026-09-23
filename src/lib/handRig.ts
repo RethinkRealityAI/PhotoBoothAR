@@ -19,18 +19,18 @@
  *  - 66ms floor (~15/s) — half the face rate; gestures are held poses, not
  *    saccades, and detectForVideo blocks the main thread. Dead reckoning
  *    (smoothing.ts) carries the pose between inferences at render rate.
- *  - Never on the same rAF tick as a face inference: keyed on the face
- *    inference's END time (faceRig.lastFaceInferenceEndMs), not its start —
- *    the start stamp was already older than the lockout by the time a 15ms
- *    face inference returned, so the two blocks paired up every tick.
+ *  - Arbitrated with the face tracker by trackingScheduler.ts: one expensive
+ *    inference per rendered frame, and the MORE OVERDUE tracker gets it. The
+ *    old "not right after a face inference" lockout starved the hand outright
+ *    whenever face ran every frame (0 hand inferences/s, measured).
  *  - Back off to 150ms after several consecutive empty results: "no hand" is
  *    the EXPENSIVE state (the 192×192 palm detector is graph-gated off while
  *    tracking holds, and runs on every call once it's lost).
  */
 
 import { getHandLandmarker } from './handTracking';
-import { getLatestFaceKeypoints, lastFaceInferenceEndMs, medianOf } from './faceRig';
-import { createDetectGate, markDetected, shouldDetect } from './faceDetectClock';
+import { getLatestFaceKeypoints, medianOf } from './faceRig';
+import { currentFrameKey, isHeld, recordRun, requestInference, resetTask, tracking } from './trackingScheduler';
 import {
   handAnchor,
   handGestureScores,
@@ -55,8 +55,6 @@ const HAND_DETECT_INTERVAL_MS = 66;
 const IDLE_DETECT_INTERVAL_MS = 150;
 /** Consecutive empty results before dropping to the idle cadence. */
 const IDLE_AFTER_MISSES = 8;
-/** Never run hand inference within this window after a face inference ENDS. */
-const FACE_LOCKOUT_MS = 12;
 /** Keep the last pose through brief misses; hands re-acquire constantly. */
 export const HAND_HOLD_MS = 400;
 /** Frames of confident tracking before the palm span freezes. */
@@ -105,6 +103,10 @@ export interface SmoothedHandPose {
 interface SlotState {
   pose: HandPose | null;
   seenAt: number; // performance.now() of the last detection that carried this hand
+  /** First detection since `seenAt` that did NOT carry this hand, or null —
+   *  a hand is lost when inference says so, not when it merely waited its
+   *  turn behind the face tracker (trackingScheduler.isHeld). */
+  missSince: number | null;
   detectT: number;
   local: Float32Array;
   posXY: OneEuroVec3;
@@ -122,6 +124,7 @@ function makeSlot(hand: HandLabel): SlotState {
   return {
     pose: null,
     seenAt: -Infinity,
+    missSince: null,
     detectT: 0,
     local: new Float32Array(63),
     posXY: new OneEuroVec3(POS_XY),
@@ -146,10 +149,11 @@ function makeSlot(hand: HandLabel): SlotState {
 
 const _slots: Record<HandLabel, SlotState> = { Left: makeSlot('Left'), Right: makeSlot('Right') };
 
-const _gate = createDetectGate();
 let _lastTs = 0;
 let _misses = 0;
 let _inferMs = 0;
+/** Hand inferences run since load — diagnostics (cadence under contention). */
+let _detections = 0;
 
 let _scores: Record<string, number> = {};
 let _anchor: HandAnchorSample | null = null;
@@ -184,9 +188,10 @@ function toSamples(landmarks: { x: number; y: number; z: number }[][], world: { 
 
 const _vPos: Vec3 = [0, 0, 0];
 
-/** Solve + stash one detected hand into its slot. */
-function stashHand(slot: SlotState, hand: HandSample, label: HandLabel, aspect: number, inferEnd: number): void {
-  const pose = solveHandPose(hand.landmarks, hand.world, label, aspect, _lockedSpan);
+/** Stash one detected hand's solved pose into its slot. */
+function stashHand(slot: SlotState, hand: HandSample, pose: HandPose | null, label: HandLabel, aspect: number, inferEnd: number): void {
+  // The hand is IN this detection, whether or not its pose solves cleanly.
+  slot.missSince = null;
   if (pose === null) return; // degenerate frame: the slot holds its last good pose
   if (_lockedSpan === null && pose.palmSpanCm > 1) {
     _spanRing[_spanCount % SPAN_LOCK_SAMPLES] = pose.palmSpanCm;
@@ -220,10 +225,10 @@ export function detectHandsNow(video: HTMLVideoElement): void {
   const hl = getHandLandmarker();
   if (!hl || !video || video.readyState < 2) return;
   const now = performance.now();
-  if (now - lastFaceInferenceEndMs() < FACE_LOCKOUT_MS) return;
   const interval = _misses >= IDLE_AFTER_MISSES ? IDLE_DETECT_INTERVAL_MS : HAND_DETECT_INTERVAL_MS;
-  if (!shouldDetect(_gate, now, video.currentTime, { minIntervalMs: interval })) return;
-  markDetected(_gate, now, video.currentTime);
+  const videoTime = video.currentTime;
+  const frameKey = currentFrameKey();
+  if (!requestInference(tracking, 'hand', now, videoTime, frameKey, interval)) return;
   let results;
   try {
     const ts = Math.max(now, _lastTs + 1);
@@ -231,10 +236,13 @@ export function detectHandsNow(video: HTMLVideoElement): void {
     // The shared downscaled frame (trackingFrame.ts), never the 1080p video.
     results = hl.detectForVideo(inferenceSource(video), ts);
   } catch {
+    recordRun(tracking, 'hand', now, performance.now(), videoTime, frameKey);
     return;
   }
   const inferEnd = performance.now();
+  recordRun(tracking, 'hand', now, inferEnd, videoTime, frameKey);
   _inferMs = inferEnd - now;
+  _detections++;
   // Stash rebuilt on EVERY detection — an empty result zeroes all channels so
   // a hand leaving frame decays every gesture instead of latching it.
   const hands = results ? toSamples(results.landmarks ?? [], results.worldLandmarks ?? []) : [];
@@ -253,17 +261,29 @@ export function detectHandsNow(video: HTMLVideoElement): void {
   _handedness = (results?.handednesses ?? []).map((cats) =>
     cats[0]?.categoryName === 'Left' ? 'Right' : 'Left',
   );
-  // Slots keyed by the REAL hand. MediaPipe occasionally labels both hands the
-  // same; the second such hand takes the other slot rather than overwriting.
+  // Slots keyed by the REAL hand AS SOLVED: solveHandPose's finger-curl vote
+  // overrides MediaPipe's label whenever the hand is curled enough to tell, and
+  // a fist is exactly where the label flips (the recorded wizard fist is
+  // labelled Left and solves Right). Routing on the raw label put that fist in
+  // the LEFT slot, so its gear mirrored like a left hand's on a right hand's
+  // frame. Two hands claiming one slot: the second takes the other rather
+  // than overwriting. `_handedness` is rewritten to match, so BeamFX's
+  // which-hand-fired lookup agrees with the slot the gear rides.
   let usedLeft = false;
   let usedRight = false;
   for (let i = 0; i < hands.length && i < 2; i++) {
-    let label: HandLabel = _handedness[i] ?? 'Right';
+    const reported: HandLabel = _handedness[i] ?? 'Right';
+    const pose = solveHandPose(hands[i].landmarks, hands[i].world, reported, aspect, _lockedSpan);
+    let label: HandLabel = pose?.hand ?? reported;
     if (label === 'Left' && usedLeft) label = 'Right';
     else if (label === 'Right' && usedRight) label = 'Left';
     if (label === 'Left') usedLeft = true; else usedRight = true;
-    stashHand(_slots[label], hands[i], label, aspect, inferEnd);
+    _handedness[i] = label;
+    stashHand(_slots[label], hands[i], pose, label, aspect, inferEnd);
   }
+  // A held hand this detection did NOT carry starts its miss clock.
+  if (!usedLeft && _slots.Left.pose !== null && _slots.Left.missSince === null) _slots.Left.missSince = inferEnd;
+  if (!usedRight && _slots.Right.pose !== null && _slots.Right.missSince === null) _slots.Right.missSince = inferEnd;
   _t = now;
   _has = true;
 }
@@ -293,12 +313,12 @@ const _fZ: Vec3 = [0, 0, 0];
 function pickSlot(which: HandPick, now: number): SlotState | null {
   if (which !== 'any') {
     const s = _slots[which];
-    return s.pose !== null && now - s.seenAt < HAND_HOLD_MS ? s : null;
+    return s.pose !== null && isHeld(now, s.seenAt, s.missSince, HAND_HOLD_MS) ? s : null;
   }
   const l = _slots.Left;
   const r = _slots.Right;
-  const lOk = l.pose !== null && now - l.seenAt < HAND_HOLD_MS;
-  const rOk = r.pose !== null && now - r.seenAt < HAND_HOLD_MS;
+  const lOk = l.pose !== null && isHeld(now, l.seenAt, l.missSince, HAND_HOLD_MS);
+  const rOk = r.pose !== null && isHeld(now, r.seenAt, r.missSince, HAND_HOLD_MS);
   if (lOk && rOk) return l.seenAt >= r.seenAt ? l : r;
   return lOk ? l : rOk ? r : null;
 }
@@ -320,7 +340,7 @@ export function stepHandPose(which: HandPick, frameKey: number, now: number): Sm
     // Any slot that dropped out of the hold window resets its filters, so the
     // next acquisition snaps in cleanly instead of gliding from a stale pose.
     for (const slot of [_slots.Left, _slots.Right]) {
-      if (slot.tracking && now - slot.seenAt >= HAND_HOLD_MS) {
+      if (slot.tracking && !isHeld(now, slot.seenAt, slot.missSince, HAND_HOLD_MS)) {
         slot.tracking = false;
         slot.out.visible = false;
       }
@@ -361,8 +381,8 @@ export function stepHandPose(which: HandPick, frameKey: number, now: number): Sm
 }
 
 /** Live diagnostics for the studio readout and the headless harness. */
-export function handTrackingStats(): { inferMs: number; hands: number; lockedSpanCm: number | null; scale: number } {
-  return { inferMs: _inferMs, hands: _hands.length, lockedSpanCm: _lockedSpan, scale: handScaleFor(_lockedSpan) };
+export function handTrackingStats(): { inferMs: number; hands: number; lockedSpanCm: number | null; scale: number; detections: number } {
+  return { inferMs: _inferMs, detections: _detections, hands: _hands.length, lockedSpanCm: _lockedSpan, scale: handScaleFor(_lockedSpan) };
 }
 
 /** Scene switch / booth unmount — forget everything (next scene must not see
@@ -374,8 +394,7 @@ export function resetHandRig(): void {
   _handedness = [];
   _has = false;
   _misses = 0;
-  _gate.lastDetectMs = -Infinity;
-  _gate.lastVideoTime = -1;
+  resetTask(tracking, 'hand');
   _spanCount = 0;
   _lockedSpan = null;
   for (const label of ['Left', 'Right'] as const) _slots[label] = makeSlot(label);

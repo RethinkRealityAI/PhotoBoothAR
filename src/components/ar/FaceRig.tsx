@@ -298,10 +298,11 @@ export function Model({
   // carved against the surface it was built for, and mirroring the body under
   // it would leave the engraving on the wrong side of the asset. No shipped
   // hand asset has a slot, so this costs nothing today — and if one gains a
-  // slot, it renders un-mirrored (today's behaviour) and says so, instead of
-  // silently engraving a name into thin air.
-  const wantsMirror = useHandMirror(template?.modelledHand ?? undefined);
+  // slot, the rule (handedness.resolveHandRender) keeps the WHOLE piece
+  // un-mirrored on the other hand, placement included, instead of engraving a
+  // name into thin air.
   const engravable = template !== null && template !== undefined && template.textSlots.length > 0;
+  const wantsMirror = useHandMirror(template?.modelledHand ?? undefined, engravable);
   // A purpose-built GLB for the other hand always beats a reflection: a sculpt
   // can carry asymmetries — baked text, a thumb plate, an off-centre decal —
   // that mirroring would reverse. When the pair exists we load it and skip the
@@ -311,11 +312,7 @@ export function Model({
   // same question about the PLACEMENT, and the two halves must answer alike —
   // mirroring one without the other throws the piece clear of the hand.
   const mirrorX = wantsMirror && canMirrorAsset(engravable) && handedUrl === url;
-  useEffect(() => {
-    if (wantsMirror && engravable) {
-      console.warn('[Model] template has text slots; not mirroring for the other hand', template?.id);
-    }
-  }, [wantsMirror, engravable, template?.id]);
+
   // Callbacks live in refs, not in the effect's deps: a caller passing an inline
   // arrow (every caller does) would otherwise re-download and re-clone the whole
   // model on every render of its parent.

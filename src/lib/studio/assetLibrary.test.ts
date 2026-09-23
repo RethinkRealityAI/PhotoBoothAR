@@ -14,6 +14,9 @@ import {
   type ConfigurableAsset,
 } from './assetLibrary';
 import { isConfigurable } from './assetTemplate';
+import { fitGearToHand, libraryAddPlacement, placeOnHand } from './gearFit';
+import { CANONICAL_PALM_LEN_CM } from './handRefAnchors';
+import { HAND_ANCHOR_MAP } from '../handPose';
 import { DEFAULT_REF_LUMINANCE, MAX_REGIONS, unpackRegionIds } from './regionTint';
 
 const ALL: ConfigurableAsset[] = [...LIBRARY_ASSETS, ...DEMO_LIBRARY_ASSETS];
@@ -165,26 +168,46 @@ describe('Power-Ups gear — authored placement so a fresh add fits a real guest
     expect(visor.defaultOcclude).toBe(true);
   });
 
-  it('the gauntlet ships the rotation that lands it ON the wrist', () => {
+  it('the gauntlet is SEATED on the hand by its measured hand frame, not by hand-tuned numbers', () => {
+    // 2026-09-22 contract change. It used to pin defaultRotationDeg
+    // (-98.49, -14.01, -3.78), defaultNudgeCm (-0.7, -1.9, 2.1) and fitCm 30 —
+    // values fitted around a "wrist" that was really half-way down the forearm
+    // cuff. In the orbit view the glove sat low and left of the mannequin, ~20%
+    // small (owner: "the base orientation ... is incorrect"). Now the glove
+    // declares where ITS hand is, and gearFit lands that on the hand frame.
     const g = findLibraryAsset('power-gauntlet')!;
-    // DERIVED from the mesh, replacing hand-tuned values that crossed the
-    // gauntlet's fingers over the mannequin's by ~30 degrees (checked in the
-    // orbit view). Measured headlessly over all 33,005 vertices: the long PCA
-    // axis runs toward the fingers at [0.249,-0.132,0.960] and the palm-outward
-    // normal at [0.030,-0.989,-0.143] — the latter independently agreeing with
-    // the authored palm emitter, which fires along GLB -y. Rotating those onto
-    // the tracked hand frame (+Y wrist->fingers, +Z out of the palm) is this.
-    expect(g.defaultRotationDeg).toEqual({ x: -98.49, y: -14.01, z: -3.78 });
-    // The NUDGE is still the owner's, deliberately: deriving it the same way
-    // put the gauntlet ~5cm too far up the hand, so one of the frames that
-    // derivation assumes is not what it appears to be. Values a human checked
-    // against a real hand beat a derivation that fails its own screenshot.
-    expect(g.defaultNudgeCm).toEqual({ x: -0.7, y: -1.9, z: 2.1 });
-    // fitCm 30 already lands the owner's size — authoring a rotation must not
-    // quietly change how big the piece arrives. Measured: the hand portion is
-    // 1.209 of the mesh's 1.898 longest units, so this renders 19.1cm of hand
-    // against an adult mean of 18.6cm.
-    expect(assetTemplateOf(g)!.fitCm).toBe(30);
+    const t = assetTemplateOf(g)!;
+    expect(t.handFrame).toBeDefined();
+    expect(g.defaultNudgeCm).toBeUndefined();
+    expect(g.defaultRotationDeg).toBeUndefined();
+    const def = HAND_ANCHOR_MAP[g.handAnchor!];
+    const fit = fitGearToHand(t.handFrame!, def, t.modelledHand!)!;
+    // Wrist on the wrist landmark, middle knuckle on the canonical knuckle.
+    const w = placeOnHand(t.handFrame!.wrist, fit, def, t.modelledHand!);
+    const k = placeOnHand(t.handFrame!.knuckle, fit, def, t.modelledHand!);
+    for (const v of w) expect(Math.abs(v)).toBeLessThan(1e-3);
+    expect(k[0]).toBeCloseTo(0, 3);
+    expect(k[1]).toBeCloseTo(CANONICAL_PALM_LEN_CM, 3);
+    expect(k[2]).toBeCloseTo(0, 3);
+    // The add path hands exactly that placement to the reducer (degrees out).
+    const add = libraryAddPlacement(g, t, 15.8);
+    expect(add.scale).toBe(fit.scale);
+    expect(add.offsetCm).toEqual(fit.offset);
+    // …and fitCm (what the Power FX preview sizes by) agrees with the fit: the
+    // mesh's longest side is 1.899 GLB units.
+    expect(t.fitCm / 1.899).toBeCloseTo(fit.scale, 1);
+    // The glove's own palm faces out of the tracked palm — the same way its
+    // palm emitter fires.
+    const e = t.emitter!;
+    const a = placeOnHand(e.position, fit, def, t.modelledHand!);
+    const b = placeOnHand([e.position[0] + e.direction[0], e.position[1] + e.direction[1], e.position[2] + e.direction[2]], fit, def, t.modelledHand!);
+    expect(b[2] - a[2]).toBeGreaterThan(0);
+  });
+
+  it('assets without a hand frame keep their authored defaults exactly', () => {
+    const wand = findLibraryAsset('wizard-wand')!;
+    const add = libraryAddPlacement(wand, assetTemplateOf(wand)!, 12.3);
+    expect(add).toEqual({ scale: 12.3, offsetCm: wand.defaultNudgeCm, rotationDeg: wand.defaultRotationDeg });
   });
 
   it('the gauntlet declares the hand it was modelled for, so it can serve both', () => {

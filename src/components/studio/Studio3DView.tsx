@@ -228,7 +228,7 @@ function ObjectContent({ object }: { object: Object3D }) {
         template={piece.template}
         customization={piece.customization}
       />
-      {emitter !== null && <FxEmitterPoint fxKey={object.id} emitter={emitter} modelledHand={piece.template?.modelledHand} />}
+      {emitter !== null && <FxEmitterPoint fxKey={object.id} emitter={emitter} modelledHand={piece.template?.modelledHand} engravable={(piece.template?.textSlots.length ?? 0) > 0} />}
     </>
   );
 }
@@ -327,8 +327,13 @@ export default function Studio3DView({
           the free left cell of the stage's top band (the mode pill is centred,
           the view toggle is pinned right), because the owner has asked twice
           for the studio not to grow more visible controls. */}
+      {/* The wrapper owns the positioning: `.liquid-glass-raised` is an
+          UNLAYERED rule that sets position:relative, which beats Tailwind's
+          layered `absolute` — on one element the switch fell into the flow and
+          pushed the whole canvas down 38px. */}
       {shown.head && shown.hand && (
-        <div className="absolute top-2.5 left-2.5 z-20 flex items-center gap-0.5 liquid-glass-raised rounded-full p-1">
+        <div className="absolute top-2.5 left-2.5 z-20">
+        <div className="flex items-center gap-0.5 liquid-glass-raised rounded-full p-1">
           {([
             { id: 'head' as const, Icon: ScanFace, label: 'Frame the head' },
             { id: 'hand' as const, Icon: Hand, label: 'Frame the hand' },
@@ -347,6 +352,7 @@ export default function Studio3DView({
               <Icon className="w-3.5 h-3.5" />
             </button>
           ))}
+        </div>
         </div>
       )}
       <Canvas
@@ -447,7 +453,8 @@ export default function Studio3DView({
               // The same decision the live rig makes, against the mannequin's
               // hand: reflect the placement when it was authored in the other
               // hand's frame; mirror the mesh when the asset is chiral for it.
-              const flip = resolveHandRender(tpl?.modelledHand, o.handFit, shownHand, (tpl?.textSlots.length ?? 0) > 0).reflectPlacement;
+              const render = resolveHandRender(tpl?.modelledHand, o.handFit, shownHand, (tpl?.textSlots.length ?? 0) > 0);
+              const flip = render.reflectPlacement;
               return (
                 // Rotate ABOUT the mount point, exactly as live does: HandRig
                 // puts the group AT the anchor and multiplies the anchor
@@ -455,7 +462,7 @@ export default function Studio3DView({
                 // PARENT of the anchor instead spun the mount point itself —
                 // grip's z=PI/2 sent (0, 5.2, 1.6) to (-5.2, 0, 1.6), 5.2cm off
                 // the mannequin, so a wand hung in mid-air beside the hand.
-                <group key={o.id} onClick={selectHandler(o)} position={base} rotation={anchorFrameRotation(def.rotation, previewHandSide)}>
+                <group key={o.id} onClick={selectHandler(o)} position={base} rotation={anchorFrameRotation(def.rotation, render.anchorHand ?? previewHandSide)}>
                   <AssetGizmo
                     base={[0, 0, 0]}
                     // The gizmo applies the placement itself, so a mirrored piece
@@ -545,8 +552,8 @@ export default function Studio3DView({
               relationship AssetGizmo assumes. */}
           {handObjects.length > 0 && (
             <>
-              <HandOccluder videoId={videoId} mirror which="Left" />
-              <HandOccluder videoId={videoId} mirror which="Right" />
+              <HandOccluder videoId={videoId} mirror which="Left" debug={debugOcclusion} />
+              <HandOccluder videoId={videoId} mirror which="Right" debug={debugOcclusion} />
             </>
           )}
           {handObjects.map((o, i) => {

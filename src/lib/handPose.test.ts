@@ -116,15 +116,19 @@ describe('anchors', () => {
     expect(isHandAnchorId(null)).toBe(false);
   });
 
-  it('grip anchor sits behind the knuckles (into the fist)', () => {
+  it('grip anchor sits IN the fist: palm side of the knuckles, wrist-ward of them', () => {
+    // 2026-09-22: it used to sit 2.2cm BEHIND the knuckles (p.z < -60 here),
+    // which the orbit view showed as a wand running up the back of the fist.
+    // +Z is out of the palm — the side a fist closes onto.
     const world = worldHand();
     const screen = projectAt(world, 60);
     const pose = solveHandPose(screen, world, 'Right', ASPECT, null);
     if (pose === null) throw new Error('degenerate');
     const p = anchorPointFor(HAND_ANCHOR_MAP.grip, screen, pose, ASPECT);
-    // Palm faces the camera (+Z normal), grip offset is negative → further
-    // from the camera than the hand plane.
-    expect(p[2]).toBeLessThan(-60);
+    // Palm faces the camera (+Z normal): the grip is NEARER the camera than the
+    // hand plane, by its normal offset.
+    expect(p[2]).toBeGreaterThan(-60);
+    expect(p[2]).toBeCloseTo(-60 + HAND_ANCHOR_MAP.grip.normalOffsetCm, 0);
   });
 });
 
@@ -204,17 +208,21 @@ describe('the forearm', () => {
     for (let i = 0; i < 3; i++) expect(arm[i]).toBeCloseTo(base[i] + f[i] * reach, 4);
   });
 
-  it('every hand-worn anchor stays exactly where it was', () => {
-    // The legacy guarantee: adding the forearm mount must not shift grip, wrist
-    // or palm by a millimetre, or every scene saved before it moves.
+  it('only the forearm and the grip carry a -Y push, and it is clamped the same way', () => {
+    // Was: "every hand-worn anchor stays exactly where it was" (no anchor but the
+    // forearm had a reach). The grip now carries one on purpose — the fist's
+    // tube is wrist-ward of the knuckles — so the invariant is that wrist and
+    // palm still do not, and every reach goes through the one clamp.
     const { screen, pose } = posed();
-    for (const id of ['grip', 'wristBack', 'palm'] as const) {
+    for (const id of ['wristBack', 'palm'] as const) {
       const def = HAND_ANCHOR_MAP[id];
       expect(def.alongForearmCm).toBeUndefined();
       const p = anchorPointFor(def, screen, pose, ASPECT);
       const noReach = anchorPointFor({ ...def, alongForearmCm: undefined }, screen, pose, ASPECT);
       expect(p).toEqual(noReach);
     }
+    expect(forearmReachCm(HAND_ANCHOR_MAP.grip.alongForearmCm)).toBe(HAND_ANCHOR_MAP.grip.alongForearmCm);
+    expect(HAND_ANCHOR_MAP.grip.alongForearmCm!).toBeLessThan(FOREARM_REACH_MAX_CM);
   });
 });
 
@@ -271,7 +279,8 @@ describe('palm-local landmark cloud (the one frame gear and occluder share)', ()
   });
 
   it('anchorLocalOffset is the local form of normal offset + clamped forearm reach', () => {
-    expect(anchorLocalOffset(HAND_ANCHOR_MAP.grip)).toEqual([0, 0, -2.2]);
+    expect(anchorLocalOffset(HAND_ANCHOR_MAP.grip)).toEqual([0, -2, 2.5]);
+    expect(anchorLocalOffset(HAND_ANCHOR_MAP.wristBack)).toEqual([0, 0, -1.2]);
     expect(anchorLocalOffset(HAND_ANCHOR_MAP.forearm)).toEqual([0, -5, 0]);
     expect(anchorLocalOffset({ ...HAND_ANCHOR_MAP.forearm, alongForearmCm: 99 })).toEqual([0, -FOREARM_REACH_MAX_CM, 0]);
   });
@@ -282,5 +291,52 @@ describe('palm-local landmark cloud (the one frame gear and occluder share)', ()
     expect(v[0]).toBeCloseTo(0, 9);
     expect(v[1]).toBeCloseTo(0, 9);
     expect(v[2]).toBeCloseTo(-1, 9);
+  });
+});
+
+describe('curlHandedness — the fingers decide which hand, not the label', () => {
+  /** The flat fixture with its fingers curled toward the RIGHT hand's palm
+   *  (toward the camera: MediaPipe world z is AWAY, so negative). */
+  function curledRight(): HandPoint[] {
+    const w = worldHand();
+    for (const [i, z] of [[4, -0.02], [6, -0.02], [8, -0.035], [10, -0.02], [12, -0.035], [14, -0.02], [16, -0.035], [18, -0.02], [20, -0.03]] as const) {
+      w[i] = { x: w[i].x, y: w[i].y, z };
+    }
+    return w;
+  }
+
+  it('a curled right hand labelled LEFT still solves as a right hand, palm to the camera', () => {
+    const world = curledRight();
+    const pose = solveHandPose(projectAt(world, 60), world, 'Left', ASPECT, null)!;
+    expect(pose.hand).toBe('Right');
+    const zAxisZ = 1 - 2 * (pose.quaternion[0] ** 2 + pose.quaternion[1] ** 2);
+    expect(zAxisZ).toBeGreaterThan(0.9);
+  });
+
+  it('a flat hand has no vote — the label decides, as before', () => {
+    const world = worldHand();
+    expect(solveHandPose(projectAt(world, 60), world, 'Left', ASPECT, null)!.hand).toBe('Left');
+    expect(solveHandPose(projectAt(world, 60), world, 'Right', ASPECT, null)!.hand).toBe('Right');
+  });
+
+  it('the mirror image of a curled right hand votes left', () => {
+    const w = curledRight().map((p) => ({ x: -p.x, y: p.y, z: p.z }));
+    // Mirror in x: the index/pinky order flips, so this is a left hand.
+    expect(solveHandPose(projectAt(w, 60), w, 'Right', ASPECT, null)!.hand).toBe('Left');
+  });
+
+  it('RECORDED: a fist gripping a staff that MediaPipe labelled Left solves as Right, palm toward the staff', () => {
+    // Landmarks captured from the studio harness (wizard-duel frame, 720×1080):
+    // the fingers wrap to the RIGHT of the knuckles in the raw image, around
+    // the staff. With the label's normal the wand mounted outside the fist.
+    const WAND_FIST_SCREEN = [[0.18354, 0.93915, 0.0], [0.22992, 0.87795, 0.01441], [0.24577, 0.82646, 0.00287], [0.2605, 0.79063, -0.01668], [0.27931, 0.76492, -0.03439], [0.19002, 0.78511, -0.03622], [0.20825, 0.72431, -0.07249], [0.26466, 0.7085, -0.08567], [0.3112, 0.71241, -0.08793], [0.17546, 0.80181, -0.05951], [0.27502, 0.77148, -0.09999], [0.32152, 0.79475, -0.09866], [0.33186, 0.81967, -0.08805], [0.18077, 0.82821, -0.08116], [0.29596, 0.81844, -0.11395], [0.32493, 0.84577, -0.09863], [0.32302, 0.86654, -0.07852], [0.19587, 0.85747, -0.1019], [0.29489, 0.85382, -0.1149], [0.32461, 0.86445, -0.09978], [0.32988, 0.87384, -0.08154]];
+const WAND_FIST_WORLD = [[-0.00205, 0.07947, 0.05306], [0.00814, 0.04176, 0.05551], [0.0193, 0.01449, 0.05185], [0.02729, -0.00885, 0.03053], [0.02768, -0.02154, 0.00706], [-0.00336, -0.01463, 0.02132], [0.00717, -0.03986, 0.01032], [0.02271, -0.05203, 0.01086], [0.04251, -0.05183, 0.01224], [-0.00468, -0.00327, 0.00235], [0.02421, -0.01975, -0.00464], [0.04218, -0.00727, 0.01756], [0.04257, 0.00794, 0.04245], [0.0017, 0.00869, -0.01475], [0.03109, 0.00567, -0.01294], [0.04354, 0.01617, 0.00998], [0.041, 0.03286, 0.03322], [0.00411, 0.02998, -0.02036], [0.03015, 0.02382, -0.01723], [0.04232, 0.02526, 0.00289], [0.04082, 0.03393, 0.02116]];
+    const lm = WAND_FIST_SCREEN.map(([x, y, z]) => ({ x, y, z }));
+    const w = WAND_FIST_WORLD.map(([x, y, z]) => ({ x, y, z }));
+    const pose = solveHandPose(lm, w, 'Left', 720 / 1080, null)!;
+    expect(pose.hand).toBe('Right');
+    const [qx, qy, qz, qw] = pose.quaternion;
+    const zAxisX = 2 * (qx * qz + qw * qy);
+    expect(zAxisX).toBeGreaterThan(0.8); // out of the palm = toward the fingertips (+x raw)
   });
 });

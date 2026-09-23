@@ -14,7 +14,7 @@ import EventProvider from '../events/EventContext';
 import { StudioBaseContext } from '../components/admin/studioBase';
 import StudioShell from '../components/studio/StudioShell';
 import { faceTrackingStats } from '../lib/faceRig';
-import { handTrackingStats } from '../lib/handRig';
+import { getLatestHandFrame, handTrackingStats } from '../lib/handRig';
 import { getFaceLandmarker } from '../lib/faceTracking';
 import { inferenceSource } from '../lib/trackingFrame';
 
@@ -33,13 +33,15 @@ declare global {
       landmarker: typeof getFaceLandmarker;
       /** The exact image the landmarkers see for a video. */
       inferenceSource: typeof inferenceSource;
+      /** Latest raw hand detection (landmarks, world landmarks, labels). */
+      handFrame: typeof getLatestHandFrame;
     };
   }
 }
 
 export default function StudioHarness() {
   useEffect(() => {
-    window.__beamwallTracking = { face: faceTrackingStats, hand: handTrackingStats, landmarker: getFaceLandmarker, inferenceSource };
+    window.__beamwallTracking = { face: faceTrackingStats, hand: handTrackingStats, landmarker: getFaceLandmarker, inferenceSource, handFrame: getLatestHandFrame };
     return () => { delete window.__beamwallTracking; };
   }, []);
   return (

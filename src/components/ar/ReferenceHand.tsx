@@ -36,6 +36,7 @@ import {
   handRefAnchors,
   measureHandMannequin,
   mirrorHandLandmarks,
+  mountLandmarks,
   type Vec3,
 } from '../../lib/studio/handRefAnchors';
 
@@ -84,7 +85,8 @@ function loadHand(pose: HandRefPose): Promise<THREE.Group | null> {
   return p;
 }
 
-function FittedHand({ scene, hand, onFit }: {
+function FittedHand({ scene, hand, pose, onFit }: {
+  pose: HandRefPose;
   scene: THREE.Group;
   hand: ModelledHand;
   onFit?: (f: HandRefFit) => void;
@@ -182,7 +184,7 @@ function FittedHand({ scene, hand, onFit }: {
         bounds: {
           // x mirrors with the mesh; y is untouched by a YZ reflection.
           minX: -maxX, maxX: -minX, minY, maxY,
-          anchors: handRefAnchors(mirrorHandLandmarks(fit.landmarks)),
+          anchors: handRefAnchors(mirrorHandLandmarks(mountLandmarks(pose, fit.landmarks))),
         } satisfies HandRefFit,
       };
     }
@@ -192,9 +194,9 @@ function FittedHand({ scene, hand, onFit }: {
       quaternion,
       position: [o.x, o.y, o.z] as Vec3,
       scale: fit.scale,
-      bounds: { minX, maxX, minY, maxY, anchors: handRefAnchors(fit.landmarks) } satisfies HandRefFit,
+      bounds: { minX, maxX, minY, maxY, anchors: handRefAnchors(mountLandmarks(pose, fit.landmarks)) } satisfies HandRefFit,
     };
-  }, [scene, hand]);
+  }, [scene, hand, pose]);
 
   useEffect(() => {
     if (fitted && Number.isFinite(fitted.bounds.minY)) onFit?.(fitted.bounds);
@@ -267,5 +269,5 @@ export default function ReferenceHand({
   }, [pose]);
 
   if (scene === null) return null;
-  return <FittedHand scene={scene} hand={hand} onFit={onFit} />;
+  return <FittedHand scene={scene} hand={hand} pose={pose} onFit={onFit} />;
 }

@@ -197,6 +197,24 @@ export interface AssetEmitter {
   direction: Vec3;
 }
 
+/**
+ * Where a HAND-WORN asset's own hand is, in the GLB's local space (the same
+ * space as `emitter` — NOT centimetres): the centre of its wrist, the centre of
+ * its middle-finger knuckle, and the direction its palm faces. Those three are
+ * the tracked hand frame's own definition (+Y wrist → middle knuckle, +Z out of
+ * the palm), so a glove that declares them can be seated on ANY hand the
+ * studio draws — the mannequin or a tracked guest — by construction, instead
+ * of by a hand-tuned nudge that only ever matched one hand at one size
+ * (lib/studio/gearFit.ts). Absent = the asset has no hand of its own (a wand,
+ * a visor) and places by its authored defaults as before.
+ */
+export interface AssetHandFrame {
+  wrist: Vec3;
+  knuckle: Vec3;
+  /** Unit vector out of the palm. */
+  palm: Vec3;
+}
+
 export interface AssetTemplate {
   id: string;
   name: string;
@@ -224,6 +242,8 @@ export interface AssetTemplate {
    * mirrorGeometry.ts for the flip itself.
    */
   modelledHand?: ModelledHand;
+  /** The asset's own hand frame, when it is worn ON a hand (see AssetHandFrame). */
+  handFrame?: AssetHandFrame;
   /**
    * A purpose-built GLB for the OTHER hand, when one exists.
    *
@@ -318,6 +338,28 @@ function normalizeEmitter(raw: unknown): AssetEmitter | null {
 }
 
 /**
+ * All three or nothing, and never degenerate: a zero-length palm (wrist on the
+ * knuckle) has no +Y, and a palm direction along the fingers has no +Z — either
+ * would seat the glove at an arbitrary angle, which is worse than falling back
+ * to the authored placement.
+ */
+function normalizeHandFrame(raw: unknown): AssetHandFrame | null {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const wrist = readVec3(o.wrist);
+  const knuckle = readVec3(o.knuckle);
+  const palm = unitVec3(readVec3(o.palm));
+  if (!wrist || !knuckle || !palm) return null;
+  if ([...wrist, ...knuckle].some((v) => Math.abs(v) > EMITTER_POSITION_LIMIT)) return null;
+  const up: Vec3 = [knuckle[0] - wrist[0], knuckle[1] - wrist[1], knuckle[2] - wrist[2]];
+  const len = Math.hypot(up[0], up[1], up[2]);
+  if (!(len > 1e-6)) return null;
+  const along = Math.abs((up[0] * palm[0] + up[1] * palm[1] + up[2] * palm[2]) / len);
+  if (along > 0.95) return null;
+  return { wrist, knuckle, palm };
+}
+
+/**
  * Validate an untrusted descriptor. Returns null — never throws, never a
  * half-built template — for anything unusable, which the caller reads as "this
  * asset is not configurable".
@@ -368,6 +410,7 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
   // accepted and the key ignored, like any unknown field.
   const regionIds = typeof o.regionIds === 'string' && o.regionIds.trim() ? o.regionIds.trim() : undefined;
   const emitter = normalizeEmitter(o.emitter);
+  const handFrame = normalizeHandFrame(o.handFrame);
   const modelledHand = normalizeModelledHand(o.modelledHand);
   // Only meaningful beside `modelledHand`: without knowing which hand `glbUrl`
   // is, "the other one" names nothing. Dropped rather than kept as dead data
@@ -384,6 +427,7 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
     ...(regionIds ? { regionIds } : {}),
     ...(emitter ? { emitter } : {}),
     ...(modelledHand ? { modelledHand } : {}),
+    ...(handFrame ? { handFrame } : {}),
     ...(mirroredGlbUrl ? { mirroredGlbUrl } : {}),
     textSlots,
     preparedBy: typeof o.preparedBy === 'string' && PREPARED_BY.has(o.preparedBy)

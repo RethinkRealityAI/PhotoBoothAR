@@ -9,6 +9,7 @@ import {
   handRefAnchors,
   measureHandMannequin,
   mirrorHandLandmarks,
+  mountLandmarks,
   type Vec3,
 } from './handRefAnchors';
 import { forearmReachCm, FOREARM_REACH_MAX_CM, HAND_ANCHOR_MAP, HAND_ANCHORS } from '../handPose';
@@ -148,15 +149,19 @@ describe('handRefAnchorPoint', () => {
 
   it('puts the wrist band on the wrist and the grip inside the fist', () => {
     const a = handRefAnchors();
-    // wristBack sits AT the wrist landmark, 1.2cm proud of the back.
-    expect(a.wristBack).toEqual([0, 0, 1.2]);
-    // grip is between the middle and ring knuckles, 2.2cm INTO the hand.
-    expect(a.grip[1]).toBeCloseTo(9.59, 2);
-    expect(a.grip[2]).toBeCloseTo(-2.2, 6);
+    // wristBack sits AT the wrist landmark, 1.2cm proud of the back (−Z; it
+    // was +1.2, the palm side, contradicting this very comment until 2026-09-22).
+    expect(a.wristBack).toEqual([0, 0, -1.2]);
+    // grip is between the middle and ring knuckles, 2cm wrist-ward and 2.5cm
+    // out on the PALM side — the tube a fist closes into (it was 2.2cm behind
+    // the knuckles, outside the fist).
+    expect(a.grip[1]).toBeCloseTo(7.59, 2);
+    expect(a.grip[2]).toBeCloseTo(2.5, 6);
     // palm is the same midpoint, 1.5cm out of the palm — so grip and palm
-    // differ ONLY along the normal, exactly as HAND_ANCHORS says.
+    // differ only along the normal and by the grip's wrist-ward push, exactly
+    // as HAND_ANCHORS says.
     expect(a.palm[0]).toBeCloseTo(a.grip[0], 6);
-    expect(a.palm[1]).toBeCloseTo(a.grip[1], 6);
+    expect(a.palm[1] - a.grip[1]).toBeCloseTo(HAND_ANCHOR_MAP.grip.alongForearmCm ?? 0, 6);
     expect(a.palm[2] - a.grip[2]).toBeCloseTo(
       HAND_ANCHOR_MAP.palm.normalOffsetCm - HAND_ANCHOR_MAP.grip.normalOffsetCm,
       6,
@@ -350,7 +355,7 @@ describe('the vendored open-hand mannequin', () => {
     // The offset is measured from THIS mannequin's knuckle line, not from a
     // notional palm plane — the knuckles sit slightly proud of the wrist centre.
     const knuckleN = (fit.landmarks[9][2] + fit.landmarks[13][2]) / 2;
-    expect(anchors.grip[2] - knuckleN).toBeCloseTo(-2.2, 6);
+    expect(anchors.grip[2] - knuckleN).toBeCloseTo(HAND_ANCHOR_MAP.grip.normalOffsetCm, 6);
     expect(Math.abs(knuckleN)).toBeLessThan(1.5);
   });
 
@@ -368,8 +373,16 @@ describe('the vendored open-hand mannequin', () => {
     // generator, so a disagreement here would mean the reader mis-oriented one.
     expect(pts.up).toEqual([0, 1, 0]);
     expect(pts.normal).toEqual([0, 0, -1]);
-    // The held-gear mount lands in the fist's mass rather than beside it.
-    const grip = handRefAnchors(pts.landmarks).grip;
+    // Its four lobes are the FOLDED fingers, on the palm side of the wrist
+    // plane — not knuckles. That is the measured reason the orbit view mounts a
+    // fist from the canonical hand (mountLandmarks): mounting from these put the
+    // grip in front of the fist, where no tracked fist would put it.
+    const lobeN = (pts.landmarks[9][2] + pts.landmarks[13][2]) / 2;
+    expect(lobeN).toBeGreaterThan(1.5);
+    expect(mountLandmarks('fist', pts.landmarks)).toBe(CANONICAL_HAND_LANDMARKS);
+    expect(mountLandmarks('open', pts.landmarks)).toBe(pts.landmarks);
+    // …and the canonical grip lands in the fist's mass rather than beside it.
+    const grip = handRefAnchors(mountLandmarks('fist', pts.landmarks)).grip;
     expect(grip[1]).toBeGreaterThan(2);
     expect(grip[1]).toBeLessThan(11);
     expect(Math.abs(grip[2])).toBeLessThan(4);

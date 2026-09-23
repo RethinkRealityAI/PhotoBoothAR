@@ -316,6 +316,25 @@ describe('head pieces and model assets', () => {
     expect(byId.t2).toEqual({ type: 'animate', objectId: newId, preset: 'shake' });
     expect(byId.t3).toEqual({ type: 'burst', style: 'confetti' });
   });
+  it('ADD_TRIGGER bindToSelected fires a beam from the piece just added, not the first piece in the scene', () => {
+    let st = studioReducer(s0(), { type: 'SELECT_HEAD_PIECE', pieceId: Object.keys(HEAD_PIECE_MAP)[0] });
+    const crownId = st.draft.selectedId as string;
+    st = studioReducer(st, { type: 'SET_MODEL_ASSET', url: 'https://cdn/gauntlet.glb', name: 'g', handAnchor: 'wristBack' });
+    const gearId = st.draft.selectedId as string;
+    expect(gearId).not.toBe(crownId);
+    st = studioReducer(st, { type: 'ADD_TRIGGER', bindToSelected: true, trigger: { id: 'b', source: 'fistClench', action: { type: 'beam', style: 'optic' } } });
+    expect(st.draft.triggers[0].action).toEqual({ type: 'beam', style: 'optic', objectId: gearId });
+  });
+  it('ADD_TRIGGER without the bind, or with an overlay/nothing selected, stores the trigger untouched', () => {
+    const trigger = { id: 'b', source: 'smile' as const, action: { type: 'beam' as const, style: 'optic' as const } };
+    let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x' });
+    expect(studioReducer(st, { type: 'ADD_TRIGGER', trigger }).draft.triggers[0]).toBe(trigger);
+    st = studioReducer(st, { type: 'SELECT_OBJECT', id: null });
+    expect(studioReducer(st, { type: 'ADD_TRIGGER', bindToSelected: true, trigger }).draft.triggers[0]).toBe(trigger);
+    // Non-beam actions are never rewritten.
+    const burst = { id: 'c', source: 'smile' as const, action: { type: 'burst' as const, style: 'confetti' as const } };
+    expect(studioReducer(st, { type: 'ADD_TRIGGER', bindToSelected: true, trigger: burst }).draft.triggers[0]).toBe(burst);
+  });
   it('RETARGET_TRIGGERS with nothing selected or nothing matching is a no-op', () => {
     let st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x' });
     st = studioReducer(st, { type: 'ADD_TRIGGER', trigger: { id: 't1', source: 'smile', action: { type: 'burst', style: 'confetti' } } });

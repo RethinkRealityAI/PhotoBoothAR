@@ -30,8 +30,8 @@ import {
   type Vec3,
   type Quat,
 } from './smoothing';
-import { createDetectGate, shouldDetect, markDetected } from './faceDetectClock';
 import { inferenceSource } from './trackingFrame';
+import { currentFrameKey, isHeld, recordRun, requestInference, tracking } from './trackingScheduler';
 
 export interface AnchorPreset {
   id: HeadAnchor;
@@ -102,19 +102,20 @@ const _gPos = new THREE.Vector3();
 const _gQuat = new THREE.Quaternion();
 const _gScale = new THREE.Vector3(1, 1, 1);
 let _gSeen = 0;          // performance.now() of the last successful detection
+/** performance.now() of the first inference since `_gSeen` that found NO face,
+ *  or null. "Lost" is decided from this, never from how long it has been since
+ *  an inference ran — the shared scheduler can legitimately give the hand
+ *  tracker several slots in a row (see trackingScheduler.isHeld). */
+let _gMissSince: number | null = null;
 let _gHas = false;       // a face has been detected at least once
 /** performance.now() at which the last successful face pose's inference
  *  RETURNED — the sample's birth time, from which every render frame measures
  *  how stale it is (the prediction lead). */
 let _gDetectT = 0;
-/** performance.now() at which the last face inference returned, face or not.
- *  handRig reads this so the two blocking CPU inferences never share a tick:
- *  the gate's own stamp is taken BEFORE the call, and a face inference slower
- *  than the lockout window (every phone) used to satisfy the lockout by the time
- *  the hand asked, pairing both blocks in one frame. */
-let _faceInferEndMs = -Infinity;
 /** Duration of the last face inference, ms — diagnostics + the harness. */
 let _faceInferMs = 0;
+/** Face inferences run since load — diagnostics (cadence under contention). */
+let _faceDetections = 0;
 /* Per-detection velocity for dead reckoning (smoothing.ts). RAW frame — the
  * prediction runs before a rig mirrors the pose, so the mirror algebra stays
  * in one place. Reset on re-acquisition so a gap cannot become a velocity. */
@@ -126,10 +127,6 @@ const _vQuat: Quat = [0, 0, 0, 1];
 /** Cached median head-fit (see the estimator below), refreshed per detection
  *  so the per-frame pose read never sorts the ring. null until it fills. */
 let _fitMedian: number | null = null;
-/** Frame gate: rate limit PLUS "has the camera actually produced a new frame".
- *  A wall-clock-only throttle re-ran blocking inference on frames the camera had
- *  not replaced, and on a 60fps camera could only ever see half of them. */
-const _detectGate = createDetectGate();
 
 /**
  * Latest face blendshape scores (categoryName → score) + timestamp, consumed by
@@ -194,22 +191,17 @@ export function getLatestFaceKeypoints(): FaceKeypointStash | null {
   return _faceKeypoints;
 }
 
-/** performance.now() of the last face inference START (the gate stamp). */
+/** performance.now() of the last face inference START (the scheduler's gate). */
 export function lastFaceDetectMs(): number {
-  return _detectGate.lastDetectMs;
-}
-
-/** performance.now() at which the last face inference RETURNED. handRig keys
- *  its lockout on this so face and hand inferences alternate ticks. */
-export function lastFaceInferenceEndMs(): number {
-  return _faceInferEndMs;
+  return tracking.tasks.face.gate.lastDetectMs;
 }
 
 /** Live tracking diagnostics for the studio's tracking readout and the
  *  headless harness: last inference duration, sample age, and cadence. */
-export function faceTrackingStats(): { inferMs: number; ageMs: number; hasFace: boolean } {
+export function faceTrackingStats(): { inferMs: number; ageMs: number; hasFace: boolean; detections: number } {
   return {
     inferMs: _faceInferMs,
+    detections: _faceDetections,
     ageMs: _gHas ? performance.now() - _gDetectT : Infinity,
     hasFace: _gHas,
   };
@@ -350,14 +342,19 @@ const _fqOut: Quat = [0, 0, 0, 1];
 const _fsIn: Vec3 = [1, 1, 1];
 const _fsOut: Vec3 = [1, 1, 1];
 
-/** Run the landmarker at most once per DETECT_INTERVAL_MS; cache the raw pose. */
+/**
+ * Run the landmarker when the shared scheduler grants the face a slot; cache
+ * the raw pose. The scheduler (trackingScheduler.ts) owns the gate — the
+ * DETECT_INTERVAL_MS floor, the "new camera frame" rule and its watchdog — and
+ * arbitrates with the hand tracker so neither can starve the other.
+ */
 function detectIfDue(fl: ReturnType<typeof getFaceLandmarker>, video: HTMLVideoElement, now: number) {
   if (!fl) return;
-  // video.currentTime is the frame identity; the gate skips a frame already
-  // analysed and has a watchdog so a stuck clock can never freeze tracking.
+  // video.currentTime is the camera-frame identity; the frame key is the
+  // rendered frame's (one expensive inference per rendered frame).
   const videoTime = video.currentTime;
-  if (!shouldDetect(_detectGate, now, videoTime, { minIntervalMs: DETECT_INTERVAL_MS })) return;
-  markDetected(_detectGate, now, videoTime);
+  const frameKey = currentFrameKey();
+  if (!requestInference(tracking, 'face', now, videoTime, frameKey, DETECT_INTERVAL_MS)) return;
   let results;
   try {
     const ts = Math.max(now, _lastTs + 1);
@@ -365,19 +362,26 @@ function detectIfDue(fl: ReturnType<typeof getFaceLandmarker>, video: HTMLVideoE
     // The downscaled shared frame (trackingFrame.ts), never the 1080p video.
     results = fl.detectForVideo(inferenceSource(video), ts);
   } catch {
-    _faceInferEndMs = performance.now();
+    // Still a run: the gate must advance, or a throwing frame is retried at
+    // render rate.
+    recordRun(tracking, 'face', now, performance.now(), videoTime, frameKey);
     return;
   }
   const inferEnd = performance.now();
-  _faceInferEndMs = inferEnd;
+  recordRun(tracking, 'face', now, inferEnd, videoTime, frameKey);
   _faceInferMs = inferEnd - now;
+  _faceDetections++;
   // Refresh the trigger-engine blendshape stash on every detection frame (even
   // an empty/no-face result, so signals decay). Additive: pose consumers below
   // are untouched, so legacy events stay byte-identical.
   stashBlendshapes(results, now);
   stashFaceKeypoints(results);
   const mats = results?.facialTransformationMatrixes;
-  if (!mats || mats.length === 0) return;
+  if (!mats || mats.length === 0) {
+    if (_gHas && _gMissSince === null) _gMissSince = inferEnd;
+    return;
+  }
+  _gMissSince = null;
   _mat.fromArray(mats[0].data);
   _mat.decompose(_gPos, _gQuat, _gScale); // raw, un-mirrored
   // Velocity from consecutive detections (dt = birth to birth). A gap longer
@@ -434,7 +438,7 @@ export function updateHeadPose(
 
   // Never seen a face, or lost it for longer than the hold window → hide + reset
   // so the next acquisition snaps in cleanly rather than gliding from a stale pose.
-  if (!_gHas || now - _gSeen > HOLD_MS) {
+  if (!_gHas || !isHeld(now, _gSeen, _gMissSince, HOLD_MS)) {
     const stale = group.userData._smooth as SmoothState | undefined;
     if (stale) {
       stale.pos.reset();

@@ -800,7 +800,11 @@ export type StudioAction =
    */
   | { type: 'RETARGET_TRIGGERS'; fromId: string }
   /* — face-triggered effects (Magic Triggers) — */
-  | { type: 'ADD_TRIGGER'; trigger: TriggerConfig }
+  /** `bindToSelected`: a BEAM trigger fires from the currently selected 3D
+   *  piece. The Power FX builder adds its gear and its blast together, and the
+   *  gear's id is minted by this reducer — so the builder cannot name it, but
+   *  the add has just selected it. */
+  | { type: 'ADD_TRIGGER'; trigger: TriggerConfig; bindToSelected?: boolean }
   | { type: 'UPDATE_TRIGGER'; id: string; patch: Partial<Omit<TriggerConfig, 'id'>> }
   | { type: 'REMOVE_TRIGGER'; id: string };
 
@@ -1223,7 +1227,17 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'ADD_TRIGGER': {
       // Soft cap: adds past MAX_TRIGGERS are ignored (the dock also gates the button).
       if (d.triggers.length >= MAX_TRIGGERS) return state;
-      return { ...state, dirty: true, draft: { ...d, triggers: [...d.triggers, action.trigger] } };
+      const a = action.trigger.action;
+      // Without the bind, an id-less beam resolves to the scene's FIRST 3D
+      // piece — so gear added to a scene that already had a crown blasted out
+      // of the crown.
+      const emitter = action.bindToSelected === true && a.type === 'beam'
+        ? d.objects.find((o) => o.id === d.selectedId && o.type !== 'overlay')
+        : undefined;
+      const trigger = emitter !== undefined && a.type === 'beam'
+        ? { ...action.trigger, action: { ...a, objectId: emitter.id } }
+        : action.trigger;
+      return { ...state, dirty: true, draft: { ...d, triggers: [...d.triggers, trigger] } };
     }
     case 'UPDATE_TRIGGER': {
       if (!d.triggers.some((t) => t.id === action.id)) return state;

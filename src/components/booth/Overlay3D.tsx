@@ -279,7 +279,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
                         onError={onAssetError ? (m) => onAssetError(p.assetUrl as string, m) : undefined}
                       />
                     ) : null}
-                    {emitter !== null && <FxEmitterPoint fxKey={p.fxKey as string} emitter={emitter} modelledHand={p.template?.modelledHand} />}
+                    {emitter !== null && <FxEmitterPoint fxKey={p.fxKey as string} emitter={emitter} modelledHand={p.template?.modelledHand} engravable={(p.template?.textSlots.length ?? 0) > 0} />}
                   </HandPlacement>
                 </AnimatedPiece>
               </HandRig>

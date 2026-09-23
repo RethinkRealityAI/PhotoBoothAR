@@ -84,7 +84,7 @@ const TRIGGER_CHIP_MS = 1600;
 
 const MODE_TABS = [
   { id: '2d' as const, label: '2D', icon: Layers, hint: 'Frames, stickers & filters' },
-  { id: '3d' as const, label: '3D', icon: Boxes, hint: 'Head-anchored AR pieces' },
+  { id: '3d' as const, label: '3D', icon: Boxes, hint: 'AR pieces that ride the head and hands' },
   { id: 'preview' as const, label: 'Preview', icon: Eye, hint: 'See it exactly as guests will' },
 ];
 
@@ -567,10 +567,15 @@ export default function StudioStage({
               always on and there is nothing for this to change. */}
           {mode === '3d' && threeView === 'live' && occlusionEnabled && objects3d.some((o) => o.handAnchor === undefined) && (
             <div className="absolute left-0 top-0 pointer-events-auto">
+              {/* ICON-ONLY: with its "OCCLUSION" label the chip ran into the
+                  centred mode pill whenever the stage was narrower than ~620px
+                  (every phone, and the desktop studio's middle column at
+                  1280). Named in the tooltip + aria-label with the SAME words
+                  as the Scene tab's toggle, so the two read as one setting. */}
               <Tooltip
-                label={sceneOcclusion(draft) ? 'Head hides props: on' : 'Head hides props: off'}
+                label={sceneOcclusion(draft) ? 'Hide props behind head: on' : 'Hide props behind head: off'}
                 hint={sceneOcclusion(draft)
-                  ? 'Parts of a prop that fall behind the real head are hidden. Applies to the whole scene.'
+                  ? 'Parts of a prop that fall behind the real head are hidden. Your hands always hide what they hold. Applies to the whole scene.'
                   : 'Props draw over the head everywhere, even where they should be behind it. Turn on for real depth.'}
                 side="bottom"
               >
@@ -578,13 +583,12 @@ export default function StudioStage({
                   onClick={() => dispatch({ type: 'SET_SCENE_OCCLUSION', occlusion: !sceneOcclusion(draft) })}
                   data-testid="studio-occlusion-toggle"
                   aria-pressed={sceneOcclusion(draft)}
-                  aria-label={sceneOcclusion(draft) ? 'Head hides props: on' : 'Head hides props: off'}
-                  className={`pressable flex items-center gap-1.5 h-9 px-2.5 rounded-full liquid-glass-raised transition-colors ${
-                    sceneOcclusion(draft) ? 'text-accent-2' : 'text-brand-muted/70 hover:text-brand-fg'
+                  aria-label={sceneOcclusion(draft) ? 'Hide props behind head: on' : 'Hide props behind head: off'}
+                  className={`pressable grid place-items-center h-9 w-9 rounded-full liquid-glass-raised transition-colors ${
+                    sceneOcclusion(draft) ? 'text-accent-2 ring-1 ring-accent/40' : 'text-brand-muted/70 hover:text-brand-fg'
                   }`}
                 >
-                  {sceneOcclusion(draft) ? <Eye className="w-4 h-4 shrink-0" /> : <EyeOff className="w-4 h-4 shrink-0" />}
-                  <span className="font-label text-[10px] uppercase tracking-widest whitespace-nowrap">Occlusion</span>
+                  {sceneOcclusion(draft) ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                 </button>
               </Tooltip>
             </div>

@@ -35,6 +35,7 @@ import { HandMirrorContext, useHandRender } from './handMirror';
 import {
   anchorFrameRotation,
   apparentHand,
+  authoredHand,
   mirrorPlacement,
   resolveHandRender,
   type HandFit,
@@ -108,10 +109,11 @@ export function HandRig({
   const visibleRef = useRef(false);
   const getVideo = useVideoElement(videoId);
 
-  // The anchor's own rotation (HAND_ANCHORS, authored for the right hand) in
-  // the frame this piece renders in: a pin decides it outright; 'auto' follows
-  // the drawn hand, and holds the right-hand form until one is seen.
-  const frameHand = resolveHandRender(modelledHand, fit, tracked).hand ?? 'right';
+  // The anchor's own rotation (HAND_ANCHORS, authored for the right hand), in
+  // the version the mirror rule picks: the drawn hand's when the piece is
+  // mirrored onto it, else the hand it was placed on — and that, too, until a
+  // hand is seen.
+  const frameHand = resolveHandRender(modelledHand, fit, tracked).anchorHand ?? authoredHand(modelledHand, fit);
   const anchorEuler = useMemo(() => {
     const r = anchorFrameRotation(def.rotation, frameHand);
     return new THREE.Euler(r[0], r[1], r[2]);
@@ -277,8 +279,12 @@ const FOREARM_BEADS = 4;
 export const FOREARM_R0 = 2.7;
 export const FOREARM_R1 = 3.6;
 
-function occluderMesh(geometry: THREE.BufferGeometry = SPHERE): THREE.Mesh {
-  const m = new THREE.Mesh(geometry, OCCLUDER_MATERIAL);
+/** `?debug=occluder`: the shell drawn as a faint wireframe (FaceOccluder's
+ *  idiom and colour), so a screenshot can prove it sits ON the real hand. */
+const OCCLUDER_DEBUG_MATERIAL = new THREE.MeshBasicMaterial({ color: '#5B8CFF', wireframe: true, transparent: true, opacity: 0.35 });
+
+function occluderMesh(geometry: THREE.BufferGeometry = SPHERE, debug = false): THREE.Mesh {
+  const m = new THREE.Mesh(geometry, debug ? OCCLUDER_DEBUG_MATERIAL : OCCLUDER_MATERIAL);
   m.renderOrder = -2;
   m.raycast = () => {};
   return m;
@@ -290,17 +296,28 @@ function occluderMesh(geometry: THREE.BufferGeometry = SPHERE): THREE.Mesh {
  * landmark cloud under the SAME smoothed pose the gear rides, refreshed each
  * detection, sized by the same per-guest hand scale.
  */
-export function HandOccluder({ videoId = 'booth-video', mirror = true, which = 'any' }: { videoId?: string; mirror?: boolean; which?: HandPick }) {
+export function HandOccluder({
+  videoId = 'booth-video',
+  mirror = true,
+  which = 'any',
+  debug = false,
+}: {
+  videoId?: string;
+  mirror?: boolean;
+  which?: HandPick;
+  /** Draw the shell as a wireframe (studio `?debug=occluder`). */
+  debug?: boolean;
+}) {
   const groupRef = useRef<THREE.Group>(null);
   const getVideo = useVideoElement(videoId);
   // Same self-init as HandRig — an occluder mounted alone must also track.
   useEffect(() => {
     initializeHandLandmarker().catch((e) => console.warn('[HandOccluder] hand tracker init failed', e));
   }, []);
-  const spheres = useMemo(() => Array.from({ length: 21 }, () => occluderMesh()), []);
-  const bones = useMemo(() => HAND_BONES.map(() => occluderMesh(BONE)), []);
-  const palm = useMemo(() => occluderMesh(), []);
-  const forearm = useMemo(() => Array.from({ length: FOREARM_BEADS }, () => occluderMesh()), []);
+  const spheres = useMemo(() => Array.from({ length: 21 }, () => occluderMesh(SPHERE, debug)), [debug]);
+  const bones = useMemo(() => HAND_BONES.map(() => occluderMesh(BONE, debug)), [debug]);
+  const palm = useMemo(() => occluderMesh(SPHERE, debug), [debug]);
+  const forearm = useMemo(() => Array.from({ length: FOREARM_BEADS }, () => occluderMesh(SPHERE, debug)), [debug]);
 
   useFrame((state) => {
     const g = groupRef.current;
