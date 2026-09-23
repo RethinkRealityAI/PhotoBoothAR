@@ -298,10 +298,11 @@ export function Model({
   // carved against the surface it was built for, and mirroring the body under
   // it would leave the engraving on the wrong side of the asset. No shipped
   // hand asset has a slot, so this costs nothing today — and if one gains a
-  // slot, it renders un-mirrored (today's behaviour) and says so, instead of
-  // silently engraving a name into thin air.
-  const wantsMirror = useHandMirror(template?.modelledHand ?? undefined);
+  // slot, the rule (handedness.resolveHandRender) keeps the WHOLE piece
+  // un-mirrored on the other hand, placement included, instead of engraving a
+  // name into thin air.
   const engravable = template !== null && template !== undefined && template.textSlots.length > 0;
+  const wantsMirror = useHandMirror(template?.modelledHand ?? undefined, engravable);
   // A purpose-built GLB for the other hand always beats a reflection: a sculpt
   // can carry asymmetries — baked text, a thumb plate, an off-centre decal —
   // that mirroring would reverse. When the pair exists we load it and skip the
@@ -311,11 +312,7 @@ export function Model({
   // same question about the PLACEMENT, and the two halves must answer alike —
   // mirroring one without the other throws the piece clear of the hand.
   const mirrorX = wantsMirror && canMirrorAsset(engravable) && handedUrl === url;
-  useEffect(() => {
-    if (wantsMirror && engravable) {
-      console.warn('[Model] template has text slots; not mirroring for the other hand', template?.id);
-    }
-  }, [wantsMirror, engravable, template?.id]);
+
   // Callbacks live in refs, not in the effect's deps: a caller passing an inline
   // arrow (every caller does) would otherwise re-download and re-clone the whole
   // model on every render of its parent.
@@ -505,10 +502,19 @@ export function FaceRig({
   // snaps drops to where the head WAS. Clear on unmount.
   useEffect(() => () => { if (matrixRef) matrixRef.current = null; }, [matrixRef]);
 
+  // The <video> is looked up once and re-queried only if it is missing or has
+  // left the DOM — a getElementById per rig per frame was pure overhead.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => { videoRef.current = null; }, [videoId]);
+
   useFrame(() => {
     const group = head.current;
     if (!group) return;
-    const video = document.getElementById(videoId) as HTMLVideoElement | null;
+    let video = videoRef.current;
+    if (video === null || !video.isConnected) {
+      video = document.getElementById(videoId) as HTMLVideoElement | null;
+      videoRef.current = video;
+    }
     if (holdPose) {
       // Keep DETECTING — blendshapes, the trigger engine and the head-fit
       // estimator all read the shared detection, and the host should never see
@@ -522,7 +528,12 @@ export function FaceRig({
     if (matrixRef) {
       if (visible) {
         group.updateWorldMatrix(true, false);
-        matrixRef.current = group.matrixWorld.elements.slice();
+        // Copy in place: the consumer reads through the ref on demand (a drop),
+        // so a fresh 16-element array per frame bought nothing but garbage.
+        const e = group.matrixWorld.elements;
+        const m = matrixRef.current ?? new Array<number>(16);
+        for (let i = 0; i < 16; i++) m[i] = e[i];
+        matrixRef.current = m;
       } else {
         matrixRef.current = null;
       }

@@ -34,9 +34,11 @@ import {
   Eye,
   EyeOff,
   GripVertical,
+  Hand,
   Image as ImageIcon,
   LayoutTemplate,
   Pencil,
+  ScanFace,
   Trash2,
   ChevronUp,
   ChevronDown,
@@ -68,16 +70,25 @@ function objectIcon(o: StudioObject) {
 function LayerThumb({ object: o, selected }: { object: StudioObject; selected: boolean }) {
   const Icon = objectIcon(o);
   const thumb = useGlbThumb(o.type === 'model' ? o.assetUrl : null);
-  if (thumb !== null) {
-    return <img src={thumb} alt="" draggable={false} className="w-4 h-4 shrink-0 object-contain rounded-[3px] bg-white/[0.06]" />;
-  }
-  return <Icon className={`w-3.5 h-3.5 shrink-0 ${selected ? 'text-accent-2' : 'text-brand-muted/50'}`} />;
+  // 28px tile: at 16px a capture of a glove and a capture of a wand were the
+  // same grey smudge. Glyph fallbacks sit in the same tile so rows align.
+  return (
+    <span className="grid place-items-center w-7 h-7 shrink-0 rounded-md bg-white/[0.05] overflow-hidden">
+      {thumb !== null ? (
+        <img src={thumb} alt="" draggable={false} className="w-full h-full object-contain" />
+      ) : (
+        <Icon className={`w-3.5 h-3.5 ${selected ? 'text-accent-2' : 'text-brand-muted/50'}`} />
+      )}
+    </span>
+  );
 }
 
-/** The badge that carries the kind information the old buckets used to. */
-function kindBadge(o: StudioObject): string {
-  if (o.type === 'overlay') return o.overlayKind === 'border' ? 'Frame' : 'Sticker';
-  return o.type === 'headpiece' ? 'Head' : '3D';
+/** The badge that carries the kind information the old buckets used to — and,
+ *  for a 3D piece, WHERE it rides: a scene can mix head gear and hand gear, and
+ *  the list used to call a gauntlet and a crown the same "3D". */
+function kindBadge(o: StudioObject): { label: string; icon: typeof Hand | null } {
+  if (o.type === 'overlay') return { label: o.overlayKind === 'border' ? 'Frame' : 'Sticker', icon: null };
+  return o.handAnchor !== undefined ? { label: 'Hand', icon: Hand } : { label: 'Head', icon: ScanFace };
 }
 
 const DRAG_THRESHOLD = 5; // px before a press on the handle becomes a drag
@@ -235,9 +246,15 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
                   </Tooltip>
                 )}
 
-                <span className="shrink-0 font-label text-[7px] uppercase tracking-widest text-brand-muted/40 bg-white/[0.05] px-1 py-px rounded-full">
-                  {kindBadge(o)}
-                </span>
+                {(() => {
+                  const b = kindBadge(o);
+                  return (
+                    <span className="shrink-0 flex items-center gap-0.5 font-label text-[8px] uppercase tracking-widest text-brand-muted/50 bg-white/[0.05] px-1.5 py-px rounded-full">
+                      {b.icon !== null && <b.icon className="w-2.5 h-2.5" />}
+                      {b.label}
+                    </span>
+                  );
+                })()}
                 {o.animation !== 'none' && (
                   <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">{o.animation}</span>
                 )}

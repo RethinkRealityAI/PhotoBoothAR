@@ -426,3 +426,20 @@ export function measureHandMannequin(points: ArrayLike<number>): HandMannequinFi
     rawKnuckle,
   };
 }
+
+/**
+ * The landmarks a mannequin's MOUNT points are taken from.
+ *
+ * An open hand's measured knuckles are real knuckles. A closed fist has no
+ * knuckle row to find: its four lobes are the FOLDED fingers, measured ~2cm
+ * wrist-ward of the true knuckles and ~2cm out on the palm side — so mounting
+ * the grip from them put the orbit wand in front of the fist, where no tracked
+ * fist would ever put it (live mounts from MediaPipe's true knuckles). A fist
+ * therefore mounts from the canonical hand, which the mannequin is scaled to.
+ */
+export function mountLandmarks(
+  pose: 'open' | 'fist',
+  measured: Readonly<Record<number, Vec3>>,
+): Readonly<Record<number, Vec3>> {
+  return pose === 'fist' ? CANONICAL_HAND_LANDMARKS : measured;
+}

@@ -45,6 +45,9 @@ export interface HandPose {
   palmSpanCm: number;
   /** Estimated depth (cm, positive) — exported for the occluder. */
   depthCm: number;
+  /** The hand this pose was solved AS: the finger-curl vote when the hand is
+   *  curled enough to say (see `curlHandedness`), else the tracker's label. */
+  hand: 'Left' | 'Right';
 }
 
 export interface HandAnchorDef {
@@ -57,7 +60,9 @@ export interface HandAnchorDef {
   hint: string;
   /** Which two landmarks midpoint the anchor sits at (screen space). */
   between: [number, number];
-  /** Offset along the palm normal, cm (negative = into the palm/fist). */
+  /** Offset along the palm normal, cm. +Z points OUT OF THE PALM, which is also
+   *  the side the fingers close onto — so a fist's cavity is POSITIVE, and
+   *  negative is the back of the hand. */
   normalOffsetCm: number;
   /** Extra rotation (radians, XYZ intrinsic) applied in the hand frame — e.g.
    *  a wand shaft runs along the knuckle line, not up the palm. */
@@ -71,12 +76,27 @@ export interface HandAnchorDef {
   alongForearmCm?: number;
 }
 
-/** Where hand-worn/held gear mounts. Research notes: a fist-held wand runs
- *  along the 5→17 knuckle line, ~2cm inside the fist; a gauntlet centres on
- *  the wrist with the forearm continuing along −(P9−P0). */
+/** Where hand-worn/held gear mounts. A fist-held wand runs ALONG the 5→17
+ *  knuckle line (the hand frame's X — tip out past the thumb on a right hand)
+ *  through the tube the fingers close into, ~2.5cm on the PALM side of the
+ *  knuckle joints and ~2cm wrist-ward of them; a gauntlet centres on the wrist with the forearm continuing
+ *  along −(P9−P0).
+ *
+ *  The grip used to sit at −2.2cm with a +90° Z turn — BEHIND the knuckles and
+ *  standing along the fingers — so in the orbit view the wand ran up the back of
+ *  the fist, parallel to the forearm (2026-09-22 screenshot). The sign of the
+ *  palm normal is not a matter of opinion: the palm emitters fire along +Z and
+ *  the glove's palm plate faces the camera when +Z does. */
 export const HAND_ANCHORS: readonly HandAnchorDef[] = [
-  { id: 'grip', label: 'Grip (held in the fist)', hint: 'Runs through a closed fist — wands, swords, torches', between: [9, 13], normalOffsetCm: -2.2, rotation: [0, 0, Math.PI / 2] },
-  { id: 'wristBack', label: 'Wrist (worn)', hint: 'Sits on the wrist itself — watches, bands, gauntlet cuffs', between: [0, 0], normalOffsetCm: 1.2, rotation: [0, 0, 0] },
+  // The tube a fist closes into: the proximal phalanges run out of the palm
+  // (+Z) from the knuckle row and the middle phalanges come back DOWN, so its
+  // centre is ~2.5cm out of the palm and ~2cm wrist-ward of the knuckles
+  // (`alongForearmCm` is the frame's −Y push; here it is not an arm offset).
+  { id: 'grip', label: 'Grip (held in the fist)', hint: 'Runs through a closed fist — wands, swords, torches', between: [9, 13], normalOffsetCm: 2.5, rotation: [0, 0, 0], alongForearmCm: 2.0 },
+  // On the BACK of the wrist (−Z: +Z is the palm side), where a watch face sits.
+  // It was +1.2 — the inside of the wrist — against its own name and its test's
+  // stated intent ("proud of the back").
+  { id: 'wristBack', label: 'Wrist (worn)', hint: 'Sits on the wrist itself — watches, bands, gauntlet cuffs', between: [0, 0], normalOffsetCm: -1.2, rotation: [0, 0, 0] },
   { id: 'palm', label: 'Palm (open hand)', hint: 'Floats off an open palm — orbs, energy, held-out props', between: [9, 13], normalOffsetCm: 1.5, rotation: [0, 0, 0] },
   // Sits at the wrist like wristBack, but its `alongForearmCm` pushes the mount
   // DOWN the arm so a sleeve, bracer or long cuff centres on the forearm rather
@@ -148,6 +168,41 @@ function toThreeCm(p: HandPoint): [number, number, number] {
   return [p.x * 100, -p.y * 100, -p.z * 100];
 }
 
+/** Fingertips + PIP joints — what closes onto the palm when a hand curls. */
+const CURL = [4, 6, 8, 10, 12, 14, 16, 18, 20] as const;
+/** Mean signed offset (cm) of CURL off the palm plane needed to trust the
+ *  fingers over the label. A relaxed open hand flexes ~0.5cm; a fist 3-5cm;
+ *  hyperextension never reaches this. */
+export const CURL_VOTE_MIN_CM = 1.2;
+
+/**
+ * Which hand the fingers say this is, or null when they are too flat to say.
+ *
+ * Fingers only ever close toward the PALM. `rightNormal` is the palm normal a
+ * RIGHT hand would have ((L5−L17) × up); if the curled joints sit on its side
+ * of the palm plane, this is a right hand, otherwise a left one. Needs no
+ * label, so it cannot inherit the classifier's flips.
+ */
+export function curlHandedness(
+  world: readonly HandPoint[],
+  rightNormal: readonly [number, number, number],
+  w0: readonly [number, number, number],
+  w9: readonly [number, number, number],
+): 'Left' | 'Right' | null {
+  // Palm plane through the wrist–middle-knuckle midpoint.
+  const c: [number, number, number] = [(w0[0] + w9[0]) / 2, (w0[1] + w9[1]) / 2, (w0[2] + w9[2]) / 2];
+  let sum = 0;
+  for (const i of CURL) {
+    const p = world[i];
+    if (p === undefined || !isFinite(p.x) || !isFinite(p.y) || !isFinite(p.z)) return null;
+    const q = toThreeCm(p);
+    sum += (q[0] - c[0]) * rightNormal[0] + (q[1] - c[1]) * rightNormal[1] + (q[2] - c[2]) * rightNormal[2];
+  }
+  const mean = sum / CURL.length;
+  if (Math.abs(mean) < CURL_VOTE_MIN_CM) return null;
+  return mean > 0 ? 'Right' : 'Left';
+}
+
 /**
  * Solve the full pose, or null on a degenerate frame (edge-on palm, missing
  * landmarks, zero spans) — callers hold the last good pose instead.
@@ -216,15 +271,30 @@ export function solveHandPose(
   const w0 = toThreeCm(world[0]);
   const w5 = toThreeCm(world[5]);
   const w9 = toThreeCm(world[9]);
+  const w13 = toThreeCm(world[13]);
   const w17 = toThreeCm(world[17]);
   const up = norm3([w9[0] - w0[0], w9[1] - w0[1], w9[2] - w0[2]]);
   if (up === null) return null;
-  const across: [number, number, number] = [w5[0] - w17[0], w5[1] - w17[1], w5[2] - w17[2]];
+  // Knuckle line: the least-squares direction through all FOUR MCPs (equal
+  // spacing assumed: 1.5·(L5−L17) + 0.5·(L9−L13)), not the bare index→pinky
+  // chord. Roll is the noisiest DOF because it hangs off this one ~6cm
+  // baseline; reading every knuckle cuts that noise without moving the frame
+  // — on the canonical hand the two directions differ by 0.3°.
+  const across: [number, number, number] = [
+    1.5 * (w5[0] - w17[0]) + 0.5 * (w9[0] - w13[0]),
+    1.5 * (w5[1] - w17[1]) + 0.5 * (w9[1] - w13[1]),
+    1.5 * (w5[2] - w17[2]) + 0.5 * (w9[2] - w13[2]),
+  ];
   let normal = norm3(cross3(across, up));
   if (normal === null) return null;
   // Anatomy mirrors between hands: the same cross points out of the RIGHT
-  // palm but out of the LEFT hand's back.
-  if (realHand === 'Left') normal = [-normal[0], -normal[1], -normal[2]];
+  // palm but out of the LEFT hand's back. WHICH hand this is comes from the
+  // fingers themselves when they are curled enough to say — MediaPipe's label
+  // flips on fists and edge-on hands, and a flipped label turned the palm
+  // normal inside out (a wand gripped BEHIND the knuckles, measured on a real
+  // fist) — and from the label only when the hand is flat.
+  const hand = curlHandedness(world, normal, w0, w9) ?? realHand;
+  if (hand === 'Left') normal = [-normal[0], -normal[1], -normal[2]];
   const right = norm3(cross3(up, normal));
   if (right === null) return null;
   // Re-orthogonalize up (across is not exactly perpendicular to it).
@@ -236,6 +306,7 @@ export function solveHandPose(
     quaternion: quatFromBasis(right, trueUp, normal),
     palmSpanCm: frameSpanCm,
     depthCm,
+    hand,
   };
 }
 
@@ -301,9 +372,95 @@ export function forearmAxis(pose: HandPose): [number, number, number] {
   return [-(2 * (x * y - w * z)), -(1 - 2 * (x * x + z * z)), -(2 * (y * z + w * x))];
 }
 
+/** Rotate `v` by the unit quaternion `q` (x, y, z, w). */
+export function rotateByQuat(q: Quat, v: readonly [number, number, number]): [number, number, number] {
+  const [x, y, z, w] = q;
+  // t = 2 · (q.xyz × v); v' = v + w·t + q.xyz × t
+  const tx = 2 * (y * v[2] - z * v[1]);
+  const ty = 2 * (z * v[0] - x * v[2]);
+  const tz = 2 * (x * v[1] - y * v[0]);
+  return [
+    v[0] + w * tx + (y * tz - z * ty),
+    v[1] + w * ty + (z * tx - x * tz),
+    v[2] + w * tz + (x * ty - y * tx),
+  ];
+}
+
+/** The mount's offset from its landmark midpoint, in the HAND frame: the
+ *  clamped elbow-ward reach along −Y and the normal offset along +Z. */
+export function anchorLocalOffset(def: HandAnchorDef): [number, number, number] {
+  const reach = forearmReachCm(def.alongForearmCm);
+  // `-0` compares unequal under Object.is; every hand-worn anchor has zero reach.
+  return [0, reach === 0 ? 0 : -reach, def.normalOffsetCm];
+}
+
+/** Depth of a landmark subset relative to the palm plane, cm toward the
+ *  viewer: the world landmarks' z (metres, away from the camera) against the
+ *  mean over the rigid palm. Zero for a flat palm facing the camera. */
+function relativeDepthCm(world: readonly HandPoint[], ids: readonly number[]): number {
+  let palm = 0;
+  for (const i of PALM) palm += world[i].z;
+  palm /= PALM.length;
+  let z = 0;
+  for (const i of ids) z += world[i].z;
+  z /= ids.length;
+  return (palm - z) * 100; // metres → cm; toward the viewer is +
+}
+
 /**
- * Screen-space midpoint of an anchor's landmark pair, unprojected at the
- * pose's depth, plus the normal offset — where the gear mounts, world cm, RAW.
+ * Every landmark's position in the HAND frame — the pose's own axes, origin at
+ * the palm centroid, cm — from ONE detection. Each screen landmark is
+ * unprojected at its OWN depth (the palm-plane depth corrected by the world
+ * landmark's z against the palm) and then expressed relative to the pose.
+ * Written into `out` (21 × xyz) and returned; `out` is reused, never grown.
+ *
+ * Gear mounts and the occluder both hang off these, under the ONE smoothed
+ * palm pose the rig drives — so a glove and the shell that hides the hand
+ * behind it move as a unit and cannot disagree by a filter's lag.
+ */
+export function landmarkLocalPositions(
+  landmarks: readonly HandPoint[],
+  world: readonly HandPoint[],
+  pose: HandPose,
+  aspect: number,
+  out: Float32Array,
+): Float32Array {
+  const [qx, qy, qz, qw] = pose.quaternion;
+  const inv: Quat = [-qx, -qy, -qz, qw];
+  const n = Math.min(21, landmarks.length, world.length, Math.floor(out.length / 3));
+  for (let i = 0; i < n; i++) {
+    const l = landmarks[i];
+    const depth = pose.depthCm - relativeDepthCm(world, [i]);
+    const p = unprojectToDepth(l.x, l.y, depth, 63, aspect);
+    const local = rotateByQuat(inv, [
+      p[0] - pose.position[0],
+      p[1] - pose.position[1],
+      p[2] - pose.position[2],
+    ]);
+    out[i * 3] = local[0];
+    out[i * 3 + 1] = local[1];
+    out[i * 3 + 2] = local[2];
+  }
+  return out;
+}
+
+/** Where `def` mounts, in the hand frame, from `landmarkLocalPositions`
+ *  output: the pair's midpoint plus the anchor's local offset. */
+export function anchorLocalPoint(def: HandAnchorDef, local: Float32Array): [number, number, number] {
+  const a = def.between[0] * 3;
+  const b = def.between[1] * 3;
+  const off = anchorLocalOffset(def);
+  return [
+    (local[a] + local[b]) / 2 + off[0],
+    (local[a + 1] + local[b + 1]) / 2 + off[1],
+    (local[a + 2] + local[b + 2]) / 2 + off[2],
+  ];
+}
+
+/**
+ * Screen-space midpoint of an anchor's landmark pair, unprojected at that
+ * pair's depth, plus the anchor's hand-frame offset — where the gear mounts,
+ * world cm, RAW. The world form of `anchorLocalPoint`; the two agree exactly.
  *
  * An anchor with `alongForearmCm` is additionally pushed elbow-ward, clamped:
  * that is the only supported way to sit gear on the arm rather than the hand.
@@ -313,20 +470,12 @@ export function anchorPointFor(
   landmarks: readonly HandPoint[],
   pose: HandPose,
   aspect: number,
+  world: readonly HandPoint[] = [],
 ): [number, number, number] {
   const a = landmarks[def.between[0]];
   const b = landmarks[def.between[1]];
-  const [x, y, z] = unprojectToDepth((a.x + b.x) / 2, (a.y + b.y) / 2, pose.depthCm, 63, aspect);
-  // Palm normal = the hand frame's +Z axis.
-  const [qx, qy, qz, qw] = pose.quaternion;
-  const nx = 2 * (qx * qz + qw * qy);
-  const ny = 2 * (qy * qz - qw * qx);
-  const nz = 1 - 2 * (qx * qx + qy * qy);
-  const reach = forearmReachCm(def.alongForearmCm);
-  const f = reach > 0 ? forearmAxis(pose) : null;
-  return [
-    x + nx * def.normalOffsetCm + (f ? f[0] * reach : 0),
-    y + ny * def.normalOffsetCm + (f ? f[1] * reach : 0),
-    z + nz * def.normalOffsetCm + (f ? f[2] * reach : 0),
-  ];
+  const depth = world.length >= 21 ? pose.depthCm - relativeDepthCm(world, def.between) : pose.depthCm;
+  const [x, y, z] = unprojectToDepth((a.x + b.x) / 2, (a.y + b.y) / 2, depth, 63, aspect);
+  const o = rotateByQuat(pose.quaternion, anchorLocalOffset(def));
+  return [x + o[0], y + o[1], z + o[2]];
 }

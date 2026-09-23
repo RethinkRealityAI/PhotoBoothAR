@@ -20,9 +20,13 @@ async function create(delegate: 'GPU' | 'CPU', modelUrl: string): Promise<HandLa
   return HandLandmarker.createFromOptions(vision, {
     baseOptions: { modelAssetPath: modelUrl, delegate },
     runningMode: 'VIDEO',
-    // One hand: every shipped gesture is one-handed and numHands:2 doubles the
-    // landmark-model cost on the exact devices already paying for face tracking.
-    numHands: 1,
+    // TWO hands: a guest wearing gauntlets raises both, and the palm detector
+    // runs once per call whatever the count — only the per-hand landmark model
+    // (the cheaper half) doubles, and only while two hands are actually in
+    // frame. The gesture scorer already takes the max over hands; the rigs and
+    // occluder are slot-keyed by hand (lib/handRig.ts). The inference frame is
+    // downscaled (lib/trackingFrame.ts), which paid for this several times over.
+    numHands: 2,
     minHandDetectionConfidence: 0.5,
     minHandPresenceConfidence: 0.5,
     minTrackingConfidence: 0.5,

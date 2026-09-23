@@ -20,8 +20,18 @@ import * as THREE from 'three';
 import type { FaceLandmarkerResult } from '@mediapipe/tasks-vision';
 import { HeadAnchor } from '../types';
 import { getFaceLandmarker } from './faceTracking';
-import { OneEuroVec3, OneEuroQuat, type OneEuroConfig, type Vec3, type Quat } from './smoothing';
-import { createDetectGate, shouldDetect, markDetected } from './faceDetectClock';
+import {
+  OneEuroVec3,
+  OneEuroQuat,
+  VelocityVec3,
+  VelocityQuat,
+  predictionLeadSec,
+  type OneEuroConfig,
+  type Vec3,
+  type Quat,
+} from './smoothing';
+import { inferenceSource } from './trackingFrame';
+import { currentFrameKey, isHeld, recordRun, requestInference, tracking } from './trackingScheduler';
 
 export interface AnchorPreset {
   id: HeadAnchor;
@@ -55,7 +65,12 @@ export const ANCHOR_MAP: Record<HeadAnchor, AnchorPreset> = Object.fromEntries(
 export const RIG_CAMERA = {
   position: [0, 0, 0] as [number, number, number],
   fov: 63,
-  near: 0.1,
+  // Centimetres. near was 0.1 (a 20,000:1 range): on a 16-bit mobile depth
+  // buffer that quantizes a 60cm head to ~5mm, and the depth-only occluder
+  // then loses the coin-flip against silhouette-grazing prop geometry. Nothing
+  // this rig draws is nearer than a raised hand (~15cm, handPose's floor), so
+  // 1cm costs nothing and buys 10× the precision where the head is.
+  near: 1,
   far: 2000,
 };
 
@@ -87,11 +102,31 @@ const _gPos = new THREE.Vector3();
 const _gQuat = new THREE.Quaternion();
 const _gScale = new THREE.Vector3(1, 1, 1);
 let _gSeen = 0;          // performance.now() of the last successful detection
+/** performance.now() of the first inference since `_gSeen` that found NO face,
+ *  or null. "Lost" is decided from this, never from how long it has been since
+ *  an inference ran — the shared scheduler can legitimately give the hand
+ *  tracker several slots in a row (see trackingScheduler.isHeld). */
+let _gMissSince: number | null = null;
 let _gHas = false;       // a face has been detected at least once
-/** Frame gate: rate limit PLUS "has the camera actually produced a new frame".
- *  A wall-clock-only throttle re-ran blocking inference on frames the camera had
- *  not replaced, and on a 60fps camera could only ever see half of them. */
-const _detectGate = createDetectGate();
+/** performance.now() at which the last successful face pose's inference
+ *  RETURNED — the sample's birth time, from which every render frame measures
+ *  how stale it is (the prediction lead). */
+let _gDetectT = 0;
+/** Duration of the last face inference, ms — diagnostics + the harness. */
+let _faceInferMs = 0;
+/** Face inferences run since load — diagnostics (cadence under contention). */
+let _faceDetections = 0;
+/* Per-detection velocity for dead reckoning (smoothing.ts). RAW frame — the
+ * prediction runs before a rig mirrors the pose, so the mirror algebra stays
+ * in one place. Reset on re-acquisition so a gap cannot become a velocity. */
+const VEL_CUTOFF_HZ = 6;
+const _posVel = new VelocityVec3(VEL_CUTOFF_HZ);
+const _rotVel = new VelocityQuat(VEL_CUTOFF_HZ);
+const _vPos: Vec3 = [0, 0, 0];
+const _vQuat: Quat = [0, 0, 0, 1];
+/** Cached median head-fit (see the estimator below), refreshed per detection
+ *  so the per-frame pose read never sorts the ring. null until it fills. */
+let _fitMedian: number | null = null;
 
 /**
  * Latest face blendshape scores (categoryName → score) + timestamp, consumed by
@@ -156,10 +191,20 @@ export function getLatestFaceKeypoints(): FaceKeypointStash | null {
   return _faceKeypoints;
 }
 
-/** performance.now() of the last face inference. handRig reads this to avoid
- *  running two blocking CPU landmarkers on the same rAF tick. */
+/** performance.now() of the last face inference START (the scheduler's gate). */
 export function lastFaceDetectMs(): number {
-  return _detectGate.lastDetectMs;
+  return tracking.tasks.face.gate.lastDetectMs;
+}
+
+/** Live tracking diagnostics for the studio's tracking readout and the
+ *  headless harness: last inference duration, sample age, and cadence. */
+export function faceTrackingStats(): { inferMs: number; ageMs: number; hasFace: boolean; detections: number } {
+  return {
+    inferMs: _faceInferMs,
+    detections: _faceDetections,
+    ageMs: _gHas ? performance.now() - _gDetectT : Infinity,
+    hasFace: _gHas,
+  };
 }
 
 /** Tracked head distance from the camera in cm (positive), or null before the
@@ -235,7 +280,7 @@ export interface HeadFitEstimate {
  */
 export function getHeadFitEstimate(): HeadFitEstimate | null {
   if (_fitCount < FIT_MIN_SAMPLES) return null;
-  return { factor: medianOf(_fitRing, _fitCount, _fitScratch), samples: _fitCount };
+  return { factor: _fitMedian ?? medianOf(_fitRing, _fitCount, _fitScratch), samples: _fitCount };
 }
 
 /**
@@ -258,9 +303,29 @@ export function detectFaceNow(video: HTMLVideoElement): void {
  * keeps a resting face rock-steady; beta raises the cutoff under motion so
  * fast head turns track without trailing.
  */
-const POS_FILTER: OneEuroConfig = { minCutoff: 1.15, beta: 0.08, dCutoff: 1.0 };
-const ROT_FILTER: OneEuroConfig = { minCutoff: 1.5, beta: 0.6, dCutoff: 1.0 };
-const SCALE_FILTER: OneEuroConfig = { minCutoff: 1.0, beta: 0.5, dCutoff: 1.0 };
+/*
+ * Retuned (2026-09): the shipped position beta of 0.08 per cm/s meant a head
+ * moving at 30cm/s only lifted the cutoff to ~3.5Hz (≈45ms of trail — over a
+ * centimetre); rotation's 0.6 per rad/s left a 2 rad/s turn at ~2.7Hz (≈60ms).
+ * Under motion the cutoff now climbs an order of magnitude faster, while the
+ * at-rest cutoffs (what decides jitter) are unchanged or lower. Scale is
+ * median-locked below, so its filter only has to glide between locks.
+ */
+const POS_FILTER: OneEuroConfig = { minCutoff: 1.0, beta: 0.5, dCutoff: 1.0 };
+const ROT_FILTER: OneEuroConfig = { minCutoff: 1.5, beta: 1.5, dCutoff: 1.0 };
+const SCALE_FILTER: OneEuroConfig = { minCutoff: 0.5, beta: 0.2, dCutoff: 1.0 };
+
+/**
+ * Dead-reckoning horizon (smoothing.ts). The lead is the sample's measured age
+ * plus this bias for the inference block + display pipeline, capped. The step
+ * caps bound what one frame may extrapolate: at 50cm/s a full 80ms lead is 4cm.
+ */
+export const LEAD_BIAS_MS = 20;
+export const LEAD_MAX_MS = 80;
+const MAX_PREDICT_CM = 4;
+const MAX_PREDICT_RAD = 0.35;
+const _pPos: Vec3 = [0, 0, 0];
+const _pQuat: Quat = [0, 0, 0, 1];
 
 interface SmoothState {
   pos: OneEuroVec3;
@@ -277,38 +342,69 @@ const _fqOut: Quat = [0, 0, 0, 1];
 const _fsIn: Vec3 = [1, 1, 1];
 const _fsOut: Vec3 = [1, 1, 1];
 
-/** Run the landmarker at most once per DETECT_INTERVAL_MS; cache the raw pose. */
+/**
+ * Run the landmarker when the shared scheduler grants the face a slot; cache
+ * the raw pose. The scheduler (trackingScheduler.ts) owns the gate — the
+ * DETECT_INTERVAL_MS floor, the "new camera frame" rule and its watchdog — and
+ * arbitrates with the hand tracker so neither can starve the other.
+ */
 function detectIfDue(fl: ReturnType<typeof getFaceLandmarker>, video: HTMLVideoElement, now: number) {
   if (!fl) return;
-  // video.currentTime is the frame identity; the gate skips a frame already
-  // analysed and has a watchdog so a stuck clock can never freeze tracking.
+  // video.currentTime is the camera-frame identity; the frame key is the
+  // rendered frame's (one expensive inference per rendered frame).
   const videoTime = video.currentTime;
-  if (!shouldDetect(_detectGate, now, videoTime, { minIntervalMs: DETECT_INTERVAL_MS })) return;
-  markDetected(_detectGate, now, videoTime);
+  const frameKey = currentFrameKey();
+  if (!requestInference(tracking, 'face', now, videoTime, frameKey, DETECT_INTERVAL_MS)) return;
   let results;
   try {
     const ts = Math.max(now, _lastTs + 1);
     _lastTs = ts;
-    results = fl.detectForVideo(video, ts);
+    // The downscaled shared frame (trackingFrame.ts), never the 1080p video.
+    results = fl.detectForVideo(inferenceSource(video), ts);
   } catch {
+    // Still a run: the gate must advance, or a throwing frame is retried at
+    // render rate.
+    recordRun(tracking, 'face', now, performance.now(), videoTime, frameKey);
     return;
   }
+  const inferEnd = performance.now();
+  recordRun(tracking, 'face', now, inferEnd, videoTime, frameKey);
+  _faceInferMs = inferEnd - now;
+  _faceDetections++;
   // Refresh the trigger-engine blendshape stash on every detection frame (even
   // an empty/no-face result, so signals decay). Additive: pose consumers below
   // are untouched, so legacy events stay byte-identical.
   stashBlendshapes(results, now);
   stashFaceKeypoints(results);
   const mats = results?.facialTransformationMatrixes;
-  if (!mats || mats.length === 0) return;
+  if (!mats || mats.length === 0) {
+    if (_gHas && _gMissSince === null) _gMissSince = inferEnd;
+    return;
+  }
+  _gMissSince = null;
   _mat.fromArray(mats[0].data);
   _mat.decompose(_gPos, _gQuat, _gScale); // raw, un-mirrored
+  // Velocity from consecutive detections (dt = birth to birth). A gap longer
+  // than the hold window is a re-acquisition: seed afresh rather than reading
+  // the jump as speed.
+  if (!_gHas || inferEnd - _gDetectT > HOLD_MS) {
+    _posVel.reset();
+    _rotVel.reset();
+  }
+  const dtDetSec = _gHas ? (inferEnd - _gDetectT) / 1000 : 0; // ms → s
+  _vPos[0] = _gPos.x; _vPos[1] = _gPos.y; _vPos[2] = _gPos.z;
+  _vQuat[0] = _gQuat.x; _vQuat[1] = _gQuat.y; _vQuat[2] = _gQuat.z; _vQuat[3] = _gQuat.w;
+  _posVel.push(_vPos, dtDetSec);
+  _rotVel.push(_vQuat, dtDetSec);
   _gSeen = now;
+  _gDetectT = inferEnd;
   _gHas = true;
   // Feed the head-fit estimator on every detection frame (~30/s). Pure
   // bookkeeping — a module ring write with no effect on the pose consumers
   // below, so legacy/booth rendering is byte-identical whether or not any
   // surface reads getHeadFitEstimate().
   pushFitSample(_gScale.x, _gScale.y, _gScale.z);
+  _fitMedian = _fitCount >= FIT_MIN_SAMPLES ? medianOf(_fitRing, _fitCount, _fitScratch) : null;
 }
 
 /**
@@ -342,7 +438,7 @@ export function updateHeadPose(
 
   // Never seen a face, or lost it for longer than the hold window → hide + reset
   // so the next acquisition snaps in cleanly rather than gliding from a stale pose.
-  if (!_gHas || now - _gSeen > HOLD_MS) {
+  if (!_gHas || !isHeld(now, _gSeen, _gMissSince, HOLD_MS)) {
     const stale = group.userData._smooth as SmoothState | undefined;
     if (stale) {
       stale.pos.reset();
@@ -352,10 +448,23 @@ export function updateHeadPose(
     return false;
   }
 
-  // Target = latest raw pose, mirrored per this rig's preview if needed.
-  _tPos.copy(_gPos);
-  _tQuat.copy(_gQuat);
-  _tScale.copy(_gScale);
+  // Target = latest raw pose carried forward by its measured age (dead
+  // reckoning — see smoothing.ts), then mirrored per this rig's preview.
+  // Predicting BEFORE the filter turns the 30Hz stair-step the filter used to
+  // chase into a ramp, so the render-rate filter has nothing to lag behind.
+  const lead = predictionLeadSec(now - _gDetectT, LEAD_BIAS_MS, LEAD_MAX_MS);
+  _vPos[0] = _gPos.x; _vPos[1] = _gPos.y; _vPos[2] = _gPos.z;
+  _vQuat[0] = _gQuat.x; _vQuat[1] = _gQuat.y; _vQuat[2] = _gQuat.z; _vQuat[3] = _gQuat.w;
+  _posVel.predict(_vPos, lead, MAX_PREDICT_CM, _pPos);
+  _rotVel.predict(_vQuat, lead, MAX_PREDICT_RAD, _pQuat);
+  _tPos.set(_pPos[0], _pPos[1], _pPos[2]);
+  _tQuat.set(_pQuat[0], _pQuat[1], _pQuat[2], _pQuat[3]);
+  // Scale is the canonical model's FIT to this face — a per-person constant,
+  // not distance — so the per-detection value is pure noise around it. Lock to
+  // the ring median once it exists (~0.3s); the filter below only glides.
+  const fit = _fitMedian;
+  if (fit !== null) _tScale.setScalar(fit);
+  else _tScale.copy(_gScale);
   if (mirror) {
     _tPos.x = -_tPos.x;
     _tQuat.y = -_tQuat.y;

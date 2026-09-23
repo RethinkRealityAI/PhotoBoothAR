@@ -8,6 +8,8 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import type { Group } from 'three';
 import { FaceRig, Model } from '../ar/FaceRig';
 import { HandOccluder, HandPlacement, HandRig } from '../ar/HandRig';
+import type { HandPick } from '../../lib/handRig';
+import TrackingReadout from '../studio/TrackingReadout';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
 import BeamFX, { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
 import { RIG_CAMERA } from '../../lib/faceRig';
@@ -196,15 +198,44 @@ function AnimatedPiece({ animation, reveal, pulse, children }: { animation?: Lay
   return <group ref={ref}>{children}</group>;
 }
 
+/** Which rigs a hand piece rides: a pinned piece follows whichever hand is
+ *  up ('any'); an 'auto' piece gets one rig per hand, so a guest raising both
+ *  wears the gear on both — each rig mirrors it for its own hand. */
+function rigsFor(fit: 'left' | 'right' | undefined): readonly HandPick[] {
+  return fit === 'left' || fit === 'right' ? ANY_RIG : BOTH_RIGS;
+}
+const ANY_RIG: readonly HandPick[] = ['any'];
+const BOTH_RIGS: readonly HandPick[] = ['Left', 'Right'];
+
 export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false }: Props) {
   // Hand-anchored gear renders in a HandRig; everything else keeps the FaceRig
   // path byte-identically (index split preserves keys within each family).
   const headPieces = pieces ? pieces.filter((p) => p.handAnchor === undefined) : null;
   const handPieces = pieces ? pieces.filter((p) => p.handAnchor !== undefined) : null;
+  // "A hand is visible" is the OR over the first piece's rigs (one per hand):
+  // reporting each rig's own flag would let a Left-rig "lost" overwrite a
+  // Right-rig "found" and coach "show your hand" at a hand in plain view.
+  const handSeen = useRef<Record<string, boolean>>({});
+  const handAnyRef = useRef(false);
+  const reportHand = (which: HandPick) => (v: boolean) => {
+    handSeen.current[which] = v;
+    const any = Object.values(handSeen.current).some(Boolean);
+    if (any !== handAnyRef.current) {
+      handAnyRef.current = any;
+      onHandVisible?.(any);
+    }
+  };
   // First piece whose occlude===true wins the (single, non-duplicated) occluder.
-  const occluderIdx = headPieces ? headPieces.findIndex((p) => p.occlude === true) : -1;
+  // A scene row that says `occlusion: true` at the scene level while none of its
+  // layers carry the flag (hand-written, AI-authored or pre-flag rows) still
+  // occludes: the first head piece hosts the shell. With no pieces the single-
+  // piece FaceRig below honours `occlude` itself, exactly as before.
+  const firstOptIn = headPieces ? headPieces.findIndex((p) => p.occlude === true) : -1;
+  const occluderIdx = firstOptIn !== -1 ? firstOptIn : (occlude && headPieces && headPieces.length > 0 ? 0 : -1);
   return (
     <div id="booth-3d-layer" className="absolute inset-0 pointer-events-none z-20">
+      {/* `?debug=tracking` only — live inference/age numbers for phone tests. */}
+      <TrackingReadout className="absolute left-2 top-2 z-30" />
       <Canvas
         camera={{ position: RIG_CAMERA.position, fov: RIG_CAMERA.fov, near: RIG_CAMERA.near, far: RIG_CAMERA.far }}
         dpr={dpr}
@@ -223,11 +254,12 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
             occluder so real fingers wrap in front of a held grip. */}
         {handPieces && handPieces.length > 0 && (
           <>
-            <HandOccluder videoId={videoId} mirror={mirror} />
-            {handPieces.map((p, i) => {
+            <HandOccluder videoId={videoId} mirror={mirror} which="Left" />
+            <HandOccluder videoId={videoId} mirror={mirror} which="Right" />
+            {handPieces.flatMap((p, i) => rigsFor(p.handFit).map((which) => {
               const emitter = p.fxKey !== undefined ? pieceEmitterOf(p) : null;
               return (
-              <HandRig key={`hand-${i}`} anchor={p.handAnchor as string} videoId={videoId} mirror={mirror} fit={p.handFit ?? 'auto'} onVisibilityChange={i === 0 ? onHandVisible : undefined}>
+              <HandRig key={`hand-${i}-${which}`} anchor={p.handAnchor as string} videoId={videoId} mirror={mirror} fit={p.handFit ?? 'auto'} modelledHand={p.template?.modelledHand} which={which} onVisibilityChange={i === 0 ? reportHand(which) : undefined}>
                 <AnimatedPiece animation={p.animation} reveal={reveal} pulse={p.pulse}>
                   {/* HandPlacement, not a plain transform group: when this piece
                       is mirrored onto the other hand its offset and rotation
@@ -247,12 +279,12 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
                         onError={onAssetError ? (m) => onAssetError(p.assetUrl as string, m) : undefined}
                       />
                     ) : null}
-                    {emitter !== null && <FxEmitterPoint fxKey={p.fxKey as string} emitter={emitter} modelledHand={p.template?.modelledHand} />}
+                    {emitter !== null && <FxEmitterPoint fxKey={p.fxKey as string} emitter={emitter} modelledHand={p.template?.modelledHand} engravable={(p.template?.textSlots.length ?? 0) > 0} />}
                   </HandPlacement>
                 </AnimatedPiece>
               </HandRig>
               );
-            })}
+            }))}
           </>
         )}
 

@@ -30,11 +30,13 @@ import { GLTFLoader } from 'three-stdlib';
 import { collectWorldPositions } from '../../lib/studio/bustFit';
 import { mirrorGeometryX } from '../../lib/studio/mirrorGeometry';
 import { FOREARM_REACH_MAX_CM } from '../../lib/handPose';
+import { FOREARM_R0, FOREARM_R1 } from './HandRig';
 import type { ModelledHand } from '../../lib/studio/handedness';
 import {
   handRefAnchors,
   measureHandMannequin,
   mirrorHandLandmarks,
+  mountLandmarks,
   type Vec3,
 } from '../../lib/studio/handRefAnchors';
 
@@ -83,7 +85,8 @@ function loadHand(pose: HandRefPose): Promise<THREE.Group | null> {
   return p;
 }
 
-function FittedHand({ scene, hand, onFit }: {
+function FittedHand({ scene, hand, pose, onFit }: {
+  pose: HandRefPose;
   scene: THREE.Group;
   hand: ModelledHand;
   onFit?: (f: HandRefFit) => void;
@@ -181,7 +184,7 @@ function FittedHand({ scene, hand, onFit }: {
         bounds: {
           // x mirrors with the mesh; y is untouched by a YZ reflection.
           minX: -maxX, maxX: -minX, minY, maxY,
-          anchors: handRefAnchors(mirrorHandLandmarks(fit.landmarks)),
+          anchors: handRefAnchors(mirrorHandLandmarks(mountLandmarks(pose, fit.landmarks))),
         } satisfies HandRefFit,
       };
     }
@@ -191,9 +194,9 @@ function FittedHand({ scene, hand, onFit }: {
       quaternion,
       position: [o.x, o.y, o.z] as Vec3,
       scale: fit.scale,
-      bounds: { minX, maxX, minY, maxY, anchors: handRefAnchors(fit.landmarks) } satisfies HandRefFit,
+      bounds: { minX, maxX, minY, maxY, anchors: handRefAnchors(mountLandmarks(pose, fit.landmarks)) } satisfies HandRefFit,
     };
-  }, [scene, hand]);
+  }, [scene, hand, pose]);
 
   useEffect(() => {
     if (fitted && Number.isFinite(fitted.bounds.minY)) onFit?.(fitted.bounds);
@@ -227,9 +230,14 @@ function FittedHand({ scene, hand, onFit }: {
  */
 function ForearmStub() {
   // Radii match HandOccluder's beads, which are what actually mask the arm at
-  // capture time — the editor should not imply a different-sized limb.
+  // capture time — the editor should not imply a different-sized limb. The
+  // mesh sits BELOW the wrist (y = −reach/2), so its TOP radius is the wrist end
+  // (FOREARM_R0) and the bottom widens toward the elbow (FOREARM_R1); the first
+  // draft had them swapped and drew an arm that narrowed toward the elbow. The
+  // 0.9 is the occluder's own shrink, so a bracer fitted flush here is flush
+  // on the shell too.
   const geo = useMemo(
-    () => new THREE.CylinderGeometry(3.6, 2.7, FOREARM_REACH_MAX_CM, 20, 1, true),
+    () => new THREE.CylinderGeometry(FOREARM_R0 * 0.9, FOREARM_R1 * 0.9, FOREARM_REACH_MAX_CM, 20, 1, true),
     [],
   );
   useEffect(() => () => geo.dispose(), [geo]);
@@ -261,5 +269,5 @@ export default function ReferenceHand({
   }, [pose]);
 
   if (scene === null) return null;
-  return <FittedHand scene={scene} hand={hand} onFit={onFit} />;
+  return <FittedHand scene={scene} hand={hand} pose={pose} onFit={onFit} />;
 }

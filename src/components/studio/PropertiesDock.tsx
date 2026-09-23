@@ -65,6 +65,8 @@ import { OVERLAY_SCALE, OVERLAY_POSITION, OVERLAY_ROTATION, formatAtStep, defaul
 import { ASSET_CUSTOMIZATION, FINISH_TINT_STRENGTH } from '../../lib/studio/controlSpecs';
 import { FINISHES, normalizeFinish, normalizeTintStrength, type FinishId } from '../../lib/studio/finish';
 import { isConfigurable, normalizeTemplate, type AssetRegion } from '../../lib/studio/assetTemplate';
+import { assetTemplateOf, findLibraryAsset } from '../../lib/studio/assetLibrary';
+import { fitPlacementFor } from '../../lib/studio/gearFit';
 import {
   COLORWAYS,
   COLORWAY_ROLES,
@@ -1179,10 +1181,17 @@ function triggerActionLabel(
   a: TriggerAction,
   pieceName: (id: string) => string,
   shaderName: (id: string) => string,
+  /** The scene's first 3D piece — where an id-less blast fires from. */
+  defaultEmitterId?: string,
 ): string {
   if (a.type === 'burst') return `${BURST_STYLE_LABELS[a.style]} burst`;
   if (a.type === 'reveal') return `Reveal ${pieceName(a.objectId)}`;
-  if (a.type === 'beam') return BEAM_STYLE_LABELS[a.style];
+  if (a.type === 'beam') {
+    // Name the muzzle: with a visor AND a gauntlet in one scene, "Optic blast"
+    // alone never said which of them it comes out of.
+    const from = a.objectId ?? defaultEmitterId;
+    return from !== undefined ? `${BEAM_STYLE_LABELS[a.style]} from ${pieceName(from)}` : BEAM_STYLE_LABELS[a.style];
+  }
   if (a.type === 'animate') return `${ANIMATE_PRESET_LABELS[a.preset]} ${pieceName(a.objectId)}`;
   return `${a.shaderId ? shaderName(a.shaderId) : 'Filter'} pulse`;
 }
@@ -1219,6 +1228,10 @@ function MagicTriggers({
   const [filterId, setFilterId] = useState<string>(defaultFilter);
 
   const pieces = draft.objects;
+  // A blast can only come out of a 3D piece (a sticker has no muzzle), and an
+  // id-less blast fires from the FIRST one — the same rule the booth runs.
+  const pieces3D = pieces.filter((o) => o.type !== 'overlay');
+  const defaultEmitterId = pieces3D[0]?.id;
   const atCap = draft.triggers.length >= MAX_TRIGGERS;
   const shaderName = (id: string) => SHADER_MAP[id]?.name ?? id;
 
@@ -1300,8 +1313,8 @@ function MagicTriggers({
             return (
               <li key={t.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 bg-white/[0.03]">
                 <Icon className="w-3.5 h-3.5 shrink-0 text-accent-2" />
-                <span className="text-[11px] font-sans truncate flex-1 min-w-0 text-brand-muted/80">
-                  {TRIGGER_SOURCE_LABELS[t.source]} → {triggerActionLabel(t.action, pieceName, shaderName)}
+                <span className="text-[11px] leading-snug font-sans line-clamp-2 flex-1 min-w-0 text-brand-muted/80">
+                  {TRIGGER_SOURCE_LABELS[t.source]} → {triggerActionLabel(t.action, pieceName, shaderName, defaultEmitterId)}
                 </span>
                 <button
                   onClick={() => dispatch({ type: 'REMOVE_TRIGGER', id: t.id })}
@@ -1389,12 +1402,14 @@ function MagicTriggers({
                   ))}
                 </div>
               </div>
-              {pieces.length > 0 && (
+              {pieces3D.length > 0 && (
                 <div>
                   <SectionLabel>Fires from</SectionLabel>
                   <select value={beamEmitterId} onChange={(e) => setBeamEmitterId(e.target.value)} className={selectCls}>
-                    <option value="" className="bg-noir-900">Scene default</option>
-                    {pieces.map((o) => (
+                    <option value="" className="bg-noir-900">
+                      {defaultEmitterId !== undefined ? `First 3D piece (${pieceName(defaultEmitterId)})` : 'Scene default'}
+                    </option>
+                    {pieces3D.map((o) => (
                       <option key={o.id} value={o.id} className="bg-noir-900">{pieceName(o.id)}</option>
                     ))}
                   </select>
@@ -1698,12 +1713,35 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
   // Reset targets: a built-in head piece's tuned preset, else zero. Passing a
   // literal 0 reset four of the five built-ins AWAY from where they belong, and
   // inverted the reset button's enabled state along with it.
-  const sel3DDefaults = defaultAnchorConfig(sel3D ?? { type: 'model' }, HEAD_PIECE_MAP);
-  // The hand this asset's GLB was modelled for, if it declares one. Read through
-  // normalizeTemplate rather than off the raw jsonb: `template` is stored
-  // opaquely on the object, so this is the same gate every renderer goes
-  // through. Undefined = hand-agnostic, and the "Fits" control stays hidden.
-  const sel3DModelledHand = sel3D ? normalizeTemplate(sel3D.template)?.modelledHand : undefined;
+  // The asset's descriptor, read through normalizeTemplate rather than off the
+  // raw jsonb: `template` is stored opaquely on the object, so this is the same
+  // gate every renderer goes through.
+  const sel3DTemplate = useMemo(() => (sel3D ? normalizeTemplate(sel3D.template) : null), [sel3D?.template]);
+  // The hand this asset's GLB was modelled for, if it declares one. Undefined =
+  // hand-agnostic (the "Fits" copy says so).
+  const sel3DModelledHand = sel3DTemplate?.modelledHand;
+  // Hand gear that knows where its own hand is (AssetTemplate.handFrame) has a
+  // SEATED placement — wrist on the wrist, knuckles on the knuckles — and that,
+  // not zero, is what "reset" means for it. The stored template is a frozen
+  // copy from when the piece was added, so a glove saved before its library
+  // entry learned its hand frame falls back to the library's current one.
+  const sel3DHandAnchor = sel3D?.handAnchor;
+  const sel3DHandFit = sel3D?.handFit;
+  const sel3DFit = useMemo(() => {
+    if (sel3DHandAnchor === undefined) return null;
+    const lib = sel3DTemplate ? findLibraryAsset(sel3DTemplate.id, import.meta.env.DEV) : null;
+    return fitPlacementFor(sel3DTemplate, lib ? assetTemplateOf(lib) : null, sel3DHandAnchor, sel3DHandFit);
+  }, [sel3DHandAnchor, sel3DHandFit, sel3DTemplate]);
+  const sel3DDefaults = sel3DFit ?? defaultAnchorConfig(sel3D ?? { type: 'model' }, HEAD_PIECE_MAP);
+  const sel3DSeated =
+    sel3DFit !== null &&
+    sel3D !== null &&
+    AXES.every(
+      (a) =>
+        Math.abs(sel3D.anchorConfig.offset[a] - sel3DFit.offset[a]) < 0.05 &&
+        Math.abs(sel3D.anchorConfig.rotation[a] - sel3DFit.rotation[a]) < 0.002,
+    ) &&
+    Math.abs(sel3D.anchorConfig.scale - sel3DFit.scale) < 0.005;
   /** What the Selected-item header says it is about — the layer's display name,
    *  or the filter's name when the filter slot is what the section is showing.
    *  Undefined (no chip) when the section is empty-handed. */
@@ -1984,7 +2022,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                           key={id}
                           onClick={() => dispatch({ type: 'SET_OBJECT_TRACKING', id: sel3D.id, tracking: id })}
                           aria-pressed={active}
-                          className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-[9px] font-label uppercase tracking-wide transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                          className={`flex items-center justify-center gap-1.5 py-2 min-h-11 lg:min-h-0 rounded-lg text-[9px] font-label uppercase tracking-wide transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
                         >
                           <Icon className="w-3.5 h-3.5" />
                           {label}
@@ -2013,7 +2051,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                             <button
                               onClick={() => dispatch({ type: 'SET_OBJECT_TRACKING', id: sel3D.id, tracking: 'hand', handAnchor: a.id })}
                               aria-pressed={active}
-                              className={`w-full py-2 rounded-lg text-[9px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                              className={`w-full py-2 min-h-11 lg:min-h-0 rounded-lg text-[9px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
                             >
                               {a.id === 'grip' ? 'Grip' : a.id === 'wristBack' ? 'Wrist' : a.id === 'forearm' ? 'Arm' : 'Palm'}
                             </button>
@@ -2043,7 +2081,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                                 <button
                                   onClick={() => dispatch({ type: 'SET_HAND_FIT', id: sel3D.id, fit: o.id })}
                                   aria-pressed={active}
-                                  className={`w-full py-2 rounded-lg text-[9px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                                  className={`w-full py-2 min-h-11 lg:min-h-0 rounded-lg text-[9px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
                                 >
                                   {o.label}
                                 </button>
@@ -2070,7 +2108,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                           <button
                             onClick={() => dispatch({ type: 'SELECT_ANCHOR', anchor: p.id })}
                             aria-pressed={active}
-                            className={`w-full py-2 rounded-lg text-[9px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+                            className={`w-full py-2 min-h-11 lg:min-h-0 rounded-lg text-[9px] font-label uppercase tracking-wide truncate transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
                           >
                             {p.label}
                           </button>
@@ -2082,12 +2120,32 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                 )}
                 <div className="flex items-center justify-between">
                   <p className="font-sans text-xs text-brand-fg font-medium">Placement</p>
-                  <button
-                    onClick={() => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { ...sel3DDefaults.offset }, rotation: { ...sel3DDefaults.rotation } } })}
-                    className="flex items-center gap-1 text-[9px] text-brand-muted/50 hover:text-accent-2 transition-colors"
-                  >
-                    <RotateCcw className="w-3 h-3" /> Reset all
-                  </button>
+                  {sel3DFit ? (
+                    // Hand gear with a measured hand frame: the reset target is
+                    // the SEATED pose (size included — the fit sets it), and
+                    // the button says so. Already seated = a quiet confirmation.
+                    sel3DSeated ? (
+                      <span className="flex items-center gap-1 text-[9px] font-label uppercase tracking-wide text-emerald-300/80">
+                        <Check className="w-3 h-3" /> Seated on hand
+                      </span>
+                    ) : (
+                      <Tooltip label="Fit to hand" hint="Seats it on the hand model — wrist on the wrist, knuckles on the knuckles." side="left">
+                        <button
+                          onClick={() => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { ...sel3DFit.offset }, rotation: { ...sel3DFit.rotation }, scale: sel3DFit.scale } })}
+                          className="flex min-h-7 items-center gap-1 rounded-full bg-accent/15 px-2.5 text-[9px] font-label uppercase tracking-wide text-accent-2 ring-1 ring-accent/30 transition-colors hover:bg-accent/25"
+                        >
+                          <Hand className="w-3 h-3" /> Fit to hand
+                        </button>
+                      </Tooltip>
+                    )
+                  ) : (
+                    <button
+                      onClick={() => dispatch({ type: 'PATCH_ANCHOR_CONFIG', patch: { offset: { ...sel3DDefaults.offset }, rotation: { ...sel3DDefaults.rotation } } })}
+                      className="flex items-center gap-1 text-[9px] text-brand-muted/50 hover:text-accent-2 transition-colors"
+                    >
+                      <RotateCcw className="w-3 h-3" /> Reset all
+                    </button>
+                  )}
                 </div>
                 <div className="flex flex-col gap-2">
                   <SectionLabel>Nudge position (cm)</SectionLabel>

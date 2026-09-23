@@ -321,7 +321,10 @@ const POWER_GAUNTLET_TEMPLATE = {
   id: "power-gauntlet",
   name: "Power Gauntlet",
   glbUrl: "/models/power-gauntlet.glb",
-  fitCm: 30,
+  // = the fitted scale (20.06 cm per GLB unit, from `handFrame` below) × the
+  // mesh's 1.899-unit longest side, so every path that sizes from fitCm (the
+  // Power FX preview) agrees with the fitted size to the millimetre.
+  fitCm: 38.1,
   // A gauntlet is handed the way a glove is, and this one was generated for a
   // LEFT hand (owner's phone test, 2026-08-04: "Right now, it's left-handed").
   // Declaring it is what lets the render path mirror the mesh for a right hand
@@ -332,6 +335,23 @@ const POWER_GAUNTLET_TEMPLATE = {
   // the hand at +y; this is its mirror through the mesh, nudged just outside
   // the palm skin), firing out of the open palm along −y.
   emitter: { position: [0.026, -0.220, 0.366], direction: [0, -1, 0] },
+  // The glove's OWN hand, measured on the mesh (all 33,005 vertices, in its
+  // principal axes): the wrist is the narrowest cross-section BETWEEN the cuff
+  // and the palm (u = −0.13 along the fingers; the old derivation took the
+  // narrowest section of the whole mesh, which is half-way down the forearm
+  // cuff), the knuckle row is where the palm plate splits into fingers
+  // (u = +0.36, width 0.77 → 0.66, thickness 0.42 → 0.31) and the middle knuckle
+  // sits 1/4 of the four-finger block in from the index side. The palm faces GLB
+  // −y (the fingers curl that way, and the palm emitter fires along it). From
+  // these gearFit.ts seats the glove on the hand frame the mannequin and the
+  // live rig share — see the orbit screenshots in docs/STATE.md.
+  handFrame: {
+    wrist: [-0.0288, 0.0138, 0.1182],
+    knuckle: [0.0612, -0.0569, 0.5958],
+    // Exactly unit length (re-normalising it is the identity), so the shipped
+    // descriptor round-trips through normalizeTemplate unchanged.
+    palm: [0.030099814284718796, -0.9892938960754919, -0.1427991189321543],
+  },
   regions: [
     { id: "core", label: "Energy core", recolourable: true, defaultHex: "#18ffff", refLuminance: 0.5885494947701743, guestPick: true },
     { id: "trim", label: "Trim", recolourable: true, defaultHex: "#c9a227", refLuminance: 0.38607329178669747 },
@@ -379,28 +399,13 @@ export const LIBRARY_ASSETS: ConfigurableAsset[] = [
     swatch: ["#2b2e35", "#18ffff"],
     template: POWER_GAUNTLET_TEMPLATE,
     handAnchor: 'wristBack',
-    // DERIVED from the mesh, not eyeballed. Measured headlessly over all 33,005
-    // vertices: the long PCA axis runs toward the fingers at [0.249,-0.132,0.960]
-    // and the palm-outward normal at [0.030,-0.989,-0.143] — which independently
-    // agrees with the authored palm emitter firing along GLB -y. Rotating those
-    // onto the tracked hand frame (+Y wrist->fingers, +Z out of the palm) gives
-    // the Euler below; the earlier hand-tuned values crossed the gauntlet's
-    // fingers over the mannequin's by roughly 30 degrees.
-    //
-    // The NUDGE stays owner-tuned, and that is a finding rather than laziness.
-    // Deriving it the same way — put the gauntlet's own wrist (the narrowest
-    // cross-section between cuff and hand: 189 vertices at t=-0.461, against
-    // 1041 in the cuff and 2606 in the fingers) onto the wrist anchor — gives
-    // (0.93, 3.58, -1.17) and renders the gauntlet ~5cm too far up the hand,
-    // checked against the mannequin in the orbit view. So one of the two frames
-    // this assumes is not what it looks like; until that is measured rather than
-    // guessed, the values a human tuned against a real hand win.
-    //
-    // SIZE is deliberately unchanged: the hand portion measures 1.209 units, so
-    // fitCm 30 renders it 19.1cm against an adult mean hand length of 18.6cm —
-    // inside 3%, and the owner tuned and accepted that size on a real hand.
-    defaultNudgeCm: { x: -0.7, y: -1.9, z: 2.1 },
-    defaultRotationDeg: { x: -98.49, y: -14.01, z: -3.78 },
+    // NO authored nudge or rotation: the template's measured `handFrame` seats
+    // the glove on the hand (gearFit.fitGearToHand). The hand-tuned values this
+    // replaces — nudge (-0.7, -1.9, 2.1), rotation (-98.49, -14.01, -3.78)°,
+    // fitCm 30 — were fitted around a "wrist" that was really mid-cuff: in the
+    // orbit view the glove sat low and left of the mannequin, ~20% small, with
+    // the white fingers showing past its own (owner, 2026-09-22: "the base
+    // orientation ... is incorrect ... match what we have in the hand model").
   },
 ];
 

@@ -605,16 +605,18 @@ export function sceneOcclusion(d: StudioDraft): boolean {
  * The occlusion flag a newly added 3D piece should carry.
  *
  * A scene that already has 3D pieces INHERITS its own current setting, so the
- * scene switch never disagrees with what renders. The first 3D piece of a
- * BRAND-NEW draft (no `id`: never saved, not opened from an existing
- * experience) defaults ON, because hiding props behind the real head is what
- * a host expects. An EXISTING scene is never defaulted on — that would start
- * depth-clipping halos, back bands and oversized props at live events with no
- * host action.
+ * scene switch never disagrees with what renders. The FIRST 3D piece of any
+ * scene defaults ON, because hiding props behind the real head is what a host
+ * expects — and nothing already placed can be affected, since there is nothing
+ * placed. (It used to default on only for a never-saved draft: every scene
+ * opened from an existing experience got its first prop with occlusion OFF,
+ * the switch that turns it on lives in a collapsed section, and "occlusion
+ * isn't working" was the result.) A scene whose existing 3D pieces are all
+ * off stays off — a saved scene is never changed from under its host.
  */
 export function nextPieceOcclusion(d: StudioDraft): boolean {
   if (d.objects.some(is3D)) return sceneOcclusion(d);
-  return d.id === undefined;
+  return true;
 }
 
 /** Apply the scene's occlusion default to a 3D object on its way into the
@@ -798,7 +800,11 @@ export type StudioAction =
    */
   | { type: 'RETARGET_TRIGGERS'; fromId: string }
   /* — face-triggered effects (Magic Triggers) — */
-  | { type: 'ADD_TRIGGER'; trigger: TriggerConfig }
+  /** `bindToSelected`: a BEAM trigger fires from the currently selected 3D
+   *  piece. The Power FX builder adds its gear and its blast together, and the
+   *  gear's id is minted by this reducer — so the builder cannot name it, but
+   *  the add has just selected it. */
+  | { type: 'ADD_TRIGGER'; trigger: TriggerConfig; bindToSelected?: boolean }
   | { type: 'UPDATE_TRIGGER'; id: string; patch: Partial<Omit<TriggerConfig, 'id'>> }
   | { type: 'REMOVE_TRIGGER'; id: string };
 
@@ -1221,7 +1227,17 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'ADD_TRIGGER': {
       // Soft cap: adds past MAX_TRIGGERS are ignored (the dock also gates the button).
       if (d.triggers.length >= MAX_TRIGGERS) return state;
-      return { ...state, dirty: true, draft: { ...d, triggers: [...d.triggers, action.trigger] } };
+      const a = action.trigger.action;
+      // Without the bind, an id-less beam resolves to the scene's FIRST 3D
+      // piece — so gear added to a scene that already had a crown blasted out
+      // of the crown.
+      const emitter = action.bindToSelected === true && a.type === 'beam'
+        ? d.objects.find((o) => o.id === d.selectedId && o.type !== 'overlay')
+        : undefined;
+      const trigger = emitter !== undefined && a.type === 'beam'
+        ? { ...action.trigger, action: { ...a, objectId: emitter.id } }
+        : action.trigger;
+      return { ...state, dirty: true, draft: { ...d, triggers: [...d.triggers, trigger] } };
     }
     case 'UPDATE_TRIGGER': {
       if (!d.triggers.some((t) => t.id === action.id)) return state;

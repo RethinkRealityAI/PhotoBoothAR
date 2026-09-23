@@ -826,7 +826,10 @@ export default function StudioShell() {
             cam={{ videoRef: cam.videoRef, ready: cam.ready, error: camError, retry: cam.retry }}
             headScale={headScale}
             lighting={lighting}
-            occlusionEnabled={source === 'db'}
+            // Platform events only, so a frozen coded event can never start
+            // depth-clipping — plus the DEV harness (/dev/studio), which mounts a
+            // coded event and is where occlusion is verified headlessly.
+            occlusionEnabled={source === 'db' || (import.meta.env.DEV && base === '/dev/studio')}
             debugOcclusion={debugOcclusion}
             faceVisible={faceVisible}
             onFaceVisible={setFaceVisible}
