@@ -8,7 +8,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
-import { signUpWithEmail, resendConfirmation } from '../../lib/auth';
+import { signUpWithEmail, signInWithGoogle, resendConfirmation } from '../../lib/auth';
 import { usePageTitle } from '../../lib/usePageTitle';
 
 const inputClass =
@@ -28,6 +28,26 @@ export default function Signup() {
   const [submitted, setSubmitted] = useState(false);
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  /** Same handler as Login: Supabase OAuth creates the account on first use,
+   *  so "Continue with Google" is a signup path too. */
+  async function handleGoogle() {
+    if (googleLoading) return;
+    setError(null);
+    setGoogleLoading(true);
+    try {
+      const { error: err } = await signInWithGoogle();
+      if (err) {
+        setError(err.message);
+        setGoogleLoading(false);
+      }
+      // On success the browser navigates away to Google — keep the spinner.
+    } catch {
+      setError('Something went wrong. Please try again.');
+      setGoogleLoading(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -111,8 +131,7 @@ export default function Signup() {
               <p className="mt-3 text-sm leading-relaxed text-brand-muted/80">
                 We sent a confirmation link to{' '}
                 <span className="text-brand-fg">{email.trim()}</span>. Click it to activate your
-                account — once confirmed, you&rsquo;ll land in your studio at{' '}
-                <span className="text-accent">/host</span>.
+                account — once confirmed, you&rsquo;ll go straight to your events.
               </p>
               {promoCode.trim() !== '' && (
                 <p className="mt-3 text-sm leading-relaxed text-brand-muted/80">
@@ -159,7 +178,7 @@ export default function Signup() {
 
               <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
                 <label className="flex flex-col gap-1.5">
-                  <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
+                  <span className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
                     Display name
                   </span>
                   <input
@@ -175,7 +194,7 @@ export default function Signup() {
                 </label>
 
                 <label className="flex flex-col gap-1.5">
-                  <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
+                  <span className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
                     Email
                   </span>
                   <input
@@ -190,7 +209,7 @@ export default function Signup() {
                 </label>
 
                 <label className="flex flex-col gap-1.5">
-                  <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
+                  <span className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
                     Password
                   </span>
                   <div className="relative">
@@ -225,7 +244,7 @@ export default function Signup() {
                 </label>
 
                 <label className="flex flex-col gap-1.5">
-                  <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
+                  <span className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
                     Promo code <span className="text-brand-muted/40">(optional)</span>
                   </span>
                   <input
@@ -253,6 +272,23 @@ export default function Signup() {
                   {submitting ? 'Creating account…' : 'Create account'}
                 </button>
               </form>
+
+              <div className="my-6 flex items-center gap-3">
+                <div className="h-px flex-1 bg-white/10" />
+                <span className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/50">
+                  or
+                </span>
+                <div className="h-px flex-1 bg-white/10" />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleGoogle}
+                disabled={googleLoading}
+                className="w-full rounded-full border border-white/15 bg-white/[0.04] px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {googleLoading ? 'Redirecting…' : 'Continue with Google'}
+              </button>
 
               <p className="mt-4 text-center text-[11px] leading-relaxed text-brand-muted/50">
                 By continuing you agree to the{' '}

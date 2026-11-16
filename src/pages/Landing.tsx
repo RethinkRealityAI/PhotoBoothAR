@@ -60,6 +60,8 @@ import challengesFeaturePoster from '../assets/landing/challenges-feature-poster
 import cardsFeatureVideo from '../assets/landing/cards-feature.mp4';
 import cardsFeaturePoster from '../assets/landing/cards-feature-poster.jpg';
 import { ENTITLEMENTS, formatPostCap, formatRetention } from '../lib/plans';
+import { BETA_FREE, pricingCopy } from '../lib/beta';
+import ReportIssueButton from '../components/support/ReportIssueButton';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -168,7 +170,15 @@ interface Tier {
  * and the footer has a contact route. "White-glove setup" stays OUT — that is
  * a promise about a human doing the setup for you, and shipping a ticket
  * system does not make it true. Put it back when somebody is actually
- * committed to doing it, not before. */
+ * committed to doing it, not before.
+ *
+ * AI: every event on EVERY tier gets 3 free AI frames (ai-generate-image
+ * FREE_IMAGES_PER_EVENT), and aiStudio itself is on from Essentials — so an
+ * "AI event studio" bullet on Premium alone was false. Frames are not gated at
+ * all, so "Every frame & effect" on Essentials implied Free lacked them; video
+ * capture (ENTITLEMENTS.free.videoEnabled false → essentials true) is the real
+ * step up. The "+N AI credits" lines are the billing catalogue's
+ * credits_granted (migration 029: 20 / 100 / 130; Pro 300 a month). */
 const TIERS: Tier[] = [
   {
     name: 'Free',
@@ -180,7 +190,8 @@ const TIERS: Tier[] = [
       'Photo booth + live wall',
       formatPostCap(ENTITLEMENTS.free.maxPosts, ENTITLEMENTS.free.videoEnabled),
       formatRetention(ENTITLEMENTS.free.retentionDays),
-      'A subtle Beamwall credit',
+      '3 free AI frames per event',
+      'Small Beamwall watermark on photos',
     ],
   },
   {
@@ -190,22 +201,23 @@ const TIERS: Tier[] = [
     blurb: 'Everything a small celebration needs.',
     features: [
       formatPostCap(ENTITLEMENTS.essentials.maxPosts, ENTITLEMENTS.essentials.videoEnabled),
-      'Every frame & effect',
+      'Video capture',
       'No watermark',
       formatRetention(ENTITLEMENTS.essentials.retentionDays),
+      '+20 AI credits',
     ],
   },
   {
     name: 'Premium',
     price: '$99',
     unit: 'per event',
-    blurb: 'The full experience, most hosts pick this.',
+    blurb: 'The full experience, cards included.',
     features: [
-      'Unlimited photos & video',
-      'AI event studio',
-      'Greeting cards',
+      formatPostCap(ENTITLEMENTS.premium.maxPosts, ENTITLEMENTS.premium.videoEnabled),
+      'Keepsake cards',
       formatRetention(ENTITLEMENTS.premium.retentionDays),
       'Priority support',
+      '+100 AI credits',
     ],
     popular: true,
   },
@@ -219,9 +231,12 @@ const TIERS: Tier[] = [
       'Keepsake highlight film',
       'Premium card renders',
       formatRetention(ENTITLEMENTS.deluxe.retentionDays),
+      '+130 AI credits',
     ],
   },
 ];
+
+const PRICING = pricingCopy(BETA_FREE);
 
 /** "How it works" PRESENTATION — copy comes from content.howSteps (same fixed
  *  length 3, merged by index). `image` is the bundled cutout the CMS override
@@ -237,11 +252,11 @@ const HOW_STEPS = [
  *  card (vendored via remote-assets); a tinted glow paints the card until it
  *  loads or if it ever fails. */
 const EVENT_TYPES = [
+  { rgb: '232, 121, 249', image: EVENT_WEDDING },
+  { rgb: '251, 146, 60', image: EVENT_BIRTHDAY },
+  { rgb: '212, 175, 55', image: EVENT_GALA },
   { rgb: '91, 140, 255', image: EVENT_CONFERENCE },
   { rgb: '34, 211, 238', image: EVENT_TRADESHOW },
-  { rgb: '232, 121, 249', image: EVENT_WEDDING },
-  { rgb: '212, 175, 55', image: EVENT_GALA },
-  { rgb: '251, 146, 60', image: EVENT_BIRTHDAY },
   { rgb: '124, 108, 247', image: EVENT_ACTIVATION },
 ];
 
@@ -504,7 +519,7 @@ function FeatureSection({ feature, content }: { feature: FeaturePresentation; co
 /* ── Page ───────────────────────────────────────────────────────────── */
 
 export default function Landing() {
-  usePageTitle('Beamwall · AR photo booth & live wall for events');
+  usePageTitle('Beamwall — your event photo booth, on every guest’s phone');
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -716,7 +731,9 @@ export default function Landing() {
                   {content.hero.badge}
                 </span>
               </div>
-              <h1 className="max-w-3xl font-serif text-5xl leading-[1.05] text-shadow-lux sm:text-6xl">
+              {/* text-balance: at 390px the headline otherwise strands "booth"
+                  alone on a fourth line. */}
+              <h1 className="max-w-3xl text-balance font-serif text-5xl leading-[1.05] text-shadow-lux sm:text-6xl">
                 {content.hero.titlePre}{' '}
                 <span className="text-foil-static">{content.hero.titleHighlight}</span>
               </h1>
@@ -829,6 +846,26 @@ export default function Landing() {
             </div>
           </section>
 
+          {/* Interactive showcase — the product itself, embedded as a staged
+              two-column demo (copy · phone → beam → live wall). Placed right
+              after How it works so the loop a visitor just read about is the
+              next thing they can try. Moved as a WHOLE section, so the GSAP
+              node sets registered at mount are unchanged.
+              Camera only starts on an explicit tap inside ShowcasePhone; the
+              heavy AR chunk (MediaPipe/Three) is code-split behind React.lazy.
+              It owns its copy, so the section has no header of its own. */}
+          <section id="demo" data-parallax-scope data-showcase-root className="mt-32 w-full scroll-mt-24">
+            <div data-reveal className="w-full">
+              <Suspense
+                fallback={
+                  <div className="mx-auto h-[420px] w-full max-w-6xl motion-safe:animate-pulse rounded-3xl border border-white/10 bg-white/[0.03] lg:h-[560px]" />
+                }
+              >
+                <InteractiveShowcase />
+              </Suspense>
+            </div>
+          </section>
+
           {/* Feature stories — one immersive section per pillar. Tighter
               rhythm on mobile where each section already stacks tall. */}
           <div className="mt-24 flex w-full max-w-5xl flex-col gap-20 sm:mt-36 sm:gap-36">
@@ -848,7 +885,7 @@ export default function Landing() {
                 Made for every room worth remembering
               </h2>
               <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
-                Built for the people who bring events to life — and the events they dream up.
+                Weddings, birthdays, galas, conferences and brand events — if there&rsquo;s a crowd, there&rsquo;s a wall.
               </p>
             </div>
             {/* Audience chips are VARIABLE-length CMS content, so the reveal
@@ -874,32 +911,13 @@ export default function Landing() {
             </div>
           </section>
 
-          {/* Interactive showcase — the product itself, embedded as a staged
-              two-column demo (copy · phone → beam → live wall). Placed BEFORE
-              pricing so a visitor experiences the magic before they see a price.
-              Camera only starts on an explicit tap inside ShowcasePhone; the
-              heavy AR chunk (MediaPipe/Three) is code-split behind React.lazy.
-              It owns its copy, so the section has no header of its own. */}
-          <section id="demo" data-parallax-scope data-showcase-root className="mt-32 w-full scroll-mt-24">
-            <div data-reveal className="w-full">
-              <Suspense
-                fallback={
-                  <div className="mx-auto h-[420px] w-full max-w-6xl motion-safe:animate-pulse rounded-3xl border border-white/10 bg-white/[0.03] lg:h-[560px]" />
-                }
-              >
-                <InteractiveShowcase />
-              </Suspense>
-            </div>
-          </section>
-
           {/* Pricing */}
           <section id="pricing" className="mt-32 w-full scroll-mt-8">
             <div data-reveal>
-              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">Simple pricing, per event</h2>
+              <h2 className="font-serif text-3xl text-foil-static sm:text-4xl">{PRICING.heading}</h2>
               <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-brand-muted/70">
-                Pay only for the events you host — no subscription required. Start free, upgrade an event
-                whenever you like. Frequent host? Beamwall Pro is <span className="text-brand-fg">$79/month</span> for
-                premium features across every event.
+                {PRICING.intro} Frequent host? Beamwall Pro is <span className="text-brand-fg">$79/month</span> —
+                Premium on every event, plus 300 AI credits a month.
               </p>
             </div>
 
@@ -915,7 +933,7 @@ export default function Landing() {
                 >
                   {t.popular && (
                     <span className="absolute -top-2.5 left-6 rounded-full bg-foil px-3 py-1 font-label uppercase tracking-luxe text-[10px] font-bold text-[color:var(--on-accent)]">
-                      Most popular
+                      Recommended
                     </span>
                   )}
                   <h3 className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">{t.name}</h3>
@@ -940,10 +958,35 @@ export default function Landing() {
                         : 'border border-white/15 bg-white/[0.04] text-brand-fg hover:bg-white/[0.08]'
                     }`}
                   >
-                    {t.name === 'Free' ? 'Start free' : 'Get started'}
+                    {PRICING.cta(t.name)}
                   </Link>
                 </div>
               ))}
+            </div>
+
+            {/* Studio add-on. The creative Studio (custom AR filters, 3D
+                scenes) is no longer the default host path — it's sold to
+                agencies / brands / large organisations. Static markup, so its
+                data-reveal registers at mount like its siblings. The button
+                opens the same support desk as the footer's Contact. */}
+            <div
+              data-reveal
+              className="mt-6 flex flex-col items-center gap-4 rounded-2xl liquid-glass px-6 py-5 text-center sm:flex-row sm:justify-between sm:text-left"
+            >
+              <p className="max-w-2xl text-sm leading-relaxed text-brand-muted/80">
+                <span className="text-brand-fg">Want your own AR filters and 3D scenes?</span> Studio is an
+                add-on for agencies, brands and large organisations.
+              </p>
+              <ReportIssueButton
+                label="Talk to us"
+                showIcon={false}
+                prefill={{
+                  source: 'landing',
+                  category: 'feature_request',
+                  subject: 'Studio add-on enquiry',
+                }}
+                className="shrink-0 whitespace-nowrap rounded-full border border-white/15 bg-white/[0.04] px-6 py-3 font-label uppercase tracking-luxe text-[10px] font-bold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
+              />
             </div>
           </section>
 
@@ -981,7 +1024,7 @@ export default function Landing() {
             </p>
             <Link
               to="/signup"
-              className="mt-7 rounded-full bg-foil px-9 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
+              className="mt-7 whitespace-nowrap rounded-full bg-foil px-6 py-4 sm:px-9 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
             >
               {content.closing.cta}
             </Link>

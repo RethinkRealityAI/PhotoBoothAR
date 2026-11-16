@@ -19,7 +19,7 @@ const OPERATOR = 'Beamwall, operated by RethinkReality';
 /** One address, one definition. This was a second literal of the same value
  *  that errorReport.ts already owned, so the two could drift. */
 const CONTACT = SUPPORT_EMAIL;
-const UPDATED = 'August 16, 2026';
+const UPDATED = 'November 16, 2026';
 
 interface Section {
   heading: string;
@@ -62,19 +62,20 @@ const PRIVACY: Section[] = [
   {
     heading: 'Who we share it with',
     body: [
-      'Service providers who process data on our behalf under contract: Supabase (authentication, database and media storage), Stripe (payments), and the AI providers that generate optional frames, images and 3D props when a host uses those studio features. These providers may only use the data to provide their service to us.',
+      'Service providers who process data on our behalf under contract: Supabase (authentication, database and media storage), Stripe (payments), and the AI providers that generate optional frames, images and 3D props when a host uses those AI features. These providers may only use the data to provide their service to us.',
+      'If a host turns on AI photo checks for a challenge, the submitted photo is sent to our AI provider to check it against the mission.',
       'At an event, captures and messages a guest submits are shown publicly on that event’s wall by design, and are visible to the event’s host and staff.',
       'We may disclose information if required by law, or to protect the rights and safety of our users and the service.',
     ],
   },
   {
-    // The public homepage streams approved captures from real events into its
-    // hero strip. That use was not covered by any clause here — this states it
-    // plainly, and states how to opt out. FLAGGED FOR COUNSEL alongside the
-    // rest of this document.
+    // The homepage once streamed approved captures into a "live strip"; its
+    // hero now uses bundled illustrations, so the clause naming that strip was
+    // stale and has been dropped. The general permission + opt-out stays.
+    // FLAGGED FOR COUNSEL alongside the rest of this document.
     heading: 'Showing event photos on our own site',
     body: [
-      'We may feature approved captures from real events on our marketing pages, including the live strip on our homepage, to show what the product does. Only captures a host has approved and not hidden are ever eligible.',
+      'We may feature approved captures from real events on our marketing pages to show what the product does. Only captures a host has approved and not hidden are ever eligible.',
       `Hosts can ask us to exclude their event from this at any time, and guests can ask for a specific capture to be removed, by emailing ${CONTACT}. We remove it from our marketing surfaces on request.`,
       'We do not sell event content.',
     ],

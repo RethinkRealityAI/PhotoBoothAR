@@ -97,7 +97,7 @@ export default function Login() {
           {/* The page had no h1 at all — no title for a screen reader, and the
               first heading on the page was an h2. */}
           <h1 className="mt-2 text-center font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
-            Sign in to your studio
+            Sign in to your events
           </h1>
 
           <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">

@@ -27,7 +27,16 @@ export default function MarketingHeader({
 
   return (
     <header className="sticky top-0 z-40 -mx-6 flex items-center justify-between border-b border-white/5 bg-brand-bg/70 px-6 py-3 backdrop-blur-md">
-      <span className="font-serif text-xl sm:text-2xl font-semibold tracking-wide text-foil-static">Beamwall</span>
+      {/* A link home (was a bare span): below sm the nav hides Demo/Pricing/
+          Guides, so on /guides a phone had no way back to the landing page.
+          Same classes as before plus a focus ring — visually unchanged. */}
+      <Link
+        to="/"
+        aria-label="Beamwall home"
+        className="rounded font-serif text-xl sm:text-2xl font-semibold tracking-wide text-foil-static focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
+      >
+        Beamwall
+      </Link>
       <nav className="liquid-glass flex items-center gap-1.5 rounded-full p-1.5">
         <a href={`${anchorBase}#demo`} className={navLink('demo')}>
           Demo
@@ -56,7 +65,7 @@ export default function MarketingHeader({
           className="whitespace-nowrap rounded-full bg-foil px-3 py-2 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:px-5"
         >
           <span className="sm:hidden">Create event</span>
-          <span className="hidden sm:inline">Create your event</span>
+          <span className="hidden sm:inline">Create your free event</span>
         </Link>
       </nav>
     </header>

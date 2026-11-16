@@ -116,7 +116,7 @@ function setFavicon(href: string) {
 }
 
 /** Must match index.html's <title> so reset === the pre-event state. */
-const PLATFORM_TITLE = 'Beamwall · AR photo booth & live wall for events';
+const PLATFORM_TITLE = 'Beamwall — your event photo booth, on every guest’s phone';
 
 /**
  * Restore the platform-default look when leaving an event context: remove the
