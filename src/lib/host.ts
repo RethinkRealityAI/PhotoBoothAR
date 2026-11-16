@@ -594,6 +594,122 @@ export async function updateEventName(eventUuid: string, name: string): Promise<
   return (data?.length ?? 0) > 0;
 }
 
+/* ------------------------------------------------------------------ */
+/* Event details (name · date · venue) — every store, one helper       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * An event's name lives in THREE places the guest app reads: `events.name`
+ * (lists, the copilot), `events.config.copy.eventName/fullName` (+ legacy
+ * `config.name` when present — runtime.ts prefers it over the row), and the
+ * Branding overrides in app_settings (which win over both at runtime when the
+ * host has set them). PURE mapping: given the current config + branding and
+ * the new details, the patches that put them everywhere. `brandingPatch` is
+ * null when Branding never overrode a name (writing one would CREATE an
+ * override that pins today's spelling forever). `venue: ''` clears it.
+ */
+export function eventDetailsPatches(
+  config: Record<string, unknown> | null | undefined,
+  branding: { eventName?: string; fullName?: string } | null | undefined,
+  details: { name: string; venue?: string },
+): { configPatch: Record<string, unknown>; brandingPatch: { eventName?: string; fullName?: string } | null } {
+  const name = details.name.trim();
+  const cfg = config ?? {};
+  const copy = { ...((cfg.copy && typeof cfg.copy === 'object' ? cfg.copy : {}) as Record<string, unknown>) };
+  copy.eventName = name;
+  copy.fullName = name;
+  if (details.venue !== undefined) {
+    const venue = details.venue.trim().slice(0, 120);
+    if (venue) copy.venue = venue;
+    else delete copy.venue;
+  }
+  const configPatch: Record<string, unknown> = { copy };
+  if (typeof cfg.name === 'string') configPatch.name = name;
+  const b = branding ?? {};
+  const brandingPatch: { eventName?: string; fullName?: string } = {};
+  if (typeof b.eventName === 'string' && b.eventName.trim() !== '') brandingPatch.eventName = name;
+  if (typeof b.fullName === 'string' && b.fullName.trim() !== '') brandingPatch.fullName = name;
+  return { configPatch, brandingPatch: Object.keys(brandingPatch).length > 0 ? brandingPatch : null };
+}
+
+export interface EventDetailsResult {
+  ok: boolean;
+  /** The stores that did NOT take the write, in the host's words. */
+  failed: Array<'name' | 'date' | 'details' | 'branding'>;
+}
+
+/**
+ * Save name · date · venue to every store in one call (the Settings "Event
+ * details" card). Each write is checked; the result names what failed so the
+ * screen can say exactly that instead of a blanket "Saved".
+ */
+export async function saveEventDetails(
+  ev: { id: string; slug: string; config: Record<string, unknown> | null },
+  details: { name: string; date: string; venue: string },
+  current: { name: string; date: string },
+): Promise<EventDetailsResult> {
+  const failed: EventDetailsResult['failed'] = [];
+  const name = details.name.trim();
+  if (!name) return { ok: false, failed: ['name'] };
+  const { getBranding, setBranding } = await import('./db');
+  const branding = await getBranding(ev.slug);
+  const { configPatch, brandingPatch } = eventDetailsPatches(ev.config, branding, { name, venue: details.venue });
+  if (name !== current.name.trim() && !(await updateEventName(ev.id, name))) failed.push('name');
+  if (details.date !== current.date && !(await updateEventDate(ev.id, details.date))) failed.push('date');
+  if (!(await updateEventConfig(ev.id, configPatch))) failed.push('details');
+  if (brandingPatch) {
+    try {
+      await setBranding(ev.slug, brandingPatch, { strict: true });
+    } catch {
+      failed.push('branding');
+    }
+  }
+  return { ok: failed.length === 0, failed };
+}
+
+export interface DuplicateEventResult {
+  event: HostEventRow | null;
+  error: CreateEventError | null;
+  /** The new event exists but its look/branding did not copy over. */
+  partial: boolean;
+}
+
+/**
+ * "Duplicate event": a NEW event through the same create-event path as the
+ * wizard (fresh slug, `<slug>-copy` then -copy-2 …), then the original's
+ * config (cloneEventConfig — look, frames, filters, copy, brief; never posts,
+ * cards or the poster) and its Branding overrides. Posts and cards key on the
+ * slug, so a fresh slug guarantees none of them come along.
+ */
+export async function duplicateEvent(src: HostEventRow): Promise<DuplicateEventResult> {
+  const { cloneEventConfig, duplicateName, duplicateSlugCandidates } = await import('./eventList');
+  const name = duplicateName(src.name);
+  let created: CreateEventResult | null = null;
+  for (const slug of duplicateSlugCandidates(src.slug)) {
+    created = await createEvent({
+      eventName: name,
+      slug,
+      eventType: src.event_type,
+      ...(src.starts_at ? { startsAt: src.starts_at } : {}),
+    });
+    if (created.error !== 'slug_taken' && created.error !== 'reserved_slug') break;
+  }
+  if (!created || !created.event) return { event: null, error: created?.error ?? 'internal', partial: false };
+  const ev = created.event;
+  let partial = !(await updateEventConfig(ev.id, cloneEventConfig(src.config, name)));
+  try {
+    const { getBranding, setBranding } = await import('./db');
+    const b = await getBranding(src.slug);
+    if (Object.keys(b).length > 0) {
+      const renamed = { ...b, ...(b.eventName ? { eventName: name } : {}), ...(b.fullName ? { fullName: name } : {}) };
+      await setBranding(ev.slug, renamed, { strict: true });
+    }
+  } catch {
+    partial = true;
+  }
+  return { event: ev, error: null, partial };
+}
+
 export type DeleteEventError =
   | 'invalid_json'
   | 'invalid_body'

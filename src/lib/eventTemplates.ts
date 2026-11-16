@@ -16,6 +16,8 @@
  * every template is neutral and ready for any customer.
  */
 
+import { contrastRatio, deriveTheme, readableOn, relativeLuminance, type ExtractedPalette } from './themeDerive';
+
 export type TemplateId = 'wedding' | 'gala' | 'birthday' | 'corporate' | 'party';
 
 export interface EventTemplate {
@@ -194,6 +196,46 @@ export function hexToRgbString(hex: string): string | null {
   if (!m) return null;
   const n = parseInt(m[1], 16);
   return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+}
+
+/**
+ * Client mirror of the create-event edge function's accepted `eventType`s
+ * (supabase/functions/create-event/index.ts EVENT_TYPES). A test pins every
+ * template's eventType into this list — a Corporate template once 400'd
+ * because the server list lacked it. Keep the two in step by hand.
+ */
+export const CREATE_EVENT_TYPES = ['wedding', 'gala', 'birthday', 'corporate', 'party', 'remote'] as const;
+
+/**
+ * A poster/invitation palette → the 8 theme tokens, contrast-safe. The accent
+ * anchors a full derived theme (deriveTheme); the poster's own background,
+ * surface, text and second accent replace the derived ones only when they are
+ * valid hexes — and the text colour is trusted only if it reads on the
+ * background (≥ 4.5:1). Otherwise text and muted text are derived for that
+ * background instead, so a model's bad pairing can never ship an unreadable
+ * booth. Returns {} when the palette has no usable accent (keep the template).
+ */
+export function paletteThemePatch(palette: ExtractedPalette | null | undefined): Record<string, string> {
+  if (!palette) return {};
+  const accent = palette.accent ?? palette.accent2;
+  if (!accent) return {};
+  const base = deriveTheme(accent, 'dark');
+  if (!base) return {};
+  const out = { ...base };
+  const bg = palette.bg;
+  if (bg) {
+    out['--color-brand-bg'] = bg;
+    out['--color-brand-surface'] = palette.surface ?? base['--color-brand-surface'];
+    // Re-derive text for THIS background unless the poster's own text passes.
+    const dark = relativeLuminance(bg) < 0.18;
+    const fgOk = palette.fg !== null && contrastRatio(palette.fg, bg) >= 4.5;
+    out['--color-brand-fg'] = fgOk && palette.fg ? palette.fg : readableOn(bg, 0, 0, dark ? 0.95 : 0.08, 7);
+    out['--color-brand-muted'] = readableOn(bg, 0, 0, dark ? 0.72 : 0.34, 4.5);
+  } else if (palette.fg !== null && contrastRatio(palette.fg, out['--color-brand-bg']) >= 4.5) {
+    out['--color-brand-fg'] = palette.fg;
+  }
+  if (palette.accent2 && palette.accent) out['--color-accent-2'] = palette.accent2;
+  return out;
 }
 
 /** Theme-var overrides that re-accent any template with one chosen colour.
