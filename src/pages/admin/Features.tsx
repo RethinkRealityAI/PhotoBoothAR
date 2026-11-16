@@ -28,7 +28,7 @@ import LoadError from '../../components/ui/LoadError';
 import StatusPill from '../../components/ui/StatusPill';
 import FeaturePreview from '../../components/admin/FeaturePreview';
 import { ENTITLEMENTS, normalizeTier, type PlanTier } from '../../lib/plans';
-import { diffPlanDefaults, type FeatureSet } from '../../lib/features';
+import { diffPlanDefaults, normalizeResolvedFeatures, type FeatureSet } from '../../lib/features';
 import { planChange, expiryWarning } from '../../lib/planSync';
 import {
   fetchOrgs, fetchFeatureFlags, resolveFeaturesFor, setOrgOverride, clearOrgOverride,
@@ -47,11 +47,13 @@ const LAYER_LABEL: Record<ResolvedFeature['layer'], string> = {
   legacy: 'legacy event',
 };
 
-/** Turn the resolver's provenance map into the plain shape the selectors read. */
+/** Turn the resolver's provenance map into the plain shape the selectors read.
+ *  Through the SAME normalizer EventStudio reads event_features with, so the
+ *  preview agrees with the app — including "no `studio` row yet = Studio on". */
 function toFeatureSet(resolved: Record<string, ResolvedFeature>): FeatureSet {
-  const base: Record<string, unknown> = { ...ENTITLEMENTS.free };
-  for (const [k, v] of Object.entries(resolved)) base[k] = v.value;
-  return base as unknown as FeatureSet;
+  const flat: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(resolved)) flat[k] = v.value;
+  return normalizeResolvedFeatures(flat, ENTITLEMENTS.free);
 }
 
 function fmtValue(v: unknown): string {

@@ -29,6 +29,15 @@ export interface Entitlements {
   projectionMode: boolean;
   /** Media retention in days; null = unlimited. */
   retentionDays: number | null;
+  /**
+   * The creative Studio (and its Assets tab) — an ADD-ON for teams and large
+   * organisations, granted per org by override, never by plan. false on every
+   * tier here; the live value comes from the DB resolver (migration 039), and
+   * a resolver answer WITHOUT this key means "not rolled out yet" = true (see
+   * features.ts normalizeResolvedFeatures). Not the same thing as `aiStudio`,
+   * which gates AI generation and is unchanged.
+   */
+  studio: boolean;
 }
 
 export const ENTITLEMENTS: Record<PlanTier, Entitlements> = {
@@ -41,6 +50,7 @@ export const ENTITLEMENTS: Record<PlanTier, Entitlements> = {
     cardsPremiumRender: false,
     projectionMode: true,
     retentionDays: 7,
+    studio: false,
   },
   essentials: {
     maxPosts: 500,
@@ -51,6 +61,7 @@ export const ENTITLEMENTS: Record<PlanTier, Entitlements> = {
     cardsPremiumRender: false,
     projectionMode: true,
     retentionDays: 90,
+    studio: false,
   },
   premium: {
     maxPosts: null,
@@ -61,6 +72,7 @@ export const ENTITLEMENTS: Record<PlanTier, Entitlements> = {
     cardsPremiumRender: false,
     projectionMode: true,
     retentionDays: 365,
+    studio: false,
   },
   deluxe: {
     maxPosts: null,
@@ -71,6 +83,7 @@ export const ENTITLEMENTS: Record<PlanTier, Entitlements> = {
     cardsPremiumRender: true,
     projectionMode: true,
     retentionDays: 365,
+    studio: false,
   },
 };
 
@@ -82,6 +95,8 @@ export const ENTITLEMENTS: Record<PlanTier, Entitlements> = {
 export const LEGACY_ENTITLEMENTS: Entitlements = {
   ...ENTITLEMENTS.deluxe,
   watermark: true,
+  // The frozen sites have always had the full studio; never gated.
+  studio: true,
 };
 
 const TIERS: PlanTier[] = ['free', 'essentials', 'premium', 'deluxe'];
@@ -109,6 +124,9 @@ export function entitlementsFor(tier: PlanTier, hasProSubscription = false): Ent
     cardsPremiumRender: base.cardsPremiumRender || pro.cardsPremiumRender,
     projectionMode: base.projectionMode || pro.projectionMode,
     retentionDays: maxN(base.retentionDays, pro.retentionDays),
+    // Pro does not include the Studio add-on (premium's value is false, so an
+    // OR keeps the event's own value) — written out like every other field.
+    studio: base.studio || pro.studio,
   };
 }
 
