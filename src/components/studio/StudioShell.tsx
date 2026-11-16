@@ -89,6 +89,7 @@ import PropertiesDock from './PropertiesDock';
 import DragGhost from './DragGhost';
 import DirectorPanel from './DirectorPanel';
 import TestOnPhone from './TestOnPhone';
+import PublishToLibrary from './PublishToLibrary';
 import { useStudioDnd } from './useStudioDnd';
 import Tooltip from '../ui/Tooltip';
 import HelpButton from './HelpButton';
@@ -720,6 +721,12 @@ export default function StudioShell() {
           </Tooltip>
           <HelpButton topic="director" label="How the Director works" side="bottom" />
         </div>
+        {/* Platform admins only (it renders nothing until the admin check
+            passes). Gated to platform studios so a legacy mount never even
+            makes the check. */}
+        {source === 'db' && base.startsWith('/host/') && (
+          <PublishToLibrary experienceId={state.draft.id} dirty={state.dirty} defaultName={state.draft.name} />
+        )}
         {saveError && <span className="hidden sm:inline text-rose-400 text-[10px] font-sans max-w-[180px] text-right">{saveError}</span>}
         {/* Autosave status. Says exactly what it is — a local copy on THIS
             device, not a save to the event — so it can never be mistaken for
