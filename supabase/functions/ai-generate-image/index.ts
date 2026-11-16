@@ -11,14 +11,13 @@
  *                                               key out; default false — prompt
  *                                               unchanged for other callers)
  *     layout?: 'classic-border' | 'full-scene'  (frame archetype; border kind
- *            | 'duo-scene' | 'corner-overlay'    only. Default 'classic-border'
- *            | 'bottom-third'                    = the exact prompt this
- *                                               function has always sent.)
+ *            | 'duo-scene' | 'corner-overlay'    only. Default 'classic-border'.)
+ *            | 'bottom-third'
  *     lettering?: {                             (optional lettering ON the frame.
  *       text: string (1-40 chars),               Absent → the standing "no text"
- *       style: 'cursive-monogram'                ban is sent verbatim and the
- *            | 'serif-initials'                  prompt is byte-identical to
- *            | 'script-name'                     before. Malformed → 400.
+ *       style: 'cursive-monogram'                ban is sent verbatim.
+ *            | 'serif-initials'                  Malformed → 400.
+ *            | 'script-name'
  *            | 'modern-block',                   placement 'standalone' = the
  *       placement: 'top' | 'bottom'              lettering IS the artwork, so
  *                | 'integrated'                  the caller sends kind
@@ -32,9 +31,31 @@
  *                                               request unchanged for callers.
  *                                               A fetch failure degrades to no
  *                                               reference, never fails the job.)
+ *     — ai-frames additions (all optional; a client that sends none of them
+ *       gets the same CONTRACT as before, though the frame prompt itself is
+ *       restructured — see buildGreenScreenFramePrompt in frameLayout.ts):
+ *     preset?: string        a FRAME_PRESET_STYLE id; its style sentence joins
+ *                            the art-direction layer (unknown id → ignored)
+ *     extra?: string         the host's OWN words (≤600 chars). When present it
+ *                            is the fenced brief instead of `prompt` — `prompt`
+ *                            then only carries the same content for servers
+ *                            that predate these fields.
+ *     plaque?: boolean       reserve a calm band for client-composited text
+ *     correction?: string    a FRAME_CORRECTIONS code (the one auto-retry)
+ *     retryOf?: uuid         the job this regenerates — FREE when jobPolicy
+ *                            retryEligibility passes and the atomic claim wins;
+ *                            otherwise an ordinary charged generation
+ *     variants?: 1|2|3       parallel takes (charged per VARIANT_PRICING;
+ *                            clamped to 1 on a free trial or a retry)
  *
- * 200 → { job, experience }        job = ai_jobs row (succeeded),
+ * 200 → { job, experience, experiences, charged, variants }
+ *                                  job = ai_jobs row (succeeded),
  *                                  experience = unpublished experiences row
+ *                                  (the first take — what older clients read),
+ *                                  experiences = every take, charged = credits
+ *                                  actually spent after any partial refund
+ * 409 → { error: 'retry_already_used' }  a concurrent request claimed the
+ *                                        free retry first (nothing charged)
  * 400 → { error: 'invalid_json' | 'invalid_body' }
  * 401 → { error: 'unauthorized' }
  * 402 → { error: 'insufficient_credits' }
@@ -57,9 +78,12 @@
  *
  * Env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY (injected),
  *      GEMINI_API_KEY (secret — moved server-side from the old client-only
- *      VITE_GEMINI_API_KEY), GEMINI_FRAME_MODEL (optional — model ATTEMPTED for
- *      a non-classic frame archetype before falling back to GEMINI_MODEL;
- *      default 'gemini-3-pro-image').
+ *      VITE_GEMINI_API_KEY), GEMINI_IMAGE_MODEL (optional — the production
+ *      image model; default 'gemini-2.5-flash-image', today's id),
+ *      GEMINI_FRAME_MODEL (optional — model ATTEMPTED for a non-classic frame
+ *      archetype before falling back to the production model; default
+ *      'gemini-3-pro-image'). Both are secrets, so a model change is a secret
+ *      change, never a redeploy.
  *      Higgsfield: EITHER HIGGSFIELD_API_KEY as 'keyId:keySecret' (split on the
  *      FIRST colon) OR the HIGGSFIELD_API_KEY_ID + HIGGSFIELD_API_SECRET pair.
  *      HIGGSFIELD_API_URL (default 'https://platform.higgsfield.ai') and
@@ -81,10 +105,30 @@ import {
   FRAME_LAYOUT_SPEC,
   LAYOUTS,
   artDirectionFor,
+  buildGreenScreenFramePrompt,
+  correctionSentence,
   normalizeLettering,
+  presetStyle,
   type FrameLayout,
   type LetteringSpec,
 } from './frameLayout.ts';
+import {
+  GEMINI_BUDGET_MS,
+  PREFER_MODEL_MAX_MS,
+  REFERENCE_FETCH_MS,
+  VARIANT_NUDGES,
+  attemptTimeout,
+  grantedVariants,
+  imageFormat,
+  parseRetryOf,
+  parseVariants,
+  partialRefund,
+  pickImagePart,
+  requestCost,
+  retryEligibility,
+  type GeminiPart as GeminiPartBody,
+  type RetryOriginal,
+} from './jobPolicy.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -93,7 +137,10 @@ const corsHeaders = {
 };
 
 const ASSETS_BUCKET = 'assets';
-const GEMINI_MODEL = 'gemini-2.5-flash-image';
+/** Production image model. Today's id is the default; GEMINI_IMAGE_MODEL
+ *  overrides it (secretEnv strips dashboard quoting). Read once per isolate. */
+const GEMINI_MODEL_DEFAULT = 'gemini-2.5-flash-image';
+const GEMINI_MODEL = secretEnv('GEMINI_IMAGE_MODEL') ?? GEMINI_MODEL_DEFAULT;
 /** Model tried FIRST for a non-classic frame archetype — those are composition
  *  problems (a whole illustrated scene with an exact cutout), which the thinking
  *  image model handles far better than flash. Overridable via GEMINI_FRAME_MODEL
@@ -180,7 +227,8 @@ interface InlineImage {
  */
 async function fetchReferenceInline(url: string): Promise<InlineImage | null> {
   try {
-    const res = await fetch(url);
+    // Bounded: a hung storage read must not eat the generation's budget.
+    const res = await fetch(url, { signal: AbortSignal.timeout(REFERENCE_FETCH_MS) });
     if (!res.ok) { console.warn('[ai-generate-image] reference fetch failed', res.status); return null; }
     const mimeType = (res.headers.get('content-type') ?? '').split(';')[0].trim();
     if (!mimeType.startsWith('image/')) { console.warn('[ai-generate-image] reference not an image', mimeType); return null; }
@@ -232,13 +280,24 @@ function buildPrompt(
    *  the 3D concept image does this, and layering sticker art direction on top
    *  of it would fight the wearable-geometry rules it carries. */
   artDirection = true,
-  /** Frame archetype — border + greenScreen only. 'classic-border' reproduces
-   *  the prompt this function has always sent, byte for byte. */
+  /** Frame archetype — border + greenScreen only (default 'classic-border'). */
   layout: FrameLayout = 'classic-border',
-  /** Opt-in lettering ON the artwork. Absent/null → the art direction ends with
-   *  the standing ban line, byte-identical to before this parameter existed. */
+  /** Opt-in lettering ON the artwork. Absent/null → the standing ban line. */
   lettering: LetteringSpec | null = null,
+  /** Green-screen FRAME extras (ai-frames): occasion register, preset style,
+   *  calm text plaque, the one auto-retry's correction sentence. */
+  frame: { occasion?: string | null; style?: string | null; plaque?: boolean; correction?: string | null } = {},
 ): string {
+  // A green-screen FRAME is the whole layered prompt — mechanics → pixel
+  // geometry + safe zones → (correction) → art direction → fenced brief LAST —
+  // built by the drift-tested mirror of the client's builder.
+  if (greenScreen && kind === 'border' && artDirection) {
+    return buildGreenScreenFramePrompt(prompt, {
+      accentHexes, eventType, layout, lettering,
+      occasion: frame.occasion ?? null, style: frame.style ?? null,
+      plaque: frame.plaque === true, correction: frame.correction ?? null,
+    });
+  }
   const art = artDirection
     ? artDirectionFor(prompt, kind, accentHexes, eventType, layout, lettering)
     : `Design brief: ${prompt.trim()}`;
@@ -332,14 +391,30 @@ async function generateGemini(
     ? [{ inlineData: { mimeType: reference.mimeType, data: reference.data } }, { text: prompt }]
     : [{ text: prompt }];
 
-  const post = (model: string, generationConfig: Record<string, unknown>) => fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({ contents: [{ parts }], generationConfig }),
-    },
-  );
+  // EVERY attempt is bounded by one shared deadline (Deno's fetch has no
+  // default timeout). A hung Gemini call used to run until the platform killed
+  // the isolate — before refundAndFail could run, leaving credits spent on a
+  // job stuck 'running' (ai-job-status now sweeps those too).
+  const deadline = Date.now() + GEMINI_BUDGET_MS;
+  const post = (model: string, generationConfig: Record<string, unknown>, capMs = Infinity) => {
+    const ms = attemptTimeout(deadline, Date.now(), capMs);
+    if (ms === null) return Promise.reject(new AiError('generation_failed', 'gemini_timeout'));
+    return fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({ contents: [{ parts }], generationConfig }),
+        signal: AbortSignal.timeout(ms),
+      },
+    ).catch((e: unknown) => {
+      if (e instanceof AiError) throw e;
+      const name = (e as { name?: string })?.name;
+      // TimeoutError (AbortSignal.timeout) / AbortError → a clean, refundable failure.
+      if (name === 'TimeoutError' || name === 'AbortError') throw new AiError('generation_failed', 'gemini_timeout');
+      throw new AiError('generation_failed', `gemini_network_${String(name ?? 'error').toLowerCase()}`);
+    });
+  };
 
   // Guarded model chain. A creative frame archetype is a composition problem,
   // so it gets ONE attempt at the stronger image model first. A 4xx there is
@@ -351,7 +426,7 @@ async function generateGemini(
   let res: Response | null = null;
   if (preferModel && preferModel !== GEMINI_MODEL) {
     try {
-      const attempt = await post(preferModel, fullConfig);
+      const attempt = await post(preferModel, fullConfig, PREFER_MODEL_MAX_MS);
       if (attempt.ok) res = attempt;
       else {
         const detail = await attempt.text().catch(() => '');
@@ -390,14 +465,18 @@ async function generateGemini(
       throw new AiError(code, `gemini_http_${res.status}`);
     }
   }
-  const body = (await res.json()) as {
+  const body = (await res.json().catch(() => {
+    throw new AiError('generation_failed', 'gemini_body_unreadable');
+  })) as {
     promptFeedback?: { blockReason?: string };
     candidates?: {
       finishReason?: string;
-      content?: { parts?: { inlineData?: { mimeType?: string; data?: string } }[] };
+      content?: { parts?: GeminiPartBody[] };
     }[];
   };
-  const part = body.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
+  // The LAST non-thought image part is the final image — a thinking image
+  // model can emit interim "thought" images first (jobPolicy.pickImagePart).
+  const part = pickImagePart(body.candidates?.[0]?.content?.parts);
   if (part?.inlineData?.data) return base64ToBytes(part.inlineData.data);
 
   // No image — say WHY. All of these are HTTP 200 responses.
@@ -761,13 +840,12 @@ Deno.serve(async (req: Request) => {
     if (provider !== 'gemini' && provider !== 'higgsfield') return json(400, { error: 'invalid_body' });
     const kind = (body.kind ?? '2d_filter') as string;
     if (!KINDS.has(kind)) return json(400, { error: 'invalid_body' });
-    // Frame archetype. Absent → 'classic-border', whose prompt is byte-identical
-    // to what this function has always sent. Only meaningful for a border: a
-    // sticker has one subject, not a canvas layout.
+    // Frame archetype. Absent → 'classic-border'. Only meaningful for a
+    // border: a sticker has one subject, not a canvas layout.
     const layout = (body.layout ?? 'classic-border') as FrameLayout;
     if (!LAYOUTS.has(layout)) return json(400, { error: 'invalid_body' });
     // Optional lettering ON the artwork. Absent (or explicitly null) → no
-    // lettering and a byte-identical prompt; PRESENT BUT MALFORMED is a client
+    // lettering (the standing ban line); PRESENT BUT MALFORMED is a client
     // bug, not a silent "never mind" — a host who typed a name must not be
     // charged a credit for a frame that silently drops it.
     const lettering = body.lettering === undefined || body.lettering === null
@@ -797,6 +875,22 @@ Deno.serve(async (req: Request) => {
     // Absent → the prompt names it, exactly as before.
     const nameHint =
       typeof body.nameHint === 'string' && body.nameHint.trim() ? body.nameHint.trim() : null;
+    // ai-frames fields — all optional and all IGNORED rather than rejected
+    // when malformed (except `extra`, whose length is a real limit), so a stale
+    // or newer client can never break generation.
+    if (body.extra !== undefined && body.extra !== null && (typeof body.extra !== 'string' || body.extra.length > 600)) {
+      return json(400, { error: 'invalid_body' });
+    }
+    const extra = typeof body.extra === 'string' ? body.extra : null;
+    const style = kind === 'border' ? presetStyle(body.preset) : null;
+    const preset = style ? (body.preset as string) : null;
+    const plaque = kind === 'border' && body.plaque === true;
+    const correctionCode = kind === 'border' && correctionSentence(body.correction) ? (body.correction as string) : null;
+    const retryOf = parseRetryOf(body.retryOf);
+    const variantsRequested = parseVariants(body.variants);
+    // The fenced brief: the host's own words when the client sent them apart
+    // from the preset style, else the whole prompt (older clients).
+    const brief = extra ?? prompt;
 
     const sb = serviceClient();
 
@@ -820,23 +914,49 @@ Deno.serve(async (req: Request) => {
     if (memErr) throw memErr;
     if (!member) return json(403, { error: 'forbidden' });
 
+    // 4·. Charge-safe retry (jobPolicy.retryEligibility). A read-only check
+    //     here; the ATOMIC claim that makes double use impossible happens just
+    //     before the job insert. Ineligible → an ordinary, charged generation
+    //     (never an error: the host still gets their frame, at the normal price).
+    let retryEligible = false;
+    if (retryOf) {
+      const { data: original, error: origErr } = await sb
+        .from('ai_jobs')
+        .select('id, org_id, event_id, kind, provider, status, created_at, input')
+        .eq('id', retryOf)
+        .maybeSingle();
+      if (origErr) throw origErr;
+      const verdict = retryEligibility(original as RetryOriginal | null, {
+        eventUuid, orgId, provider, kind, nowMs: Date.now(),
+      });
+      retryEligible = verdict.ok;
+      if (!verdict.ok) console.warn('[ai-generate-image] retryOf not eligible — charging normally', verdict.reason);
+    }
+
     // 4a. Trial allowance: the event's first FREE_IMAGES_PER_EVENT image
     //     generations bypass both the entitlement gate and the credit spend.
+    //     A free RETRY never consumes a slot (input.retryOf set), nor does a
+    //     failed or refunded job — the SQL form of jobPolicy.consumesFreeSlot.
     //     (Count is best-effort — two exactly-concurrent requests could both
     //     read the same count; the worst case is one extra free image.)
-    const { count: usedImages, error: cntErr } = await sb
-      .from('ai_jobs')
-      .select('id', { count: 'exact', head: true })
-      .eq('event_id', eventUuid)
-      .eq('kind', 'image')
-      .neq('status', 'failed');
-    if (cntErr) throw cntErr;
-    const isFreeTrial = (usedImages ?? 0) < FREE_IMAGES_PER_EVENT;
+    let isFreeTrial = false;
+    if (!retryEligible) {
+      const { count: usedImages, error: cntErr } = await sb
+        .from('ai_jobs')
+        .select('id', { count: 'exact', head: true })
+        .eq('event_id', eventUuid)
+        .eq('kind', 'image')
+        .not('status', 'in', '(failed,refunded)')
+        .is('input->>retryOf', null);
+      if (cntErr) throw cntErr;
+      isFreeTrial = (usedImages ?? 0) < FREE_IMAGES_PER_EVENT;
+    }
 
     // 4b. Server-side aiStudio entitlement: paid event tier, active org Pro
     //     subscription, or grandfathered legacy slug. Free tier → upgrade
-    //     (once the trial allowance is exhausted).
-    if (!isFreeTrial) {
+    //     (once the trial allowance is exhausted). An eligible retry skips it:
+    //     it corrects a frame the original job was already entitled to.
+    if (!isFreeTrial && !retryEligible) {
       // Resolved by the DATABASE (migration 028), not by a tier set here. Same
       // three rules as before — paid event tier, active org Pro, legacy slug —
       // plus the ability to comp aiStudio to one customer from /admin/features.
@@ -895,8 +1015,43 @@ Deno.serve(async (req: Request) => {
     // 5. Spend credits FIRST (atomic; raises 'insufficient_credits').
     //    Trial generations cost 0 — nothing is spent and nothing refunds. So do
     //    BYO-key generations: the org is billed by the provider, not by us.
-    const cost = isFreeTrial || byoKey ? 0 : COSTS[provider];
+    //    An eligible RETRY costs 0 too. Variants are charged per
+    //    jobPolicy.VARIANT_PRICING and clamped to one take on a trial / retry.
+    const takes = grantedVariants(variantsRequested, { freeTrial: isFreeTrial, retry: retryEligible });
+    const zeroCost = isFreeTrial || byoKey || retryEligible;
+    const cost = requestCost(COSTS[provider], takes, { zero: zeroCost });
     const ref = { event_uuid: eventUuid, prompt_hash: await promptHash(prompt) };
+
+    // 5·. ATOMIC retry claim — the original's input gains `retriedBy: <new job
+    //     id>` only if it has none yet. Postgres re-checks the WHERE on the
+    //     locked row (READ COMMITTED EvalPlanQual), so of two concurrent claims
+    //     exactly one updates a row; the other sees 0 rows and stops here. The
+    //     new job's id is chosen now so the claim can name it.
+    const newJobId = crypto.randomUUID();
+    let claimedFrom: Record<string, unknown> | null = null;
+    if (retryEligible && retryOf) {
+      const { data: orig, error: readErr } = await sb
+        .from('ai_jobs').select('input').eq('id', retryOf).maybeSingle();
+      if (readErr) throw readErr;
+      const before = ((orig?.input ?? {}) as Record<string, unknown>);
+      const { data: claimed, error: claimErr } = await sb
+        .from('ai_jobs')
+        .update({ input: { ...before, retriedBy: newJobId, retriedAt: new Date().toISOString() } })
+        .eq('id', retryOf)
+        .eq('status', 'succeeded')
+        .is('input->>retriedBy', null)
+        .select('id');
+      if (claimErr) throw claimErr;
+      if (!claimed || claimed.length === 0) return json(409, { error: 'retry_already_used' });
+      claimedFrom = before;
+    }
+    /** Give the claim back (only when nothing was generated on it). */
+    const releaseClaim = async () => {
+      if (!claimedFrom || !retryOf) return;
+      const { error } = await sb.from('ai_jobs').update({ input: claimedFrom })
+        .eq('id', retryOf).eq('input->>retriedBy', newJobId);
+      if (error) console.error('[ai-generate-image] retry claim release failed', retryOf, error);
+    };
     if (cost > 0) {
       const { error: spendErr } = await sb.rpc('spend_credits', {
         p_org: orgId,
@@ -916,6 +1071,7 @@ Deno.serve(async (req: Request) => {
     const { data: job, error: jobErr } = await sb
       .from('ai_jobs')
       .insert({
+        id: newJobId,
         org_id: orgId,
         event_id: eventUuid,
         kind: 'image',
@@ -924,6 +1080,15 @@ Deno.serve(async (req: Request) => {
         input: {
           prompt, kind, transparentBackground, greenScreen, provider,
           ...(kind === 'border' ? { layout } : {}),
+          // ai-frames: what shaped this prompt, and why it cost what it did.
+          ...(extra !== null ? { extra } : {}),
+          ...(preset ? { preset } : {}),
+          ...(plaque ? { plaque: true } : {}),
+          ...(correctionCode ? { correction: correctionCode } : {}),
+          // `retryOf` marks a FREE retry — it is what excludes this job from
+          // the free-trial count and what blocks retrying it again.
+          ...(retryEligible && retryOf ? { retryOf } : {}),
+          ...(takes > 1 ? { variants: takes } : {}),
           // Recorded so a regenerate/audit can see the frame carried a name.
           ...(lettering ? { lettering } : {}),
           ...(referenceImageUrl ? { referenceImageUrl } : {}),
@@ -941,6 +1106,7 @@ Deno.serve(async (req: Request) => {
         });
         if (refundErr) console.error('[ai-generate-image] REFUND FAILED (job insert)', refundErr);
       }
+      await releaseClaim();
       throw jobErr ?? new Error('job_insert_failed');
     }
     const jobId = job.id as string;
@@ -963,9 +1129,23 @@ Deno.serve(async (req: Request) => {
       const eventType = typeof event.event_type === 'string' && event.event_type.trim()
         ? event.event_type
         : null;
-      let fullPrompt = buildPrompt(
-        prompt, kind, transparentBackground, greenScreen, accentHexes, eventType, artDirection, layout,
-        lettering,
+      // The event's free-text occasion ("baby shower", "class of 2027") names
+      // registers the event_type enum cannot — it wins when recognised.
+      const briefCfg = (cfg.brief ?? {}) as Record<string, unknown>;
+      const occasion = typeof briefCfg.occasion === 'string' ? briefCfg.occasion : null;
+      const isFrame = kind === 'border' && greenScreen;
+      const correction = correctionSentence(correctionCode);
+      /** The prompt for take `i` — each extra take gets a VARIANT_NUDGES line
+       *  beside the preset style so the takes genuinely differ. */
+      const promptFor = (i: number) => buildPrompt(
+        isFrame ? brief : prompt, kind, transparentBackground, greenScreen, accentHexes, eventType, artDirection,
+        layout, lettering,
+        {
+          occasion,
+          style: [style, VARIANT_NUDGES[i] ?? ''].filter(Boolean).join('. ') || null,
+          plaque,
+          correction,
+        },
       );
       // Reference image (gemini only): fetch + encode server-side and tell the
       // model to follow it. A failed fetch degrades to null → no reference,
@@ -980,7 +1160,7 @@ Deno.serve(async (req: Request) => {
       const reference = refAllowed && provider === 'gemini'
         ? await fetchReferenceInline(referenceImageUrl)
         : null;
-      if (reference) fullPrompt = `${fullPrompt} Use the attached reference image to guide the style and subject.`;
+      const refLine = reference ? ' Use the attached reference image to guide the style and subject.' : '';
       // Aspect is decided by WHAT WE ARE MAKING and always sent. Frames are
       // full-bleed 9:16 compositions so the border art reaches the booth
       // canvas's top/bottom edges; a sticker (and the 3D concept image, which
@@ -995,87 +1175,130 @@ Deno.serve(async (req: Request) => {
       const frameModel = kind === 'border' && layout !== 'classic-border'
         ? (Deno.env.get('GEMINI_FRAME_MODEL')?.trim().replace(/^["']|["']$/g, '') || GEMINI_FRAME_MODEL_DEFAULT)
         : null;
-      let bytes: Uint8Array;
-      if (provider === 'gemini') {
-        bytes = await generateGemini(fullPrompt, aspect, reference, frameModel);
-      } else {
+      const generateOne = async (i: number): Promise<Uint8Array> => {
+        const fullPrompt = promptFor(i) + refLine;
+        if (provider === 'gemini') return await generateGemini(fullPrompt, aspect, reference, frameModel);
         // Resolved in 4c; re-checked so the type is not asserted away.
         if (!higgsCreds) throw new AiError('ai_not_configured');
-        bytes = await generateHiggsfield(fullPrompt, aspect, higgsCreds, (rid) => {
+        return await generateHiggsfield(fullPrompt, aspect, higgsCreds, (rid) => {
           // Fire-and-forget: the request id on the job row is what makes a
-          // timed-out job reconcilable (and lets the sweep recover it).
+          // timed-out job reconcilable (and lets the sweep recover it). With
+          // several takes the last submit wins — forensics only.
           sb.from('ai_jobs').update({ provider_job_id: rid }).eq('id', jobId)
             .then(({ error }) => {
               if (error) console.warn('[ai-generate-image] provider_job_id record failed', error.message);
             });
         });
+      };
+      // Takes run IN PARALLEL: three takes cost the wall-clock of one.
+      const settled = await Promise.allSettled(Array.from({ length: takes }, (_, i) => generateOne(i)));
+      const outputs: { i: number; bytes: Uint8Array }[] = [];
+      settled.forEach((s, i) => { if (s.status === 'fulfilled') outputs.push({ i, bytes: s.value }); });
+      if (outputs.length === 0) throw (settled[0] as PromiseRejectedResult).reason;
+      const failedTakes = takes - outputs.length;
+
+      // 8–9. Store each take (format sniffed from the BYTES — some Gemini
+      //      models return JPEG, which used to be stored as `.png`/image/png)
+      //      and create its unpublished experiences row.
+      const experiences: Record<string, unknown>[] = [];
+      for (const out of outputs) {
+        const fmt = imageFormat(out.bytes);
+        if (!fmt) throw new AiError('generation_failed', 'provider_returned_non_image');
+        // Transparency flag: requested AND the PNG actually carries alpha.
+        const transparent = transparentBackground && fmt.ext === 'png' && pngHasAlpha(out.bytes);
+        // Take 1 keeps the historical path; extra takes get a -v2/-v3 suffix.
+        const path = `${eventSlug}/ai/${jobId}${out.i === 0 ? '' : `-v${out.i + 1}`}.${fmt.ext}`;
+        const { error: upErr } = await sb.storage
+          .from(ASSETS_BUCKET)
+          .upload(path, out.bytes, { contentType: fmt.contentType, upsert: true });
+        if (upErr) throw upErr;
+        const { data: pub } = sb.storage.from(ASSETS_BUCKET).getPublicUrl(path);
+        const assetUrl = pub.publicUrl;
+        const baseName = nameFromPrompt(nameHint ?? (isFrame && extra ? extra : prompt));
+        const { data: experience, error: expErr } = await sb
+          .from('experiences')
+          .insert({
+            event_id: eventSlug,
+            org_id: orgId,
+            name: takes > 1 ? `${baseName.slice(0, 34)} · ${out.i + 1}` : baseName,
+            kind,
+            asset_url: assetUrl,
+            thumbnail_url: assetUrl,
+            config: {
+              generated: true,
+              prompt,
+              provider,
+              transparent,
+              ...(preset ? { preset } : {}),
+              ...(plaque ? { plaque: true } : {}),
+              ...(takes > 1 ? { variant: out.i + 1 } : {}),
+              // Whether this asset was generated onto a chroma-key backdrop. The
+              // client's keying decision needs it: `transparent` only proves an
+              // alpha CHANNEL exists (IHDR probe), and a green-screen asset whose
+              // encoder emitted RGBA would otherwise skip keying and place a raw
+              // green sticker (audit F2). greenScreen=true → always key.
+              ...(greenScreen ? { greenScreen: true } : {}),
+              // Which archetype this frame IS — the studio needs it to reason
+              // about the art (a duo-scene has two head cutouts, not a clear
+              // centre). Border only; a sticker has no canvas layout.
+              ...(kind === 'border' ? { layout } : {}),
+              // Booth defaults so the asset renders immediately when published.
+              transform: { scale: 1, x: 0, y: 0, rotation: 0 },
+              opacity: 1,
+            },
+            is_published: false,
+            featured: false,
+            sort_order: 0,
+            source: provider === 'gemini' ? 'ai_gemini' : 'ai_higgsfield',
+          })
+          .select()
+          .single();
+        if (expErr || !experience) throw expErr ?? new Error('experience_insert_failed');
+        experiences.push(experience as Record<string, unknown>);
       }
 
-      // Transparency flag: requested AND the PNG actually carries alpha.
-      // Opaque output is still accepted — just flagged config.transparent=false.
-      const transparent = transparentBackground && pngHasAlpha(bytes);
-
-      // 8. Store in the public assets bucket + build the public URL.
-      const path = `${eventSlug}/ai/${jobId}.png`;
-      const { error: upErr } = await sb.storage
-        .from(ASSETS_BUCKET)
-        .upload(path, bytes, { contentType: 'image/png', upsert: true });
-      if (upErr) throw upErr;
-      const { data: pub } = sb.storage.from(ASSETS_BUCKET).getPublicUrl(path);
-      const assetUrl = pub.publicUrl;
-
-      // 9. Unpublished experiences row for the studio library.
-      const { data: experience, error: expErr } = await sb
-        .from('experiences')
-        .insert({
-          event_id: eventSlug,
-          org_id: orgId,
-          name: nameFromPrompt(nameHint ?? prompt),
-          kind,
-          asset_url: assetUrl,
-          thumbnail_url: assetUrl,
-          config: {
-            generated: true,
-            prompt,
-            provider,
-            transparent,
-            // Whether this asset was generated onto a chroma-key backdrop. The
-            // client's keying decision needs it: `transparent` only proves an
-            // alpha CHANNEL exists (IHDR probe), and a green-screen asset whose
-            // encoder emitted RGBA would otherwise skip keying and place a raw
-            // green sticker (audit F2). greenScreen=true → always key.
-            ...(greenScreen ? { greenScreen: true } : {}),
-            // Which archetype this frame IS — the studio needs it to reason
-            // about the art (a duo-scene has two head cutouts, not a clear
-            // centre). Border only; a sticker has no canvas layout.
-            ...(kind === 'border' ? { layout } : {}),
-            // Booth defaults so the asset renders immediately when published.
-            transform: { scale: 1, x: 0, y: 0, rotation: 0 },
-            opacity: 1,
-          },
-          is_published: false,
-          featured: false,
-          sort_order: 0,
-          source: provider === 'gemini' ? 'ai_gemini' : 'ai_higgsfield',
-        })
-        .select()
-        .single();
-      if (expErr || !experience) throw expErr ?? new Error('experience_insert_failed');
+      // Partial refund: under per_variant pricing a take that failed is
+      // returned (jobPolicy.partialRefund). Best-effort — logged, never fatal,
+      // because the host already has the takes that succeeded.
+      const refund = partialRefund(COSTS[provider], failedTakes, { zero: zeroCost });
+      if (refund > 0) {
+        const { error: refundErr } = await sb.rpc('grant_credits', {
+          p_org: orgId, p_amount: refund, p_reason: 'ai_refund', p_ref: { ...ref, partial: failedTakes },
+        });
+        if (refundErr) console.error('[ai-generate-image] PARTIAL REFUND FAILED', jobId, refundErr);
+      }
+      const charged = cost - refund;
 
       // 10. Close the job.
       const { data: doneJob, error: updErr } = await sb
         .from('ai_jobs')
-        .update({ status: 'succeeded', result_url: assetUrl, updated_at: new Date().toISOString() })
+        .update({
+          status: 'succeeded',
+          result_url: (experiences[0] as { asset_url?: string }).asset_url ?? null,
+          credits_charged: charged,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', jobId)
         .select()
         .single();
       if (updErr) throw updErr;
 
-      return json(200, { job: doneJob ?? job, experience });
+      return json(200, {
+        job: doneJob ?? job,
+        experience: experiences[0],
+        experiences,
+        charged,
+        variants: { requested: variantsRequested, granted: takes, delivered: outputs.length },
+        ...(retryEligible ? { retry: { free: true, of: retryOf } } : {}),
+      });
     } catch (err) {
       const code = err instanceof AiError ? err.code : 'internal';
       const detail = err instanceof Error ? err.message : String(err);
       await refundAndFail(sb, jobId, orgId, cost, ref, detail);
+      // A free retry that never reached a working provider gives its claim
+      // back (nothing was generated on it). A provider that RAN and failed or
+      // timed out keeps the claim consumed — that bounds retries at one.
+      if (code === 'ai_not_configured' || code === 'ai_key_invalid' || code === 'ai_quota') await releaseClaim();
       if (code === 'ai_not_configured') return json(503, { error: 'ai_not_configured' });
       if (code === 'ai_key_invalid') return json(503, { error: 'ai_key_invalid' });
       if (code === 'ai_quota') return json(503, { error: 'ai_quota' });
