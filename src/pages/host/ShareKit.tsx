@@ -14,17 +14,16 @@
  * where a host hands the night to their guests, whether that is a code on a
  * table before the doors open or an album in an inbox the morning after.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { QRCodeSVG } from 'qrcode.react';
-import { Camera, Check, Copy, Images, Info, Loader2, Mail, Printer, Sparkles, TriangleAlert, Trophy, UploadCloud } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { QRCodeCanvas, QRCodeSVG } from 'qrcode.react';
+import { Camera, Check, Copy, Download, Images, Info, Loader2, Mail, Printer, Sparkles, TriangleAlert, Trophy, UploadCloud } from 'lucide-react';
 import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
-import { useStudioBase } from '../../components/admin/studioBase';
 import EventBackground from '../../components/ui/EventBackground';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import { useToast } from '../../components/ui/Toast';
 import { copyText } from '../../lib/clipboard';
+import { goLive } from '../../lib/host';
 import { useSession } from '../../lib/auth';
 import { fetchPostsResult } from '../../lib/db';
 import { uploadAsset } from '../../lib/db';
@@ -72,11 +71,61 @@ function CopyLink({ url }: { url: string }) {
   );
 }
 
+/** A print-size PNG of one card's code. The 1024px canvas is mounted only for
+ *  the click that needs it (six always-on canvases would hold ~24 MB) —
+ *  QRCodeCanvas draws in its own effect, which runs before this one. */
+function DownloadQr({ url, fileName }: { url: string; fileName: string }) {
+  const [armed, setArmed] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (!armed) return;
+    const canvas = canvasRef.current;
+    try {
+      if (canvas === null) throw new Error('no canvas');
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setFailed(false);
+    } catch {
+      setFailed(true);
+    }
+    setArmed(false);
+  }, [armed, fileName]);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setArmed(true)}
+        className="print:hidden flex min-h-11 items-center justify-center gap-1.5 px-3 rounded-lg glass text-[11px] text-brand-muted/75 hover:text-accent-2 transition-colors w-full"
+      >
+        <Download className="w-3.5 h-3.5 shrink-0" aria-hidden /> Download QR
+      </button>
+      {failed && (
+        <p role="status" className="print:hidden font-sans text-[11px] text-amber-300/90">Couldn’t make the image — use Print signage instead.</p>
+      )}
+      {armed && (
+        <QRCodeCanvas ref={canvasRef} value={url} size={1024} marginSize={4} bgColor="#ffffff" fgColor="#000000" level="M" className="hidden" aria-hidden />
+      )}
+    </>
+  );
+}
+
 export default function ShareKit() {
-  const { config, basePath, status, eventId, eventUuid } = useEvent();
-  // Dashboard lives at the studio base (same way the sibling admin screens
-  // derive their links — /host/events/<uuid>, or /admin on legacy builds).
-  const studioBase = useStudioBase();
+  const { config, basePath, status, eventId, eventUuid, refreshConfig } = useEvent();
+  const { push } = useToast();
+  const [goingLive, setGoingLive] = useState(false);
+  const handleGoLive = async () => {
+    if (eventUuid === null || goingLive) return;
+    setGoingLive(true);
+    const ok = await goLive(eventUuid);
+    if (ok) await refreshConfig();
+    setGoingLive(false);
+    push(ok ? 'You’re live — every code on this page works now.' : 'Couldn’t go live. Check your connection and try again.', ok ? 'success' : 'error');
+  };
   /** Draft is the state where the codes below are genuinely broken for guests.
    *  This used to be `status !== 'live'`, which put a "will show Event not
    *  found" warning on an ENDED event — where the codes are not broken, they
@@ -119,14 +168,20 @@ export default function ShareKit() {
           <div className="print:hidden flex flex-wrap items-center gap-3 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-5 py-4">
             <TriangleAlert className="w-5 h-5 text-amber-400 shrink-0" />
             <p className="flex-1 min-w-[14rem] font-sans text-sm leading-snug text-amber-200/90">
-              This event is in draft — these codes will show guests "Event not found" until you go live.
+              Your event is still a draft, so guests who scan these codes can’t get in yet. You can
+              print them now — they start working the moment you go live.
             </p>
-            <Link
-              to={studioBase}
-              className="shrink-0 rounded-full bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/40 px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-amber-300 transition-colors"
-            >
-              Go to Dashboard
-            </Link>
+            {eventUuid !== null && (
+              <button
+                type="button"
+                onClick={() => void handleGoLive()}
+                disabled={goingLive}
+                className="shrink-0 inline-flex min-h-11 items-center gap-2 rounded-full bg-foil px-5 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-60"
+              >
+                {goingLive && <Loader2 className="w-4 h-4 animate-spin" aria-hidden />}
+                {goingLive ? 'Going live…' : 'Go live'}
+              </button>
+            )}
           </div>
         )}
 
@@ -185,6 +240,7 @@ export default function ShareKit() {
               <p className="font-sans text-[11px] leading-snug text-brand-muted/55 min-h-[2.5em]">{s.guestLine}</p>
               <p className="hidden print:block font-sans text-[10px] text-noir-800">Scan with your phone camera</p>
               <CopyLink url={surfaceUrl(s)} />
+              <DownloadQr url={surfaceUrl(s)} fileName={`${eventId}-${s.path.split('/').filter(Boolean)[0] ?? 'qr'}-qr.png`} />
             </div>
           ))}
         </div>

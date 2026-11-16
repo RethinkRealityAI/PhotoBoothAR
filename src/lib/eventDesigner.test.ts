@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   inferTemplate, extractName, extractDate, detectRemote, localDesign, normalizePlan,
   detectDeferral, fillPlanGaps, localBrief, accentFromPalette,
-  buildPlanSurface, surfaceIdOf, designEvent, parseNaturalDate, trimWireTurns,
+  buildPlanSurface, surfaceIdOf, designEvent, parseNaturalDate, trimWireTurns, accentOptionsFor,
   type ChatMessage, type EventPlan,
 } from './eventDesigner';
+import { ACCENT_SWATCHES } from './eventTemplates';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { applySurfaceMessages, getPath, resolveContext } from './a2ui';
 
@@ -165,6 +166,27 @@ describe('normalizePlan', () => {
     expect(normalizePlan({ accent: 'gold' }).accent).toBeNull();
     expect(normalizePlan({ accent: '#FFF' }).accent).toBeNull();
     expect(normalizePlan({}).accent).toBeNull();
+  });
+
+  it('poster fields: venue capped, palette hex-validated, both absent when not sent', () => {
+    const p = normalizePlan({ name: 'X', venue: '  The Old Barn  ', palette: { bg: '#0a0806', fg: 'white', accent: '#d4af37' } });
+    expect(p.venue).toBe('The Old Barn');
+    expect(p.palette).toEqual({ bg: '#0A0806', surface: null, fg: null, accent: '#D4AF37', accent2: null });
+    expect(normalizePlan({ venue: 'v'.repeat(300) }).venue).toHaveLength(120);
+    const plain = normalizePlan({ name: 'X', venue: '  ', palette: { accent: 'gold' } });
+    expect('venue' in plain).toBe(false);
+    expect('palette' in plain).toBe(false);
+  });
+});
+
+describe('accentOptionsFor', () => {
+  it('prepends a custom accent so the current colour is visible', () => {
+    expect(accentOptionsFor('#123456')[0]).toBe('#123456');
+    expect(accentOptionsFor('#123456')).toHaveLength(ACCENT_SWATCHES.length + 1);
+  });
+  it('no duplicate when the accent is already a swatch; plain row with none', () => {
+    expect(accentOptionsFor('#d4af37')).toEqual([...ACCENT_SWATCHES]);
+    expect(accentOptionsFor(null)).toEqual([...ACCENT_SWATCHES]);
   });
 });
 

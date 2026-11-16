@@ -10,7 +10,7 @@
 import { Experience, PresetOverrides } from '../types';
 import type { EventARContent } from '../events/types';
 import { FILTER_SHADERS, defaultParams } from './shaders';
-import { BUILTIN_BORDERS, toDataUrl } from './borders';
+import { BUILTIN_BORDERS, frameDataUrl } from './borders';
 import { HEAD_PIECES } from './headPieces';
 
 const NOW = '2026-01-01T00:00:00Z';
@@ -40,7 +40,8 @@ export function builtinBorderExperiences(arContent: EventARContent): Experience[
   return pick(BUILTIN_BORDERS, arContent.borderIds).map((b, i) => ({
     ...base(`builtin:border:${b.id}`, b.name, 200 + i),
     kind: b.kind,
-    asset_url: toDataUrl(b.svg),
+    // No framePalette (every legacy event) → exactly toDataUrl(b.svg).
+    asset_url: frameDataUrl(b, arContent.framePalette),
     config: { transform: { scale: 1, x: 0, y: 0, rotation: 0 }, opacity: 1 },
   }));
 }

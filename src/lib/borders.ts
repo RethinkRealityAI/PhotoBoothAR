@@ -59,6 +59,119 @@ export interface BuiltinBorder {
    * self-serve studio library hides them (AssetsDock filters on this flag).
    */
   legacy?: true;
+  /** Occasions this frame suits (event template ids) — drives "Recommended"
+   *  ordering in themeMatch.ts. Generic frames only; absent = no preference. */
+  occasions?: string[];
+  /** Which colour family the art is drawn in, so `recolorFrameSvg` can map it
+   *  onto an event palette. Absent = fixed colours (every legacy frame). */
+  recolor?: FrameRecolor;
+  /** The art's dominant colour as drawn (colour-affinity ranking). */
+  tone?: string;
+}
+
+/* ---- Recolouring (platform events only) ----------------------------
+ * The built-in art is drawn in two colour families: the gold ramp (GOLD_DEFS
+ * + the fleur highlight + the crown outline) and the neon trio. A frame that
+ * declares `recolor` has each of its family's colour stops swapped for a shade
+ * of the event palette AT RENDER TIME — `svg` itself is never rewritten, so
+ * every caller that reads `b.svg` directly (legacy sites, the landing page,
+ * starter scenes) is byte-identical, and so is `frameDataUrl(b)` with no
+ * palette. Only an event config that carries `arContent.framePalette` (written
+ * by the platform create flow / LooksPicker) ever sees a recoloured frame. */
+
+export type FrameRecolor = 'gold' | 'neon';
+
+/** The colours a recolourable frame takes on. `accent2` is optional; it is
+ *  derived from `accent` when absent. */
+export interface FramePalette {
+  accent: string;
+  accent2?: string | null;
+}
+
+/** Every colour stop of each family, exactly as written in the art above. */
+export const FRAME_COLOR_TOKENS: Record<FrameRecolor, string[]> = {
+  gold: ['#B8860B', '#E8C766', '#FBF3D9', '#D4AF37', '#A67C1F', '#7E5C14'],
+  neon: ['#FF2D9B', '#19E3FF', '#C6FF1A'],
+};
+
+const HEX6 = /^#[0-9a-fA-F]{6}$/;
+
+// Local HSL helpers (same maths as studio/colorways.ts rgbToHsl/hslToHex):
+// borders.ts sits in the landing page's import graph, and pulling the studio
+// colour module (and its finish/asset imports) in for 20 lines is not worth it.
+function hexToHslTriple(hex: string): [number, number, number] {
+  const n = Number.parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d < 1e-6) return [0, 0, l];
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  h *= 60;
+  return [h < 0 ? h + 360 : h, s, l];
+}
+
+function hslHex(h: number, s: number, l: number): string {
+  const hh = ((h % 360) + 360) % 360;
+  const sat = Math.max(0, Math.min(1, s));
+  const light = Math.max(0, Math.min(1, l));
+  const c = (1 - Math.abs(2 * light - 1)) * sat;
+  const x = c * (1 - Math.abs(((hh / 60) % 2) - 1));
+  const m = light - c / 2;
+  const [r, g, b] =
+    hh < 60 ? [c, x, 0] : hh < 120 ? [x, c, 0] : hh < 180 ? [0, c, x] : hh < 240 ? [0, x, c] : hh < 300 ? [x, 0, c] : [c, 0, x];
+  const byte = (v: number) => Math.max(0, Math.min(255, Math.round((v + m) * 255))).toString(16).padStart(2, '0');
+  return `#${byte(r)}${byte(g)}${byte(b)}`.toUpperCase();
+}
+
+/**
+ * token → replacement for one family under a palette. Null when the palette
+ * has no valid accent (the caller then renders the art unchanged).
+ * Gold ramp: base = accent, light = accent2 (or a lighter accent), highlight =
+ * a near-white tint, the three deep stops = progressively darker accent.
+ * Neon trio: magenta = accent, cyan = accent2 (or the complement), lime = a
+ * quarter-turn hue so the equalizer keeps three distinct bars.
+ */
+export function frameColorMap(family: FrameRecolor, palette: FramePalette | null | undefined): Record<string, string> | null {
+  if (!palette || typeof palette.accent !== 'string' || !HEX6.test(palette.accent)) return null;
+  const accent = palette.accent.toUpperCase();
+  const a2 = typeof palette.accent2 === 'string' && HEX6.test(palette.accent2) ? palette.accent2.toUpperCase() : null;
+  const [h, s, l] = hexToHslTriple(accent);
+  if (family === 'gold') {
+    return {
+      '#D4AF37': accent,
+      '#E8C766': a2 ?? hslHex(h, s, Math.min(l + 0.17, 0.85)),
+      '#FBF3D9': hslHex(h, Math.min(s, 0.8), 0.92),
+      '#B8860B': hslHex(h, s, Math.max(l - 0.2, 0.12)),
+      '#A67C1F': hslHex(h, s, Math.max(l - 0.22, 0.1)),
+      '#7E5C14': hslHex(h, s, Math.max(l - 0.32, 0.06)),
+    };
+  }
+  return {
+    '#FF2D9B': accent,
+    '#19E3FF': a2 ?? hslHex(h + 180, s, l),
+    '#C6FF1A': hslHex(h + 90, s, l),
+  };
+}
+
+/** Replace colour tokens via `map`; an unmapped hex is left exactly as written. */
+export function replaceColorTokens(svgString: string, map: Record<string, string>): string {
+  return svgString.replace(/#[0-9A-Fa-f]{6}\b/g, (hex) => map[hex.toUpperCase()] ?? hex);
+}
+
+/** The frame's SVG under an event palette. No palette, no `recolor`, or an
+ *  invalid accent → `b.svg` itself (the identical string, not a copy). */
+export function recolorFrameSvg(b: BuiltinBorder, palette?: FramePalette | null): string {
+  if (!b.recolor) return b.svg;
+  const map = frameColorMap(b.recolor, palette);
+  return map ? replaceColorTokens(b.svg, map) : b.svg;
+}
+
+/** The data URL every renderer hands to <img>/drawImage. With no palette this
+ *  is exactly `toDataUrl(b.svg)` — today's bytes. */
+export function frameDataUrl(b: BuiltinBorder, palette?: FramePalette | null): string {
+  return toDataUrl(recolorFrameSvg(b, palette));
 }
 
 /* ---- Borders / frames -------------------------------------------- */
@@ -358,21 +471,21 @@ export const BUILTIN_BORDERS: BuiltinBorder[] = [
   { id: 'sticker-hopegala', name: 'Hope Gala & Awards', kind: '2d_filter', svg: hopeGalaBanner, legacy: true },
   { id: 'sticker-hopegala-top', name: 'Gala Header', kind: '2d_filter', svg: hopeGalaTop, legacy: true },
   { id: 'sticker-crown', name: 'Golden Crown', kind: '2d_filter', svg: crownSticker, legacy: true },
-  { id: 'overlay-confetti', name: 'Gold Confetti', kind: '2d_filter', svg: confettiBottom },
-  { id: 'jj-neon-frame', name: 'Neon Tube Frame', kind: 'border', svg: jjNeonFrame },
+  { id: 'overlay-confetti', name: 'Gold Confetti', kind: '2d_filter', svg: confettiBottom, recolor: 'gold', tone: '#D4AF37', occasions: ['birthday', 'party', 'wedding'] },
+  { id: 'jj-neon-frame', name: 'Neon Tube Frame', kind: 'border', svg: jjNeonFrame, recolor: 'neon', tone: '#FF2D9B', occasions: ['party', 'birthday'] },
   { id: 'jj-lower-third', name: 'JJ Lower Third', kind: 'border', svg: jjLowerThird, legacy: true },
-  { id: 'jj-equalizer', name: 'Neon Equalizer', kind: 'border', svg: jjEqualizer },
+  { id: 'jj-equalizer', name: 'Neon Equalizer', kind: 'border', svg: jjEqualizer, recolor: 'neon', tone: '#FF2D9B', occasions: ['party', 'birthday'] },
   { id: 'dw-frame-monogram', name: 'Detola & Wuyi Frame', kind: 'border', svg: dwMonogramFrame, legacy: true },
   { id: 'dw-banner', name: 'Detola & Wuyi Banner', kind: '2d_filter', svg: dwBanner, legacy: true },
-  { id: 'dw-frame-classic', name: 'Gold Border', kind: 'border', svg: dwClassicFrame },
-  { id: 'dw-corners', name: 'Gold Corners', kind: '2d_filter', svg: dwCorners },
+  { id: 'dw-frame-classic', name: 'Gold Border', kind: 'border', svg: dwClassicFrame, recolor: 'gold', tone: '#D4AF37', occasions: ['wedding', 'gala', 'corporate'] },
+  { id: 'dw-corners', name: 'Gold Corners', kind: '2d_filter', svg: dwCorners, recolor: 'gold', tone: '#D4AF37', occasions: ['wedding', 'gala'] },
   // Generic de-branded variants of the flagged gala art — same gold language,
   // zero event text; these ARE the self-serve template library additions.
-  { id: 'frame-classic-gold', name: 'Classic Gold', kind: 'border', svg: classicGoldPlainFrame },
-  { id: 'frame-hexagon-plain', name: 'Hexagon', kind: 'border', svg: hexPlainFrame },
-  { id: 'frame-deco-plain', name: 'Art Deco', kind: 'border', svg: decoPlainFrame },
-  { id: 'frame-minimal-plain', name: 'Minimal Inset', kind: 'border', svg: minimalPlainFrame },
-  { id: 'sticker-crown-plain', name: 'Golden Crown', kind: '2d_filter', svg: crownPlainSticker },
+  { id: 'frame-classic-gold', name: 'Classic Gold', kind: 'border', svg: classicGoldPlainFrame, recolor: 'gold', tone: '#D4AF37', occasions: ['wedding', 'gala', 'corporate'] },
+  { id: 'frame-hexagon-plain', name: 'Hexagon', kind: 'border', svg: hexPlainFrame, recolor: 'gold', tone: '#D4AF37', occasions: ['gala', 'corporate'] },
+  { id: 'frame-deco-plain', name: 'Art Deco', kind: 'border', svg: decoPlainFrame, recolor: 'gold', tone: '#D4AF37', occasions: ['gala', 'corporate', 'party'] },
+  { id: 'frame-minimal-plain', name: 'Minimal Inset', kind: 'border', svg: minimalPlainFrame, recolor: 'gold', tone: '#D4AF37', occasions: ['corporate', 'wedding'] },
+  { id: 'sticker-crown-plain', name: 'Golden Crown', kind: '2d_filter', svg: crownPlainSticker, recolor: 'gold', tone: '#D4AF37', occasions: ['birthday', 'party'] },
 ];
 
 export const BORDER_MAP: Record<string, BuiltinBorder> = Object.fromEntries(

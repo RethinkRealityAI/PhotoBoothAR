@@ -10,7 +10,7 @@
  * faithful, miniature version of the real booth look.
  */
 import type { CSSProperties } from 'react';
-import { BORDER_MAP, toDataUrl } from '../../lib/borders';
+import { BORDER_MAP, frameDataUrl } from '../../lib/borders';
 import { resolveBackgroundTemplate } from '../theme/backgrounds';
 import { accentThemePatch, type EventTemplate } from '../../lib/eventTemplates';
 
@@ -18,19 +18,27 @@ interface Props {
   template: EventTemplate;
   /** Optional name to show subtly at the base. */
   eventName?: string;
-  /** Optional '#RRGGBB' accent override — live re-accents the whole preview. */
+  /** Optional '#RRGGBB' accent override — live re-accents the whole preview
+   *  AND recolours the frame, exactly as the booth will (framePalette). */
   accent?: string | null;
+  /** Optional full theme-token overrides (a derived or poster theme), applied
+   *  over the template's own tokens and under the accent patch. */
+  themeVars?: Record<string, string> | null;
+  /** Optional frame to show instead of the template's representative one. */
+  frameId?: string | null;
   className?: string;
 }
 
-export default function TemplatePreview({ template, eventName, accent, className = '' }: Props) {
+export default function TemplatePreview({ template, eventName, accent, themeVars, frameId, className = '' }: Props) {
   const Bg = resolveBackgroundTemplate(template.background).component;
-  const border = BORDER_MAP[template.frameId];
-  const frameUrl = border ? toDataUrl(border.svg) : null;
+  const border = BORDER_MAP[frameId ?? template.frameId] ?? BORDER_MAP[template.frameId];
+  const frameUrl = border ? frameDataUrl(border, accent ? { accent } : null) : null;
 
   const themeStyle = {
     ...template.themeVars,
-    ...(accent ? accentThemePatch(accent) : {}),
+    // A full theme already carries its (contrast-checked) accent; the bare
+    // accent patch is only for re-accenting the template's own tokens.
+    ...(themeVars ? themeVars : accent ? accentThemePatch(accent) : {}),
     background: 'var(--color-brand-bg)',
     border: '1px solid rgba(var(--accent-rgb),0.28)',
   } as CSSProperties;
