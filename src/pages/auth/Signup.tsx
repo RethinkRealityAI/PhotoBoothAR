@@ -8,7 +8,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
-import { signUpWithEmail, resendConfirmation } from '../../lib/auth';
+import { signUpWithEmail, signInWithGoogle, resendConfirmation } from '../../lib/auth';
 import { usePageTitle } from '../../lib/usePageTitle';
 
 const inputClass =
@@ -28,6 +28,26 @@ export default function Signup() {
   const [submitted, setSubmitted] = useState(false);
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  /** Same handler as Login: Google OAuth creates the account on first use and
+   *  lands at /host — no confirmation email to go missing. */
+  async function handleGoogle() {
+    if (googleLoading) return;
+    setError(null);
+    setGoogleLoading(true);
+    try {
+      const { error: err } = await signInWithGoogle();
+      if (err) {
+        setError(err.message);
+        setGoogleLoading(false);
+      }
+      // On success the browser navigates away to Google — keep the spinner.
+    } catch {
+      setError('Something went wrong. Please try again.');
+      setGoogleLoading(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -253,6 +273,23 @@ export default function Signup() {
                   {submitting ? 'Creating account…' : 'Create account'}
                 </button>
               </form>
+
+              <div className="my-6 flex items-center gap-3">
+                <div className="h-px flex-1 bg-white/10" />
+                <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">
+                  or
+                </span>
+                <div className="h-px flex-1 bg-white/10" />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleGoogle}
+                disabled={googleLoading}
+                className="w-full min-h-11 rounded-full border border-white/15 bg-white/[0.04] px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {googleLoading ? 'Redirecting…' : 'Continue with Google'}
+              </button>
 
               <p className="mt-4 text-center text-[11px] leading-relaxed text-brand-muted/50">
                 By continuing you agree to the{' '}

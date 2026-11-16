@@ -26,6 +26,36 @@ import { useStudioBase } from './studioBase';
 import type { WallSettings, LandingContent } from '../../types';
 import { inputCls, TextField, TextArea } from './fields';
 import { copyText } from '../../lib/clipboard';
+import { fetchEventDetails, saveEventDetails, type EventDetails, type EventDetailsResult } from '../../lib/host';
+
+/** Platform-only: tuck expert controls behind one disclosure. Legacy events
+ *  (the frozen sites) render the children exactly as before. */
+function Advanced({ enabled, label, children }: { enabled: boolean; label: string; children: React.ReactNode }) {
+  if (!enabled) return <>{children}</>;
+  return (
+    <details className="group rounded-2xl border border-white/10 animate-rise-in">
+      <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between px-5 font-label uppercase tracking-luxe text-[11px] text-champagne/70 hover:text-gold-300">
+        {label}
+        <span aria-hidden className="transition-transform group-open:rotate-180">▾</span>
+      </summary>
+      <div className="flex flex-col gap-8 p-3 pt-0">{children}</div>
+    </details>
+  );
+}
+
+const DETAIL_FAILURE_WORDS: Record<EventDetailsResult['failed'][number], string> = {
+  name: 'the event name',
+  date: 'the date',
+  details: 'the guest-facing name and venue',
+  branding: 'the Branding page’s name',
+};
+
+/** "Saved everything except the date and the venue" — names exactly what did not stick. */
+function detailsFailureText(failed: EventDetailsResult['failed']): string {
+  const words = failed.map((f) => DETAIL_FAILURE_WORDS[f]);
+  const list = words.length <= 1 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+  return `Couldn’t save ${list}. Check your connection and press Save again.`;
+}
 
 /* ------------------------------------------------------------------ */
 /* Gala-styled toggle row                                               */
@@ -170,7 +200,7 @@ function UrlRow({ label, url, icon }: { label: string; url: string; icon: React.
 /* ------------------------------------------------------------------ */
 
 export default function Settings() {
-  const { eventId, config, source, basePath } = useEvent();
+  const { eventId, eventUuid, config, source, basePath, refreshConfig } = useEvent();
   const base = useStudioBase();
   const storeSet = useStore((s) => s.setWallSettings);
   const experiences = useStore((s) => s.experiences);
@@ -273,6 +303,54 @@ export default function Settings() {
     setUploadBusy(false);
   };
 
+  // ── Event details: name · date · venue (runtime DB events only) ──
+  // ONE helper writes every store the name lives in (host.saveEventDetails).
+  const hasDetails = isDbEvent && eventUuid !== null && eventUuid !== '';
+  const [detailsBase, setDetailsBase] = useState<EventDetails | null>(null);
+  const [detailsDraft, setDetailsDraft] = useState<EventDetails | null>(null);
+  const [detailsLoad, setDetailsLoad] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [detailsSaving, setDetailsSaving] = useState(false);
+  const [detailsStatus, setDetailsStatus] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+
+  const loadDetails = useCallback(async () => {
+    if (!hasDetails || eventUuid === null) return;
+    setDetailsLoad('loading');
+    const d = await fetchEventDetails(eventUuid);
+    if (d === null) { setDetailsLoad('error'); return; }
+    setDetailsBase(d);
+    setDetailsDraft(d);
+    setDetailsLoad('ready');
+  }, [hasDetails, eventUuid]);
+  useEffect(() => { void loadDetails(); }, [loadDetails]);
+
+  const detailsDirty = detailsBase !== null && detailsDraft !== null && (
+    detailsDraft.name.trim() !== detailsBase.name.trim() ||
+    detailsDraft.date !== detailsBase.date ||
+    detailsDraft.venue.trim() !== detailsBase.venue.trim()
+  );
+  const patchDetails = (p: Partial<EventDetails>) => {
+    setDetailsStatus(null);
+    setDetailsDraft((d) => (d === null ? d : { ...d, ...p }));
+  };
+  const saveDetails = async () => {
+    if (eventUuid === null || detailsDraft === null || detailsBase === null || detailsSaving) return;
+    if (detailsDraft.name.trim() === '') {
+      setDetailsStatus({ tone: 'error', text: 'Give your event a name first.' });
+      return;
+    }
+    setDetailsSaving(true);
+    setDetailsStatus(null);
+    const res = await saveEventDetails({ id: eventUuid, slug: eventId }, detailsDraft, detailsBase);
+    setDetailsSaving(false);
+    if (res.ok) {
+      setDetailsStatus({ tone: 'ok', text: 'Saved — guests see the new details now.' });
+      await refreshConfig();
+      await loadDetails();
+    } else {
+      setDetailsStatus({ tone: 'error', text: detailsFailureText(res.failed) });
+    }
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
     const s = await getWallSettings(eventId);
@@ -358,6 +436,66 @@ export default function Settings() {
           </div>
         </header>
 
+        {/* Event details — runtime DB events only */}
+        {hasDetails && (
+          <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
+            <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1">Event details</h2>
+            <p className="font-sans text-[11px] text-champagne/40 mb-4">
+              The name, date and place guests see on the welcome page, booth and wall.
+            </p>
+            {detailsLoad === 'loading' ? (
+              <div className="h-14 glass rounded-xl animate-pulse" />
+            ) : detailsLoad === 'error' || detailsDraft === null ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <p role="alert" className="font-sans text-[11px] text-red-300">Couldn’t load your event details.</p>
+                <button
+                  type="button"
+                  onClick={() => void loadDetails()}
+                  className="min-h-11 px-4 glass rounded-xl font-label uppercase tracking-widest text-[10px] text-gold-300"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <TextField label="Event name" value={detailsDraft.name} onChange={(v) => patchDetails({ name: v })} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1.5">
+                    <span className="font-label uppercase tracking-luxe text-[9px] text-champagne/50">Date</span>
+                    <input
+                      type="date"
+                      value={detailsDraft.date}
+                      onChange={(e) => patchDetails({ date: e.target.value })}
+                      className={`min-h-11 ${inputCls}`}
+                    />
+                  </label>
+                  <TextField
+                    label="Venue (optional)"
+                    value={detailsDraft.venue}
+                    onChange={(v) => patchDetails({ venue: v.slice(0, 120) })}
+                    placeholder="e.g. The Grand Ballroom"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={saveDetails}
+                    disabled={detailsSaving || !detailsDirty}
+                    className="min-h-11 px-5 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl glow-accent flex items-center justify-center gap-2 hover:brightness-110 transition-all disabled:opacity-50"
+                  >
+                    {detailsSaving ? 'Saving…' : <><Save className="w-4 h-4" /> Save details</>}
+                  </button>
+                  {detailsStatus !== null && (
+                    <p role="status" className={`font-sans text-[11px] ${detailsStatus.tone === 'ok' ? 'text-emerald-300' : 'text-red-300'}`}>
+                      {detailsStatus.text}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
         {/* Wall feature toggles */}
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1">Wall Features</h2>
@@ -413,60 +551,86 @@ export default function Settings() {
               ))}
             </div>
           ) : (
-            <div>
-              <ToggleRow
-                icon={<Rows3 className="w-4 h-4" />}
-                label="Scrolling Rows (Marquee)"
-                helper="ON = animated scrolling rows (marquee). OFF = static masonry grid. Changes take effect immediately on the wall."
-                checked={settings.galleryScroll}
-                onChange={(v) => toggle('galleryScroll', v)}
-                busy={busy}
-              />
-              <SliderRow
-                icon={<Gauge className="w-4 h-4" />}
-                label="Scroll Speed"
-                helper="Speed multiplier for the marquee rows. 1× is the default comfortable pace."
-                value={settings.galleryScrollSpeed ?? 1}
-                min={0.25}
-                max={3}
-                step={0.25}
-                displayValue={`${(settings.galleryScrollSpeed ?? 1).toFixed(2)}×`}
-                onChange={(v) => setNumeric('galleryScrollSpeed', v)}
-                busy={busy}
-              />
-              <SliderRow
-                icon={<Timer className="w-4 h-4" />}
-                label="Slideshow Interval"
-                helper="How many seconds each photo is shown before the slideshow advances."
-                value={settings.slideshowInterval ?? 6}
-                min={3}
-                max={15}
-                step={1}
-                displayValue={`${settings.slideshowInterval ?? 6}s`}
-                onChange={(v) => setNumeric('slideshowInterval', v)}
-                busy={busy}
-              />
-              <ToggleRow
-                icon={<Sparkles className="w-4 h-4" />}
-                label="Featured Spotlight"
-                helper="Every so often, Gallery mode spotlights one photo (or a join-QR, leaderboard or challenge card) full-screen for a few seconds."
-                checked={settings.featuredSpotlight}
-                onChange={(v) => toggle('featuredSpotlight', v)}
-                busy={busy}
-              />
-              <SliderRow
-                icon={<Timer className="w-4 h-4" />}
-                label="Spotlight every"
-                helper="Seconds between Featured Spotlight appearances — each spotlight shows for about 8 seconds."
-                value={settings.featuredIntervalSec ?? 45}
-                min={15}
-                max={120}
-                step={5}
-                displayValue={`${settings.featuredIntervalSec ?? 45}s`}
-                onChange={(v) => setNumeric('featuredIntervalSec', v)}
-                busy={busy}
-              />
-            </div>
+            (() => {
+              const marquee = (
+                <ToggleRow
+                  icon={<Rows3 className="w-4 h-4" />}
+                  label="Scrolling Rows (Marquee)"
+                  helper="ON = animated scrolling rows (marquee). OFF = static masonry grid. Changes take effect immediately on the wall."
+                  checked={settings.galleryScroll}
+                  onChange={(v) => toggle('galleryScroll', v)}
+                  busy={busy}
+                />
+              );
+              const speed = (
+                <SliderRow
+                  icon={<Gauge className="w-4 h-4" />}
+                  label="Scroll Speed"
+                  helper="Speed multiplier for the marquee rows. 1× is the default comfortable pace."
+                  value={settings.galleryScrollSpeed ?? 1}
+                  min={0.25}
+                  max={3}
+                  step={0.25}
+                  displayValue={`${(settings.galleryScrollSpeed ?? 1).toFixed(2)}×`}
+                  onChange={(v) => setNumeric('galleryScrollSpeed', v)}
+                  busy={busy}
+                />
+              );
+              const interval = (
+                <SliderRow
+                  icon={<Timer className="w-4 h-4" />}
+                  label="Slideshow Interval"
+                  helper="How many seconds each photo is shown before the slideshow advances."
+                  value={settings.slideshowInterval ?? 6}
+                  min={3}
+                  max={15}
+                  step={1}
+                  displayValue={`${settings.slideshowInterval ?? 6}s`}
+                  onChange={(v) => setNumeric('slideshowInterval', v)}
+                  busy={busy}
+                />
+              );
+              const spotlight = (
+                <ToggleRow
+                  icon={<Sparkles className="w-4 h-4" />}
+                  label="Featured Spotlight"
+                  helper="Every so often, Gallery mode spotlights one photo (or a join-QR, leaderboard or challenge card) full-screen for a few seconds."
+                  checked={settings.featuredSpotlight}
+                  onChange={(v) => toggle('featuredSpotlight', v)}
+                  busy={busy}
+                />
+              );
+              const cadence = (
+                <SliderRow
+                  icon={<Timer className="w-4 h-4" />}
+                  label="Spotlight every"
+                  helper="Seconds between Featured Spotlight appearances — each spotlight shows for about 8 seconds."
+                  value={settings.featuredIntervalSec ?? 45}
+                  min={15}
+                  max={120}
+                  step={5}
+                  displayValue={`${settings.featuredIntervalSec ?? 45}s`}
+                  onChange={(v) => setNumeric('featuredIntervalSec', v)}
+                  busy={busy}
+                />
+              );
+              // Frozen legacy sites: the original order, byte for byte.
+              if (!isDbEvent) return <div>{marquee}{speed}{interval}{spotlight}{cadence}</div>;
+              // Platform: the two switches up front, the fine-tuning folded away.
+              return (
+                <div>
+                  {marquee}
+                  {spotlight}
+                  <details className="group mt-2">
+                    <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between font-label uppercase tracking-luxe text-[10px] text-champagne/60 hover:text-gold-300">
+                      Fine-tune speed and timing
+                      <span aria-hidden className="transition-transform group-open:rotate-180">▾</span>
+                    </summary>
+                    {speed}{interval}{cadence}
+                  </details>
+                </div>
+              );
+            })()
           )}
         </section>
 
@@ -509,6 +673,7 @@ export default function Settings() {
         </section>
 
         {/* Join / Landing page editor */}
+        <Advanced enabled={isDbEvent} label="Advanced — join poster wording">
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <div className="flex items-center justify-between mb-1">
             <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 flex items-center gap-2">
@@ -566,6 +731,7 @@ export default function Settings() {
             </button>
           </div>
         </section>
+        </Advanced>
 
         {/* How "Scan to get your photos" works — explainer */}
         <section className="glass rounded-2xl border border-gold-400/15 p-6 animate-rise-in">
@@ -589,7 +755,8 @@ export default function Settings() {
           </div>
         </section>
 
-        {/* Event info */}
+        {/* Event info — the Event details card replaces it on the platform */}
+        {!hasDetails && (
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-4">Event Info</h2>
           <div className="space-y-2 font-sans text-sm text-champagne/70">
@@ -607,9 +774,11 @@ export default function Settings() {
             </p>
           </div>
         </section>
+        )}
 
         {/* Public upload passcode — runtime DB events only */}
         {isDbEvent && (
+          <Advanced enabled label="Advanced — public upload passcode">
           <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
             <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1 flex items-center gap-2">
               <Lock className="w-3.5 h-3.5" /> Public Upload Passcode
@@ -662,12 +831,17 @@ export default function Settings() {
               </div>
             )}
           </section>
+          </Advanced>
         )}
 
         {/* URLs reference */}
         <section className="glass rounded-2xl border border-gold-400/15 p-6 animate-rise-in">
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-4">Event URLs</h2>
           <div>
+            {/* Platform: the guest front door leads (the share QR points here). */}
+            {isDbEvent && (
+              <UrlRow label="Guest welcome page (share this)" url={`${origin}${basePath}/welcome`} icon={<User className="w-3.5 h-3.5" />} />
+            )}
             <UrlRow label="Join Page (QR poster)" url={`${origin}${basePath}/join`} icon={<Megaphone className="w-3.5 h-3.5" />} />
             <UrlRow label="AR Photo Booth" url={`${origin}${basePath}/`} icon={<Sparkles className="w-3.5 h-3.5" />} />
             <UrlRow label="Live Wall" url={`${origin}${basePath}/wall`} icon={<Globe className="w-3.5 h-3.5" />} />

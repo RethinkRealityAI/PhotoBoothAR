@@ -638,22 +638,71 @@ export interface EventDetailsResult {
   failed: Array<'name' | 'date' | 'details' | 'branding'>;
 }
 
+/** The editable details as the Settings card shows them: `date` is the
+ *  LOCAL YYYY-MM-DD of `starts_at` (the inverse of updateEventDate's
+ *  `${date}T00:00:00` local parse), '' when unset. Null on a failed read. */
+export interface EventDetails {
+  name: string;
+  date: string;
+  venue: string;
+}
+
+function localDateInput(iso: string | null | undefined): string {
+  if (iso === null || iso === undefined || iso === '') return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+export async function fetchEventDetails(eventUuid: string): Promise<EventDetails | null> {
+  const { data, error } = await supabase
+    .from('events')
+    .select('name, starts_at, config')
+    .eq('id', eventUuid)
+    .maybeSingle();
+  if (error || !data) {
+    if (error) console.error('[host] fetchEventDetails', error);
+    return null;
+  }
+  const cfg = (data.config ?? {}) as Record<string, unknown>;
+  const copy = (cfg.copy && typeof cfg.copy === 'object' ? cfg.copy : {}) as Record<string, unknown>;
+  return {
+    name: (data.name as string | null) ?? '',
+    date: localDateInput(data.starts_at as string | null),
+    venue: typeof copy.venue === 'string' ? copy.venue : '',
+  };
+}
+
 /**
  * Save name · date · venue to every store in one call (the Settings "Event
  * details" card). Each write is checked; the result names what failed so the
- * screen can say exactly that instead of a blanket "Saved".
+ * screen can say exactly that instead of a blanket "Saved". The config is
+ * re-read here, immediately before the patch is built, because `copy` is
+ * replaced WHOLESALE by updateEventConfig's shallow merge — a config held by
+ * the screen since mount would revert any copy edit made in the meantime.
  */
 export async function saveEventDetails(
-  ev: { id: string; slug: string; config: Record<string, unknown> | null },
+  ev: { id: string; slug: string },
   details: { name: string; date: string; venue: string },
   current: { name: string; date: string },
 ): Promise<EventDetailsResult> {
   const failed: EventDetailsResult['failed'] = [];
   const name = details.name.trim();
   if (!name) return { ok: false, failed: ['name'] };
+  const { data: row, error: readError } = await supabase
+    .from('events')
+    .select('config')
+    .eq('id', ev.id)
+    .maybeSingle();
+  if (readError || !row) return { ok: false, failed: ['details'] };
   const { getBranding, setBranding } = await import('./db');
   const branding = await getBranding(ev.slug);
-  const { configPatch, brandingPatch } = eventDetailsPatches(ev.config, branding, { name, venue: details.venue });
+  const { configPatch, brandingPatch } = eventDetailsPatches(
+    (row.config ?? {}) as Record<string, unknown>,
+    branding,
+    { name, venue: details.venue },
+  );
   if (name !== current.name.trim() && !(await updateEventName(ev.id, name))) failed.push('name');
   if (details.date !== current.date && !(await updateEventDate(ev.id, details.date))) failed.push('date');
   if (!(await updateEventConfig(ev.id, configPatch))) failed.push('details');
