@@ -66,6 +66,11 @@ const STATUS_TONE: Record<string, PillTone> = {
   // thing on the row.
   disputed: 'danger',
   uncollectible: 'danger',
+  // Shared-library item lifecycle (/admin/library). Withdrawn is a takedown —
+  // it vanishes from live events — so it reads as the loud one.
+  listed: 'success',
+  retired: 'muted',
+  withdrawn: 'danger',
 };
 
 /**

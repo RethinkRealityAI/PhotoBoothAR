@@ -51,13 +51,40 @@
  *   save_landing_draft        → { data: { ok } } (args: { draft: object ≤200KB }) — audited
  *   publish_landing_content   → { data: { version } } — copies draft → published — audited
  *   revert_landing_draft      → { data: { ok } } — copies published → draft — audited
+ * Shared library (global `experiences` rows every host can link; see library.ts):
+ *   list_library_items       → { data: { items: [...], total, linkCountsCapped } }
+ *   publish_library_item     → { data: { id, version, files, retired, retireFailed } }
+ *                              (args: { experienceId, name, tags, listed? }) — audited;
+ *                              copies media to assets/_platform/library/<id>/, inserts
+ *                              nothing if any copy fails (copied objects are removed)
+ *   update_library_item_meta → { data: { id } } (args: { id, name?, tags?, sortOrder? }) —
+ *                              audited; metadata only, never rendering content
+ *   set_library_item_state   → { data: { id, state, linkCount } }
+ *                              (args: { id, state: listed|retired|withdrawn|deleted }) — audited
  *
  * 400 { error:'invalid_json'|'invalid_args'|'cannot_remove_self'|'cannot_remove_last_admin'|
- *       'unknown_action' } · 401 unauthorized · 403 forbidden · 404 not_found ·
- * 409 already_admin · 500 internal
+ *       'unknown_action'|'invalid_name'|'invalid_tags'|'not_event_owned'|'thumbnail_required'|
+ *       'too_many_files'|'invalid_state' } · 401 unauthorized · 403 forbidden · 404 not_found ·
+ * 409 already_admin|same_state|has_links|unlist_first · 500 internal · 502 copy_failed
+ *
+ * DEPLOYS AS THREE FILES: index.ts, library.ts, deno.json.
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
+import {
+  buildLibraryRow,
+  collectAssetKeys,
+  libraryStateOf,
+  needsThumbnail,
+  nextLibraryVersion,
+  normalizeLibraryName,
+  normalizeLibraryTags,
+  patchLibraryMeta,
+  planLibraryCopies,
+  planStateChange,
+  readLibraryMeta,
+  ASSETS_BUCKET_NAME,
+} from './library.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1267,6 +1294,302 @@ async function syncCatalogToStripe(
   return json(200, { data: { results, mode: live ? 'live' : 'test' } });
 }
 
+/* ── Shared library: global experiences rows (migrations 002/003/005) ─────
+ * Client writes to global rows are impossible by policy (experiences_member_*
+ * all require `not is_global`), so this service-role path is the only writer.
+ * Rendered content is immutable once published: "editing" an item is a new
+ * version + retiring the old, so a live event never changes mid-event. The
+ * pure rules live in ./library.ts (mirrored from src/lib/libraryPublish.ts). */
+
+/** A scene referencing more files than this is not a library item. */
+const LIBRARY_MAX_FILES = 40;
+/** event_catalog_links page size for link counts (PostgREST max_rows is 1000). */
+const LINK_PAGE = 1000;
+/** Stop counting links past this many rows and say so, rather than scan forever. */
+const LINK_SCAN_MAX = 100_000;
+const LIBRARY_COLUMNS = 'id, name, kind, asset_url, thumbnail_url, config, is_published, sort_order, source, created_at';
+
+async function libraryLinkCounts(
+  sb: Client, ids: string[],
+): Promise<{ counts: Map<string, number>; capped: boolean }> {
+  const counts = new Map<string, number>();
+  if (ids.length === 0) return { counts, capped: false };
+  for (let from = 0; ; from += LINK_PAGE) {
+    const { data, error } = await sb
+      .from('event_catalog_links')
+      .select('experience_id')
+      .in('experience_id', ids)
+      .order('experience_id')
+      .order('event_id')
+      .range(from, from + LINK_PAGE - 1);
+    if (error) throw error;
+    const rows = data ?? [];
+    for (const r of rows) {
+      const id = r.experience_id as string;
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    if (rows.length < LINK_PAGE) return { counts, capped: false };
+    if (from + LINK_PAGE >= LINK_SCAN_MAX) return { counts, capped: true };
+  }
+}
+
+/** Exact link count for ONE item (head count — not capped by max_rows). */
+async function libraryLinkCount(sb: Client, id: string): Promise<number> {
+  const { count, error } = await sb
+    .from('event_catalog_links')
+    .select('experience_id', { count: 'exact', head: true })
+    .eq('experience_id', id);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+async function listLibraryItems(sb: Client): Promise<Response> {
+  const { data, error, count } = await sb
+    .from('experiences')
+    .select(LIBRARY_COLUMNS, { count: 'exact' })
+    .eq('is_global', true)
+    .order('sort_order')
+    .order('created_at', { ascending: false })
+    .limit(REGISTRY_CAP);
+  if (error) throw error;
+  const rows = data ?? [];
+  const { counts, capped } = await libraryLinkCounts(sb, rows.map((r) => r.id as string));
+  const items = rows.map((r) => {
+    const meta = readLibraryMeta(r.config);
+    return {
+      id: r.id,
+      name: r.name,
+      kind: r.kind,
+      source: r.source,
+      assetUrl: r.asset_url,
+      thumbnailUrl: r.thumbnail_url,
+      state: libraryStateOf({ is_published: r.is_published as boolean, config: r.config }),
+      version: meta?.version ?? 1,
+      tags: meta?.tags ?? { occasions: [], colors: [], styles: [] },
+      sourceExperienceId: meta?.sourceExperienceId ?? null,
+      publishedAt: meta?.publishedAt || r.created_at,
+      sortOrder: r.sort_order,
+      linkCount: counts.get(r.id as string) ?? 0,
+    };
+  });
+  return json(200, { data: { items, total: count ?? items.length, linkCountsCapped: capped } });
+}
+
+async function publishLibraryItem(
+  sb: Client, actorUserId: string, args: Record<string, unknown>,
+): Promise<Response> {
+  const experienceId = typeof args.experienceId === 'string' ? args.experienceId : '';
+  if (!UUID_RE.test(experienceId)) return json(400, { error: 'invalid_args' });
+  const name = normalizeLibraryName(args.name);
+  if (name === null) return json(400, { error: 'invalid_name' });
+  const { tags, invalid } = normalizeLibraryTags(args.tags);
+  if (invalid.length > 0) return json(400, { error: 'invalid_tags', invalid });
+  if (args.listed !== undefined && typeof args.listed !== 'boolean') return json(400, { error: 'invalid_args' });
+  const listed = args.listed !== false;
+
+  // The source must be a host's own scene — never another library row.
+  const { data: src, error: srcErr } = await sb
+    .from('experiences')
+    .select('id, kind, asset_url, thumbnail_url, config, source, is_global, event_id')
+    .eq('id', experienceId)
+    .maybeSingle();
+  if (srcErr) throw srcErr;
+  if (!src) return json(404, { error: 'not_found' });
+  if (src.is_global === true || src.event_id === null) return json(400, { error: 'not_event_owned' });
+  const thumb = src.thumbnail_url as string | null;
+  if (needsThumbnail({ kind: src.kind as string, config: src.config }) && !(typeof thumb === 'string' && thumb !== '')) {
+    return json(400, { error: 'thumbnail_required' });
+  }
+
+  const origin = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/+$/, '');
+  if (!origin) throw new Error('SUPABASE_URL missing');
+
+  // Earlier versions published from this same scene → this one is version N+1.
+  const { data: prior, error: priorErr } = await sb
+    .from('experiences')
+    .select('id, config, is_published')
+    .eq('is_global', true)
+    .eq('config->library->>sourceExperienceId', experienceId)
+    .limit(REGISTRY_CAP);
+  if (priorErr) throw priorErr;
+  const version = nextLibraryVersion((prior ?? []).map((p) => p.config));
+
+  const srcRow = {
+    kind: src.kind as string,
+    asset_url: src.asset_url as string | null,
+    thumbnail_url: thumb,
+    config: src.config,
+    source: src.source as string | null,
+  };
+  const keys = collectAssetKeys(srcRow, origin);
+  if (keys.length > LIBRARY_MAX_FILES) return json(400, { error: 'too_many_files' });
+
+  const newId = crypto.randomUUID();
+  const plan = planLibraryCopies(keys, newId);
+  const storage = sb.storage.from(ASSETS_BUCKET_NAME);
+  const copied: string[] = [];
+  // All-or-nothing: on ANY failure after the first copy, remove what we copied
+  // and insert nothing. A failed cleanup only orphans objects under a folder no
+  // row points at — logged, never surfaced as success.
+  const cleanup = async () => {
+    if (copied.length === 0) return;
+    const { error } = await storage.remove(copied);
+    if (error) console.error('[admin-api] library cleanup failed', newId, copied, error);
+  };
+
+  try {
+    for (const step of plan) {
+      const { error } = await storage.copy(step.from, step.to);
+      if (error) {
+        console.error('[admin-api] library copy failed', step.from, error);
+        await cleanup();
+        return json(502, { error: 'copy_failed', path: step.from });
+      }
+      copied.push(step.to);
+    }
+
+    const row = buildLibraryRow(srcRow, {
+      newId,
+      name,
+      tags,
+      listed,
+      version,
+      sourceExperienceId: experienceId,
+      publishedBy: actorUserId,
+      publishedAt: new Date().toISOString(),
+      origin,
+      mapping: new Map(plan.map((p) => [p.from, p.to] as [string, string])),
+    });
+    const { error: insErr } = await sb.from('experiences').insert(row);
+    if (insErr) throw insErr;
+  } catch (err) {
+    await cleanup();
+    throw err;
+  }
+
+  // The new version is live; retire the listed older ones so hosts see one
+  // entry. Events that linked an old version keep it. Only when the new one
+  // is itself listed — retiring v1 under an unlisted v2 would empty the shelf.
+  const retired: string[] = [];
+  const retireFailed: string[] = [];
+  if (listed) {
+    for (const p of prior ?? []) {
+      if (p.is_published !== true || readLibraryMeta(p.config)?.listed === false) continue;
+      const { error } = await sb
+        .from('experiences')
+        .update({ config: patchLibraryMeta(p.config, { listed: false }) })
+        .eq('id', p.id)
+        .eq('is_global', true);
+      if (error) {
+        console.error('[admin-api] retire prior version failed', p.id, error);
+        retireFailed.push(p.id as string);
+      } else {
+        retired.push(p.id as string);
+      }
+    }
+  }
+
+  await auditLog(sb, actorUserId, 'publish_library_item', 'experience', newId, {
+    sourceExperienceId: experienceId, version, files: copied.length, listed, retired, retireFailed,
+  });
+  return json(200, { data: { id: newId, version, files: copied.length, retired, retireFailed } });
+}
+
+async function updateLibraryItemMeta(
+  sb: Client, actorUserId: string, args: Record<string, unknown>,
+): Promise<Response> {
+  const id = typeof args.id === 'string' ? args.id : '';
+  if (!UUID_RE.test(id)) return json(400, { error: 'invalid_args' });
+
+  const { data: row, error: readErr } = await sb
+    .from('experiences')
+    .select('id, config')
+    .eq('id', id)
+    .eq('is_global', true)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!row) return json(404, { error: 'not_found' });
+
+  // Metadata only: name, sort order and config.library.tags. Never asset_url,
+  // thumbnail_url or any rendering key of config.
+  const patch: Record<string, unknown> = {};
+  const changed: Record<string, unknown> = {};
+  if (args.name !== undefined) {
+    const name = normalizeLibraryName(args.name);
+    if (name === null) return json(400, { error: 'invalid_name' });
+    patch.name = name;
+    changed.name = name;
+  }
+  if (args.tags !== undefined) {
+    const { tags, invalid } = normalizeLibraryTags(args.tags);
+    if (invalid.length > 0) return json(400, { error: 'invalid_tags', invalid });
+    patch.config = patchLibraryMeta(row.config, { tags });
+    changed.tags = tags;
+  }
+  if (args.sortOrder !== undefined) {
+    const s = args.sortOrder;
+    if (typeof s !== 'number' || !Number.isInteger(s) || Math.abs(s) > 100_000) {
+      return json(400, { error: 'invalid_args' });
+    }
+    patch.sort_order = s;
+    changed.sortOrder = s;
+  }
+  if (Object.keys(patch).length === 0) return json(400, { error: 'invalid_args' });
+
+  const { data, error } = await sb
+    .from('experiences')
+    .update(patch)
+    .eq('id', id)
+    .eq('is_global', true)
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return json(404, { error: 'not_found' });
+  await auditLog(sb, actorUserId, 'update_library_item_meta', 'experience', id, changed);
+  return json(200, { data: { id } });
+}
+
+async function setLibraryItemState(
+  sb: Client, actorUserId: string, args: Record<string, unknown>,
+): Promise<Response> {
+  const id = typeof args.id === 'string' ? args.id : '';
+  if (!UUID_RE.test(id)) return json(400, { error: 'invalid_args' });
+
+  const { data: row, error: readErr } = await sb
+    .from('experiences')
+    .select('id, config, is_published')
+    .eq('id', id)
+    .eq('is_global', true)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!row) return json(404, { error: 'not_found' });
+
+  const from = libraryStateOf({ is_published: row.is_published as boolean, config: row.config });
+  const linkCount = await libraryLinkCount(sb, id);
+  const plan = planStateChange(from, args.state, linkCount);
+  if (!plan.ok) return json(plan.reason === 'invalid_state' ? 400 : 409, { error: plan.reason, linkCount });
+
+  if (plan.action === 'delete') {
+    // Row only. The copied files stay: a host who duplicated this item into
+    // their own event may still point at them, and an orphaned object is
+    // cheaper than a broken scene. (Link count was checked just above; a link
+    // created in the instant between would cascade away with the row.)
+    const { error } = await sb.from('experiences').delete().eq('id', id).eq('is_global', true);
+    if (error) throw error;
+  } else {
+    const { error } = await sb
+      .from('experiences')
+      .update({ is_published: plan.isPublished, config: patchLibraryMeta(row.config, { listed: plan.listed }) })
+      .eq('id', id)
+      .eq('is_global', true);
+    if (error) throw error;
+  }
+
+  const state = args.state as string;
+  await auditLog(sb, actorUserId, 'set_library_item_state', 'experience', id, { from, to: state, linkCount });
+  return json(200, { data: { id, state, linkCount } });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -1387,6 +1710,14 @@ Deno.serve(async (req: Request) => {
         return await upsertCatalogItem(sb, user.id, args);
       case 'sync_catalog_to_stripe':
         return await syncCatalogToStripe(sb, user.id, args);
+      case 'list_library_items':
+        return await listLibraryItems(sb);
+      case 'publish_library_item':
+        return await publishLibraryItem(sb, user.id, args);
+      case 'update_library_item_meta':
+        return await updateLibraryItemMeta(sb, user.id, args);
+      case 'set_library_item_state':
+        return await setLibraryItemState(sb, user.id, args);
       default:
         return json(400, { error: 'unknown_action' });
     }

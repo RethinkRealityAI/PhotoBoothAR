@@ -271,6 +271,13 @@ Deno.serve(async (req: Request) => {
     if ((features as Record<string, unknown> | null)?.aiStudio !== true) {
       return json(403, { error: 'upgrade_required' });
     }
+    // The creative Studio is an add-on (migration 039's `studio` flag). Only an
+    // EXPLICIT false blocks: until 039 is applied the key is absent from the
+    // resolver's output, and absent must mean "allowed" so this can deploy in
+    // either order. Resolver errors still fail closed above.
+    if ((features as Record<string, unknown> | null)?.studio === false) {
+      return json(403, { error: 'upgrade_required' });
+    }
 
     // 5. Spend credits FIRST.
     const ref = { event_uuid: eventUuid, prompt_hash: await shortHash(prompt ?? imageUrl ?? '') };
