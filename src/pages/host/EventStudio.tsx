@@ -29,6 +29,10 @@ import { subscribeToPosts } from '../../lib/db';
 import type { Post } from '../../types';
 import EventProvider, { useEvent } from '../../events/EventContext';
 import { StudioBaseContext } from '../../components/admin/studioBase';
+import { StudioAccessContext, fetchStudioAccess } from '../../components/admin/studioAccess';
+import StudioLocked from '../../components/admin/StudioLocked';
+import { ENTITLEMENTS } from '../../lib/plans';
+import { studioHomeTab, visibleStudioTabs, type FeatureSet, type StudioTabKey } from '../../lib/features';
 import Dashboard from '../../components/admin/Dashboard';
 import Library from '../../components/admin/Library';
 import Assets from '../../components/admin/Assets';
@@ -65,7 +69,20 @@ interface StudioEvent {
 type LoadState =
   | { phase: 'loading' }
   | { phase: 'missing' }
-  | { phase: 'ready'; event: StudioEvent };
+  | {
+      phase: 'ready';
+      event: StudioEvent;
+      /** The DB resolver's answer for this event, or null when it could not be
+       *  read — in which case the tab row stays exactly as it always was. */
+      features: FeatureSet | null;
+      /** The Studio add-on (studioAllowed: admin / legacy / flag / fail-open). */
+      studio: boolean;
+    };
+
+/** Tab shaping when the resolver could not be read: every tab, remote events
+ *  home on Cards — i.e. the row as it was before tabs were flag-driven. Only
+ *  `studio` and `cardsStandard` are read by the selectors. */
+const FAIL_OPEN_TABS: FeatureSet = { ...ENTITLEMENTS.free, studio: true, cardsStandard: true };
 
 function GuestLinkCopy({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
@@ -307,7 +324,11 @@ export default function EventStudio() {
   // In Studio, the editor is full-bleed: StudioShell renders its OWN top bar
   // (with a back arrow that exits to the Experiences/Library surface), so the
   // event-level tab chrome + upgrade banner are hidden to avoid a double header.
-  const isStudio = location.pathname.startsWith(`/host/events/${id}/studio`);
+  // A host without the Studio add-on sees StudioLocked on that route instead,
+  // and needs the tab chrome to know where they are — so only full-bleed when
+  // the studio is actually available.
+  const studioOpen = state.phase === 'ready' && state.studio;
+  const isStudio = studioOpen && location.pathname.startsWith(`/host/events/${id}/studio`);
   // First-run studio tour — shown once per browser, and only when the host is
   // actually IN the Studio editor (not Dashboard/other tabs) on a non-remote
   // event; introSeenRef stops a same-mount re-open after dismiss.
@@ -346,13 +367,19 @@ export default function EventStudio() {
         return;
       }
 
-      const allowed = await canEnterStudio(data.slug);
+      // Membership and the feature resolve run together, inside this effect,
+      // so the tab row is right on first paint (no Studio tab flashing in and
+      // out). fetchStudioAccess fails OPEN — see studioAccess.ts.
+      const [allowed, access] = await Promise.all([
+        canEnterStudio(data.slug),
+        fetchStudioAccess(data.slug),
+      ]);
       if (!alive) return;
       if (!allowed) {
         setState({ phase: 'missing' });
         return;
       }
-      setState({ phase: 'ready', event: data as StudioEvent });
+      setState({ phase: 'ready', event: data as StudioEvent, features: access.features, studio: access.studio });
     })();
     return () => { alive = false; };
   }, [id, validId, reloadKey]);
@@ -388,20 +415,29 @@ export default function EventStudio() {
   }
 
   const { event } = state;
+  const studioOn = state.studio;
+  const remote = event.event_type === 'remote';
+  // One source for the tab row: the same selector the admin preview renders,
+  // so /admin/features cannot show a tab row the host does not get.
+  const tabFeatures: FeatureSet = { ...(state.features ?? FAIL_OPEN_TABS), studio: studioOn };
+  const visibleTabs = new Set<StudioTabKey>(visibleStudioTabs(tabFeatures, { remote }));
+  const home = studioHomeTab(tabFeatures, { remote });
   const base = `/host/events/${id}`;
   const basePath = `/e/${event.slug}`;
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
-  const tabs = [
-    { to: base, label: 'Dashboard', icon: LayoutGrid, end: true },
-    { to: `${base}/studio`, label: 'Studio', icon: Wand2, end: false },
-    { to: `${base}/library`, label: 'Experiences', icon: ImageIcon, end: false },
-    { to: `${base}/assets`, label: 'Assets', icon: FolderOpen, end: false },
-    { to: `${base}/moderation`, label: 'Wall', icon: ShieldCheck, end: false },
-    { to: `${base}/challenges`, label: 'Challenges', icon: Trophy, end: false },
-    { to: `${base}/cards`, label: 'Cards', icon: Gift, end: false },
-    { to: `${base}/share`, label: 'Share', icon: QrCode, end: false },
+  const allTabs: { key: StudioTabKey; to: string; label: string; icon: typeof LayoutGrid; end: boolean }[] = [
+    { key: 'dashboard', to: base, label: 'Dashboard', icon: LayoutGrid, end: true },
+    { key: 'studio', to: `${base}/studio`, label: 'Studio', icon: Wand2, end: false },
+    { key: 'experiences', to: `${base}/library`, label: 'Frames & filters', icon: ImageIcon, end: false },
+    { key: 'assets', to: `${base}/assets`, label: 'Assets', icon: FolderOpen, end: false },
+    { key: 'wall', to: `${base}/moderation`, label: 'Wall', icon: ShieldCheck, end: false },
+    { key: 'challenges', to: `${base}/challenges`, label: 'Challenges', icon: Trophy, end: false },
+    { key: 'cards', to: `${base}/cards`, label: 'Cards', icon: Gift, end: false },
+    { key: 'share', to: `${base}/share`, label: 'Share', icon: QrCode, end: false },
   ];
+  const tabs = allTabs.filter((t) => visibleTabs.has(t.key));
+  const locked = <StudioLocked eventSlug={event.slug} />;
   // Settings / Branding / Manager access consolidate into ONE "Settings" tab
   // (routes stay flat — the group entry lands on /settings and a sub-row keeps
   // the two siblings one tap away while inside the group).
@@ -414,6 +450,7 @@ export default function EventStudio() {
 
   return (
     <StudioBaseContext.Provider value={base}>
+      <StudioAccessContext.Provider value={{ studio: studioOn }}>
       <EventProvider slug={event.slug} basePath={basePath}>
         <ToastProvider>
         <CheckoutReturn onRefresh={() => setReloadKey((k) => k + 1)} />
@@ -431,10 +468,13 @@ export default function EventStudio() {
         <div className="absolute inset-0 flex flex-col">
           {/* Event tab chrome — hidden inside Studio so its editor is full-bleed
               and StudioShell's own header is the only top bar. */}
+          {/* Below lg the bar wraps: back · event name · actions on top, the
+              tab strip full-width underneath — so a phone shows tab LABELS
+              (scrollable) and always says which event you are in. */}
           {!isStudio && (
           <nav
-            className="min-h-16 shrink-0 flex items-center gap-3 px-4 liquid-glass border-b border-accent/15 z-50"
-            style={{ paddingTop: 'env(safe-area-inset-top)' }}
+            aria-label="Event sections"
+            className="min-h-16 shrink-0 flex flex-wrap lg:flex-nowrap items-center gap-x-3 gap-y-1.5 px-4 pb-2 lg:pb-0 pt-[max(env(safe-area-inset-top),0.5rem)] lg:pt-[env(safe-area-inset-top)] liquid-glass border-b border-accent/15 z-50"
           >
             <Link
               to="/host"
@@ -443,7 +483,15 @@ export default function EventStudio() {
             >
               <ArrowLeft className="w-4 h-4" />
             </Link>
-            <div className="min-w-0 hidden lg:block">
+            <div className="lg:hidden min-w-0 flex-1">
+              <p
+                className="inline-block max-w-full truncate align-middle rounded-full bg-white/[0.06] border border-white/10 px-3 py-1 font-serif italic text-sm text-brand-fg"
+                title={event.name}
+              >
+                {event.name}
+              </p>
+            </div>
+            <div className="shrink-0 hidden lg:block">
               <p className="font-serif italic text-sm text-brand-fg leading-tight truncate max-w-[12rem]">{event.name}</p>
               <div className="flex items-center gap-1.5">
                 <span className="font-mono text-[9px] text-brand-muted/40">/e/{event.slug}</span>
@@ -452,7 +500,7 @@ export default function EventStudio() {
             </div>
             {/* Tab scroller — horizontal scroll with soft edge fades on overflow. */}
             <div
-              className="flex-1 overflow-x-auto hide-scrollbar"
+              className="order-last basis-full lg:order-none lg:basis-auto lg:flex-1 min-w-0 overflow-x-auto hide-scrollbar"
               style={{
                 maskImage: 'linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent)',
                 WebkitMaskImage: 'linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent)',
@@ -465,13 +513,13 @@ export default function EventStudio() {
                     to={t.to}
                     end={t.end}
                     className={({ isActive }) =>
-                      `flex items-center gap-1.5 px-3 md:px-3.5 py-2 min-h-10 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors whitespace-nowrap ${
-                        isActive ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'text-brand-muted/50 hover:text-brand-fg'
+                      `flex items-center gap-1.5 px-3 py-2 min-h-11 rounded-full text-[11px] font-label uppercase tracking-widest lg:tracking-wider transition-colors whitespace-nowrap ${
+                        isActive ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'text-brand-muted/60 hover:text-brand-fg'
                       }`
                     }
                   >
-                    <t.icon className="w-3.5 h-3.5 shrink-0" />
-                    <span className="hidden md:inline">{t.label}</span>
+                    <t.icon className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                    <span>{t.label}</span>
                   </NavLink>
                 ))}
                 {/* Consolidated Settings group — active for /settings, /branding
@@ -479,13 +527,13 @@ export default function EventStudio() {
                 <NavLink
                   to={`${base}/settings`}
                   className={() =>
-                    `flex items-center gap-1.5 px-3 md:px-3.5 py-2 min-h-10 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors whitespace-nowrap ${
-                      inSettingsGroup ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'text-brand-muted/50 hover:text-brand-fg'
+                    `flex items-center gap-1.5 px-3 py-2 min-h-11 rounded-full text-[11px] font-label uppercase tracking-widest lg:tracking-wider transition-colors whitespace-nowrap ${
+                      inSettingsGroup ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'text-brand-muted/60 hover:text-brand-fg'
                     }`
                   }
                 >
-                  <Settings className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden md:inline">Settings</span>
+                  <Settings className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                  <span>Settings</span>
                 </NavLink>
               </div>
             </div>
@@ -553,11 +601,12 @@ export default function EventStudio() {
 
           <main className="flex-1 relative overflow-hidden">
             <Routes>
-              {/* Remote celebrations live in the Cards tab — make it home. */}
+              {/* Remote celebrations live in the Cards tab — make it home, but
+                  only when the plan can publish a card (studioHomeTab). */}
               <Route
                 index
                 element={
-                  event.event_type === 'remote' ? (
+                  home === 'cards' ? (
                     <Navigate to={`${base}/cards`} replace />
                   ) : (
                     // onStatusChange keeps this screen's StatusPill + status in
@@ -572,12 +621,14 @@ export default function EventStudio() {
                   )
                 }
               />
-              <Route path="library" element={<Library />} />
-              <Route path="assets" element={<Assets />} />
-              <Route path="studio" element={<StudioShell />} />
+              <Route path="library" element={<Library eventType={event.event_type} eventName={event.name} />} />
+              {/* Without the Studio add-on, every studio route — including old
+                  ?id= deep links — lands on the same locked panel. */}
+              <Route path="assets" element={studioOn ? <Assets /> : locked} />
+              <Route path="studio" element={studioOn ? <StudioShell /> : locked} />
               {/* Retired creator tabs → unified studio (keep ?id= deep links). */}
-              <Route path="creator" element={<StudioRedirect to={`${base}/studio`} />} />
-              <Route path="creator3d" element={<StudioRedirect to={`${base}/studio`} />} />
+              <Route path="creator" element={studioOn ? <StudioRedirect to={`${base}/studio`} /> : locked} />
+              <Route path="creator3d" element={studioOn ? <StudioRedirect to={`${base}/studio`} /> : locked} />
               <Route path="moderation" element={<ModerationTab eventUuid={event.id} />} />
               <Route path="challenges" element={<Challenges />} />
               <Route path="cards" element={<CardsTab />} />
@@ -591,6 +642,7 @@ export default function EventStudio() {
         </div>
         </ToastProvider>
       </EventProvider>
+      </StudioAccessContext.Provider>
     </StudioBaseContext.Provider>
   );
 }

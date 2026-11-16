@@ -22,6 +22,7 @@ import { computeChecklist, checklistFromStudio, type ChecklistId } from '../../l
 import { useStore } from '../../store';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from './studioBase';
+import { useStudioAccess } from './studioAccess';
 import { copyText } from '../../lib/clipboard';
 
 interface Stats {
@@ -309,6 +310,9 @@ export default function Dashboard({
   // legacy builds), and only the platform has a Share tab or steers signage
   // at /welcome — legacy behavior must stay byte-identical.
   const platformStudio = base.startsWith('/host/');
+  // The Studio add-on (studioAccess) — defaults to true, so legacy mounts and
+  // any host who has it see the creator cards exactly as before.
+  const { studio } = useStudioAccess();
   const { basePath, eventUuid, status, config } = useEvent();
   const { stats, loading, reload } = useStats();
   const [going, setGoing] = useState(false);
@@ -327,7 +331,9 @@ export default function Dashboard({
   const stepLink: Partial<Record<ChecklistId, Pick<ChecklistStep, 'to' | 'href'>>> = {
     name: { to: `${base}/branding` },
     look: { to: `${base}/branding` },
-    frames: { to: `${base}/creator` },
+    // Platform: frames are picked (or AI-made) in the Frames & filters tab;
+    // the legacy admin keeps its creator route.
+    frames: { to: platformStudio ? `${base}/library` : `${base}/creator` },
     test_shot: { href: `${basePath}/booth` },
   };
   const checklist: ChecklistStep[] = items.map((it) => ({
@@ -427,6 +433,8 @@ export default function Dashboard({
         <section>
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-champagne/50 mb-4">Studio Tools</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {/* The creators ARE the Studio — hidden without the add-on. */}
+            {studio && (
             <ActionCard
               icon={<Wand2 className="w-5 h-5 text-noir-900" />}
               title="2D / Shader Creator"
@@ -434,17 +442,23 @@ export default function Dashboard({
               onClick={() => navigate(`${base}/creator`)}
               accent
             />
+            )}
+            {studio && (
             <ActionCard
               icon={<Boxes className="w-5 h-5 text-gold-300" />}
               title="3D Creator"
               description="Place and configure GLB attachments anchored to face landmarks."
               onClick={() => navigate(`${base}/creator3d`)}
             />
+            )}
             <ActionCard
-              icon={<ImageIcon className="w-5 h-5 text-gold-300" />}
-              title="Experiences Library"
-              description="Browse, publish, duplicate, and manage all AR experiences."
+              icon={<ImageIcon className={`w-5 h-5 ${studio ? 'text-gold-300' : 'text-noir-900'}`} />}
+              title={platformStudio ? 'Frames & filters' : 'Experiences Library'}
+              description={platformStudio
+                ? 'Pick ready-made frames and filters for your booth, or make one with AI.'
+                : 'Browse, publish, duplicate, and manage all AR experiences.'}
               onClick={() => navigate(`${base}/library`)}
+              accent={!studio}
             />
             <ActionCard
               icon={<ShieldCheck className="w-5 h-5 text-gold-300" />}
@@ -455,7 +469,9 @@ export default function Dashboard({
             <ActionCard
               icon={<Globe className="w-5 h-5 text-gold-300" />}
               title="Open Live Wall"
-              description="Project the live photo wall on the main screen."
+              description={platformStudio
+                ? 'Project the live photo wall and its leaderboard on the main screen.'
+                : 'Project the live photo wall on the main screen.'}
               onClick={() => window.open(`${basePath}/wall`, '_blank')}
               external
             />
@@ -484,6 +500,8 @@ export default function Dashboard({
               description="Toggle live wall features: QR code, leaderboard, challenges ticker."
               onClick={() => navigate(`${base}/settings`)}
             />
+            {/* Same URL as Open Live Wall — one card on the platform. */}
+            {!platformStudio && (
             <ActionCard
               icon={<Video className="w-5 h-5 text-gold-300" />}
               title="View Leaderboard"
@@ -491,6 +509,7 @@ export default function Dashboard({
               onClick={() => window.open(`${basePath}/wall`, '_blank')}
               external
             />
+            )}
           </div>
         </section>
 

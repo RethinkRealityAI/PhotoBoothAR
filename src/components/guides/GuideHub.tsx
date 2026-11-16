@@ -25,9 +25,10 @@ export default function GuideHub({ notice }: { notice?: string }) {
           in the room
         </h1>
         <p className="mt-5 max-w-xl text-[15px] leading-relaxed text-brand-muted">
-          Short, practical walkthroughs — how to design a frame people screenshot, how to put a prop
-          on every guest, and how to run the night without touching a thing. Free frames and
-          copy-paste prompts included.
+          Short, practical walkthroughs — how to get your event live in minutes with ready-made
+          frames and no design skills, and how to run the night without touching a thing. Teams with
+          the Studio add-on will find how to design their own frames and props here too. Free frames
+          and copy-paste prompts included.
         </p>
       </section>
 
