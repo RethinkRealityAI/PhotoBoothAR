@@ -27,7 +27,9 @@ import {
   fetchExperiences, createExperience, updateExperience, deleteExperience,
   getPresetOverrides, setPresetOverrides,
   fetchGlobalExperiences, fetchCatalogLinks, linkCatalogItem, unlinkCatalogItem,
+  getWallSettingsResult,
 } from '../../lib/db';
+import { effectiveOpeningLookId } from '../../lib/openingLook';
 import { builtinExperiences } from '../../lib/catalog';
 import { SHADER_MAP } from '../../lib/shaders';
 import { toDataUrl } from '../../lib/borders';
@@ -466,6 +468,19 @@ export default function Library({
 
   useEffect(() => { load(); }, [load]);
 
+  // Platform only: the WALL half of the opening look. The booth opens with
+  // `wall ?? config`, so "opens first" here must read the same pair — the
+  // config alone named an AI frame while the booth opened a copilot-pinned
+  // prop. A failed read falls back to config alone (the previous display).
+  const [wallDefault, setWallDefault] = useState<{ loaded: boolean; id: string | null }>({ loaded: false, id: null });
+  const loadWallDefault = useCallback(async () => {
+    if (!platform) return;
+    const r = await getWallSettingsResult(eventId);
+    setWallDefault({ loaded: true, id: r.failed ? null : r.settings.defaultExperienceId });
+  }, [platform, eventId]);
+  useEffect(() => { void loadWallDefault(); }, [loadWallDefault]);
+  const [pickerEpoch, setPickerEpoch] = useState(0);
+
   useEffect(() => {
     if (!showCatalog) return;
     let alive = true;
@@ -647,7 +662,7 @@ export default function Library({
       >
         {/* A frame just made with AI lands in "Your own" and opens first —
             re-read both so it shows without a reload. */}
-        <FrameStudio eventUuid={eventUuid} suggestion={suggestion} onApplied={() => { void load(); void refreshConfig(); }} />
+        <FrameStudio eventUuid={eventUuid} suggestion={suggestion} onApplied={() => { void load(); void refreshConfig(); void loadWallDefault().then(() => setPickerEpoch((n) => n + 1)); }} />
       </Suspense>
     </section>
   ) : null;
@@ -659,23 +674,30 @@ export default function Library({
   // The look the booth opens with when it is NOT one of the picker's frames
   // (an AI frame, a library pick) — named so the picker can say why its own
   // frames are not first.
-  const defaultId = config.defaultExperienceId;
+  // The SAME effective value the booth opens with (openingLook.ts).
+  const defaultId = effectiveOpeningLookId(wallDefault.id, config.defaultExperienceId);
   const openingLookName = typeof defaultId === 'string' && defaultId !== '' && !defaultId.startsWith('builtin:border:')
     ? [...dbExps, ...globals, ...presets].find((e) => e.id === defaultId)?.name ?? null
     : null;
+  // Mounted only once the wall half is known: the picker seeds its "opens
+  // first" pick from its first render, and re-keyed when the opening look
+  // changes ELSEWHERE (an AI frame pinned above) so it re-seeds — never on its
+  // own save, which would wipe its "Saved" line.
   const looksSection = platform && eventUuid ? (
     <section key="looks">
       <Suspense fallback={skeleton(5, 'h-48')}>
-        <LooksPicker
+        {!wallDefault.loaded ? skeleton(5, 'h-48') : <LooksPicker
+          key={pickerEpoch}
           eventUuid={eventUuid}
+          eventSlug={eventId}
           openingLookName={openingLookName}
           ownFrames={dbSorted
             .filter((e) => e.kind === 'border')
             .map((e) => ({ id: e.id, name: e.name, imageUrl: isImageUrl(e.thumbnail_url) ? e.thumbnail_url : isImageUrl(e.asset_url) ? e.asset_url : null, on: e.is_published }))}
-          config={{ arContent: config.arContent, defaultExperienceId: config.defaultExperienceId }}
+          config={{ arContent: config.arContent, defaultExperienceId: defaultId }}
           eventType={eventType}
           accentHex={config.arContent.framePalette?.accent ?? accentHex}
-          onSaved={() => { void refreshConfig(); }}
+          onSaved={() => { void refreshConfig(); void loadWallDefault(); }}
           // The shared library lives in the picker on the platform (ONE place
           // per screen — the create flow shows the same section), so the
           // Recommended / Ready-made library grids below are legacy-only.
@@ -686,7 +708,7 @@ export default function Library({
               .filter((s): s is string => typeof s === 'string' && s !== '')
               .join(' · '),
           }}
-        />
+        />}
       </Suspense>
     </section>
   ) : null;

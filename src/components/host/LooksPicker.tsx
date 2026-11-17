@@ -6,13 +6,16 @@
  * ready-made frames and a tile row of filters, best match first (themeMatch
  * rankLooks: occasion, then colour). Each tile is an on/off toggle; one
  * selected frame is the default the booth opens with. Saving writes
- * events.config.arContent borderIds/shaderIds (+ framePalette) and
- * defaultExperienceId through updateEventConfig.
+ * events.config.arContent borderIds/shaderIds (+ framePalette) through
+ * updateEventConfig — and, when the save changes the opening look, goes
+ * through host.setOpeningLook instead, which writes that id to BOTH stores
+ * the booth reads (the wall default used to overrule a picker save).
  *
- * Self-contained on purpose: it only needs the event's uuid and current
+ * Self-contained on purpose: it only needs the event's uuid/slug and current
  * config, so the post-create screen and the studio library tab can both
- * mount it. It does NOT touch the wall-settings default frame (Booth.tsx
- * prefers that one when set) — a host who set one there keeps it.
+ * mount it. `config.defaultExperienceId` must be the EFFECTIVE opening look
+ * (openingLook.effectiveOpeningLookId — what the booth opens with), so the
+ * "Opens first" star never names a look the booth does not open.
  *
  * With `library` set it also shows "Ready-made looks": the shared Beamwall
  * library (experiences rows with is_global), laid out for this event by
@@ -29,7 +32,8 @@ import { FILTER_SHADERS } from '../../lib/shaders';
 import { FILTER_LOOKS, effectiveDefaultFrame, looksConfigPatch, rankLooks, selectionFromConfig, type LooksSelection } from '../../lib/themeMatch';
 import { templateById } from '../../lib/eventTemplates';
 import { normalizeHex } from '../../lib/themeDerive';
-import { updateEventConfig } from '../../lib/host';
+import { setOpeningLook, updateEventConfig } from '../../lib/host';
+import { openingLookErrorCopy, type OpeningLookStore } from '../../lib/openingLook';
 import { fetchLibraryForEventResult, linkCatalogItem, unlinkCatalogItem } from '../../lib/db';
 import { boothTabOf, capShelves, isThumbnailSrc, libraryKindLabel, libraryShelves, type LibraryShelf } from '../../lib/libraryMatch';
 import { useToast } from '../ui/Toast';
@@ -37,6 +41,9 @@ import type { Experience } from '../../types';
 
 interface Props {
   eventUuid: string;
+  /** events.slug — the wall store of the opening look is keyed by it. */
+  eventSlug: string;
+  /** `defaultExperienceId` here = the EFFECTIVE opening look (see header). */
   config: Record<string, unknown> | null | undefined;
   /** Template id or events.event_type — used for the "Recommended" order. */
   eventType?: string | null;
@@ -332,7 +339,7 @@ function ReadyMadeLooks({
   );
 }
 
-export default function LooksPicker({ eventUuid, config, eventType, accentHex, onSaved, title = 'Pick your frames & filters', openingLookName, ownFrames = [], library }: Props) {
+export default function LooksPicker({ eventUuid, eventSlug, config, eventType, accentHex, onSaved, title = 'Pick your frames & filters', openingLookName, ownFrames = [], library }: Props) {
   const ownOn = ownFrames.filter((f) => f.on).length;
   const lib = useEventLibrary(library?.eventSlug ?? null);
   // Linked ready-made looks the booth shows under Frames / Filters (a combined
@@ -373,6 +380,9 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
   const [sel, setSel] = useState<LooksSelection>(initial);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+  // Which opening-look store refused, when it was that write (null = the
+  // plain looks write, or no failure).
+  const [failedStore, setFailedStore] = useState<OpeningLookStore | null>(null);
   const dirty = JSON.stringify(sel) !== JSON.stringify(initial) || status === 'error';
 
   const matchColour = sel.palette !== null;
@@ -395,7 +405,18 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
     setSaving(true);
     const finalSel: LooksSelection = { ...sel, frameId: defaultFrame };
     const patch = looksConfigPatch(config, finalSel);
-    const ok = await updateEventConfig(eventUuid, patch);
+    // A save that pins a frame changes the opening look → the ONE writer, so
+    // the wall default cannot keep overruling it. Otherwise a plain write.
+    const { defaultExperienceId: pin, ...rest } = patch;
+    let ok: boolean;
+    if (typeof pin === 'string') {
+      const res = await setOpeningLook({ slug: eventSlug, eventUuid }, pin, rest);
+      ok = res.ok;
+      setFailedStore(res.failed);
+    } else {
+      ok = await updateEventConfig(eventUuid, patch);
+      setFailedStore(null);
+    }
     setSaving(false);
     setStatus(ok ? 'saved' : 'error');
     if (ok) onSaved?.({ ...(config ?? {}), ...patch });
@@ -580,7 +601,9 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
           ) : status === 'saved' ? (
             <span className="text-emerald-300">Saved — your booth uses these now.</span>
           ) : status === 'error' ? (
-            <span className="text-red-300">Couldn’t save. Check your connection and try again.</span>
+            <span className="text-red-300">
+              {openingLookErrorCopy(failedStore)}
+            </span>
           ) : null}
         </p>
       </div>

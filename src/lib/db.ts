@@ -818,13 +818,25 @@ export async function getWallSettings(eventId: string): Promise<WallSettings> {
   return (await getWallSettingsResult(eventId)).settings;
 }
 
-export async function setWallSettings(eventId: string, patch: Partial<WallSettings>): Promise<WallSettings> {
-  const current = await getWallSettings(eventId);
-  const value = { ...current, ...patch };
+/**
+ * Merge a patch into the wall settings row. Default: the historical contract
+ * (a failed write is logged, the value returned anyway). `strict: true` THROWS
+ * a SettingWriteError instead — on a failed write, AND on a failed READ, since
+ * merging into the defaults would overwrite the event's real settings with
+ * them (host.setOpeningLook uses it so a pin never passes as saved).
+ */
+export async function setWallSettings(eventId: string, patch: Partial<WallSettings>, opts?: { strict?: boolean }): Promise<WallSettings> {
+  const strict = opts?.strict === true;
+  const read = await getWallSettingsResult(eventId);
+  if (strict && read.failed) throw new SettingWriteError('wall');
+  const value = { ...read.settings, ...patch };
   const { error } = await supabase
     .from('app_settings')
     .upsert({ key: 'wall', value, updated_at: new Date().toISOString(), event_id: eventId }, { onConflict: 'event_id,key' });
-  if (error) console.error('[db] setWallSettings', error);
+  if (error) {
+    console.error('[db] setWallSettings', error);
+    if (strict) throw new SettingWriteError('wall');
+  }
   return value;
 }
 

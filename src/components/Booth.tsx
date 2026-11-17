@@ -102,6 +102,7 @@ import StripPicker from './booth/StripPicker';
 import type { Transform2D, Experience, ExperienceLayer, AnchorConfig, Challenge } from '../types';
 import { layerToPiece } from '../lib/studio/draftMapping';
 import { applyGuestColor, guestColorSlot } from '../lib/guestPalette';
+import { effectiveOpeningLookId } from '../lib/openingLook';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -504,7 +505,8 @@ export default function Booth() {
     if (appliedDefaultRef.current) return;
     if (routeExperienceId) { appliedDefaultRef.current = true; return; }
     if (!experiencesLoaded) return;
-    const id = wallSettings.defaultExperienceId ?? eventConfig.defaultExperienceId;
+    // The same resolver the host's Library / Settings read (openingLook.ts).
+    const id = effectiveOpeningLookId(wallSettings.defaultExperienceId, eventConfig.defaultExperienceId);
     if (!id) return;
     const exp = catalog.find((e) => e.id === id);
     if (!exp) return;
@@ -1586,7 +1588,7 @@ export default function Booth() {
   // pick to be applied (initialCategoryWhenReady) — otherwise an AI frame set
   // as the default was applied but its tab never shown. Legacy/code events
   // keep the original first-non-empty rule exactly.
-  const expectedOpenId = routeExperienceId ?? wallSettings.defaultExperienceId ?? eventConfig.defaultExperienceId ?? null;
+  const expectedOpenId = effectiveOpeningLookId(wallSettings.defaultExperienceId, eventConfig.defaultExperienceId, routeExperienceId);
   useEffect(() => {
     if (deckCatSetRef.current) return;
     const next = source === 'db'

@@ -553,18 +553,15 @@ export function toolResultSummary(content: string): string {
 }
 
 /**
- * Pin an experience as the booth default. The booth reads
- * `wallSettings.defaultExperienceId ?? eventConfig.defaultExperienceId`
- * (Booth.tsx), so the AUTHORITATIVE store is app_settings 'wall' (by slug);
- * we also mirror into events.config (by uuid) for parity with FrameStudio and
- * to override any `builtin:*` id the template seeded there. Best-effort: the
- * events.config write returns the real health signal (same RLS as the wall
- * upsert), so we surface that.
+ * Pin an experience as the booth default — through host.setOpeningLook, the
+ * one writer every surface uses, so both stores the booth reads
+ * (`wall ?? config`, openingLook.effectiveOpeningLookId) hold the same id.
+ * False when EITHER store refused (the wall write used to fail silently).
  */
 async function pinDefault(ctx: CopilotCtx, experienceId: string): Promise<boolean> {
-  const [{ setWallSettings }, { updateEventConfig }] = await Promise.all([import('./db'), import('./host')]);
-  await setWallSettings(ctx.slug, { defaultExperienceId: experienceId });
-  return updateEventConfig(ctx.eventUuid, { defaultExperienceId: experienceId });
+  const { setOpeningLook } = await import('./host');
+  const res = await setOpeningLook({ slug: ctx.slug, eventUuid: ctx.eventUuid }, experienceId);
+  return res.ok;
 }
 
 /**

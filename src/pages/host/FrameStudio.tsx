@@ -28,7 +28,8 @@ import { inferFrameLayout } from '../../lib/assetPrompt';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { aiFrameName } from '../../lib/studio/frameText';
 import { rekeyOptions } from '../../lib/studio/frameQuality';
-import { updateEventConfig } from '../../lib/host';
+import { setOpeningLook } from '../../lib/host';
+import { openingLookErrorCopy } from '../../lib/openingLook';
 import GuidedFrameMaker from '../../components/studio/GuidedFrameMaker';
 import type { Experience } from '../../types';
 
@@ -200,12 +201,26 @@ export default function FrameStudio({
         },
       })
       .eq('id', experience.id);
-    const pinned = await updateEventConfig(eventUuid, { defaultExperienceId: experience.id });
-    if (pubErr || !pinned) {
+    if (pubErr) {
       setPhase({
         kind: 'error',
         message: 'The frame was made but couldn’t be switched on — find it under Your own and switch it on there.',
       });
+      return;
+    }
+    // The one opening-look writer needs the slug too (the wall store is keyed
+    // by it) — a config-only pin was overruled by a wall value the copilot set.
+    const { data: ev } = await supabase.from('events').select('slug').eq('id', eventUuid).maybeSingle();
+    const slug = typeof ev?.slug === 'string' ? ev.slug : '';
+    const pinned = slug !== ''
+      ? await setOpeningLook({ slug, eventUuid }, experience.id)
+      : { ok: false, failed: 'config' as const };
+    if (!pinned.ok) {
+      setPhase({
+        kind: 'error',
+        message: `Your frame is on for guests. ${openingLookErrorCopy(pinned.failed)}`,
+      });
+      onApplied?.();
       return;
     }
     setPhase({ kind: 'done' });

@@ -637,6 +637,7 @@ export default function NewEvent() {
             create flow just seeded — changeable now or any time later. */}
         <LooksPicker
           eventUuid={created.id}
+          eventSlug={created.slug}
           config={createdConfig ?? created.config}
           eventType={template.id}
           accentHex={effectiveAccent}
