@@ -32,6 +32,9 @@ export const DEFAULT_KEY: readonly [number, number, number] = [0, 255, 0];
 export const DEFAULT_TOLERANCE = 40;
 /** Width of the soft ramp above the tolerance where alpha fades 0→255. */
 export const DEFAULT_SOFTNESS = 25;
+/** A pixel must lead max(R,B) by this much green before the key may remove it
+ *  fully; at a lead ≤ 0 it is never keyed (see keyOutColorWithStats). */
+export const GREEN_LEAD_RAMP = 24;
 
 /** Booth capture size (StageCanvas CAPTURE_W × CAPTURE_H) — portrait 9:16. */
 export const FRAME_W = 1080;
@@ -192,6 +195,17 @@ export function keyOutColorWithStats(img: RgbaImage, opts: KeyOutOptions = {}): 
     if (dist <= tolerance) keepFactor = 0;
     else if (dist >= tolerance + softness) keepFactor = 1;
     else keepFactor = (dist - tolerance) / softness; // softness > 0 guaranteed here
+    // Green-lead guard. Chroma distance ignores luminance, so every
+    // near-neutral pixel (black, navy, cream) sits at the same distance from a
+    // key — |key chroma|. A DESATURATED backdrop (the model's sage instead of
+    // #00FF00, |chroma| ≈ 35 < tolerance) therefore keyed the art's darks and
+    // neutrals with it and shipped a ghost frame. Backdrop green always leads
+    // both red and blue; a pixel that does not is art and keeps its alpha,
+    // ramping in over GREEN_LEAD_RAMP so anti-aliased edges stay soft.
+    if (keepFactor < 1) {
+      const lead = g - Math.max(r, b);
+      if (lead < GREEN_LEAD_RAMP) keepFactor = Math.max(keepFactor, lead <= 0 ? 1 : 1 - lead / GREEN_LEAD_RAMP);
+    }
 
     const newAlpha = Math.round(a * keepFactor);
     out[i + 3] = newAlpha;
