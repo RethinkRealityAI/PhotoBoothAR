@@ -62,6 +62,19 @@ export interface StageStatusInput {
    * looked identical.
    */
   gesture?: string | null;
+  /**
+   * The scene has Living Face Paint but the ACTIVE engine has no face mesh
+   * (8th Wall fell back to MediaPipe, or a URL override forced it). The paint
+   * deliberately draws nothing then — never a frozen or misplaced texture —
+   * so the chip says so instead of claiming everything is fine.
+   */
+  paintUnavailable?: boolean;
+  /**
+   * The hand tracker FAILED to start (handTracking.getHandTrackerError). Only
+   * meaningful with handNeeded: "No hand yet" would coach a hand that no
+   * amount of waving can make appear.
+   */
+  handUnavailable?: boolean;
 }
 
 /**
@@ -94,9 +107,17 @@ export function stageStatus(i: StageStatusInput): StageStatus | null {
   const handWanted = i.handNeeded === true;
   const faceMissing = faceWanted && !i.faceVisible;
   const handMissing = handWanted && i.handVisible !== true;
+  // A dead hand tracker never resolves by itself; face coaching still comes
+  // first while a face is also wanted (same order as paintUnavailable).
+  if (handWanted && i.handUnavailable === true) {
+    return faceMissing
+      ? { tone: 'info', text: 'No face yet', live: true }
+      : { tone: 'warn', text: 'No hand tracker', live: false };
+  }
   if (faceMissing && handMissing) return { tone: 'info', text: 'No face or hand', live: true };
   if (faceMissing) return { tone: 'info', text: 'No face yet', live: true };
   if (handMissing) return { tone: 'info', text: 'No hand yet', live: true };
+  if (i.paintUnavailable === true) return { tone: 'warn', text: 'Paint not shown', live: true };
   if (faceWanted && handWanted) return { tone: 'ok', text: 'Face + hand', live: true };
   return { tone: 'ok', text: 'Tracking', live: true };
 }

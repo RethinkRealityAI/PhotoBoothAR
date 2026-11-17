@@ -34,6 +34,15 @@ import type { FaceEngine, FaceSample } from './types';
 import { createXr8SessionManager, loadXr8, type Xr8Global, type Xr8SessionManager } from './xr8Session';
 import { xr8Keypoints, xr8LocalToHeadCm, xr8ToFaceMatrix, type Xr8Transform, type Xr8Uv, type Xr8Vec3 } from './xr8Pose';
 import { createXr8ExpressionState, resetXr8ExpressionState, xr8Expressions } from './xr8Expressions';
+import {
+  analysedFrameAfterPass,
+  analysedFrameHandOver,
+  analysedFrameMarkHeld,
+  analysedFrameNeedsHold,
+  createAnalysedFrameSync,
+  pickAnalysedFrame,
+  resetAnalysedFrameSync,
+} from './analysedFrame';
 
 /** From XR8.run to facescanning (models + GL up). index.ts's outer 12 s race still applies. */
 export const XR8_SCAN_TIMEOUT_MS = 10_000;
@@ -83,9 +92,15 @@ export interface Xr8EngineOptions {
    *  sample cannot wait a frame for the app's rAF callback, and no poll = no inference).
    *  'raf': the engine's own requestAnimationFrame loop. Before init resolves it is always 'raf'. */
   drive?: 'poll' | 'raf';
-  /** Right after a pass stages a frame, run a second pass so that frame is inferred in the
-   *  SAME call instead of the next one (8th Wall's processGpu → processCpu one-tick pipeline). */
+  /** Default true. Right after a pass stages frame k, run a second pass: 8th Wall then infers
+   *  frame k-1 (facecontroller.cc:152-160 — always the OLDER of two staged frames, whose deferred
+   *  GPU read was issued a whole staging earlier, so this does not stall) in the same tick
+   *  instead of the next one. No extra inference; one extra GlTextureRenderer draw. Measured
+   *  (check-face-engines, same load): pose 3.25 vs 3.56 frames behind the newest frame. 'poll'
+   *  drive measured WORSE than 'raf' (5.09 vs 3.25 frames), hence 'raf' is the default. */
   sameTickInference?: boolean;
+  /** DetectGate spacing (default XR8_DETECT_INTERVAL_MS). */
+  detectIntervalMs?: number;
 }
 
 export interface Xr8FaceEngine extends FaceEngine {
@@ -99,6 +114,12 @@ export interface Xr8FaceEngine extends FaceEngine {
   getLatestFaceMesh(): Xr8FaceMesh | null;
   /** Static topology; null until init() has resolved. */
   getFaceMeshTopology(): Xr8FaceTopology | null;
+  /**
+   * OPTIONAL warm start: hand over the app's camera <video> before (or while) init() runs, so 8th
+   * Wall starts on real frames instead of the black placeholder and the first pose does not wait
+   * for the first poll(). poll() still rebinds if it is given a different video. Never throws.
+   */
+  prewarm(video: HTMLVideoElement): void;
 }
 
 interface FaceDetail {
@@ -113,13 +134,21 @@ interface ScanDetail {
 }
 
 let alive: object | null = null;
+/**
+ * The draw canvas outlives the engine and is reused by the next one. XR8 is a page singleton that
+ * keeps GL objects of the canvas it last ran on (its GlTextureRenderer deletes them on the next
+ * run), and every new canvas is a new WebGL context that only GC frees — measured: +1 context per
+ * init → dispose cycle, plus "delete: object does not belong to this context" warnings, with a
+ * fresh canvas each time. Dropped after a context loss (that context is unusable).
+ */
+let reusableCanvas: HTMLCanvasElement | null = null;
 
 const PLACEHOLDER_W = 90;
 const PLACEHOLDER_H = 160;
 
 export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
   const drive = options.drive ?? 'raf';
-  const sameTick = options.sameTickInference ?? false;
+  const sameTick = options.sameTickInference ?? true;
   const token = {};
   let XR8: Xr8Global | null = null;
   let sm: Xr8SessionManager | null = null;
@@ -133,6 +162,7 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
   let raf = 0;
   let lastPollMs = -Infinity;
   let lastInference = -Infinity;
+  let prewarmVideo: HTMLVideoElement | null = null;
 
   let pendingFace: FaceDetail | null = null;
   let pendingLost = false;
@@ -146,6 +176,14 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
   const expr = createXr8ExpressionState();
   /** The draw canvas shows a real-video analysed frame (not the placeholder). */
   let frameValid = false;
+  /** Pairs the drawn frame with the HANDED pose (analysedFrame.ts): the canvas is redrawn by every
+   *  pass on our own rAF loop, so without the held copy it could lead the pose by one sample. */
+  const frameSync = createAnalysedFrameSync();
+  let held: HTMLCanvasElement | null = null;
+  let heldCtx: CanvasRenderingContext2D | null = null;
+  /** Set during a pass: the sample it emitted, and whether it drew a new (non-repeat) frame. */
+  let passEmitT: number | null = null;
+  let passDrew = false;
   const diag: Xr8Diagnostics = {
     analysedVideoTime: NaN, stagedMs: NaN, emittedMs: NaN, uploadMs: 0, uploads: 0,
     drawUploadMs: 0, lastStagedMs: -Infinity, lastStagedVideoTime: -1,
@@ -197,6 +235,7 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     const blendshapes = meshValid ? xr8Expressions(meshBuf, now, expr, {}) : null;
     latest = { t: now, matrix, blendshapes, keypoints: d.uvsInCameraFrame ? xr8Keypoints(d.uvsInCameraFrame) : null };
     fresh = true;
+    passEmitT = now;
   }
 
   function onLost(): void {
@@ -241,6 +280,7 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
           onLost();
         }
         if (!frameStartResult || frameStartResult.repeatFrame === true) return;
+        passDrew = true;
         if (sm && sm.source instanceof HTMLVideoElement && processCpuResult?.facecontroller) frameValid = true;
         if (!face) return;
         onFace(face, processCpuResult?.facecontroller?.intrinsics, processCpuResult?.facecontroller?.cameraFeedTexture);
@@ -266,6 +306,28 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     }
   }
 
+  /** Copy the draw canvas (8th Wall creates it with preserveDrawingBuffer, so its pixels persist
+   *  between passes) into the held slot. On any failure the slot stays unmarked and
+   *  getAnalysedFrame keeps returning the live canvas — the pre-hold behaviour. */
+  function holdCanvas(): void {
+    if (!canvas || !(canvas.width > 0) || !(canvas.height > 0)) return;
+    try {
+      if (held === null) {
+        held = document.createElement('canvas');
+        heldCtx = held.getContext('2d');
+      }
+      if (heldCtx === null) return;
+      if (held.width !== canvas.width || held.height !== canvas.height) {
+        held.width = canvas.width;
+        held.height = canvas.height;
+      }
+      heldCtx.drawImage(canvas, 0, 0);
+      analysedFrameMarkHeld(frameSync);
+    } catch {
+      /* keep the live canvas */
+    }
+  }
+
   /** 8th Wall skips a pass whose timestamp equals the previous pass's (camera-loop.ts:274-277). */
   let lastPassTs = -Infinity;
 
@@ -277,6 +339,10 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     lastPassTs = t;
     const consumed = sm.stagedPending; // the frame processCpu will infer in this runPreRender
     sm.stagedPending = false;
+    // About to redraw a canvas that shows the frame of the pose the app holds: keep a copy.
+    if (analysedFrameNeedsHold(frameSync)) holdCanvas();
+    passEmitT = null;
+    passDrew = false;
     try {
       XR8.runPreRender(t);
       XR8.runRender();
@@ -284,6 +350,7 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     } catch (e) {
       if (!ready) fail(e);
     }
+    analysedFrameAfterPass(frameSync, passEmitT, passDrew);
     // The blocking main-thread work (inference, then staging) just ran: handRig's lockout reads this.
     if (consumed || sm.stagedPending) lastInference = performance.now();
   }
@@ -357,11 +424,14 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     if (canvas) {
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
-      canvas.width = 0;
-      canvas.height = 0;
+      // Keep it (small) for the next engine unless its context was lost.
+      canvas.width = 1;
+      canvas.height = 1;
+      reusableCanvas = contextLost ? null : canvas;
     }
     canvas = null;
     placeholder = null;
+    prewarmVideo = null;
     sm = null;
     ready = false;
     latest = null;
@@ -369,6 +439,9 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     meshValid = false;
     frameValid = false;
     diagValid = false;
+    resetAnalysedFrameSync(frameSync);
+    held = null;
+    heldCtx = null;
     if (alive === token) alive = null;
   }
 
@@ -388,12 +461,13 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
         placeholder.height = PLACEHOLDER_H;
         const g = placeholder.getContext('2d');
         if (g) { g.fillStyle = '#000'; g.fillRect(0, 0, PLACEHOLDER_W, PLACEHOLDER_H); }
-        canvas = document.createElement('canvas');
+        canvas = reusableCanvas ?? document.createElement('canvas');
+        reusableCanvas = null;
         canvas.width = PLACEHOLDER_W;
         canvas.height = PLACEHOLDER_H;
         canvas.addEventListener('webglcontextlost', onContextLost);
         canvas.addEventListener('webglcontextrestored', onContextRestored);
-        sm = createXr8SessionManager(placeholder, XR8_DETECT_INTERVAL_MS);
+        sm = createXr8SessionManager(prewarmVideo ?? placeholder, options.detectIntervalMs ?? XR8_DETECT_INTERVAL_MS);
 
         let timer: ReturnType<typeof setTimeout> | undefined;
         const scanned = new Promise<void>((resolve, reject) => {
@@ -447,6 +521,7 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
         }
         if (!fresh) return null;
         fresh = false;
+        if (latest !== null) analysedFrameHandOver(frameSync, latest.t);
         return latest;
       } catch {
         return null;
@@ -461,8 +536,20 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     getFaceMeshTopology() {
       return topology;
     },
+    prewarm(video) {
+      try {
+        if (disposed || !(video instanceof HTMLVideoElement)) return;
+        prewarmVideo = video;
+        if (sm && sm.source !== video) {
+          sm.bind(video);
+          pendingFace = null;
+        }
+      } catch { /* a warm start is only an optimisation */ }
+    },
     getAnalysedFrame() {
-      return ready && !disposed && !contextLost && frameValid && diagValid ? canvas : null;
+      if (!(ready && !disposed && !contextLost && frameValid && diagValid)) return null;
+      // The frame of the pose poll() last handed over, never one a later pass has already drawn.
+      return pickAnalysedFrame(frameSync) === 'held' && held !== null ? held : canvas;
     },
     diagnostics() {
       if (!sm) return null;

@@ -26,7 +26,7 @@ import {
   anchorPointFor,
   forearmAxis,
   FOREARM_REACH_MAX_CM,
-  HAND_ANCHOR_MAP,
+  handAnchorDef,
 } from '../../lib/handPose';
 import { extrapolatePosition, HAND_HOLD_MS } from '../../lib/handPoseFilter';
 import type { Vec3 } from '../../lib/smoothing';
@@ -73,13 +73,18 @@ export interface HandRigProps {
    *  tracker). Published to descendants so a hand-modelled asset can flip
    *  itself — see ./handMirror.ts. */
   fit?: HandFit;
+  /** The piece's anchor calibration version (handPose HAND_ANCHORS_V2); absent
+   *  = v1, every saved scene. */
+  anchorVersion?: number;
   onVisibilityChange?: (visible: boolean) => void;
   children?: ReactNode;
 }
 
-export function HandRig({ anchor, videoId = 'booth-video', mirror = true, holdPose = false, fit = 'auto', onVisibilityChange, children }: HandRigProps) {
+export function HandRig({ anchor, videoId = 'booth-video', mirror = true, holdPose = false, fit = 'auto', anchorVersion, onVisibilityChange, children }: HandRigProps) {
   const groupRef = useRef<THREE.Group>(null);
-  const def = HAND_ANCHOR_MAP[anchor] ?? HAND_ANCHOR_MAP.grip;
+  // Memoised so `anchorRotation` below is not rebuilt every render (the map
+  // lookup it replaces returned a stable object; handAnchorDef does too).
+  const def = useMemo(() => handAnchorDef(anchor, anchorVersion), [anchor, anchorVersion]);
   // Which hand is in frame, as STATE rather than a ref: descendants re-render on
   // it. Written only when it CHANGES (the ref below is the per-frame value), so
   // a guest holding one hand up costs zero renders — swapping hands costs one.

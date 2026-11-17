@@ -36,6 +36,7 @@ import {
 } from './engineSelect';
 
 export type { FaceTrackingMode, FaceSample } from './types';
+import { claimFrameInference } from './inferenceToken';
 export { claimFrameInference, FRAME_INFERENCE_TOKEN } from './inferenceToken';
 
 /** Long enough for a cold 8th Wall download + wasm compile on a mid phone over
@@ -86,13 +87,16 @@ export function resolveSurfaceFaceMode(opts: {
   legacy?: boolean;
   config?: unknown;
   triggers?: readonly { source: string }[] | null;
+  /** The scene paints on the face mesh (Living Face Paint) → needs 8th Wall. */
+  facePaint?: boolean;
 } = {}): ResolvedMode {
   return resolveFaceTrackingMode({
-    legacy: IS_LEGACY_BUILD || opts.legacy === true,
+    legacy: isLegacyFaceSurface(opts.legacy === true),
     url: urlOverride(),
     config: opts.config,
     env: ENV_FACE_ENGINE,
     hasFaceTriggers: hasFaceExpressionTrigger(opts.triggers),
+    requiresFaceMesh: opts.facePaint === true,
   });
 }
 
@@ -141,6 +145,15 @@ let warnedUnwanted = false;
 
 const listeners = new Set<() => void>();
 let info: FaceEngineInfo = computeInfo();
+
+/**
+ * THE legacy test for a surface, shared by the mode resolver (resolveSurfaceFaceMode)
+ * and every caller that gates platform-only behaviour on the same rule: a frozen
+ * `VITE_EVENT` build, or a coded event (`codedEvent` = `source !== 'db'`).
+ */
+export function isLegacyFaceSurface(codedEvent: boolean): boolean {
+  return IS_LEGACY_BUILD || codedEvent;
+}
 
 /** Legacy rules for this session: a frozen build, or a coded event surface. */
 export function isLegacyFaceSession(): boolean {
@@ -284,6 +297,18 @@ function startMp(): void {
     });
 }
 
+/** The camera <video> faceRig last polled with (for the 8th Wall warm start). */
+let lastVideo: HTMLVideoElement | null = null;
+/** An 8th Wall engine created but not yet adopted (init still running). */
+let pendingXr8: (FaceEngine & { prewarm?(video: HTMLVideoElement): void }) | null = null;
+
+/** Hand the loading 8th Wall engine the real camera so it starts on real frames
+ *  (measured by Agent A: time-to-first-pose 1616 → 888 ms). Never throws. */
+function prewarmPending(): void {
+  if (pendingXr8 === null || lastVideo === null) return;
+  try { pendingXr8.prewarm?.(lastVideo); } catch { /* a warm start is only an optimisation */ }
+}
+
 function startXr8(): void {
   if (xr8Status !== 'idle') return; // loading/ready = never a second engine; failed = sticky
   xr8Status = 'loading';
@@ -299,6 +324,8 @@ function startXr8(): void {
   const boot = (async () => {
     const { createXr8Engine } = await import('./xr8Engine');
     engine = createXr8Engine();
+    pendingXr8 = engine;
+    prewarmPending(); // before init(): the session binds the real <video>, not a placeholder
     await engine.init();
     // Finished after the timeout already gave up on it: stop it, do not leak it.
     if (abandoned) engine.dispose();
@@ -325,6 +352,7 @@ function startXr8(): void {
     })
     .finally(() => {
       clearTimeout(timer);
+      if (pendingXr8 === engine) pendingXr8 = null;
       if (wanted) ensureEngines();
       emit();
     });
@@ -450,6 +478,46 @@ export function getFaceDetectionCanvas(): HTMLCanvasElement | null {
   return mp !== null ? mp.getDetectionCanvas() : null;
 }
 
+/** The xr8 engine's optional mesh surface (structural: the manager holds a plain FaceEngine). */
+interface MeshSource {
+  getLatestFaceMesh?(): { vertices: Float32Array; t: number } | null;
+  getFaceMeshTopology?(): { pointsPerDetection: number; indices: Uint32Array; uvs: Float32Array } | null;
+}
+
+/** True only while an 8th Wall engine is the ACTIVE pose engine (xr8 or hybrid, after any fallback). */
+export function faceMeshAvailable(): boolean {
+  return xr8 !== null && (info.active === 'xr8' || info.active === 'hybrid');
+}
+
+/**
+ * The live tracked face mesh: 478×3 floats in the contract HEAD frame (cm), so
+ * a mesh parented to the tracked head group lands on the face. The buffer is
+ * the engine's own, overwritten in place every frame — copy to keep. null in
+ * MediaPipe mode, after a fallback, or before the first sample.
+ */
+export function getTrackedFaceMesh(): { vertices: Float32Array; t: number } | null {
+  if (!faceMeshAvailable()) return null;
+  try {
+    return (xr8 as MeshSource).getLatestFaceMesh?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The mesh topology (triangles + 8th Wall standard uvs), or null whenever the mesh is. */
+export function getTrackedFaceMeshTopology(): {
+  pointsPerDetection: number;
+  indices: Uint32Array;
+  uvs: Float32Array;
+} | null {
+  if (!faceMeshAvailable()) return null;
+  try {
+    return (xr8 as MeshSource).getFaceMeshTopology?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Main-thread ms of MediaPipe's latest frame staging (snapshot + downscale). Diagnostics. */
 export function faceStagingMs(): number {
   return mp !== null ? mp.lastStagingMs() : 0;
@@ -530,6 +598,20 @@ export interface FacePoll {
 }
 const _poll: FacePoll = { pose: null, expr: null, poseHasExpr: true };
 
+/**
+ * Poll 8th Wall and, when it ran an inference during the call, claim this
+ * frame's inference token for it: 8th Wall cannot claim it itself (its
+ * pipeline runs inside poll), and without the claim MediaPipe's hybrid
+ * blendshape pass or the hand landmarker could block the same tick
+ * (measured worst single blocks 99 ms + 373 ms, uncoordinated).
+ */
+function pollXr8Claimed(engine: FaceEngine, video: HTMLVideoElement, now: number): FaceSample | null {
+  const before = safeLast(engine);
+  const s = pollXr8(video, now);
+  if (safeLast(engine) !== before) claimFrameInference('face');
+  return s;
+}
+
 function pollXr8(video: HTMLVideoElement, now: number): FaceSample | null {
   if (xr8 === null) return null;
   try {
@@ -547,6 +629,10 @@ export function pollFaceEngine(video: HTMLVideoElement, now: number): FacePoll {
   _poll.pose = null;
   _poll.expr = null;
   _poll.poseHasExpr = true;
+  if (video !== lastVideo) {
+    lastVideo = video;
+    prewarmPending(); // first poll (or a new camera element) while 8th Wall is still loading
+  }
   pollEngines(video, now);
   if (_poll.pose !== null) lastPoseT = _poll.pose.t;
   return _poll;
@@ -564,13 +650,15 @@ function pollEngines(video: HTMLVideoElement, now: number): void {
   }
   const xrReady = xr8Status === 'ready' && xr8 !== null;
   if (eff === 'xr8') {
-    if (xrReady) _poll.pose = pollXr8(video, now);
+    if (xrReady) _poll.pose = pollXr8Claimed(xr8 as FaceEngine, video, now);
     return;
   }
   // hybrid
   if (xrReady) {
-    _poll.pose = pollXr8(video, now);
+    _poll.pose = pollXr8Claimed(xr8 as FaceEngine, video, now);
     _poll.poseHasExpr = false;
+    // Skipped (gate untouched, retried next frame) when 8th Wall inferred this
+    // frame: its token claim below makes pollBlendshapes' own claim fail.
     if (mp !== null) _poll.expr = mp.pollBlendshapes(video, now);
   } else if (mp !== null) {
     _poll.pose = mp.poll(video, now); // interim: plain MediaPipe while 8th Wall loads

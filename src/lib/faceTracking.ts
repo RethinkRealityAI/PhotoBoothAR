@@ -72,8 +72,10 @@ export async function resolveModelUrl(localUrl: string, remoteUrl: string): Prom
 }
 
 /** A frozen single-event build (same test as App.tsx LEGACY_EVENT / faceEngine IS_LEGACY_BUILD;
- *  inlined because faceEngine/index imports this module). */
-const LEGACY_BUILD = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim() !== '';
+ *  inlined because faceEngine/index imports this module). `env?.` so a NON-Vite bundle of
+ *  this module (scripts/check-face-engines.mjs via esbuild) does not crash at load: Vite
+ *  still substitutes `import.meta.env` here (both builds verified). */
+const LEGACY_BUILD = ((import.meta.env?.VITE_EVENT as string | undefined) ?? '').trim() !== '';
 
 async function create(delegate: 'GPU' | 'CPU', modelUrl: string): Promise<FaceLandmarker> {
   const vision = await visionFileset();

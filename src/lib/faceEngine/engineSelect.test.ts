@@ -179,3 +179,28 @@ describe('frame-lock resolution', () => {
     expect(trackingReadoutEnabled('', memStore())).toBe(false);
   });
 });
+
+describe('face paint needs the 8th Wall face mesh', () => {
+  it('lifts a MediaPipe config/env to xr8, or hybrid when face-expression triggers ride along', () => {
+    expect(resolveFaceTrackingMode({ legacy: false, config: 'mediapipe', requiresFaceMesh: true })).toEqual({ mode: 'xr8', source: 'face-paint' });
+    expect(resolveFaceTrackingMode({ legacy: false, env: 'mediapipe', requiresFaceMesh: true, hasFaceTriggers: true })).toEqual({ mode: 'hybrid', source: 'face-paint' });
+  });
+
+  it('leaves a result that already runs 8th Wall exactly as it was', () => {
+    expect(resolveFaceTrackingMode({ legacy: false, requiresFaceMesh: true })).toEqual({ mode: 'xr8', source: 'default' });
+    expect(resolveFaceTrackingMode({ legacy: false, requiresFaceMesh: true, hasFaceTriggers: true })).toEqual({ mode: 'hybrid', source: 'default-hybrid' });
+    expect(resolveFaceTrackingMode({ legacy: false, config: 'hybrid', requiresFaceMesh: true })).toEqual({ mode: 'hybrid', source: 'config' });
+    expect(resolveFaceTrackingMode({ legacy: false, config: 'xr8', requiresFaceMesh: true, hasFaceTriggers: true })).toEqual({ mode: 'xr8', source: 'config' });
+  });
+
+  it('never overrides legacy or the URL tester switch', () => {
+    expect(resolveFaceTrackingMode({ legacy: true, requiresFaceMesh: true })).toEqual({ mode: 'mediapipe', source: 'legacy' });
+    expect(resolveFaceTrackingMode({ legacy: false, url: 'mediapipe', requiresFaceMesh: true })).toEqual({ mode: 'mediapipe', source: 'url' });
+  });
+
+  it('absent / false is today’s resolution, unchanged', () => {
+    for (const inp of [{ legacy: false, config: 'mediapipe' }, { legacy: false, env: 'mediapipe' }, { legacy: false }]) {
+      expect(resolveFaceTrackingMode({ ...inp, requiresFaceMesh: false })).toEqual(resolveFaceTrackingMode(inp));
+    }
+  });
+});

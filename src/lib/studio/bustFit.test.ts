@@ -8,6 +8,7 @@ import {
   computeAnchorAlignedFit,
   collectWorldPositions,
   normalizeFitToCanonical,
+  canonicalWidthStretch,
   surfaceRadiusAlong,
   ANCHOR_CLEARANCE_CM,
   HEAD_HEIGHT_CM,
@@ -325,5 +326,84 @@ describe('normalizeFitToCanonical', () => {
     // A pathological asset (100x too small) would demand a ratio outside the
     // sane band — better an un-normalized head than a head filling the sky.
     expect(normalizeFitToCanonical(scaled(0.01), { scale: 1, position: [0, 0, 0] }, canonical, DIRS).ratio).toBe(1);
+  });
+});
+
+describe('canonicalWidthStretch — the bust must be as WIDE as the face Live tracks', () => {
+  const DIRS = ANCHOR_PRESETS.map((a) => a.offset);
+  const canonical = (() => {
+    const p = fileURLToPath(new URL('../../assets/ar/canonical_face_model.obj', import.meta.url));
+    return parseObj(readFileSync(p, 'utf8')).positions;
+  })();
+  /** Max-x-span over the cheekbone..temple heights, after a fit with stretch. */
+  const widthRatio = (pts: ArrayLike<number>, fit: { scale: number; position: readonly number[] }, kx: number) => {
+    const rs: number[] = [];
+    for (let y = -2; y <= 6; y++) {
+      let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity;
+      for (let i = 0; i < pts.length; i += 3) {
+        const py = pts[i + 1] * fit.scale + fit.position[1];
+        if (py >= y - 1 && py <= y + 1) { const x = (pts[i] * fit.scale + fit.position[0]) * kx; a = Math.min(a, x); b = Math.max(b, x); }
+      }
+      for (let i = 0; i < canonical.length; i += 3) {
+        if (canonical[i + 1] >= y - 1 && canonical[i + 1] <= y + 1) { c = Math.min(c, canonical[i]); d = Math.max(d, canonical[i]); }
+      }
+      if (b > a && d > c) rs.push((b - a) / (d - c));
+    }
+    rs.sort((p, q) => p - q);
+    return rs[rs.length >> 1];
+  };
+
+  it('stretches an x-squeezed head back to canonical width, and only x', () => {
+    const narrow = Float64Array.from(canonical, (v, i) => (i % 3 === 0 ? v * 0.85 : v));
+    const k = canonicalWidthStretch(narrow, { scale: 1, position: [0, 0, 0] }, canonical);
+    expect(k).toBeCloseTo(1 / 0.85, 2);
+  });
+
+  it('leaves a canonical-width head alone, and degrades to 1 when unmeasurable', () => {
+    expect(canonicalWidthStretch(canonical, { scale: 1, position: [0, 0, 0] }, canonical)).toBeCloseTo(1, 6);
+    expect(canonicalWidthStretch(new Float32Array(0), { scale: 1, position: [0, 0, 0] }, canonical)).toBe(1);
+    // A pathological width demand (10x) is refused rather than obeyed.
+    const sliver = Float64Array.from(canonical, (v, i) => (i % 3 === 0 ? v * 0.1 : v));
+    expect(canonicalWidthStretch(sliver, { scale: 1, position: [0, 0, 0] }, canonical)).toBe(1);
+  });
+
+  it('THE CROWN BUG on the REAL vendored bust: shipped fit was 0.89x canonical width; stretched it is 1x', () => {
+    // The exact pipeline ReferenceBust runs, on the committed GLB (no textures
+    // needed — positions only, read straight from the binary chunk).
+    const buf = readFileSync(fileURLToPath(new URL('../../../public/models/reference-head.glb', import.meta.url)));
+    const jsonLen = buf.readUInt32LE(12);
+    const gltf = JSON.parse(buf.subarray(20, 20 + jsonLen).toString('utf8'));
+    const bin = 20 + jsonLen + 8;
+    const root = new THREE.Group();
+    const build = (ni: number, parent: THREE.Object3D) => {
+      const n = gltf.nodes[ni];
+      const o = new THREE.Group();
+      if (n.translation) o.position.fromArray(n.translation);
+      if (n.rotation) o.quaternion.fromArray(n.rotation);
+      if (n.scale) o.scale.fromArray(n.scale);
+      if (n.mesh !== undefined) {
+        for (const prim of gltf.meshes[n.mesh].primitives) {
+          const acc = gltf.accessors[prim.attributes.POSITION];
+          const view = gltf.bufferViews[acc.bufferView];
+          const off = buf.byteOffset + bin + (view.byteOffset ?? 0) + (acc.byteOffset ?? 0);
+          const pos = new Float32Array(buf.buffer.slice(off, off + acc.count * 12));
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+          o.add(new THREE.Mesh(geo));
+        }
+      }
+      parent.add(o);
+      for (const c of n.children ?? []) build(c, o);
+    };
+    for (const ni of gltf.scenes[gltf.scene ?? 0].nodes) build(ni, root);
+
+    const points = collectWorldPositions(root);
+    const aligned = computeAnchorAlignedFit(points, DIRS);
+    expect(aligned).not.toBeNull();
+    const fit = normalizeFitToCanonical(points, aligned!, canonical, DIRS);
+    // Before: the shipped fit, unstretched — the head a crown wraps is ~11% narrow.
+    expect(widthRatio(points, fit, 1)).toBeLessThan(0.9);
+    const kx = canonicalWidthStretch(points, fit, canonical);
+    expect(widthRatio(points, fit, kx)).toBeCloseTo(1, 2);
   });
 });

@@ -17,7 +17,7 @@ import { Suspense, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { ANCHOR_PRESETS, ANCHOR_MAP, scaledAnchorBase } from '../../../lib/faceRig';
+import { ANCHOR_PRESETS, anchorOffset, scaledAnchorBase } from '../../../lib/faceRig';
 import { HeadAnchor } from '../../../types';
 
 // Beam-accent dots so the anchor picker matches the platform theme.
@@ -34,6 +34,10 @@ interface Props {
   /** Head-size calibration — the dots must ride the same scaled anchor base the
    *  live rig uses, or they drift off a calibrated reference head. 1 = default. */
   headScale?: number;
+  /** The selected piece's anchor calibration version (faceRig
+   *  ANCHOR_PRESETS_V2) — the dots sit where THAT piece's anchors are, the same
+   *  base FaceRig renders it on. Absent = v1. */
+  anchorVersion?: number;
 }
 
 /** Single dot: world-position is the anchor's base offset (no user config yet). */
@@ -42,11 +46,13 @@ function AnchorDot({
   active,
   onSelect,
   headScale = 1,
+  anchorVersion,
 }: {
   preset: typeof ANCHOR_PRESETS[0];
   active: boolean;
   onSelect: () => void;
   headScale?: number;
+  anchorVersion?: number;
 }) {
   const ringRef = useRef<THREE.Mesh>(null);
   const [hovered, setHovered] = useState(false);
@@ -58,7 +64,7 @@ function AnchorDot({
     }
   });
 
-  const [bx, by, bz] = scaledAnchorBase(ANCHOR_MAP[preset.id].offset, headScale);
+  const [bx, by, bz] = scaledAnchorBase(anchorOffset(preset.id, anchorVersion), headScale);
   const lit = active || hovered;
   const radius = active ? 0.72 : hovered ? 0.64 : 0.5;
 
@@ -148,7 +154,7 @@ function AnchorDot({
   );
 }
 
-export default function AnchorDots({ activeAnchor, onSelect, headScale = 1 }: Props) {
+export default function AnchorDots({ activeAnchor, onSelect, headScale = 1, anchorVersion }: Props) {
   return (
     <group>
       {ANCHOR_PRESETS.map((p) => (
@@ -158,6 +164,7 @@ export default function AnchorDots({ activeAnchor, onSelect, headScale = 1 }: Pr
           active={p.id === activeAnchor}
           onSelect={() => onSelect(p.id)}
           headScale={headScale}
+          anchorVersion={anchorVersion}
         />
       ))}
     </group>

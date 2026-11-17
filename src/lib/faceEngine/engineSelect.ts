@@ -22,6 +22,13 @@
  *      active filter has a FACE-expression trigger so smile/wink/… keep
  *      MediaPipe's real blendshape scores. An EXPLICIT 'xr8' (URL/config/env)
  *      is honoured as-is.
+ *
+ * FACE PAINT (requiresFaceMesh): the paint lives on 8th Wall's face MESH, which
+ * MediaPipe mode does not produce. So a scene with face paint lifts any
+ * config/env/default result that would not run 8th Wall to 'xr8' ('hybrid'
+ * when it also has face-expression triggers). It never overrides LEGACY (those
+ * sites never load 8th Wall) or the URL (the tester's switch — that is how the
+ * honest no-paint fallback gets checked).
  */
 import type { FaceTrackingMode } from './types';
 import { FACE_TRIGGER_SOURCES } from '../studio/triggers';
@@ -46,7 +53,7 @@ export function hasFaceExpressionTrigger(triggers: readonly { source: string }[]
   return triggers.some((t) => (FACE_TRIGGER_SOURCES as readonly string[]).includes(t.source));
 }
 
-export type ModeSource = 'legacy' | 'url' | 'config' | 'env' | 'default' | 'default-hybrid';
+export type ModeSource = 'legacy' | 'url' | 'config' | 'env' | 'default' | 'default-hybrid' | 'face-paint';
 
 export interface ModeInputs {
   /** Frozen single-event build or a coded (non-db) event. */
@@ -59,6 +66,8 @@ export interface ModeInputs {
   env?: unknown;
   /** The active filter carries a face-expression trigger. */
   hasFaceTriggers?: boolean;
+  /** The active scene paints on the face mesh (Living Face Paint). */
+  requiresFaceMesh?: boolean;
 }
 
 export interface ResolvedMode {
@@ -74,6 +83,15 @@ export function resolveFaceTrackingMode(inp: ModeInputs): ResolvedMode {
   if (inp.legacy) return { mode: 'mediapipe', source: 'legacy' };
   const url = parseFaceTrackingMode(inp.url);
   if (url !== null) return { mode: url, source: 'url' };
+  const r = resolveBelowUrl(inp);
+  if (inp.requiresFaceMesh === true && !modeNeedsXr8(r.mode)) {
+    return { mode: inp.hasFaceTriggers === true ? 'hybrid' : 'xr8', source: 'face-paint' };
+  }
+  return r;
+}
+
+/** Steps 3-5 (config → env → built-in default), before the face-mesh lift. */
+function resolveBelowUrl(inp: ModeInputs): ResolvedMode {
   const cfg = parseFaceTrackingMode(inp.config);
   if (cfg !== null) return { mode: cfg, source: 'config' };
   const env = parseFaceTrackingMode(inp.env);

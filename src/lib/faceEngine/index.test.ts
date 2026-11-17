@@ -31,6 +31,13 @@ const h = vi.hoisted(() => {
     /** What the fake engines hand over as their analysed frame. */
     mpFrame: { width: 1080, height: 1920, tag: 'mp' } as unknown,
     xr8Frame: { width: 1280, height: 720, tag: 'xr8' } as unknown,
+    xr8Mesh: { vertices: new Float32Array(478 * 3), t: 5 },
+    /** Videos handed to the 8th Wall engine's prewarm(), and whether init had started. */
+    xr8Prewarms: [] as { video: unknown; beforeInit: boolean }[],
+    /** When true, each xr8 poll() runs an inference (lastInferenceMs advances). */
+    xr8Infers: false,
+    xr8LastInf: -Infinity,
+    xr8Topology: { pointsPerDetection: 478, indices: new Uint32Array(852 * 3), uvs: new Float32Array(478 * 2) },
     reports: [] as string[],
   };
   return { state };
@@ -44,7 +51,7 @@ const sample = (t: number, blend: Record<string, number> | null = {}): FaceSampl
 });
 
 vi.mock('./xr8Engine', () => ({
-  createXr8Engine: (): FaceEngine => {
+  createXr8Engine: (): FaceEngine & { getLatestFaceMesh(): unknown; getFaceMeshTopology(): unknown; prewarm(v: HTMLVideoElement): void } => {
     const s = h.state;
     s.xr8Created++;
     s.xr8Alive++;
@@ -52,19 +59,27 @@ vi.mock('./xr8Engine', () => ({
     let ready = false;
     let disposed = false;
     let running = false;
+    let initCalled = false;
     const started = () => { ready = true; running = true; s.xr8Running++; };
     return {
       id: 'xr8',
       init: () => new Promise<void>((resolve, reject) => {
+        initCalled = true;
         if (s.xr8Init === 'resolve') { started(); resolve(); }
         else if (s.xr8Init === 'reject') reject(new Error('WebGL2 unavailable'));
         else if (s.xr8Init === 'manual') s.xr8Ctl.push({ resolve: () => { started(); resolve(); }, reject });
         // 'hang': never settles
       }),
       isReady: () => ready,
-      poll: (_v, now) => (ready ? sample(now, null) : null),
-      lastInferenceMs: () => -Infinity,
+      poll: (_v, now) => {
+        if (ready && s.xr8Infers) s.xr8LastInf = now;
+        return ready ? sample(now, null) : null;
+      },
+      lastInferenceMs: () => s.xr8LastInf,
+      prewarm: (v: HTMLVideoElement) => { s.xr8Prewarms.push({ video: v, beforeInit: !initCalled }); },
       getAnalysedFrame: () => (ready ? (s.xr8Frame as HTMLCanvasElement) : null),
+      getLatestFaceMesh: () => (ready ? s.xr8Mesh : null),
+      getFaceMeshTopology: () => (ready ? s.xr8Topology : null),
       dispose: () => {
         s.xr8Disposed++;
         if (!disposed) { disposed = true; s.xr8Alive--; }
@@ -140,6 +155,7 @@ beforeEach(async () => {
     mpInits: 0, mpInit: 'resolve', mpCtl: [], mpReady: false, mpPolls: 0, mpBlendPolls: 0,
     mpPlatform: null, mpSnapshot: false, mpOnLost: null,
     mpFrame: { width: 1080, height: 1920, tag: 'mp' }, xr8Frame: { width: 1280, height: 720, tag: 'xr8' },
+    xr8Prewarms: [], xr8Infers: false, xr8LastInf: -Infinity,
     reports: [],
   });
   setSearch('');
@@ -207,6 +223,55 @@ describe('face-engine manager', () => {
     expect(h.state.xr8Created).toBe(1);
     expect(h.state.reports).toHaveLength(1);
     expect(m.getActiveFaceEngineInfo().active).toBe('mediapipe');
+  });
+
+  it('a FAST-rejecting 8th Wall (in-app browser) falls back at once — the guest never waits for the 12s timeout', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    h.state.xr8Init = 'reject';
+    await m.initFaceEngine(); // fake clock never advanced: only the rejection can have settled this
+    expect(m.getActiveFaceEngineInfo()).toMatchObject({ active: 'mediapipe', fellBack: true, ready: true });
+    expect(m.getActiveFaceEngineInfo().reason).toContain('WebGL2 unavailable');
+    expect(m.getActiveFaceEngineInfo().reason).not.toContain('timed out');
+  });
+
+  it('8th Wall is prewarmed with the polled <video> BEFORE its init, and again for a video that arrives while it loads', async () => {
+    const v1 = { id: 'v1' } as unknown as HTMLVideoElement;
+    m.pollFaceEngine(v1, 1); // the surface's video is known before anything loads
+    h.state.xr8Init = 'manual';
+    const ready = m.initFaceEngine();
+    await until(() => h.state.xr8Created === 1);
+    expect(h.state.xr8Prewarms).toEqual([{ video: v1, beforeInit: true }]);
+    const v2 = { id: 'v2' } as unknown as HTMLVideoElement; // a camera flip mid-load
+    m.pollFaceEngine(v2, 2);
+    m.pollFaceEngine(v2, 3); // same element again: no repeat
+    expect(h.state.xr8Prewarms.map((p) => p.video)).toEqual([v1, v2]);
+    h.state.xr8Ctl[0].resolve();
+    await ready;
+    const v3 = { id: 'v3' } as unknown as HTMLVideoElement; // adopted engine: poll() rebinds by itself
+    m.pollFaceEngine(v3, 4);
+    expect(h.state.xr8Prewarms).toHaveLength(2);
+  });
+
+  it('hybrid: a frame in which 8th Wall inferred holds the frame inference token (no MediaPipe blend pass / hand inference that tick)', async () => {
+    const g = globalThis as { document?: unknown };
+    const timeline = { currentTime: 1000 };
+    g.document = { timeline };
+    try {
+      m.setFaceTrackingMode('hybrid');
+      await m.initFaceEngine();
+      await until(() => m.getActiveFaceEngineInfo().active === 'hybrid');
+      h.state.xr8Infers = true;
+      timeline.currentTime = 1016;
+      m.pollFaceEngine(video, 1016);
+      expect(m.claimFrameInference('hand')).toBe(false); // 8th Wall already ran this frame
+      timeline.currentTime = 1033;
+      h.state.xr8Infers = false; // 8th Wall had nothing new this frame
+      m.pollFaceEngine(video, 1033);
+      // MediaPipe's blend pass may claim it (the fake does not) — but 8th Wall did NOT:
+      expect(m.claimFrameInference('hand')).toBe(true);
+    } finally {
+      delete g.document;
+    }
   });
 
   it('xr8 init HANG → falls back after the timeout; a late finish is disposed, never adopted', async () => {
@@ -313,6 +378,35 @@ describe('face-engine manager', () => {
     await m.initFaceEngine();
     expect(seen.length).toBeGreaterThan(0);
     off();
+  });
+
+  it('face mesh: passes through ONLY while 8th Wall is the active pose engine', async () => {
+    expect(m.faceMeshAvailable()).toBe(false);
+    expect(m.getTrackedFaceMesh()).toBeNull();
+    await m.initFaceEngine();
+    expect(m.faceMeshAvailable()).toBe(true);
+    expect(m.getTrackedFaceMesh()).toBe(h.state.xr8Mesh);
+    expect(m.getTrackedFaceMeshTopology()).toBe(h.state.xr8Topology);
+    m.setFaceTrackingMode('hybrid');
+    await flush();
+    expect(m.getTrackedFaceMesh()).toBe(h.state.xr8Mesh); // hybrid: pose is still 8th Wall
+    m.setFaceTrackingMode('mediapipe');
+    // Same tick: 8th Wall is still alive (disposal is a microtask away) but no longer the pose engine.
+    expect(m.faceMeshAvailable()).toBe(false);
+    expect(m.getTrackedFaceMesh()).toBeNull();
+    await until(() => m.getActiveFaceEngineInfo().active === 'mediapipe');
+    expect(m.faceMeshAvailable()).toBe(false);
+    expect(m.getTrackedFaceMesh()).toBeNull();
+    expect(m.getTrackedFaceMeshTopology()).toBeNull();
+  });
+
+  it('face mesh: null after an 8th Wall fallback', async () => {
+    h.state.xr8Init = 'reject';
+    await m.initFaceEngine();
+    expect(m.getActiveFaceEngineInfo()).toMatchObject({ active: 'mediapipe', fellBack: true });
+    expect(m.faceMeshAvailable()).toBe(false);
+    expect(m.getTrackedFaceMesh()).toBeNull();
+    expect(m.getTrackedFaceMeshTopology()).toBeNull();
   });
 
   describe('frame-lock', () => {
@@ -435,5 +529,27 @@ describe('face-engine manager', () => {
       await until(() => h.state.reports.some((r) => r.includes('stopped responding')));
       expect(h.state.reports.filter((r) => r.includes('stopped responding'))).toHaveLength(1);
     });
+  });
+});
+
+describe('isLegacyFaceSurface (the one legacy predicate, shared with the resolver)', () => {
+  it('platform build: only a coded event is legacy', () => {
+    expect(m.isLegacyFaceSurface(true)).toBe(true);
+    expect(m.isLegacyFaceSurface(false)).toBe(false);
+    // The resolver reads the same predicate: a coded surface pins MediaPipe.
+    expect(m.resolveSurfaceFaceMode({ legacy: true }).source).toBe('legacy');
+    expect(m.resolveSurfaceFaceMode({ legacy: false }).source).not.toBe('legacy');
+  });
+
+  it('a frozen VITE_EVENT build is legacy even for a db event', async () => {
+    vi.stubEnv('VITE_EVENT', 'hope-gala');
+    try {
+      vi.resetModules();
+      const legacy = await import('./index');
+      expect(legacy.isLegacyFaceSurface(false)).toBe(true);
+      expect(legacy.resolveSurfaceFaceMode({ legacy: false }).source).toBe('legacy');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

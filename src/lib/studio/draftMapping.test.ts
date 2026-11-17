@@ -4,6 +4,7 @@ import { initialDraft, createOverlay, createObject3D, withCustomization, type Ov
 import { normalizeTemplate } from './assetTemplate';
 import { defaultParams } from '../shaders';
 import type { AssetCustomization, Experience, ExperienceDraft } from '../../types';
+import { FACE_PAINT_PROCEDURAL_ID, type FacePaintSpec } from '../facePaint/spec';
 
 const baseExp = (over: Partial<Experience>): Experience => ({
   id: 'e1',
@@ -925,5 +926,144 @@ describe('config.tracking (face-engine choice) persistence', () => {
       expect(draft.tracking).toBeUndefined();
       expect('tracking' in (draftToPayload(draft, resolver({}), null).config ?? {})).toBe(false);
     }
+  });
+});
+
+describe('round-trip: face paint', () => {
+  const PAINT = (): FacePaintSpec => ({ design: 'game-day', colors: ['#d4a017', '#ffffff'], opacity: 0.88 });
+  const paintObject = (facePaint: FacePaintSpec = PAINT()) =>
+    createObject3D('headpiece', { proceduralId: FACE_PAINT_PROCEDURAL_ID, name: 'Face Paint', anchor: 'noseTip', facePaint });
+
+  it('a LONE face-paint object forces config.layers and reloads painted (the anyCustom trap, one field later)', () => {
+    // The singular mirror has slots for anchor/procedural/occlusion and nothing
+    // else: without `anyFacePaint` in the force predicate this saves as a bare
+    // procedural id and reloads as an unpaintable, invisible head piece.
+    const o = paintObject();
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id };
+    const payload = draftToPayload(draft, resolver({}), null);
+    expect(payload.config?.layers).toHaveLength(1);
+    expect(payload.config?.layers?.[0].facePaint).toEqual(PAINT());
+    expect(payload.config?.layers?.[0].asset_url).toBeNull();
+
+    const back = experienceToDraft(expFromPayload(payload))!.objects[0] as Object3D;
+    expect(back.facePaint).toEqual(PAINT());
+    expect(back.proceduralId).toBe(FACE_PAINT_PROCEDURAL_ID);
+    // …and a second save is the same bytes.
+    const again = draftToPayload({ ...draft, objects: [back] }, resolver({}), null);
+    expect(JSON.stringify(again.config?.layers?.[0].facePaint)).toBe(JSON.stringify(payload.config?.layers?.[0].facePaint));
+  });
+
+  it('a logo stamp survives the round trip; a hostile stored spec is normalized, never rendered raw', () => {
+    const withLogo = paintObject({ ...PAINT(), logo: { url: 'https://cdn/brand.png', placement: 'bothCheeks', size: 1.2 } });
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [withLogo], selectedId: withLogo.id };
+    const back = experienceToDraft(expFromPayload(draftToPayload(draft, resolver({}), null)))!.objects[0] as Object3D;
+    expect(back.facePaint?.logo).toEqual({ url: 'https://cdn/brand.png', placement: 'bothCheeks', size: 1.2 });
+
+    const hostile = baseExp({
+      kind: '3d_attachment',
+      config: { layers: [{ id: 'L1', kind: '3d_attachment', procedural: FACE_PAINT_PROCEDURAL_ID, anchor: { anchor: 'noseTip', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 }, facePaint: { design: 'tiger', colors: ['javascript:1', '#000'], opacity: 99, logo: { url: 'javascript:alert(1)' } } }] },
+    });
+    const h = experienceToDraft(hostile)!.objects[0] as Object3D;
+    expect(h.facePaint).toEqual({ design: 'tiger', colors: ['#000000'], opacity: 1 });
+    const piece = layerToPiece(hostile.config!.layers![0]);
+    expect(piece.facePaint).toEqual({ design: 'tiger', colors: ['#000000'], opacity: 1 });
+  });
+
+  it('layerToPiece and objectToPiece agree on face paint (Booth · StudioPreview · Studio3DView cannot drift)', () => {
+    const o = paintObject();
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id };
+    const layer = draftToPayload(draft, resolver({}), null).config!.layers![0];
+    expect(layerToPiece(layer)).toEqual(objectToPiece(o));
+    expect(objectToPiece(o).facePaint).toEqual(PAINT());
+  });
+
+  it('configs WITHOUT face paint serialise byte-identically (golden)', () => {
+    const crown = createObject3D('headpiece', { proceduralId: 'crown', name: 'Crown', anchor: 'crown' });
+    const hat = createObject3D('model', { assetUrl: 'https://cdn/hat.glb', name: 'Hat', anchor: 'crown', animation: 'float' });
+    expect('facePaint' in crown).toBe(false);
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [crown, hat], selectedId: crown.id };
+    const payload = draftToPayload(draft, resolver({ [hat.id]: 'https://cdn/hat.glb' }), null);
+    expect(JSON.stringify(payload.config)).toBe(
+      '{"anchor":{"anchor":"crown","offset":{"x":0,"y":0,"z":0},"rotation":{"x":0,"y":0,"z":0},"scale":1},"procedural":"crown",' +
+      `"layers":[{"id":"${crown.id}","kind":"3d_attachment","asset_url":null,"anchor":{"anchor":"crown","offset":{"x":0,"y":0,"z":0},"rotation":{"x":0,"y":0,"z":0},"scale":1},"procedural":"crown","name":"Crown"},` +
+      `{"id":"${hat.id}","kind":"3d_attachment","asset_url":"https://cdn/hat.glb","anchor":{"anchor":"crown","offset":{"x":0,"y":0,"z":0},"rotation":{"x":0,"y":0,"z":0},"scale":1},"name":"Hat","animation":"float"}]}`,
+    );
+    // A lone plain piece keeps the singular path, with no facePaint anywhere.
+    const lone = draftToPayload({ ...draft, objects: [crown] }, resolver({}), null);
+    expect(lone.config?.layers).toBeUndefined();
+    expect(JSON.stringify(lone)).not.toContain('facePaint');
+    // And a stored layer without the key reloads without it.
+    const back = experienceToDraft(expFromPayload(payload))!.objects as Object3D[];
+    expect(back.every((o) => !('facePaint' in o))).toBe(true);
+    expect('facePaint' in layerToPiece(payload.config!.layers![0])).toBe(false);
+  });
+});
+
+describe('anchorVersion (v2 calibrated anchors, per object)', () => {
+  const save = (o: Object3D): StudioDraft => ({ ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id });
+
+  it('FIXTURE: a stored v1 layer (no key) maps to EXACTLY the piece it mapped to before the field existed', () => {
+    const layer = {
+      id: 'l1',
+      kind: '3d_attachment' as const,
+      asset_url: 'https://cdn/glasses.glb',
+      anchor: { anchor: 'leftEye' as const, offset: { x: 0.2, y: 0, z: 0.1 }, rotation: { x: 0, y: 0, z: 0 }, scale: 4 },
+      occlusion: true,
+    };
+    expect(layerToPiece(layer, { occlusionEnabled: true })).toEqual({
+      assetUrl: 'https://cdn/glasses.glb',
+      proceduralId: null,
+      anchor: { anchor: 'leftEye', offset: { x: 0.2, y: 0, z: 0.1 }, rotation: { x: 0, y: 0, z: 0 }, scale: 4 },
+      animation: 'none',
+      occlude: true,
+      finish: undefined,
+      tint: undefined,
+      tintStrength: undefined,
+      fxKey: 'l1',
+    });
+  });
+
+  it('FIXTURE: a legacy singular-field row loads with no anchorVersion and re-saves byte-identically', () => {
+    const exp = baseExp({
+      kind: '3d_attachment',
+      asset_url: 'https://cdn/crown.glb',
+      config: { anchor: { anchor: 'crown', offset: { x: 0, y: 1, z: 2 }, rotation: { x: 0, y: 0, z: 0 }, scale: 3 } },
+    });
+    const draft = experienceToDraft(exp)!;
+    const o = draft.objects[0] as Object3D;
+    expect('anchorVersion' in o).toBe(false);
+    expect('anchorVersion' in objectToPiece(o)).toBe(false);
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/crown.glb' }), null);
+    expect(payload.config).toEqual(exp.config);
+  });
+
+  it('a LONE v2 object forces config.layers and survives save → reload → save', () => {
+    const o = createObject3D('model', { assetUrl: 'https://cdn/cap.glb', anchor: 'crown', anchorVersion: 2 });
+    const payload = draftToPayload(save(o), resolver({ [o.id]: 'https://cdn/cap.glb' }), null);
+    expect(payload.config?.layers).toHaveLength(1);
+    expect(payload.config?.layers?.[0].anchorVersion).toBe(2);
+    const back = experienceToDraft(expFromPayload(payload))!.objects[0] as Object3D;
+    expect(back.anchorVersion).toBe(2);
+    const again = draftToPayload(save(back), resolver({ [back.id]: 'https://cdn/cap.glb' }), null);
+    expect(again.config?.layers?.[0].anchorVersion).toBe(2);
+  });
+
+  it('junk stored versions load as v1 (absent)', () => {
+    for (const stored of [1, 3, '2', null, {}]) {
+      const exp = baseExp({
+        kind: '3d_attachment',
+        config: { layers: [{ id: 'l1', kind: '3d_attachment', asset_url: 'https://cdn/g.glb', anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 }, anchorVersion: stored as never }] },
+      });
+      const back = experienceToDraft(exp)!.objects[0] as Object3D;
+      expect('anchorVersion' in back).toBe(false);
+      expect('anchorVersion' in layerToPiece(exp.config.layers![0])).toBe(false);
+    }
+  });
+
+  it('layerToPiece and objectToPiece agree on the version (studio and booth read the same anchor)', () => {
+    const o = createObject3D('model', { assetUrl: 'https://cdn/cap.glb', anchor: 'rightEar', anchorVersion: 2 });
+    const layer = draftToPayload(save(o), resolver({ [o.id]: 'https://cdn/cap.glb' }), null).config?.layers?.[0];
+    expect(layerToPiece(layer!).anchorVersion).toBe(2);
+    expect(objectToPiece(o).anchorVersion).toBe(2);
   });
 });

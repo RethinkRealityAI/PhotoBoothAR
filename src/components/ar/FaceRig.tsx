@@ -9,7 +9,7 @@ import { useRef, useEffect, useState, ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { initFaceEngine } from '../../lib/faceEngine';
-import { updateHeadPose, detectFaceNow, scaledAnchorBase, ANCHOR_MAP } from '../../lib/faceRig';
+import { updateHeadPose, detectFaceNow, scaledAnchorBase, anchorOffset } from '../../lib/faceRig';
 import { loadModel } from '../../lib/glbCache';
 import { describeGlbError } from '../../lib/glbErrors';
 import { resolveFinish, resolveFinishForRegionTint, type FinishOverride } from '../../lib/studio/finish';
@@ -452,6 +452,7 @@ export function FaceRig({
   editable = false,
   occlude = false,
   headScale = 1,
+  anchorVersion,
   debugOcclusion = false,
   matrixRef,
   onVisibilityChange,
@@ -463,6 +464,9 @@ export function FaceRig({
   videoId: string;
   anchor: HeadAnchor;
   config?: Partial<AnchorConfig>;
+  /** The piece's anchor calibration version (faceRig ANCHOR_PRESETS_V2); absent
+   *  = v1, which is every saved scene and legacy event. */
+  anchorVersion?: number;
   /** Hold the RENDERED pose steady (used while a gizmo is being dragged, so the
    *  asset does not swim under the pointer) WITHOUT stopping tracking: detection,
    *  blendshapes and the trigger engine keep running throughout. */
@@ -537,7 +541,7 @@ export function FaceRig({
 
   // Anchors scale WITH the calibrated head — otherwise raising headScale grows
   // the occluder around a prop that stayed put, and the head eats it.
-  const base = scaledAnchorBase(ANCHOR_MAP[anchor]?.offset ?? [0, 0, 0], headScale);
+  const base = scaledAnchorBase(anchorOffset(anchor, anchorVersion), headScale);
 
   return (
     <group ref={head} visible={false}>

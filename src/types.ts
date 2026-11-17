@@ -137,6 +137,24 @@ export interface ExperienceLayer {
    * whichever hand the tracker sees. Only meaningful beside `handAnchor`.
    */
   handFit?: string;
+  /**
+   * Living Face Paint (lib/facePaint/spec.ts FacePaintSpec): a procedural look
+   * painted onto the tracked 8th Wall face mesh. Stored as `unknown` and
+   * validated through `normalizeFacePaint` at every read (the untrusted-jsonb
+   * idiom). Present ⇒ the layer is a face-paint layer (procedural
+   * 'face-paint'); it FORCES the `config.layers` path like `customization`.
+   * Absent on every pre-existing layer.
+   */
+  facePaint?: unknown;
+  /**
+   * Anchor calibration version (lib/faceRig.ts ANCHOR_PRESETS_V2, and the v2
+   * hand grip in lib/handPose.ts). Only an exact `2` is honoured; ABSENT = v1
+   * FOREVER, which is every pre-existing layer and every frozen legacy event —
+   * so they render where they always did. Stamped only on new library /
+   * Power-Up adds. FORCES the `config.layers` path (the singular mirror has no
+   * slot for it).
+   */
+  anchorVersion?: number;
 }
 
 /**

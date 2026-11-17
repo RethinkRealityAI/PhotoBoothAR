@@ -51,11 +51,12 @@ import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { buildCatalog } from '../lib/catalog';
 import {
-  getActiveFaceEngineInfo, initFaceEngine, resolveSurfaceFaceMode, setFaceTrackingMode, subscribeFaceEngine,
+  getActiveFaceEngineInfo, initFaceEngine, isLegacyFaceSurface, resolveSurfaceFaceMode, setFaceTrackingMode, subscribeFaceEngine,
 } from '../lib/faceEngine';
 import { parseFaceTrackingMode } from '../lib/faceEngine/engineSelect';
 import TrackingReadout from './ar/TrackingReadout';
-import { initializeHandLandmarker } from '../lib/handTracking';
+import { getHandTrackerError, initializeHandLandmarker } from '../lib/handTracking';
+import { fitStageBox, type StageBox } from '../lib/studio/stageLayout';
 import ReportIssueButton from './support/ReportIssueButton';
 import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
 import { detectHandsNow, getLatestHandFrame, resetHandRig } from '../lib/handRig';
@@ -253,6 +254,15 @@ function HeadScaleOverlay3D({
 
 /** Anchor for the powerFx-only Overlay3D mount (no 3D attach selected): the
  *  rig itself renders nothing — BeamFX's own FaceRig carries the beam. */
+/** CSS container query units (cqw/cqh) — absent on older engines (Safari < 16, Chrome < 105). */
+const HAS_CONTAINER_UNITS = (() => {
+  try {
+    return typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('height', '1cqh');
+  } catch {
+    return false;
+  }
+})();
+
 const POWERFX_ONLY_ANCHOR: AnchorConfig = {
   anchor: 'noseBridge',
   offset: { x: 0, y: 0, z: 0 },
@@ -751,9 +761,13 @@ export default function Booth() {
     : [attachExp, frameExp, effectExp]
       .map((e) => e?.config?.tracking)
       .find((t) => parseFaceTrackingMode(t) !== null);
+  // Living Face Paint rides the 8th Wall face mesh, so a painted scene must
+  // resolve to an 8th Wall mode (engineSelect's requiresFaceMesh rule).
+  const hasFacePaint = source === 'db' && [attachExp, frameExp, effectExp]
+    .some((e) => e?.config?.layers?.some((l) => l.facePaint !== undefined && l.hidden !== true) === true);
   const faceMode = useMemo(
-    () => resolveSurfaceFaceMode({ legacy: source !== 'db', config: trackingConfig, triggers }).mode,
-    [source, trackingConfig, triggers],
+    () => resolveSurfaceFaceMode({ legacy: source !== 'db', config: trackingConfig, triggers, facePaint: hasFacePaint }).mode,
+    [source, trackingConfig, triggers, hasFacePaint],
   );
   // `legacy` also keeps a coded event on the shipped detection input, pose
   // filter and live-<video> composite (no frame-lock) — byte-identical photos.
@@ -1034,12 +1048,17 @@ export default function Booth() {
       (rawAttachLayers ?? []).some((l) => l.kind === '3d_attachment' && isHandAnchorId(l.handAnchor)),
     [triggers, rawAttachLayers],
   );
+  /** The hand tracker FAILED to start (handTracking.getHandTrackerError). */
+  const [handTrackerFailed, setHandTrackerFailed] = useState(false);
   useEffect(() => {
     // No hasTriggers gate: a hand-anchored piece needs tracking even in a
     // scene with zero triggers (the rigs self-detect; this effect owns the
     // EARLY download + the stash reset on scene exit).
     if (source !== 'db' || !ready || !needsHands) return;
-    initializeHandLandmarker().catch((e) => console.warn('[Booth] hand tracker init failed', e));
+    initializeHandLandmarker().catch((e) => {
+      console.warn('[Booth] hand tracker init failed', e);
+      setHandTrackerFailed(getHandTrackerError() !== null);
+    });
     return () => resetHandRig();
   }, [source, ready, needsHands]);
 
@@ -1114,12 +1133,14 @@ export default function Booth() {
     // skip that gate (the FACE tracker may rightly never load) and get a
     // longer grace instead — the hand model is a 7.8MB download.
     const subjectVisible = handOnly3D ? handVisible : faceVisible;
-    if (is3D && !subjectVisible && phase === 'camera' && ready && (handOnly3D || trackerReady)) {
+    // A FAILED hand tracker can never see the hand: no "show your hand" coaching
+    // (the one-off hint below says what happened instead).
+    if (is3D && !subjectVisible && phase === 'camera' && ready && (handOnly3D || trackerReady) && !(handOnly3D && handTrackerFailed)) {
       const tid = setTimeout(() => setFaceHint(true), handOnly3D ? 2500 : 1500);
       return () => clearTimeout(tid);
     }
     setFaceHint(false);
-  }, [is3D, faceVisible, handVisible, handOnly3D, phase, ready, trackerReady]);
+  }, [is3D, faceVisible, handVisible, handOnly3D, phase, ready, trackerReady, handTrackerFailed]);
 
   // Tracker init FAILED (bad venue wifi, blocked CDN): tell the guest once,
   // the moment it matters — when a 3D piece is selected and can never appear.
@@ -1130,6 +1151,38 @@ export default function Booth() {
       showBoothHint('3D pieces aren’t loading on this connection — filters and frames still work');
     }
   }, [trackerFailed, is3D, phase, ready, showBoothHint]);
+  // Same, for the HAND tracker (CPU delegate failed — never retried on GPU):
+  // once, in the existing auto-dismissing hint (10px, overlaid — no layout shift).
+  const handFailHintShownRef = useRef(false);
+  useEffect(() => {
+    if (handTrackerFailed && needsHands && phase === 'camera' && ready && !handFailHintShownRef.current) {
+      handFailHintShownRef.current = true;
+      showBoothHint('Hand tracking couldn’t load — hand gestures and hand props are off');
+    }
+  }, [handTrackerFailed, needsHands, phase, ready, showBoothHint]);
+
+  // ── Stage box without CSS container units (#25) ───────────────────────
+  // The stage's `min(100cqh, …cqw)` height needs container query units; a
+  // browser without them drops it and falls back to h-full + aspect-[9/16] +
+  // max-w-full, which is ~0.52 on a phone, not 0.5625 — the 3D layer is then
+  // stretched ~8% into the 9:16 photo. Measure the space and size the box in
+  // JS instead (same fitStageBox maths as the studio). Container units
+  // present = this never runs and the inline style is unchanged.
+  const stageAreaRef = useRef<HTMLDivElement | null>(null);
+  const [fallbackStage, setFallbackStage] = useState<StageBox | null>(null);
+  useEffect(() => {
+    if (HAS_CONTAINER_UNITS) return;
+    const el = stageAreaRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect;
+      if (!r) return;
+      const box = fitStageBox(r.width, r.height);
+      setFallbackStage((prev) => (prev && prev.w === box.w && prev.h === box.h ? prev : box.w > 0 ? box : null));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [phase]);
 
   // ── Shutter / countdown ───────────────────────────────────────────────
   const handleShutterPress = useCallback(() => {
@@ -1798,12 +1851,17 @@ export default function Booth() {
               units drops the inline `height` and lands on today's behaviour
               rather than a collapsed (zero-height) stage. */}
           <div
+            ref={stageAreaRef}
             className="flex-1 relative min-h-0 flex items-center justify-center px-2 pb-1"
             style={{ containerType: 'size' }}
           >
             <div
               className="relative h-full aspect-[9/16] max-w-full rounded-[1.4rem] overflow-hidden ring-1 ring-gold-700/25 shadow-[0_10px_50px_rgba(0,0,0,0.6)] bg-noir-900 touch-pan-y"
-              style={{ height: 'min(100cqh, calc(100cqw * 16 / 9))' }}
+              style={
+                HAS_CONTAINER_UNITS || fallbackStage === null
+                  ? { height: 'min(100cqh, calc(100cqw * 16 / 9))' }
+                  : { width: fallbackStage.w, height: fallbackStage.h }
+              }
               // Swipe sideways = next/previous filter; double-tap = flip camera.
               // Scoped to the stage box, so the control deck below keeps its own
               // horizontal scroll and drag behaviour untouched.
@@ -1839,7 +1897,9 @@ export default function Booth() {
                   overlayTransform={overlayTransform}
                   overlayOpacity={frameExp?.config?.opacity}
                   overlays={stageOverlays}
-                  threeCanvasId={is3D ? 'booth-3d-layer' : null}
+                  // powerFxActive (db-only): a frame/filter-only scene's beam
+                  // renders in that same canvas, so it must reach photos too.
+                  threeCanvasId={is3D || powerFxActive ? 'booth-3d-layer' : null}
                   // Draw the frame the pose came from (resolver decides: never
                   // legacy; on for 8th Wall poses). Photo + clip use it too.
                   frameLock={is3D && source === 'db'}
@@ -1880,7 +1940,9 @@ export default function Booth() {
                     powerFx={powerFxActive}
                     // StageCanvas composites this canvas exactly when is3D
                     // (threeCanvasId above): hide the live copy so 3D is drawn once.
-                    composited={is3D}
+                    // PLATFORM only: legacy surfaces (the engine resolver's own
+                    // isLegacyFaceSurface) keep the live copy on screen, as shipped.
+                    composited={(is3D || powerFxActive) && !isLegacyFaceSurface(source !== 'db')}
                   />
                 )}
               </div>

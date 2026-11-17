@@ -51,6 +51,72 @@ export const ANCHOR_MAP: Record<HeadAnchor, AnchorPreset> = Object.fromEntries(
   ANCHOR_PRESETS.map((a) => [a.id, a]),
 ) as Record<HeadAnchor, AnchorPreset>;
 
+/**
+ * Re-measured anchors, used ONLY by a piece that stores `anchorVersion: 2`.
+ *
+ * Measured against the canonical face model (the Live reference by
+ * construction): v1's eyes sat 1.17cm off the iris centres (landmarks 473/468;
+ * canonical eye centre ±3.16, 2.63, ~3.5), v1's crown sits at the hairline
+ * (landmark 10) rather than on top of the skull (occluder skull top y 10.3),
+ * and v1's ears sit at tragus height where an earring hangs from the lobe
+ * (contour points 361/132 at y −2.89). Every other anchor is the v1 value.
+ *
+ * VERSIONED, never edited in place: v1 is what every saved scene and the three
+ * frozen legacy events were placed against, so changing it would move them.
+ * Absent version = v1 forever. New library/Power-Up adds stamp 2 and convert
+ * their authored v1 nudge with `migrateOffsetToV2`, so they render where they
+ * always did while their anchor (and any later re-anchor) is the measured one.
+ */
+const ANCHOR_V2_OFFSETS: Partial<Record<HeadAnchor, [number, number, number]>> = {
+  crown: [0, 10.3, -0.5],
+  leftEye: [3.16, 2.63, 3.5],
+  rightEye: [-3.16, 2.63, 3.5],
+  leftEar: [7.5, -2.9, -1.5],
+  rightEar: [-7.5, -2.9, -1.5],
+};
+
+export const ANCHOR_PRESETS_V2: AnchorPreset[] = ANCHOR_PRESETS.map((a) => {
+  const o = ANCHOR_V2_OFFSETS[a.id];
+  return o ? { ...a, offset: [o[0], o[1], o[2]] } : a;
+});
+
+/** The version new adds stamp. */
+export const ANCHOR_VERSION_LATEST = 2 as const;
+
+/** Untrusted jsonb → 2 or undefined. Only an exact 2 is kept: absent (and any
+ *  junk) is v1, which is what makes old rows render unchanged. */
+export function normalizeAnchorVersion(raw: unknown): 2 | undefined {
+  return raw === 2 ? 2 : undefined;
+}
+
+/** The head-space base (raw cm, before headScale) for an anchor at a version. */
+export function anchorOffset(id: HeadAnchor, version: unknown): [number, number, number] {
+  const v1 = ANCHOR_MAP[id]?.offset ?? [0, 0, 0];
+  const o = normalizeAnchorVersion(version) === 2 ? ANCHOR_V2_OFFSETS[id] ?? v1 : v1;
+  return [o[0], o[1], o[2]];
+}
+
+/**
+ * Convert a fine offset authored against the v1 anchor into the v2 offset that
+ * renders at the SAME point: offset' = offset + (v1 − v2) × headScale (the base
+ * is scaled by headScale — scaledAnchorBase — the fine offset is not).
+ */
+export function migrateOffsetToV2(
+  id: HeadAnchor,
+  offset: { x: number; y: number; z: number },
+  headScale = 1,
+): { x: number; y: number; z: number } {
+  const v2 = ANCHOR_V2_OFFSETS[id];
+  if (!v2) return { x: offset.x, y: offset.y, z: offset.z };
+  const v1 = ANCHOR_MAP[id].offset;
+  const hs = Number.isFinite(headScale) ? headScale : 1;
+  return {
+    x: offset.x + (v1[0] - v2[0]) * hs,
+    y: offset.y + (v1[1] - v2[1]) * hs,
+    z: offset.z + (v1[2] - v2[2]) * hs,
+  };
+}
+
 /** Camera config shared by booth + live editor: at the origin, looking −Z,
  *  63° vertical FOV to match MediaPipe's metric face-transform projection. */
 export const RIG_CAMERA = {
@@ -288,10 +354,20 @@ interface SmoothState {
 export type FrameLockFilterProfile = 'standard' | 'light' | 'bypass';
 const FRAMELOCK_POS_LIGHT: OneEuroConfig = { minCutoff: 3.0, beta: 0.5, dCutoff: 1.0 };
 const FRAMELOCK_ROT_LIGHT: OneEuroConfig = { minCutoff: 3.0, beta: 2.0, dCutoff: 1.0 };
-let _lockProfile: FrameLockFilterProfile = 'light';
 /**
- * Which filter a frame-locked surface uses. Chosen by measurement (see
- * docs/STATE.md); exported so the check harness can A/B all three on one clip.
+ * 'bypass' BY MEASUREMENT (rollbar clip, two runs, software GL). Registration
+ * RMS of four head anchors against the frame on screen, frame-locked:
+ *   MediaPipe  standard 4.4-4.9px · light 1.7-2.3px · bypass 0.83-1.29px
+ *   8th Wall   standard 5.4-7.4px · light 2.7-3.8px · bypass 1.26-1.83px
+ * (unlocked, standard vs the live video: 6.6-7.5px / 10.2-21.3px). Bypass's
+ * price on a still face is +0.01-0.07px of anchor wobble. A still clip has no
+ * sensor noise, so the phone test confirms this: the readout's jitter IS
+ * the RAW pose, i.e. exactly what a bypassed rig shows. Revert = 'light'.
+ */
+let _lockProfile: FrameLockFilterProfile = 'bypass';
+/**
+ * Which filter a frame-locked surface uses (see above); exported so the check
+ * harness can A/B all three on one clip.
  */
 export function setFrameLockFilterProfile(p: FrameLockFilterProfile): void {
   if (p === _lockProfile) return;

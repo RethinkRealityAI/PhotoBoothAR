@@ -421,6 +421,7 @@ export default function BeamFX({ mirror, videoId, staticHead = false }: BeamFXPr
   const handActive = useRef<ActiveBeam | null>(null);
   const headFallback = useRef<THREE.Group>(null);
   const handAspect = useRef(9 / 16);
+  const videoEl = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     return subscribeFx((e) => {
@@ -473,7 +474,13 @@ export default function BeamFX({ mirror, videoId, staticHead = false }: BeamFXPr
       const frame = getLatestHandFrame();
       const anchor = frame?.anchor ?? null;
       if (anchor !== null && !active.frozen) {
-        const video = document.getElementById(videoId) as HTMLVideoElement | null;
+        // Cached: this runs every frame of a hand blast. Re-queried only when
+        // the element is gone, detached (camera remount) or the id changed.
+        let video = videoEl.current;
+        if (video === null || !video.isConnected || video.id !== videoId) {
+          video = document.getElementById(videoId) as HTMLVideoElement | null;
+          videoEl.current = video;
+        }
         if (video && video.videoWidth > 0 && video.videoHeight > 0) {
           handAspect.current = video.videoWidth / video.videoHeight;
         }

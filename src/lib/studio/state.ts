@@ -37,6 +37,8 @@ import { isHandAnchorId } from '../handPose';
 import { normalizeHandFit, type HandFit } from './handedness';
 import type { TriggerConfig } from './triggers';
 import type { FaceTrackingMode } from '../faceEngine/types';
+import { normalizeFacePaint, type FacePaintSpec } from '../facePaint/spec';
+import { migrateOffsetToV2, normalizeAnchorVersion } from '../faceRig';
 
 export type StudioMode = '2d' | '3d' | 'preview';
 export type ThreeView = 'live' | 'orbit';
@@ -171,6 +173,21 @@ export interface Object3D {
    * only ever exist alongside `handAnchor`, which is already in it.
    */
   handFit?: HandFit;
+  /**
+   * Living Face Paint look (lib/facePaint/spec.ts). Present ⇒ this object is
+   * the scene's face-paint layer: a `headpiece` with proceduralId
+   * FACE_PAINT_PROCEDURAL_ID whose anchor/offset are ignored at render time
+   * (the paint lives on the tracked face mesh itself). Absent on every other
+   * object, so pre-existing scenes keep identical bytes.
+   */
+  facePaint?: FacePaintSpec;
+  /**
+   * Anchor calibration version (faceRig ANCHOR_PRESETS_V2 / handPose v2 grip).
+   * Only an exact 2 is ever stored; absent = v1 forever (every saved scene and
+   * legacy event). Stamped by SET_MODEL_ASSET's `anchorVersion` on new library
+   * and Power-Up adds only. Forces the `config.layers` path on save.
+   */
+  anchorVersion?: 2;
 }
 
 export type StudioObject = Overlay2D | Object3D;
@@ -260,7 +277,17 @@ export function createObject3D(
     ...(opts.handAnchor !== undefined ? { handAnchor: opts.handAnchor } : {}),
     // Same idiom: 'auto' IS the absent state, so only a real pin is stored.
     ...(opts.handFit === 'left' || opts.handFit === 'right' ? { handFit: opts.handFit } : {}),
+    // Face paint: only when there is a paintable look, so every other object
+    // keeps NO facePaint key (same one-representation rule as customization).
+    ...facePaintKeys(opts),
+    // Only an exact 2 is kept, so every load/add without it has NO key.
+    ...(normalizeAnchorVersion(opts.anchorVersion) === 2 ? { anchorVersion: 2 as const } : {}),
   };
+}
+
+function facePaintKeys(src: { facePaint?: unknown }): Partial<Object3D> {
+  const f = src.facePaint === undefined ? null : normalizeFacePaint(src.facePaint);
+  return f ? { facePaint: f } : {};
 }
 
 /**
@@ -820,7 +847,7 @@ export type StudioAction =
   /** `template` is the asset's configurator descriptor when the library row
    *  ships one (assetTemplate.AssetTemplate). Omitting it — every caller today
    *  — adds a plain, non-configurable model exactly as before. */
-  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown; offsetCm?: { x: number; y: number; z: number }; rotationDeg?: { x: number; y: number; z: number }; occlude?: boolean; anchor?: HeadAnchor; handAnchor?: string }
+  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown; offsetCm?: { x: number; y: number; z: number }; rotationDeg?: { x: number; y: number; z: number }; occlude?: boolean; anchor?: HeadAnchor; handAnchor?: string; anchorVersion?: 2 }
   | { type: 'SET_THUMB'; url: string | null; blob: Blob | null }
   | { type: 'TOGGLE_PUBLISHED' }
   | { type: 'TOGGLE_FEATURED' }
@@ -1094,7 +1121,15 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         // Absent stays absent: createObject3D's own `?? false` keeps every
         // existing add path byte-identical.
         occlusion: action.occlude,
+        anchorVersion: action.anchorVersion,
       });
+      // A v2 add: the library's authored nudge was measured against the v1
+      // anchor, so convert it (at headScale 1, the default the nudges were
+      // tuned at) to render at the SAME point on the v2 base. Head pieces only;
+      // the hand grip's v2 change is a rotation, and no hand entry authors one.
+      if (obj.anchorVersion === 2 && obj.handAnchor === undefined) {
+        obj.anchorConfig = { ...obj.anchorConfig, offset: migrateOffsetToV2(obj.anchor, obj.anchorConfig.offset, 1) };
+      }
       const nd = appendObject(d, obj);
       if (!nd) return state;
       return { ...state, mode: '3d', dirty: true, draft: { ...nd, kind: deriveKind(nd) } };

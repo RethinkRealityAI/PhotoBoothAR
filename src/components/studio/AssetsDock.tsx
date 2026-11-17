@@ -58,7 +58,7 @@ import { SCENE_FULL_MESSAGE, canAddObject, createObject3D, selectedObject, scene
 import ConfirmModal from '../ui/ConfirmModal';
 import { experienceToDraft } from '../../lib/studio/draftMapping';
 import { ADD_ONS } from '../../lib/studio/addOns';
-import { ANCHOR_MAP } from '../../lib/faceRig';
+import { ANCHOR_MAP, ANCHOR_VERSION_LATEST, migrateOffsetToV2 } from '../../lib/faceRig';
 import type { HeadAnchor } from '../../types';
 
 /** Catalogue anchors are plain strings; only a real preset id may reach the
@@ -93,15 +93,17 @@ import {
 // bundled typefaces, none of which the dock needs until the host opens it.
 const Text3DBuilder = lazy(() => import('./Text3DBuilder'));
 const PowerFxBuilder = lazy(() => import('./PowerFxBuilder'));
+const FacePaintBuilder = lazy(() => import('./FacePaintBuilder'));
 
 /** Power-Up modal per registry id (lib/studio/addOns.ts). Both share the same
  *  props contract, so future add-ons register here with one line each. */
 const ADDON_VIEWS = {
   'power-fx': PowerFxBuilder,
   'name-jewelry': Text3DBuilder,
+  'face-paint': FacePaintBuilder,
 } as const;
 /** lucide icons for the React-free registry's icon names. */
-const ADDON_ICONS: Record<string, LucideIcon> = { Zap: ZapIcon, Gem };
+const ADDON_ICONS: Record<string, LucideIcon> = { Zap: ZapIcon, Gem, Palette };
 
 interface Props {
   state: StudioState;
@@ -803,7 +805,14 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                 name: p.name,
                 anchor: p.anchor,
                 finish: p.finish,
-                anchorConfig: propAnchorConfig(p),
+                // A NEW add rides the re-measured v2 anchors; the prop's
+                // placement was tuned by eye against v1, so it is converted to
+                // render at the same point (saved scenes keep v1 forever).
+                anchorConfig: (() => {
+                  const cfg = propAnchorConfig(p);
+                  return { ...cfg, offset: migrateOffsetToV2(p.anchor, cfg.offset, 1) };
+                })(),
+                anchorVersion: ANCHOR_VERSION_LATEST,
               }),
             });
             setAddedKey(key);
@@ -869,6 +878,9 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                   // a wand in the tracked hand — not the historical crown default.
                   anchor: isHeadAnchor(a.anchor) ? a.anchor : undefined,
                   handAnchor: a.handAnchor,
+                  // New adds ride the v2 anchors; the reducer converts the
+                  // v1-authored nudge so the piece lands where it always did.
+                  anchorVersion: ANCHOR_VERSION_LATEST,
                 }))
                 .finally(() => setPendingKey((k) => (k === key ? null : k)));
             });

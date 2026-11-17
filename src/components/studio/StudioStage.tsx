@@ -29,9 +29,9 @@ import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffec
 import { createTriggerEngine, hasHandSource, isHandSource, mergeDetectionScores, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, BEAM_STYLE_LABELS, ANIMATE_PRESET_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
 import { detectHandsNow, getLatestHandFrame, resetHandRig } from '../../lib/handRig';
-import { initializeHandLandmarker } from '../../lib/handTracking';
+import { getHandTrackerError, initializeHandLandmarker } from '../../lib/handTracking';
 import { makeBeamSpec } from '../../lib/studio/beam';
-import { emitFx } from '../../lib/studio/fxBus';
+import { emitFx, subscribeTriggerTest } from '../../lib/studio/fxBus';
 import { objectToPiece, STUDIO_SAMPLE_GUEST_NAME } from '../../lib/studio/draftMapping';
 import type { LightingPresetId } from '../../lib/studio/lighting';
 import {
@@ -276,9 +276,11 @@ export default function StudioStage({
   // The studio previews with the SAME engine guests will get for this draft
   // (its config.tracking, else the platform default + auto-hybrid on face
   // triggers) — "what you place is what guests see".
+  // A visible face-paint layer needs the 8th Wall face mesh (engineSelect).
+  const hasFacePaint = draft.objects.some((o) => o.type !== 'overlay' && o.facePaint !== undefined && o.hidden !== true);
   const faceMode = useMemo(
-    () => resolveSurfaceFaceMode({ config: draft.tracking, triggers }).mode,
-    [draft.tracking, triggers],
+    () => resolveSurfaceFaceMode({ config: draft.tracking, triggers, facePaint: hasFacePaint }).mode,
+    [draft.tracking, triggers, hasFacePaint],
   );
   useEffect(() => { setFaceTrackingMode(faceMode); }, [faceMode]);
   // Readiness comes from the manager. It stays true across trigger-set edits
@@ -414,6 +416,12 @@ export default function StudioStage({
   }, [mode, draft.objects, showToast, showGesture, startPulse, revealTargetIds, revealedIds]);
   const handlerRef = useRef(handleTriggerEvent);
   useEffect(() => { handlerRef.current = handleTriggerEvent; }, [handleTriggerEvent]);
+  // The Properties dock's ▶ Test button (shown only while a stage listens) runs
+  // a trigger's action through the SAME handler a real detection fires.
+  useEffect(
+    () => subscribeTriggerTest((r) => handlerRef.current({ configId: 'test', source: r.source, action: r.action, t: performance.now() })),
+    [],
+  );
 
   // Detection + engine loop — mounted only while the tracker is live AND the
   // scene carries triggers. Drives detection itself (detectFaceNow self-throttles
@@ -431,9 +439,17 @@ export default function StudioStage({
       draft.objects.some((o) => o.type !== 'overlay' && isHandObject(o)),
     [triggers, draft.objects],
   );
+  // The hand tracker FAILED to start: the chip says so rather than "No hand yet".
+  const [handTrackerFailed, setHandTrackerFailed] = useState(() => getHandTrackerError() !== null);
   useEffect(() => {
     if (!needsHands) return;
-    initializeHandLandmarker().catch((e) => console.warn('[StudioStage] hand tracker init failed', e));
+    initializeHandLandmarker().then(
+      () => setHandTrackerFailed(false),
+      (e) => {
+        console.warn('[StudioStage] hand tracker init failed', e);
+        setHandTrackerFailed(getHandTrackerError() !== null);
+      },
+    );
     return () => resetHandRig();
   }, [needsHands]);
 
@@ -514,6 +530,10 @@ export default function StudioStage({
     faceNeeded: !handOnlyScene,
     handNeeded: trackerNeeded && needsHands,
     handVisible,
+    handUnavailable: handTrackerFailed,
+    // Face paint draws only on the 8th Wall mesh; after a fallback it hides.
+    // (Not during a hybrid warm-up, where MediaPipe stands in until 8th Wall is up.)
+    paintUnavailable: hasFacePaint && faceInfo.active === 'mediapipe' && (faceInfo.fellBack || faceInfo.requested === 'mediapipe'),
   });
 
   return (
@@ -585,7 +605,7 @@ export default function StudioStage({
                     disabled={disabled}
                     aria-pressed={active}
                     data-testid={`studio-mode-${t.id}`}
-                    className="relative flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="relative flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 pointer-coarse:min-h-11 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {active && (
                       <motion.span

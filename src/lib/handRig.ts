@@ -26,6 +26,8 @@ import {
   type HandSample,
 } from './handGestures';
 import { HandPoseTracker, type SharedHandPose } from './handPoseFilter';
+import { claimFrameInference, isLegacyFaceSession } from './faceEngine';
+import { detectInputSize } from './faceEngine/mediapipeEngine';
 
 const HAND_DETECT_INTERVAL_MS = 66;
 const IDLE_DETECT_INTERVAL_MS = 150;
@@ -49,6 +51,39 @@ let _has = false;
 const _tracker = new HandPoseTracker();
 let _shared: SharedHandPose | null = null;
 
+/**
+ * PLATFORM ONLY: the hand landmarker's reused downscaled input (short side
+ * DETECT_SHORT_SIDE, same aspect, so normalized landmarks and `aspect` are
+ * unchanged). Its own canvas, not the face engine's: the per-frame token means
+ * the face canvas always holds an EARLIER frame by the time the hand runs.
+ */
+let _small: HTMLCanvasElement | null = null;
+let _smallCtx: CanvasRenderingContext2D | null = null;
+
+function stageSmall(video: HTMLVideoElement): HTMLCanvasElement | null {
+  const { w, h } = detectInputSize(video.videoWidth, video.videoHeight);
+  if (w === 0 || h === 0) return null;
+  if (_small === null) {
+    _small = document.createElement('canvas');
+    _smallCtx = _small.getContext('2d', { willReadFrequently: false });
+  }
+  if (_smallCtx === null) return null;
+  if (_small.width !== w || _small.height !== h) {
+    _small.width = w;
+    _small.height = h;
+  }
+  _smallCtx.drawImage(video, 0, 0, w, h);
+  return _small;
+}
+
+/** The camera stream the stash belongs to (undefined = none seen yet). */
+let _streamId: string | null | undefined;
+
+function streamIdOf(video: HTMLVideoElement): string | null {
+  const so = (video as { srcObject?: unknown }).srcObject as { id?: unknown } | null | undefined;
+  return so && typeof so.id === 'string' ? so.id : null;
+}
+
 /** Scratch HandSample array rebuilt per detection (numHands is 1-2, tiny). */
 function toSamples(landmarks: { x: number; y: number; z: number }[][], world: { x: number; y: number; z: number }[][]): HandSample[] {
   const out: HandSample[] = [];
@@ -65,16 +100,32 @@ function toSamples(landmarks: { x: number; y: number; z: number }[][], world: { 
 export function detectHandsNow(video: HTMLVideoElement): void {
   const hl = getHandLandmarker();
   if (!hl || !video || video.readyState < 2) return;
+  // A camera STREAM change (front↔back flip) forgets the old camera's hand,
+  // exactly like faceRig's resetFaceRig: its pose and gesture stash would
+  // otherwise linger over the new feed, mirrored the wrong way.
+  const sid = streamIdOf(video);
+  if (sid !== _streamId) {
+    if (_streamId !== undefined) resetHandRig();
+    _streamId = sid;
+  }
   const now = performance.now();
-  if (now - lastFaceDetectMs() < FACE_LOCKOUT_MS) return;
+  // Legacy keeps the original time lockout and the raw <video> input, byte for
+  // byte. The platform shares lane B's per-FRAME token instead (the lockout is
+  // measured from the face inference's START, so it had always expired).
+  const platform = !isLegacyFaceSession();
+  if (!platform && now - lastFaceDetectMs() < FACE_LOCKOUT_MS) return;
   const interval = _misses >= IDLE_AFTER_MISSES ? IDLE_DETECT_INTERVAL_MS : HAND_DETECT_INTERVAL_MS;
   if (!shouldDetect(_gate, now, video.currentTime, { minIntervalMs: interval })) return;
+  // Not claimed → someone already ran a blocking inference this frame; retry
+  // next frame with the gate untouched (same idiom as mediapipeEngine).
+  if (platform && !claimFrameInference('hand')) return;
   markDetected(_gate, now, video.currentTime);
   let results;
   try {
     const ts = Math.max(now, _lastTs + 1);
     _lastTs = ts;
-    results = hl.detectForVideo(video, ts);
+    const input = platform ? stageSmall(video) : video;
+    results = hl.detectForVideo(input ?? video, ts);
   } catch {
     return;
   }

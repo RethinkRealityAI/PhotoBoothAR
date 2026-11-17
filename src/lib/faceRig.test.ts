@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import { composeAnchorMatrix, decomposeAnchorMatrix, medianOf , scaledAnchorBase} from './faceRig';
+import { ANCHOR_PRESETS, ANCHOR_PRESETS_V2, anchorOffset, normalizeAnchorVersion, migrateOffsetToV2 } from './faceRig';
 
 const ZERO: [number, number, number] = [0, 0, 0];
 
@@ -116,5 +117,50 @@ describe('scaledAnchorBase', () => {
 
   it('falls back to the raw offset for a non-finite scale', () => {
     expect(scaledAnchorBase([1, 2, 3], NaN)).toEqual([1, 2, 3]);
+  });
+});
+
+describe('ANCHOR_PRESETS_V2 (per-object anchorVersion: 2)', () => {
+  it('moves ONLY the eyes, crown and ears; every other anchor is the v1 value', () => {
+    const v2 = Object.fromEntries(ANCHOR_PRESETS_V2.map((a) => [a.id, a.offset]));
+    expect(v2.leftEye).toEqual([3.16, 2.63, 3.5]);
+    expect(v2.rightEye).toEqual([-3.16, 2.63, 3.5]);
+    expect(v2.crown).toEqual([0, 10.3, -0.5]);
+    expect(v2.leftEar).toEqual([7.5, -2.9, -1.5]);
+    expect(v2.rightEar).toEqual([-7.5, -2.9, -1.5]);
+    const moved = new Set(['leftEye', 'rightEye', 'crown', 'leftEar', 'rightEar']);
+    for (const a of ANCHOR_PRESETS) {
+      if (!moved.has(a.id)) expect(v2[a.id], a.id).toEqual(a.offset);
+    }
+    expect(ANCHOR_PRESETS_V2.map((a) => a.id)).toEqual(ANCHOR_PRESETS.map((a) => a.id));
+  });
+
+  it('absent / unknown version is v1 FOREVER (saved scenes + legacy events unchanged)', () => {
+    for (const v of [undefined, null, 1, 0, 3, '2', NaN, {}]) {
+      expect(anchorOffset('leftEye', v)).toEqual([4.3, 3.4, 4.0]);
+      expect(anchorOffset('crown', v)).toEqual([0, 8.3, 4.0]);
+    }
+    expect(anchorOffset('crown', 2)).toEqual([0, 10.3, -0.5]);
+  });
+
+  it('normalizeAnchorVersion keeps exactly 2 and drops everything else', () => {
+    expect(normalizeAnchorVersion(2)).toBe(2);
+    for (const v of [undefined, null, 1, 0, 3, '2', 2.5, true]) expect(normalizeAnchorVersion(v)).toBeUndefined();
+  });
+
+  it('migrateOffsetToV2 keeps the rendered position: v1 base + o == v2 base + o\' (any headScale)', () => {
+    const o = { x: 0.5, y: 4, z: -1 };
+    for (const hs of [1, 1.15, 0.85]) {
+      for (const id of ['crown', 'leftEye', 'rightEar', 'noseBridge'] as const) {
+        const m = migrateOffsetToV2(id, o, hs);
+        const b1 = scaledAnchorBase(anchorOffset(id, undefined), hs);
+        const b2 = scaledAnchorBase(anchorOffset(id, 2), hs);
+        expect(b2[0] + m.x).toBeCloseTo(b1[0] + o.x, 9);
+        expect(b2[1] + m.y).toBeCloseTo(b1[1] + o.y, 9);
+        expect(b2[2] + m.z).toBeCloseTo(b1[2] + o.z, 9);
+      }
+    }
+    // An unchanged anchor converts to the same offset, byte for byte.
+    expect(migrateOffsetToV2('noseBridge', o, 1)).toEqual(o);
   });
 });

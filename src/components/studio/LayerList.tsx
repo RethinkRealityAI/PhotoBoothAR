@@ -35,6 +35,7 @@ import {
   EyeOff,
   GripVertical,
   Image as ImageIcon,
+  Palette,
   LayoutTemplate,
   Pencil,
   Trash2,
@@ -56,6 +57,7 @@ interface Props {
 
 function objectIcon(o: StudioObject) {
   if (o.type === 'overlay') return o.overlayKind === 'border' ? LayoutTemplate : ImageIcon;
+  if (o.facePaint !== undefined) return Palette;
   return o.type === 'headpiece' ? Crown : Boxes;
 }
 

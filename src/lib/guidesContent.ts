@@ -581,7 +581,7 @@ export const GUIDE_COUNTS = {
   maxObjects: 20,
   maxTriggers: 6,
   studioTabs: 8,
-  powerUps: 2,
+  powerUps: 3,
   /** copilot.ts MAX_ACTIONS — the most changes the Copilot proposes in one turn. */
   copilotMaxActions: 5,
   /** contentPacks.ts PACK_IDS — one starter pack per event style. */
@@ -822,7 +822,8 @@ const MAKE_3D_PROPS: GuideDoc = {
       body: [
         `Props get much better when they do something. Magic Triggers watch your guest and fire an effect when they make a gesture: there are ${GUIDE_COUNTS.triggerSources} cues to choose from — smile, open mouth, wink, brow raise, closed fist, open palm, pinch, peace sign and hand-to-temple — and ${GUIDE_COUNTS.triggerActions} things they can set off: a Burst of confetti, an energy Blast, a Reveal that makes a hidden object appear, an Animate that shakes or spins a piece, and a Filter pulse that flashes the whole look.`,
         `You can have up to ${GUIDE_COUNTS.maxTriggers} of these in one scene, and each one waits about 2.5 seconds before it can fire again, so a guest holding a grin does not machine-gun the effect.`,
-        `Two Power-Ups build the fancy versions for you. Power FX pairs a visor, wand or gauntlet with a gesture-fired energy blast that erupts from the prop itself. 3D Name Jewelry turns a name into a necklace, earrings or floating text. Both write ordinary objects back into your scene, so you can keep editing them afterwards. A scene holds up to ${GUIDE_COUNTS.maxObjects} pieces on top of its frame.`,
+        `Three Power-Ups build the fancy versions for you. Power FX pairs a visor, wand or gauntlet with a gesture-fired energy blast that erupts from the prop itself. 3D Name Jewelry turns a name into a necklace, earrings or floating text. All three write ordinary objects back into your scene, so you can keep editing them afterwards. A scene holds up to ${GUIDE_COUNTS.maxObjects} pieces on top of its frame.`,
+        `Face Paint is the third: living paint that sits on your guest's actual skin, so it stretches when they smile and stays put when they turn. Pick a look — Game Day stripes, Flag Cheeks, Eye Black, Glitter Freckles, Hearts, Stars, Tiger or Sugar Skull — and it starts in your event colours; change any colour, soften it with Paint strength, or stamp your own logo on the left cheek, right cheek, both cheeks or forehead. Press Test on my face to see it on you in the 3D Live view. It reads the right way round in the mirror and in the saved photo. Face paint uses our advanced face tracker. On the few phones that can't run it, guests still get the rest of your scene, just without the paint.`,
       ],
     },
     {
@@ -953,7 +954,7 @@ const USE_THE_STUDIO: GuideDoc = {
         {
           label: 'Power-Ups',
           value: `${GUIDE_COUNTS.powerUps}`,
-          why: 'Power FX and 3D Name Jewelry — guided builders that write normal objects back into your scene.',
+          why: 'Power FX, 3D Name Jewelry and Face Paint — guided builders that write normal objects back into your scene.',
         },
       ],
     },
@@ -1270,6 +1271,7 @@ export const GUIDE_COVERAGE: {
   addOns: {
     'power-fx': { guide: 'make-3d-props', note: 'Make it react — Power FX pairs a visor/wand/gauntlet with a gesture-fired blast.' },
     'name-jewelry': { guide: 'make-3d-props', note: 'Make it react — 3D Name Jewelry builds a necklace, earrings or floating text from a name.' },
+    'face-paint': { guide: 'make-3d-props', note: 'Make it react — Face Paint puts a living look or your logo on the guest\'s skin.' },
   },
   helpTopics: {
     library: { guide: 'make-a-frame', note: 'Four ways to get your frame — the library, uploads and AI Frame Studio.' },

@@ -77,6 +77,7 @@ import {
 import { HOST_LIGHTING_PRESETS, type LightingPresetId } from '../../lib/studio/lighting';
 import { alignTransform, snapRotation, stepRotation, type AlignAction } from '../../lib/studio/align';
 import { HEAD_PIECE_MAP } from '../../lib/headPieces';
+import { FACE_PAINT_OPACITY } from '../../lib/facePaint/spec';
 import {
   DEFAULT_TRANSFORM,
   MAX_OBJECTS,
@@ -2013,8 +2014,36 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
               </div>
             )}
 
+            {/* Living Face Paint: the paint IS the face mesh, so anchors,
+                nudges, size and the head/hand switch mean nothing for it. The
+                look itself is edited in its Power-Up (which opens on this
+                layer); only the strength is a quick tweak here. */}
+            {sel3D && sel3D.facePaint !== undefined && (
+              <div className="flex flex-col gap-3">
+                <SectionLabel>Face paint</SectionLabel>
+                <p className="font-sans text-[11px] leading-snug text-brand-muted/70">
+                  Painted onto the guest's face and moves with it, so there is nothing to place. To change the look or logo, open Power-Ups, then Face Paint.
+                </p>
+                {/* Driven in whole percent so the typed field reads "88", like the slider's "88%". */}
+                <SliderRow
+                  label="Paint strength"
+                  numericLabel="Paint strength (%)"
+                  value={Math.round(sel3D.facePaint.opacity * 100)}
+                  min={Math.round(FACE_PAINT_OPACITY.min * 100)}
+                  max={Math.round(FACE_PAINT_OPACITY.max * 100)}
+                  step={2}
+                  defaultValue={Math.round(FACE_PAINT_OPACITY.default * 100)}
+                  format={(v) => `${Math.round(v)}%`}
+                  onChange={(v) => dispatch({ type: 'UPDATE_OBJECT', id: sel3D.id, patch: { facePaint: { ...sel3D.facePaint!, opacity: v / 100 } } })}
+                />
+                <p className="font-sans text-[10px] leading-snug text-brand-muted/50">
+                  Face paint uses our advanced face tracker. On the few phones that can’t run it, guests get the rest of your scene without the paint, and the stage shows “Paint not shown”.
+                </p>
+              </div>
+            )}
+
             {/* Selected 3D object properties */}
-            {sel3D && (
+            {sel3D && sel3D.facePaint === undefined && (
               <div className="flex flex-col gap-4">
                 {/* TRACKS ON — head or hand. The same wand can be an earring
                     (head-tracked at the ear) or held in the fist (hand-tracked

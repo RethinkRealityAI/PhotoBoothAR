@@ -143,4 +143,30 @@ describe('stageStatus', () => {
   it('stays quiet in a view that does not use the tracker, even mid-load', () => {
     expect(stageStatus({ ...base, trackerNeeded: false, trackerReady: false, faceVisible: false })).toBeNull();
   });
+
+  it('face paint without a face mesh says so — once the face itself is found', () => {
+    const s = stageStatus({ ...base, paintUnavailable: true })!;
+    expect(s).toEqual({ tone: 'warn', text: 'Paint not shown', live: true });
+    expect(s.text.length).toBeLessThanOrEqual(16);
+    // Face coaching still comes first: there is nothing to paint on yet.
+    expect(stageStatus({ ...base, paintUnavailable: true, faceVisible: false })!.text).toBe('No face yet');
+    expect(stageStatus({ ...base, paintUnavailable: true, trackerReady: false })!.text).toBe('Loading tracker');
+    // A view that does not track stays quiet.
+    expect(stageStatus({ ...base, paintUnavailable: true, trackerNeeded: false })).toBeNull();
+    // Absent/false = today's chip.
+    expect(stageStatus({ ...base, paintUnavailable: false })!.text).toBe('Tracking');
+  });
+  it('a FAILED hand tracker says so instead of coaching a hand it can never see', () => {
+    const hand = { ...base, handNeeded: true, handVisible: false };
+    const s = stageStatus({ ...hand, handUnavailable: true })!;
+    expect(s).toEqual({ tone: 'warn', text: 'No hand tracker', live: false });
+    expect(s.text.length).toBeLessThanOrEqual(16);
+    // Hand-only scene: straight to the honest line.
+    expect(stageStatus({ ...hand, faceNeeded: false, faceVisible: false, handUnavailable: true })!.text).toBe('No hand tracker');
+    // Face coaching still comes first while a face is also wanted and missing.
+    expect(stageStatus({ ...hand, faceVisible: false, handUnavailable: true })!.text).toBe('No face yet');
+    // Only meaningful when the scene needs a hand; absent/false = today's chip.
+    expect(stageStatus({ ...base, handUnavailable: true })!.text).toBe('Tracking');
+    expect(stageStatus({ ...hand, handUnavailable: false })!.text).toBe('No hand yet');
+  });
 });

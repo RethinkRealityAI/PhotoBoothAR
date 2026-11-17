@@ -11,6 +11,8 @@ import { HEAD_PIECE_MAP } from '../headPieces';
 import { SHADER_MAP } from '../shaders';
 import { MAX_OBJECTS, sceneCounts, deriveKind } from './state';
 import { parseTriggers } from './triggers';
+import { FACE_PAINT_DESIGN_MAP } from '../facePaint/designs';
+import { FACE_PAINT_PROCEDURAL_ID } from '../facePaint/spec';
 
 /** Words that identify one of the three frozen legacy events. */
 const LEGACY_WORDS = ['scago', 'hope gala', 'gala', 'jenna', 'jake', 'detola', 'wuyi'];
@@ -283,6 +285,20 @@ describe('buildStarterDraft', () => {
         expect(d.triggers).toEqual([]);
       }
       expect(d.thumbBlob).toBeNull();
+    }
+  });
+
+  it('builds ONE real face-paint layer for every face-paint starter, carrying its authored look', () => {
+    const painted = STARTER_SCENES.filter((s) => s.facePaint);
+    expect(painted.length).toBeGreaterThanOrEqual(2);
+    for (const s of painted) {
+      expect(FACE_PAINT_DESIGN_MAP[s.facePaint!.design], `${s.id} design`).toBeTruthy();
+      const d = buildStarterDraft(s.id)!;
+      const paint = d.objects.filter((o) => o.type !== 'overlay' && o.facePaint !== undefined);
+      expect(paint, `${s.id} paint layers`).toHaveLength(1);
+      const o = paint[0];
+      expect(o.type === 'headpiece' && o.proceduralId).toBe(FACE_PAINT_PROCEDURAL_ID);
+      expect(o.type !== 'overlay' && o.facePaint).toEqual(s.facePaint);
     }
   });
 });

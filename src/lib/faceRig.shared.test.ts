@@ -148,6 +148,19 @@ describe('shared head-pose filter (platform)', () => {
     expect(g.quaternion.y).toBeCloseTo(Math.sin(0.1), 9);
   });
 
+  it('frame-locked DEFAULT is bypass (chosen by measurement): the rig shows the raw sample', () => {
+    expect(rig.getFrameLockFilterProfile()).toBe('bypass');
+    eng.locked = true;
+    const g = new THREE.Group();
+    const v = video();
+    feed(1000, 0);
+    rig.updateHeadPose(g, v, false);
+    now = 1033;
+    feed(1033, 2.5);
+    rig.updateHeadPose(g, v, false);
+    expect(g.position.x).toBeCloseTo(2.5, 9);
+  });
+
   it('frame-locked + light trails a moving face far less than the standard filter', () => {
     const lagOf = (locked: boolean): number => {
       eng.locked = locked;

@@ -74,6 +74,8 @@ const COMPAT = flag('compat');
 const XR8_OPTS = {};
 if (arg('xr8-drive') !== undefined) XR8_OPTS.drive = arg('xr8-drive');
 if (arg('same-tick') !== undefined) XR8_OPTS.sameTickInference = arg('same-tick') === '1';
+const PREWARM = flag('prewarm');
+if (arg('detect-ms') !== undefined) XR8_OPTS.detectIntervalMs = Number(arg('detect-ms'));
 const PORT = Number(process.env.PORT ?? 5192);
 const CHROMIUM = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium';
 if (!STATIC || !existsSync(STATIC)) {
@@ -221,10 +223,11 @@ function compareFrames(video: HTMLVideoElement, frame: CanvasImageSource, W: num
 
 // Both engines run one after the other on the SAME stream in one page, so the
 // fake camera's phase offset is shared and their lags are comparable.
-(window as any).__check = async (id: 'mediapipe' | 'xr8', secs: number, posCfg: any, rotCfg: any, opts: { bar: boolean; orient: boolean; xr8: any }) => {
+(window as any).__check = async (id: 'mediapipe' | 'xr8', secs: number, posCfg: any, rotCfg: any, opts: { bar: boolean; orient: boolean; prewarm: boolean; xr8: any }) => {
   const video = await camera();
   const engine: any = id === 'xr8' ? createXr8Engine(opts.xr8) : createMediapipeEngine();
   const t0 = performance.now();
+  if (opts.prewarm && typeof engine.prewarm === 'function') engine.prewarm(video);
   await engine.init();
   const initMs = performance.now() - t0;
   const block: number[] = [];
@@ -274,7 +277,7 @@ function compareFrames(video: HTMLVideoElement, frame: CanvasImageSource, W: num
         if (s.blendshapes) lastBs = s.blendshapes;
         if (firstPoseMs < 0) firstPoseMs = now - t0;
         target = { p: [s.matrix[12], s.matrix[13], s.matrix[14]], q: quatOf(s.matrix) };
-        raw.push({ t: now, vt: video.currentTime, ...target });
+        raw.push({ t: now, vt: video.currentTime, ...target, px: projAll(s.matrix, W, H) });
         const m: number[] = Array.from(s.matrix as ArrayLike<number>);
         held = m;
         heldScale = [0, 1, 2].map((c) => Math.hypot(m[c * 4], m[c * 4 + 1], m[c * 4 + 2]));
@@ -532,7 +535,7 @@ async function runClip(clip, secs, opts) {
   return withPage(clip, async (page, logs) => {
     const out = {};
     for (const id of ['mediapipe', 'xr8']) {
-      out[id] = await page.evaluate(([i, s, p, r, o]) => window.__check(i, s, p, r, o), [id, secs, POS_FILTER, ROT_FILTER, { ...opts, xr8: XR8_OPTS }]);
+      out[id] = await page.evaluate(([i, s, p, r, o]) => window.__check(i, s, p, r, o), [id, secs, POS_FILTER, ROT_FILTER, { ...opts, prewarm: PREWARM, xr8: XR8_OPTS }]);
       out[id].errors = logs.errors.splice(0);
       out[id].failed = logs.failed.splice(0);
       logs.warnings.splice(0);
@@ -555,6 +558,17 @@ function jitter(samples, fromMs) {
   const ang = (q) => 2 * Math.acos(Math.min(1, Math.abs((q[0] * mq[0] + q[1] * mq[1] + q[2] * mq[2] + q[3] * mq[3]) / nq))) * 180 / Math.PI;
   const zCm = Math.sqrt(mean(s.map((x) => (x.p[2] - mp[2]) ** 2)));
   return { posCm, zCm, rotDeg: Math.sqrt(mean(s.map((x) => ang(x.q) ** 2))), n: s.length };
+}
+/** RMS image-space wobble (px) of the four projected anchors about their mean position. */
+function pxJitter(samples, fromMs) {
+  const s = samples.filter((x) => x.t >= fromMs && x.px);
+  if (s.length < 3) return NaN;
+  const d = [];
+  for (let k = 0; k < s[0].px.length; k++) {
+    const mx = mean(s.map((x) => x.px[k][0])), my = mean(s.map((x) => x.px[k][1]));
+    for (const x of s) d.push((x.px[k][0] - mx) ** 2 + (x.px[k][1] - my) ** 2);
+  }
+  return Math.sqrt(mean(d));
 }
 /** Roll (deg) of the head's +X axis in the image plane. */
 const roll = (q) => {
@@ -682,6 +696,7 @@ const results = {};
 try {
   const stAll = await runClip(STATIC, SECS, { bar: false, orient: true });
   const moAll = MOTION ? await runClip(MOTION, SECS, { bar: true, orient: false }) : null;
+  if (process.env.DUMP && moAll) writeFileSync(process.env.DUMP, JSON.stringify(moAll));
   for (const id of ['mediapipe', 'xr8']) {
     const st = stAll[id];
     const settle = st.firstPoseMs + 1000; // skip the acquisition transient
@@ -693,7 +708,7 @@ try {
       // Total main-thread time spent in inference/staging, per pose delivered; and the worst single block.
       blockPerPose: st.block.reduce((a, v) => a + v, 0) / Math.max(1, st.raw.length),
       blockMax: st.block.length ? Math.max(...st.block) : NaN,
-      jitRaw: jitter(st.raw, t0 + settle), jitFilt: jitter(st.filt, t0 + settle),
+      jitRaw: jitter(st.raw, t0 + settle), jitFilt: jitter(st.filt, t0 + settle), jitPx: pxJitter(st.raw, t0 + settle),
       errors: st.errors, failed: st.failed, extra: st.extra, orient: st.orient,
       renderMs: mean(st.renderMs),
       gzMB: gz(PAYLOAD[id]) / 1e6, rawMB: rawSize(PAYLOAD[id]) / 1e6,
@@ -717,10 +732,19 @@ try {
       r.reg.framesBehind = mean(behind);
       r.reg.unreadNew = mo.reg.filter((x) => x.nNew < 0).length;
       r.reg.unreadAn = mo.reg.filter((x) => x.nAn < 0).length;
-      // First presentation of frame n in the loop that ends at or before time t.
-      const byN = new Map();
-      for (const [n, t] of mo.arrivals) { const a = byN.get(n) ?? []; if (!a.length || t - a[a.length - 1] > 3000) a.push(t); byN.set(n, a); }
-      const arrivalOf = (n, t) => { const a = byN.get(n); if (!a) return NaN; let best = NaN; for (const x of a) if (x <= t + 1) best = x; return best; };
+      // Arrival of frame n as used at time t. requestVideoFrameCallback does not report every frame
+      // (~17/s here), but the fake camera delivers frames on a fixed 30 fps clock, so frame n arrived
+      // at t_i - (n_i - n)·(1000/30) for every presentation (n_i, t_i) within the last 1.5 s; the
+      // earliest of those (presentation only ever adds delay) is the estimate.
+      const arrivalOf = (n, t) => {
+        let best = NaN;
+        for (const [ni, ti] of mo.arrivals) {
+          if (ti > t + 50 || ti < t - 1500) continue;
+          const est = ti - wrapFrames(ni - n) * (1000 / 30);
+          if (!(est >= best)) best = est;
+        }
+        return best;
+      };
       if (id === 'xr8') {
         const stagedByVt = new Map(mo.staged.map((s) => [s.vt, s]));
         const em = mo.emits.filter((e) => e.t >= from);
@@ -750,7 +774,7 @@ try {
 }
 
 console.log('\nFACE ENGINES — headless Chromium + SwiftShader. SOFTWARE-GL NUMBERS ARE NOT PHONE NUMBERS: compare the columns, not the absolutes.');
-console.log(`static clip: ${STATIC}${MOTION ? `   motion clip: ${MOTION}` : ''}   ${SECS}s per run   xr8 options ${JSON.stringify(XR8_OPTS)}   One-Euro POS ${JSON.stringify(POS_FILTER)} ROT ${JSON.stringify(ROT_FILTER)}\n`);
+console.log(`static clip: ${STATIC}${MOTION ? `   motion clip: ${MOTION}` : ''}   ${SECS}s per run   xr8 options ${JSON.stringify(XR8_OPTS)}${PREWARM ? ' + prewarm(video)' : ''}   One-Euro POS ${JSON.stringify(POS_FILTER)} ROT ${JSON.stringify(ROT_FILTER)}\n`);
 const regCell = (k) => (r) => (r.reg ? `${f(r.reg[k].rms, 1)} [p95 ${f(r.reg[k].p95, 1)}]` : 'n/a');
 const lagCell = (k) => (r) => (r.reg ? `${f(r.reg[k].l, 1)} (rms ${f(r.reg[k].rms, 1)})` : 'n/a');
 const rows = [
@@ -762,6 +786,7 @@ const rows = [
   ['static jitter RAW — position RMS (cm)', (r) => f(r.jitRaw.posCm, 3)],
   ['static jitter RAW — of which depth z (cm)', (r) => f(r.jitRaw.zCm, 3)],
   ['static jitter RAW — rotation RMS (deg)', (r) => f(r.jitRaw.rotDeg, 3)],
+  ['static jitter RAW — projected anchors (px)', (r) => f(r.jitPx, 2)],
   ['static jitter One-Euro — position RMS (cm)', (r) => f(r.jitFilt.posCm, 3)],
   ['static jitter One-Euro — rotation RMS (deg)', (r) => f(r.jitFilt.rotDeg, 3)],
   ...(MOTION ? [

@@ -23,7 +23,7 @@ import { Model } from '../ar/FaceRig';
 import { HeadPiece } from '../ar/HeadPieces';
 import BeamFX, { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
 import SceneLighting from '../ar/SceneLighting';
-import { ANCHOR_MAP, RIG_CAMERA } from '../../lib/faceRig';
+import { ANCHOR_MAP, ANCHOR_VERSION_LATEST, RIG_CAMERA } from '../../lib/faceRig';
 import type { HeadAnchor } from '../../types';
 import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
 import { assetTemplateOf, findLibraryAsset } from '../../lib/studio/assetLibrary';
@@ -290,6 +290,9 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
           occlude: libAsset.defaultOcclude,
           anchor: libAsset.anchor !== undefined && libAsset.anchor in ANCHOR_MAP ? (libAsset.anchor as HeadAnchor) : undefined,
           handAnchor: libAsset.handAnchor,
+          // New Power-Up gear rides the v2 anchors (the reducer converts the
+          // v1-authored nudge); saved scenes keep v1 forever.
+          anchorVersion: ANCHOR_VERSION_LATEST,
         });
         // The new object is selected by the reducer — recolour its lens.
         const parts = additions.customization?.parts;

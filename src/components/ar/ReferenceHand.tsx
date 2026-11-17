@@ -29,7 +29,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
 import { collectWorldPositions } from '../../lib/studio/bustFit';
 import { mirrorGeometryX } from '../../lib/studio/mirrorGeometry';
-import { FOREARM_REACH_MAX_CM } from '../../lib/handPose';
+import { FOREARM_REACH_MAX_CM, HAND_ANCHORS_V2 } from '../../lib/handPose';
 import type { ModelledHand } from '../../lib/studio/handedness';
 import {
   handRefAnchors,
@@ -59,6 +59,9 @@ export interface HandRefFit {
   minY: number;
   maxY: number;
   anchors: Record<string, Vec3>;
+  /** The same mounts for a piece on the v2 calibration (handPose
+   *  HAND_ANCHORS_V2), evaluated on the SAME fitted landmarks. */
+  anchorsV2: Record<string, Vec3>;
 }
 
 const scenes: Partial<Record<HandRefPose, Promise<THREE.Group | null>>> = {};
@@ -182,6 +185,7 @@ function FittedHand({ scene, hand, onFit }: {
           // x mirrors with the mesh; y is untouched by a YZ reflection.
           minX: -maxX, maxX: -minX, minY, maxY,
           anchors: handRefAnchors(mirrorHandLandmarks(fit.landmarks)),
+          anchorsV2: handRefAnchors(mirrorHandLandmarks(fit.landmarks), HAND_ANCHORS_V2),
         } satisfies HandRefFit,
       };
     }
@@ -191,7 +195,7 @@ function FittedHand({ scene, hand, onFit }: {
       quaternion,
       position: [o.x, o.y, o.z] as Vec3,
       scale: fit.scale,
-      bounds: { minX, maxX, minY, maxY, anchors: handRefAnchors(fit.landmarks) } satisfies HandRefFit,
+      bounds: { minX, maxX, minY, maxY, anchors: handRefAnchors(fit.landmarks), anchorsV2: handRefAnchors(fit.landmarks, HAND_ANCHORS_V2) } satisfies HandRefFit,
     };
   }, [scene, hand]);
 
