@@ -8,6 +8,10 @@
  * North America: "Start free" (self-serve checkout; ?ref= carried to /signup).
  * Nigeria: clients are invoiced and there is no payment flow, so the ask is a
  * call / chat with the rep, and "See it live" (the landing demo) is secondary.
+ *
+ * Booking: a deck opened with ?ref=<code> whose rep has a LIVE booking page
+ * (checked by the caller via 042's public RPC) asks "Book a call with <rep>" —
+ * primary in Nigeria, secondary in North America (self-serve stays first).
  */
 import { SALES_CONTACT } from '../../../lib/salesContent';
 import { getOffer } from '../../../lib/salesOffers';
@@ -19,9 +23,25 @@ function firstName(full: string): string {
   return full.trim().split(/\s+/)[0] ?? '';
 }
 
-export function asksFor(market: Market, ref: string): { primary: DeckCta; secondary?: DeckCta } {
+export interface DeckBooking {
+  /** Same-origin path, e.g. /book/jamesa. */
+  href: string;
+  repName: string;
+}
+
+export function asksFor(
+  market: Market,
+  ref: string,
+  booking: DeckBooking | null = null,
+): { primary: DeckCta; secondary?: DeckCta } {
   const contact = contactCta(SALES_CONTACT);
   const live: DeckCta = { href: '/', label: 'See it live', external: false };
+  if (booking !== null) {
+    const who = firstName(booking.repName);
+    const book: DeckCta = { href: booking.href, label: who !== '' ? `Book a call with ${who}` : 'Book a call', external: false };
+    if (market === 'ng') return { primary: book, secondary: live };
+    return { primary: { href: withRef('/signup', ref), label: 'Start free', external: false }, secondary: book };
+  }
   if (market === 'ng') {
     if (contact.href === '/') return { primary: live };
     const who = firstName(SALES_CONTACT.name);

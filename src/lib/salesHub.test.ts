@@ -214,4 +214,11 @@ describe('route wiring', () => {
     expect(netlify).toContain(`for = "${prefix}/*"`);
     expect(netlify).toContain(`for = "${PITCH_BASE}/*"`);
   });
+
+  it('the booking route and its noindex header match BOOKING_BASE', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { BOOKING_BASE } = await import('./booking');
+    expect(readFileSync('src/App.tsx', 'utf8')).toContain(`<Route path="${BOOKING_BASE}/:ref"`);
+    expect(readFileSync('netlify.toml', 'utf8')).toContain(`for = "${BOOKING_BASE}/*"`);
+  });
 });

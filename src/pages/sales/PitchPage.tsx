@@ -13,7 +13,7 @@
  * are invoiced — there is no payment flow for them — so an NG deck asks for a
  * call/chat instead and offers "See it live" as the secondary.
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { getDeck, publicDeck, publicOfferPrice } from '../../lib/salesContent';
@@ -23,7 +23,9 @@ import { usePageTitle } from '../../lib/usePageTitle';
 import SlideDeck, { useIsWide, type DeckEnv } from './components/SlideDeck';
 import { CtaLink, type DeckCta } from './components/Slides';
 import { useMetaTag, useNoIndex } from './components/pageMeta';
-import { asksFor, contactLine, offersFromIds } from './components/deckEnv';
+import { asksFor, contactLine, offersFromIds, type DeckBooking } from './components/deckEnv';
+import { bookingPath } from '../../lib/booking';
+import { fetchPublicBookingPage } from '../../lib/bookingApi';
 import { BEAMY } from './salesImages';
 
 const headerBtn =
@@ -49,7 +51,18 @@ export default function PitchPage() {
   // Market is read from the source deck: it is not internal, and the public
   // copy is only the gate for notes/audience.
   const market: Market = source?.market === 'na' ? 'na' : 'ng';
-  const asks = asksFor(market, ref);
+  // The rep's booking page, if their ref is on the link and the page is live.
+  // Any failure (042 not applied, offline) just means no booking button.
+  const [booking, setBooking] = useState<DeckBooking | null>(null);
+  useEffect(() => {
+    if (ref === '') return;
+    let live = true;
+    void fetchPublicBookingPage(ref).then((r) => {
+      if (live && r.data !== null && r.data !== undefined) setBooking({ href: bookingPath(r.data.ref), repName: r.data.rep_name });
+    });
+    return () => { live = false; };
+  }, [ref]);
+  const asks = asksFor(market, ref, booking);
 
   const title = deck === null ? 'Beamwall' : `${deck.name} · Beamwall`;
   usePageTitle(title);

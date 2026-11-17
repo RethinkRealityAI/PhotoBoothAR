@@ -110,6 +110,10 @@ const SalesHub = import.meta.env.VITE_EVENT
 const PitchPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/sales/PitchPage'));
+/** A rep's public booking page (migration 042). Same legacy fold. */
+const BookPage = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/sales/BookPage'));
 
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
@@ -261,6 +265,7 @@ export default function App() {
                   salesHub.test.ts asserts this literal matches SALES_HUB_PATH. */}
               <Route path="/hub/p7m2k9qx" element={<SalesHub />} />
               <Route path="/pitch/:slug" element={<PitchPage />} />
+              <Route path="/book/:ref" element={<BookPage />} />
 
               {/* Host platform (session-gated) */}
               <Route path="/host" element={<HostLayout />}>

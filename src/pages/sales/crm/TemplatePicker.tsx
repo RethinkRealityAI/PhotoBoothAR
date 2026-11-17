@@ -29,8 +29,8 @@ function missingTokens(text: string): string[] {
 }
 
 export default function TemplatePicker({
-  prospect, senderName, refCode, onClose,
-}: { prospect: Prospect; senderName: string; refCode: string | null; onClose: () => void }) {
+  prospect, senderName, refCode, bookingLink, onClose,
+}: { prospect: Prospect; senderName: string; refCode: string | null; bookingLink: string | null; onClose: () => void }) {
   const toast = useToast();
   const [channel, setChannel] = useState<TemplateChannel | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -38,8 +38,8 @@ export default function TemplatePicker({
   const list = useMemo(() => templatesFor(TEMPLATES, prospect.icp, prospect.market), [prospect.icp, prospect.market]);
   const channels = useMemo(() => [...new Set(list.map((t) => t.channel))], [list]);
   const vars = useMemo(
-    () => templateVarsFor(prospect, { name: senderName, refCode, origin: window.location.origin }),
-    [prospect, senderName, refCode],
+    () => templateVarsFor(prospect, { name: senderName, refCode, origin: window.location.origin, bookingLink }),
+    [prospect, senderName, refCode, bookingLink],
   );
   const shown = channel === null ? list : list.filter((t) => t.channel === channel);
 

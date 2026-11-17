@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle, CalendarClock, Download, Plus, RefreshCw, Search, UserPlus, Users, X,
+  AlertTriangle, CalendarCheck2, CalendarClock, CalendarDays, Download, Plus, RefreshCw, Search, UserPlus, Users, X,
 } from 'lucide-react';
 import { useToast } from '../../../components/ui/Toast';
 import {
@@ -23,6 +23,9 @@ import {
   toggleCollateral, updateProspect, type ProspectPatch,
 } from '../../../lib/crmApi';
 import { MARKETS, type Market } from '../../../lib/salesTypes';
+import { bookingUrl, upcomingCount, type Booking, type BookingStatus } from '../../../lib/booking';
+import { getMyBookingSettings, listBookings, setBookingStatus } from '../../../lib/bookingApi';
+import BookingPanel from './BookingPanel';
 import { signOut } from '../../../lib/auth';
 import ProspectDetail from './ProspectDetail';
 import QuickAdd from './QuickAdd';
@@ -61,6 +64,10 @@ export default function CrmWorkspace({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [bookingOpen, setBookingOpen] = useState(false);
+  // Only a saved, switched-on page goes into templates; a dead link is worse than [bookingLink].
+  const [bookingLive, setBookingLive] = useState(false);
 
   // Latest list for rollbacks computed outside a setState updater.
   const listRef = useRef<Prospect[]>([]);
@@ -74,13 +81,16 @@ export default function CrmWorkspace({
   const todayKey = localDateKey(now);
 
   const load = useCallback(async () => {
-    const [p, t] = await Promise.all([listProspects(), teamList()]);
+    const [p, t, b, bs] = await Promise.all([listProspects(), teamList(), listBookings(), getMyBookingSettings(userId)]);
     setLoadErr(p.error);
     // On failure keep whatever we already had on screen.
     if (p.data !== null) setProspects(p.data);
     if (t.data !== null) setTeam(t.data);
+    // Bookings are optional (042 may not be applied yet): never block the CRM on them.
+    if (b.data !== null) setBookings(b.data);
+    setBookingLive(bs.data !== null && bs.data.enabled);
     setLoaded(true);
-  }, []);
+  }, [userId]);
 
   const loadTeam = useCallback(async () => {
     const t = await teamList();
@@ -104,6 +114,9 @@ export default function CrmWorkspace({
   const showOwner = team.length > 1;
   const me = team.find((m) => m.user_id === userId);
   const senderName = me !== undefined ? memberName(me) : (userEmail.split('@')[0] ?? '');
+  const myRef = me?.ref_code ?? null;
+  const myBookingLink = bookingLive && typeof window !== 'undefined' ? bookingUrl(window.location.origin, myRef) : null;
+  const callsAhead = useMemo(() => upcomingCount(bookings.filter((b) => b.rep_id === userId), now), [bookings, userId, now]);
 
   const visible = useMemo(
     () => sortForWorklist(
@@ -205,6 +218,19 @@ export default function CrmWorkspace({
 
   const actions: CrmActions = { patch, toggleCollateral: toggle, log, remove };
 
+  const changeBookingStatus = useCallback(async (id: string, next: BookingStatus) => {
+    const before = bookings.find((b) => b.id === id);
+    if (before === undefined) return false;
+    setBookings((list) => list.map((b) => (b.id === id ? { ...b, status: next } : b)));
+    const r = await setBookingStatus(id, next);
+    if (r.data === null) {
+      setBookings((list) => list.map((b) => (b.id === id ? { ...b, status: before.status } : b)));
+      toast.push(r.error ?? 'That change didn’t save.', 'error');
+      return false;
+    }
+    return true;
+  }, [bookings, toast]);
+
   function exportCsv() {
     const csv = prospectsToCsv(visible, (id) => (id === null ? '' : ownerNames.get(id) ?? ''));
     try {
@@ -272,6 +298,12 @@ export default function CrmWorkspace({
               {dueNow === 0 ? 'No follow-ups due'
                 : `${summary.overdue > 0 ? `${summary.overdue} overdue · ` : ''}${summary.dueToday} due today`}
             </button>
+            {callsAhead > 0 && (
+              <button type="button" onClick={() => setBookingOpen(true)} className={`${chip} bg-emerald-400/10 border-emerald-300/35 text-emerald-100`}>
+                <CalendarCheck2 className="w-3.5 h-3.5" aria-hidden="true" />
+                {callsAhead} call{callsAhead === 1 ? '' : 's'} booked
+              </button>
+            )}
             {MARKETS.map((m) => (
               summary.openByMarket[m.id] > 0 && (
                 <span key={m.id} className={`${chip} ${chipOff} cursor-default`} title={`Open pipeline, ${m.label}`}>
@@ -298,6 +330,9 @@ export default function CrmWorkspace({
         </label>
         <button type="button" onClick={() => setAdding(true)} className={`${btnPrimary} max-sm:hidden`}>
           <Plus className="w-4 h-4" aria-hidden="true" /> Add prospect
+        </button>
+        <button type="button" onClick={() => setBookingOpen(true)} aria-label="Booking link" title="Booking link" className={iconBtn}>
+          <CalendarDays className="w-4 h-4" />
         </button>
         <button type="button" onClick={exportCsv} disabled={visible.length === 0} aria-label={`Export ${visible.length} prospects as CSV`} title="Export CSV" className={iconBtn}>
           <Download className="w-4 h-4" />
@@ -403,7 +438,8 @@ export default function CrmWorkspace({
               isAdmin={isAdmin}
               team={team}
               ownerName={selected.owner_id !== null ? ownerNames.get(selected.owner_id) ?? null : null}
-              refCode={me?.ref_code ?? null}
+              refCode={myRef}
+              bookingLink={myBookingLink}
               senderName={senderName}
               actions={actions}
               onBack={() => select(null)}
@@ -435,6 +471,22 @@ export default function CrmWorkspace({
             toast.push(`Added ${created.name}.`, 'success');
             return null;
           }}
+        />
+      )}
+
+      {bookingOpen && (
+        <BookingPanel
+          userId={userId}
+          refCode={myRef}
+          suggestedRef={(userEmail.split('@')[0] ?? '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24)}
+          bookings={bookings}
+          prospects={prospects}
+          now={now}
+          onRefCodeSet={async () => { await loadTeam(); }}
+          onStatus={changeBookingStatus}
+          onOpenProspect={(id) => { setBookingOpen(false); select(id); }}
+          onClose={() => setBookingOpen(false)}
+          onSettingsSaved={(enabled) => setBookingLive(enabled)}
         />
       )}
 

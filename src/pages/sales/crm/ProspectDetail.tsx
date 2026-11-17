@@ -61,7 +61,7 @@ function formPatch(form: Form) {
 }
 
 export default function ProspectDetail({
-  prospect, now, userId, isAdmin, team, ownerName, refCode, senderName, actions, onBack,
+  prospect, now, userId, isAdmin, team, ownerName, refCode, bookingLink, senderName, actions, onBack,
 }: {
   prospect: Prospect;
   now: Date;
@@ -70,6 +70,8 @@ export default function ProspectDetail({
   team: TeamMember[];
   ownerName: string | null;
   refCode: string | null;
+  /** The rep's live booking URL, or null when they have none. */
+  bookingLink: string | null;
   senderName: string;
   actions: CrmActions;
   onBack: () => void;
@@ -526,7 +528,7 @@ export default function ProspectDetail({
         )}
       </Section>
 
-      {picker && <TemplatePicker prospect={p} senderName={senderName} refCode={refCode} onClose={() => setPicker(false)} />}
+      {picker && <TemplatePicker prospect={p} senderName={senderName} refCode={refCode} bookingLink={bookingLink} onClose={() => setPicker(false)} />}
       {confirmDelete && (
         <Portal><ConfirmModal
           title={`Delete ${p.name}?`}
