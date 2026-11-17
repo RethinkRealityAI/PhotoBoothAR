@@ -398,3 +398,37 @@ describe('every gesture is reachable and none cross-fires', () => {
     }
   });
 });
+
+describe('handAnchor palm normal is out of the PALM for both hands (#13)', () => {
+  // A left hand is the mirror image of a right hand: world x negated, image x
+  // flipped. Both palms then face the camera the same way, so their normals
+  // must agree in z (and mirror in x) — the beam fires out of the palm.
+  const mirrorSample = (h: HandSample): HandSample => ({
+    landmarks: h.landmarks.map((q) => ({ x: 1 - q.x, y: q.y, z: q.z })),
+    world: h.world.map((q) => ({ x: -q.x, y: q.y, z: q.z })),
+  });
+
+  it('a left palm facing the camera fires the same way as a right one', () => {
+    const right = handAnchor([openPalmHand()], null, 1, ['Right']);
+    const left = handAnchor([mirrorSample(openPalmHand())], null, 1, ['Left']);
+    if (right === null || left === null) throw new Error('no anchor');
+    expect(left.normal[2]).toBeCloseTo(right.normal[2], 9);
+    expect(left.normal[1]).toBeCloseTo(right.normal[1], 9);
+    expect(left.normal[0]).toBeCloseTo(-right.normal[0], 9);
+    expect(Math.abs(right.normal[2])).toBeGreaterThan(0.1); // not a vacuous edge-on fixture
+  });
+
+  it('the sign follows the CHOSEN hand, not hands[0]', () => {
+    const idle = sample(buildPose({ fingers: allFingers([3, 0, -3, -8], LOOSE), thumb: THUMB_OUT, shift: [-140, 60] }));
+    const a = handAnchor([idle, fistHand()], null, 1, ['Right', 'Left']);
+    const b = handAnchor([idle, fistHand()], null, 1, ['Left', 'Right']);
+    if (a === null || b === null) throw new Error('no anchor');
+    expect(a.normal[2]).toBeCloseTo(-b.normal[2], 9);
+  });
+
+  it('without handedness the normal is unchanged (old callers)', () => {
+    const plain = handAnchor([fistHand()]);
+    const right = handAnchor([fistHand()], null, 1, ['Right']);
+    expect(plain?.normal).toEqual(right?.normal);
+  });
+});

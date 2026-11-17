@@ -285,7 +285,8 @@ export default function StudioStage({
   // (the old interval version once flashed "Loading face tracker…" over a live
   // tracker); it goes false ONLY while a different engine loads, and returns
   // true after an automatic 8th Wall → MediaPipe fallback.
-  const trackerLoaded = useSyncExternalStore(subscribeFaceEngine, getActiveFaceEngineInfo, getActiveFaceEngineInfo).ready;
+  const faceInfo = useSyncExternalStore(subscribeFaceEngine, getActiveFaceEngineInfo, getActiveFaceEngineInfo);
+  const trackerLoaded = faceInfo.ready;
   useEffect(() => {
     if (!cam.ready) return;
     initFaceEngine().catch((e) => console.warn('[StudioStage] face tracker init failed', e));
@@ -498,7 +499,11 @@ export default function StudioStage({
     objects3d.length > 0 &&
     objects3d.every(isHandObject) &&
     !triggers.some((t) => !isHandSource(t.source));
-  const status = stageStatus({
+  // A tracker that cannot start (or did not within the init deadline) says
+  // so instead of "Loading tracker" forever. Kept short: the chip's band is narrow.
+  const status = trackerNeeded && !handOnlyScene && faceInfo.failed && cam.error === null && triggerToast === null
+    ? FACE_TRACKER_FAILED_STATUS
+    : stageStatus({
     camError: cam.error,
     camReady: cam.ready,
     trackerNeeded,
@@ -846,6 +851,9 @@ function RefusalNotice({ refusal }: { refusal: { message: string; at: number } |
  * saying, which is most of the time — replacing a permanent instructional
  * caption, a trigger-testing chip and a separate centred tracker-loading pill.
  */
+/** The face engine could not start (or missed its init deadline) — see faceEngine TRACKER_INIT_DEADLINE_MS. */
+const FACE_TRACKER_FAILED_STATUS: StageStatus = { tone: 'error', text: 'Tracker unavailable', live: false };
+
 function StageStatusChip({ status }: { status: StageStatus | null }) {
   if (!status) return null;
   return (

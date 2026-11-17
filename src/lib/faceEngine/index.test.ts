@@ -19,10 +19,18 @@ const h = vi.hoisted(() => {
     xr8Init: 'resolve' as 'resolve' | 'reject' | 'hang' | 'manual',
     xr8Ctl: [] as Ctl[],
     mpInits: 0,
-    mpInit: 'resolve' as 'resolve' | 'reject',
+    mpInit: 'resolve' as 'resolve' | 'reject' | 'manual',
+    mpCtl: [] as Ctl[],
     mpReady: false,
     mpPolls: 0,
     mpBlendPolls: 0,
+    /** Last setPlatformPath / setFrameSnapshot values the manager pushed. */
+    mpPlatform: null as boolean | null,
+    mpSnapshot: false,
+    mpOnLost: null as ((reason: string) => void) | null,
+    /** What the fake engines hand over as their analysed frame. */
+    mpFrame: { width: 1080, height: 1920, tag: 'mp' } as unknown,
+    xr8Frame: { width: 1280, height: 720, tag: 'xr8' } as unknown,
     reports: [] as string[],
   };
   return { state };
@@ -56,6 +64,7 @@ vi.mock('./xr8Engine', () => ({
       isReady: () => ready,
       poll: (_v, now) => (ready ? sample(now, null) : null),
       lastInferenceMs: () => -Infinity,
+      getAnalysedFrame: () => (ready ? (s.xr8Frame as HTMLCanvasElement) : null),
       dispose: () => {
         s.xr8Disposed++;
         if (!disposed) { disposed = true; s.xr8Alive--; }
@@ -66,14 +75,25 @@ vi.mock('./xr8Engine', () => ({
 }));
 
 vi.mock('./mediapipeEngine', () => ({
-  createMediapipeEngine: () => ({
+  createMediapipeEngine: (opts: { onLost?: (reason: string) => void } = {}) => ({
     id: 'mediapipe',
     init: () => {
+      h.state.mpOnLost = opts.onLost ?? null;
       h.state.mpInits++;
       if (h.state.mpInit === 'reject') return Promise.reject(new Error('model fetch failed'));
+      if (h.state.mpInit === 'manual') {
+        return new Promise<void>((resolve, reject) => {
+          h.state.mpCtl.push({ resolve: () => { h.state.mpReady = true; resolve(); }, reject });
+        });
+      }
       h.state.mpReady = true;
       return Promise.resolve();
     },
+    setPlatformPath: (on: boolean) => { h.state.mpPlatform = on; },
+    setFrameSnapshot: (on: boolean) => { h.state.mpSnapshot = on; },
+    getAnalysedFrame: () => (h.state.mpSnapshot ? (h.state.mpFrame as HTMLCanvasElement) : null),
+    getDetectionCanvas: () => null,
+    lastStagingMs: () => 0,
     isReady: () => h.state.mpReady,
     poll: (_v: unknown, now: number) => { h.state.mpPolls++; return h.state.mpReady ? sample(now, { smile: 1 }) : null; },
     pollBlendshapes: (_v: unknown, now: number) => { h.state.mpBlendPolls++; return h.state.mpReady ? sample(now, { smile: 0.5 }) : null; },
@@ -103,14 +123,26 @@ const flush = async () => {
   while (performance.now() < end) await tick();
 };
 const video = {} as HTMLVideoElement;
+/** A minimal window so the URL overrides (?faceEngine / ?framelock) can be driven. */
+function setSearch(search: string): void {
+  const data: Record<string, string> = {};
+  (globalThis as { window?: unknown }).window = {
+    location: { search },
+    sessionStorage: { getItem: (k: string) => data[k] ?? null, setItem: (k: string, v: string) => { data[k] = v; } },
+  };
+}
 type Mgr = typeof import('./index');
 let m: Mgr;
 
 beforeEach(async () => {
   Object.assign(h.state, {
     xr8Created: 0, xr8Alive: 0, xr8MaxAlive: 0, xr8Disposed: 0, xr8Running: 0, xr8Init: 'resolve', xr8Ctl: [],
-    mpInits: 0, mpInit: 'resolve', mpReady: false, mpPolls: 0, mpBlendPolls: 0, reports: [],
+    mpInits: 0, mpInit: 'resolve', mpCtl: [], mpReady: false, mpPolls: 0, mpBlendPolls: 0,
+    mpPlatform: null, mpSnapshot: false, mpOnLost: null,
+    mpFrame: { width: 1080, height: 1920, tag: 'mp' }, xr8Frame: { width: 1280, height: 720, tag: 'xr8' },
+    reports: [],
   });
+  setSearch('');
   vi.resetModules();
   // Pre-load the mocked 8th Wall module into the fresh registry: the manager's
   // own dynamic import then resolves from cache in a microtask, instead of
@@ -118,7 +150,10 @@ beforeEach(async () => {
   await import('./xr8Engine');
   m = await import('./index');
 });
-afterEach(() => { vi.useRealTimers(); });
+afterEach(() => {
+  vi.useRealTimers();
+  delete (globalThis as { window?: unknown }).window;
+});
 
 describe('face-engine manager', () => {
   it('platform default is xr8 and loads nothing until a surface asks', async () => {
@@ -278,5 +313,127 @@ describe('face-engine manager', () => {
     await m.initFaceEngine();
     expect(seen.length).toBeGreaterThan(0);
     off();
+  });
+
+  describe('frame-lock', () => {
+    it('is OFF until a compositor retains it, then follows the 8th Wall pose engine', async () => {
+      await m.initFaceEngine();
+      m.pollFaceEngine(video, 41);
+      expect(m.getActiveFaceEngineInfo()).toMatchObject({ active: 'xr8', frameLock: false, frameLockSource: 'xr8' });
+      expect(m.getTrackedFrame()).toBeNull();
+      const release = m.retainFrameLock();
+      expect(m.isFrameLockActive()).toBe(true);
+      const f = m.getTrackedFrame();
+      expect(f).not.toBeNull();
+      expect(f!.source).toBe(h.state.xr8Frame);
+      expect([f!.width, f!.height]).toEqual([1280, 720]);
+      expect(f!.key).toBe(41); // identity = the pose sample the rig is showing
+      m.pollFaceEngine(video, 75);
+      expect(m.getTrackedFrame()!.key).toBe(75);
+      release();
+      release(); // idempotent
+      expect(m.getTrackedFrame()).toBeNull();
+      expect(h.state.mpSnapshot).toBe(false); // MediaPipe never paid for a copy in xr8 mode
+    });
+
+    it('MediaPipe pose: off by default (one constant flips it); ?framelock=1 turns it on and only THEN does MediaPipe snapshot', async () => {
+      m.setFaceTrackingMode('mediapipe');
+      await m.initFaceEngine();
+      const release = m.retainFrameLock();
+      expect(m.getActiveFaceEngineInfo()).toMatchObject({ frameLock: false, frameLockSource: 'mediapipe-default' });
+      expect(h.state.mpSnapshot).toBe(false);
+      release();
+      setSearch('?framelock=1');
+      const release2 = m.retainFrameLock();
+      expect(m.getActiveFaceEngineInfo()).toMatchObject({ frameLock: true, frameLockSource: 'url' });
+      expect(h.state.mpSnapshot).toBe(true);
+      expect(m.getTrackedFrame()!.source).toBe(h.state.mpFrame);
+      release2();
+      expect(h.state.mpSnapshot).toBe(false);
+    });
+
+    it('a legacy surface is never frame-locked and keeps the shipped detection path, whatever the URL says', async () => {
+      setSearch('?framelock=1&faceEngine=xr8');
+      m.setFaceTrackingMode('mediapipe', { legacy: true });
+      await m.initFaceEngine();
+      m.retainFrameLock();
+      expect(m.isLegacyFaceSession()).toBe(true);
+      expect(m.getActiveFaceEngineInfo()).toMatchObject({ frameLock: false, frameLockSource: 'legacy' });
+      expect(m.getTrackedFrame()).toBeNull();
+      expect(h.state.mpPlatform).toBe(false);
+      expect(h.state.mpSnapshot).toBe(false);
+      expect(h.state.xr8Created).toBe(0);
+      // Back on a platform surface the detection path switches over.
+      m.setFaceTrackingMode('mediapipe');
+      expect(h.state.mpPlatform).toBe(true);
+    });
+
+    it('after a fallback to MediaPipe the lock follows the ACTIVE engine, not the requested one', async () => {
+      h.state.xr8Init = 'reject';
+      m.retainFrameLock();
+      await m.initFaceEngine();
+      expect(m.getActiveFaceEngineInfo()).toMatchObject({ requested: 'xr8', active: 'mediapipe', frameLock: false });
+      expect(m.getTrackedFrame()).toBeNull();
+    });
+  });
+
+  describe('init deadline and landmarker loss', () => {
+    it('nothing ready by the deadline → every surface sees failed + a reason; a late success recovers', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      // 8th Wall hangs → its 12s timeout falls back to MediaPipe, which is
+      // still loading at 15s: ONLY the deadline can make this `failed` (the
+      // MediaPipe init bound would not fire until 12 + 15 = 27s).
+      h.state.xr8Init = 'manual';
+      h.state.mpInit = 'manual';
+      // Capture the outcome NOW: it rejects inside the timer advance below.
+      const outcome = m.initFaceEngine().then(() => 'resolved', (e: Error) => e.message);
+      await until(() => h.state.xr8Ctl.length === 1);
+      expect(m.getActiveFaceEngineInfo()).toMatchObject({ ready: false, failed: false });
+      await vi.advanceTimersByTimeAsync(m.XR8_INIT_TIMEOUT_MS);
+      await until(() => h.state.mpCtl.length === 1);
+      expect(m.getActiveFaceEngineInfo()).toMatchObject({ ready: false, failed: false });
+      await vi.advanceTimersByTimeAsync(m.TRACKER_INIT_DEADLINE_MS - m.XR8_INIT_TIMEOUT_MS);
+      expect(await outcome).toBe('face tracker unavailable');
+      const info = m.getActiveFaceEngineInfo();
+      expect(info).toMatchObject({ ready: false, failed: true });
+      expect(info.error).toBe('face tracker did not start in time');
+      h.state.mpCtl[0].resolve(); // the network finally delivers
+      await until(() => m.getActiveFaceEngineInfo().ready);
+      expect(m.getActiveFaceEngineInfo()).toMatchObject({ ready: true, failed: false, error: null });
+    });
+
+    it('a MediaPipe init that never settles is bounded (and a retry can then start)', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      h.state.mpInit = 'manual';
+      m.setFaceTrackingMode('mediapipe');
+      const outcome = m.initFaceEngine().then(() => 'resolved', (e: Error) => e.message);
+      await until(() => h.state.mpCtl.length === 1);
+      await vi.advanceTimersByTimeAsync(m.MP_INIT_TIMEOUT_MS);
+      expect(await outcome).toBe('face tracker unavailable');
+      expect(m.getActiveFaceEngineInfo().error).toContain('MediaPipe init timed out');
+      h.state.mpInit = 'resolve';
+      await m.initFaceEngine(); // the retry the old unbounded 'loading' state made impossible
+      expect(h.state.mpInits).toBe(2);
+      expect(m.getActiveFaceEngineInfo()).toMatchObject({ ready: true, failed: false, error: null });
+    });
+
+    it('a landmarker that stops responding is rebuilt and the gap is visible; repeated loss gives up as failed', async () => {
+      m.setFaceTrackingMode('mediapipe');
+      await m.initFaceEngine();
+      expect(h.state.mpInits).toBe(1);
+      for (let i = 1; i <= m.MAX_MP_RECOVERIES; i++) {
+        h.state.mpOnLost!('face landmarker stopped responding');
+        expect(m.getActiveFaceEngineInfo()).toMatchObject({ ready: false });
+        expect(m.getActiveFaceEngineInfo().error).toContain('stopped responding');
+        await until(() => m.getActiveFaceEngineInfo().ready);
+        expect(h.state.mpInits).toBe(1 + i);
+      }
+      h.state.mpOnLost!('face landmarker stopped responding');
+      await flush();
+      expect(m.getActiveFaceEngineInfo()).toMatchObject({ ready: false, failed: true });
+      expect(h.state.mpInits).toBe(1 + m.MAX_MP_RECOVERIES);
+      await until(() => h.state.reports.some((r) => r.includes('stopped responding')));
+      expect(h.state.reports.filter((r) => r.includes('stopped responding'))).toHaveLength(1);
+    });
   });
 });

@@ -21,6 +21,12 @@ import {
   HAND_TRIGGER_SOURCES,
   FACE_TRIGGER_SOURCES,
   type HandTriggerSource,
+  faceEmaAlpha,
+  FACE_EMA_TAU_MS,
+  restRelativeSignal,
+  trackRest,
+  REST_FREE,
+  REST_MAX,
 } from './triggers';
 
 const smile = (over: Partial<TriggerConfig> = {}): TriggerConfig => ({
@@ -612,5 +618,107 @@ describe('step(staleSources) holds a channel', () => {
     const frames = [{ scores: smileScore(0), t: 0 }, ...hold(0.9, 33, 5)]; // prime low
     const fired = frames.map((f) => engine.step(f.scores, f.t, HAND_SOURCE_SET).length);
     expect(fired.reduce((a, b) => a + b, 0)).toBe(1);
+  });
+});
+
+/* — elapsed-time face smoothing (#21) -------------------------------------- */
+
+describe('face EMA is time-based, anchored on 30 detections/s', () => {
+  it('30 det/s reproduces the historical 0.35 per step exactly', () => {
+    expect(faceEmaAlpha(1000 / 30)).toBeCloseTo(0.35, 12);
+    expect(FACE_EMA_TAU_MS).toBeCloseTo(-(1000 / 30) / Math.log(0.65), 12);
+    expect(faceEmaAlpha(0)).toBe(0);
+    expect(faceEmaAlpha(-5)).toBe(0);
+  });
+
+  it('a slow device fires a held smile after the same wall-clock time, not 3x later', () => {
+    const fireAt = (stepMs: number): number | null => {
+      const engine = createTriggerEngine([smile()]);
+      engine.step(smileScore(0), 0);
+      for (let t = stepMs; t <= 2000; t += stepMs) {
+        const ev = engine.step(smileScore(0.9), t);
+        if (ev.length > 0) return ev[0].t;
+      }
+      return null;
+    };
+    const fast = fireAt(1000 / 30);
+    const slow = fireAt(100); // 10 det/s
+    expect(fast).not.toBeNull();
+    expect(slow).not.toBeNull();
+    // Per-step α made the 10/s phone need 3 steps = 300ms; per-time α lands
+    // within one of its own samples of the 30/s phone.
+    expect(slow as number).toBeLessThanOrEqual((fast as number) + 100);
+    expect(slow as number).toBeLessThan(300);
+  });
+
+  it('a step after a long pause never snaps straight to the new value', () => {
+    expect(faceEmaAlpha(10_000)).toBeCloseTo(1 - 0.65 ** 4, 9);
+  });
+});
+
+/* — rest-relative smile / brow (#12) --------------------------------------- */
+
+describe('smile and brow score the rise above the face\'s own rest', () => {
+  // Measured on a real guest: resting mouthSmileLeft/Right 0.692 / 0.542.
+  const highRest = { mouthSmileLeft: 0.692, mouthSmileRight: 0.542 };
+
+  it('a guest whose resting smile is above enter can still fire', () => {
+    const engine = createTriggerEngine([smile()]);
+    const fired: number[] = [];
+    let t = 0;
+    for (; t < 2000; t += 33) for (const e of engine.step(highRest, t)) fired.push(e.t);
+    expect(fired).toEqual([]); // resting is not smiling
+    for (let i = 0; i < 10; i++, t += 33) for (const e of engine.step(smileScore(0.95), t)) fired.push(e.t);
+    expect(fired).toHaveLength(1);
+  });
+
+  it('the same high-rest guest losing and regaining the face does NOT fire', () => {
+    const engine = createTriggerEngine([smile({ cooldownMs: 0 })]);
+    const fired: number[] = [];
+    let t = 0;
+    for (; t < 1000; t += 33) fired.push(...engine.step(highRest, t).map((e) => e.t));
+    for (; t < 2000; t += 33) fired.push(...engine.step(null, t).map((e) => e.t)); // face lost
+    for (; t < 3000; t += 33) fired.push(...engine.step(highRest, t).map((e) => e.t)); // back, resting
+    expect(fired).toEqual([]);
+  });
+
+  it('a long-held smile fires once and noise on it never re-fires', () => {
+    const engine = createTriggerEngine([smile({ cooldownMs: 0 })]);
+    engine.step(smileScore(0.05), 0);
+    let fires = 0;
+    for (let i = 1; i < 300; i++) fires += engine.step(smileScore(0.95 + (i % 2 ? 0.02 : -0.02)), i * 33).length;
+    expect(fires).toBe(1);
+  });
+
+  it('a high-rest brow can still fire', () => {
+    const engine = createTriggerEngine([{ id: 'b', source: 'browRaise', action: { type: 'burst', style: 'hearts' } }]);
+    const rest = { browInnerUp: 0.6, browOuterUpLeft: 0.6, browOuterUpRight: 0.6 };
+    const up = { browInnerUp: 0.97, browOuterUpLeft: 0.97, browOuterUpRight: 0.97 };
+    let fires = 0;
+    let t = 0;
+    for (; t < 2000; t += 33) fires += engine.step(rest, t).length;
+    expect(fires).toBe(0);
+    for (let i = 0; i < 10; i++, t += 33) fires += engine.step(up, t).length;
+    expect(fires).toBe(1);
+  });
+
+  it('a neutral face scores byte-identically to the absolute signal', () => {
+    for (const raw of [0, 0.2, 0.55, 0.9, 1]) {
+      for (const rest of [0, 0.05, REST_FREE]) expect(restRelativeSignal(raw, rest)).toBe(raw);
+    }
+  });
+
+  it('the rest follows down fast and up slowly, and is capped', () => {
+    expect(trackRest(0.6, 0.1, 250)).toBeCloseTo(0.1 + 0.5 * Math.exp(-1), 9);
+    expect(trackRest(0.1, 0.6, 250)).toBeLessThan(0.13);
+    // Even a rest stuck at the ceiling leaves headroom: REST_MAX bounds it.
+    expect(restRelativeSignal(0.95, 1)).toBeCloseTo((0.95 - (REST_MAX - REST_FREE)) / (1 - (REST_MAX - REST_FREE)), 9);
+  });
+
+  it('mouthOpen and wink stay absolute (their rest is ~0)', () => {
+    const engine = createTriggerEngine([{ id: 'm', source: 'mouthOpen', action: { type: 'burst', style: 'confetti' } }]);
+    let fires = 0;
+    for (let t = 0; t < 2000; t += 33) fires += engine.step({ jawOpen: 0.6 }, t).length;
+    expect(fires).toBe(0); // primed engaged at 0.6 and never re-armed — unchanged
   });
 });

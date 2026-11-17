@@ -25,6 +25,7 @@ import {
   type HandAnchorSample,
   type HandSample,
 } from './handGestures';
+import { HandPoseTracker, type SharedHandPose } from './handPoseFilter';
 
 const HAND_DETECT_INTERVAL_MS = 66;
 const IDLE_DETECT_INTERVAL_MS = 150;
@@ -43,6 +44,10 @@ let _hands: HandSample[] = [];
 let _handedness: ('Left' | 'Right')[] = [];
 let _t = 0;
 let _has = false;
+/** ONE filtered pose for every consumer (HandRig, HandOccluder) — see
+ *  handPoseFilter.ts for why they must not each solve their own. */
+const _tracker = new HandPoseTracker();
+let _shared: SharedHandPose | null = null;
 
 /** Scratch HandSample array rebuilt per detection (numHands is 1-2, tiny). */
 function toSamples(landmarks: { x: number; y: number; z: number }[][], world: { x: number; y: number; z: number }[][]): HandSample[] {
@@ -83,16 +88,33 @@ export function detectHandsNow(video: HTMLVideoElement): void {
   // portrait feed stretches every x-distance by 1.78 and biases each band.
   // Falls back to 1 (square) before metadata lands, never to 0/NaN.
   const aspect = video.videoWidth > 0 && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : 1;
-  _scores = handGestureScores(hands, face, aspect);
-  _anchor = handAnchor(hands, face, aspect);
-  _hands = hands;
   // MediaPipe's handedness label assumes MIRRORED input; we feed raw frames,
   // so the label is swapped here, once, and every consumer sees the REAL hand.
   _handedness = (results?.handednesses ?? []).map((cats) =>
     cats[0]?.categoryName === 'Left' ? 'Right' : 'Left',
   );
+  _scores = handGestureScores(hands, face, aspect);
+  // Handedness signs the palm normal, so the fallback beam fires out of a LEFT
+  // palm too rather than into the scene behind it.
+  _anchor = handAnchor(hands, face, aspect, _handedness);
+  _hands = hands;
+  // An empty result keeps the last shared pose (consumers hide it after their
+  // hold window by its own `t`); a degenerate solve also keeps it.
+  if (hands.length > 0) {
+    const shared = _tracker.update(hands[0], _handedness[0] ?? 'Right', aspect, now);
+    if (shared !== null) _shared = shared;
+  }
   _t = now;
   _has = true;
+}
+
+/**
+ * The shared filtered hand pose (RAW frame), or null before the first solved
+ * hand. Its `t` is the inference that produced it; it is NOT cleared when the
+ * hand leaves, so consumers decide visibility from `t` (HAND_HOLD_MS).
+ */
+export function getSharedHandPose(): SharedHandPose | null {
+  return _shared;
 }
 
 /**
@@ -120,6 +142,8 @@ export function resetHandRig(): void {
   _handedness = [];
   _has = false;
   _misses = 0;
+  _tracker.reset();
+  _shared = null;
   _gate.lastDetectMs = -Infinity;
   _gate.lastVideoTime = -1;
 }

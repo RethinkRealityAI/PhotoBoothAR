@@ -201,13 +201,13 @@ function AssetTile({
       ) : (
         <div className="w-full h-full flex items-center justify-center"><Icon className="w-4 h-4 text-brand-muted/40" /></div>
       )}
-      <span className={`absolute inset-x-0 bottom-0 px-1 py-0.5 text-[7px] font-label uppercase tracking-wide truncate ${tile.active ? 'bg-accent/30 text-accent-2' : 'bg-black/60 text-white/80'}`}>{tile.label}</span>
+      <span className={`absolute inset-x-0 bottom-0 px-1 py-0.5 text-[7px] pointer-coarse:text-[10px] font-label uppercase tracking-wide truncate ${tile.active ? 'bg-accent/30 text-accent-2' : 'bg-black/60 text-white/80'}`}>{tile.label}</span>
       {/* What this tile becomes when clicked. A bare uploaded image shows under
           BOTH the Frames and Stickers chips but lands as a FRAME under "All" —
           which silently replaces the scene's existing frame. Saying so up front
           is the difference between a choice and a surprise. */}
       {tile.kindBadge && (
-        <span className="absolute top-0.5 left-0.5 px-1 py-px rounded-full bg-black/70 text-accent-2 font-label text-[7px] uppercase tracking-widest">
+        <span className="absolute top-0.5 left-0.5 px-1 py-px rounded-full bg-black/70 text-accent-2 font-label text-[7px] pointer-coarse:text-[10px] uppercase tracking-widest">
           {tile.kindBadge}
         </span>
       )}
@@ -960,7 +960,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
               >
                 <div className="flex items-center justify-between">
                   <p className={`text-xs font-sans font-medium ${active ? 'text-accent-2' : 'text-brand-fg'}`}>{s.name}</p>
-                  {s.animated && <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/60 bg-accent/10 px-1.5 py-0.5 rounded-full">Anim</span>}
+                  {s.animated && <span className="text-[7px] pointer-coarse:text-[10px] font-label uppercase tracking-widest text-accent-2/60 bg-accent/10 px-1.5 py-0.5 rounded-full">Anim</span>}
                 </div>
                 <p className="text-[9px] text-brand-muted/40 mt-0.5 leading-tight">{s.description}</p>
               </button>
@@ -984,7 +984,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         >
           {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           <span className="font-label uppercase tracking-widest text-[9px]">{label}</span>
-          <span className="font-mono text-[8px] text-brand-muted/50">{count}</span>
+          <span className="font-mono text-[8px] pointer-coarse:text-[10px] text-brand-muted/50">{count}</span>
         </button>
         <Collapse show={!isCollapsed}>{body}</Collapse>
       </div>
@@ -1064,7 +1064,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             <button
               key={c.id}
               onClick={() => setChip(c.id)}
-              className={`py-1.5 rounded-lg text-[9px] font-label uppercase tracking-widest transition-colors ${chip === c.id ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg'}`}
+              className={`py-1.5 pointer-coarse:min-h-11 rounded-lg text-[9px] pointer-coarse:text-[10px] font-label uppercase tracking-widest transition-colors ${chip === c.id ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg'}`}
             >
               {c.label}
             </button>
@@ -1292,20 +1292,20 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                       )}
                     </div>
                     <span className="text-[11px] font-sans truncate flex-1 min-w-0 text-brand-fg">{stripTemplateSuffix(exp.name)}</span>
-                    <span className="font-label text-[7px] uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">Template</span>
+                    <span className="font-label text-[7px] pointer-coarse:text-[10px] uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">Template</span>
                   </button>
                   {confirmTemplateId === exp.id && (
                     <div className="mt-1 rounded-lg liquid-glass px-2.5 py-2 flex items-center gap-2">
                       <span className="font-sans text-[10px] text-brand-muted/70 flex-1 leading-snug">Discard unsaved changes?</span>
                       <button
                         onClick={() => useTemplate(exp, true)}
-                        className="font-label text-[8px] uppercase tracking-widest text-accent-2 hover:text-accent transition-colors"
+                        className="font-label text-[8px] pointer-coarse:text-[10px] uppercase tracking-widest text-accent-2 hover:text-accent transition-colors"
                       >
                         Use template
                       </button>
                       <button
                         onClick={() => setConfirmTemplateId(null)}
-                        className="font-label text-[8px] uppercase tracking-widest text-brand-muted/50 hover:text-brand-fg transition-colors"
+                        className="font-label text-[8px] pointer-coarse:text-[10px] uppercase tracking-widest text-brand-muted/50 hover:text-brand-fg transition-colors"
                       >
                         Cancel
                       </button>

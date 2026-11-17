@@ -21,7 +21,7 @@
 import * as THREE from 'three';
 import { HeadAnchor } from '../types';
 import { OneEuroVec3, OneEuroQuat, type OneEuroConfig, type Vec3, type Quat } from './smoothing';
-import { faceInferenceMs, pollFaceEngine } from './faceEngine';
+import { faceInferenceMs, isFrameLockActive, isLegacyFaceSession, pollFaceEngine } from './faceEngine';
 import type { FaceKeypoints, FaceSample } from './faceEngine/types';
 
 export interface AnchorPreset {
@@ -87,6 +87,10 @@ const _gQuat = new THREE.Quaternion();
 const _gScale = new THREE.Vector3(1, 1, 1);
 let _gSeen = 0;          // performance.now() of the last successful detection
 let _gHas = false;       // a face has been detected at least once
+/** Bumped by resetFaceRig so every rig's own (legacy) filter state restarts too. */
+let _rigGen = 0;
+/** srcObject id of the stream the cached pose came from (undefined = none seen yet). */
+let _streamId: string | null | undefined;
 
 /**
  * Latest face blendshape scores (categoryName → score) + timestamp, consumed by
@@ -260,6 +264,121 @@ interface SmoothState {
   quat: OneEuroQuat;
   scale: OneEuroVec3;
   lastMs: number; // performance.now() of the previous filter step, ms
+  gen: number;    // _rigGen when this state was last valid
+}
+
+/* ── Shared head-pose filter (platform) ─────────────────────────────────────
+ * The legacy path below filters PER RIG, EVERY RENDER FRAME, against a held
+ * target. That re-filters the same sample 2-4x between detections (a 120Hz
+ * display measured +21% jitter vs 60Hz, purely from the extra steps), and a
+ * piece mounted late starts from the RAW pose while its siblings are still
+ * lagging — two props on one head visibly disagree for ~half a second.
+ *
+ * Platform: ONE filter over the UNMIRRORED pose, stepped only when the engine
+ * hands over a NEW sample, with dt = the time between samples. Every rig reads
+ * the same output and mirrors it itself. Mirroring commutes with this filter
+ * (x-negation is linear and leaves speed unchanged; the quaternion reflection
+ * preserves dot products, so slerp commutes), so per-rig mirroring is exact.
+ * Legacy keeps its shipped per-rig filter byte-for-byte.
+ *
+ * FRAME-LOCKED: the image IS the analysed frame, so the raw sample is already
+ * registered with it — any smoothing lag now shows as the prop trailing its
+ * own frame. The filter is swapped for FRAMELOCK_* (see setFrameLockFilterProfile).
+ */
+export type FrameLockFilterProfile = 'standard' | 'light' | 'bypass';
+const FRAMELOCK_POS_LIGHT: OneEuroConfig = { minCutoff: 3.0, beta: 0.5, dCutoff: 1.0 };
+const FRAMELOCK_ROT_LIGHT: OneEuroConfig = { minCutoff: 3.0, beta: 2.0, dCutoff: 1.0 };
+let _lockProfile: FrameLockFilterProfile = 'light';
+/**
+ * Which filter a frame-locked surface uses. Chosen by measurement (see
+ * docs/STATE.md); exported so the check harness can A/B all three on one clip.
+ */
+export function setFrameLockFilterProfile(p: FrameLockFilterProfile): void {
+  if (p === _lockProfile) return;
+  _lockProfile = p;
+  _sf.cfgKey = ''; // rebuild on the next sample
+}
+export function getFrameLockFilterProfile(): FrameLockFilterProfile {
+  return _lockProfile;
+}
+
+const _sf = {
+  pos: new OneEuroVec3(POS_FILTER),
+  quat: new OneEuroQuat(ROT_FILTER),
+  scale: new OneEuroVec3(SCALE_FILTER),
+  lastT: Number.NaN,
+  cfgKey: 'standard',
+};
+const _sfPos = new THREE.Vector3();
+const _sfQuat = new THREE.Quaternion();
+const _sfScale = new THREE.Vector3(1, 1, 1);
+let _sfHas = false;
+
+/** Step the shared filter with the NEW raw sample in _gPos/_gQuat/_gScale, taken at `t`. */
+function stepSharedFilter(t: number, prevSeen: number, hadFace: boolean): void {
+  const key = isFrameLockActive() ? `lock:${_lockProfile}` : 'standard';
+  if (key !== _sf.cfgKey) {
+    _sf.cfgKey = key;
+    const lockOn = key !== 'standard';
+    const prof = _lockProfile;
+    _sf.pos = new OneEuroVec3(lockOn && prof === 'light' ? FRAMELOCK_POS_LIGHT : POS_FILTER);
+    _sf.quat = new OneEuroQuat(lockOn && prof === 'light' ? FRAMELOCK_ROT_LIGHT : ROT_FILTER);
+    _sf.scale = new OneEuroVec3(SCALE_FILTER);
+    _sfHas = false;
+  }
+  // A face lost for longer than the hold window snaps back in, never glides.
+  if (!hadFace || t - prevSeen > HOLD_MS) {
+    _sf.pos.reset();
+    _sf.quat.reset();
+    _sf.scale.reset();
+  }
+  const bypass = _sf.cfgKey === 'lock:bypass';
+  const dtSec = Math.min(Math.max(Number.isFinite(_sf.lastT) ? t - _sf.lastT : 0, 1), 100) / 1000;
+  _sf.lastT = t;
+  _fpIn[0] = _gPos.x; _fpIn[1] = _gPos.y; _fpIn[2] = _gPos.z;
+  _fqIn[0] = _gQuat.x; _fqIn[1] = _gQuat.y; _fqIn[2] = _gQuat.z; _fqIn[3] = _gQuat.w;
+  _fsIn[0] = _gScale.x; _fsIn[1] = _gScale.y; _fsIn[2] = _gScale.z;
+  if (bypass) {
+    _sfPos.copy(_gPos);
+    _sfQuat.copy(_gQuat);
+  } else {
+    _sf.pos.filter(_fpIn, dtSec, _fpOut);
+    _sf.quat.filter(_fqIn, dtSec, _fqOut);
+    _sfPos.set(_fpOut[0], _fpOut[1], _fpOut[2]);
+    _sfQuat.set(_fqOut[0], _fqOut[1], _fqOut[2], _fqOut[3]);
+  }
+  _sf.scale.filter(_fsIn, dtSec, _fsOut);
+  _sfScale.set(_fsOut[0], _fsOut[1], _fsOut[2]);
+  _sfHas = true;
+}
+
+/**
+ * Forget the tracked face: cached pose, every filter, keypoints, blendshapes
+ * (to "no face", so triggers decay), and the head-fit window. Called on a
+ * camera STREAM change (front↔back flip): the old camera's pose used to stay
+ * drawn over the new camera for up to HOLD_MS, mirrored the wrong way.
+ */
+export function resetFaceRig(): void {
+  _gHas = false;
+  _gSeen = 0;
+  _sfHas = false;
+  _sf.pos.reset();
+  _sf.quat.reset();
+  _sf.scale.reset();
+  _sf.lastT = Number.NaN;
+  _rigGen++;
+  _faceKeypoints = null;
+  if (_hasBlend) {
+    _blendScores = {};
+    _blendT = performance.now();
+  }
+  _fitCount = 0;
+  _fitWrite = 0;
+}
+
+function streamIdOf(video: HTMLVideoElement): string | null {
+  const so = (video as { srcObject?: unknown }).srcObject as { id?: unknown } | null | undefined;
+  return so && typeof so.id === 'string' ? so.id : null;
 }
 
 /* Scratch tuples shared across calls (one rig filters at a time). */
@@ -272,6 +391,11 @@ const _fsOut: Vec3 = [1, 1, 1];
 
 /** Take the active engine's new samples (if any); cache the raw pose. */
 function detectIfDue(video: HTMLVideoElement, now: number) {
+  const sid = streamIdOf(video);
+  if (sid !== _streamId) {
+    if (_streamId !== undefined) resetFaceRig();
+    _streamId = sid;
+  }
   const p = pollFaceEngine(video, now);
   // Hybrid: expressions come from MediaPipe's low-rate side path; its pose is
   // discarded (8th Wall owns the pose there).
@@ -289,8 +413,11 @@ function detectIfDue(video: HTMLVideoElement, now: number) {
   }
   _mat.fromArray(s.matrix);
   _mat.decompose(_gPos, _gQuat, _gScale); // raw, un-mirrored
+  const prevSeen = _gSeen;
+  const hadFace = _gHas;
   _gSeen = s.t;
   _gHas = true;
+  if (!isLegacyFaceSession()) stepSharedFilter(s.t, prevSeen, hadFace);
   _rawPoseTap?.(s, _gPos, _gQuat);
   // Feed the head-fit estimator on every detection frame (~30/s). Pure
   // bookkeeping — a module ring write with no effect on the pose consumers
@@ -328,6 +455,16 @@ export function updateHeadPose(
     detectIfDue(video, now);
   }
 
+  // Platform: every rig shows the ONE shared filtered pose (stepped per new
+  // sample in detectIfDue), mirrored for its own preview.
+  if (!isLegacyFaceSession()) {
+    if (!_gHas || !_sfHas || now - _gSeen > HOLD_MS) return false;
+    group.position.set(mirror ? -_sfPos.x : _sfPos.x, _sfPos.y, _sfPos.z);
+    group.quaternion.set(_sfQuat.x, mirror ? -_sfQuat.y : _sfQuat.y, mirror ? -_sfQuat.z : _sfQuat.z, _sfQuat.w);
+    group.scale.copy(_sfScale);
+    return true;
+  }
+
   // Never seen a face, or lost it for longer than the hold window → hide + reset
   // so the next acquisition snaps in cleanly rather than gliding from a stale pose.
   if (!_gHas || now - _gSeen > HOLD_MS) {
@@ -356,8 +493,16 @@ export function updateHeadPose(
     quat: new OneEuroQuat(ROT_FILTER),
     scale: new OneEuroVec3(SCALE_FILTER),
     lastMs: 0,
+    gen: _rigGen,
   };
   group.userData._smooth = s;
+  if (s.gen !== _rigGen) {
+    // resetFaceRig() since this rig last filtered: snap, never glide from the old camera.
+    s.pos.reset();
+    s.quat.reset();
+    s.scale.reset();
+    s.gen = _rigGen;
+  }
 
   // Frame-rate-independent step: real elapsed time since this rig's last
   // filter pass, clamped to [1ms, 100ms] (coarsened timers can repeat a value;

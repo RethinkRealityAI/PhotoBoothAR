@@ -92,9 +92,18 @@ export function parseObj(text: string): ParsedObj {
  *     occluder.test.ts asserts every preset clears it; that test, not this
  *     comment, is what keeps a later resize honest.
  *
- * Reaches: front z +5.0 (unchanged — it must stay behind the noseBridge anchor
- * at z 5.8 and the forehead anchor at 5.4), sides ±7.6, top +10.3 (was +9.5 —
- * now clears a hairline rather than a bare skull), back −11.6 (was −10.5).
+ * Reaches: front z +3.8, sides ±7.6, top +10.3 (was +9.5 — now clears a
+ * hairline rather than a bare skull), back −11.6 (was −10.5).
+ *
+ * THE FRONT REACH IS BOUND BY THE EYE SOCKETS, not by any anchor. The face
+ * shell is recessed ~1cm at the eyes (canonical z ≈ 3.7 at (±2, 2.5)), and the
+ * old front reach of +5.0 put the skull IN FRONT of the face there by up to
+ * 0.84cm (300 of 3,509 face-footprint grid points, 0.25cm grid) — so glasses,
+ * a visor or anything else seated at the eyes was depth-culled by the guest's
+ * own skull. Shrinking z (8.3 → 7.7) about a FIXED back (−11.6) keeps the
+ * whole shell behind the face shell (worst point now 0.33cm behind it) while
+ * the back surface can only move further back, so back-of-head coverage does
+ * not drop (occluder.test.ts asserts both).
  */
 export interface CraniumParams {
   center: [number, number, number];
@@ -102,8 +111,8 @@ export interface CraniumParams {
 }
 
 export const CRANIUM: CraniumParams = {
-  center: [0, 0.5, -3.3],
-  radii: [7.6, 9.8, 8.3],
+  center: [0, 0.5, -3.9],
+  radii: [7.6, 9.8, 7.7],
 };
 
 /**

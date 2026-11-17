@@ -586,6 +586,29 @@ export function slotConflict(
   return found !== undefined && found.type !== 'overlay' ? found : null;
 }
 
+/**
+ * Pre-flight for an add that places one piece per SLOT (the jewelry builder:
+ * earrings are two pieces, one per ear). `conflicts` are the distinct pieces
+ * already on those slots; `room` is how many cappable pieces fit after a
+ * Replace frees the conflicts (or not, for Add-both). `fits` false means the
+ * reducer would silently drop part of the add — the second earring used to
+ * vanish at the cap with the builder reporting success.
+ */
+export function planSlotAdd(
+  d: StudioDraft,
+  slots: readonly { anchor?: HeadAnchor; handAnchor?: string }[],
+  mode: 'replace' | 'both',
+): { conflicts: Object3D[]; room: number; fits: boolean } {
+  const conflicts: Object3D[] = [];
+  for (const s of slots) {
+    const c = slotConflict(d, s);
+    if (c !== null && !conflicts.some((x) => x.id === c.id)) conflicts.push(c);
+  }
+  const free = MAX_OBJECTS - sceneCounts(d).capped;
+  const room = Math.max(0, free + (mode === 'replace' ? conflicts.length : 0));
+  return { conflicts, room, fits: room >= slots.length };
+}
+
 /* ── Scene-level occlusion ────────────────────────────────────────────────
  *
  * Occlusion is stored PER OBJECT (`Object3D.occlusion`) but its EFFECT is

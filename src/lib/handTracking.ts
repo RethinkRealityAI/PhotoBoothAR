@@ -3,6 +3,10 @@ import { resolveModelUrl, visionFileset } from './faceTracking';
 
 let handLandmarker: HandLandmarker | null = null;
 let initPromise: Promise<HandLandmarker> | null = null;
+/** Why the last init failed, or null — surfaced instead of silently retrying on
+ *  the GPU delegate (see initializeHandLandmarker). */
+let lastInitError: string | null = null;
+let reportedInitError = false;
 
 /**
  * The hand model rides the same vendoring pipeline as the face model
@@ -44,12 +48,14 @@ export async function initializeHandLandmarker() {
   // third context to the fight. XNNPACK handles 224×224 hand landmarks fine.
   initPromise = (async () => {
     const modelUrl = await resolveModelUrl(LOCAL_MODEL_URL, REMOTE_MODEL_URL);
-    try {
-      handLandmarker = await create('CPU', modelUrl);
-    } catch (cpuErr) {
-      console.warn('[handTracking] CPU delegate failed, trying GPU', cpuErr);
-      handLandmarker = await create('GPU', modelUrl);
-    }
+    // There used to be a GPU fallback here. It was the one path guaranteed to
+    // make things WORSE: a device whose CPU delegate cannot start got a GPU
+    // task that kills the shared GL context — face layer, shader and 3D canvas
+    // with it — in exchange for hands. A failure is now a failure: rejected,
+    // recorded (getHandTrackerError), reported once, and the rest of the booth
+    // keeps running without hand tracking.
+    handLandmarker = await create('CPU', modelUrl);
+    lastInitError = null;
     return handLandmarker;
   })();
 
@@ -57,9 +63,34 @@ export async function initializeHandLandmarker() {
     return await initPromise;
   } catch (error) {
     initPromise = null; // allow a later retry
+    lastInitError = describeError(error);
     console.error('Error initializing HandLandmarker', error);
+    reportInitErrorOnce(lastInitError);
     throw error;
   }
+}
+
+function describeError(e: unknown): string {
+  const m = e instanceof Error ? e.message : String(e);
+  return m.slice(0, 200) || 'unknown error';
+}
+
+function reportInitErrorOnce(reason: string): void {
+  if (reportedInitError) return;
+  reportedInitError = true;
+  // Dynamic, like faceEngine's fallback report: the error reporter constructs
+  // the supabase client, which node tests must not. Telemetry never throws.
+  void import('./errorReport')
+    .then((m) => m.reportError(new Error(`hand tracker init failed (CPU delegate): ${reason}`), {
+      handTracking: { delegate: 'CPU', reason },
+    }))
+    .catch(() => {});
+}
+
+/** Why hand tracking is unavailable (the last init failure), or null — for UI
+ *  that should say "hand tracking unavailable" rather than "No hand yet". */
+export function getHandTrackerError(): string | null {
+  return lastInitError;
 }
 
 export function getHandLandmarker() {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   familyPresence,
+  focusForSelection,
   isHandObject,
   objectFamily,
   orbitMannequins,
@@ -82,5 +83,25 @@ describe('resolveFocus', () => {
     expect(resolveFocus([], 'hand')).toBe('head');
     expect(resolveFocus([head, wand], null)).toBe('head');
     expect(resolveFocus([wand], null)).toBe('hand');
+  });
+});
+
+describe('focusForSelection — a piece of the other family brings the camera with it', () => {
+  it('selecting a hand piece while the head is framed focuses the hand', () => {
+    // The bug: a wand added while Model view framed the head stayed invisible.
+    expect(focusForSelection([head, wand], null, wand)).toBe('hand');
+    expect(focusForSelection([head, wand], 'head', wand)).toBe('hand');
+    expect(resolveFocus([head, wand], focusForSelection([head, wand], 'head', wand))).toBe('hand');
+  });
+
+  it('selecting a head piece while the hand is framed focuses the head', () => {
+    expect(focusForSelection([head, wand], 'hand', head)).toBe('head');
+  });
+
+  it('leaves the host\'s choice alone within the framed family or with no selection', () => {
+    expect(focusForSelection([head, wand], 'hand', wand)).toBeNull();
+    expect(focusForSelection([head, wand, cuff], 'hand', cuff)).toBeNull();
+    expect(focusForSelection([head, wand], null, head)).toBeNull();
+    expect(focusForSelection([head, wand], 'hand', null)).toBeNull();
   });
 });

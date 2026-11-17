@@ -10,6 +10,8 @@ import {
   createOverlay,
   createObject3D,
   draftContentUnchanged,
+  planSlotAdd,
+  MAX_OBJECTS,
   pruneTriggersFor,
   preserveViewOnTimeTravel,
   type StudioAction,
@@ -18,7 +20,7 @@ import {
 } from './state';
 import { withHistory, initHistory } from './history';
 import { saveUploadFailures, uploadFailureMessage } from './draftSafety';
-import { isDuplicateTrigger, sameTriggerAction, type TriggerConfig } from './triggers';
+import { isDuplicateTrigger, mergeEditedAction, sameTriggerAction, type TriggerConfig } from './triggers';
 import {
   clearTriggerTestSubscribers,
   hasTriggerTestSubscriber,
@@ -234,5 +236,40 @@ describe('#12 fxBus trigger-test channel', () => {
     off();
     expect(hasTriggerTestSubscriber()).toBe(false);
     expect(pings).toBe(2);
+  });
+});
+
+describe('jewelry pre-flight (code review: slot check + the dropped second earring)', () => {
+  const ears = [{ anchor: 'leftEar' as const }, { anchor: 'rightEar' as const }];
+  it('reports pieces already on the slots', () => {
+    let st = studioReducer(initialState('shader'), { type: 'SET_MODEL_ASSET', url: 'https://cdn/e.glb', name: 'Old L', anchor: 'leftEar' });
+    st = studioReducer(st, { type: 'SET_MODEL_ASSET', url: 'https://cdn/e.glb', name: 'Hat', anchor: 'crown' });
+    const plan = planSlotAdd(st.draft, ears, 'both');
+    expect(plan.conflicts.map((c) => c.name)).toEqual(['Old L']);
+  });
+  it('one free spot cannot take two earrings — unless Replace frees one', () => {
+    let st = initialState('shader');
+    for (let i = 0; i < MAX_OBJECTS - 1; i++) {
+      st = studioReducer(st, { type: 'ADD_OBJECT', object: createOverlay('2d_filter', { url: `s${i}`, isBuiltin: false }) });
+    }
+    expect(planSlotAdd(st.draft, ears, 'both')).toMatchObject({ room: 1, fits: false });
+    st = studioReducer(st, { type: 'SET_MODEL_ASSET', url: 'https://cdn/e.glb', name: 'Old L', anchor: 'leftEar' });
+    expect(planSlotAdd(st.draft, ears, 'both')).toMatchObject({ room: 0, fits: false });
+    expect(planSlotAdd(st.draft, ears, 'replace')).toMatchObject({ room: 1, fits: false });
+  });
+  it('fits when there is room', () => {
+    expect(planSlotAdd(initialState('shader').draft, ears, 'both')).toMatchObject({ conflicts: [], fits: true });
+  });
+});
+
+describe('#12 an in-place edit keeps fields the form does not show', () => {
+  it('a Power FX beam keeps origin/duration; Scene default drops the pin', () => {
+    const orig = { type: 'beam' as const, style: 'optic' as const, origin: 'hand' as const, durationMs: 900, objectId: 'p1', color: 'auto' };
+    expect(mergeEditedAction(orig, { type: 'beam', style: 'energy', color: 'auto' })).toEqual({
+      type: 'beam', style: 'energy', origin: 'hand', durationMs: 900, color: 'auto',
+    });
+  });
+  it('a type change takes the edited action whole', () => {
+    expect(mergeEditedAction({ type: 'beam', style: 'optic', origin: 'hand' }, { type: 'burst', style: 'hearts' })).toEqual({ type: 'burst', style: 'hearts' });
   });
 });

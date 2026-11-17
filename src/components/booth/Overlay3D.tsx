@@ -147,6 +147,16 @@ interface Props {
    * only when the scene's triggers carry a beam action.
    */
   powerFx?: boolean;
+  /**
+   * A StageCanvas copies this canvas into its composite (threeCanvasId points
+   * here). The wrapper then renders at opacity 0 — still rendering, never
+   * display:none, since the composite reads its pixels — so the 3D is not
+   * drawn TWICE on screen. It used to be: once in the composite, once live on
+   * top, at a different resolution and ABOVE the 2D frame, while the photo
+   * puts the frame above the 3D — the preview did not match the capture.
+   * Same idiom as TriggerEffects' source canvas. Absent ⇒ visible, as before.
+   */
+  composited?: boolean;
 }
 
 /**
@@ -196,7 +206,7 @@ function AnimatedPiece({ animation, reveal, pulse, children }: { animation?: Lay
   return <group ref={ref}>{children}</group>;
 }
 
-export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false }: Props) {
+export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false, composited = false }: Props) {
   // Hand-anchored gear renders in a HandRig; everything else keeps the FaceRig
   // path byte-identically (index split preserves keys within each family).
   const headPieces = pieces ? pieces.filter((p) => p.handAnchor === undefined) : null;
@@ -204,7 +214,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
   // First piece whose occlude===true wins the (single, non-duplicated) occluder.
   const occluderIdx = headPieces ? headPieces.findIndex((p) => p.occlude === true) : -1;
   return (
-    <div id="booth-3d-layer" className="absolute inset-0 pointer-events-none z-20">
+    <div id="booth-3d-layer" className="absolute inset-0 pointer-events-none z-20" style={composited ? { opacity: 0 } : undefined}>
       <Canvas
         camera={{ position: RIG_CAMERA.position, fov: RIG_CAMERA.fov, near: RIG_CAMERA.near, far: RIG_CAMERA.far }}
         dpr={dpr}

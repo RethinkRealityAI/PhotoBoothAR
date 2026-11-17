@@ -27,13 +27,13 @@ import FaceOccluder from '../ar/FaceOccluder';
 import ReferenceBust, { type BustBounds } from '../ar/ReferenceBust';
 import ReferenceHand, { type HandRefFit, type HandRefPose } from '../ar/ReferenceHand';
 import { HandOccluder, HandRig } from '../ar/HandRig';
-import { HandMirrorContext } from '../ar/handMirror';
+import { HandMirrorContext, useHandMirror } from '../ar/handMirror';
 import { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
 import { HAND_ANCHOR_MAP, isHandAnchorId } from '../../lib/handPose';
 import { handRefAnchors } from '../../lib/studio/handRefAnchors';
-import { mirrorPlacement, previewHand, shouldMirrorAsset } from '../../lib/studio/handedness';
+import { canMirrorAsset, mirrorPlacement, previewHand, shouldMirrorAsset } from '../../lib/studio/handedness';
 import { normalizeTemplate } from '../../lib/studio/assetTemplate';
-import { orbitMannequins, resolveFocus, splitByFamily, type SceneFamily } from '../../lib/studio/sceneFamilies';
+import { focusForSelection, orbitMannequins, resolveFocus, splitByFamily, type SceneFamily } from '../../lib/studio/sceneFamilies';
 import SceneLighting from '../ar/SceneLighting';
 import AnchorDots from '../admin/creator3d/AnchorDots';
 import type { AnchorConfig, HeadAnchor } from '../../types';
@@ -164,6 +164,44 @@ function FrameScene({
  * The studio has no guest, so a `token: 'guestName'` engraving previews with
  * STUDIO_SAMPLE_GUEST_NAME; the booth substitutes the real one.
  */
+/**
+ * The live view's hand-piece gizmo. MUST mount inside a HandRig: whether the
+ * piece is mirrored onto the other hand is the rig's published decision (the
+ * hand the guest SEES), and the mesh inside already obeys it through the same
+ * context. The gizmo applies the placement itself, so — exactly as the orbit
+ * view above and HandPlacement in the booth do — a mirrored piece needs a
+ * mirrored placement in, and the gizmo's output un-mirrored on the way back to
+ * the store (`mirrorPlacement` is an involution), so the host's saved numbers
+ * stay in the asset's own frame. Without this the live mesh flipped while its
+ * offset/rotation did not, and the piece landed BESIDE the hand.
+ */
+function LiveHandGizmo({ object, selected, onTransformChange, onDragStart, onDragEnd }: {
+  object: Object3D;
+  selected: boolean;
+  onTransformChange: (patch: Partial<AnchorConfig>) => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+}) {
+  const template = normalizeTemplate(object.template);
+  const wants = useHandMirror(template?.modelledHand);
+  // HandPlacement's rule, verbatim: an engraved asset never mirrors either half.
+  const flip = wants && canMirrorAsset((template?.textSlots.length ?? 0) > 0);
+  return (
+    <AssetGizmo
+      base={[0, 0, 0]}
+      config={flip ? mirrorPlacement(object.anchorConfig) : object.anchorConfig}
+      enabled={selected}
+      onChange={selected
+        ? (flip ? (c: AnchorConfig) => onTransformChange(mirrorPlacement(c)) : onTransformChange)
+        : undefined}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    >
+      <ObjectContent object={object} />
+    </AssetGizmo>
+  );
+}
+
 function ObjectContent({ object }: { object: Object3D }) {
   if (object.type === 'headpiece' && isHeadPiece(object.proceduralId)) {
     const emitter = pieceEmitterOf({ proceduralId: object.proceduralId });
@@ -229,6 +267,15 @@ export default function Studio3DView({
     ));
   }, []);
   const selected = objects.find((o) => o.id === selectedId) ?? null;
+  // A newly selected piece of the OTHER family brings the camera with it (a
+  // wand added while the head is framed was invisible). Adjusted during render
+  // on a selection CHANGE only, so the host's own focus click still sticks.
+  const [focusSelId, setFocusSelId] = useState(selectedId);
+  if (focusSelId !== selectedId) {
+    setFocusSelId(selectedId);
+    const next = focusForSelection(objects, focusPref, selected);
+    if (next !== null) setFocusPref(next);
+  }
   // AnchorDots highlight the SELECTED object's anchor (or crown when none).
   const activeAnchor: HeadAnchor = selected?.anchor ?? 'crown';
   // The family split Overlay3D renders with (its exact rule, now shared) — a
@@ -294,7 +341,7 @@ export default function Studio3DView({
               aria-label={label}
               aria-pressed={focus === id}
               data-testid={`studio-focus-${id}`}
-              className={`pressable flex items-center justify-center w-7 h-7 rounded-full transition-colors ${
+              className={`pressable flex items-center justify-center w-7 h-7 pointer-coarse:w-11 pointer-coarse:h-11 rounded-full transition-colors ${
                 focus === id ? 'bg-accent/20 ring-1 ring-accent/40 text-accent-2' : 'text-brand-muted/60 hover:text-brand-fg'
               }`}
             >
@@ -509,16 +556,13 @@ export default function Studio3DView({
                   fit={o.handFit ?? 'auto'}
                   onVisibilityChange={i === 0 ? onHandVisible : undefined}
                 >
-                  <AssetGizmo
-                    base={[0, 0, 0]}
-                    config={o.anchorConfig}
-                    enabled={isSel}
-                    onChange={isSel ? onTransformChange : undefined}
+                  <LiveHandGizmo
+                    object={o}
+                    selected={isSel}
+                    onTransformChange={onTransformChange}
                     onDragStart={onGizmoDragStart}
                     onDragEnd={onGizmoDragEnd}
-                  >
-                    <ObjectContent object={o} />
-                  </AssetGizmo>
+                  />
                 </HandRig>
               </group>
             );

@@ -10,6 +10,11 @@ import {
   readFaceEngineOverride,
   resolveFaceTrackingMode,
   trackingReadoutEnabled,
+  FRAME_LOCK_MEDIAPIPE_DEFAULT,
+  FRAME_LOCK_SESSION_KEY,
+  parseFrameLock,
+  readFrameLockOverride,
+  resolveFrameLock,
   type SessionStore,
 } from './engineSelect';
 
@@ -122,5 +127,55 @@ describe('trackingReadoutEnabled', () => {
     expect(trackingReadoutEnabled('?faceEngine=xr8', memStore())).toBe(true);
     expect(trackingReadoutEnabled('', memStore({ [FACE_ENGINE_SESSION_KEY]: 'xr8' }))).toBe(true);
     expect(trackingReadoutEnabled('', throwingStore)).toBe(false);
+  });
+});
+
+describe('frame-lock resolution', () => {
+  it('legacy is OFF whatever the URL or mode says', () => {
+    for (const mode of ['mediapipe', 'xr8', 'hybrid'] as const) {
+      for (const url of [true, false, null]) {
+        expect(resolveFrameLock({ legacy: true, mode, url })).toEqual({ on: false, source: 'legacy' });
+      }
+    }
+  });
+  it('the URL override wins over the mode on the platform, both ways', () => {
+    expect(resolveFrameLock({ legacy: false, mode: 'mediapipe', url: true })).toEqual({ on: true, source: 'url' });
+    expect(resolveFrameLock({ legacy: false, mode: 'xr8', url: false })).toEqual({ on: false, source: 'url' });
+  });
+  it('8th Wall poses lock by default; MediaPipe follows the flip-able constant', () => {
+    expect(resolveFrameLock({ legacy: false, mode: 'xr8' })).toEqual({ on: true, source: 'xr8' });
+    expect(resolveFrameLock({ legacy: false, mode: 'hybrid', url: null })).toEqual({ on: true, source: 'xr8' });
+    expect(resolveFrameLock({ legacy: false, mode: 'mediapipe' })).toEqual({
+      on: FRAME_LOCK_MEDIAPIPE_DEFAULT,
+      source: 'mediapipe-default',
+    });
+  });
+  it('parseFrameLock accepts 1/0/true/false/on/off only', () => {
+    expect(parseFrameLock(' 1 ')).toBe(true);
+    expect(parseFrameLock('ON')).toBe(true);
+    expect(parseFrameLock('0')).toBe(false);
+    expect(parseFrameLock('off')).toBe(false);
+    expect(parseFrameLock('2')).toBeNull();
+    expect(parseFrameLock('')).toBeNull();
+    expect(parseFrameLock(1)).toBeNull();
+  });
+  it('a URL value is remembered for the tab; an invalid one is ignored and not stored', () => {
+    const store = memStore();
+    expect(readFrameLockOverride('?framelock=0', store)).toBe(false);
+    expect(store.data[FRAME_LOCK_SESSION_KEY]).toBe('0');
+    expect(readFrameLockOverride('', store)).toBe(false);
+    expect(readFrameLockOverride('?framelock=maybe', store)).toBe(false); // falls back to the remembered one
+    expect(store.data[FRAME_LOCK_SESSION_KEY]).toBe('0');
+    expect(readFrameLockOverride('', memStore())).toBeNull();
+  });
+  it('blocked storage never throws', () => {
+    expect(readFrameLockOverride('?framelock=1', throwingStore)).toBe(true);
+    expect(readFrameLockOverride('', throwingStore)).toBeNull();
+    expect(readFrameLockOverride('', null)).toBeNull();
+  });
+  it('?framelock alone turns the tester readout on', () => {
+    expect(trackingReadoutEnabled('?framelock=1', memStore())).toBe(true);
+    expect(trackingReadoutEnabled('', memStore({ [FRAME_LOCK_SESSION_KEY]: '1' }))).toBe(true);
+    expect(trackingReadoutEnabled('', memStore())).toBe(false);
   });
 });

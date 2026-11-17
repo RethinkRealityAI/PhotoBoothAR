@@ -40,6 +40,11 @@ export interface FaceEngine {
   poll(video: HTMLVideoElement, now: number): FaceSample | null;
   /** performance.now() of the last blocking inference on the main thread, or -Infinity. */
   lastInferenceMs(): number;
+  /** OPTIONAL. A canvas holding EXACTLY the camera frame the most recent sample was computed from
+   *  (full video frame, unmirrored, video pixel size). When present, the compositor draws this
+   *  instead of the live <video>, so the AR layer and the camera image are the same instant
+   *  (frame-locked) and tracker latency is invisible. null until the first sample. */
+  getAnalysedFrame?(): HTMLCanvasElement | OffscreenCanvas | null;
   /** Stop loops / release GL + wasm where possible. Safe to call twice. */
   dispose(): void;
 }

@@ -84,7 +84,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
     <button
       type="button"
       onClick={onClick}
-      className={`pressable px-2 py-1.5 rounded-lg text-[9px] font-label uppercase tracking-widest truncate transition-colors ${
+      className={`pressable px-2 py-1.5 pointer-coarse:min-h-11 rounded-lg text-[9px] pointer-coarse:text-[10px] font-label uppercase tracking-widest truncate transition-colors ${
         active
           ? 'bg-accent/20 text-accent-2 ring-1 ring-accent/30'
           : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'
@@ -407,7 +407,7 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
                     />
                     <span className="min-w-0">
                       <span className="block text-[10px] font-label uppercase tracking-wide text-brand-fg truncate">{g.name}</span>
-                      <span className="block text-[8.5px] font-sans text-brand-muted/50 leading-tight truncate">{g.blurb}</span>
+                      <span className="block text-[8.5px] pointer-coarse:text-[10px] font-sans text-brand-muted/50 leading-tight truncate">{g.blurb}</span>
                     </span>
                   </button>
                 ))}
@@ -452,7 +452,7 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
 
             <div>
               <SectionLabel>Fires when a guest…</SectionLabel>
-              <p className="text-[8px] font-label uppercase tracking-widest text-brand-muted/35 mb-1">Hands</p>
+              <p className="text-[8px] pointer-coarse:text-[10px] font-label uppercase tracking-widest text-brand-muted/35 mb-1">Hands</p>
               <div className="grid grid-cols-3 gap-1 mb-1.5">
                 {HAND_TRIGGER_SOURCES.map((s) => (
                   <Chip key={s} active={s === spec.source} onClick={() => setSpec((prev) => ({ ...prev, source: s }))}>
@@ -460,7 +460,7 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
                   </Chip>
                 ))}
               </div>
-              <p className="text-[8px] font-label uppercase tracking-widest text-brand-muted/35 mb-1">Face</p>
+              <p className="text-[8px] pointer-coarse:text-[10px] font-label uppercase tracking-widest text-brand-muted/35 mb-1">Face</p>
               <div className="grid grid-cols-4 gap-1">
                 {FACE_TRIGGER_SOURCES.map((s) => (
                   <Chip key={s} active={s === spec.source} onClick={() => setSpec((prev) => ({ ...prev, source: s }))}>

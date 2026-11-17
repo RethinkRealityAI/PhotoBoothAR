@@ -85,3 +85,21 @@ export function resolveFocus(objects: readonly FamilyMember[], preferred: SceneF
   if (preferred === 'head' && shown.head) return 'head';
   return shown.head ? 'head' : 'hand';
 }
+
+/**
+ * The focus preference to adopt when the SELECTION changes, or null to keep the
+ * current one. Selecting a piece of the family the camera is NOT framing moves
+ * the camera to it: a wand added (and auto-selected) while the orbit frames the
+ * head otherwise sits off-screen beside the bust, invisible, with its gizmo
+ * active — the host sees nothing happen. Selecting within the framed family, or
+ * clearing the selection, leaves the host's own choice alone.
+ */
+export function focusForSelection(
+  objects: readonly FamilyMember[],
+  preferred: SceneFamily | null,
+  selected: FamilyMember | null,
+): SceneFamily | null {
+  if (selected === null) return null;
+  const family = objectFamily(selected);
+  return family === resolveFocus(objects, preferred) ? null : family;
+}

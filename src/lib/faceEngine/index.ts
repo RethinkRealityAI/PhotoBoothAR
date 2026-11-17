@@ -28,15 +28,34 @@ import {
   modeNeedsMediapipe,
   modeNeedsXr8,
   readFaceEngineOverride,
+  readFrameLockOverride,
   resolveFaceTrackingMode,
+  resolveFrameLock,
+  type FrameLockSource,
   type ResolvedMode,
 } from './engineSelect';
 
 export type { FaceTrackingMode, FaceSample } from './types';
+export { claimFrameInference, FRAME_INFERENCE_TOKEN } from './inferenceToken';
 
 /** Long enough for a cold 8th Wall download + wasm compile on a mid phone over
  *  venue wifi; short enough that a guest is not left untracked for long. */
 export const XR8_INIT_TIMEOUT_MS = 12_000;
+/**
+ * MediaPipe's own init bound. Its wasm/model fetches have no timeout of their
+ * own, so a blackholed network left `mpStatus` 'loading' forever and no later
+ * initFaceEngine() could retry it.
+ */
+export const MP_INIT_TIMEOUT_MS = 15_000;
+/**
+ * The guest-facing promise: if NO engine produces poses this long after a
+ * surface asked, every surface shows its failed state (info.failed) instead of
+ * an endless "Loading face tracker". Loading carries on behind it, and a late
+ * success still flips the surface to ready.
+ */
+export const TRACKER_INIT_DEADLINE_MS = 15_000;
+/** Landmarker resets (DETECT_THROWS_BEFORE_RESET each) before MediaPipe is given up as failed. */
+export const MAX_MP_RECOVERIES = 3;
 
 /** A frozen single-event build (same test as App.tsx LEGACY_EVENT). */
 export const IS_LEGACY_BUILD = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim() !== '';
@@ -52,6 +71,10 @@ function sessionStore(): Storage | null {
 function urlOverride(): FaceTrackingMode | null {
   if (typeof window === 'undefined') return null;
   return readFaceEngineOverride(window.location.search, sessionStore());
+}
+function urlFrameLock(): boolean | null {
+  if (typeof window === 'undefined') return null;
+  return readFrameLockOverride(window.location.search, sessionStore());
 }
 
 /**
@@ -83,15 +106,31 @@ export interface FaceEngineInfo {
   reason: string | null;
   /** Some engine can produce poses (drives "loading tracker" UI). */
   ready: boolean;
-  /** Even the final fallback (MediaPipe) failed to start. */
+  /** Even the final fallback (MediaPipe) failed to start, or nothing was ready by
+   *  TRACKER_INIT_DEADLINE_MS. Clears again if an engine comes up later. */
   failed: boolean;
+  /** Last tracker problem worth surfacing (init failure/timeout, landmarker lost), or null. */
+  error: string | null;
+  /** The compositor draws the tracked frame (see getTrackedFrame). */
+  frameLock: boolean;
+  frameLockSource: FrameLockSource;
 }
 
 type Status = 'idle' | 'loading' | 'ready' | 'failed';
 
 let requested: FaceTrackingMode = resolveSurfaceFaceMode().mode;
+/** The surface is a coded (`source !== 'db'`) event — legacy rules apply (see setFaceTrackingMode). */
+let legacySurface = false;
 let mp: MediapipeFaceEngine | null = null;
 let mpStatus: Status = 'idle';
+let mpRecoveries = 0;
+let mpError: string | null = null;
+let deadlineHit = false;
+let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+/** StageCanvases that composite 3D and so want the tracked frame (ref count). */
+let frameLockHolders = 0;
+/** t of the last POSE sample handed to faceRig — the tracked frame's identity. */
+let lastPoseT = Number.NaN;
 let xr8: FaceEngine | null = null;
 let xr8Status: Status = 'idle';
 let xr8Reason: string | null = null;
@@ -103,9 +142,28 @@ let warnedUnwanted = false;
 const listeners = new Set<() => void>();
 let info: FaceEngineInfo = computeInfo();
 
+/** Legacy rules for this session: a frozen build, or a coded event surface. */
+export function isLegacyFaceSession(): boolean {
+  return IS_LEGACY_BUILD || legacySurface;
+}
+
 function getMp(): MediapipeFaceEngine {
-  if (mp === null) mp = createMediapipeEngine();
+  if (mp === null) {
+    mp = createMediapipeEngine({ onLost: handleMpLost });
+    mp.setPlatformPath(!isLegacyFaceSession());
+  }
   return mp;
+}
+
+/** The landmarker went bad (every inference threw) and was closed: rebuild it, say so. */
+function handleMpLost(reason: string): void {
+  mpRecoveries++;
+  mpError = reason;
+  console.warn(`[faceEngine] ${reason} — re-initialising (${mpRecoveries}/${MAX_MP_RECOVERIES})`);
+  reportOnce('mp-lost', reason);
+  mpStatus = mpRecoveries > MAX_MP_RECOVERIES ? 'failed' : 'idle';
+  emit();
+  scheduleEnsure();
 }
 
 /** The mode that actually runs: an 8th Wall mode whose engine failed → MediaPipe. */
@@ -113,32 +171,49 @@ function effectiveMode(): FaceTrackingMode {
   return modeNeedsXr8(requested) && xr8Status === 'failed' ? 'mediapipe' : requested;
 }
 
-function computeInfo(): FaceEngineInfo {
+function activeMode(): FaceTrackingMode | null {
   const eff = effectiveMode();
   const mpReady = mpStatus === 'ready';
   const xrReady = xr8Status === 'ready' && xr8 !== null;
-  let active: FaceTrackingMode | null = null;
-  if (eff === 'mediapipe') active = mpReady ? 'mediapipe' : null;
-  else if (eff === 'xr8') active = xrReady ? 'xr8' : null;
-  else active = xrReady ? 'hybrid' : mpReady ? 'mediapipe' : null;
+  if (eff === 'mediapipe') return mpReady ? 'mediapipe' : null;
+  if (eff === 'xr8') return xrReady ? 'xr8' : null;
+  return xrReady ? 'hybrid' : mpReady ? 'mediapipe' : null;
+}
+
+function computeInfo(): FaceEngineInfo {
+  const eff = effectiveMode();
+  const active = activeMode();
   const fellBack = modeNeedsXr8(requested) && xr8Status === 'failed';
+  const lock = resolveFrameLock({ legacy: isLegacyFaceSession(), mode: active ?? eff, url: urlFrameLock() });
   return {
     requested,
     active,
     fellBack,
     reason: fellBack ? xr8Reason : null,
     ready: active !== null,
-    failed: active === null && eff === 'mediapipe' && mpStatus === 'failed',
+    failed: active === null && ((eff === 'mediapipe' && mpStatus === 'failed') || deadlineHit),
+    error: active === null && deadlineHit && mpError === null ? 'face tracker did not start in time' : mpError,
+    frameLock: lock.on && frameLockHolders > 0,
+    frameLockSource: lock.source,
   };
+}
+
+/** Only MediaPipe pays for a full-res copy per detection, and only while it is the pose engine of a frame-locked surface. */
+function applyFrameSnapshot(): void {
+  if (mp === null) return;
+  mp.setFrameSnapshot(info.frameLock && info.active === 'mediapipe');
 }
 
 function emit(): void {
   const next = computeInfo();
   const same =
     next.requested === info.requested && next.active === info.active && next.fellBack === info.fellBack &&
-    next.reason === info.reason && next.ready === info.ready && next.failed === info.failed;
+    next.reason === info.reason && next.ready === info.ready && next.failed === info.failed &&
+    next.error === info.error && next.frameLock === info.frameLock && next.frameLockSource === info.frameLockSource;
   if (same) return;
   info = next; // a NEW object only on change → a stable useSyncExternalStore snapshot
+  if (info.ready) deadlineHit = false; // a late success clears the deadline failure for good
+  applyFrameSnapshot();
   for (const l of [...listeners]) {
     try { l(); } catch { /* a listener must not break the manager */ }
   }
@@ -153,26 +228,60 @@ function reportFallbackOnce(reason: string): void {
   if (reportedFallback) return;
   reportedFallback = true;
   console.warn(`[faceEngine] 8th Wall unavailable, using MediaPipe: ${reason}`);
+  reportOnce('fallback', `face engine fallback xr8 -> mediapipe: ${reason}`);
+}
+
+const reported = new Set<string>();
+/** client_errors, once per kind per session. */
+function reportOnce(kind: string, message: string): void {
+  if (reported.has(kind)) return;
+  reported.add(kind);
   // Dynamic: errorReport pulls the supabase client, which node tests of
   // faceRig must not construct. Fire-and-forget; telemetry never throws here.
   void import('../errorReport')
-    .then((m) => m.reportError(new Error(`face engine fallback xr8 -> mediapipe: ${reason}`), {
-      faceEngine: { requested, reason },
-    }))
+    .then((m) => m.reportError(new Error(message), { faceEngine: { requested, kind } }))
     .catch(() => {});
 }
 
 function startMp(): void {
   if (mpStatus !== 'idle') return;
   mpStatus = 'loading';
-  getMp()
-    .init()
-    .then(() => { mpStatus = 'ready'; })
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error(`MediaPipe init timed out after ${MP_INIT_TIMEOUT_MS / 1000}s`));
+    }, MP_INIT_TIMEOUT_MS);
+  });
+  const boot = getMp().init();
+  // A boot that finishes after the timeout gave up still makes the landmarker:
+  // adopt it (the guest gets tracking late rather than never).
+  boot.then(
+    () => {
+      if (timedOut && mpStatus === 'failed') {
+        mpStatus = 'ready';
+        mpError = null;
+        emit();
+      }
+    },
+    () => {},
+  );
+  Promise.race([boot, timeout])
+    .then(() => {
+      mpStatus = 'ready';
+      mpError = null;
+    })
     .catch((e) => {
       console.warn('[faceEngine] MediaPipe face tracker init failed', e);
       mpStatus = 'failed';
+      mpError = describe(e);
+      reportOnce('mp-init', `face tracker init failed: ${mpError}`);
     })
-    .finally(emit);
+    .finally(() => {
+      clearTimeout(timer);
+      emit();
+    });
 }
 
 function startXr8(): void {
@@ -261,11 +370,89 @@ function scheduleEnsure(): void {
  * between 'xr8' and 'hybrid' keeps the running 8th Wall engine, leaving the
  * 8th Wall family disposes it, and MediaPipe's landmarker stays cached.
  */
-export function setFaceTrackingMode(mode: FaceTrackingMode): void {
-  if (mode === requested) return;
+export function setFaceTrackingMode(mode: FaceTrackingMode, opts: { legacy?: boolean } = {}): void {
+  // `legacy` = a coded (`source !== 'db'`) event surface: its detection input,
+  // pose filter and frame stay on the shipped path (the resolver already pins
+  // its MODE to MediaPipe). Absent = platform, which every non-booth surface is.
+  const legacy = opts.legacy === true;
+  if (mode === requested && legacy === legacySurface) return;
   requested = mode;
+  if (legacy !== legacySurface) {
+    legacySurface = legacy;
+    mp?.setPlatformPath(!isLegacyFaceSession());
+  }
   emit();
   scheduleEnsure();
+}
+
+/**
+ * A StageCanvas that composites 3D asks for the tracked frame. Returns the
+ * release. Whether frame-lock is actually ON is the resolver's call
+ * (legacy / URL / mode); this only says somebody would draw it.
+ */
+export function retainFrameLock(): () => void {
+  frameLockHolders++;
+  emit();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    frameLockHolders = Math.max(0, frameLockHolders - 1);
+    emit();
+  };
+}
+
+export interface TrackedFrame {
+  /** Full video frame, UNMIRRORED, at video pixel size — draw it exactly like the <video>. */
+  source: HTMLCanvasElement | OffscreenCanvas;
+  width: number;
+  height: number;
+  /** Changes when (and only when) the frame changes: t of the pose sample it belongs to. */
+  key: number;
+}
+const _tracked: TrackedFrame = { source: null as unknown as HTMLCanvasElement, width: 0, height: 0, key: Number.NaN };
+
+/**
+ * The camera frame the CURRENT pose was computed from, when frame-lock is on
+ * and the pose engine can hand one over; else null (draw the live <video>).
+ * Reuses one result object (called per composite frame).
+ */
+export function getTrackedFrame(): TrackedFrame | null {
+  if (!info.frameLock) return null;
+  const a = info.active;
+  let src: HTMLCanvasElement | OffscreenCanvas | null = null;
+  try {
+    if (a === 'mediapipe') src = mp !== null ? mp.getAnalysedFrame() : null;
+    else if (a === 'xr8' || a === 'hybrid') src = xr8?.getAnalysedFrame?.() ?? null;
+  } catch {
+    src = null;
+  }
+  if (src === null || !(src.width > 0) || !(src.height > 0)) return null;
+  _tracked.source = src;
+  _tracked.width = src.width;
+  _tracked.height = src.height;
+  _tracked.key = lastPoseT;
+  return _tracked;
+}
+
+/** The tracked frame's image, or null (see getTrackedFrame). */
+export function getTrackedFrameSource(): CanvasImageSource | null {
+  return getTrackedFrame()?.source ?? null;
+}
+
+/** Is the compositor currently frame-locked? */
+export function isFrameLockActive(): boolean {
+  return info.frameLock;
+}
+
+/** The reused downscaled MediaPipe detection input (platform), or null. HANDOFF for handRig. */
+export function getFaceDetectionCanvas(): HTMLCanvasElement | null {
+  return mp !== null ? mp.getDetectionCanvas() : null;
+}
+
+/** Main-thread ms of MediaPipe's latest frame staging (snapshot + downscale). Diagnostics. */
+export function faceStagingMs(): number {
+  return mp !== null ? mp.lastStagingMs() : 0;
 }
 
 /**
@@ -277,7 +464,18 @@ export function setFaceTrackingMode(mode: FaceTrackingMode): void {
  */
 export function initFaceEngine(): Promise<void> {
   wanted = true;
-  if (mpStatus === 'failed') mpStatus = 'idle';
+  if (mpStatus === 'failed' && mpRecoveries <= MAX_MP_RECOVERIES) mpStatus = 'idle';
+  if (!info.ready) {
+    // (Re)arm the visible-failure deadline for this ask.
+    deadlineHit = false;
+    clearTimeout(deadlineTimer);
+    deadlineTimer = setTimeout(() => {
+      if (info.ready) return;
+      deadlineHit = true;
+      reportOnce('deadline', `face tracker not ready after ${TRACKER_INIT_DEADLINE_MS / 1000}s (requested ${requested})`);
+      emit();
+    }, TRACKER_INIT_DEADLINE_MS);
+  }
   emit(); // clear a stale `failed` before the check below, so a retry waits
   scheduleEnsure();
   return new Promise<void>((resolve, reject) => {
@@ -349,10 +547,16 @@ export function pollFaceEngine(video: HTMLVideoElement, now: number): FacePoll {
   _poll.pose = null;
   _poll.expr = null;
   _poll.poseHasExpr = true;
+  pollEngines(video, now);
+  if (_poll.pose !== null) lastPoseT = _poll.pose.t;
+  return _poll;
+}
+
+function pollEngines(video: HTMLVideoElement, now: number): void {
   const eff = effectiveMode();
   if (eff === 'mediapipe') {
     _poll.pose = getMp().poll(video, now);
-    return _poll;
+    return;
   }
   if (!wanted && !warnedUnwanted) {
     warnedUnwanted = true;
@@ -361,7 +565,7 @@ export function pollFaceEngine(video: HTMLVideoElement, now: number): FacePoll {
   const xrReady = xr8Status === 'ready' && xr8 !== null;
   if (eff === 'xr8') {
     if (xrReady) _poll.pose = pollXr8(video, now);
-    return _poll;
+    return;
   }
   // hybrid
   if (xrReady) {
@@ -371,5 +575,4 @@ export function pollFaceEngine(video: HTMLVideoElement, now: number): FacePoll {
   } else if (mp !== null) {
     _poll.pose = mp.poll(video, now); // interim: plain MediaPipe while 8th Wall loads
   }
-  return _poll;
 }

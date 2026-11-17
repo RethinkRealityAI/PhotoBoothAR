@@ -133,17 +133,85 @@ export function readFaceEngineOverride(search: string, store: SessionStore | nul
 }
 
 /** Show the tracking readout? Only for testers: `?trackdebug`, `?faceEngine=…`,
- *  or a faceEngine override remembered for this tab (which only a URL can set). */
+ *  `?framelock=…`, or an override remembered for this tab (only a URL sets one). */
 export function trackingReadoutEnabled(search: string, store: SessionStore | null): boolean {
   try {
     const p = new URLSearchParams(search);
-    if (p.has(TRACK_DEBUG_URL_PARAM) || p.has(FACE_ENGINE_URL_PARAM)) return true;
+    if (p.has(TRACK_DEBUG_URL_PARAM) || p.has(FACE_ENGINE_URL_PARAM) || p.has(FRAME_LOCK_URL_PARAM)) return true;
   } catch {
     /* fall through */
   }
   try {
-    return parseFaceTrackingMode(store?.getItem(FACE_ENGINE_SESSION_KEY) ?? null) !== null;
+    if (parseFaceTrackingMode(store?.getItem(FACE_ENGINE_SESSION_KEY) ?? null) !== null) return true;
+    return parseFrameLock(store?.getItem(FRAME_LOCK_SESSION_KEY) ?? null) !== null;
   } catch {
     return false;
   }
+}
+
+/* ── Frame-lock ──────────────────────────────────────────────────────────────
+ * With frame-lock ON the compositor draws the camera frame the pose was computed
+ * FROM (the engine's getAnalysedFrame()) instead of the newest <video> frame, so
+ * the AR layer and the image are the same instant and tracker latency never
+ * shows as the prop slipping off a moving face. The preview then updates at the
+ * tracker rate — exactly how native 8th Wall behaves.
+ *
+ * Resolution, highest wins:
+ *   1. LEGACY → OFF, always (their photos must stay byte-identical).
+ *   2. URL `?framelock=0|1` (remembered per tab) — a phone A/B switch, grants
+ *      nothing (every event gets the same pixels either way, just in step).
+ *   3. 8th Wall pose ('xr8' / 'hybrid') → ON: its ~130ms pipeline lag is the
+ *      reason this exists.
+ *   4. MediaPipe pose → FRAME_LOCK_MEDIAPIPE_DEFAULT — one constant to flip once
+ *      phone numbers say whether a tracker-rate preview is worth the steadier prop.
+ */
+export const FRAME_LOCK_SESSION_KEY = 'pbar.frameLock';
+export const FRAME_LOCK_URL_PARAM = 'framelock';
+export const FRAME_LOCK_MEDIAPIPE_DEFAULT = false;
+
+/** Untrusted '1'/'0'/'true'/'false'/'on'/'off' → boolean, else null. */
+export function parseFrameLock(input: unknown): boolean | null {
+  if (typeof input !== 'string') return null;
+  const v = input.trim().toLowerCase();
+  if (v === '1' || v === 'true' || v === 'on') return true;
+  if (v === '0' || v === 'false' || v === 'off') return false;
+  return null;
+}
+
+/** `?framelock=` override (remembered for the tab, like readFaceEngineOverride). */
+export function readFrameLockOverride(search: string, store: SessionStore | null): boolean | null {
+  let fromUrl: boolean | null = null;
+  try {
+    fromUrl = parseFrameLock(new URLSearchParams(search).get(FRAME_LOCK_URL_PARAM));
+  } catch {
+    fromUrl = null;
+  }
+  if (fromUrl !== null) {
+    try {
+      store?.setItem(FRAME_LOCK_SESSION_KEY, fromUrl ? '1' : '0');
+    } catch {
+      /* storage blocked — the override still applies to this page load */
+    }
+    return fromUrl;
+  }
+  try {
+    return parseFrameLock(store?.getItem(FRAME_LOCK_SESSION_KEY) ?? null);
+  } catch {
+    return null;
+  }
+}
+
+export type FrameLockSource = 'legacy' | 'url' | 'xr8' | 'mediapipe-default';
+
+export interface ResolvedFrameLock {
+  on: boolean;
+  source: FrameLockSource;
+}
+
+/** `mode` = the mode producing poses NOW (after any fallback), not the one asked for. */
+export function resolveFrameLock(inp: { legacy: boolean; mode: FaceTrackingMode; url?: boolean | null }): ResolvedFrameLock {
+  if (inp.legacy) return { on: false, source: 'legacy' };
+  if (inp.url === true || inp.url === false) return { on: inp.url, source: 'url' };
+  if (modeNeedsXr8(inp.mode)) return { on: true, source: 'xr8' };
+  return { on: FRAME_LOCK_MEDIAPIPE_DEFAULT, source: 'mediapipe-default' };
 }

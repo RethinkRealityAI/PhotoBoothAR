@@ -207,7 +207,9 @@ export default function CameraExperience({
   const [propId, setPropId] = useState<string | null>(null);
   const [shot, setShot] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
-  const trackerReady = useSyncExternalStore(subscribeFaceEngine, getActiveFaceEngineInfo, getActiveFaceEngineInfo).ready;
+  const faceInfo = useSyncExternalStore(subscribeFaceEngine, getActiveFaceEngineInfo, getActiveFaceEngineInfo);
+  const trackerReady = faceInfo.ready;
+  const trackerFailed = faceInfo.failed;
   const [canShare, setCanShare] = useState(false);
 
   const stageRef = useRef<StageCanvasHandle>(null);
@@ -341,7 +343,9 @@ export default function CameraExperience({
               </div>
             )}
             {propId !== null && anchor && (
-              <Overlay3D proceduralId={propId} anchor={anchor} videoId={videoId} mirror={mirror} />
+              // composited: StageCanvas draws this canvas (threeCanvasId below),
+              // so the live copy is hidden — 3D drawn once, in photo order.
+              <Overlay3D proceduralId={propId} anchor={anchor} videoId={videoId} mirror={mirror} composited />
             )}
             <StageCanvas
               ref={stageRef}
@@ -350,12 +354,13 @@ export default function CameraExperience({
               mirror={mirror}
               overlayUrl={frameId !== null ? FRAME_URLS[frameId] : null}
               threeCanvasId={propId !== null ? 'booth-3d-layer' : null}
+              frameLock={propId !== null}
               watermark={false}
               active={shot === null}
             />
             {propId !== null && !trackerReady && (
-              <p className="absolute left-0 right-0 top-3 z-20 text-center font-label text-[9px] uppercase tracking-luxe text-brand-muted/60">
-                Looking for your face…
+              <p className="absolute left-0 right-0 top-3 z-20 text-center font-label text-[10px] uppercase tracking-luxe text-brand-muted/60">
+                {trackerFailed ? 'Face tracking is unavailable — frames still work' : 'Looking for your face…'}
               </p>
             )}
 

@@ -37,6 +37,7 @@ import type { EventConfig } from '../../events/types';
 import { useOptionalEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 import { animateTransform2D } from '../../lib/studio/animation';
+import { getTrackedFrame, retainFrameLock } from '../../lib/faceEngine';
 
 export interface StageCanvasHandle {
   canvas: HTMLCanvasElement | null;
@@ -113,6 +114,19 @@ interface Props {
    * photo is unaffected either way (its own pass always passes true).
    */
   burnSignature?: boolean;
+  /**
+   * This stage composites tracked 3D (threeCanvasId set) and may FRAME-LOCK:
+   * draw the camera frame the pose was computed from (the face engine's
+   * analysed frame) instead of the newest <video> frame, so the prop sits on
+   * the face in the SAME instant it was measured. Whether it actually locks is
+   * the engine resolver's call (legacy → never; xr8/hybrid → on; MediaPipe →
+   * a constant; `?framelock=0|1` overrides). The photo and the recording use
+   * the same source, because both go through drawFrame.
+   *
+   * Absent/false ⇒ byte-identical to before this prop existed (the <video> is
+   * drawn, nothing is retained).
+   */
+  frameLock?: boolean;
 }
 
 /** Live preview / record buffer. Exported so callers reporting a recording's
@@ -362,7 +376,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     videoRef, effectId, mirror, sparkles = false,
     overlayUrl, overlayTransform, overlayOpacity, overlays,
     threeCanvasId, active = true, watermark = true, effectsCanvas, lettering,
-    burnSignature = false,
+    burnSignature = false, frameLock = false,
   },
   ref,
 ) {
@@ -423,6 +437,13 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   useEffect(() => { watermarkRef.current = watermark; }, [watermark]);
   useEffect(() => { effectsCanvasRef.current = effectsCanvas ?? null; }, [effectsCanvas]);
   useEffect(() => { burnSignatureRef.current = burnSignature ?? false; }, [burnSignature]);
+  const frameLockRef = useRef(frameLock);
+  useEffect(() => {
+    frameLockRef.current = frameLock;
+    // Tell the engine somebody draws the tracked frame (MediaPipe only pays
+    // for a full-res copy per detection while this is held).
+    return frameLock ? retainFrameLock() : undefined;
+  }, [frameLock]);
   useEffect(() => {
     letteringRef.current = lettering ?? null;
     // Canvas text does NOT trigger a webfont fetch — an unloaded family silently
@@ -468,15 +489,19 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     const video = videoRef.current;
     if (!video || video.readyState < 2) return;
 
-    const vw = video.videoWidth || w;
-    const vh = video.videoHeight || h;
+    // Frame-lock: the analysed frame (full video frame, unmirrored, video pixel
+    // size — drawn exactly like the element) when the engine has one.
+    const tracked = frameLockRef.current ? getTrackedFrame() : null;
+    const camera: CanvasImageSource = tracked !== null ? tracked.source : video;
+    const vw = tracked !== null ? tracked.width : (video.videoWidth || w);
+    const vh = tracked !== null ? tracked.height : (video.videoHeight || h);
     const eid = effectIdRef.current;
     const isMirror = mirrorRef.current;
 
     // Step 1: Mirrored (or not) video
     ctx.save();
     if (isMirror) { ctx.translate(w, 0); ctx.scale(-1, 1); }
-    coverFit(ctx, video, vw, vh, w, h);
+    coverFit(ctx, camera, vw, vh, w, h);
     ctx.restore();
 
     // Step 2: Effect shader
@@ -488,7 +513,9 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
       // frame. `preserveDrawingBuffer: true` means the previous output is still
       // in the runner canvas, so the skip costs nothing and the composite below
       // is unchanged — only the shade is skipped, never the frame.
-      const vt = video.currentTime;
+      // Frame identity for the reuse gate: the tracked frame's key when locked
+      // (it changes only when the pose sample does), else the video clock.
+      const vt = tracked !== null ? tracked.key : video.currentTime;
       let shaded: HTMLCanvasElement | null;
       if (shadeGate && canReuseShade(shadeGate, vt, eid, w, h)) {
         shaded = runner.canvas;
@@ -496,7 +523,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
         // Omitting the params argument uses the shader's shared frozen defaults
         // — identical values to the `defaultParams(eid)` object this allocated
         // on every single frame.
-        shaded = runner.draw(video, eid);
+        shaded = runner.draw(tracked !== null ? (tracked.source as TexImageSource) : video, eid);
         if (shadeGate) {
           if (shaded) markShaded(shadeGate, vt, eid, w, h);
           else invalidateShadeGate(shadeGate);

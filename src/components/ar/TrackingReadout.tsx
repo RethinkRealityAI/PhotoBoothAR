@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Tester-only tracking readout for the phone engine comparison: which face
- * engine runs (and why it fell back), detections/s, and RAW pose jitter over
- * the last ~2s. Renders NOTHING unless the URL carries `?faceEngine=…` or
- * `?trackdebug` (or this tab remembered a faceEngine override), and never on a
- * legacy single-event build.
+ * engine runs (and why it fell back), whether the composite is frame-locked
+ * (and why), detections/s, and RAW pose jitter over the last ~2s. Renders
+ * NOTHING unless the URL carries `?faceEngine=…`, `?framelock=…` or
+ * `?trackdebug` (or this tab remembered an override), and never on a legacy
+ * single-event build.
  *
  * Safe beside the booth by construction: plain DOM, `pointer-events-none`
  * (taps pass through to the shutter), and captures never include it — the
@@ -71,6 +72,11 @@ export default function TrackingReadout() {
       {info.fellBack && (
         <div className="text-brand-muted">fell back: {info.reason ?? 'unknown'}</div>
       )}
+      <div>
+        frame-lock: <b>{info.frameLock ? 'on' : 'off'}</b>
+        <span className="text-brand-muted"> ({info.frameLockSource})</span>
+      </div>
+      {info.error !== null && <div className="text-brand-muted">error: {info.error}</div>}
       <div className="tabular-nums">
         {fmt(stats?.detectionsPerSec ?? null, 1)} det/s · pos ±{fmt(stats?.posJitterCm ?? null, 2)} cm · rot ±{fmt(stats?.rotJitterDeg ?? null, 2)}°
       </div>

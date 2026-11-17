@@ -755,7 +755,9 @@ export default function Booth() {
     () => resolveSurfaceFaceMode({ legacy: source !== 'db', config: trackingConfig, triggers }).mode,
     [source, trackingConfig, triggers],
   );
-  useEffect(() => { setFaceTrackingMode(faceMode); }, [faceMode]);
+  // `legacy` also keeps a coded event on the shipped detection input, pose
+  // filter and live-<video> composite (no frame-lock) — byte-identical photos.
+  useEffect(() => { setFaceTrackingMode(faceMode, { legacy: source !== 'db' }); }, [faceMode, source]);
   useEffect(() => {
     initFaceEngine().catch((e) => console.warn('[Booth] face tracker init failed', e));
   }, []);
@@ -1838,6 +1840,9 @@ export default function Booth() {
                   overlayOpacity={frameExp?.config?.opacity}
                   overlays={stageOverlays}
                   threeCanvasId={is3D ? 'booth-3d-layer' : null}
+                  // Draw the frame the pose came from (resolver decides: never
+                  // legacy; on for 8th Wall poses). Photo + clip use it too.
+                  frameLock={is3D && source === 'db'}
                   active={true}
                   watermark={entitlements.watermark}
                   effectsCanvas={triggerFxCanvas}
@@ -1873,6 +1878,9 @@ export default function Booth() {
                     onAssetReady={markAssetLoaded}
                     onAssetError={handleAssetError}
                     powerFx={powerFxActive}
+                    // StageCanvas composites this canvas exactly when is3D
+                    // (threeCanvasId above): hide the live copy so 3D is drawn once.
+                    composited={is3D}
                   />
                 )}
               </div>

@@ -58,8 +58,43 @@ export interface Xr8FaceTopology {
   uvs: Float32Array;
 }
 
+/** Per-sample timing, for scripts/check-face-engines.mjs (performance.now() ms; videoTime in s). */
+export interface Xr8Diagnostics {
+  /** video.currentTime of the frame the latest sample was computed from. */
+  analysedVideoTime: number;
+  /** When that frame was uploaded to 8th Wall. */
+  stagedMs: number;
+  /** When the sample was emitted (sample.t). */
+  emittedMs: number;
+  /** Cumulative frame-upload cost (both textures) and count. */
+  uploadMs: number;
+  uploads: number;
+  /** Of uploadMs: the draw-texture twin alone (what frame lock costs on upload). */
+  drawUploadMs: number;
+  /** performance.now() / video time of the most recent upload (-Infinity / -1 before the first). */
+  lastStagedMs: number;
+  lastStagedVideoTime: number;
+}
+
+/** How the manual 8th Wall pipeline is driven. Experiment knobs for scripts/check-face-engines.mjs;
+ *  the defaults are the measured best. */
+export interface Xr8EngineOptions {
+  /** 'poll': after init, each poll() runs one pipeline pass and then returns (no own rAF: the
+   *  sample cannot wait a frame for the app's rAF callback, and no poll = no inference).
+   *  'raf': the engine's own requestAnimationFrame loop. Before init resolves it is always 'raf'. */
+  drive?: 'poll' | 'raf';
+  /** Right after a pass stages a frame, run a second pass so that frame is inferred in the
+   *  SAME call instead of the next one (8th Wall's processGpu → processCpu one-tick pipeline). */
+  sameTickInference?: boolean;
+}
+
 export interface Xr8FaceEngine extends FaceEngine {
   readonly id: 'xr8';
+  /** The draw canvas holding the camera frame the latest sample was computed from (see types.ts). */
+  getAnalysedFrame(): HTMLCanvasElement | null;
+  /** Pipeline timing (sample fields NaN before the first sample); null before init starts the
+   *  pipeline and after dispose. Diagnostics only. */
+  diagnostics(): Xr8Diagnostics | null;
   /** Latest tracked mesh, or null when no face is tracked. Allocation-free. */
   getLatestFaceMesh(): Xr8FaceMesh | null;
   /** Static topology; null until init() has resolved. */
@@ -82,7 +117,9 @@ let alive: object | null = null;
 const PLACEHOLDER_W = 90;
 const PLACEHOLDER_H = 160;
 
-export function createXr8Engine(): Xr8FaceEngine {
+export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
+  const drive = options.drive ?? 'raf';
+  const sameTick = options.sameTickInference ?? false;
   const token = {};
   let XR8: Xr8Global | null = null;
   let sm: Xr8SessionManager | null = null;
@@ -107,6 +144,13 @@ export function createXr8Engine(): Xr8FaceEngine {
   const mesh: Xr8FaceMesh = { vertices: meshBuf, t: 0 };
   let meshValid = false;
   const expr = createXr8ExpressionState();
+  /** The draw canvas shows a real-video analysed frame (not the placeholder). */
+  let frameValid = false;
+  const diag: Xr8Diagnostics = {
+    analysedVideoTime: NaN, stagedMs: NaN, emittedMs: NaN, uploadMs: 0, uploads: 0,
+    drawUploadMs: 0, lastStagedMs: -Infinity, lastStagedVideoTime: -1,
+  };
+  let diagValid = false;
 
   let scanResolve: (() => void) | null = null;
   let scanReject: ((e: Error) => void) | null = null;
@@ -131,9 +175,14 @@ export function createXr8Engine(): Xr8FaceEngine {
     mesh.vertices = meshBuf;
   }
 
-  function onFace(d: FaceDetail, intrinsics: ArrayLike<number> | undefined): void {
+  function onFace(d: FaceDetail, intrinsics: ArrayLike<number> | undefined, feed: unknown): void {
     if (!sm || !intrinsics || !(sm.source instanceof HTMLVideoElement)) return; // placeholder frames carry no face
     const now = performance.now();
+    const analysed = sm.frameForTexture(feed);
+    diag.analysedVideoTime = analysed ? analysed.videoTime : NaN;
+    diag.stagedMs = analysed ? analysed.stagedMs : NaN;
+    diag.emittedMs = now;
+    diagValid = true;
     const matrix = xr8ToFaceMatrix(d.transform, intrinsics, sm.size.width, sm.size.height, new Float32Array(16));
     if (matrix === null) return;
     const verts = d.vertices;
@@ -176,8 +225,12 @@ export function createXr8Engine(): Xr8FaceEngine {
     // Listener events are dispatched before onUpdate on the same tick. The face
     // module RE-DISPATCHES the previous face on a repeat frame, so only a
     // non-repeat frame produces a sample.
+    // The result is for the OLDER of the two frames staged so far (facecontroller.cc:152-160:
+    // GPU reads are deferred one staging), handed back with that frame's draw texture
+    // (cameraFeedTexture), which GlTextureRenderer draws in this pass's runRender: the sample
+    // and the draw canvas are the same frame.
     onUpdate: ({ processCpuResult, frameStartResult }: {
-      processCpuResult?: { facecontroller?: { intrinsics?: ArrayLike<number> } };
+      processCpuResult?: { facecontroller?: { intrinsics?: ArrayLike<number>; cameraFeedTexture?: unknown } };
       frameStartResult?: { repeatFrame?: boolean };
     }) => {
       try {
@@ -187,8 +240,10 @@ export function createXr8Engine(): Xr8FaceEngine {
           pendingLost = false;
           onLost();
         }
-        if (!face || !frameStartResult || frameStartResult.repeatFrame === true) return;
-        onFace(face, processCpuResult?.facecontroller?.intrinsics);
+        if (!frameStartResult || frameStartResult.repeatFrame === true) return;
+        if (sm && sm.source instanceof HTMLVideoElement && processCpuResult?.facecontroller) frameValid = true;
+        if (!face) return;
+        onFace(face, processCpuResult?.facecontroller?.intrinsics, processCpuResult?.facecontroller?.cameraFeedTexture);
       } catch (e) {
         console.warn('[xr8Engine] face update failed', e);
       }
@@ -211,20 +266,19 @@ export function createXr8Engine(): Xr8FaceEngine {
     }
   }
 
-  function tick(ts: number): void {
-    raf = 0;
-    if (disposed || !XR8 || !sm || !running) return;
-    const now = performance.now();
-    if (ready && now - lastPollMs > XR8_IDLE_AFTER_MS) return; // idle until the next poll
-    raf = requestAnimationFrame(tick);
-    const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
-    sm.enabled = !hidden && !contextLost;
-    if (contextLost || hidden) return;
-    syncCanvasSize();
+  /** 8th Wall skips a pass whose timestamp equals the previous pass's (camera-loop.ts:274-277). */
+  let lastPassTs = -Infinity;
+
+  /** One manual pipeline pass (camera-loop.ts:479-531): infer the frame staged last pass, emit,
+   *  upload a new frame if the gate allows, draw the analysed frame, stage the upload. */
+  function pass(ts: number): void {
+    if (!XR8 || !sm) return;
+    const t = ts > lastPassTs ? ts : lastPassTs + 0.001;
+    lastPassTs = t;
     const consumed = sm.stagedPending; // the frame processCpu will infer in this runPreRender
     sm.stagedPending = false;
     try {
-      XR8.runPreRender(ts);
+      XR8.runPreRender(t);
       XR8.runRender();
       XR8.runPostRender();
     } catch (e) {
@@ -234,7 +288,29 @@ export function createXr8Engine(): Xr8FaceEngine {
     if (consumed || sm.stagedPending) lastInference = performance.now();
   }
 
+  /** A pass, plus (sameTickInference) the follow-up pass that infers what the first one staged. */
+  function step(ts: number): void {
+    if (!XR8 || !sm) return;
+    const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+    sm.enabled = !hidden && !contextLost;
+    if (contextLost || hidden) return;
+    syncCanvasSize();
+    pass(ts);
+    if (sameTick && ready && sm.stagedPending && sm.source instanceof HTMLVideoElement) pass(performance.now());
+  }
+
+  function tick(ts: number): void {
+    raf = 0;
+    if (disposed || !XR8 || !sm || !running) return;
+    if (ready && drive === 'poll') return; // poll() drives from here on
+    const now = performance.now();
+    if (ready && now - lastPollMs > XR8_IDLE_AFTER_MS) return; // idle until the next poll
+    raf = requestAnimationFrame(tick);
+    step(ts);
+  }
+
   function ensureLoop(): void {
+    if (ready && drive === 'poll') return;
     if (raf === 0 && running && !disposed && typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(tick);
   }
 
@@ -291,6 +367,8 @@ export function createXr8Engine(): Xr8FaceEngine {
     latest = null;
     fresh = false;
     meshValid = false;
+    frameValid = false;
+    diagValid = false;
     if (alive === token) alive = null;
   }
 
@@ -330,7 +408,12 @@ export function createXr8Engine(): Xr8FaceEngine {
             maxDetections: 1,
           });
           XR8.clearCameraPipelineModules();
-          XR8.addCameraPipelineModules([XR8.FaceController.pipelineModule(), module]);
+          // GlTextureRenderer draws, every runRender, the texture FaceController pairs with its
+          // result (its provider is set in FaceController.onAttach) into our draw canvas — the
+          // analysed frame, unmirrored (mirroredDisplay:false, flipY:false = upright, verified by
+          // pixel comparison in scripts/check-face-engines.mjs).
+          XR8.GlTextureRenderer.configure({ mirroredDisplay: false, flipY: false });
+          XR8.addCameraPipelineModules([XR8.FaceController.pipelineModule(), XR8.GlTextureRenderer.pipelineModule(), module]);
           startXr8();
           await scanned;
         } finally {
@@ -357,7 +440,11 @@ export function createXr8Engine(): Xr8FaceEngine {
           sm.bind(video);
           pendingFace = null;
         }
-        ensureLoop();
+        if (drive === 'poll') {
+          if (running) step(performance.now());
+        } else {
+          ensureLoop();
+        }
         if (!fresh) return null;
         fresh = false;
         return latest;
@@ -373,6 +460,18 @@ export function createXr8Engine(): Xr8FaceEngine {
     },
     getFaceMeshTopology() {
       return topology;
+    },
+    getAnalysedFrame() {
+      return ready && !disposed && !contextLost && frameValid && diagValid ? canvas : null;
+    },
+    diagnostics() {
+      if (!sm) return null;
+      diag.uploadMs = sm.uploadMs;
+      diag.uploads = sm.uploads;
+      diag.drawUploadMs = sm.drawUploadMs;
+      diag.lastStagedMs = sm.lastStagedMs;
+      diag.lastStagedVideoTime = sm.lastStagedVideoTime;
+      return diag;
     },
     dispose() {
       if (disposed) return;

@@ -129,6 +129,57 @@ describe('CRANIUM ellipsoid stays inside prop space', () => {
     expect(cx + rx).toBeGreaterThan(7.5);
   });
 
+  /**
+   * The shells exist to hide what passes BEHIND the head. Anywhere the face
+   * shell exists, a skull ellipsoid in front of it culls props the guest's face
+   * should show — at the recessed eye sockets that was up to 0.84cm, enough to
+   * eat glasses and visors seated at the eyes. Sampled over the canonical face's
+   * own footprint (0.5cm grid), both shells must stay behind the face surface.
+   */
+  it('no skull shell pokes in front of the canonical face shell', () => {
+    const objPath = fileURLToPath(new URL('../../assets/ar/canonical_face_model.obj', import.meta.url));
+    const g = parseObj(readFileSync(objPath, 'utf8'));
+    const P = g.positions;
+    const faceZ = (x: number, y: number): number => {
+      let best = -Infinity;
+      for (let t = 0; t < g.indices.length; t += 3) {
+        const a = g.indices[t] * 3, b = g.indices[t + 1] * 3, c = g.indices[t + 2] * 3;
+        const d = (P[b + 1] - P[c + 1]) * (P[a] - P[c]) + (P[c] - P[b]) * (P[a + 1] - P[c + 1]);
+        if (Math.abs(d) < 1e-12) continue;
+        const l1 = ((P[b + 1] - P[c + 1]) * (x - P[c]) + (P[c] - P[b]) * (y - P[c + 1])) / d;
+        const l2 = ((P[c + 1] - P[a + 1]) * (x - P[c]) + (P[a] - P[c]) * (y - P[c + 1])) / d;
+        const l3 = 1 - l1 - l2;
+        if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+        const z = l1 * P[a + 2] + l2 * P[b + 2] + l3 * P[c + 2];
+        if (z > best) best = z;
+      }
+      return best;
+    };
+    const shellZ = (x: number, y: number, s: typeof CRANIUM): number => {
+      const q = 1 - ((x - s.center[0]) / s.radii[0]) ** 2 - ((y - s.center[1]) / s.radii[1]) ** 2;
+      return q < 0 ? -Infinity : s.center[2] + s.radii[2] * Math.sqrt(q);
+    };
+    let worst = -Infinity;
+    let sampled = 0;
+    for (let x = -7.5; x <= 7.5; x += 0.5) {
+      for (let y = -9.5; y <= 8.5; y += 0.5) {
+        const fz = faceZ(x, y);
+        if (fz === -Infinity) continue;
+        sampled++;
+        worst = Math.max(worst, shellZ(x, y, CRANIUM) - fz, shellZ(x, y, HAIR_DOME) - fz);
+      }
+    }
+    expect(sampled).toBeGreaterThan(800);
+    // Behind the face everywhere, with a real margin (measured: −0.33cm).
+    expect(worst).toBeLessThan(-0.2);
+  });
+
+  it('shrinks about a FIXED back, so back-of-head coverage cannot drop', () => {
+    // cz − rz is the back reach; holding it while rz shrinks moves every point
+    // of the back surface backward or not at all: z_back' − z_back = Δrz·(1 − √q).
+    expect(cz - rz).toBeCloseTo(-11.6, 9);
+  });
+
   it('degenerate radii report "outside" instead of dividing by zero', () => {
     expect(craniumNormalizedRadius([0, 0, 0], { center: [0, 0, 0], radii: [0, 1, 1] })).toBe(Infinity);
   });

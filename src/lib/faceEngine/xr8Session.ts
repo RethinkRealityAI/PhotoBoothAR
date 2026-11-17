@@ -59,6 +59,12 @@ export interface Xr8Global {
     pipelineModule(): Record<string, unknown>;
     MeshGeometry: { FACE: string };
   };
+  /** Draws a pipeline texture to the run canvas (engine gl-renderer.ts:889-923). FaceController
+   *  sets its texture provider to the RESULT-paired camera texture (face-controller.ts:870-873). */
+  GlTextureRenderer: {
+    pipelineModule(args?: Record<string, unknown>): Record<string, unknown>;
+    configure(args: Record<string, unknown>): void;
+  };
 }
 
 /**
@@ -142,6 +148,9 @@ export function loadXr8(base: string = XR8_BASE_URL, timeoutMs: number = XR8_LOA
     if (!XR8.FaceController || typeof XR8.FaceController.pipelineModule !== 'function') {
       throw new Error('8th Wall face chunk loaded but XR8.FaceController is missing');
     }
+    if (!XR8.GlTextureRenderer || typeof XR8.GlTextureRenderer.pipelineModule !== 'function') {
+      throw new Error('8th Wall loaded but XR8.GlTextureRenderer is missing');
+    }
     return XR8;
   })();
   loading = attempt;
@@ -167,6 +176,21 @@ export interface Xr8SessionManager {
   stagedPending: boolean;
   /** false = report every frame as a repeat (hidden tab / idle). */
   enabled: boolean;
+  /** Cumulative main-thread ms spent uploading frames (both textures), and the count. */
+  uploadMs: number;
+  uploads: number;
+  /** Of uploadMs: the draw-context twin upload alone (the price of the frame-locked analysed frame). */
+  drawUploadMs: number;
+  /** performance.now() and frame time of the most recent upload (-Infinity / -1 before the first). */
+  readonly lastStagedMs: number;
+  readonly lastStagedVideoTime: number;
+  /**
+   * The upload a draw texture currently holds. 8th Wall hands its result back with the draw twin
+   * of the texture it ANALYSED (processCpuResult.facecontroller.cameraFeedTexture), which is not
+   * the latest upload: facecontroller.cc:152-160 infers the OLDER of two staged frames. Undefined
+   * for a texture this manager never filled.
+   */
+  frameForTexture(drawTexture: unknown): { videoTime: number; stagedMs: number } | undefined;
 }
 
 /**
@@ -180,8 +204,11 @@ export function createXr8SessionManager(initial: Xr8FrameSource, minIntervalMs =
   const size = { width: 0, height: 0 };
   const gate = createDetectGate();
   let lastStagedTime = -1;
+  let lastStagedMs = -Infinity;
   let placeholderTick = 0;
   let statusCb: ((s: Record<string, unknown>) => void) | null = null;
+  /** draw texture -> the upload it holds (the engine recycles a small ring of textures). */
+  const texFrames = new Map<unknown, { videoTime: number; stagedMs: number }>();
 
   const frameTime = (): number =>
     source instanceof HTMLCanvasElement ? placeholderTick : (source as HTMLVideoElement).currentTime;
@@ -189,6 +216,12 @@ export function createXr8SessionManager(initial: Xr8FrameSource, minIntervalMs =
   const self: Xr8SessionManager = {
     stagedPending: false,
     enabled: true,
+    uploadMs: 0,
+    uploads: 0,
+    drawUploadMs: 0,
+    get lastStagedMs() { return lastStagedMs; },
+    get lastStagedVideoTime() { return lastStagedTime; },
+    frameForTexture(tex) { return texFrames.get(tex); },
     get source() { return source; },
     get size() { return size; },
     bind(next) {
@@ -228,15 +261,40 @@ export function createXr8SessionManager(initial: Xr8FrameSource, minIntervalMs =
         if (fresh) fresh = shouldDetect(gate, now, t, { minIntervalMs });
         return { repeatFrame: !fresh, videoSize: { width: size.width, height: size.height } };
       },
-      frameStartResult: ({ repeatFrame, computeCtx, computeTexture }: {
-        repeatFrame: boolean; computeCtx: WebGLRenderingContext; computeTexture: WebGLTexture;
+      frameStartResult: ({ repeatFrame, drawCtx, computeCtx, drawTexture, computeTexture }: {
+        repeatFrame: boolean; drawCtx: WebGLRenderingContext; computeCtx: WebGLRenderingContext;
+        drawTexture: WebGLTexture; computeTexture: WebGLTexture;
       }) => {
         if (!repeatFrame) {
+          const t0 = performance.now();
           computeCtx.bindTexture(computeCtx.TEXTURE_2D, computeTexture);
           computeCtx.texImage2D(computeCtx.TEXTURE_2D, 0, computeCtx.RGBA, computeCtx.RGBA, computeCtx.UNSIGNED_BYTE, source);
+          // The SAME frame into the draw context's twin texture, exactly as the engine's own
+          // getusermedia manager does (session-manager-getusermedia.ts:516-544). FaceController
+          // hands that twin back as processCpuResult.facecontroller.cameraFeedTexture, paired
+          // with the result — it is what makes the analysed frame drawable (frame lock).
+          if (drawCtx && drawTexture) {
+            const d0 = performance.now();
+            const restoreTex = drawCtx.getParameter(drawCtx.TEXTURE_BINDING_2D);
+            const restoreFlip = drawCtx.getParameter(drawCtx.UNPACK_FLIP_Y_WEBGL);
+            drawCtx.bindTexture(drawCtx.TEXTURE_2D, drawTexture);
+            if (restoreFlip) drawCtx.pixelStorei(drawCtx.UNPACK_FLIP_Y_WEBGL, false);
+            drawCtx.texImage2D(drawCtx.TEXTURE_2D, 0, drawCtx.RGBA, drawCtx.RGBA, drawCtx.UNSIGNED_BYTE, source);
+            if (restoreFlip) drawCtx.pixelStorei(drawCtx.UNPACK_FLIP_Y_WEBGL, true);
+            drawCtx.bindTexture(drawCtx.TEXTURE_2D, restoreTex);
+            self.drawUploadMs += performance.now() - d0;
+          }
+          const now = performance.now();
+          self.uploadMs += now - t0;
+          self.uploads++;
           lastStagedTime = frameTime();
-          markDetected(gate, performance.now(), lastStagedTime);
+          lastStagedMs = now;
+          markDetected(gate, now, lastStagedTime);
           self.stagedPending = true;
+          if (drawTexture) {
+            texFrames.set(drawTexture, { videoTime: lastStagedTime, stagedMs: now });
+            if (texFrames.size > 16) texFrames.delete(texFrames.keys().next().value);
+          }
         }
         return { textureWidth: size.width, textureHeight: size.height, videoTime: lastStagedTime };
       },

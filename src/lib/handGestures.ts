@@ -46,7 +46,10 @@ export interface HandAnchorSample {
   originY: number;
   /** Wrist→middle-MCP distance in normalized units — the depth/scale proxy. */
   spanNorm: number;
-  /** Unit palm normal in the hand's METRIC world frame (out of the palm). */
+  /** Unit palm normal in the hand's METRIC world frame, out of the palm — for
+   *  BOTH hands only when handAnchor was given the (real) handedness; without
+   *  it a left hand's normal points out of its BACK (the two hands are mirror
+   *  images, so the same cross product flips). */
   normal: [number, number, number];
 }
 
@@ -262,10 +265,14 @@ export function handAnchor(
   hands: readonly (HandSample | null | undefined)[],
   face: FaceKeypoints | null = null,
   aspect = 1,
+  /** REAL (label-swapped) handedness, index-aligned with `hands` — see
+   *  HandAnchorSample.normal. Absent = the old unsigned normal. */
+  handedness?: readonly ('Left' | 'Right')[],
 ): HandAnchorSample | null {
   const ax = isFinite(aspect) && aspect > 0 ? aspect : 1;
-  let best: { hand: HandSample; strength: number; span: number } | null = null;
-  for (const hand of hands) {
+  let best: { hand: HandSample; strength: number; span: number; index: number } | null = null;
+  for (let index = 0; index < hands.length; index++) {
+    const hand = hands[index];
     if (!validHand(hand)) continue;
     const s = scoreOneHand(hand, face, aspect);
     let strength = 0;
@@ -280,7 +287,7 @@ export function handAnchor(
       strength > best.strength ||
       (strength === best.strength && span > best.span)
     ) {
-      best = { hand, strength, span };
+      best = { hand, strength, span, index };
     }
   }
   if (best === null) return null;
@@ -307,6 +314,10 @@ export function handAnchor(
     const cz = ax * by - ay * bx;
     const len = Math.hypot(cx, cy, cz);
     if (len > 1e-9 && isFinite(len)) normal = [cx / len, cy / len, cz / len];
+    // Same anatomy rule as handPose.solveHandPose: this cross points out of a
+    // RIGHT palm and out of a LEFT hand's back. Without the sign the fallback
+    // beam fired INTO the scene from a left palm facing the camera.
+    if (handedness?.[best.index] === 'Left') normal = [-normal[0], -normal[1], -normal[2]];
   }
 
   return { originX: ox, originY: oy, spanNorm: best.span, normal };

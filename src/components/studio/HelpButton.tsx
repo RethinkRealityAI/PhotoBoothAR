@@ -15,10 +15,10 @@ import type { FeatureHelpTopic } from '../../lib/studio/featureHelp';
 const VARIANT_CLASS: Record<'inline' | 'floating', string> = {
   // Panel/dock headers sit on an already-opaque background — a quiet,
   // near-invisible-until-hover affordance matches the reset/remove icon idiom.
-  inline: 'w-5 h-5 text-brand-muted/40 hover:bg-white/[0.06] hover:text-accent-2',
+  inline: 'w-5 h-5 pointer-coarse:w-11 pointer-coarse:h-11 text-brand-muted/40 hover:bg-white/[0.06] hover:text-accent-2',
   // On-canvas placements (over the live camera feed) need the same liquid-glass
   // chip every other floating stage control uses, or the icon disappears.
-  floating: 'w-7 h-7 liquid-glass text-brand-muted/70 hover:text-accent-2',
+  floating: 'w-7 h-7 pointer-coarse:w-11 pointer-coarse:h-11 liquid-glass text-brand-muted/70 hover:text-accent-2',
 };
 
 export default function HelpButton({
