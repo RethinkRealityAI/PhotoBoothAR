@@ -631,8 +631,9 @@ export default function Library({
     <section id="quick-ai-frame" key="ai" className="scroll-mt-4">
       <h2 className={`${headingClass} mb-2`}>Make a frame with AI</h2>
       <p className={blurbClass}>
-        Pick a look and your colours — we’ll draw your event’s name on it. Your first 3 AI frames on
-        every event are free.
+        {/* What it costs is stated by FrameStudio itself (free left / credits /
+            free frames used), from the same allowance the Generate button uses. */}
+        Pick a look and your colours — we’ll draw your event’s name on it.
       </p>
       <Suspense
         fallback={(
@@ -665,6 +666,9 @@ export default function Library({
         <LooksPicker
           eventUuid={eventUuid}
           openingLookName={openingLookName}
+          ownFrames={dbSorted
+            .filter((e) => e.kind === 'border')
+            .map((e) => ({ id: e.id, name: e.name, imageUrl: isImageUrl(e.thumbnail_url) ? e.thumbnail_url : isImageUrl(e.asset_url) ? e.asset_url : null, on: e.is_published }))}
           config={{ arContent: config.arContent, defaultExperienceId: config.defaultExperienceId }}
           eventType={eventType}
           accentHex={config.arContent.framePalette?.accent ?? accentHex}

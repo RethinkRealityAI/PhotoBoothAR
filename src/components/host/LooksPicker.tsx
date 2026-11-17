@@ -37,6 +37,20 @@ interface Props {
   /** Name of the look the booth opens with when it is not one of these
    *  frames (an AI frame, a library pick); null/absent → a generic note. */
   openingLookName?: string | null;
+  /** The host's OWN frames (AI-made / uploaded rows). Shown first and counted
+   *  in "Frames · N on" — guests see the published ones, so a host who made
+   *  an AI frame was told "4 on" while the booth offered 5. Their on/off lives
+   *  on the row (Your own below), so the tiles here only report it. Absent
+   *  (the create flow) → nothing changes. */
+  ownFrames?: OwnFrame[];
+}
+
+export interface OwnFrame {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  /** Published — guests can pick it. */
+  on: boolean;
 }
 
 const FILTER_NAMES: Record<string, string> = Object.fromEntries(FILTER_SHADERS.map((s) => [s.id, s.name]));
@@ -59,7 +73,9 @@ function toggle(list: string[], id: string): string[] {
   return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 }
 
-export default function LooksPicker({ eventUuid, config, eventType, accentHex, onSaved, title = 'Pick your frames & filters', openingLookName }: Props) {
+export default function LooksPicker({ eventUuid, config, eventType, accentHex, onSaved, title = 'Pick your frames & filters', openingLookName, ownFrames = [] }: Props) {
+  const ownOn = ownFrames.filter((f) => f.on).length;
+  const openingId = typeof config?.defaultExperienceId === 'string' ? config.defaultExperienceId : null;
   const accent = normalizeHex(accentHex);
   const ranked = useMemo(() => rankLooks({ eventType, accentHex: accent }), [eventType, accent]);
   const template = templateById(eventType ?? undefined);
@@ -140,7 +156,7 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
       </div>
 
       <h3 className="mt-5 text-[13px] font-semibold uppercase tracking-wide text-brand-muted">
-        Frames <span className="font-normal normal-case">· {sel.borderIds.length} on</span>
+        Frames <span className="font-normal normal-case">· {sel.borderIds.length + ownOn} on</span>
       </h3>
       {otherOpensFirst && (
         <p className="mt-2 flex items-start gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[13px] leading-snug text-brand-muted">
@@ -154,6 +170,38 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
         </p>
       )}
       <ul className="mt-2 grid grid-cols-3 gap-2.5 @xl:grid-cols-5 @5xl:grid-cols-7" role="list">
+        {ownFrames.map((f) => {
+          const opens = f.on && f.id === openingId;
+          return (
+            <li key={f.id} className="flex flex-col gap-1">
+              <div
+                role="img"
+                aria-label={`${f.name}, your frame${f.on ? ', on' : ', off'}${opens ? ', opens first' : ''}`}
+                className={`relative aspect-[9/16] w-full overflow-hidden rounded-xl border-2 ${
+                  f.on ? 'border-[var(--color-accent)]' : 'border-white/10 opacity-55'
+                }`}
+                style={{ background: 'radial-gradient(70% 45% at 50% 38%, #2a2a33, #0c0c10 75%)' }}
+              >
+                <StandInGuest />
+                {f.imageUrl && <img src={f.imageUrl} alt="" className="absolute inset-0 h-full w-full object-contain" loading="lazy" />}
+                {f.on && (
+                  <span className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-[var(--color-accent)] text-[var(--on-accent,#000)]">
+                    <Check className="h-4 w-4" aria-hidden />
+                  </span>
+                )}
+                <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                  Yours
+                </span>
+              </div>
+              <span className="line-clamp-1 text-[11px] text-brand-fg">{f.name}</span>
+              <span className="flex min-h-[44px] items-center justify-center gap-1 text-center text-[11px] text-brand-muted">
+                {opens ? (
+                  <><Star className="h-3.5 w-3.5 fill-current" aria-hidden /> Opens first</>
+                ) : f.on ? 'On for guests' : 'Off — switch on under Your own'}
+              </span>
+            </li>
+          );
+        })}
         {ranked.frameIds.map((id) => {
           const b = BORDER_MAP[id];
           if (!b) return null;

@@ -86,6 +86,14 @@ export const SCENE_MAX_CLEAR = 0.4;
 export const VISIBLE_ART_MIN = 0.15;
 /** Green spill: share of visible pixels whose green leads max(R,B) by 40+. */
 export const GREEN_SPILL_MAX = 0.004;
+/** Faint art: of the pixels that show at all (alpha > 0), the share that is
+ *  SOLID (alpha ≥ FAINT_SOLID_ALPHA) must reach this. Measured 2026-11-17:
+ *  the live ghost frame scored 0.015 (keyed with the old keyer, 0.0000036);
+ *  the 14 shipped guide frames score 0.929–1.000 (botanical washes lowest),
+ *  and the clean botanical AI take 0.929. 0.5 sits far from both. Thickness
+ *  (border_thin, a warn) cannot see this: a ghost border can be full width. */
+export const FAINT_SOLID_MIN = 0.5;
+export const FAINT_SOLID_ALPHA = 128;
 
 export type QualityCode =
   | 'aspect'
@@ -100,7 +108,8 @@ export type QualityCode =
   | 'face_in_window'
   | 'not_full_scene'
   | 'hidden_by_controls'
-  | 'green_spill';
+  | 'green_spill'
+  | 'faint_art';
 
 export interface QualityReason {
   code: QualityCode;
@@ -357,6 +366,7 @@ const MESSAGES: Record<QualityCode, string> = {
   not_full_scene: 'This came out as a border rather than a full scene.',
   hidden_by_controls: 'Most of the design sits under the booth buttons on a phone — guests only see it in the photo.',
   green_spill: 'A faint green edge remains around parts of the art.',
+  faint_art: 'The design came out faint and see-through — it would barely show on guests’ photos.',
 };
 
 function reason(code: QualityCode, severity: 'fail' | 'warn', detail?: string): QualityReason {
@@ -382,6 +392,8 @@ export function assessFrame(input: QualityInput): QualityResult {
     reasons.push(reason('unkeyed', 'fail'));
     return finish(reasons, undefined, 0);
   }
+
+  if (solidShare(fitted) < FAINT_SOLID_MIN) reasons.push(reason('faint_art', 'fail'));
 
   const clear = components(mask, 1);
   const islands = enclosedIslands(mask, clear.label);
@@ -514,6 +526,19 @@ function inAnyWindow(c: Component, windows: readonly { cx: number; cy: number; r
   return windows.some((w) => Math.abs(c.cx - w.cx) <= w.rx * 1.15 && Math.abs(c.cy - w.cy) <= w.ry * 1.15);
 }
 
+/** Of the pixels that show at all (alpha > 0), the share that is solid
+ *  (alpha ≥ FAINT_SOLID_ALPHA). 1 when nothing shows (unkeyed decides that). */
+export function solidShare(img: RgbaImage): number {
+  let visible = 0, solid = 0;
+  for (let i = 3; i < img.data.length; i += 4) {
+    const a = img.data[i];
+    if (a === 0) continue;
+    visible++;
+    if (a >= FAINT_SOLID_ALPHA) solid++;
+  }
+  return visible === 0 ? 1 : solid / visible;
+}
+
 /** Share of visible (alpha > 0) pixels whose green leads max(R,B) by 40+. */
 export function greenSpill(img: RgbaImage): number {
   let n = 0, spill = 0;
@@ -547,6 +572,11 @@ export const CORRECTIONS: readonly (readonly [QualityCode, string])[] = [
 export function retryCorrectionCode(result: QualityResult): QualityCode | null {
   if (result.ok) return null;
   const codes = new Set(result.reasons.filter((r) => r.severity === 'fail').map((r) => r.code));
+  // A faint, see-through frame is what a backdrop that was NOT flat #00FF00
+  // keys into (the live ghost: a sage backdrop) — the 'unkeyed' sentence
+  // ("paint the background with one flat #00FF00 green") is the correction,
+  // and the server already knows it, so no new server sentence is needed.
+  if (codes.has('faint_art')) codes.add('unkeyed');
   for (const [code] of CORRECTIONS) if (codes.has(code)) return code;
   return null;
 }

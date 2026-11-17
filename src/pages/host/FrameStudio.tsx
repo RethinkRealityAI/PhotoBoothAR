@@ -11,13 +11,22 @@
  * the dashboard. First 3 generations per event are free on every tier
  * (enforced server-side in ai-generate-image).
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Loader2, Move, RefreshCw, Sparkles, Wand2 } from 'lucide-react';
-import { generateImage, aiErrorMessage, type AiErrorCode } from '../../lib/ai';
+import {
+  generateImage,
+  aiErrorMessage,
+  countFreeFramesLeft,
+  frameAllowance,
+  FREE_FRAMES_USED_COPY,
+  type AiErrorCode,
+} from '../../lib/ai';
+import { useEntitlements } from '../../lib/entitlements';
 import { frameBriefGaps, gapSummary } from '../../lib/assetBrief';
 import { inferFrameLayout } from '../../lib/assetPrompt';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
+import { aiFrameName } from '../../lib/studio/frameText';
 import { rekeyOptions } from '../../lib/studio/frameQuality';
 import { updateEventConfig } from '../../lib/host';
 import GuidedFrameMaker from '../../components/studio/GuidedFrameMaker';
@@ -77,6 +86,24 @@ export default function FrameStudio({
   // Live read of what the brief is still missing (colour / style / any brief at
   // all). Cheap enough to compute per keystroke — two regexes on ≤500 chars.
   const briefHint = gapSummary(frameBriefGaps(prompt));
+  // The SAME allowance GuidedFrameMaker shows: without aiStudio, once the
+  // event's free frames are used the server answers upgrade_required, so the
+  // header, the describe box and the Generate button all follow that state.
+  const { aiStudio } = useEntitlements();
+  const [freeLeft, setFreeLeft] = useState<number | null>(null);
+  const [freeCheck, setFreeCheck] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    void countFreeFramesLeft(eventUuid).then((n) => { if (alive) setFreeLeft(n); });
+    return () => { alive = false; };
+  }, [eventUuid, freeCheck]);
+  const allowance = frameAllowance(freeLeft, aiStudio);
+  const outOfFree = allowance === 'upgrade';
+  const headerNote =
+    allowance === 'free' ? `${freeLeft} free left`
+      : allowance === 'trial' ? 'first 3 on us'
+        : allowance === 'paid' ? 'uses credits'
+          : 'free frames used';
 
   const generate = async () => {
     const brief = prompt.trim();
@@ -113,6 +140,7 @@ export default function FrameStudio({
       // 'classic-border', exactly what this screen generated before.
       layout: inferFrameLayout(brief),
     });
+    setFreeCheck((n) => n + 1);
     if (res.error !== null || !res.data) {
       const code = (res.error ?? 'internal') as AiErrorCode;
       setPhase({ kind: 'error', message: aiErrorMessage(code), code });
@@ -122,7 +150,8 @@ export default function FrameStudio({
     // ship it (a solid green box over the guest is worse than an error). The
     // raw row is persisted server-side, so hold it for a no-credit reprocess.
     const raw = res.data.experience;
-    const keyed = await processGeneratedFrame(raw, slug, {}, { layout: inferFrameLayout(brief) });
+    // A described frame is named "Custom frame", not after the raw prompt.
+    const keyed = await processGeneratedFrame(raw, slug, {}, { layout: inferFrameLayout(brief), name: aiFrameName(null) });
     if (!keyed?.keyed) {
       setRawFrame({ experience: raw, slug });
       setPhase({
@@ -188,7 +217,7 @@ export default function FrameStudio({
       <div className="flex items-center gap-2">
         <Wand2 className="w-4 h-4 text-[color:var(--color-accent)]" />
         <p className="font-label uppercase tracking-luxe text-[11px] text-brand-fg">Design your signature frame</p>
-        <span className="ml-auto font-sans text-[11px] text-brand-muted/50">first 3 on us</span>
+        <span className="ml-auto font-sans text-[11px] text-brand-muted/50">{headerNote}</span>
       </div>
 
       {phase.kind === 'done' ? (
@@ -204,7 +233,7 @@ export default function FrameStudio({
           <GuidedFrameMaker
             eventUuid={eventUuid}
             eventSlug={null}
-            freeTrial
+            freeTrial={!aiStudio}
             onUse={useAsFrame}
             useLabel="Use as booth frame"
             onDescribeYourself={() => setMode('describe')}
@@ -301,13 +330,13 @@ export default function FrameStudio({
                       ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Activating…</>
                       : <><Check className="w-3.5 h-3.5" /> Use as booth frame</>}
                   </button>
-                  <button
+                  {!outOfFree && <button
                     onClick={generate}
                     disabled={phase.kind === 'applying'}
                     className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 font-label uppercase tracking-luxe text-[11px] text-brand-fg transition hover:bg-white/[0.08] disabled:opacity-50"
                   >
                     <RefreshCw className="w-3.5 h-3.5" /> Regenerate
-                  </button>
+                  </button>}
                 </div>
               </div>
             </div>
@@ -337,7 +366,13 @@ export default function FrameStudio({
             </div>
           )}
 
-          {(phase.kind === 'idle' || phase.kind === 'generating' || phase.kind === 'error') && (
+          {outOfFree && phase.kind !== 'generating' && (
+            <p className="font-sans text-[12px] text-brand-fg leading-snug">
+              {FREE_FRAMES_USED_COPY}{' '}
+              <Link to="/host/billing" className="text-accent-2 underline">See upgrade options</Link>
+            </p>
+          )}
+          {!outOfFree && (phase.kind === 'idle' || phase.kind === 'generating' || phase.kind === 'error') && (
             <button
               onClick={generate}
               disabled={phase.kind === 'generating' || !prompt.trim()}

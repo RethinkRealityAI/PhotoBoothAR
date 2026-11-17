@@ -1,5 +1,43 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { aiErrorRetryable, aiErrorMessage, fetchEventCreditBalance, type AiErrorCode } from './ai';
+import { readFileSync } from 'node:fs';
+import { aiErrorRetryable, aiErrorMessage, fetchEventCreditBalance, frameAllowance, frameEventHexes, FREE_FRAMES_PER_EVENT, type AiErrorCode } from './ai';
+
+describe('frameEventHexes — "Your colours" is the host’s current accent', () => {
+  it('the live event: red chosen in Branding leads, template golds follow', () => {
+    const cfg = {
+      accentHexes: ['#C9A24A', '#E4CE93', '#EAF0F5', '#8C6E2E'],
+      themeVars: { '--color-accent': '#FF0000' },
+      arContent: { framePalette: { accent: '#FF0000' } },
+    };
+    expect(frameEventHexes(cfg)).toEqual(['#FF0000', '#C9A24A', '#E4CE93', '#EAF0F5', '#8C6E2E']);
+  });
+  it('no accent set → the stored list unchanged; junk dropped; empty config → []', () => {
+    expect(frameEventHexes({ accentHexes: ['#112233', 'red', 7, '#112233'] })).toEqual(['#112233']);
+    expect(frameEventHexes(null)).toEqual([]);
+    expect(frameEventHexes({ themeVars: { '--color-accent': '#aabbcc' }, accentHexes: ['#AABBCC'] })).toEqual(['#aabbcc']);
+  });
+});
+
+describe('frameAllowance — never offer a Generate the server will refuse', () => {
+  it('free while a free slot is left, whatever the plan', () => {
+    expect(frameAllowance(3, false)).toBe('free');
+    expect(frameAllowance(1, true)).toBe('free');
+  });
+  it('exhausted: an aiStudio host pays credits; anyone else must upgrade', () => {
+    expect(frameAllowance(0, true)).toBe('paid');
+    expect(frameAllowance(0, false)).toBe('upgrade');
+  });
+  it('unknown count never promises a price to a host who cannot pay one', () => {
+    expect(frameAllowance(null, true)).toBe('paid');
+    expect(frameAllowance(null, false)).toBe('trial');
+  });
+  it('mirrors the server: free count, then the aiStudio gate answering upgrade_required', () => {
+    const src = readFileSync(new URL('../../supabase/functions/ai-generate-image/index.ts', import.meta.url), 'utf8');
+    expect(Number(/const FREE_IMAGES_PER_EVENT = (\d+);/.exec(src)?.[1])).toBe(FREE_FRAMES_PER_EVENT);
+    expect(src).toContain('if (!isFreeTrial && !retryEligible) {');
+    expect(src).toMatch(/\?\.aiStudio !== true\) \{\s*return json\(403, \{ error: 'upgrade_required' \}\);/);
+  });
+});
 
 // ai.ts creates the supabase client at module load — mock it (same pattern as
 // eventDesigner.test.ts). fromMock is re-stubbed per fetchEventCreditBalance test.

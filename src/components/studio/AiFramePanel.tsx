@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Loader, Wand2 } from 'lucide-react';
-import { generateImage, resolveEventUuid, aiErrorMessage, fetchEventCreditBalance, countFreeFramesLeft } from '../../lib/ai';
+import { generateImage, resolveEventUuid, aiErrorMessage, fetchEventCreditBalance, countFreeFramesLeft, frameAllowance, FREE_FRAMES_USED_COPY } from '../../lib/ai';
 import { useStudioBase } from '../admin/studioBase';
 import { fetchProviderKeyStatus, type ProviderKeyStatus } from '../../lib/providerKeys';
 import {
@@ -276,6 +276,17 @@ export default function AiFramePanel({
   const platform = useStudioBase().startsWith('/host/');
   // Free AI images left on this event (null = unknown → show the price).
   const [freeLeft, setFreeLeft] = useState<number | null>(null);
+  // Platform only (legacy studios keep their plain price). `freeTrial` is
+  // "this host has no aiStudio" — the server's upgrade_required condition.
+  const allowance = platform ? frameAllowance(freeLeft, !freeTrial) : null;
+  const outOfFree = allowance === 'upgrade';
+  const upgradeNote = (
+    <p className="text-[12px] text-brand-fg leading-relaxed">
+      {FREE_FRAMES_USED_COPY}{' '}
+      {/* New tab: navigating away in place would unmount the studio. */}
+      <a href="/host/billing" target="_blank" rel="noopener" className="underline text-accent-2 hover:text-accent">See upgrade options</a>
+    </p>
+  );
 
   const refreshBalance = useCallback(async (): Promise<number | null> => {
     const uuid = await resolveEventUuid(eventId, eventUuid);
@@ -318,6 +329,9 @@ export default function AiFramePanel({
             ...providerBody(providerChoice.effective),
             ...(lettering ? { lettering } : {}),
           },
+          // A described frame is named "Custom frame", not the raw prompt
+          // (platform; legacy studios keep their names).
+          ...(platform ? { look: '' } : {}),
         });
         if (run.error !== null || !run.data) {
           const code = run.error ?? 'internal';
@@ -418,9 +432,9 @@ export default function AiFramePanel({
         <p className="font-label uppercase tracking-widest text-[11px] text-accent-2 flex items-center gap-1.5">
           <Wand2 className="w-3.5 h-3.5" aria-hidden="true" /> AI frame
         </p>
-        {freeTrial && (
+        {freeTrial && (outOfFree ? upgradeNote : (
           <p className="text-[11px] text-accent-2/90 leading-relaxed">Your first 3 AI generations are on us.</p>
-        )}
+        ))}
         <ProviderSegment choice={providerChoice} freeTrial={freeTrial} />
         <GuidedFrameMaker
           eventUuid={eventUuid}
@@ -453,9 +467,9 @@ export default function AiFramePanel({
           ← Back to looks
         </button>
       )}
-      {freeTrial && (
+      {freeTrial && (outOfFree ? upgradeNote : (
         <p className="text-[11px] text-accent-2/80 leading-relaxed">Your first 3 AI generations are on us — upgrade for unlimited AI Studio.</p>
-      )}
+      ))}
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
@@ -580,7 +594,9 @@ export default function AiFramePanel({
         </p>
       )}
       <ProviderSegment choice={providerChoice} freeTrial={freeTrial} />
-      <button
+      {/* Out of free frames without aiStudio, the server answers
+          upgrade_required — so there is no Generate to press, only the way on. */}
+      {!outOfFree && <button
         onClick={generate}
         disabled={loading || !prompt.trim()}
         className={`flex items-center justify-center gap-1.5 py-2 min-h-[44px] bg-foil ${platform ? 'text-[color:var(--on-accent)]' : 'text-white'} rounded-xl font-bold text-[11px] font-label uppercase tracking-widest disabled:opacity-40 glow-accent transition active:scale-[0.98]`}
@@ -588,8 +604,8 @@ export default function AiFramePanel({
         {loading ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
         {loading
           ? 'Generating…'
-          : `Generate · ${freeLeft !== null && freeLeft > 0 ? 'free' : providerCostLabel(providerChoice.effective, providerChoice.status)}`}
-      </button>
+          : `Generate · ${allowance === 'free' ? 'free' : allowance === 'trial' ? 'first 3 free' : providerCostLabel(providerChoice.effective, providerChoice.status)}`}
+      </button>}
       {balance !== null && (
         <p className="text-[11px] text-brand-muted/50 font-sans">{balance} credit{balance === 1 ? '' : 's'} left · saved to your Library as a draft</p>
       )}

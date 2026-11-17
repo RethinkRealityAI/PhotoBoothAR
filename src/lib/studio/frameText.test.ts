@@ -11,10 +11,26 @@ import {
   defaultFrameText,
   formatFrameDate,
   FRAME_TEXT_MAX,
+  aiFrameName,
+  AI_FRAME_NAME_MAX,
   type TextCtx,
 } from './frameText';
 import { BOOTH_SAFE_ZONE, FRAME_GEOMETRY, type FrameLayout } from '../assetPrompt';
 import type { RgbaImage } from './chromaKey';
+
+describe('aiFrameName (new AI frames get a human name, not the raw prompt)', () => {
+  it('names by look, numbers multiple takes, falls back for a blank look', () => {
+    expect(aiFrameName('Art-deco foil')).toBe('Art-deco foil frame');
+    expect(aiFrameName('Storybook illustration', 1, 2)).toBe('Storybook illustration frame · 2');
+    expect(aiFrameName('  ')).toBe('Custom frame');
+    expect(aiFrameName(null)).toBe('Custom frame');
+  });
+  it('stays short (the booth orb shows the first word)', () => {
+    const n = aiFrameName('x'.repeat(200), 1, 2);
+    expect(n.length).toBeLessThanOrEqual(AI_FRAME_NAME_MAX);
+    expect(n.endsWith(' frame · 2')).toBe(true);
+  });
+});
 
 /** Fake measure: 0.55 em per character (a typical serif average). */
 const measure = (text: string, size: number) => text.length * size * 0.55;
