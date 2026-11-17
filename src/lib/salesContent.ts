@@ -115,7 +115,7 @@ const NA_PLANNERS_DECK: Deck = {
       ],
       image: 'step-qr',
       notes:
-        'Keep it to three steps. If they want to see it, stop here and do the live demo: open the landing page and beam your own phone onto the wall.',
+        'Keep it to three steps. The next slide is the live booth, so show it there rather than describing it.',
     },
     {
       id: 'demo',
@@ -172,23 +172,6 @@ const NA_PLANNERS_DECK: Deck = {
       ],
       notes:
         'These numbers are ILLUSTRATIVE — say so out loud. 20 events and a $450 client price are assumptions to swap for theirs; only the $99 self-serve tier and the $886 median are real. For a Partner prospect, rerun it with the $499/month licence spread across their events.',
-    },
-    {
-      id: 'proof',
-      kind: 'proof',
-      eyebrow: 'See it before you buy',
-      title: 'Try it live, right now',
-      bullets: [
-        'Open the live demo on our homepage',
-        'Beam your own phone onto the wall',
-        'Run a free test event in minutes',
-      ],
-      stats: [
-        { value: '83%', label: 'trust recommendations from people they know', source: SRC_NIELSEN },
-      ],
-      image: 'step-wall',
-      notes:
-        'We have no case studies yet — do not invent any. The proof is the product: get them to beam their own phone onto the wall during the call. The Nielsen stat supports why guest-made content lands with their clients’ guests.',
     },
     {
       id: 'quote',
@@ -273,7 +256,7 @@ const NA_BRANDS_DECK: Deck = {
       ],
       image: 'step-create',
       notes:
-        'Offer the live demo here. A trade-show stand needs a screen and a QR sign — that is the whole kit.',
+        'A trade-show stand needs a screen and a QR sign — that is the whole kit. The next slide is the live booth; show it rather than describe it.',
     },
     {
       id: 'demo',
@@ -314,7 +297,7 @@ const NA_BRANDS_DECK: Deck = {
       ],
       image: 'booth-phone',
       notes:
-        'Be honest: the Nielsen figures are about trust in recommendations, not a Beamwall result. Our own proof is the live demo; we have no case studies yet.',
+        'Be honest: the Nielsen figures are about trust in recommendations, not a Beamwall result. Our own proof is the live booth slide; we have no case studies yet.',
     },
     {
       id: 'offer',
@@ -482,23 +465,6 @@ const NA_CREATORS_DECK: Deck = {
         'Illustrative — we do not know their sponsor rates, so never name one. Ask what they charge for an integration, then show the plan is a fraction of it.',
     },
     {
-      id: 'proof',
-      kind: 'proof',
-      eyebrow: 'See it yourself',
-      title: 'Try it on your phone now',
-      bullets: [
-        'Open our homepage live demo',
-        'Beam your shot onto the wall',
-        'Run a free test event tonight',
-      ],
-      stats: [
-        { value: '83%', label: 'trust recommendations from people they know', source: SRC_NIELSEN },
-      ],
-      image: 'step-wall',
-      notes:
-        'No creator case studies exist yet — offer them the chance to be one of the first, which is also content for them.',
-    },
-    {
       id: 'cta',
       kind: 'cta',
       eyebrow: 'Let’s build it',
@@ -580,7 +546,7 @@ const NG_PLANNERS_DECK: Deck = {
       ],
       image: 'step-qr',
       notes:
-        'Stop and do the live demo here: open the homepage and beam your own phone onto the wall. A build really takes under 20 minutes, which is why we can price for volume.',
+        'The next slide is the live booth: do it there, or have them scan its QR. A build really takes under 20 minutes, which is why we can price for volume.',
     },
     {
       id: 'demo',
@@ -638,23 +604,6 @@ const NG_PLANNERS_DECK: Deck = {
       ],
       notes:
         'ILLUSTRATIVE — say it out loud. ₦300,000 and 30 events are assumptions; ask for their real client price and event count and redo the sum live. The 360 range is approximate (published guides only) — swap in the real quotes you collect in week 1. Only the ₦200,000 Signature price and the 5-for-4 pack are ours. Context line if useful: the average Nigerian wedding is reported at about ₦13m, so this is a small line in a big budget.',
-    },
-    {
-      id: 'proof',
-      kind: 'proof',
-      eyebrow: 'See it before you commit',
-      title: 'Try it live, right now',
-      bullets: [
-        'Open the live demo on our homepage',
-        'Beam your own phone onto the wall',
-        'We build your first frame in twenty minutes',
-      ],
-      stats: [
-        { value: '83%', label: 'trust recommendations from people they know', source: SRC_NIELSEN },
-      ],
-      image: 'step-wall',
-      notes:
-        'We have no Nigerian case studies yet — never invent any. Offer to build their first frame live on a call. The Nielsen figure is global, not Nigeria-specific.',
     },
     {
       id: 'quote',
@@ -912,23 +861,6 @@ const NG_CREATORS_DECK: Deck = {
         'Illustrative — never name a sponsor rate. Ask what they charge for an integration, then compare it to the quote.',
     },
     {
-      id: 'proof',
-      kind: 'proof',
-      eyebrow: 'See it yourself',
-      title: 'Try it on your phone now',
-      bullets: [
-        'Open our homepage live demo',
-        'Beam your shot onto the wall',
-        'We build your frame in twenty minutes',
-      ],
-      stats: [
-        { value: '83%', label: 'trust recommendations from people they know', source: SRC_NIELSEN },
-      ],
-      image: 'step-wall',
-      notes:
-        'No creator case studies exist yet — offer them the chance to be among the first, which is content for them too.',
-    },
-    {
       id: 'cta',
       kind: 'cta',
       eyebrow: 'Let’s build it',
@@ -1077,7 +1009,7 @@ export const CHEAT_SHEET: CheatSheetSection[] = [
     id: 'demo',
     title: 'Demo flow (10 minutes)',
     points: [
-      '1. Open the homepage live demo on a shared screen.',
+      '1. Open the deck’s live booth slide on a shared screen (or the /try link full screen).',
       '2. Have them scan the code and beam their own phone onto the wall.',
       '3. Show the AI frame studio: describe their theme, watch frames appear.',
       '4. Show challenges + leaderboard, then a keepsake card.',

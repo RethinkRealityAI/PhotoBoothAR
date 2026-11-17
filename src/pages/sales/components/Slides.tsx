@@ -494,7 +494,7 @@ function Features({ slide, env }: { slide: Slide; env: SlideEnv }) {
 function Proof({ slide, env }: { slide: Slide; env: SlideEnv }) {
   const stage = env.mode === 'stage';
   const stats = slide.stats ?? [];
-  return (
+  const content = (
     <div className={cx('flex flex-col', stage && 'h-full')}>
       {slide.eyebrow !== undefined && <Eyebrow env={env}>{slide.eyebrow}</Eyebrow>}
       <Title env={env} size="md">{slide.title}</Title>
@@ -515,6 +515,18 @@ function Proof({ slide, env }: { slide: Slide; env: SlideEnv }) {
       {slide.bullets !== undefined && slide.bullets.length > 0 && <Bullets env={env} items={slide.bullets} />}
       {stats.length === 0 && <ItemsList slide={slide} env={env} />}
       <Footnotes env={env} stats={stats} />
+    </div>
+  );
+  // On stage the picture fills the right half; without it the slide read as
+  // half-empty (the image was declared but never drawn).
+  if (!stage || salesImage(slide.image) === null) return content;
+  return (
+    <div className="grid h-full grid-cols-[1.2fr_0.8fr] items-center gap-10">
+      {content}
+      <div className="relative h-[540px]">
+        <div aria-hidden className="absolute inset-8 rounded-full blur-3xl" style={{ background: `radial-gradient(closest-side, rgba(${env.rgb},0.30), transparent)` }} />
+        <SlideImg k={slide.image} env={env} fit="cover" className="relative" />
+      </div>
     </div>
   );
 }
