@@ -108,7 +108,7 @@ export const COPILOT_TOOLS = {
       prompt: {
         type: 'string', required: true,
         description: 'The brief, written by you as an art director — never the host\'s words unchanged, never under 6 words. Name (1) a concrete style or era, (2) the palette (reuse the event\'s colours when known), (3) a specific motif, (4) the layout archetype and where the faces go.',
-        example: 'art-deco sunburst corners in brass on matte black, centre clear for faces',
+        example: 'art-deco sunburst corners in brass with black-enamel inlay, centre clear for faces',
       },
       lettering: {
         type: 'object', required: false,
@@ -124,7 +124,7 @@ export const COPILOT_TOOLS = {
     costNote: `The first 3 frames on an event are free, then ${FRAME_CREDIT_COST} credit each (Higgsfield: 2 credits, or free on the org's own connected account).`,
     confirm: true,
     readOnly: false,
-    example: { prompt: 'art-deco sunburst corners in brass on matte black, fine chevron rules thinning along the long edges, centre clear for faces' },
+    example: { prompt: 'art-deco sunburst corners in brass with black-enamel inlay, fine chevron rules thinning along the long edges, centre clear for faces' },
     rules: [
       'Name the layout archetype in the prompt itself — the image pipeline reads the layout from those words. The four archetypes are the next four lines.',
       'EDGE BORDER: "ornament hugging the edges, centre fully clear for faces".',
