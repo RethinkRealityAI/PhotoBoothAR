@@ -19,14 +19,14 @@ import {
 } from 'lucide-react';
 import {
   BOOKER_ICPS, buildIcs, EMPTY_BOOKER, formatSlotLong, formatSlotTime, generateSlots, googleCalendarUrl,
-  groupSlotsByDay, hasErrors, isValidTimeZone, tzCity, validateBooker,
+  groupSlotsByDay, hasErrors, isValidTimeZone, tzCity, tzOffsetMinutes, validateBooker,
   type BookerDraft, type BookerErrors, type BookingConfirmation, type PublicBookingPage, type Slot,
 } from '../../lib/booking';
 import { bookMeeting, fetchPublicBookingPage } from '../../lib/bookingApi';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { useNoIndex } from './components/pageMeta';
 import { AutoTextarea, Field, inputCls, labelCls, Spinner } from './crm/ui';
-import { BEAMY, BEAMY_WAVE } from './salesImages';
+import { BEAMY } from './salesImages';
 
 type Load =
   | { state: 'loading' }
@@ -102,10 +102,9 @@ export default function BookPage() {
   return (
     <div className="h-full w-full overflow-y-auto overflow-x-hidden app-bg text-brand-fg">
       <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/5 bg-brand-bg/75 px-4 py-2.5 backdrop-blur-md sm:px-6">
-        <Link to="/" className="rounded font-serif text-xl font-semibold tracking-wide text-foil-static focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:text-2xl">
+        <Link to="/" className="inline-flex min-h-11 items-center rounded font-serif text-xl font-semibold tracking-wide text-foil-static focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:text-2xl">
           Beamwall
         </Link>
-        <span className="font-label text-[10px] uppercase tracking-[0.22em] text-brand-muted">Book a call</span>
       </header>
 
       <main className="mx-auto w-full max-w-2xl px-4 pb-16 pt-6 sm:pt-10">
@@ -128,8 +127,7 @@ export default function BookPage() {
               <div className="mt-5 liquid-glass rounded-3xl p-6 text-center">
                 <p className="font-serif text-xl text-brand-fg">No open times right now</p>
                 <p className="mt-2 text-sm text-brand-muted leading-relaxed">
-                  {firstName(load.page.rep_name)}’s calendar is full for the next {load.page.horizon_days} days. Check back soon,
-                  or reply to the message that sent you here.
+                  {firstName(load.page.rep_name)}’s calendar is full for the next {load.page.horizon_days} days. Check back in a day or two.
                 </p>
               </div>
             ) : (
@@ -139,8 +137,13 @@ export default function BookPage() {
                   <Globe2 className="h-3.5 w-3.5" aria-hidden="true" />
                   Times are in your time zone ({tzCity(viewerTz)}).
                 </p>
+                {Math.abs(tzOffsetMinutes(load.loadedAt, viewerTz) - tzOffsetMinutes(load.loadedAt, load.page.timezone)) >= 180 && (
+                  <p className="mt-1 text-xs text-brand-muted/80">
+                    {firstName(load.page.rep_name)} is in {tzCity(load.page.timezone)}, so some times may be early or late for you. Pick whatever suits.
+                  </p>
+                )}
 
-                <div className="mt-4 -mx-4 px-4 sm:-mx-6 sm:px-6 flex gap-2 overflow-x-auto hide-scrollbar pb-1" role="radiogroup" aria-label="Day">
+                <div className="mt-4 -mx-4 px-4 sm:mx-0 sm:px-0 flex gap-2 overflow-x-auto hide-scrollbar pb-1 sm:flex-wrap sm:overflow-visible" role="radiogroup" aria-label="Day">
                   {days.map((d) => {
                     const on = d.key === dayKey;
                     return (
@@ -220,7 +223,7 @@ function Intro({ page, viewerTz }: { page: PublicBookingPage; viewerTz: string }
   return (
     <section className="liquid-glass-raised rounded-3xl p-5 sm:p-7">
       <div className="flex items-start gap-4">
-        <img src={BEAMY_WAVE?.src ?? BEAMY.src} width={BEAMY_WAVE?.width ?? BEAMY.width} height={BEAMY_WAVE?.height ?? BEAMY.height}
+        <img src={BEAMY.src} width={BEAMY.width} height={BEAMY.height}
           alt="" className="h-auto w-20 shrink-0 sm:w-24 motion-safe:animate-float" />
         <div className="min-w-0">
           <p className="font-label text-[10px] uppercase tracking-[0.24em] text-[color:var(--color-accent)]">{page.rep_name} · Beamwall</p>
@@ -255,7 +258,8 @@ function BookerForm({
   onBooked: (b: BookingConfirmation) => void;
   onSlotGone: (message: string) => void;
 }) {
-  const [d, setD] = useState<BookerDraft>(() => ({ ...EMPTY_BOOKER, icp: 'planners' }));
+  const [d, setD] = useState<BookerDraft>(() => ({ ...EMPTY_BOOKER }));
+  const formEl = useRef<HTMLFormElement | null>(null);
   const [errors, setErrors] = useState<BookerErrors>({});
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState<string | null>(null);
@@ -267,7 +271,12 @@ function BookerForm({
     if (busy) return;
     const errs = validateBooker(d);
     setErrors(errs);
-    if (hasErrors(errs)) { setFormErr('Check the highlighted fields.'); return; }
+    if (hasErrors(errs)) {
+      setFormErr('Check the highlighted fields.');
+      // Move focus to the first problem so a keyboard/screen-reader user lands on it.
+      requestAnimationFrame(() => formEl.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+      return;
+    }
     setBusy(true);
     setFormErr(null);
     const r = await bookMeeting(page.ref, new Date(slot.startMs).toISOString(), d, viewerTz);
@@ -279,13 +288,13 @@ function BookerForm({
   }
 
   const phoneField = (
-    <Field key="phone" label={ng ? 'WhatsApp number' : 'Phone (optional)'} error={errors.phone}
+    <Field key="phone" label={ng ? 'WhatsApp number' : 'Phone (optional)'} error={errors.phone ?? (ng ? errors.contact : undefined)}
       hint={errors.phone === undefined && ng ? 'With country code, e.g. +234 803 123 4567' : undefined}>
       {(a) => <input {...a} type="tel" inputMode="tel" autoComplete="tel" value={d.phone} onChange={(e) => set('phone', e.target.value)} className={inputCls} placeholder={ng ? '+234…' : '+1…'} />}
     </Field>
   );
   const emailField = (
-    <Field key="email" label={ng ? 'Email (optional)' : 'Email'} error={errors.email}>
+    <Field key="email" label={ng ? 'Email (optional)' : 'Email'} error={errors.email ?? (ng ? undefined : errors.contact)}>
       {(a) => <input {...a} type="email" inputMode="email" autoComplete="email" autoCapitalize="none" value={d.email} onChange={(e) => set('email', e.target.value)} className={inputCls} placeholder="you@company.com" />}
     </Field>
   );
@@ -304,12 +313,11 @@ function BookerForm({
       </div>
 
       <h2 id="your-details" className="mt-5 font-serif text-2xl text-brand-fg">Your details</h2>
-      <form onSubmit={(e) => void submit(e)} noValidate className="mt-3 space-y-3.5">
+      <form ref={formEl} onSubmit={(e) => void submit(e)} noValidate className="mt-3 space-y-3.5">
         <Field label="Your name" error={errors.name}>
           {(a) => <input {...a} autoComplete="name" value={d.name} onChange={(e) => set('name', e.target.value)} className={inputCls} />}
         </Field>
         {ng ? [phoneField, emailField] : [emailField, phoneField]}
-        {errors.contact !== undefined && <p role="alert" className="-mt-2 text-[11px] text-amber-300">{errors.contact}</p>}
         <Field label="Company (optional)">
           {(a) => <input {...a} autoComplete="organization" value={d.company} onChange={(e) => set('company', e.target.value)} className={inputCls} />}
         </Field>
@@ -408,7 +416,7 @@ function Confirmed({ booking, viewerTz }: { booking: BookingConfirmation; viewer
       </div>
 
       <p className="mx-auto mt-6 max-w-sm text-xs leading-relaxed text-brand-muted">
-        {who} will be in touch before the call. Need to change the time? Just reply to the message that brought you here.
+        {who} will confirm with you before the call, on WhatsApp or by email. Need a different time? Just say so when you hear from {who}.
       </p>
       <Link to="/" className="mt-5 inline-flex min-h-11 items-center gap-1.5 text-xs text-brand-muted underline-offset-4 hover:text-brand-fg hover:underline">
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> See Beamwall in action
@@ -432,9 +440,9 @@ function MissingState() {
       <img src={BEAMY.src} width={BEAMY.width} height={BEAMY.height} alt="" className="h-auto w-36 motion-safe:animate-float" />
       <h1 className="mt-6 font-serif text-3xl font-semibold text-foil-static">This booking link isn’t active</h1>
       <p className="mt-3 max-w-md text-brand-muted leading-relaxed">
-        It may be out of date. Reply to the message that sent you here and we’ll find a time, or have a look around Beamwall in the meantime.
+        It may be out of date, or bookings are paused for now. Have a look around Beamwall in the meantime.
       </p>
-      <Link to="/" className={`${cta} mt-8 w-auto`}>
+      <Link to="/" className={`${cta.replace('w-full', 'w-auto')} mt-8`}>
         Visit Beamwall <ArrowRight className="h-4 w-4" aria-hidden="true" />
       </Link>
     </div>

@@ -71,6 +71,7 @@ export default function CrmWorkspace({
 
   // Latest list for rollbacks computed outside a setState updater.
   const listRef = useRef<Prospect[]>([]);
+  const detailRef = useRef<HTMLElement | null>(null);
   useEffect(() => { listRef.current = prospects; }, [prospects]);
 
   // The clock: "today" must roll over at local midnight without a reload.
@@ -256,9 +257,12 @@ export default function CrmWorkspace({
 
   function select(id: string | null) {
     setSelectedId(id);
-    // On a phone the detail replaces the list — start it at the top.
+    // On a phone the detail replaces the list — start it at the top. The hub
+    // scrolls an inner container, not the window, so scroll the detail itself
+    // into view (scroll-mt clears the hub's sticky header).
     if (id !== null && typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
       window.scrollTo({ top: 0 });
+      requestAnimationFrame(() => detailRef.current?.scrollIntoView({ block: 'start' }));
     }
   }
 
@@ -287,7 +291,7 @@ export default function CrmWorkspace({
             </p>
             <p className="text-xs text-brand-muted mt-0.5">{encouragement}</p>
           </div>
-          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          <div className="flex flex-wrap gap-2 w-full xl:w-auto">
             <button
               type="button"
               onClick={() => { setDue(due === 'due' ? null : 'due'); setStatus(null); }}
@@ -345,7 +349,7 @@ export default function CrmWorkspace({
       </div>
 
       {/* ── Filters ── */}
-      <div className="mt-3 -mx-3 px-3 sm:-mx-4 sm:px-4 flex gap-2 overflow-x-auto hide-scrollbar pb-1" role="group" aria-label="Filter by status">
+      <div className="mt-3 -mx-3 px-3 sm:-mx-4 sm:px-4 flex gap-2 overflow-x-auto hide-scrollbar pb-1 lg:flex-wrap lg:overflow-visible" role="group" aria-label="Filter by status">
         <FilterChip on={status === null} onClick={() => setStatus(null)}>All {summary.total}</FilterChip>
         <FilterChip on={status === 'open'} onClick={() => setStatus('open')}>Open {summary.open}</FilterChip>
         {PROSPECT_STATUSES.map((s) => (
@@ -355,7 +359,7 @@ export default function CrmWorkspace({
           </FilterChip>
         ))}
       </div>
-      <div className="mt-1.5 -mx-3 px-3 sm:-mx-4 sm:px-4 flex gap-2 overflow-x-auto hide-scrollbar pb-1" role="group" aria-label="More filters">
+      <div className="mt-1.5 -mx-3 px-3 sm:-mx-4 sm:px-4 flex gap-2 overflow-x-auto hide-scrollbar pb-1 lg:flex-wrap lg:overflow-visible" role="group" aria-label="More filters">
         {MARKETS.map((m) => (
           <FilterChip key={m.id} on={market === m.id} onClick={() => setMarket(market === m.id ? null : m.id)}>{m.label}</FilterChip>
         ))}
@@ -422,8 +426,9 @@ export default function CrmWorkspace({
 
         {/* ── Detail ── */}
         <section
+          ref={detailRef}
           aria-label="Prospect details"
-          className={`${selected === null ? 'hidden lg:block' : ''} lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto lg:overscroll-contain rounded-3xl`}
+          className={`${selected === null ? 'hidden lg:block' : ''} scroll-mt-36 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto lg:overscroll-contain rounded-3xl`}
         >
           {selected === null ? (
             <div className="liquid-glass rounded-3xl p-10 text-center">

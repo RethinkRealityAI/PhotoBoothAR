@@ -106,9 +106,11 @@ export default function BookingPanel({
               </Pill>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={() => void copy()} disabled={!live} className={btnPrimary}>
-                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />} {copied ? 'Copied' : 'Copy link'}
-              </button>
+              {live && (
+                <button type="button" onClick={() => void copy()} className={btnPrimary}>
+                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />} {copied ? 'Copied' : 'Copy link'}
+                </button>
+              )}
               {url !== null && live && (
                 <a href={url} target="_blank" rel="noopener noreferrer" className={btnQuiet}>
                   <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" /> Preview
@@ -304,28 +306,31 @@ function HoursForm({ initial, onSaved }: { initial: BookingSettings; onSaved: (s
             const wins = s.weekly[day.id] ?? [];
             const open = wins.length > 0;
             return (
-              <li key={day.id} className="flex flex-wrap items-center gap-2 rounded-xl bg-white/[0.02] px-2.5 py-1.5">
-                <label className="flex w-20 shrink-0 items-center gap-2 text-sm text-brand-fg cursor-pointer">
-                  <input type="checkbox" checked={open} onChange={(e) => setDay(day.id, e.target.checked ? [['10:00', '17:00']] : [])}
-                    className="h-4 w-4 accent-[color:var(--color-accent)]" aria-label={`Open on ${day.long}`} />
-                  {day.short}
-                </label>
+              <li key={day.id} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 rounded-xl bg-white/[0.02] px-2.5 py-1">
+                <div className="flex items-center justify-between sm:w-24 sm:shrink-0">
+                  <label className="flex min-h-11 items-center gap-2.5 pr-3 text-sm text-brand-fg cursor-pointer">
+                    <input type="checkbox" checked={open} onChange={(e) => setDay(day.id, e.target.checked ? [['10:00', '17:00']] : [])}
+                      className="h-5 w-5 accent-[color:var(--color-accent)]" aria-label={`Open on ${day.long}`} />
+                    {day.short}
+                  </label>
+                  {!open && <span className="text-xs text-brand-muted/70 sm:hidden">Unavailable</span>}
+                </div>
                 {!open ? (
-                  <span className="text-xs text-brand-muted/70">Unavailable</span>
+                  <span className="hidden sm:inline text-xs text-brand-muted/70">Unavailable</span>
                 ) : (
-                  <div className="flex flex-1 flex-col gap-1.5 min-w-[12rem]">
+                  <div className="flex flex-1 flex-col gap-1.5 pb-1.5 sm:pb-0">
                     {wins.map((w, i) => (
-                      <div key={i} className="flex items-center gap-1.5">
+                      <div key={i} className="flex items-center gap-1.5 min-w-0">
                         <TimeInput label={`${day.long} range ${i + 1} start`} value={w[0]} onChange={(v) => setDay(day.id, wins.map((x, j) => (j === i ? [v, x[1]] : x)))} />
                         <span className="text-brand-muted text-xs">to</span>
                         <TimeInput label={`${day.long} range ${i + 1} end`} value={w[1]} onChange={(v) => setDay(day.id, wins.map((x, j) => (j === i ? [x[0], v] : x)))} />
                         {wins.length > 1 && (
-                          <button type="button" onClick={() => setDay(day.id, wins.filter((_, j) => j !== i))} aria-label={`Remove ${day.long} range ${i + 1}`} className={`${iconBtn} w-9 h-9`}>
+                          <button type="button" onClick={() => setDay(day.id, wins.filter((_, j) => j !== i))} aria-label={`Remove ${day.long} range ${i + 1}`} className={iconBtn}>
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         )}
                         {i === wins.length - 1 && wins.length < 3 && (
-                          <button type="button" aria-label={`Add a range on ${day.long}`} className={`${iconBtn} w-9 h-9`}
+                          <button type="button" aria-label={`Add a range on ${day.long}`} className={iconBtn}
                             onClick={() => {
                               const lastEnd = parseHHMM(w[1]) ?? 17 * 60;
                               const s2 = Math.min(lastEnd + 60, 22 * 60);
@@ -398,7 +403,7 @@ function HoursForm({ initial, onSaved }: { initial: BookingSettings; onSaved: (s
 function TimeInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <input type="time" step={900} aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}
-      className="min-h-10 w-[6.5rem] rounded-lg liquid-glass-inset px-2 text-sm text-brand-fg tabular-nums [color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-[color:var(--color-accent)]/50" />
+      className="min-h-11 min-w-0 flex-1 sm:flex-none sm:w-[8rem] rounded-lg liquid-glass-inset px-2 text-sm text-brand-fg tabular-nums [color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-[color:var(--color-accent)]/50" />
   );
 }
 

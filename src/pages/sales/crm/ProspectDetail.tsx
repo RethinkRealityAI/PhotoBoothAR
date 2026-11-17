@@ -517,7 +517,7 @@ export default function ProspectDetail({
                     <p className="text-xs text-brand-muted">
                       <span className="text-brand-fg/90">{KIND_LABEL[a.kind]}</span>
                       {a.channel !== null && a.kind === 'dm' ? ` · ${DM_LABEL[a.channel as (typeof DM_CHANNELS)[number]] ?? a.channel}` : ''}
-                      {' · '}{actorName(a.actor_id)}{' · '}{pending ? 'saving…' : activityWhen(a.created_at, now)}
+                      {' · '}{a.channel === 'booking' ? 'Booked online' : actorName(a.actor_id)}{' · '}{pending ? 'saving…' : activityWhen(a.created_at, now)}
                     </p>
                     {a.body !== null && <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-relaxed text-brand-fg/85 break-words">{a.body}</p>}
                   </div>

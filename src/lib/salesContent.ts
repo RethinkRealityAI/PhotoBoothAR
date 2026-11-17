@@ -1480,7 +1480,7 @@ export const TEMPLATES: MessageTemplate[] = [
     icp: 'any',
     market: 'any',
     body:
-      'Thanks {{firstName}}! Here’s a two-minute look: {{deckLink}}. Best bit is the live demo — scan it and your own photo beams onto the wall. Want to try it for your next {{eventType}}?',
+      'Thanks {{firstName}}! Here’s a two-minute look: {{deckLink}}\n\nBest bit is the live demo — scan it and your own photo beams onto the wall. Want to try it for your next {{eventType}}?',
     when: 'Only after they reply to the opener. Use the deck for their market (ng-* for Nigeria).',
   },
   {
@@ -1525,7 +1525,7 @@ export const TEMPLATES: MessageTemplate[] = [
     icp: 'any',
     market: 'ng',
     body:
-      'Thank you {{firstName}}! Here it is: {{deckLink}}. Open the live demo and your own photo beams onto the wall. If you share your next date and guest count, I’ll send a quote today.',
+      'Thank you {{firstName}}! Here it is: {{deckLink}}\n\nOpen the live demo and your own photo beams onto the wall. If you share your next date and guest count, I’ll send a quote today.',
     when: 'After they say yes to the opener. Use the ng-* deck link.',
   },
   {
@@ -1592,7 +1592,7 @@ export const TEMPLATES: MessageTemplate[] = [
     icp: 'planners',
     market: 'any',
     body:
-      'Thanks for connecting, {{firstName}}. Guests scan one QR, take AR photos on their own phones, and every shot beams onto a big screen — nothing to hire or transport. Two-minute look: {{deckLink}}. Worth a chat about {{company}}’s next {{eventType}}?',
+      'Thanks for connecting, {{firstName}}. Guests scan one QR, take AR photos on their own phones, and every shot beams onto a big screen — nothing to hire or transport. Two-minute look: {{deckLink}}\n\nWorth a chat about {{company}}’s next {{eventType}}?',
     when: 'Within a day of them accepting. Use the deck for their market.',
   },
   {
@@ -1603,7 +1603,7 @@ export const TEMPLATES: MessageTemplate[] = [
     icp: 'brands',
     market: 'any',
     body:
-      'Thanks for connecting, {{firstName}}. For {{company}}’s next {{eventType}}: your logo on every guest photo, beamed live to your screen, no hardware. Quick overview: {{deckLink}}. Open to a 20-minute look?',
+      'Thanks for connecting, {{firstName}}. For {{company}}’s next {{eventType}}: your logo on every guest photo, beamed live to your screen, no hardware. Quick overview: {{deckLink}}\n\nOpen to a 20-minute look?',
     when: 'Within a day of them accepting. Use the deck for their market.',
   },
   {
@@ -1687,7 +1687,7 @@ export const TEMPLATES: MessageTemplate[] = [
     icp: 'any',
     market: 'na',
     body:
-      'Hi {{firstName}}, {{senderName}} from Beamwall — great chatting! Here’s the deck: {{deckLink}}. Reply STOP and I won’t text again.',
+      'Hi {{firstName}}, {{senderName}} from Beamwall — great chatting! Here’s the deck: {{deckLink}}\n\nReply STOP and I won’t text again.',
     when: 'Only if they gave you their number on the call and agreed to a text. In Nigeria use WhatsApp instead.',
   },
   // Call

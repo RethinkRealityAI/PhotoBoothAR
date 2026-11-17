@@ -366,8 +366,9 @@ export function groupSlotsByDay(slots: readonly Slot[], viewerTz: string): SlotD
 }
 
 export function formatSlotTime(ms: number, tz: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: isValidTimeZone(tz) ? tz : 'UTC', hour: 'numeric', minute: '2-digit',
+  // en-GB + hour12 → "10:00 am", matching formatSlotLong's casing.
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: isValidTimeZone(tz) ? tz : 'UTC', hour: 'numeric', minute: '2-digit', hour12: true,
   }).format(new Date(ms));
 }
 
@@ -411,14 +412,15 @@ export interface BookerDraft {
   email: string;
   phone: string;
   company: string;
-  icp: IcpId | 'other';
+  /** null until the visitor picks one (no silent default into the CRM). */
+  icp: IcpId | 'other' | null;
   eventDate: string;
   notes: string;
   consent: boolean;
 }
 
 export const EMPTY_BOOKER: BookerDraft = {
-  name: '', email: '', phone: '', company: '', icp: 'planners', eventDate: '', notes: '', consent: false,
+  name: '', email: '', phone: '', company: '', icp: null, eventDate: '', notes: '', consent: false,
 };
 
 export type BookerErrors = Partial<Record<'name' | 'contact' | 'email' | 'phone' | 'eventDate' | 'notes' | 'consent', string>>;

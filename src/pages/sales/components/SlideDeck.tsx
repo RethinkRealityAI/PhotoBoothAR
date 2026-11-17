@@ -140,8 +140,13 @@ export default function SlideDeck({
   const go = useCallback((i: number) => setIndex(clampIndex(i, count)), [count]);
 
   // ── hash sync ──
+  // The route the deck mounted on. A late IntersectionObserver tick during a
+  // client-side navigation (e.g. tapping "Book a call") must not stamp #N onto
+  // the NEXT page's URL.
+  const deckPath = useRef(typeof window !== 'undefined' ? window.location.pathname : '');
   useEffect(() => {
     if (!syncHash) return;
+    if (window.location.pathname !== deckPath.current) return;
     const want = slideHash(index);
     if (window.location.hash !== want) {
       window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${want}`);

@@ -68,7 +68,7 @@ export function bookMeeting(
       p_email: d.email.trim() === '' ? null : d.email.trim(),
       p_phone: d.phone.trim() === '' ? null : d.phone.trim(),
       p_company: d.company.trim() === '' ? null : d.company.trim(),
-      p_icp: d.icp,
+      p_icp: d.icp ?? 'other',
       p_event_date: d.eventDate === '' ? null : d.eventDate,
       p_notes: d.notes.trim() === '' ? null : d.notes.trim(),
       p_booker_tz: bookerTz,
