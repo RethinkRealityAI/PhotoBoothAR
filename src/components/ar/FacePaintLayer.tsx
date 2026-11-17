@@ -96,15 +96,31 @@ uniform float uRefLum;
 uniform float uK;
 uniform float uMirror;
 uniform float uFeather;
+uniform float uShimmer;
+uniform float uTime;
 varying vec2 vUv;
 varying float vEdge;
 varying vec3 vNormalV;
 varying vec2 vNdc;
 float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+float hash(vec2 q) { return fract(sin(dot(q, vec2(127.1, 311.7))) * 43758.5453); }
 void main() {
   vec4 p = texture2D(uPaint, vUv);
   float a = p.a * uOpacity * smoothstep(0.0, uFeather, vEdge);
-  if (a < 0.004) discard;
+  // Living twinkle (opt-in per DESIGN — designs.ts \`shimmer\`): ~1 in 6 cells of
+  // a fixed uv grid holds a glint that pulses on its own phase and speed, only
+  // where there is paint. uShimmer 0 takes the original path untouched.
+  float glintA = 0.0;
+  if (uShimmer > 0.5 && p.a > 0.04) {
+    vec2 g = vUv * 120.0;
+    vec2 cell = floor(g);
+    if (hash(cell) > 0.83) {
+      float tw = pow(max(0.0, sin(uTime * (1.2 + 2.0 * hash(cell + 3.1)) + 6.2832 * hash(cell + 7.3))), 10.0);
+      float spot = smoothstep(0.45, 0.0, length(fract(g) - 0.5));
+      glintA = tw * spot * smoothstep(0.04, 0.3, p.a) * smoothstep(0.0, uFeather, vEdge);
+    }
+  }
+  if (a < 0.004 && glintA < 0.004) discard;
   float shade;
   if (uHasSkin > 0.5) {
     vec2 f = vec2(0.5 + 0.5 * vNdc.x * uK * uMirror, 0.5 + 0.5 * vNdc.y);
@@ -113,7 +129,11 @@ void main() {
     // No camera pixels yet: a soft key light so it is never flat.
     shade = 0.6 + 0.45 * max(dot(normalize(vNormalV), normalize(vec3(0.25, 0.35, 1.0))), 0.0);
   }
-  gl_FragColor = vec4(p.rgb * mix(1.0, shade, uShade), a);
+  if (uShimmer > 0.5) {
+    gl_FragColor = vec4(mix(p.rgb * mix(1.0, shade, uShade), vec3(1.0), glintA), max(a, glintA * 0.9));
+  } else {
+    gl_FragColor = vec4(p.rgb * mix(1.0, shade, uShade), a);
+  }
 }`;
 
 interface Topology {
@@ -249,6 +269,8 @@ export default function FacePaintLayer({
       uK: { value: 1 },
       uMirror: { value: -1 },
       uFeather: { value: FEATHER_RINGS },
+      uShimmer: { value: 0 },
+      uTime: { value: 0 },
     },
     side: THREE.DoubleSide,
     transparent: false,
@@ -269,6 +291,20 @@ export default function FacePaintLayer({
   // Full-face looks take the skin's shading fully; accents keep a lighter touch.
   const fullFace = FACE_PAINT_DESIGN_MAP[spec.design]?.fullFace === true;
   useEffect(() => { material.uniforms.uShade.value = fullFace ? 1 : 0.6; }, [material, fullFace]);
+  // Twinkle is a DESIGN property (never a stored-spec field), so every scene
+  // saved before it existed keeps uShimmer 0 and the untouched shader path.
+  const shimmer = FACE_PAINT_DESIGN_MAP[spec.design]?.shimmer === true;
+  useEffect(() => { material.uniforms.uShimmer.value = shimmer ? 1 : 0; }, [material, shimmer]);
+  // Reduced motion: the glints hold still (a fixed time), never pulse.
+  const reducedMotion = useRef(false);
+  useEffect(() => {
+    let mq: MediaQueryList | null = null;
+    try { mq = window.matchMedia('(prefers-reduced-motion: reduce)'); } catch { return; }
+    const sync = () => { reducedMotion.current = mq?.matches === true; };
+    sync();
+    mq.addEventListener?.('change', sync);
+    return () => mq?.removeEventListener?.('change', sync);
+  }, []);
   const meshRef = useRef<THREE.Mesh>(null);
   const _v = useMemo(() => new THREE.Vector3(), []);
   const _lums = useMemo(() => [] as number[], []);
@@ -323,9 +359,10 @@ export default function FacePaintLayer({
     if (st.lum > 0) { u.uRefLum.value = st.lum; u.uHasSkin.value = 1; } else u.uHasSkin.value = 0;
   };
 
-  useFrame(() => {
+  useFrame((st) => {
     const g = group.current;
     if (!g) return;
+    if (shimmer) material.uniforms.uTime.value = reducedMotion.current ? 0 : st.clock.elapsedTime;
     if (!topology) {
       const t = getTrackedFaceMeshTopology();
       if (t) setTopology({ points: t.pointsPerDetection, indices: t.indices, uvs: t.uvs });

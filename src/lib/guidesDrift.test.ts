@@ -41,6 +41,7 @@ import { MAX_OBJECTS, MAX_TRIGGERS } from './studio/state';
 import { FRAME_LAYOUT_SPEC } from './assetPrompt';
 import { MAX_ACTIONS } from './copilot';
 import { CONTENT_PACKS, PACK_IDS } from './contentPacks';
+import { FACE_PAINT_DESIGNS } from './facePaint/designs';
 import { GUIDES, GUIDE_COUNTS, GUIDE_COVERAGE, type GuideCoverageEntry } from './guidesContent';
 import type { FeatureHelpTopic } from './studio/featureHelp';
 
@@ -234,6 +235,22 @@ describe('guides counts — the numbers the copy says out loud', () => {
     const printed = JSON.stringify(GUIDES);
     for (const n of [GUIDE_COUNTS.maxObjects, GUIDE_COUNTS.maxTriggers, GUIDE_COUNTS.triggerSources, GUIDE_COUNTS.copilotMaxActions]) {
       expect(printed.includes(String(n)), `no guide mentions the number ${n}`).toBe(true);
+    }
+  });
+
+  it('names every Face Paint design in the paragraph that lists them', () => {
+    // The Face Paint paragraph enumerates the looks by name, so a new design
+    // shipping without copy (or a dropped one lingering in it) goes red here.
+    const paragraphs = Object.values(GUIDES).flatMap((g) =>
+      g.blocks.flatMap((b) => (b.kind === 'prose' ? b.body : [])),
+    );
+    const para = paragraphs.find((p) => p.startsWith('Face Paint is the third'));
+    expect(para, `no Face Paint paragraph found in src/lib/guidesContent.ts. ${FIX}.`).toBeDefined();
+    for (const d of FACE_PAINT_DESIGNS) {
+      expect(
+        para!.includes(d.name),
+        `The Face Paint guide does not name the "${d.name}" design (src/lib/facePaint/designs.ts). ${FIX}.`,
+      ).toBe(true);
     }
   });
 });

@@ -88,6 +88,17 @@ export function taperPath(ctx: PaintContext, a: Pt, b: Pt, w: number, bend = 0.1
   ctx.closePath();
 }
 
+/** A cartoon cloud puff centred on (0,0), width ≈ 2·s, flat-ish bottom. */
+export function cloudPath(ctx: PaintContext, s: number): void {
+  ctx.beginPath();
+  ctx.moveTo(-s, s * 0.3);
+  ctx.arc(-s * 0.55, 0, s * 0.45, Math.PI * 0.75, Math.PI * 1.6);
+  ctx.arc(0, -s * 0.2, s * 0.55, Math.PI * 1.15, Math.PI * 1.9);
+  ctx.arc(s * 0.6, 0.02 * s, s * 0.42, Math.PI * 1.4, Math.PI * 2.25);
+  ctx.lineTo(-s, s * 0.3);
+  ctx.closePath();
+}
+
 export function ellipseAt(ctx: PaintContext, c: Pt, rx: number, ry: number, rot = 0): void {
   ctx.beginPath();
   ctx.ellipse(c.x, c.y, Math.max(0.01, rx), Math.max(0.01, ry), rot, 0, Math.PI * 2);

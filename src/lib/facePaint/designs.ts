@@ -15,6 +15,7 @@ import { lerpPt, type FaceFrame, type Pt } from './features';
 import {
   angleOf, dot, ellipseAt, hard, heartPath, rng, soft, starPath, taperPath, type PaintContext,
 } from './shapes';
+import { cloudPath } from './shapes';
 
 export const FACE_PAINT_DESIGN_IDS = [
   'game-day',
@@ -25,6 +26,14 @@ export const FACE_PAINT_DESIGN_IDS = [
   'stars',
   'tiger',
   'sugar-skull',
+  // Party (year-round), second wave
+  'butterfly',
+  'hero-mask',
+  'rainbow',
+  'lightning-bolt',
+  'unicorn',
+  'cat',
+  'neon-tribal',
 ] as const;
 export type FacePaintDesignId = (typeof FACE_PAINT_DESIGN_IDS)[number];
 
@@ -50,6 +59,33 @@ export interface FacePaintDesign {
    * designs keep a lighter touch and stay crisp.
    */
   fullFace?: true;
+  /**
+   * Picker shelf (FACE_PAINT_CATEGORIES). Optional: a design without one
+   * lands on the first shelf, so a new design never needs picker code.
+   */
+  category?: FacePaintCategory;
+  /**
+   * Living twinkle: FacePaintLayer adds a subtle time-driven glint over the
+   * paint (frozen still under prefers-reduced-motion). A REGISTRY property, not
+   * a stored-spec field — so it is opt-in per design, and none of the first
+   * eight designs carries it (their saved scenes render exactly as before;
+   * facePaint.test.ts pins that).
+   */
+  shimmer?: true;
+}
+
+/** Picker shelves, in display order. The builder hides a shelf with no designs. */
+export const FACE_PAINT_CATEGORIES = [
+  { id: 'everyday', label: 'Everyday' },
+  { id: 'party', label: 'Party' },
+  { id: 'holiday', label: 'Holiday' },
+] as const;
+export type FacePaintCategory = (typeof FACE_PAINT_CATEGORIES)[number]['id'];
+export const DEFAULT_FACE_PAINT_CATEGORY: FacePaintCategory = 'everyday';
+
+/** The shelf a design sits on (its own category, else the default shelf). */
+export function categoryOf(d: Pick<FacePaintDesign, 'category'>): FacePaintCategory {
+  return d.category ?? DEFAULT_FACE_PAINT_CATEGORY;
 }
 
 /** Fallback when the event theme is unreadable (the platform's beam gold). */
@@ -498,6 +534,501 @@ function sugarSkull(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
   });
 }
 
+/* ── helpers for the second wave ───────────────────────────────────────── */
+
+type Seg = [Pt, Pt, Pt, Pt];
+
+function cubicPt([p0, p1, p2, p3]: Seg, t: number): Pt {
+  const u = 1 - t;
+  const a = u * u * u, b = 3 * u * u * t, cc = 3 * u * t * t, d = t * t * t;
+  return { x: a * p0.x + b * p1.x + cc * p2.x + d * p3.x, y: a * p0.y + b * p1.y + cc * p2.y + d * p3.y };
+}
+
+function quadPt(a: Pt, ctrl: Pt, b: Pt, t: number): Pt {
+  const u = 1 - t;
+  return { x: u * u * a.x + 2 * u * t * ctrl.x + t * t * b.x, y: u * u * a.y + 2 * u * t * ctrl.y + t * t * b.y };
+}
+
+/** A closed shape made of cubic segments (each starts where the last ended). */
+function segPath(ctx: PaintContext, segs: Seg[]): void {
+  ctx.beginPath();
+  ctx.moveTo(segs[0][0].x, segs[0][0].y);
+  for (const [, c1, c2, p3] of segs) ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, p3.x, p3.y);
+  ctx.closePath();
+}
+
+/** A four-point glint (the light catching glitter). */
+function glint(ctx: PaintContext, at: Pt, r: number, rot = 0): void {
+  withTransform(ctx, at, rot, () => {
+    starPath(ctx, r, r * 0.2, 4);
+    ctx.fill();
+  });
+}
+
+/** Soft, translucent wash — blush, frost, a muzzle hint. Leaves alpha at 1. */
+function wash(ctx: PaintContext, f: FaceFrame, color: string, alpha: number, blur: number, shape: () => void): void {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  soft(ctx, color, edge(f, blur));
+  shape();
+  ctx.restore();
+  hard(ctx);
+}
+
+/* ── everyday, round two ───────────────────────────────────────────────── */
+
+function butterfly(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const wing = c(colors, 0, '#d4a017');
+  const inner = c(colors, 1, '#f3d47a');
+  const ink = c(colors, 2, '#161616');
+  const C = lerpPt(f.noseBridge, f.browMid, 0.3);
+  const P = (o: number, dx: number, dy: number): Pt => ({ x: C.x + o * dx * E, y: C.y + dy * E });
+
+  for (const s of SIDES) {
+    const o = sided(f, s).out;
+    const upper: Seg[] = [
+      [P(o, 0, 0), P(o, 0.1, -0.35), P(o, 0.55, -0.55), P(o, 0.78, -0.2)],
+      [P(o, 0.78, -0.2), P(o, 0.92, 0.05), P(o, 0.75, 0.25), P(o, 0.45, 0.24)],
+      [P(o, 0.45, 0.24), P(o, 0.25, 0.23), P(o, 0.08, 0.16), P(o, 0, 0.12)],
+    ];
+    const lower: Seg[] = [
+      [P(o, 0, 0.12), P(o, 0.3, 0.17), P(o, 0.64, 0.22), P(o, 0.56, 0.5)],
+      [P(o, 0.56, 0.5), P(o, 0.48, 0.7), P(o, 0.16, 0.56), P(o, 0.05, 0.3)],
+    ];
+    for (const segs of [upper, lower]) {
+      // Base colour, then a lighter inner panel (the same wing, shrunk toward its middle).
+      soft(ctx, wing, edge(f, 0.6));
+      ctx.fillStyle = wing;
+      segPath(ctx, segs);
+      ctx.fill();
+      hard(ctx);
+      const mid = cubicPt(segs[0], 1);
+      const centre = lerpPt(C, mid, 0.55);
+      ctx.save();
+      ctx.translate(centre.x, centre.y);
+      ctx.scale(0.58, 0.58);
+      ctx.translate(-centre.x, -centre.y);
+      ctx.fillStyle = inner;
+      segPath(ctx, segs);
+      ctx.fill();
+      ctx.restore();
+      // Outline + veins.
+      ctx.strokeStyle = ink;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = E * 0.02;
+      segPath(ctx, segs);
+      ctx.stroke();
+      ctx.lineWidth = E * 0.01;
+      for (const seg of segs.slice(0, segs.length - 1)) {
+        for (const t of [0.35, 0.8]) {
+          const p = cubicPt(seg, t);
+          const q = lerpPt(C, p, 0.92);
+          ctx.beginPath();
+          ctx.moveTo(C.x, C.y + E * 0.05);
+          ctx.quadraticCurveTo(lerpPt(C, q, 0.5).x, lerpPt(C, q, 0.5).y - E * 0.03, q.x, q.y);
+          ctx.stroke();
+        }
+      }
+      // White dots inside the border, monarch style.
+      ctx.fillStyle = '#ffffff';
+      for (const seg of segs.slice(0, segs.length - 1)) {
+        for (const t of [0.2, 0.45, 0.7]) {
+          dot(ctx, lerpPt(cubicPt(seg, t), C, 0.07), E * 0.011);
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  // Body down the bridge of the nose, head and antennae on the brow.
+  ctx.fillStyle = ink;
+  soft(ctx, ink, edge(f, 0.4));
+  const head = { x: C.x, y: C.y - E * 0.13 };
+  ellipseAt(ctx, { x: C.x, y: C.y + E * 0.08 }, E * 0.035, E * 0.19);
+  ctx.fill();
+  dot(ctx, head, E * 0.04);
+  ctx.fill();
+  hard(ctx);
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = E * 0.012;
+  ctx.lineCap = 'round';
+  for (const o of [-1, 1]) {
+    const end = { x: head.x + o * E * 0.16, y: head.y - E * 0.28 };
+    ctx.beginPath();
+    ctx.moveTo(head.x, head.y);
+    ctx.quadraticCurveTo(head.x + o * E * 0.02, head.y - E * 0.24, end.x, end.y);
+    ctx.stroke();
+    dot(ctx, end, E * 0.022);
+    ctx.fill();
+  }
+}
+
+function heroMask(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const mask = c(colors, 0, '#d4a017');
+  const trim = c(colors, 1, '#ffffff');
+  const top = { x: f.browMid.x, y: f.browMid.y + E * 0.12 };
+  const P = (o: number, dx: number, dy: number): Pt => ({ x: top.x + o * dx * E, y: top.y + dy * E });
+  // Left half top→tip→under-eye→bridge, then the right half back up.
+  const half = (o: number): Seg[] => [
+    [P(o, 0, 0), P(o, 0.15, -0.08), P(o, 0.35, -0.12), P(o, 0.55, -0.06)],
+    [P(o, 0.55, -0.06), P(o, 0.7, -0.03), P(o, 0.8, -0.04), P(o, 0.88, 0.0)],
+    [P(o, 0.88, 0.0), P(o, 0.8, 0.16), P(o, 0.64, 0.3), P(o, 0.4, 0.29)],
+    [P(o, 0.4, 0.29), P(o, 0.22, 0.28), P(o, 0.1, 0.15), P(o, 0, 0.15)],
+  ];
+  const left = half(-1);
+  const right = half(1).map(([a, b, cc, d]) => [d, cc, b, a] as Seg).reverse();
+  const outline = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(left[0][0].x, left[0][0].y);
+    for (const [, c1, c2, p3] of [...left, ...right]) ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, p3.x, p3.y);
+    ctx.closePath();
+    for (const s of SIDES) {
+      const k = sided(f, s);
+      const eye = eyeCentre(f, s);
+      const rot = angleOf(k.eyeInner, k.eyeOuter) + (s === 'L' ? Math.PI : 0);
+      ctx.moveTo(eye.x + Math.cos(rot) * E * 0.2, eye.y + Math.sin(rot) * E * 0.2);
+      ctx.ellipse(eye.x, eye.y, E * 0.2, E * 0.095, rot, 0, Math.PI * 2);
+    }
+  };
+  soft(ctx, mask, edge(f, 0.7));
+  ctx.fillStyle = mask;
+  outline();
+  ctx.fill('evenodd');
+  hard(ctx);
+  ctx.strokeStyle = trim;
+  ctx.lineWidth = E * 0.012;
+  ctx.lineJoin = 'round';
+  outline();
+  ctx.stroke();
+  // A painted shine across the top edge.
+  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  ctx.lineWidth = E * 0.018;
+  ctx.lineCap = 'round';
+  for (const o of [-1, 1]) {
+    const a = P(o, 0.22, -0.035), b = P(o, 0.5, -0.03);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.quadraticCurveTo((a.x + b.x) / 2, a.y - E * 0.025, b.x, b.y);
+    ctx.stroke();
+  }
+}
+
+const RAINBOW = ['#e63946', '#f4a261', '#f9d74a', '#52b788', '#4895ef', '#9b5de5'];
+
+function rainbow(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const cloud = c(colors, 0, '#ffffff');
+  const sparkle = c(colors, 1, '#f3d47a');
+  const R = sided(f, 'R');
+  const centre = lerpPt(R.cheekbone, R.cheek, 0.45);
+  const at = { x: centre.x, y: centre.y + E * 0.05 };
+  const outerR = E * 0.25;
+  const band = E * 0.027;
+  withTransform(ctx, at, 0.18, () => {
+    ctx.lineCap = 'butt';
+    for (let i = 0; i < RAINBOW.length; i++) {
+      ctx.strokeStyle = RAINBOW[i];
+      soft(ctx, RAINBOW[i], edge(f, 0.3));
+      ctx.lineWidth = band + 0.8;
+      ctx.beginPath();
+      ctx.arc(0, 0, outerR - band * (i + 0.5), Math.PI, Math.PI * 2);
+      ctx.stroke();
+    }
+    hard(ctx);
+    // A cloud at each foot, with a soft cool shadow.
+    const footR = outerR - band * RAINBOW.length / 2;
+    for (const sx of [-1, 1]) {
+      const foot = { x: sx * footR, y: E * 0.012 };
+      ctx.fillStyle = 'rgba(150,170,195,0.45)';
+      withTransform(ctx, { x: foot.x, y: foot.y + E * 0.012 }, 0, () => {
+        cloudPath(ctx, E * 0.09);
+        ctx.fill();
+      });
+      soft(ctx, cloud, edge(f, 0.6));
+      ctx.fillStyle = cloud;
+      withTransform(ctx, foot, 0, () => {
+        cloudPath(ctx, E * 0.09);
+        ctx.fill();
+      });
+      hard(ctx);
+    }
+  });
+  ctx.fillStyle = sparkle;
+  glint(ctx, lerpPt(R.eyeOuter, R.temple, 0.4), E * 0.04, 0.1);
+  glint(ctx, lerpPt(R.cheekbone, R.side, 0.4), E * 0.025);
+  ctx.fillStyle = cloud;
+  glint(ctx, lerpPt(R.underEye, R.eyeOuter, 0.2), E * 0.02, 0.3);
+}
+
+function lightningBolt(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const bolt = c(colors, 0, '#e63946');
+  const rim = c(colors, 1, '#4895ef');
+  const shine = c(colors, 2, '#ffffff');
+  const R = sided(f, 'R');
+  const at = { x: eyeCentre(f, 'R').x, y: eyeCentre(f, 'R').y + E * 0.04 };
+  const W = E * 0.46;
+  const H = E * 0.92;
+  // The rock-star bolt, unit coords (x across, y down), centred on the eye.
+  const unit: [number, number][] = [[0.18, 0], [0.66, 0], [0.45, 0.37], [0.76, 0.37], [0.22, 1], [0.37, 0.53], [0.06, 0.53]];
+  const pts = unit.map(([x, y]) => ({ x: (x - 0.42) * W, y: (y - 0.5) * H }));
+  const shape = (grow: number) => {
+    const cx = 0, cy = 0;
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const k = 1 + grow;
+      const x = cx + p.x * k, y = cy + p.y * k;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+  };
+  withTransform(ctx, at, R.out * 0.12, () => {
+    ctx.lineJoin = 'round';
+    // Coloured rim (the Aladdin Sane edge), then the bolt, then a shine stripe.
+    soft(ctx, rim, edge(f, 0.6));
+    ctx.fillStyle = rim;
+    shape(0.09);
+    ctx.fill();
+    soft(ctx, bolt, edge(f, 0.4));
+    ctx.fillStyle = bolt;
+    shape(0);
+    ctx.fill();
+    hard(ctx);
+    ctx.strokeStyle = shine;
+    ctx.globalAlpha = 0.7;
+    ctx.lineWidth = E * 0.014;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x + W * 0.1, pts[0].y + H * 0.05);
+    ctx.lineTo(pts[6].x + W * 0.12, pts[6].y - H * 0.06);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  });
+  ctx.fillStyle = shine;
+  glint(ctx, lerpPt(R.eyeOuter, R.temple, 0.45), E * 0.035, 0.2);
+  glint(ctx, lerpPt(R.cheekbone, R.cheek, 0.4), E * 0.022);
+}
+
+const PASTEL_MINT = '#a7f3d0';
+
+function unicorn(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const pink = c(colors, 0, '#f9a8d4');
+  const lilac = c(colors, 1, '#c4b5fd');
+  const star = c(colors, 2, '#f3d47a');
+  // Pastel arcs framing the outer corner of each eye, ending in a curl.
+  ctx.lineCap = 'round';
+  for (const s of SIDES) {
+    const k = sided(f, s);
+    const eye = eyeCentre(f, s);
+    const bands: [string, number][] = [[pink, 0.27], [lilac, 0.32], [PASTEL_MINT, 0.37]];
+    for (const [col, rr] of bands) {
+      const r = E * rr;
+      soft(ctx, col, edge(f, 0.6));
+      ctx.strokeStyle = col;
+      ctx.lineWidth = E * 0.04;
+      ctx.beginPath();
+      for (let i = 0; i <= 24; i++) {
+        const th = (-95 + (i / 24) * 150) * (Math.PI / 180);
+        const x = eye.x + k.out * Math.cos(th) * r;
+        const y = eye.y + Math.sin(th) * r * 0.92;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    // The curl at the bottom of the arcs, on the cheekbone.
+    const th = 55 * (Math.PI / 180);
+    const end = { x: eye.x + k.out * Math.cos(th) * E * 0.32, y: eye.y + Math.sin(th) * E * 0.32 * 0.92 };
+    soft(ctx, lilac, edge(f, 0.5));
+    ctx.strokeStyle = lilac;
+    ctx.lineWidth = E * 0.022;
+    ctx.beginPath();
+    for (let i = 0; i <= 28; i++) {
+      const t = i / 28;
+      const a = Math.PI * 0.5 + t * Math.PI * 2.2;
+      const rr = E * 0.07 * (1 - t * 0.8);
+      const x = end.x - k.out * Math.cos(a) * rr + k.out * E * 0.02;
+      const y = end.y + E * 0.07 + Math.sin(a) * rr - E * 0.07;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    hard(ctx);
+    // Dotted glitter trail down the cheek.
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < 4; i++) {
+      dot(ctx, { x: end.x - k.out * E * (0.05 + i * 0.035), y: end.y + E * (0.1 + i * 0.03) }, E * (0.014 - i * 0.002));
+      ctx.fill();
+    }
+  }
+  // The forehead star (the horn's sparkle), with a white heart-light.
+  const fc = lerpPt(f.browMid, f.foreheadMid, 0.55);
+  soft(ctx, star, edge(f, 1.2));
+  ctx.fillStyle = star;
+  withTransform(ctx, fc, 0, () => {
+    starPath(ctx, E * 0.11, E * 0.05);
+    ctx.fill();
+  });
+  hard(ctx);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  dot(ctx, { x: fc.x - E * 0.02, y: fc.y - E * 0.02 }, E * 0.016);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  for (const [dx, dy, r] of [[-0.17, -0.06, 0.03], [0.16, 0.05, 0.025], [0.1, -0.12, 0.02]] as const) {
+    glint(ctx, { x: fc.x + dx * E, y: fc.y + dy * E }, E * r);
+  }
+}
+
+function cat(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const ink = c(colors, 0, '#161616');
+  const nose = c(colors, 1, '#f28fb0');
+  const stripe = c(colors, 2, '#161616');
+
+  // Cheek stripes: tapered strokes driven in from the sides. They start a
+  // little inside the face edge, which the mesh layer feathers away.
+  soft(ctx, stripe, edge(f, 0.4));
+  ctx.fillStyle = stripe;
+  for (const s of SIDES) {
+    const k = sided(f, s);
+    for (const [from, toward, len, w] of [
+      [lerpPt(lerpPt(k.side, k.temple, 0.25), k.underEye, 0.22), k.underEye, 0.55, 0.065],
+      [lerpPt(lerpPt(k.side, k.cheekLow, 0.2), k.cheek, 0.22), k.cheek, 0.5, 0.06],
+    ] as [Pt, Pt, number, number][]) {
+      taperPath(ctx, from, lerpPt(from, toward, len), E * w, 0.1 * k.out);
+      ctx.fill();
+    }
+    // Cat-eye flick.
+    taperPath(ctx, k.eyeOuter, { x: k.eyeOuter.x + k.out * E * 0.17, y: k.eyeOuter.y - E * 0.08 }, E * 0.04, 0);
+    ctx.fill();
+  }
+
+  // Nose: a rounded inverted triangle on the tip, outlined.
+  const nt = lerpPt(f.noseTip, f.mouthTop, 0.08);
+  const noseShape = () => {
+    ctx.beginPath();
+    ctx.moveTo(nt.x - E * 0.08, nt.y - E * 0.045);
+    ctx.quadraticCurveTo(nt.x, nt.y - E * 0.075, nt.x + E * 0.08, nt.y - E * 0.045);
+    ctx.quadraticCurveTo(nt.x + E * 0.03, nt.y + E * 0.04, nt.x, nt.y + E * 0.05);
+    ctx.quadraticCurveTo(nt.x - E * 0.03, nt.y + E * 0.04, nt.x - E * 0.08, nt.y - E * 0.045);
+    ctx.closePath();
+  };
+  soft(ctx, nose, edge(f, 0.4));
+  ctx.fillStyle = nose;
+  noseShape();
+  ctx.fill();
+  hard(ctx);
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = E * 0.014;
+  ctx.lineJoin = 'round';
+  noseShape();
+  ctx.stroke();
+  // Philtrum down to the lip.
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(nt.x, nt.y + E * 0.05);
+  ctx.lineTo(f.mouthTop.x, lerpPt(nt, f.mouthTop, 0.85).y);
+  ctx.stroke();
+
+  // Whiskers: three fine curved strokes per side, plus the whisker dots.
+  ctx.lineWidth = E * 0.01;
+  for (const s of SIDES) {
+    const k = sided(f, s);
+    // Pads sit up toward the nose, and the low whisker stays shallow, so a wide
+    // laugh does not drag ink across the mouth corners.
+    const pad = lerpPt(lerpPt(f.mouthTop, k.mouth, 0.55), f.noseTip, 0.42);
+    for (const [dy, tilt] of [[-0.04, -0.12], [0, -0.02], [0.04, 0.06]] as const) {
+      const a = { x: pad.x + k.out * E * 0.09, y: pad.y + dy * E };
+      const b = { x: a.x + k.out * E * 0.34, y: a.y + tilt * E * 1.1 };
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.quadraticCurveTo((a.x + b.x) / 2, (a.y + b.y) / 2 - E * 0.03, b.x, b.y);
+      ctx.stroke();
+    }
+    ctx.fillStyle = ink;
+    for (const [dx, dy] of [[0.03, -0.03], [0.07, 0.0], [0.035, 0.03]]) {
+      dot(ctx, { x: pad.x + k.out * dx * E, y: pad.y + dy * E }, E * 0.01);
+      ctx.fill();
+    }
+  }
+}
+
+function neonTribal(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const a = c(colors, 0, '#ff2bd6');
+  const b = c(colors, 1, '#18ffff');
+  const cc = c(colors, 2, '#c6ff00');
+  /** A neon dot: a wide same-colour glow under a bright core. */
+  const glowDot = (at: Pt, r: number, col: string) => {
+    soft(ctx, col, r * 2.2);
+    ctx.fillStyle = col;
+    dot(ctx, at, r);
+    ctx.fill();
+  };
+  ctx.lineCap = 'round';
+  for (const s of SIDES) {
+    const k = sided(f, s);
+    // A row of dots arching over the brow, shrinking outward.
+    const inner = lerpPt(f.browMid, k.brow, 0.45);
+    const ctrl = { x: k.brow.x, y: k.brow.y - E * 0.1 };
+    const outer = { x: k.browOuter.x, y: k.browOuter.y - E * 0.04 };
+    for (let i = 0; i < 8; i++) {
+      const t = i / 7;
+      const p = quadPt({ x: inner.x, y: inner.y - E * 0.06 }, ctrl, outer, t);
+      glowDot(p, E * (0.02 - t * 0.009), i % 2 === 0 ? a : cc);
+    }
+    // Two glowing lines along the cheekbone, a dot row beneath them.
+    for (const [off, col] of [[0, b], [0.05, a]] as const) {
+      const p0 = { x: lerpPt(k.underEye, k.eyeBot, 0.35).x, y: lerpPt(k.underEye, k.eyeBot, 0.35).y + off * E };
+      const p1 = { x: k.cheekbone.x, y: k.cheekbone.y - E * 0.05 + off * E };
+      soft(ctx, col, E * 0.03);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = E * 0.013;
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.quadraticCurveTo((p0.x + p1.x) / 2, Math.max(p0.y, p1.y) + E * 0.03, p1.x, p1.y);
+      ctx.stroke();
+    }
+    for (let i = 0; i < 5; i++) {
+      const t = i / 4;
+      const p = lerpPt(lerpPt(k.underEye, k.cheek, 0.35), lerpPt(k.cheekbone, k.cheekLow, 0.3), t);
+      glowDot(p, E * 0.012, cc);
+    }
+    // A chevron on the temple.
+    const tc = lerpPt(k.eyeOuter, k.temple, 0.45);
+    soft(ctx, b, E * 0.03);
+    ctx.strokeStyle = b;
+    ctx.lineWidth = E * 0.013;
+    ctx.beginPath();
+    ctx.moveTo(tc.x - k.out * E * 0.03, tc.y - E * 0.06);
+    ctx.lineTo(tc.x + k.out * E * 0.03, tc.y);
+    ctx.lineTo(tc.x - k.out * E * 0.03, tc.y + E * 0.06);
+    ctx.stroke();
+  }
+  // Third-eye diamond on the forehead with a dot drop above it.
+  const fc = lerpPt(f.browMid, f.foreheadMid, 0.4);
+  soft(ctx, b, E * 0.035);
+  ctx.strokeStyle = b;
+  ctx.lineWidth = E * 0.014;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(fc.x, fc.y - E * 0.07);
+  ctx.lineTo(fc.x + E * 0.045, fc.y);
+  ctx.lineTo(fc.x, fc.y + E * 0.07);
+  ctx.lineTo(fc.x - E * 0.045, fc.y);
+  ctx.closePath();
+  ctx.stroke();
+  glowDot(fc, E * 0.016, a);
+  for (let i = 1; i <= 3; i++) glowDot({ x: fc.x, y: fc.y - E * (0.07 + i * 0.045) }, E * (0.014 - i * 0.002), i % 2 === 0 ? a : cc);
+  hard(ctx);
+}
+
 const draw = { gameDay, flagCheeks, eyeBlack, glitterFreckles, hearts, stars, tiger, sugarSkull };
 
 export const FACE_PAINT_DESIGNS: readonly FacePaintDesign[] = [
@@ -509,6 +1040,14 @@ export const FACE_PAINT_DESIGNS: readonly FacePaintDesign[] = [
   { id: 'stars', name: 'Stars', blurb: 'A star cluster by the eye', slots: [{ label: 'Big star', source: 'accent2' }, { label: 'Small stars', source: '#ffffff' }, { label: 'Accent', source: 'accent' }], draw: draw.stars },
   { id: 'tiger', name: 'Tiger', blurb: 'Full-face tiger with whisker pads', slots: [{ label: 'Coat', source: '#f2851f' }, { label: 'Stripes', source: '#151515' }, { label: 'Muzzle', source: '#f7f2e8' }], draw: draw.tiger, fullFace: true },
   { id: 'sugar-skull', name: 'Sugar Skull', blurb: 'Día de Muertos calavera, petals and stitches', slots: [{ label: 'Base', source: '#f4f0e8' }, { label: 'Petals', source: 'accent' }, { label: 'Detail', source: '#161616' }], draw: draw.sugarSkull, fullFace: true },
+  // Party (year-round), second wave
+  { id: 'butterfly', name: 'Butterfly', blurb: 'Painted wings spread around the eyes', slots: [{ label: 'Wings', source: 'accent' }, { label: 'Inner', source: 'accent2' }, { label: 'Outline', source: '#161616' }], draw: butterfly, category: 'party' },
+  { id: 'hero-mask', name: 'Hero Mask', blurb: 'A painted superhero mask around the eyes', slots: [{ label: 'Mask', source: 'accent' }, { label: 'Trim', source: '#ffffff' }], draw: heroMask, category: 'party' },
+  { id: 'rainbow', name: 'Rainbow', blurb: 'A rainbow arc on the cheek between two clouds', slots: [{ label: 'Clouds', source: '#ffffff' }, { label: 'Sparkle', source: 'accent2' }], draw: rainbow, category: 'party' },
+  { id: 'lightning-bolt', name: 'Lightning Bolt', blurb: 'A rock-star bolt across one eye', slots: [{ label: 'Bolt', source: '#e63946' }, { label: 'Edge', source: '#4895ef' }, { label: 'Shine', source: '#ffffff' }], draw: lightningBolt, category: 'party' },
+  { id: 'unicorn', name: 'Unicorn', blurb: 'Pastel swirls round the eyes and a forehead star', slots: [{ label: 'Swirl 1', source: '#f9a8d4' }, { label: 'Swirl 2', source: '#c4b5fd' }, { label: 'Star', source: 'accent2' }], draw: unicorn, category: 'party', shimmer: true },
+  { id: 'cat', name: 'Cat', blurb: 'Button nose, whiskers and cheek stripes', slots: [{ label: 'Ink', source: '#161616' }, { label: 'Nose', source: '#f28fb0' }, { label: 'Stripes', source: '#161616' }], draw: cat, category: 'party' },
+  { id: 'neon-tribal', name: 'Neon Festival', blurb: 'Glowing festival dots and lines on brows and cheekbones', slots: [{ label: 'Neon 1', source: '#ff2bd6' }, { label: 'Neon 2', source: '#18ffff' }, { label: 'Neon 3', source: '#c6ff00' }], draw: neonTribal, category: 'party', shimmer: true },
 ];
 
 export const FACE_PAINT_DESIGN_MAP: Record<string, FacePaintDesign> = Object.fromEntries(
