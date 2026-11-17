@@ -37,8 +37,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { getSavedPhotos } from '../lib/session';
-import { fetchMyPostsResult } from '../lib/db';
+import { clearGallery, getSavedPhotos, savePhoto } from '../lib/session';
+import { deleteMyPost, fetchMyPostsResult } from '../lib/db';
+import { isDeleteToken, removeKindFor } from '../lib/postDelete';
+import ConfirmModal from './ui/ConfirmModal';
 import { SavedPhoto, Post, MediaType } from '../types';
 import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
@@ -92,7 +94,7 @@ import {
   BackIcon,
   PlayIcon,
 } from './ui/MediaIcons';
-import { Film } from 'lucide-react';
+import { Film, Trash2 } from 'lucide-react';
 
 /** Matches the MediaIcons call shape so the recap button sits with the rest. */
 function FilmIcon({ size = 16 }: { size?: number }) {
@@ -108,15 +110,26 @@ interface GalaMedia {
   media_type: MediaType;
   message?: string | null;
   createdAt: number; // ms epoch
+  /** Where this entry came from. 'db' is a real wall post (it can be removed
+   *  from the wall); 'local' exists only in this device's gallery — usually a
+   *  capture whose upload never landed — so removing it is a local erase. */
+  origin: 'db' | 'local';
+  /** This device's proof it made the post (post_secrets, migration 035). Comes
+   *  from the LOCAL record only — it is not a posts column, precisely so the
+   *  wall read and the realtime frame cannot carry it. Absent = this phone
+   *  cannot prove ownership, so no Remove control (see removeKindFor). */
+  deleteToken?: string;
 }
 
-function postToMedia(p: Post): GalaMedia {
+function postToMedia(p: Post, deleteToken?: string): GalaMedia {
   return {
     id: p.id,
     image_url: p.image_url,
     media_type: p.media_type ?? 'image',
     message: p.message,
     createdAt: new Date(p.created_at).getTime(),
+    origin: 'db',
+    deleteToken,
   };
 }
 
@@ -127,7 +140,26 @@ function savedToMedia(s: SavedPhoto): GalaMedia {
     media_type: s.media_type ?? 'image',
     message: s.message,
     createdAt: s.createdAt,
+    origin: 'local',
+    deleteToken: s.deleteToken,
   };
+}
+
+/**
+ * Drop one entry from this device's gallery.
+ *
+ * session.ts owns the localStorage key scheme (and its one-time legacy-key
+ * migration) and exposes no per-photo removal, so this goes through its public
+ * API rather than reaching for the key itself — a second copy of
+ * `pbar.<eventId>.gallery` in this file is exactly how the two drift apart.
+ * `savePhoto` UNSHIFTS, so the survivors are replayed oldest-first to land in
+ * their original order. Every call is synchronous localStorage work, so nothing
+ * can interleave between the clear and the replay.
+ */
+function forgetLocalPhoto(eventId: string, id: string): void {
+  const kept = getSavedPhotos(eventId).filter((p) => p.id !== id);
+  clearGallery(eventId);
+  for (let i = kept.length - 1; i >= 0; i--) savePhoto(eventId, kept[i]);
 }
 
 /** The shape the pure keepsake helpers work in. */
@@ -868,6 +900,8 @@ function MediaCard({
   register,
   onView,
   filePrefix,
+  onRemove,
+  removing = false,
 }: {
   media: GalaMedia;
   featured: boolean;
@@ -875,6 +909,9 @@ function MediaCard({
   register: (id: string, el: HTMLVideoElement | null) => void;
   onView: (m: GalaMedia) => void;
   filePrefix: string;
+  /** Absent = no remove control at all (frozen legacy events pass nothing). */
+  onRemove?: (m: GalaMedia) => void;
+  removing?: boolean;
 }) {
   const [downloading, setDownloading] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -995,6 +1032,26 @@ function MediaCard({
                 <span className="block w-3.5 h-3.5 rounded-full border-2 border-current/30 border-t-current animate-spin" />
               ) : (
                 <ShareIcon size={15} />
+              )}
+            </button>
+          )}
+
+          {/* Remove. Deliberately the quietest control on the tile — Save is
+              what a guest came for — but always visible, because a phone has no
+              hover and the whole point is that it can be found without asking
+              anyone. Same 44px target as its neighbours. */}
+          {onRemove && (
+            <button
+              onClick={(e) => { e.stopPropagation(); haptic('tap'); onRemove(media); }}
+              disabled={removing}
+              className="pressable shrink-0 inline-flex items-center justify-center text-brand-muted/70 hover:text-red-300 rounded-xl bg-white/[0.06] border border-white/10 transition-colors disabled:opacity-60"
+              style={{ width: 44, minHeight: 44 }}
+              aria-label={isVideo ? 'Remove video' : 'Remove photo'}
+            >
+              {removing ? (
+                <span className="block w-3.5 h-3.5 rounded-full border-2 border-current/30 border-t-current animate-spin" />
+              ) : (
+                <Trash2 className="w-[15px] h-[15px]" strokeWidth={1.8} />
               )}
             </button>
           )}
@@ -1146,13 +1203,34 @@ function Lightbox({
 // Main component
 // ----------------------------------------------------------------
 export default function MyPhotos() {
-  const { eventId, config, basePath } = useEvent();
+  const { eventId, config, basePath, source } = useEvent();
   const [media, setMedia] = useState<GalaMedia[]>([]);
   const [loading, setLoading] = useState(true);
   /** The server read failed. Locally-saved captures may still be shown. */
   const [serverFailed, setServerFailed] = useState(false);
   const [lightbox, setLightbox] = useState<GalaMedia | null>(null);
   const reducedMotion = usePrefersReducedMotion();
+
+  /* ── Removing a moment ─────────────────────────────────────────────
+     Gated on `source === 'db'`: the three frozen coded events keep this
+     screen byte-identical, and their posts were written by a pinned build
+     through a path the delete op deliberately refuses.
+     A SECOND gate is per-tile (removeKindFor, below): a wall post also needs
+     this device's delete token, which only the phone that made it holds. */
+  const canRemove = source === 'db';
+  const [removeTarget, setRemoveTarget] = useState<GalaMedia | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  /** One-line outcome strip. Guest surfaces have no ToastProvider — it is
+   *  mounted on /admin and the host studio only — and a fixed toast would sit
+   *  on top of the phone tab bar this page already portals in. So the answer
+   *  appears where the page already answers: the same strip the failed server
+   *  read uses. */
+  const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
+  /** Set while the local gallery is being rewritten: `savePhoto` fires
+   *  `gallery:changed` per entry, and the listener below would otherwise run a
+   *  full re-fetch for every surviving photo. dispatchEvent is synchronous, so
+   *  every one of those events lands inside the flag's window. */
+  const ignoreGalleryEvents = useRef(false);
 
   const fetchAndMerge = useCallback(async () => {
     const [saved, server] = await Promise.all([
@@ -1164,10 +1242,21 @@ export default function MyPhotos() {
     setServerFailed(server.failed);
     const serverPosts = server.rows;
 
+    // This device's delete tokens, by post id. They exist ONLY in the local
+    // record (post_secrets, migration 035 — never a posts column, so neither the
+    // wall read nor a realtime frame can carry one), and the server half of the
+    // merge below is authoritative for everything else — so without this index
+    // every post present in BOTH lists would come back tokenless and lose its
+    // Remove control.
+    const tokens = new Map<string, string>();
+    saved.forEach((s) => {
+      if (isDeleteToken(s.deleteToken)) tokens.set(s.id, s.deleteToken);
+    });
+
     const map = new Map<string, GalaMedia>();
 
     // Server posts first (more authoritative)
-    serverPosts.forEach((p) => map.set(p.id, postToMedia(p)));
+    serverPosts.forEach((p) => map.set(p.id, postToMedia(p, tokens.get(p.id))));
 
     // Local saved fills gaps / adds any not on server yet
     saved.forEach((s) => {
@@ -1186,10 +1275,72 @@ export default function MyPhotos() {
 
   // Listen for gallery:changed events
   useEffect(() => {
-    const handler = () => fetchAndMerge();
+    const handler = () => { if (!ignoreGalleryEvents.current) fetchAndMerge(); };
     window.addEventListener('gallery:changed', handler);
     return () => window.removeEventListener('gallery:changed', handler);
   }, [fetchAndMerge]);
+
+  // A good-news strip clears itself; a failure waits to be read and dismissed
+  // (the rule Toast.tsx settled on — an error nobody saw is an error nobody fixed).
+  useEffect(() => {
+    if (!notice || notice.tone === 'error') return;
+    const t = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  /**
+   * Remove one moment: off the wall, out of storage, out of this device's
+   * gallery. Not optimistic — a tile that vanished and came back would read as
+   * "my photo is still up there somewhere", which is the opposite of the
+   * reassurance this control exists to give.
+   */
+  const removeMedia = async (m: GalaMedia) => {
+    setRemovingId(m.id);
+    const kind = removeKindFor(m);
+    const token = m.deleteToken;
+    // A local-only entry never reached the wall, so there is nothing to ask the
+    // server for — this is purely a local erase. A wall post needs this device's
+    // delete token; without one it answers exactly what the server would, minus
+    // the round trip, and 'not_yours' is already the right words for it.
+    const res = kind === 'local'
+      ? { deleted: true, error: null as null }
+      : isDeleteToken(token)
+        ? await deleteMyPost(eventId, m.id, token)
+        : { deleted: false, error: 'not_yours' as const };
+
+    // 'post_not_found' is the guest's goal already achieved (a second tab, or a
+    // retry after a lost response) — finish the local half rather than reporting
+    // a failure for something that is genuinely gone.
+    if (!res.deleted && res.error !== 'post_not_found') {
+      setRemovingId(null);
+      setRemoveTarget(null);
+      const text =
+        res.error === 'not_yours'
+          ? 'That moment was posted from another device — open your gallery on the phone you used at the booth.'
+          : res.error === 'rate_limited'
+            ? 'That’s a lot of removals at once. Try again in a few minutes.'
+            : res.error === 'storage_failed'
+              ? 'We couldn’t remove the file, so nothing was deleted. Try again in a moment.'
+              : 'Couldn’t remove that just now — check your connection and try again.';
+      setNotice({ text, tone: 'error' });
+      return;
+    }
+
+    ignoreGalleryEvents.current = true;
+    try {
+      forgetLocalPhoto(eventId, m.id);
+    } finally {
+      ignoreGalleryEvents.current = false;
+    }
+    setMedia((list) => list.filter((x) => x.id !== m.id));
+    setLightbox((cur) => (cur && cur.id === m.id ? null : cur));
+    setRemovingId(null);
+    setRemoveTarget(null);
+    setNotice({
+      text: m.origin === 'db' ? 'Removed — it’s off the wall too.' : 'Removed from this device.',
+      tone: 'ok',
+    });
+  };
 
   // ── Video playback gate ────────────────────────────────────────────
   // One observer for the whole grid. It is created lazily inside the register
@@ -1344,6 +1495,30 @@ export default function MyPhotos() {
           </div>
         )}
 
+        {/* Outcome of the last removal. Same strip as the failed-read notice
+            above it, so the page answers in one voice. */}
+        {notice && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-4 rounded-xl liquid-glass px-4 py-3 flex items-center justify-between gap-3"
+          >
+            <p
+              className={`font-sans text-xs leading-relaxed ${
+                notice.tone === 'error' ? 'text-amber-300' : 'text-brand-muted/80'
+              }`}
+            >
+              {notice.text}
+            </p>
+            <button
+              onClick={() => setNotice(null)}
+              className="pressable shrink-0 min-h-11 px-4 rounded-lg font-label uppercase tracking-luxe text-[10px] text-brand-fg bg-white/[0.07]"
+            >
+              OK
+            </button>
+          </div>
+        )}
+
         {loading ? (
           /* A skeleton in the real grid shape, so the page does not jump when
              the photos land. */
@@ -1391,6 +1566,8 @@ export default function MyPhotos() {
                         register={register}
                         onView={setLightbox}
                         filePrefix={config.copy.filePrefix}
+                        onRemove={canRemove && removeKindFor(m) !== 'none' ? setRemoveTarget : undefined}
+                        removing={removingId === m.id}
                       />
                     );
                   })}
@@ -1425,6 +1602,37 @@ export default function MyPhotos() {
           />
         )}
       </AnimatePresence>
+
+      {/* Remove confirmation. Short, and it names the consequence a guest
+          cannot see from here: the wall. */}
+      {removeTarget && (
+        <ConfirmModal
+          title={removeTarget.media_type === 'video' ? 'Remove this video?' : 'Remove this photo?'}
+          tone="danger"
+          confirmLabel="Remove"
+          busy={removingId === removeTarget.id}
+          body={
+            removeTarget.origin === 'db' ? (
+              <>
+                It disappears from the wall too. This can’t be undone.
+                <span className="block mt-2 text-brand-muted/50">
+                  Save it first if you want to keep a copy.
+                </span>
+              </>
+            ) : (
+              <>
+                This one only exists on this device — it never reached the wall. Removing it
+                can’t be undone.
+              </>
+            )
+          }
+          onConfirm={() => { void removeMedia(removeTarget); }}
+          onCancel={() => {
+            if (removingId) return; // don't abandon a removal mid-flight
+            setRemoveTarget(null);
+          }}
+        />
+      )}
     </div>
   );
 }

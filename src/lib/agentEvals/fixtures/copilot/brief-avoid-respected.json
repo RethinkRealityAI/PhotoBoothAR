@@ -1,0 +1,111 @@
+{
+  "mode": "copilot",
+  "surface": "build",
+  "snapshot": {
+    "eventUuid": "0d6c1b7e-2b4a-4f1e-9c3d-7a8b9c0d1e2f",
+    "slug": "tomi-40",
+    "name": "Tomi's 40th",
+    "status": "draft",
+    "planTier": "premium",
+    "eventType": "birthday",
+    "startsAt": null,
+    "brief": {
+      "occasion": "40th birthday party",
+      "honorees": [
+        "Tomi"
+      ],
+      "palette": "sage green and cream",
+      "tone": "calm, elegant",
+      "avoid": [
+        "balloons"
+      ],
+      "notes": "",
+      "updatedAt": "2026-09-01T00:00:00.000Z"
+    },
+    "copy": null,
+    "failed": false,
+    "postCount": 0,
+    "showChallenges": true,
+    "defaultExperienceId": null,
+    "challenges": [],
+    "experiences": [
+      {
+        "id": "exp-1",
+        "name": "Classic Gold",
+        "kind": "border",
+        "published": true
+      }
+    ],
+    "cards": []
+  },
+  "catalogs": {
+    "filters": [
+      {
+        "id": "champagne-sparkle",
+        "name": "Champagne Sparkle"
+      },
+      {
+        "id": "golden-hour-bloom",
+        "name": "Golden Hour Bloom"
+      },
+      {
+        "id": "velvet-film",
+        "name": "Velvet Film"
+      },
+      {
+        "id": "neon-pulse",
+        "name": "Neon Pulse"
+      }
+    ],
+    "headPieces": [
+      {
+        "id": "royal-crown",
+        "name": "Royal Crown"
+      },
+      {
+        "id": "queen-tiara",
+        "name": "Queen's Tiara"
+      },
+      {
+        "id": "neon-shades",
+        "name": "Neon Shades"
+      },
+      {
+        "id": "cyclops-visor",
+        "name": "Optic Visor"
+      }
+    ],
+    "frames": [
+      {
+        "id": "dw-frame-classic",
+        "name": "Classic Gold Border"
+      },
+      {
+        "id": "frame-deco-plain",
+        "name": "Art Deco"
+      },
+      {
+        "id": "frame-minimal-plain",
+        "name": "Minimal Inset"
+      }
+    ]
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "add a pack of four photo missions for the party"
+    }
+  ],
+  "expect": {
+    "tools": [
+      "add_challenge_pack"
+    ],
+    "args": {
+      "add_challenge_pack": {
+        "challenges": {
+          "$notMatch": "[Bb]alloon"
+        }
+      }
+    }
+  }
+}

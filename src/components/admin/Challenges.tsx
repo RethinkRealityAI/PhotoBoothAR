@@ -14,14 +14,36 @@ import {
 import EventBackground from '../ui/EventBackground';
 import {
   fetchChallenges,
+  fetchChallengeCheckStats,
   createChallenge,
   updateChallenge,
   deleteChallenge,
   uploadAsset,
 } from '../../lib/db';
 import { normalizeValidation } from '../../lib/challengeValidation';
+import { formatCheckStats, summarizeChallengeChecks, type ChallengeCheckStats } from '../../lib/challengeChecks';
 import { useEvent } from '../../events/EventContext';
 import type { Challenge } from '../../types';
+
+/* ------------------------------------------------------------------ */
+/* Helpers                                                              */
+/* ------------------------------------------------------------------ */
+
+/** Same idiom as Moderation.tsx — ms since the stamp, divided into seconds. */
+function timeAgo(iso: string): string {
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return `${Math.round(diff)}s ago`;
+  if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.round(diff / 3600)}h ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+/** AI photo-check verdicts for the event, per challenge id. `failed` = the
+ *  read itself failed — rendered as "unavailable", never as zero checks. */
+interface CheckSummary {
+  stats: Record<string, ChallengeCheckStats>;
+  failed: boolean;
+}
 
 /* ------------------------------------------------------------------ */
 /* Inline edit form                                                      */
@@ -242,12 +264,20 @@ interface RowProps {
   confirmDelete: boolean;
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
+  /** null = no verdict rows for this challenge (or stats not loaded yet). */
+  checkStats: ChallengeCheckStats | null;
+  /** The stats read failed — say so instead of showing nothing. */
+  checksFailed: boolean;
 }
 
 function ChallengeRow({
   challenge, index, total, onEdit, onDelete, onMove,
   onToggleActive, busy, confirmDelete, onConfirmDelete, onCancelDelete,
+  checkStats, checksFailed,
 }: RowProps) {
+  const [showFails, setShowFails] = useState(false);
+  const hasCheck = challenge.validation?.enabled === true;
+  const recentFails = checkStats?.recentFails ?? [];
   return (
     <div
       className={`flex items-start gap-3 p-4 rounded-2xl border transition-all duration-200 ${
@@ -263,20 +293,31 @@ function ChallengeRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="font-sans text-sm text-ivory font-medium leading-tight">{challenge.title}</p>
-          <span className="font-label uppercase tracking-widest text-[8px] px-2 py-0.5 rounded-full bg-gold-400/15 text-gold-300">
+          <span className="font-label uppercase tracking-widest text-[11px] px-2 py-0.5 rounded-full bg-gold-400/15 text-gold-300">
             {challenge.points} pts
           </span>
           {!challenge.active && (
-            <span className="font-label uppercase tracking-widest text-[8px] px-2 py-0.5 rounded-full bg-noir-700 text-champagne/30">
+            <span className="font-label uppercase tracking-widest text-[11px] px-2 py-0.5 rounded-full bg-noir-700 text-champagne/30">
               Inactive
             </span>
           )}
-          {challenge.validation?.enabled && (
+          {hasCheck && (
             <span
-              title={challenge.validation.prompt}
-              className="inline-flex items-center gap-1 font-label uppercase tracking-widest text-[8px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300"
+              title={challenge.validation?.prompt}
+              className="inline-flex items-center gap-1 font-label uppercase tracking-widest text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300"
             >
               <ScanEye className="w-2.5 h-2.5" /> AI check
+            </span>
+          )}
+          {/* Verdict counts (challenge_checks): a failed read says so; a
+              validating challenge with no rows yet is "No checks yet", never
+              "0 checked". */}
+          {hasCheck && checksFailed && (
+            <span className="font-sans text-[11px] text-amber-300/80">Check stats unavailable</span>
+          )}
+          {hasCheck && !checksFailed && (
+            <span className="font-sans text-[11px] text-champagne/50">
+              {checkStats ? formatCheckStats(checkStats) : 'No checks yet'}
             </span>
           )}
         </div>
@@ -284,6 +325,28 @@ function ChallengeRow({
           <p className="font-sans text-[11px] text-champagne/50 mt-0.5 leading-relaxed line-clamp-2">
             {challenge.description}
           </p>
+        )}
+        {recentFails.length > 0 && (
+          <div className="mt-1">
+            <button
+              type="button"
+              onClick={() => setShowFails((v) => !v)}
+              aria-expanded={showFails}
+              className="min-h-11 -ml-1 px-1 inline-flex items-center gap-1 font-label uppercase tracking-widest text-[11px] text-champagne/50 hover:text-gold-300 transition-colors"
+            >
+              {showFails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              Recent fail reasons ({recentFails.length})
+            </button>
+            {showFails && (
+              <ul className="flex flex-col gap-1 pb-1 animate-rise-in">
+                {recentFails.map((f, i) => (
+                  <li key={`${f.at}-${i}`} className="font-sans text-[11px] text-champagne/60 leading-snug">
+                    {f.reason} <span className="text-champagne/35">· {timeAgo(f.at)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </div>
 
@@ -373,11 +436,16 @@ export default function Challenges() {
   const [editingId, setEditingId] = useState<string | null>(null);   // null = none, 'new' = add form
   const [savingId, setSavingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // AI photo-check verdicts (read-only; null until the first load resolves).
+  const [checks, setChecks] = useState<CheckSummary | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const data = await fetchChallenges(eventId);
+    // fetchChallengeCheckStats never throws — a failed read comes back as
+    // { rows: [], failed: true } and is rendered as "unavailable" per row.
+    const [data, checkRes] = await Promise.all([fetchChallenges(eventId), fetchChallengeCheckStats(eventId)]);
     setChallenges(data);
+    setChecks({ stats: summarizeChallengeChecks(checkRes.rows), failed: checkRes.failed });
     setLoading(false);
   }, [eventId]);
 
@@ -540,6 +608,8 @@ export default function Challenges() {
                   confirmDelete={confirmDeleteId === c.id}
                   onConfirmDelete={() => setConfirmDeleteId(c.id)}
                   onCancelDelete={() => setConfirmDeleteId(null)}
+                  checkStats={checks?.stats[c.id] ?? null}
+                  checksFailed={checks?.failed === true}
                 />
               )
             )}

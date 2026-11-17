@@ -39,6 +39,8 @@ import { ADD_ONS } from './studio/addOns';
 import { TRIGGER_SOURCES, type TriggerAction } from './studio/triggers';
 import { MAX_OBJECTS, MAX_TRIGGERS } from './studio/state';
 import { FRAME_LAYOUT_SPEC } from './assetPrompt';
+import { MAX_ACTIONS } from './copilot';
+import { CONTENT_PACKS, PACK_IDS } from './contentPacks';
 import { GUIDES, GUIDE_COUNTS, GUIDE_COVERAGE, type GuideCoverageEntry } from './guidesContent';
 import type { FeatureHelpTopic } from './studio/featureHelp';
 
@@ -204,11 +206,31 @@ describe('guides counts — the numbers the copy says out loud', () => {
     ).toBe(ADD_ONS.length);
   });
 
+  it('matches the Copilot proposal cap and the starter packs', () => {
+    expect(
+      GUIDE_COUNTS.copilotMaxActions,
+      `The guides say the Copilot proposes up to ${GUIDE_COUNTS.copilotMaxActions} changes at a time but MAX_ACTIONS is ${MAX_ACTIONS} (src/lib/copilot.ts). ${FIX}.`,
+    ).toBe(MAX_ACTIONS);
+    expect(
+      GUIDE_COUNTS.starterPacks,
+      `The guides describe ${GUIDE_COUNTS.starterPacks} starter packs but PACK_IDS has ${PACK_IDS.length} (src/lib/contentPacks.ts). ${FIX}.`,
+    ).toBe(PACK_IDS.length);
+    // "five ready-made photo missions" is printed for EVERY style, so every
+    // pack must carry exactly that many — an average would let one pack lie.
+    for (const id of PACK_IDS) {
+      const n = CONTENT_PACKS[id].challenges.length;
+      expect(
+        n,
+        `The guides promise ${GUIDE_COUNTS.starterPackMissions} missions in every starter pack but the "${id}" pack has ${n} (src/lib/contentPacks.ts). ${FIX}.`,
+      ).toBe(GUIDE_COUNTS.starterPackMissions);
+    }
+  });
+
   it('quotes those numbers somewhere a reader can see them', () => {
     // A count kept in sync but never printed is dead weight; this is what makes
     // the checks above worth running.
     const printed = JSON.stringify(GUIDES);
-    for (const n of [GUIDE_COUNTS.maxObjects, GUIDE_COUNTS.maxTriggers, GUIDE_COUNTS.triggerSources]) {
+    for (const n of [GUIDE_COUNTS.maxObjects, GUIDE_COUNTS.maxTriggers, GUIDE_COUNTS.triggerSources, GUIDE_COUNTS.copilotMaxActions]) {
       expect(printed.includes(String(n)), `no guide mentions the number ${n}`).toBe(true);
     }
   });

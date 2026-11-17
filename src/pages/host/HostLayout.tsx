@@ -9,12 +9,13 @@
  */
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, CalendarRange, Coins, CreditCard, LifeBuoy, LogOut, Plus, Sparkles } from 'lucide-react';
+import { ALargeSmall, BookOpen, CalendarRange, Coins, CreditCard, LifeBuoy, LogOut, Plus, Sparkles } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
 import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
 import { fetchMyUnreadCount } from '../../lib/support';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { haptic } from '../../lib/haptics';
+import { readTextSize, writeTextSize, type TextSize, type TextSizeStore } from '../../lib/textSize';
 import { useAiJobSweep } from '../../lib/useAiJobSweep';
 import { ToastProvider } from '../../components/ui/Toast';
 import ConfirmModal from '../../components/ui/ConfirmModal';
@@ -32,6 +33,24 @@ function hostTitle(pathname: string): string {
   return 'Host studio — Beamwall';
 }
 
+/** localStorage, or null where merely touching it throws (some private
+ *  windows, blocked site data) — readTextSize/writeTextSize guard the rest. */
+function textSizeStore(): TextSizeStore | null {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The CSS hook: `[data-textsize="lg"] .ui-scalable` raises `--ui-scale`, so
+ *  the chats and cards grow while the studio canvas stays put. 'md' is the
+ *  absence of the attribute, never a value. */
+function applyTextSize(size: TextSize) {
+  if (size === 'lg') document.documentElement.dataset.textsize = 'lg';
+  else delete document.documentElement.dataset.textsize;
+}
+
 export default function HostLayout() {
   const navigate = useNavigate();
   const { session, loading } = useSession();
@@ -40,8 +59,23 @@ export default function HostLayout() {
   const [credits, setCredits] = useState<number | null>(null);
   const [unread, setUnread] = useState(0);
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  const [textSize, setTextSize] = useState<TextSize>(() => readTextSize(textSizeStore()));
   const { pathname } = useLocation();
   usePageTitle(hostTitle(pathname));
+
+  // Larger-text preference: applied on mount from storage, and cleared when
+  // the host leaves /host so a guest or admin surface never inherits it.
+  useEffect(() => {
+    applyTextSize(textSize);
+    return () => applyTextSize('md');
+  }, [textSize]);
+
+  const toggleTextSize = () => {
+    const next: TextSize = textSize === 'lg' ? 'md' : 'lg';
+    haptic('tap');
+    setTextSize(next);
+    writeTextSize(textSizeStore(), next); // false = not persisted; the session still gets it
+  };
 
   // Re-checked on every /host navigation rather than by a timer or a realtime
   // channel: a support reply is not time-critical to the second, and a poll
@@ -125,7 +159,11 @@ export default function HostLayout() {
 
         {/* Primary destinations — icon + label rows in the sidebar; icon-first
             (labels from sm) on the mobile top bar. */}
-        <nav className="flex md:flex-col gap-1 md:gap-1.5 items-center md:items-stretch ml-auto md:ml-0 md:flex-1 md:min-h-0">
+        {/* The phone top bar holds more 44px targets than 390px fits (it
+            already clipped Support and Sign out); it scrolls sideways instead
+            of hiding controls. Vertical breathing room keeps the New-event
+            glow from being cut by the scroll box; desktop stays a column. */}
+        <nav className="flex md:flex-col gap-1 md:gap-1.5 items-center md:items-stretch ml-auto md:ml-0 md:flex-1 md:min-h-0 min-w-0 overflow-x-auto hide-scrollbar py-2 -my-2 md:py-0 md:my-0 md:overflow-visible">
           {/* The one action every journey starts with — promoted above the
               destinations so a returning host never hunts for it. */}
           <Link
@@ -206,6 +244,19 @@ export default function HostLayout() {
                 {unread > 0 && <span className="ml-1.5 text-[color:var(--color-accent)]">{unread}</span>}
               </span>
             </NavLink>
+            {/* A control, not a destination: scales the chats and cards via
+                --ui-scale (textSize.ts). Not in visibleHostNav on purpose. */}
+            <button
+              type="button"
+              onClick={toggleTextSize}
+              aria-pressed={textSize === 'lg'}
+              aria-label="Larger text"
+              title={textSize === 'lg' ? 'Larger text is on — tap to use the standard size' : 'Larger text for chats and cards'}
+              className={`${railLink} ${railState(textSize === 'lg')}`}
+            >
+              <ALargeSmall className="w-[18px] h-[18px] shrink-0" />
+              <span className="hidden sm:inline">Larger text</span>
+            </button>
             <button onClick={() => setConfirmingSignOut(true)} aria-label="Sign out" className={`${railLink} ${railState(false)}`}>
               <LogOut className="w-[18px] h-[18px] shrink-0" />
               <span className="hidden sm:inline">Sign out</span>

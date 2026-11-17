@@ -1,0 +1,41 @@
+{
+  "mode": "create",
+  "surface": "concierge",
+  "templates": [
+    {
+      "id": "wedding",
+      "vibe": "Wedding — Timeless gold on deep green — elegant frames and a soft champagne glow."
+    },
+    {
+      "id": "gala",
+      "vibe": "Gala — Black-tie glamour — warm noir, bokeh light and gilded corners."
+    },
+    {
+      "id": "birthday",
+      "vibe": "Birthday — Playful pink & gold with confetti and a holographic shimmer."
+    },
+    {
+      "id": "corporate",
+      "vibe": "Corporate — Refined and on-brand — restrained gold on cool slate."
+    },
+    {
+      "id": "party",
+      "vibe": "Party — High-energy neon — electric magenta & cyan with an equalizer frame."
+    }
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "content": "Jenna and Jake's wedding, grandma can't fly out so she should join from home"
+    }
+  ],
+  "expect": {
+    "planFields": {
+      "templateId": "wedding",
+      "remote": true,
+      "name": {
+        "$match": "Jenna"
+      }
+    }
+  }
+}

@@ -12,14 +12,15 @@
  * platform" for pure help questions. The zustand event store is NEVER used
  * here (it's only correct inside EventProvider) — everything is explicit.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { BookOpen, ChevronDown, Loader2, PartyPopper, Sparkles, X } from 'lucide-react';
 import { useCopilotStore } from '../../lib/copilotStore';
 import { fetchMyEvents, type HostEventRow } from '../../lib/host';
-import { loadEventSnapshot, type EventSnapshot } from '../../lib/eventSnapshot';
+import { loadEventSnapshot, snapshotMetaFromRow, type EventSnapshot } from '../../lib/eventSnapshot';
 import CopilotChat from './CopilotChat';
+import { useKeyboardInset } from './useKeyboardInset';
 
 const UUID_RE = /^\/host\/events\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
 
@@ -30,37 +31,13 @@ export default function CopilotPanel() {
 
   const routeUuid = useMemo(() => UUID_RE.exec(pathname)?.[1] ?? null, [pathname]);
 
-  // Mobile soft-keyboard: when the keyboard opens, the *visual* viewport shrinks
-  // but a position:fixed panel is laid out against the *layout* viewport (the
-  // ICB, unchanged by the keyboard on iOS Safari where interactive-widget is
-  // ignored). So the bottom-anchored input hides behind the keyboard. Track how
-  // much the keyboard occludes and lift the panel's bottom edge above it; the
-  // flex-1 chat scroll region shrinks so the input row stays visible. Desktop
-  // has no soft keyboard (kbInset stays 0), so its md: bottom-6 anchor is
-  // untouched. On browsers honoring interactive-widget=resizes-content the
-  // layout viewport itself shrinks (innerHeight drops), so kbInset ≈ 0 and this
-  // simply composes without double-adjusting.
-  const [kbInset, setKbInset] = useState(0);
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => {
-      const isMobile = !window.matchMedia('(min-width: 768px)').matches;
-      const occluded = isMobile
-        ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
-        : 0;
-      // Ignore sub-keyboard jitter (URL-bar collapse is a few px); real
-      // keyboards occupy far more than 60px.
-      setKbInset(occluded > 60 ? occluded : 0);
-    };
-    update();
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
-    };
-  }, []);
+  // Mobile soft-keyboard: a position:fixed panel is laid out against the LAYOUT
+  // viewport, which the keyboard does not shrink on iOS Safari — so the
+  // bottom-anchored input hides behind it. Lift the panel's bottom edge by what
+  // the keyboard occludes; the flex-1 chat scroll region shrinks so the input row
+  // stays visible. The measurement now lives in a shared hook, because the very
+  // same chat is also mounted inline on two other host surfaces that had no fix.
+  const kbInset = useKeyboardInset();
 
   const [events, setEvents] = useState<HostEventRow[] | null>(null);
   const [selectedUuid, setSelectedUuid] = useState<string | null>(null);
@@ -70,21 +47,25 @@ export default function CopilotPanel() {
   const [eventsFailed, setEventsFailed] = useState(false);
 
   // Load the host's events when the panel opens; auto-select the route event.
-  useEffect(() => {
-    if (!isOpen) return;
-    let alive = true;
-    fetchMyEvents().then((rows) => {
-      if (!alive) return;
-      // rows === null means the read FAILED. Collapsing that to [] showed a host
-      // with a dozen events an empty picker, which then made every copilot tool
-      // answer "pick an event first" with nothing to pick.
-      setEventsFailed(rows === null);
-      const list = rows ?? [];
-      setEvents(list);
-      setSelectedUuid((cur) => cur ?? routeUuid ?? (list.length === 1 ? list[0].id : null));
-    });
-    return () => { alive = false; };
-  }, [isOpen, routeUuid]);
+  // Extracted so the failed state has something to retry with — a picker stuck
+  // on "Couldn't load your events" was a dead end you could only escape by
+  // closing and reopening the panel (the /host/concierge screen already had a
+  // Retry; the floating panel is where a host on a phone actually is).
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const load = useCallback(async () => {
+    setEventsLoading(true);
+    const rows = await fetchMyEvents();
+    setEventsLoading(false);
+    // rows === null means the read FAILED. Collapsing that to [] showed a host
+    // with a dozen events an empty picker, which then made every copilot tool
+    // answer "pick an event first" with nothing to pick.
+    setEventsFailed(rows === null);
+    if (rows === null) return; // keep whatever list we already had
+    setEvents(rows);
+    setSelectedUuid((cur) => cur ?? routeUuid ?? (rows.length === 1 ? rows[0].id : null));
+  }, [routeUuid]);
+
+  useEffect(() => { if (isOpen) void load(); }, [isOpen, load]);
 
   // (Re)load the snapshot whenever the selected event changes.
   const selected = events?.find((e) => e.id === selectedUuid) ?? null;
@@ -92,14 +73,8 @@ export default function CopilotPanel() {
     if (!selected) { setSnapshot(null); return; }
     let alive = true;
     setSnapLoading(true);
-    loadEventSnapshot({
-      eventUuid: selected.id,
-      slug: selected.slug,
-      name: selected.name,
-      status: selected.status,
-      planTier: selected.plan_tier,
-      eventType: selected.event_type,
-    })
+    // ONE meta builder for every screen (date, brief, copy stamp ride along).
+    loadEventSnapshot(snapshotMetaFromRow(selected))
       .then((s) => { if (alive) setSnapshot(s); })
       .catch(() => { if (alive) setSnapshot(null); })
       .finally(() => { if (alive) setSnapLoading(false); });
@@ -137,7 +112,7 @@ export default function CopilotPanel() {
              shorthand's md: override lost the ordering fight and stranded the
              window top-left). The inline background re-solidifies the glass:
              liquid-glass alone is too transparent to read chat over a page. */
-          className="fixed z-[80] left-3 right-3 top-3 bottom-3 md:left-auto md:top-auto md:right-6 md:bottom-6 md:w-[420px] md:h-[680px] md:max-h-[calc(100dvh-3rem)] rounded-3xl overflow-hidden liquid-glass-raised flex flex-col"
+          className="fixed z-[80] left-3 right-3 top-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] md:left-auto md:top-auto md:right-6 md:bottom-6 md:w-[420px] md:h-[680px] md:max-h-[calc(100dvh-3rem)] rounded-3xl overflow-hidden liquid-glass-raised flex flex-col"
           /* position INLINE because .liquid-glass (unlayered CSS) declares
              position:relative, which beats the layered Tailwind `fixed`
              utility — that collision stranded the popup at the page's static
@@ -145,9 +120,10 @@ export default function CopilotPanel() {
           style={{
             position: 'fixed',
             backgroundColor: 'color-mix(in srgb, var(--color-brand-bg) 88%, transparent)',
-            // When the mobile keyboard is up, override the bottom-3 (0.75rem)
-            // anchor to sit above it. Only set inline when open so desktop's
-            // md: bottom-6 class keeps winning at rest.
+            // When the mobile keyboard is up, override the bottom anchor to sit
+            // above it. Only set inline when open so desktop's md: bottom-6
+            // class keeps winning at rest. (The keyboard supersedes the
+            // safe-area inset — a keyboard is never shorter than the home bar.)
             ...(kbInset > 0 ? { bottom: `calc(0.75rem + ${kbInset}px)` } : null),
           }}
         >
@@ -158,8 +134,14 @@ export default function CopilotPanel() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="font-serif text-sm text-foil-static leading-tight">Beamwall Copilot</p>
-                <p className="font-sans text-[10px] text-brand-muted/60 truncate">
-                  {selected ? selected.name : 'Platform help & your events'}
+                {/* A snapshot that loaded but could not READ the event's
+                    contents still scopes every tool — it just must not be
+                    described. Say so here rather than let the assistant answer
+                    from four zeroes. */}
+                <p className={`font-sans text-[10px] truncate ${snapshot?.failed ? 'text-amber-300/90' : 'text-brand-muted/60'}`}>
+                  {snapshot?.failed
+                    ? 'Couldn’t read what’s in this event'
+                    : selected ? selected.name : 'Platform help & your events'}
                 </p>
               </div>
               <button
@@ -201,6 +183,21 @@ export default function CopilotPanel() {
                 </div>
                 {snapLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-muted/50 shrink-0" />}
               </div>
+
+              {eventsFailed && (
+                <div className="flex items-center gap-2 rounded-xl border border-amber-300/25 bg-amber-400/[0.07] px-3 py-2">
+                  <p className="flex-1 font-sans text-[11px] text-amber-100/90 leading-snug">
+                    Couldn’t load your events — check your connection.
+                  </p>
+                  <button
+                    onClick={() => void load()}
+                    disabled={eventsLoading}
+                    className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] px-3.5 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors disabled:opacity-50"
+                  >
+                    {eventsLoading && <Loader2 className="w-3 h-3 animate-spin" />} Retry
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Chat */}
@@ -208,6 +205,9 @@ export default function CopilotPanel() {
               key={selectedUuid ?? 'platform'}
               snapshot={snapshot}
               onMutated={refreshSnapshot}
+              /* This panel already lifts its own bottom edge above the keyboard
+                 — letting the chat pad as well would double the lift. */
+              liftAboveKeyboard={false}
             />
         </motion.div>
       )}

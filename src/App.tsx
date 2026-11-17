@@ -62,6 +62,7 @@ const EventStudio = lazy(() => import('./pages/host/EventStudio'));
 const ManagerConsole = lazy(() => import('./pages/manager/ManagerConsole'));
 const CardViewer = lazy(() => import('./pages/cards/CardViewer'));
 const CardContribute = lazy(() => import('./pages/cards/CardContribute'));
+const EventRecap = lazy(() => import('./pages/recap/EventRecap'));
 const BeamDemoPhone = lazy(() => import('./pages/BeamDemoPhone'));
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'));
 const AdminOverview = lazy(() => import('./pages/admin/Overview'));
@@ -182,7 +183,7 @@ function adminRoutes() {
  *  whole legacy builds, which are guest surfaces end to end. */
 function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
-  const guestSurface = LEGACY_EVENT !== '' || /^\/(e|c|m|beam)(\/|$)/.test(pathname);
+  const guestSurface = LEGACY_EVENT !== '' || /^\/(e|c|m|r|beam)(\/|$)/.test(pathname);
   return (
     <div
       className={`min-h-screen h-screen w-screen bg-brand-bg text-ivory font-sans overflow-hidden${
@@ -274,6 +275,12 @@ export default function App() {
               {/* Greeting cards: public viewer + token-gated contribute page */}
               <Route path="/c/:publicId" element={<CardViewer />} />
               <Route path="/c/:publicId/contribute" element={<CardContribute />} />
+
+              {/* Post-event album. A SIBLING of the guest tree, never inside
+                  it: EventProvider replaces its children with "this event has
+                  ended" for a signed-out guest, and the recap's whole job is to
+                  keep working after that. It resolves the slug itself. */}
+              <Route path="/r/:slug" element={<EventRecap />} />
 
               {/* Landing demo, cross-device: the visitor's REAL phone becomes
                   the booth and beams to the landing page's live wall. */}

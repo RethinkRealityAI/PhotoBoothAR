@@ -6,6 +6,7 @@
  * event-specific branding, theming, copy, and AR content flows from it.
  */
 import type { ComponentType } from 'react';
+import type { EventBrief } from '../lib/eventBrief';
 
 /** A single numbered step on the /join landing + onboarding. */
 export interface EventStep {
@@ -35,6 +36,16 @@ export interface EventCopy {
   /** Personalized share-sheet title, e.g. "My Hope Gala Moment". */
   momentTitle: string;
   shareText: string;
+  /** Guest-welcome intro paragraph (DB events; generated once from the brief
+   *  or host-edited via Branding). Absent → the welcome page's built-in line,
+   *  so legacy coded events render byte-identically. */
+  welcomeIntro?: string;
+  /** Keepsake-email intro (read server-side by send-keepsakes; surfaced in
+   *  Branding so the host can edit it). */
+  keepsakeIntro?: string;
+  /** ISO stamp of the AI copy run (`config.copy.generatedAt`) — shown in
+   *  Branding as "Written by AI on …"; never re-generated once set. */
+  generatedAt?: string;
 }
 
 /** Which AR catalog entries this event exposes. Empty/undefined array = include all. */
@@ -87,4 +98,8 @@ export interface EventConfig {
    *  EventProvider applies these at runtime so themes no longer require a
    *  build-time CSS import. */
   themeVars?: Record<string, string>;
+  /** The shared event brief (events.config.brief) the concierge captures and
+   *  the Platform Copilot / Scene Director read. DB events only — undefined
+   *  when the row carries none, and always undefined for legacy coded events. */
+  brief?: EventBrief;
 }

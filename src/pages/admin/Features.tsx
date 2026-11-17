@@ -35,6 +35,7 @@ import {
   setFlagKill, setPlanDefault, setOrgPlan,
   type OrgRow, type FeatureFlagRow, type PlanDefaultRow, type ResolvedFeature,
 } from '../../lib/admin';
+import { registryNote } from './registryNote';
 
 const TIERS: PlanTier[] = ['free', 'essentials', 'premium', 'deluxe'];
 
@@ -196,6 +197,9 @@ export default function AdminFeatures() {
           <h1 className="font-serif text-2xl md:text-3xl text-foil-static">Plans &amp; features</h1>
           <p className="font-sans text-sm text-brand-muted/60 mt-1">
             Upgrade an account, grant one capability to one customer, or turn a feature off for everybody.
+          </p>
+          <p className="font-sans text-[11px] text-brand-muted/50 mt-1" aria-live="polite">
+            {registryNote(flags.length, 'feature flag')}
           </p>
         </header>
 

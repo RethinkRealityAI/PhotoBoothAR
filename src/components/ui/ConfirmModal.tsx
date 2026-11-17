@@ -21,6 +21,7 @@ export default function ConfirmModal({
   onCancel,
   tone = 'caution',
   busy = false,
+  confirmDisabled = false,
   extraAction,
 }: {
   title: string;
@@ -32,6 +33,13 @@ export default function ConfirmModal({
   /** 'caution' for reversible-with-effort, 'danger' for money or access. */
   tone?: 'caution' | 'danger';
   busy?: boolean;
+  /**
+   * Confirm stays unavailable until the caller says otherwise — for the dialogs
+   * that put a gate INSIDE `body` (typing an event's name to delete it). Cancel
+   * is never disabled by this: a host who cannot proceed must always be able to
+   * leave. Default false, so every existing caller is unchanged.
+   */
+  confirmDisabled?: boolean;
   /**
    * A third, de-emphasised choice for the cases where "cancel" and "confirm"
    * genuinely aren't the whole picture — save-or-discard being the obvious one.
@@ -53,7 +61,7 @@ export default function ConfirmModal({
       <div className="flex gap-2">
         <button
           onClick={onConfirm}
-          disabled={busy}
+          disabled={busy || confirmDisabled}
           className={`flex-1 min-h-11 rounded-xl px-4 font-label uppercase tracking-luxe text-[10px] transition-colors disabled:opacity-50 ${confirmClass}`}
         >
           {busy ? 'Working…' : confirmLabel}

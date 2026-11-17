@@ -153,7 +153,7 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
                 /* ── Name step (required before entering challenge mode) ── */
                 <div className="text-center">
                   <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-foil glow-accent flex items-center justify-center">
-                    <Trophy className="w-6 h-6 text-noir-900" />
+                    <Trophy className="w-6 h-6 text-[color:var(--on-accent)]" />
                   </div>
                   <h3 className="font-serif text-2xl text-ivory mb-1">Enter the Challenges</h3>
                   <p className="font-sans text-[13px] text-champagne/60 leading-relaxed mb-5 max-w-xs mx-auto">
