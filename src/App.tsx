@@ -115,6 +115,10 @@ const PitchPage = import.meta.env.VITE_EVENT
 const BookPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/sales/BookPage'));
+/** Themed hands-on booth for the decks' demo slide (/try/:kit). Same fold. */
+const TryPage = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/sales/TryPage'));
 
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
@@ -271,6 +275,7 @@ export default function App() {
               <Route path="/hub/p7m2k9qx" element={<SalesHub />} />
               <Route path="/pitch/:slug" element={<PitchPage />} />
               <Route path="/book/:ref" element={<BookPage />} />
+              <Route path="/try/:kit" element={<TryPage />} />
 
               {/* Host platform (session-gated) */}
               <Route path="/host" element={<HostLayout />}>

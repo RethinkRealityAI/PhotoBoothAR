@@ -91,7 +91,7 @@ function PrintDeck({ deck, env }: { deck: DeckLike; env: DeckEnv }) {
     };
   }, []);
   if (host === null) return null;
-  const slideEnv: SlideEnv = { ...env, mode: 'stage', rgb: deck.rgb, eagerImages: true };
+  const slideEnv: SlideEnv = { ...env, mode: 'stage', rgb: deck.rgb, eagerImages: true, still: true };
   return createPortal(
     <div className="text-brand-fg">
       {deck.slides.map((s, i) => (
@@ -439,7 +439,7 @@ export function SlideThumb({ deck, env, index = 0 }: { deck: DeckLike; env: Deck
     <div ref={ref} className="relative aspect-video w-full overflow-hidden" aria-hidden inert>
       {slide !== undefined && scale > 0 && (
         <div style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${scale})`, transformOrigin: 'top left' }} className="pointer-events-none absolute left-0 top-0">
-          <SlideView slide={slide} env={{ ...env, mode: 'stage', rgb: deck.rgb }} index={index} total={deck.slides.length} deckName={deck.name} />
+          <SlideView slide={slide} env={{ ...env, mode: 'stage', rgb: deck.rgb, still: true }} index={index} total={deck.slides.length} deckName={deck.name} />
         </div>
       )}
     </div>
