@@ -5,15 +5,16 @@
  * glyphs past ~40 characters. So the model is told to draw NO text and leave a
  * calm plaque (frameGeometryDirection(layout, plaque=true)); the event name and
  * date are composited here with real fonts. The plaque box is FRAME_GEOMETRY's,
- * the same rectangle the prompt reserved, and it sits between the measured
- * booth chrome bands (asserted in assetPrompt.test.ts).
+ * the same rectangle the prompt reserved, and it sits on the frame art between
+ * the measured booth chrome bands (asserted in assetPrompt.test.ts). Frames
+ * saved before FRAME_GEOMETRY_VERSION 2 keep their v1 box (PLAQUE_V1).
  *
  * Everything that decides WHAT is drawn is pure and tested — the font-size
  * fit (with an injected measure function), contrast-aware colours, line
  * layout. `drawFrameText` is the thin canvas step and takes a minimal ctx
  * interface so a fake can stand in for it.
  */
-import { FRAME_GEOMETRY, type FrameLayout, relativeLuminance } from '../assetPrompt';
+import { FRAME_GEOMETRY, FRAME_GEOMETRY_VERSION, type FrameBox, type FrameLayout, relativeLuminance } from '../assetPrompt';
 import type { RgbaImage } from './chromaKey';
 
 export type FrameTextFont = 'classic' | 'script' | 'modern';
@@ -38,9 +39,31 @@ export const FONT_STACK: Record<FrameTextFont, { family: string; weight: number;
 
 export interface PxBox { x: number; y: number; w: number; h: number }
 
-/** The plaque rectangle in canvas pixels. */
-export function plaqueBox(layout: FrameLayout, canvasW: number, canvasH: number): PxBox {
-  const p = FRAME_GEOMETRY[layout].plaque;
+/**
+ * The plaques FRAME_GEOMETRY v1 reserved. A frame generated then has its calm
+ * band THERE, so re-drawing its text (restyleFrameText) must keep using it —
+ * moving the words onto the new box would put them over that frame's busy
+ * ornament. Never edit: it is a record of shipped prompts.
+ */
+export const PLAQUE_V1: Record<FrameLayout, FrameBox> = {
+  'classic-border': { x0: 0.2, y0: 0.1, x1: 0.8, y1: 0.165 },
+  'full-scene': { x0: 0.2, y0: 0.1, x1: 0.8, y1: 0.165 },
+  'duo-scene': { x0: 0.2, y0: 0.1, x1: 0.8, y1: 0.165 },
+  'corner-overlay': { x0: 0.2, y0: 0.585, x1: 0.8, y1: 0.65 },
+  'bottom-third': { x0: 0.12, y0: 0.595, x1: 0.88, y1: 0.665 },
+};
+
+/** The geometry version a saved frame was generated under: the server stamps
+ *  `config.frameGeometry` on new frames; a row without it predates v2. */
+export function frameGeometryVersion(config: unknown): number {
+  const v = config !== null && typeof config === 'object' ? (config as Record<string, unknown>).frameGeometry : undefined;
+  return v === FRAME_GEOMETRY_VERSION ? FRAME_GEOMETRY_VERSION : 1;
+}
+
+/** The plaque rectangle in canvas pixels, for the frame's geometry version
+ *  (absent/unknown → v1, where every frame made before v2 has its band). */
+export function plaqueBox(layout: FrameLayout, canvasW: number, canvasH: number, geometry = 1): PxBox {
+  const p = geometry === FRAME_GEOMETRY_VERSION ? FRAME_GEOMETRY[layout].plaque : PLAQUE_V1[layout];
   return {
     x: Math.round(p.x0 * canvasW),
     y: Math.round(p.y0 * canvasH),
@@ -229,6 +252,21 @@ export function drawFrameText(ctx: TextCtx, ops: TextLineOp[], font: FrameTextFo
     ctx.fillText(op.text, op.x, op.y);
   }
   ctx.restore();
+}
+
+/** Longest AI frame name; the booth orb shows only its first word. */
+export const AI_FRAME_NAME_MAX = 40;
+
+/**
+ * A short human name for a NEW AI frame — "<Look> frame", "· 2" for a second
+ * take. The server names rows after the raw prompt ("holly leaves and
+ * snowflakes in the corn…"), which is what hosts then saw in their picker.
+ * A blank look falls back to "Custom frame". Existing rows are never renamed.
+ */
+export function aiFrameName(look: string | null | undefined, takeIndex = 0, takes = 1): string {
+  const base = cleanFrameText(look).slice(0, AI_FRAME_NAME_MAX - 10).trim();
+  const name = base ? `${base} frame` : 'Custom frame';
+  return takes > 1 ? `${name} · ${takeIndex + 1}` : name;
 }
 
 /** Default text for an event: its name, and its date when known. */

@@ -35,9 +35,11 @@ import {
 } from './frameQuality';
 import type { FrameKeyRequest, FrameKeyResponse } from './frameKey.worker';
 import {
+  aiFrameName,
   ctxMeasure,
   drawFrameText,
   fontString,
+  frameGeometryVersion,
   layoutFrameText,
   pickTextColours,
   plaqueBox,
@@ -92,6 +94,10 @@ export interface FrameTextOverlay {
   spec: FrameTextSpec;
   layout: FrameLayout;
   accentHexes?: string[];
+  /** The frame's FRAME_GEOMETRY version — set HERE from the row's config
+   *  (frameGeometryVersion), never by callers, so text lands in the plaque
+   *  that frame's own prompt reserved. */
+  geometry?: number;
 }
 
 /** Encode an RGBA buffer back to a PNG blob, drawing the text overlay (if
@@ -110,7 +116,7 @@ async function toPngBlob(rgba: RgbaImage, text?: FrameTextOverlay | null): Promi
     } catch {
       /* the fallback face still draws readable text */
     }
-    const box = plaqueBox(text.layout, rgba.width, rgba.height);
+    const box = plaqueBox(text.layout, rgba.width, rgba.height, text.geometry);
     const colours = pickTextColours(sampleBackdrop(rgba, box), text.accentHexes ?? []);
     drawFrameText(ctx, layoutFrameText(text.spec, box, ctxMeasure(ctx, font)), font, colours);
   }
@@ -201,6 +207,9 @@ export interface ProcessFrameOptions {
   keyOpts?: KeyOutOptions;
   /** Name/date to draw on (kept editable: the un-texted art is saved too). */
   text?: FrameTextOverlay | null;
+  /** A human name for a NEW frame (frameText.aiFrameName) — replaces the
+   *  server's raw-prompt name. Absent → the row keeps its name. */
+  name?: string;
 }
 
 export interface ProcessedFrameResult {
@@ -254,7 +263,9 @@ export async function processGeneratedFrame(
   // pixels — no asset_url, and a decode that threw (CORS taint) — where
   // reporting keyed:false would make the caller refuse a good transparent PNG.
   let alreadyTransparent = claimsTransparent && !fromGreenScreen;
-  const text = options.text && options.text.spec.enabled ? options.text : null;
+  const text = options.text && options.text.spec.enabled
+    ? { ...options.text, geometry: frameGeometryVersion(exp.config) }
+    : null;
   if (exp.asset_url) {
     try {
       // Detect the real backdrop hue, key it out, contain-fit to 1080×1920,
@@ -310,15 +321,18 @@ export async function processGeneratedFrame(
     patch.asset_url = processedUrl;
     patch.thumbnail_url = processedUrl;
   }
+  const name = options.name?.trim() ? options.name.trim() : null;
+  if (name !== null) patch.name = name;
 
-  // Persist when there's anything to persist (a processed URL and/or metadata).
-  if (processedUrl || Object.keys(extraConfig).length > 0) {
+  // Persist when there's anything to persist (a processed URL, metadata, a name).
+  if (processedUrl || Object.keys(extraConfig).length > 0 || name !== null) {
     const saved = await updateExperience(eventId, exp.id, patch);
     if (saved) return { experience: saved, keyed, quality };
   }
   return {
     experience: {
       ...exp,
+      ...(name !== null ? { name } : {}),
       ...(processedUrl ? { asset_url: processedUrl, thumbnail_url: processedUrl } : {}),
       config: config as Experience['config'],
     },
@@ -346,7 +360,7 @@ export async function restyleFrameText(
   if (!base) return null;
   try {
     const img = await loadImageData(base);
-    const url = await uploadAsset(eventId, await toPngBlob(img, overlay), `frame-${exp.id}`);
+    const url = await uploadAsset(eventId, await toPngBlob(img, { ...overlay, geometry: frameGeometryVersion(cfg) }), `frame-${exp.id}`);
     if (!url) return null;
     return await updateExperience(eventId, exp.id, {
       asset_url: url,
@@ -381,6 +395,8 @@ export interface FrameRunRequest {
   opts: GenerateImageOpts & { layout: FrameLayout };
   text?: FrameTextOverlay | null;
   extraConfig?: Record<string, unknown>;
+  /** The look's label — each new take is named aiFrameName(look, i, n). */
+  look?: string;
   signal?: AbortSignal;
   onStage?: (stage: FrameStage) => void;
 }
@@ -401,10 +417,11 @@ async function processTakes(req: FrameRunRequest, exps: Experience[]): Promise<F
   const out: FrameTake[] = [];
   // Sequential on purpose: one worker, and three 2M-pixel keys at once would
   // only queue there anyway while tripling peak memory on a phone.
-  for (const exp of exps) {
+  for (const [i, exp] of exps.entries()) {
     const r = await processGeneratedFrame(exp, req.eventSlug, req.extraConfig ?? {}, {
       layout: req.opts.layout,
       text: req.text ?? null,
+      ...(req.look !== undefined ? { name: aiFrameName(req.look, i, exps.length) } : {}),
     });
     out.push({ experience: r.experience, keyed: r.keyed, quality: r.quality });
   }

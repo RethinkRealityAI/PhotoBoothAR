@@ -246,7 +246,7 @@ export default function Concierge() {
         </div>
         <Link
           to="/host/new"
-          className="flex items-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
+          className="flex items-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98]"
         >
           <PartyPopper className="w-4 h-4" /> New event with the Concierge
         </Link>
@@ -272,7 +272,7 @@ export default function Concierge() {
           </p>
           <Link
             to="/host/new"
-            className="inline-flex items-center gap-2 rounded-full bg-foil px-8 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
+            className="inline-flex items-center gap-2 rounded-full bg-foil px-8 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98]"
           >
             <PartyPopper className="w-4 h-4" /> Start with the Concierge
           </Link>

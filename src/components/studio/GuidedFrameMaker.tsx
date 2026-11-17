@@ -18,7 +18,16 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, PencilLine, RefreshCw, Sparkles, Square, Wand2 } from 'lucide-react';
-import { aiErrorMessage, aiErrorRetryable, type AiErrorCode } from '../../lib/ai';
+import {
+  aiErrorMessage,
+  aiErrorRetryable,
+  countFreeFramesLeft,
+  frameAllowance,
+  frameEventHexes,
+  FREE_FRAMES_USED_COPY,
+  type AiErrorCode,
+} from '../../lib/ai';
+import { useStudioBase } from '../admin/studioBase';
 import { inferFrameLayout, type FrameLayout } from '../../lib/assetPrompt';
 import {
   FRAME_PALETTES,
@@ -26,6 +35,7 @@ import {
   composePresetPrompt,
   defaultPresetFor,
   eventPalette,
+  eventPaletteGreenNote,
   framePresetById,
   providerForPreset,
   type FramePalette,
@@ -47,6 +57,7 @@ import {
 } from '../../lib/studio/frameProcessing';
 import {
   FRAME_TEXT_MAX,
+  aiFrameName,
   cleanFrameText,
   formatFrameDate,
   type FrameTextFont,
@@ -85,7 +96,8 @@ async function loadEventFacts(eventUuid: string | null, eventSlug: string | null
       name: typeof data.name === 'string' ? data.name : '',
       eventType: typeof data.event_type === 'string' ? data.event_type : null,
       date: typeof data.starts_at === 'string' ? data.starts_at.slice(0, 10) : null,
-      accentHexes: Array.isArray(cfg.accentHexes) ? (cfg.accentHexes as unknown[]).filter((h): h is string => typeof h === 'string') : [],
+      // The host's current accent first (Branding never rewrites accentHexes).
+      accentHexes: frameEventHexes(cfg),
       occasion: typeof brief.occasion === 'string' && brief.occasion.trim() ? brief.occasion : null,
     };
   } catch (e) {
@@ -117,8 +129,11 @@ const chip = (active: boolean) =>
       ? 'bg-accent/20 border-[color:var(--color-accent)]/60 text-brand-fg'
       : 'border-white/10 bg-white/[0.04] text-brand-muted hover:text-brand-fg'
   }`;
-const primaryBtn =
-  'pressable min-h-[44px] flex items-center justify-center gap-2 rounded-full bg-foil px-5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-50';
+// Ink is decided per mount (see `platform` below): `--on-accent` is the
+// contrast-checked ink for the platform's foil; the frozen legacy studios
+// keep their white.
+const primaryBtnBase =
+  'pressable min-h-[44px] flex items-center justify-center gap-2 rounded-full bg-foil px-5 font-label uppercase tracking-luxe text-[11px] font-bold glow-accent transition active:scale-[0.98] disabled:opacity-50';
 const ghostBtn =
   'pressable min-h-[44px] flex items-center justify-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 font-label uppercase tracking-luxe text-[11px] text-brand-fg transition hover:bg-white/[0.08] disabled:opacity-50';
 const field =
@@ -160,6 +175,13 @@ export default function GuidedFrameMaker({
   const [phase, setPhase] = useState<Phase>({ kind: 'choose' });
   const [now, setNow] = useState(() => Date.now());
   const abortRef = useRef<AbortController | null>(null);
+  // Platform mounts (/host/events/…) only; the legacy admin studios render
+  // exactly as before.
+  const platform = useStudioBase().startsWith('/host/');
+  const primaryBtn = `${primaryBtnBase} ${platform ? 'text-[color:var(--on-accent)]' : 'text-white'}`;
+  // Free AI images left on this event (null = unknown → show the price).
+  const [freeLeft, setFreeLeft] = useState<number | null>(null);
+  const [freeCheck, setFreeCheck] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -170,6 +192,16 @@ export default function GuidedFrameMaker({
     });
     return () => { alive = false; };
   }, [eventUuid, eventSlug]);
+
+  // Re-counted after every generation (freeCheck), so the button flips from
+  // "free" to the price the moment the third free one is used.
+  const evUuid = ev?.uuid ?? null;
+  useEffect(() => {
+    if (!platform || !evUuid) return;
+    let alive = true;
+    void countFreeFramesLeft(evUuid).then((n) => { if (alive) setFreeLeft(n); });
+    return () => { alive = false; };
+  }, [platform, evUuid, freeCheck]);
 
   // Stop waiting (never stops the server) if the host navigates away.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -185,12 +217,29 @@ export default function GuidedFrameMaker({
   const presetId = presetPick ?? defaultPresetFor(ev?.eventType, ev?.occasion);
   const preset = framePresetById(presetId) ?? FRAME_PRESETS[0];
   const evPal = eventPalette(ev?.accentHexes);
+  const greenNote = eventPaletteGreenNote(ev?.accentHexes);
   const palettes: FramePalette[] = evPal ? [evPal, ...FRAME_PALETTES] : [...FRAME_PALETTES];
   const palette = palettes.find((p) => p.id === (palettePick ?? palettes[0].id)) ?? palettes[0];
   const title = titleEdit ?? ev?.name ?? '';
   const subtitle = subtitleEdit ?? formatFrameDate(ev?.date);
   const textSpec: FrameTextSpec = { enabled: textOn && cleanFrameText(title) !== '', title, subtitle, font };
-  const costLabel = providerCostLabel(provider, providerChoice?.status ?? null);
+  // A free slot covers the whole request (ai-generate-image zeroCost), but it
+  // grants ONE take (jobPolicy FREE_TRIAL_MAX_VARIANTS = 1) — so while one is
+  // left, the "how many options" choice is hidden exactly as on a free plan.
+  const freeNext = freeLeft !== null && freeLeft > 0;
+  const oneTake = freeTrial || freeNext;
+  // Platform only; `freeTrial` = no aiStudio (FrameStudio/AssetsDock pass
+  // !entitlements.aiStudio). Out of free frames without it, the server
+  // answers upgrade_required — so no Generate is offered, only the way on.
+  const allowance = platform ? frameAllowance(freeLeft, !freeTrial) : null;
+  const outOfFree = allowance === 'upgrade';
+  const costLabel = freeNext ? 'free' : allowance === 'trial' ? 'first 3 free' : providerCostLabel(provider, providerChoice?.status ?? null);
+  const upgradeNote = (
+    <p className="font-sans text-[13px] text-brand-fg leading-snug">
+      {FREE_FRAMES_USED_COPY}{' '}
+      <a href="/host/billing" target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center align-middle underline text-accent-2">See upgrade options</a>
+    </p>
+  );
   const higgsfieldTip =
     providerChoice !== undefined &&
     providerForPreset(preset, provider, providerChoice.higgsfieldReady) !== provider;
@@ -207,8 +256,11 @@ export default function GuidedFrameMaker({
         const p = await processGeneratedFrame(r.experience, ev.slug, {}, {
           layout,
           text: textSpec.enabled ? { spec: textSpec, layout, accentHexes: palette.hexes } : null,
+          ...(platform ? { name: aiFrameName(preset.label) } : {}),
         });
         onSpent?.();
+        // The recovered frame used a free slot too — re-count it.
+        setFreeCheck((n) => n + 1);
         setPhase({
           kind: 'results',
           run: { takes: [{ experience: p.experience, keyed: p.keyed, quality: p.quality }], job: r.job, autoRetried: false, retryFree: false, retryUnavailable: false },
@@ -233,6 +285,9 @@ export default function GuidedFrameMaker({
     const words = extra.trim();
     const fromWords = inferFrameLayout(words);
     const layout: FrameLayout = fromWords !== 'classic-border' ? fromWords : preset.layout;
+    // Words for the prompt only for a named swatch; the HEXES always go, the
+    // event's too — the server's own fallback is config.accentHexes, which
+    // still holds the template colours after a Branding change.
     const picked = palette.id === 'event' ? null : palette;
     const ctl = new AbortController();
     abortRef.current = ctl;
@@ -254,17 +309,22 @@ export default function GuidedFrameMaker({
         greenScreen: true,
         layout,
         plaque: textSpec.enabled,
-        ...(picked ? { palette: picked.hexes } : {}),
-        ...(freeTrial ? {} : { variants }),
+        ...(platform
+          ? (palette.hexes.length > 0 ? { palette: palette.hexes.slice(0, 3) } : {})
+          : (picked ? { palette: picked.hexes } : {})),
+        ...(oneTake ? {} : { variants }),
         ...providerBody(provider),
         ...(referenceImageUrl ? { referenceImageUrl } : {}),
       },
       text: textSpec.enabled ? { spec: textSpec, layout, accentHexes: palette.hexes } : null,
+      // New frames get a human name (platform; legacy studios unchanged).
+      ...(platform ? { look: preset.label } : {}),
       signal: ctl.signal,
       onStage: (stage) => setPhase((p) => (p.kind === 'working' ? { ...p, stage } : p)),
     });
     if (abortRef.current === ctl) abortRef.current = null;
     onSpent?.();
+    setFreeCheck((n) => n + 1);
     if (res.error !== null || !res.data) {
       const code = res.error ?? 'internal';
       if (isWaitStopped(code)) {
@@ -423,10 +483,13 @@ export default function GuidedFrameMaker({
           <button type="button" onClick={() => setPhase({ kind: 'choose' })} disabled={stillMaking} className={ghostBtn}>
             Back
           </button>
-          <button type="button" onClick={() => void generate()} disabled={stillMaking} className={primaryBtn}>
-            <RefreshCw className="w-4 h-4" aria-hidden="true" /> Try again · {costLabel}
-          </button>
+          {!outOfFree && (
+            <button type="button" onClick={() => void generate()} disabled={stillMaking} className={primaryBtn}>
+              <RefreshCw className="w-4 h-4" aria-hidden="true" /> Try again · {costLabel}
+            </button>
+          )}
         </div>
+        {outOfFree && upgradeNote}
       </div>
     );
   }
@@ -481,9 +544,10 @@ export default function GuidedFrameMaker({
             {take.keyed && !fail && warns.map((w) => (
               <p key={w.code} className="font-sans text-[12px] text-brand-muted leading-snug">{w.message}</p>
             ))}
-            {results.run.retryUnavailable && !usable && (
-              <p className="font-sans text-[12px] text-brand-muted leading-snug">A fresh try costs {costLabel}.</p>
+            {results.run.retryUnavailable && !usable && !outOfFree && (
+              <p className="font-sans text-[12px] text-brand-muted leading-snug">{freeNext ? 'A fresh try is free.' : `A fresh try costs ${costLabel}.`}</p>
             )}
+            {!usable && outOfFree && upgradeNote}
 
             <label className="flex items-center gap-2.5 min-h-[44px] cursor-pointer">
               <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} className="w-5 h-5 accent-[color:var(--color-accent)]" />
@@ -491,10 +555,17 @@ export default function GuidedFrameMaker({
             </label>
 
             <div className="flex flex-wrap gap-2">
-              {take.keyed && (
+              {/* A take that failed the gate is never the primary action:
+                  the fix (Clean it up / a fresh try) leads, "Use anyway" trails. */}
+              {take.keyed && usable && (
                 <button type="button" onClick={() => void use()} disabled={results.busy} className={primaryBtn}>
                   {results.busy ? <Loader2 className="w-4 h-4 motion-safe:animate-spin" aria-hidden="true" /> : <Check className="w-4 h-4" aria-hidden="true" />}
                   {useLabel}
+                </button>
+              )}
+              {!usable && !outOfFree && (
+                <button type="button" onClick={() => void generate()} disabled={results.busy} className={primaryBtn}>
+                  <RefreshCw className="w-4 h-4" aria-hidden="true" /> Try a fresh one · {costLabel}
                 </button>
               )}
               {canRekey && (
@@ -502,9 +573,15 @@ export default function GuidedFrameMaker({
                   <Wand2 className="w-3.5 h-3.5" aria-hidden="true" /> Clean it up · free
                 </button>
               )}
-              {take.keyed && provider === 'gemini' && take.experience.asset_url && (
+              {take.keyed && usable && !outOfFree && provider === 'gemini' && take.experience.asset_url && (
                 <button type="button" onClick={() => void generate(take.experience.asset_url ?? undefined)} disabled={results.busy} className={ghostBtn}>
                   <Sparkles className="w-3.5 h-3.5" aria-hidden="true" /> More like this · {costLabel}
+                </button>
+              )}
+              {take.keyed && !usable && (
+                <button type="button" onClick={() => void use()} disabled={results.busy} className={ghostBtn}>
+                  {results.busy ? <Loader2 className="w-3.5 h-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <Check className="w-3.5 h-3.5" aria-hidden="true" />}
+                  Use anyway
                 </button>
               )}
               <button type="button" onClick={() => setPhase({ kind: 'choose' })} disabled={results.busy} className={ghostBtn}>
@@ -577,6 +654,12 @@ export default function GuidedFrameMaker({
             </button>
           ))}
         </div>
+        {/* Platform only: a green event colour is dropped by the cut-out key
+            (no "Your colours" chip, or one without the green) — say so
+            instead of leaving the host to wonder where their colour went. */}
+        {platform && greenNote !== null && (evPal === null || palette.id === 'event') && (
+          <p className="font-sans text-[12px] text-brand-muted leading-snug">{greenNote}</p>
+        )}
       </fieldset>
 
       <label className="flex flex-col gap-1.5">
@@ -591,7 +674,7 @@ export default function GuidedFrameMaker({
 
       {textControls}
 
-      {!freeTrial && (
+      {!oneTake && (
         <fieldset className="flex flex-col gap-1.5 min-w-0">
           <legend className="font-label uppercase tracking-luxe text-[11px] text-brand-muted mb-1">How many options</legend>
           <div className="flex gap-2" role="group" aria-label="How many options">
@@ -616,11 +699,14 @@ export default function GuidedFrameMaker({
         </p>
       )}
 
+      {outOfFree && upgradeNote}
       <div className="flex flex-col sm:flex-row gap-2">
-        <button type="button" onClick={() => void generate()} disabled={!ev} className={`${primaryBtn} sm:flex-1`}>
-          <Sparkles className="w-4 h-4" aria-hidden="true" />
-          {ev ? `Generate · ${costLabel}` : 'Loading…'}
-        </button>
+        {!outOfFree && (
+          <button type="button" onClick={() => void generate()} disabled={!ev} className={`${primaryBtn} sm:flex-1`}>
+            <Sparkles className="w-4 h-4" aria-hidden="true" />
+            {ev ? `Generate · ${costLabel}` : 'Loading…'}
+          </button>
+        )}
         {onDescribeYourself && (
           <button type="button" onClick={onDescribeYourself} className={ghostBtn}>
             <PencilLine className="w-3.5 h-3.5" aria-hidden="true" /> Describe it yourself

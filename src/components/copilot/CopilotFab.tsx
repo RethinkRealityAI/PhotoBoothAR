@@ -37,6 +37,10 @@ export default function CopilotFab() {
                                                  // AI Director owns the studio
                                                  // surface — a second floating
                                                  // launcher there would compete
+    // An event's screens carry their own Copilot button in the header bar
+    // (EventStudio). The floating one duplicated it, and on a phone it sat
+    // on top of the dashboard's Go live button.
+    !pathname.startsWith('/host/events/') &&
     !isOpen;
 
   return (

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   inferTemplate, extractName, extractDate, detectRemote, localDesign, normalizePlan,
-  detectDeferral, fillPlanGaps, localBrief, accentFromPalette,
+  detectDeferral, fillPlanGaps, localBrief, accentFromPalette, secondAccentFromPalette,
   buildPlanSurface, surfaceIdOf, designEvent, parseNaturalDate, trimWireTurns, accentOptionsFor,
   type ChatMessage, type EventPlan,
 } from './eventDesigner';
@@ -407,6 +407,16 @@ describe('brief: normalizePlan / localBrief / fillPlanGaps / deferral', () => {
     expect(accentFromPalette('use #ff00aa and gold')).toBe('#FF00AA');
     expect(accentFromPalette('rose gold and cream')).toBe('#B76E79');
     expect(accentFromPalette('greige')).toBeNull();
+  });
+
+  it('secondAccentFromPalette: keeps the second colour the host named ("red and green")', () => {
+    expect(accentFromPalette('red and green')).toBe('#B0223B');
+    expect(secondAccentFromPalette('red and green')).toBe('#2E8B57');
+    expect(secondAccentFromPalette('green and red')).toBe('#B0223B');
+    expect(secondAccentFromPalette('#ff00aa with gold')).toBe('#D4AF37');
+    expect(secondAccentFromPalette('red and burgundy')).toBeNull(); // same swatch twice
+    expect(secondAccentFromPalette('navy')).toBeNull();
+    expect(secondAccentFromPalette('')).toBeNull();
   });
 
   it('localDesign with a deferral fills the plan and says hit Create; without one it still asks for a name', () => {

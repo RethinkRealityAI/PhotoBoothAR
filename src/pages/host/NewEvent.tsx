@@ -20,14 +20,14 @@ import { createEvent, updateEventConfig, goLive as takeEventLive, fetchEventStat
 import { useToast } from '../../components/ui/Toast';
 import { accentThemePatch, EVENT_TEMPLATES, paletteThemePatch, templateById, templateConfigPatch } from '../../lib/eventTemplates';
 import { deriveTheme, type ExtractedPalette } from '../../lib/themeDerive';
-import { seededLooks } from '../../lib/themeMatch';
+import { accentHexesFor, seededLooks } from '../../lib/themeMatch';
 import { humanDate } from '../../lib/eventList';
 import { lockedReason, resolveFeatures } from '../../lib/features';
 import { uploadAsset } from '../../lib/db';
 import LooksPicker from '../../components/host/LooksPicker';
 import ShareActions from '../../components/host/ShareActions';
 import ColourChooser from '../../components/host/ColourChooser';
-import { designEvent, fillPlanGaps, normalizePlan, type ChatMessage, type DesignImage, type EventPlan } from '../../lib/eventDesigner';
+import { designEvent, fillPlanGaps, normalizePlan, secondAccentFromPalette, type ChatMessage, type DesignImage, type EventPlan } from '../../lib/eventDesigner';
 import { executeAction, offlineReplyFor, type CopilotCtx } from '../../lib/copilot';
 import type { EventBrief } from '../../lib/eventBrief';
 import { conciergeSuggestionsFor, greetingFor } from '../../lib/hostChips';
@@ -472,7 +472,14 @@ export default function NewEvent() {
       }
       // Frames & filters: the template's set in best-match order; with a
       // colour, the recolourable frames take it on in the booth (framePalette).
-      patch.arContent = seededLooks(template, effectiveAccent).arContent;
+      // A second colour the host named ("red and green") or the poster carried
+      // rides as framePalette.accent2 — the plan holds one accent, and the
+      // second used to be dropped on the floor.
+      const accent2 = palette?.accent2 ?? (brief?.palette ? secondAccentFromPalette(brief.palette) : null);
+      patch.arContent = seededLooks(template, effectiveAccent, accent2).arContent;
+      // The chosen colour leads the palette other readers take (booth accent,
+      // send-off confetti, AI frame fallback) — not only the theme tokens.
+      if (effectiveAccent) patch.accentHexes = accentHexesFor(effectiveAccent, template.accentHexes, accent2);
       if (venue) patch.copy = { ...(patch.copy as Record<string, unknown>), venue };
       // The concierge's brief rides in config so the copilot, the Scene
       // Director and the copy generator all start from the same facts.
@@ -600,7 +607,7 @@ export default function NewEvent() {
             )}
             {seedFailed && (
               <p className="mt-0.5 font-sans ui-caption text-amber-300/80 leading-snug">
-                We couldn’t apply the template look — open the Studio to style your event.
+                We couldn’t apply the template look — pick frames below, and set colours in your event’s Branding settings.
               </p>
             )}
             {seedNote !== null && (
@@ -630,10 +637,21 @@ export default function NewEvent() {
             create flow just seeded — changeable now or any time later. */}
         <LooksPicker
           eventUuid={created.id}
+          eventSlug={created.slug}
           config={createdConfig ?? created.config}
           eventType={template.id}
           accentHex={effectiveAccent}
           onSaved={(c) => { setCreatedConfig(c); void reloadBuild(); }}
+          library={{
+            eventSlug: created.slug,
+            occasion: created.event_type,
+            text: [created.name, brief?.occasion, brief?.tone, brief?.notes]
+              .filter((s): s is string => typeof s === 'string' && s !== '')
+              .join(' · '),
+            // The bare YYYY-MM-DD the host typed beats the UTC timestamp.
+            date: date !== '' ? date : created.starts_at ?? null,
+            hideWhenEmpty: true,
+          }}
         />
 
         {/* 4 · Hand over the link (secondary to Go live above). */}
@@ -681,7 +699,7 @@ export default function NewEvent() {
             <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
               <p className="font-sans text-xs text-amber-200/90 leading-relaxed max-w-sm">
                 Your event is created and safe — we just couldn’t load its details for the
-                assistant. Retry, or open the Studio and build it there.
+                assistant. Retry, or open your event and set it up there.
               </p>
               <div className="flex flex-wrap items-center justify-center gap-2">
                 <button
@@ -694,7 +712,7 @@ export default function NewEvent() {
                   onClick={() => navigate(`/host/events/${created.id}`)}
                   className="inline-flex items-center rounded-full border border-white/15 px-5 min-h-11 font-label uppercase tracking-luxe ui-btn text-brand-muted/70 hover:text-brand-fg transition-colors"
                 >
-                  Open studio
+                  Open your event
                 </button>
               </div>
             </div>
@@ -862,7 +880,7 @@ export default function NewEvent() {
                   ? 'Your event needs a guest link first — describe it above'
                   : 'Review the plan and create your event'
               }
-              className="shrink-0 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+              className="shrink-0 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
             >
               Review &amp; create <ArrowRight className="w-4 h-4" />
             </button>
@@ -885,7 +903,7 @@ export default function NewEvent() {
               </div>
               <button
                 onClick={() => setConcierge(true)}
-                className="shrink-0 inline-flex items-center gap-1 font-label uppercase tracking-luxe ui-caption text-brand-muted/60 hover:text-brand-fg transition-colors underline underline-offset-4 decoration-white/20"
+                className="shrink-0 inline-flex min-h-11 items-center gap-1 font-label uppercase tracking-luxe ui-caption text-brand-muted/60 hover:text-brand-fg transition-colors underline underline-offset-4 decoration-white/20"
               >
                 <Sparkles className="w-3 h-3" /> Use the concierge
               </button>
@@ -936,7 +954,7 @@ export default function NewEvent() {
               <label className="mt-0.5 flex items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5 cursor-pointer hover:bg-white/[0.04] transition-colors">
                 <input type="checkbox" checked={remote} onChange={(e) => setRemote(e.target.checked)} className="mt-0.5 accent-[color:var(--color-accent)]" />
                 <span className="font-sans ui-caption leading-relaxed text-brand-muted/70">
-                  <span className="text-brand-fg">Remote / virtual celebration.</span> Guests can’t attend in person — we’ll open the studio to a shareable greeting card where anyone, anywhere adds photos, videos &amp; notes. Your chosen style still applies.
+                  <span className="text-brand-fg">Remote / virtual celebration.</span> Guests can’t attend in person — we’ll open your event on a shareable greeting card where anyone, anywhere adds photos, videos &amp; notes. Your chosen style still applies.
                 </span>
               </label>
               {remote && REMOTE_PLAN_NOTE && (
@@ -959,7 +977,7 @@ export default function NewEvent() {
             <button
               onClick={() => setStep(2)}
               disabled={!canNext1}
-              className="mt-2 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+              className="mt-2 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
             >
               Next <ArrowRight className="w-4 h-4" />
             </button>
@@ -1007,7 +1025,7 @@ export default function NewEvent() {
               <button
                 onClick={() => setStep(3)}
                 disabled={!canNext2}
-                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
               >
                 Next <ArrowRight className="w-4 h-4" />
               </button>
@@ -1085,7 +1103,7 @@ export default function NewEvent() {
               <button
                 onClick={doCreate}
                 disabled={creating}
-                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
+                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating…</> : 'Create event'}
               </button>

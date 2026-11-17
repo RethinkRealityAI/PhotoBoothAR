@@ -69,6 +69,23 @@ function briefInput(brief: unknown): string {
   return cut > 0 ? text.slice(0, cut) : text.slice(0, COPY_INPUT_CAPS.brief);
 }
 
+export interface CopyInput { name: string; eventType: string; brief: string; tagline: string }
+
+/**
+ * The single user turn copy mode sends. ai-event-designer validates
+ * `messages` (non-empty array, ≤20 turns, each a non-blank string ≤2000 chars,
+ * last turn role 'user') BEFORE it reaches its copy branch, and copy mode feeds
+ * these turns to the model with the fenced brief in the system prompt — so a
+ * body without them was a guaranteed `400 invalid_body` on every go-live.
+ * Pinned against the deployed validator by eventCopy.test.ts.
+ */
+export const COPY_TURN = { role: 'user', content: 'Write the four guest lines for this event.' } as const;
+
+/** The exact ai-event-designer request body for copy mode. */
+export function copyRequestBody(eventUuid: string, copyInput: CopyInput) {
+  return { mode: 'copy' as const, eventUuid, messages: [COPY_TURN], copyInput };
+}
+
 /**
  * Generate + persist the copy for one event. Idempotent (skips when
  * `copy.generatedAt` is set); never throws; the caller (create success,
@@ -91,16 +108,12 @@ export async function generateEventCopy(eventUuid: string): Promise<GenerateCopy
     if (typeof copy.generatedAt === 'string' && copy.generatedAt.trim()) return { ok: true, skipped: 'already_generated' };
 
     const { data: res, error: fnError } = await supabase.functions.invoke('ai-event-designer', {
-      body: {
-        mode: 'copy',
-        eventUuid,
-        copyInput: {
-          name: str(data.name, COPY_INPUT_CAPS.name),
-          eventType: str(data.event_type, COPY_INPUT_CAPS.eventType),
-          brief: briefInput(config.brief),
-          tagline: str(copy.tagline, COPY_INPUT_CAPS.tagline),
-        },
-      },
+      body: copyRequestBody(eventUuid, {
+        name: str(data.name, COPY_INPUT_CAPS.name),
+        eventType: str(data.event_type, COPY_INPUT_CAPS.eventType),
+        brief: briefInput(config.brief),
+        tagline: str(copy.tagline, COPY_INPUT_CAPS.tagline),
+      }),
     });
     if (fnError) {
       let reason = 'network';

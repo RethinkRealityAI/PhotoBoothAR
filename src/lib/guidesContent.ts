@@ -622,12 +622,12 @@ const MAKE_A_FRAME: GuideDoc = {
       steps: [
         {
           title: 'Pick a ready-made one',
-          body: 'Open your event and go to the Frames & filters tab. Designs picked to match your occasion and colours sit at the top, under Recommended for your event, with the rest of the ready-made library below — press Add to booth on any of them and switch it On for guests. Nothing to design, nothing to upload. This is the two-minute route.',
+          body: 'Open your event and go to the Frames & filters tab. At the top, Pick your frames & filters shows the frames that come with every event: tap one to switch it on or off for guests, press Open with this on the one the booth should start with, and Save. Above them, Ready-made looks adds complete designs from Beamwall, best fit for your event first — tap one to add it to your booth straight away, tap again to take it off. Nothing to design, nothing to upload. This is the two-minute route.',
           tip: 'Even if you plan to make your own, add one first so your booth is never empty while you experiment.',
         },
         {
           title: 'Make one with AI, in the same tab',
-          body: `At the top of Frames & filters, Make a frame with AI starts with a description written from your event — its name, occasion and colours. Change anything you like, generate, and it comes back cut out, ready to place, and set as your booth’s default frame in one tap. Your first 3 AI images on every event are free, so the first few tries cost nothing. Teams with the Studio add-on get the full version inside the Studio: ${GUIDE_COUNTS.frameArchetypes} layouts — Border, Full scene, Two faces, Corners or Banner — and lettering styles for your names.`,
+          body: `In Frames & filters, just below the picker, Make a frame with AI needs no writing at all: Pick a look (one is already chosen from your occasion), pick your colours, leave Add the event name on to have your names and date drawn in, and press Generate. It comes back cut out and shown on a phone with the booth’s buttons outlined — press Use as booth frame and guests get it, opening first. Prefer your own words? Describe it yourself swaps to a free-text box. The Generate button says free while your event still has free frames (the first 3 on every event), then shows the price. Teams with the Studio add-on get the full version inside the Studio: ${GUIDE_COUNTS.frameArchetypes} layouts — Border, Full scene, Two faces, Corners or Banner — and lettering styles for your names.`,
           tip: 'Name a colour and a style in the description — "ivory and gold, art-deco" gets you much further than "wedding".',
         },
         {
@@ -876,7 +876,7 @@ const USE_THE_STUDIO: GuideDoc = {
       body: [
         'Dashboard — the state of your event at a glance: whether it is live, how many photos have come in, your guest link and the QR code to print.',
         'Studio (add-on) — where you design. Switch the canvas between 2D for flat frames and filters, 3D for face-tracked props, and Preview to see the finished thing exactly as a guest will. It is one scene in all three views.',
-        'Frames & filters — everything guests can pick in the booth. A quick AI frame at the top, then designs recommended for your event, the ready-made library, your own pieces and the ones included with every event — each switched On for guests or Off.',
+        'Frames & filters — everything guests can pick in the booth. The picker at the top holds ready-made looks from Beamwall (best fit for your event first) and the frames and filters included with every event; below it, a quick AI frame, your own pieces and the booth order — each switched On for guests or Off.',
         'Assets (add-on) — your uploads and your AI generations. Frames, stickers and 3D files all land here, and the chip you have active decides which kind an upload becomes.',
         'Wall — the big screen. Choose how photos arrive and how they are laid out, and get the link you open on the projector.',
         'Challenges — little missions for guests, worth points, optionally checked by AI from the photo itself, with a running count of how many passed.',
@@ -992,20 +992,25 @@ const FIRST_EVENT: GuideDoc = {
     },
     {
       kind: 'steps',
-      title: 'Five steps to a live booth',
+      title: 'Six steps to a live booth',
       steps: [
         {
           title: 'Describe your event',
-          body: `Start a new event and write one sentence about it — occasion, vibe, colours. Or upload a photo of the invitation and let it design from that. The plan card has a box ticked for you, Start with a challenge pack + a keepsake card: leave it on and your event opens with ${GUIDE_COUNTS.starterPackMissions} ready-made photo missions and a card guests can sign, from the starter pack that matches your style — Wedding, Gala, Birthday, Corporate or Party. Untick it to start empty. If the AI designer is ever unavailable, the Concierge says why in plain words and builds from a quick template match instead; you can change all of it later.`,
+          body: `Start a new event and write one sentence about it — occasion, vibe, colours. Or upload a photo of the invitation and let it design from that. The plan card has a box ticked for you, Start with a challenge pack + a keepsake card: leave it on and your event opens with ${GUIDE_COUNTS.starterPackMissions} ready-made photo missions and a card guests can sign, from the starter pack that matches your style — Wedding, Gala, Birthday, Corporate or Party. Untick it to start empty. Rather not chat? Press Fill in manually and type the name, the kind of event and the date yourself — you get the same event either way. If the AI designer is ever unavailable, the Concierge says why in plain words and builds from a quick template match instead; you can change all of it later.`,
           tip: 'Be specific about mood and colour. "Elegant, ivory and gold, evening" gets you much further than "wedding".',
         },
         {
+          title: 'Pick your frames & filters',
+          body: 'The moment your event exists you land on Pick your frames & filters, already filled in with the set that suits your occasion. Above them, Ready-made looks shows complete designs from Beamwall — some with 3D props guests wear — with the ones that fit your occasion, colours and season first (a December date or “Christmas” in the name puts the Christmas looks on top). Tap a look to add it and guests can pick it straight away; tap again to take it off. For the frames and filters below, tap any one to switch it on or off — guests can choose from everything you leave on — press Open with this under the frame the booth should start with, then Save frames & filters. The same picker sits at the top of your event’s Frames & filters tab, so you can change your mind any time. Nothing to design, nothing to upload.',
+          tip: 'Want a frame with your names on it? Make a frame with AI, just below the picker in Frames & filters, does it in about a minute — your first 3 are free.',
+        },
+        {
           title: 'Work the checklist',
-          body: 'Your dashboard shows a short list: name it, choose the look, add frames & effects, take a test photo. Each item links straight to the screen that finishes it — frames open Frames & filters, where you pick ready-made designs or make one with AI — and it ticks itself off as you go. No design skills needed.',
+          body: 'Your event dashboard shows a short list: name it, choose the look, add frames & effects, take a test photo. Each item links straight to the screen that finishes it — frames open Frames & filters — and it ticks itself off as you go. No design skills needed.',
         },
         {
           title: 'Take a test photo yourself',
-          body: 'Use Test on phone and take one real shot on your own handset. This is the single highest-value five minutes you will spend — it catches a frame that crops badly or a prop that is too heavy, while there is still time.',
+          body: 'Press Take a test photo on the checklist, or scan your own QR code from the Share tab, and take one real shot on your own handset. This is the single highest-value five minutes you will spend — it catches a frame that crops badly or a prop that is too heavy, while there is still time. Until you go live the booth opens only for you, so sign in on that phone first.',
           tip: 'Test on the phone you will hand to a guest, not just your desktop browser.',
         },
         {
@@ -1023,7 +1028,7 @@ const FIRST_EVENT: GuideDoc = {
       kind: 'prose',
       title: 'The brief every assistant reads',
       body: [
-        'While you describe the event, the Concierge keeps a short brief: the occasion, who it is for, the colours, the mood, and anything to avoid ("no balloons"). Every AI helper in your event reads it on every turn, so the Copilot and the Scene Director already know your palette and never suggest the thing you ruled out. Change it any time in your event under Settings, then Branding — the Event brief card has a box for each — and when you tell the Copilot something new about the night, it offers to update the brief too.',
+        'While you describe the event, the Concierge keeps a short brief: the occasion, who it is for, the colours, the mood, and anything to avoid ("no balloons"). Every AI helper in your event reads it on every turn, so the Copilot (and, with the Studio add-on, the Scene Director) already knows your palette and never suggests the thing you ruled out. Change it any time in your event under Settings, then Branding — the Event brief card has a box for each — and when you tell the Copilot something new about the night, it offers to update the brief too.',
         'Two lines for your guests are written from that brief as well: the welcome line on your guest page, and the opening line of the keepsake email you send after the night. They are written once, when the event is created (or when it goes live, if you skipped the brief), and never rewritten — so anything you change in Branding stays yours.',
       ],
     },

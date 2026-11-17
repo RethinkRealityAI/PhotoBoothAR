@@ -26,7 +26,8 @@ import { useStudioBase } from './studioBase';
 import type { WallSettings, LandingContent } from '../../types';
 import { inputCls, TextField, TextArea } from './fields';
 import { copyText } from '../../lib/clipboard';
-import { fetchEventDetails, saveEventDetails, type EventDetails, type EventDetailsResult } from '../../lib/host';
+import { fetchEventDetails, saveEventDetails, setOpeningLook, type EventDetails, type EventDetailsResult } from '../../lib/host';
+import { effectiveOpeningLookId, openingLookErrorCopy } from '../../lib/openingLook';
 
 /** Platform-only: tuck expert controls behind one disclosure. Legacy events
  *  (the frozen sites) render the children exactly as before. */
@@ -230,6 +231,10 @@ export default function Settings() {
   });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  // Platform DB events keep the opening look in two stores; legacy (coded)
+  // sites have only the wall and keep their exact original path.
+  const openingLookPlatform = source === 'db' && typeof eventUuid === 'string' && eventUuid !== '';
+  const [defaultExpError, setDefaultExpError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const unsubRef = useRef<(() => void) | null>(null);
 
@@ -401,6 +406,24 @@ export default function Settings() {
     setSettings(next);          // optimistic
     storeSet(next);
     setBusy(true);
+    if (openingLookPlatform) {
+      // Platform events: the ONE opening-look writer (wall AND events.config),
+      // so a config value can never re-open the booth on something else.
+      const res = await setOpeningLook({ slug: eventId, eventUuid }, value);
+      if (res.ok) {
+        setDefaultExpError(null);
+        void refreshConfig();
+      } else {
+        setDefaultExpError(openingLookErrorCopy(res.failed));
+        // Show what is really stored, not the optimistic pick.
+        const actual = await getWallSettings(eventId);
+        setSettings(actual);
+        storeSet(actual);
+        void refreshConfig();
+      }
+      setBusy(false);
+      return;
+    }
     const saved = await dbSetWallSettings(eventId, { defaultExperienceId: value });
     setSettings(saved);
     storeSet(saved);
@@ -415,7 +438,13 @@ export default function Settings() {
         {/* Header */}
         <header className="flex items-center justify-between animate-rise-in">
           <div>
-            <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
+            {/* Platform: "AR Studio" named a paid add-on most hosts do not
+                have. The frozen legacy sites keep their eyebrow. */}
+            {base.startsWith('/host/') ? (
+              <p className="font-label uppercase tracking-luxe text-[11px] text-champagne/50 mb-1">Your event</p>
+            ) : (
+              <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
+            )}
             <h1 className="font-serif italic text-3xl text-foil-static">Event Settings</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
               Live wall feature controls — changes apply immediately.
@@ -647,7 +676,11 @@ export default function Settings() {
               <Sparkles className="w-4 h-4" />
             </div>
             <select
-              value={settings.defaultExperienceId ?? ''}
+              // Platform: the SAME effective value the booth opens with
+              // (wall ?? config) — a config-pinned frame used to read "None".
+              value={(openingLookPlatform
+                ? effectiveOpeningLookId(settings.defaultExperienceId, config.defaultExperienceId)
+                : settings.defaultExperienceId) ?? ''}
               onChange={(e) => setDefaultExp(e.target.value || null)}
               disabled={busy}
               className="flex-1 bg-noir-800/80 border border-gold-700/30 rounded-lg px-3 py-2.5 font-sans text-sm text-ivory/90 outline-none focus:border-gold-400/55 transition-colors disabled:opacity-50"
@@ -670,6 +703,9 @@ export default function Settings() {
               )}
             </select>
           </div>
+          {defaultExpError !== null && (
+            <p role="alert" className="mt-3 font-sans text-[12px] text-red-300">{defaultExpError}</p>
+          )}
         </section>
 
         {/* Join / Landing page editor */}

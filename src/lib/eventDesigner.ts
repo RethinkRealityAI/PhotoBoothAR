@@ -283,6 +283,22 @@ export function accentFromPalette(palette: string): string | null {
   return best?.value ?? null;
 }
 
+/** The SECOND colour a palette names ("red and green" → green's hex), or
+ *  null when it names fewer than two distinct colours. The plan stores one
+ *  accent; this lets the frames keep the second (framePalette.accent2)
+ *  instead of silently dropping it. Explicit hexes count, in order. */
+export function secondAccentFromPalette(palette: string): string | null {
+  const hits: { at: number; value: string }[] = [];
+  for (const m of palette.matchAll(/#[0-9a-fA-F]{6}\b/g)) hits.push({ at: m.index ?? 0, value: m[0].toUpperCase() });
+  for (const [re, value] of PALETTE_HEX) {
+    const m = re.exec(palette);
+    if (m) hits.push({ at: m.index, value });
+  }
+  hits.sort((a, b) => a.at - b.at);
+  const first = hits[0]?.value;
+  return hits.find((h) => h.value !== first)?.value ?? null;
+}
+
 function possessive(who: string): string {
   return who.endsWith('s') ? `${who}'` : `${who}'s`;
 }

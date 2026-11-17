@@ -22,8 +22,8 @@
  *   + THINKING_HEADROOM` by RAISING maxOutputTokens (never by throwing: a bad
  *   secret must degrade to a working profile, not a 500).
  *   - copy writes four short guest lines ONCE per event (tagline · welcome ·
- *     thank-you · keepsake intro): a tiny creative job, so flash-lite at a
- *     warmer temperature, no thinking, a 15s budget, and the smallest output
+ *     thank-you · keepsake intro): a tiny creative job, so flash (flash-lite
+ *     was retired for this key) at a warmer temperature, no thinking, a 15s budget, and the smallest output
  *     cap the headroom invariant allows (1024 = 0 + 2 × THINKING_HEADROOM —
  *     a lower value would be raised to exactly that anyway).
  *
@@ -62,7 +62,10 @@ export const AGENT_PROFILES: Record<AgentMode, AgentProfile> = {
   create: { model: 'gemini-2.5-flash', temperature: 0.6, thinkingBudget: 0, maxOutputTokens: 2048, timeoutMs: 25_000 },
   copilot: { model: 'gemini-2.5-flash', temperature: 0.2, thinkingBudget: 0, maxOutputTokens: 3072, timeoutMs: 25_000 },
   scene: { model: 'gemini-2.5-flash', temperature: 0.5, thinkingBudget: 512, maxOutputTokens: 4096, timeoutMs: 40_000 },
-  copy: { model: 'gemini-2.5-flash-lite', temperature: 0.7, thinkingBudget: 0, maxOutputTokens: 1024, timeoutMs: 15_000 },
+  // gemini-2.5-flash, not flash-lite: Google stopped serving flash-lite to this
+  // project's key (2026-11-17, `gemini_http_404` "no longer available to new
+  // users"), and flash is the model create/copilot run on successfully today.
+  copy: { model: 'gemini-2.5-flash', temperature: 0.7, thinkingBudget: 0, maxOutputTokens: 1024, timeoutMs: 15_000 },
 };
 
 /** Output room that must remain above the thinking budget (see header). */

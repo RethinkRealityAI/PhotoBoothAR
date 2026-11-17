@@ -125,6 +125,31 @@ export function initialCategory(sections: DeckSection[], sel: DeckSelection): De
   return (sections.find((s) => sectionHasSelection(s, sel)) ?? sections[0]).key;
 }
 
+/**
+ * The tab to open on first paint, or `undefined` when it is too early to tell.
+ *
+ * `initialCategory` alone ran the moment the deck had ANY section — on a
+ * platform event that is the built-ins-only catalog that exists before the
+ * event's own experiences load, and before the booth applies its default. So
+ * a host's AI frame set as the default was applied and drawn, but the deck had
+ * already locked onto Effect and its orb sat on a tab nobody was looking at.
+ * This waits until the experiences have loaded and, when the expected
+ * experience (route or event default) is in the catalog, until the selection
+ * actually holds it. An expected id that is not in the catalog never blocks.
+ */
+export function initialCategoryWhenReady(
+  sections: DeckSection[],
+  sel: DeckSelection,
+  opts: { loaded: boolean; expectedId: string | null },
+): DeckCategory | null | undefined {
+  if (sections.length === 0 || !opts.loaded) return undefined;
+  if (opts.expectedId !== null) {
+    const home = sections.find((s) => s.options.some((o) => o.exp.id === opts.expectedId));
+    if (home && !sectionHasSelection(home, sel)) return undefined;
+  }
+  return initialCategory(sections, sel);
+}
+
 /** True when nothing at all is applied — drives the "Clear" orb's active state. */
 export function isPristine(sel: DeckSelection, sparkles: boolean): boolean {
   return sel.effectId === 'none' && !sparkles && sel.frameId === null && sel.attachmentId === null;

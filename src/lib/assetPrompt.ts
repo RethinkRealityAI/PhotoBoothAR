@@ -439,8 +439,8 @@ export const FRAME_LAYOUT_SPEC: Record<FrameLayout, string> = {
     `${GREEN_RULES}`,
   'bottom-third':
     'Create a lower-third stage graphic for a 9:16 vertical portrait canvas (1080x1920). ALL of the ' +
-    'artwork sits BELOW 66% of the height, as a lower-third band the subject stands above. The top ' +
-    'two-thirds of the canvas is entirely solid #00FF00. ' +
+    'artwork sits BELOW 60% of the height, as a lower-third band the subject stands above. The top ' +
+    '60% of the canvas is entirely solid #00FF00. ' +
     `${GREEN_RULES}`,
 };
 
@@ -550,11 +550,26 @@ export interface FrameGeometry {
   plaque: FrameBox;
 }
 
+/**
+ * Version of FRAME_GEOMETRY. Bumped whenever a plaque or window moves; the
+ * server stamps it on every NEW frame (experiences.config.frameGeometry) so
+ * text drawn on an already-saved frame keeps the box that frame's prompt
+ * reserved (frameText.plaqueBox). Absent on a row = version 1.
+ *
+ * v2 (2026-11-17): every plaque now sits ON the painted art AND between the
+ * booth chrome bands (assetPrompt.test.ts asserts both, per layout). v1 put the
+ * classic-border plaque INSIDE the photo window (y .10–.165 vs a window from
+ * y .10) and the corner/lower-third plaques over open green.
+ */
+export const FRAME_GEOMETRY_VERSION = 2;
+
 export const FRAME_GEOMETRY: Record<FrameLayout, FrameGeometry> = {
-  // Border band ≤ 11% of the width at the sides, ≤ 10% at the top, ≤ 12% at the
-  // bottom. The window is everything inside it.
+  // Border band ≤ 11% of the width at the sides, ≤ 18% at the top (the visible
+  // part, below the booth's top bar, carries the name plaque), ≤ 12% at the
+  // bottom. The window is everything inside it. Its top (y .18) still clears
+  // frameQuality's FACE_ZONE (y .20) — where guests' faces really land.
   'classic-border': {
-    windows: [{ shape: 'rect', cx: 0.5, cy: 0.49, rx: 0.39, ry: 0.39 }],
+    windows: [{ shape: 'rect', cx: 0.5, cy: 0.53, rx: 0.39, ry: 0.35 }],
     artZones: [],
     plaque: { x0: 0.2, y0: 0.1, x1: 0.8, y1: 0.165 },
   },
@@ -573,18 +588,22 @@ export const FRAME_GEOMETRY: Record<FrameLayout, FrameGeometry> = {
     artZones: [],
     plaque: { x0: 0.2, y0: 0.1, x1: 0.8, y1: 0.165 },
   },
+  // The plaque sits inside the top-left cluster's visible part (the
+  // bottom-right cluster is entirely under the booth deck).
   'corner-overlay': {
     windows: [],
     artZones: [
       { x0: 0, y0: 0, x1: 0.4, y1: 0.25 },
       { x0: 0.6, y0: 0.75, x1: 1, y1: 1 },
     ],
-    plaque: { x0: 0.2, y0: 0.585, x1: 0.8, y1: 0.65 },
+    plaque: { x0: 0.04, y0: 0.1, x1: 0.36, y1: 0.18 },
   },
+  // The band starts at 60% (was 66%) so its top edge — the only part guests
+  // see while posing, above the deck at 67% — is deep enough for the plaque.
   'bottom-third': {
     windows: [],
-    artZones: [{ x0: 0, y0: 0.66, x1: 1, y1: 1 }],
-    plaque: { x0: 0.12, y0: 0.595, x1: 0.88, y1: 0.665 },
+    artZones: [{ x0: 0, y0: 0.6, x1: 1, y1: 1 }],
+    plaque: { x0: 0.12, y0: 0.61, x1: 0.88, y1: 0.665 },
   },
 };
 
@@ -646,7 +665,8 @@ export function frameGeometryDirection(layout: FrameLayout, plaque = false): str
   if (plaque) {
     const p = g.plaque;
     parts.push(
-      `Keep the band x ${pxX(p.x0)}–${pxX(p.x1)}, y ${pxY(p.y0)}–${pxY(p.y1)} calm: no ornament, no detail, ` +
+      `The band x ${pxX(p.x0)}–${pxX(p.x1)}, y ${pxY(p.y0)}–${pxY(p.y1)} is part of the artwork, never open ` +
+      'green — paint the frame\'s ground behind it, and keep it calm: no ornament, no detail, ' +
       'no lettering there (a plain flat plaque or ribbon shape in the palette is welcome) — the event name is ' +
       'added there afterwards.',
     );

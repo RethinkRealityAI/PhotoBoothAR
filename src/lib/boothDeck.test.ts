@@ -3,6 +3,7 @@ import {
   activeOptionId,
   buildDeck,
   initialCategory,
+  initialCategoryWhenReady,
   isPristine,
   sectionHasSelection,
   shortLabel,
@@ -106,6 +107,40 @@ describe('initialCategory', () => {
 
   it('returns null when the event has no experiences at all', () => {
     expect(initialCategory([], NONE)).toBeNull();
+  });
+});
+
+describe('initialCategoryWhenReady (an AI frame as the event default)', () => {
+  const BUILTINS = CATALOG.filter((e) => e.id !== 'f1' && e.id !== 'f2' && e.id !== 'c1');
+  const AI_FRAME = exp('863cd86f', 'border', 'Art-deco foil frame');
+  const loaded = { loaded: true, expectedId: '863cd86f' };
+
+  it('reproduces the race: the plain rule locks onto Effect before the default lands', () => {
+    // Built-ins only, nothing applied yet — what the booth saw first.
+    expect(initialCategory(buildDeck(BUILTINS), NONE)).toBe('effect');
+  });
+
+  it('waits while experiences are loading, and while the default is not yet applied', () => {
+    expect(initialCategoryWhenReady(buildDeck(BUILTINS), NONE, { loaded: false, expectedId: '863cd86f' })).toBeUndefined();
+    expect(initialCategoryWhenReady(buildDeck([...BUILTINS, AI_FRAME]), NONE, loaded)).toBeUndefined();
+  });
+
+  it('opens on Frame once the default frame is applied', () => {
+    expect(initialCategoryWhenReady(buildDeck([...BUILTINS, AI_FRAME]), { ...NONE, frameId: '863cd86f' }, loaded)).toBe('frame');
+  });
+
+  it('a default missing from the catalog (unpublished, deleted) never blocks', () => {
+    expect(initialCategoryWhenReady(buildDeck(BUILTINS), NONE, loaded)).toBe('effect');
+  });
+
+  it('no default → the first tab as soon as experiences are in; empty deck → wait', () => {
+    expect(initialCategoryWhenReady(buildDeck(CATALOG), NONE, { loaded: true, expectedId: null })).toBe('effect');
+    expect(initialCategoryWhenReady([], NONE, { loaded: true, expectedId: null })).toBeUndefined();
+  });
+
+  it('a shader default counts as applied by its shader id', () => {
+    expect(initialCategoryWhenReady(buildDeck(CATALOG), { ...NONE, effectId: 'aurora-lumina' }, { loaded: true, expectedId: 's2' })).toBe('effect');
+    expect(initialCategoryWhenReady(buildDeck(CATALOG), { ...NONE, attachmentId: 'p1' }, { loaded: true, expectedId: 'p1' })).toBe('prop');
   });
 });
 

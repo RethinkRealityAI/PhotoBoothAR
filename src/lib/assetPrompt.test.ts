@@ -18,9 +18,12 @@ import {
   buildGreenScreenFramePrompt,
   frameGeometryDirection,
   FRAME_GEOMETRY,
+  FRAME_GEOMETRY_VERSION,
   BOOTH_SAFE_ZONE,
   resolveRegisterKey,
+  type FrameBox,
   type FrameLayout,
+  type FrameWindow,
 } from './assetPrompt';
 
 /** The exact ban line every frame prompt has ended with since frames existed.
@@ -200,7 +203,7 @@ describe('FRAME_LAYOUT_SPEC', () => {
     expect(duo).toContain('70%');
     expect(duo).toMatch(/TWO head cutouts/);
     expect(FRAME_LAYOUT_SPEC['corner-overlay']).toMatch(/top-left and bottom-right/);
-    expect(FRAME_LAYOUT_SPEC['bottom-third']).toMatch(/BELOW 66% of the height/);
+    expect(FRAME_LAYOUT_SPEC['bottom-third']).toMatch(/BELOW 60% of the height/);
   });
 });
 
@@ -531,6 +534,53 @@ describe('FRAME_GEOMETRY + frameGeometryDirection', () => {
     expect(w.cy - w.ry).toBeGreaterThanOrEqual(BOOTH_SAFE_ZONE.top);
   });
 
+  /* The plaque is where the event NAME is drawn: it must sit on the art the
+   * layout paints, never over the photo window (a real run drew the name at
+   * the top INSIDE the classic window), and inside the visible band. */
+  const boxHitsWindow = (b: FrameBox, w: FrameWindow): boolean => {
+    if (w.shape === 'rect') {
+      return b.x0 < w.cx + w.rx && b.x1 > w.cx - w.rx && b.y0 < w.cy + w.ry && b.y1 > w.cy - w.ry;
+    }
+    // Nearest point of the box to the ellipse centre, in ellipse-normalised units.
+    const nx = Math.min(Math.max(w.cx, b.x0), b.x1);
+    const ny = Math.min(Math.max(w.cy, b.y0), b.y1);
+    return ((nx - w.cx) / w.rx) ** 2 + ((ny - w.cy) / w.ry) ** 2 < 1;
+  };
+  const inside = (b: FrameBox, z: FrameBox) => b.x0 >= z.x0 && b.x1 <= z.x1 && b.y0 >= z.y0 && b.y1 <= z.y1;
+
+  it('the self-check really detects an overlap (negative controls)', () => {
+    expect(boxHitsWindow({ x0: 0.2, y0: 0.1, x1: 0.8, y1: 0.165 }, { shape: 'rect', cx: 0.5, cy: 0.49, rx: 0.39, ry: 0.39 })).toBe(true); // v1 classic
+    expect(boxHitsWindow({ x0: 0.45, y0: 0.3, x1: 0.55, y1: 0.32 }, { shape: 'ellipse', cx: 0.5, cy: 0.38, rx: 0.17, ry: 0.105 })).toBe(true);
+    expect(boxHitsWindow({ x0: 0.2, y0: 0.1, x1: 0.8, y1: 0.165 }, { shape: 'ellipse', cx: 0.5, cy: 0.38, rx: 0.17, ry: 0.105 })).toBe(false);
+    expect(inside({ x0: 0.2, y0: 0.585, x1: 0.8, y1: 0.65 }, { x0: 0, y0: 0, x1: 0.4, y1: 0.25 })).toBe(false); // v1 corner
+  });
+
+  for (const l of layouts) {
+    it(`${l}: the plaque never covers a window, sits on painted art, and is visible while posing`, () => {
+      const g = FRAME_GEOMETRY[l];
+      for (const w of g.windows) expect(boxHitsWindow(g.plaque, w), `${l} plaque over a window`).toBe(false);
+      if (g.artZones.length > 0) {
+        expect(g.artZones.some((z) => inside(g.plaque, z)), `${l} plaque off the art zones`).toBe(true);
+      }
+      expect(g.plaque.y0).toBeGreaterThanOrEqual(BOOTH_SAFE_ZONE.top);
+      expect(g.plaque.y1).toBeLessThanOrEqual(1 - BOOTH_SAFE_ZONE.bottom);
+      // Room for a readable line: at least ~100 px tall and ~340 px wide on the canvas.
+      expect((g.plaque.y1 - g.plaque.y0) * 1920).toBeGreaterThanOrEqual(100);
+      expect((g.plaque.x1 - g.plaque.x0) * 1080).toBeGreaterThanOrEqual(340);
+    });
+  }
+
+  it('the classic window still contains the whole face zone guests pose in', () => {
+    const w = FRAME_GEOMETRY['classic-border'].windows[0];
+    expect(w.cy - w.ry).toBeLessThanOrEqual(0.2);
+    expect(w.cy + w.ry).toBeGreaterThanOrEqual(0.62);
+    expect(w.cx - w.rx).toBeLessThanOrEqual(0.22);
+  });
+
+  it('geometry is versioned (saved frames keep the plaque their prompt reserved)', () => {
+    expect(FRAME_GEOMETRY_VERSION).toBe(2);
+  });
+
   it('full-scene geometry agrees with the FRAME_LAYOUT_SPEC percentages it always sent', () => {
     const w = FRAME_GEOMETRY['full-scene'].windows[0];
     expect([w.cx, w.cy, w.rx * 2, w.ry * 2]).toEqual([0.5, 0.38, 0.34, 0.21]);
@@ -547,7 +597,7 @@ describe('FRAME_GEOMETRY + frameGeometryDirection', () => {
       expect(d).toMatch(/booth's controls cover/);
       expect(d).not.toMatch(/plaque/);
     }
-    expect(frameGeometryDirection('classic-border')).toContain('x=119 to x=961 and y=192 to y=1690');
+    expect(frameGeometryDirection('classic-border')).toContain('x=119 to x=961 and y=346 to y=1690');
     expect(frameGeometryDirection('full-scene')).toContain('centred at (540, 730) px');
   });
 

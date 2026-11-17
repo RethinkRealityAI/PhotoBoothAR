@@ -176,7 +176,12 @@ function DrawerClose({ label, onClose }: { label: string; onClose: () => void })
   );
 }
 
-export default function StudioShell() {
+export default function StudioShell({ eventStatus }: {
+  /** Platform only (EventStudio passes its live status): a draft event gets
+   *  a compact badge in this bar, which is the only chrome on screen here.
+   *  Absent (legacy admin, /dev) → no badge, exactly as before. */
+  eventStatus?: string;
+} = {}) {
   const navigate = useNavigate();
   const base = useStudioBase();
   const { eventId, source } = useEvent();
@@ -680,6 +685,19 @@ export default function StudioShell() {
   // widths): the large left-aligned anchor of the bar at sm+, and a
   // full-width second header row on phones. Being a flex-1 min-w-0 item it
   // truncates under pressure but can never overlap a neighbour.
+  // In flow beside the name (never absolute), so at 390px it shrinks the name
+  // instead of covering a control. The long form only where there is room.
+  const draftBadge = eventStatus === 'draft' ? (
+    <span
+      role="status"
+      title="Guests can’t open this event until you go live from the Dashboard"
+      className="shrink-0 inline-flex items-center rounded-full bg-amber-500/15 px-2.5 py-1 font-label text-[10px] uppercase tracking-widest text-amber-300 whitespace-nowrap"
+    >
+      Draft<span className="hidden xl:inline">&nbsp;· guests can’t open yet</span>
+      <span className="sr-only xl:hidden"> — guests can’t open this event yet</span>
+    </span>
+  ) : null;
+
   const nameControl = editingName ? (
     <input
       autoFocus
@@ -786,8 +804,9 @@ export default function StudioShell() {
             standing on, and the "new vs editing" half is already said — louder —
             by the Save button, which reads "Save" for a new draft and "Update"
             for one that exists. */}
-        <div className="hidden sm:flex items-center min-w-0 flex-1">
+        <div className="hidden sm:flex items-center gap-2 min-w-0 flex-1">
           {nameControl}
+          {draftBadge}
         </div>
         {/* Phone: the name lives on its own row below; this spacer spreads the
             control groups apart. */}
@@ -881,6 +900,7 @@ export default function StudioShell() {
           the packed first row so nothing hides behind the drawer toggles. */}
       <div className="sm:hidden flex items-center gap-2 px-2.5 pb-2">
         <div className="min-w-0 flex-1">{nameControl}</div>
+        {draftBadge}
         {historyControls}
       </div>
       {/* Phone: save errors get their own row — inline they overflowed the

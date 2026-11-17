@@ -209,7 +209,7 @@ export default function ShareKit() {
           </div>
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-2 rounded-full bg-foil text-white px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold glow-accent transition active:scale-[0.98]"
+            className="flex items-center gap-2 rounded-full bg-foil text-[color:var(--on-accent)] px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold glow-accent transition active:scale-[0.98]"
           >
             <Printer className="w-4 h-4" /> Print signage
           </button>

@@ -174,7 +174,7 @@ export default function HostLayout() {
 
   // Sidebar rows at md+; ≥44px-tall tap targets on the mobile top bar too.
   const railLinkBase =
-    'pressable items-center gap-2.5 rounded-xl px-3 md:px-3.5 py-2.5 min-h-11 min-w-11 font-label uppercase tracking-luxe text-[10px] transition-colors justify-center md:justify-start';
+    'pressable items-center gap-2.5 rounded-xl px-3 md:px-3.5 py-2.5 min-h-11 min-w-11 font-label uppercase tracking-luxe text-[11px] transition-colors justify-center md:justify-start';
   const railLink = `flex ${railLinkBase}`;
   const railState = (isActive: boolean) =>
     isActive ? 'bg-white/[0.10] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05]';
@@ -222,7 +222,7 @@ export default function HostLayout() {
             to="/host/new"
             onClick={() => haptic('tap')}
             aria-label="New event"
-            className="pressable flex items-center gap-2.5 rounded-xl px-3 md:px-3.5 py-2.5 min-h-11 min-w-11 justify-center md:justify-start font-label uppercase tracking-luxe text-[10px] font-bold text-white bg-foil glow-accent transition md:mb-1"
+            className="pressable flex items-center gap-2.5 rounded-xl px-3 md:px-3.5 py-2.5 min-h-11 min-w-11 justify-center md:justify-start font-label uppercase tracking-luxe text-[11px] font-bold text-white bg-foil glow-accent transition md:mb-1"
           >
             <Plus className="w-[18px] h-[18px] shrink-0" />
             <span className="hidden sm:inline">New event</span>
@@ -257,7 +257,7 @@ export default function HostLayout() {
                 className="pressable liquid-glass-inset hidden md:flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 min-h-11 text-brand-muted/80 hover:text-brand-fg transition-colors"
               >
                 <Coins className="w-[18px] h-[18px] shrink-0 text-[color:var(--color-accent)]" />
-                <span className="font-label uppercase tracking-luxe text-[10px]">
+                <span className="font-label uppercase tracking-luxe text-[11px]">
                   {credits} credit{credits === 1 ? '' : 's'}
                 </span>
               </Link>

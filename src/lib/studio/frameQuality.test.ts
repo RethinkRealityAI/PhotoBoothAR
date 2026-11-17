@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
 import {
+  FAINT_SOLID_MIN,
+  retryCorrectionCode,
+  solidShare,
   assessFrame,
   alphaMask,
   components,
@@ -313,5 +318,107 @@ describe('takes — which one the host sees first, and when to retry', () => {
     expect(new Set(lines).size).toBe(4);
     expect(paintingCopy(100)).toMatch(/two minutes/);
     for (const l of lines) expect(l).not.toMatch(/%|\d+ ?s\b/);
+  });
+});
+
+/* ── Faint ("ghost") frames — the live 2026-11-17 art-deco take ─────────────
+ * Its border was full width but almost entirely translucent: of the pixels
+ * that showed, 72% sat at alpha 1–31, 19% at 32–63, 8% at 64–95, ~1% solid —
+ * and the old gate passed it (`ok:true, codes:['border_thin'], score 0.9`)
+ * because a mask cell under alpha 64 counts as clear, so a ghost border reads
+ * as "thin", a warning. Synthesised here with that measured distribution. */
+const NAVY: [number, number, number] = [32, 32, 64];
+function ghostClassic(): RgbaImage {
+  const img = classic();
+  const w = FRAME_GEOMETRY['classic-border'].windows[0];
+  const inWindow = rect(w.cx - w.rx, w.cy - w.ry, w.cx + w.rx, w.cy + w.ry);
+  paint(img, (fx, fy) => !inWindow(fx, fy), (x, y) => {
+    const k = (x * 7 + y * 13) % 100;
+    const a = k < 72 ? 6 + ((x + y) % 26) : k < 91 ? 32 + (x % 32) : k < 99 ? 64 + (y % 32) : 255;
+    return [...NAVY, a];
+  });
+  return img;
+}
+
+/** Minimal 8-bit RGBA, non-interlaced PNG decoder (node:zlib only) — enough
+ *  for the shipped guide frames, all colour type 6. */
+function decodePng(buf: Buffer): RgbaImage {
+  const width = buf.readUInt32BE(16), height = buf.readUInt32BE(20);
+  if (buf[24] !== 8 || buf[25] !== 6 || buf[28] !== 0) throw new Error('unsupported png');
+  const idat: Buffer[] = [];
+  for (let p = 8; p < buf.length;) {
+    const len = buf.readUInt32BE(p);
+    if (buf.toString('ascii', p + 4, p + 8) === 'IDAT') idat.push(buf.subarray(p + 8, p + 8 + len));
+    p += 12 + len;
+  }
+  const raw = inflateSync(Buffer.concat(idat));
+  const stride = width * 4;
+  const out = new Uint8ClampedArray(height * stride);
+  for (let y = 0; y < height; y++) {
+    const f = raw[y * (stride + 1)];
+    const src = y * (stride + 1) + 1;
+    for (let i = 0; i < stride; i++) {
+      const left = i >= 4 ? out[y * stride + i - 4] : 0;
+      const up = y > 0 ? out[(y - 1) * stride + i] : 0;
+      const ul = y > 0 && i >= 4 ? out[(y - 1) * stride + i - 4] : 0;
+      let pred = 0;
+      if (f === 1) pred = left;
+      else if (f === 2) pred = up;
+      else if (f === 3) pred = (left + up) >> 1;
+      else if (f === 4) {
+        const pa = Math.abs(up - ul), pb = Math.abs(left - ul), pc = Math.abs(left + up - 2 * ul);
+        pred = pa <= pb && pa <= pc ? left : pb <= pc ? up : ul;
+      }
+      out[y * stride + i] = (raw[src + i] + pred) & 255;
+    }
+  }
+  return { data: out, width, height };
+}
+
+describe('faint art (ghost frame)', () => {
+  it('reproduces: the old checks alone saw only a thin border — now it FAILS as faint_art', () => {
+    const r = assessFrame({ fitted: ghostClassic(), layout: 'classic-border', source: { width: 768, height: 1344 } });
+    expect(solidShare(ghostClassic())).toBeLessThan(0.05);
+    expect(codes(r)).toContain('border_thin');
+    expect(r.reasons.find((x) => x.code === 'faint_art')?.severity).toBe('fail');
+    expect(r.ok).toBe(false);
+  });
+
+  it('a faint take goes down the free auto-retry with the flat-green correction', () => {
+    const r = assessFrame({ fitted: ghostClassic(), layout: 'classic-border', source: { width: 768, height: 1344 } });
+    expect(retryCorrectionCode(r)).toBe('unkeyed');
+    expect(shouldAutoRetry(r, 0)).toBe(true);
+    expect(autoRetryCode({ keyed: true, quality: r })).toBe('unkeyed');
+    expect(takeUsable({ keyed: true, quality: r })).toBe(false);
+  });
+
+  it('a solid border is untouched by the check', () => {
+    expect(codes(assessFrame({ fitted: classic(), layout: 'classic-border', source: { width: 768, height: 1344 } }))).not.toContain('faint_art');
+  });
+
+  it('end to end: dark art on the model’s sage backdrop now keys SOLID (keyer guard) and passes', () => {
+    // The live raw: backdrop (108,161,85), border art navy / black / gold.
+    const raw = canvas([108, 161, 85, 255]);
+    const w = FRAME_GEOMETRY['classic-border'].windows[0];
+    const inWindow = rect(w.cx - w.rx, w.cy - w.ry, w.cx + w.rx, w.cy + w.ry);
+    const ART: Px[] = [[32, 32, 64, 255], [20, 20, 24, 255], [160, 128, 64, 255]];
+    paint(raw, (fx, fy) => !inWindow(fx, fy), (x, y) => ART[(Math.floor(x / 9) + Math.floor(y / 9)) % 3]);
+    const p = prepareFrame(raw, { claimsTransparent: false, fromGreenScreen: true }, { layout: 'classic-border' });
+    expect(p.keyed).toBe(true);
+    expect(solidShare(p.image)).toBeGreaterThan(0.9);
+    expect(codes(p.quality!)).not.toContain('faint_art');
+    expect(p.quality!.ok).toBe(true);
+  });
+
+  it('no shipped guide frame regresses (all 14 measured 0.929–1.000 solid)', () => {
+    const dir = new URL('../../../public/guides/frames/', import.meta.url);
+    const files = readdirSync(dir).filter((f) => f.endsWith('.png'));
+    expect(files.length).toBe(14);
+    for (const f of files) {
+      const img = decodePng(readFileSync(new URL(f, dir)));
+      const share = solidShare(img);
+      expect(share, f).toBeGreaterThanOrEqual(0.9);
+      expect(share, f).toBeGreaterThan(FAINT_SOLID_MIN);
+    }
   });
 });

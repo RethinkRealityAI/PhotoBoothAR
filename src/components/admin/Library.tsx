@@ -27,7 +27,9 @@ import {
   fetchExperiences, createExperience, updateExperience, deleteExperience,
   getPresetOverrides, setPresetOverrides,
   fetchGlobalExperiences, fetchCatalogLinks, linkCatalogItem, unlinkCatalogItem,
+  getWallSettingsResult,
 } from '../../lib/db';
+import { effectiveOpeningLookId } from '../../lib/openingLook';
 import { builtinExperiences } from '../../lib/catalog';
 import { SHADER_MAP } from '../../lib/shaders';
 import { toDataUrl } from '../../lib/borders';
@@ -36,7 +38,7 @@ import { useStudioBase } from './studioBase';
 import { useStudioAccess } from './studioAccess';
 import type { Experience, PresetOverrides } from '../../types';
 import { copyText } from '../../lib/clipboard';
-import { frameSuggestion, isListed, recommendedFor } from '../../lib/libraryMatch';
+import { frameSuggestion, isListed, isThumbnailSrc } from '../../lib/libraryMatch';
 
 // Platform-only, and it pulls in the AI client — lazy so the legacy bundles
 // (which mount this screen too) never load it.
@@ -67,12 +69,25 @@ function kindLabel(kind: string, plain = false): { label: string; color: string 
   }
 }
 
+/** The "on" state of a toggle. The platform picker above these cards speaks
+ *  in the event accent, so its own toggles do too; legacy keeps its gold. */
+function onToggleClass(platform: boolean): string {
+  return platform
+    ? 'bg-accent/20 text-accent-2 hover:bg-accent/30'
+    : 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30';
+}
+
+/** Platform callers only — also accepts same-origin `/starters/x.webp` paths
+ *  (shipped library rows); see libraryMatch.isThumbnailSrc. */
 function isImageUrl(u: string | null | undefined): u is string {
-  return typeof u === 'string' && (u.startsWith('http') || u.startsWith('data:'));
+  return isThumbnailSrc(u);
 }
 
 function ExperienceThumbnail({ exp, preferThumb = false }: { exp: Experience; preferThumb?: boolean }) {
-  const hasUrl = exp.asset_url && (exp.asset_url.startsWith('http') || exp.asset_url.startsWith('data:'));
+  // Legacy (preferThumb false) keeps its original http/data-only test.
+  const hasUrl = preferThumb
+    ? isThumbnailSrc(exp.asset_url)
+    : exp.asset_url && (exp.asset_url.startsWith('http') || exp.asset_url.startsWith('data:'));
 
   // A real preview image beats every placeholder tile — 3D props and filters
   // published to the library carry one. Platform only (legacy unchanged).
@@ -171,12 +186,15 @@ interface CardProps {
   platform?: boolean;
   /** The Studio add-on is available — Edit / Dupe open it. */
   canEdit?: boolean;
+  /** Built-ins only: show the On/Off switch. False where another control
+   *  (LooksPicker) already decides it, so the host is never shown two. */
+  showHideToggle?: boolean;
 }
 
 function ExperienceCard({
   exp, isBuiltin, hidden, onRefresh, onQR,
   onToggleHide, onMoveUp, onMoveDown, canMoveUp, canMoveDown,
-  platform = false, canEdit = true,
+  platform = false, canEdit = true, showHideToggle = true,
 }: CardProps) {
   const navigate = useNavigate();
   const base = useStudioBase();
@@ -311,7 +329,7 @@ function ExperienceCard({
               aria-pressed={platform ? exp.is_published : undefined}
               className={`flex-1 flex items-center justify-center gap-1 ${platform ? 'min-h-11 text-[11px]' : 'py-1.5 text-[9px]'} rounded-lg font-label uppercase tracking-widest transition-colors ${
                 exp.is_published
-                  ? 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30'
+                  ? onToggleClass(platform)
                   : 'glass text-champagne/40 hover:text-gold-300'
               }`}
             >
@@ -345,17 +363,19 @@ function ExperienceCard({
                 <Pencil className="w-3 h-3" /> Edit
               </button>
               )}
+              {showHideToggle && (
               <button
                 onClick={onToggleHide}
                 title={hidden ? 'Show in booth' : 'Hide from booth'}
                 aria-pressed={platform ? !hidden : undefined}
                 className={`flex-1 flex items-center justify-center gap-1 ${platform ? 'min-h-11 text-[11px]' : 'py-1.5 text-[9px]'} rounded-lg font-label uppercase tracking-widest transition-colors ${
-                  hidden ? 'glass text-champagne/40 hover:text-gold-300' : 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30'
+                  hidden ? 'glass text-champagne/40 hover:text-gold-300' : onToggleClass(platform)
                 }`}
               >
                 {hidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                 {hidden ? offWord : onWord}
               </button>
+              )}
             </>
           ) : (
             <>
@@ -447,6 +467,19 @@ export default function Library({
   }, [eventId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Platform only: the WALL half of the opening look. The booth opens with
+  // `wall ?? config`, so "opens first" here must read the same pair — the
+  // config alone named an AI frame while the booth opened a copilot-pinned
+  // prop. A failed read falls back to config alone (the previous display).
+  const [wallDefault, setWallDefault] = useState<{ loaded: boolean; id: string | null }>({ loaded: false, id: null });
+  const loadWallDefault = useCallback(async () => {
+    if (!platform) return;
+    const r = await getWallSettingsResult(eventId);
+    setWallDefault({ loaded: true, id: r.failed ? null : r.settings.defaultExperienceId });
+  }, [platform, eventId]);
+  useEffect(() => { void loadWallDefault(); }, [loadWallDefault]);
+  const [pickerEpoch, setPickerEpoch] = useState(0);
 
   useEffect(() => {
     if (!showCatalog) return;
@@ -540,8 +573,6 @@ export default function Library({
   // stay out of every host's view.
   const listedGlobals = globals.filter((g) => isListed(g.config));
   const accentHex = config.accentHexes?.[0] ?? null;
-  const recommended = platform ? recommendedFor(listedGlobals, { eventType, accentHex }) : [];
-  const recommendedIds = new Set(recommended.map((r) => r.id));
   const suggestion = frameSuggestion({
     eventName: eventName ?? config.copy.eventName,
     eventType,
@@ -591,7 +622,7 @@ export default function Library({
             aria-pressed={platform ? linked : undefined}
             className={`mt-auto flex items-center justify-center gap-1 ${platform ? 'min-h-11 text-[11px]' : 'py-1.5 text-[9px]'} rounded-lg font-label uppercase tracking-widest transition-colors ${
               linked
-                ? 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30'
+                ? onToggleClass(platform)
                 : 'glass text-champagne/50 hover:text-gold-300'
             }`}
           >
@@ -618,8 +649,9 @@ export default function Library({
     <section id="quick-ai-frame" key="ai" className="scroll-mt-4">
       <h2 className={`${headingClass} mb-2`}>Make a frame with AI</h2>
       <p className={blurbClass}>
-        We’ve started a description from your event — change anything, then generate. Your first 3 AI
-        frames on every event are free.
+        {/* What it costs is stated by FrameStudio itself (free left / credits /
+            free frames used), from the same allowance the Generate button uses. */}
+        Pick a look and your colours — we’ll draw your event’s name on it.
       </p>
       <Suspense
         fallback={(
@@ -630,7 +662,7 @@ export default function Library({
       >
         {/* A frame just made with AI lands in "Your own" and opens first —
             re-read both so it shows without a reload. */}
-        <FrameStudio eventUuid={eventUuid} suggestion={suggestion} onApplied={() => { void load(); void refreshConfig(); }} />
+        <FrameStudio eventUuid={eventUuid} suggestion={suggestion} onApplied={() => { void load(); void refreshConfig(); void loadWallDefault().then(() => setPickerEpoch((n) => n + 1)); }} />
       </Suspense>
     </section>
   ) : null;
@@ -639,31 +671,50 @@ export default function Library({
      create flow ends on), so hosts without the Studio pick looks here too.
      It reads the raw allow-lists + default frame, which runtime config passes
      through unchanged (events/runtime.ts). */
+  // The look the booth opens with when it is NOT one of the picker's frames
+  // (an AI frame, a library pick) — named so the picker can say why its own
+  // frames are not first.
+  // The SAME effective value the booth opens with (openingLook.ts).
+  const defaultId = effectiveOpeningLookId(wallDefault.id, config.defaultExperienceId);
+  const openingLookName = typeof defaultId === 'string' && defaultId !== '' && !defaultId.startsWith('builtin:border:')
+    ? [...dbExps, ...globals, ...presets].find((e) => e.id === defaultId)?.name ?? null
+    : null;
+  // Mounted only once the wall half is known: the picker seeds its "opens
+  // first" pick from its first render, and re-keyed when the opening look
+  // changes ELSEWHERE (an AI frame pinned above) so it re-seeds — never on its
+  // own save, which would wipe its "Saved" line.
   const looksSection = platform && eventUuid ? (
     <section key="looks">
       <Suspense fallback={skeleton(5, 'h-48')}>
-        <LooksPicker
+        {!wallDefault.loaded ? skeleton(5, 'h-48') : <LooksPicker
+          key={pickerEpoch}
           eventUuid={eventUuid}
-          config={{ arContent: config.arContent, defaultExperienceId: config.defaultExperienceId }}
+          eventSlug={eventId}
+          openingLookName={openingLookName}
+          ownFrames={dbSorted
+            .filter((e) => e.kind === 'border')
+            .map((e) => ({ id: e.id, name: e.name, imageUrl: isImageUrl(e.thumbnail_url) ? e.thumbnail_url : isImageUrl(e.asset_url) ? e.asset_url : null, on: e.is_published }))}
+          config={{ arContent: config.arContent, defaultExperienceId: defaultId }}
           eventType={eventType}
           accentHex={config.arContent.framePalette?.accent ?? accentHex}
-          onSaved={() => { void refreshConfig(); }}
-        />
+          onSaved={() => { void refreshConfig(); void loadWallDefault(); }}
+          // The shared library lives in the picker on the platform (ONE place
+          // per screen — the create flow shows the same section), so the
+          // Recommended / Ready-made library grids below are legacy-only.
+          library={{
+            eventSlug: eventId,
+            occasion: eventType,
+            text: [eventName ?? config.copy.eventName, config.brief?.occasion, config.brief?.tone, config.brief?.notes]
+              .filter((s): s is string => typeof s === 'string' && s !== '')
+              .join(' · '),
+          }}
+        />}
       </Suspense>
     </section>
   ) : null;
 
-  const recommendedSection = platform && recommended.length > 0 ? (
-    <section key="recommended">
-      <h2 className={`${headingClass} mb-2`}>Recommended for your event</h2>
-      <p className={blurbClass}>Ready-made picks that match your occasion and colours.</p>
-      <div className={gridClass}>{recommended.map(catalogCard)}</div>
-    </section>
-  ) : null;
-
-  // On the platform, items already shown under Recommended are not repeated.
-  const libraryItems = platform ? listedGlobals.filter((g) => !recommendedIds.has(g.id)) : listedGlobals;
-  const catalogSection = showCatalog ? (
+  const libraryItems = listedGlobals;
+  const catalogSection = showCatalog && !platform ? (
     <section key="catalog">
       <h2 className={`${headingClass} mb-2`}>
         {platform ? `Ready-made library (${listedGlobals.length})` : `Beamwall Catalog (${listedGlobals.length})`}
@@ -695,7 +746,7 @@ export default function Library({
         {platform ? `Your own (${dbExps.length})` : `Custom Experiences (${dbExps.length})`}
       </h2>
       {platform && (
-        <p className={blurbClass}>Frames you made with AI or brought in. Switch each one on or off for guests.</p>
+        <p className={blurbClass}>Looks added just for this event — frames and 3D props you made with AI, ones the assistant added, and files you brought in. Switch each one on or off for guests.</p>
       )}
       {loading ? skeleton(6, 'h-64') : dbExps.length === 0 ? (
         platform ? (
@@ -765,17 +816,38 @@ export default function Library({
     </section>
   );
 
+  // With the picker above on screen, it alone decides which built-in frames
+  // and filters are on (its allow-list already removes the rest from this
+  // grid — catalog.pick). So here those cards only set the ORDER; their own
+  // switch would be a second on/off for the same thing. Two exceptions keep
+  // every capability: a card already switched off here (an older override)
+  // keeps its switch so it can be turned back on, and the 3D head pieces —
+  // which the picker does not list — keep theirs.
+  const pickerDecides = (exp: Experience) =>
+    looksSection !== null && (exp.id.startsWith('builtin:border:') || exp.id.startsWith('builtin:shader:'));
   const builtinSection = (
     <section key="builtin">
       <h2 className={`${headingClass} mb-2`}>
-        {platform ? `Included with every event (${presets.length})` : `Built-in Presets (${presets.length})`}
+        {platform
+          ? looksSection !== null
+            ? `Booth order (${presets.length})`
+            : `Included with every event (${presets.length})`
+          : `Built-in Presets (${presets.length})`}
       </h2>
       {platform ? (
-        <p className={blurbClass}>
-          Reorder with the arrows and switch each one <span className="text-gold-300/80">On for guests</span> or{' '}
-          <span className="text-gold-300/80">Off</span>.
-          {canEdit ? ' Press Edit to make your own copy in the Studio.' : ''}
-        </p>
+        looksSection !== null ? (
+          <p className={blurbClass}>
+            Everything switched on above, in the order guests see it — use the arrows to move a look
+            earlier or later. To switch a frame or filter on or off, use the picker at the top.
+            {canEdit ? ' Press Edit to make your own copy in the Studio.' : ''}
+          </p>
+        ) : (
+          <p className={blurbClass}>
+            Reorder with the arrows and switch each one <span className="text-gold-300/80">On for guests</span> or{' '}
+            <span className="text-gold-300/80">Off</span>.
+            {canEdit ? ' Press Edit to make your own copy in the Studio.' : ''}
+          </p>
+        )
       ) : (
         <p className="font-sans text-[11px] text-champagne/35 mb-4">
           Reorder with the arrows, toggle <span className="text-gold-300/70">Live / Hidden</span> to show or hide each in the booth, or press <span className="text-gold-300/70">Edit</span> to make an editable copy.
@@ -797,6 +869,7 @@ export default function Library({
             canMoveDown={i < presets.length - 1}
             platform={platform}
             canEdit={canEdit}
+            showHideToggle={!pickerDecides(exp) || hiddenSet.has(exp.id)}
           />
         ))}
       </div>
@@ -805,7 +878,7 @@ export default function Library({
 
   // Platform: the no-design path first. Legacy: the original order.
   const sections = platform
-    ? [looksSection, aiFrameSection, recommendedSection, catalogSection, ownSection, builtinSection]
+    ? [looksSection, aiFrameSection, ownSection, builtinSection]
     : [ownSection, builtinSection, catalogSection];
 
   return (

@@ -327,6 +327,7 @@ export function buildCopilotPrompt(opts: CopilotPromptOptions): string {
       'code=network or code=timeout → say it plainly and offer to retry once.',
       'code=gap → answer the question in the summary (the card is missing a required field).',
       'code=unknown → say it failed; do not guess the cause.',
+      `code=upgrade_required → that tool is not on this host's plan: never propose it again in this conversation, not even reworded; say in one clause that nothing was charged, then offer what they CAN do now — a built-in library prop (add_head_piece source "builtin"), a ready-made frame or filter, or generate_frame while the event's ${FREE_IMAGES_PER_EVENT} free frames last.`,
       'The SECOND failure for the same request → propose contact_support with a one-line summary of what was tried.',
       'Never claim a failed action succeeded, and never invent a result.',
     ]),
@@ -337,6 +338,7 @@ export function buildCopilotPrompt(opts: CopilotPromptOptions): string {
       'Never invent an id: frame, filter and 3D piece ids come only from the catalogs; experience and challenge ids only from the current event data.',
       'Never put a name, date or hashtag on a frame that the host did not give you.',
       'Never propose go_live unless the host explicitly asks to go live, open or launch.',
+      'A PLAN LIMITS line in the current event data is binding: never propose or price anything it lists as not available (AI-generated 3D props, the Scene Director, paid AI beyond the stated free allowance) — offer library looks, ready-made frames and filters, or the guided AI frame within the free allowance instead.',
       ...CREDIT_RULES,
     ]),
     section('Examples', [

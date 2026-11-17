@@ -232,3 +232,15 @@ placeholder, never a 404 video.
   first. GUIDE_COUNTS.studioTabs stays 8 — it counts the full set. Sweep:
   `PW_CHROME=/opt/pw-browsers/chromium-1243/chrome-linux64/chrome` — the
   script's default chromium-1194 path no longer exists in this sandbox.
+- 2026-11-17 — Beta polish (branch `claude/beta-polish`). Copy-only again;
+  drift test green throughout. first-event is now SIX steps with an explicit
+  "Pick your frames & filters" step (the picker the create screen ends on and
+  the top of the Frames & filters tab) and "Fill in manually" for the no-AI
+  route. "Test on phone" is a STUDIO control (StudioStage) — the no-Studio
+  test is the checklist's "Take a test photo" or scanning your own QR, and a
+  draft only opens for a signed-in member, so the copy says sign in on that
+  phone. make-a-frame's AI step now describes the GUIDED maker (Pick a look ·
+  Colours · Add the event name · Generate · Use as booth frame · Describe it
+  yourself) — labels read from GuidedFrameMaker/FrameStudio JSX. The Generate
+  button now reads "free" while the event has free frames left. Sweep CLEAN
+  on :5192 (`node scripts/shoot-guides.mjs sweep http://localhost:5192`).
