@@ -41,8 +41,11 @@ returns boolean language sql stable security definer set search_path = public as
     or public.is_platform_admin(p_user)
   );
 $$;
--- Load-bearing (see 022): a definer fn is exposed at /rest/v1/rpc/ otherwise.
-revoke all on function public.is_sales_member(uuid) from public;
+-- Load-bearing (see 020-022): a definer fn is exposed at /rest/v1/rpc/ otherwise.
+-- `anon` must be named explicitly: Supabase's default privileges grant EXECUTE
+-- on new public functions to anon directly, so revoking from PUBLIC alone left
+-- anon able to call these (caught by the 041 dry run, 2026-11-17).
+revoke all on function public.is_sales_member(uuid) from public, anon;
 grant execute on function public.is_sales_member(uuid) to authenticated;
 
 drop policy if exists sales_team_read on public.sales_team;
@@ -174,7 +177,7 @@ begin
   return v_user;
 end;
 $$;
-revoke all on function public.sales_grant_access(text, text, text) from public;
+revoke all on function public.sales_grant_access(text, text, text) from public, anon;
 grant execute on function public.sales_grant_access(text, text, text) to authenticated;
 
 create or replace function public.sales_revoke_access(p_user uuid)
@@ -188,7 +191,7 @@ begin
     values (auth.uid(), 'sales_revoke_access', 'user', p_user::text, '{}'::jsonb);
 end;
 $$;
-revoke all on function public.sales_revoke_access(uuid) from public;
+revoke all on function public.sales_revoke_access(uuid) from public, anon;
 grant execute on function public.sales_revoke_access(uuid) to authenticated;
 
 -- Roster with emails, for the admin's Team panel and for showing "owner" names
@@ -204,5 +207,5 @@ language sql stable security definer set search_path = public, auth as $$
   where public.is_sales_member()
   order by t.created_at;
 $$;
-revoke all on function public.sales_team_list() from public;
+revoke all on function public.sales_team_list() from public, anon;
 grant execute on function public.sales_team_list() to authenticated;
