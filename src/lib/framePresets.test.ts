@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   FRAME_PRESETS,
   FRAME_PRESET_STYLE,
+  FRAME_PRESET_COLOURS,
+  presetArtStyle,
   framePresetById,
   defaultPresetFor,
   providerForPreset,
@@ -10,7 +12,7 @@ import {
   framePaletteById,
   eventPalette,
 } from './framePresets';
-import { FRAME_LAYOUT_SPEC, inferFrameLayout, isGreenFamily } from './assetPrompt';
+import { FRAME_LAYOUT_SPEC, buildGreenScreenFramePrompt, inferFrameLayout, isGreenFamily } from './assetPrompt';
 
 describe('FRAME_PRESETS', () => {
   it('ships the eight looks, each with a style, a real layout and a provider hint', () => {
@@ -45,7 +47,10 @@ describe('FRAME_PRESETS', () => {
     // The style travels in `prompt` for the deployed server; it must not make
     // inferFrameLayout pick a different archetype than the preset recommends.
     for (const p of FRAME_PRESETS) {
-      if (p.layout === 'classic-border') expect(inferFrameLayout(FRAME_PRESET_STYLE[p.id]), p.id).toBe('classic-border');
+      if (p.layout === 'classic-border') {
+        expect(inferFrameLayout(FRAME_PRESET_STYLE[p.id]), p.id).toBe('classic-border');
+        expect(inferFrameLayout(presetArtStyle(p.id, false)), p.id).toBe('classic-border');
+      }
     }
   });
 });
@@ -90,15 +95,67 @@ describe('providerForPreset — advisory only', () => {
 
 describe('composePresetPrompt', () => {
   it('carries the style for the deployed server, plus the host’s extra words', () => {
-    expect(composePresetPrompt('luxe-marble', '')).toBe(FRAME_PRESET_STYLE['luxe-marble']);
+    expect(composePresetPrompt('luxe-marble', '')).toBe(presetArtStyle('luxe-marble', false));
     expect(composePresetPrompt('luxe-marble', '  roses on the corners ')).toBe(
-      `${FRAME_PRESET_STYLE['luxe-marble']}. roses on the corners`);
+      `${presetArtStyle('luxe-marble', false)}. roses on the corners`);
   });
 
   it('spells a picked palette out for the deployed server (which ignores `palette`)', () => {
     const blush = framePaletteById('blush')!;
     expect(composePresetPrompt('luxe-marble', '', blush)).toBe(`${FRAME_PRESET_STYLE['luxe-marble']}, in ${blush.words}`);
     expect(composePresetPrompt('luxe-marble', 'roses', blush)).toBe(`${FRAME_PRESET_STYLE['luxe-marble']}, in ${blush.words}. roses`);
+  });
+
+  it('the event swatch (hexes, no words) gives the style alone — no preset colours, no dangling ", in "', () => {
+    const ev = eventPalette(['#C8102E'])!;
+    expect(composePresetPrompt('art-deco-foil', '', ev)).toBe(FRAME_PRESET_STYLE['art-deco-foil']);
+    expect(composePresetPrompt('art-deco-foil', 'roses', ev)).toBe(`${FRAME_PRESET_STYLE['art-deco-foil']}. roses`);
+  });
+});
+
+describe('palette is the colour authority over a preset look', () => {
+  /** The colour vocabulary, derived from the presets' own colour lists. */
+  const colourWords = [...new Set(
+    Object.values(FRAME_PRESET_COLOURS).flatMap((cs) => cs.flatMap((c) => c.toLowerCase().split(/[\s-]+/))),
+  )].filter(Boolean);
+  const hasWord = (text: string, w: string) => new RegExp(`\\b${w}\\b`, 'i').test(text);
+
+  it('derives a real vocabulary (sanity: the words the red-palette run fought)', () => {
+    for (const w of ['gold', 'navy', 'magenta', 'coral', 'plum', 'orange', 'white', 'black']) expect(colourWords).toContain(w);
+  });
+
+  it('with a palette, no preset’s art style names any preset colour', () => {
+    for (const p of FRAME_PRESETS) {
+      const style = presetArtStyle(p.id, true);
+      for (const w of colourWords) expect(hasWord(style, w), `${p.id} says "${w}"`).toBe(false);
+    }
+  });
+
+  it('with a palette, the whole frame prompt carries the palette and none of the preset’s own colour words', () => {
+    const red = ['#C8102E', '#F4EFE6'];
+    for (const p of FRAME_PRESETS) {
+      const prompt = buildGreenScreenFramePrompt('', { layout: p.layout, accentHexes: red, style: presetArtStyle(p.id, true) });
+      expect(prompt).toContain('Build the palette around #C8102E');
+      const artStyle = /Art style: (.*?)\. (Register|Build|Use a disciplined)/.exec(prompt)?.[1] ?? '';
+      expect(artStyle, p.id).toBe(FRAME_PRESET_STYLE[p.id]);
+      for (const w of colourWords) expect(hasWord(artStyle, w), `${p.id} says "${w}"`).toBe(false);
+    }
+  });
+
+  it('without a palette, each preset keeps its own colours', () => {
+    for (const p of FRAME_PRESETS) {
+      const style = presetArtStyle(p.id, false);
+      expect(style.startsWith(FRAME_PRESET_STYLE[p.id])).toBe(true);
+      for (const c of FRAME_PRESET_COLOURS[p.id]) expect(style).toContain(c);
+    }
+    expect(presetArtStyle('art-deco-foil', false)).toBe(`${FRAME_PRESET_STYLE['art-deco-foil']}, in antique gold and ink navy`);
+    expect(presetArtStyle('minimal-line', false)).toBe(FRAME_PRESET_STYLE['minimal-line']);
+  });
+
+  it('no preset colour is a green the key would cut out', () => {
+    for (const [id, cs] of Object.entries(FRAME_PRESET_COLOURS)) {
+      for (const c of cs) expect(c, id).not.toMatch(/\b(green|emerald|sage|olive|mint|lime|teal)\b/i);
+    }
   });
 });
 

@@ -109,11 +109,13 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
 import {
+  FRAME_GEOMETRY_VERSION,
   FRAME_LAYOUT_SPEC,
   LAYOUTS,
   artDirectionFor,
   buildGreenScreenFramePrompt,
   correctionSentence,
+  framePalette,
   normalizeLettering,
   presetStyle,
   type FrameLayout,
@@ -130,10 +132,10 @@ import {
   parsePalette,
   parseRetryOf,
   parseVariants,
-  partialRefund,
   pickImagePart,
   requestCost,
   retryEligibility,
+  settleDelivery,
   type GeminiPart as GeminiPartBody,
   type RetryOriginal,
 } from './jobPolicy.ts';
@@ -1152,6 +1154,9 @@ Deno.serve(async (req: Request) => {
       const occasion = typeof briefCfg.occasion === 'string' ? briefCfg.occasion : null;
       const isFrame = kind === 'border' && greenScreen;
       const correction = correctionSentence(correctionCode);
+      // The palette is the colour authority: with a usable host/event palette
+      // the preset contributes STYLE only; its own colours only when none.
+      const artStyle = preset ? presetStyle(preset, framePalette(accentHexes).length > 0) : null;
       /** The prompt for take `i` — each extra take gets a VARIANT_NUDGES line
        *  beside the preset style so the takes genuinely differ. */
       const promptFor = (i: number) => buildPrompt(
@@ -1159,7 +1164,7 @@ Deno.serve(async (req: Request) => {
         layout, lettering,
         {
           occasion,
-          style: [style, VARIANT_NUDGES[i] ?? ''].filter(Boolean).join('. ') || null,
+          style: [artStyle, VARIANT_NUDGES[i] ?? ''].filter(Boolean).join('. ') || null,
           plaque,
           correction,
         },
@@ -1212,13 +1217,16 @@ Deno.serve(async (req: Request) => {
       const outputs: { i: number; bytes: Uint8Array }[] = [];
       settled.forEach((s, i) => { if (s.status === 'fulfilled') outputs.push({ i, bytes: s.value }); });
       if (outputs.length === 0) throw (settled[0] as PromiseRejectedResult).reason;
-      const failedTakes = takes - outputs.length;
 
       // 8–9. Store each take (format sniffed from the BYTES — some Gemini
       //      models return JPEG, which used to be stored as `.png`/image/png)
-      //      and create its unpublished experiences row.
+      //      and create its unpublished experiences row. Each take is its own
+      //      try: a take that fails here is UNDELIVERED, and the request is
+      //      settled below by what was delivered (jobPolicy.settleDelivery) —
+      //      a failure on take 2 no longer refunds the take-1 option the host keeps.
       const experiences: Record<string, unknown>[] = [];
-      for (const out of outputs) {
+      let storeErr: unknown = null;
+      for (const out of outputs) try {
         const fmt = imageFormat(out.bytes);
         if (!fmt) throw new AiError('generation_failed', 'provider_returned_non_image');
         // Transparency flag: requested AND the PNG actually carries alpha.
@@ -1259,6 +1267,9 @@ Deno.serve(async (req: Request) => {
               // about the art (a duo-scene has two head cutouts, not a clear
               // centre). Border only; a sticker has no canvas layout.
               ...(kind === 'border' ? { layout } : {}),
+              // The geometry this frame's prompt used — the client draws its
+              // name in THIS version's plaque, so old rows keep theirs.
+              ...(isFrame ? { frameGeometry: FRAME_GEOMETRY_VERSION } : {}),
               // Booth defaults so the asset renders immediately when published.
               transform: { scale: 1, x: 0, y: 0, rotation: 0 },
               opacity: 1,
@@ -1272,12 +1283,21 @@ Deno.serve(async (req: Request) => {
           .single();
         if (expErr || !experience) throw expErr ?? new Error('experience_insert_failed');
         experiences.push(experience as Record<string, unknown>);
+      } catch (takeErr) {
+        console.warn('[ai-generate-image] take not delivered', jobId, out.i,
+          takeErr instanceof Error ? takeErr.message : String(takeErr));
+        storeErr ??= takeErr;
       }
 
-      // Partial refund: under per_variant pricing a take that failed is
-      // returned (jobPolicy.partialRefund). Best-effort — logged, never fatal,
-      // because the host already has the takes that succeeded.
-      const refund = partialRefund(COSTS[provider], failedTakes, { zero: zeroCost });
+      // Settle by DELIVERY. None delivered → throw into the full-refund path
+      // (first store error, so an AiError keeps its code). Some delivered →
+      // the charge stands; under per_variant an undelivered take is returned
+      // (partial refund). Best-effort — logged, never fatal, because the host
+      // already has the takes that arrived.
+      const settlement = settleDelivery(COSTS[provider], takes, experiences.length, { zero: zeroCost });
+      if (settlement.fail) throw storeErr ?? new Error('no_take_delivered');
+      const failedTakes = takes - experiences.length;
+      const refund = settlement.refund;
       if (refund > 0) {
         const { error: refundErr } = await sb.rpc('grant_credits', {
           p_org: orgId, p_amount: refund, p_reason: 'ai_refund', p_ref: { ...ref, partial: failedTakes },
@@ -1305,7 +1325,7 @@ Deno.serve(async (req: Request) => {
         experience: experiences[0],
         experiences,
         charged,
-        variants: { requested: variantsRequested, granted: takes, delivered: outputs.length },
+        variants: { requested: variantsRequested, granted: takes, delivered: experiences.length },
         ...(retryEligible ? { retry: { free: true, of: retryOf } } : {}),
       });
     } catch (err) {

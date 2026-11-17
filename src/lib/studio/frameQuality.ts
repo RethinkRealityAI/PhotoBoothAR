@@ -79,6 +79,10 @@ export const CORNER_CLEAR_MIN = 0.6;
 export const CORNER_CENTRE = { x0: 0.25, y0: 0.3, x1: 0.75, y1: 0.7 } as const;
 /** Lower-third: the top share that must be clear. */
 export const BOTTOM_TOP_CLEAR_MIN = 0.95;
+/** Lower-third: the clear region ends this far above the band's top edge
+ *  (FRAME_GEOMETRY artZones[0].y0) — the slack a model's band edge gets. Was
+ *  the literal 0.6 against a 0.66 band; derived so a moved band moves it. */
+export const BOTTOM_BAND_SLACK = 0.06;
 /** Full-bleed scene: if more than this is clear, it is a border, not a scene. */
 export const SCENE_MAX_CLEAR = 0.4;
 /** Share of the art (opaque cells) that must be visible between the booth's
@@ -463,7 +467,8 @@ export function assessFrame(input: QualityInput): QualityResult {
       reasons.push(fill === 'art' ? reason('art_in_window', 'fail') : reason('window_painted', 'fail'));
     }
   } else if (layout === 'bottom-third') {
-    if (clearShare(mask, { x0: 0, y0: 0, x1: 1, y1: 0.6 }) < BOTTOM_TOP_CLEAR_MIN) {
+    const bandTop = geometry.artZones[0]?.y0 ?? 0.66;
+    if (clearShare(mask, { x0: 0, y0: 0, x1: 1, y1: bandTop - BOTTOM_BAND_SLACK }) < BOTTOM_TOP_CLEAR_MIN) {
       const fill = diagnoseFill(fitted, { x0: 0.1, y0: 0.1, x1: 0.9, y1: 0.55 });
       reasons.push(fill === 'art' ? reason('art_in_window', 'fail') : reason('window_painted', 'fail'));
     }
