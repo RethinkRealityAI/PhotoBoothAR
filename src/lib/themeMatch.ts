@@ -170,23 +170,91 @@ export function effectiveDefaultFrame(
 }
 
 /**
+ * The `arContent` patch that makes the frames follow a NEW event colour —
+ * the Branding "Change the look" counterpart of what create writes
+ * (seededLooks: `framePalette: { accent }`). Null = leave the frames alone:
+ *  - frames are not in match mode (no framePalette — LooksPicker's "Match
+ *    frames to my colour" off): the host wants them as drawn;
+ *  - the frame palette is NOT one of the colours the event was using
+ *    (`previousAccents`): the host deliberately chose a different one;
+ *  - the new colour is invalid, or already the frame colour.
+ * A stored second colour (`accent2`) is kept. `arContent` is rebuilt from the
+ * current one (updateEventConfig merges shallowly — see looksConfigPatch).
+ */
+export function followAccentFramePalette(
+  currentConfig: Record<string, unknown> | null | undefined,
+  previousAccents: Array<string | null | undefined>,
+  nextAccent: string | null | undefined,
+): { arContent: Record<string, unknown> } | null {
+  const next = normalizeHex(nextAccent);
+  if (next === null) return null;
+  const sel = selectionFromConfig(currentConfig);
+  if (sel.palette === null) return null;
+  const was = sel.palette.accent.toUpperCase();
+  if (was === next.toUpperCase()) return null;
+  const tracked = previousAccents.some((a) => normalizeHex(a)?.toUpperCase() === was);
+  if (!tracked) return null;
+  const cfg = currentConfig ?? {};
+  const currentAr = (cfg.arContent && typeof cfg.arContent === 'object' ? cfg.arContent : {}) as Record<string, unknown>;
+  const framePalette: Record<string, unknown> = { accent: next };
+  if (sel.palette.accent2) framePalette.accent2 = sel.palette.accent2;
+  return { arContent: { ...currentAr, framePalette } };
+}
+
+/**
+ * `config.accentHexes` with the event's CURRENT colour first. accentHexes is
+ * the palette most readers take (booth accent = [0], SendOff confetti, the
+ * AI frame's fallback) and used to be written once from the template — a host
+ * who chose red kept the template golds everywhere but the theme tokens.
+ * Order: accent, accent2 (if any), then the existing palette, de-duplicated
+ * case-insensitively, invalid entries dropped, at most `max` (4 = a
+ * template's length). An invalid accent returns the existing list cleaned.
+ * Returns a NEW array.
+ */
+export function accentHexesFor(
+  accentHex: string | null | undefined,
+  existing: unknown,
+  accent2Hex?: string | null,
+  max = 4,
+): string[] {
+  const list = [
+    normalizeHex(accentHex),
+    normalizeHex(accent2Hex),
+    ...(Array.isArray(existing) ? existing.map((h) => normalizeHex(h)) : []),
+  ];
+  const out: string[] = [];
+  for (const h of list) {
+    if (h === null || out.includes(h)) continue; // normalizeHex upper-cases, so includes() is case-insensitive
+    out.push(h);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
  * The seeded set for a fresh event: the template's own frames/filters, put in
  * ranked order, plus the frame palette when the host chose a colour. Merged
  * over templateConfigPatch's arContent by the create flow — with no accent the
- * lists are the template's exact ids (only the order can differ).
+ * lists are the template's exact ids (only the order can differ). A valid
+ * `accent2` (a second colour the host named) rides in the palette too.
  */
-export function seededLooks(template: EventTemplate, accentHex: string | null | undefined): { arContent: Record<string, unknown> } {
+export function seededLooks(
+  template: EventTemplate,
+  accentHex: string | null | undefined,
+  accent2Hex?: string | null,
+): { arContent: Record<string, unknown> } {
   const ranked = rankLooks({ templateId: template.id, accentHex });
   const own = (ids: string[], ranked: string[]) => [
     ...ranked.filter((id) => ids.includes(id)),
     ...ids.filter((id) => !ranked.includes(id)),
   ];
   const accent = normalizeHex(accentHex);
+  const accent2 = normalizeHex(accent2Hex);
   return {
     arContent: {
       shaderIds: own(template.shaderIds, ranked.filterIds),
       borderIds: own(template.borderIds, ranked.frameIds),
-      ...(accent ? { framePalette: { accent } } : {}),
+      ...(accent ? { framePalette: accent2 && accent2.toUpperCase() !== accent.toUpperCase() ? { accent, accent2 } : { accent } } : {}),
     },
   };
 }

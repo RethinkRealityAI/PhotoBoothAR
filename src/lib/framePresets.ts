@@ -42,33 +42,67 @@ export interface FramePreset {
   providerHint: ProviderHint;
 }
 
-/** Art-style sentence per preset — the mirrored table. */
+/**
+ * Art-style sentence per preset — the mirrored table. STYLE ONLY: motifs, line
+ * quality, material finish. No colour names: when the host (or the event) has
+ * a palette, that palette is the colour authority, and a look that said
+ * "antique-gold foil on ink-navy" painted navy-and-gold frames for a host who
+ * picked red (seen in a real run). The preset's own colours live apart in
+ * FRAME_PRESET_COLOURS and are used only when no palette is in play.
+ * The green bans stay here: they hold whatever the palette is.
+ */
 export const FRAME_PRESET_STYLE: Record<FramePresetId, string> = {
   'botanical-watercolour':
     'loose botanical watercolour — peonies, ranunculus and trailing vines painted in soft washes with visible ' +
-    'paper grain and fine ink outlines; foliage is rendered in blush, dusty rose, cream and gold, never green',
+    'paper grain and fine pen outlines; foliage is never green',
   'art-deco-foil':
     'art-deco stationery — stepped geometric borders, sunburst fans and fine parallel rules in raised ' +
-    'antique-gold foil on deep ink-navy border panels, strictly symmetrical',
+    'metallic foil on solid border panels, strictly symmetrical',
   'neon-night':
-    'neon-sign night — bent glass tubes glowing in hot magenta, electric blue and violet with soft halation, ' +
-    'mounted on dark brick border panels; no green or lime neon',
+    'neon-sign night — bent glass tubes glowing with soft halation, mounted on dark brick border panels; ' +
+    'no green or lime neon',
   'confetti-pop':
-    'confetti pop — bold paper confetti, streamers and balloon clusters in saturated coral, sunshine yellow, ' +
-    'cobalt and pink, flat graphic shapes with crisp edges',
+    'confetti pop — bold paper confetti, streamers and balloon clusters as flat graphic shapes with crisp edges ' +
+    'and vivid colour',
   'minimal-line':
     'minimal line art — a single continuous fine metallic hairline with generous negative space, one small ' +
     'geometric accent per corner, gallery-card restraint',
   storybook:
     'storybook illustration — a whimsical hand-painted gouache world with rounded shapes, soft rim light and ' +
-    'gentle texture; trees and grass are painted in plum, lavender and peach, never green',
+    'gentle texture; trees and grass are never green',
   'retro-70s':
-    'retro 1970s — chunky rounded stripes and sunburst arcs in burnt orange, mustard, rust and chocolate brown ' +
-    'with a slight risograph grain',
+    'retro 1970s — chunky rounded stripes and sunburst arcs with a slight risograph grain',
   'luxe-marble':
-    'luxe marble — white Carrara and black Nero marble slabs with gold veining and thin brushed-gold inlay ' +
-    'bands, polished and architectural; no green marble',
+    'luxe marble — polished marble slabs with fine metallic veining and thin brushed-metal inlay bands, ' +
+    'architectural; no green marble',
 };
+
+/** Each preset's OWN colours (mirrored, drift-tested) — appended to the style
+ *  only when no host/event palette is in play. Plain colour names only, so a
+ *  test can derive the colour vocabulary from this table. */
+export const FRAME_PRESET_COLOURS: Record<FramePresetId, readonly string[]> = {
+  'botanical-watercolour': ['blush', 'dusty rose', 'cream', 'gold'],
+  'art-deco-foil': ['antique gold', 'ink navy'],
+  'neon-night': ['hot magenta', 'electric blue', 'violet'],
+  'confetti-pop': ['coral', 'sunshine yellow', 'cobalt', 'pink'],
+  'minimal-line': [],
+  storybook: ['plum', 'lavender', 'peach'],
+  'retro-70s': ['burnt orange', 'mustard', 'rust', 'chocolate brown'],
+  'luxe-marble': ['white Carrara', 'black Nero', 'gold'],
+};
+
+const listWords = (words: readonly string[]): string =>
+  words.length <= 1 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+
+/**
+ * The art-style sentence a prompt carries. `hasPalette` = a usable host/event
+ * palette is the colour authority → STYLE ONLY; otherwise the preset's own
+ * colours are appended. Mirror: ai-generate-image frameLayout `presetStyle`.
+ */
+export function presetArtStyle(id: FramePresetId, hasPalette: boolean): string {
+  const own = FRAME_PRESET_COLOURS[id];
+  return hasPalette || own.length === 0 ? FRAME_PRESET_STYLE[id] : `${FRAME_PRESET_STYLE[id]}, in ${listWords(own)}`;
+}
 
 export const FRAME_PRESETS: readonly FramePreset[] = [
   { id: 'botanical-watercolour', label: 'Botanical watercolour', blurb: 'Soft painted florals', layout: 'classic-border', providerHint: 'gemini' },
@@ -131,8 +165,11 @@ export function providerForPreset(
  */
 export function composePresetPrompt(presetId: FramePresetId, extra: string, palette?: FramePalette | null): string {
   const extraClean = extra.trim();
-  const style = FRAME_PRESET_STYLE[presetId];
-  const colours = palette && palette.hexes.length > 0 ? `${style}, in ${palette.words}` : style;
+  const hasPalette = !!palette && palette.hexes.length > 0;
+  const style = presetArtStyle(presetId, hasPalette);
+  // The event swatch carries hexes but no words — never a dangling ", in ".
+  const words = hasPalette ? palette?.words ?? '' : '';
+  const colours = words ? `${style}, in ${words}` : style;
   return extraClean ? `${colours}. ${extraClean}` : colours;
 }
 
@@ -167,4 +204,20 @@ export function framePaletteById(id: string | null | undefined): FramePalette | 
 export function eventPalette(accentHexes: readonly string[] | null | undefined): FramePalette | null {
   const hexes = (accentHexes ?? []).filter((h) => /^#[0-9a-fA-F]{6}$/.test(h) && !isGreenFamily(h)).slice(0, 3);
   return hexes.length > 0 ? { id: 'event', label: 'Your colours', hexes, words: '' } : null;
+}
+
+/**
+ * The honest line for a host whose colours lost a green to the cut-out key
+ * (eventPalette above and the server's framePalette both drop green-family
+ * hexes: green is the chroma key, so green art would be punched out). Null
+ * when nothing was dropped — including a green that sat past the first three
+ * usable colours, which the 3-colour cap would never have used anyway.
+ * The keying itself is unchanged; this only says what it did.
+ */
+export function eventPaletteGreenNote(accentHexes: readonly string[] | null | undefined): string | null {
+  const valid = (accentHexes ?? []).filter((h) => typeof h === 'string' && /^#[0-9a-fA-F]{6}$/.test(h));
+  if (!valid.slice(0, 3).some((h) => isGreenFamily(h))) return null;
+  return eventPalette(accentHexes) !== null
+    ? 'Green is used to cut the photo window, so this frame uses your other colours.'
+    : 'Green is used to cut the photo window, so your colour can’t go in this frame — pick one of these colours instead.';
 }

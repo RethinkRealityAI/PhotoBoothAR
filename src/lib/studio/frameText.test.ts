@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   plaqueBox,
+  PLAQUE_V1,
+  frameGeometryVersion,
   cleanFrameText,
   fitFontSize,
   contrastRatio,
@@ -11,10 +13,26 @@ import {
   defaultFrameText,
   formatFrameDate,
   FRAME_TEXT_MAX,
+  aiFrameName,
+  AI_FRAME_NAME_MAX,
   type TextCtx,
 } from './frameText';
-import { BOOTH_SAFE_ZONE, FRAME_GEOMETRY, type FrameLayout } from '../assetPrompt';
+import { BOOTH_SAFE_ZONE, FRAME_GEOMETRY, FRAME_GEOMETRY_VERSION, type FrameLayout } from '../assetPrompt';
 import type { RgbaImage } from './chromaKey';
+
+describe('aiFrameName (new AI frames get a human name, not the raw prompt)', () => {
+  it('names by look, numbers multiple takes, falls back for a blank look', () => {
+    expect(aiFrameName('Art-deco foil')).toBe('Art-deco foil frame');
+    expect(aiFrameName('Storybook illustration', 1, 2)).toBe('Storybook illustration frame · 2');
+    expect(aiFrameName('  ')).toBe('Custom frame');
+    expect(aiFrameName(null)).toBe('Custom frame');
+  });
+  it('stays short (the booth orb shows the first word)', () => {
+    const n = aiFrameName('x'.repeat(200), 1, 2);
+    expect(n.length).toBeLessThanOrEqual(AI_FRAME_NAME_MAX);
+    expect(n.endsWith(' frame · 2')).toBe(true);
+  });
+});
 
 /** Fake measure: 0.55 em per character (a typical serif average). */
 const measure = (text: string, size: number) => text.length * size * 0.55;
@@ -35,6 +53,38 @@ describe('plaqueBox', () => {
       expect(b.x + b.w).toBeLessThanOrEqual(1080);
     }
     expect(plaqueBox('classic-border', 1080, 1920)).toEqual({ x: 216, y: 192, w: 648, h: 125 });
+  });
+
+  it('a current-geometry frame uses FRAME_GEOMETRY’s plaque, inside the safe bands', () => {
+    for (const layout of Object.keys(FRAME_GEOMETRY) as FrameLayout[]) {
+      const p = FRAME_GEOMETRY[layout].plaque;
+      const b = plaqueBox(layout, 1080, 1920, FRAME_GEOMETRY_VERSION);
+      expect(b).toEqual({
+        x: Math.round(p.x0 * 1080), y: Math.round(p.y0 * 1920),
+        w: Math.round((p.x1 - p.x0) * 1080), h: Math.round((p.y1 - p.y0) * 1920),
+      });
+      expect(b.y).toBeGreaterThanOrEqual(Math.round(BOOTH_SAFE_ZONE.top * 1920));
+      expect(b.y + b.h).toBeLessThanOrEqual(Math.round((1 - BOOTH_SAFE_ZONE.bottom) * 1920) + 1);
+    }
+  });
+
+  it('a frame saved before v2 keeps EXACTLY the box its prompt reserved', () => {
+    // Pinned pixels, not derived: these are where shipped frames have their calm band.
+    expect(plaqueBox('corner-overlay', 1080, 1920)).toEqual({ x: 216, y: 1123, w: 648, h: 125 });
+    expect(plaqueBox('bottom-third', 1080, 1920)).toEqual({ x: 130, y: 1142, w: 821, h: 134 });
+    expect(plaqueBox('full-scene', 1080, 1920)).toEqual({ x: 216, y: 192, w: 648, h: 125 });
+    for (const layout of Object.keys(PLAQUE_V1) as FrameLayout[]) {
+      expect(plaqueBox(layout, 1080, 1920, frameGeometryVersion({ plaque: true }))).toEqual(plaqueBox(layout, 1080, 1920, 1));
+    }
+    // …while a v2 frame moves to the new, on-art box.
+    expect(plaqueBox('corner-overlay', 1080, 1920, frameGeometryVersion({ frameGeometry: 2 }))).not.toEqual(plaqueBox('corner-overlay', 1080, 1920));
+  });
+
+  it('frameGeometryVersion reads only an exact known version', () => {
+    expect(frameGeometryVersion({ frameGeometry: FRAME_GEOMETRY_VERSION })).toBe(FRAME_GEOMETRY_VERSION);
+    for (const c of [null, undefined, {}, { frameGeometry: '2' }, { frameGeometry: 99 }, 'x']) {
+      expect(frameGeometryVersion(c)).toBe(1);
+    }
   });
 });
 

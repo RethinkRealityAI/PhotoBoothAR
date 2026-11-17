@@ -8,8 +8,9 @@
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import type { ListResult } from './db';
+import { setWallSettings, type ListResult } from './db';
 import { sha256Hex } from './hash';
+import { openingLookStores, type OpeningLookResult, type OpeningLookTarget } from './openingLook';
 import { mapBytesToChars, TOKEN_ALPHABET, TOKEN_LENGTH } from './token';
 
 /* ------------------------------------------------------------------ */
@@ -503,6 +504,41 @@ export async function updateEventConfig(
 }
 
 /**
+ * Set the look the booth opens with — the ONE writer (copilot pin, "Use as
+ * booth frame", the looks picker, Settings "Booth default"). Writes the same
+ * id to every store the event has (openingLook.openingLookStores: config then
+ * wall on a platform event, wall only on a coded legacy one), so the booth's
+ * `wall ?? config` read can never be overruled by a store a writer skipped.
+ * `configPatch` rides the SAME events.config write (a looks save's arContent).
+ * `null` clears the opening look in every store.
+ *
+ * HANDLED FAILURES: a refused config write stops before the wall is touched
+ * (nothing changed); a refused or unreadable wall write after config landed is
+ * reported as `failed: 'wall'` — never a silent half-apply. Both writes are
+ * idempotent, so the host's retry converges.
+ */
+export async function setOpeningLook(
+  target: OpeningLookTarget,
+  experienceId: string | null,
+  configPatch: Record<string, unknown> = {},
+): Promise<OpeningLookResult> {
+  for (const store of openingLookStores(target)) {
+    if (store === 'config') {
+      const ok = await updateEventConfig(target.eventUuid as string, { ...configPatch, defaultExperienceId: experienceId });
+      if (!ok) return { ok: false, failed: 'config' };
+    } else {
+      try {
+        await setWallSettings(target.slug, { defaultExperienceId: experienceId }, { strict: true });
+      } catch (e) {
+        console.error('[host] setOpeningLook (wall)', e);
+        return { ok: false, failed: 'wall' };
+      }
+    }
+  }
+  return { ok: true, failed: null };
+}
+
+/**
  * Take an event live — the ONE path every go-live button uses (copilot,
  * dashboard, wizard, events list, concierge). After a successful flip the
  * guest copy is generated once, fire-and-forget: `generateEventCopy` is
@@ -591,8 +627,18 @@ export async function updateEventName(eventUuid: string, name: string): Promise<
     console.error('[host] updateEventName', error);
     return false;
   }
-  return (data?.length ?? 0) > 0;
+  const renamed = (data?.length ?? 0) > 0;
+  // Screens that hold the name in their own state (EventStudio's header) keep
+  // showing the OLD name until a reload otherwise — Settings and the copilot
+  // both rename through here, so one notice covers them.
+  if (renamed && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(EVENT_RENAMED, { detail: { id: eventUuid, name: trimmed } }));
+  }
+  return renamed;
 }
+
+/** window event fired after a successful rename: detail `{ id, name }`. */
+export const EVENT_RENAMED = 'beamwall:event-renamed';
 
 /* ------------------------------------------------------------------ */
 /* Event details (name · date · venue) — every store, one helper       */

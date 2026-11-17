@@ -176,6 +176,7 @@ describe('ai-generate-image/frameLayout.ts mirrors src/lib/assetPrompt.ts', () =
     expect(frame.FRAME_CANVAS_H).toBe(client.FRAME_CANVAS_H);
     expect(frame.BOOTH_SAFE_ZONE).toEqual(client.BOOTH_SAFE_ZONE);
     expect(frame.FRAME_GEOMETRY).toEqual(client.FRAME_GEOMETRY);
+    expect(frame.FRAME_GEOMETRY_VERSION).toBe(client.FRAME_GEOMETRY_VERSION);
     expect(frame.BLANK_WINDOW).toBe(client.BLANK_WINDOW);
     expect(frame.NO_GREEN_HUES).toBe(client.NO_GREEN_HUES);
     expect(frame.NO_TEXT_LINE).toBe(client.NO_TEXT_LINE);
@@ -234,7 +235,14 @@ describe('ai-generate-image/frameLayout.ts mirrors src/lib/assetPrompt.ts', () =
   it('FRAME_PRESET_STYLE is byte-identical to src/lib/framePresets.ts and covers every preset', () => {
     expect(frame.FRAME_PRESET_STYLE).toEqual(presets.FRAME_PRESET_STYLE);
     expect(Object.keys(frame.FRAME_PRESET_STYLE).sort()).toEqual(presets.FRAME_PRESETS.map((p) => p.id).sort());
-    expect(frame.presetStyle('neon-night')).toBe(presets.FRAME_PRESET_STYLE['neon-night']);
+    expect(frame.FRAME_PRESET_COLOURS).toEqual(presets.FRAME_PRESET_COLOURS);
+    for (const p of presets.FRAME_PRESETS) {
+      for (const hasPalette of [false, true]) {
+        expect(frame.presetStyle(p.id, hasPalette)).toBe(presets.presetArtStyle(p.id, hasPalette));
+      }
+      expect(frame.presetStyle(p.id)).toBe(presets.presetArtStyle(p.id, false)); // absent = no palette
+    }
+    expect(frame.presetStyle('neon-night', true)).toBe(presets.FRAME_PRESET_STYLE['neon-night']);
     expect(frame.presetStyle('constructor')).toBe(null); // prototype keys are not presets
     expect(frame.presetStyle(42)).toBe(null);
   });

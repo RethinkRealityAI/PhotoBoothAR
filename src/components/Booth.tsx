@@ -35,7 +35,7 @@ import PickerDrawer from './booth/PickerDrawer';
 import BoothControlDeck from './booth/BoothControlDeck';
 import BoothTopBar from './booth/BoothTopBar';
 import {
-  buildDeck, initialCategory, type DeckCategory, type DeckSelection,
+  buildDeck, initialCategory, initialCategoryWhenReady, type DeckCategory, type DeckSelection,
 } from '../lib/boothDeck';
 import { haptic } from '../lib/haptics';
 import Countdown from './booth/Countdown';
@@ -107,6 +107,7 @@ import StripPicker from './booth/StripPicker';
 import type { Transform2D, Experience, ExperienceLayer, AnchorConfig, Challenge } from '../types';
 import { layerToPiece } from '../lib/studio/draftMapping';
 import { applyGuestColor, guestColorSlot } from '../lib/guestPalette';
+import { effectiveOpeningLookId } from '../lib/openingLook';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -512,7 +513,8 @@ export default function Booth() {
     if (appliedDefaultRef.current) return;
     if (routeExperienceId) { appliedDefaultRef.current = true; return; }
     if (!experiencesLoaded) return;
-    const id = wallSettings.defaultExperienceId ?? eventConfig.defaultExperienceId;
+    // The same resolver the host's Library / Settings read (openingLook.ts).
+    const id = effectiveOpeningLookId(wallSettings.defaultExperienceId, eventConfig.defaultExperienceId);
     if (!id) return;
     const exp = catalog.find((e) => e.id === id);
     if (!exp) return;
@@ -1656,12 +1658,26 @@ export default function Booth() {
   // event's default), else the first category — but only once the catalog has
   // actually arrived, and never overriding a tab the guest chose themselves.
   const deckCatSetRef = useRef(false);
+  // Platform events wait for their own experiences AND for the route/default
+  // pick to be applied (initialCategoryWhenReady) — otherwise an AI frame set
+  // as the default was applied but its tab never shown. Legacy/code events
+  // keep the original first-non-empty rule exactly.
+  const expectedOpenId = effectiveOpeningLookId(wallSettings.defaultExperienceId, eventConfig.defaultExperienceId, routeExperienceId);
   useEffect(() => {
-    if (deckCatSetRef.current || deckSections.length === 0) return;
-    setDeckCategory(initialCategory(deckSections, deckSelection));
+    if (deckCatSetRef.current) return;
+    const next = source === 'db'
+      ? initialCategoryWhenReady(deckSections, deckSelection, { loaded: experiencesLoaded, expectedId: expectedOpenId })
+      : deckSections.length === 0 ? undefined : initialCategory(deckSections, deckSelection);
+    if (next === undefined) return;
+    setDeckCategory(next);
     deckCatSetRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deckSections]);
+  }, [deckSections, deckSelection, experiencesLoaded, source]);
+  /** A tab the guest picked is final — the first-paint choice never overrides it. */
+  const chooseDeckCategory = useCallback((c: DeckCategory) => {
+    deckCatSetRef.current = true;
+    setDeckCategory(c);
+  }, []);
 
   /* The shutter lives here, not in the deck: it owns capture, recording and
      the progress ring. Extracted so the deck and the chrome-hidden view render
@@ -2068,7 +2084,7 @@ export default function Booth() {
                 sections={deckSections}
                 selection={deckSelection}
                 category={deckCategory}
-                onCategory={setDeckCategory}
+                onCategory={chooseDeckCategory}
                 sparkles={sparkles}
                 onToggleSparkles={setSparkles}
                 onSelectEffect={applyEffect}

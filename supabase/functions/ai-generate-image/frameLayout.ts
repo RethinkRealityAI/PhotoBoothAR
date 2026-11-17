@@ -84,8 +84,8 @@ export const FRAME_LAYOUT_SPEC: Record<FrameLayout, string> = {
     `${GREEN_RULES}`,
   'bottom-third':
     'Create a lower-third stage graphic for a 9:16 vertical portrait canvas (1080x1920). ALL of the ' +
-    'artwork sits BELOW 66% of the height, as a lower-third band the subject stands above. The top ' +
-    'two-thirds of the canvas is entirely solid #00FF00. ' +
+    'artwork sits BELOW 60% of the height, as a lower-third band the subject stands above. The top ' +
+    '60% of the canvas is entirely solid #00FF00. ' +
     `${GREEN_RULES}`,
 };
 
@@ -126,9 +126,13 @@ export interface FrameGeometry {
   plaque: FrameBox;
 }
 
+/** Stamped on every new frame as experiences.config.frameGeometry — see the
+ *  client copy for why (saved frames keep the plaque their prompt reserved). */
+export const FRAME_GEOMETRY_VERSION = 2;
+
 export const FRAME_GEOMETRY: Record<FrameLayout, FrameGeometry> = {
   'classic-border': {
-    windows: [{ shape: 'rect', cx: 0.5, cy: 0.49, rx: 0.39, ry: 0.39 }],
+    windows: [{ shape: 'rect', cx: 0.5, cy: 0.53, rx: 0.39, ry: 0.35 }],
     artZones: [],
     plaque: { x0: 0.2, y0: 0.1, x1: 0.8, y1: 0.165 },
   },
@@ -151,12 +155,12 @@ export const FRAME_GEOMETRY: Record<FrameLayout, FrameGeometry> = {
       { x0: 0, y0: 0, x1: 0.4, y1: 0.25 },
       { x0: 0.6, y0: 0.75, x1: 1, y1: 1 },
     ],
-    plaque: { x0: 0.2, y0: 0.585, x1: 0.8, y1: 0.65 },
+    plaque: { x0: 0.04, y0: 0.1, x1: 0.36, y1: 0.18 },
   },
   'bottom-third': {
     windows: [],
-    artZones: [{ x0: 0, y0: 0.66, x1: 1, y1: 1 }],
-    plaque: { x0: 0.12, y0: 0.595, x1: 0.88, y1: 0.665 },
+    artZones: [{ x0: 0, y0: 0.6, x1: 1, y1: 1 }],
+    plaque: { x0: 0.12, y0: 0.61, x1: 0.88, y1: 0.665 },
   },
 };
 
@@ -209,7 +213,8 @@ export function frameGeometryDirection(layout: FrameLayout, plaque = false): str
   if (plaque) {
     const p = g.plaque;
     parts.push(
-      `Keep the band x ${pxX(p.x0)}–${pxX(p.x1)}, y ${pxY(p.y0)}–${pxY(p.y1)} calm: no ornament, no detail, ` +
+      `The band x ${pxX(p.x0)}–${pxX(p.x1)}, y ${pxY(p.y0)}–${pxY(p.y1)} is part of the artwork, never open ` +
+      'green — paint the frame\'s ground behind it, and keep it calm: no ornament, no detail, ' +
       'no lettering there (a plain flat plaque or ribbon shape in the palette is welcome) — the event name is ' +
       'added there afterwards.',
     );
@@ -340,32 +345,48 @@ export const NO_TEXT_LINE =
  * DIRECTION layer (ours, unfenced) and only the host's `extra` words in the
  * fenced brief. Unknown id → ignored, the plain `prompt` path stands. */
 
+/* STYLE ONLY (motifs, line quality, material finish) — a supplied palette is
+ * the colour authority. The preset's own colours are FRAME_PRESET_COLOURS and
+ * are appended only when no usable palette is in play (presetStyle). */
 export const FRAME_PRESET_STYLE: Record<string, string> = {
   'botanical-watercolour':
     'loose botanical watercolour — peonies, ranunculus and trailing vines painted in soft washes with visible ' +
-    'paper grain and fine ink outlines; foliage is rendered in blush, dusty rose, cream and gold, never green',
+    'paper grain and fine pen outlines; foliage is never green',
   'art-deco-foil':
     'art-deco stationery — stepped geometric borders, sunburst fans and fine parallel rules in raised ' +
-    'antique-gold foil on deep ink-navy border panels, strictly symmetrical',
+    'metallic foil on solid border panels, strictly symmetrical',
   'neon-night':
-    'neon-sign night — bent glass tubes glowing in hot magenta, electric blue and violet with soft halation, ' +
-    'mounted on dark brick border panels; no green or lime neon',
+    'neon-sign night — bent glass tubes glowing with soft halation, mounted on dark brick border panels; ' +
+    'no green or lime neon',
   'confetti-pop':
-    'confetti pop — bold paper confetti, streamers and balloon clusters in saturated coral, sunshine yellow, ' +
-    'cobalt and pink, flat graphic shapes with crisp edges',
+    'confetti pop — bold paper confetti, streamers and balloon clusters as flat graphic shapes with crisp edges ' +
+    'and vivid colour',
   'minimal-line':
     'minimal line art — a single continuous fine metallic hairline with generous negative space, one small ' +
     'geometric accent per corner, gallery-card restraint',
   storybook:
     'storybook illustration — a whimsical hand-painted gouache world with rounded shapes, soft rim light and ' +
-    'gentle texture; trees and grass are painted in plum, lavender and peach, never green',
+    'gentle texture; trees and grass are never green',
   'retro-70s':
-    'retro 1970s — chunky rounded stripes and sunburst arcs in burnt orange, mustard, rust and chocolate brown ' +
-    'with a slight risograph grain',
+    'retro 1970s — chunky rounded stripes and sunburst arcs with a slight risograph grain',
   'luxe-marble':
-    'luxe marble — white Carrara and black Nero marble slabs with gold veining and thin brushed-gold inlay ' +
-    'bands, polished and architectural; no green marble',
+    'luxe marble — polished marble slabs with fine metallic veining and thin brushed-metal inlay bands, ' +
+    'architectural; no green marble',
 };
+
+export const FRAME_PRESET_COLOURS: Record<string, readonly string[]> = {
+  'botanical-watercolour': ['blush', 'dusty rose', 'cream', 'gold'],
+  'art-deco-foil': ['antique gold', 'ink navy'],
+  'neon-night': ['hot magenta', 'electric blue', 'violet'],
+  'confetti-pop': ['coral', 'sunshine yellow', 'cobalt', 'pink'],
+  'minimal-line': [],
+  storybook: ['plum', 'lavender', 'peach'],
+  'retro-70s': ['burnt orange', 'mustard', 'rust', 'chocolate brown'],
+  'luxe-marble': ['white Carrara', 'black Nero', 'gold'],
+};
+
+const listWords = (words: readonly string[]): string =>
+  words.length <= 1 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
 
 /* ── Retry corrections ───────────────────────────────────────────────────
  * MIRRORED from src/lib/studio/frameQuality.ts (CORRECTIONS) — drift-tested.
@@ -390,11 +411,13 @@ export function correctionSentence(code: unknown): string | null {
     : null;
 }
 
-/** A known preset id → its style sentence, else null. */
-export function presetStyle(id: unknown): string | null {
-  return typeof id === 'string' && Object.prototype.hasOwnProperty.call(FRAME_PRESET_STYLE, id)
-    ? FRAME_PRESET_STYLE[id]
-    : null;
+/** A known preset id → its style sentence, else null. `hasPalette` = a usable
+ *  host/event palette is the colour authority → style only; otherwise the
+ *  preset's own colours are appended. Mirror: framePresets `presetArtStyle`. */
+export function presetStyle(id: unknown, hasPalette = false): string | null {
+  if (typeof id !== 'string' || !Object.prototype.hasOwnProperty.call(FRAME_PRESET_STYLE, id)) return null;
+  const own = FRAME_PRESET_COLOURS[id] ?? [];
+  return hasPalette || own.length === 0 ? FRAME_PRESET_STYLE[id] : `${FRAME_PRESET_STYLE[id]}, in ${listWords(own)}`;
 }
 
 // Composition direction PER FRAME LAYOUT (mirror: src/lib/assetPrompt.ts

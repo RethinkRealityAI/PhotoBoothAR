@@ -24,8 +24,8 @@
  * latency; NO session id, IP or image) is inserted on the service role,
  * fire-and-forget: the guest's answer never waits on it or fails with it.
  *
- * Model: defaults to `gemini-2.5-flash-lite` (latency-optimized for this
- * guest-blocking check); override via the GEMINI_MODEL_VALIDATE secret
+ * Model: defaults to `gemini-2.5-flash` (flash-lite was retired for this
+ * project's key; thinking stays 0 for this guest-blocking check); override via the GEMINI_MODEL_VALIDATE secret
  * (validated shape, else the default — see resolveModel()) so a model swap
  * is a secret change, not a deploy. The Gemini call carries a 12s timeout;
  * an abort/timeout maps to the same 502 generation_failed path as any other
@@ -40,7 +40,10 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const GEMINI_MODEL_DEFAULT = 'gemini-2.5-flash-lite';
+// Was gemini-2.5-flash-lite until Google stopped serving it to this project's
+// key (2026-11-17: 404 "no longer available to new users") — and because this
+// check FAILS OPEN, that silently turned every AI photo-check off.
+const GEMINI_MODEL_DEFAULT = 'gemini-2.5-flash';
 const GEMINI_TIMEOUT_MS = 12_000;
 
 /**

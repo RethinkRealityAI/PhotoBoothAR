@@ -92,6 +92,10 @@ export interface EventSnapshot extends EventSnapshotMeta {
   challenges: { id: string; title: string; emoji: string; points: number; active: boolean; hasCheck?: boolean }[];
   experiences: { id: string; name: string; kind: string; published: boolean }[];
   cards: { id: string; title: string; status: string; publicId: string }[];
+  /** What this host's plan cannot run (copilotEntitlements.entitlementContextLine),
+   *  attached by the chat once the resolver answers. null/absent = no limits
+   *  known, and nothing renders — an entitled host's context is unchanged. */
+  planLimits?: string | null;
 }
 
 /** Hard caps keep the context block small on big events. */
@@ -189,6 +193,9 @@ export function formatSnapshot(s: EventSnapshot): string {
   if (s.startsAt !== undefined || s.defaultExperienceId !== undefined) {
     head.push(`date ${s.startsAt ?? 'not set'} · booth default ${s.defaultExperienceId ? `[${s.defaultExperienceId}]` : 'none'}`);
   }
+  // In the HEAD so a failed read and a maxed-out event's line cut both keep it:
+  // it is what stops the model offering what this plan cannot run.
+  if (typeof s.planLimits === 'string' && s.planLimits) head.push(fenceSafe(s.planLimits));
   // A failed read must never render as "(none)" — that is a confident claim the
   // event is empty, and the model repeats it to the host as fact.
   if (s.failed) {

@@ -138,7 +138,7 @@ export default function CopilotPanel() {
                     contents still scopes every tool — it just must not be
                     described. Say so here rather than let the assistant answer
                     from four zeroes. */}
-                <p className={`font-sans text-[10px] truncate ${snapshot?.failed ? 'text-amber-300/90' : 'text-brand-muted/60'}`}>
+                <p className={`font-sans text-[11px] truncate ${snapshot?.failed ? 'text-amber-300/90' : 'text-brand-muted/60'}`}>
                   {snapshot?.failed
                     ? 'Couldn’t read what’s in this event'
                     : selected ? selected.name : 'Platform help & your events'}
@@ -192,7 +192,7 @@ export default function CopilotPanel() {
                   <button
                     onClick={() => void load()}
                     disabled={eventsLoading}
-                    className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] px-3.5 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors disabled:opacity-50"
+                    className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] px-3.5 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-fg/90 transition-colors disabled:opacity-50"
                   >
                     {eventsLoading && <Loader2 className="w-3 h-3 animate-spin" />} Retry
                   </button>

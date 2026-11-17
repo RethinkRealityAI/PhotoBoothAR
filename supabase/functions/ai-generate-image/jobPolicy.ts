@@ -156,6 +156,30 @@ export function partialRefund(
   return (opts.pricing ?? VARIANT_PRICING) === 'per_variant' ? unit * failedTakes : 0;
 }
 
+/**
+ * Settle a request by what was DELIVERED — takes that were generated AND
+ * stored AND got their experiences row (the host can see and use them), not
+ * merely generated. A take that generated but failed to upload is undelivered.
+ *
+ *   delivered 0  → { fail: true }: the job fails and the WHOLE cost refunds.
+ *   delivered ≥1 → { fail: false, refund }: the charge stands, less
+ *                  partialRefund for the undelivered takes — under
+ *                  'per_request' that is 0, because one charge buys the
+ *                  request and the host keeps the option(s) that arrived.
+ *
+ * Before this, an upload failing on take 2 threw into the full-refund path
+ * while take 1's row stayed in the Library: a kept option, refunded.
+ */
+export function settleDelivery(
+  unit: number,
+  takes: number,
+  delivered: number,
+  opts: { zero: boolean; pricing?: VariantPricing },
+): { fail: true } | { fail: false; refund: number } {
+  if (delivered <= 0) return { fail: true };
+  return { fail: false, refund: partialRefund(unit, Math.max(0, takes - delivered), opts) };
+}
+
 /* ── Gemini response handling ─────────────────────────────────────────── */
 
 export interface GeminiPart {

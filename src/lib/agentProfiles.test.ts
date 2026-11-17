@@ -23,7 +23,9 @@ describe('AGENT_PROFILES defaults', () => {
     expect(AGENT_PROFILES.scene).toEqual({ model: 'gemini-2.5-flash', temperature: 0.5, thinkingBudget: 512, maxOutputTokens: 4096, timeoutMs: 40_000 });
     // 1024, not the plan's 512: the headroom invariant (`> thinkingBudget + 512`)
     // would raise 512 to exactly 1024 at resolve time, so 1024 is the truthful default.
-    expect(AGENT_PROFILES.copy).toEqual({ model: 'gemini-2.5-flash-lite', temperature: 0.7, thinkingBudget: 0, maxOutputTokens: 1024, timeoutMs: 15_000 });
+    // flash, not flash-lite: Google retired flash-lite for this project's key
+    // (2026-11-17, gemini_http_404 on the live copy turn).
+    expect(AGENT_PROFILES.copy).toEqual({ model: 'gemini-2.5-flash', temperature: 0.7, thinkingBudget: 0, maxOutputTokens: 1024, timeoutMs: 15_000 });
   });
 
   it('only scene thinks (create/copilot are structured extraction, copy is a tiny creative job → budget 0)', () => {
@@ -33,13 +35,14 @@ describe('AGENT_PROFILES defaults', () => {
     expect(AGENT_PROFILES.scene.thinkingBudget).toBeGreaterThan(0);
   });
 
-  it('copy runs on flash-lite with the standard GEMINI_*_COPY overrides', () => {
-    expect(AGENT_PROFILES.copy.model).toBe('gemini-2.5-flash-lite');
-    expect(resolveProfile('copy', envOf({ GEMINI_MODEL_COPY: 'gemini-2.5-flash' })).model).toBe('gemini-2.5-flash');
+  it('copy runs on flash with the standard GEMINI_*_COPY overrides', () => {
+    expect(AGENT_PROFILES.copy.model).toBe('gemini-2.5-flash');
+    // An override to an id that is NOT the default, so the assert proves the override.
+    expect(resolveProfile('copy', envOf({ GEMINI_MODEL_COPY: 'gemini-3.5-flash-lite' })).model).toBe('gemini-3.5-flash-lite');
     expect(resolveProfile('copy', envOf({ GEMINI_TEMPERATURE_COPY: '0.3' })).temperature).toBe(0.3);
     expect(resolveProfile('copy', envOf({ GEMINI_MAX_TOKENS_COPY: '1024' })).maxOutputTokens).toBe(1024);
     // Another mode's key never leaks into copy.
-    expect(resolveProfile('copy', envOf({ GEMINI_MODEL_SCENE: 'gemini-2.5-pro' })).model).toBe('gemini-2.5-flash-lite');
+    expect(resolveProfile('copy', envOf({ GEMINI_MODEL_SCENE: 'gemini-2.5-pro' })).model).toBe('gemini-2.5-flash');
   });
 
   it('every default already satisfies maxOutputTokens > thinkingBudget + headroom', () => {

@@ -22,6 +22,7 @@ import {
 } from '../../lib/copilot';
 import { useCopilotStore } from '../../lib/copilotStore';
 import { openSupportDialog } from '../../lib/supportStore';
+import { fetchStudioAccess } from '../admin/studioAccess';
 import {
   buildCardLinkSurface, buildLinksSurface, buildProposalSurface, buildStatsSurface,
   buildGeneratingSurface, buildFramePreviewSurface, buildHeadPiecePreviewSurface,
@@ -31,6 +32,10 @@ import {
 } from '../../lib/copilotSurfaces';
 import { computeChecklist, checklistFromSnapshot, missingIds } from '../../lib/eventChecklist';
 import { greetingFor, quickChipsFor, examplePromptsFor, type ChipRun } from '../../lib/hostChips';
+import {
+  ALL_ENTITLED, buildLockedSurface, entitlementContextLine, frameBriefFromPropPrompt, hostEntitlementsFrom,
+  lockFor, lockedResult, type HostEntitlements, type LockKind,
+} from '../../lib/copilotEntitlements';
 import { packAction, packById } from '../../lib/contentPacks';
 import { fetchChallengeCheckStats } from '../../lib/db';
 import { summarizeChallengeChecks, formatCheckStats } from '../../lib/challengeChecks';
@@ -47,6 +52,7 @@ import { providerCostLabel } from '../../lib/providerPricing';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { measureGlbFitScale } from '../../lib/studio/glbThumb';
 import { boothUrl } from '../../lib/copilotBooth';
+import { HEAD_PIECES } from '../../lib/headPieces';
 import type { ChatMessage } from '../../lib/eventDesigner';
 import type { EventSnapshot } from '../../lib/eventSnapshot';
 import type { Experience } from '../../types';
@@ -302,6 +308,21 @@ export default function CopilotChat({
     return () => { alive = false; };
   }, [snapshot?.eventUuid]);
 
+  // What this host's plan can run — resolved once per event from the same
+  // resolver read the studio gate makes. Starts (and on any failure stays)
+  // fail-OPEN; the spend paths re-check right before spending anyway.
+  const [ent, setEnt] = useState<HostEntitlements>(ALL_ENTITLED);
+  useEffect(() => {
+    const slug = snapshot?.slug;
+    setEnt(ALL_ENTITLED);
+    if (!slug) return;
+    let alive = true;
+    fetchStudioAccess(slug)
+      .then((a) => { if (alive) setEnt(hostEntitlementsFrom(a)); })
+      .catch((e: unknown) => { console.error('[copilot] entitlements', e); });
+    return () => { alive = false; };
+  }, [snapshot?.slug]);
+
   useEffect(() => {
     if (!nearBottomRef.current) return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: reduced ? 'auto' : 'smooth' });
@@ -369,6 +390,29 @@ export default function CopilotChat({
   function pushResult(tool: string, r: { ok: boolean; code?: string; retryable?: boolean; summary: string }) {
     setMessages((m) => [...m, { role: 'user', kind: 'tool_result', ok: r.ok, content: formatToolResult(tool, r) }]);
   }
+
+  /** A proposal this plan cannot run: an honest card with what the host CAN
+   *  do, plus a non-retryable [tool_result] so the model stops re-offering it.
+   *  `sid` given = replace that card in place (a confirm that hit the lock). */
+  function showLocked(tool: string, lock: LockKind, prompt: string, sid?: string) {
+    if (sid) replaceSurface(sid, buildLockedSurface(sid, lock, prompt));
+    else {
+      const nsid = `lock_${++seqRef.current}`;
+      addSurface(buildLockedSurface(nsid, lock, prompt), nsid);
+    }
+    pushResult(tool, lockedResult(lock));
+  }
+
+  /** Fresh entitlement read right before a spend (the cached `ent` may still
+   *  be the fail-open default). Fails OPEN on any error, like every gate here. */
+  const canRun3d = async (slug: string): Promise<boolean> => {
+    try {
+      return hostEntitlementsFrom(await fetchStudioAccess(slug)).ai3d;
+    } catch (e) {
+      console.error('[copilot] entitlements', e);
+      return true;
+    }
+  };
 
   /** Read-only tools run instantly from the snapshot — no confirm, no wire. */
   const runReadOnly = (action: CopilotAction) => {
@@ -530,6 +574,14 @@ export default function CopilotChat({
     genState.current[sid] = { kind: 'headpiece', prompt };
     placeGen(sid, buildGeneratingSurface(sid, 'Sculpting your 3D prop… this can take a minute.'));
     try {
+      // The concept IMAGE below is a real spend (one of the event's free AI
+      // frames, or a credit). On a plan whose 3D step can only answer 403
+      // upgrade_required, it bought an orphan picture — so ask first.
+      if (!(await canRun3d(snapshot.slug))) {
+        delete genState.current[sid];
+        if (!dismissedGen.current.has(sid)) showLocked('add_head_piece', 'ai3d', prompt, sid);
+        return;
+      }
       const uuid = await resolveEventUuid(snapshot.slug, snapshot.eventUuid);
       if (!uuid) { showGenError(sid, 'headpiece', aiErrorMessage('event_not_found'), false); return; }
       // Wearable geometry lives in the CONCEPT, because Meshy's image->3D copies
@@ -733,7 +785,10 @@ export default function CopilotChat({
   const runTurn = async (next: ChatItem[], controller: AbortController) => {
     // "Stopped." markers are local: the model never saw a reply for them.
     const wire: ChatMessage[] = next.filter((m) => !m.stopped).map(({ role, content: c }) => ({ role, content: c }));
-    const res = await askCopilot(wire, snapshot, {
+    // The plan's limits ride in the event context so the model never proposes
+    // (or prices) what this host cannot run. Null when nothing is limited.
+    const planLimits = entitlementContextLine(ent);
+    const res = await askCopilot(wire, snapshot && planLimits ? { ...snapshot, planLimits } : snapshot, {
       surface: mode === 'build' ? 'build' : 'platform',
       lastTurn: lastTurnRef.current,
       signal: controller.signal,
@@ -776,7 +831,17 @@ export default function CopilotChat({
       });
     }
     const readOnly = res.actions.filter((a) => READ_ONLY_TOOLS.has(a.tool));
-    const mutating = res.actions.filter((a) => !READ_ONLY_TOOLS.has(a.tool));
+    // Anything this plan cannot run never becomes a confirm card or a bundle
+    // step: one honest card per lock, and the model is told in machine form.
+    const runnable = res.actions.filter((a) => !READ_ONLY_TOOLS.has(a.tool));
+    const mutating = runnable.filter((a) => lockFor(a, ent) === null);
+    const shownLocks = new Set<LockKind>();
+    for (const a of runnable) {
+      const lock = lockFor(a, ent);
+      if (lock === null || shownLocks.has(lock)) continue;
+      shownLocks.add(lock);
+      showLocked(a.tool, lock, lockedPrompt(a));
+    }
     readOnly.forEach(runReadOnly);
     if (mutating.length >= 2) {
       // Several changes in one reply → ONE bundle card (free steps in order,
@@ -789,8 +854,27 @@ export default function CopilotChat({
     }
   };
 
+  /** The idea behind a locked proposal, carried onto its card so "Make an AI
+   *  frame" starts from what the host actually asked for. */
+  const lockedPrompt = (a: CopilotAction): string =>
+    a.tool === 'add_head_piece' && a.proposal.source === 'generate' ? a.proposal.prompt
+      : a.tool === 'open_scene_director' ? a.proposal.brief
+        : '';
+
+  /** The locked card's two alternatives — both open an ordinary proposal card
+   *  (no AI round-trip): a free library prop, or an AI frame from the same idea. */
+  const openLockedAlt = (event: A2uiActionEvent) => {
+    dropSurfaceById(event.surfaceId);
+    if (event.context.alt === 'library_prop') {
+      openProposal({ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId: HEAD_PIECES[0]?.id ?? '' } });
+    } else {
+      openProposal({ tool: 'generate_frame', proposal: { prompt: frameBriefFromPropPrompt(String(event.context.prompt ?? '')) } });
+    }
+  };
+
   const handleSurfaceAction = async (event: A2uiActionEvent) => {
     if (flash[event.surfaceId]) return; // card is mid success-flash — already handled
+    if (event.name === 'open_locked_alt') { openLockedAlt(event); return; }
     if (event.name === 'cancel_action') {
       dropSurfaceById(event.surfaceId);
       dismissedGen.current.add(event.surfaceId); // keep a late gen continuation from re-opening it (F2)
@@ -878,6 +962,13 @@ export default function CopilotChat({
       return;
     }
 
+    // A Director card restored from an earlier session (or opened before the
+    // plan resolved) must not hand off to a locked page and call it "opening".
+    if (tool === 'open_scene_director' && !ent.studio) {
+      showLocked(tool, 'studio', String(proposal.brief ?? ''), event.surfaceId);
+      return;
+    }
+
     // Re-validate the (host-editable) proposal through the SAME gate as the
     // propose path before executing — the confirm card's data model is
     // two-way-bound and must not be trusted verbatim (defense in depth).
@@ -897,7 +988,7 @@ export default function CopilotChat({
     setPending((p) => (p?.kind === 'turn' ? p : { kind: 'action', surfaceId: event.surfaceId }));
     let result: ExecResult;
     try {
-      result = await executeAction(validated, ctx());
+      result = await withStudioTruth(validated.tool, await executeAction(validated, ctx()));
     } finally {
       setPending((p) => (p?.kind === 'action' && p.surfaceId === event.surfaceId ? null : p));
     }
@@ -950,8 +1041,11 @@ export default function CopilotChat({
           });
           break;
         }
+        // openProposal itself swaps a locked paid step for the locked card.
         if (isPaidAction(validated)) { openProposal(validated); continue; }
-        const result = await executeAction(validated, ctx());
+        const lock = lockFor(validated, ent);
+        if (lock !== null) { showLocked(validated.tool, lock, lockedPrompt(validated)); continue; }
+        const result = await withStudioTruth(validated.tool, await executeAction(validated, ctx()));
         pushResult(validated.tool, result);
         if (!result.ok) break;
         anyOk = true;
@@ -973,6 +1067,26 @@ export default function CopilotChat({
       setPending((p) => (p?.kind === 'action' && p.surfaceId === sid ? null : p));
       if (anyOk) onMutated();
     }
+  };
+
+  /** The Scene Director lives in the Studio add-on. Without it the handoff
+   *  below lands on StudioLocked, so executeAction's "Opening the Scene
+   *  Director…" would tell the host (and the model, via the tool result)
+   *  something untrue. Same resolver + fail-open rule as EventStudio's gate. */
+  const withStudioTruth = async (tool: string, result: ExecResult): Promise<ExecResult> => {
+    if (tool !== 'open_scene_director' || !result.ok || !snapshot) return result;
+    try {
+      const { studio } = await fetchStudioAccess(snapshot.slug);
+      if (studio) return result;
+    } catch (e) {
+      console.error('[copilot] studio access', e);
+      return result;
+    }
+    return {
+      ...result,
+      summary:
+        'The Scene Director comes with the Studio add-on, which this event doesn’t have — opening a page with what you can use instead: ready-made frames & filters, or an AI frame in about a minute.',
+    };
   };
 
   /** Handoff tools ran nothing server-side (executeAction returns `handoff`);
@@ -1026,6 +1140,8 @@ export default function CopilotChat({
   /** Inject a client-built proposal card (no AI round-trip) — the build-mode
    *  chips use this so the whole flow works even before the edge-fn redeploy. */
   const openProposal = (action: CopilotAction) => {
+    const lock = lockFor(action, ent);
+    if (lock !== null) { showLocked(action.tool, lock, lockedPrompt(action)); return; }
     const sid = `prop_${++seqRef.current}`;
     addSurface(buildProposalSurface(action, sid, targetChallenge(action), { snapshot }), sid);
   };
@@ -1053,7 +1169,7 @@ export default function CopilotChat({
   const greetingText = greeting ?? greetingFor({
     mode: chipMode, eventType: snapshot?.eventType, name: snapshot?.name, missing: missingIds(checklist),
   });
-  const examplePrompts = examplePromptsFor({ mode: chipMode, eventType: snapshot?.eventType });
+  const examplePrompts = examplePromptsFor({ mode: chipMode, eventType: snapshot?.eventType, ai3d: ent.ai3d });
 
   return (
     <div

@@ -82,7 +82,7 @@ function tierPillClass(tier: PlanTier): string {
 export function TierPill({ tier }: { tier: string }) {
   const t = normalizeTier(tier);
   return (
-    <span className={`shrink-0 px-2.5 py-1 rounded-full text-[9px] font-label uppercase tracking-widest ${tierPillClass(t)}`}>
+    <span className={`shrink-0 px-2.5 py-1 rounded-full text-[11px] font-label uppercase tracking-widest ${tierPillClass(t)}`}>
       {t}
     </span>
   );
@@ -166,11 +166,11 @@ export function UpgradeModal({
               >
                 <div>
                   <div className="flex items-center justify-between">
-                    <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">{pkg.tier}</p>
+                    <p className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">{pkg.tier}</p>
                     {highlight && <Sparkles className="w-3.5 h-3.5 text-accent-2" />}
                   </div>
                   <p className="font-serif text-3xl text-brand-fg mt-1">{pkg.price}</p>
-                  <p className="font-sans text-[10px] text-brand-muted/50">{pkg.tagline} · per event</p>
+                  <p className="font-sans text-[11px] text-brand-muted/50">{pkg.tagline} · per event</p>
                 </div>
                 <ul className="flex-1 space-y-1.5">
                   {pkg.bullets.map((b) => (
@@ -182,7 +182,7 @@ export function UpgradeModal({
                 <button
                   onClick={() => buy(pkg.tier)}
                   disabled={owned || busyTier !== null}
-                  className={`w-full rounded-full py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold transition active:scale-[0.98] disabled:opacity-40 disabled:active:scale-100 ${
+                  className={`w-full rounded-full py-2.5 font-label uppercase tracking-luxe text-[11px] font-bold transition active:scale-[0.98] disabled:opacity-40 disabled:active:scale-100 ${
                     highlight ? 'bg-foil text-white glow-accent' : 'bg-white/[0.08] hover:bg-white/[0.14] text-brand-fg'
                   }`}
                 >
@@ -220,7 +220,7 @@ export default function UpgradeCard({ eventUuid, planTier }: { eventUuid: string
         <p className="flex-1 font-sans text-[11px] text-brand-muted/60 truncate">{pitch}</p>
         <button
           onClick={() => setOpen(true)}
-          className="flex items-center gap-1.5 rounded-full bg-foil px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] font-bold text-white glow-accent transition active:scale-[0.98]"
+          className="shrink-0 flex items-center gap-1.5 rounded-full bg-foil px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
         >
           Upgrade <ArrowUpRight className="w-3 h-3" />
         </button>
