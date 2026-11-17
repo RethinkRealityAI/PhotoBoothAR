@@ -25,3 +25,18 @@
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# Partnerships pages: the internal hub (hidden link) and prospect-facing pitch
+# decks must never be indexed. The pages also set <meta name="robots"> while
+# mounted; this header covers crawlers that don't run JS. Keep the hub path in
+# step with SALES_HUB_PATH (src/lib/salesTypes.ts).
+[[headers]]
+  for = "/hub/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Referrer-Policy = "no-referrer"
+
+[[headers]]
+  for = "/pitch/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
