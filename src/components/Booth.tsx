@@ -475,8 +475,8 @@ export default function Booth() {
 
   // ── Build catalog ─────────────────────────────────────────────────────
   const catalog = useMemo(
-    () => buildCatalog(eventConfig.arContent, experiencesLoaded ? experiences : [], presetOverrides, experiencesLoaded ? linkedGlobals : []),
-    [eventConfig, experiences, linkedGlobals, experiencesLoaded, presetOverrides],
+    () => buildCatalog(eventConfig.arContent, experiencesLoaded ? experiences : [], presetOverrides, experiencesLoaded ? linkedGlobals : [], source === 'db'),
+    [eventConfig, experiences, linkedGlobals, experiencesLoaded, presetOverrides, source],
   );
 
   // Pre-select from route param

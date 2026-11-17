@@ -328,8 +328,11 @@ function CyclopsVisor() {
   return (
     <group>
       {/* Curved lens: open cylinder wall, axis vertical, wrapping the face.
-          Radius 3.4 local ≈ 6.5cm; rotated so the arc faces +Z (the camera). */}
-      <group rotation={[0, -Math.PI / 2 - arc / 2, 0]}>
+          Radius 3.4 local ≈ 6.5cm. three's cylinder starts its arc at +Z and
+          sweeps toward +X, so turning it back by half the arc centres the lens
+          on +Z (the camera). The extra quarter turn this used to carry put the
+          lens over one temple. */}
+      <group rotation={[0, -arc / 2, 0]}>
         <mesh>
           <cylinderGeometry args={[3.4, 3.4, 1.35, 28, 1, true, 0, arc]} />
           <meshStandardMaterial
