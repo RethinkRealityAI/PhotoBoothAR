@@ -175,6 +175,32 @@ function useEventLibrary(slug: string | null) {
   return { state, pending, error, reload, toggle: toggleLook };
 }
 
+/** A library tile's picture over the stand-in guest, so a frame PNG with a
+ *  clear window reads as a frame (a photo thumbnail simply covers him). A
+ *  missing or broken image shows a quiet placeholder instead of a broken icon. */
+function LookThumb({ src, cover }: { src: string | null; cover: boolean }) {
+  const [failed, setFailed] = useState(false);
+  if (src === null || failed) {
+    return (
+      <span className="absolute inset-0 grid place-items-center text-brand-muted" aria-hidden>
+        <Sparkles className="h-5 w-5" />
+      </span>
+    );
+  }
+  return (
+    <>
+      <StandInGuest />
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className={`absolute inset-0 h-full w-full ${cover ? 'object-cover' : 'object-contain'}`}
+      />
+    </>
+  );
+}
+
 /** "Ready-made looks" — the shared library, best fit first. */
 function ReadyMadeLooks({
   state, pending, error, onRetry, onToggle, ctx, hideWhenEmpty,
@@ -243,7 +269,9 @@ function ReadyMadeLooks({
                   {shelf.label ?? 'More looks'}
                 </h4>
               )}
-              <ul className="mt-2 grid grid-cols-3 gap-2.5 @xl:grid-cols-5 @5xl:grid-cols-7" role="list">
+              {/* 6 across from @xl, so the first six (LIBRARY_INITIAL) fill one
+                  row instead of leaving one or two orphans under five columns. */}
+              <ul className="mt-2 grid grid-cols-3 gap-2.5 @xl:grid-cols-6 @5xl:grid-cols-7" role="list">
                 {shelf.items.map((exp) => {
                   const on = state.linked.has(exp.id);
                   const busy = pending.has(exp.id);
@@ -264,19 +292,7 @@ function ReadyMadeLooks({
                         }`}
                         style={{ background: 'radial-gradient(70% 45% at 50% 38%, #2a2a33, #0c0c10 75%)' }}
                       >
-                        <span className="absolute inset-0 grid place-items-center text-brand-muted" aria-hidden>
-                          <Sparkles className="h-5 w-5" />
-                        </span>
-                        {frame !== null && <StandInGuest />}
-                        {(thumb ?? frame) !== null && (
-                          <img
-                            src={(thumb ?? frame) as string}
-                            alt=""
-                            loading="lazy"
-                            onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }}
-                            className={`absolute inset-0 h-full w-full ${thumb !== null ? 'object-cover' : 'object-contain'}`}
-                          />
-                        )}
+                        <LookThumb src={thumb ?? frame} cover={thumb !== null} />
                         {on && (
                           <span className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-[var(--color-accent)] text-[var(--on-accent,#000)]">
                             <Check className="h-4 w-4" aria-hidden />
@@ -289,7 +305,7 @@ function ReadyMadeLooks({
                         )}
                       </button>
                       <span className="line-clamp-1 text-[11px] text-brand-fg">{exp.name}</span>
-                      <span className="line-clamp-1 text-[11px] text-brand-muted">{on ? `${kind} · on` : kind}</span>
+                      <span className="line-clamp-1 text-[11px] text-brand-muted">{kind}</span>
                     </li>
                   );
                 })}
