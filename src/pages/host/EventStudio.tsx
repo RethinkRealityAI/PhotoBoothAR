@@ -451,7 +451,7 @@ export default function EventStudio() {
   return (
     <StudioBaseContext.Provider value={base}>
       <StudioAccessContext.Provider value={{ studio: studioOn }}>
-      <EventProvider slug={event.slug} basePath={basePath}>
+      <EventProvider slug={event.slug} basePath={basePath} previewBanner={false}>
         <ToastProvider>
         <CheckoutReturn onRefresh={() => setReloadKey((k) => k + 1)} />
         <AnimatePresence>
@@ -483,13 +483,16 @@ export default function EventStudio() {
             >
               <ArrowLeft className="w-4 h-4" />
             </Link>
-            <div className="lg:hidden min-w-0 flex-1">
+            <div className="lg:hidden min-w-0 flex-1 flex items-center gap-1.5">
               <p
-                className="inline-block max-w-full truncate align-middle rounded-full bg-white/[0.06] border border-white/10 px-3 py-1 font-serif italic text-sm text-brand-fg"
+                className="inline-block min-w-0 max-w-full truncate align-middle rounded-full bg-white/[0.06] border border-white/10 px-3 py-1 font-serif italic text-sm text-brand-fg"
                 title={event.name}
               >
                 {event.name}
               </p>
+              {/* The status lives here on phones (EventProvider's floating
+                  preview pill is off on this screen — it covered this bar). */}
+              <StatusPill status={event.status} />
             </div>
             <div className="shrink-0 hidden lg:block">
               <p className="font-serif italic text-sm text-brand-fg leading-tight truncate max-w-[12rem]">{event.name}</p>

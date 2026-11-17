@@ -614,8 +614,20 @@ export default function NewEvent() {
           </div>
         </div>
 
-        {/* 2 · The clear next step: frames & filters, pre-selected with the
-            recommended set the create flow just seeded. */}
+        {/* 2 · Go live — THE action on this screen, so it sits above the fold
+            on a phone (it used to be below the whole frames grid). */}
+        {!isLive && (
+          <button
+            onClick={goLive}
+            disabled={goingLive}
+            className="w-full min-h-[52px] rounded-full bg-foil glow-accent px-6 font-label uppercase tracking-luxe ui-btn font-bold text-[color:var(--on-accent)] transition active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
+          >
+            {goingLive ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />} Go live
+          </button>
+        )}
+
+        {/* 3 · Frames & filters, pre-selected with the recommended set the
+            create flow just seeded — changeable now or any time later. */}
         <LooksPicker
           eventUuid={created.id}
           config={createdConfig ?? created.config}
@@ -624,17 +636,8 @@ export default function NewEvent() {
           onSaved={(c) => { setCreatedConfig(c); void reloadBuild(); }}
         />
 
-        {/* 3 · Go live (the primary action) and hand over the link. */}
-        <section aria-label="Go live and share" className="liquid-glass rounded-2xl p-4 flex flex-col gap-4">
-          {!isLive && (
-            <button
-              onClick={goLive}
-              disabled={goingLive}
-              className="w-full min-h-[52px] rounded-full bg-foil glow-accent px-6 font-label uppercase tracking-luxe ui-btn font-bold text-[color:var(--on-accent)] transition active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
-            >
-              {goingLive ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />} Go live
-            </button>
-          )}
+        {/* 4 · Hand over the link (secondary to Go live above). */}
+        <section aria-label="Share your event" className="liquid-glass rounded-2xl p-4 flex flex-col gap-4">
           {/* Shown on phones too: this is the screen a host reaches straight
               after creating an event, and it exists to hand over the QR. */}
           <ShareActions url={guestUrl} eventName={created.name} slug={created.slug} />
@@ -660,7 +663,7 @@ export default function NewEvent() {
           </div>
         </section>
 
-        {/* 4 · Keep building with the assistant (challenges, 3D props, cards…). */}
+        {/* 5 · Keep building with the assistant (challenges, 3D props, cards…). */}
         <h2 className="mt-2 font-label uppercase tracking-luxe ui-caption text-brand-muted/70">Keep building with the assistant</h2>
         <div
           className="h-[70vh] min-h-[420px] liquid-glass rounded-3xl border border-white/10 flex flex-col overflow-hidden"
