@@ -39,6 +39,7 @@ import {
   ctxMeasure,
   drawFrameText,
   fontString,
+  frameGeometryVersion,
   layoutFrameText,
   pickTextColours,
   plaqueBox,
@@ -93,6 +94,10 @@ export interface FrameTextOverlay {
   spec: FrameTextSpec;
   layout: FrameLayout;
   accentHexes?: string[];
+  /** The frame's FRAME_GEOMETRY version — set HERE from the row's config
+   *  (frameGeometryVersion), never by callers, so text lands in the plaque
+   *  that frame's own prompt reserved. */
+  geometry?: number;
 }
 
 /** Encode an RGBA buffer back to a PNG blob, drawing the text overlay (if
@@ -111,7 +116,7 @@ async function toPngBlob(rgba: RgbaImage, text?: FrameTextOverlay | null): Promi
     } catch {
       /* the fallback face still draws readable text */
     }
-    const box = plaqueBox(text.layout, rgba.width, rgba.height);
+    const box = plaqueBox(text.layout, rgba.width, rgba.height, text.geometry);
     const colours = pickTextColours(sampleBackdrop(rgba, box), text.accentHexes ?? []);
     drawFrameText(ctx, layoutFrameText(text.spec, box, ctxMeasure(ctx, font)), font, colours);
   }
@@ -258,7 +263,9 @@ export async function processGeneratedFrame(
   // pixels — no asset_url, and a decode that threw (CORS taint) — where
   // reporting keyed:false would make the caller refuse a good transparent PNG.
   let alreadyTransparent = claimsTransparent && !fromGreenScreen;
-  const text = options.text && options.text.spec.enabled ? options.text : null;
+  const text = options.text && options.text.spec.enabled
+    ? { ...options.text, geometry: frameGeometryVersion(exp.config) }
+    : null;
   if (exp.asset_url) {
     try {
       // Detect the real backdrop hue, key it out, contain-fit to 1080×1920,
@@ -353,7 +360,7 @@ export async function restyleFrameText(
   if (!base) return null;
   try {
     const img = await loadImageData(base);
-    const url = await uploadAsset(eventId, await toPngBlob(img, overlay), `frame-${exp.id}`);
+    const url = await uploadAsset(eventId, await toPngBlob(img, { ...overlay, geometry: frameGeometryVersion(cfg) }), `frame-${exp.id}`);
     if (!url) return null;
     return await updateExperience(eventId, exp.id, {
       asset_url: url,
