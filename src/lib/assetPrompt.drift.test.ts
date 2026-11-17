@@ -261,7 +261,8 @@ describe('ai-generate-image/frameLayout.ts mirrors src/lib/assetPrompt.ts', () =
     // The client's quality gate retries without the host pressing anything,
     // so an ineligible retry must 409, never fall through to spend_credits.
     const src = readFileSync(resolve(FN_DIR, 'ai-generate-image/index.ts'), 'utf8');
-    const refuse = src.indexOf("error: 'retry_not_eligible'");
+    // Anchor on the return statement, not the header comment that documents it.
+    const refuse = src.indexOf("return json(409, { error: 'retry_not_eligible'");
     const spend = src.indexOf("rpc('spend_credits'");
     expect(refuse).toBeGreaterThan(0);
     expect(spend).toBeGreaterThan(refuse);

@@ -340,9 +340,8 @@ export default function AiFramePanel({
         greenScreen: true,
         // Absent for gemini — the default path's body is unchanged.
         ...providerBody(providerChoice.effective),
-        // A sticker has one subject, not a canvas layout — only a frame carries
-        // an archetype (the edge function ignores it for other kinds anyway).
-        ...(genKind === 'border' ? { layout } : {}),
+        // Stickers only reach this path (frames return above), and a sticker
+        // has one subject, not a canvas layout — so no `layout` is sent.
         // Only ever present when the host typed real text — absent keeps the
         // server prompt byte-identical to before this control existed.
         ...(lettering ? { lettering } : {}),
@@ -366,7 +365,7 @@ export default function AiFramePanel({
       const { experience: processed, keyed } = await processGeneratedFrame(data.experience, eventId);
       if (!keyed) {
         setPendingRaw(data.experience);
-        setError('Generated, but transparency processing failed — retry below (no extra credits).');
+        setError('Generated, but the background didn’t come away cleanly.');
         return;
       }
       setPendingRaw(null);

@@ -18,7 +18,9 @@ import { generateImage, aiErrorMessage, type AiErrorCode } from '../../lib/ai';
 import { frameBriefGaps, gapSummary } from '../../lib/assetBrief';
 import { inferFrameLayout } from '../../lib/assetPrompt';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
+import { rekeyOptions } from '../../lib/studio/frameQuality';
 import { updateEventConfig } from '../../lib/host';
+import GuidedFrameMaker from '../../components/studio/GuidedFrameMaker';
 import type { Experience } from '../../types';
 
 /** Matches StageCanvas overlay semantics exactly: x/y are % of the canvas
@@ -62,6 +64,11 @@ export default function FrameStudio({
   // re-calling generateImage (frameProcessing: reprocessing a saved raw
   // experience costs no credits — mirrors AiFramePanel.pendingRaw).
   const [rawFrame, setRawFrame] = useState<{ experience: Experience; slug: string } | null>(null);
+  // The identical key reproduces the identical miss — the one useful free
+  // retry is a looser key, once (frameQuality.rekeyOptions).
+  const [rekeys, setRekeys] = useState(0);
+  // Guided "pick a look" first; the free-text box is one tap away.
+  const [mode, setMode] = useState<'guided' | 'describe'>('guided');
   const boxRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
   // Live read of what the brief is still missing (colour / style / any brief at
@@ -73,6 +80,7 @@ export default function FrameStudio({
     if (!brief || phase.kind === 'generating') return;
     setTf(IDENTITY);
     setRawFrame(null);
+    setRekeys(0);
     setPhase({ kind: 'generating' });
     // experiences.event_id is the event SLUG (key trap), and this component
     // only receives the uuid — resolve the slug UP FRONT, before spending a
@@ -111,7 +119,7 @@ export default function FrameStudio({
     // ship it (a solid green box over the guest is worse than an error). The
     // raw row is persisted server-side, so hold it for a no-credit reprocess.
     const raw = res.data.experience;
-    const keyed = await processGeneratedFrame(raw, slug);
+    const keyed = await processGeneratedFrame(raw, slug, {}, { layout: inferFrameLayout(brief) });
     if (!keyed?.keyed) {
       setRawFrame({ experience: raw, slug });
       setPhase({
@@ -127,10 +135,13 @@ export default function FrameStudio({
   // Free retry: re-run the chroma-key on the already-saved raw generation —
   // no generateImage, so no second credit.
   const retryProcessing = async () => {
-    if (!rawFrame || phase.kind === 'generating') return;
+    const keyOpts = rekeyOptions(rekeys);
+    if (!rawFrame || phase.kind === 'generating' || !keyOpts) return;
     setPhase({ kind: 'generating' });
-    const keyed = await processGeneratedFrame(rawFrame.experience, rawFrame.slug);
+    setRekeys((n) => n + 1);
+    const keyed = await processGeneratedFrame(rawFrame.experience, rawFrame.slug, {}, { keyOpts });
     if (!keyed?.keyed) {
+      setRawFrame(null);
       setPhase({
         kind: 'keyfail',
         message: 'The transparent cutout still didn’t come through — the raw frame is saved in your studio Library.',
@@ -184,8 +195,29 @@ export default function FrameStudio({
             the studio's 2D creator.
           </p>
         </div>
+      ) : mode === 'guided' ? (
+        <>
+          <GuidedFrameMaker
+            eventUuid={eventUuid}
+            eventSlug={null}
+            freeTrial
+            onUse={useAsFrame}
+            useLabel="Use as booth frame"
+            onDescribeYourself={() => setMode('describe')}
+          />
+          {phase.kind === 'error' && (
+            <p role="alert" className="font-sans text-[12px] text-red-400 leading-snug">{phase.message}</p>
+          )}
+        </>
       ) : (
         <>
+          <button
+            type="button"
+            onClick={() => setMode('guided')}
+            className="self-start min-h-[44px] rounded-full border border-white/15 bg-white/[0.04] px-4 font-sans text-[12px] text-brand-fg hover:bg-white/[0.08]"
+          >
+            ← Back to looks
+          </button>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -292,12 +324,12 @@ export default function FrameStudio({
           {phase.kind === 'keyfail' && (
             <div className="flex flex-col gap-2">
               <p role="alert" className="font-sans text-[12px] text-red-400 leading-snug">{phase.message}</p>
-              <button
+              {rawFrame && rekeyOptions(rekeys) !== null && <button
                 onClick={retryProcessing}
                 className="self-start flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition hover:bg-white/[0.08]"
               >
-                <RefreshCw className="w-3.5 h-3.5" /> Retry — no extra credits
-              </button>
+                <RefreshCw className="w-3.5 h-3.5" /> Clean it up — no extra credits
+              </button>}
             </div>
           )}
 
