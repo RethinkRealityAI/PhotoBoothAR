@@ -119,6 +119,10 @@ const BookPage = import.meta.env.VITE_EVENT
 const TryPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/sales/TryPage'));
+/** Meet Beamy: the mascot's guided tour of the platform (/beamy). Same fold. */
+const BeamyPage = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/beamy/BeamyPage'));
 
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
@@ -276,6 +280,7 @@ export default function App() {
               <Route path="/pitch/:slug" element={<PitchPage />} />
               <Route path="/book/:ref" element={<BookPage />} />
               <Route path="/try/:kit" element={<TryPage />} />
+              <Route path="/beamy" element={<BeamyPage />} />
 
               {/* Host platform (session-gated) */}
               <Route path="/host" element={<HostLayout />}>

@@ -49,6 +49,12 @@
   [headers.values]
     X-Robots-Tag = "noindex, nofollow"
 
+# Meet Beamy (/beamy): first cut for the owner to react to, never indexed yet.
+[[headers]]
+  for = "/beamy"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
 # Reps' public booking pages (/book/<ref>, migration 042): sent one-to-one,
 # never indexed.
 [[headers]]
