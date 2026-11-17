@@ -47,7 +47,11 @@ export type SlideKind =
   | 'offer'     // packages, rendered from salesOffers.ts via offerIds
   | 'roi'       // money maths for them
   | 'quote'     // a single big line
+  | 'demo'      // hands-on booth (/try/:kit) embedded in the slide
   | 'cta';      // the ask + contact
+
+/** What a feature tile opens (src/pages/sales/components/Showcase.tsx). */
+export type ShowcaseId = 'frames' | 'ai' | 'wall' | '3d' | 'challenges' | 'keepsake' | 'moderation' | 'gallery';
 
 export interface SlideStat {
   value: string;
@@ -62,6 +66,8 @@ export interface SlideItem {
   body?: string;
   /** lucide-react icon name, e.g. 'Sparkles'. Renderer falls back safely. */
   icon?: string;
+  /** Feature tiles only: tapping the tile opens this showcase. */
+  showcase?: ShowcaseId;
 }
 
 export interface Slide {
@@ -75,6 +81,11 @@ export interface Slide {
   stats?: SlideStat[];
   /** Key into SALES_IMAGES (src/pages/sales/salesImages.ts). */
   image?: string;
+  /** Key into SALES_VIDEOS (src/pages/sales/salesVideos.ts); wins over image
+   *  on solution and quote slides. Print/thumbnails show its poster. */
+  video?: string;
+  /** demo slides: which /try kit (src/lib/demoKits.ts) to embed. */
+  demoKit?: string;
   /** offer slides: which offers (salesOffers.ts ids) to show. */
   offerIds?: string[];
   /** INTERNAL. Talk track for James. Stripped by publicDeck(). */

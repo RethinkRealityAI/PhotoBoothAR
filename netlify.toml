@@ -11,11 +11,13 @@
 
 # Camera/AR needs HTTPS (Netlify provides it). Allow camera in this origin.
 # Security headers (no CSP yet — the app's inline/eval surface is unaudited).
+# SAMEORIGIN (was DENY): the sales decks embed /try/:kit in an iframe on the
+# same origin. Other sites still cannot frame any page (clickjacking guard).
 [[headers]]
   for = "/*"
   [headers.values]
     Permissions-Policy = "camera=(self), microphone=(self)"
-    X-Frame-Options = "DENY"
+    X-Frame-Options = "SAMEORIGIN"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Strict-Transport-Security = "max-age=31536000; includeSubDomains"
@@ -38,6 +40,12 @@
 
 [[headers]]
   for = "/pitch/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
+# The decks' hands-on booth demo (/try/<kit>): prospect-facing, never indexed.
+[[headers]]
+  for = "/try/*"
   [headers.values]
     X-Robots-Tag = "noindex, nofollow"
 

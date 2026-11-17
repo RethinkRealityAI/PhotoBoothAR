@@ -13,12 +13,17 @@
  * by hand and a slide without bullets must still look finished.
  * Speaker notes are NEVER rendered here; the viewer owns that panel.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Check, Quote as QuoteIcon, X as XIcon } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { ArrowRight, Camera, Check, Expand, MousePointerClick, Quote as QuoteIcon, X as XIcon } from 'lucide-react';
 import type { Offer, Slide, SlideStat } from '../../../lib/salesTypes';
+import FilmEmbed from '../../../components/ui/FilmEmbed';
+import { demoKit, tryPath } from '../../../lib/demoKits';
 import { salesImage } from '../salesImages';
+import { salesVideo } from '../salesVideos';
 import { iconFor } from './salesIcons';
+import { hasShowcase, ShowcaseModal } from './Showcase';
 
 export const STAGE_W = 1280;
 export const STAGE_H = 720;
@@ -46,6 +51,8 @@ export interface SlideEnv {
   contactLine: string;
   /** Print renders offscreen: lazy images would never load. */
   eagerImages?: boolean;
+  /** Print and thumbnails: posters instead of films, no iframe, no modals. */
+  still?: boolean;
 }
 
 const cx = (...parts: (string | false | undefined)[]) => parts.filter(Boolean).join(' ');
@@ -151,6 +158,21 @@ function SlideImg({ k, env, className = '', fit = 'contain' }: {
         className={cx('h-full w-full select-none', fit === 'cover' ? 'object-cover' : 'object-contain')}
       />
       {!beamy && <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />}
+    </div>
+  );
+}
+
+/** A slide's film (managed autoplay), or its poster when the slide is still. */
+function SlideFilm({ k, env, className = '' }: { k: string | undefined; env: SlideEnv; className?: string }) {
+  const v = salesVideo(k);
+  if (v === null) return null;
+  return (
+    <div className={cx('overflow-hidden rounded-[24px] ring-1 ring-white/10', className)} style={{ boxShadow: `0 30px 80px -30px rgba(${env.rgb}, 0.6)` }}>
+      {env.still === true ? (
+        <img src={v.poster} alt={v.label} loading={env.eagerImages === true ? 'eager' : 'lazy'} className="block h-auto w-full" draggable={false} />
+      ) : (
+        <FilmEmbed src={v.src} poster={v.poster} label={v.label} />
+      )}
     </div>
   );
 }
@@ -333,15 +355,25 @@ function Solution({ slide, env }: { slide: Slide; env: SlideEnv }) {
       <ItemsList slide={slide} env={env} />
     </div>
   );
+  const film = salesVideo(slide.video) !== null;
   if (!stage) {
     return (
       <div className="flex flex-col">
-        {img !== undefined && salesImage(img) !== null && (
+        {film && <SlideFilm k={slide.video} env={env} className="mb-5" />}
+        {!film && img !== undefined && salesImage(img) !== null && (
           <div className={cx('mb-5', salesImage(img)?.cutout === true ? 'mx-auto aspect-square w-60 max-w-full' : 'aspect-[4/3] w-full')}>
             <SlideImg k={img} env={env} fit="cover" />
           </div>
         )}
         {text}
+      </div>
+    );
+  }
+  if (film) {
+    return (
+      <div className="grid h-full grid-cols-[0.8fr_1.2fr] items-center gap-12">
+        {text}
+        <SlideFilm k={slide.video} env={env} />
       </div>
     );
   }
@@ -399,22 +431,46 @@ function How({ slide, env }: { slide: Slide; env: SlideEnv }) {
 
 function Features({ slide, env }: { slide: Slide; env: SlideEnv }) {
   const stage = env.mode === 'stage';
-  const items = slide.items ?? (slide.bullets ?? []).map((b) => ({ title: b, icon: undefined, body: undefined }));
+  const items = slide.items ?? (slide.bullets ?? []).map((b) => ({ title: b, icon: undefined, body: undefined, showcase: undefined }));
   const cols = items.length === 4 ? 'grid-cols-2' : 'grid-cols-3';
+  const [open, setOpen] = useState<number | null>(null);
+  const interactive = env.still !== true && items.some((it) => hasShowcase(it.showcase));
   return (
     <div className={cx('flex flex-col', stage && 'h-full')}>
       {slide.eyebrow !== undefined && <Eyebrow env={env}>{slide.eyebrow}</Eyebrow>}
       <Title env={env} size="md">{slide.title}</Title>
       {slide.body !== undefined && <Body env={env}>{slide.body}</Body>}
+      {interactive && (
+        <p className={cx('flex items-center gap-2 text-brand-muted/80', stage ? 'mt-3 text-[15px]' : 'mt-2 text-[12.5px]')}>
+          <MousePointerClick className={stage ? 'h-4 w-4' : 'h-3.5 w-3.5'} style={{ color: `rgb(${env.rgb})` }} aria-hidden />
+          Tap any feature to see it
+        </p>
+      )}
       <div className={cx('grid', stage ? `mt-auto ${cols} gap-5` : 'mt-6 grid-cols-1 gap-3 min-[420px]:grid-cols-2')}>
         {items.map((it, i) => {
           const Icon = iconFor(it.icon);
+          const opens = interactive && hasShowcase(it.showcase);
+          const Tag = opens ? 'button' : 'div';
           return (
-            <div
+            <Tag
               key={i}
-              className={cx('rounded-[22px] border border-white/10', stage ? 'p-6' : 'p-4')}
+              {...(opens ? { type: 'button' as const, onClick: () => setOpen(i), 'aria-haspopup': 'dialog' as const } : {})}
+              className={cx(
+                'relative rounded-[22px] border border-white/10 text-left',
+                stage ? 'p-6' : 'p-4',
+                opens && 'group cursor-pointer transition hover:-translate-y-0.5 hover:border-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] active:scale-[0.99]',
+              )}
               style={{ background: `linear-gradient(160deg, rgba(${env.rgb},0.09), rgba(255,255,255,0.02) 55%)` }}
             >
+              {opens && (
+                <span
+                  className={cx('absolute flex items-center gap-1 rounded-full font-label font-semibold uppercase opacity-70 transition group-hover:opacity-100', stage ? 'right-4 top-4 px-2.5 py-1 text-[11px] tracking-[0.16em]' : 'right-3 top-3 px-2 py-0.5 text-[10px] tracking-[0.14em]')}
+                  style={{ background: `rgba(${env.rgb},0.16)`, color: `rgb(${env.rgb})` }}
+                  aria-hidden
+                >
+                  See it <ArrowRight className="h-3 w-3" />
+                </span>
+              )}
               <span
                 className={cx('flex items-center justify-center rounded-xl', stage ? 'h-12 w-12' : 'h-10 w-10')}
                 style={{ background: `rgba(${env.rgb},0.16)`, boxShadow: `inset 0 0 0 1px rgba(${env.rgb},0.35)` }}
@@ -426,10 +482,11 @@ function Features({ slide, env }: { slide: Slide; env: SlideEnv }) {
               {it.body !== undefined && (
                 <p className={cx('text-brand-muted', stage ? 'mt-2 text-[16px] leading-snug' : 'mt-1 text-[13.5px] leading-snug')}>{it.body}</p>
               )}
-            </div>
+            </Tag>
           );
         })}
       </div>
+      {open !== null && <ShowcaseModal items={items} start={open} rgb={env.rgb} onClose={() => setOpen(null)} />}
     </div>
   );
 }
@@ -602,6 +659,22 @@ function Roi({ slide, env }: { slide: Slide; env: SlideEnv }) {
 
 function QuoteSlide({ slide, env }: { slide: Slide; env: SlideEnv }) {
   const stage = env.mode === 'stage';
+  // The films carry their own captions, so a quote never sits ON one: the
+  // line leads, the film plays framed beneath it.
+  if (salesVideo(slide.video) !== null) {
+    return (
+      <figure className={cx('flex flex-col items-center text-center', stage && 'h-full justify-center')}>
+        {slide.eyebrow !== undefined && <Eyebrow env={env}>{slide.eyebrow}</Eyebrow>}
+        <blockquote className={cx('font-serif [font-variant-numeric:lining-nums_tabular-nums] font-semibold text-balance text-foil-static', stage ? 'text-[56px] leading-[1.08]' : 'text-[30px] leading-[1.15]')}>
+          {slide.title}
+        </blockquote>
+        {slide.body !== undefined && (
+          <figcaption className={cx('text-brand-muted', stage ? 'mt-3 text-[19px]' : 'mt-3 text-[14px]')}>{slide.body}</figcaption>
+        )}
+        <SlideFilm k={slide.video} env={env} className={stage ? 'mt-7 w-[660px]' : 'mt-5 w-full'} />
+      </figure>
+    );
+  }
   return (
     <figure className={cx('flex flex-col items-center text-center', stage && 'h-full justify-center px-16')}>
       {slide.image !== undefined && salesImage(slide.image) !== null ? (
@@ -617,6 +690,87 @@ function QuoteSlide({ slide, env }: { slide: Slide; env: SlideEnv }) {
         <figcaption className={cx('text-brand-muted', stage ? 'mt-7 text-[20px]' : 'mt-4 text-[14px]')}>{slide.body}</figcaption>
       )}
     </figure>
+  );
+}
+
+/** Frame thumbs over photos — the demo slide's picture when it cannot run. */
+function DemoCollage({ kitId, env, small = false }: { kitId: string | undefined; env: SlideEnv; small?: boolean }) {
+  const kit = demoKit(kitId);
+  const photos = ['event-wedding', 'event-gala', 'event-birthday'];
+  return (
+    <div className="flex items-end justify-center">
+      {kit.frames.slice(0, 3).map((f, i) => (
+        <div
+          key={f.id}
+          className={cx('relative aspect-[9/16] overflow-hidden rounded-2xl bg-black ring-1 ring-white/15', small ? 'w-[30%] max-w-[120px]' : 'w-[180px]', i === 1 ? 'z-10 -mx-3 mb-4' : '')}
+          style={{ transform: `rotate(${(i - 1) * 6}deg)`, boxShadow: `0 24px 60px -24px rgba(${env.rgb},0.7)` }}
+        >
+          <img src={salesImage(photos[i])?.src} alt="" loading={env.eagerImages === true ? 'eager' : 'lazy'} className="absolute inset-0 h-full w-full object-cover" draggable={false} />
+          <img src={f.thumb} alt={`${f.name} frame`} loading={env.eagerImages === true ? 'eager' : 'lazy'} className="absolute inset-0 h-full w-full object-cover" draggable={false} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Demo({ slide, env }: { slide: Slide; env: SlideEnv }) {
+  const stage = env.mode === 'stage';
+  const kit = demoKit(slide.demoKit);
+  const path = tryPath(kit.id);
+  const text = (
+    <div className="flex flex-col">
+      {slide.eyebrow !== undefined && <Eyebrow env={env}>{slide.eyebrow}</Eyebrow>}
+      <Title env={env} size="md">{slide.title}</Title>
+      {slide.body !== undefined && <Body env={env}>{slide.body}</Body>}
+      {slide.bullets !== undefined && slide.bullets.length > 0 && <Bullets env={env} items={slide.bullets} />}
+    </div>
+  );
+  if (!stage) {
+    return (
+      <div className="flex flex-col">
+        <DemoCollage kitId={kit.id} env={env} small />
+        <div className="mt-5">{text}</div>
+        {env.still !== true && (
+          <Link
+            to={path}
+            className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-foil px-6 font-label text-[12px] font-bold uppercase tracking-[0.18em] text-white glow-accent"
+          >
+            <Camera className="h-4 w-4" aria-hidden /> Try the {kit.label.toLowerCase()} booth
+          </Link>
+        )}
+      </div>
+    );
+  }
+  const absolute = typeof window !== 'undefined' ? `${window.location.origin}${path}` : path;
+  return (
+    <div className="grid h-full grid-cols-[0.72fr_1.28fr] items-center gap-10">
+      <div className="flex flex-col">
+        {text}
+        <div className="mt-7 flex items-center gap-5">
+          <div className="rounded-2xl bg-white p-2.5"><QRCodeSVG value={absolute} size={112} level="M" /></div>
+          <div className="flex flex-col gap-3">
+            <p className="text-[16px] leading-snug text-brand-muted">Scan to try it on<br />your own phone</p>
+            {env.still !== true && (
+              <a href={path} target="_blank" rel="noopener" className="inline-flex min-h-11 items-center gap-2 self-start rounded-full border border-white/20 bg-white/[0.05] px-5 font-label text-[12px] font-bold uppercase tracking-[0.16em] text-brand-fg hover:bg-white/[0.1]">
+                <Expand className="h-4 w-4" aria-hidden /> Full screen
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="relative h-[590px] overflow-hidden rounded-[26px] border border-white/10 bg-black" style={{ boxShadow: `0 40px 100px -30px rgba(${env.rgb},0.65)` }}>
+        {env.still === true ? (
+          <div className="flex h-full items-center justify-center"><DemoCollage kitId={kit.id} env={env} /></div>
+        ) : (
+          <iframe
+            src={`${path}?embed=1`}
+            title={`Try the ${kit.label.toLowerCase()} booth`}
+            allow="camera; microphone; fullscreen"
+            className="h-full w-full border-0"
+          />
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -689,6 +843,7 @@ const LAYOUTS: Record<Slide['kind'], (p: { slide: Slide; env: SlideEnv }) => Rea
   offer: OfferSlide,
   roi: Roi,
   quote: QuoteSlide,
+  demo: Demo,
   cta: Cta,
 };
 

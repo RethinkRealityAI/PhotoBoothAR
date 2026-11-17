@@ -35,6 +35,7 @@ import {
   getActiveFaceEngineInfo, initFaceEngine, resolveSurfaceFaceMode, setFaceTrackingMode, subscribeFaceEngine,
 } from '../../lib/faceEngine';
 import TrackingReadout from '../ar/TrackingReadout';
+import type { DemoKit } from '../../lib/demoKits';
 
 /* ── The seven-hue brand spectrum, shared by the whole showcase. ──────── */
 export const SPECTRUM = ['#5B8CFF', '#22D3EE', '#34D399', '#FB923C', '#E879F9', '#7C6CF7', '#38BDF8'];
@@ -84,7 +85,7 @@ const DEMO_FRAME_SVGS: Record<string, string> = {
 
 type Category = 'frame' | 'effect' | 'prop';
 
-interface Choice { id: string; name: string; hue: string; }
+interface Choice { id: string; name: string; hue: string; thumb?: string; }
 
 const FRAMES: Choice[] = [
   { id: 'beam', name: 'Beam', hue: '#5B8CFF' },
@@ -115,6 +116,7 @@ const FRAME_URLS: Record<string, string> = Object.fromEntries(
 const PROP_ICONS: Record<string, typeof Glasses> = {
   'neon-shades': Glasses,
   'queen-tiara': Crown,
+  'royal-crown': Crown,
   'cheek-stars': Sparkles,
 };
 
@@ -158,6 +160,9 @@ function Orb({
 }
 
 function OrbThumb({ category, choice }: { category: Category; choice: Choice }) {
+  if (category === 'frame' && choice.thumb !== undefined) {
+    return <img src={choice.thumb} alt="" draggable={false} className="h-full w-full object-cover" />;
+  }
   if (category === 'frame') {
     // A tiny frame-shaped glyph reads better at 42px than the real 9:16 SVG.
     return (
@@ -196,13 +201,34 @@ export interface CameraExperienceProps {
   onClose?: () => void;
   /** Ref to the 9:16 viewfinder — the beam ceremony measures its origin. */
   screenRef?: React.Ref<HTMLDivElement>;
+  /** Themed asset set (sales /try demo). Omitted = the landing's beam kit. */
+  kit?: DemoKit;
+}
+
+/** The orb lists + frame URLs a kit resolves to (default = landing kit). */
+function kitSetup(kit: DemoKit | undefined): {
+  categories: { key: Category; label: string; options: Choice[] }[];
+  frameUrls: Record<string, string>;
+  defaultFrame: string;
+} {
+  if (kit === undefined) return { categories: CATEGORIES, frameUrls: FRAME_URLS, defaultFrame: 'beam' };
+  return {
+    categories: [
+      { key: 'frame', label: 'Frame', options: kit.frames.map((f) => ({ id: f.id, name: f.name, hue: f.hue, thumb: f.thumb })) },
+      { key: 'effect', label: 'Effect', options: kit.effects },
+      { key: 'prop', label: '3D', options: kit.props },
+    ],
+    frameUrls: Object.fromEntries(kit.frames.map((f) => [f.id, f.src])),
+    defaultFrame: kit.frames[0]?.id ?? '',
+  };
 }
 
 export default function CameraExperience({
-  enabled, videoId, beamLabel, onBeam, onClose, screenRef,
+  enabled, videoId, beamLabel, onBeam, onClose, screenRef, kit,
 }: CameraExperienceProps) {
+  const [{ categories, frameUrls, defaultFrame }] = useState(() => kitSetup(kit));
   const [category, setCategory] = useState<Category>('frame');
-  const [frameId, setFrameId] = useState<string | null>('beam');
+  const [frameId, setFrameId] = useState<string | null>(defaultFrame === '' ? null : defaultFrame);
   const [effectId, setEffectId] = useState<string | null>(null);
   const [propId, setPropId] = useState<string | null>(null);
   const [shot, setShot] = useState<string | null>(null);
@@ -280,11 +306,11 @@ export default function CameraExperience({
     effect: setEffectId,
     prop: setPropId,
   };
-  const activeCat = CATEGORIES.find((c) => c.key === category) ?? CATEGORIES[0];
+  const activeCat = categories.find((c) => c.key === category) ?? categories[0];
   const catHue = (key: Category): string | null => {
     const sel = selectedOf[key];
     if (sel === null) return null;
-    return CATEGORIES.find((c) => c.key === key)?.options.find((o) => o.id === sel)?.hue ?? null;
+    return categories.find((c) => c.key === key)?.options.find((o) => o.id === sel)?.hue ?? null;
   };
 
   return (
@@ -352,7 +378,7 @@ export default function CameraExperience({
               videoRef={videoRef}
               effectId={activeEffect}
               mirror={mirror}
-              overlayUrl={frameId !== null ? FRAME_URLS[frameId] : null}
+              overlayUrl={frameId !== null ? frameUrls[frameId] ?? null : null}
               threeCanvasId={propId !== null ? 'booth-3d-layer' : null}
               frameLock={propId !== null}
               watermark={false}
@@ -456,7 +482,7 @@ export default function CameraExperience({
               style={{ background: 'linear-gradient(to top, rgba(5,6,11,0.9) 30%, rgba(5,6,11,0.45) 70%, transparent)' }}
             >
               <div className="flex items-center gap-5">
-                {CATEGORIES.map((c) => {
+                {categories.map((c) => {
                   const on = category === c.key;
                   const dot = catHue(c.key);
                   return (

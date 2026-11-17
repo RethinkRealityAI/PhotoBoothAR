@@ -94,6 +94,7 @@ const NA_PLANNERS_DECK: Deck = {
     },
     {
       id: 'solution',
+      video: 'wall',
       kind: 'solution',
       eyebrow: 'Beamwall',
       title: 'The booth lives in every pocket',
@@ -117,17 +118,27 @@ const NA_PLANNERS_DECK: Deck = {
         'Keep it to three steps. If they want to see it, stop here and do the live demo: open the landing page and beam your own phone onto the wall.',
     },
     {
+      id: 'demo',
+      kind: 'demo',
+      eyebrow: 'Try it now',
+      title: 'Be a guest for ten seconds',
+      body: 'Pick a frame, add a tiara, take a photo and beam it to the wall. This is what your clients’ guests see.',
+      demoKit: 'wedding',
+      notes:
+        'Hand them the booth: tap Start the camera here, or let them scan the QR on their own phone. Nothing is uploaded and photos stay on their device. Say clearly it is a sample kit: every event gets its own frames in the couple’s names, colours and monogram.',
+    },
+    {
       id: 'features',
       kind: 'features',
       eyebrow: 'What your clients get',
       title: 'Everything a booth does, and more',
       items: [
-        { title: 'Branded AR frames', body: 'Face-tracked frames and effects in their colours.', icon: 'Frame' },
-        { title: 'AI-designed frames', body: 'Describe the theme; get frames in minutes.', icon: 'Wand2' },
-        { title: 'Live photo wall', body: 'Every shot lands on the big screen.', icon: 'MonitorPlay' },
-        { title: 'Challenges & leaderboard', body: 'Photo missions that get the room moving.', icon: 'Trophy' },
-        { title: 'Keepsake cards', body: 'Guest moments compiled into one animated card.', icon: 'Mail' },
-        { title: 'Moderation built in', body: 'Approve photos before they hit the wall.', icon: 'ShieldCheck' },
+        { title: 'Branded AR frames', body: 'Face-tracked frames and effects in their colours.', icon: 'Frame', showcase: 'frames' },
+        { title: 'AI-designed frames', body: 'Describe the theme; get frames in minutes.', icon: 'Wand2', showcase: 'ai' },
+        { title: 'Live photo wall', body: 'Every shot lands on the big screen.', icon: 'MonitorPlay', showcase: 'wall' },
+        { title: 'Challenges & leaderboard', body: 'Photo missions that get the room moving.', icon: 'Trophy', showcase: 'challenges' },
+        { title: 'Keepsake cards', body: 'Guest moments compiled into one animated card.', icon: 'Mail', showcase: 'keepsake' },
+        { title: 'Moderation built in', body: 'Approve photos before they hit the wall.', icon: 'ShieldCheck', showcase: 'moderation' },
       ],
       image: 'frames',
       notes:
@@ -137,11 +148,11 @@ const NA_PLANNERS_DECK: Deck = {
       id: 'offer',
       kind: 'offer',
       eyebrow: 'Two ways to work with us',
-      title: 'We run it, or you do',
-      body: 'Signature: we design and run it for your client. Partner: you build and run it for clients, at your price.',
+      title: 'We build it, or you do',
+      body: 'Signature: we design and build it for your client, then hand over the links. Partner: you build and run it for clients, at your price.',
       offerIds: ['signature-150', 'signature-400', 'signature-custom', 'partner'],
       notes:
-        'Signature is done-for-you at list price ($495 up to 150 guests, $795 up to 400, from $1,495 above), and planners get five events for the price of four. Partner ($499/month or $4,990/year) is a licence to build and run Beamwall experiences for their clients and set their own price — no white-label or partner branding yet. There is NO separate reseller margin. Paid in full to book, fully refundable until designs are approved.',
+        'Signature is done-for-you at list price ($495 up to 150 guests, $795 up to 400, from $1,495 above), and planners get five events for the price of four. Signature is fully remote: we build everything on the platform and hand over the links, Signage Kit and a one-page setup guide 7 days out — we never attend, check the venue, set up a screen, or run or monitor the wall; the client runs the day. Partner ($499/month or $4,990/year) is a licence to build and run Beamwall experiences for their clients and set their own price — no white-label or partner branding yet. There is NO separate reseller margin. Paid in full to book, fully refundable until designs are approved.',
     },
     {
       id: 'roi',
@@ -181,6 +192,7 @@ const NA_PLANNERS_DECK: Deck = {
     },
     {
       id: 'quote',
+      video: 'sizzle',
       kind: 'quote',
       title: 'Be the planner whose events get filmed',
       image: 'event-wedding',
@@ -240,6 +252,7 @@ const NA_BRANDS_DECK: Deck = {
     },
     {
       id: 'solution',
+      video: 'wall',
       kind: 'solution',
       eyebrow: 'Beamwall',
       title: 'Your brand on every shot',
@@ -263,17 +276,27 @@ const NA_BRANDS_DECK: Deck = {
         'Offer the live demo here. A trade-show stand needs a screen and a QR sign — that is the whole kit.',
     },
     {
+      id: 'demo',
+      kind: 'demo',
+      eyebrow: 'Try it now',
+      title: 'Your Christmas party, on their phone',
+      body: 'Pick a frame, add a prop, take a photo and beam it to the wall. This is what your guests see.',
+      demoKit: 'christmas',
+      notes:
+        'Let them try it: tap Start the camera here, or scan the QR on their own phone. Nothing is uploaded; photos stay on their device. It is a sample kit: their event gets frames in their brand, campaign and colours.',
+    },
+    {
       id: 'features',
       kind: 'features',
       eyebrow: 'Built for brand events',
       title: 'Made to draw a crowd',
       items: [
-        { title: 'Branded AR frames', body: 'Face-tracked, on-brand, in every photo.', icon: 'Frame' },
-        { title: 'AI frame studio', body: 'Describe the campaign; get frames in minutes.', icon: 'Wand2' },
-        { title: 'Photo challenges', body: 'Missions and a leaderboard to keep people playing.', icon: 'Trophy' },
-        { title: 'Live wall', body: 'A moving screen that pulls people over.', icon: 'MonitorPlay' },
-        { title: 'Moderation', body: 'Approve photos before they hit the wall.', icon: 'ShieldCheck' },
-        { title: 'Gallery link', body: 'Every shot in one gallery afterwards.', icon: 'Images' },
+        { title: 'Branded AR frames', body: 'Face-tracked, on-brand, in every photo.', icon: 'Frame', showcase: 'frames' },
+        { title: 'AI frame studio', body: 'Describe the campaign; get frames in minutes.', icon: 'Wand2', showcase: 'ai' },
+        { title: 'Photo challenges', body: 'Missions and a leaderboard to keep people playing.', icon: 'Trophy', showcase: 'challenges' },
+        { title: 'Live wall', body: 'A moving screen that pulls people over.', icon: 'MonitorPlay', showcase: 'wall' },
+        { title: 'Moderation', body: 'Approve photos before they hit the wall.', icon: 'ShieldCheck', showcase: 'moderation' },
+        { title: 'Gallery link', body: 'Every shot in one gallery afterwards.', icon: 'Images', showcase: 'gallery' },
       ],
       image: 'trophy',
       notes:
@@ -297,8 +320,8 @@ const NA_BRANDS_DECK: Deck = {
       id: 'offer',
       kind: 'offer',
       eyebrow: 'Packages',
-      title: 'Self-serve or fully run for you',
-      body: 'Run it yourself from $99, or let our team design and run it on the day.',
+      title: 'Self-serve or fully built for you',
+      body: 'Run it yourself from $99, or let our team design and build it, ready to share.',
       offerIds: ['premium', 'deluxe', 'signature-400', 'signature-custom'],
       notes:
         'Most marketing teams with a small event go Premium. Busy teams or big rooms want Signature ($795 up to 400 guests, from $1,495 above) — take guest count and date, then book a scoping call.',
@@ -324,6 +347,7 @@ const NA_BRANDS_DECK: Deck = {
     },
     {
       id: 'quote',
+      video: 'sizzle',
       kind: 'quote',
       title: 'The stand everyone films',
       image: 'event-conference',
@@ -380,6 +404,7 @@ const NA_CREATORS_DECK: Deck = {
     },
     {
       id: 'solution',
+      video: 'wall',
       kind: 'solution',
       eyebrow: 'Beamwall',
       title: 'Every fan gets a moment',
@@ -403,15 +428,25 @@ const NA_CREATORS_DECK: Deck = {
         'Free tier is enough to test it with friends tonight. Push them to try it before the call ends.',
     },
     {
+      id: 'demo',
+      kind: 'demo',
+      eyebrow: 'Try it now',
+      title: 'Your fans’ view, in ten seconds',
+      body: 'Pick a frame, add a prop, take a photo and beam it to the wall. This is what your fans see.',
+      demoKit: 'party',
+      notes:
+        'Let them try it: tap Start the camera here, or scan the QR on their own phone. Nothing is uploaded; photos stay on their device. It is a sample kit: their event gets their own look and name on every frame.',
+    },
+    {
       id: 'features',
       kind: 'features',
       eyebrow: 'Creator toolkit',
       title: 'Built for a content flywheel',
       items: [
-        { title: 'Your AR frame', body: 'On-brand, on every fan photo.', icon: 'Frame' },
-        { title: 'Fan challenges', body: 'Missions and a leaderboard for the room.', icon: 'Trophy' },
-        { title: 'Sponsor-ready frames', body: 'Put a partner’s brand in every shot.', icon: 'Handshake' },
-        { title: 'Keepsake highlight film', body: 'A highlight film of the night, on Deluxe.', icon: 'Film' },
+        { title: 'Your AR frame', body: 'On-brand, on every fan photo.', icon: 'Frame', showcase: 'frames' },
+        { title: 'Fan challenges', body: 'Missions and a leaderboard for the room.', icon: 'Trophy', showcase: 'challenges' },
+        { title: 'Sponsor-ready frames', body: 'Put a partner’s brand in every shot.', icon: 'Handshake', showcase: 'frames' },
+        { title: 'Keepsake highlight film', body: 'A highlight film of the night, on Deluxe.', icon: 'Film', showcase: 'keepsake' },
       ],
       image: 'frames',
       notes:
@@ -524,6 +559,7 @@ const NG_PLANNERS_DECK: Deck = {
     },
     {
       id: 'solution',
+      video: 'wall',
       kind: 'solution',
       eyebrow: 'Beamwall',
       title: 'The whole hall on the wall',
@@ -547,31 +583,41 @@ const NG_PLANNERS_DECK: Deck = {
         'Stop and do the live demo here: open the homepage and beam your own phone onto the wall. A build really takes under 20 minutes, which is why we can price for volume.',
     },
     {
+      id: 'demo',
+      kind: 'demo',
+      eyebrow: 'Try it now',
+      title: 'Be a guest for ten seconds',
+      body: 'Pick a frame, add a tiara, take a photo and beam it to the wall. This is what your clients’ guests see.',
+      demoKit: 'wedding',
+      notes:
+        'Hand them the booth: tap Start the camera here, or let them scan the QR on their own phone. Nothing is uploaded and photos stay on their device. Say clearly it is a sample kit: every event gets its own frames in the couple’s names, colours and monogram.',
+    },
+    {
       id: 'features',
       kind: 'features',
       eyebrow: 'What your clients get',
       title: 'More than a booth, for every guest',
       items: [
-        { title: 'Custom AR frames', body: 'Names, monograms and colours on every shot.', icon: 'Frame' },
-        { title: 'AI-designed in minutes', body: 'Describe the theme; get frames fast.', icon: 'Wand2' },
-        { title: 'Live photo wall', body: 'Every guest on the big screen.', icon: 'MonitorPlay' },
-        { title: 'Challenges & leaderboard', body: 'Photo missions that get the hall moving.', icon: 'Trophy' },
-        { title: 'Keepsake cards & film', body: 'Guest moments compiled for the couple.', icon: 'Film' },
-        { title: 'Moderation built in', body: 'Approve photos before they hit the wall.', icon: 'ShieldCheck' },
+        { title: 'Custom AR frames', body: 'Names, monograms and colours on every shot.', icon: 'Frame', showcase: 'frames' },
+        { title: 'AI-designed in minutes', body: 'Describe the theme; get frames fast.', icon: 'Wand2', showcase: 'ai' },
+        { title: 'Live photo wall', body: 'Every guest on the big screen.', icon: 'MonitorPlay', showcase: 'wall' },
+        { title: 'Challenges & leaderboard', body: 'Photo missions that get the hall moving.', icon: 'Trophy', showcase: 'challenges' },
+        { title: 'Keepsake cards & film', body: 'Guest moments compiled for the couple.', icon: 'Film', showcase: 'keepsake' },
+        { title: 'Moderation built in', body: 'Approve photos before they hit the wall.', icon: 'ShieldCheck', showcase: 'moderation' },
       ],
       image: 'frames',
       notes:
-        'Weddings: monograms, keepsake cards and the highlight film. Corporate clients: branded frames and challenges. Everything is delivered by our team on Signature.',
+        'Weddings: monograms, keepsake cards and the highlight film. Corporate clients: branded frames and challenges. On Signature our team designs and builds all of it remotely; the client gets the links and runs the day.',
     },
     {
       id: 'offer',
       kind: 'offer',
       eyebrow: 'Two ways to work with us',
-      title: 'We run it, or you do',
-      body: 'Signature: we design and run it for your client. Partner: add it to every event, at your own price.',
+      title: 'We build it, or you do',
+      body: 'Signature: we design and build it for your client, then hand over the links. Partner: add it to every event, at your own price.',
       offerIds: ['ng-signature-300', 'ng-signature-700', 'ng-signature-custom', 'ng-partner'],
       notes:
-        'Signature is done-for-you (₦200,000 up to 300 guests, ₦350,000 up to 700, from ₦600,000 above or for brand activations), and planners get five events for the price of four. Partner (₦670,000/month) is a licence to build and run Beamwall experiences for their clients at their own price — no white-label or partner branding yet. Paid in full to book, fully refundable until designs are approved; invoiced via PayPal or bank transfer, never card checkout. Quotes valid 14 days.',
+        'Signature is done-for-you (₦200,000 up to 300 guests, ₦350,000 up to 700, from ₦600,000 above or for brand activations), and planners get five events for the price of four. Signature is fully remote: we build everything on the platform and hand over the links, Signage Kit and a one-page setup guide 7 days out — we never attend, check the venue, set up a screen, or run or monitor the wall; the client runs the day. Partner (₦670,000/month) is a licence to build and run Beamwall experiences for their clients at their own price — no white-label or partner branding yet. Paid in full to book, fully refundable until designs are approved; invoiced via PayPal or bank transfer, never card checkout. Quotes valid 14 days.',
     },
     {
       id: 'roi',
@@ -612,6 +658,7 @@ const NG_PLANNERS_DECK: Deck = {
     },
     {
       id: 'quote',
+      video: 'sizzle',
       kind: 'quote',
       title: 'More than a 360 booth, for less',
       image: 'event-wedding',
@@ -668,6 +715,7 @@ const NG_BRANDS_DECK: Deck = {
     },
     {
       id: 'solution',
+      video: 'wall',
       kind: 'solution',
       eyebrow: 'Beamwall',
       title: 'Your brand on every shot',
@@ -691,16 +739,26 @@ const NG_BRANDS_DECK: Deck = {
         'The kit is a screen and a QR sign. Demo it live on the call.',
     },
     {
+      id: 'demo',
+      kind: 'demo',
+      eyebrow: 'Try it now',
+      title: 'Your Christmas party, on their phone',
+      body: 'Pick a frame, add a prop, take a photo and beam it to the wall. This is what your guests see.',
+      demoKit: 'christmas',
+      notes:
+        'Let them try it: tap Start the camera here, or scan the QR on their own phone. Nothing is uploaded; photos stay on their device. It is a sample kit: their event gets frames in their brand, campaign and colours.',
+    },
+    {
       id: 'features',
       kind: 'features',
       eyebrow: 'Built for brand events',
       title: 'Made to draw a crowd',
       items: [
-        { title: 'Branded AR frames', body: 'Face-tracked and on-brand in every photo.', icon: 'Frame' },
-        { title: 'Photo challenges', body: 'Missions and a leaderboard to keep guests playing.', icon: 'Trophy' },
-        { title: 'Live wall', body: 'A moving screen that pulls people over.', icon: 'MonitorPlay' },
-        { title: 'Moderation', body: 'Approve photos before they hit the wall.', icon: 'ShieldCheck' },
-        { title: 'Gallery link', body: 'Every shot in one gallery afterwards.', icon: 'Images' },
+        { title: 'Branded AR frames', body: 'Face-tracked and on-brand in every photo.', icon: 'Frame', showcase: 'frames' },
+        { title: 'Photo challenges', body: 'Missions and a leaderboard to keep guests playing.', icon: 'Trophy', showcase: 'challenges' },
+        { title: 'Live wall', body: 'A moving screen that pulls people over.', icon: 'MonitorPlay', showcase: 'wall' },
+        { title: 'Moderation', body: 'Approve photos before they hit the wall.', icon: 'ShieldCheck', showcase: 'moderation' },
+        { title: 'Gallery link', body: 'Every shot in one gallery afterwards.', icon: 'Images', showcase: 'gallery' },
       ],
       image: 'trophy',
       notes:
@@ -724,8 +782,8 @@ const NG_BRANDS_DECK: Deck = {
       id: 'offer',
       kind: 'offer',
       eyebrow: 'Packages',
-      title: 'Fully run for you',
-      body: 'Our team designs your frames and runs the wall. Quoted per event, invoiced.',
+      title: 'Fully built for you',
+      body: 'Our team designs your frames, challenges and wall, then sends the links. Quoted per event, invoiced.',
       offerIds: ['ng-signature-700', 'ng-signature-custom'],
       notes:
         'Most brand events fall in the 700+ / activation tier. Quote only after you have guest count, date and venue. Invoiced via PayPal or bank transfer; no prices until the offers thread confirms naira.',
@@ -795,6 +853,7 @@ const NG_CREATORS_DECK: Deck = {
     },
     {
       id: 'solution',
+      video: 'wall',
       kind: 'solution',
       eyebrow: 'Beamwall',
       title: 'Every fan gets a moment',
@@ -804,15 +863,25 @@ const NG_CREATORS_DECK: Deck = {
         'Every fan feels seen on the big screen, even when the creator cannot reach everyone.',
     },
     {
+      id: 'demo',
+      kind: 'demo',
+      eyebrow: 'Try it now',
+      title: 'Your fans’ view, in ten seconds',
+      body: 'Pick a frame, add a prop, take a photo and beam it to the wall. This is what your fans see.',
+      demoKit: 'party',
+      notes:
+        'Let them try it: tap Start the camera here, or scan the QR on their own phone. Nothing is uploaded; photos stay on their device. It is a sample kit: their event gets their own look and name on every frame.',
+    },
+    {
       id: 'features',
       kind: 'features',
       eyebrow: 'Creator toolkit',
       title: 'Built for a content flywheel',
       items: [
-        { title: 'Your AR frame', body: 'On-brand, on every fan photo.', icon: 'Frame' },
-        { title: 'Fan challenges', body: 'Missions and a leaderboard for the room.', icon: 'Trophy' },
-        { title: 'Sponsor-ready frames', body: 'Put a partner’s brand in every shot.', icon: 'Handshake' },
-        { title: 'Keepsake highlight film', body: 'A highlight film of the night.', icon: 'Film' },
+        { title: 'Your AR frame', body: 'On-brand, on every fan photo.', icon: 'Frame', showcase: 'frames' },
+        { title: 'Fan challenges', body: 'Missions and a leaderboard for the room.', icon: 'Trophy', showcase: 'challenges' },
+        { title: 'Sponsor-ready frames', body: 'Put a partner’s brand in every shot.', icon: 'Handshake', showcase: 'frames' },
+        { title: 'Keepsake highlight film', body: 'A highlight film of the night.', icon: 'Film', showcase: 'keepsake' },
       ],
       image: 'frames',
       notes:
@@ -823,7 +892,7 @@ const NG_CREATORS_DECK: Deck = {
       kind: 'offer',
       eyebrow: 'Done for you',
       title: 'We build it, you host',
-      body: 'Our team designs your frame and runs the wall. Quoted per event, invoiced.',
+      body: 'Our team designs your frame and wall, then sends the links. Quoted per event, invoiced.',
       offerIds: ['ng-signature-300', 'ng-signature-700'],
       notes:
         'Creators in Nigeria buy Signature, invoiced — never push the USD self-serve checkout. Take date and expected turnout, then quote.',
@@ -936,7 +1005,7 @@ export const CHEAT_SHEET: CheatSheetSection[] = [
       'You know how a booth serves one guest at a time? We put the booth in every guest’s pocket.',
       'Guests scan one QR code, take branded AR photos and videos in their browser, and watch them land on a live wall in real time.',
       'Hosts get AI-designed frames in minutes, photo challenges with a leaderboard, moderation, a gallery link, and keepsake cards or a highlight film afterwards.',
-      'North America: starts free, $49–$169 per event self-serve, or Signature from $495 and we run it for you. Nigeria: Signature from ₦200,000, invoiced.',
+      'North America: starts free, $49–$169 per event self-serve, or Signature from $495 and we build it for you. Nigeria: Signature from ₦200,000, invoiced.',
     ],
   },
   {
@@ -979,7 +1048,7 @@ export const CHEAT_SHEET: CheatSheetSection[] = [
     points: [
       'Dapo reviews James’s first three events before anything goes to the client.',
       'Every bespoke asset goes into the shared library unless the client paid for exclusivity.',
-      'Follow DELIVERY_SOP for every Signature event: ~2h hands-on in North America, ~1h in Nigeria.',
+      'Follow DELIVERY_SOP for every Signature event: all remote, about 2.5h hands-on in North America, ~1h in Nigeria, and nothing from us on the day.',
     ],
   },
   {
@@ -1061,7 +1130,7 @@ export const CHEAT_SHEET: CheatSheetSection[] = [
       'No guarantees until Dapo confirms them.',
       'No separate reseller margin, resale tier, partner branding, white-label or referral-commission tracking — Partner is a licence to build and run Beamwall for clients at their own price.',
       'No “Event Recap” page — offer the keepsake film and the gallery link instead.',
-      'No on-site printing, lead-capture forms, CRM sync, analytics dashboards or white-label domains.',
+      'No on-site setup, staffing, event-day support or printing; no lead-capture forms, CRM sync, analytics dashboards or white-label domains.',
       'No offline mode — guests need mobile data or venue Wi-Fi.',
       'No case studies, client logos or testimonials — we do not have them yet.',
       'No discounts, card checkout in Nigeria, or free Signature work without Dapo’s sign-off.',
@@ -1095,7 +1164,7 @@ export const OBJECTIONS: Objection[] = [
   {
     objection: 'The venue network is bad.',
     answer:
-      'Guests use their own phones, so most are on their own mobile data, not the venue Wi-Fi. The wall screen needs a connection; we check the venue before the day.',
+      'Guests use their own phones, so most are on their own mobile data, not the venue Wi-Fi. The wall just needs any screen with internet. A week before, we send a rehearsal link and a one-page setup guide so the client can test their phone and their screen at the venue.',
   },
   {
     objection: 'Just send me some info.',
@@ -1173,7 +1242,7 @@ export const DISCOVERY_QUESTIONS: DiscoveryQuestion[] = [
     why: 'Finds the decision-maker early; in Nigeria confirms PayPal or bank transfer works.',
   },
   {
-    question: 'Would you rather run it yourselves or have us run it?',
+    question: 'Would you rather build it yourselves or have us build it?',
     why: 'Partner (or NA self-serve) versus Signature in one question.',
   },
   {
@@ -1359,14 +1428,14 @@ export const DELIVERY_SOP: SopStep[] = [
     when: 'Day 1–2',
     title: 'Consult and brief',
     minutes: 30,
-    detail: '20-minute call on the event, mood, must-have shots and screen setup (Nigeria: the intake form replaces the call). Send a written brief the same day for one-word approval.',
+    detail: '20-minute call on the event, mood, must-have shots and the screen they will open the wall on (Nigeria: the intake form replaces the call). Send a written brief the same day for one-word approval.',
   },
   {
     id: 'day-2-build',
     when: 'Day 2–5',
     title: 'Build',
     minutes: 20,
-    detail: 'Start from the closest library experience and frame set; generate new art only where nothing fits. Add a challenge pack and wall settings.',
+    detail: 'All remote, on the platform. Start from the closest library experience and frame set; generate new 2D frames, 3D AR assets or filters only where nothing fits. Add a challenge pack, the live photo feed and wall settings, and the keepsake card.',
   },
   {
     id: 'day-5-review',
@@ -1384,22 +1453,21 @@ export const DELIVERY_SOP: SopStep[] = [
   {
     id: 'rehearsal',
     when: '7 days before',
-    title: 'Rehearsal',
+    title: 'Rehearsal and handover',
     minutes: 20,
-    detail: 'Run the full checklist on an iPhone AND an Android: camera permission, filter tracking, capture, send, wall arrival, moderation, gallery. Send the live link and the Signage Kit.',
+    detail: 'Run the full checklist ourselves on an iPhone AND an Android: camera permission, filter tracking, capture, send, wall arrival, moderation, gallery. Then hand over: the rehearsal link, the Signage Kit and the one-page setup guide (guest QR, wall link for their screen or projector, host console).',
   },
   {
     id: 'freeze',
     when: '72 hours before',
     title: 'Design freeze',
-    detail: 'Confirm the venue contact, screen or projector, and Wi-Fi or mobile coverage. Text changes only from here.',
+    detail: 'The client runs the setup guide’s test at the venue: wall link on their screen or projector, a test shot from their own phone, Wi-Fi or mobile coverage. Text changes only from here.',
   },
   {
     id: 'event-day',
     when: 'Event day',
-    title: 'Go live',
-    minutes: 30,
-    detail: 'Wall live an hour before doors. Stay reachable by phone and watch the post count remotely.',
+    title: 'Nothing from us',
+    detail: 'The client runs the day from the links: they open the wall on their screen before doors and guests scan the QR. We do not attend, set up, run or monitor the wall.',
   },
   {
     id: 'after-48h',
@@ -1627,7 +1695,7 @@ export const TEMPLATES: MessageTemplate[] = [
     market: 'na',
     subject: 'A photo booth with no hardware',
     body:
-      'Hi {{firstName}},\n\n{{personalHook}}.\n\nBeamwall turns every guest’s phone into an AR photo booth, and every shot beams live onto a big screen. Nothing to ship, set up or staff.\n\nPlanners either book us to run it for clients or take a licence to build and run it for their clients at their own price.\n\nWould a 20-minute look be useful before your next {{eventType}}?\n\n{{senderName}}\nBeamwall',
+      'Hi {{firstName}},\n\n{{personalHook}}.\n\nBeamwall turns every guest’s phone into an AR photo booth, and every shot beams live onto a big screen. Nothing to ship, set up or staff.\n\nPlanners either book us to build it for their clients or take a licence to build and run it for their clients at their own price.\n\nWould a 20-minute look be useful before your next {{eventType}}?\n\n{{senderName}}\nBeamwall',
     when: CASL_FOOTER,
   },
   {
