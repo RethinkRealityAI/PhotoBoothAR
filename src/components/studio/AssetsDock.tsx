@@ -58,7 +58,7 @@ import { SCENE_FULL_MESSAGE, canAddObject, createObject3D, selectedObject, scene
 import ConfirmModal from '../ui/ConfirmModal';
 import { experienceToDraft } from '../../lib/studio/draftMapping';
 import { ADD_ONS } from '../../lib/studio/addOns';
-import { ANCHOR_MAP } from '../../lib/faceRig';
+import { ANCHOR_MAP, ANCHOR_VERSION_LATEST, migrateOffsetToV2 } from '../../lib/faceRig';
 import type { HeadAnchor } from '../../types';
 
 /** Catalogue anchors are plain strings; only a real preset id may reach the
@@ -93,15 +93,17 @@ import {
 // bundled typefaces, none of which the dock needs until the host opens it.
 const Text3DBuilder = lazy(() => import('./Text3DBuilder'));
 const PowerFxBuilder = lazy(() => import('./PowerFxBuilder'));
+const FacePaintBuilder = lazy(() => import('./FacePaintBuilder'));
 
 /** Power-Up modal per registry id (lib/studio/addOns.ts). Both share the same
  *  props contract, so future add-ons register here with one line each. */
 const ADDON_VIEWS = {
   'power-fx': PowerFxBuilder,
   'name-jewelry': Text3DBuilder,
+  'face-paint': FacePaintBuilder,
 } as const;
 /** lucide icons for the React-free registry's icon names. */
-const ADDON_ICONS: Record<string, LucideIcon> = { Zap: ZapIcon, Gem };
+const ADDON_ICONS: Record<string, LucideIcon> = { Zap: ZapIcon, Gem, Palette };
 
 interface Props {
   state: StudioState;
@@ -201,13 +203,13 @@ function AssetTile({
       ) : (
         <div className="w-full h-full flex items-center justify-center"><Icon className="w-4 h-4 text-brand-muted/40" /></div>
       )}
-      <span className={`absolute inset-x-0 bottom-0 px-1 py-0.5 text-[7px] font-label uppercase tracking-wide truncate ${tile.active ? 'bg-accent/30 text-accent-2' : 'bg-black/60 text-white/80'}`}>{tile.label}</span>
+      <span className={`absolute inset-x-0 bottom-0 px-1 py-0.5 text-[7px] pointer-coarse:text-[10px] font-label uppercase tracking-wide truncate ${tile.active ? 'bg-accent/30 text-accent-2' : 'bg-black/60 text-white/80'}`}>{tile.label}</span>
       {/* What this tile becomes when clicked. A bare uploaded image shows under
           BOTH the Frames and Stickers chips but lands as a FRAME under "All" —
           which silently replaces the scene's existing frame. Saying so up front
           is the difference between a choice and a surprise. */}
       {tile.kindBadge && (
-        <span className="absolute top-0.5 left-0.5 px-1 py-px rounded-full bg-black/70 text-accent-2 font-label text-[7px] uppercase tracking-widest">
+        <span className="absolute top-0.5 left-0.5 px-1 py-px rounded-full bg-black/70 text-accent-2 font-label text-[7px] pointer-coarse:text-[10px] uppercase tracking-widest">
           {tile.kindBadge}
         </span>
       )}
@@ -384,37 +386,44 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   // silent: that is ordinary multi-piece composition. Drag-drop also stays
   // silent — a drag is a deliberate spatial placement. Replace retargets any
   // beam/animate triggers that named the replaced piece at its successor.
+  //
+  // `run` hands its ONE add action to `commit` instead of dispatching it, so a
+  // Replace can commit delete + add + retarget as a single BATCH (one undo
+  // step) only once the add is ready — an async measure that never resolves
+  // no longer leaves the old piece deleted with nothing in its place.
+  type SlotAddRun = (commit: (action: StudioAction) => void) => void | Promise<void>;
   const [conflictAdd, setConflictAdd] = useState<{
     existing: Object3D;
     label: string;
-    run: () => void | Promise<void>;
+    run: SlotAddRun;
   } | null>(null);
   const guardSlotAdd = useCallback(
-    (slot: { anchor?: HeadAnchor; handAnchor?: string }, label: string, run: () => void | Promise<void>) => {
+    (slot: { anchor?: HeadAnchor; handAnchor?: string }, label: string, run: SlotAddRun) => {
       const existing = slotConflict(draft, slot);
       if (existing === null) {
-        void run();
+        void run(dispatch);
         return;
       }
       setConflictAdd({ existing, label, run });
     },
-    [draft],
+    [draft, dispatch],
   );
   const resolveConflict = useCallback((mode: 'replace' | 'both') => {
     const c = conflictAdd;
     setConflictAdd(null);
     if (!c) return;
     if (mode === 'both') {
-      void c.run();
+      void c.run(dispatch);
       return;
     }
-    // Delete FIRST (a full scene must free the slot before the add), then add,
-    // then repoint the old piece's beam/animate triggers at the replacement —
-    // the run may be async (measure-then-dispatch), so retarget awaits it.
-    dispatch({ type: 'DELETE_OBJECT', id: c.existing.id });
-    void Promise.resolve(c.run()).then(() => {
-      dispatch({ type: 'RETARGET_TRIGGERS', fromId: c.existing.id });
-    });
+    // Inside the batch: delete FIRST (a full scene must free the slot before
+    // the add), then add, then repoint the old piece's beam/animate triggers
+    // at the replacement.
+    const fromId = c.existing.id;
+    void c.run((add) => dispatch({
+      type: 'BATCH',
+      actions: [{ type: 'DELETE_OBJECT', id: fromId }, add, { type: 'RETARGET_TRIGGERS', fromId }],
+    }));
   }, [conflictAdd, dispatch]);
 
   // Click-to-add for an Uploads/Generated/Mine dock item — mirrors the built-in
@@ -433,8 +442,8 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     }
     if (item.payload.proceduralId) {
       const pieceId = item.payload.proceduralId;
-      guardSlotAdd({ anchor: HEAD_PIECE_MAP[pieceId]?.anchor }, item.label, () =>
-        dispatch({ type: 'SELECT_HEAD_PIECE', pieceId }),
+      guardSlotAdd({ anchor: HEAD_PIECE_MAP[pieceId]?.anchor }, item.label, (commit) =>
+        commit({ type: 'SELECT_HEAD_PIECE', pieceId }),
       );
     } else if (item.payload.assetUrl) {
       // Measure-then-add: auto-fit the GLB to head-space cm at ADD time (a raw
@@ -445,15 +454,15 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
       // Procedural jewelry is already life-size — add it at scale 1 without the
       // async measure, so re-adding a saved piece matches how it was authored.
       if (isAuthoredInCm(url, label)) {
-        guardSlotAdd({ anchor: 'crown' }, label, () =>
-          dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: 1 }),
+        guardSlotAdd({ anchor: 'crown' }, label, (commit) =>
+          commit({ type: 'SET_MODEL_ASSET', url, name: label, scale: 1 }),
         );
         return;
       }
-      guardSlotAdd({ anchor: 'crown' }, label, () => {
+      guardSlotAdd({ anchor: 'crown' }, label, (commit) => {
         setPendingKey(key);
         return measureGlbFitScale(url)
-          .then((fitScale) => dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined }))
+          .then((fitScale) => commit({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined }))
           .finally(() => setPendingKey((k) => (k === key ? null : k)));
       });
     }
@@ -784,22 +793,34 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         pending: false,
         kindBadge: '3D',
         drag,
+        // Same-slot guard like every other add path — clicking Royal Crown twice
+        // used to stack "Royal Crown 2" exactly on top of the first (#5). The
+        // reducer switches a 2D stage to 3D for this add, so it is visible (#4).
         onAdd: () => {
-          dispatch({
-            type: 'ADD_OBJECT',
-            object: createObject3D('model', {
-              assetUrl: p.url,
-              name: p.name,
-              anchor: p.anchor,
-              finish: p.finish,
-              anchorConfig: propAnchorConfig(p),
-            }),
+          guardSlotAdd({ anchor: p.anchor }, p.name, (commit) => {
+            commit({
+              type: 'ADD_OBJECT',
+              object: createObject3D('model', {
+                assetUrl: p.url,
+                name: p.name,
+                anchor: p.anchor,
+                finish: p.finish,
+                // A NEW add rides the re-measured v2 anchors; the prop's
+                // placement was tuned by eye against v1, so it is converted to
+                // render at the same point (saved scenes keep v1 forever).
+                anchorConfig: (() => {
+                  const cfg = propAnchorConfig(p);
+                  return { ...cfg, offset: migrateOffsetToV2(p.anchor, cfg.offset, 1) };
+                })(),
+                anchorVersion: ANCHOR_VERSION_LATEST,
+              }),
+            });
+            setAddedKey(key);
           });
-          setAddedKey(key);
         },
       };
     }),
-    [q, placedRefs, dispatch], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
+    [q, placedRefs, dispatch, guardSlotAdd], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
   );
 
   const configurableTiles = useCallback((): Tile[] =>
@@ -840,11 +861,11 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             const slot = a.handAnchor !== undefined
               ? { handAnchor: a.handAnchor }
               : { anchor: isHeadAnchor(a.anchor) ? a.anchor : ('crown' as HeadAnchor) };
-            guardSlotAdd(slot, a.name, () => {
+            guardSlotAdd(slot, a.name, (commit) => {
               setAddedKey(key);
               setPendingKey(key);
               return measureGlbFitScale(template.glbUrl)
-                .then((fitScale) => dispatch({
+                .then((fitScale) => commit({
                   type: 'SET_MODEL_ASSET',
                   url: template.glbUrl,
                   name: a.name,
@@ -857,6 +878,9 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                   // a wand in the tracked hand — not the historical crown default.
                   anchor: isHeadAnchor(a.anchor) ? a.anchor : undefined,
                   handAnchor: a.handAnchor,
+                  // New adds ride the v2 anchors; the reducer converts the
+                  // v1-authored nudge so the piece lands where it always did.
+                  anchorVersion: ANCHOR_VERSION_LATEST,
                 }))
                 .finally(() => setPendingKey((k) => (k === key ? null : k)));
             });
@@ -882,8 +906,8 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         pending: false,
         drag: { target: 'headpiece', label: p.name, pieceId: p.id },
         onAdd: () => {
-          guardSlotAdd({ anchor: p.anchor }, p.name, () => {
-            dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id });
+          guardSlotAdd({ anchor: p.anchor }, p.name, (commit) => {
+            commit({ type: 'SELECT_HEAD_PIECE', pieceId: p.id });
             setAddedKey(key);
           });
         },
@@ -948,7 +972,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
               >
                 <div className="flex items-center justify-between">
                   <p className={`text-xs font-sans font-medium ${active ? 'text-accent-2' : 'text-brand-fg'}`}>{s.name}</p>
-                  {s.animated && <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/60 bg-accent/10 px-1.5 py-0.5 rounded-full">Anim</span>}
+                  {s.animated && <span className="text-[7px] pointer-coarse:text-[10px] font-label uppercase tracking-widest text-accent-2/60 bg-accent/10 px-1.5 py-0.5 rounded-full">Anim</span>}
                 </div>
                 <p className="text-[9px] text-brand-muted/40 mt-0.5 leading-tight">{s.description}</p>
               </button>
@@ -972,7 +996,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         >
           {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           <span className="font-label uppercase tracking-widest text-[9px]">{label}</span>
-          <span className="font-mono text-[8px] text-brand-muted/50">{count}</span>
+          <span className="font-mono text-[8px] pointer-coarse:text-[10px] text-brand-muted/50">{count}</span>
         </button>
         <Collapse show={!isCollapsed}>{body}</Collapse>
       </div>
@@ -1052,7 +1076,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             <button
               key={c.id}
               onClick={() => setChip(c.id)}
-              className={`py-1.5 rounded-lg text-[9px] font-label uppercase tracking-widest transition-colors ${chip === c.id ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg'}`}
+              className={`py-1.5 pointer-coarse:min-h-11 rounded-lg text-[9px] pointer-coarse:text-[10px] font-label uppercase tracking-widest transition-colors ${chip === c.id ? 'bg-accent/20 text-accent-2' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg'}`}
             >
               {c.label}
             </button>
@@ -1280,20 +1304,20 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                       )}
                     </div>
                     <span className="text-[11px] font-sans truncate flex-1 min-w-0 text-brand-fg">{stripTemplateSuffix(exp.name)}</span>
-                    <span className="font-label text-[7px] uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">Template</span>
+                    <span className="font-label text-[7px] pointer-coarse:text-[10px] uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">Template</span>
                   </button>
                   {confirmTemplateId === exp.id && (
                     <div className="mt-1 rounded-lg liquid-glass px-2.5 py-2 flex items-center gap-2">
                       <span className="font-sans text-[10px] text-brand-muted/70 flex-1 leading-snug">Discard unsaved changes?</span>
                       <button
                         onClick={() => useTemplate(exp, true)}
-                        className="font-label text-[8px] uppercase tracking-widest text-accent-2 hover:text-accent transition-colors"
+                        className="font-label text-[8px] pointer-coarse:text-[10px] uppercase tracking-widest text-accent-2 hover:text-accent transition-colors"
                       >
                         Use template
                       </button>
                       <button
                         onClick={() => setConfirmTemplateId(null)}
-                        className="font-label text-[8px] uppercase tracking-widest text-brand-muted/50 hover:text-brand-fg transition-colors"
+                        className="font-label text-[8px] pointer-coarse:text-[10px] uppercase tracking-widest text-brand-muted/50 hover:text-brand-fg transition-colors"
                       >
                         Cancel
                       </button>

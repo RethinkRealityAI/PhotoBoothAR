@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   canMirrorAsset,
+  displayedHand,
   HAND_FIT_OPTIONS,
   normalizeHandFit,
   mirrorPlacement,
@@ -12,6 +13,8 @@ import {
   type ModelledHand,
   type TrackedHand,
 } from './handedness';
+import { mirrorHandPose, solveHandPose } from '../handPose';
+import type { HandPoint } from '../handGestures';
 
 const FITS: HandFit[] = ['auto', 'left', 'right'];
 const TRACKED: TrackedHand[] = ['Left', 'Right', null];
@@ -214,5 +217,65 @@ describe('HAND_FIT_OPTIONS', () => {
       expect(o.label.length).toBeGreaterThan(0);
       expect(o.hint.length).toBeGreaterThan(0);
     }
+  });
+});
+
+/* — which hand the mirror decision is made against (#2) -------------------- */
+
+describe('displayedHand — the selfie view shows the OTHER hand', () => {
+  it('swaps only when mirrored', () => {
+    expect(displayedHand('Right', true)).toBe('Left');
+    expect(displayedHand('Left', true)).toBe('Right');
+    expect(displayedHand('Right', false)).toBe('Right');
+    expect(displayedHand('Left', false)).toBe('Left');
+  });
+
+  /**
+   * The identity the rule rests on: the pose HandRig renders in a mirrored view
+   * (the real hand's pose conjugated by diag(−1,1,1)) IS the solver's frame for
+   * the displayed image of that hand, read as the OTHER hand. So the asset must
+   * be fitted to the displayed hand — deciding on the real one flipped a
+   * left-modelled gauntlet worn on a real right hand into the wrong chirality.
+   */
+  it('the mirrored real-right pose equals the solved displayed-LEFT pose', () => {
+    const F_OVER_H = 0.5 / Math.tan((63 * Math.PI) / 360);
+    const ASPECT = 9 / 16;
+    // A right hand, palm to camera, then turned (yaw 35°, roll 20°) so the
+    // identity is not trivially satisfied by a symmetric pose.
+    const flat: [number, number, number][] = [];
+    for (let i = 0; i < 21; i++) flat.push([0, 0, 0]);
+    flat[0] = [0, 0.05, 0]; flat[5] = [0.03, -0.04, 0]; flat[9] = [0.01, -0.048, 0];
+    flat[13] = [-0.012, -0.045, 0]; flat[17] = [-0.032, -0.035, 0];
+    const yaw = 35 * Math.PI / 180, roll = 20 * Math.PI / 180;
+    const world: HandPoint[] = flat.map(([x, y, z]) => {
+      const x1 = x * Math.cos(roll) - y * Math.sin(roll), y1 = x * Math.sin(roll) + y * Math.cos(roll);
+      return { x: x1 * Math.cos(yaw) + z * Math.sin(yaw), y: y1, z: -x1 * Math.sin(yaw) + z * Math.cos(yaw) };
+    });
+    const project = (w: HandPoint[], cx: number): HandPoint[] => {
+      const s = F_OVER_H / 60;
+      return w.map((p) => ({ x: (cx * ASPECT + p.x * 100 * s) / ASPECT, y: 0.5 + p.y * 100 * s, z: 0 }));
+    };
+    const real = solveHandPose(project(world, 0.4), world, 'Right', ASPECT, null);
+    // The displayed image: a horizontal flip negates camera-space x.
+    const mWorld = world.map((p) => ({ x: -p.x, y: p.y, z: p.z }));
+    const mScreen = project(world, 0.4).map((p) => ({ x: 1 - p.x, y: p.y, z: p.z }));
+    const shown = solveHandPose(mScreen, mWorld, displayedHand('Right', true), ASPECT, null);
+    if (real === null || shown === null) throw new Error('degenerate fixture');
+    const rendered = mirrorHandPose(real);
+    const dot = rendered.quaternion.reduce((a, v, i) => a + v * shown.quaternion[i], 0);
+    expect(Math.abs(dot)).toBeCloseTo(1, 9);
+    for (let i = 0; i < 3; i++) expect(rendered.position[i]).toBeCloseTo(shown.position[i], 6);
+    // …and solved as the REAL hand's label instead, the frame is inside-out.
+    const wrong = solveHandPose(mScreen, mWorld, 'Right', ASPECT, null);
+    if (wrong === null) throw new Error('degenerate fixture');
+    const dotWrong = rendered.quaternion.reduce((a, v, i) => a + v * wrong.quaternion[i], 0);
+    expect(Math.abs(dotWrong)).toBeLessThan(0.9);
+  });
+
+  it('a left-modelled gauntlet on a real right hand in the selfie view does NOT flip', () => {
+    expect(shouldMirrorAsset('left', 'auto', displayedHand('Right', true))).toBe(false);
+    expect(shouldMirrorAsset('left', 'auto', displayedHand('Left', true))).toBe(true);
+    // Pins never consult the tracker, mirrored or not.
+    expect(shouldMirrorAsset('left', 'right', displayedHand('Right', true))).toBe(true);
   });
 });

@@ -11,7 +11,7 @@
  * Plus shared name / booth-icon / published / featured controls. All per-object
  * controls operate on selectedObject(draft).
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   AlignCenterHorizontal,
@@ -39,6 +39,7 @@ import {
   MousePointerClick,
   Palette,
   PartyPopper,
+  Play,
   Plus,
   RotateCcw,
   RotateCw,
@@ -76,6 +77,7 @@ import {
 import { HOST_LIGHTING_PRESETS, type LightingPresetId } from '../../lib/studio/lighting';
 import { alignTransform, snapRotation, stepRotation, type AlignAction } from '../../lib/studio/align';
 import { HEAD_PIECE_MAP } from '../../lib/headPieces';
+import { FACE_PAINT_OPACITY } from '../../lib/facePaint/spec';
 import {
   DEFAULT_TRANSFORM,
   MAX_OBJECTS,
@@ -101,12 +103,16 @@ import {
   HAND_TRIGGER_SOURCES,
   TRIGGER_HINT_LABELS,
   TRIGGER_SOURCE_LABELS,
+  isDuplicateTrigger,
+  mergeEditedAction,
   type AnimatePreset,
   type BeamStyle,
   type BurstStyle,
   type TriggerAction,
+  type TriggerConfig,
   type TriggerSource,
 } from '../../lib/studio/triggers';
+import { hasTriggerTestSubscriber, requestTriggerTest, subscribeTriggerTestAvailability } from '../../lib/studio/fxBus';
 import { draftToPayload, existingUrlResolver, STUDIO_SAMPLE_GUEST_NAME } from '../../lib/studio/draftMapping';
 import { createExperience, getStudioSettings, setStudioSettings } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
@@ -309,7 +315,7 @@ function SliderRow({
         disabled={atDefault}
         aria-label="Reset to default"
         title="Reset to default"
-        className="shrink-0 p-1 -mb-0.5 rounded text-brand-muted/40 hover:text-accent-2 transition-colors disabled:opacity-15 disabled:pointer-events-none"
+        className="shrink-0 p-1 -mb-0.5 pointer-coarse:flex pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:w-11 pointer-coarse:h-11 pointer-coarse:mb-0 rounded text-brand-muted/40 hover:text-accent-2 transition-colors disabled:opacity-15 disabled:pointer-events-none"
       >
         <RotateCcw className="w-3 h-3" />
       </button>
@@ -1217,6 +1223,13 @@ function MagicTriggers({
   const [animateId, setAnimateId] = useState<string>('');
   const [revealId, setRevealId] = useState<string>('');
   const [filterId, setFilterId] = useState<string>(defaultFilter);
+  // The row being edited in place (#12), or null when the form adds a new one.
+  // UPDATE_TRIGGER already existed; nothing used it, so changing a trigger
+  // meant removing it and building it again.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editing = editingId !== null ? draft.triggers.find((t) => t.id === editingId) ?? null : null;
+  // ▶ Test shows only while a stage is mounted to run it (fxBus test channel).
+  const canTest = useSyncExternalStore(subscribeTriggerTestAvailability, hasTriggerTestSubscriber, () => false);
 
   const pieces = draft.objects;
   const atCap = draft.triggers.length >= MAX_TRIGGERS;
@@ -1235,6 +1248,28 @@ function MagicTriggers({
     setAnimateId('');
     setRevealId('');
     setFilterId(defaultFilter);
+    setEditingId(null);
+  };
+
+  // Seed the form from an existing row and switch it to edit mode.
+  const startEdit = (t: TriggerConfig) => {
+    resetForm();
+    const a = t.action;
+    setSource(t.source);
+    setActionType(a.type);
+    if (a.type === 'burst') setBurstStyle(a.style);
+    if (a.type === 'beam') {
+      setBeamStyle(a.style);
+      const custom = a.color !== undefined && a.color !== 'auto';
+      setBeamColorMode(custom ? 'custom' : 'auto');
+      if (custom && a.color !== undefined) setBeamHex(a.color);
+      setBeamEmitterId(a.objectId ?? '');
+    }
+    if (a.type === 'animate') { setAnimatePreset(a.preset); setAnimateId(a.objectId); }
+    if (a.type === 'reveal') setRevealId(a.objectId);
+    if (a.type === 'filterPulse') setFilterId(a.shaderId ?? defaultFilter);
+    setEditingId(t.id);
+    setAdding(true);
   };
 
   // The action the form would commit — mirrors the branch logic in commit() so we
@@ -1262,29 +1297,21 @@ function MagicTriggers({
     return filterId ? { type: 'filterPulse', shaderId: filterId } : { type: 'filterPulse' };
   }, [actionType, burstStyle, beamStyle, beamColorMode, beamHex, beamEmitterId, animatePreset, animateId, revealId, filterId, pieces]);
 
-  const sameAction = (a: TriggerAction, b: TriggerAction): boolean => {
-    if (a.type !== b.type) return false;
-    if (a.type === 'burst' && b.type === 'burst') return a.style === b.style;
-    if (a.type === 'beam' && b.type === 'beam') {
-      return a.style === b.style && (a.color ?? 'auto') === (b.color ?? 'auto') && (a.objectId ?? '') === (b.objectId ?? '');
-    }
-    if (a.type === 'reveal' && b.type === 'reveal') return a.objectId === b.objectId;
-    if (a.type === 'animate' && b.type === 'animate') return a.objectId === b.objectId && a.preset === b.preset;
-    if (a.type === 'filterPulse' && b.type === 'filterPulse') return (a.shaderId ?? '') === (b.shaderId ?? '');
-    return false;
-  };
-  const isDuplicate = !!pendingAction && draft.triggers.some(
-    (t) => t.source === source && sameAction(t.action, pendingAction),
-  );
+  // The row being edited never counts as its own duplicate.
+  const isDuplicate = !!pendingAction && isDuplicateTrigger(draft.triggers, source, pendingAction, editing?.id);
 
   const commit = () => {
     if (!pendingAction || isDuplicate) return;
-    dispatch({ type: 'ADD_TRIGGER', trigger: { id: newTriggerId(), source, action: pendingAction } });
+    if (editing) {
+      dispatch({ type: 'UPDATE_TRIGGER', id: editing.id, patch: { source, action: mergeEditedAction(editing.action, pendingAction) } });
+    } else {
+      dispatch({ type: 'ADD_TRIGGER', trigger: { id: newTriggerId(), source, action: pendingAction } });
+    }
     resetForm();
   };
 
   const chip = (active: boolean) =>
-    `flex flex-col items-center gap-1 py-2 rounded-lg text-[8px] font-label uppercase tracking-wide transition-colors ${
+    `flex flex-col items-center gap-1 py-2 pointer-coarse:min-h-11 rounded-lg text-[8px] pointer-coarse:text-[10px] font-label uppercase tracking-wide transition-colors ${
       active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'
     }`;
   const selectCls = 'w-full bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-brand-fg focus:outline-none focus:border-accent/40';
@@ -1298,15 +1325,40 @@ function MagicTriggers({
           {draft.triggers.map((t) => {
             const Icon = SOURCE_ICON[t.source];
             return (
-              <li key={t.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 bg-white/[0.03]">
-                <Icon className="w-3.5 h-3.5 shrink-0 text-accent-2" />
-                <span className="text-[11px] font-sans truncate flex-1 min-w-0 text-brand-muted/80">
-                  {TRIGGER_SOURCE_LABELS[t.source]} → {triggerActionLabel(t.action, pieceName, shaderName)}
-                </span>
+              <li
+                key={t.id}
+                className={`flex items-center gap-1 rounded-lg pl-2 bg-white/[0.03] ${t.id === editingId ? 'ring-1 ring-accent/30' : ''}`}
+              >
+                {/* The row itself edits in place (#12). */}
                 <button
-                  onClick={() => dispatch({ type: 'REMOVE_TRIGGER', id: t.id })}
+                  type="button"
+                  onClick={() => startEdit(t)}
+                  aria-label={`Edit trigger: ${TRIGGER_SOURCE_LABELS[t.source]} → ${triggerActionLabel(t.action, pieceName, shaderName)}`}
+                  className="flex items-center gap-2 flex-1 min-w-0 min-h-11 text-left rounded-lg hover:text-brand-fg"
+                >
+                  <Icon className="w-3.5 h-3.5 shrink-0 text-accent-2" />
+                  <span className="text-[11px] font-sans truncate flex-1 min-w-0 text-brand-muted/80">
+                    {TRIGGER_SOURCE_LABELS[t.source]} → {triggerActionLabel(t.action, pieceName, shaderName)}
+                  </span>
+                </button>
+                {/* Fire it now, as if the guest made the gesture — the only way
+                    to try a hand gesture from a laptop camera. */}
+                {canTest && (
+                  <button
+                    type="button"
+                    onClick={() => requestTriggerTest({ source: t.source, action: t.action })}
+                    aria-label={`Test trigger: ${TRIGGER_SOURCE_LABELS[t.source]}`}
+                    title="Test — fire it now"
+                    className="flex items-center justify-center w-11 h-11 shrink-0 rounded-lg text-brand-muted/50 hover:text-accent-2 transition-colors"
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { if (t.id === editingId) resetForm(); dispatch({ type: 'REMOVE_TRIGGER', id: t.id }); }}
                   aria-label="Remove trigger"
-                  className="p-0.5 rounded text-brand-muted/40 hover:text-rose-400 transition-colors"
+                  className="flex items-center justify-center w-11 h-11 shrink-0 rounded-lg text-brand-muted/40 hover:text-rose-400 transition-colors"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -1324,7 +1376,7 @@ function MagicTriggers({
         <div className="rounded-xl border border-accent/15 bg-accent/[0.05] p-3 flex flex-col gap-3">
           <div>
             <SectionLabel>When guest…</SectionLabel>
-            <p className="text-[8px] font-label uppercase tracking-widest text-brand-muted/35 mb-1">Face</p>
+            <p className="text-[8px] pointer-coarse:text-[10px] font-label uppercase tracking-widest text-brand-muted/35 mb-1">Face</p>
             <div className="grid grid-cols-4 gap-1.5 mb-2">
               {FACE_TRIGGER_SOURCES.map((s) => {
                 const Icon = SOURCE_ICON[s];
@@ -1336,7 +1388,7 @@ function MagicTriggers({
                 );
               })}
             </div>
-            <p className="text-[8px] font-label uppercase tracking-widest text-brand-muted/35 mb-1">Hands</p>
+            <p className="text-[8px] pointer-coarse:text-[10px] font-label uppercase tracking-widest text-brand-muted/35 mb-1">Hands</p>
             <div className="grid grid-cols-4 gap-1.5">
               {HAND_TRIGGER_SOURCES.map((s) => {
                 const Icon = SOURCE_ICON[s];
@@ -1477,7 +1529,7 @@ function MagicTriggers({
           )}
 
           {isDuplicate && (
-            <p className="text-[9px] text-brand-muted/50 font-sans -mt-1">This exact trigger is already added.</p>
+            <p className="text-[9px] pointer-coarse:text-[10px] text-brand-muted/50 font-sans -mt-1">This exact trigger is already added.</p>
           )}
           <div className="flex items-center gap-2">
             <button
@@ -1485,7 +1537,7 @@ function MagicTriggers({
               disabled={((actionType === 'reveal' || actionType === 'animate') && pieces.length === 0) || isDuplicate}
               className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-label uppercase tracking-widest bg-accent/15 text-accent-2 ring-1 ring-accent/30 hover:bg-accent/25 transition-colors disabled:opacity-40 disabled:pointer-events-none"
             >
-              <Check className="w-3.5 h-3.5" /> Add
+              <Check className="w-3.5 h-3.5" /> {editing ? 'Save changes' : 'Add'}
             </button>
             <button onClick={resetForm} className="px-3 py-2 rounded-xl text-[10px] font-label uppercase tracking-widest bg-white/[0.04] text-brand-muted/60 hover:text-brand-fg transition-colors">
               Cancel
@@ -1962,8 +2014,36 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
               </div>
             )}
 
+            {/* Living Face Paint: the paint IS the face mesh, so anchors,
+                nudges, size and the head/hand switch mean nothing for it. The
+                look itself is edited in its Power-Up (which opens on this
+                layer); only the strength is a quick tweak here. */}
+            {sel3D && sel3D.facePaint !== undefined && (
+              <div className="flex flex-col gap-3">
+                <SectionLabel>Face paint</SectionLabel>
+                <p className="font-sans text-[11px] leading-snug text-brand-muted/70">
+                  Painted onto the guest's face and moves with it, so there is nothing to place. To change the look or logo, open Power-Ups, then Face Paint.
+                </p>
+                {/* Driven in whole percent so the typed field reads "88", like the slider's "88%". */}
+                <SliderRow
+                  label="Paint strength"
+                  numericLabel="Paint strength (%)"
+                  value={Math.round(sel3D.facePaint.opacity * 100)}
+                  min={Math.round(FACE_PAINT_OPACITY.min * 100)}
+                  max={Math.round(FACE_PAINT_OPACITY.max * 100)}
+                  step={2}
+                  defaultValue={Math.round(FACE_PAINT_OPACITY.default * 100)}
+                  format={(v) => `${Math.round(v)}%`}
+                  onChange={(v) => dispatch({ type: 'UPDATE_OBJECT', id: sel3D.id, patch: { facePaint: { ...sel3D.facePaint!, opacity: v / 100 } } })}
+                />
+                <p className="font-sans text-[10px] leading-snug text-brand-muted/50">
+                  Face paint uses our advanced face tracker. On the few phones that can’t run it, guests get the rest of your scene without the paint, and the stage shows “Paint not shown”.
+                </p>
+              </div>
+            )}
+
             {/* Selected 3D object properties */}
-            {sel3D && (
+            {sel3D && sel3D.facePaint === undefined && (
               <div className="flex flex-col gap-4">
                 {/* TRACKS ON — head or hand. The same wand can be an earring
                     (head-tracked at the ear) or held in the fist (hand-tracked
@@ -2161,7 +2241,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                 actions belong past everything you might have meant instead. */}
             {selected && (
               <button
-                onClick={() => dispatch({ type: 'DELETE_OBJECT', id: selected.id })}
+                onClick={() => dispatch({ type: 'DELETE_OBJECT', id: selected.id, pruneTriggers: true })}
                 aria-label={`Remove ${displayNames.get(selected.id) ?? selected.name} from the scene`}
                 className="pressable flex items-center justify-center gap-2 w-full min-h-11 rounded-xl bg-rose-500/[0.12] text-rose-300 ring-1 ring-rose-400/25 hover:bg-rose-500/20 hover:text-rose-200 transition-colors font-label uppercase tracking-widest text-[10px]"
               >

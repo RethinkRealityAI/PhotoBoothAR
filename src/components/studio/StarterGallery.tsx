@@ -76,7 +76,7 @@ export default function StarterGallery({ onPick, onOpenAssets }: Props) {
           {/* One line on purpose: at phone height every wrapped line of this
               paragraph costs a row of cards its place on screen. */}
           <p className="font-sans text-[11px] text-brand-muted/60 leading-snug mt-1 px-2">
-            Each card is a real shot from that scene.
+            Each card previews the look. Tap one to start.
           </p>
         </div>
 

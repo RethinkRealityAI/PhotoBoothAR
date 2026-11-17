@@ -21,7 +21,7 @@
  * visible and Overlay3D's prop canvas aligned with the feed).
  */
 import {
-  useCallback, useEffect, useRef, useState, type ReactNode,
+  useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode,
 } from 'react';
 import { Ban, Crown, Glasses, Sparkles, X } from 'lucide-react';
 import { useCameraStream } from '../booth/useCameraStream';
@@ -31,7 +31,10 @@ import { dataUrlToBlob } from '../booth/capture';
 import { toDataUrl } from '../../lib/borders';
 import { SHADER_MAP } from '../../lib/shaders';
 import { HEAD_PIECE_MAP } from '../../lib/headPieces';
-import { initializeFaceLandmarker } from '../../lib/faceTracking';
+import {
+  getActiveFaceEngineInfo, initFaceEngine, resolveSurfaceFaceMode, setFaceTrackingMode, subscribeFaceEngine,
+} from '../../lib/faceEngine';
+import TrackingReadout from '../ar/TrackingReadout';
 
 /* ── The seven-hue brand spectrum, shared by the whole showcase. ──────── */
 export const SPECTRUM = ['#5B8CFF', '#22D3EE', '#34D399', '#FB923C', '#E879F9', '#7C6CF7', '#38BDF8'];
@@ -204,7 +207,9 @@ export default function CameraExperience({
   const [propId, setPropId] = useState<string | null>(null);
   const [shot, setShot] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
-  const [trackerReady, setTrackerReady] = useState(false);
+  const faceInfo = useSyncExternalStore(subscribeFaceEngine, getActiveFaceEngineInfo, getActiveFaceEngineInfo);
+  const trackerReady = faceInfo.ready;
+  const trackerFailed = faceInfo.failed;
   const [canShare, setCanShare] = useState(false);
 
   const stageRef = useRef<StageCanvasHandle>(null);
@@ -214,13 +219,13 @@ export default function CameraExperience({
   // Face tracking boots in the background once the camera opens; if it can't
   // (offline, model CDN unreachable) the booth still runs — props simply never
   // attach. Failure is swallowed silently (filters + frames keep working).
+  // The marketing demo carries no experience config: it runs the platform
+  // default engine (re-set on open, so a mode left over from a booth visit in
+  // this SPA session does not leak in).
   useEffect(() => {
     if (!enabled) return;
-    let cancelled = false;
-    initializeFaceLandmarker()
-      .then(() => { if (!cancelled) setTrackerReady(true); })
-      .catch(() => { /* filters + frames keep working without 3D */ });
-    return () => { cancelled = true; };
+    setFaceTrackingMode(resolveSurfaceFaceMode().mode);
+    initFaceEngine().catch(() => { /* filters + frames keep working without 3D */ });
   }, [enabled]);
 
   // navigator.share with files is mobile-mostly; probe once with a dummy file.
@@ -287,6 +292,8 @@ export default function CameraExperience({
       className="relative h-full w-full"
       style={{ background: 'radial-gradient(120% 90% at 50% 20%, rgba(91,140,255,0.14), rgba(5,6,11,0.97) 65%)' }}
     >
+      {/* Tester-only (?faceEngine= / ?trackdebug); renders nothing otherwise. */}
+      {enabled && <TrackingReadout />}
       {error !== null && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 px-8 text-center">
           <p className="text-sm leading-relaxed text-brand-muted">
@@ -336,7 +343,9 @@ export default function CameraExperience({
               </div>
             )}
             {propId !== null && anchor && (
-              <Overlay3D proceduralId={propId} anchor={anchor} videoId={videoId} mirror={mirror} />
+              // composited: StageCanvas draws this canvas (threeCanvasId below),
+              // so the live copy is hidden — 3D drawn once, in photo order.
+              <Overlay3D proceduralId={propId} anchor={anchor} videoId={videoId} mirror={mirror} composited />
             )}
             <StageCanvas
               ref={stageRef}
@@ -345,12 +354,13 @@ export default function CameraExperience({
               mirror={mirror}
               overlayUrl={frameId !== null ? FRAME_URLS[frameId] : null}
               threeCanvasId={propId !== null ? 'booth-3d-layer' : null}
+              frameLock={propId !== null}
               watermark={false}
               active={shot === null}
             />
             {propId !== null && !trackerReady && (
-              <p className="absolute left-0 right-0 top-3 z-20 text-center font-label text-[9px] uppercase tracking-luxe text-brand-muted/60">
-                Looking for your face…
+              <p className="absolute left-0 right-0 top-3 z-20 text-center font-label text-[10px] uppercase tracking-luxe text-brand-muted/60">
+                {trackerFailed ? 'Face tracking is unavailable — frames still work' : 'Looking for your face…'}
               </p>
             )}
 

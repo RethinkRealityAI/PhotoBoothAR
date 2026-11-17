@@ -16,6 +16,17 @@ describe('builtin catalog (hope-gala pinned)', () => {
   it('includes Hope Gala\'s 4 pinned head-pieces', () => {
     expect(builtinHeadPieceExperiences(hopeGala.arContent).length).toBe(4);
   });
+  it('keeps the legacy placement unless the caller is a platform event', () => {
+    const all = { headPieceIds: [] } as unknown as typeof hopeGala.arContent;
+    const offsetOf = (list: Experience[], id: string) => list.find((e) => e.id === id)?.config?.anchor?.offset;
+    const legacy = builtinHeadPieceExperiences(all);
+    const platform = builtinHeadPieceExperiences(all, true);
+    expect(offsetOf(legacy, 'builtin:3d:neon-shades')).toEqual({ x: 0, y: 1.4, z: 1.2 });
+    expect(offsetOf(platform, 'builtin:3d:neon-shades')).toEqual({ x: 0, y: 0.15, z: 1.2 });
+    expect(offsetOf(legacy, 'builtin:3d:royal-crown')).toEqual({ x: 0, y: -1.0, z: -0.6 });
+    // A piece with no platform correction is identical on both.
+    expect(offsetOf(platform, 'builtin:3d:queen-tiara')).toEqual(offsetOf(legacy, 'builtin:3d:queen-tiara'));
+  });
 });
 
 describe('pick allow-list', () => {

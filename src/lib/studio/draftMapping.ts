@@ -57,6 +57,9 @@ import { isHandAnchorId } from '../handPose';
 import { normalizeHandFit } from './handedness';
 import { parseTriggers, type TriggerConfig } from './triggers';
 import { normalizeGuestLettering } from '../letteringFit';
+import { parseFaceTrackingMode } from '../faceEngine/engineSelect';
+import { normalizeAnchorVersion } from '../faceRig';
+import { normalizeFacePaint, type FacePaintSpec } from '../facePaint/spec';
 
 const STUDIO_KINDS: readonly StudioKind[] = ['shader', 'border', '2d_filter', '3d_attachment'];
 
@@ -166,6 +169,10 @@ function layerToObject(l: ExperienceLayer): StudioObject {
       // A pin only; a stored 'auto' (or junk) reloads as the absent default, so
       // the object is byte-identical to one saved before this field existed.
       handFit: storedHandFit(l.handFit),
+      // Validated by createObject3D (normalizeFacePaint); absent → no key.
+      ...(l.facePaint !== undefined ? { facePaint: l.facePaint as FacePaintSpec } : {}),
+      // Only an exact stored 2 survives (createObject3D re-checks); absent = v1.
+      anchorVersion: normalizeAnchorVersion(l.anchorVersion),
     });
   } else {
     // Stored assets load as custom so builtin sync never overwrites them.
@@ -212,6 +219,9 @@ export function experienceToDraft(exp: Experience): StudioDraft | null {
   draft.featured = exp.featured;
   draft.thumbUrl = exp.thumbnail_url ?? null;
   draft.scene = typeof exp.config?.scene === 'string' ? exp.config.scene : undefined;
+  // Validated (untrusted jsonb); an invalid value is dropped, never carried.
+  const tracking = parseFaceTrackingMode(exp.config?.tracking);
+  if (tracking !== null) draft.tracking = tracking;
 
   const rawTriggers = parseTriggers(exp.config?.triggers);
   // Object ids are regenerated on load; record stored-layer-id → new-object-id
@@ -340,6 +350,10 @@ function object3DLayer(o: Object3D, r: UrlResolver): ExperienceLayer {
   // Hand-anchored gear (written only when set — every head piece stays clean).
   if (o.handAnchor !== undefined) layer.handAnchor = o.handAnchor;
   if (o.handFit !== undefined) layer.handFit = o.handFit;
+  // Face paint — written ONLY when set, so every other layer keeps its bytes.
+  if (o.facePaint) layer.facePaint = o.facePaint;
+  // Anchor calibration v2 — written ONLY when set, so every v1 layer keeps its bytes.
+  if (o.anchorVersion === 2) layer.anchorVersion = 2;
   return layer;
 }
 
@@ -387,6 +401,17 @@ export interface ScenePiece3D {
    * piece. Both mappers set it, so booth and studio agree by construction.
    */
   fxKey?: string;
+  /**
+   * Living Face Paint look, ALREADY shape-validated (normalizeFacePaint).
+   * Present ⇒ renderers mount the lazily-loaded FacePaintLayer on the tracked
+   * face mesh instead of a head piece; absent on every other piece.
+   */
+  facePaint?: FacePaintSpec;
+  /** Anchor calibration version, ALREADY validated: 2 or absent (= v1). Every
+   *  renderer reads the anchor base through faceRig.anchorOffset /
+   *  handPose.handAnchorDef with it, so FaceRig, HandRig and the studio orbit
+   *  view agree by construction. */
+  anchorVersion?: 2;
 }
 
 export interface PieceContext {
@@ -443,10 +468,10 @@ function storedHandFit(raw: unknown): 'left' | 'right' | undefined {
   return fit === 'auto' ? undefined : fit;
 }
 
-type PieceExtras = Pick<ScenePiece3D, 'finish' | 'tint' | 'tintStrength' | 'customization' | 'template' | 'handAnchor' | 'handFit'>;
+type PieceExtras = Pick<ScenePiece3D, 'finish' | 'tint' | 'tintStrength' | 'customization' | 'template' | 'handAnchor' | 'handFit' | 'facePaint' | 'anchorVersion'>;
 
 function pieceExtras(
-  src: { finish?: string; tint?: string; tintStrength?: number; customization?: unknown; template?: unknown; handAnchor?: string; handFit?: unknown },
+  src: { finish?: string; tint?: string; tintStrength?: number; customization?: unknown; template?: unknown; handAnchor?: string; handFit?: unknown; facePaint?: unknown; anchorVersion?: unknown },
   ctx: PieceContext,
 ): PieceExtras {
   const out: PieceExtras = {
@@ -481,6 +506,13 @@ function pieceExtras(
       ? scopeCustomizationToTemplate(resolved, template) ?? undefined
       : resolved;
     if (customization) out.customization = customization;
+  }
+  // Same no-key-unless-set rule: a v1 piece (every saved scene) gets no key.
+  if (normalizeAnchorVersion(src.anchorVersion) === 2) out.anchorVersion = 2;
+  // Only looked at when the key exists, so a piece without it gets no key.
+  if (src.facePaint !== undefined) {
+    const paint = normalizeFacePaint(src.facePaint);
+    if (paint) out.facePaint = paint;
   }
   return out;
 }
@@ -579,6 +611,13 @@ export function draftToPayload(
     // legacy path would reload glued to the HEAD (the exact `anyCustom` trap,
     // one field later).
     const anyHandAnchor = objs.some((o) => o.handAnchor !== undefined);
+    // Face paint has no singular slot either: a lone painted face saved through
+    // the legacy path would reload as a bare procedural id that renders nothing
+    // (the `anyCustom` trap, one field later — draftMapping.test proves it).
+    const anyFacePaint = objs.some((o) => o.facePaint !== undefined);
+    // Anchor calibration v2 has no singular slot either: a lone v2 piece saved
+    // through the legacy path would reload as v1 and jump (the anyCustom trap).
+    const anyAnchorV2 = objs.some((o) => o.anchorVersion === 2);
     const layer0 = objs[0];
     if (layer0) {
       // Legacy mirror of layer 0.
@@ -597,7 +636,7 @@ export function draftToPayload(
       if (objs.some((o) => o.occlusion)) config.occlusion = true;
       assetUrl = layer0.type === 'headpiece' && layer0.proceduralId ? null : resolve(resolvedUrls, layer0.id);
     }
-    if (objs.length > 1 || anyAnim || anyHidden || anyFinish || anyCustom || anyHandAnchor || revealActive) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
+    if (objs.length > 1 || anyAnim || anyHidden || anyFinish || anyCustom || anyHandAnchor || anyFacePaint || anyAnchorV2 || revealActive) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
     // The scene-level filter slot ('none' = empty) can ride alongside any scene.
     if (draft.shaderId !== 'none') config.ambientShader = { shaderId: draft.shaderId, params: draft.shaderParams };
   } else {
@@ -637,6 +676,9 @@ export function draftToPayload(
   // Face-triggered effects — omitted entirely when empty so trigger-less scenes
   // save byte-identically (no config.triggers key at all).
   if (draft.triggers.length) config.triggers = draft.triggers;
+  // Face-tracking engine — written ONLY when set, so every existing scene
+  // saves byte-identically (no config.tracking key at all).
+  if (draft.tracking !== undefined) config.tracking = draft.tracking;
 
   return {
     name: draft.name,

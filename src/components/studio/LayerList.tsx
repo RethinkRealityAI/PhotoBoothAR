@@ -35,6 +35,7 @@ import {
   EyeOff,
   GripVertical,
   Image as ImageIcon,
+  Palette,
   LayoutTemplate,
   Pencil,
   Trash2,
@@ -56,6 +57,7 @@ interface Props {
 
 function objectIcon(o: StudioObject) {
   if (o.type === 'overlay') return o.overlayKind === 'border' ? LayoutTemplate : ImageIcon;
+  if (o.facePaint !== undefined) return Palette;
   return o.type === 'headpiece' ? Crown : Boxes;
 }
 
@@ -162,7 +164,7 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
   useEffect(() => () => { dragState.current = null; }, []);
 
   const action =
-    'flex items-center justify-center w-10 h-10 shrink-0 rounded-lg transition-colors disabled:opacity-20 disabled:pointer-events-none';
+    'flex items-center justify-center w-10 h-10 pointer-coarse:w-11 pointer-coarse:h-11 shrink-0 rounded-lg transition-colors disabled:opacity-20 disabled:pointer-events-none';
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -177,6 +179,9 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
           const isDropTarget = !!drag && drag.overRow === row && drag.fromRow !== row;
           const renaming = renamingId === o.id;
           const shownName = displayNames.get(o.id) ?? o.name;
+          // 3D pieces draw by DEPTH, not list order — the arrows still restack
+          // the list, but must not promise they change what covers what (#21).
+          const is3DRow = o.type !== 'overlay';
           return (
             <li
               key={o.id}
@@ -196,7 +201,7 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
                   onClick={(e) => e.stopPropagation()}
                   aria-label={`Reorder ${shownName}`}
                   title="Drag to restack"
-                  className="shrink-0 p-1 rounded text-brand-muted/30 hover:text-brand-fg cursor-grab active:cursor-grabbing transition-colors touch-none"
+                  className="shrink-0 p-1 pointer-coarse:flex pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:w-11 pointer-coarse:h-11 rounded text-brand-muted/30 hover:text-brand-fg cursor-grab active:cursor-grabbing transition-colors touch-none"
                 >
                   <GripVertical className="w-3.5 h-3.5" />
                 </button>
@@ -205,7 +210,7 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
                     tooltip, so a sighted host could see the ORDER but never the
                     NUMBER — which is what "third from the top" conversations
                     with a venue are actually about. */}
-                <span className="shrink-0 w-3 text-center font-mono text-[8px] text-brand-muted/40 tabular-nums">{row + 1}</span>
+                <span className="shrink-0 w-3 text-center font-mono text-[8px] pointer-coarse:text-[10px] text-brand-muted/40 tabular-nums">{row + 1}</span>
 
                 <LayerThumb object={o} selected={isSel} />
 
@@ -235,11 +240,11 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
                   </Tooltip>
                 )}
 
-                <span className="shrink-0 font-label text-[7px] uppercase tracking-widest text-brand-muted/40 bg-white/[0.05] px-1 py-px rounded-full">
+                <span className="shrink-0 font-label text-[7px] pointer-coarse:text-[10px] uppercase tracking-widest text-brand-muted/40 bg-white/[0.05] px-1 py-px rounded-full">
                   {kindBadge(o)}
                 </span>
                 {o.animation !== 'none' && (
-                  <span className="text-[7px] font-label uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">{o.animation}</span>
+                  <span className="text-[7px] pointer-coarse:text-[10px] font-label uppercase tracking-widest text-accent-2/70 bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">{o.animation}</span>
                 )}
               </div>
 
@@ -274,7 +279,7 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
                   onClick={(e) => { e.stopPropagation(); dispatch({ type: 'MOVE_OBJECT', id: o.id, toIndex: stepTargetIndex(row, count, 'up') }); }}
                   disabled={isTop}
                   aria-label="Move layer up"
-                  title="Move up — paints over more"
+                  title={is3DRow ? 'Move up the list — 3D pieces draw by depth, so this does not change what covers what' : 'Move up — paints over more'}
                   className={`${action} text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]`}
                 >
                   <ChevronUp className="w-4 h-4" />
@@ -283,14 +288,14 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
                   onClick={(e) => { e.stopPropagation(); dispatch({ type: 'MOVE_OBJECT', id: o.id, toIndex: stepTargetIndex(row, count, 'down') }); }}
                   disabled={isBottom}
                   aria-label="Move layer down"
-                  title="Move down — paints under more"
+                  title={is3DRow ? 'Move down the list — 3D pieces draw by depth, so this does not change what covers what' : 'Move down — paints under more'}
                   className={`${action} text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]`}
                 >
                   <ChevronDown className="w-4 h-4" />
                 </button>
                 <Tooltip label="Remove from scene" hint="Deletes this layer. Del or Backspace does the same to the selected layer." side="left">
                   <button
-                    onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_OBJECT', id: o.id }); }}
+                    onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_OBJECT', id: o.id, pruneTriggers: true }); }}
                     aria-label={`Remove ${shownName} from the scene`}
                     className={`${action} bg-rose-500/[0.08] text-rose-300/80 hover:bg-rose-500/20 hover:text-rose-200`}
                   >

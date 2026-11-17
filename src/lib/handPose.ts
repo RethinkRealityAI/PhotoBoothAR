@@ -88,6 +88,38 @@ export const HAND_ANCHOR_MAP: Record<string, HandAnchorDef> = Object.fromEntries
   HAND_ANCHORS.map((a) => [a.id, a]),
 );
 
+/**
+ * Re-measured hand mounts, used ONLY by a piece that stores `anchorVersion: 2`
+ * (the same per-object field as faceRig ANCHOR_PRESETS_V2). Only the grip's
+ * ROTATION changes, to [0,0,0]: a wand GLB's shaft runs along its +X, and the
+ * hand frame's +X is up × normal = the 17→5 knuckle line, so the shaft now runs
+ * ACROSS the fist with its tip out of the index side. v1's Rz(90°) turned it
+ * up the palm, parallel to the fingers (render-checked in the orbit fist).
+ *
+ * The normal offset stays −2.2, MEASURED rather than assumed: on the fitted
+ * fist mannequin, at the 9/13 midpoint and down to 4cm toward the wrist across
+ * the whole knuckle width, the hand spans roughly z −3..+3.5 and −2.2 lands at
+ * z ≈ 0 (inside at 30/30 sampled cells), while +2.2 lands at z ≈ 4.4 (outside
+ * at 30/30, floating off the palm side).
+ *
+ * v1 stays exactly as it was: every saved wand renders where it always did.
+ */
+export const HAND_ANCHORS_V2: readonly HandAnchorDef[] = HAND_ANCHORS.map((a) =>
+  a.id === 'grip' ? { ...a, rotation: [0, 0, 0] as [number, number, number] } : a,
+);
+
+const HAND_ANCHOR_MAP_V2: Record<string, HandAnchorDef> = Object.fromEntries(
+  HAND_ANCHORS_V2.map((a) => [a.id, a]),
+);
+
+/** The mount definition for a hand anchor at a calibration version. Only an
+ *  exact 2 selects v2; anything else is v1. Unknown ids fall back to grip,
+ *  exactly as every consumer did before. */
+export function handAnchorDef(id: string, version: unknown): HandAnchorDef {
+  const map = version === 2 ? HAND_ANCHOR_MAP_V2 : HAND_ANCHOR_MAP;
+  return map[id] ?? map.grip;
+}
+
 export function isHandAnchorId(v: unknown): v is HandAnchorDef['id'] {
   return typeof v === 'string' && v in HAND_ANCHOR_MAP;
 }

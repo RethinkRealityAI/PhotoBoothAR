@@ -41,7 +41,10 @@ export interface PowerGearDef {
 export const POWER_GEAR: readonly PowerGearDef[] = [
   {
     id: 'cyclops-visor',
-    name: 'Optic Visor',
+    // Display names match what lands in the layer list (the library asset's
+    // and the head piece's own names) — "Optic Visor" here used to arrive as a
+    // layer called "Cyclops Visor".
+    name: 'Cyclops Visor',
     blurb: 'One-lens hero visor — blast fires from your eyes',
     kind: 'library',
     refId: 'cyclops-visor',
@@ -51,7 +54,7 @@ export const POWER_GEAR: readonly PowerGearDef[] = [
   },
   {
     id: 'cyclops-visor-lite',
-    name: 'Optic Visor (classic)',
+    name: 'Optic Visor',
     blurb: 'The built-in visor — instant, ruby lens',
     kind: 'headpiece',
     refId: 'cyclops-visor',

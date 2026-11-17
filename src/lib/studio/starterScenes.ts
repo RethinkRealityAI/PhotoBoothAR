@@ -43,6 +43,7 @@ import {
   type StudioObject,
 } from './state';
 import type { TriggerConfig } from './triggers';
+import { FACE_PAINT_PROCEDURAL_ID, normalizeFacePaint, type FacePaintSpec } from '../facePaint/spec';
 import type { HeadAnchor, Transform2D } from '../../types';
 
 /** A sticker placed within a starter scene, with its composed position. */
@@ -105,6 +106,13 @@ export interface StarterScene {
    * combinability demonstrated in the shipped default, not just documented.
    */
   triggers?: Omit<TriggerConfig, 'id'>[];
+  /**
+   * Living Face Paint look (lib/facePaint/spec.ts), painted on the tracked
+   * face mesh. Colours are AUTHORED here rather than read from the event
+   * theme: buildStarterDraft is pure, and a starter must look the same on the
+   * card as on the booth.
+   */
+  facePaint?: FacePaintSpec;
 }
 
 /**
@@ -230,6 +238,24 @@ export const STARTER_SCENES: StarterScene[] = [
       { source: 'fistClench', action: { type: 'burst', style: 'fireworks' } },
     ],
   },
+  /* — Living Face Paint scenes: paint on the tracked face mesh, zero credits. */
+  {
+    id: 'game-day',
+    name: 'Game Day',
+    blurb: 'Team stripes painted under the eyes — they stretch with every cheer.',
+    preview: '/starters/game-day.webp',
+    swatch: ['#1d4ed8', '#ffffff'],
+    facePaint: { design: 'game-day', colors: ['#1d4ed8', '#ffffff'], opacity: 0.9 },
+  },
+  {
+    id: 'fiesta',
+    name: 'Fiesta',
+    blurb: 'A painted sugar-skull calavera with marigold petals and confetti.',
+    preview: '/starters/fiesta.webp',
+    swatch: ['#f4f0e8', '#f28c28'],
+    stickers: [{ borderId: 'overlay-confetti' }],
+    facePaint: { design: 'sugar-skull', colors: ['#f4f0e8', '#f28c28', '#161616'], opacity: 0.9 },
+  },
 ];
 
 export const STARTER_SCENE_MAP: Record<string, StarterScene> = Object.fromEntries(
@@ -353,6 +379,18 @@ export function buildStarterDraft(sceneId: string): StudioDraft | null {
         },
       }));
     }
+  }
+
+  const facePaint = preset.facePaint ? normalizeFacePaint(preset.facePaint) : null;
+  if (facePaint) {
+    objects.push(createObject3D('headpiece', {
+      proceduralId: FACE_PAINT_PROCEDURAL_ID,
+      name: 'Face Paint',
+      // Ignored by the paint layer (the mesh IS the face); a valid anchor keeps
+      // every legacy reader of the layer happy.
+      anchor: 'noseTip',
+      facePaint,
+    }));
   }
 
   const shaderId = preset.shaderId ?? 'none';

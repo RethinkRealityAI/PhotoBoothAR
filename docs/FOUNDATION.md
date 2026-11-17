@@ -103,7 +103,7 @@ SVGs (gold frames incl. hexagon-from-invitation, deco, minimal; sparkle + confet
 `ANCHOR_PRESETS`, `ANCHOR_MAP`, `updateHeadPose(group, video):boolean`, `RIG_CAMERA {position,fov}`.
 `<FaceRig videoId anchor config={Partial<AnchorConfig>} paused onVisibilityChange>{children}</FaceRig>`
 parents children on the tracked head at an anchor. `<Model url />` loads+caches a GLB.
-Tracking: `initializeFaceLandmarker()` / `getFaceLandmarker()` from `src/lib/faceTracking.ts`.
+Tracking: `initFaceEngine()` / `setFaceTrackingMode(mode, {legacy})` from `src/lib/faceEngine` (MediaPipe, 8th Wall or hybrid behind one FaceEngine contract; `faceTracking.ts` is now only MediaPipe's landmarker loader, called by `faceEngine/mediapipeEngine.ts`). Frame-lock: `StageCanvas frameLock` draws the engine's analysed frame (`getTrackedFrame()`) so the pose and the image are one instant.
 **Booth and the 3D editor MUST render through `<FaceRig>` so placement is WYSIWYG.**
 
 ---

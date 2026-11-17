@@ -101,3 +101,16 @@ describe('buildPowerFxAdditions', () => {
     expect(a.triggers[0].id).not.toBe(b.triggers[0].id);
   });
 });
+
+describe('POWER_GEAR display names (#23 — one name per asset across surfaces)', () => {
+  it('each gear is labelled exactly as the layer it adds', async () => {
+    const { findLibraryAsset } = await import('./assetLibrary');
+    const { HEAD_PIECE_MAP } = await import('../headPieces');
+    for (const g of POWER_GEAR) {
+      if (g.refId === '') continue;
+      const landed = g.kind === 'library' ? findLibraryAsset(g.refId, true)?.name : HEAD_PIECE_MAP[g.refId]?.name;
+      if (landed === undefined) continue; // not vendored yet — availableGear hides it
+      expect(g.name).toBe(landed);
+    }
+  });
+});

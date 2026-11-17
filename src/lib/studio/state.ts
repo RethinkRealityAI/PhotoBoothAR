@@ -36,6 +36,9 @@ import { moveByIndex } from './layerOrder';
 import { isHandAnchorId } from '../handPose';
 import { normalizeHandFit, type HandFit } from './handedness';
 import type { TriggerConfig } from './triggers';
+import type { FaceTrackingMode } from '../faceEngine/types';
+import { normalizeFacePaint, type FacePaintSpec } from '../facePaint/spec';
+import { migrateOffsetToV2, normalizeAnchorVersion } from '../faceRig';
 
 export type StudioMode = '2d' | '3d' | 'preview';
 export type ThreeView = 'live' | 'orbit';
@@ -170,6 +173,21 @@ export interface Object3D {
    * only ever exist alongside `handAnchor`, which is already in it.
    */
   handFit?: HandFit;
+  /**
+   * Living Face Paint look (lib/facePaint/spec.ts). Present ⇒ this object is
+   * the scene's face-paint layer: a `headpiece` with proceduralId
+   * FACE_PAINT_PROCEDURAL_ID whose anchor/offset are ignored at render time
+   * (the paint lives on the tracked face mesh itself). Absent on every other
+   * object, so pre-existing scenes keep identical bytes.
+   */
+  facePaint?: FacePaintSpec;
+  /**
+   * Anchor calibration version (faceRig ANCHOR_PRESETS_V2 / handPose v2 grip).
+   * Only an exact 2 is ever stored; absent = v1 forever (every saved scene and
+   * legacy event). Stamped by SET_MODEL_ASSET's `anchorVersion` on new library
+   * and Power-Up adds only. Forces the `config.layers` path on save.
+   */
+  anchorVersion?: 2;
 }
 
 export type StudioObject = Overlay2D | Object3D;
@@ -259,7 +277,17 @@ export function createObject3D(
     ...(opts.handAnchor !== undefined ? { handAnchor: opts.handAnchor } : {}),
     // Same idiom: 'auto' IS the absent state, so only a real pin is stored.
     ...(opts.handFit === 'left' || opts.handFit === 'right' ? { handFit: opts.handFit } : {}),
+    // Face paint: only when there is a paintable look, so every other object
+    // keeps NO facePaint key (same one-representation rule as customization).
+    ...facePaintKeys(opts),
+    // Only an exact 2 is kept, so every load/add without it has NO key.
+    ...(normalizeAnchorVersion(opts.anchorVersion) === 2 ? { anchorVersion: 2 as const } : {}),
   };
+}
+
+function facePaintKeys(src: { facePaint?: unknown }): Partial<Object3D> {
+  const f = src.facePaint === undefined ? null : normalizeFacePaint(src.facePaint);
+  return f ? { facePaint: f } : {};
 }
 
 /**
@@ -452,6 +480,10 @@ export interface StudioDraft {
   /** Face-triggered effects (studio "Magic Triggers"). Empty for scenes with
    *  none — draftMapping omits config.triggers so those saves stay byte-identical. */
   triggers: TriggerConfig[];
+  /** Face-tracking engine (config.tracking). No studio control sets it yet;
+   *  it is carried so a re-save never drops a value set on the row, and absent
+   *  stays absent (no key written). */
+  tracking?: FaceTrackingMode;
 }
 
 export interface StudioState {
@@ -579,6 +611,29 @@ export function slotConflict(
     return o.handAnchor === undefined && o.anchor === (slot.anchor ?? 'crown');
   });
   return found !== undefined && found.type !== 'overlay' ? found : null;
+}
+
+/**
+ * Pre-flight for an add that places one piece per SLOT (the jewelry builder:
+ * earrings are two pieces, one per ear). `conflicts` are the distinct pieces
+ * already on those slots; `room` is how many cappable pieces fit after a
+ * Replace frees the conflicts (or not, for Add-both). `fits` false means the
+ * reducer would silently drop part of the add — the second earring used to
+ * vanish at the cap with the builder reporting success.
+ */
+export function planSlotAdd(
+  d: StudioDraft,
+  slots: readonly { anchor?: HeadAnchor; handAnchor?: string }[],
+  mode: 'replace' | 'both',
+): { conflicts: Object3D[]; room: number; fits: boolean } {
+  const conflicts: Object3D[] = [];
+  for (const s of slots) {
+    const c = slotConflict(d, s);
+    if (c !== null && !conflicts.some((x) => x.id === c.id)) conflicts.push(c);
+  }
+  const free = MAX_OBJECTS - sceneCounts(d).capped;
+  const room = Math.max(0, free + (mode === 'replace' ? conflicts.length : 0));
+  return { conflicts, room, fits: room >= slots.length };
 }
 
 /* ── Scene-level occlusion ────────────────────────────────────────────────
@@ -709,6 +764,60 @@ function placeFrame(d: StudioDraft, frame: Overlay2D): StudioDraft {
   return { ...d, objects: [...d.objects, frame], selectedId: frame.id };
 }
 
+/**
+ * True when `b` holds exactly the content of `a` — every field identical by
+ * reference except the selection. The reducer copies a field only when it
+ * changes it, so this is exact (not a lossy deep compare) and cheap; selecting
+ * a layer is not an edit, so it must not count as unsaved work.
+ */
+export function draftContentUnchanged(a: StudioDraft, b: StudioDraft): boolean {
+  if (a === b) return true;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof StudioDraft>;
+  for (const k of keys) {
+    if (k === 'selectedId') continue;
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
+
+/**
+ * The triggers left after a host deletes `objectId`: animate triggers aimed at
+ * it go (there is nothing left to animate), and beams that fired FROM it lose
+ * their pin so they fall back to the scene's default emitter instead of
+ * naming a piece that no longer exists. Returns the same array when nothing
+ * referenced it.
+ */
+export function pruneTriggersFor(triggers: TriggerConfig[], objectId: string): TriggerConfig[] {
+  let changed = false;
+  const out: TriggerConfig[] = [];
+  for (const t of triggers) {
+    const a = t.action;
+    if (a.type === 'animate' && a.objectId === objectId) { changed = true; continue; }
+    if (a.type === 'beam' && a.objectId === objectId) {
+      changed = true;
+      const { objectId: _drop, ...rest } = a;
+      void _drop;
+      out.push({ ...t, action: rest });
+      continue;
+    }
+    out.push(t);
+  }
+  return changed ? out : triggers;
+}
+
+/**
+ * Undo/redo restores CONTENT, not where the host is looking: keep the current
+ * mode + 3D view across a time-travel step (Ctrl+Z in Preview used to jump the
+ * host back to 2D). Falls back to the restored mode only when Preview would
+ * have nothing to show.
+ */
+export function preserveViewOnTimeTravel(from: StudioState, to: StudioState): StudioState {
+  const previewable = to.draft.objects.length > 0 || to.draft.shaderId !== 'none';
+  const mode = from.mode === 'preview' && !previewable ? to.mode : from.mode;
+  if (mode === to.mode && from.threeView === to.threeView) return to;
+  return { ...to, mode, threeView: from.threeView };
+}
+
 /* — Actions ---------------------------------------------------------------- */
 
 export type StudioAction =
@@ -738,7 +847,7 @@ export type StudioAction =
   /** `template` is the asset's configurator descriptor when the library row
    *  ships one (assetTemplate.AssetTemplate). Omitting it — every caller today
    *  — adds a plain, non-configurable model exactly as before. */
-  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown; offsetCm?: { x: number; y: number; z: number }; rotationDeg?: { x: number; y: number; z: number }; occlude?: boolean; anchor?: HeadAnchor; handAnchor?: string }
+  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown; offsetCm?: { x: number; y: number; z: number }; rotationDeg?: { x: number; y: number; z: number }; occlude?: boolean; anchor?: HeadAnchor; handAnchor?: string; anchorVersion?: 2 }
   | { type: 'SET_THUMB'; url: string | null; blob: Blob | null }
   | { type: 'TOGGLE_PUBLISHED' }
   | { type: 'TOGGLE_FEATURED' }
@@ -765,10 +874,33 @@ export type StudioAction =
   | { type: 'SET_CUSTOMIZATION'; part?: { id: string; hex?: string | null; finish?: string | null }; label?: AssetLabelConfig | null }
   | { type: 'SET_TEMPLATE_GUEST_PICK'; regionId: string; on: boolean }
   | { type: 'SET_SCENE_TAG'; scene: string | undefined }
-  | { type: 'MARK_SAVED'; id: string }
+  /**
+   * The row landed. `saved` is the draft the save READ (by reference): an edit
+   * made while the uploads were in flight produced a different draft, and that
+   * edit is NOT saved — so dirty stays set (the leave-guard and autosave keep
+   * protecting it). `uploaded` (objectId → stored URL) and `thumbUrl` swap a
+   * just-uploaded blob for its stored URL when the object still holds that same
+   * blob, so the next save does not upload (and orphan) it again. Both
+   * optional: a bare `{id}` keeps the old unconditional behaviour.
+   */
+  | { type: 'MARK_SAVED'; id: string; saved?: StudioDraft; uploaded?: Record<string, string>; thumbUrl?: string }
+  /**
+   * Apply several actions as ONE step — one undo entry, one dirty flip. For
+   * compound UI operations (Replace = delete + add + retarget; a Power FX add
+   * = model + customisation + triggers) whose intermediate states are not
+   * something a host should be able to undo into. Never put LOAD/MARK_SAVED
+   * inside one.
+   */
+  | { type: 'BATCH'; actions: StudioAction[] }
   /* — multi-object scene actions — */
   | { type: 'ADD_OBJECT'; object: StudioObject; select?: boolean }
-  | { type: 'DELETE_OBJECT'; id: string }
+  /**
+   * `pruneTriggers`: a HOST deleting a piece (layer ✕, Delete key) also drops
+   * animate triggers that targeted it and unpins beams that fired from it
+   * (they fall back to the scene's first 3D piece), so no row reads "→ piece".
+   * Omitted on the Replace flows, which delete then RETARGET_TRIGGERS.
+   */
+  | { type: 'DELETE_OBJECT'; id: string; pruneTriggers?: boolean }
   | { type: 'SELECT_OBJECT'; id: string | null }
   | { type: 'REORDER_OBJECT'; id: string; dir: 'up' | 'down' }
   /** Splice-move an object to an absolute index in the flat paint order (drag-to-reorder). */
@@ -989,7 +1121,15 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         // Absent stays absent: createObject3D's own `?? false` keeps every
         // existing add path byte-identical.
         occlusion: action.occlude,
+        anchorVersion: action.anchorVersion,
       });
+      // A v2 add: the library's authored nudge was measured against the v1
+      // anchor, so convert it (at headScale 1, the default the nudges were
+      // tuned at) to render at the SAME point on the v2 base. Head pieces only;
+      // the hand grip's v2 change is a rotation, and no hand entry authors one.
+      if (obj.anchorVersion === 2 && obj.handAnchor === undefined) {
+        obj.anchorConfig = { ...obj.anchorConfig, offset: migrateOffsetToV2(obj.anchor, obj.anchorConfig.offset, 1) };
+      }
       const nd = appendObject(d, obj);
       if (!nd) return state;
       return { ...state, mode: '3d', dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
@@ -1058,8 +1198,32 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     }
     case 'SET_SCENE_TAG':
       return { ...state, dirty: true, draft: { ...d, scene: action.scene } };
-    case 'MARK_SAVED':
-      return { ...state, dirty: false, draft: { ...d, id: action.id } };
+    case 'MARK_SAVED': {
+      const saved = action.saved;
+      if (!saved) return { ...state, dirty: false, draft: { ...d, id: action.id } };
+      const uploaded = action.uploaded ?? {};
+      let objects = d.objects;
+      if (Object.keys(uploaded).length > 0) {
+        objects = d.objects.map((o) => {
+          if (o.type !== 'overlay' || !o.blob) return o;
+          const url = uploaded[o.id];
+          const was = saved.objects.find((s) => s.id === o.id);
+          // Only the SAME blob the save uploaded — a re-picked image is new work.
+          if (url === undefined || !was || was.type !== 'overlay' || was.blob !== o.blob) return o;
+          return { ...o, url, blob: null };
+        });
+      }
+      const swapThumb = action.thumbUrl !== undefined && d.thumbBlob !== null && d.thumbBlob === saved.thumbBlob;
+      const draft: StudioDraft = {
+        ...d,
+        id: action.id,
+        objects,
+        ...(swapThumb ? { thumbUrl: action.thumbUrl as string, thumbBlob: null } : {}),
+      };
+      return { ...state, dirty: draftContentUnchanged(d, saved) ? false : state.dirty, draft };
+    }
+    case 'BATCH':
+      return action.actions.reduce(studioReducer, state);
     case 'ADD_OBJECT': {
       // Mixed scenes: no family-match rejection. A 'border' overlay obeys the
       // one-frame rule (replace the existing frame in place; exempt from the
@@ -1075,7 +1239,11 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         const selectedId = action.select === false ? d.selectedId : obj.id;
         nd = { ...d, objects, selectedId };
       }
-      return { ...state, dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
+      // A selected 3D add from the 2D view must SHOW the piece — the 2D stage
+      // does not render 3D, so the host saw Properties fill with sliders for an
+      // invisible prop (SET_MODEL_ASSET already switches; this path did not).
+      const mode = is3D(obj) && action.select !== false && state.mode === '2d' ? '3d' : state.mode;
+      return { ...state, mode, dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }
     case 'DELETE_OBJECT': {
       const idx = d.objects.findIndex((o) => o.id === action.id);
@@ -1084,9 +1252,10 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       let selectedId = d.selectedId;
       if (d.selectedId === action.id) selectedId = objects.length ? objects[Math.max(0, idx - 1)].id : null;
       // Drop any reveal trigger that targeted the deleted piece (no dangling refs).
-      const triggers = d.triggers.some((t) => t.action.type === 'reveal' && t.action.objectId === action.id)
+      let triggers = d.triggers.some((t) => t.action.type === 'reveal' && t.action.objectId === action.id)
         ? d.triggers.filter((t) => !(t.action.type === 'reveal' && t.action.objectId === action.id))
         : d.triggers;
+      if (action.pruneTriggers) triggers = pruneTriggersFor(triggers, action.id);
       const nd = { ...d, objects, selectedId, triggers };
       return { ...state, dirty: true, draft: { ...nd, kind: deriveKind(nd) } };
     }

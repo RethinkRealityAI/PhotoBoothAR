@@ -18,7 +18,7 @@ import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
 import objText from '../../assets/ar/canonical_face_model.obj?raw';
-import { computeBustFit, computeAnchorAlignedFit, collectWorldPositions, normalizeFitToCanonical } from '../../lib/studio/bustFit';
+import { canonicalWidthStretch, computeBustFit, computeAnchorAlignedFit, collectWorldPositions, normalizeFitToCanonical } from '../../lib/studio/bustFit';
 import { parseObj } from '../../lib/studio/occluder';
 import { ANCHOR_PRESETS } from '../../lib/faceRig';
 
@@ -89,13 +89,18 @@ function GlbBust({ scene, onFit }: { scene: THREE.Group; onFit?: (b: BustBounds)
     // canonical face is what makes "scale it in one view" mean the same thing
     // in all three.
     const fit = normalizeFitToCanonical(points, raw, canonicalPoints(), ANCHOR_OFFSETS);
+    // And as WIDE as one: that normalization sizes the face's depth (most anchor
+    // directions point forward), and this bust is a narrower head in proportion,
+    // so head-wrapping props (the Royal Crown) still read oversized without it.
+    // Height is untouched, so minY/maxY below stay correct.
+    const stretchX = canonicalWidthStretch(points, fit, canonicalPoints());
     let minY = Infinity, maxY = -Infinity;
     for (let i = 1; i < points.length; i += 3) {
       const y = points[i] * fit.scale + fit.position[1];
       if (y < minY) minY = y;
       if (y > maxY) maxY = y;
     }
-    return { object: obj, ...fit, minY, maxY };
+    return { object: obj, ...fit, stretchX, minY, maxY };
   }, [scene]);
 
   useEffect(() => {
@@ -104,7 +109,10 @@ function GlbBust({ scene, onFit }: { scene: THREE.Group; onFit?: (b: BustBounds)
 
   if (!fitted) return null;
   return (
-    <group scale={fitted.scale} position={fitted.position}>
+    <group
+      scale={[fitted.scale * fitted.stretchX, fitted.scale, fitted.scale]}
+      position={[fitted.position[0] * fitted.stretchX, fitted.position[1], fitted.position[2]]}
+    >
       <primitive object={fitted.object} />
     </group>
   );

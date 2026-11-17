@@ -306,6 +306,8 @@ interface ActiveBeam {
 
 const _origin = new THREE.Vector3();
 const _dir = new THREE.Vector3();
+/** Scratch for the toward-camera blend (was a per-frame `_origin.clone()`). */
+const _toCam = new THREE.Vector3();
 const _quatTarget = new THREE.Quaternion();
 const _zAxis = new THREE.Vector3(0, 0, 1);
 const _wPos = new THREE.Vector3();
@@ -419,6 +421,7 @@ export default function BeamFX({ mirror, videoId, staticHead = false }: BeamFXPr
   const handActive = useRef<ActiveBeam | null>(null);
   const headFallback = useRef<THREE.Group>(null);
   const handAspect = useRef(9 / 16);
+  const videoEl = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     return subscribeFx((e) => {
@@ -471,7 +474,13 @@ export default function BeamFX({ mirror, videoId, staticHead = false }: BeamFXPr
       const frame = getLatestHandFrame();
       const anchor = frame?.anchor ?? null;
       if (anchor !== null && !active.frozen) {
-        const video = document.getElementById(videoId) as HTMLVideoElement | null;
+        // Cached: this runs every frame of a hand blast. Re-queried only when
+        // the element is gone, detached (camera remount) or the id changed.
+        let video = videoEl.current;
+        if (video === null || !video.isConnected || video.id !== videoId) {
+          video = document.getElementById(videoId) as HTMLVideoElement | null;
+          videoEl.current = video;
+        }
         if (video && video.videoWidth > 0 && video.videoHeight > 0) {
           handAspect.current = video.videoWidth / video.videoHeight;
         }
@@ -479,15 +488,17 @@ export default function BeamFX({ mirror, videoId, staticHead = false }: BeamFXPr
         const depth = estimateHandDepthCm(anchor.spanNorm, getHeadDepthCm());
         const [x, y, z] = unprojectToDepth(nx, anchor.originY, depth, 63, handAspect.current);
         _origin.set(x, y, z);
-        // Palm normal: MediaPipe world axes (x right, y down, z away) → three
-        // camera axes via (x, −y, −z); mirrored preview also flips x.
+        // Palm normal (signed by the REAL handedness in handRig.ts, so it is
+        // out of the palm for both hands): MediaPipe world axes (x right, y
+        // down, z away) → three camera axes via (x, −y, −z); mirrored preview
+        // also flips x.
         _dir.set(
           mirror ? -anchor.normal[0] : anchor.normal[0],
           -anchor.normal[1],
           -anchor.normal[2],
         );
         // Blend toward the camera so the blast reads on screen even edge-on.
-        _dir.multiplyScalar(0.65).addScaledVector(_origin.clone().negate().normalize(), 0.35);
+        _dir.multiplyScalar(0.65).addScaledVector(_toCam.copy(_origin).negate().normalize(), 0.35);
         if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, 1);
         _dir.normalize();
         handBolt.group.position.copy(_origin);

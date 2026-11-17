@@ -46,19 +46,30 @@ export function builtinBorderExperiences(arContent: EventARContent): Experience[
   }));
 }
 
-/** Built-in procedural 3D head pieces (crown, tiara, cheek gems) as experiences. */
-export function builtinHeadPieceExperiences(arContent: EventARContent): Experience[] {
-  return pick(HEAD_PIECES, arContent.headPieceIds).map((p, i) => ({
-    ...base(`builtin:3d:${p.id}`, p.name, 50 + i),
-    kind: '3d_attachment',
-    asset_url: null,
-    config: { procedural: p.id, anchor: p.config },
-  }));
+/**
+ * Built-in procedural 3D head pieces (crown, tiara, cheek gems) as experiences.
+ *
+ * `platform` (a db event) applies each piece's `platformOffset`; without it the
+ * anchor is exactly the one the legacy event sites have always rendered.
+ */
+export function builtinHeadPieceExperiences(arContent: EventARContent, platform = false): Experience[] {
+  return pick(HEAD_PIECES, arContent.headPieceIds).map((p, i) => {
+    const o = platform ? p.platformOffset : undefined;
+    const anchor = o === undefined ? p.config : { ...p.config, offset: { x: o[0], y: o[1], z: o[2] } };
+    return {
+      ...base(`builtin:3d:${p.id}`, p.name, 50 + i),
+      kind: '3d_attachment' as const,
+      asset_url: null,
+      // `occlusion` is only written for pieces that wrap the head, so the others
+      // keep the exact config they always had.
+      config: { procedural: p.id, anchor, ...(p.occlude === true ? { occlusion: true } : {}) },
+    };
+  });
 }
 
-export function builtinExperiences(arContent: EventARContent): Experience[] {
+export function builtinExperiences(arContent: EventARContent, platform = false): Experience[] {
   return [
-    ...builtinHeadPieceExperiences(arContent),
+    ...builtinHeadPieceExperiences(arContent, platform),
     ...builtinShaderExperiences(arContent),
     ...builtinBorderExperiences(arContent),
   ];
@@ -79,6 +90,7 @@ export function buildCatalog(
   dbExperiences: Experience[],
   overrides?: PresetOverrides,
   linkedGlobals: Experience[] = [],
+  platform = false,
 ): Experience[] {
   const custom = dbExperiences
     .filter((e) => e.is_published)
@@ -90,7 +102,7 @@ export function buildCatalog(
     .filter((e) => e.is_published && !customIds.has(e.id))
     .sort((a, b) => a.sort_order - b.sort_order);
 
-  let builtins = builtinExperiences(arContent);
+  let builtins = builtinExperiences(arContent, platform);
 
   const hidden = new Set(overrides?.hidden ?? []);
   if (hidden.size) builtins = builtins.filter((b) => !hidden.has(b.id));

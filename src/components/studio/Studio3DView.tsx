@@ -13,13 +13,13 @@
  * Replaces the deleted creator3d ModelCanvas + LiveCanvas; the live sub-view no
  * longer opens its own getUserMedia — the shell owns the one stream.
  */
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import type { ThreeEvent } from '@react-three/fiber';
 import type * as THREE from 'three';
 import { Hand, ScanFace } from 'lucide-react';
-import { ANCHOR_MAP, RIG_CAMERA, scaledAnchorBase } from '../../lib/faceRig';
+import { anchorOffset, RIG_CAMERA, scaledAnchorBase } from '../../lib/faceRig';
 import { FaceRig, Model } from '../ar/FaceRig';
 import AssetGizmo from '../ar/AssetGizmo';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
@@ -27,19 +27,22 @@ import FaceOccluder from '../ar/FaceOccluder';
 import ReferenceBust, { type BustBounds } from '../ar/ReferenceBust';
 import ReferenceHand, { type HandRefFit, type HandRefPose } from '../ar/ReferenceHand';
 import { HandOccluder, HandRig } from '../ar/HandRig';
-import { HandMirrorContext } from '../ar/handMirror';
+import { HandMirrorContext, useHandMirror } from '../ar/handMirror';
 import { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
-import { HAND_ANCHOR_MAP, isHandAnchorId } from '../../lib/handPose';
+import { HAND_ANCHORS_V2, handAnchorDef, isHandAnchorId } from '../../lib/handPose';
 import { handRefAnchors } from '../../lib/studio/handRefAnchors';
-import { mirrorPlacement, previewHand, shouldMirrorAsset } from '../../lib/studio/handedness';
+import { canMirrorAsset, mirrorPlacement, previewHand, shouldMirrorAsset } from '../../lib/studio/handedness';
 import { normalizeTemplate } from '../../lib/studio/assetTemplate';
-import { orbitMannequins, resolveFocus, splitByFamily, type SceneFamily } from '../../lib/studio/sceneFamilies';
+import { focusForSelection, orbitMannequins, resolveFocus, splitByFamily, type SceneFamily } from '../../lib/studio/sceneFamilies';
 import SceneLighting from '../ar/SceneLighting';
 import AnchorDots from '../admin/creator3d/AnchorDots';
 import type { AnchorConfig, HeadAnchor } from '../../types';
 import type { Object3D } from '../../lib/studio/state';
 import { objectToPiece, STUDIO_SAMPLE_GUEST_NAME } from '../../lib/studio/draftMapping';
 import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
+
+// Lazy, exactly as Overlay3D mounts it — the same component in both.
+const FacePaintLayer = lazy(() => import('../ar/FacePaintLayer'));
 
 interface Props {
   view: 'live' | 'orbit';
@@ -164,6 +167,44 @@ function FrameScene({
  * The studio has no guest, so a `token: 'guestName'` engraving previews with
  * STUDIO_SAMPLE_GUEST_NAME; the booth substitutes the real one.
  */
+/**
+ * The live view's hand-piece gizmo. MUST mount inside a HandRig: whether the
+ * piece is mirrored onto the other hand is the rig's published decision (the
+ * hand the guest SEES), and the mesh inside already obeys it through the same
+ * context. The gizmo applies the placement itself, so — exactly as the orbit
+ * view above and HandPlacement in the booth do — a mirrored piece needs a
+ * mirrored placement in, and the gizmo's output un-mirrored on the way back to
+ * the store (`mirrorPlacement` is an involution), so the host's saved numbers
+ * stay in the asset's own frame. Without this the live mesh flipped while its
+ * offset/rotation did not, and the piece landed BESIDE the hand.
+ */
+function LiveHandGizmo({ object, selected, onTransformChange, onDragStart, onDragEnd }: {
+  object: Object3D;
+  selected: boolean;
+  onTransformChange: (patch: Partial<AnchorConfig>) => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+}) {
+  const template = normalizeTemplate(object.template);
+  const wants = useHandMirror(template?.modelledHand);
+  // HandPlacement's rule, verbatim: an engraved asset never mirrors either half.
+  const flip = wants && canMirrorAsset((template?.textSlots.length ?? 0) > 0);
+  return (
+    <AssetGizmo
+      base={[0, 0, 0]}
+      config={flip ? mirrorPlacement(object.anchorConfig) : object.anchorConfig}
+      enabled={selected}
+      onChange={selected
+        ? (flip ? (c: AnchorConfig) => onTransformChange(mirrorPlacement(c)) : onTransformChange)
+        : undefined}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    >
+      <ObjectContent object={object} />
+    </AssetGizmo>
+  );
+}
+
 function ObjectContent({ object }: { object: Object3D }) {
   if (object.type === 'headpiece' && isHeadPiece(object.proceduralId)) {
     const emitter = pieceEmitterOf({ proceduralId: object.proceduralId });
@@ -229,6 +270,17 @@ export default function Studio3DView({
     ));
   }, []);
   const selected = objects.find((o) => o.id === selectedId) ?? null;
+  // A newly selected piece of the OTHER family brings the camera with it (a
+  // wand added while the head is framed was invisible). Adjusted during render
+  // on a selection CHANGE only, so the host's own focus click still sticks.
+  const [focusSelId, setFocusSelId] = useState(selectedId);
+  // (Waits for the id to resolve to an object, in case the selection lands a
+  // render before the object list does.)
+  if (focusSelId !== selectedId && (selectedId === null || selected !== null)) {
+    setFocusSelId(selectedId);
+    const next = focusForSelection(objects, focusPref, selected);
+    if (next !== null) setFocusPref(next);
+  }
   // AnchorDots highlight the SELECTED object's anchor (or crown when none).
   const activeAnchor: HeadAnchor = selected?.anchor ?? 'crown';
   // The family split Overlay3D renders with (its exact rule, now shared) — a
@@ -260,9 +312,12 @@ export default function Studio3DView({
   // While the mannequin loads (or if it cannot be measured) the mount points
   // fall back to the canonical metric hand, so a gizmo never sits at the origin.
   const handAnchorPoints = handFit?.anchors ?? handRefAnchors();
+  // v2-calibrated pieces mount on the SAME mannequin through the v2 table, so
+  // orbit agrees with HandRig, which reads the version the same way.
+  const handAnchorPointsV2 = handFit?.anchorsV2 ?? handRefAnchors(undefined, HAND_ANCHORS_V2);
   // First HEAD object opting into occlusion wins the single (non-duplicated)
   // occluder — indexed over the head subset, since that is what maps below.
-  const occluderIdx = occlusionEnabled ? headObjects.findIndex((o) => o.occlusion === true) : -1;
+  const occluderIdx = occlusionEnabled ? headObjects.findIndex((o) => o.occlusion === true && o.facePaint === undefined) : -1;
 
   // Clicking a non-selected piece's mesh selects it (PivotControls on the
   // selected piece may swallow its own events — acceptable; the layers panel is
@@ -294,7 +349,7 @@ export default function Studio3DView({
               aria-label={label}
               aria-pressed={focus === id}
               data-testid={`studio-focus-${id}`}
-              className={`pressable flex items-center justify-center w-7 h-7 rounded-full transition-colors ${
+              className={`pressable flex items-center justify-center w-7 h-7 pointer-coarse:w-11 pointer-coarse:h-11 rounded-full transition-colors ${
                 focus === id ? 'bg-accent/20 ring-1 ring-accent/40 text-accent-2' : 'text-brand-muted/60 hover:text-brand-fg'
               }`}
             >
@@ -364,14 +419,14 @@ export default function Studio3DView({
             stray tap must not look like it could yank a wand onto the head
             (switching families lives in Properties, an explicit control). */}
         {shown.head && !(selected !== null && isHandAnchorId(selected.handAnchor)) && (
-          <AnchorDots activeAnchor={activeAnchor} onSelect={onAnchorSelect} headScale={headScale} />
+          <AnchorDots activeAnchor={activeAnchor} onSelect={onAnchorSelect} headScale={headScale} anchorVersion={selected?.anchorVersion} />
         )}
 
         {headObjects.map((o) => {
           const isSel = o.id === selectedId;
           // The SAME anchor base live uses (FaceRig.scaledAnchorBase), so a
           // piece placed here sits where it will sit on the guest.
-          const base = scaledAnchorBase(ANCHOR_MAP[o.anchor]?.offset ?? [0, 0, 0], headScale);
+          const base = scaledAnchorBase(anchorOffset(o.anchor, o.anchorVersion), headScale);
           return (
             <group key={o.id} onClick={selectHandler(o)}>
               <AssetGizmo
@@ -395,8 +450,8 @@ export default function Studio3DView({
             <ReferenceHand pose={handPose} hand={previewHandSide} onFit={handleHandFit} />
             {handObjects.map((o) => {
               const isSel = o.id === selectedId;
-              const def = HAND_ANCHOR_MAP[o.handAnchor as string] ?? HAND_ANCHOR_MAP.grip;
-              const base = handAnchorPoints[def.id] ?? [0, 0, 0];
+              const def = handAnchorDef(o.handAnchor as string, o.anchorVersion);
+              const base = (o.anchorVersion === 2 ? handAnchorPointsV2 : handAnchorPoints)[def.id] ?? [0, 0, 0];
               // The orbit has no tracker, so `null` — only an explicit Left/Right
               // pin can flip a piece here, which is exactly what the mannequin
               // beside it is already obeying.
@@ -507,24 +562,34 @@ export default function Studio3DView({
                   mirror
                   holdPose={holdPose}
                   fit={o.handFit ?? 'auto'}
+                  anchorVersion={o.anchorVersion}
                   onVisibilityChange={i === 0 ? onHandVisible : undefined}
                 >
-                  <AssetGizmo
-                    base={[0, 0, 0]}
-                    config={o.anchorConfig}
-                    enabled={isSel}
-                    onChange={isSel ? onTransformChange : undefined}
+                  <LiveHandGizmo
+                    object={o}
+                    selected={isSel}
+                    onTransformChange={onTransformChange}
                     onDragStart={onGizmoDragStart}
                     onDragEnd={onGizmoDragEnd}
-                  >
-                    <ObjectContent object={o} />
-                  </AssetGizmo>
+                  />
                 </HandRig>
               </group>
             );
           })}
           {headObjects.map((o, i) => {
             const isSel = o.id === selectedId;
+            if (o.facePaint !== undefined) {
+              // Through the shared mapper, so the live view paints exactly what
+              // the booth will (objectToPiece validates the spec).
+              const paint = objectToPiece(o).facePaint;
+              return paint ? (
+                <group key={o.id} onClick={selectHandler(o)}>
+                  <Suspense fallback={null}>
+                    <FacePaintLayer spec={paint} videoId={videoId} mirror onVisibilityChange={i === 0 ? onFaceVisible : undefined} />
+                  </Suspense>
+                </group>
+              ) : null;
+            }
             return (
               <group key={o.id} onClick={selectHandler(o)}>
                 <FaceRig
@@ -535,6 +600,7 @@ export default function Studio3DView({
                   mirror
                   occlude={i === occluderIdx}
                   headScale={headScale}
+                  anchorVersion={o.anchorVersion}
                   debugOcclusion={debugOcclusion}
                   matrixRef={i === 0 ? matrixRef : undefined}
                   editable={isSel}

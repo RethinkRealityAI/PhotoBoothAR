@@ -3,7 +3,7 @@
  * Uses FaceRig to parent a GLB model OR a built-in procedural head piece at the
  * selected head anchor. `mirror` must match the video feed (true for selfie).
  */
-import { useRef, useEffect, type ReactNode } from 'react';
+import { lazy, Suspense, useRef, useEffect, type ReactNode } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import type { Group } from 'three';
 import { FaceRig, Model } from '../ar/FaceRig';
@@ -18,6 +18,11 @@ import { revealScaleAt } from '../../lib/studio/reveal';
 import SceneLighting from '../ar/SceneLighting';
 import type { LightingPresetId } from '../../lib/studio/lighting';
 import type { AssetTemplate } from '../../lib/studio/assetTemplate';
+import type { FacePaintSpec } from '../../lib/facePaint/spec';
+
+// Lazy: only a scene that actually paints the face pays for the painter, and no
+// frozen legacy bundle can reach it (legacy configs carry no layers).
+const FacePaintLayer = lazy(() => import('../ar/FacePaintLayer'));
 
 /** One piece of a multi-object 3D scene (studio `config.layers`). */
 export interface Overlay3DPiece {
@@ -58,6 +63,12 @@ export interface Overlay3DPiece {
   /** fx emitter-registry key (the layer/object id) — a beam whose spec names
    *  it erupts from this piece's authored emitter point. */
   fxKey?: string;
+  /** Living Face Paint look (shared mapper, already validated). Present ⇒
+   *  rendered on the tracked face mesh instead of at an anchor. */
+  facePaint?: FacePaintSpec;
+  /** Anchor calibration version (shared mapper, already validated): 2 or
+   *  absent (= v1, every saved scene and legacy event). */
+  anchorVersion?: 2;
 }
 
 interface Props {
@@ -147,6 +158,16 @@ interface Props {
    * only when the scene's triggers carry a beam action.
    */
   powerFx?: boolean;
+  /**
+   * A StageCanvas copies this canvas into its composite (threeCanvasId points
+   * here). The wrapper then renders at opacity 0 — still rendering, never
+   * display:none, since the composite reads its pixels — so the 3D is not
+   * drawn TWICE on screen. It used to be: once in the composite, once live on
+   * top, at a different resolution and ABOVE the 2D frame, while the photo
+   * puts the frame above the 3D — the preview did not match the capture.
+   * Same idiom as TriggerEffects' source canvas. Absent ⇒ visible, as before.
+   */
+  composited?: boolean;
 }
 
 /**
@@ -196,15 +217,15 @@ function AnimatedPiece({ animation, reveal, pulse, children }: { animation?: Lay
   return <group ref={ref}>{children}</group>;
 }
 
-export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false }: Props) {
+export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false, composited = false }: Props) {
   // Hand-anchored gear renders in a HandRig; everything else keeps the FaceRig
   // path byte-identically (index split preserves keys within each family).
   const headPieces = pieces ? pieces.filter((p) => p.handAnchor === undefined) : null;
   const handPieces = pieces ? pieces.filter((p) => p.handAnchor !== undefined) : null;
   // First piece whose occlude===true wins the (single, non-duplicated) occluder.
-  const occluderIdx = headPieces ? headPieces.findIndex((p) => p.occlude === true) : -1;
+  const occluderIdx = headPieces ? headPieces.findIndex((p) => p.occlude === true && p.facePaint === undefined) : -1;
   return (
-    <div id="booth-3d-layer" className="absolute inset-0 pointer-events-none z-20">
+    <div id="booth-3d-layer" className="absolute inset-0 pointer-events-none z-20" style={composited ? { opacity: 0 } : undefined}>
       <Canvas
         camera={{ position: RIG_CAMERA.position, fov: RIG_CAMERA.fov, near: RIG_CAMERA.near, far: RIG_CAMERA.far }}
         dpr={dpr}
@@ -227,7 +248,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
             {handPieces.map((p, i) => {
               const emitter = p.fxKey !== undefined ? pieceEmitterOf(p) : null;
               return (
-              <HandRig key={`hand-${i}`} anchor={p.handAnchor as string} videoId={videoId} mirror={mirror} fit={p.handFit ?? 'auto'} onVisibilityChange={i === 0 ? onHandVisible : undefined}>
+              <HandRig key={`hand-${i}`} anchor={p.handAnchor as string} videoId={videoId} mirror={mirror} fit={p.handFit ?? 'auto'} anchorVersion={p.anchorVersion} onVisibilityChange={i === 0 ? onHandVisible : undefined}>
                 <AnimatedPiece animation={p.animation} reveal={reveal} pulse={p.pulse}>
                   {/* HandPlacement, not a plain transform group: when this piece
                       is mirrored onto the other hand its offset and rotation
@@ -258,6 +279,13 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
 
         {headPieces ? (
           headPieces.map((p, i) => {
+            if (p.facePaint !== undefined) {
+              return (
+                <Suspense key={i} fallback={null}>
+                  <FacePaintLayer spec={p.facePaint} videoId={videoId} mirror={mirror} onVisibilityChange={i === 0 ? onFaceVisible : undefined} />
+                </Suspense>
+              );
+            }
             const emitter = p.fxKey !== undefined ? pieceEmitterOf(p) : null;
             return (
             <FaceRig
@@ -268,6 +296,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
               mirror={mirror}
               occlude={i === occluderIdx}
               headScale={headScale}
+              anchorVersion={p.anchorVersion}
               onVisibilityChange={i === 0 ? onFaceVisible : undefined}
             >
               <AnimatedPiece animation={p.animation} reveal={reveal} pulse={p.pulse}>

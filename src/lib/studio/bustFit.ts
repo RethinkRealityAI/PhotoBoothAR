@@ -379,6 +379,66 @@ export function normalizeFitToCanonical(
   };
 }
 
+/** Head-space heights (cm) whose WIDTH the bust is matched on: cheekbone to
+ *  temple, where the canonical face reaches the sides of the head and where
+ *  crowns, hats, glasses and earrings measure themselves against it. Below it
+ *  the canonical mesh narrows into the jaw line; above it, it stops. */
+const WIDTH_BAND_YS = [-2, -1, 0, 1, 2, 3, 4, 5, 6] as const;
+const WIDTH_BAND_HALF_CM = 1;
+/** Fewer points than this in a band = not measured (an edge, not a width). */
+const WIDTH_BAND_MIN_POINTS = 6;
+
+function widthInBand(points: ArrayLike<number>, y0: number, y1: number, map?: (i: number) => [number, number]): number | null {
+  let lo = Infinity, hi = -Infinity, n = 0;
+  for (let i = 0; i + 2 < points.length; i += 3) {
+    const [x, y] = map ? map(i) : [points[i], points[i + 1]];
+    if (y < y0 || y > y1) continue;
+    if (x < lo) lo = x;
+    if (x > hi) hi = x;
+    n++;
+  }
+  return n >= WIDTH_BAND_MIN_POINTS && hi > lo ? hi - lo : null;
+}
+
+/**
+ * The sideways stretch that makes the fitted bust as WIDE as the canonical
+ * face — the second half of "assets look bigger on the mannequin".
+ *
+ * normalizeFitToCanonical matches the median RADIUS along the anchor
+ * directions, and ten of those twelve point forwards (nose, eyes, cheeks,
+ * mouth, chin, crown, forehead), so it sizes the bust's FACE DEPTH. The
+ * vendored bust is a narrower head than the canonical one in proportion:
+ * measured after that normalization it is 0.89x the canonical width at the
+ * cheekbones and 0.79x at the temples. A prop that wraps the head — a crown,
+ * a hat band, glasses arms — reads against WIDTH, so the Royal Crown looked
+ * ~1.3x oversized in Model view against a tracked face in Live. A uniform
+ * grow would bury the front anchors; only x is short, so only x stretches.
+ *
+ * Median of the per-band width ratios (one sculpted cheekbone must not set the
+ * whole head), about the head-space origin like the uniform fit. Returns 1 —
+ * the fit as-is — whenever it cannot be measured or lands outside a sane band.
+ */
+export function canonicalWidthStretch(
+  points: ArrayLike<number>,
+  fit: { scale: number; position: readonly [number, number, number] },
+  canonicalPoints: ArrayLike<number>,
+): number {
+  const map = (i: number): [number, number] => [
+    points[i] * fit.scale + fit.position[0],
+    points[i + 1] * fit.scale + fit.position[1],
+  ];
+  const ratios: number[] = [];
+  for (const y of WIDTH_BAND_YS) {
+    const here = widthInBand(points, y - WIDTH_BAND_HALF_CM, y + WIDTH_BAND_HALF_CM, map);
+    const canon = widthInBand(canonicalPoints, y - WIDTH_BAND_HALF_CM, y + WIDTH_BAND_HALF_CM);
+    if (here == null || canon == null) continue;
+    ratios.push(canon / here);
+  }
+  if (ratios.length === 0) return 1;
+  const k = median(ratios);
+  return Number.isFinite(k) && k >= 0.7 && k <= 1.5 ? k : 1;
+}
+
 /**
  * Flatten every mesh vertex of `root` into world-space xyz triples, sampling at
  * most `maxSamples` of them. Used to feed computeAnchorAlignedFit from a loaded

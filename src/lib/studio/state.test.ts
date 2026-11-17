@@ -1035,3 +1035,38 @@ describe('SET_MODEL_ASSET carries a configurator template when the asset ships o
     expect('template' in (selectedObject(st.draft) as Object3D)).toBe(false);
   });
 });
+
+describe('anchorVersion stamping (new library / Power-Up adds only)', () => {
+  it('SET_MODEL_ASSET without anchorVersion adds a v1 object with NO key (every existing add path unchanged)', () => {
+    const st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/x.glb', name: 'x.glb', offsetCm: { x: 0, y: 4, z: 0 } });
+    const o = selectedObject(st.draft) as Object3D;
+    expect('anchorVersion' in o).toBe(false);
+    expect(o.anchorConfig.offset).toEqual({ x: 0, y: 4, z: 0 });
+  });
+
+  it('anchorVersion 2 stamps the object and converts the v1-authored nudge so it renders at the same point', () => {
+    // The cap's owner-measured nudge (y +4 off the v1 crown at y 8.3, z 4.0)
+    // must land where it always did on the v2 crown (y 10.3, z -0.5).
+    const st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/cap.glb', name: 'cap', offsetCm: { x: 0, y: 4, z: 0 }, anchorVersion: 2 });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.anchorVersion).toBe(2);
+    expect(o.anchor).toBe('crown');
+    expect(o.anchorConfig.offset.x).toBeCloseTo(0, 9);
+    expect(o.anchorConfig.offset.y).toBeCloseTo(2, 9);
+    expect(o.anchorConfig.offset.z).toBeCloseTo(4.5, 9);
+  });
+
+  it('a hand piece is stamped too (grip v2), with its offset left alone', () => {
+    const st = studioReducer(s0(), { type: 'SET_MODEL_ASSET', url: 'https://cdn/w.glb', name: 'wand', handAnchor: 'grip', anchorVersion: 2 });
+    const o = selectedObject(st.draft) as Object3D;
+    expect(o.anchorVersion).toBe(2);
+    expect(o.anchorConfig.offset).toEqual({ x: 0, y: 0, z: 0 });
+  });
+
+  it('createObject3D keeps only an exact 2', () => {
+    expect(createObject3D('model', { anchorVersion: 2 }).anchorVersion).toBe(2);
+    for (const v of [undefined, 1, 3, '2']) {
+      expect('anchorVersion' in createObject3D('model', { anchorVersion: v as never })).toBe(false);
+    }
+  });
+});

@@ -128,6 +128,73 @@ const SOURCE_ALPHA: Partial<Record<TriggerSource, number>> = {
   peaceSign: 0.5,
   handToTemple: 0.5,
 };
+/**
+ * FACE sources smooth by ELAPSED TIME, not per step: α = 1 − exp(−dt/τ), with τ
+ * chosen so a 30/s detection cadence reproduces the historical 0.35 per step
+ * EXACTLY (1 − exp(−(1000/30)/τ) = 0.35). A phone that only manages 10 det/s
+ * used to need three times as long to fire the same smile (0.35 per step either
+ * way); now the same held expression fires after the same wall-clock time. It
+ * also makes the extra face steps the loops take on hand-only ticks harmless:
+ * they arrive with a small dt and move the EMA by a correspondingly small step.
+ *
+ * Hand sources keep their per-SAMPLE α: hand inference self-gates at 66ms, and
+ * a per-time α on the 150ms idle cadence would let ONE sample after an idle
+ * stretch cross enter by itself — the phantom fire the stale-source rule exists
+ * to prevent (see step()).
+ */
+export const FACE_EMA_REF_DT_MS = 1000 / 30;
+export const FACE_EMA_TAU_MS = -FACE_EMA_REF_DT_MS / Math.log(1 - ALPHA);
+/** A step after a long gap (loop paused, tab hidden) moves at most as far as four
+ *  reference steps — never a snap to the new value on one sample. */
+const FACE_EMA_MAX_DT_MS = 4 * FACE_EMA_REF_DT_MS;
+
+/** The face EMA weight for a step `dtMs` after the channel's previous one. */
+export function faceEmaAlpha(dtMs: number): number {
+  if (!(dtMs > 0)) return 0;
+  return 1 - Math.exp(-Math.min(dtMs, FACE_EMA_MAX_DT_MS) / FACE_EMA_TAU_MS);
+}
+
+/**
+ * REST-RELATIVE smile and brow. Some faces rest high: measured on a real guest,
+ * mouthSmileLeft/Right at rest read 0.692 / 0.542 — a 0.617 mean, ABOVE smile's
+ * enter (0.55). That guest primed "engaged" and, since their rest never drops to
+ * exit (0.35), could never re-arm, so no smile of theirs ever fired.
+ *
+ * Each such channel tracks the face's own rest level (the same asymmetric
+ * tracker xr8Expressions uses for 8th Wall's brows: follows DOWN fast, UP
+ * slowly, so it settles on the rest pose rather than on a held expression) and
+ * scores the rise above it, rescaled to keep the 0..1 range. Rest below
+ * REST_FREE is ignored entirely, so a neutral face — every test fixture and the
+ * overwhelming common case — scores byte-identically to the absolute signal.
+ * The rest is capped at REST_MAX so a smile held for a long time cannot pull it
+ * to the ceiling, where the rescale would amplify noise.
+ */
+export const REST_DOWN_TAU_MS = 250;
+export const REST_UP_TAU_MS = 6000;
+export const REST_FREE = 0.1;
+export const REST_MAX = 0.7;
+const REST_RELATIVE_SOURCES: ReadonlySet<TriggerSource> = new Set<TriggerSource>(['smile', 'browRaise']);
+/** The blendshape keys whose PRESENCE means a face was scored this step — an
+ *  absent face must hold the rest level, not drag it to zero. */
+const REST_KEYS: Partial<Record<TriggerSource, readonly string[]>> = {
+  smile: ['mouthSmileLeft', 'mouthSmileRight'],
+  browRaise: ['browInnerUp'],
+};
+
+/** A raw 0..1 signal scored relative to a tracked rest level (pure). */
+export function restRelativeSignal(raw: number, rest: number): number {
+  const b = Math.max(0, Math.min(REST_MAX, rest) - REST_FREE);
+  if (b === 0) return raw;
+  return Math.max(0, (raw - b) / (1 - b));
+}
+
+/** Advance a rest tracker by one sample `dtMs` after the last (pure). */
+export function trackRest(rest: number, raw: number, dtMs: number): number {
+  if (!(dtMs > 0)) return rest;
+  const tau = raw < rest ? REST_DOWN_TAU_MS : REST_UP_TAU_MS;
+  return rest + (raw - rest) * (1 - Math.exp(-dtMs / tau));
+}
+
 const DEFAULT_COOLDOWN_MS = 2500;
 /** The other eye must be at/below this for a wink to count (rejects blinks). */
 const WINK_OTHER_MAX = 0.25;
@@ -186,6 +253,9 @@ interface Channel {
   engaged: boolean;   // inside the hysteresis band (past enter, not yet back to exit)
   lastFire: number;   // ms of the last fire (−∞ until first)
   started: boolean;   // seen the first sample (which never fires — no crossing yet)
+  lastMs: number;     // nowMs of the last step that advanced this channel
+  rest: number;       // tracked rest level (REST_RELATIVE_SOURCES only)
+  restPrimed: boolean;
 }
 
 export interface TriggerEngine {
@@ -220,6 +290,9 @@ export function createTriggerEngine(configs: TriggerConfig[]): TriggerEngine {
     engaged: false,
     lastFire: -Infinity,
     started: false,
+    lastMs: 0,
+    rest: 0,
+    restPrimed: false,
   }));
 
   return {
@@ -231,7 +304,22 @@ export function createTriggerEngine(configs: TriggerConfig[]): TriggerEngine {
         // TriggerEngine.step). Skipped BEFORE priming so the first real sample
         // still primes without firing.
         if (staleSources !== undefined && staleSources.has(ch.cfg.source)) continue;
-        const target = sourceSignal(ch.cfg.source, src);
+        let target = sourceSignal(ch.cfg.source, src);
+        if (REST_RELATIVE_SOURCES.has(ch.cfg.source)) {
+          // Track the rest only while a face is actually scored; time still
+          // advances (lastMs below), so a face returning after a gap does not
+          // snap the rest to its first frame.
+          const keys = REST_KEYS[ch.cfg.source] ?? [];
+          if (keys.some((k) => typeof src[k] === 'number')) {
+            if (!ch.restPrimed) {
+              ch.rest = target;
+              ch.restPrimed = true;
+            } else {
+              ch.rest = trackRest(ch.rest, target, nowMs - ch.lastMs);
+            }
+          }
+          target = restRelativeSignal(target, ch.rest);
+        }
         const th = THRESHOLDS[ch.cfg.source];
         if (!ch.started) {
           // Prime with the first sample WITHOUT firing: if the guest is already
@@ -239,9 +327,13 @@ export function createTriggerEngine(configs: TriggerConfig[]): TriggerEngine {
           ch.value = target;
           ch.started = true;
           ch.engaged = target >= th.enter;
+          ch.lastMs = nowMs;
           continue;
         }
-        ch.value += (SOURCE_ALPHA[ch.cfg.source] ?? ALPHA) * (target - ch.value);
+        const handAlpha = SOURCE_ALPHA[ch.cfg.source];
+        const alpha = handAlpha ?? faceEmaAlpha(nowMs - ch.lastMs);
+        ch.lastMs = nowMs;
+        ch.value += alpha * (target - ch.value);
         if (!ch.engaged) {
           if (ch.value >= th.enter) {
             ch.engaged = true; // enter-crossing
@@ -528,4 +620,48 @@ export function parseTriggers(input: unknown): TriggerConfig[] {
     out.push(cfg);
   }
   return out;
+}
+
+/**
+ * Do two actions do the SAME thing? (type + every field that changes what the
+ * guest sees; an absent beam colour/emitter equals 'auto'/scene default.)
+ * Moved out of the Magic Triggers form so the add AND the in-place edit share
+ * one rule.
+ */
+export function sameTriggerAction(a: TriggerAction, b: TriggerAction): boolean {
+  if (a.type === 'burst' && b.type === 'burst') return a.style === b.style;
+  if (a.type === 'beam' && b.type === 'beam') {
+    return a.style === b.style && (a.color ?? 'auto') === (b.color ?? 'auto') && (a.objectId ?? '') === (b.objectId ?? '');
+  }
+  if (a.type === 'reveal' && b.type === 'reveal') return a.objectId === b.objectId;
+  if (a.type === 'animate' && b.type === 'animate') return a.objectId === b.objectId && a.preset === b.preset;
+  if (a.type === 'filterPulse' && b.type === 'filterPulse') return (a.shaderId ?? '') === (b.shaderId ?? '');
+  return false;
+}
+
+/**
+ * Would (source, action) duplicate an existing trigger? `excludeId` skips the
+ * row being edited, so saving an edit unchanged is not a "duplicate" of itself.
+ */
+export function isDuplicateTrigger(
+  triggers: readonly TriggerConfig[],
+  source: TriggerSource,
+  action: TriggerAction,
+  excludeId?: string,
+): boolean {
+  return triggers.some((t) => t.id !== excludeId && t.source === source && sameTriggerAction(t.action, action));
+}
+
+/**
+ * The action an in-place edit commits. The Magic Triggers form only shows the
+ * fields a host picks; a same-type edit keeps everything else the original
+ * carried (a Power FX beam's `origin` / `durationMs`), while a beam set back
+ * to "Scene default" really does drop its emitter pin.
+ */
+export function mergeEditedAction(original: TriggerAction, edited: TriggerAction): TriggerAction {
+  if (original.type !== edited.type) return edited;
+  const merged = { ...original, ...edited } as TriggerAction;
+  if (merged.type === 'beam' && edited.type === 'beam' && edited.objectId === undefined) delete merged.objectId;
+  if (merged.type === 'filterPulse' && edited.type === 'filterPulse' && edited.shaderId === undefined) delete merged.shaderId;
+  return merged;
 }

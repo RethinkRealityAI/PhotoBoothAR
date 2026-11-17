@@ -213,3 +213,29 @@ describe('the forearm', () => {
     }
   });
 });
+
+describe('HAND_ANCHORS_V2 (per-object anchorVersion: 2)', async () => {
+  const { HAND_ANCHORS: V1, HAND_ANCHORS_V2, handAnchorDef } = await import('./handPose');
+
+  it('changes ONLY the grip rotation: the wand shaft runs ACROSS the fist (no Rz(90°))', () => {
+    const g = HAND_ANCHORS_V2.find((a) => a.id === 'grip')!;
+    expect(g.rotation).toEqual([0, 0, 0]);
+    // Measured on the fitted fist mannequin: −2.2 lands inside the fist, +2.2
+    // floats ~0.6cm off the palm side (see the HAND_ANCHORS_V2 note).
+    expect(g.normalOffsetCm).toBe(-2.2);
+    expect(g.between).toEqual([9, 13]);
+    for (const a of V1) {
+      if (a.id !== 'grip') expect(HAND_ANCHORS_V2.find((b) => b.id === a.id), a.id).toEqual(a);
+    }
+  });
+
+  it('absent / unknown version is v1 forever; unknown ids fall back to grip like before', () => {
+    for (const v of [undefined, null, 1, 3, '2']) {
+      expect(handAnchorDef('grip', v)).toBe(V1.find((a) => a.id === 'grip'));
+      expect(handAnchorDef('wristBack', v)).toBe(V1.find((a) => a.id === 'wristBack'));
+    }
+    expect(handAnchorDef('grip', 2).rotation).toEqual([0, 0, 0]);
+    expect(handAnchorDef('elbow', undefined)).toBe(V1.find((a) => a.id === 'grip'));
+    expect(handAnchorDef('elbow', 2)).toBe(HAND_ANCHORS_V2.find((a) => a.id === 'grip'));
+  });
+});

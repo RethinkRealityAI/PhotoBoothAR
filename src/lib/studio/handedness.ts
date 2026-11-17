@@ -40,6 +40,23 @@ export type HandFit = 'auto' | 'left' | 'right';
 /** What the tracker currently sees (handRig's already-swapped label), or null. */
 export type TrackedHand = 'Left' | 'Right' | null;
 
+/**
+ * The hand the guest SEES in the preview — what every mirror decision must be
+ * made against, because it is the hand the rendered pose actually describes.
+ *
+ * In a selfie (mirrored) view HandRig renders the pose conjugated by
+ * diag(−1,1,1). For a real right hand that conjugated frame is EXACTLY the
+ * solver's frame for the displayed image of that hand — which is a LEFT hand
+ * (handPose.test / handedness.test assert the quaternion identity). So a
+ * left-modelled gauntlet on a real right hand in the selfie view is already the
+ * correct chirality and must NOT flip; deciding on the real hand flipped it into
+ * the wrong one. Unmirrored views see the real hand.
+ */
+export function displayedHand(real: 'Left' | 'Right', mirrored: boolean): 'Left' | 'Right' {
+  if (!mirrored) return real;
+  return real === 'Left' ? 'Right' : 'Left';
+}
+
 const FITS: ReadonlySet<string> = new Set(['auto', 'left', 'right']);
 
 /** Validate a stored/authored fit. Anything unrecognised degrades to 'auto'. */

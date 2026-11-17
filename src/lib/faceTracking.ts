@@ -41,6 +41,14 @@ const REMOTE_MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 /**
+ * The probe is a HEAD on the booth's critical path: a blackholed venue network
+ * left it pending for the browser's full TCP timeout (tens of seconds) with
+ * the guest looking at "Loading face tracker". Bounded so a dead network falls
+ * through to the remote URL (which then fails fast, or works) instead.
+ */
+export const MODEL_PROBE_TIMEOUT_MS = 3_000;
+
+/**
  * Pick the vendored model when it is really there. A plain `res.ok` is not
  * enough: both the Vite dev server and Netlify answer an unknown path with
  * index.html at 200, so an un-vendored build would "find" the model and hand
@@ -49,15 +57,25 @@ const REMOTE_MODEL_URL =
  * Generalized (local, remote) for handTracking.ts — same trap, same guard.
  */
 export async function resolveModelUrl(localUrl: string, remoteUrl: string): Promise<string> {
+  const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), MODEL_PROBE_TIMEOUT_MS) : undefined;
   try {
-    const res = await fetch(localUrl, { method: 'HEAD' });
+    const res = await fetch(localUrl, { method: 'HEAD', signal: ctl?.signal });
     const type = res.headers.get('content-type') ?? '';
     if (res.ok && !type.includes('text/html')) return localUrl;
   } catch {
-    // Offline, blocked, or not vendored yet — the remote copy still works.
+    // Offline, blocked, timed out, or not vendored yet — the remote copy still works.
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
   return remoteUrl;
 }
+
+/** A frozen single-event build (same test as App.tsx LEGACY_EVENT / faceEngine IS_LEGACY_BUILD;
+ *  inlined because faceEngine/index imports this module). `env?.` so a NON-Vite bundle of
+ *  this module (scripts/check-face-engines.mjs via esbuild) does not crash at load: Vite
+ *  still substitutes `import.meta.env` here (both builds verified). */
+const LEGACY_BUILD = ((import.meta.env?.VITE_EVENT as string | undefined) ?? '').trim() !== '';
 
 async function create(delegate: 'GPU' | 'CPU', modelUrl: string): Promise<FaceLandmarker> {
   const vision = await visionFileset();
@@ -92,6 +110,11 @@ export async function initializeFaceLandmarker() {
     try {
       faceLandmarker = await create('CPU', modelUrl);
     } catch (cpuErr) {
+      // Platform: SURFACE it. The GPU delegate is exactly what the comment
+      // above says breaks (it steals the shared GL context and tracking dies
+      // after ~1s), so "falling back" to it traded a visible failure for a
+      // silent one. Legacy builds keep their shipped behaviour byte-for-byte.
+      if (!LEGACY_BUILD) throw cpuErr;
       console.warn('[faceTracking] CPU delegate failed, trying GPU', cpuErr);
       faceLandmarker = await create('GPU', modelUrl);
     }
@@ -104,6 +127,26 @@ export async function initializeFaceLandmarker() {
     initPromise = null; // allow a later retry
     console.error('Error initializing FaceLandmarker', error);
     throw error;
+  }
+}
+
+/**
+ * Close and forget the landmarker so the next initializeFaceLandmarker()
+ * builds a fresh one. Used when it has gone bad underneath us: after iOS
+ * backgrounds the page, the landmarker's own WebGL2 context (used for image
+ * conversion even on the CPU delegate) is lost and EVERY later detectForVideo
+ * throws — forever, silently, because both callers catch. A pending init is
+ * left alone (it will resolve into a fresh landmarker anyway).
+ */
+export function resetFaceLandmarker(): void {
+  const fl = faceLandmarker;
+  if (!fl) return; // nothing built yet, or an init still pending — leave it be
+  faceLandmarker = null;
+  initPromise = null; // it resolved to `fl`; the next init must build anew
+  try {
+    fl.close();
+  } catch {
+    /* a landmarker whose context is already gone may throw on close */
   }
 }
 
@@ -121,9 +164,4 @@ export function getFaceLandmarker() {
     );
   }
   return faceLandmarker;
-}
-
-/** True once the landmarker is ready (for "loading tracker…" UI states). */
-export function isFaceLandmarkerReady(): boolean {
-  return faceLandmarker !== null;
 }

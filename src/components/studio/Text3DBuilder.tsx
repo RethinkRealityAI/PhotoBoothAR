@@ -51,7 +51,7 @@ import {
   type Text3DSpec,
 } from '../../lib/studio/text3d';
 import { buildText3D, exportGlb, glyphsOf, loadFont, type BuiltText3D } from '../../lib/studio/text3dBuild';
-import type { StudioAction, StudioDraft } from '../../lib/studio/state';
+import { MAX_OBJECTS, planSlotAdd, type Object3D, type StudioAction, type StudioDraft } from '../../lib/studio/state';
 import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
 import SceneLighting from '../ar/SceneLighting';
 import { SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
@@ -60,8 +60,9 @@ interface Props {
   /** Event SLUG — uploadAsset's tenant folder. */
   eventId: string;
   dispatch: React.Dispatch<StudioAction>;
-  /** Accepted for the shared ADDON_VIEWS props contract (PowerFxBuilder uses
-   *  it for cap/conflict guards); jewelry places at the ear slots, unguarded. */
+  /** The live draft — drives the same-slot Replace/Add-both confirm and the
+   *  scene-cap check (earrings are TWO pieces; past the cap the reducer
+   *  silently dropped the second). Absent = no guards. */
   draft?: StudioDraft;
   onClose: () => void;
   /** Refresh the dock's Uploads list once the GLB has landed in the bucket. */
@@ -81,7 +82,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
     <button
       type="button"
       onClick={onClick}
-      className={`pressable px-2 py-1.5 rounded-lg text-[9px] font-label uppercase tracking-widest truncate transition-colors ${
+      className={`pressable px-2 py-1.5 pointer-coarse:min-h-11 rounded-lg text-[9px] pointer-coarse:text-[10px] font-label uppercase tracking-widest truncate transition-colors ${
         active
           ? 'bg-accent/20 text-accent-2 ring-1 ring-accent/30'
           : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'
@@ -92,7 +93,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
   );
 }
 
-export default function Text3DBuilder({ eventId, dispatch, onClose, onUploaded, lighting = DEFAULT_LIGHTING }: Props) {
+export default function Text3DBuilder({ eventId, dispatch, draft, onClose, onUploaded, lighting = DEFAULT_LIGHTING }: Props) {
   const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, '3D name jewelry');
 
   const [spec, setSpec] = useState<Text3DSpec>(() => defaultSpecFor('necklace'));
@@ -105,13 +106,19 @@ export default function Text3DBuilder({ eventId, dispatch, onClose, onUploaded, 
   const [buildError, setBuildError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
+  /** Pieces already on this kind's slot(s), awaiting Replace / Add both / Back. */
+  const [conflict, setConflict] = useState<Object3D[] | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Outside clicks never discard a design in progress (#26) — ✕ / Escape do.
+  const initialSpecRef = useRef(spec);
+  const touched = spec !== initialSpecRef.current || typed !== 'Name';
 
   const patch = useCallback((p: Partial<Text3DSpec>) => setSpec((s) => ({ ...s, ...p })), []);
 
   // Switching kind resets to that kind's defaults (its dimension ranges differ),
   // but keeps the name, typeface and metal the host already chose.
   const setKind = useCallback((kind: Text3DKind) => {
+    setConflict(null);
     setSpec((s) => ({ ...defaultSpecFor(kind), text: s.text, fontId: s.fontId, material: s.material }));
   }, []);
 
@@ -175,10 +182,32 @@ export default function Text3DBuilder({ eventId, dispatch, onClose, onUploaded, 
   // committed the render that removed it from the scene.
   useEffect(() => () => { built?.dispose(); }, [built]);
 
-  const addToScene = async () => {
+  const addToScene = async (mode?: 'replace' | 'both') => {
     if (!built || busy) return;
-    setBusy('add');
     setActionError(null);
+    const kindAnchor = KIND_ANCHOR[spec.kind];
+    const slotAnchors = Array.isArray(kindAnchor) ? kindAnchor : [kindAnchor];
+    // Checked BEFORE the export + upload, so a refused add costs nothing.
+    let replaceIds: string[] = [];
+    if (draft !== undefined) {
+      const plan = planSlotAdd(draft, slotAnchors.map((a) => ({ anchor: a })), mode ?? 'both');
+      if (mode === undefined && plan.conflicts.length > 0) {
+        setConflict(plan.conflicts);
+        return;
+      }
+      if (!plan.fits) {
+        setConflict(null);
+        setActionError(
+          slotAnchors.length > 1
+            ? `This needs ${slotAnchors.length} free spots but the scene has ${plan.room} (${MAX_OBJECTS} stickers and 3D pieces max) — remove a layer to add both.`
+            : `This scene is full — ${MAX_OBJECTS} stickers and 3D pieces is the limit. Remove a layer to add this.`,
+        );
+        return;
+      }
+      if (mode === 'replace') replaceIds = plan.conflicts.map((c) => c.id);
+    }
+    setConflict(null);
+    setBusy('add');
     try {
       const blob = await exportGlb(built.group);
       // The `.bw1` marker survives uploadAsset's filename sanitising and lands
@@ -209,12 +238,15 @@ export default function Text3DBuilder({ eventId, dispatch, onClose, onUploaded, 
       // that normally rescales an uploaded model must not run.
       const anchors = Array.isArray(anchor) ? anchor : [anchor];
       const place = KIND_PLACEMENT[spec.kind];
+      // ONE batch = one undo step for the whole piece (both earrings), with a
+      // Replace deleting the old piece(s) first inside it.
+      const actions: StudioAction[] = replaceIds.map((id) => ({ type: 'DELETE_OBJECT', id }));
       for (const a of anchors) {
         // The anchor rides the ADD, it is not a follow-up SELECT_ANCHOR — that
         // action deliberately zeroes offset and rotation (a host switching a
         // piece from crown to chin wants a clean slate), which silently wiped
         // the authored placement when it ran second.
-        dispatch({
+        actions.push({
           type: 'SET_MODEL_ASSET',
           url,
           name: label,
@@ -223,6 +255,8 @@ export default function Text3DBuilder({ eventId, dispatch, onClose, onUploaded, 
           anchor: a,
         });
       }
+      for (const id of replaceIds) actions.push({ type: 'RETARGET_TRIGGERS', fromId: id });
+      dispatch({ type: 'BATCH', actions });
       onUploaded?.();
       onClose();
     } catch (e) {
@@ -267,7 +301,7 @@ export default function Text3DBuilder({ eventId, dispatch, onClose, onUploaded, 
   // block for `position: fixed` children — an in-place overlay would be
   // clipped into a 19rem column instead of covering the screen.
   return createPortal(
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={() => { if (!touched) onClose(); }}>
       <div
         ref={panelRef}
         {...dialogProps}
@@ -456,10 +490,44 @@ export default function Text3DBuilder({ eventId, dispatch, onClose, onUploaded, 
             )}
 
             <div className="flex flex-col gap-1.5">
+              {conflict !== null && (
+                /* Same-slot occupant: inline choice (never a modal over a modal). */
+                <div className="rounded-xl bg-white/[0.04] ring-1 ring-white/10 px-3 py-2.5 flex flex-col gap-2">
+                  <p className="font-sans text-[11px] text-brand-fg/85 leading-snug">
+                    <span className="font-medium">{conflict.map((c) => c.name || 'A piece').join(' and ')}</span>{' '}
+                    {conflict.length > 1 ? 'already sit' : 'already sits'} where this goes.
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void addToScene('replace')}
+                      disabled={disabled}
+                      className="pressable min-h-11 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-label text-[10px] uppercase tracking-widest transition-colors disabled:opacity-40"
+                    >
+                      Replace
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void addToScene('both')}
+                      disabled={disabled}
+                      className="pressable min-h-11 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-brand-fg/80 font-label text-[10px] uppercase tracking-widest transition-colors disabled:opacity-40"
+                    >
+                      Add both
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setConflict(null)}
+                    className="font-label text-[10px] uppercase tracking-widest text-brand-muted/50 hover:text-brand-fg transition-colors min-h-11"
+                  >
+                    Back
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
-                onClick={addToScene}
-                disabled={disabled}
+                onClick={() => void addToScene()}
+                disabled={disabled || conflict !== null}
                 className="pressable flex items-center justify-center gap-1.5 py-2.5 bg-foil text-white rounded-xl font-bold text-[10px] font-label uppercase tracking-widest disabled:opacity-40 glow-accent transition"
               >
                 {busy === 'add' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}

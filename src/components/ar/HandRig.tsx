@@ -6,37 +6,34 @@
  * gauntlet on the wrist). Children render in a group positioned/oriented per
  * frame from the shared hand-rig stash via the pure handPose solver.
  *
- * Smoothing (research-tuned): FOUR One-Euro filters, not three — depth is
- * ~5× noisier than X/Y (∂Z/∂px ≈ 0.8cm at 60cm) and the least visually
- * sensitive channel, so it gets its own much heavier filter. The per-user
- * palm span is MEDIAN-locked over the first confident frames (the
- * getHeadFitEstimate idiom) and thereafter drives depth, so world-landmark
- * scale noise leaves the depth channel entirely. Filters reset on
- * re-acquisition — hands leave frame constantly; that path is hot.
+ * Smoothing lives in ONE place — handPoseFilter.ts, stepped once per hand
+ * inference by handRig.ts and read here via getSharedHandPose() — so every rig
+ * and the occluder ride the same filtered, span-locked pose (depth gets its own
+ * heavier filter; the palm span is median-locked; filters reset on
+ * re-acquisition). Between inferences each render frame extrapolates along the
+ * filtered velocity, capped at HAND_EXTRAPOLATE_MAX_MS.
  *
  * Also exports HandOccluder: a landmark-driven depth-only shell (spheres per
  * landmark + palm slab — ~500 tris, zero extra inference) using FaceOccluder's
  * exact material recipe, shrunk ~0.9× per the never-grow z-fight rule.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { detectHandsNow, getLatestHandFrame } from '../../lib/handRig';
+import { detectHandsNow, getSharedHandPose } from '../../lib/handRig';
 import { initializeHandLandmarker } from '../../lib/handTracking';
 import {
   anchorPointFor,
   forearmAxis,
   FOREARM_REACH_MAX_CM,
-  HAND_ANCHOR_MAP,
-  mirrorHandPose,
-  solveHandPose,
-  type HandPose,
+  handAnchorDef,
 } from '../../lib/handPose';
-import { OneEuroQuat, OneEuroVec3, type OneEuroConfig, type Quat, type Vec3 } from '../../lib/smoothing';
-import { medianOf } from '../../lib/faceRig';
+import { extrapolatePosition, HAND_HOLD_MS } from '../../lib/handPoseFilter';
+import type { Vec3 } from '../../lib/smoothing';
 import { HandMirrorContext, useHandMirror } from './handMirror';
 import {
   canMirrorAsset,
+  displayedHand,
   mirrorPlacement,
   type HandFit,
   type TrackedHand,
@@ -44,14 +41,23 @@ import {
 import type { AssetTemplate } from '../../lib/studio/assetTemplate';
 import type { AnchorConfig } from '../../types';
 
-const POS_XY: OneEuroConfig = { minCutoff: 1.5, beta: 0.5, dCutoff: 1.0 };
-const POS_Z: OneEuroConfig = { minCutoff: 0.6, beta: 0.15, dCutoff: 1.0 };
-const ROT: OneEuroConfig = { minCutoff: 2.0, beta: 1.2, dCutoff: 1.0 };
-
 /** Keep the last pose through brief misses; hands re-acquire constantly. */
-const HOLD_MS = 400;
-/** Frames of confident tracking before the palm span freezes. */
-const SPAN_LOCK_SAMPLES = 30;
+const HOLD_MS = HAND_HOLD_MS;
+
+/**
+ * The camera <video>, looked up once and cached while it stays in the document
+ * — not `getElementById` twice per render frame per rig. Re-queries only when
+ * the element is gone (unmounted/replaced) or the id changes.
+ */
+function useVideoLookup(videoId: string): () => HTMLVideoElement | null {
+  const ref = useRef<HTMLVideoElement | null>(null);
+  return useCallback(() => {
+    const cached = ref.current;
+    if (cached !== null && cached.isConnected && cached.id === videoId) return cached;
+    ref.current = document.getElementById(videoId) as HTMLVideoElement | null;
+    return ref.current;
+  }, [videoId]);
+}
 
 export interface HandRigProps {
   /** HAND_ANCHORS id — where the gear mounts on the hand. */
@@ -67,13 +73,18 @@ export interface HandRigProps {
    *  tracker). Published to descendants so a hand-modelled asset can flip
    *  itself — see ./handMirror.ts. */
   fit?: HandFit;
+  /** The piece's anchor calibration version (handPose HAND_ANCHORS_V2); absent
+   *  = v1, every saved scene. */
+  anchorVersion?: number;
   onVisibilityChange?: (visible: boolean) => void;
   children?: ReactNode;
 }
 
-export function HandRig({ anchor, videoId = 'booth-video', mirror = true, holdPose = false, fit = 'auto', onVisibilityChange, children }: HandRigProps) {
+export function HandRig({ anchor, videoId = 'booth-video', mirror = true, holdPose = false, fit = 'auto', anchorVersion, onVisibilityChange, children }: HandRigProps) {
   const groupRef = useRef<THREE.Group>(null);
-  const def = HAND_ANCHOR_MAP[anchor] ?? HAND_ANCHOR_MAP.grip;
+  // Memoised so `anchorRotation` below is not rebuilt every render (the map
+  // lookup it replaces returned a stable object; handAnchorDef does too).
+  const def = useMemo(() => handAnchorDef(anchor, anchorVersion), [anchor, anchorVersion]);
   // Which hand is in frame, as STATE rather than a ref: descendants re-render on
   // it. Written only when it CHANGES (the ref below is the per-frame value), so
   // a guest holding one hand up costs zero renders — swapping hands costs one.
@@ -81,29 +92,21 @@ export function HandRig({ anchor, videoId = 'booth-video', mirror = true, holdPo
   const trackedRef = useRef<TrackedHand>(null);
 
   const state = useRef({
-    posXY: new OneEuroVec3(POS_XY),
-    posZ: new OneEuroVec3(POS_Z),
-    rot: new OneEuroQuat(ROT),
-    lastMs: 0,
-    lastSeen: -Infinity,
     lastT: -1,
-    tracking: false,
     visible: false,
-    // Palm-span lock ring (medianOf reuses faceRig's zero-alloc helper).
-    spanRing: new Float32Array(SPAN_LOCK_SAMPLES),
-    spanScratch: new Float32Array(SPAN_LOCK_SAMPLES),
-    spanCount: 0,
-    lockedSpan: null as number | null,
-    aspect: 9 / 16,
+    // The anchor point (RAW frame, cm) and the rendered orientation (mirror
+    // and anchor rotation already applied) of the latest shared sample —
+    // recomputed once per inference, not per render frame.
+    anchor: [0, 0, 0] as Vec3,
+    quat: new THREE.Quaternion(),
   });
   const anchorRotation = useMemo(
     () => new THREE.Quaternion().setFromEuler(new THREE.Euler(def.rotation[0], def.rotation[1], def.rotation[2])),
     [def],
   );
+  const getVideo = useVideoLookup(videoId);
 
   const _pos: Vec3 = useMemo(() => [0, 0, 0], []);
-  const _quat: Quat = useMemo(() => [0, 0, 0, 1], []);
-  const _q = useMemo(() => new THREE.Quaternion(), []);
 
   // SELF-INITIALIZING tracking, exactly like FaceRig: the component that NEEDS
   // the landmarker owns starting it (idempotent — handTracking caches the init
@@ -123,65 +126,45 @@ export function HandRig({ anchor, videoId = 'booth-video', mirror = true, holdPo
     // Self-driven detection (the FaceRig idiom): detectHandsNow self-throttles
     // (66ms gate, face-inference lockout, idle back-off), so extra callers in
     // the same tick are near-free no-ops.
-    const vid = document.getElementById(videoId) as HTMLVideoElement | null;
+    const vid = getVideo();
     if (vid) detectHandsNow(vid);
     if (holdPose) {
       // g.position / g.quaternion / g.visible stay exactly where the last
-      // tracked frame left them, so the grabbed handle does not run away.
-      // tracking=false is deliberate: on release the One-Euro filters RESET
-      // instead of resuming with a dt spanning the whole drag, which would
-      // otherwise snap the piece across the frame in one step.
-      s.tracking = false;
+      // tracked frame left them, so the grabbed handle does not run away. The
+      // filters are SHARED (handRig.ts) and keep stepping on real samples, so
+      // release resumes from the current pose with no stale dt to snap across.
       return;
     }
-    const frame = getLatestHandFrame();
 
-    let pose: HandPose | null = null;
-    if (frame !== null && frame.t !== s.lastT && frame.hands.length > 0) {
-      s.lastT = frame.t;
-      const video = document.getElementById(videoId) as HTMLVideoElement | null;
-      if (video && video.videoWidth > 0 && video.videoHeight > 0) {
-        s.aspect = video.videoWidth / video.videoHeight;
+    // ONE filtered pose, shared with the occluder and every other hand piece
+    // (handPoseFilter.ts) — span lock, depth/rotation/landmark filters and the
+    // velocity all live there.
+    const shared = getSharedHandPose();
+    if (shared !== null && shared.t !== s.lastT) {
+      s.lastT = shared.t;
+      // Publish the hand the guest SEES: in the selfie view the rendered pose
+      // is the displayed (other) hand's frame, so the mesh mirror, placement
+      // mirror and beam emitter must all be decided against it.
+      const shown = displayedHand(shared.realHand, mirror);
+      if (trackedRef.current !== shown) {
+        trackedRef.current = shown;
+        setTracked(shown);
       }
-      const hand = frame.hands[0];
-      const realHand = frame.handedness[0] ?? 'Right';
-      pose = solveHandPose(hand.landmarks, hand.world, realHand, s.aspect, s.lockedSpan);
-      if (pose !== null) {
-        if (trackedRef.current !== realHand) {
-          trackedRef.current = realHand;
-          setTracked(realHand);
-        }
-        // Feed the span lock until it freezes.
-        if (s.lockedSpan === null && pose.palmSpanCm > 1) {
-          s.spanRing[s.spanCount % SPAN_LOCK_SAMPLES] = pose.palmSpanCm;
-          s.spanCount++;
-          if (s.spanCount >= SPAN_LOCK_SAMPLES) {
-            s.lockedSpan = medianOf(s.spanRing, SPAN_LOCK_SAMPLES, s.spanScratch);
-          }
-        }
-        const raw = mirror ? mirrorHandPose(pose) : pose;
-        const anchorPt = anchorPointFor(def, frame.hands[0].landmarks, pose, s.aspect);
-        const target: Vec3 = mirror ? [-anchorPt[0], anchorPt[1], anchorPt[2]] : anchorPt;
-        const dt = s.tracking ? Math.min(0.25, (now - s.lastMs) / 1000) : 0;
-        if (!s.tracking) {
-          s.posXY.reset();
-          s.posZ.reset();
-          s.rot.reset();
-        }
-        const xy = s.posXY.filter([target[0], target[1], 0], dt, _pos);
-        const z = s.posZ.filter([target[2], 0, 0], dt);
-        const q = s.rot.filter(raw.quaternion, dt, _quat);
-        g.position.set(xy[0], xy[1], z[0]);
-        _q.set(q[0], q[1], q[2], q[3]).multiply(anchorRotation);
-        g.quaternion.copy(_q);
-        s.lastMs = now;
-        s.lastSeen = now;
-        s.tracking = true;
-      }
+      const a = anchorPointFor(def, shared.landmarks, shared.pose, shared.aspect);
+      s.anchor[0] = a[0]; s.anchor[1] = a[1]; s.anchor[2] = a[2];
+      // mirrorHandPose's conjugation by diag(−1,1,1), inline (no allocation).
+      const q = shared.pose.quaternion;
+      s.quat.set(q[0], mirror ? -q[1] : q[1], mirror ? -q[2] : q[2], q[3]).multiply(anchorRotation);
     }
 
-    const visible = s.tracking && now - s.lastSeen < HOLD_MS;
-    if (!visible && now - s.lastSeen >= HOLD_MS) s.tracking = false;
+    const visible = shared !== null && now - shared.t < HOLD_MS;
+    if (visible) {
+      // Between ~15/s inferences, carry the piece along the filtered velocity
+      // (capped) instead of holding it — a moving hand no longer steps.
+      extrapolatePosition(s.anchor, shared.velocity, now - shared.t, _pos);
+      g.position.set(mirror ? -_pos[0] : _pos[0], _pos[1], _pos[2]);
+      g.quaternion.copy(s.quat);
+    }
     if (visible !== s.visible) {
       s.visible = visible;
       onVisibilityChange?.(visible);
@@ -310,7 +293,10 @@ export function HandOccluder({ videoId = 'booth-video', mirror = true }: { video
     }
     return arr;
   }, []);
-  const state = useRef({ lastT: -1, lastSeen: -Infinity, aspect: 9 / 16 });
+  const state = useRef({ lastT: -1 });
+  const getVideo = useVideoLookup(videoId);
+  const _off: Vec3 = useMemo(() => [0, 0, 0], []);
+  const ZERO: Vec3 = useMemo(() => [0, 0, 0], []);
 
   useFrame(() => {
     const g = groupRef.current;
@@ -318,22 +304,19 @@ export function HandOccluder({ videoId = 'booth-video', mirror = true }: { video
     const s = state.current;
     const now = performance.now();
     // Self-driven detection, same rationale as HandRig above.
-    const vid = document.getElementById(videoId) as HTMLVideoElement | null;
+    const vid = getVideo();
     if (vid) detectHandsNow(vid);
-    const frame = getLatestHandFrame();
-    if (frame !== null && frame.t !== s.lastT && frame.hands.length > 0) {
-      s.lastT = frame.t;
-      const video = document.getElementById(videoId) as HTMLVideoElement | null;
-      if (video && video.videoWidth > 0 && video.videoHeight > 0) {
-        s.aspect = video.videoWidth / video.videoHeight;
-      }
-      const hand = frame.hands[0];
-      const realHand = frame.handedness[0] ?? 'Right';
-      const pose = solveHandPose(hand.landmarks, hand.world, realHand, s.aspect, null);
-      if (pose !== null) {
-        s.lastSeen = now;
+    // The SAME filtered, span-locked pose the gear rides (handPoseFilter.ts).
+    // This shell used to solve its own, unfiltered and without the span lock,
+    // so it sat at a different depth and lag from the prop it wraps.
+    const shared = getSharedHandPose();
+    if (shared !== null && shared.t !== s.lastT) {
+      s.lastT = shared.t;
+      const pose = shared.pose;
+      const hand = { landmarks: shared.landmarks, world: shared.world };
+      {
         const halfH = Math.tan((63 * Math.PI) / 360) * pose.depthCm;
-        const halfW = halfH * s.aspect;
+        const halfW = halfH * shared.aspect;
         for (let i = 0; i < 21; i++) {
           const l = hand.landmarks[i];
           const nx = mirror ? 1 - l.x : l.x;
@@ -358,8 +341,8 @@ export function HandOccluder({ videoId = 'booth-video', mirror = true }: { video
         // frame and the slab overhung the real silhouette by ~1.1cm (a visible
         // gap between hand and prop), while edge-on it under-covered the palm's
         // depth by ~1.5cm and let a gripped prop poke through the fist.
-        const q = mirror ? mirrorHandPose(pose).quaternion : pose.quaternion;
-        palm.quaternion.set(q[0], q[1], q[2], q[3]);
+        const q = pose.quaternion;
+        palm.quaternion.set(q[0], mirror ? -q[1] : q[1], mirror ? -q[2] : q[2], q[3]);
 
         // Forearm beads, from the wrist elbow-ward. The axis comes from the
         // RAW pose and is mirrored here the same way the landmarks above are
@@ -378,7 +361,14 @@ export function HandOccluder({ videoId = 'booth-video', mirror = true }: { video
         }
       }
     }
-    g.visible = now - s.lastSeen < HOLD_MS;
+    const visible = shared !== null && now - shared.t < HOLD_MS;
+    if (visible) {
+      // Carry the whole shell along the same extrapolation the gear uses, so
+      // the two stay locked together between inferences.
+      extrapolatePosition(ZERO, shared.velocity, now - shared.t, _off);
+      g.position.set(mirror ? -_off[0] : _off[0], _off[1], _off[2]);
+    }
+    g.visible = visible;
   });
 
   return (

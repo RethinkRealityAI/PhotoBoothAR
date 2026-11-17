@@ -6,6 +6,7 @@
  */
 import type { OnboardingStep } from './events/types';
 import type { GuestLetteringStyle } from './lib/letteringFit';
+import type { FaceTrackingMode } from './lib/faceEngine/types';
 
 /** Categories of AR experience that can be authored in the studio. */
 export type ExperienceKind =
@@ -136,6 +137,24 @@ export interface ExperienceLayer {
    * whichever hand the tracker sees. Only meaningful beside `handAnchor`.
    */
   handFit?: string;
+  /**
+   * Living Face Paint (lib/facePaint/spec.ts FacePaintSpec): a procedural look
+   * painted onto the tracked 8th Wall face mesh. Stored as `unknown` and
+   * validated through `normalizeFacePaint` at every read (the untrusted-jsonb
+   * idiom). Present ⇒ the layer is a face-paint layer (procedural
+   * 'face-paint'); it FORCES the `config.layers` path like `customization`.
+   * Absent on every pre-existing layer.
+   */
+  facePaint?: unknown;
+  /**
+   * Anchor calibration version (lib/faceRig.ts ANCHOR_PRESETS_V2, and the v2
+   * hand grip in lib/handPose.ts). Only an exact `2` is honoured; ABSENT = v1
+   * FOREVER, which is every pre-existing layer and every frozen legacy event —
+   * so they render where they always did. Stamped only on new library /
+   * Power-Up adds. FORCES the `config.layers` path (the singular mirror has no
+   * slot for it).
+   */
+  anchorVersion?: number;
 }
 
 /**
@@ -231,6 +250,11 @@ export interface ExperienceConfig {
    *  Stored as-is (TriggerConfig[]) and validated through parseTriggers on load
    *  (src/lib/studio/triggers.ts). */
   triggers?: unknown;
+  /** Face-tracking engine for this filter ('mediapipe' | 'xr8' | 'hybrid').
+   *  Absent → the platform default (src/lib/faceEngine/engineSelect.ts), and
+   *  absent configs save byte-identically (no key written). Untrusted jsonb:
+   *  ALWAYS read through parseFaceTrackingMode, never trusted as typed. */
+  tracking?: FaceTrackingMode;
 }
 
 export interface Experience {

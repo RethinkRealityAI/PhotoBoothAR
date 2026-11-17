@@ -5,8 +5,10 @@
  * Named head attachment points + the shared head-pose math used by BOTH the
  * booth and the 3D studio editor, so "what you place is what guests see".
  *
- * Tracking engine: MediaPipe FaceLandmarker `facialTransformationMatrixes`
- * (full 4x4 head pose). The matrix is METRIC (centimetres), right-handed,
+ * Tracking engine: whichever FaceEngine src/lib/faceEngine runs (MediaPipe,
+ * 8th Wall, or both) — every engine hands over its pose in MediaPipe's
+ * `facialTransformationMatrixes` convention (full 4x4 head pose), so nothing
+ * below knows which one produced it. The matrix is METRIC (centimetres), right-handed,
  * +X = subject's left, +Y = up, +Z = toward the camera (nose points +Z), with
  * the origin at the face centre (behind the nose). The virtual camera sits at
  * the ORIGIN looking down −Z with a 63° vertical FOV — so we attach assets in
@@ -17,11 +19,10 @@
  * chin y≈−9.4). The studio's live preview is the final calibration surface.
  */
 import * as THREE from 'three';
-import type { FaceLandmarkerResult } from '@mediapipe/tasks-vision';
 import { HeadAnchor } from '../types';
-import { getFaceLandmarker } from './faceTracking';
 import { OneEuroVec3, OneEuroQuat, type OneEuroConfig, type Vec3, type Quat } from './smoothing';
-import { createDetectGate, shouldDetect, markDetected } from './faceDetectClock';
+import { faceInferenceMs, isFrameLockActive, isLegacyFaceSession, pollFaceEngine } from './faceEngine';
+import type { FaceKeypoints, FaceSample } from './faceEngine/types';
 
 export interface AnchorPreset {
   id: HeadAnchor;
@@ -50,6 +51,72 @@ export const ANCHOR_MAP: Record<HeadAnchor, AnchorPreset> = Object.fromEntries(
   ANCHOR_PRESETS.map((a) => [a.id, a]),
 ) as Record<HeadAnchor, AnchorPreset>;
 
+/**
+ * Re-measured anchors, used ONLY by a piece that stores `anchorVersion: 2`.
+ *
+ * Measured against the canonical face model (the Live reference by
+ * construction): v1's eyes sat 1.17cm off the iris centres (landmarks 473/468;
+ * canonical eye centre ±3.16, 2.63, ~3.5), v1's crown sits at the hairline
+ * (landmark 10) rather than on top of the skull (occluder skull top y 10.3),
+ * and v1's ears sit at tragus height where an earring hangs from the lobe
+ * (contour points 361/132 at y −2.89). Every other anchor is the v1 value.
+ *
+ * VERSIONED, never edited in place: v1 is what every saved scene and the three
+ * frozen legacy events were placed against, so changing it would move them.
+ * Absent version = v1 forever. New library/Power-Up adds stamp 2 and convert
+ * their authored v1 nudge with `migrateOffsetToV2`, so they render where they
+ * always did while their anchor (and any later re-anchor) is the measured one.
+ */
+const ANCHOR_V2_OFFSETS: Partial<Record<HeadAnchor, [number, number, number]>> = {
+  crown: [0, 10.3, -0.5],
+  leftEye: [3.16, 2.63, 3.5],
+  rightEye: [-3.16, 2.63, 3.5],
+  leftEar: [7.5, -2.9, -1.5],
+  rightEar: [-7.5, -2.9, -1.5],
+};
+
+export const ANCHOR_PRESETS_V2: AnchorPreset[] = ANCHOR_PRESETS.map((a) => {
+  const o = ANCHOR_V2_OFFSETS[a.id];
+  return o ? { ...a, offset: [o[0], o[1], o[2]] } : a;
+});
+
+/** The version new adds stamp. */
+export const ANCHOR_VERSION_LATEST = 2 as const;
+
+/** Untrusted jsonb → 2 or undefined. Only an exact 2 is kept: absent (and any
+ *  junk) is v1, which is what makes old rows render unchanged. */
+export function normalizeAnchorVersion(raw: unknown): 2 | undefined {
+  return raw === 2 ? 2 : undefined;
+}
+
+/** The head-space base (raw cm, before headScale) for an anchor at a version. */
+export function anchorOffset(id: HeadAnchor, version: unknown): [number, number, number] {
+  const v1 = ANCHOR_MAP[id]?.offset ?? [0, 0, 0];
+  const o = normalizeAnchorVersion(version) === 2 ? ANCHOR_V2_OFFSETS[id] ?? v1 : v1;
+  return [o[0], o[1], o[2]];
+}
+
+/**
+ * Convert a fine offset authored against the v1 anchor into the v2 offset that
+ * renders at the SAME point: offset' = offset + (v1 − v2) × headScale (the base
+ * is scaled by headScale — scaledAnchorBase — the fine offset is not).
+ */
+export function migrateOffsetToV2(
+  id: HeadAnchor,
+  offset: { x: number; y: number; z: number },
+  headScale = 1,
+): { x: number; y: number; z: number } {
+  const v2 = ANCHOR_V2_OFFSETS[id];
+  if (!v2) return { x: offset.x, y: offset.y, z: offset.z };
+  const v1 = ANCHOR_MAP[id].offset;
+  const hs = Number.isFinite(headScale) ? headScale : 1;
+  return {
+    x: offset.x + (v1[0] - v2[0]) * hs,
+    y: offset.y + (v1[1] - v2[1]) * hs,
+    z: offset.z + (v1[2] - v2[2]) * hs,
+  };
+}
+
 /** Camera config shared by booth + live editor: at the origin, looking −Z,
  *  63° vertical FOV to match MediaPipe's metric face-transform projection. */
 export const RIG_CAMERA = {
@@ -68,17 +135,15 @@ const _tPos = new THREE.Vector3();
 const _tQuat = new THREE.Quaternion();
 const _tScale = new THREE.Vector3();
 
-/** Monotonic timestamp guard — MediaPipe requires strictly increasing ts. */
-let _lastTs = 0;
-
 /**
  * Detection is shared across every rig and throttled to ~camera rate. R3F can
  * call useFrame at 60-120fps, but the camera only yields ~30 new frames/sec;
  * running the landmarker on every render wastes GPU and (worse) returns more
- * empty results, which used to blink the asset. We detect on an interval and
- * cache the latest RAW pose so every rig in the frame reuses one detection.
+ * empty results, which used to blink the asset. The active engine detects on
+ * an interval (MediaPipe: its 33ms DetectGate + monotonic-ts guard, now in
+ * faceEngine/mediapipeEngine.ts) and we cache the latest RAW pose so every rig
+ * in the frame reuses one detection.
  */
-const DETECT_INTERVAL_MS = 33;   // ~30 detections/sec (floor, not a schedule)
 /** Keep showing the last good pose through brief detection misses (fast motion,
  *  a blink, a hand passing by) instead of hard-hiding it every dropped frame. */
 const HOLD_MS = 500;
@@ -88,10 +153,10 @@ const _gQuat = new THREE.Quaternion();
 const _gScale = new THREE.Vector3(1, 1, 1);
 let _gSeen = 0;          // performance.now() of the last successful detection
 let _gHas = false;       // a face has been detected at least once
-/** Frame gate: rate limit PLUS "has the camera actually produced a new frame".
- *  A wall-clock-only throttle re-ran blocking inference on frames the camera had
- *  not replaced, and on a 60fps camera could only ever see half of them. */
-const _detectGate = createDetectGate();
+/** Bumped by resetFaceRig so every rig's own (legacy) filter state restarts too. */
+let _rigGen = 0;
+/** srcObject id of the stream the cached pose came from (undefined = none seen yet). */
+let _streamId: string | null | undefined;
 
 /**
  * Latest face blendshape scores (categoryName → score) + timestamp, consumed by
@@ -103,11 +168,11 @@ let _blendScores: Record<string, number> = {};
 let _blendT = 0;
 let _hasBlend = false;
 
-function stashBlendshapes(results: FaceLandmarkerResult | undefined, now: number): void {
-  const cats = results?.faceBlendshapes?.[0]?.categories;
-  const next: Record<string, number> = {};
-  if (cats) for (const c of cats) if (c.categoryName) next[c.categoryName] = c.score;
-  _blendScores = next;
+/** `null` = this sample carries no expression output → keep the previous stash
+ *  (8th Wall without blendshapes); `{}` = no face → clear it so nothing latches. */
+function stashBlendshapes(scores: Record<string, number> | null, now: number): void {
+  if (scores === null) return;
+  _blendScores = scores;
   _blendT = now;
   _hasBlend = true;
 }
@@ -129,26 +194,12 @@ export function getLatestBlendshapes(): { scores: Record<string, number>; t: num
  * only those are stashed, on detection frames, normalized image space, raw
  * and UNMIRRORED like everything else in this module.
  */
-interface FaceKeypointStash {
-  forehead: { x: number; y: number };
-  chin: { x: number; y: number };
-  leftEar: { x: number; y: number };
-  rightEar: { x: number; y: number };
-}
+type FaceKeypointStash = FaceKeypoints;
 let _faceKeypoints: FaceKeypointStash | null = null;
 
-function stashFaceKeypoints(results: FaceLandmarkerResult | undefined): void {
-  const lm = results?.faceLandmarks?.[0];
-  if (!lm || lm.length < 455) {
-    _faceKeypoints = null; // no face → the temple gesture must decay, not latch
-    return;
-  }
-  _faceKeypoints = {
-    forehead: { x: lm[10].x, y: lm[10].y },
-    chin: { x: lm[152].x, y: lm[152].y },
-    leftEar: { x: (lm[127].x + lm[234].x) / 2, y: (lm[127].y + lm[234].y) / 2 },
-    rightEar: { x: (lm[356].x + lm[454].x) / 2, y: (lm[356].y + lm[454].y) / 2 },
-  };
+/** null = no face → the temple gesture must decay, not latch. */
+function stashFaceKeypoints(kp: FaceKeypoints | null): void {
+  _faceKeypoints = kp;
 }
 
 /** Latest temple-gesture keypoints, or null while no face is tracked. */
@@ -157,9 +208,21 @@ export function getLatestFaceKeypoints(): FaceKeypointStash | null {
 }
 
 /** performance.now() of the last face inference. handRig reads this to avoid
- *  running two blocking CPU landmarkers on the same rAF tick. */
+ *  running two blocking CPU landmarkers on the same rAF tick. In hybrid it is
+ *  the later of the two engines' last inference. */
 export function lastFaceDetectMs(): number {
-  return _detectGate.lastDetectMs;
+  return faceInferenceMs();
+}
+
+/**
+ * Debug tap for the tracking readout (?trackdebug / ?faceEngine=): called with
+ * every NEW pose-engine sample, RAW (pre-One-Euro). null = off (the default),
+ * which costs one null check per detection.
+ */
+type RawPoseTap = (sample: FaceSample, pos: THREE.Vector3 | null, quat: THREE.Quaternion | null) => void;
+let _rawPoseTap: RawPoseTap | null = null;
+export function setRawPoseTap(tap: RawPoseTap | null): void {
+  _rawPoseTap = tap;
 }
 
 /** Tracked head distance from the camera in cm (positive), or null before the
@@ -242,14 +305,14 @@ export function getHeadFitEstimate(): HeadFitEstimate | null {
  * Drive the shared, throttled detection from a surface with NO FaceRig mounted
  * (e.g. the booth trigger loop for a scene that has triggers but no 3D piece).
  * When a FaceRig IS present its useFrame already runs this path via
- * updateHeadPose; the DETECT_INTERVAL_MS throttle + monotonic-ts guard are
- * module-level, so calling from both places still detects at most once per
- * interval. No-op until the landmarker is ready and the video has data.
+ * updateHeadPose; the engine's throttle (MediaPipe: 33ms gate + monotonic-ts
+ * guard) is module-level, so calling from both places still detects at most
+ * once per interval. No-op until the engine is ready (each engine's poll
+ * returns null before then) and the video has data.
  */
 export function detectFaceNow(video: HTMLVideoElement): void {
-  const fl = getFaceLandmarker();
-  if (!fl || !video || video.readyState < 2) return;
-  detectIfDue(fl, video, performance.now());
+  if (!video || video.readyState < 2) return;
+  detectIfDue(video, performance.now());
 }
 
 /**
@@ -267,6 +330,131 @@ interface SmoothState {
   quat: OneEuroQuat;
   scale: OneEuroVec3;
   lastMs: number; // performance.now() of the previous filter step, ms
+  gen: number;    // _rigGen when this state was last valid
+}
+
+/* ── Shared head-pose filter (platform) ─────────────────────────────────────
+ * The legacy path below filters PER RIG, EVERY RENDER FRAME, against a held
+ * target. That re-filters the same sample 2-4x between detections (a 120Hz
+ * display measured +21% jitter vs 60Hz, purely from the extra steps), and a
+ * piece mounted late starts from the RAW pose while its siblings are still
+ * lagging — two props on one head visibly disagree for ~half a second.
+ *
+ * Platform: ONE filter over the UNMIRRORED pose, stepped only when the engine
+ * hands over a NEW sample, with dt = the time between samples. Every rig reads
+ * the same output and mirrors it itself. Mirroring commutes with this filter
+ * (x-negation is linear and leaves speed unchanged; the quaternion reflection
+ * preserves dot products, so slerp commutes), so per-rig mirroring is exact.
+ * Legacy keeps its shipped per-rig filter byte-for-byte.
+ *
+ * FRAME-LOCKED: the image IS the analysed frame, so the raw sample is already
+ * registered with it — any smoothing lag now shows as the prop trailing its
+ * own frame. The filter is swapped for FRAMELOCK_* (see setFrameLockFilterProfile).
+ */
+export type FrameLockFilterProfile = 'standard' | 'light' | 'bypass';
+const FRAMELOCK_POS_LIGHT: OneEuroConfig = { minCutoff: 3.0, beta: 0.5, dCutoff: 1.0 };
+const FRAMELOCK_ROT_LIGHT: OneEuroConfig = { minCutoff: 3.0, beta: 2.0, dCutoff: 1.0 };
+/**
+ * 'bypass' BY MEASUREMENT (rollbar clip, two runs, software GL). Registration
+ * RMS of four head anchors against the frame on screen, frame-locked:
+ *   MediaPipe  standard 4.4-4.9px · light 1.7-2.3px · bypass 0.83-1.29px
+ *   8th Wall   standard 5.4-7.4px · light 2.7-3.8px · bypass 1.26-1.83px
+ * (unlocked, standard vs the live video: 6.6-7.5px / 10.2-21.3px). Bypass's
+ * price on a still face is +0.01-0.07px of anchor wobble. A still clip has no
+ * sensor noise, so the phone test confirms this: the readout's jitter IS
+ * the RAW pose, i.e. exactly what a bypassed rig shows. Revert = 'light'.
+ */
+let _lockProfile: FrameLockFilterProfile = 'bypass';
+/**
+ * Which filter a frame-locked surface uses (see above); exported so the check
+ * harness can A/B all three on one clip.
+ */
+export function setFrameLockFilterProfile(p: FrameLockFilterProfile): void {
+  if (p === _lockProfile) return;
+  _lockProfile = p;
+  _sf.cfgKey = ''; // rebuild on the next sample
+}
+export function getFrameLockFilterProfile(): FrameLockFilterProfile {
+  return _lockProfile;
+}
+
+const _sf = {
+  pos: new OneEuroVec3(POS_FILTER),
+  quat: new OneEuroQuat(ROT_FILTER),
+  scale: new OneEuroVec3(SCALE_FILTER),
+  lastT: Number.NaN,
+  cfgKey: 'standard',
+};
+const _sfPos = new THREE.Vector3();
+const _sfQuat = new THREE.Quaternion();
+const _sfScale = new THREE.Vector3(1, 1, 1);
+let _sfHas = false;
+
+/** Step the shared filter with the NEW raw sample in _gPos/_gQuat/_gScale, taken at `t`. */
+function stepSharedFilter(t: number, prevSeen: number, hadFace: boolean): void {
+  const key = isFrameLockActive() ? `lock:${_lockProfile}` : 'standard';
+  if (key !== _sf.cfgKey) {
+    _sf.cfgKey = key;
+    const lockOn = key !== 'standard';
+    const prof = _lockProfile;
+    _sf.pos = new OneEuroVec3(lockOn && prof === 'light' ? FRAMELOCK_POS_LIGHT : POS_FILTER);
+    _sf.quat = new OneEuroQuat(lockOn && prof === 'light' ? FRAMELOCK_ROT_LIGHT : ROT_FILTER);
+    _sf.scale = new OneEuroVec3(SCALE_FILTER);
+    _sfHas = false;
+  }
+  // A face lost for longer than the hold window snaps back in, never glides.
+  if (!hadFace || t - prevSeen > HOLD_MS) {
+    _sf.pos.reset();
+    _sf.quat.reset();
+    _sf.scale.reset();
+  }
+  const bypass = _sf.cfgKey === 'lock:bypass';
+  const dtSec = Math.min(Math.max(Number.isFinite(_sf.lastT) ? t - _sf.lastT : 0, 1), 100) / 1000;
+  _sf.lastT = t;
+  _fpIn[0] = _gPos.x; _fpIn[1] = _gPos.y; _fpIn[2] = _gPos.z;
+  _fqIn[0] = _gQuat.x; _fqIn[1] = _gQuat.y; _fqIn[2] = _gQuat.z; _fqIn[3] = _gQuat.w;
+  _fsIn[0] = _gScale.x; _fsIn[1] = _gScale.y; _fsIn[2] = _gScale.z;
+  if (bypass) {
+    _sfPos.copy(_gPos);
+    _sfQuat.copy(_gQuat);
+  } else {
+    _sf.pos.filter(_fpIn, dtSec, _fpOut);
+    _sf.quat.filter(_fqIn, dtSec, _fqOut);
+    _sfPos.set(_fpOut[0], _fpOut[1], _fpOut[2]);
+    _sfQuat.set(_fqOut[0], _fqOut[1], _fqOut[2], _fqOut[3]);
+  }
+  _sf.scale.filter(_fsIn, dtSec, _fsOut);
+  _sfScale.set(_fsOut[0], _fsOut[1], _fsOut[2]);
+  _sfHas = true;
+}
+
+/**
+ * Forget the tracked face: cached pose, every filter, keypoints, blendshapes
+ * (to "no face", so triggers decay), and the head-fit window. Called on a
+ * camera STREAM change (front↔back flip): the old camera's pose used to stay
+ * drawn over the new camera for up to HOLD_MS, mirrored the wrong way.
+ */
+export function resetFaceRig(): void {
+  _gHas = false;
+  _gSeen = 0;
+  _sfHas = false;
+  _sf.pos.reset();
+  _sf.quat.reset();
+  _sf.scale.reset();
+  _sf.lastT = Number.NaN;
+  _rigGen++;
+  _faceKeypoints = null;
+  if (_hasBlend) {
+    _blendScores = {};
+    _blendT = performance.now();
+  }
+  _fitCount = 0;
+  _fitWrite = 0;
+}
+
+function streamIdOf(video: HTMLVideoElement): string | null {
+  const so = (video as { srcObject?: unknown }).srcObject as { id?: unknown } | null | undefined;
+  return so && typeof so.id === 'string' ? so.id : null;
 }
 
 /* Scratch tuples shared across calls (one rig filters at a time). */
@@ -277,33 +465,36 @@ const _fqOut: Quat = [0, 0, 0, 1];
 const _fsIn: Vec3 = [1, 1, 1];
 const _fsOut: Vec3 = [1, 1, 1];
 
-/** Run the landmarker at most once per DETECT_INTERVAL_MS; cache the raw pose. */
-function detectIfDue(fl: ReturnType<typeof getFaceLandmarker>, video: HTMLVideoElement, now: number) {
-  if (!fl) return;
-  // video.currentTime is the frame identity; the gate skips a frame already
-  // analysed and has a watchdog so a stuck clock can never freeze tracking.
-  const videoTime = video.currentTime;
-  if (!shouldDetect(_detectGate, now, videoTime, { minIntervalMs: DETECT_INTERVAL_MS })) return;
-  markDetected(_detectGate, now, videoTime);
-  let results;
-  try {
-    const ts = Math.max(now, _lastTs + 1);
-    _lastTs = ts;
-    results = fl.detectForVideo(video, ts);
-  } catch {
-    return;
+/** Take the active engine's new samples (if any); cache the raw pose. */
+function detectIfDue(video: HTMLVideoElement, now: number) {
+  const sid = streamIdOf(video);
+  if (sid !== _streamId) {
+    if (_streamId !== undefined) resetFaceRig();
+    _streamId = sid;
   }
+  const p = pollFaceEngine(video, now);
+  // Hybrid: expressions come from MediaPipe's low-rate side path; its pose is
+  // discarded (8th Wall owns the pose there).
+  if (p.expr) stashBlendshapes(p.expr.blendshapes, p.expr.t);
+  const s = p.pose;
+  if (!s) return;
   // Refresh the trigger-engine blendshape stash on every detection frame (even
   // an empty/no-face result, so signals decay). Additive: pose consumers below
   // are untouched, so legacy events stay byte-identical.
-  stashBlendshapes(results, now);
-  stashFaceKeypoints(results);
-  const mats = results?.facialTransformationMatrixes;
-  if (!mats || mats.length === 0) return;
-  _mat.fromArray(mats[0].data);
+  if (p.poseHasExpr) stashBlendshapes(s.blendshapes, s.t);
+  stashFaceKeypoints(s.keypoints);
+  if (!s.matrix) {
+    _rawPoseTap?.(s, null, null);
+    return;
+  }
+  _mat.fromArray(s.matrix);
   _mat.decompose(_gPos, _gQuat, _gScale); // raw, un-mirrored
-  _gSeen = now;
+  const prevSeen = _gSeen;
+  const hadFace = _gHas;
+  _gSeen = s.t;
   _gHas = true;
+  if (!isLegacyFaceSession()) stepSharedFilter(s.t, prevSeen, hadFace);
+  _rawPoseTap?.(s, _gPos, _gQuat);
   // Feed the head-fit estimator on every detection frame (~30/s). Pure
   // bookkeeping — a module ring write with no effect on the pose consumers
   // below, so legacy/booth rendering is byte-identical whether or not any
@@ -330,14 +521,24 @@ export function updateHeadPose(
   video: HTMLVideoElement,
   mirror: boolean,
 ): boolean {
-  const fl = getFaceLandmarker();
   const now = performance.now();
 
   // Only run detection on a ready frame, but DON'T hard-hide when the frame is
   // briefly unavailable (e.g. the video stalls for a moment on resume) — the
-  // hold window below decides visibility so the asset doesn't blink.
-  if (fl && video && video.readyState >= 2) {
-    detectIfDue(fl, video, now);
+  // hold window below decides visibility so the asset doesn't blink. Engine
+  // readiness is checked inside each engine's poll (null until ready).
+  if (video && video.readyState >= 2) {
+    detectIfDue(video, now);
+  }
+
+  // Platform: every rig shows the ONE shared filtered pose (stepped per new
+  // sample in detectIfDue), mirrored for its own preview.
+  if (!isLegacyFaceSession()) {
+    if (!_gHas || !_sfHas || now - _gSeen > HOLD_MS) return false;
+    group.position.set(mirror ? -_sfPos.x : _sfPos.x, _sfPos.y, _sfPos.z);
+    group.quaternion.set(_sfQuat.x, mirror ? -_sfQuat.y : _sfQuat.y, mirror ? -_sfQuat.z : _sfQuat.z, _sfQuat.w);
+    group.scale.copy(_sfScale);
+    return true;
   }
 
   // Never seen a face, or lost it for longer than the hold window → hide + reset
@@ -368,8 +569,16 @@ export function updateHeadPose(
     quat: new OneEuroQuat(ROT_FILTER),
     scale: new OneEuroVec3(SCALE_FILTER),
     lastMs: 0,
+    gen: _rigGen,
   };
   group.userData._smooth = s;
+  if (s.gen !== _rigGen) {
+    // resetFaceRig() since this rig last filtered: snap, never glide from the old camera.
+    s.pos.reset();
+    s.quat.reset();
+    s.scale.reset();
+    s.gen = _rigGen;
+  }
 
   // Frame-rate-independent step: real elapsed time since this rig's last
   // filter pass, clamped to [1ms, 100ms] (coarsened timers can repeat a value;

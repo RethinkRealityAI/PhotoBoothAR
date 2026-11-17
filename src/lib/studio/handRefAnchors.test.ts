@@ -375,3 +375,15 @@ describe('the vendored open-hand mannequin', () => {
     expect(Math.abs(grip[2])).toBeLessThan(4);
   });
 });
+
+describe('v2 grip on the orbit mannequin (anchorVersion: 2)', () => {
+  it('the v2 grip MOUNT POINT equals v1 (only its rotation changes); every other mount is unchanged', async () => {
+    const { HAND_ANCHORS_V2 } = await import('../handPose');
+    const v1 = handRefAnchors();
+    const v2 = handRefAnchors(undefined, HAND_ANCHORS_V2);
+    expect(v2.grip[0]).toBeCloseTo(v1.grip[0], 9);
+    expect(v2.grip[1]).toBeCloseTo(v1.grip[1], 9);
+    expect(v2.grip[2]).toBeCloseTo(v1.grip[2], 9);
+    for (const id of ['wristBack', 'palm', 'forearm']) expect(v2[id]).toEqual(v1[id]);
+  });
+});

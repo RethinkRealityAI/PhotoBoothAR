@@ -14,7 +14,7 @@
  * instructional caption, no separate tracker pill and no pause control — the
  * stage is for looking at the artwork, and tracking never stops.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { motion } from 'motion/react';
 import { Axis3d, Boxes, Camera, Eye, Layers, Smartphone, Sparkles, AlertTriangle } from 'lucide-react';
 import { ShaderRunner } from '../../lib/shaders';
@@ -29,12 +29,14 @@ import TriggerEffects, { type TriggerEffectsHandle } from '../booth/TriggerEffec
 import { createTriggerEngine, hasHandSource, isHandSource, mergeDetectionScores, revealTargetIdsOf, isLayerVisible, TRIGGER_SOURCE_LABELS, BEAM_STYLE_LABELS, ANIMATE_PRESET_LABELS, type TriggerEvent } from '../../lib/studio/triggers';
 import { getLatestBlendshapes, detectFaceNow } from '../../lib/faceRig';
 import { detectHandsNow, getLatestHandFrame, resetHandRig } from '../../lib/handRig';
-import { initializeHandLandmarker } from '../../lib/handTracking';
+import { getHandTrackerError, initializeHandLandmarker } from '../../lib/handTracking';
 import { makeBeamSpec } from '../../lib/studio/beam';
-import { emitFx } from '../../lib/studio/fxBus';
+import { emitFx, subscribeTriggerTest } from '../../lib/studio/fxBus';
 import { objectToPiece, STUDIO_SAMPLE_GUEST_NAME } from '../../lib/studio/draftMapping';
 import type { LightingPresetId } from '../../lib/studio/lighting';
-import { initializeFaceLandmarker, isFaceLandmarkerReady } from '../../lib/faceTracking';
+import {
+  getActiveFaceEngineInfo, initFaceEngine, resolveSurfaceFaceMode, setFaceTrackingMode, subscribeFaceEngine,
+} from '../../lib/faceEngine';
 import { REVEAL_SHIMMER_MS } from '../../lib/studio/reveal';
 import { stageStatus, STAGE_STATUS_DOT_CLASS, STAGE_STATUS_TONE_CLASS, type StageStatus } from '../../lib/studio/stageStatus';
 import { OVERLAY_SCALE, clampToSpec } from '../../lib/studio/controlSpecs';
@@ -269,21 +271,28 @@ export default function StudioStage({
   // below never claims a live tracker that isn't.
   // Gated on the CAMERA, not on triggers: the single status chip reports tracker
   // readiness in every tracked view, so readiness must be known even in a scene
-  // with no triggers. Init is idempotent (faceTracking caches the promise) and
-  // FaceRig self-initialises anyway.
-  const [trackerLoaded, setTrackerLoaded] = useState(isFaceLandmarkerReady);
+  // with no triggers. Init is idempotent (the face-engine manager caches its
+  // engines) and FaceRig self-initialises anyway.
+  // The studio previews with the SAME engine guests will get for this draft
+  // (its config.tracking, else the platform default + auto-hybrid on face
+  // triggers) — "what you place is what guests see".
+  // A visible face-paint layer needs the 8th Wall face mesh (engineSelect).
+  const hasFacePaint = draft.objects.some((o) => o.type !== 'overlay' && o.facePaint !== undefined && o.hidden !== true);
+  const faceMode = useMemo(
+    () => resolveSurfaceFaceMode({ config: draft.tracking, triggers, facePaint: hasFacePaint }).mode,
+    [draft.tracking, triggers, hasFacePaint],
+  );
+  useEffect(() => { setFaceTrackingMode(faceMode); }, [faceMode]);
+  // Readiness comes from the manager. It stays true across trigger-set edits
+  // (the old interval version once flashed "Loading face tracker…" over a live
+  // tracker); it goes false ONLY while a different engine loads, and returns
+  // true after an automatic 8th Wall → MediaPipe fallback.
+  const faceInfo = useSyncExternalStore(subscribeFaceEngine, getActiveFaceEngineInfo, getActiveFaceEngineInfo);
+  const trackerLoaded = faceInfo.ready;
   useEffect(() => {
-    if (!cam.ready || trackerLoaded) return;
-    void initializeFaceLandmarker();
-    if (isFaceLandmarkerReady()) { setTrackerLoaded(true); return; }
-    const id = window.setInterval(() => {
-      if (isFaceLandmarkerReady()) { setTrackerLoaded(true); window.clearInterval(id); }
-    }, 400);
-    // Readiness is MONOTONIC — once the landmarker is loaded it stays loaded, so
-    // this must never reset to false on cleanup (the old version did, and a
-    // trigger-set change flashed "Loading face tracker…" over a live tracker).
-    return () => window.clearInterval(id);
-  }, [cam.ready, trackerLoaded]);
+    if (!cam.ready) return;
+    initFaceEngine().catch((e) => console.warn('[StudioStage] face tracker init failed', e));
+  }, [cam.ready]);
 
   const triggerFxRef = useRef<TriggerEffectsHandle>(null);
 
@@ -407,6 +416,12 @@ export default function StudioStage({
   }, [mode, draft.objects, showToast, showGesture, startPulse, revealTargetIds, revealedIds]);
   const handlerRef = useRef(handleTriggerEvent);
   useEffect(() => { handlerRef.current = handleTriggerEvent; }, [handleTriggerEvent]);
+  // The Properties dock's ▶ Test button (shown only while a stage listens) runs
+  // a trigger's action through the SAME handler a real detection fires.
+  useEffect(
+    () => subscribeTriggerTest((r) => handlerRef.current({ configId: 'test', source: r.source, action: r.action, t: performance.now() })),
+    [],
+  );
 
   // Detection + engine loop — mounted only while the tracker is live AND the
   // scene carries triggers. Drives detection itself (detectFaceNow self-throttles
@@ -424,9 +439,17 @@ export default function StudioStage({
       draft.objects.some((o) => o.type !== 'overlay' && isHandObject(o)),
     [triggers, draft.objects],
   );
+  // The hand tracker FAILED to start: the chip says so rather than "No hand yet".
+  const [handTrackerFailed, setHandTrackerFailed] = useState(() => getHandTrackerError() !== null);
   useEffect(() => {
     if (!needsHands) return;
-    initializeHandLandmarker().catch((e) => console.warn('[StudioStage] hand tracker init failed', e));
+    initializeHandLandmarker().then(
+      () => setHandTrackerFailed(false),
+      (e) => {
+        console.warn('[StudioStage] hand tracker init failed', e);
+        setHandTrackerFailed(getHandTrackerError() !== null);
+      },
+    );
     return () => resetHandRig();
   }, [needsHands]);
 
@@ -492,7 +515,11 @@ export default function StudioStage({
     objects3d.length > 0 &&
     objects3d.every(isHandObject) &&
     !triggers.some((t) => !isHandSource(t.source));
-  const status = stageStatus({
+  // A tracker that cannot start (or did not within the init deadline) says
+  // so instead of "Loading tracker" forever. Kept short: the chip's band is narrow.
+  const status = trackerNeeded && !handOnlyScene && faceInfo.failed && cam.error === null && triggerToast === null
+    ? FACE_TRACKER_FAILED_STATUS
+    : stageStatus({
     camError: cam.error,
     camReady: cam.ready,
     trackerNeeded,
@@ -503,6 +530,10 @@ export default function StudioStage({
     faceNeeded: !handOnlyScene,
     handNeeded: trackerNeeded && needsHands,
     handVisible,
+    handUnavailable: handTrackerFailed,
+    // Face paint draws only on the 8th Wall mesh; after a fallback it hides.
+    // (Not during a hybrid warm-up, where MediaPipe stands in until 8th Wall is up.)
+    paintUnavailable: hasFacePaint && faceInfo.active === 'mediapipe' && (faceInfo.fellBack || faceInfo.requested === 'mediapipe'),
   });
 
   return (
@@ -574,7 +605,7 @@ export default function StudioStage({
                     disabled={disabled}
                     aria-pressed={active}
                     data-testid={`studio-mode-${t.id}`}
-                    className="relative flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="relative flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 pointer-coarse:min-h-11 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {active && (
                       <motion.span
@@ -840,6 +871,9 @@ function RefusalNotice({ refusal }: { refusal: { message: string; at: number } |
  * saying, which is most of the time — replacing a permanent instructional
  * caption, a trigger-testing chip and a separate centred tracker-loading pill.
  */
+/** The face engine could not start (or missed its init deadline) — see faceEngine TRACKER_INIT_DEADLINE_MS. */
+const FACE_TRACKER_FAILED_STATUS: StageStatus = { tone: 'error', text: 'Tracker unavailable', live: false };
+
 function StageStatusChip({ status }: { status: StageStatus | null }) {
   if (!status) return null;
   return (

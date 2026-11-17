@@ -101,6 +101,7 @@ export default function StudioPreview({ videoRef, draft, headScale, occlusionEna
           mirror
           overlays={hasOverlays ? overlaySpecs : null}
           threeCanvasId={has3D ? 'booth-3d-layer' : null}
+          frameLock={has3D}
           active
           watermark={false}
         />
@@ -117,6 +118,9 @@ export default function StudioPreview({ videoRef, draft, headScale, occlusionEna
               reveal={reveal}
               lightingPreset={lightingPreset}
               powerFx={powerFx}
+              // StageCanvas composites this canvas (has3D ⇒ threeCanvasId):
+              // show it once, in the capture's layer order.
+              composited
             />
           </div>
         )}

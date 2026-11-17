@@ -12,7 +12,7 @@
  */
 
 export interface AddOnDef {
-  id: 'power-fx' | 'name-jewelry';
+  id: 'power-fx' | 'name-jewelry' | 'face-paint';
   name: string;
   blurb: string;
   /** lucide-react icon name, resolved by the dock. */
@@ -34,5 +34,12 @@ export const ADD_ONS: readonly AddOnDef[] = [
     blurb: 'A necklace, earrings or floating text built from a name',
     icon: 'Gem',
     swatch: ['#d4a017', '#e8e2d6'],
+  },
+  {
+    id: 'face-paint',
+    name: 'Face Paint',
+    blurb: 'Living paint that moves with every smile — or your logo on a cheek',
+    icon: 'Palette',
+    swatch: ['#f2851f', '#e0409a'],
   },
 ];
