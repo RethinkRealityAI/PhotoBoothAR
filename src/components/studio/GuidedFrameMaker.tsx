@@ -35,6 +35,7 @@ import {
   composePresetPrompt,
   defaultPresetFor,
   eventPalette,
+  eventPaletteGreenNote,
   framePresetById,
   providerForPreset,
   type FramePalette,
@@ -216,6 +217,7 @@ export default function GuidedFrameMaker({
   const presetId = presetPick ?? defaultPresetFor(ev?.eventType, ev?.occasion);
   const preset = framePresetById(presetId) ?? FRAME_PRESETS[0];
   const evPal = eventPalette(ev?.accentHexes);
+  const greenNote = eventPaletteGreenNote(ev?.accentHexes);
   const palettes: FramePalette[] = evPal ? [evPal, ...FRAME_PALETTES] : [...FRAME_PALETTES];
   const palette = palettes.find((p) => p.id === (palettePick ?? palettes[0].id)) ?? palettes[0];
   const title = titleEdit ?? ev?.name ?? '';
@@ -235,7 +237,7 @@ export default function GuidedFrameMaker({
   const upgradeNote = (
     <p className="font-sans text-[13px] text-brand-fg leading-snug">
       {FREE_FRAMES_USED_COPY}{' '}
-      <a href="/host/billing" target="_blank" rel="noopener" className="underline text-accent-2">See upgrade options</a>
+      <a href="/host/billing" target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center align-middle underline text-accent-2">See upgrade options</a>
     </p>
   );
   const higgsfieldTip =
@@ -257,6 +259,8 @@ export default function GuidedFrameMaker({
           ...(platform ? { name: aiFrameName(preset.label) } : {}),
         });
         onSpent?.();
+        // The recovered frame used a free slot too — re-count it.
+        setFreeCheck((n) => n + 1);
         setPhase({
           kind: 'results',
           run: { takes: [{ experience: p.experience, keyed: p.keyed, quality: p.quality }], job: r.job, autoRetried: false, retryFree: false, retryUnavailable: false },
@@ -650,6 +654,12 @@ export default function GuidedFrameMaker({
             </button>
           ))}
         </div>
+        {/* Platform only: a green event colour is dropped by the cut-out key
+            (no "Your colours" chip, or one without the green) — say so
+            instead of leaving the host to wonder where their colour went. */}
+        {platform && greenNote !== null && (evPal === null || palette.id === 'event') && (
+          <p className="font-sans text-[12px] text-brand-muted leading-snug">{greenNote}</p>
+        )}
       </fieldset>
 
       <label className="flex flex-col gap-1.5">

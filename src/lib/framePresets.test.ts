@@ -11,6 +11,7 @@ import {
   FRAME_PALETTES,
   framePaletteById,
   eventPalette,
+  eventPaletteGreenNote,
 } from './framePresets';
 import { FRAME_LAYOUT_SPEC, buildGreenScreenFramePrompt, inferFrameLayout, isGreenFamily } from './assetPrompt';
 
@@ -176,5 +177,23 @@ describe('palette swatches', () => {
     expect(eventPalette(['#C9A24B', '#00FF00', 'oops', '#1E1A22'])?.hexes).toEqual(['#C9A24B', '#1E1A22']);
     expect(eventPalette([])).toBe(null);
     expect(eventPalette(undefined)).toBe(null);
+  });
+
+  it('eventPaletteGreenNote says so when a green was dropped, and only then', () => {
+    // Nothing green → no note.
+    expect(eventPaletteGreenNote(['#C9A24B', '#1E1A22'])).toBe(null);
+    expect(eventPaletteGreenNote([])).toBe(null);
+    expect(eventPaletteGreenNote(undefined)).toBe(null);
+    // A green beside other colours → the frame uses the others.
+    expect(eventPaletteGreenNote(['#2E8B57', '#C9A24B'])).toBe(
+      'Green is used to cut the photo window, so this frame uses your other colours.',
+    );
+    // Only green → no "Your colours" swatch at all; say why.
+    expect(eventPalette(['#2E8B57'])).toBe(null);
+    expect(eventPaletteGreenNote(['#2E8B57'])).toMatch(/^Green is used to cut the photo window, so your colour can’t go in this frame/);
+    // A green past the 3-colour cap was never going to be used → no note.
+    expect(eventPaletteGreenNote(['#C9A24B', '#1E1A22', '#FBF7EF', '#00FF00'])).toBe(null);
+    // Invalid entries are skipped, as eventPalette skips them.
+    expect(eventPaletteGreenNote(['oops', '#00FF00', '#C9A24B'])).not.toBe(null);
   });
 });

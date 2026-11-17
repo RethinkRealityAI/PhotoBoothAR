@@ -60,7 +60,9 @@ export default function GuestWelcome() {
       // returned later had no route to their own photos from the hub at all.
       to: `${basePath}/me`,
       icon: Album,
-      title: 'My Photos & Videos',
+      // Same capability as the booth sentence below: a photos-only plan must
+      // not promise videos (legacy resolves video on → the old title).
+      title: videoEnabled ? 'My Photos & Videos' : 'My Photos',
       blurb: 'Everything you’ve taken here — save it, share it, or send more.',
     },
     {

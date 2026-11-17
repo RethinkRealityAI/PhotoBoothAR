@@ -746,7 +746,7 @@ export default function Library({
         {platform ? `Your own (${dbExps.length})` : `Custom Experiences (${dbExps.length})`}
       </h2>
       {platform && (
-        <p className={blurbClass}>Frames you made with AI or brought in. Switch each one on or off for guests.</p>
+        <p className={blurbClass}>Looks added just for this event — frames and 3D props you made with AI, ones the assistant added, and files you brought in. Switch each one on or off for guests.</p>
       )}
       {loading ? skeleton(6, 'h-64') : dbExps.length === 0 ? (
         platform ? (

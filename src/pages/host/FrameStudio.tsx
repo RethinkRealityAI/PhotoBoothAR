@@ -252,6 +252,9 @@ export default function FrameStudio({
             onUse={useAsFrame}
             useLabel="Use as booth frame"
             onDescribeYourself={() => setMode('describe')}
+            // The header's "N free left" is THIS component's count; a guided
+            // generation spent a free slot it never re-counted.
+            onSpent={() => setFreeCheck((n) => n + 1)}
           />
           {phase.kind === 'error' && (
             <p role="alert" className="font-sans text-[12px] text-red-400 leading-snug">{phase.message}</p>
@@ -384,7 +387,7 @@ export default function FrameStudio({
           {outOfFree && phase.kind !== 'generating' && (
             <p className="font-sans text-[12px] text-brand-fg leading-snug">
               {FREE_FRAMES_USED_COPY}{' '}
-              <Link to="/host/billing" className="text-accent-2 underline">See upgrade options</Link>
+              <Link to="/host/billing" className="inline-flex min-h-[44px] items-center align-middle text-accent-2 underline">See upgrade options</Link>
             </p>
           )}
           {!outOfFree && (phase.kind === 'idle' || phase.kind === 'generating' || phase.kind === 'error') && (

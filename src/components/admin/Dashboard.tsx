@@ -24,6 +24,7 @@ import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from './studioBase';
 import { useStudioAccess } from './studioAccess';
 import { copyText } from '../../lib/clipboard';
+import { useEntitlements } from '../../lib/entitlements';
 
 interface Stats {
   published: number;
@@ -326,6 +327,7 @@ export default function Dashboard({
   // any host who has it see the creator cards exactly as before.
   const { studio } = useStudioAccess();
   const { basePath, eventUuid, status, config } = useEvent();
+  const { videoEnabled } = useEntitlements();
   const { stats, loading, reload } = useStats();
   const [going, setGoing] = useState(false);
   const [justLive, setJustLive] = useState(false);
@@ -387,9 +389,12 @@ export default function Dashboard({
     { label: 'Published', value: stats?.published ?? '—', sub: platformStudio ? 'looks on for guests' : 'experiences live' },
     { label: 'Wall Posts', value: stats?.posts ?? '—', sub: 'on the wall' },
     { label: 'Photos', value: stats?.images ?? '—', sub: 'images captured' },
-    { label: 'Videos', value: stats?.videos ?? '—', sub: 'video clips' },
+    // Same video capability the guest welcome sentence reads: a photos-only
+    // plan shows no Videos tile (legacy resolves video on → unchanged).
+    ...(videoEnabled || !platformStudio ? [{ label: 'Videos', value: stats?.videos ?? '—', sub: 'video clips' }] : []),
     { label: platformStudio ? 'Your looks' : 'Total Exps', value: stats?.total ?? '—', sub: platformStudio ? 'made or added' : 'in studio' },
   ];
+  const statGrid = statItems.length === 4 ? 'grid grid-cols-2 sm:grid-cols-4 gap-3' : 'grid grid-cols-3 sm:grid-cols-5 gap-3';
 
   return (
     <div className="absolute inset-0 overflow-y-auto hide-scrollbar">
@@ -439,7 +444,7 @@ export default function Dashboard({
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+          <div className={statGrid}>
             {statItems.map((s) => (
               <div key={s.label} className="glass-strong rounded-2xl border border-gold-400/15 p-4 text-center">
                 <p className="font-serif text-3xl font-semibold text-foil-static leading-none mb-1">

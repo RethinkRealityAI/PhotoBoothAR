@@ -205,3 +205,19 @@ export function eventPalette(accentHexes: readonly string[] | null | undefined):
   const hexes = (accentHexes ?? []).filter((h) => /^#[0-9a-fA-F]{6}$/.test(h) && !isGreenFamily(h)).slice(0, 3);
   return hexes.length > 0 ? { id: 'event', label: 'Your colours', hexes, words: '' } : null;
 }
+
+/**
+ * The honest line for a host whose colours lost a green to the cut-out key
+ * (eventPalette above and the server's framePalette both drop green-family
+ * hexes: green is the chroma key, so green art would be punched out). Null
+ * when nothing was dropped — including a green that sat past the first three
+ * usable colours, which the 3-colour cap would never have used anyway.
+ * The keying itself is unchanged; this only says what it did.
+ */
+export function eventPaletteGreenNote(accentHexes: readonly string[] | null | undefined): string | null {
+  const valid = (accentHexes ?? []).filter((h) => typeof h === 'string' && /^#[0-9a-fA-F]{6}$/.test(h));
+  if (!valid.slice(0, 3).some((h) => isGreenFamily(h))) return null;
+  return eventPalette(accentHexes) !== null
+    ? 'Green is used to cut the photo window, so this frame uses your other colours.'
+    : 'Green is used to cut the photo window, so your colour can’t go in this frame — pick one of these colours instead.';
+}
