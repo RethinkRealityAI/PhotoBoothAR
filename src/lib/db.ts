@@ -125,6 +125,28 @@ export async function deleteExperience(eventId: string, id: string): Promise<boo
 /* Global catalog (Beamwall-curated experiences linkable into events)  */
 /* ------------------------------------------------------------------ */
 
+/** The shared library AND this event's links in one read, keeping "the read
+ *  failed" apart from "the library is empty" — the looks picker hides an
+ *  empty library on the create screen, so a failed read must not look like
+ *  one. Same query as fetchGlobalExperiences + fetchCatalogLinks. */
+export async function fetchLibraryForEventResult(
+  eventId: string,
+): Promise<{ rows: Experience[]; linkedIds: string[]; failed: boolean }> {
+  const [g, l] = await Promise.all([
+    supabase.from('experiences').select('*').eq('is_global', true).eq('is_published', true).order('sort_order'),
+    supabase.from('event_catalog_links').select('experience_id').eq('event_id', eventId),
+  ]);
+  if (g.error || l.error) {
+    console.error('[db] fetchLibraryForEventResult', g.error ?? l.error);
+    return { rows: [], linkedIds: [], failed: true };
+  }
+  return {
+    rows: (g.data as Experience[]) ?? [],
+    linkedIds: ((l.data as { experience_id: string }[]) ?? []).map((r) => r.experience_id),
+    failed: false,
+  };
+}
+
 /** All published global catalog experiences (for the Library picker). */
 export async function fetchGlobalExperiences(): Promise<Experience[]> {
   const { data, error } = await supabase

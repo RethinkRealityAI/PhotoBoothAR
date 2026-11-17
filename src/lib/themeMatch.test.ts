@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FILTER_LOOKS, effectiveDefaultFrame, followAccentFramePalette, hueAffinity, looksConfigPatch, rankLooks, seededLooks, selectionFromConfig } from './themeMatch';
+import { FILTER_LOOKS, accentHexesFor, effectiveDefaultFrame, followAccentFramePalette, hueAffinity, looksConfigPatch, rankLooks, seededLooks, selectionFromConfig } from './themeMatch';
 import { GENERIC_FRAMES } from './borders';
 import { FILTER_SHADERS } from './shaders';
 import { EVENT_TEMPLATES, templateById } from './eventTemplates';
@@ -165,5 +165,33 @@ describe('effectiveDefaultFrame', () => {
 
   it('no frames selected → null', () => {
     expect(effectiveDefaultFrame(sel(null, []), undefined)).toBeNull();
+  });
+});
+
+describe('accentHexesFor', () => {
+  const tpl = ['#D4AF37', '#E8C766', '#FBF3D9', '#B8860B'];
+
+  it('puts the chosen colour first and keeps the palette length', () => {
+    expect(accentHexesFor('#c0392b', tpl)).toEqual(['#C0392B', '#D4AF37', '#E8C766', '#FBF3D9']);
+  });
+
+  it('adds a second colour right after the first', () => {
+    expect(accentHexesFor('#C0392B', tpl, '#1E8449')).toEqual(['#C0392B', '#1E8449', '#D4AF37', '#E8C766']);
+  });
+
+  it('moves an existing colour to the front instead of repeating it (any case)', () => {
+    expect(accentHexesFor('#e8c766', tpl)).toEqual(['#E8C766', '#D4AF37', '#FBF3D9', '#B8860B']);
+  });
+
+  it('an invalid accent keeps the existing palette, cleaned', () => {
+    expect(accentHexesFor('red', ['#d4af37', 'nope', 3, '#D4AF37'])).toEqual(['#D4AF37']);
+    expect(accentHexesFor(null, undefined)).toEqual([]);
+    expect(accentHexesFor('#C0392B', 'not-a-list')).toEqual(['#C0392B']);
+  });
+
+  it('never mutates its input', () => {
+    const copy = [...tpl];
+    accentHexesFor('#C0392B', tpl, '#1E8449');
+    expect(tpl).toEqual(copy);
   });
 });

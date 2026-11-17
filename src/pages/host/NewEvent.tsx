@@ -20,7 +20,7 @@ import { createEvent, updateEventConfig, goLive as takeEventLive, fetchEventStat
 import { useToast } from '../../components/ui/Toast';
 import { accentThemePatch, EVENT_TEMPLATES, paletteThemePatch, templateById, templateConfigPatch } from '../../lib/eventTemplates';
 import { deriveTheme, type ExtractedPalette } from '../../lib/themeDerive';
-import { seededLooks } from '../../lib/themeMatch';
+import { accentHexesFor, seededLooks } from '../../lib/themeMatch';
 import { humanDate } from '../../lib/eventList';
 import { lockedReason, resolveFeatures } from '../../lib/features';
 import { uploadAsset } from '../../lib/db';
@@ -477,6 +477,9 @@ export default function NewEvent() {
       // second used to be dropped on the floor.
       const accent2 = palette?.accent2 ?? (brief?.palette ? secondAccentFromPalette(brief.palette) : null);
       patch.arContent = seededLooks(template, effectiveAccent, accent2).arContent;
+      // The chosen colour leads the palette other readers take (booth accent,
+      // send-off confetti, AI frame fallback) — not only the theme tokens.
+      if (effectiveAccent) patch.accentHexes = accentHexesFor(effectiveAccent, template.accentHexes, accent2);
       if (venue) patch.copy = { ...(patch.copy as Record<string, unknown>), venue };
       // The concierge's brief rides in config so the copilot, the Scene
       // Director and the copy generator all start from the same facts.
@@ -638,6 +641,16 @@ export default function NewEvent() {
           eventType={template.id}
           accentHex={effectiveAccent}
           onSaved={(c) => { setCreatedConfig(c); void reloadBuild(); }}
+          library={{
+            eventSlug: created.slug,
+            occasion: created.event_type,
+            text: [created.name, brief?.occasion, brief?.tone, brief?.notes]
+              .filter((s): s is string => typeof s === 'string' && s !== '')
+              .join(' · '),
+            // The bare YYYY-MM-DD the host typed beats the UTC timestamp.
+            date: date !== '' ? date : created.starts_at ?? null,
+            hideWhenEmpty: true,
+          }}
         />
 
         {/* 4 · Hand over the link (secondary to Go live above). */}

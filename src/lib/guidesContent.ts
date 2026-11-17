@@ -622,7 +622,7 @@ const MAKE_A_FRAME: GuideDoc = {
       steps: [
         {
           title: 'Pick a ready-made one',
-          body: 'Open your event and go to the Frames & filters tab. At the top, Pick your frames & filters shows the frames that come with every event: tap one to switch it on or off for guests, press Open with this on the one the booth should start with, and Save. Further down, Recommended for your event and the ready-made library add more — press Add to booth on any of them. Nothing to design, nothing to upload. This is the two-minute route.',
+          body: 'Open your event and go to the Frames & filters tab. At the top, Pick your frames & filters shows the frames that come with every event: tap one to switch it on or off for guests, press Open with this on the one the booth should start with, and Save. Above them, Ready-made looks adds complete designs from Beamwall, best fit for your event first — tap one to add it to your booth straight away, tap again to take it off. Nothing to design, nothing to upload. This is the two-minute route.',
           tip: 'Even if you plan to make your own, add one first so your booth is never empty while you experiment.',
         },
         {
@@ -875,7 +875,7 @@ const USE_THE_STUDIO: GuideDoc = {
       body: [
         'Dashboard — the state of your event at a glance: whether it is live, how many photos have come in, your guest link and the QR code to print.',
         'Studio (add-on) — where you design. Switch the canvas between 2D for flat frames and filters, 3D for face-tracked props, and Preview to see the finished thing exactly as a guest will. It is one scene in all three views.',
-        'Frames & filters — everything guests can pick in the booth. A quick AI frame at the top, then designs recommended for your event, the ready-made library, your own pieces and the ones included with every event — each switched On for guests or Off.',
+        'Frames & filters — everything guests can pick in the booth. The picker at the top holds ready-made looks from Beamwall (best fit for your event first) and the frames and filters included with every event; below it, a quick AI frame, your own pieces and the booth order — each switched On for guests or Off.',
         'Assets (add-on) — your uploads and your AI generations. Frames, stickers and 3D files all land here, and the chip you have active decides which kind an upload becomes.',
         'Wall — the big screen. Choose how photos arrive and how they are laid out, and get the link you open on the projector.',
         'Challenges — little missions for guests, worth points, optionally checked by AI from the photo itself, with a running count of how many passed.',
@@ -1000,7 +1000,7 @@ const FIRST_EVENT: GuideDoc = {
         },
         {
           title: 'Pick your frames & filters',
-          body: 'The moment your event exists you land on Pick your frames & filters, already filled in with the set that suits your occasion. Tap any frame or filter to switch it on or off — guests can choose from everything you leave on — press Open with this under the frame the booth should start with, then Save frames & filters. The same picker sits at the top of your event’s Frames & filters tab, so you can change your mind any time. Nothing to design, nothing to upload.',
+          body: 'The moment your event exists you land on Pick your frames & filters, already filled in with the set that suits your occasion. Above them, Ready-made looks shows complete designs from Beamwall — some with 3D props guests wear — with the ones that fit your occasion, colours and season first (a December date or “Christmas” in the name puts the Christmas looks on top). Tap a look to add it and guests can pick it straight away; tap again to take it off. For the frames and filters below, tap any one to switch it on or off — guests can choose from everything you leave on — press Open with this under the frame the booth should start with, then Save frames & filters. The same picker sits at the top of your event’s Frames & filters tab, so you can change your mind any time. Nothing to design, nothing to upload.',
           tip: 'Want a frame with your names on it? Make a frame with AI, just below the picker in Frames & filters, does it in about a minute — your first 3 are free.',
         },
         {

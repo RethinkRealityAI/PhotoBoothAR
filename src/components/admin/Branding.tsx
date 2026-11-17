@@ -26,8 +26,8 @@ import type { BrandingColors, BrandingOverrides } from '../../types';
 import type { OnboardingStep } from '../../events/types';
 import { TextField, TextArea, ColorField } from './fields';
 import { EVENT_TEMPLATES, accentThemePatch, templateById } from '../../lib/eventTemplates';
-import { deriveTheme } from '../../lib/themeDerive';
-import { followAccentFramePalette } from '../../lib/themeMatch';
+import { deriveTheme, normalizeHex } from '../../lib/themeDerive';
+import { accentHexesFor, followAccentFramePalette } from '../../lib/themeMatch';
 import ColourChooser from '../host/ColourChooser';
 
 /** Platform-only: tuck expert controls behind one disclosure. Legacy events
@@ -216,6 +216,15 @@ export default function Branding() {
     }
     savedBrandingRef.current = o;
     committedRef.current = true;
+    // Platform only: an accent changed here also leads config.accentHexes,
+    // which the booth accent, send-off confetti and the AI frame read — they
+    // used to keep the create-time template colours. Legacy is untouched.
+    const nextAccent = normalizeHex(o.colors?.accent);
+    if (isDbEvent && eventUuid && nextAccent !== null && normalizeHex(config.accentHexes[0]) !== nextAccent) {
+      const ok = await updateEventConfig(eventUuid, { accentHexes: accentHexesFor(nextAccent, config.accentHexes) });
+      if (ok) await refreshConfig();
+      else setSaveError('Your branding is saved, but frames and confetti may still use your old colour — press Save again.');
+    }
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
@@ -245,8 +254,10 @@ export default function Branding() {
     const colourVars = lookAccent ? (lookDerived ? deriveTheme(lookAccent, 'dark') ?? {} : accentThemePatch(lookAccent)) : {};
     const themeVars = { ...baseVars, ...colourVars };
     const cfgPatch: Record<string, unknown> = { themeVars };
+    // accentHexes leads with the colour the look now uses (it used to stay
+    // on the create-time template golds whenever only a colour was picked).
+    cfgPatch.accentHexes = accentHexesFor(themeVars['--color-accent'], lookTemplate ? lookTemplate.accentHexes : config.accentHexes);
     if (lookTemplate) {
-      cfgPatch.accentHexes = lookTemplate.accentHexes;
       cfgPatch.background_template = lookTemplate.background;
     }
     // Frames in "Match frames to my colour" mode follow the new colour, in the
