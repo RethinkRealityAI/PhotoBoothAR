@@ -369,7 +369,7 @@ export default function Dashboard({
     { label: 'Wall Posts', value: stats?.posts ?? '—', sub: 'on the wall' },
     { label: 'Photos', value: stats?.images ?? '—', sub: 'images captured' },
     { label: 'Videos', value: stats?.videos ?? '—', sub: 'video clips' },
-    { label: 'Total Exps', value: stats?.total ?? '—', sub: 'in studio' },
+    { label: 'Total Exps', value: stats?.total ?? '—', sub: platformStudio ? 'in your booth' : 'in studio' },
   ];
 
   return (
@@ -382,7 +382,7 @@ export default function Dashboard({
           <Wordmark size="lg" />
           <div className="flex flex-col items-center gap-1.5">
             <p className="font-label uppercase tracking-luxe text-[11px] text-gold-300">
-              AR Photo Booth Studio
+              {platformStudio ? 'Your event' : 'AR Photo Booth Studio'}
             </p>
             <p className="font-sans text-sm text-champagne/55">
               {copy.fullName}
@@ -431,7 +431,9 @@ export default function Dashboard({
 
         {/* Action cards */}
         <section>
-          <h2 className="font-label uppercase tracking-luxe text-[10px] text-champagne/50 mb-4">Studio Tools</h2>
+          <h2 className="font-label uppercase tracking-luxe text-[10px] text-champagne/50 mb-4">
+            {platformStudio && !studio ? 'Everything for your event' : 'Studio Tools'}
+          </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {/* The creators ARE the Studio — hidden without the add-on. */}
             {studio && (
