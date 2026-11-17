@@ -35,6 +35,7 @@ import {
 } from './frameQuality';
 import type { FrameKeyRequest, FrameKeyResponse } from './frameKey.worker';
 import {
+  aiFrameName,
   ctxMeasure,
   drawFrameText,
   fontString,
@@ -201,6 +202,9 @@ export interface ProcessFrameOptions {
   keyOpts?: KeyOutOptions;
   /** Name/date to draw on (kept editable: the un-texted art is saved too). */
   text?: FrameTextOverlay | null;
+  /** A human name for a NEW frame (frameText.aiFrameName) — replaces the
+   *  server's raw-prompt name. Absent → the row keeps its name. */
+  name?: string;
 }
 
 export interface ProcessedFrameResult {
@@ -310,15 +314,18 @@ export async function processGeneratedFrame(
     patch.asset_url = processedUrl;
     patch.thumbnail_url = processedUrl;
   }
+  const name = options.name?.trim() ? options.name.trim() : null;
+  if (name !== null) patch.name = name;
 
-  // Persist when there's anything to persist (a processed URL and/or metadata).
-  if (processedUrl || Object.keys(extraConfig).length > 0) {
+  // Persist when there's anything to persist (a processed URL, metadata, a name).
+  if (processedUrl || Object.keys(extraConfig).length > 0 || name !== null) {
     const saved = await updateExperience(eventId, exp.id, patch);
     if (saved) return { experience: saved, keyed, quality };
   }
   return {
     experience: {
       ...exp,
+      ...(name !== null ? { name } : {}),
       ...(processedUrl ? { asset_url: processedUrl, thumbnail_url: processedUrl } : {}),
       config: config as Experience['config'],
     },
@@ -381,6 +388,8 @@ export interface FrameRunRequest {
   opts: GenerateImageOpts & { layout: FrameLayout };
   text?: FrameTextOverlay | null;
   extraConfig?: Record<string, unknown>;
+  /** The look's label — each new take is named aiFrameName(look, i, n). */
+  look?: string;
   signal?: AbortSignal;
   onStage?: (stage: FrameStage) => void;
 }
@@ -401,10 +410,11 @@ async function processTakes(req: FrameRunRequest, exps: Experience[]): Promise<F
   const out: FrameTake[] = [];
   // Sequential on purpose: one worker, and three 2M-pixel keys at once would
   // only queue there anyway while tripling peak memory on a phone.
-  for (const exp of exps) {
+  for (const [i, exp] of exps.entries()) {
     const r = await processGeneratedFrame(exp, req.eventSlug, req.extraConfig ?? {}, {
       layout: req.opts.layout,
       text: req.text ?? null,
+      ...(req.look !== undefined ? { name: aiFrameName(req.look, i, exps.length) } : {}),
     });
     out.push({ experience: r.experience, keyed: r.keyed, quality: r.quality });
   }

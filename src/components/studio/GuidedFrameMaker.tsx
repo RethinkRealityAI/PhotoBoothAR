@@ -18,7 +18,15 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, PencilLine, RefreshCw, Sparkles, Square, Wand2 } from 'lucide-react';
-import { aiErrorMessage, aiErrorRetryable, countFreeFramesLeft, type AiErrorCode } from '../../lib/ai';
+import {
+  aiErrorMessage,
+  aiErrorRetryable,
+  countFreeFramesLeft,
+  frameAllowance,
+  frameEventHexes,
+  FREE_FRAMES_USED_COPY,
+  type AiErrorCode,
+} from '../../lib/ai';
 import { useStudioBase } from '../admin/studioBase';
 import { inferFrameLayout, type FrameLayout } from '../../lib/assetPrompt';
 import {
@@ -48,6 +56,7 @@ import {
 } from '../../lib/studio/frameProcessing';
 import {
   FRAME_TEXT_MAX,
+  aiFrameName,
   cleanFrameText,
   formatFrameDate,
   type FrameTextFont,
@@ -86,7 +95,8 @@ async function loadEventFacts(eventUuid: string | null, eventSlug: string | null
       name: typeof data.name === 'string' ? data.name : '',
       eventType: typeof data.event_type === 'string' ? data.event_type : null,
       date: typeof data.starts_at === 'string' ? data.starts_at.slice(0, 10) : null,
-      accentHexes: Array.isArray(cfg.accentHexes) ? (cfg.accentHexes as unknown[]).filter((h): h is string => typeof h === 'string') : [],
+      // The host's current accent first (Branding never rewrites accentHexes).
+      accentHexes: frameEventHexes(cfg),
       occasion: typeof brief.occasion === 'string' && brief.occasion.trim() ? brief.occasion : null,
     };
   } catch (e) {
@@ -216,7 +226,18 @@ export default function GuidedFrameMaker({
   // left, the "how many options" choice is hidden exactly as on a free plan.
   const freeNext = freeLeft !== null && freeLeft > 0;
   const oneTake = freeTrial || freeNext;
-  const costLabel = freeNext ? 'free' : providerCostLabel(provider, providerChoice?.status ?? null);
+  // Platform only; `freeTrial` = no aiStudio (FrameStudio/AssetsDock pass
+  // !entitlements.aiStudio). Out of free frames without it, the server
+  // answers upgrade_required — so no Generate is offered, only the way on.
+  const allowance = platform ? frameAllowance(freeLeft, !freeTrial) : null;
+  const outOfFree = allowance === 'upgrade';
+  const costLabel = freeNext ? 'free' : allowance === 'trial' ? 'first 3 free' : providerCostLabel(provider, providerChoice?.status ?? null);
+  const upgradeNote = (
+    <p className="font-sans text-[13px] text-brand-fg leading-snug">
+      {FREE_FRAMES_USED_COPY}{' '}
+      <a href="/host/billing" target="_blank" rel="noopener" className="underline text-accent-2">See upgrade options</a>
+    </p>
+  );
   const higgsfieldTip =
     providerChoice !== undefined &&
     providerForPreset(preset, provider, providerChoice.higgsfieldReady) !== provider;
@@ -233,6 +254,7 @@ export default function GuidedFrameMaker({
         const p = await processGeneratedFrame(r.experience, ev.slug, {}, {
           layout,
           text: textSpec.enabled ? { spec: textSpec, layout, accentHexes: palette.hexes } : null,
+          ...(platform ? { name: aiFrameName(preset.label) } : {}),
         });
         onSpent?.();
         setPhase({
@@ -259,6 +281,9 @@ export default function GuidedFrameMaker({
     const words = extra.trim();
     const fromWords = inferFrameLayout(words);
     const layout: FrameLayout = fromWords !== 'classic-border' ? fromWords : preset.layout;
+    // Words for the prompt only for a named swatch; the HEXES always go, the
+    // event's too — the server's own fallback is config.accentHexes, which
+    // still holds the template colours after a Branding change.
     const picked = palette.id === 'event' ? null : palette;
     const ctl = new AbortController();
     abortRef.current = ctl;
@@ -280,12 +305,16 @@ export default function GuidedFrameMaker({
         greenScreen: true,
         layout,
         plaque: textSpec.enabled,
-        ...(picked ? { palette: picked.hexes } : {}),
+        ...(platform
+          ? (palette.hexes.length > 0 ? { palette: palette.hexes.slice(0, 3) } : {})
+          : (picked ? { palette: picked.hexes } : {})),
         ...(oneTake ? {} : { variants }),
         ...providerBody(provider),
         ...(referenceImageUrl ? { referenceImageUrl } : {}),
       },
       text: textSpec.enabled ? { spec: textSpec, layout, accentHexes: palette.hexes } : null,
+      // New frames get a human name (platform; legacy studios unchanged).
+      ...(platform ? { look: preset.label } : {}),
       signal: ctl.signal,
       onStage: (stage) => setPhase((p) => (p.kind === 'working' ? { ...p, stage } : p)),
     });
@@ -450,10 +479,13 @@ export default function GuidedFrameMaker({
           <button type="button" onClick={() => setPhase({ kind: 'choose' })} disabled={stillMaking} className={ghostBtn}>
             Back
           </button>
-          <button type="button" onClick={() => void generate()} disabled={stillMaking} className={primaryBtn}>
-            <RefreshCw className="w-4 h-4" aria-hidden="true" /> Try again · {costLabel}
-          </button>
+          {!outOfFree && (
+            <button type="button" onClick={() => void generate()} disabled={stillMaking} className={primaryBtn}>
+              <RefreshCw className="w-4 h-4" aria-hidden="true" /> Try again · {costLabel}
+            </button>
+          )}
         </div>
+        {outOfFree && upgradeNote}
       </div>
     );
   }
@@ -508,9 +540,10 @@ export default function GuidedFrameMaker({
             {take.keyed && !fail && warns.map((w) => (
               <p key={w.code} className="font-sans text-[12px] text-brand-muted leading-snug">{w.message}</p>
             ))}
-            {results.run.retryUnavailable && !usable && (
+            {results.run.retryUnavailable && !usable && !outOfFree && (
               <p className="font-sans text-[12px] text-brand-muted leading-snug">{freeNext ? 'A fresh try is free.' : `A fresh try costs ${costLabel}.`}</p>
             )}
+            {!usable && outOfFree && upgradeNote}
 
             <label className="flex items-center gap-2.5 min-h-[44px] cursor-pointer">
               <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} className="w-5 h-5 accent-[color:var(--color-accent)]" />
@@ -518,10 +551,17 @@ export default function GuidedFrameMaker({
             </label>
 
             <div className="flex flex-wrap gap-2">
-              {take.keyed && (
+              {/* A take that failed the gate is never the primary action:
+                  the fix (Clean it up / a fresh try) leads, "Use anyway" trails. */}
+              {take.keyed && usable && (
                 <button type="button" onClick={() => void use()} disabled={results.busy} className={primaryBtn}>
                   {results.busy ? <Loader2 className="w-4 h-4 motion-safe:animate-spin" aria-hidden="true" /> : <Check className="w-4 h-4" aria-hidden="true" />}
                   {useLabel}
+                </button>
+              )}
+              {!usable && !outOfFree && (
+                <button type="button" onClick={() => void generate()} disabled={results.busy} className={primaryBtn}>
+                  <RefreshCw className="w-4 h-4" aria-hidden="true" /> Try a fresh one · {costLabel}
                 </button>
               )}
               {canRekey && (
@@ -529,9 +569,15 @@ export default function GuidedFrameMaker({
                   <Wand2 className="w-3.5 h-3.5" aria-hidden="true" /> Clean it up · free
                 </button>
               )}
-              {take.keyed && provider === 'gemini' && take.experience.asset_url && (
+              {take.keyed && usable && !outOfFree && provider === 'gemini' && take.experience.asset_url && (
                 <button type="button" onClick={() => void generate(take.experience.asset_url ?? undefined)} disabled={results.busy} className={ghostBtn}>
                   <Sparkles className="w-3.5 h-3.5" aria-hidden="true" /> More like this · {costLabel}
+                </button>
+              )}
+              {take.keyed && !usable && (
+                <button type="button" onClick={() => void use()} disabled={results.busy} className={ghostBtn}>
+                  {results.busy ? <Loader2 className="w-3.5 h-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <Check className="w-3.5 h-3.5" aria-hidden="true" />}
+                  Use anyway
                 </button>
               )}
               <button type="button" onClick={() => setPhase({ kind: 'choose' })} disabled={results.busy} className={ghostBtn}>
@@ -643,11 +689,14 @@ export default function GuidedFrameMaker({
         </p>
       )}
 
+      {outOfFree && upgradeNote}
       <div className="flex flex-col sm:flex-row gap-2">
-        <button type="button" onClick={() => void generate()} disabled={!ev} className={`${primaryBtn} sm:flex-1`}>
-          <Sparkles className="w-4 h-4" aria-hidden="true" />
-          {ev ? `Generate · ${costLabel}` : 'Loading…'}
-        </button>
+        {!outOfFree && (
+          <button type="button" onClick={() => void generate()} disabled={!ev} className={`${primaryBtn} sm:flex-1`}>
+            <Sparkles className="w-4 h-4" aria-hidden="true" />
+            {ev ? `Generate · ${costLabel}` : 'Loading…'}
+          </button>
+        )}
         {onDescribeYourself && (
           <button type="button" onClick={onDescribeYourself} className={ghostBtn}>
             <PencilLine className="w-3.5 h-3.5" aria-hidden="true" /> Describe it yourself

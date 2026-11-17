@@ -302,6 +302,54 @@ export async function findFrameJobSince(eventUuid: string, sinceIso: string): Pr
 export const FREE_FRAMES_PER_EVENT = 3;
 
 /**
+ * What one more AI frame costs THIS host, mirroring ai-generate-image steps
+ * 4a/4b: a free slot covers anyone; past the free slots only an aiStudio host
+ * can pay credits — everyone else gets `403 upgrade_required`, so showing them
+ * "1 credit" or "first 3 on us" offered a button that could only fail.
+ *   'free'    → a free slot is left
+ *   'paid'    → no free slot (or unknown), host has aiStudio: the credit price
+ *   'trial'   → count unknown, no aiStudio: free slots may remain, say "free"
+ *               without promising a number
+ *   'upgrade' → free slots used and no aiStudio: no Generate, an upgrade path
+ */
+export type FrameAllowance = 'free' | 'paid' | 'trial' | 'upgrade';
+
+export function frameAllowance(freeLeft: number | null, hasAiStudio: boolean): FrameAllowance {
+  if (freeLeft !== null && freeLeft > 0) return 'free';
+  if (hasAiStudio) return 'paid';
+  return freeLeft === null ? 'trial' : 'upgrade';
+}
+
+/**
+ * The event's colours for an AI frame, the host's CURRENT accent first.
+ * `config.accentHexes` is written once from the template at create and never
+ * by Branding, so a host who chose red in Branding (themeVars --color-accent /
+ * arContent.framePalette.accent) still had the template golds as "Your
+ * colours" — and the server fell back to those same stale hexes. Valid
+ * #rrggbb only, de-duplicated case-insensitively, order kept.
+ */
+export function frameEventHexes(config: Record<string, unknown> | null | undefined): string[] {
+  const cfg = config ?? {};
+  const hex = (v: unknown): string | null => (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v.trim()) ? v.trim() : null);
+  const ar = (cfg.arContent ?? {}) as Record<string, unknown>;
+  const fp = (ar.framePalette ?? {}) as Record<string, unknown>;
+  const tv = (cfg.themeVars ?? {}) as Record<string, unknown>;
+  const list = [hex(fp.accent), hex(tv['--color-accent']), ...(Array.isArray(cfg.accentHexes) ? cfg.accentHexes.map(hex) : [])];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const h of list) {
+    if (h === null || seen.has(h.toLowerCase())) continue;
+    seen.add(h.toLowerCase());
+    out.push(h);
+  }
+  return out;
+}
+
+/** Host copy for the exhausted free state — one line, one action (Billing). */
+export const FREE_FRAMES_USED_COPY =
+  `You’ve used this event’s ${FREE_FRAMES_PER_EVENT} free AI frames. Upgrade the event to keep making them — the ready-made frames stay free.`;
+
+/**
  * How many of the event's free AI images are left, counted with the SERVER's
  * own predicate (ai-generate-image step 4a: kind image, not failed/refunded,
  * not a free retry). RLS lets org members read their ai_jobs.

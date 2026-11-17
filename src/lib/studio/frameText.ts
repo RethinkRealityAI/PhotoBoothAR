@@ -231,6 +231,21 @@ export function drawFrameText(ctx: TextCtx, ops: TextLineOp[], font: FrameTextFo
   ctx.restore();
 }
 
+/** Longest AI frame name; the booth orb shows only its first word. */
+export const AI_FRAME_NAME_MAX = 40;
+
+/**
+ * A short human name for a NEW AI frame — "<Look> frame", "· 2" for a second
+ * take. The server names rows after the raw prompt ("holly leaves and
+ * snowflakes in the corn…"), which is what hosts then saw in their picker.
+ * A blank look falls back to "Custom frame". Existing rows are never renamed.
+ */
+export function aiFrameName(look: string | null | undefined, takeIndex = 0, takes = 1): string {
+  const base = cleanFrameText(look).slice(0, AI_FRAME_NAME_MAX - 10).trim();
+  const name = base ? `${base} frame` : 'Custom frame';
+  return takes > 1 ? `${name} · ${takeIndex + 1}` : name;
+}
+
 /** Default text for an event: its name, and its date when known. */
 export function defaultFrameText(eventName: string | null | undefined, dateIso: string | null | undefined): FrameTextSpec {
   return { enabled: Boolean(cleanFrameText(eventName)), title: cleanFrameText(eventName), subtitle: formatFrameDate(dateIso), font: 'classic' };
