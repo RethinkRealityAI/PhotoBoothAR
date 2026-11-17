@@ -97,6 +97,24 @@ const Guides = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/Guides'));
 
+/**
+ * Internal partnerships hub (hidden link) + prospect-facing pitch decks.
+ * Runtime-mode only and folded out of legacy builds exactly like Guides above.
+ * The hub page itself is open by design (owner's call: "a hidden link"); the
+ * CRM inside it signs in and is protected by RLS (migration 041), because it
+ * holds third parties' contact details.
+ */
+const SalesHub = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/sales/SalesHub'));
+const PitchPage = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/sales/PitchPage'));
+/** A rep's public booking page (migration 042). Same legacy fold. */
+const BookPage = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/sales/BookPage'));
+
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
 const DevStudioHarness = import.meta.env.DEV
@@ -241,6 +259,13 @@ export default function App() {
                   renders the hub with a note rather than 404ing a printed link. */}
               <Route path="/guides" element={<Guides />} />
               <Route path="/guides/:slug" element={<Guides />} />
+              {/* Partnerships: hidden internal hub + prospect decks (noindex). */}
+              {/* Literal on purpose: importing SALES_HUB_PATH from salesTypes made
+                  Rollup hoist the whole sales contract into the eager entry chunk.
+                  salesHub.test.ts asserts this literal matches SALES_HUB_PATH. */}
+              <Route path="/hub/p7m2k9qx" element={<SalesHub />} />
+              <Route path="/pitch/:slug" element={<PitchPage />} />
+              <Route path="/book/:ref" element={<BookPage />} />
 
               {/* Host platform (session-gated) */}
               <Route path="/host" element={<HostLayout />}>
