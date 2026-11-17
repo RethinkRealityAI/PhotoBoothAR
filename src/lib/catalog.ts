@@ -52,7 +52,9 @@ export function builtinHeadPieceExperiences(arContent: EventARContent): Experien
     ...base(`builtin:3d:${p.id}`, p.name, 50 + i),
     kind: '3d_attachment',
     asset_url: null,
-    config: { procedural: p.id, anchor: p.config },
+    // `occlusion` is only written for pieces that wrap the head, so the others
+    // keep the exact config they always had.
+    config: { procedural: p.id, anchor: p.config, ...(p.occlude === true ? { occlusion: true } : {}) },
   }));
 }
 

@@ -13,6 +13,13 @@ export interface HeadPieceDef {
   name: string;
   anchor: HeadAnchor;
   config: AnchorConfig;
+  /**
+   * The piece wraps the head (a crown's back band, a halo's far arc, glasses
+   * arms), so the booth hides whatever sits behind the real head. Only
+   * platform (db) events honour it; legacy events render as they always have.
+   * Absent for pieces that rest ON the face, where the occluder would clip them.
+   */
+  occlude?: boolean;
 }
 
 const cfg = (
@@ -30,12 +37,12 @@ const cfg = (
 // Offsets are CENTIMETRE nudges on top of the anchor base (faceRig.ts), tuned so
 // each piece sits naturally out of the box; the studio gizmo fine-tunes further.
 export const HEAD_PIECES: HeadPieceDef[] = [
-  { id: 'royal-crown', name: 'Royal Crown', anchor: 'crown', config: cfg('crown', [0, -1.0, -0.6], 1) },
-  { id: 'queen-tiara', name: "Queen's Tiara", anchor: 'forehead', config: cfg('forehead', [0, 0.4, 0], 1) },
+  { id: 'royal-crown', name: 'Royal Crown', anchor: 'crown', config: cfg('crown', [0, -1.0, -0.6], 1), occlude: true },
+  { id: 'queen-tiara', name: "Queen's Tiara", anchor: 'forehead', config: cfg('forehead', [0, 0.4, 0], 1), occlude: true },
   { id: 'cheek-stars', name: 'Cheek Sparkles', anchor: 'noseBridge', config: cfg('noseBridge', [0, 0, 0], 1) },
-  { id: 'hope-halo', name: 'Halo of Hope', anchor: 'crown', config: cfg('crown', [0, 3.4, -1.0], 1) },
-  { id: 'neon-shades', name: 'Neon Shades', anchor: 'noseBridge', config: cfg('noseBridge', [0, 1.4, 1.2], 1) },
-  { id: 'cyclops-visor', name: 'Optic Visor', anchor: 'noseBridge', config: cfg('noseBridge', [0, 1.5, 1.0], 1) },
+  { id: 'hope-halo', name: 'Halo of Hope', anchor: 'crown', config: cfg('crown', [0, 3.4, -1.0], 1), occlude: true },
+  { id: 'neon-shades', name: 'Neon Shades', anchor: 'noseBridge', config: cfg('noseBridge', [0, 1.4, 1.2], 1), occlude: true },
+  { id: 'cyclops-visor', name: 'Optic Visor', anchor: 'noseBridge', config: cfg('noseBridge', [0, 1.5, 1.0], 1), occlude: true },
 ];
 
 export const HEAD_PIECE_MAP: Record<string, HeadPieceDef> = Object.fromEntries(
