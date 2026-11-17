@@ -104,6 +104,24 @@ export const VARIANT_NUDGES: readonly string[] = [
   'Variation: a richer, bolder interpretation with stronger contrast and more pronounced ornament.',
 ];
 
+/**
+ * A host-picked palette from the guided frame maker: up to three `#rrggbb`
+ * hexes, dominant first. undefined/null → null (use the event's own palette).
+ * Anything else malformed → 'invalid' so the handler 400s rather than
+ * silently painting a frame in colours the host did not choose.
+ */
+export const MAX_PALETTE = 3;
+export function parsePalette(v: unknown): string[] | null | 'invalid' {
+  if (v === undefined || v === null) return null;
+  if (!Array.isArray(v) || v.length === 0 || v.length > MAX_PALETTE) return 'invalid';
+  const out: string[] = [];
+  for (const h of v) {
+    if (typeof h !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(h)) return 'invalid';
+    out.push(h.toUpperCase());
+  }
+  return out;
+}
+
 /** Requested takes, clamped. Junk → 1. */
 export function parseVariants(v: unknown): number {
   const n = typeof v === 'number' && Number.isInteger(v) ? v : 1;

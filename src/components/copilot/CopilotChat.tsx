@@ -53,7 +53,7 @@ import type { Experience } from '../../types';
 import A2uiSurface from '../a2ui/A2uiSurface';
 import { haptic } from '../../lib/haptics';
 import { useKeyboardInset } from './useKeyboardInset';
-import { buildConceptPrompt, normalizeLettering, type LetteringSpec } from '../../lib/assetPrompt';
+import { buildConceptPrompt, inferFrameLayout, normalizeLettering, type LetteringSpec } from '../../lib/assetPrompt';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const POLL_MS = 5000;
@@ -489,6 +489,9 @@ export default function CopilotChat({
         kind: standalone ? '2d_filter' : 'border',
         transparentBackground: standalone,
         greenScreen: true,
+        // The copilot is told to name the archetype in words; this is what
+        // makes that true (the server defaulted to an edge border otherwise).
+        ...(standalone ? {} : { layout: inferFrameLayout(prompt) }),
         // Absent for gemini (the server default), so the body of every frame
         // generation made before this option existed is unchanged.
         ...(provider === 'higgsfield' ? { provider } : {}),

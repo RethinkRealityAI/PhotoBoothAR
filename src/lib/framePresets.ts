@@ -15,7 +15,7 @@
  * cut-out colour, so "botanical" or "neon" left to the model's defaults
  * would paint leaves and tubes that key out as holes.
  */
-import { resolveRegisterKey, type FrameLayout } from './assetPrompt';
+import { isGreenFamily, resolveRegisterKey, type FrameLayout } from './assetPrompt';
 
 export type FramePresetId =
   | 'botanical-watercolour'
@@ -129,8 +129,42 @@ export function providerForPreset(
  * layer and fences only `extra` (ai-generate-image index.ts), so the style is
  * never said twice.
  */
-export function composePresetPrompt(presetId: FramePresetId, extra: string): string {
+export function composePresetPrompt(presetId: FramePresetId, extra: string, palette?: FramePalette | null): string {
   const extraClean = extra.trim();
   const style = FRAME_PRESET_STYLE[presetId];
-  return extraClean ? `${style}. ${extraClean}` : style;
+  const colours = palette && palette.hexes.length > 0 ? `${style}, in ${palette.words}` : style;
+  return extraClean ? `${colours}. ${extraClean}` : colours;
+}
+
+/* ── Palette swatches ─────────────────────────────────────────────────────
+ * The first screen's colour choice. 'event' means "the event's own colours"
+ * (the server already reads events.config.accentHexes, so nothing is sent);
+ * every other swatch is sent as `palette` (hexes, for the art-direction layer)
+ * AND spelled out in `prompt` (words, for the currently deployed server, which
+ * ignores `palette`). No swatch may contain a green-family colour — it would be
+ * keyed out of the frame with the backdrop. */
+export interface FramePalette {
+  id: string;
+  label: string;
+  hexes: string[];
+  /** How the colours read in a prompt. */
+  words: string;
+}
+
+export const FRAME_PALETTES: readonly FramePalette[] = [
+  { id: 'gilt', label: 'Gold & ink', hexes: ['#C9A24B', '#1E1A22', '#FBF7EF'], words: 'antique gold, ink black and ivory' },
+  { id: 'blush', label: 'Blush', hexes: ['#E8B4B8', '#B08D57', '#FFF8F2'], words: 'blush pink, champagne gold and cream' },
+  { id: 'jewel', label: 'Jewel', hexes: ['#1F3A68', '#7A1F3D', '#D4AF37'], words: 'sapphire navy, garnet red and gold' },
+  { id: 'sorbet', label: 'Sorbet', hexes: ['#FF8FA3', '#FFC15E', '#7EC8E3'], words: 'watermelon pink, mango and sky blue' },
+  { id: 'mono', label: 'Black & white', hexes: ['#111111', '#F5F5F5', '#9A9A9A'], words: 'black, white and soft grey' },
+];
+
+export function framePaletteById(id: string | null | undefined): FramePalette | null {
+  return FRAME_PALETTES.find((p) => p.id === id) ?? null;
+}
+
+/** The event's own colours as a swatch, or null when it has none usable. */
+export function eventPalette(accentHexes: readonly string[] | null | undefined): FramePalette | null {
+  const hexes = (accentHexes ?? []).filter((h) => /^#[0-9a-fA-F]{6}$/.test(h) && !isGreenFamily(h)).slice(0, 3);
+  return hexes.length > 0 ? { id: 'event', label: 'Your colours', hexes, words: '' } : null;
 }

@@ -16,6 +16,7 @@ import {
   imageFormat,
   attemptTimeout,
   consumesFreeSlot,
+  parsePalette,
   RETRY_WINDOW_MS,
   MAX_VARIANTS,
   VARIANT_NUDGES,
@@ -171,4 +172,18 @@ describe('attemptTimeout', () => {
     expect(attemptTimeout(100_000, 60_000, 55_000)).toBe(40_000);
     expect(attemptTimeout(100_000, 98_000)).toBe(null);
   });
+});
+
+describe('parsePalette — a host-picked palette, or an honest 400', () => {
+  it('absent means "use the event palette"', () => {
+    expect(parsePalette(undefined)).toBe(null);
+    expect(parsePalette(null)).toBe(null);
+  });
+  it('accepts up to three #rrggbb, upper-cased', () => {
+    expect(parsePalette(['#c9a24b', '#1E1A22'])).toEqual(['#C9A24B', '#1E1A22']);
+  });
+  it.each([[[]], [['#fff']], [['#C9A24B', 'red']], [['#111111', '#222222', '#333333', '#444444']], ['#C9A24B'], [[42]]])(
+    'rejects %j',
+    (v) => expect(parsePalette(v)).toBe('invalid'),
+  );
 });

@@ -45,8 +45,13 @@
  *     retryOf?: uuid         the job this regenerates — FREE when jobPolicy
  *                            retryEligibility passes and the atomic claim wins;
  *                            otherwise an ordinary charged generation
- *     variants?: 1|2|3       parallel takes (charged per VARIANT_PRICING;
+ *     retryFreeOnly?: true   with retryOf: refuse (409 retry_not_eligible)
+ *                            rather than charge — the client's AUTOMATIC
+ *                            quality retry always sends it
+ *     variants?: 1|2|3      parallel takes (charged per VARIANT_PRICING;
  *                            clamped to 1 on a free trial or a retry)
+ *     palette?: string[]     ≤3 '#rrggbb' (border only) — replaces the event
+ *                            palette in the art direction; malformed → 400
  *
  * 200 → { job, experience, experiences, charged, variants }
  *                                  job = ai_jobs row (succeeded),
@@ -56,6 +61,8 @@
  *                                  actually spent after any partial refund
  * 409 → { error: 'retry_already_used' }  a concurrent request claimed the
  *                                        free retry first (nothing charged)
+ * 409 → { error: 'retry_not_eligible', reason }  retryFreeOnly and the
+ *                                        retry would not be free (nothing charged)
  * 400 → { error: 'invalid_json' | 'invalid_body' }
  * 401 → { error: 'unauthorized' }
  * 402 → { error: 'insufficient_credits' }
@@ -120,6 +127,7 @@ import {
   attemptTimeout,
   grantedVariants,
   imageFormat,
+  parsePalette,
   parseRetryOf,
   parseVariants,
   partialRefund,
@@ -888,6 +896,8 @@ Deno.serve(async (req: Request) => {
     const correctionCode = kind === 'border' && correctionSentence(body.correction) ? (body.correction as string) : null;
     const retryOf = parseRetryOf(body.retryOf);
     const variantsRequested = parseVariants(body.variants);
+    const palette = kind === 'border' ? parsePalette(body.palette) : null;
+    if (palette === 'invalid') return json(400, { error: 'invalid_body' });
     // The fenced brief: the host's own words when the client sent them apart
     // from the preset style, else the whole prompt (older clients).
     const brief = extra ?? prompt;
@@ -930,6 +940,12 @@ Deno.serve(async (req: Request) => {
         eventUuid, orgId, provider, kind, nowMs: Date.now(),
       });
       retryEligible = verdict.ok;
+      // An AUTOMATIC retry (the client's quality gate) must never cost the
+      // host anything they did not press a button for: it sends
+      // retryFreeOnly, and an ineligible one is refused before any charge.
+      if (!verdict.ok && body.retryFreeOnly === true) {
+        return json(409, { error: 'retry_not_eligible', reason: verdict.reason });
+      }
       if (!verdict.ok) console.warn('[ai-generate-image] retryOf not eligible — charging normally', verdict.reason);
     }
 
@@ -1123,9 +1139,10 @@ Deno.serve(async (req: Request) => {
       // read `cfg.accent`, which does not exist on this row at all (the single
       // `accent` colour lives in the app_settings 'branding' value, keyed by
       // slug), so the palette line NEVER fired with the event's real colour.
-      const accentHexes = Array.isArray(cfg.accentHexes)
+      // A palette the host picked in the guided maker outranks the event's.
+      const accentHexes = palette ?? (Array.isArray(cfg.accentHexes)
         ? (cfg.accentHexes as unknown[]).filter((h): h is string => typeof h === 'string')
-        : [];
+        : []);
       const eventType = typeof event.event_type === 'string' && event.event_type.trim()
         ? event.event_type
         : null;

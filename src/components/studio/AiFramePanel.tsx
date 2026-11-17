@@ -22,7 +22,9 @@ import {
   inferFrameLayout, normalizeLettering, LETTERING_MAX,
   type FrameLayout, type LetteringPlacement, type LetteringStyle,
 } from '../../lib/assetPrompt';
-import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
+import { processGeneratedFrame, runFrameGeneration, takeUsable } from '../../lib/studio/frameProcessing';
+import { rekeyOptions } from '../../lib/studio/frameQuality';
+import GuidedFrameMaker from './GuidedFrameMaker';
 import type { Experience } from '../../types';
 
 /** The five frame archetypes, in the order they escalate: an edge border, a
@@ -244,6 +246,12 @@ export default function AiFramePanel({
   // Generation whose chroma-key processing failed — held for a FREE retry
   // (the raw green asset is saved server-side; reprocessing costs nothing).
   const [pendingRaw, setPendingRaw] = useState<Experience | null>(null);
+  // Re-keying the SAME image with the SAME key reproduces the same failure;
+  // the one useful retry is a looser key (frameQuality.rekeyOptions), once.
+  const [rekeys, setRekeys] = useState(0);
+  // Frames open on the guided "pick a look" screen; the free-text form is
+  // one tap away. Stickers keep the free-text form.
+  const [mode, setMode] = useState<'guided' | 'describe'>(kind === 'border' ? 'guided' : 'describe');
   // The archetype tracks what the host is TYPING until they touch a chip;
   // after that their choice wins (null = still following the brief).
   const [layoutPick, setLayoutPick] = useState<FrameLayout | null>(null);
@@ -284,6 +292,47 @@ export default function AiFramePanel({
       // "Name art only" is words with NO frame around them — a single centred
       // subject, which is the sticker path, whatever panel the host is in.
       const genKind = lettering?.placement === 'standalone' ? '2d_filter' : kind;
+      setRekeys(0);
+      if (genKind === 'border') {
+        // Frames: generate → key → quality gate → at most one free retry.
+        const run = await runFrameGeneration({
+          eventUuid: uuid,
+          eventSlug: eventId,
+          opts: {
+            prompt: prompt.trim(),
+            kind: 'border',
+            transparentBackground: false,
+            greenScreen: true,
+            layout,
+            ...providerBody(providerChoice.effective),
+            ...(lettering ? { lettering } : {}),
+          },
+        });
+        if (run.error !== null || !run.data) {
+          const code = run.error ?? 'internal';
+          if (code === 'insufficient_credits') {
+            const bal = await refreshBalance();
+            setError(`Not enough credits${bal !== null ? ` — balance: ${bal}` : ''}.`);
+            setShowBillingLink(source === 'db');
+          } else {
+            setError(aiErrorMessage(code));
+            setShowBillingLink(code === 'upgrade_required' && source === 'db');
+          }
+          return;
+        }
+        const best = run.data.takes[0];
+        if (!best || !best.keyed) {
+          setPendingRaw(best?.experience ?? null);
+          setError('Generated, but the background didn’t come away cleanly.');
+          return;
+        }
+        setPendingRaw(null);
+        const fail = best.quality?.reasons.find((r) => r.severity === 'fail');
+        if (!takeUsable(best) && fail) setError(`Placed, but check it: ${fail.message}`);
+        onGenerated(best.experience);
+        refreshBalance();
+        return;
+      }
       const { data, error: err } = await generateImage(uuid, {
         prompt: prompt.trim(),
         kind: genKind,
@@ -328,15 +377,22 @@ export default function AiFramePanel({
     }
   };
 
-  // Free retry: re-run chroma-key on the already-saved raw generation.
+  // Free retry: re-key the already-saved raw generation ONCE with a looser
+  // key. Re-running the identical key could only reproduce the same miss.
   const retryProcessing = async () => {
-    if (!pendingRaw || loading) return;
+    const keyOpts = rekeyOptions(rekeys);
+    if (!pendingRaw || loading || !keyOpts) return;
     setLoading(true);
     setError('');
+    setRekeys((n) => n + 1);
     try {
-      const { experience: processed, keyed } = await processGeneratedFrame(pendingRaw, eventId);
+      const { experience: processed, keyed } = await processGeneratedFrame(pendingRaw, eventId, {}, {
+        keyOpts,
+        ...(kind === 'border' ? { layout } : {}),
+      });
       if (!keyed) {
-        setError('Transparency processing failed again — the raw image is in your Library.');
+        setPendingRaw(null);
+        setError('Still not clean — the raw image is in your Library. Generating again usually fixes it.');
         return;
       }
       setPendingRaw(null);
@@ -346,11 +402,47 @@ export default function AiFramePanel({
     }
   };
 
+  if (kind === 'border' && mode === 'guided') {
+    return (
+      <div className="rounded-xl border border-accent/20 bg-accent/[0.05] p-3.5 flex flex-col gap-3">
+        <p className="font-label uppercase tracking-widest text-[11px] text-accent-2 flex items-center gap-1.5">
+          <Wand2 className="w-3.5 h-3.5" aria-hidden="true" /> AI frame
+        </p>
+        {freeTrial && (
+          <p className="text-[11px] text-accent-2/90 leading-relaxed">Your first 3 AI generations are on us.</p>
+        )}
+        <ProviderSegment choice={providerChoice} freeTrial={freeTrial} />
+        <GuidedFrameMaker
+          eventUuid={eventUuid}
+          eventSlug={eventId}
+          freeTrial={freeTrial}
+          providerChoice={providerChoice}
+          onUse={onGenerated}
+          useLabel="Add to my scene"
+          onDescribeYourself={() => setMode('describe')}
+          onSpent={() => void refreshBalance()}
+        />
+        {balance !== null && (
+          <p className="text-[11px] text-brand-muted font-sans">{balance} credit{balance === 1 ? '' : 's'} left · every frame is saved to your Library</p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border border-accent/20 bg-accent/[0.05] p-3.5 flex flex-col gap-2.5">
       <p className="font-label uppercase tracking-widest text-[9px] text-accent-2 flex items-center gap-1.5">
         <Wand2 className="w-3 h-3" /> {kind === 'border' ? 'AI generate frame' : 'AI generate sticker'}
       </p>
+      {kind === 'border' && (
+        <button
+          type="button"
+          onClick={() => setMode('guided')}
+          className="pressable self-start min-h-[44px] rounded-full border border-white/15 bg-white/[0.04] px-4 font-sans text-[12px] text-brand-fg hover:bg-white/[0.08]"
+        >
+          ← Back to looks
+        </button>
+      )}
       {freeTrial && (
         <p className="text-[9px] text-accent-2/80 leading-relaxed">Your first 3 AI generations are on us — upgrade for unlimited AI Studio.</p>
       )}
@@ -467,11 +559,11 @@ export default function AiFramePanel({
           {showBillingLink && (
             <> <a href="/host/billing" className="underline text-accent-2 hover:text-accent">Open billing</a></>
           )}
-          {pendingRaw && (
+          {pendingRaw && rekeyOptions(rekeys) !== null && (
             <>
               {' '}
               <button onClick={retryProcessing} disabled={loading} className="underline text-accent-2 hover:text-accent disabled:opacity-50">
-                Retry processing
+                Clean it up (free)
               </button>
             </>
           )}

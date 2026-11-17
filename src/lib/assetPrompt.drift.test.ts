@@ -256,6 +256,17 @@ describe('ai-generate-image/frameLayout.ts mirrors src/lib/assetPrompt.ts', () =
     expect(src).toMatch(/buildGreenScreenFramePrompt\(/);
     expect(src).toMatch(/import\s*\{[^}]*\bbuildGreenScreenFramePrompt\b[^}]*\}\s*from\s*['"]\.\/frameLayout\.ts['"]/);
   });
+
+  it('an automatic (retryFreeOnly) retry is refused BEFORE any credit is spent', () => {
+    // The client's quality gate retries without the host pressing anything,
+    // so an ineligible retry must 409, never fall through to spend_credits.
+    const src = readFileSync(resolve(FN_DIR, 'ai-generate-image/index.ts'), 'utf8');
+    const refuse = src.indexOf("error: 'retry_not_eligible'");
+    const spend = src.indexOf("rpc('spend_credits'");
+    expect(refuse).toBeGreaterThan(0);
+    expect(spend).toBeGreaterThan(refuse);
+    expect(src.slice(refuse - 200, refuse)).toMatch(/body\.retryFreeOnly === true/);
+  });
 });
 
 /* ── ai-generate-3d ↔ assetPrompt.ts ──────────────────────────────────── */

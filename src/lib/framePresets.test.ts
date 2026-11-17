@@ -6,8 +6,11 @@ import {
   defaultPresetFor,
   providerForPreset,
   composePresetPrompt,
+  FRAME_PALETTES,
+  framePaletteById,
+  eventPalette,
 } from './framePresets';
-import { FRAME_LAYOUT_SPEC, inferFrameLayout } from './assetPrompt';
+import { FRAME_LAYOUT_SPEC, inferFrameLayout, isGreenFamily } from './assetPrompt';
 
 describe('FRAME_PRESETS', () => {
   it('ships the eight looks, each with a style, a real layout and a provider hint', () => {
@@ -90,5 +93,31 @@ describe('composePresetPrompt', () => {
     expect(composePresetPrompt('luxe-marble', '')).toBe(FRAME_PRESET_STYLE['luxe-marble']);
     expect(composePresetPrompt('luxe-marble', '  roses on the corners ')).toBe(
       `${FRAME_PRESET_STYLE['luxe-marble']}. roses on the corners`);
+  });
+
+  it('spells a picked palette out for the deployed server (which ignores `palette`)', () => {
+    const blush = framePaletteById('blush')!;
+    expect(composePresetPrompt('luxe-marble', '', blush)).toBe(`${FRAME_PRESET_STYLE['luxe-marble']}, in ${blush.words}`);
+    expect(composePresetPrompt('luxe-marble', 'roses', blush)).toBe(`${FRAME_PRESET_STYLE['luxe-marble']}, in ${blush.words}. roses`);
+  });
+});
+
+describe('palette swatches', () => {
+  it('no swatch carries a colour the green key would cut out', () => {
+    for (const p of FRAME_PALETTES) {
+      expect(p.hexes.length).toBeGreaterThan(0);
+      expect(p.hexes.length).toBeLessThanOrEqual(3);
+      for (const h of p.hexes) {
+        expect(h).toMatch(/^#[0-9A-F]{6}$/);
+        expect(isGreenFamily(h), `${p.id} ${h}`).toBe(false);
+      }
+      expect(p.words).not.toMatch(/green|lime|emerald|sage|olive|mint/i);
+    }
+  });
+
+  it('eventPalette keeps the event’s usable colours and drops greens', () => {
+    expect(eventPalette(['#C9A24B', '#00FF00', 'oops', '#1E1A22'])?.hexes).toEqual(['#C9A24B', '#1E1A22']);
+    expect(eventPalette([])).toBe(null);
+    expect(eventPalette(undefined)).toBe(null);
   });
 });

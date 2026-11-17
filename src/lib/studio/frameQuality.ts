@@ -24,7 +24,16 @@
  * keying artefact, not a design failure.
  */
 import { FRAME_GEOMETRY, BOOTH_SAFE_ZONE, type FrameLayout } from '../assetPrompt';
-import type { RgbaImage } from './chromaKey';
+import {
+  FRAME_H,
+  FRAME_W,
+  fitOnCanvas,
+  hasGenuineAlpha,
+  needsChromaKey,
+  processFrameImage,
+  type KeyOutOptions,
+  type RgbaImage,
+} from './chromaKey';
 
 /** Mask cell size in px. 8 → a 135×240 grid for 1080×1920. */
 export const CELL = 8;
@@ -561,4 +570,114 @@ export function shouldAutoRetry(result: QualityResult, attempt: number): boolean
  */
 export function rekeyOptions(rekeysSoFar: number): { tolerance: number; softness: number } | null {
   return rekeysSoFar === 0 ? { tolerance: 58, softness: 30 } : null;
+}
+
+/* ── Takes, ranking, the one auto-retry, and the waiting copy ─────────────
+ * Pure helpers for frameProcessing.runFrameGeneration and the UI, kept here so
+ * they are node-tested (frameProcessing reaches supabase). */
+
+export interface TakeLike {
+  keyed: boolean;
+  quality: QualityResult | null;
+}
+
+/** A take a host can place: keyed, and not failed by the gate. */
+export function takeUsable(t: TakeLike): boolean {
+  return t.keyed && (t.quality?.ok ?? true);
+}
+
+/** Usable takes first, then by gate score; ties keep their order. */
+export function rankTakes<T extends TakeLike>(takes: readonly T[]): T[] {
+  return takes
+    .map((t, i) => ({ t, i }))
+    .sort((a, b) =>
+      Number(takeUsable(b.t)) - Number(takeUsable(a.t)) ||
+      (b.t.quality?.score ?? 1) - (a.t.quality?.score ?? 1) ||
+      a.i - b.i)
+    .map(({ t }) => t);
+}
+
+/** The correction code for the one automatic retry, or null (none helps). */
+export function autoRetryCode(take: TakeLike): QualityCode | null {
+  if (!take.keyed) return 'unkeyed';
+  return take.quality ? retryCorrectionCode(take.quality) : null;
+}
+
+/** What the host is told while they wait — honest stages, never a fake %. */
+export type FrameStage = 'painting' | 'checking' | 'tidying';
+
+export const FRAME_STAGE_COPY: Record<FrameStage, string> = {
+  painting: 'Painting your frame…',
+  checking: 'Checking it fits the booth…',
+  tidying: 'Tidying up the design…',
+};
+
+/** Long-wait copy, by whole seconds spent painting. */
+export function paintingCopy(seconds: number): string {
+  if (seconds < 12) return 'Sketching the layout…';
+  if (seconds < 35) return 'Painting the details…';
+  if (seconds < 70) return 'Adding the finishing touches…';
+  return 'Still painting — detailed scenes can take up to two minutes.';
+}
+
+/* ── The whole browser-side step, as ONE pure function ──────────────────
+ * Key → fit → gate → repair. Called from the Web Worker (frameKey.worker.ts)
+ * and, when a worker is unavailable, from the main thread — the same function
+ * either way, so the two paths cannot disagree about a frame. */
+
+export interface PrepareFlags {
+  /** config.transparent — an IHDR colour-type probe, not proof. */
+  claimsTransparent: boolean;
+  /** config.greenScreen — vetoes the transparent short-circuit. */
+  fromGreenScreen: boolean;
+}
+
+export interface PrepareOptions {
+  /** Enables the quality gate (border frames only). */
+  layout?: FrameLayout | null;
+  /** Re-key overrides (a looser tolerance — see rekeyOptions). */
+  keyOpts?: KeyOutOptions;
+}
+
+export interface PreparedFrame {
+  /** FRAME_W×FRAME_H, repaired when the gate repaired holes. */
+  image: RgbaImage;
+  /** False → the key missed the backdrop; the image is still green. */
+  keyed: boolean;
+  alreadyTransparent: boolean;
+  keyedFraction: number;
+  keyColor: readonly [number, number, number] | null;
+  /** Null when no layout was given. */
+  quality: QualityResult | null;
+}
+
+export function prepareFrame(src: RgbaImage, flags: PrepareFlags, opts: PrepareOptions = {}): PreparedFrame {
+  const layout = opts.layout ?? null;
+  const source = { width: src.width, height: src.height };
+  const alreadyTransparent = hasGenuineAlpha(flags.claimsTransparent, flags.fromGreenScreen, src);
+  if (alreadyTransparent) {
+    const image = fitOnCanvas(src, FRAME_W, FRAME_H);
+    const quality = layout ? assessFrame({ fitted: image, layout, source }) : null;
+    return { image, keyed: true, alreadyTransparent, keyedFraction: 0, keyColor: null, quality };
+  }
+  const p = processFrameImage(src, FRAME_W, FRAME_H, { refineEdges: true, ...(opts.keyOpts ?? {}) });
+  const keyed = needsChromaKey(false, p.keyedFraction);
+  if (!layout) {
+    return { image: p.image, keyed, alreadyTransparent, keyedFraction: p.keyedFraction, keyColor: p.keyColor, quality: null };
+  }
+  const quality = assessFrame({
+    fitted: p.image,
+    layout,
+    source,
+    original: keyed ? fitOnCanvas(src, FRAME_W, FRAME_H) : undefined,
+    keyColor: p.keyColor,
+  });
+  return {
+    image: quality.repaired ?? p.image,
+    keyed,
+    alreadyTransparent,
+    keyedFraction: p.keyedFraction,
+    keyColor: p.keyColor,
+    quality,
+  };
 }

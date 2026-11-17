@@ -7,6 +7,11 @@ import {
   retryCorrection,
   shouldAutoRetry,
   rekeyOptions,
+  prepareFrame,
+  takeUsable,
+  rankTakes,
+  autoRetryCode,
+  paintingCopy,
   type QualityResult,
 } from './frameQuality';
 import type { RgbaImage } from './chromaKey';
@@ -237,5 +242,76 @@ describe('retry policy', () => {
   it('re-keying the same image is offered exactly once', () => {
     expect(rekeyOptions(0)).not.toBe(null);
     expect(rekeyOptions(1)).toBe(null);
+  });
+});
+
+describe('prepareFrame — the one function both the worker and the fallback run', () => {
+  const GREEN: Px = [0, 255, 0, 255];
+  const greenClassic = () => {
+    const img = canvas();
+    const w = FRAME_GEOMETRY['classic-border'].windows[0];
+    paint(img, rect(w.cx - w.rx, w.cy - w.ry, w.cx + w.rx, w.cy + w.ry), GREEN);
+    return img;
+  };
+  const GS = { claimsTransparent: false, fromGreenScreen: true };
+
+  it('keys, fits to 1080×1920 and passes a clean green-screen border', () => {
+    const out = prepareFrame(greenClassic(), GS, { layout: 'classic-border' });
+    expect(out.keyed).toBe(true);
+    expect(out.alreadyTransparent).toBe(false);
+    expect([out.image.width, out.image.height]).toEqual([1080, 1920]);
+    expect(out.quality?.ok).toBe(true);
+    expect(out.keyColor).not.toBeNull();
+  });
+
+  it('reports keyed:false when nothing green was there to key', () => {
+    const out = prepareFrame(canvas(), GS, { layout: 'classic-border' });
+    expect(out.keyed).toBe(false);
+    expect(out.quality?.ok).toBe(false);
+  });
+
+  it('skips keying for a genuinely transparent source, but still gates it', () => {
+    const out = prepareFrame(classic(), { claimsTransparent: true, fromGreenScreen: false }, { layout: 'classic-border' });
+    expect(out.alreadyTransparent).toBe(true);
+    expect(out.keyed).toBe(true);
+    expect(out.quality?.ok).toBe(true);
+  });
+
+  it('runs no gate without a layout (stickers)', () => {
+    expect(prepareFrame(greenClassic(), GS).quality).toBeNull();
+  });
+});
+
+describe('takes — which one the host sees first, and when to retry', () => {
+  const q = (ok: boolean, score: number, code: Parameters<typeof retryCorrection>[0]['reasons'][number]['code'] = 'face_in_window'): QualityResult => ({
+    ok, score, repairedHoles: 0, reasons: ok ? [] : [{ code, severity: 'fail', message: '' }],
+  });
+  const t = (name: string, keyed: boolean, quality: QualityResult | null) => ({ name, keyed, quality });
+
+  it('usable = keyed and not failed; a sticker (no gate) counts when keyed', () => {
+    expect(takeUsable(t('a', true, q(true, 1)))).toBe(true);
+    expect(takeUsable(t('b', true, q(false, 0.6)))).toBe(false);
+    expect(takeUsable(t('c', false, null))).toBe(false);
+    expect(takeUsable(t('d', true, null))).toBe(true);
+  });
+
+  it('ranks usable takes first, then by score, keeping ties in order', () => {
+    const ranked = rankTakes([t('bad', true, q(false, 0.6)), t('ok2', true, q(true, 0.9)), t('ok1', true, q(true, 1)), t('ok3', true, q(true, 0.9))]);
+    expect(ranked.map((x) => x.name)).toEqual(['ok1', 'ok2', 'ok3', 'bad']);
+  });
+
+  it('retries an unkeyed take with the unkeyed correction, a clean one never', () => {
+    expect(autoRetryCode(t('x', false, null))).toBe('unkeyed');
+    expect(autoRetryCode(t('y', true, q(false, 0.6, 'window_painted')))).toBe('window_painted');
+    expect(autoRetryCode(t('z', true, q(true, 1)))).toBe(null);
+    // A failure no sentence can fix is not worth a regeneration.
+    expect(autoRetryCode(t('w', true, q(false, 0.6, 'aspect')))).toBe(null);
+  });
+
+  it('waiting copy moves on honestly with time', () => {
+    const lines = [0, 20, 50, 100].map(paintingCopy);
+    expect(new Set(lines).size).toBe(4);
+    expect(paintingCopy(100)).toMatch(/two minutes/);
+    for (const l of lines) expect(l).not.toMatch(/%|\d+ ?s\b/);
   });
 });
