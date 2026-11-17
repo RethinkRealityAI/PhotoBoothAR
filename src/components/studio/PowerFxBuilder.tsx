@@ -17,7 +17,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { createPortal } from 'react-dom';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
-import { Loader2, X, Zap } from 'lucide-react';
+import { Hand, Loader2, ScanFace, X, Zap } from 'lucide-react';
 import { useDialog } from '../../lib/useDialog';
 import { Model } from '../ar/FaceRig';
 import { HeadPiece } from '../ar/HeadPieces';
@@ -79,12 +79,22 @@ const PREVIEW_LOOP_MS = 2600;
  *  stacked, so opening the modal over a live stage shadows nothing. */
 const POWERFX_PREVIEW_KEY = '@powerfx-gear';
 
+/** Where a gear piece rides — the shelf says so on each card, since the
+ *  Power FX shelf mixes head gear and hand gear in one grid. Null = no gear. */
+function gearFamily(g: { kind: string; refId: string }): 'head' | 'hand' | null {
+  if (g.refId === '') return null;
+  if (g.kind !== 'library') return 'head';
+  return findLibraryAsset(g.refId, import.meta.env.DEV)?.handAnchor !== undefined ? 'hand' : 'head';
+}
+
 function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`pressable px-2 py-1.5 pointer-coarse:min-h-11 rounded-lg text-[9px] pointer-coarse:text-[10px] font-label uppercase tracking-widest truncate transition-colors ${
+      // No truncate: "Hand to temple" / "Sparkle stream" clipped to "HAND TO…"
+      // in the 4-up rows. Labels wrap inside the chip instead.
+      className={`pressable px-2 py-1.5 pointer-coarse:min-h-11 rounded-lg text-[9px] pointer-coarse:text-[10px] leading-tight font-label uppercase tracking-wider transition-colors ${
         active
           ? 'bg-accent/20 text-accent-2 ring-1 ring-accent/30'
           : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'
@@ -308,8 +318,10 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
       // gear (the reducer has just selected it), before the fresh trigger
       // lands — "swap my visor" keeps its existing blast wired.
       if (replaceId !== null) actions.push({ type: 'RETARGET_TRIGGERS', fromId: replaceId });
+      // Gear added → the reducer has just selected it, so the blast binds to
+      // IT (not to whichever 3D piece happens to come first in the scene).
       for (const trigger of additions.triggers) {
-        actions.push({ type: 'ADD_TRIGGER', trigger });
+        actions.push({ type: 'ADD_TRIGGER', trigger, bindToSelected: additions.gear !== null });
       }
       dispatch({ type: 'BATCH', actions });
       onClose();
@@ -391,8 +403,10 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
           <div className="flex flex-col gap-4 min-w-0">
             <div>
               <SectionLabel>Gear</SectionLabel>
-              <div className="grid grid-cols-2 gap-1.5">
-                {gearChoices.map((g) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {gearChoices.map((g) => {
+                  const family = gearFamily(g);
+                  return (
                   <button
                     key={g.id}
                     type="button"
@@ -403,17 +417,26 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
                         : 'bg-white/[0.03] hover:bg-white/[0.06]'
                     }`}
                   >
+                    {/* The swatch carries WHERE the gear rides as a glyph (the
+                        shelf mixes head and hand gear). A text chip beside the
+                        name truncated "Power Gauntlet" at every width. */}
                     <span
-                      aria-hidden
-                      className="w-6 h-6 rounded-lg shrink-0"
+                      className="grid place-items-center w-8 h-8 rounded-lg shrink-0 text-white/90"
                       style={{ background: `linear-gradient(135deg, ${g.swatch[0]}, ${g.swatch[1]})` }}
-                    />
-                    <span className="min-w-0">
+                      title={family === 'hand' ? 'Worn on the hand' : family === 'head' ? 'Worn on the head' : undefined}
+                    >
+                      {family === 'hand' ? <Hand className="w-4 h-4 drop-shadow" aria-hidden /> : family === 'head' ? <ScanFace className="w-4 h-4 drop-shadow" aria-hidden /> : null}
+                    </span>
+                    <span className="min-w-0 flex-1">
                       <span className="block text-[10px] font-label uppercase tracking-wide text-brand-fg truncate">{g.name}</span>
-                      <span className="block text-[8.5px] pointer-coarse:text-[10px] font-sans text-brand-muted/50 leading-tight truncate">{g.blurb}</span>
+                      <span className="block text-[10px] font-sans text-brand-muted/55 leading-snug line-clamp-2">
+                        {family !== null && <span className="sr-only">{family === 'hand' ? 'Hand gear. ' : 'Head gear. '}</span>}
+                        {g.blurb}
+                      </span>
                     </span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -456,7 +479,7 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
             <div>
               <SectionLabel>Fires when a guest…</SectionLabel>
               <p className="text-[8px] pointer-coarse:text-[10px] font-label uppercase tracking-widest text-brand-muted/35 mb-1">Hands</p>
-              <div className="grid grid-cols-3 gap-1 mb-1.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 mb-1.5">
                 {HAND_TRIGGER_SOURCES.map((s) => (
                   <Chip key={s} active={s === spec.source} onClick={() => setSpec((prev) => ({ ...prev, source: s }))}>
                     {TRIGGER_SOURCE_LABELS[s]}
@@ -464,7 +487,7 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
                 ))}
               </div>
               <p className="text-[8px] pointer-coarse:text-[10px] font-label uppercase tracking-widest text-brand-muted/35 mb-1">Face</p>
-              <div className="grid grid-cols-4 gap-1">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
                 {FACE_TRIGGER_SOURCES.map((s) => (
                   <Chip key={s} active={s === spec.source} onClick={() => setSpec((prev) => ({ ...prev, source: s }))}>
                     {TRIGGER_SOURCE_LABELS[s]}
@@ -476,7 +499,7 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
 
             <div>
               <SectionLabel>Blast</SectionLabel>
-              <div className="grid grid-cols-4 gap-1">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
                 {BEAM_STYLES.map((st: BeamStyle) => (
                   <Chip key={st} active={st === spec.style} onClick={() => setSpec((prev) => ({ ...prev, style: st }))}>
                     {BEAM_STYLE_LABELS[st]}
@@ -532,7 +555,7 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
               type="button"
               onClick={addToScene}
               disabled={!validation.ok || busy || capMessage !== null}
-              className="pressable flex items-center justify-center gap-1.5 py-2.5 bg-foil text-white rounded-xl font-bold text-[10px] font-label uppercase tracking-widest disabled:opacity-40 glow-accent transition"
+              className="pressable flex items-center justify-center gap-1.5 py-2.5 bg-foil text-[color:var(--on-accent)] rounded-xl font-bold text-[10px] font-label uppercase tracking-widest disabled:opacity-40 glow-accent transition"
             >
               {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
               {busy ? 'Adding…' : 'Add to scene'}

@@ -24,6 +24,7 @@ import {
   type CardsError,
   type ContributeMeta,
 } from '../../lib/cards';
+import { useCardTheme } from '../../components/cards/useCardTheme';
 
 const CARD_VIDEO_MAX_SEC = 20;
 const MESSAGE_MAX = 600;
@@ -110,6 +111,10 @@ export default function CardContribute() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Wear the event's look (snapshotted onto the card) rather than platform
+  // neutral — a guest adding a message should feel like they are still at the
+  // event. Older card-contribute deployments omit `theme`; that stays neutral.
+  useCardTheme(state.phase === 'ready' || state.phase === 'closed' ? state.meta.theme : null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const capturedRef = useRef<CapturedMedia | null>(null);
   capturedRef.current = captured;

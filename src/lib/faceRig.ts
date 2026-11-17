@@ -122,7 +122,12 @@ export function migrateOffsetToV2(
 export const RIG_CAMERA = {
   position: [0, 0, 0] as [number, number, number],
   fov: 63,
-  near: 0.1,
+  // Centimetres. near was 0.1 (a 20,000:1 range): on a 16-bit mobile depth
+  // buffer that quantizes a 60cm head to ~5mm, and the depth-only occluder
+  // then loses the coin-flip against silhouette-grazing prop geometry. Nothing
+  // this rig draws is nearer than a raised hand (~15cm, handPose's floor), so
+  // 1cm costs nothing and buys 10x the precision where the head is.
+  near: 1,
   far: 2000,
 };
 

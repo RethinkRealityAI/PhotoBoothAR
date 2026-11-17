@@ -223,7 +223,15 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
   const headPieces = pieces ? pieces.filter((p) => p.handAnchor === undefined) : null;
   const handPieces = pieces ? pieces.filter((p) => p.handAnchor !== undefined) : null;
   // First piece whose occlude===true wins the (single, non-duplicated) occluder.
-  const occluderIdx = headPieces ? headPieces.findIndex((p) => p.occlude === true && p.facePaint === undefined) : -1;
+  // A scene row that says `occlusion: true` at the scene level while none of its
+  // layers carry the flag (hand-written, AI-authored or pre-flag rows) still
+  // occludes: the first non-face-paint head piece hosts the shell. With no
+  // pieces the single-piece FaceRig below honours `occlude` itself, exactly as
+  // before. (Booth passes `occlude` for platform events only.)
+  const firstOptIn = headPieces ? headPieces.findIndex((p) => p.occlude === true && p.facePaint === undefined) : -1;
+  const occluderIdx = firstOptIn !== -1
+    ? firstOptIn
+    : (occlude && headPieces ? headPieces.findIndex((p) => p.facePaint === undefined) : -1);
   return (
     <div id="booth-3d-layer" className="absolute inset-0 pointer-events-none z-20" style={composited ? { opacity: 0 } : undefined}>
       <Canvas

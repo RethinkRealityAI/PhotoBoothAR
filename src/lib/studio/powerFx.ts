@@ -7,10 +7,12 @@
  * means — gear catalogue, palette, validation, and exactly what gets added to
  * the scene — lives here under the node test suite.
  *
- * The built beam trigger deliberately carries NO objectId: reducer object ids
- * are generated at dispatch time, and a beam without an emitter id resolves to
- * the scene's first 3D piece — which IS the gear this builder just added. That
- * one convention removes an entire id-plumbing failure mode.
+ * The built beam trigger carries NO objectId: reducer object ids are generated
+ * at dispatch time, so the builder cannot know the gear's. It dispatches the
+ * trigger with `bindToSelected` instead, and the reducer stamps the id of the
+ * gear it has just added and selected. (Relying on "an id-less beam resolves
+ * to the first 3D piece" fired the blast from whatever piece came first — a
+ * crown already in the scene, not the gauntlet just added.)
  */
 
 import type { AssetCustomization } from '../../types';

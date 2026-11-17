@@ -19,7 +19,7 @@ import {
 
 describe('the closed set of card templates', () => {
   it('ships exactly the three shipped templates, in host-facing order', () => {
-    expect(CARD_TEMPLATE_IDS).toEqual(['storybook', 'filmstrip', 'polaroid']);
+    expect(CARD_TEMPLATE_IDS).toEqual(['storybook', 'filmstrip', 'polaroid', 'carousel']);
   });
 
   it('has one option per id, in the same order, each with a one-line description', () => {

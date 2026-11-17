@@ -65,24 +65,92 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/**
+ * Palette for the keepsake email.
+ *
+ * The email was hardcoded to the champagne-gold of the original single-event
+ * build — a palette the platform has since been rebranded away from, and which
+ * matched neither Beamwall nor the event the card came from. It now reads the
+ * same theme snapshot the card carries (cards.theme, see src/lib/cardTheme.ts),
+ * so the email, the card page it opens and the event itself all agree.
+ *
+ * Values are hex-validated before being interpolated into style attributes:
+ * the snapshot is written by a host's browser, and this is HTML we hand to a
+ * mail client, so an unvalidated value could break out of the declaration.
+ */
+const EMAIL_FALLBACK = {
+  bg: '#05060B',
+  surface: '#12141F',
+  fg: '#EEF3FF',
+  muted: '#A9B4CC',
+  accent: '#5B8CFF',
+  onAccent: '#0A0806',
+} as const;
+
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+
+function hex(value: unknown, fallback: string): string {
+  return typeof value === 'string' && HEX_RE.test(value.trim()) ? value.trim() : fallback;
+}
+
+/**
+ * `#RRGGBBAA` (8-digit hex) is not understood by Outlook and several other mail
+ * clients — they drop the whole declaration, which would lose the card's border
+ * entirely. rgba() is the broadly-supported way to get a translucent tint.
+ */
+function rgba(hexColor: string, alpha: number): string {
+  const n = parseInt(hexColor.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+interface EmailPalette {
+  bg: string; surface: string; fg: string; muted: string; accent: string; onAccent: string;
+  eventName: string | null;
+}
+
+function emailPalette(theme: unknown): EmailPalette {
+  const vars = (theme && typeof theme === 'object' && !Array.isArray(theme)
+    ? ((theme as Record<string, unknown>).vars ?? {})
+    : {}) as Record<string, unknown>;
+  const nameRaw = (theme && typeof theme === 'object' && !Array.isArray(theme)
+    ? (theme as Record<string, unknown>).eventName
+    : null);
+  return {
+    bg: hex(vars['--color-brand-bg'], EMAIL_FALLBACK.bg),
+    surface: hex(vars['--color-brand-surface'], EMAIL_FALLBACK.surface),
+    fg: hex(vars['--color-brand-fg'], EMAIL_FALLBACK.fg),
+    muted: hex(vars['--color-brand-muted'], EMAIL_FALLBACK.muted),
+    accent: hex(vars['--color-accent'], EMAIL_FALLBACK.accent),
+    onAccent: hex(vars['--on-accent'], EMAIL_FALLBACK.onAccent),
+    eventName: typeof nameRaw === 'string' && nameRaw.trim() ? nameRaw.trim().slice(0, 120) : null,
+  };
+}
+
 /** Simple elegant dark email with one big button to the card viewer. */
-function cardEmailHtml(title: string, recipientName: string | null, url: string): string {
+function cardEmailHtml(
+  title: string,
+  recipientName: string | null,
+  url: string,
+  theme?: unknown,
+): string {
+  const p = emailPalette(theme);
+  const eyebrow = p.eventName ? `A card from ${escapeHtml(p.eventName)}` : 'A card, made for you';
   const greeting = recipientName ? `Dear ${escapeHtml(recipientName)},` : 'Hello,';
   // Escape the url too — it is interpolated into both the href attribute and the
   // visible link text, so an unescaped public_id/site could break out of the markup.
   const safeUrl = escapeHtml(url);
   return `<!doctype html>
 <html>
-  <body style="margin:0;padding:0;background:#0c0906;">
-    <div style="max-width:520px;margin:0 auto;padding:48px 24px;font-family:Georgia,'Times New Roman',serif;color:#f5efe2;">
-      <p style="text-align:center;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:#c9b57e;margin:0 0 28px;">A card, made for you</p>
-      <div style="border:1px solid rgba(212,175,55,0.35);border-radius:20px;padding:40px 32px;background:#141009;text-align:center;">
-        <p style="font-size:15px;color:#d8cbb0;margin:0 0 10px;">${greeting}</p>
-        <h1 style="font-style:italic;font-weight:600;font-size:28px;line-height:1.3;color:#e8c766;margin:0 0 18px;">${escapeHtml(title)}</h1>
-        <p style="font-size:14px;line-height:1.6;color:#bfb193;margin:0 0 30px;">Friends and family have gathered their messages, photos and videos into a greeting card — open it whenever you're ready.</p>
-        <a href="${safeUrl}" style="display:inline-block;background:#d4af37;color:#1a1108;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:bold;letter-spacing:0.2em;text-transform:uppercase;padding:16px 36px;border-radius:999px;">Open your card</a>
+  <body style="margin:0;padding:0;background:${p.bg};">
+    <div style="max-width:520px;margin:0 auto;padding:48px 24px;font-family:Georgia,'Times New Roman',serif;color:${p.fg};">
+      <p style="text-align:center;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:${p.accent};margin:0 0 28px;">${eyebrow}</p>
+      <div style="border:1px solid ${rgba(p.accent, 0.35)};border-radius:20px;padding:40px 32px;background:${p.surface};text-align:center;">
+        <p style="font-size:15px;color:${p.muted};margin:0 0 10px;">${greeting}</p>
+        <h1 style="font-style:italic;font-weight:600;font-size:28px;line-height:1.3;color:${p.accent};margin:0 0 18px;">${escapeHtml(title)}</h1>
+        <p style="font-size:14px;line-height:1.6;color:${p.muted};margin:0 0 30px;">Friends and family have gathered their messages, photos and videos into a greeting card — open it whenever you're ready.</p>
+        <a href="${safeUrl}" style="display:inline-block;background:${p.accent};color:${p.onAccent};text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:bold;letter-spacing:0.2em;text-transform:uppercase;padding:16px 36px;border-radius:999px;">Open your card</a>
       </div>
-      <p style="text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#7d7361;margin:26px 0 0;">Made with Beamwall · <a href="${safeUrl}" style="color:#c9b57e;">${safeUrl}</a></p>
+      <p style="text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:${p.muted};margin:26px 0 0;">Made with Beamwall · <a href="${safeUrl}" style="color:${p.accent};">${safeUrl}</a></p>
     </div>
   </body>
 </html>`;
@@ -130,7 +198,7 @@ Deno.serve(async (req: Request) => {
     // 3. Card → event → org, then verify the caller's membership.
     const { data: card, error: cardErr } = await sb
       .from('cards')
-      .select('id, event_id, org_id, public_id, title, recipient_name, recipient_email, status')
+      .select('id, event_id, org_id, public_id, title, recipient_name, recipient_email, status, theme')
       .eq('id', cardId)
       .maybeSingle();
     if (cardErr) throw cardErr;
@@ -247,7 +315,7 @@ Deno.serve(async (req: Request) => {
         from: Deno.env.get('CARDS_FROM_EMAIL') || 'Beamwall <cards@beamwall.app>',
         to: recipient,
         subject: `A card for you: ${title}`,
-        html: cardEmailHtml(title, card.recipient_name as string | null, url),
+        html: cardEmailHtml(title, card.recipient_name as string | null, url, card.theme),
       }),
     });
     if (!res.ok) {
