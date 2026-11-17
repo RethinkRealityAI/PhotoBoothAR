@@ -58,7 +58,11 @@ function useStats() {
   return { stats, loading, reload: load };
 }
 
-function CopyButton({ text }: { text: string }) {
+/** Platform mounts get ≥44px targets and an 11px type floor; the frozen
+ *  legacy admin keeps its original classes byte for byte. */
+const ICON_BTN_PLATFORM = 'min-w-11 min-h-11 flex items-center justify-center rounded-lg glass hover:bg-gold-400/15 text-champagne/60 hover:text-gold-300 transition-colors';
+
+function CopyButton({ text, platform = false }: { text: string; platform?: boolean }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
     copyText(text).then((ok) => { if (!ok) return;
@@ -70,7 +74,8 @@ function CopyButton({ text }: { text: string }) {
     <button
       onClick={copy}
       title="Copy link"
-      className="p-1.5 rounded-lg glass hover:bg-gold-400/15 text-champagne/60 hover:text-gold-300 transition-colors"
+      {...(platform ? { 'aria-label': 'Copy link' } : {})}
+      className={platform ? ICON_BTN_PLATFORM : 'p-1.5 rounded-lg glass hover:bg-gold-400/15 text-champagne/60 hover:text-gold-300 transition-colors'}
     >
       {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
@@ -82,14 +87,16 @@ interface QRCardProps {
   hint: string;
   url: string;
   icon: React.ReactNode;
+  /** Platform studio: ≥44px targets + 11px type floor (legacy unchanged). */
+  platform?: boolean;
 }
 
-function QRCard({ label, hint, url, icon }: QRCardProps) {
+function QRCard({ label, hint, url, icon, platform = false }: QRCardProps) {
   return (
     <div className="glass-strong rounded-2xl border border-gold-400/20 p-6 flex flex-col items-center gap-4 animate-rise-in">
       <div className="flex items-center gap-2 text-gold-300">
         {icon}
-        <span className="font-label uppercase tracking-luxe text-[10px]">{label}</span>
+        <span className={`font-label uppercase tracking-luxe ${platform ? 'text-[11px]' : 'text-[10px]'}`}>{label}</span>
       </div>
       <div className="rounded-xl p-3 bg-ivory/95 shadow-lg shadow-black/30">
         <QRCodeSVG
@@ -102,21 +109,24 @@ function QRCard({ label, hint, url, icon }: QRCardProps) {
         />
       </div>
       <div className="flex items-center gap-1 w-full">
-        <p className="flex-1 font-mono text-[9px] text-champagne/50 truncate">{url}</p>
-        <CopyButton text={url} />
+        <p className={`flex-1 font-mono ${platform ? 'text-[11px]' : 'text-[9px]'} text-champagne/50 truncate`}>{url}</p>
+        <CopyButton text={url} platform={platform} />
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="p-1.5 rounded-lg glass hover:bg-gold-400/15 text-champagne/60 hover:text-gold-300 transition-colors"
+          {...(platform ? { 'aria-label': `Open ${label}` } : {})}
+          className={platform ? ICON_BTN_PLATFORM : 'p-1.5 rounded-lg glass hover:bg-gold-400/15 text-champagne/60 hover:text-gold-300 transition-colors'}
         >
           <ExternalLink className="w-3.5 h-3.5" />
         </a>
       </div>
-      <p className="font-sans text-[10px] text-champagne/40 text-center">{hint}</p>
+      <p className={`font-sans ${platform ? 'text-[11px]' : 'text-[10px]'} text-champagne/40 text-center`}>{hint}</p>
       <button
         onClick={() => window.print()}
-        className="flex items-center gap-1.5 px-3 py-1.5 glass rounded-lg text-[10px] font-label uppercase tracking-luxe text-champagne/60 hover:text-gold-300 transition-colors"
+        className={platform
+          ? 'flex items-center gap-1.5 px-4 min-h-11 glass rounded-lg text-[11px] font-label uppercase tracking-luxe text-champagne/60 hover:text-gold-300 transition-colors'
+          : 'flex items-center gap-1.5 px-3 py-1.5 glass rounded-lg text-[10px] font-label uppercase tracking-luxe text-champagne/60 hover:text-gold-300 transition-colors'}
       >
         <Printer className="w-3 h-3" /> Print QR
       </button>
@@ -173,8 +183,10 @@ interface ChecklistStep {
  * "you're ready" and the one remaining action is the Go-live button.
  */
 function GoLiveChecklist({
-  steps, live, canGoLive, going, error, shareTo, onGoLive, onPreview,
+  steps, live, canGoLive, going, error, shareTo, onGoLive, onPreview, platform = false,
 }: {
+  /** Platform studio: 11px type floor on the two buttons (legacy unchanged). */
+  platform?: boolean;
   steps: ChecklistStep[];
   live: boolean;
   canGoLive: boolean;
@@ -269,7 +281,7 @@ function GoLiveChecklist({
       <div className="flex flex-col sm:flex-row gap-3">
         <button
           onClick={onPreview}
-          className="flex-1 flex items-center justify-center gap-2 rounded-full glass border border-gold-400/20 px-6 py-3 font-label uppercase tracking-luxe text-[10px] text-champagne/75 hover:text-gold-300 transition-colors"
+          className={`flex-1 flex items-center justify-center gap-2 rounded-full glass border border-gold-400/20 px-6 py-3 font-label uppercase tracking-luxe ${platform ? 'text-[11px]' : 'text-[10px]'} text-champagne/75 hover:text-gold-300 transition-colors`}
         >
           <Sparkles className="w-4 h-4" /> Preview booth
         </button>
@@ -277,7 +289,7 @@ function GoLiveChecklist({
           // animate-rise-in gives the moment of ceremony when the flip happens
           // in place (no more full page reload); its reduced-motion variant is
           // a short fade, so the celebration respects that preference too.
-          <div className="flex-1 flex items-center justify-center gap-2 rounded-full bg-emerald-500/15 border border-emerald-400/30 px-6 py-3 font-label uppercase tracking-luxe text-[10px] text-emerald-300 animate-rise-in">
+          <div className={`flex-1 flex items-center justify-center gap-2 rounded-full bg-emerald-500/15 border border-emerald-400/30 px-6 py-3 font-label uppercase tracking-luxe ${platform ? 'text-[11px]' : 'text-[10px]'} text-emerald-300 animate-rise-in`}>
             <PartyPopper className="w-4 h-4" /> Live now
           </div>
         ) : (
@@ -285,7 +297,7 @@ function GoLiveChecklist({
             onClick={onGoLive}
             disabled={!canGoLive || going}
             title={canGoLive ? 'Publish this event for guests' : 'Available once your event is set up'}
-            className="flex-1 flex items-center justify-center gap-2 rounded-full bg-foil text-noir-900 px-6 py-3 font-label uppercase tracking-luxe text-[10px] font-bold glow-accent transition active:scale-[0.98] disabled:opacity-50"
+            className={`flex-1 flex items-center justify-center gap-2 rounded-full bg-foil text-noir-900 px-6 py-3 font-label uppercase tracking-luxe ${platform ? 'text-[11px]' : 'text-[10px]'} font-bold glow-accent transition active:scale-[0.98] disabled:opacity-50`}
           >
             {going ? <><Loader2 className="w-4 h-4 animate-spin" /> Going live…</> : <><Rocket className="w-4 h-4" /> Go live</>}
           </button>
@@ -368,6 +380,8 @@ export default function Dashboard({
   // long name, so the subtitle stays there. Kept everywhere under a logo.
   const nameRepeats = platformStudio && !logoUrl && copy.fullName === copy.eventName;
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  /** The 10px labels: 11px floor on the platform, unchanged on legacy. */
+  const small10 = platformStudio ? 'text-[11px]' : 'text-[10px]';
 
   const statItems = [
     { label: 'Published', value: stats?.published ?? '—', sub: platformStudio ? 'looks on for guests' : 'experiences live' },
@@ -406,17 +420,21 @@ export default function Dashboard({
             shareTo={platformStudio ? `${base}/share` : undefined}
             onGoLive={goLive}
             onPreview={() => window.open(`${basePath}/`, '_blank')}
+            platform={platformStudio}
           />
         )}
 
         {/* Live stats */}
         <section>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-label uppercase tracking-luxe text-[10px] text-champagne/50">Live Stats</h2>
+            <h2 className={`font-label uppercase tracking-luxe ${small10} text-champagne/50`}>Live Stats</h2>
             <button
               onClick={reload}
               disabled={loading}
-              className="p-1.5 rounded-lg glass text-champagne/40 hover:text-gold-300 transition-colors disabled:opacity-30"
+              {...(platformStudio ? { 'aria-label': 'Refresh stats' } : {})}
+              className={platformStudio
+                ? 'min-w-11 min-h-11 flex items-center justify-center rounded-lg glass text-champagne/40 hover:text-gold-300 transition-colors disabled:opacity-30'
+                : 'p-1.5 rounded-lg glass text-champagne/40 hover:text-gold-300 transition-colors disabled:opacity-30'}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             </button>
@@ -427,8 +445,8 @@ export default function Dashboard({
                 <p className="font-serif text-3xl font-semibold text-foil-static leading-none mb-1">
                   {loading ? <span className="animate-pulse">·</span> : s.value}
                 </p>
-                <p className="font-label uppercase tracking-luxe text-[9px] text-gold-400/70 mb-0.5">{s.label}</p>
-                <p className="font-sans text-[10px] text-champagne/35">{s.sub}</p>
+                <p className={`font-label uppercase tracking-luxe ${platformStudio ? 'text-[11px]' : 'text-[9px]'} text-gold-400/70 mb-0.5`}>{s.label}</p>
+                <p className={`font-sans ${small10} text-champagne/35`}>{s.sub}</p>
               </div>
             ))}
           </div>
@@ -436,7 +454,7 @@ export default function Dashboard({
 
         {/* Action cards */}
         <section>
-          <h2 className="font-label uppercase tracking-luxe text-[10px] text-champagne/50 mb-4">
+          <h2 className={`font-label uppercase tracking-luxe ${small10} text-champagne/50 mb-4`}>
             {platformStudio && !studio ? 'Everything for your event' : 'Studio Tools'}
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -522,7 +540,7 @@ export default function Dashboard({
 
         {/* QR Codes */}
         <section>
-          <h2 className="font-label uppercase tracking-luxe text-[10px] text-champagne/50 mb-4">Event QR Codes</h2>
+          <h2 className={`font-label uppercase tracking-luxe ${small10} text-champagne/50 mb-4`}>Event QR Codes</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 max-w-2xl mx-auto">
             {/* Platform events steer printed signage at /welcome — the same
                 target ShareKit, EventsList and the platform guide hand out, so
@@ -533,15 +551,17 @@ export default function Dashboard({
               hint="Print for guest tables — scan to launch the AR booth on any phone."
               url={platformStudio ? `${origin}${basePath}/welcome` : `${origin}${basePath}/`}
               icon={<Sparkles className="w-4 h-4" />}
+              platform={platformStudio}
             />
             <QRCard
               label="Live Wall"
               hint="Scan to view the real-time photo wall or share the link for display."
               url={`${origin}${basePath}/wall`}
               icon={<Globe className="w-4 h-4" />}
+              platform={platformStudio}
             />
           </div>
-          <p className="text-center font-sans text-[10px] text-champagne/30 mt-3">
+          <p className={`text-center font-sans ${small10} text-champagne/30 mt-3`}>
             Print these for table cards or project the wall on a second screen via HDMI.
           </p>
         </section>

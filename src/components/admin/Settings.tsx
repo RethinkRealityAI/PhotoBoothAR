@@ -415,7 +415,13 @@ export default function Settings() {
         {/* Header */}
         <header className="flex items-center justify-between animate-rise-in">
           <div>
-            <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
+            {/* Platform: "AR Studio" named a paid add-on most hosts do not
+                have. The frozen legacy sites keep their eyebrow. */}
+            {base.startsWith('/host/') ? (
+              <p className="font-label uppercase tracking-luxe text-[11px] text-champagne/50 mb-1">Your event</p>
+            ) : (
+              <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
+            )}
             <h1 className="font-serif italic text-3xl text-foil-static">Event Settings</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
               Live wall feature controls — changes apply immediately.

@@ -483,6 +483,7 @@ export type ToolResultCode =
   | 'not_found'   // the row is gone (or hidden) — zero rows matched
   | 'timeout'     // the call was aborted for time
   | 'gap'         // the confirm card is missing a required field (proposalGaps)
+  | 'upgrade_required' // this host's plan cannot run it (copilotEntitlements) — never retry
   | 'unknown';
 
 export interface ExecResult {

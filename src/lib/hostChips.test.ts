@@ -97,6 +97,19 @@ describe('examplePromptsFor / conciergeSuggestionsFor', () => {
     expect(examplePromptsFor({ mode: 'build' })).not.toBe(examplePromptsFor({ mode: 'build' }));
   });
 
+  it('a host who cannot generate 3D is never shown a 3D-generation example', () => {
+    for (const eventType of ['birthday', 'party', 'gala', undefined]) {
+      const open = examplePromptsFor({ mode: 'platform', eventType });
+      const locked = examplePromptsFor({ mode: 'platform', eventType, ai3d: false });
+      expect(locked).toHaveLength(open.length);
+      expect(locked.filter((p) => /3D/.test(p) && !/library/.test(p))).toEqual([]);
+      // Unknown (absent) and entitled (true) both keep the shipped list.
+      expect(examplePromptsFor({ mode: 'platform', eventType, ai3d: true })).toEqual(open);
+    }
+    expect(examplePromptsFor({ mode: 'platform', eventType: 'birthday', ai3d: false }))
+      .toContain('Add a ready-made 3D prop from the library for guests to wear');
+  });
+
   it('the concierge gets today\'s three plus the deferral', () => {
     const s = conciergeSuggestionsFor();
     expect(s).toHaveLength(4);
