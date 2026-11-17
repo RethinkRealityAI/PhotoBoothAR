@@ -28,6 +28,10 @@ export interface ShaderDef {
   animated: boolean;
   /** special effects (e.g. the dissolve) are not offered as booth filters */
   special?: boolean;
+  /** OPT-IN seasonal filter: offered in the studio and LooksPicker, but an
+   *  event's empty shaderIds ("show everything") never includes it
+   *  (catalog.ts `pick`). Same contract as BuiltinBorder.seasonal. */
+  seasonal?: 'christmas';
   fragment: string;
   params: ShaderParam[];
 }
@@ -497,6 +501,77 @@ void main(){
   gl_FragColor = vec4(result, base.a);
 }`),
     params: [{ key: 'uSparkle', label: 'Sparkle', min: 0, max: 1.5, step: 0.05, default: 0.9 }],
+  },
+
+  {
+    // Christmas, OPT-IN: never in an empty shaderIds allow-list (catalog.ts pick).
+    id: 'snowfall-glow',
+    name: 'Snowfall Glow',
+    description: 'Soft snow drifting down through warm candle-light, with gentle bokeh and a cosy vignette.',
+    animated: true,
+    seasonal: 'christmas',
+    fragment: compose(`
+// One depth layer of falling flakes: a hashed grid scrolled downward (+y is
+// down in vUv) with a slow per-column sway. Returns flake brightness.
+float snowLayer(vec2 uv, float scale, float speed, float size, float density, float seed){
+  vec2 p = uv * scale;
+  p.y -= uTime * speed;
+  p.x += sin(uTime * 0.55 + p.y * 0.9 + seed) * 0.22;
+  vec2 cell = floor(p);
+  vec2 f = fract(p) - 0.5;
+  float h = hash21(cell + seed);
+  if (h > density) return 0.0;
+  vec2 off = vec2(hash21(cell + seed + 1.7), hash21(cell + seed + 3.1)) - 0.5;
+  float d = length(f - off * 0.6);
+  float tw = 0.75 + 0.25 * sin(uTime * (1.0 + h * 2.0) + h * 40.0);
+  return smoothstep(size, size * 0.2, d) * tw;
+}
+// Large out-of-focus discs: soft body with a slightly brighter rim.
+float bokehLayer(vec2 uv, float scale, float speed, float seed){
+  vec2 p = uv * scale;
+  p.y -= uTime * speed;
+  vec2 cell = floor(p);
+  vec2 f = fract(p) - 0.5;
+  float h = hash21(cell + seed);
+  if (h > 0.35) return 0.0;
+  vec2 off = vec2(hash21(cell + seed + 5.3), hash21(cell + seed + 7.9)) - 0.5;
+  float d = length(f - off * 0.4);
+  float r = 0.12 + h * 0.3;
+  float body = smoothstep(r, r * 0.35, d);
+  float rim = smoothstep(r * 0.55, r * 0.85, d) * smoothstep(r, r * 0.85, d);
+  return body * 0.28 + rim * 0.12;
+}
+void main(){
+  vec4 base = texture2D(uTexture, vUv);
+  vec3 col = base.rgb;
+  // Candle-light grade: warm the mids, lift the shadows a touch toward amber.
+  vec3 warm = col * vec3(1.07, 0.99, 0.86) + vec3(0.035, 0.018, 0.0) * (1.0 - luma(col));
+  col = mix(col, warm, uWarmth);
+  float hi = smoothstep(0.55, 1.0, luma(col));
+  col = screenBlend(col, vec3(1.0, 0.72, 0.38) * hi * 0.22 * uWarmth);
+  // Vignette, tinted warm-dark so the edges glow like firelight.
+  float r = length((vUv - 0.5) * vec2(1.15, 1.0));
+  float vig = smoothstep(0.32, 0.9, r);
+  col = mix(col, col * vec3(0.55, 0.42, 0.36), vig * uVignette);
+  // Snow: three parallax layers + bokeh, thinner over the centre so faces stay clear.
+  vec2 aspect = vec2(uResolution.x / uResolution.y, 1.0);
+  vec2 uv = vUv * aspect;
+  float snow = snowLayer(uv, 7.0, 0.05, 0.16, 0.55, 1.0) * 0.55
+             + snowLayer(uv, 13.0, 0.09, 0.14, 0.45, 7.0) * 0.8
+             + snowLayer(uv, 22.0, 0.16, 0.12, 0.40, 13.0);
+  float bok = bokehLayer(uv, 5.0, 0.03, 21.0);
+  float centre = smoothstep(0.12, 0.42, length((vUv - vec2(0.5, 0.42)) * vec2(1.0, 0.8)));
+  float amount = uSparkle * mix(0.45, 1.0, centre);
+  vec3 flakeCol = vec3(1.0, 0.98, 0.95);
+  col = screenBlend(col, flakeCol * clamp(snow, 0.0, 1.0) * amount);
+  col = screenBlend(col, vec3(1.0, 0.86, 0.66) * bok * amount * 0.6);
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), base.a);
+}`),
+    params: [
+      { key: 'uSparkle', label: 'Snow', min: 0, max: 1.5, step: 0.05, default: 0.85 },
+      { key: 'uWarmth', label: 'Warmth', min: 0, max: 1, step: 0.05, default: 0.6 },
+      { key: 'uVignette', label: 'Vignette', min: 0, max: 1, step: 0.05, default: 0.6 },
+    ],
   },
 
   {

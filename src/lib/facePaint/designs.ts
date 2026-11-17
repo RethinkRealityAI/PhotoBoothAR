@@ -2,7 +2,8 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * The Face Paint design registry: eight procedural looks, each drawn into
+ * The Face Paint design registry: procedural looks (the eight originals plus a
+ * Christmas set), each drawn into
  * TEXTURE space relative to facial landmarks (features.ts), never at fixed uv
  * pixels. Every design takes up to three colours in slot order; the studio fills
  * them from the event theme and the host can override each one.
@@ -13,7 +14,8 @@
  */
 import { lerpPt, type FaceFrame, type Pt } from './features';
 import {
-  angleOf, dot, ellipseAt, hard, heartPath, rng, soft, starPath, taperPath, type PaintContext,
+  angleOf, arcLengths, cubicPts, dot, ellipseAt, hard, heartPath, hollyLeafPath, polylinePath, polyNormals,
+  quadPts, ribbonPath, rng, roundEnds, snowflakePath, soft, softBlob, spiralPts, starPath, taperPath, type PaintContext,
 } from './shapes';
 
 export const FACE_PAINT_DESIGN_IDS = [
@@ -25,6 +27,11 @@ export const FACE_PAINT_DESIGN_IDS = [
   'stars',
   'tiger',
   'sugar-skull',
+  'candy-cane',
+  'rudolph',
+  'snowflakes',
+  'frost-queen',
+  'gingerbread',
 ] as const;
 export type FacePaintDesignId = (typeof FACE_PAINT_DESIGN_IDS)[number];
 
@@ -498,7 +505,570 @@ function sugarSkull(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
   });
 }
 
-const draw = { gameDay, flagCheeks, eyeBlack, glitterFreckles, hearts, stars, tiger, sugarSkull };
+/* ── Christmas set ───────────────────────────────────────────────────── */
+// Fixed festive hexes, not the event accent: a candy cane is red and white,
+// Rudolph's nose is red, whatever the event's brand colour is. Hosts can still
+// recolour every slot.
+
+/** Point at arc-length fraction t of a sampled polyline (+ its index). */
+function along(pts: Pt[], L: number[], t: number): { p: Pt; i: number } {
+  const target = t * L[L.length - 1];
+  let i = 1;
+  while (i < L.length - 1 && L[i] < target) i++;
+  const seg = L[i] - L[i - 1] || 1;
+  return { p: lerpPt(pts[i - 1], pts[i], (target - L[i - 1]) / seg), i };
+}
+
+/** Offset a polyline sideways by `d` px (left of travel = +). */
+function offsetPts(pts: Pt[], d: number | ((t: number) => number)): Pt[] {
+  const N = polyNormals(pts);
+  return pts.map((p, i) => {
+    const k = typeof d === 'number' ? d : d(i / (pts.length - 1));
+    return { x: p.x + N[i].x * k, y: p.y + N[i].y * k };
+  });
+}
+
+/**
+ * Continue a polyline into a circular curl of radius `r` that bends toward
+ * `side` (a point the curl should turn toward), `turns` of a full circle.
+ * Returns the extra points (without the shared first one) and the centre.
+ */
+function curlFrom(pts: Pt[], r: number, toward: Pt, turns: number, n = 24): { pts: Pt[]; centre: Pt } {
+  const last = pts[pts.length - 1];
+  const prev = pts[pts.length - 2];
+  const h = Math.atan2(last.y - prev.y, last.x - prev.x);
+  const c1 = { x: last.x + Math.cos(h + Math.PI / 2) * r, y: last.y + Math.sin(h + Math.PI / 2) * r };
+  const c2 = { x: last.x + Math.cos(h - Math.PI / 2) * r, y: last.y + Math.sin(h - Math.PI / 2) * r };
+  const d = (q: Pt) => Math.hypot(q.x - toward.x, q.y - toward.y);
+  const centre = d(c1) < d(c2) ? c1 : c2;
+  const a0 = Math.atan2(last.y - centre.y, last.x - centre.x);
+  // Travel direction that continues the heading.
+  const dir: 1 | -1 = -Math.sin(a0) * Math.cos(h) + Math.cos(a0) * Math.sin(h) >= 0 ? 1 : -1;
+  return { pts: spiralPts(centre, r, r, a0, turns, dir, n).slice(1), centre };
+}
+
+function candyCane(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const red = c(colors, 0, '#d4141f');
+  const white = c(colors, 1, '#fbf8f3');
+  const W = E * 0.1;
+  for (const s of SIDES) {
+    const k = sided(f, s);
+    // A cane lying along the cheekbone: the shaft runs from the apple of the
+    // cheek outward under the eye, then hooks up toward the temple.
+    const inner = { x: lerpPt(k.underEye, k.cheek, 0.5).x - k.out * E * 0.11, y: lerpPt(k.underEye, k.cheek, 0.5).y + E * 0.02 };
+    const outer = { x: lerpPt(k.side, k.eyeOuter, 0.6).x, y: lerpPt(k.side, k.eyeOuter, 0.6).y + E * 0.06 };
+    const mid = { x: lerpPt(inner, outer, 0.5).x, y: lerpPt(inner, outer, 0.5).y + E * 0.06 };
+    const shaft = quadPts(inner, mid, outer, 30);
+    const hook = curlFrom(shaft, E * 0.08, { x: outer.x, y: outer.y - E }, 0.58, 18);
+    const pts = [...shaft, ...hook.pts];
+    const L = arcLengths(pts);
+    const len = L[L.length - 1];
+    const N = polyNormals(pts);
+    const prof = roundEnds(W);
+
+    // Candy body: white, with a soft same-colour pigment edge.
+    soft(ctx, white, edge(f, 0.7));
+    ctx.fillStyle = white;
+    ribbonPath(ctx, pts, prof);
+    ctx.fill();
+    hard(ctx);
+
+    // Slanted red stripes, clipped to the body so the edge stays clean.
+    ctx.save();
+    ribbonPath(ctx, pts, prof);
+    ctx.clip();
+    ctx.fillStyle = red;
+    ctx.strokeStyle = red;
+    const pitch = W * 1.35;
+    const n = Math.ceil(len / pitch) + 2;
+    // Stripes are built from points ON the two band edges, offset along the
+    // arc (not along a local normal), so they wrap cleanly round the hook.
+    const sk = W * 0.5;
+    const h = W * 0.62;
+    const edgePt = (sArc: number, side: 1 | -1): Pt => {
+      const q = along(pts, L, Math.max(0, Math.min(1, sArc / len)));
+      return { x: q.p.x + N[q.i].x * h * side, y: q.p.y + N[q.i].y * h * side };
+    };
+    const band = (s0: number, s1: number) => {
+      ctx.beginPath();
+      const steps = 4;
+      for (let j = 0; j <= steps; j++) {
+        const e = edgePt(s0 + sk + ((s1 - s0) * j) / steps, 1);
+        if (j === 0) ctx.moveTo(e.x, e.y);
+        else ctx.lineTo(e.x, e.y);
+      }
+      for (let j = steps; j >= 0; j--) {
+        const e = edgePt(s0 - sk + ((s1 - s0) * j) / steps, -1);
+        ctx.lineTo(e.x, e.y);
+      }
+      ctx.closePath();
+      ctx.fill();
+    };
+    for (let i = -2; i < n; i++) {
+      band(i * pitch, i * pitch + pitch * 0.42);
+      // A thin pinstripe beside every main stripe — the confectioner's detail.
+      band(i * pitch + pitch * 0.66, i * pitch + pitch * 0.74);
+    }
+    // Rounded-tube shading: a darker band along the lower edge.
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#5a0a10';
+    // Normals point UP on the left cane and DOWN on the right (travel is outward).
+    ribbonPath(ctx, offsetPts(pts, k.out * W * 0.32), (t, sArc, l) => prof(t, sArc, l) * 0.42);
+    ctx.fill();
+    ctx.restore();
+
+    // Gloss: a long specular streak riding the upper edge, plus a hot spot.
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = '#ffffff';
+    const hi = offsetPts(pts.slice(3, 28), -k.out * W * 0.22);
+    ribbonPath(ctx, hi, (t) => W * 0.16 * Math.sin(Math.PI * t));
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    dot(ctx, offsetPts([pts[8], pts[9], pts[10]], -k.out * W * 0.24)[1], W * 0.07);
+    ctx.fill();
+    ctx.restore();
+  }
+  hard(ctx);
+}
+
+function rudolph(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const nose = c(colors, 0, '#d0101c');
+  const blush = c(colors, 1, '#e5566b');
+  const freckle = c(colors, 2, '#7b4a2f');
+  const rand = rng(0x2ed0);
+
+  // Rosy cheeks: wide, sponge-soft.
+  for (const s of SIDES) {
+    const k = sided(f, s);
+    softBlob(ctx, lerpPt(k.cheek, k.cheekbone, 0.3), E * 0.17, E * 0.12, blush, 0.55, 10, -k.out * 0.25);
+  }
+  // Freckles: across the nose bridge and onto both cheeks.
+  hard(ctx);
+  ctx.save();
+  ctx.fillStyle = freckle;
+  const spots: Pt[] = [];
+  for (const s of SIDES) {
+    const k = sided(f, s);
+    const cc = lerpPt(k.cheek, k.underEye, 0.45);
+    for (let i = 0; i < 16; i++) {
+      spots.push({ x: cc.x + (rand() - 0.5) * E * 0.24, y: cc.y + (rand() - 0.5) * E * 0.13 });
+    }
+  }
+  const bridge = lerpPt(f.noseBridge, f.noseTip, 0.5);
+  for (let i = 0; i < 8; i++) spots.push({ x: bridge.x + (rand() - 0.5) * E * 0.2, y: bridge.y + (rand() - 0.5) * E * 0.07 });
+  for (const p of spots) {
+    ctx.globalAlpha = 0.45 + rand() * 0.35;
+    dot(ctx, p, E * (0.005 + rand() * 0.006));
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // The nose: a glow, a shaded ball and a glossy highlight.
+  const r = E * 0.115;
+  const at = lerpPt(f.noseTip, f.noseBridge, 0.06);
+  softBlob(ctx, at, r * 1.75, r * 1.6, nose, 0.35, 10);
+  soft(ctx, nose, edge(f, 0.8));
+  ctx.fillStyle = nose;
+  dot(ctx, at, r);
+  ctx.fill();
+  hard(ctx);
+  // Shadow side (lower right) → lit side (upper left), built from layers.
+  ctx.save();
+  ctx.globalAlpha = 0.28;
+  ctx.fillStyle = '#4a0006';
+  ellipseAt(ctx, { x: at.x + r * 0.22, y: at.y + r * 0.3 }, r * 0.82, r * 0.7);
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.fillStyle = '#ff5a52';
+  ctx.globalAlpha = 0.35;
+  for (let i = 0; i < 4; i++) {
+    dot(ctx, { x: at.x - r * 0.18, y: at.y - r * 0.2 }, r * (0.7 - i * 0.14));
+    ctx.fill();
+  }
+  ctx.restore();
+  ctx.save();
+  ctx.fillStyle = '#ffffff';
+  ctx.globalAlpha = 0.92;
+  ellipseAt(ctx, { x: at.x - r * 0.36, y: at.y - r * 0.42 }, r * 0.26, r * 0.15, -0.6);
+  ctx.fill();
+  ctx.globalAlpha = 0.7;
+  dot(ctx, { x: at.x - r * 0.05, y: at.y - r * 0.58 }, r * 0.06);
+  ctx.fill();
+  ctx.globalAlpha = 0.35;
+  ellipseAt(ctx, { x: at.x + r * 0.42, y: at.y + r * 0.45 }, r * 0.18, r * 0.07, -0.8);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** One painted snowflake: an icy glow pass, then the crisp white crystal. */
+function snowflakeAt(ctx: PaintContext, f: FaceFrame, at: Pt, r: number, rot: number, white: string, frost: string, branches = 2): void {
+  withTransform(ctx, at, rot, () => {
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    soft(ctx, frost, edge(f, 1.6));
+    ctx.strokeStyle = frost;
+    ctx.lineWidth = r * 0.16;
+    snowflakePath(ctx, r, branches);
+    ctx.stroke();
+    hard(ctx);
+    ctx.strokeStyle = white;
+    ctx.lineWidth = r * 0.075;
+    snowflakePath(ctx, r, branches);
+    ctx.stroke();
+    ctx.fillStyle = white;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI) / 3;
+      const x = Math.cos(a) * r * 0.16;
+      const y = Math.sin(a) * r * 0.16;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+  });
+}
+
+/** Frosty glitter: seeded flecks inside an ellipse, every third with a white core. */
+function frostGlitter(ctx: PaintContext, f: FaceFrame, centre: Pt, rx: number, ry: number, n: number, palette: string[], seed: number): void {
+  const rand = rng(seed);
+  const E = f.eyeSpan;
+  for (let i = 0; i < n; i++) {
+    const a = rand() * Math.PI * 2;
+    const d = Math.sqrt(rand());
+    const at = { x: centre.x + Math.cos(a) * rx * d, y: centre.y + Math.sin(a) * ry * d };
+    const r = E * (0.004 + rand() * 0.008);
+    const col = palette[Math.floor(rand() * palette.length) % palette.length];
+    soft(ctx, col, edge(f, 0.3));
+    ctx.fillStyle = col;
+    ctx.globalAlpha = 0.55 + rand() * 0.45;
+    dot(ctx, at, r);
+    ctx.fill();
+    if (i % 3 === 0) {
+      hard(ctx);
+      ctx.fillStyle = '#ffffff';
+      dot(ctx, at, r * 0.45);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+  hard(ctx);
+}
+
+function snowflakes(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const white = c(colors, 0, '#ffffff');
+  const frost = c(colors, 1, '#7cc6f2');
+  const glitter = c(colors, 2, '#cfeaff');
+  const R = sided(f, 'R');
+  const L = sided(f, 'L');
+  // A drift of frost glitter first, so the flakes sit crisp on top of it.
+  frostGlitter(ctx, f, lerpPt(R.cheekbone, R.underEye, 0.4), E * 0.2, E * 0.12, 70, [glitter, white, frost], 0x5f1a);
+  const flakes: { at: Pt; r: number; rot: number; b: number }[] = [
+    { at: lerpPt(R.eyeOuter, R.cheekbone, 0.55), r: E * 0.15, rot: 0.12, b: 2 },
+    { at: lerpPt(R.browOuter, R.temple, 0.45), r: E * 0.085, rot: -0.2, b: 2 },
+    { at: lerpPt(lerpPt(R.eyeOuter, R.side, 0.55), R.temple, 0.15), r: E * 0.06, rot: 0.3, b: 1 },
+    { at: lerpPt(R.cheekbone, R.cheekLow, 0.6), r: E * 0.05, rot: -0.1, b: 1 },
+    { at: lerpPt(L.eyeOuter, L.underEye, 0.7), r: E * 0.045, rot: 0.25, b: 1 },
+  ];
+  for (const fl of flakes) snowflakeAt(ctx, f, fl.at, fl.r, fl.rot, white, frost, fl.b);
+  // Four-point glints.
+  ctx.fillStyle = '#ffffff';
+  const rand = rng(0x5f1c);
+  for (let i = 0; i < 5; i++) {
+    const p = lerpPt(lerpPt(R.eyeOuter, R.cheekbone, 0.5), R.temple, rand() * 0.8);
+    withTransform(ctx, { x: p.x + (rand() - 0.5) * E * 0.14, y: p.y + (rand() - 0.5) * E * 0.14 }, 0, () => {
+      starPath(ctx, E * (0.018 + rand() * 0.014), E * 0.004, 4);
+      ctx.fill();
+    });
+  }
+}
+
+function frostQueen(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const ice = c(colors, 0, '#5fb8f0');
+  const frost = c(colors, 1, '#ffffff');
+  const crystal = c(colors, 2, '#bfe8ff');
+  for (const s of SIDES) {
+    const k = sided(f, s);
+    const o = k.out;
+    const corner = k.eyeOuter;
+    // Frost wash fanning from the outer corner up to the temple.
+    softBlob(ctx, lerpPt(corner, k.browOuter, 0.5), E * 0.17, E * 0.1, ice, 0.55, 10, -o * 0.6);
+    softBlob(ctx, lerpPt(k.browOuter, k.temple, 0.35), E * 0.12, E * 0.08, crystal, 0.4, 8, -o * 0.5);
+
+    // Three swirls born at the outer corner, fanning out like frost ferns:
+    // up past the brow tail to the temple, out to the hairline, down the cheekbone.
+    const swirls: { to: Pt; c1: Pt; c2: Pt; r: number; w: number; toward: Pt }[] = [
+      {
+        to: { x: k.browOuter.x + o * E * 0.1, y: k.browOuter.y - E * 0.2 },
+        c1: { x: corner.x + o * E * 0.12, y: corner.y - E * 0.02 },
+        c2: { x: k.browOuter.x + o * E * 0.15, y: k.browOuter.y - E * 0.04 },
+        r: E * 0.05, w: 0.064, toward: k.brow,
+      },
+      {
+        to: { x: corner.x + o * E * 0.3, y: corner.y - E * 0.1 },
+        c1: { x: corner.x + o * E * 0.12, y: corner.y + E * 0.04 },
+        c2: { x: corner.x + o * E * 0.24, y: corner.y + E * 0.02 },
+        r: E * 0.04, w: 0.052, toward: k.temple,
+      },
+      {
+        to: { x: corner.x + o * E * 0.12, y: corner.y + E * 0.2 },
+        c1: { x: corner.x + o * E * 0.06, y: corner.y + E * 0.05 },
+        c2: { x: corner.x + o * E * 0.2, y: corner.y + E * 0.1 },
+        r: E * 0.034, w: 0.044, toward: k.eyeBot,
+      },
+    ];
+    const start = { x: corner.x + o * E * 0.015, y: corner.y + E * 0.005 };
+    const centres: Pt[] = [];
+    for (const sw of swirls) {
+      const arc = cubicPts(start, sw.c1, sw.c2, sw.to, 30);
+      const curl = curlFrom(arc, sw.r, sw.toward, 0.85, 22);
+      centres.push(curl.centre);
+      const path = [...arc, ...spiralTighten(curl.pts, curl.centre)];
+      const taper = (t: number) => E * sw.w * (0.18 + 0.82 * Math.sin(Math.PI * Math.min(1, 0.12 + t * 0.95)) ** 0.7);
+      soft(ctx, ice, edge(f, 1.6));
+      ctx.fillStyle = ice;
+      ribbonPath(ctx, path, taper);
+      ctx.fill();
+      hard(ctx);
+      // Frost core: a bright inner line.
+      ctx.fillStyle = frost;
+      ribbonPath(ctx, path, (t) => taper(t) * 0.36);
+      ctx.fill();
+    }
+    // Icicle flicks off the upper swirl.
+    for (const [t, len, ang] of [[0.35, 0.06, -0.5], [0.55, 0.08, -0.9], [0.75, 0.05, -1.3]] as [number, number, number][]) {
+      const arc = cubicPts(start, swirls[0].c1, swirls[0].c2, swirls[0].to, 30);
+      const p = arc[Math.round(t * 30)];
+      soft(ctx, ice, edge(f, 0.5));
+      ctx.fillStyle = ice;
+      taperPath(ctx, p, { x: p.x + o * Math.cos(ang) * E * len, y: p.y + Math.sin(ang) * E * len }, E * 0.018, 0.12 * o);
+      ctx.fill();
+    }
+    hard(ctx);
+    // Crystals: a few rhinestones along the lash line, a jewel in each curl.
+    const lash = quadPts(lerpPt(k.eyeBot, corner, 0.55), { x: corner.x - o * E * 0.005, y: corner.y + E * 0.04 }, start, 4);
+    lash.forEach((p, i) => rhinestone(ctx, f, p, E * (0.007 + i * 0.002), crystal, ice));
+    centres.forEach((cc, i) => rhinestone(ctx, f, cc, E * (0.016 - i * 0.003), crystal, ice));
+    // Shimmer.
+    frostGlitter(ctx, f, lerpPt(corner, k.browOuter, 0.6), E * 0.2, E * 0.16, 44, [frost, crystal], s === 'L' ? 0xf20a : 0xf20b);
+    snowflakeAt(ctx, f, { x: k.temple.x - o * E * 0.02, y: k.browOuter.y - E * 0.21 }, E * 0.05, o * 0.2, frost, ice, 1);
+  }
+}
+
+/** Pull a circular curl inward as it winds, so it reads as a hand-painted spiral. */
+function spiralTighten(pts: Pt[], centre: Pt): Pt[] {
+  return pts.map((p, i) => lerpPt(p, centre, (0.55 * i) / Math.max(1, pts.length - 1)));
+}
+
+/** A faceted crystal: pale fill, an icy rim and a white catch-light. */
+function rhinestone(ctx: PaintContext, f: FaceFrame, p: Pt, r: number, fill: string, rim: string): void {
+  soft(ctx, fill, edge(f, 0.6));
+  ctx.fillStyle = fill;
+  dot(ctx, p, r);
+  ctx.fill();
+  hard(ctx);
+  ctx.strokeStyle = rim;
+  ctx.lineWidth = r * 0.3;
+  dot(ctx, p, r);
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  dot(ctx, { x: p.x - r * 0.3, y: p.y - r * 0.3 }, r * 0.38);
+  ctx.fill();
+}
+
+/** Raised royal-icing line: a cast shadow, the icing, then a wet highlight. */
+function pipe(ctx: PaintContext, pts: Pt[], w: number, icing: string, closed = false): void {
+  const path = closed ? [...pts, pts[0]] : pts;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.translate(0, w * 0.3);
+  ctx.strokeStyle = 'rgba(60,25,5,0.4)';
+  ctx.lineWidth = w * 1.15;
+  polylinePath(ctx, path);
+  ctx.stroke();
+  ctx.translate(0, -w * 0.3);
+  ctx.strokeStyle = icing;
+  ctx.lineWidth = w;
+  polylinePath(ctx, path);
+  ctx.stroke();
+  ctx.translate(-w * 0.12, -w * 0.16);
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  ctx.lineWidth = w * 0.3;
+  polylinePath(ctx, path);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Icing squiggle: a polyline wiggled sideways with `waves` full periods. */
+function squiggle(pts: Pt[], amp: number, waves: number): Pt[] {
+  const L = arcLengths(pts);
+  const len = L[L.length - 1] || 1;
+  const N = polyNormals(pts);
+  return pts.map((p, i) => {
+    const k = amp * Math.sin((L[i] / len) * waves * Math.PI * 2);
+    return { x: p.x + N[i].x * k, y: p.y + N[i].y * k };
+  });
+}
+
+/** Closed Catmull-Rom loop through `ctrl`, `per` samples a span. */
+function loopPts(ctrl: Pt[], per = 16): Pt[] {
+  const out: Pt[] = [];
+  const n = ctrl.length;
+  for (let i = 0; i < n; i++) {
+    const p0 = ctrl[(i - 1 + n) % n], p1 = ctrl[i], p2 = ctrl[(i + 1) % n], p3 = ctrl[(i + 2) % n];
+    for (let j = 0; j < per; j++) {
+      const t = j / per, t2 = t * t, t3 = t2 * t;
+      const cr = (a: number, b: number, cc: number, d: number) =>
+        0.5 * (2 * b + (-a + cc) * t + (2 * a - 5 * b + 4 * cc - d) * t2 + (-a + 3 * b - 3 * cc + d) * t3);
+      out.push({ x: cr(p0.x, p1.x, p2.x, p3.x), y: cr(p0.y, p1.y, p2.y, p3.y) });
+    }
+  }
+  return out;
+}
+
+function gingerbread(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const cookie = c(colors, 0, '#b4692e');
+  const icing = c(colors, 1, '#fffaf2');
+  const candy = c(colors, 2, '#d4141f');
+  hard(ctx);
+  ctx.fillStyle = cookie;
+  ctx.fillRect(0, 0, f.size, f.size);
+  // Baked toast: a slightly darker rim toward the edge, lighter centre.
+  softBlob(ctx, lerpPt(f.noseBridge, f.noseTip, 0.4), E * 0.95, E * 1.05, '#e3a064', 0.35, 10);
+
+  // Piped icing border just inside the face edge.
+  const centre = lerpPt(f.noseBridge, f.noseTip, 0.5);
+  const ring = [f.foreheadMid, f.templeR, f.sideR, f.jawR, f.chinR, f.chin, f.chinL, f.jawL, f.sideL, f.templeL]
+    .map((p, i) => lerpPt(p, centre, i === 0 ? 0.08 : i === 5 ? 0.1 : 0.16));
+  const loop = loopPts(ring, 18);
+  pipe(ctx, squiggle([...loop, loop[0]], E * 0.024, 44), E * 0.03, icing);
+
+  // Candy cheeks: a red sugar disc ringed with icing dots.
+  for (const s of SIDES) {
+    const k = sided(f, s);
+    const at = lerpPt(k.cheek, k.cheekbone, 0.25);
+    const r = E * 0.085;
+    softBlob(ctx, at, r * 1.05, r * 1.05, candy, 1.1, 9);
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.55;
+    ellipseAt(ctx, { x: at.x - r * 0.35, y: at.y - r * 0.4 }, r * 0.28, r * 0.14, -0.6);
+    ctx.fill();
+    ctx.restore();
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const p = { x: at.x + Math.cos(a) * r * 1.38, y: at.y + Math.sin(a) * r * 1.38 };
+      pipeDot(ctx, p, E * 0.013, icing);
+    }
+  }
+
+  // Iced smile: a scalloped line just below the lower lip.
+  const sm = quadPts(
+    { x: f.mouthL.x - E * 0.05, y: f.mouthL.y + E * 0.02 },
+    { x: f.mouthBottom.x, y: f.mouthBottom.y + E * 0.19 },
+    { x: f.mouthR.x + E * 0.05, y: f.mouthR.y + E * 0.02 },
+    30,
+  );
+  pipe(ctx, squiggle(sm, E * 0.01, 7), E * 0.018, icing);
+
+  // Icing dimples at the smile's ends, and a peppermint on the forehead.
+  pipeDot(ctx, sm[0], E * 0.016, icing);
+  pipeDot(ctx, sm[sm.length - 1], E * 0.016, icing);
+  peppermint(ctx, f, lerpPt(f.browMid, f.foreheadMid, 0.55), E * 0.075, candy, icing);
+  // Icing dots flanking the peppermint.
+  for (const sgn of [-1, 1]) {
+    for (let i = 1; i <= 3; i++) {
+      pipeDot(ctx, { x: lerpPt(f.browMid, f.foreheadMid, 0.55).x + sgn * E * (0.08 + i * 0.055), y: lerpPt(f.browMid, f.foreheadMid, 0.55).y + E * 0.01 * i }, E * (0.014 - i * 0.002), icing);
+    }
+  }
+}
+
+/** A raised icing dot. */
+function pipeDot(ctx: PaintContext, p: Pt, r: number, icing: string): void {
+  ctx.fillStyle = 'rgba(60,25,5,0.4)';
+  dot(ctx, { x: p.x, y: p.y + r * 0.4 }, r * 1.05);
+  ctx.fill();
+  ctx.fillStyle = icing;
+  dot(ctx, p, r);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  dot(ctx, { x: p.x - r * 0.3, y: p.y - r * 0.35 }, r * 0.35);
+  ctx.fill();
+}
+
+function gumdrop(ctx: PaintContext, f: FaceFrame, p: Pt, r: number, col: string): void {
+  soft(ctx, col, edge(f, 0.6));
+  ctx.fillStyle = col;
+  ellipseAt(ctx, p, r, r * 0.85);
+  ctx.fill();
+  hard(ctx);
+  ctx.save();
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = '#ffffff';
+  ellipseAt(ctx, { x: p.x - r * 0.3, y: p.y - r * 0.35 }, r * 0.3, r * 0.16, -0.5);
+  ctx.fill();
+  ctx.restore();
+}
+
+function peppermint(ctx: PaintContext, f: FaceFrame, p: Pt, r: number, red: string, white: string): void {
+  soft(ctx, white, edge(f, 0.8));
+  ctx.fillStyle = white;
+  dot(ctx, p, r);
+  ctx.fill();
+  hard(ctx);
+  // Pinwheel: six curved red vanes.
+  ctx.fillStyle = red;
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const b = a + Math.PI / 6;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.quadraticCurveTo(p.x + Math.cos(a + 0.35) * r * 0.75, p.y + Math.sin(a + 0.35) * r * 0.75, p.x + Math.cos(a) * r * 0.94, p.y + Math.sin(a) * r * 0.94);
+    ctx.arc(p.x, p.y, r * 0.94, a, b);
+    ctx.quadraticCurveTo(p.x + Math.cos(b + 0.35) * r * 0.75, p.y + Math.sin(b + 0.35) * r * 0.75, p.x, p.y);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.strokeStyle = 'rgba(80,0,8,0.35)';
+  ctx.lineWidth = r * 0.06;
+  dot(ctx, p, r * 0.97);
+  ctx.stroke();
+  ctx.save();
+  ctx.fillStyle = '#ffffff';
+  ctx.globalAlpha = 0.8;
+  ellipseAt(ctx, { x: p.x - r * 0.38, y: p.y - r * 0.42 }, r * 0.3, r * 0.12, -0.7);
+  ctx.fill();
+  ctx.restore();
+  // A holly sprig tucked behind the mint.
+  for (const [rot, dx] of [[-0.5, -1], [0.5, 1]] as [number, number][]) {
+    withTransform(ctx, { x: p.x + dx * r * 1.25, y: p.y - r * 0.55 }, rot + (dx < 0 ? Math.PI : 0), () => {
+      soft(ctx, '#1f6b3a', edge(f, 0.5));
+      ctx.fillStyle = '#2a7a44';
+      hollyLeafPath(ctx, r * 0.7, r * 0.32);
+      ctx.fill();
+      hard(ctx);
+      ctx.strokeStyle = 'rgba(200,255,210,0.5)';
+      ctx.lineWidth = r * 0.05;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.6, 0);
+      ctx.lineTo(r * 0.6, 0);
+      ctx.stroke();
+    });
+  }
+  for (const [dx, dy] of [[-0.18, -1.05], [0.16, -1.1], [0, -0.92]]) {
+    gumdrop(ctx, f, { x: p.x + dx * r, y: p.y + dy * r }, r * 0.17, red);
+  }
+}
+
+const draw = { gameDay, flagCheeks, eyeBlack, glitterFreckles, hearts, stars, tiger, sugarSkull, candyCane, rudolph, snowflakes, frostQueen, gingerbread };
 
 export const FACE_PAINT_DESIGNS: readonly FacePaintDesign[] = [
   { id: 'game-day', name: 'Game Day', blurb: 'Team stripes under the eyes', slots: [{ label: 'Stripe 1', source: 'accent' }, { label: 'Stripe 2', source: '#ffffff' }], draw: draw.gameDay },
@@ -509,6 +1079,11 @@ export const FACE_PAINT_DESIGNS: readonly FacePaintDesign[] = [
   { id: 'stars', name: 'Stars', blurb: 'A star cluster by the eye', slots: [{ label: 'Big star', source: 'accent2' }, { label: 'Small stars', source: '#ffffff' }, { label: 'Accent', source: 'accent' }], draw: draw.stars },
   { id: 'tiger', name: 'Tiger', blurb: 'Full-face tiger with whisker pads', slots: [{ label: 'Coat', source: '#f2851f' }, { label: 'Stripes', source: '#151515' }, { label: 'Muzzle', source: '#f7f2e8' }], draw: draw.tiger, fullFace: true },
   { id: 'sugar-skull', name: 'Sugar Skull', blurb: 'Día de Muertos calavera, petals and stitches', slots: [{ label: 'Base', source: '#f4f0e8' }, { label: 'Petals', source: 'accent' }, { label: 'Detail', source: '#161616' }], draw: draw.sugarSkull, fullFace: true },
+  { id: 'candy-cane', name: 'Candy Cane', blurb: 'Glossy candy-cane stripes along each cheekbone', slots: [{ label: 'Stripes', source: '#d4141f' }, { label: 'Candy', source: '#fbf8f3' }], draw: draw.candyCane },
+  { id: 'rudolph', name: 'Rudolph', blurb: 'A shiny red nose, rosy cheeks and freckles', slots: [{ label: 'Nose', source: '#d0101c' }, { label: 'Cheeks', source: '#e5566b' }, { label: 'Freckles', source: '#7b4a2f' }], draw: draw.rudolph },
+  { id: 'snowflakes', name: 'Snowflakes', blurb: 'Crisp snowflakes by the eye in a drift of frost glitter', slots: [{ label: 'Flakes', source: '#ffffff' }, { label: 'Frost', source: '#7cc6f2' }, { label: 'Glitter', source: '#cfeaff' }], draw: draw.snowflakes },
+  { id: 'frost-queen', name: 'Frost Queen', blurb: 'Icy swirls framing the eyes, crystals and shimmer', slots: [{ label: 'Ice', source: '#5fb8f0' }, { label: 'Frost', source: '#ffffff' }, { label: 'Crystals', source: '#bfe8ff' }], draw: draw.frostQueen },
+  { id: 'gingerbread', name: 'Gingerbread', blurb: 'A full gingerbread face with piped white icing', slots: [{ label: 'Cookie', source: '#b4692e' }, { label: 'Icing', source: '#fffaf2' }, { label: 'Candy', source: '#d4141f' }], draw: draw.gingerbread, fullFace: true },
 ];
 
 export const FACE_PAINT_DESIGN_MAP: Record<string, FacePaintDesign> = Object.fromEntries(

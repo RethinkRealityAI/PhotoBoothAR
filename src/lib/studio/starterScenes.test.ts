@@ -4,7 +4,7 @@
  */
 import { existsSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { STARTER_SCENES, STARTER_SCENE_MAP, starterAssetIds, starterPropUrls, starterPropUrl, buildStarterDraft } from './starterScenes';
+import { STARTER_SCENES, STARTER_SCENE_MAP, starterAssetIds, starterPropUrls, starterPropUrl, scenePropIds, buildStarterDraft } from './starterScenes';
 import { BUNDLED_PROP_MAP } from './bundledProps';
 import { BORDER_MAP } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
@@ -65,6 +65,25 @@ describe('the shipped catalogue is real', () => {
     for (const s of STARTER_SCENES) {
       if (!s.propId) continue;
       expect(BUNDLED_PROP_MAP[s.propId], `${s.id} propId ${s.propId}`).toBeDefined();
+    }
+  });
+
+  it('resolves every multi-prop id in the shared bundled catalogue, once per scene', () => {
+    for (const s of STARTER_SCENES) {
+      const ids = scenePropIds(s);
+      expect(new Set(ids).size, `${s.id} repeats a prop`).toBe(ids.length);
+      for (const id of ids) expect(BUNDLED_PROP_MAP[id], `${s.id} prop ${id}`).toBeDefined();
+    }
+  });
+
+  it('places every prop of a multi-prop scene, and occludes when one wraps the head', () => {
+    for (const s of STARTER_SCENES.filter((x) => (x.props ?? []).length > 0)) {
+      const d = buildStarterDraft(s.id)!;
+      const urls = d.objects.filter((o) => o.type === 'model').map((o) => (o as { assetUrl?: string }).assetUrl);
+      for (const id of scenePropIds(s)) expect(urls, `${s.id} missing ${id}`).toContain(BUNDLED_PROP_MAP[id].url);
+      const wraps = scenePropIds(s).some((id) => BUNDLED_PROP_MAP[id].occlude === true);
+      const occluded = d.objects.filter((o) => o.type === 'model').every((o) => (o as { occlusion?: boolean }).occlusion === true);
+      expect(occluded, `${s.id} occlusion`).toBe(wraps);
     }
   });
 
@@ -205,7 +224,10 @@ describe('buildStarterDraft', () => {
           // default so an unstyled object round-trips byte-identically. Only
           // the textured shades want 'original' — the untextured meshes must
           // name a real finish or they render as grey plastic.
-          const wanted = BUNDLED_PROP_MAP[s.propId!].finish;
+          // Multi-prop scenes: the layer's own url names which prop it is.
+          const prop = scenePropIds(s).map((id) => BUNDLED_PROP_MAP[id]).find((bp) => bp.url === o.assetUrl);
+          expect(prop, `${s.id} layer ${o.assetUrl} is not one of its props`).toBeDefined();
+          const wanted = prop!.finish;
           if (wanted === 'original') expect(o.finish, `${s.id} finish`).toBeUndefined();
           else expect(o.finish, `${s.id} finish`).toBe(wanted);
         }

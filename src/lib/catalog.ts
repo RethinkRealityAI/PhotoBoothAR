@@ -15,9 +15,14 @@ import { HEAD_PIECES } from './headPieces';
 
 const NOW = '2026-01-01T00:00:00Z';
 
-/** Filter a list of {id} items by an allow-list. Empty/undefined list = include all. */
-export function pick<T extends { id: string }>(all: T[], ids?: string[]): T[] {
-  if (!ids || ids.length === 0) return all;
+/**
+ * Filter a list of {id} items by an allow-list. Empty/undefined list = include
+ * all — EXCEPT opt-in seasonal items (`seasonal` set, e.g. the Christmas
+ * looks): those only ever appear when an allow-list names them, so adding a
+ * seasonal look can never change a live event that never picked it.
+ */
+export function pick<T extends { id: string; seasonal?: string }>(all: T[], ids?: string[]): T[] {
+  if (!ids || ids.length === 0) return all.some((x) => x.seasonal !== undefined) ? all.filter((x) => x.seasonal === undefined) : all;
   const set = new Set(ids);
   return all.filter((x) => set.has(x.id));
 }

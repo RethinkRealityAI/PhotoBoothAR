@@ -18,7 +18,7 @@ import { useMemo, useState } from 'react';
 import { Check, Loader2, Star } from 'lucide-react';
 import { BORDER_MAP, frameDataUrl, frameDisplayName } from '../../lib/borders';
 import { FILTER_SHADERS } from '../../lib/shaders';
-import { FILTER_LOOKS, effectiveDefaultFrame, looksConfigPatch, rankLooks, selectionFromConfig, type LooksSelection } from '../../lib/themeMatch';
+import { FILTER_LOOKS, effectiveDefaultFrame, lookSeason, looksConfigPatch, rankLooks, selectionFromConfig, shownWhenUnset, type LooksSelection } from '../../lib/themeMatch';
 import { templateById } from '../../lib/eventTemplates';
 import { normalizeHex } from '../../lib/themeDerive';
 import { updateEventConfig } from '../../lib/host';
@@ -52,6 +52,30 @@ function StandInGuest() {
   );
 }
 
+const SEASON_LABEL: Record<string, string> = { christmas: 'Christmas' };
+
+/** Ranked ids split into always-available looks and opt-in seasonal ones
+ *  (grouped by season, ranked order kept inside each group). */
+function partitionBySeason(kind: 'frame' | 'filter', ids: string[]): { core: string[]; seasons: { season: string; ids: string[] }[] } {
+  const core: string[] = [];
+  const bySeason = new Map<string, string[]>();
+  for (const id of ids) {
+    const season = lookSeason(kind, id);
+    if (season === null) core.push(id);
+    else bySeason.set(season, [...(bySeason.get(season) ?? []), id]);
+  }
+  return { core, seasons: [...bySeason].map(([season, list]) => ({ season, ids: list })) };
+}
+
+function SeasonHeading({ season, count }: { season: string; count: number }) {
+  return (
+    <h4 className="mt-4 flex items-center gap-2 text-[12px] font-semibold text-brand-fg">
+      <span className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[11px] font-medium">{SEASON_LABEL[season] ?? season}</span>
+      <span className="font-normal text-brand-muted">Seasonal · off until you switch them on{count > 0 ? ` · ${count} on` : ''}</span>
+    </h4>
+  );
+}
+
 function toggle(list: string[], id: string): string[] {
   return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 }
@@ -68,10 +92,12 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
   const initial = useMemo<LooksSelection>(() => {
     const s = selectionFromConfig(config);
     // An empty allow-list means the booth shows EVERYTHING — say so honestly
-    // by starting with every tile on, rather than every tile off.
+    // by starting with every tile on, rather than every tile off. Seasonal
+    // looks are the exception: the booth never shows them for an empty list,
+    // so they start OFF here too (shownWhenUnset mirrors catalog.ts `pick`).
     return {
-      borderIds: s.borderIds.length > 0 ? s.borderIds : [...ranked.frameIds],
-      shaderIds: s.shaderIds.length > 0 ? s.shaderIds : [...ranked.filterIds],
+      borderIds: s.borderIds.length > 0 ? s.borderIds : shownWhenUnset('frame', ranked.frameIds),
+      shaderIds: s.shaderIds.length > 0 ? s.shaderIds : shownWhenUnset('filter', ranked.filterIds),
       frameId: s.frameId,
       palette: s.palette,
     };
@@ -105,6 +131,80 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
     if (ok) onSaved?.({ ...(config ?? {}), ...patch });
   };
 
+  const frameGroups = partitionBySeason('frame', ranked.frameIds);
+  const filterGroups = partitionBySeason('filter', ranked.filterIds);
+
+  const renderFrame = (id: string) => {
+    const b = BORDER_MAP[id];
+    if (!b) return null;
+    const on = sel.borderIds.includes(id);
+    const isDefault = on && id === defaultFrame;
+    const name = frameDisplayName(b, matchColour ? palette : null);
+    return (
+      <li key={id} className="flex flex-col gap-1">
+        <button
+          type="button"
+          aria-pressed={on}
+          aria-label={`${name}${on ? ', on' : ', off'}${isDefault ? ', opens first' : ''}`}
+          onClick={() => update({ borderIds: toggle(sel.borderIds, id) })}
+          className={`relative aspect-[9/16] w-full overflow-hidden rounded-xl border-2 transition ${
+            on ? 'border-[var(--color-accent)]' : 'border-white/10 opacity-55 hover:opacity-80'
+          }`}
+          style={{ background: 'radial-gradient(70% 45% at 50% 38%, #2a2a33, #0c0c10 75%)' }}
+        >
+          <StandInGuest />
+          <img src={frameDataUrl(b, matchColour ? palette : null)} alt="" className="absolute inset-0 h-full w-full" loading="lazy" />
+          {on && (
+            <span className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-[var(--color-accent)] text-[var(--on-accent,#000)]">
+              <Check className="h-4 w-4" aria-hidden />
+            </span>
+          )}
+          {recommended.frames.has(id) && (
+            <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
+              Recommended
+            </span>
+          )}
+        </button>
+        <span className="line-clamp-1 text-[11px] text-brand-fg">{name}</span>
+        {on && (
+          <button
+            type="button"
+            onClick={() => update({ frameId: id })}
+            aria-pressed={isDefault}
+            className={`flex min-h-[44px] items-center justify-center gap-1 rounded-lg text-[11px] ${
+              isDefault ? 'bg-white/10 font-semibold text-brand-fg' : 'text-brand-muted hover:text-brand-fg'
+            }`}
+          >
+            <Star className={`h-3.5 w-3.5 ${isDefault ? 'fill-current' : ''}`} aria-hidden />
+            {isDefault ? 'Opens first' : 'Open with this'}
+          </button>
+        )}
+      </li>
+    );
+  };
+
+  const renderFilter = (id: string) => {
+    const on = sel.shaderIds.includes(id);
+    const tone = FILTER_LOOKS[id]?.tone ?? '#888888';
+    return (
+      <li key={id}>
+        <button
+          type="button"
+          aria-pressed={on}
+          onClick={() => update({ shaderIds: toggle(sel.shaderIds, id) })}
+          className={`flex min-h-[48px] w-full items-center gap-2 rounded-xl border-2 px-3 text-left text-[13px] transition ${
+            on ? 'border-[var(--color-accent)] text-brand-fg' : 'border-white/10 text-brand-muted opacity-70 hover:opacity-100'
+          }`}
+        >
+          <span className="h-5 w-5 shrink-0 rounded-full" style={{ background: `radial-gradient(circle at 35% 35%, #fff8, ${tone})` }} aria-hidden />
+          <span className="min-w-0 flex-1 line-clamp-1">{FILTER_NAMES[id] ?? id}</span>
+          {recommended.filters.has(id) && <span className="sr-only">Recommended</span>}
+          {on && <Check className="h-4 w-4 shrink-0 text-[var(--color-accent)]" aria-hidden />}
+        </button>
+      </li>
+    );
+  };
+
   return (
     <section aria-labelledby="looks-picker-title" className="liquid-glass rounded-2xl p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -132,82 +232,31 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
         Frames <span className="font-normal normal-case">· {sel.borderIds.length} on</span>
       </h3>
       <ul className="mt-2 grid grid-cols-3 gap-2.5 sm:grid-cols-5" role="list">
-        {ranked.frameIds.map((id) => {
-          const b = BORDER_MAP[id];
-          if (!b) return null;
-          const on = sel.borderIds.includes(id);
-          const isDefault = on && id === defaultFrame;
-          const name = frameDisplayName(b, matchColour ? palette : null);
-          return (
-            <li key={id} className="flex flex-col gap-1">
-              <button
-                type="button"
-                aria-pressed={on}
-                aria-label={`${name}${on ? ', on' : ', off'}${isDefault ? ', opens first' : ''}`}
-                onClick={() => update({ borderIds: toggle(sel.borderIds, id) })}
-                className={`relative aspect-[9/16] w-full overflow-hidden rounded-xl border-2 transition ${
-                  on ? 'border-[var(--color-accent)]' : 'border-white/10 opacity-55 hover:opacity-80'
-                }`}
-                style={{ background: 'radial-gradient(70% 45% at 50% 38%, #2a2a33, #0c0c10 75%)' }}
-              >
-                <StandInGuest />
-                <img src={frameDataUrl(b, matchColour ? palette : null)} alt="" className="absolute inset-0 h-full w-full" loading="lazy" />
-                {on && (
-                  <span className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-[var(--color-accent)] text-[var(--on-accent,#000)]">
-                    <Check className="h-4 w-4" aria-hidden />
-                  </span>
-                )}
-                {recommended.frames.has(id) && (
-                  <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                    Recommended
-                  </span>
-                )}
-              </button>
-              <span className="line-clamp-1 text-[11px] text-brand-fg">{name}</span>
-              {on && (
-                <button
-                  type="button"
-                  onClick={() => update({ frameId: id })}
-                  aria-pressed={isDefault}
-                  className={`flex min-h-[44px] items-center justify-center gap-1 rounded-lg text-[11px] ${
-                    isDefault ? 'bg-white/10 font-semibold text-brand-fg' : 'text-brand-muted hover:text-brand-fg'
-                  }`}
-                >
-                  <Star className={`h-3.5 w-3.5 ${isDefault ? 'fill-current' : ''}`} aria-hidden />
-                  {isDefault ? 'Opens first' : 'Open with this'}
-                </button>
-              )}
-            </li>
-          );
-        })}
+        {frameGroups.core.map(renderFrame)}
       </ul>
+      {frameGroups.seasons.map(({ season, ids }) => (
+        <div key={season}>
+          <SeasonHeading season={season} count={ids.filter((id) => sel.borderIds.includes(id)).length} />
+          <ul className="mt-2 grid grid-cols-3 gap-2.5 sm:grid-cols-5" role="list" aria-label={`${SEASON_LABEL[season] ?? season} frames`}>
+            {ids.map(renderFrame)}
+          </ul>
+        </div>
+      ))}
 
       <h3 className="mt-5 text-[13px] font-semibold uppercase tracking-wide text-brand-muted">
         Filters <span className="font-normal normal-case">· {sel.shaderIds.length} on</span>
       </h3>
       <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4" role="list">
-        {ranked.filterIds.map((id) => {
-          const on = sel.shaderIds.includes(id);
-          const tone = FILTER_LOOKS[id]?.tone ?? '#888888';
-          return (
-            <li key={id}>
-              <button
-                type="button"
-                aria-pressed={on}
-                onClick={() => update({ shaderIds: toggle(sel.shaderIds, id) })}
-                className={`flex min-h-[48px] w-full items-center gap-2 rounded-xl border-2 px-3 text-left text-[13px] transition ${
-                  on ? 'border-[var(--color-accent)] text-brand-fg' : 'border-white/10 text-brand-muted opacity-70 hover:opacity-100'
-                }`}
-              >
-                <span className="h-5 w-5 shrink-0 rounded-full" style={{ background: `radial-gradient(circle at 35% 35%, #fff8, ${tone})` }} aria-hidden />
-                <span className="min-w-0 flex-1 line-clamp-1">{FILTER_NAMES[id] ?? id}</span>
-                {recommended.filters.has(id) && <span className="sr-only">Recommended</span>}
-                {on && <Check className="h-4 w-4 shrink-0 text-[var(--color-accent)]" aria-hidden />}
-              </button>
-            </li>
-          );
-        })}
+        {filterGroups.core.map(renderFilter)}
       </ul>
+      {filterGroups.seasons.map(({ season, ids }) => (
+        <div key={season}>
+          <SeasonHeading season={season} count={ids.filter((id) => sel.shaderIds.includes(id)).length} />
+          <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4" role="list" aria-label={`${SEASON_LABEL[season] ?? season} filters`}>
+            {ids.map(renderFilter)}
+          </ul>
+        </div>
+      ))}
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <button

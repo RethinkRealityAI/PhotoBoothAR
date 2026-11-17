@@ -1,12 +1,41 @@
 import { describe, it, expect } from 'vitest';
-import { FILTER_LOOKS, effectiveDefaultFrame, hueAffinity, looksConfigPatch, rankLooks, seededLooks, selectionFromConfig } from './themeMatch';
-import { GENERIC_FRAMES } from './borders';
+import { FILTER_LOOKS, effectiveDefaultFrame, hueAffinity, lookSeason, looksConfigPatch, rankLooks, seededLooks, selectionFromConfig, shownWhenUnset } from './themeMatch';
+import { GENERIC_FRAMES, GENERIC_FRAME_IDS } from './borders';
+import { builtinBorderExperiences, builtinShaderExperiences } from './catalog';
+import type { EventARContent } from '../events/types';
 import { FILTER_SHADERS } from './shaders';
 import { EVENT_TEMPLATES, templateById } from './eventTemplates';
 
 describe('FILTER_LOOKS', () => {
   it('has an entry for every filter the booth can show', () => {
     for (const s of FILTER_SHADERS) expect(FILTER_LOOKS[s.id], s.id).toBeDefined();
+  });
+});
+
+describe('seasonal looks (LooksPicker seed ⇄ booth)', () => {
+  it('tags the Christmas set and nothing else', () => {
+    expect(lookSeason('frame', 'xmas-lights')).toBe('christmas');
+    expect(lookSeason('filter', 'snowfall-glow')).toBe('christmas');
+    expect(lookSeason('frame', 'frame-classic-gold')).toBeNull();
+    expect(lookSeason('filter', 'champagne-sparkle')).toBeNull();
+  });
+
+  it("an empty selection seeds exactly what the booth shows for an empty allow-list — seasonal looks OFF", () => {
+    const empty = {} as EventARContent;
+    for (const t of [null, 'party', 'corporate', 'wedding']) {
+      const r = rankLooks({ eventType: t, accentHex: '#C8102E' });
+      const boothFrames = new Set(builtinBorderExperiences(empty).map((e) => e.id.slice('builtin:border:'.length)).filter((id) => GENERIC_FRAME_IDS.has(id)));
+      const boothFilters = new Set(builtinShaderExperiences(empty).map((e) => e.id.slice('builtin:shader:'.length)));
+      expect(new Set(shownWhenUnset('frame', r.frameIds))).toEqual(boothFrames);
+      expect(new Set(shownWhenUnset('filter', r.filterIds))).toEqual(boothFilters);
+      expect(shownWhenUnset('frame', r.frameIds).some((id) => lookSeason('frame', id) !== null)).toBe(false);
+    }
+  });
+
+  it('keeps the ranked order of what it keeps', () => {
+    const r = rankLooks({ eventType: 'party' });
+    const kept = shownWhenUnset('frame', r.frameIds);
+    expect(kept).toEqual(r.frameIds.filter((id) => kept.includes(id)));
   });
 });
 

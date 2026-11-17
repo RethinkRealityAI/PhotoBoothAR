@@ -32,6 +32,7 @@
  */
 import { BORDER_MAP, toDataUrl } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
+import { ANCHOR_VERSION_LATEST, migrateOffsetToV2 } from '../faceRig';
 import { BUNDLED_PROP_MAP, propAnchorConfig } from './bundledProps';
 import { findLibraryAsset, assetTemplateOf } from './assetLibrary';
 import {
@@ -91,6 +92,14 @@ export interface StarterScene {
    * promised the new one.
    */
   propId?: string;
+  /**
+   * More BUNDLED_PROPS ids, for looks that need several pieces at once (the
+   * Santa hat AND beard; elf hat AND ears; antlers AND a red nose). Added
+   * after `propId` in order. Any prop flagged `occlude` turns the head
+   * occluder on for the scene (occlusion is scene-level: one occluder serves
+   * the whole canvas).
+   */
+  props?: string[];
   /**
    * LIBRARY_ASSETS id (assetLibrary.ts) with an AUTHORED scale, used instead
    * of propId/headPieceId. The scale is fitCm / the GLB's measured largest
@@ -256,6 +265,81 @@ export const STARTER_SCENES: StarterScene[] = [
     stickers: [{ borderId: 'overlay-confetti' }],
     facePaint: { design: 'sugar-skull', colors: ['#f4f0e8', '#f28c28', '#161616'], opacity: 0.9 },
   },
+  /* — CHRISTMAS (2026-11-17): the holiday collection's ready-made looks. Every
+     head-wrapping prop turns on the head occluder, so the back of a hat or
+     the far antler disappears behind the guest's own head. */
+  {
+    id: 'santa-claus',
+    name: 'Santa Claus',
+    blurb: 'A plush velvet Santa hat and a full snowy beard — instant Father Christmas.',
+    preview: '/starters/santa-claus.webp',
+    swatch: ['#c8102e', '#f6f1e7'],
+    frameId: 'xmas-holly',
+    stickers: [{ borderId: 'xmas-snowfall' }],
+    props: ['prop-santa-hat', 'prop-santa-beard'],
+    shaderId: 'golden-hour-bloom',
+  },
+  {
+    id: 'santas-elf',
+    name: "Santa's Elf",
+    blurb: 'A candy-stripe elf hat with a jingle bell and pointed elf ears.',
+    preview: '/starters/santas-elf.webp',
+    swatch: ['#1f8a3b', '#c8102e'],
+    frameId: 'xmas-candy-cane',
+    props: ['prop-elf-hat', 'prop-elf-ears'],
+    facePaint: { design: 'candy-cane', colors: ['#d4141f', '#fbf8f3'], opacity: 0.9 },
+  },
+  {
+    id: 'rudolph',
+    name: 'Rudolph',
+    blurb: 'Velvet reindeer antlers with holly, and a glowing red nose.',
+    preview: '/starters/rudolph.webp',
+    swatch: ['#7a4a2a', '#e01b24'],
+    frameId: 'xmas-lights',
+    props: ['prop-reindeer-antlers', 'prop-rudolph-nose'],
+    facePaint: { design: 'rudolph', colors: ['#d0101c', '#e5566b', '#7b4a2f'], opacity: 0.85 },
+  },
+  {
+    id: 'snow-queen',
+    name: 'Snow Queen',
+    blurb: 'A crystal snowflake tiara, icy frost paint and falling snow.',
+    preview: '/starters/snow-queen.webp',
+    swatch: ['#dfeefc', '#7fb4e6'],
+    stickers: [{ borderId: 'xmas-snowfall' }],
+    props: ['prop-snowflake-tiara'],
+    shaderId: 'snowfall-glow',
+    facePaint: { design: 'frost-queen', colors: ['#5fb8f0', '#ffffff', '#bfe8ff'], opacity: 0.9 },
+  },
+  {
+    id: 'deck-the-halls',
+    name: 'Deck the Halls',
+    blurb: 'A holly-and-berry crown with little gold bells.',
+    preview: '/starters/deck-the-halls.webp',
+    swatch: ['#1d5c34', '#d4af37'],
+    stickers: [{ borderId: 'xmas-pine-garland' }],
+    props: ['prop-holly-crown'],
+    shaderId: 'champagne-sparkle',
+  },
+  {
+    id: 'oh-christmas-tree',
+    name: 'Oh Christmas Tree',
+    blurb: 'Wear the tree: baubles, a garland and a gold star on top.',
+    preview: '/starters/oh-christmas-tree.webp',
+    swatch: ['#2f6b3a', '#f2c94c'],
+    frameId: 'xmas-lights',
+    stickers: [{ borderId: 'xmas-banner-merry' }],
+    props: ['prop-tree-hat'],
+  },
+  {
+    id: 'gingerbread',
+    name: 'Gingerbread',
+    blurb: 'A full gingerbread face with piped icing, candy-cane frame and a holiday banner.',
+    preview: '/starters/gingerbread.webp',
+    swatch: ['#b4692e', '#fffaf2'],
+    frameId: 'xmas-candy-cane',
+    stickers: [{ borderId: 'xmas-banner-holidays' }],
+    facePaint: { design: 'gingerbread', colors: ['#b4692e', '#fffaf2', '#d4141f'], opacity: 0.92 },
+  },
 ];
 
 export const STARTER_SCENE_MAP: Record<string, StarterScene> = Object.fromEntries(
@@ -272,27 +356,30 @@ export function starterAssetIds(scene: StarterScene): { borders: string[]; piece
     // watch.
     pieces: [
       ...(scene.headPieceId ? [scene.headPieceId] : []),
-      ...(scene.propId && BUNDLED_PROP_MAP[scene.propId]
-        ? [BUNDLED_PROP_MAP[scene.propId].url, BUNDLED_PROP_MAP[scene.propId].name]
-        : []),
+      ...scenePropIds(scene).flatMap((id) =>
+        BUNDLED_PROP_MAP[id] ? [BUNDLED_PROP_MAP[id].url, BUNDLED_PROP_MAP[id].name] : []),
     ],
     shaders: scene.shaderId ? [scene.shaderId] : [],
   };
 }
 
+/** Every bundled prop id a scene places, `propId` first then `props`. */
+export function scenePropIds(scene: StarterScene): string[] {
+  return [...(scene.propId ? [scene.propId] : []), ...(scene.props ?? [])];
+}
+
 /** Every bundled prop GLB a starter scene can pull in — the preload list. */
 export function starterPropUrls(): string[] {
   return Array.from(new Set(
-    STARTER_SCENES.flatMap((s) => {
-      const p = s.propId ? BUNDLED_PROP_MAP[s.propId] : undefined;
-      return p ? [p.url] : [];
-    }),
+    STARTER_SCENES.flatMap((s) =>
+      scenePropIds(s).flatMap((id) => (BUNDLED_PROP_MAP[id] ? [BUNDLED_PROP_MAP[id].url] : []))),
   ));
 }
 
 /** The prop URL a scene loads, or null when it uses a procedural piece. */
 export function starterPropUrl(scene: StarterScene): string | null {
-  const p = scene.propId ? BUNDLED_PROP_MAP[scene.propId] : undefined;
+  const first = scenePropIds(scene)[0];
+  const p = first ? BUNDLED_PROP_MAP[first] : undefined;
   return p ? p.url : null;
 }
 
@@ -356,16 +443,30 @@ export function buildStarterDraft(sceneId: string): StudioDraft | null {
     }));
   }
 
-  const bundled = preset.propId ? BUNDLED_PROP_MAP[preset.propId] : undefined;
-  if (bundled) {
+  const bundledProps = scenePropIds(preset).flatMap((id) => (BUNDLED_PROP_MAP[id] ? [BUNDLED_PROP_MAP[id]] : []));
+  // Scene-level occlusion (see state.ts sceneOcclusion): when ANY placed prop
+  // wraps the head, every 3D piece carries the flag so the one occluder mounts.
+  const occludeScene = bundledProps.some((b) => b.occlude === true);
+  for (const bundled of bundledProps) {
     objects.push(createObject3D('model', {
       assetUrl: bundled.url,
       name: bundled.name,
       anchor: bundled.anchor,
       finish: bundled.finish,
-      anchorConfig: propAnchorConfig(bundled),
+      // Ride the v2 anchors exactly as a shelf add does (AssetsDock): the
+      // placement was tuned against v1, so it is converted to render at the
+      // same point. A v1 hat carrying the occluder hid the v2-less second
+      // piece in the live studio (elf ears vanished under the elf hat), so a
+      // starter and a shelf add must not differ here.
+      anchorConfig: (() => {
+        const cfg = propAnchorConfig(bundled);
+        return { ...cfg, offset: migrateOffsetToV2(bundled.anchor, cfg.offset, 1) };
+      })(),
+      anchorVersion: ANCHOR_VERSION_LATEST,
+      ...(occludeScene ? { occlusion: true } : {}),
     }));
-  } else if (preset.headPieceId) {
+  }
+  if (bundledProps.length === 0 && preset.headPieceId) {
     const p = HEAD_PIECE_MAP[preset.headPieceId];
     if (p) {
       objects.push(createObject3D('headpiece', {
