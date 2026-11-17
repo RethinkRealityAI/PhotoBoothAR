@@ -71,8 +71,9 @@ create table if not exists public.sales_prospects (
   source            text check (char_length(source) <= 120),
   status            text not null default 'new'
                       check (status in ('new', 'contacted', 'replied', 'meeting', 'proposal', 'won', 'lost', 'nurture')),
-  -- Estimated or closed deal value, whole cents.
-  deal_value_cents  int check (deal_value_cents >= 0),
+  -- Estimated or closed deal value in minor units of the prospect's market
+  -- currency (kobo for ng, US cents for na). bigint: ₦21m+ overflows int4 in kobo.
+  deal_value_cents  bigint check (deal_value_cents >= 0),
   next_follow_up    date,
   last_contacted_at timestamptz,
   notes             text check (char_length(notes) <= 20000),

@@ -580,16 +580,18 @@ const NG_PLANNERS_DECK: Deck = {
       title: 'Add it to every package',
       body: 'Example only. You set your client price; your margin is what sits above your Beamwall cost.',
       bullets: [
+        'Assumption: you charge your client ₦300,000',
         'Assumption: 30 events this season',
-        'Add Beamwall to every package you sell',
-        'Your margin: your price minus your Beamwall cost',
         'Signature pack: five events for the price of four',
       ],
       stats: [
-        { value: '₦13m', label: 'reported average Nigerian wedding cost', source: SRC_NG_WEDDING },
+        { value: '₦200k–₦400k', label: 'typical 360 booth rental, Lagos/Abuja wedding (approx.)', source: SRC_NG_360 },
+        { value: '₦160,000', label: 'your cost per event: Signature (300 guests) on the 5-for-4 pack', source: SRC_BEAMWALL },
+        { value: '₦140,000', label: 'your margin per event at ₦300,000', source: 'Illustrative: ₦300,000 − ₦160,000' },
+        { value: '₦4.2m', label: 'your margin across 30 events', source: 'Illustrative: 30 × ₦140,000' },
       ],
       notes:
-        'ILLUSTRATIVE — say it out loud. 30 events is an assumption to swap for theirs. Work the maths live with their real cost (e.g. ₦200,000 Signature for a 300-guest event, with the 5-for-4 pack). The ₦13m average shows the experience is a small line in a big budget.',
+        'ILLUSTRATIVE — say it out loud. ₦300,000 and 30 events are assumptions; ask for their real client price and event count and redo the sum live. The 360 range is approximate (published guides only) — swap in the real quotes you collect in week 1. Only the ₦200,000 Signature price and the 5-for-4 pack are ours. Context line if useful: the average Nigerian wedding is reported at about ₦13m, so this is a small line in a big budget.',
     },
     {
       id: 'proof',
