@@ -132,10 +132,10 @@ import {
   parsePalette,
   parseRetryOf,
   parseVariants,
-  partialRefund,
   pickImagePart,
   requestCost,
   retryEligibility,
+  settleDelivery,
   type GeminiPart as GeminiPartBody,
   type RetryOriginal,
 } from './jobPolicy.ts';
@@ -1217,13 +1217,16 @@ Deno.serve(async (req: Request) => {
       const outputs: { i: number; bytes: Uint8Array }[] = [];
       settled.forEach((s, i) => { if (s.status === 'fulfilled') outputs.push({ i, bytes: s.value }); });
       if (outputs.length === 0) throw (settled[0] as PromiseRejectedResult).reason;
-      const failedTakes = takes - outputs.length;
 
       // 8–9. Store each take (format sniffed from the BYTES — some Gemini
       //      models return JPEG, which used to be stored as `.png`/image/png)
-      //      and create its unpublished experiences row.
+      //      and create its unpublished experiences row. Each take is its own
+      //      try: a take that fails here is UNDELIVERED, and the request is
+      //      settled below by what was delivered (jobPolicy.settleDelivery) —
+      //      a failure on take 2 no longer refunds the take-1 option the host keeps.
       const experiences: Record<string, unknown>[] = [];
-      for (const out of outputs) {
+      let storeErr: unknown = null;
+      for (const out of outputs) try {
         const fmt = imageFormat(out.bytes);
         if (!fmt) throw new AiError('generation_failed', 'provider_returned_non_image');
         // Transparency flag: requested AND the PNG actually carries alpha.
@@ -1280,12 +1283,21 @@ Deno.serve(async (req: Request) => {
           .single();
         if (expErr || !experience) throw expErr ?? new Error('experience_insert_failed');
         experiences.push(experience as Record<string, unknown>);
+      } catch (takeErr) {
+        console.warn('[ai-generate-image] take not delivered', jobId, out.i,
+          takeErr instanceof Error ? takeErr.message : String(takeErr));
+        storeErr ??= takeErr;
       }
 
-      // Partial refund: under per_variant pricing a take that failed is
-      // returned (jobPolicy.partialRefund). Best-effort — logged, never fatal,
-      // because the host already has the takes that succeeded.
-      const refund = partialRefund(COSTS[provider], failedTakes, { zero: zeroCost });
+      // Settle by DELIVERY. None delivered → throw into the full-refund path
+      // (first store error, so an AiError keeps its code). Some delivered →
+      // the charge stands; under per_variant an undelivered take is returned
+      // (partial refund). Best-effort — logged, never fatal, because the host
+      // already has the takes that arrived.
+      const settlement = settleDelivery(COSTS[provider], takes, experiences.length, { zero: zeroCost });
+      if (settlement.fail) throw storeErr ?? new Error('no_take_delivered');
+      const failedTakes = takes - experiences.length;
+      const refund = settlement.refund;
       if (refund > 0) {
         const { error: refundErr } = await sb.rpc('grant_credits', {
           p_org: orgId, p_amount: refund, p_reason: 'ai_refund', p_ref: { ...ref, partial: failedTakes },
@@ -1313,7 +1325,7 @@ Deno.serve(async (req: Request) => {
         experience: experiences[0],
         experiences,
         charged,
-        variants: { requested: variantsRequested, granted: takes, delivered: outputs.length },
+        variants: { requested: variantsRequested, granted: takes, delivered: experiences.length },
         ...(retryEligible ? { retry: { free: true, of: retryOf } } : {}),
       });
     } catch (err) {
