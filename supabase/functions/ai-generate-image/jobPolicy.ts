@@ -83,24 +83,25 @@ export function parseRetryOf(v: unknown): string | null {
 }
 
 /* ── Variants ─────────────────────────────────────────────────────────────
- * `variants: 1-3` generates that many takes IN PARALLEL with per-variant
+ * `variants: 1-2` generates that many takes IN PARALLEL with per-variant
  * nudges so they actually differ. HOW variants are charged is the owner's
- * decision (not made here): the constant below is the one switch.
+ * decision (made 2026-11-17: one charge per request, set capped at two): the
+ * constant below is the one switch.
  *   'per_variant' — each take costs the provider's unit price (3 takes = 3
  *                   credits). Honest to provider cost; a failed take refunds.
  *   'per_request' — the whole request costs one unit regardless of takes.
- *                   Friendlier; the platform absorbs up to 3× provider cost.
- * Default 'per_variant' because it can never lose money. Free-trial and
- * retry requests are clamped to ONE take, so neither can mint extra images. */
+ *                   Friendlier; the platform absorbs up to MAX_VARIANTS×
+ *                   provider cost, which is why MAX_VARIANTS is 2, not 3.
+ * Free-trial and retry requests are clamped to ONE take, so neither can mint
+ * extra images. */
 
 export type VariantPricing = 'per_variant' | 'per_request';
-export const VARIANT_PRICING: VariantPricing = 'per_variant';
-export const MAX_VARIANTS = 3;
+export const VARIANT_PRICING: VariantPricing = 'per_request';
+export const MAX_VARIANTS = 2;
 export const FREE_TRIAL_MAX_VARIANTS = 1;
 
 export const VARIANT_NUDGES: readonly string[] = [
   '',
-  'Variation: a lighter, airier interpretation with more breathing room and finer line work.',
   'Variation: a richer, bolder interpretation with stronger contrast and more pronounced ornament.',
 ];
 

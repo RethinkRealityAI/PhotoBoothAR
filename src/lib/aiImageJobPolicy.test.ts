@@ -102,7 +102,7 @@ describe('free-trial accounting', () => {
 });
 
 describe('variants', () => {
-  it('parses 1..3 and clamps junk', () => {
+  it('parses 1..MAX_VARIANTS and clamps junk', () => {
     expect(parseVariants(2)).toBe(2);
     expect(parseVariants(9)).toBe(MAX_VARIANTS);
     expect(parseVariants(0)).toBe(1);
@@ -118,15 +118,19 @@ describe('variants', () => {
   });
 
   it('charges per the pricing switch, never on a zero-cost request', () => {
-    expect(VARIANT_PRICING).toBe('per_variant');
-    expect(requestCost(1, 3, { zero: false })).toBe(3);
+    // Owner decision 2026-11-17: one charge per request, set capped at two.
+    expect(VARIANT_PRICING).toBe('per_request');
+    expect(MAX_VARIANTS).toBe(2);
+    expect(requestCost(1, 2, { zero: false })).toBe(1);
+    expect(requestCost(1, 3, { zero: false, pricing: 'per_variant' })).toBe(3);
     expect(requestCost(2, 3, { zero: false, pricing: 'per_request' })).toBe(2);
     expect(requestCost(1, 3, { zero: true })).toBe(0);
   });
 
   it('refunds failed takes under per_variant only', () => {
-    expect(partialRefund(1, 2, { zero: false })).toBe(2);
+    expect(partialRefund(1, 2, { zero: false, pricing: 'per_variant' })).toBe(2);
     expect(partialRefund(1, 2, { zero: false, pricing: 'per_request' })).toBe(0);
+    expect(partialRefund(1, 1, { zero: false })).toBe(0);
     expect(partialRefund(1, 2, { zero: true })).toBe(0);
     expect(partialRefund(1, 0, { zero: false })).toBe(0);
   });

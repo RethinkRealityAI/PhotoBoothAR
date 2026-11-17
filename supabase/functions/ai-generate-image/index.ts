@@ -48,7 +48,7 @@
  *     retryFreeOnly?: true   with retryOf: refuse (409 retry_not_eligible)
  *                            rather than charge — the client's AUTOMATIC
  *                            quality retry always sends it
- *     variants?: 1|2|3      parallel takes (charged per VARIANT_PRICING;
+ *     variants?: 1|2        parallel takes (charged per VARIANT_PRICING;
  *                            clamped to 1 on a free trial or a retry)
  *     palette?: string[]     ≤3 '#rrggbb' (border only) — replaces the event
  *                            palette in the art direction; malformed → 400

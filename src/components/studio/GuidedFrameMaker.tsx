@@ -595,14 +595,14 @@ export default function GuidedFrameMaker({
         <fieldset className="flex flex-col gap-1.5 min-w-0">
           <legend className="font-label uppercase tracking-luxe text-[11px] text-brand-muted mb-1">How many options</legend>
           <div className="flex gap-2" role="group" aria-label="How many options">
-            {[1, 2, 3].map((n) => (
+            {[1, 2].map((n) => (
               <button key={n} type="button" aria-pressed={variants === n} onClick={() => setVariants(n)} className={`${chip(variants === n)} min-w-[44px]`}>
                 {n}
               </button>
             ))}
           </div>
           {variants > 1 && (
-            <p className="font-sans text-[11px] text-brand-muted leading-snug">Each option costs {costLabel}; any that fail are refunded.</p>
+            <p className="font-sans text-[11px] text-brand-muted leading-snug">Both options together cost {costLabel}, the same as one.</p>
           )}
         </fieldset>
       )}
