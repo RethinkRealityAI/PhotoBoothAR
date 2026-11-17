@@ -97,6 +97,11 @@ function libraryBlock(config: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/** The publish vocabulary (libraryPublish LIBRARY_COLORS) names three colours
+ *  this module calls by another family name — without the alias a 'black'
+ *  tag silently matched nothing, even on a black-themed event. */
+const PUBLISH_COLOR_ALIAS: Record<string, ColorFamily> = { black: 'dark', white: 'light', silver: 'neutral' };
+
 /** An item's tags, or null when it carries none at all. Colour tags may be
  *  family names ('gold') or hexes ('#D4AF37'); both resolve to a family. */
 export function libraryTags(config: unknown): LibraryTags | null {
@@ -107,7 +112,9 @@ export function libraryTags(config: unknown): LibraryTags | null {
   const t = tags as Record<string, unknown>;
   const colors: ColorFamily[] = [];
   for (const c of lowerStrings(t.colors)) {
-    const fam = (COLOR_FAMILIES as readonly string[]).includes(c) ? (c as ColorFamily) : colorFamily(c);
+    const fam = (COLOR_FAMILIES as readonly string[]).includes(c)
+      ? (c as ColorFamily)
+      : PUBLISH_COLOR_ALIAS[c] ?? colorFamily(c);
     if (fam !== null && !colors.includes(fam)) colors.push(fam);
   }
   const out: LibraryTags = { occasions: lowerStrings(t.occasions), colors, styles: lowerStrings(t.styles) };
@@ -165,6 +172,200 @@ export function recommendedFor<T extends { config?: unknown }>(
   limit = 6,
 ): T[] {
   return rankLibrary(items, ctx).filter((i) => matchScore(i.config, ctx) > 0).slice(0, limit);
+}
+
+/* ------------------------------------------------------------------ */
+/* Collections (seasonal shelves)                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Seasonal collections a library item can belong to
+ * (`config.library.collection`). An item's collection is surfaced FIRST, on
+ * its own shelf, when the event looks like that season: its name / brief /
+ * occasion text names one of the keywords, or its date falls in one of the
+ * months. A collection that is not in this table still works — it just never
+ * gets a seasonal boost and ranks with everything else. Add a season here.
+ */
+export const SEASONAL_COLLECTIONS: Record<string, { label: string; keywords: readonly string[]; months: readonly number[] }> = {
+  christmas: {
+    label: 'Christmas',
+    keywords: ['christmas', 'xmas', 'x-mas', 'holiday', 'holidays', 'festive', 'santa', 'noel', 'yule', 'yuletide'],
+    months: [12],
+  },
+  halloween: { label: 'Halloween', keywords: ['halloween', 'spooky', 'trick or treat'], months: [10] },
+  valentines: { label: 'Valentine’s', keywords: ['valentine', 'valentines', 'valentine’s', 'galentine', 'galentines'], months: [2] },
+};
+
+/** An item's collection id (lower-cased), or null. */
+export function libraryCollection(config: unknown): string | null {
+  const lib = libraryBlock(config);
+  const c = lib?.collection;
+  if (typeof c !== 'string') return null;
+  const id = c.trim().toLowerCase();
+  return id === '' ? null : id;
+}
+
+/** The heading for a collection: the table's label, else the id in title case. */
+export function collectionLabel(id: string): string {
+  const known = SEASONAL_COLLECTIONS[id];
+  if (known) return known.label;
+  return id.replace(/[-_]+/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+/**
+ * Calendar month (1-12) of an event date, or null.
+ * A bare `YYYY-MM-DD` is read straight from the string (new Date() would
+ * treat it as UTC midnight and shift it a day west of Greenwich). A full
+ * timestamp is read in the viewer's LOCAL zone — the create flow stores the
+ * host's local midnight, so 2026-12-01 00:00 local (= 2026-11-30T23:00Z in
+ * Paris) must still be December for them.
+ * Traces: '2026-12-31' -> 12 · '2026-01-31' -> 1 · '2026-12-15T12:00:00Z' -> 12
+ * (any zone within ±11h) · 'nope' -> null.
+ */
+export function eventMonth(date: string | null | undefined): number | null {
+  if (typeof date !== 'string') return null;
+  const s = date.trim();
+  const bare = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (bare !== null) {
+    const m = Number(bare[2]);
+    return m >= 1 && m <= 12 ? m : null;
+  }
+  if (s === '') return null;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d.getMonth() + 1; // getMonth is 0-indexed
+}
+
+export interface ShelfContext extends MatchContext {
+  /** Free text that describes the event: name, brief occasion/tone/notes. */
+  text?: string | null;
+  /** events.starts_at (ISO) or a bare YYYY-MM-DD. */
+  date?: string | null;
+}
+
+/** Seasonal collections this event fits, in table order. */
+export function activeCollections(ctx: ShelfContext): string[] {
+  const text = typeof ctx.text === 'string' ? ctx.text.toLowerCase() : '';
+  const month = eventMonth(ctx.date);
+  const out: string[] = [];
+  for (const [id, season] of Object.entries(SEASONAL_COLLECTIONS)) {
+    const byWord = text !== '' && season.keywords.some((k) => {
+      const esc = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`(^|[^a-z0-9])${esc}([^a-z0-9]|$)`).test(text);
+    });
+    const byMonth = month !== null && season.months.includes(month);
+    if (byWord || byMonth) out.push(id);
+  }
+  return out;
+}
+
+export interface LibraryShelf<T> {
+  /** Collection id for a seasonal shelf; null for everything else. */
+  id: string | null;
+  /** Heading for a seasonal shelf; null for everything else. */
+  label: string | null;
+  items: T[];
+}
+
+/**
+ * The shared library laid out for one event: a shelf per seasonal collection
+ * this event fits (first, headed "Christmas" …), then one unheaded shelf with
+ * everything else. Within each shelf the order is rankLibrary's (occasion,
+ * colour, then incoming). Unlisted items are dropped — except ids in
+ * `keepIds` (the event already uses them: a retired look an event linked
+ * stays in its booth, so the host must still see it to switch it off). Empty
+ * shelves are omitted, so no items -> []. Never mutates its input.
+ */
+export function libraryShelves<T extends { id?: string; config?: unknown }>(
+  items: readonly T[],
+  ctx: ShelfContext,
+  keepIds?: ReadonlySet<string>,
+): LibraryShelf<T>[] {
+  const ranked = rankLibrary(
+    items.filter((i) => isListed(i.config) || (typeof i.id === 'string' && keepIds?.has(i.id) === true)),
+    ctx,
+  );
+  const active = activeCollections(ctx);
+  const shelves: LibraryShelf<T>[] = [];
+  for (const id of active) {
+    const inShelf = ranked.filter((i) => libraryCollection(i.config) === id);
+    if (inShelf.length > 0) shelves.push({ id, label: collectionLabel(id), items: inShelf });
+  }
+  const rest = ranked.filter((i) => {
+    const c = libraryCollection(i.config);
+    return c === null || !active.includes(c);
+  });
+  if (rest.length > 0) shelves.push({ id: null, label: null, items: rest });
+  return shelves;
+}
+
+/**
+ * The first `limit` items across shelves, in order, keeping shelf headings;
+ * `hidden` is how many were cut. Traces (limit 6): 0 items -> [] hidden 0 ·
+ * shelves [4,3] -> [4,2] hidden 1 · [7] -> [6] hidden 1 · [2,1] -> [2,1] hidden 0.
+ */
+export function capShelves<T>(shelves: readonly LibraryShelf<T>[], limit: number): { shelves: LibraryShelf<T>[]; hidden: number } {
+  let left = Math.max(0, Math.floor(limit));
+  let hidden = 0;
+  const out: LibraryShelf<T>[] = [];
+  for (const s of shelves) {
+    const take = s.items.slice(0, left);
+    hidden += s.items.length - take.length;
+    left -= take.length;
+    if (take.length > 0) out.push({ ...s, items: take });
+  }
+  return { shelves: out, hidden };
+}
+
+/* ------------------------------------------------------------------ */
+/* Thumbnails + plain-words kinds                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Can this string be put in an <img src> as a library thumbnail? http(s) and
+ * data: URLs (published rows carry storage URLs or inline SVG), and
+ * SAME-ORIGIN absolute paths like `/starters/santa.webp` (shipped library
+ * rows point at files under public/). Rejected: protocol-relative `//host`
+ * and `/\host` (both leave the origin), relative paths, and every other
+ * scheme (`javascript:` …).
+ */
+export function isThumbnailSrc(u: unknown): u is string {
+  if (typeof u !== 'string') return false;
+  if (u.startsWith('http') || u.startsWith('data:')) return true;
+  return /^\/(?![/\\])\S/.test(u);
+}
+
+/**
+ * Plain words for what a library row is (the owner's vocabulary: Frame,
+ * Filter, 3D prop — never "shader" / "GLB" / "composite"). A combined row
+ * says what is inside it.
+ */
+export function libraryKindLabel(row: { kind: string; asset_url?: string | null; config?: unknown }): string {
+  switch (row.kind) {
+    case 'border': return 'Frame';
+    case '2d_filter': return 'Sticker';
+    case 'shader': return 'Filter';
+    case '3d_attachment': return '3D prop';
+    case 'composite': {
+      const cfg = row.config !== null && typeof row.config === 'object' ? (row.config as Record<string, unknown>) : {};
+      const layers = Array.isArray(cfg.layers) ? (cfg.layers as unknown[]) : [];
+      const kinds = new Set(layers.map((l) => (l !== null && typeof l === 'object' ? (l as Record<string, unknown>).kind : null)));
+      const frame = (typeof row.asset_url === 'string' && row.asset_url !== '') || kinds.has('border') || kinds.has('2d_filter');
+      const props = kinds.has('3d_attachment');
+      if (frame && props) return 'Frame + 3D props';
+      if (props) return '3D props';
+      return 'Full look';
+    }
+    default: return 'Look';
+  }
+}
+
+/** Which booth tab a linked row joins, for the picker's "N on" counts —
+ *  the same split PickerDrawer/boothDeck use (a combined look is a Frame). */
+export function boothTabOf(kind: string): 'frames' | 'filters' | 'props' | null {
+  if (kind === 'border' || kind === '2d_filter' || kind === 'composite') return 'frames';
+  if (kind === 'shader') return 'filters';
+  if (kind === '3d_attachment') return 'props';
+  return null;
 }
 
 /* ------------------------------------------------------------------ */
