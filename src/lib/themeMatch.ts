@@ -9,8 +9,8 @@
  *
  * PURE: no React, no supabase.
  */
-import { BORDER_MAP, GENERIC_FRAMES, type FramePalette } from './borders';
-import { FILTER_SHADERS } from './shaders';
+import { BORDER_MAP, GENERIC_FRAMES, type FramePalette, type Season } from './borders';
+import { FILTER_SHADERS, SHADER_MAP } from './shaders';
 import { templateById, type EventTemplate, type TemplateId } from './eventTemplates';
 import { normalizeHex } from './themeDerive';
 import { rgbToHsl } from './studio/colorways';
@@ -30,7 +30,23 @@ export const FILTER_LOOKS: Record<string, { occasions: TemplateId[]; tone: strin
   'neon-pulse': { occasions: ['party'], tone: '#FF2D9B' },
   'holo-bloom': { occasions: ['birthday', 'party'], tone: '#FF6FD6' },
   'laser-sparkle': { occasions: ['party', 'birthday'], tone: '#19E3FF' },
+  'snowfall-glow': { occasions: ['party', 'corporate'], tone: '#F2B05E' },
 };
+
+/** The season of an opt-in look (frame or filter id), or null for an
+ *  always-available one. */
+export function lookSeason(kind: 'frame' | 'filter', id: string): Season | null {
+  const s = kind === 'frame' ? BORDER_MAP[id]?.seasonal : SHADER_MAP[id]?.seasonal;
+  return s ?? null;
+}
+
+/** What an EMPTY allow-list actually shows in the booth, in the given order:
+ *  everything except opt-in seasonal looks (the same rule as catalog.ts
+ *  `pick`). LooksPicker seeds an empty selection with this, so it never
+ *  switches a seasonal look on behind the host's back. */
+export function shownWhenUnset(kind: 'frame' | 'filter', ids: string[]): string[] {
+  return ids.filter((id) => lookSeason(kind, id) === null);
+}
 
 function hueOf(hex: string): { h: number; s: number } {
   const n = Number.parseInt(hex.slice(1), 16);

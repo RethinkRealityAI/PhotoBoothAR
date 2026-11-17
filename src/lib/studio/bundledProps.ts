@@ -58,6 +58,15 @@ export interface BundledProp {
    * still renders wherever an existing scene references it.
    */
   supersedes?: string;
+  /**
+   * Wraps around (or sits behind the front of) the head, so it needs the head
+   * occluder to hide the parts the guest's own head would block. Opt-in, like
+   * HeadPieceDef.occlude, because a piece that rests ON the face would be
+   * clipped by it.
+   */
+  occlude?: true;
+  /** Shelf grouping for seasonal sets (e.g. 'christmas'); absent = evergreen. */
+  collection?: 'christmas';
 }
 
 export const BUNDLED_PROPS: readonly BundledProp[] = [
@@ -111,6 +120,129 @@ export const BUNDLED_PROPS: readonly BundledProp[] = [
     rotation: [0, 0, 0],
     scale: 4.2,
     supersedes: 'neon-shades',
+  },
+  /* — CHRISTMAS COLLECTION (2026-11-17). Meshy text-to-3D with PBR textures,
+     then optimized (meshopt geometry, 1024px WebP textures, 0.07-1.5MB each)
+     and BAKED AT 3x so the authored scales sit in the same 1-8 band as the
+     four props above (the raw meshes are ~1.9 units across). Two exceptions:
+     elf-ears is a mirrored PAIR baked in head-space centimetres (scale 1, one
+     object instead of two left/right copies that could drift apart), and
+     rudolph-nose is a procedural glossy sphere (radius 1). `finish:
+     'original'` keeps each bake — the colours ARE the asset. */
+  {
+    id: 'prop-santa-hat',
+    name: 'Santa Hat',
+    url: '/models/props/santa-hat.glb',
+    thumb: '/models/props/santa-hat.webp',
+    anchor: 'crown',
+    finish: 'original',
+    offset: [0, 3.8, -4],
+    rotation: [0.12, 0, 0],
+    scale: 2.8,
+    occlude: true,
+    collection: 'christmas',
+  },
+  {
+    id: 'prop-santa-beard',
+    name: 'Santa Beard',
+    url: '/models/props/santa-beard.glb',
+    thumb: '/models/props/santa-beard.webp',
+    anchor: 'chin',
+    finish: 'original',
+    offset: [0, -0.2, 1.8],
+    rotation: [0, 0, 0],
+    scale: 3.4,
+    collection: 'christmas',
+  },
+  {
+    id: 'prop-elf-hat',
+    name: 'Elf Hat',
+    url: '/models/props/elf-hat.glb',
+    thumb: '/models/props/elf-hat.webp',
+    anchor: 'crown',
+    finish: 'original',
+    offset: [0, 8, -5],
+    rotation: [-0.12, 0, 0],
+    scale: 4.6,
+    occlude: true,
+    collection: 'christmas',
+  },
+  {
+    id: 'prop-elf-ears',
+    name: 'Elf Ears',
+    url: '/models/props/elf-ears.glb',
+    thumb: '/models/props/elf-ears.webp',
+    anchor: 'noseBridge',
+    finish: 'original',
+    offset: [0, 0.5, -7.3],
+    rotation: [0, 0, 0],
+    scale: 1,
+    occlude: true,
+    collection: 'christmas',
+  },
+  {
+    id: 'prop-reindeer-antlers',
+    name: 'Reindeer Antlers',
+    url: '/models/props/reindeer-antlers.glb',
+    thumb: '/models/props/reindeer-antlers.webp',
+    anchor: 'crown',
+    finish: 'original',
+    offset: [0, 7.5, -4.5],
+    rotation: [0, 0, 0],
+    scale: 4.6,
+    occlude: true,
+    collection: 'christmas',
+  },
+  {
+    id: 'prop-rudolph-nose',
+    name: 'Rudolph Nose',
+    url: '/models/props/rudolph-nose.glb',
+    thumb: '/models/props/rudolph-nose.webp',
+    anchor: 'noseTip',
+    finish: 'original',
+    offset: [0, 0.2, 0.6],
+    rotation: [0, 0, 0],
+    scale: 2,
+    collection: 'christmas',
+  },
+  {
+    id: 'prop-holly-crown',
+    name: 'Holly Crown',
+    url: '/models/props/holly-crown.glb',
+    thumb: '/models/props/holly-crown.webp',
+    anchor: 'crown',
+    finish: 'original',
+    offset: [0, 2, -5],
+    rotation: [-1.35, 0, 0],
+    scale: 4.2,
+    occlude: true,
+    collection: 'christmas',
+  },
+  {
+    id: 'prop-snowflake-tiara',
+    name: 'Snowflake Tiara',
+    url: '/models/props/snowflake-tiara.glb',
+    thumb: '/models/props/snowflake-tiara.webp',
+    anchor: 'forehead',
+    finish: 'original',
+    offset: [0, 3.5, -5.4],
+    rotation: [-0.3, 0, 0],
+    scale: 2.9,
+    occlude: true,
+    collection: 'christmas',
+  },
+  {
+    id: 'prop-tree-hat',
+    name: 'Christmas Tree Hat',
+    url: '/models/props/tree-hat.glb',
+    thumb: '/models/props/tree-hat.webp',
+    anchor: 'crown',
+    finish: 'original',
+    offset: [0, 11, -5.5],
+    rotation: [-0.15, 0, 0],
+    scale: 4.5,
+    occlude: true,
+    collection: 'christmas',
   },
 ];
 

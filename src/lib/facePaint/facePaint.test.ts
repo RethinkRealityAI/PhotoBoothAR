@@ -12,7 +12,7 @@ import { logoSlots, paintFacePaint, drawFaceBase } from './painter';
 import {
   facePaintKey, normalizeFacePaint, normalizeHex, isSafeLogoUrl, FACE_PAINT_OPACITY, MAX_FACE_PAINT_COLORS, type FacePaintSpec,
 } from './spec';
-import type { PaintContext } from './shapes';
+import { hollyLeafPath, quadPts, ribbonPath, roundEnds, snowflakePath, softBlob, spiralPts, type PaintContext } from './shapes';
 
 /** A recorded-calls stand-in for CanvasRenderingContext2D. */
 interface Call { op: string; args: unknown[] }
@@ -133,11 +133,14 @@ describe('the captured 8th Wall topology', () => {
 });
 
 describe('the design registry', () => {
-  it('ships the briefed designs, each with 1-3 colour slots', () => {
+  it('ships the briefed designs plus the Christmas set and the second party wave, each with 1-3 colour slots', () => {
     expect(FACE_PAINT_DESIGN_IDS).toEqual([
       'game-day', 'flag-cheeks', 'eye-black', 'glitter-freckles', 'hearts', 'stars', 'tiger', 'sugar-skull',
+      'candy-cane', 'rudolph', 'snowflakes', 'frost-queen', 'gingerbread',
       'butterfly', 'hero-mask', 'rainbow', 'lightning-bolt', 'unicorn', 'cat', 'neon-tribal',
     ]);
+    // The registry and the id list agree, in order.
+    expect(FACE_PAINT_DESIGNS.map((d) => d.id)).toEqual([...FACE_PAINT_DESIGN_IDS]);
     for (const d of FACE_PAINT_DESIGNS) {
       expect(d.slots.length).toBeGreaterThanOrEqual(1);
       expect(d.slots.length).toBeLessThanOrEqual(MAX_FACE_PAINT_COLORS);
@@ -194,6 +197,122 @@ describe('the design registry', () => {
     expect(defaultColorsFor('flag-cheeks', theme)).toEqual(['#112233', '#ffffff', '#778899']);
     expect(defaultColorsFor('nope', theme)).toEqual([]);
     expect(defaultColorsFor('game-day')[0]).toBe(DEFAULT_THEME.accent);
+  });
+});
+
+const CHRISTMAS = ['candy-cane', 'rudolph', 'snowflakes', 'frost-queen', 'gingerbread'] as const;
+
+describe('the Christmas set', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('defaults to fixed festive colours, whatever the event theme', () => {
+    const theme = { accent: '#112233', accent2: '#445566', accent3: '#778899' };
+    for (const id of CHRISTMAS) {
+      const d = FACE_PAINT_DESIGNS.find((x) => x.id === id)!;
+      for (const slot of d.slots) expect(slot.source, `${id} ${slot.label}`).toMatch(/^#[0-9a-f]{6}$/);
+      expect(defaultColorsFor(id, theme)).toEqual(defaultColorsFor(id));
+    }
+    expect(defaultColorsFor('candy-cane')).toEqual(['#d4141f', '#fbf8f3']);
+    expect(defaultColorsFor('rudolph')[0]).toBe('#d0101c');
+  });
+
+  it('only the gingerbread covers the whole face', () => {
+    const full = CHRISTMAS.filter((id) => FACE_PAINT_DESIGNS.find((d) => d.id === id)!.fullFace === true);
+    expect(full).toEqual(['gingerbread']);
+  });
+
+  it.each(CHRISTMAS)('%s paints with every colour it was given', (id) => {
+    const d = FACE_PAINT_DESIGNS.find((x) => x.id === id)!;
+    const picks = ['#010203', '#040506', '#070809'].slice(0, d.slots.length);
+    const { ctx, calls } = fakeCtx();
+    paintFacePaint(ctx, frame, spec(id, { colors: picks }));
+    const used = new Set(calls.filter((c) => c.op === '=fillStyle' || c.op === '=strokeStyle').map((c) => c.args[0]));
+    for (const col of picks) expect(used.has(col), `${id} ${col}`).toBe(true);
+  });
+
+  it.each(CHRISTMAS)('%s paints the same calls at any texture size, scaled (layout follows the features)', (id) => {
+    const at = (size: number) => {
+      const { ctx, calls } = fakeCtx();
+      paintFacePaint(ctx, faceFrameFromUvs(STANDARD_FACE_UVS, size), spec(id), { grain: false });
+      return calls;
+    };
+    const a = at(512);
+    const b = at(1024);
+    expect(b.map((c) => c.op)).toEqual(a.map((c) => c.op));
+    // Every placement (translate) lands inside the texture.
+    for (const c of b.filter((x) => x.op === 'translate' || x.op === 'moveTo')) {
+      const [x, y] = c.args as number[];
+      if (c.op === 'translate' && Math.abs(x) < 64 && Math.abs(y) < 64) continue; // a nudge inside a save/restore, not a placement
+      expect(x).toBeGreaterThan(-0.05 * 1024);
+      expect(x).toBeLessThan(1.05 * 1024);
+      expect(y).toBeGreaterThan(-0.05 * 1024);
+      expect(y).toBeLessThan(1.05 * 1024);
+    }
+  });
+
+  it('the candy canes, frost swirls and Rudolph cheeks are mirror images left/right', () => {
+    // Paint each design and check its centroid of moveTo points sits on the midline
+    // (asymmetric designs — snowflakes, the gingerbread mint — are excluded on purpose).
+    for (const id of ['candy-cane', 'frost-queen', 'rudolph'] as const) {
+      const { ctx, calls } = fakeCtx();
+      paintFacePaint(ctx, frame, spec(id), { grain: false });
+      const xs = calls.filter((c) => c.op === 'translate' || c.op === 'moveTo' || c.op === 'arc' || c.op === 'ellipse')
+        .map((c) => (c.args as number[])[0])
+        .filter((x) => Math.abs(x) > 64);
+      const mean = xs.reduce((s, x) => s + x, 0) / xs.length;
+      expect(Math.abs(mean - frame.noseTip.x), id).toBeLessThan(SIZE * 0.06);
+    }
+  });
+});
+
+describe('Christmas shape helpers', () => {
+  it('snowflakePath draws six arms with paired twigs', () => {
+    const { ctx, calls } = fakeCtx();
+    snowflakePath(ctx, 10, 2);
+    // Each arm: one spine + 2 branches × 2 twigs = 5 segments.
+    expect(calls.filter((c) => c.op === 'moveTo')).toHaveLength(6 * 5);
+    expect(calls.filter((c) => c.op === 'lineTo')).toHaveLength(6 * 5);
+    // Arm 0 points straight up, to radius 10.
+    const firstTip = calls.find((c) => c.op === 'lineTo')!.args as number[];
+    expect(firstTip[0]).toBeCloseTo(0, 6);
+    expect(firstTip[1]).toBeCloseTo(-10, 6);
+  });
+
+  it('ribbonPath walks out one edge and back the other; roundEnds closes the tips', () => {
+    const pts = quadPts({ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 100, y: 0 }, 20);
+    expect(pts).toHaveLength(21);
+    const { ctx, calls } = fakeCtx();
+    ribbonPath(ctx, pts, roundEnds(10));
+    expect(calls.filter((c) => c.op === 'lineTo')).toHaveLength(2 * 21 - 1);
+    expect(calls.at(-1)!.op).toBe('closePath');
+    const prof = roundEnds(10);
+    expect(prof(0, 0, 100)).toBe(0);
+    expect(prof(0.5, 50, 100)).toBe(10);
+    expect(prof(1, 100, 100)).toBe(0);
+  });
+
+  it('spiralPts winds inward at constant angular steps', () => {
+    const s = spiralPts({ x: 0, y: 0 }, 10, 2, 0, 1, 1, 8);
+    expect(s[0]).toEqual({ x: 10, y: 0 });
+    expect(Math.hypot(s[8].x, s[8].y)).toBeCloseTo(2, 6);
+  });
+
+  it('hollyLeafPath runs tip to tip along x', () => {
+    const { ctx, calls } = fakeCtx();
+    hollyLeafPath(ctx, 20, 8, 4);
+    expect(calls[1]).toEqual({ op: 'moveTo', args: [-20, 0] });
+    const ends = calls.filter((c) => c.op === 'quadraticCurveTo').map((c) => (c.args as number[]).slice(2));
+    expect(ends).toHaveLength(2 * 5);
+    expect(ends[4][0]).toBeCloseTo(20, 6);
+    expect(ends[9][0]).toBeCloseTo(-20, 6);
+  });
+
+  it('softBlob restores the context it changed', () => {
+    const { ctx, calls } = fakeCtx();
+    softBlob(ctx, { x: 5, y: 5 }, 4, 3, '#ff0000', 0.5, 4);
+    expect(calls[0].op).toBe('save');
+    expect(calls.at(-1)!.op).toBe('restore');
+    expect(calls.filter((c) => c.op === 'fill')).toHaveLength(4);
   });
 });
 

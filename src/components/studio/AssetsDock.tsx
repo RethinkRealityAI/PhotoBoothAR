@@ -813,6 +813,9 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                   return { ...cfg, offset: migrateOffsetToV2(p.anchor, cfg.offset, 1) };
                 })(),
                 anchorVersion: ANCHOR_VERSION_LATEST,
+                // Head-wrapping props (hats, crowns, antlers) bring the head
+                // occluder with them; face-resting ones (beard, nose) do not.
+                ...(p.occlude === true ? { occlusion: true } : {}),
               }),
             });
             setAddedKey(key);

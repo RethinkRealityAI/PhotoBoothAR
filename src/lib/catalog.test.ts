@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { builtinShaderExperiences, builtinBorderExperiences, builtinHeadPieceExperiences, buildCatalog, pick } from './catalog';
 import { hopeGala } from '../events/hope-gala/config';
+import { getEventConfig } from '../events/registry';
+import { BUILTIN_BORDERS } from './borders';
+import { FILTER_SHADERS } from './shaders';
 import type { Experience } from '../types';
+import type { EventARContent } from '../events/types';
 
 // Hope Gala is pinned to its own built-ins (8 shaders / 8 borders /
 // 4 head-pieces). These counts must stay fixed even when other events add AR
@@ -37,6 +41,50 @@ describe('pick allow-list', () => {
   });
   it('returns only matching ids, preserving order', () => {
     expect(pick(items, ['c', 'a']).map((x) => x.id)).toEqual(['a', 'c']);
+  });
+  it('returns the very same array when nothing is seasonal (no copy, no reorder)', () => {
+    expect(pick(items, [])).toBe(items);
+    expect(pick(items, undefined)).toBe(items);
+  });
+  it('an empty list never includes an opt-in seasonal item; a list naming it does', () => {
+    const mixed = [{ id: 'a' }, { id: 'x', seasonal: 'christmas' }, { id: 'b' }];
+    expect(pick(mixed, []).map((x) => x.id)).toEqual(['a', 'b']);
+    expect(pick(mixed, undefined).map((x) => x.id)).toEqual(['a', 'b']);
+    expect(pick(mixed, ['x', 'a']).map((x) => x.id)).toEqual(['a', 'x']);
+  });
+});
+
+describe('seasonal (Christmas) looks are opt-in', () => {
+  const seasonalBorders = BUILTIN_BORDERS.filter((b) => b.seasonal !== undefined).map((b) => `builtin:border:${b.id}`);
+  const seasonalShaders = FILTER_SHADERS.filter((s) => s.seasonal !== undefined).map((s) => `builtin:shader:${s.id}`);
+  const seasonalIds = [...seasonalBorders, ...seasonalShaders];
+
+  it('the registries really carry seasonal looks (guards the tests below from passing vacuously)', () => {
+    expect(seasonalBorders.length).toBeGreaterThanOrEqual(5);
+    expect(seasonalShaders).toContain('builtin:shader:snowfall-glow');
+  });
+
+  it('an event with empty / missing allow-lists (a live platform event) gains none of them', () => {
+    for (const ar of [{} as EventARContent, { borderIds: [], shaderIds: [] } as EventARContent]) {
+      const ids = buildCatalog(ar, [], undefined, [], true).map((e) => e.id);
+      for (const id of seasonalIds) expect(ids, id).not.toContain(id);
+      // ...and still shows every always-available built-in, exactly as before.
+      expect(ids).toContain('builtin:border:frame-classic-gold');
+      expect(ids).toContain('builtin:shader:champagne-sparkle');
+    }
+  });
+
+  it('an allow-list that names them puts them in the booth', () => {
+    const ar = { borderIds: ['xmas-lights', 'dw-corners'], shaderIds: ['snowfall-glow'] } as EventARContent;
+    const ids = buildCatalog(ar, [], undefined, [], true).map((e) => e.id);
+    expect(ids).toEqual(expect.arrayContaining(['builtin:border:xmas-lights', 'builtin:border:dw-corners', 'builtin:shader:snowfall-glow']));
+  });
+
+  it('frozen legacy events name none of them, so their catalogs are unchanged', () => {
+    for (const slug of ['hope-gala', 'jenna-jake', 'detola-wuyi']) {
+      const ids = buildCatalog(getEventConfig(slug).arContent, [], undefined, []).map((e) => e.id);
+      for (const id of seasonalIds) expect(ids, `${slug} ${id}`).not.toContain(id);
+    }
   });
 });
 
