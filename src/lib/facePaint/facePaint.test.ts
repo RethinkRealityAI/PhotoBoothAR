@@ -5,9 +5,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FACE_POINTS, FACE_TRIANGLES, STANDARD_FACE_INDICES, STANDARD_FACE_UVS } from './faceTopology';
 import { FACE_LANDMARKS, faceFrameFromUvs, frameUvFromNdc, mirrorPairs, outerRingDistance } from './features';
-import { FACE_PAINT_DESIGNS, FACE_PAINT_DESIGN_IDS, defaultColorsFor, DEFAULT_THEME } from './designs';
+import {
+  FACE_PAINT_DESIGNS, FACE_PAINT_DESIGN_IDS, FACE_PAINT_DESIGN_MAP, FACE_PAINT_CATEGORIES, categoryOf, defaultColorsFor, DEFAULT_THEME,
+} from './designs';
 import { logoSlots, paintFacePaint, drawFaceBase } from './painter';
-import { facePaintKey, normalizeFacePaint, isSafeLogoUrl, FACE_PAINT_OPACITY, type FacePaintSpec } from './spec';
+import {
+  facePaintKey, normalizeFacePaint, normalizeHex, isSafeLogoUrl, FACE_PAINT_OPACITY, MAX_FACE_PAINT_COLORS, type FacePaintSpec,
+} from './spec';
 import { hollyLeafPath, quadPts, ribbonPath, roundEnds, snowflakePath, softBlob, spiralPts, type PaintContext } from './shapes';
 
 /** A recorded-calls stand-in for CanvasRenderingContext2D. */
@@ -27,6 +31,46 @@ function fakeCtx(): { ctx: PaintContext; calls: Call[] } {
     },
   }) as unknown as PaintContext;
   return { ctx, calls };
+}
+
+/**
+ * A fake context that tracks the canvas transform (save/restore/translate/
+ * rotate/scale) and records every point a path visits — curve controls and
+ * arc/ellipse extents included — in TEXTURE px.
+ */
+function boundsCtx(): { ctx: PaintContext; pts: { x: number; y: number }[] } {
+  const pts: { x: number; y: number }[] = [];
+  let m = [1, 0, 0, 1, 0, 0];
+  const stack: number[][] = [];
+  const mul = (a: number, b: number, c: number, d: number, e: number, f: number) => {
+    const [A, B, C, D, E, F] = m;
+    m = [A * a + C * b, B * a + D * b, A * c + C * d, B * c + D * d, A * e + C * f + E, B * e + D * f + F];
+  };
+  const rec = (x: number, y: number) => pts.push({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] });
+  const extent = (x: number, y: number, r: number) => { rec(x - r, y); rec(x + r, y); rec(x, y - r); rec(x, y + r); };
+  const ops: Record<string, (...a: number[]) => void> = {
+    save: () => { stack.push([...m]); },
+    restore: () => { m = stack.pop() ?? [1, 0, 0, 1, 0, 0]; },
+    translate: (x, y) => mul(1, 0, 0, 1, x, y),
+    rotate: (r) => mul(Math.cos(r), Math.sin(r), -Math.sin(r), Math.cos(r), 0, 0),
+    scale: (sx, sy) => mul(sx, 0, 0, sy, 0, 0),
+    moveTo: (x, y) => rec(x, y),
+    lineTo: (x, y) => rec(x, y),
+    quadraticCurveTo: (cx, cy, x, y) => { rec(cx, cy); rec(x, y); },
+    bezierCurveTo: (a, b, c, d, x, y) => { rec(a, b); rec(c, d); rec(x, y); },
+    arc: (x, y, r) => extent(x, y, r),
+    ellipse: (x, y, rx, ry) => extent(x, y, Math.max(rx, ry)),
+    fillRect: (x, y, w, h) => { rec(x, y); rec(x + w, y + h); },
+  };
+  const state: Record<string, unknown> = {};
+  const ctx = new Proxy(state, {
+    get(target, prop: string) {
+      if (prop in target) return target[prop];
+      return ops[prop] ?? (() => {});
+    },
+    set(target, prop: string, value) { target[prop] = value; return true; },
+  }) as unknown as PaintContext;
+  return { ctx, pts };
 }
 
 const SIZE = 1024;
@@ -89,17 +133,61 @@ describe('the captured 8th Wall topology', () => {
 });
 
 describe('the design registry', () => {
-  it('ships the eight briefed designs plus the Christmas set, each with 1-3 colour slots', () => {
+  it('ships the briefed designs plus the Christmas set and the second party wave, each with 1-3 colour slots', () => {
     expect(FACE_PAINT_DESIGN_IDS).toEqual([
       'game-day', 'flag-cheeks', 'eye-black', 'glitter-freckles', 'hearts', 'stars', 'tiger', 'sugar-skull',
       'candy-cane', 'rudolph', 'snowflakes', 'frost-queen', 'gingerbread',
+      'butterfly', 'hero-mask', 'rainbow', 'lightning-bolt', 'unicorn', 'cat', 'neon-tribal',
     ]);
     // The registry and the id list agree, in order.
     expect(FACE_PAINT_DESIGNS.map((d) => d.id)).toEqual([...FACE_PAINT_DESIGN_IDS]);
     for (const d of FACE_PAINT_DESIGNS) {
       expect(d.slots.length).toBeGreaterThanOrEqual(1);
-      expect(d.slots.length).toBeLessThanOrEqual(3);
+      expect(d.slots.length).toBeLessThanOrEqual(MAX_FACE_PAINT_COLORS);
       expect(d.name.length).toBeGreaterThan(0);
+      expect(d.blurb.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('registry and id list agree one-to-one; names and slot labels are unique', () => {
+    expect(FACE_PAINT_DESIGNS.map((d) => d.id)).toEqual([...FACE_PAINT_DESIGN_IDS]);
+    expect(Object.keys(FACE_PAINT_DESIGN_MAP).sort()).toEqual([...FACE_PAINT_DESIGN_IDS].sort());
+    expect(new Set(FACE_PAINT_DESIGNS.map((d) => d.name)).size).toBe(FACE_PAINT_DESIGNS.length);
+    for (const d of FACE_PAINT_DESIGNS) {
+      // Slot labels key the builder's colour rows.
+      expect(new Set(d.slots.map((s) => s.label)).size, d.id).toBe(d.slots.length);
+      // Every id survives the stored-spec gate, so a saved scene can hold it.
+      expect(normalizeFacePaint({ design: d.id })?.design, d.id).toBe(d.id);
+    }
+  });
+
+  it('puts every design on a known picker shelf; a design without a category lands on the default one', () => {
+    const shelves = new Set<string>(FACE_PAINT_CATEGORIES.map((g) => g.id));
+    for (const d of FACE_PAINT_DESIGNS) expect(shelves.has(categoryOf(d)), d.id).toBe(true);
+    // The first eight carry no category (their registry rows are untouched) and sit on the first shelf.
+    expect(FACE_PAINT_DESIGNS.filter((d) => categoryOf(d) === 'everyday').map((d) => d.id))
+      .toEqual(['game-day', 'flag-cheeks', 'eye-black', 'glitter-freckles', 'hearts', 'stars', 'tiger', 'sugar-skull']);
+    expect(FACE_PAINT_DESIGNS.filter((d) => categoryOf(d) === 'party').map((d) => d.id))
+      .toEqual(['butterfly', 'hero-mask', 'rainbow', 'lightning-bolt', 'unicorn', 'cat', 'neon-tribal']);
+    expect(categoryOf({})).toBe(FACE_PAINT_CATEGORIES[0].id);
+  });
+
+  it('the twinkle is opt-in per design and OFF for every design that shipped before it', () => {
+    // Saved scenes using the first eight must render exactly as they did.
+    for (const id of ['game-day', 'flag-cheeks', 'eye-black', 'glitter-freckles', 'hearts', 'stars', 'tiger', 'sugar-skull']) {
+      expect(FACE_PAINT_DESIGN_MAP[id].shimmer, id).toBeUndefined();
+    }
+    expect(FACE_PAINT_DESIGN_MAP.unicorn.shimmer).toBe(true);
+    expect(FACE_PAINT_DESIGN_MAP['neon-tribal'].shimmer).toBe(true);
+    // A registry property, never a stored field: the jsonb gate does not carry it.
+    expect(normalizeFacePaint({ design: 'unicorn', shimmer: true })).toEqual({ design: 'unicorn', colors: [], opacity: FACE_PAINT_OPACITY.default });
+  });
+
+  it('defaults every design to valid lowercase hex, one per slot', () => {
+    for (const d of FACE_PAINT_DESIGNS) {
+      const cols = defaultColorsFor(d.id);
+      expect(cols, d.id).toHaveLength(d.slots.length);
+      for (const col of cols) expect(normalizeHex(col), d.id).toBe(col);
     }
   });
 
@@ -242,6 +330,15 @@ describe('paintFacePaint', () => {
     // Clears first, then really draws.
     expect(a.calls[0].op).toBe('clearRect');
     expect(a.calls.filter((c) => c.op === 'fill' || c.op === 'stroke').length).toBeGreaterThan(1);
+  });
+
+  it.each(FACE_PAINT_DESIGN_IDS)('%s keeps every drawn point inside the texture (transform-aware)', (id) => {
+    const { ctx, pts } = boundsCtx();
+    paintFacePaint(ctx, frame, spec(id), { grain: false });
+    expect(pts.length).toBeGreaterThan(4);
+    const lo = -0.01 * SIZE, hi = 1.01 * SIZE;
+    const out = pts.filter((p) => !(p.x >= lo && p.x <= hi && p.y >= lo && p.y <= hi));
+    expect(out, `${id}: ${JSON.stringify(out.slice(0, 3))}`).toEqual([]);
   });
 
   it('paints with the colours it was given', () => {

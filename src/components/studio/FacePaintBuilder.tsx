@@ -2,7 +2,8 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * FacePaintBuilder — the Face Paint Power-Up. Pick one of eight designs (live
+ * FacePaintBuilder — the Face Paint Power-Up. Pick a design from labelled
+ * shelves (Everyday, Party, …) (live
  * thumbnails drawn by the SAME painter the booth runs), recolour it (defaults
  * come from the event theme), stamp a host logo on a cheek or the forehead, set
  * the pigment strength, then add it to the scene or test it on your own face in
@@ -27,6 +28,8 @@ import {
   DEFAULT_THEME,
   FACE_PAINT_DESIGNS,
   FACE_PAINT_DESIGN_MAP,
+  FACE_PAINT_CATEGORIES,
+  categoryOf,
   defaultColorsFor,
   type ThemeColors,
 } from '../../lib/facePaint/designs';
@@ -276,44 +279,60 @@ export default function FacePaintBuilder({ eventId, dispatch, draft, onClose, on
           <div className="flex flex-col gap-4 min-w-0">
             <div>
               <SectionLabel>Design</SectionLabel>
-              <div className="grid grid-cols-3 gap-1.5">
-                {FACE_PAINT_DESIGNS.map((d) => {
-                  const active = d.id === spec.design;
-                  return (
-                    <button
-                      key={d.id}
-                      type="button"
-                      onClick={() => setDesign(d.id)}
-                      aria-pressed={active}
-                      title={d.blurb}
-                      data-testid={`face-paint-design-${d.id}`}
-                      className={`pressable flex flex-col items-center gap-1 rounded-xl p-1.5 transition-colors ${
-                        active ? 'bg-accent/15 ring-1 ring-accent/40' : 'bg-white/[0.03] hover:bg-white/[0.07]'
-                      }`}
-                    >
-                      <FaceThumb
-                        spec={{ design: d.id, colors: active ? spec.colors : defaultColorsFor(d.id, theme), opacity: FACE_PAINT_OPACITY.default }}
-                        logo={null}
-                        size={128}
-                        className="w-full max-w-[84px] aspect-square"
-                      />
-                      <span className="font-label uppercase tracking-wider text-[10px] leading-tight text-center text-brand-fg/80 line-clamp-2 break-words max-w-full">{d.name}</span>
-                    </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  onClick={() => setDesign('none')}
-                  aria-pressed={spec.design === 'none'}
-                  data-testid="face-paint-design-none"
-                  className={`pressable flex flex-col items-center justify-center gap-1 rounded-xl p-1.5 min-h-[84px] transition-colors ${
-                    spec.design === 'none' ? 'bg-accent/15 ring-1 ring-accent/40' : 'bg-white/[0.03] hover:bg-white/[0.07]'
-                  }`}
-                >
-                  <Upload className="w-4 h-4 text-brand-muted/60" />
-                  <span className="font-label uppercase tracking-wider text-[10px] leading-tight text-center text-brand-fg/80">Logo only</span>
-                </button>
+              {/* Labelled shelves (FACE_PAINT_CATEGORIES) keep ~20 looks scannable; empty shelves are skipped. */}
+              <div className="flex flex-col gap-2.5">
+                {FACE_PAINT_CATEGORIES.filter((g, gi) => gi === 0 || FACE_PAINT_DESIGNS.some((d) => categoryOf(d) === g.id)).map((g, gi) => (
+                  <div key={g.id} role="group" aria-label={`${g.label} designs`}>
+                    <p className="font-label uppercase tracking-widest text-[10px] text-brand-muted/55 mb-1">{g.label}</p>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                      {FACE_PAINT_DESIGNS.filter((d) => categoryOf(d) === g.id).map((d) => {
+                        const active = d.id === spec.design;
+                        return (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onClick={() => setDesign(d.id)}
+                            aria-pressed={active}
+                            title={d.blurb}
+                            data-testid={`face-paint-design-${d.id}`}
+                            className={`pressable flex flex-col items-center gap-1 rounded-xl p-1.5 transition-colors ${
+                              active ? 'bg-accent/15 ring-1 ring-accent/40' : 'bg-white/[0.03] hover:bg-white/[0.07]'
+                            }`}
+                          >
+                            <FaceThumb
+                              spec={{ design: d.id, colors: active ? spec.colors : defaultColorsFor(d.id, theme), opacity: FACE_PAINT_OPACITY.default }}
+                              logo={null}
+                              size={128}
+                              className="w-full max-w-[84px] aspect-square"
+                            />
+                            <span className="font-label uppercase tracking-wider text-[10px] leading-tight text-center text-brand-fg/80 line-clamp-2 break-words max-w-full">{d.name}</span>
+                          </button>
+                        );
+                      })}
+                      {gi === 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setDesign('none')}
+                          aria-pressed={spec.design === 'none'}
+                          data-testid="face-paint-design-none"
+                          className={`pressable flex flex-col items-center justify-center gap-1 rounded-xl p-1.5 min-h-[84px] transition-colors ${
+                            spec.design === 'none' ? 'bg-accent/15 ring-1 ring-accent/40' : 'bg-white/[0.03] hover:bg-white/[0.07]'
+                          }`}
+                        >
+                          <Upload className="w-4 h-4 text-brand-muted/60" />
+                          <span className="font-label uppercase tracking-wider text-[10px] leading-tight text-center text-brand-fg/80">Logo only</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
+              {design?.shimmer && (
+                <p className="font-sans text-[10px] text-brand-muted/60 mt-1.5 leading-snug flex items-start gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 shrink-0 mt-px text-accent-2/70" />
+                  <span>This look twinkles on the guest’s face (it holds still for guests who turn off motion).</span>
+                </p>
+              )}
             </div>
 
             {design && (
