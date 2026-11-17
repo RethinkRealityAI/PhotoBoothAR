@@ -3,6 +3,8 @@ import {
   parsePointer, getPath, setPath, applySurfaceMessages, resolveDynamic, resolveContext,
   type A2uiMessage, type SurfaceState,
 } from './a2ui';
+import { buildProposalSurface } from './copilotSurfaces';
+import { CONTENT_PACKS, packAction } from './contentPacks';
 
 describe('JSON Pointer', () => {
   const model = { plan: { name: 'Gala', tags: ['gold', 'noir'] }, 'a/b': { '~': 1 } };
@@ -118,6 +120,54 @@ describe('bindings', () => {
       note: 'confirm',
       nested: { remote: true },
     });
+  });
+});
+
+describe('templated ChildList — a real pack card through the reducer', () => {
+  // The pack card is the first PRODUCER of a templated list: one row template
+  // rendered per `/proposal/challenges/<i>`, each row's bindings relative.
+  const pack = packAction(CONTENT_PACKS.birthday);
+  const surfaces = applySurfaceMessages({}, buildProposalSurface(pack, 'pk'));
+  const s = surfaces.pk;
+  const confirmContext = (s.components.confirmBtn.action as { event: { context: Record<string, unknown> } }).event.context;
+
+  it('binds the list to the array and resolves relative paths per item scope', () => {
+    expect(s.components.packList.children).toEqual({ path: '/proposal/challenges', componentId: 'packRow' });
+    const items = resolveDynamic({ path: '/proposal/challenges' }, s.dataModel);
+    expect(Array.isArray(items) && items.length).toBe(pack.proposal.challenges.length);
+    expect(resolveDynamic({ path: 'title' }, s.dataModel, '/proposal/challenges/1')).toBe(pack.proposal.challenges[1].title);
+    expect(resolveDynamic({ path: 'include' }, s.dataModel, '/proposal/challenges/1')).toBe(true);
+    // The template's own bindings are relative, so the SAME component reads
+    // a different row under each scope.
+    expect(s.components.packInclude.value).toEqual({ path: 'include' });
+    expect(resolveDynamic(s.components.packRowTitle.value, s.dataModel, '/proposal/challenges/0'))
+      .toBe(pack.proposal.challenges[0].title);
+  });
+
+  it('unticks one row immutably (the array is copied, siblings shared)', () => {
+    const before = s.dataModel;
+    const after = setPath(before, '/proposal/challenges/1/include', false) as Record<string, unknown>;
+    expect(resolveDynamic({ path: 'include' }, after, '/proposal/challenges/1')).toBe(false);
+    expect(resolveDynamic({ path: 'include' }, before, '/proposal/challenges/1')).toBe(true); // original untouched
+    const rowsBefore = getPath(before, '/proposal/challenges') as unknown[];
+    const rowsAfter = getPath(after, '/proposal/challenges') as unknown[];
+    expect(rowsAfter).not.toBe(rowsBefore);
+    expect(rowsAfter[0]).toBe(rowsBefore[0]); // untouched row shared
+    expect(rowsAfter[1]).not.toBe(rowsBefore[1]);
+  });
+
+  it('resolves the confirm context to the EDITED array at trigger time', () => {
+    let model = setPath(s.dataModel, '/proposal/challenges/1/include', false);
+    model = setPath(model, '/proposal/challenges/0/title', 'Cake face');
+    const ctx = resolveContext(confirmContext, model) as { proposal: { tool: string; challenges: Record<string, unknown>[] } };
+    expect(ctx.proposal.tool).toBe('add_challenge_pack');
+    expect(ctx.proposal.challenges[0].title).toBe('Cake face');
+    expect(ctx.proposal.challenges[0].include).toBe(true);
+    expect(ctx.proposal.challenges[1].include).toBe(false);
+    expect(ctx.proposal.challenges).toHaveLength(pack.proposal.challenges.length);
+    // The registry's drafts were never mutated by the card or the edits.
+    expect(CONTENT_PACKS.birthday.challenges[0].title).not.toBe('Cake face');
+    expect('include' in CONTENT_PACKS.birthday.challenges[1]).toBe(false);
   });
 });
 

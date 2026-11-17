@@ -42,7 +42,11 @@ function Frame({
       ref={frameRef}
       className={`relative rounded-lg border bg-brand-bg/70 px-5 py-6 text-center transition-all ${
         reducedMotion ? '' : 'duration-300'
-      } ${active ? 'border-accent/60 shadow-[0_0_36px_rgba(var(--accent-rgb),0.18)]' : 'border-white/10 opacity-80'}`}
+      } ${
+        active
+          ? 'border-accent/60 ring-1 ring-accent/25 shadow-[0_0_46px_rgba(var(--accent-rgb),0.24)]'
+          : 'border-white/10 opacity-80'
+      }`}
     >
       {children}
     </div>
@@ -82,13 +86,13 @@ export default function FilmStrip({
           {/* Cover frame (index 0) */}
           <Frame active={active === 0} reducedMotion={reducedMotion} frameRef={setFrameRef(0)}>
             {card.eventName && (
-              <p className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">{card.eventName}</p>
+              <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">{card.eventName}</p>
             )}
             <h1 className="mt-3 font-serif italic text-3xl leading-tight text-foil-static">{card.title}</h1>
             {card.recipientName && (
               <p className="mt-3 font-sans text-sm text-brand-muted/80">for {card.recipientName}</p>
             )}
-            <p className="mt-5 font-label uppercase tracking-luxe text-[8px] text-brand-muted/50">
+            <p className="mt-5 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
               {contributions.length} {contributions.length === 1 ? 'frame' : 'frames'} · scroll the reel
             </p>
           </Frame>
@@ -112,7 +116,7 @@ export default function FilmStrip({
                   “{c.message}”
                 </p>
               )}
-              <p className="mt-3 font-label uppercase tracking-luxe text-[9px] text-accent-2/80">
+              <p className="mt-3 font-label uppercase tracking-luxe text-[10px] text-accent-2/80">
                 — {c.contributorName || 'A friend'}
               </p>
             </Frame>
@@ -125,10 +129,10 @@ export default function FilmStrip({
             frameRef={setFrameRef(contributions.length + 1)}
           >
             <p className="font-serif italic text-2xl text-foil-static">Fin.</p>
-            <p className="mt-4 font-label uppercase tracking-luxe text-[8px] text-brand-muted/50">Made with Beamwall</p>
+            <p className="mt-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">Made with Beamwall</p>
             <Link
               to="/"
-              className="mt-4 inline-block rounded-full border border-white/15 bg-white/[0.05] px-5 py-2 font-label uppercase tracking-luxe text-[9px] text-brand-fg hover:bg-white/[0.1] transition"
+              className="mt-4 inline-flex min-h-[44px] items-center rounded-full border border-white/15 bg-white/[0.05] px-5 font-label uppercase tracking-luxe text-[10px] text-brand-fg hover:bg-white/[0.1] transition"
             >
               Create your own
             </Link>
@@ -143,7 +147,7 @@ export default function FilmStrip({
             <button
               onClick={onPrev}
               disabled={active === 0}
-              className="pointer-events-auto rounded-full bg-black/60 border border-white/15 px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-brand-fg disabled:opacity-30"
+              className="pointer-events-auto inline-flex min-h-[44px] items-center rounded-full bg-black/60 border border-white/15 px-5 font-label uppercase tracking-luxe text-[10px] text-brand-fg disabled:opacity-30"
             >
               Prev frame
             </button>
@@ -152,7 +156,7 @@ export default function FilmStrip({
             <button
               onClick={onNext}
               disabled={active === contributions.length + 1}
-              className="pointer-events-auto rounded-full bg-black/60 border border-white/15 px-4 py-2 font-label uppercase tracking-luxe text-[9px] text-brand-fg disabled:opacity-30"
+              className="pointer-events-auto inline-flex min-h-[44px] items-center rounded-full bg-black/60 border border-white/15 px-5 font-label uppercase tracking-luxe text-[10px] text-brand-fg disabled:opacity-30"
             >
               Next frame
             </button>

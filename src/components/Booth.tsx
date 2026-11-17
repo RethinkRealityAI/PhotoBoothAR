@@ -84,6 +84,7 @@ import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/re
 import { useEntitlements } from '../lib/entitlements';
 import { dataUrlToBlob } from './booth/capture';
 import { challengeNeedsCheck, validateChallengePhoto } from '../lib/challengeValidation';
+import { reportError } from '../lib/errorReport';
 import { fileToImagePart } from '../lib/imageInput';
 import RevealShimmer from './booth/RevealShimmer';
 import { REVEAL_SHIMMER_MS } from '../lib/studio/reveal';
@@ -1330,7 +1331,7 @@ export default function Booth() {
 
       // Bounded wait: a stalled upload resolves as a 'network' failure (the
       // honest SendFailed screen with Retry) instead of "Beaming…" forever.
-      const { post, error } = await withTimeout(
+      const { post, error, deleteToken } = await withTimeout(
         submitPostDetailed(eventId, {
           blob,
           mediaType: isVideo ? 'video' : 'image',
@@ -1367,6 +1368,11 @@ export default function Booth() {
         media_type: isVideo ? 'video' : 'image',
         message: message || undefined,
         createdAt: Date.now(),
+        // This device's proof it made the post — the ONLY copy that ever leaves
+        // the server (post_secrets, migration 035). Without it stored here the
+        // guest keeps the photo but loses the ability to take it down, so it
+        // rides the local record, never a posts field.
+        deleteToken,
       });
       // Remember the name (so challenge mode doesn't re-ask) + mark the
       // challenge complete so it drops off this guest's list.
@@ -1402,6 +1408,12 @@ export default function Booth() {
               { pass: true, reason: '' },
             )
           : { pass: true, reason: '' };
+        // The check failed OPEN (AI/network error let the shot through) — the
+        // guest never sees this; the operator does, in client_errors. Platform
+        // events only (legacy coded events never reach the check anyway).
+        if (source === 'db' && 'failedOpen' in outcome && outcome.failedOpen === true) {
+          reportError(new Error('challenge_check_failed_open'), { challengeId: selectedChallenge.id, eventSlug: eventId });
+        }
         if (!outcome.pass) {
           setCheckReason(outcome.reason);
           setPhase('checkFailed');
@@ -1410,7 +1422,7 @@ export default function Booth() {
       }
       await doSubmit(guestName, message, true);
     },
-    [capturedDataUrl, selectedChallenge, eventId, doSubmit],
+    [capturedDataUrl, selectedChallenge, eventId, doSubmit, source],
   );
 
   // Re-arm the scene's surprises for the next capture. `revealedIds` was only

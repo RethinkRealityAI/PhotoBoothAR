@@ -9,7 +9,9 @@
 import type { EventCopy } from '../events/types';
 import type { BrandingColors, BrandingOverrides } from '../types';
 
-/** Copy string fields an admin can override (filePrefix/steps stay coded). */
+/** Copy string fields an admin can override (filePrefix/steps stay coded).
+ *  welcomeIntro/keepsakeIntro are the generated-once guest lines (eventCopy.ts)
+ *  — a Branding edit overlays them exactly like the tagline. */
 const COPY_STRING_FIELDS = [
   'eventName',
   'eyebrow',
@@ -19,6 +21,8 @@ const COPY_STRING_FIELDS = [
   'shareTitle',
   'momentTitle',
   'shareText',
+  'welcomeIntro',
+  'keepsakeIntro',
 ] as const;
 
 /**

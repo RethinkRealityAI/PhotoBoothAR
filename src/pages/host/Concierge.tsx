@@ -15,8 +15,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Check, Copy, ExternalLink, Loader2, PartyPopper, Pencil, Settings2, Sparkles, X } from 'lucide-react';
-import { fetchMyEvents, updateEventName, updateEventStatus, type HostEventRow } from '../../lib/host';
-import { loadEventSnapshot, type EventSnapshot } from '../../lib/eventSnapshot';
+import { fetchMyEvents, goLive, updateEventName, updateEventStatus, type HostEventRow } from '../../lib/host';
+import { loadEventSnapshot, snapshotMetaFromRow, type EventSnapshot } from '../../lib/eventSnapshot';
 import { TierPill } from './UpgradeCard';
 import StatusPill from '../../components/ui/StatusPill';
 import CopilotChat from '../../components/copilot/CopilotChat';
@@ -190,15 +190,11 @@ export default function Concierge() {
   const refreshSnapshot = useCallback(() => {
     if (!selected) { setSnapshot(null); return; }
     setSnapLoading(true);
-    loadEventSnapshot({
-      eventUuid: selected.id,
-      slug: selected.slug,
-      name: selected.name,
-      status: selected.status,
-      planTier: selected.plan_tier,
-      eventType: selected.event_type,
-    })
+    // ONE meta builder for every screen (date, brief, copy stamp ride along).
+    loadEventSnapshot(snapshotMetaFromRow(selected))
       .then((snap) => { setSnapshot(snap); setSnapFailed(false); })
+      // (snap.failed — a snapshot that LOADED but whose contents could not be
+      //  read — is surfaced separately below; it still scopes the tools.)
       // Nulling the snapshot on failure left the header still naming the event
       // while every tool proposal answered "pick which event this is for first".
       .catch(() => { setSnapshot(null); setSnapFailed(true); })
@@ -225,7 +221,9 @@ export default function Concierge() {
     setBusyId(ev.id);
     const prev = ev.status;
     setEvents((list) => (list ?? []).map((e) => (e.id === ev.id ? { ...e, status } : e))); // optimistic
-    const ok = await updateEventStatus(ev.id, status);
+    // Going live is the ONE path every button shares (host.goLive — it also
+    // generates the guest copy once); other statuses stay a plain flip.
+    const ok = status === 'live' ? await goLive(ev.id) : await updateEventStatus(ev.id, status);
     if (ok) {
       push(status === 'live' ? 'You’re live — guests can scan now' : 'Event ended', 'success');
     } else {
@@ -313,11 +311,16 @@ export default function Concierge() {
                 <p className="font-serif text-sm text-foil-static leading-tight truncate">
                   {selected ? selected.name : 'Pick an event'}
                 </p>
-                <p className={`font-sans text-[10px] truncate ${snapFailed ? 'text-amber-300/90' : 'text-brand-muted/60'}`}>
+                <p className={`font-sans text-[10px] truncate ${snapFailed || snapshot?.failed ? 'text-amber-300/90' : 'text-brand-muted/60'}`}>
                   {/* When the snapshot fails the header used to keep naming the
-                      event while every tool answered "pick an event first". */}
+                      event while every tool answered "pick an event first".
+                      `snapshot.failed` is the softer case: the event IS scoped,
+                      but its contents could not be read, so the assistant must
+                      not describe them (and won't — formatSnapshot says so). */}
                   {snapFailed
                     ? 'Couldn’t load this event — the assistant can’t act on it yet'
+                    : snapshot?.failed
+                    ? 'Couldn’t read what’s in this event — the assistant won’t guess'
                     : selected
                     ? `/e/${selected.slug} · ${selected.status}`
                     : 'Select a card on the left to begin'}

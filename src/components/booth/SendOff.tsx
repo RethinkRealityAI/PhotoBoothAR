@@ -19,11 +19,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Link } from 'react-router-dom';
 import confetti from 'canvas-confetti';
-import { LayoutGrid, Film } from 'lucide-react';
+import { LayoutGrid, Film, Mail, MailCheck } from 'lucide-react';
 import { ShaderRunner, defaultParams } from '../../lib/shaders';
 import { Emblem } from '../ui/EventLogo';
 import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
+import {
+  saveKeepsakeOptIn,
+  keepsakeOptInMessage,
+  hasKeepsakeOptIn,
+} from '../../lib/keepsakeContacts';
 
 interface Props {
   dataUrl: string;
@@ -166,7 +171,7 @@ function GoldMotes({ play }: { play: boolean }) {
 }
 
 export default function SendOff({ dataUrl, mediaType = 'image', uploading, success, pendingApproval = false, onTakeAnother }: Props) {
-  const { config, basePath } = useEvent();
+  const { config, basePath, eventId, source } = useEvent();
   const reduced = useReducedMotion() ?? false;
   const copy = useStore((s) => s.copy);
   const GOLD_COLORS = config.accentHexes.slice(0, 3);
@@ -180,6 +185,34 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
   const [dissolveDone, setDissolveDone] = useState(false);
   /** 0→1 progress driving the JS-side photo float/scale + bloom (mirrors uFade). */
   const [progress, setProgress] = useState(0);
+
+  /* ── Keepsake email opt-in ──────────────────────────────────────────
+     Every hook here runs UNCONDITIONALLY, whatever `source` is. The card is
+     hidden by the render gate below, never by skipping a hook — a conditional
+     hook is what crashed the whole booth in PR #26's ChallengeSelector. */
+  const [optEmail, setOptEmail] = useState('');
+  const [optPhase, setOptPhase] = useState<'idle' | 'saving' | 'done' | 'error'>('idle');
+  const [optNote, setOptNote] = useState('');
+  /** Read once, on mount: this device already left an address for this event. */
+  const [optedInAlready] = useState(() => hasKeepsakeOptIn(eventId));
+
+  // Legacy coded events are frozen: the whole card is gated on a DB-backed
+  // event, so their booths render exactly what they rendered before.
+  const canOptIn = source === 'db' && !optedInAlready;
+
+  async function handleOptIn(e: React.FormEvent) {
+    e.preventDefault();
+    if (optPhase === 'saving') return;
+    setOptPhase('saving');
+    setOptNote('');
+    const res = await saveKeepsakeOptIn(eventId, optEmail);
+    if (res.ok) {
+      setOptPhase('done');
+      return;
+    }
+    setOptPhase('error');
+    setOptNote(keepsakeOptInMessage(res.error));
+  }
 
   const isVideo = mediaType === 'video';
 
@@ -457,6 +490,56 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
                 <Film className="h-4 w-4" />
                 My Media
               </Link>
+
+              {/* Optional keepsake email. Sits BELOW the three CTAs on purpose:
+                  the guest came here to take another photo, and a form above
+                  that would tax every capture. Adds no animation of its own, so
+                  there is nothing for prefers-reduced-motion to suppress. */}
+              {canOptIn && (
+                <div className="glass rounded-xl px-4 py-4 text-left">
+                  {optPhase === 'done' ? (
+                    <p className="flex items-center gap-2 font-label text-[11px] uppercase tracking-wide text-champagne/80">
+                      <MailCheck className="h-4 w-4 shrink-0 text-gold-300" aria-hidden />
+                      We&rsquo;ll email you after the event ✓
+                    </p>
+                  ) : (
+                    <form onSubmit={handleOptIn} className="flex flex-col gap-2.5">
+                      <p className="flex items-center gap-2 font-label text-[11px] uppercase tracking-wide text-champagne/80">
+                        <Mail className="h-4 w-4 shrink-0 text-gold-300" aria-hidden />
+                        Get your photos after the event
+                      </p>
+                      <input
+                        type="email"
+                        inputMode="email"
+                        autoComplete="email"
+                        enterKeyHint="send"
+                        placeholder="you@example.com"
+                        aria-label="Email address for your photos"
+                        value={optEmail}
+                        onChange={(e) => setOptEmail(e.target.value.slice(0, 320))}
+                        maxLength={320}
+                        className="min-h-[44px] w-full rounded-xl border border-gold-400/20 bg-noir-800/60 px-4 py-3 font-sans text-sm text-ivory placeholder-champagne/30 outline-none transition-colors focus:border-gold-400/50"
+                      />
+                      <button
+                        type="submit"
+                        disabled={optPhase === 'saving'}
+                        className="min-h-[44px] rounded-xl bg-foil px-5 font-label text-[11px] uppercase tracking-luxe text-[color:var(--on-accent)] transition-all hover:brightness-110 active:scale-95 disabled:opacity-60"
+                      >
+                        {optPhase === 'saving' ? 'Saving…' : 'Send me the album'}
+                      </button>
+                      <p className="font-sans text-[10px] leading-relaxed text-champagne/45">
+                        One email after the event with your photos and the album link.
+                        Unsubscribe anytime.
+                      </p>
+                      {optPhase === 'error' && optNote && (
+                        <p role="status" className="font-sans text-[10px] leading-relaxed text-gold-300/90">
+                          {optNote}
+                        </p>
+                      )}
+                    </form>
+                  )}
+                </div>
+              )}
             </motion.div>
 
             {/* Footer lockup — SCAGO above the event name, never below */}

@@ -15,6 +15,7 @@ import {
   type SceneShaderCatalogEntry,
   type ScenePlan,
 } from './sceneDirector';
+import { SCENE_BRIEF_MAX } from '../eventBrief';
 
 const CATALOG: SceneShaderCatalogEntry[] = [
   { id: 'champagne-sparkle', params: [{ key: 'uIntensity', min: 0, max: 1, default: 0.5 }] },
@@ -204,5 +205,14 @@ describe('buildSceneContext', () => {
     expect(out.length).toBeLessThanOrEqual(MAX_SCENE_CONTEXT_CHARS);
     expect(out).toContain('Object number 0');
     expect(out).not.toContain('Object number 9'); // only the first 8 are listed
+  });
+
+  it('leaves room for the one-line event brief DirectorPanel prepends', () => {
+    // The cap was raised 800 → 1100 so a full scene context (draft + last
+    // plan) PLUS the ≤240-char brief line (+ its newline) still fits under the
+    // edge function's 1500 cap without the brief evicting the draft line.
+    expect(MAX_SCENE_CONTEXT_CHARS).toBe(1100);
+    expect(MAX_SCENE_CONTEXT_CHARS - 800).toBeGreaterThanOrEqual(SCENE_BRIEF_MAX + 1);
+    expect(MAX_SCENE_CONTEXT_CHARS).toBeLessThan(1500);
   });
 });

@@ -17,7 +17,8 @@ import {
 import EventBackground from '../ui/EventBackground';
 import { Wordmark } from '../ui/EventLogo';
 import { fetchExperiences, fetchPosts } from '../../lib/db';
-import { updateEventStatus } from '../../lib/host';
+import { goLive as hostGoLive } from '../../lib/host';
+import { computeChecklist, checklistFromStudio, type ChecklistId } from '../../lib/eventChecklist';
 import { useStore } from '../../store';
 import { useEvent } from '../../events/EventContext';
 import { useStudioBase } from './studioBase';
@@ -319,27 +320,29 @@ export default function Dashboard({
   const live = status === 'live' || justLive;
 
   // Every step is VERIFIED against real state — a checklist that shows a
-  // check the host didn't earn erodes trust in the whole panel.
-  const hasName = Boolean(config.copy.fullName?.trim());
-  const hasLook = Boolean(config.themeVars && Object.keys(config.themeVars).length > 0);
-  const hasFrames = ((config.arContent?.borderIds?.length ?? 0) > 0) || ((stats?.published ?? 0) > 0);
-  const hasTestShot = (stats?.posts ?? 0) > 0;
-  const checklist: ChecklistStep[] = [
-    { label: 'Name your event', hint: config.copy.fullName || 'Give it a name in Branding', done: hasName, to: `${base}/branding` },
-    // Template-seeded events pass these two by design — but say so honestly:
-    // "done" here means "your chosen template's defaults are active", not
-    // "you customized it".
-    { label: 'Pick your look & colours', hint: hasLook ? 'Template look active — make it yours in Branding' : 'Theme, background & fonts', done: hasLook, to: `${base}/branding` },
-    { label: 'Add frames & effects', hint: hasFrames ? 'Template frames active — add your own or AI-generate more' : 'Frames, filters & 3D props', done: hasFrames, to: `${base}/creator` },
-    { label: 'Take a test photo', hint: 'Open your booth and snap one — see what guests will see', done: hasTestShot, href: `${basePath}/booth` },
-  ];
-  const canGoLive = Boolean(eventUuid) && hasName && hasLook && hasFrames;
+  // check the host didn't earn erodes trust in the whole panel. The facts and
+  // the labels/hints live in eventChecklist (shared with the copilot); only
+  // WHERE each step is fixed is this screen's knowledge.
+  const items = computeChecklist(checklistFromStudio(config, stats, status), 'dashboard');
+  const stepLink: Partial<Record<ChecklistId, Pick<ChecklistStep, 'to' | 'href'>>> = {
+    name: { to: `${base}/branding` },
+    look: { to: `${base}/branding` },
+    frames: { to: `${base}/creator` },
+    test_shot: { href: `${basePath}/booth` },
+  };
+  const checklist: ChecklistStep[] = items.map((it) => ({
+    label: it.label, hint: it.hint ?? '', done: it.done, ...(stepLink[it.id] ?? {}),
+  }));
+  const doneIds = new Set(items.filter((it) => it.done).map((it) => it.id));
+  const canGoLive = Boolean(eventUuid) && doneIds.has('name') && doneIds.has('look') && doneIds.has('frames');
 
   const goLive = useCallback(async () => {
     if (!eventUuid || going) return;
     setGoing(true);
     setGoError(null);
-    const ok = await updateEventStatus(eventUuid, 'live');
+    // The ONE go-live path (host.goLive): the status flip, then the guest copy
+    // generated once, fire-and-forget — a slow AI call cannot hold this button.
+    const ok = await hostGoLive(eventUuid);
     setGoing(false);
     if (ok) {
       // Confirmed by the DB write — flip in place (no reload), tell the host

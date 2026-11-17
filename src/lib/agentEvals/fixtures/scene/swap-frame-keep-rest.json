@@ -1,0 +1,120 @@
+{
+  "mode": "scene",
+  "surface": "studio",
+  "shaderCatalog": [
+    {
+      "id": "champagne-sparkle",
+      "params": [
+        {
+          "key": "uSparkle",
+          "min": 0,
+          "max": 1.2,
+          "default": 0.75
+        },
+        {
+          "key": "uWarmth",
+          "min": 0,
+          "max": 1,
+          "default": 0.5
+        }
+      ]
+    },
+    {
+      "id": "golden-hour-bloom",
+      "params": [
+        {
+          "key": "uBloom",
+          "min": 0,
+          "max": 1,
+          "default": 0.6
+        },
+        {
+          "key": "uWarmth",
+          "min": 0,
+          "max": 1.5,
+          "default": 0.6
+        },
+        {
+          "key": "uVignette",
+          "min": 0,
+          "max": 1,
+          "default": 0.4
+        },
+        {
+          "key": "uContrast",
+          "min": 0.5,
+          "max": 2,
+          "default": 1.1
+        }
+      ]
+    },
+    {
+      "id": "velvet-film",
+      "params": [
+        {
+          "key": "uGrain",
+          "min": 0,
+          "max": 1,
+          "default": 0.35
+        },
+        {
+          "key": "uWarmth",
+          "min": 0,
+          "max": 1,
+          "default": 0.6
+        },
+        {
+          "key": "uContrast",
+          "min": 0.5,
+          "max": 2,
+          "default": 1.15
+        },
+        {
+          "key": "uVignette",
+          "min": 0,
+          "max": 1,
+          "default": 0.55
+        }
+      ]
+    },
+    {
+      "id": "neon-pulse",
+      "params": [
+        {
+          "key": "uIntensity",
+          "min": 0,
+          "max": 1.5,
+          "default": 0.8
+        }
+      ]
+    }
+  ],
+  "headPieceIds": [
+    "royal-crown",
+    "queen-tiara",
+    "cheek-stars",
+    "neon-shades",
+    "cyclops-visor"
+  ],
+  "sceneContext": "DRAFT \"Midnight Gilt\": frame = art-deco antique-gold border (border) · shader = champagne-sparkle · headpiece = royal-crown\nLAST PLAN: sceneName Midnight Gilt · frame art-deco antique-gold edge border on black · shader champagne-sparkle · headPiece procedural royal-crown",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Midnight Gilt, go"
+    },
+    {
+      "role": "assistant",
+      "content": "Midnight Gilt: an art-deco antique-gold edge border on black, the champagne-sparkle filter, and the royal crown."
+    },
+    {
+      "role": "user",
+      "content": "swap the frame for a full-bleed jungle scene with a head cutout, keep the rest"
+    }
+  ],
+  "expect": {
+    "scene": {
+      "hasPlan": true,
+      "shaderId": "champagne-sparkle"
+    }
+  }
+}

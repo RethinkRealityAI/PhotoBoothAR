@@ -10,13 +10,25 @@
  * arrows + on-screen controls advance pages; prefers-reduced-motion disables
  * page-turn animation. Theme-neutral platform styling (outside EventProvider).
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
 import { useParams } from 'react-router-dom';
 import { useReducedMotion } from 'motion/react';
+import { ChevronDown, Play } from 'lucide-react';
 import { viewCard, type CardViewContribution, type CardViewData } from '../../lib/cards';
 import Storybook from '../../components/cards/templates/Storybook';
 import FilmStrip from '../../components/cards/templates/FilmStrip';
-import { clampIndex } from '../../components/cards/templates/types';
+import Polaroid from '../../components/cards/templates/Polaroid';
+import { clampIndex, type CardTemplateProps } from '../../components/cards/templates/types';
+import { normalizeCardTemplate, type CardTemplateId } from '../../lib/cardTemplates';
+
+/** The template registry — the ONE place a template id becomes a component.
+ *  `normalizeCardTemplate` maps anything unknown (an id from a newer build, a
+ *  hand-edited row) onto the default, so the map can never miss. */
+const TEMPLATES: Record<CardTemplateId, ComponentType<CardTemplateProps>> = {
+  storybook: Storybook,
+  filmstrip: FilmStrip,
+  polaroid: Polaroid,
+};
 
 type LoadState =
   | { phase: 'loading' }
@@ -33,6 +45,57 @@ function CenterScreen({ eyebrow, title, body }: { eyebrow: string; title: string
         {body && <p className="font-sans text-sm text-brand-muted/60 leading-relaxed">{body}</p>}
       </div>
     </div>
+  );
+}
+
+/**
+ * The keepsake film, for the RECIPIENT — card-view hands back a 1h signed MP4
+ * whenever the card has a finished render, and this is the only place a
+ * non-member can watch it. Collapsed by default so the card itself stays the
+ * hero (and nothing is fetched until it is asked for).
+ */
+function KeepsakeFilm({ url }: { url: string }) {
+  const [open, setOpen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    // Opening IS the gesture, so a play attempt is legitimate here; if the
+    // browser refuses it anyway (Low Power Mode, autoplay policy), the native
+    // controls are already on screen — nothing to recover.
+    videoRef.current?.play().catch(() => {});
+  }, [open]);
+
+  return (
+    <section className="shrink-0 mb-3">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="group flex w-full min-h-[44px] items-center gap-3 rounded-2xl glass border border-accent/25 px-4 py-2.5 text-left transition hover:border-accent/45"
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent-2 transition group-hover:bg-accent/25">
+          <Play className="w-3.5 h-3.5 translate-x-[1px]" fill="currentColor" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-label uppercase tracking-luxe text-[10px] text-brand-muted/55">Deluxe keepsake</span>
+          <span className="block font-serif italic text-[15px] text-foil-static">Watch the keepsake film</span>
+        </span>
+        <ChevronDown
+          className={`w-4 h-4 shrink-0 text-brand-muted/50 transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden
+        />
+      </button>
+      {open && (
+        <video
+          ref={videoRef}
+          src={url}
+          controls
+          playsInline
+          preload="metadata"
+          className="mt-2 w-full rounded-2xl border border-accent/20 bg-black shadow-[0_18px_60px_rgba(0,0,0,0.55)]"
+        />
+      )}
+    </section>
   );
 }
 
@@ -94,7 +157,7 @@ export default function CardViewer() {
   }
 
   const { card } = state;
-  const Template = card.template === 'filmstrip' ? FilmStrip : Storybook;
+  const Template = TEMPLATES[normalizeCardTemplate(card.template)];
 
   return (
     <div className="absolute inset-0 app-bg flex flex-col overflow-hidden">
@@ -105,6 +168,7 @@ export default function CardViewer() {
         aria-hidden
       />
       <main className="relative flex-1 min-h-0 w-full max-w-2xl mx-auto px-4 pt-4 pb-2 flex flex-col">
+        {card.filmUrl && <KeepsakeFilm url={card.filmUrl} />}
         <Template
           card={card}
           contributions={contributions}

@@ -64,6 +64,44 @@ export function transformedUrl(
 }
 
 /**
+ * The storage OBJECT KEY inside `bucket` for a Supabase public-object URL, or
+ * null when `url` is not a public object of that bucket at that origin.
+ *
+ * This is the inverse of `getPublicUrl(path)`: given what a `posts` row stores
+ * in `image_url`, it recovers the key `storage.remove([key])` needs. Deleting a
+ * post row does NOT delete its object (Postgres cascades do not reach Storage),
+ * so the delete paths have to reconstruct the key.
+ *
+ * MIRRORED — `supabase/functions/submit-post/index.ts` (`objectKeyForUrl`) runs
+ * the same three rules server-side; Deno cannot import from src/, so this test
+ * file is the contract both halves are written against. Change one, change both.
+ *
+ * Three deliberate rules:
+ *  - `origin` is REQUIRED and matched as a literal prefix. An `indexOf` would
+ *    accept `https://evil.example/x?u=/storage/v1/object/public/posts/a/b.jpg`
+ *    and hand a caller a key it never stored.
+ *  - the query/fragment is dropped, so a cache-busted URL still resolves.
+ *  - the key is NOT percent-decoded. Every key this app writes is URL-safe
+ *    (slug `[a-z0-9-]`, session `[A-Za-z0-9_-]`, uuid hex), so decoding could
+ *    only ever turn `%2e%2e` into a traversal; a key that genuinely needed
+ *    decoding fails the remove loudly instead of removing the wrong object.
+ */
+export function publicObjectPath(
+  url: string | null | undefined,
+  bucket: string,
+  origin: string,
+): string | null {
+  if (!url || typeof url !== 'string' || !bucket || !origin) return null;
+  const prefix = `${origin.replace(/\/+$/, '')}${PUBLIC_OBJECT}${bucket}/`;
+  if (!url.startsWith(prefix)) return null;
+  const rest = url.slice(prefix.length);
+  const cut = rest.search(/[?#]/);
+  const key = cut === -1 ? rest : rest.slice(0, cut);
+  if (!key || key.includes('..') || key.startsWith('/')) return null;
+  return key;
+}
+
+/**
  * Device-pixel-aware width, capped.
  *
  * Asking for 3× on a modern phone throws away most of the saving, and the

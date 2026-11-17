@@ -92,8 +92,16 @@ export default function GuestWelcome() {
             )}
           </div>
           <p className="font-sans text-[13px] leading-relaxed text-champagne/70 max-w-xs">
-            This event has its own AR photo booth and live photo wall — everything runs
-            right here in your browser. No app to install.
+            {/* Generated/host-edited intro (DB events with config.copy.welcomeIntro);
+                legacy coded events have no such key and keep the exact literal. */}
+            {typeof config.copy.welcomeIntro === 'string' && config.copy.welcomeIntro.trim() !== '' ? (
+              config.copy.welcomeIntro
+            ) : (
+              <>
+                This event has its own AR photo booth and live photo wall — everything runs
+                right here in your browser. No app to install.
+              </>
+            )}
           </p>
         </div>
 

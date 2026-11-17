@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { pixelWidth, transformedUrl } from './mediaUrl';
+import { pixelWidth, publicObjectPath, transformedUrl } from './mediaUrl';
 
 const PUBLIC = 'https://zrtftliozslrjomxbfrr.supabase.co/storage/v1/object/public/posts/hope-gala/abc.jpg';
+const ORIGIN = 'https://zrtftliozslrjomxbfrr.supabase.co';
 
 describe('transformedUrl', () => {
   it('rewrites a Supabase public object URL to the render endpoint', () => {
@@ -63,6 +64,65 @@ describe('transformedUrl', () => {
 
   it('honours the resize mode', () => {
     expect(transformedUrl(PUBLIC, { width: 10, resize: 'contain' })).toContain('resize=contain');
+  });
+});
+
+describe('publicObjectPath', () => {
+  // The shape submit-post writes: `<slug>/<sessionId>/<uuid>.<ext>`.
+  const KEY = 'hope-gala/s_ab12cd34/9f1c8f2e-0000-4000-8000-abcdefabcdef.jpg';
+  const URL_FOR_KEY = `${ORIGIN}/storage/v1/object/public/posts/${KEY}`;
+
+  it('recovers the object key a post URL was built from', () => {
+    expect(publicObjectPath(URL_FOR_KEY, 'posts', ORIGIN)).toBe(KEY);
+  });
+
+  it('accepts an origin with a trailing slash (SUPABASE_URL is written both ways)', () => {
+    expect(publicObjectPath(URL_FOR_KEY, 'posts', `${ORIGIN}/`)).toBe(KEY);
+  });
+
+  it('drops a query string or fragment', () => {
+    expect(publicObjectPath(`${URL_FOR_KEY}?v=2`, 'posts', ORIGIN)).toBe(KEY);
+    expect(publicObjectPath(`${URL_FOR_KEY}#top`, 'posts', ORIGIN)).toBe(KEY);
+  });
+
+  it('refuses a URL from another origin, even one carrying the marker', () => {
+    // An indexOf-based reader hands back a key here — the whole reason the
+    // origin is matched as a literal prefix.
+    expect(
+      publicObjectPath(`https://evil.example.com/x?u=/storage/v1/object/public/posts/${KEY}`, 'posts', ORIGIN),
+    ).toBeNull();
+    expect(publicObjectPath(`https://evil.example.com/storage/v1/object/public/posts/${KEY}`, 'posts', ORIGIN))
+      .toBeNull();
+  });
+
+  it('refuses another bucket', () => {
+    expect(publicObjectPath(URL_FOR_KEY, 'assets', ORIGIN)).toBeNull();
+    expect(publicObjectPath(`${ORIGIN}/storage/v1/object/public/assets/hope-gala/ai/x.png`, 'posts', ORIGIN))
+      .toBeNull();
+  });
+
+  it('refuses a signed/authenticated URL — that is a different endpoint', () => {
+    expect(publicObjectPath(`${ORIGIN}/storage/v1/object/sign/posts/${KEY}`, 'posts', ORIGIN)).toBeNull();
+  });
+
+  it('refuses a traversal, an empty key and a missing input rather than throwing', () => {
+    expect(publicObjectPath(`${ORIGIN}/storage/v1/object/public/posts/../secrets/x.jpg`, 'posts', ORIGIN))
+      .toBeNull();
+    expect(publicObjectPath(`${ORIGIN}/storage/v1/object/public/posts/`, 'posts', ORIGIN)).toBeNull();
+    expect(publicObjectPath('', 'posts', ORIGIN)).toBeNull();
+    expect(publicObjectPath(null, 'posts', ORIGIN)).toBeNull();
+    expect(publicObjectPath(undefined, 'posts', ORIGIN)).toBeNull();
+    expect(publicObjectPath(URL_FOR_KEY, '', ORIGIN)).toBeNull();
+    expect(publicObjectPath(URL_FOR_KEY, 'posts', '')).toBeNull();
+  });
+
+  it('leaves percent escapes alone — decoding could only ever manufacture a traversal', () => {
+    expect(publicObjectPath(`${ORIGIN}/storage/v1/object/public/posts/a/%2e%2e/b.jpg`, 'posts', ORIGIN))
+      .toBe('a/%2e%2e/b.jpg');
+  });
+
+  it('round-trips with transformedUrl input (both read the same marker)', () => {
+    expect(publicObjectPath(PUBLIC, 'posts', ORIGIN)).toBe('hope-gala/abc.jpg');
   });
 });
 
