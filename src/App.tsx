@@ -123,6 +123,10 @@ const DEFAULT_EVENT_SLUG =
  *  straight to the card viewer instead — the remote-celebration mode. */
 function EventIndexRedirect() {
   const { config, basePath } = useEvent();
+  // The query string rides along to the landing route (as it does in
+  // RedirectToDefaultEvent below), so `/e/<slug>?faceEngine=xr8&trackdebug`
+  // still carries its tester flags once it lands on `/e/<slug>/booth`.
+  const { search } = useLocation();
   // Only redirect to the pinned card when the pin is actually set. When it is
   // null — including after the host unpublishes the pinned card, which clears
   // the pin (see doUnpublish in CardsTab) — this falls through to the normal
@@ -131,7 +135,7 @@ function EventIndexRedirect() {
   if (config.primaryCardPublicId) {
     return <Navigate to={`/c/${config.primaryCardPublicId}`} replace />;
   }
-  return <Navigate to={`${basePath}${config.landingRoute}`} replace />;
+  return <Navigate to={`${basePath}${config.landingRoute}${search}`} replace />;
 }
 
 /** Legacy top-level guest/admin paths → the default event, path preserved. */
