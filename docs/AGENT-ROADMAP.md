@@ -11,12 +11,12 @@ guest landing at `/e/:slug/welcome`.
 | Job | Model | Cost | Why |
 |---|---|---|---|
 | Concierge / event-agent chat | `gemini-2.5-flash` | ~$0.30/M in, $2.50/M out | Already deployed; structured output; fast |
-| Chat cost-floor option | `gemini-2.5-flash-lite` | ~$0.10/M in, $0.40/M out | Swap-in if chat volume gets expensive; same API |
+| Chat cost-floor option | ~~`gemini-2.5-flash-lite`~~ — no longer served to this project's key (2026-11-17, 404 "use gemini-3.5-flash-lite") | ~$0.10/M in, $0.40/M out | Re-evaluate against the successor named in Google's 404 before swapping in |
 | Frame/sticker images | `gemini-2.5-flash-image` | ~$0.039/image (1290 out-tokens) | Already deployed; **Imagen 4 is deprecated (EOL 2026-08-17) — do NOT migrate to it** |
 | Credit math | 1 credit = 1 gemini image | ~26x margin at $1/credit | Free allowance: `FREE_IMAGES_PER_EVENT = 3` in `ai-generate-image` |
-| Guest challenge photo-check (2026-09-02) | `gemini-2.5-flash-lite` (default; `GEMINI_MODEL_VALIDATE` overrides) | see flash-lite row | Guest-blocking latency check; 12s timeout on the existing fail-open path |
+| Guest challenge photo-check (2026-09-02) | `gemini-2.5-flash` (default since 2026-11-17 — flash-lite retired for this key; `GEMINI_MODEL_VALIDATE` overrides) | see flash row | Guest-blocking latency check; 12s timeout on the existing fail-open path |
 | Scene Director (2026-09-02) | `gemini-2.5-flash` + `thinkingBudget 512` | thoughts bill as output tokens | Creative direction, not extraction — the one mode that thinks; `GEMINI_THINKING_SCENE` overrides |
-| Guest copy — `copy` mode (2026-09-04) | `gemini-2.5-flash-lite` · temp 0.7 · thinking 0 · 1024 tok · 15s | see flash-lite row; ONE call per event lifetime | Four short guest lines from the event brief, generated once (`config.copy.generatedAt`); `GEMINI_*_COPY` overrides |
+| Guest copy — `copy` mode (2026-09-04) | `gemini-2.5-flash` (flash-lite until 2026-11-17 — retired for this key) · temp 0.7 · thinking 0 · 1024 tok · 15s | see flash row; ONE call per event lifetime | Four short guest lines from the event brief, generated once (`config.copy.generatedAt`); `GEMINI_*_COPY` overrides |
 
 ## 2026-09-02 — Playbook hardening (PR #44) — ✅ SHIPPED (deploys at merge)
 
@@ -56,7 +56,7 @@ deploy at merge (Recommended)".
   `/host/new`; honest Meshy "Keep waiting" that resumes the same job;
   `reportError` from every AI path (askCopilot, designEvent, DirectorPanel,
   Booth failed-open check).
-- `validate-challenge-photo`: default model `gemini-2.5-flash-lite` (override
+- `validate-challenge-photo`: default model `gemini-2.5-flash` (was flash-lite until 2026-11-17; override
   secret `GEMINI_MODEL_VALIDATE`), 12s timeout mapped onto the existing
   fail-open 502 path, one verdict log line, prompt regrouped
   `# Goal / # Guardrails / # Output`.

@@ -88,7 +88,7 @@ replays deterministically).
   `MAX_ACTIONS = 5` tool proposals per turn, at most one credit-spender and it
   goes last; a ≥2-step reply renders as one bundle card), `scene` (Studio
   Director) and `copy` (the four guest lines — tagline · welcomeIntro · thankYou
-  · keepsakeIntro — written ONCE per event on `gemini-2.5-flash-lite` by
+  · keepsakeIntro — written ONCE per event on `gemini-2.5-flash` by
   `src/lib/eventCopy.ts` at create-success or go-live, stamped
   `config.copy.generatedAt`). The event brief itself (`src/lib/eventBrief.ts`)
   lives in `events.config.brief` — no table — and is read by all three chat
