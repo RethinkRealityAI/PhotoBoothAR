@@ -202,6 +202,36 @@ export function followAccentFramePalette(
 }
 
 /**
+ * `config.accentHexes` with the event's CURRENT colour first. accentHexes is
+ * the palette most readers take (booth accent = [0], SendOff confetti, the
+ * AI frame's fallback) and used to be written once from the template — a host
+ * who chose red kept the template golds everywhere but the theme tokens.
+ * Order: accent, accent2 (if any), then the existing palette, de-duplicated
+ * case-insensitively, invalid entries dropped, at most `max` (4 = a
+ * template's length). An invalid accent returns the existing list cleaned.
+ * Returns a NEW array.
+ */
+export function accentHexesFor(
+  accentHex: string | null | undefined,
+  existing: unknown,
+  accent2Hex?: string | null,
+  max = 4,
+): string[] {
+  const list = [
+    normalizeHex(accentHex),
+    normalizeHex(accent2Hex),
+    ...(Array.isArray(existing) ? existing.map((h) => normalizeHex(h)) : []),
+  ];
+  const out: string[] = [];
+  for (const h of list) {
+    if (h === null || out.includes(h)) continue; // normalizeHex upper-cases, so includes() is case-insensitive
+    out.push(h);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
  * The seeded set for a fresh event: the template's own frames/filters, put in
  * ranked order, plus the frame palette when the host chose a colour. Merged
  * over templateConfigPatch's arContent by the create flow — with no accent the
