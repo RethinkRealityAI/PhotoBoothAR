@@ -139,7 +139,7 @@ export const HOTSPOT_SHOTS: Record<HotspotShotKey, HotspotShot> = {
         x: 0.499, y: 0.312, side: 'right',
         label: 'Start with a look',
         title: 'Starter scenes',
-        body: 'Each card is a real shot from that scene. Tap one to start from it, then make it yours — nothing is locked.',
+        body: 'Each card previews that scene’s look. Tap one to start from it, then make it yours — nothing is locked.',
       },
       {
         id: 'test-on-phone',

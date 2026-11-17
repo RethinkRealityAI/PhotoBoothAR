@@ -30,7 +30,17 @@ import ConfirmModal from '../ui/ConfirmModal';
 import { BUILTIN_BORDERS } from '../../lib/borders';
 import { clampHeadScale } from '../../lib/studio/occluder';
 import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
-import { studioReducer, initialState, selectedObject, type StudioState, type StudioAction, type StudioDraft } from '../../lib/studio/state';
+import {
+  studioReducer,
+  initialState,
+  selectedObject,
+  draftContentUnchanged,
+  preserveViewOnTimeTravel,
+  type StudioState,
+  type StudioAction,
+  type StudioDraft,
+} from '../../lib/studio/state';
+import { shortcutBlocked } from '../../lib/studio/shortcuts';
 import { withHistory, initHistory, canUndo, canRedo } from '../../lib/studio/history';
 import { nudgeTransform } from '../../lib/studio/snap';
 import { nudgeOffset3D } from '../../lib/studio/align';
@@ -41,7 +51,9 @@ import {
   loadSnapshot,
   pruneSnapshots,
   saveSnapshot,
+  saveUploadFailures,
   shouldOfferRecovery,
+  uploadFailureMessage,
   type DraftSnapshot,
   type DraftStore,
 } from '../../lib/studio/draftSafety';
@@ -55,12 +67,16 @@ import type { Experience } from '../../types';
 // SET_KIND is now a pure view-flip alias (never mutates the draft) so it stays
 // OFF the undo timeline like SET_MODE; CLEAR_FILTER edits the scene's filter slot
 // so it is recorded + dirty-making (it falls through as a mutating action).
+// A BATCH is one compound edit: recorded when any member mutates the draft.
 const isDraftMutating = (a: StudioAction): boolean =>
-  a.type !== 'SET_MODE' &&
-  a.type !== 'SET_THREE_VIEW' &&
-  a.type !== 'SELECT_OBJECT' &&
-  a.type !== 'SET_KIND';
-const isClearing = (a: StudioAction): boolean => a.type === 'LOAD' || a.type === 'MARK_SAVED';
+  a.type === 'BATCH'
+    ? a.actions.some(isDraftMutating)
+    : a.type !== 'SET_MODE' &&
+      a.type !== 'SET_THREE_VIEW' &&
+      a.type !== 'SELECT_OBJECT' &&
+      a.type !== 'SET_KIND';
+const isClearing = (a: StudioAction): boolean =>
+  a.type === 'BATCH' ? a.actions.some(isClearing) : a.type === 'LOAD' || a.type === 'MARK_SAVED';
 const coalesceKey = (a: StudioAction, s: StudioState): string | null => {
   switch (a.type) {
     case 'SET_TRANSFORM':
@@ -82,6 +98,8 @@ const studioHistoryReducer = withHistory<StudioState, StudioAction>(studioReduce
   record: isDraftMutating,
   clear: isClearing,
   coalesce: coalesceKey,
+  // Undo/redo restores content, not where the host is looking (#16).
+  preserve: preserveViewOnTimeTravel,
 });
 import AssetsDock from './AssetsDock';
 import StudioStage from './StudioStage';
@@ -175,6 +193,14 @@ export default function StudioShell() {
   // must NOT open a blank editor pointed at that id — see the load effect.
   const [loadError, setLoadError] = useState<'unreachable' | 'missing' | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  // The id a first save just created. Putting it in the URL (so a refresh
+  // reopens THIS scene) changes `editId`; the load effect must not then
+  // re-fetch and LOAD over the draft that is already open (#15).
+  const skipLoadForIdRef = useRef<string | null>(null);
+  // "Or build your own" — the host turned the starter gallery down (#6). On
+  // desktop the assets column is already visible, so opening the drawer alone
+  // did nothing and the gallery kept covering the stage.
+  const [starterDismissed, setStarterDismissed] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   // Set the instant the host confirms leaving, so the leave guard stands down
   // and does not intercept the navigation it was just told to allow.
@@ -256,6 +282,10 @@ export default function StudioShell() {
   // refuse to edit rather than quietly become a "new experience" screen.
   useEffect(() => {
     if (!editId) return;
+    if (skipLoadForIdRef.current === editId) {
+      skipLoadForIdRef.current = null;
+      return;
+    }
     let alive = true;
     setLoadingEdit(true);
     setLoadError(null);
@@ -435,31 +465,74 @@ export default function StudioShell() {
         thumbnailUrl = draft.thumbUrl;
       }
 
+      // A null here used to save the layer with NO image, report "Saved",
+      // clear dirty and delete the local copy that still held the artwork (#2).
+      const failed = saveUploadFailures(draft, urlMap, thumbnailUrl);
+      if (failed.length > 0) {
+        setSaveError(uploadFailureMessage(failed));
+        return false;
+      }
+
       const payload = draftToPayload(draft, urlMap, thumbnailUrl);
       const result = draft.id
         ? await updateExperience(eventId, draft.id, payload)
         : await createExperience(eventId, payload);
 
       if (!result) {
-        setSaveError('Save failed — check your connection and try again.');
+        setSaveError('Couldn’t save — check your connection and try again. Your scene is still here.');
         return false;
       }
-      dispatch({ type: 'MARK_SAVED', id: result.id });
+      // Blobs that just uploaded: the reducer swaps each for its stored URL
+      // (when the layer still holds that blob) so the next save does not
+      // upload — and orphan — the same image again (#27).
+      const uploaded: Record<string, string> = {};
+      for (const o of draft.objects) {
+        if (o.type !== 'overlay' || !o.blob || (o.isBuiltin && o.builtinId)) continue;
+        const u = urlMap.get(o.id);
+        if (u) uploaded[o.id] = u;
+      }
+      // `saved: draft` — edits made while the uploads were in flight are NOT
+      // in this row, so the reducer keeps them dirty instead of declaring
+      // them saved (#1).
+      dispatch({
+        type: 'MARK_SAVED',
+        id: result.id,
+        saved: draft,
+        uploaded,
+        ...(draft.thumbBlob !== null && thumbnailUrl !== null ? { thumbUrl: thumbnailUrl } : {}),
+      });
+      const store = storeRef.current;
+      const current = draftRef.current;
+      const unchanged = current === null || draftContentUnchanged(current, draft);
       // The row landed, so the local snapshot has nothing left to protect —
-      // and leaving it would offer the host their own already-saved work back.
-      clearSnapshot(storeRef.current, eventId, editId ?? null);
+      // UNLESS the host kept editing during the save: that snapshot holds the
+      // only copy of those edits.
+      if (unchanged) clearSnapshot(store, eventId, editId ?? null);
       loadedDraftRef.current = draft;
+      if (!draft.id) {
+        // First save of a new scene: put its id in the URL so a refresh
+        // reopens it, and later autosaves use its slot rather than 'new' (#15).
+        if (!unchanged && current !== null) {
+          saveSnapshot(store, { eventId, experienceId: result.id, savedAt: Date.now() }, current);
+          clearSnapshot(store, eventId, null);
+        }
+        recoveryCheckedRef.current = `${eventId}:${result.id}`;
+        skipLoadForIdRef.current = result.id;
+        const params = new URLSearchParams(searchParams);
+        params.set('id', result.id);
+        navigate({ search: `?${params.toString()}` }, { replace: true });
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 2400);
       return true;
     } catch (err) {
       console.error('[studio] save', err);
-      setSaveError('Unexpected error — see console.');
+      setSaveError('Couldn’t save — something went wrong on our side. Your scene is still here; try Save again.');
       return false;
     } finally {
       setSaving(false);
     }
-  }, [state.draft, eventId, editId]);
+  }, [state.draft, eventId, editId, searchParams, navigate]);
 
   const openExperience = useCallback((exp: Experience) => {
     navigate(`${base}/studio?id=${exp.id}`);
@@ -500,12 +573,24 @@ export default function StudioShell() {
     setEditingName(false);
   }, [nameDraft, state.draft.name]);
 
-  // Keyboard shortcuts on the shell. Skipped while typing in a field so undo/
-  // delete never fights text editing.
+  // Keyboard shortcuts on the shell. Skipped while typing in a field, on any
+  // control that owns its keys (SELECT, sliders, tabs…), inside any dialog,
+  // and while any modal is open — Backspace on a Power FX chip used to delete
+  // the crown BEHIND the dialog (#3).
+  const shellModalOpen = confirmLeave || recovery !== null || testPhoneOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const el = e.target instanceof HTMLElement ? e.target : null;
+      const modalOpen = shellModalOpen || document.querySelector('[aria-modal="true"]') !== null;
+      const target = el
+        ? {
+            tagName: el.tagName,
+            isContentEditable: el.isContentEditable,
+            role: el.getAttribute('role'),
+            inDialog: el.closest('[role="dialog"],[role="alertdialog"],[aria-modal="true"]') !== null,
+          }
+        : null;
+      if (shortcutBlocked(target, modalOpen)) return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
@@ -520,7 +605,7 @@ export default function StudioShell() {
       const draft = state.draft;
       if ((e.key === 'Delete' || e.key === 'Backspace') && draft.selectedId) {
         e.preventDefault();
-        dispatch({ type: 'DELETE_OBJECT', id: draft.selectedId });
+        dispatch({ type: 'DELETE_OBJECT', id: draft.selectedId, pruneTriggers: true });
         return;
       }
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -543,7 +628,7 @@ export default function StudioShell() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [state.draft]);
+  }, [state.draft, shellModalOpen]);
 
   if (loadingEdit) {
     return (
@@ -727,7 +812,18 @@ export default function StudioShell() {
         {source === 'db' && base.startsWith('/host/') && (
           <PublishToLibrary experienceId={state.draft.id} dirty={state.dirty} defaultName={state.draft.name} />
         )}
-        {saveError && <span className="hidden sm:inline text-rose-400 text-[10px] font-sans max-w-[180px] text-right">{saveError}</span>}
+        {saveError && (
+          <span role="alert" className="hidden sm:inline-flex items-center gap-2 text-rose-300 text-[11px] font-sans max-w-[260px] text-right">
+            <span>{saveError}</span>
+            <button
+              onClick={() => { void handleSave(); }}
+              disabled={saving}
+              className="shrink-0 px-2.5 min-h-8 rounded-lg bg-rose-400/15 text-rose-200 font-label uppercase tracking-widest text-[10px] hover:bg-rose-400/25 disabled:opacity-50"
+            >
+              Retry
+            </button>
+          </span>
+        )}
         {/* Autosave status. Says exactly what it is — a local copy on THIS
             device, not a save to the event — so it can never be mistaken for
             having published the scene. Compact by design: the glyph carries the
@@ -764,7 +860,7 @@ export default function StudioShell() {
           onClick={handleSave}
           disabled={saving}
           aria-label={state.draft.id ? 'Update experience' : 'Save experience'}
-          className="flex items-center gap-1.5 px-3 sm:px-5 py-2 min-h-10 shrink-0 bg-foil text-white font-bold text-[10px] font-label uppercase tracking-widest rounded-xl glow-accent transition active:scale-[0.98] disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3 sm:px-5 py-2 min-h-10 shrink-0 bg-foil text-[color:var(--on-accent)] font-bold text-[10px] font-label uppercase tracking-widest rounded-xl glow-accent transition active:scale-[0.98] disabled:opacity-50"
         >
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
           <span>{saving ? 'Saving…' : saved ? 'Saved' : state.draft.id ? 'Update' : 'Save'}</span>
@@ -789,7 +885,18 @@ export default function StudioShell() {
       </div>
       {/* Phone: save errors get their own row — inline they overflowed the
           packed control row. */}
-      {saveError && <p className="sm:hidden px-3 pb-2 text-rose-400 text-[10px] font-sans">{saveError}</p>}
+      {saveError && (
+        <div role="alert" className="sm:hidden flex items-center gap-2 px-3 pb-2 text-rose-300 text-[11px] font-sans">
+          <p className="flex-1 min-w-0">{saveError}</p>
+          <button
+            onClick={() => { void handleSave(); }}
+            disabled={saving}
+            className="shrink-0 px-3 min-h-11 rounded-lg bg-rose-400/15 text-rose-200 font-label uppercase tracking-widest text-[10px] disabled:opacity-50"
+          >
+            Retry
+          </button>
+        </div>
+      )}
       </header>
 
       {/* Body — 3-pane at lg+; the side docks become slide-in drawers below lg
@@ -841,8 +948,8 @@ export default function StudioShell() {
             headMatrixRef={headMatrixRef}
             dropActive={dnd.dragging && dnd.overStage}
             onTestOnPhone={() => setTestPhoneOpen(true)}
-            onOpenAssets={() => { setSceneOpen(false); setMobilePanel('assets'); }}
-            onStarterScene={handleStarterScene}
+            onOpenAssets={() => { setStarterDismissed(true); setSceneOpen(false); setMobilePanel('assets'); }}
+            onStarterScene={starterDismissed ? undefined : handleStarterScene}
             refusal={dnd.refusal}
           />
         </main>
@@ -921,7 +1028,7 @@ export default function StudioShell() {
             <div className="flex items-center gap-2">
               <button
                 onClick={acceptRecovery}
-                className="flex-1 py-2.5 bg-foil text-white font-bold text-[10px] font-label uppercase tracking-widest rounded-xl glow-accent transition active:scale-[0.98]"
+                className="flex-1 py-2.5 bg-foil text-[color:var(--on-accent)] font-bold text-[10px] font-label uppercase tracking-widest rounded-xl glow-accent transition active:scale-[0.98]"
               >
                 Restore it
               </button>

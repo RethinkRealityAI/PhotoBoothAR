@@ -14,7 +14,7 @@
  * instructional caption, no separate tracker pill and no pause control — the
  * stage is for looking at the artwork, and tracking never stops.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { motion } from 'motion/react';
 import { Axis3d, Boxes, Camera, Eye, Layers, Smartphone, Sparkles, AlertTriangle } from 'lucide-react';
 import { ShaderRunner } from '../../lib/shaders';
@@ -34,7 +34,9 @@ import { makeBeamSpec } from '../../lib/studio/beam';
 import { emitFx } from '../../lib/studio/fxBus';
 import { objectToPiece, STUDIO_SAMPLE_GUEST_NAME } from '../../lib/studio/draftMapping';
 import type { LightingPresetId } from '../../lib/studio/lighting';
-import { initializeFaceLandmarker, isFaceLandmarkerReady } from '../../lib/faceTracking';
+import {
+  getActiveFaceEngineInfo, initFaceEngine, resolveSurfaceFaceMode, setFaceTrackingMode, subscribeFaceEngine,
+} from '../../lib/faceEngine';
 import { REVEAL_SHIMMER_MS } from '../../lib/studio/reveal';
 import { stageStatus, STAGE_STATUS_DOT_CLASS, STAGE_STATUS_TONE_CLASS, type StageStatus } from '../../lib/studio/stageStatus';
 import { OVERLAY_SCALE, clampToSpec } from '../../lib/studio/controlSpecs';
@@ -269,21 +271,25 @@ export default function StudioStage({
   // below never claims a live tracker that isn't.
   // Gated on the CAMERA, not on triggers: the single status chip reports tracker
   // readiness in every tracked view, so readiness must be known even in a scene
-  // with no triggers. Init is idempotent (faceTracking caches the promise) and
-  // FaceRig self-initialises anyway.
-  const [trackerLoaded, setTrackerLoaded] = useState(isFaceLandmarkerReady);
+  // with no triggers. Init is idempotent (the face-engine manager caches its
+  // engines) and FaceRig self-initialises anyway.
+  // The studio previews with the SAME engine guests will get for this draft
+  // (its config.tracking, else the platform default + auto-hybrid on face
+  // triggers) — "what you place is what guests see".
+  const faceMode = useMemo(
+    () => resolveSurfaceFaceMode({ config: draft.tracking, triggers }).mode,
+    [draft.tracking, triggers],
+  );
+  useEffect(() => { setFaceTrackingMode(faceMode); }, [faceMode]);
+  // Readiness comes from the manager. It stays true across trigger-set edits
+  // (the old interval version once flashed "Loading face tracker…" over a live
+  // tracker); it goes false ONLY while a different engine loads, and returns
+  // true after an automatic 8th Wall → MediaPipe fallback.
+  const trackerLoaded = useSyncExternalStore(subscribeFaceEngine, getActiveFaceEngineInfo, getActiveFaceEngineInfo).ready;
   useEffect(() => {
-    if (!cam.ready || trackerLoaded) return;
-    void initializeFaceLandmarker();
-    if (isFaceLandmarkerReady()) { setTrackerLoaded(true); return; }
-    const id = window.setInterval(() => {
-      if (isFaceLandmarkerReady()) { setTrackerLoaded(true); window.clearInterval(id); }
-    }, 400);
-    // Readiness is MONOTONIC — once the landmarker is loaded it stays loaded, so
-    // this must never reset to false on cleanup (the old version did, and a
-    // trigger-set change flashed "Loading face tracker…" over a live tracker).
-    return () => window.clearInterval(id);
-  }, [cam.ready, trackerLoaded]);
+    if (!cam.ready) return;
+    initFaceEngine().catch((e) => console.warn('[StudioStage] face tracker init failed', e));
+  }, [cam.ready]);
 
   const triggerFxRef = useRef<TriggerEffectsHandle>(null);
 

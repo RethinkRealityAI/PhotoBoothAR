@@ -8,7 +8,7 @@
 import { useRef, useEffect, useState, ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { initializeFaceLandmarker } from '../../lib/faceTracking';
+import { initFaceEngine } from '../../lib/faceEngine';
 import { updateHeadPose, detectFaceNow, scaledAnchorBase, ANCHOR_MAP } from '../../lib/faceRig';
 import { loadModel } from '../../lib/glbCache';
 import { describeGlbError } from '../../lib/glbErrors';
@@ -491,13 +491,15 @@ export function FaceRig({
   const visibleRef = useRef<boolean | null>(null);
 
   // SELF-INITIALIZING tracking: the component that NEEDS the landmarker owns
-  // starting it. Idempotent (faceTracking caches the init promise), so hosts
-  // that pre-warm it (Booth, DemoBooth) pay nothing extra — and no future
+  // starting it. Idempotent (the face-engine manager caches its engines), so
+  // hosts that pre-warm it (Booth, StudioStage) pay nothing extra — and no future
   // surface can silently ship a FaceRig that never tracks because its shell
   // forgot the init call (exactly the regression that broke the studio's
-  // live 3D view when LiveCanvas, which used to init, was retired).
+  // live 3D view when LiveCanvas, which used to init, was retired). Which
+  // engine runs is the host's setFaceTrackingMode; the manager defers the
+  // start until the host's own effects have run.
   useEffect(() => {
-    initializeFaceLandmarker().catch((e) => console.warn('[FaceRig] face tracker init failed', e));
+    initFaceEngine().catch((e) => console.warn('[FaceRig] face tracker init failed', e));
   }, []);
 
   // A stale matrix is worse than none: drag-and-drop projects anchors through

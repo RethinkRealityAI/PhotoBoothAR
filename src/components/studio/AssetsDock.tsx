@@ -384,37 +384,44 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   // silent: that is ordinary multi-piece composition. Drag-drop also stays
   // silent — a drag is a deliberate spatial placement. Replace retargets any
   // beam/animate triggers that named the replaced piece at its successor.
+  //
+  // `run` hands its ONE add action to `commit` instead of dispatching it, so a
+  // Replace can commit delete + add + retarget as a single BATCH (one undo
+  // step) only once the add is ready — an async measure that never resolves
+  // no longer leaves the old piece deleted with nothing in its place.
+  type SlotAddRun = (commit: (action: StudioAction) => void) => void | Promise<void>;
   const [conflictAdd, setConflictAdd] = useState<{
     existing: Object3D;
     label: string;
-    run: () => void | Promise<void>;
+    run: SlotAddRun;
   } | null>(null);
   const guardSlotAdd = useCallback(
-    (slot: { anchor?: HeadAnchor; handAnchor?: string }, label: string, run: () => void | Promise<void>) => {
+    (slot: { anchor?: HeadAnchor; handAnchor?: string }, label: string, run: SlotAddRun) => {
       const existing = slotConflict(draft, slot);
       if (existing === null) {
-        void run();
+        void run(dispatch);
         return;
       }
       setConflictAdd({ existing, label, run });
     },
-    [draft],
+    [draft, dispatch],
   );
   const resolveConflict = useCallback((mode: 'replace' | 'both') => {
     const c = conflictAdd;
     setConflictAdd(null);
     if (!c) return;
     if (mode === 'both') {
-      void c.run();
+      void c.run(dispatch);
       return;
     }
-    // Delete FIRST (a full scene must free the slot before the add), then add,
-    // then repoint the old piece's beam/animate triggers at the replacement —
-    // the run may be async (measure-then-dispatch), so retarget awaits it.
-    dispatch({ type: 'DELETE_OBJECT', id: c.existing.id });
-    void Promise.resolve(c.run()).then(() => {
-      dispatch({ type: 'RETARGET_TRIGGERS', fromId: c.existing.id });
-    });
+    // Inside the batch: delete FIRST (a full scene must free the slot before
+    // the add), then add, then repoint the old piece's beam/animate triggers
+    // at the replacement.
+    const fromId = c.existing.id;
+    void c.run((add) => dispatch({
+      type: 'BATCH',
+      actions: [{ type: 'DELETE_OBJECT', id: fromId }, add, { type: 'RETARGET_TRIGGERS', fromId }],
+    }));
   }, [conflictAdd, dispatch]);
 
   // Click-to-add for an Uploads/Generated/Mine dock item — mirrors the built-in
@@ -433,8 +440,8 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     }
     if (item.payload.proceduralId) {
       const pieceId = item.payload.proceduralId;
-      guardSlotAdd({ anchor: HEAD_PIECE_MAP[pieceId]?.anchor }, item.label, () =>
-        dispatch({ type: 'SELECT_HEAD_PIECE', pieceId }),
+      guardSlotAdd({ anchor: HEAD_PIECE_MAP[pieceId]?.anchor }, item.label, (commit) =>
+        commit({ type: 'SELECT_HEAD_PIECE', pieceId }),
       );
     } else if (item.payload.assetUrl) {
       // Measure-then-add: auto-fit the GLB to head-space cm at ADD time (a raw
@@ -445,15 +452,15 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
       // Procedural jewelry is already life-size — add it at scale 1 without the
       // async measure, so re-adding a saved piece matches how it was authored.
       if (isAuthoredInCm(url, label)) {
-        guardSlotAdd({ anchor: 'crown' }, label, () =>
-          dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: 1 }),
+        guardSlotAdd({ anchor: 'crown' }, label, (commit) =>
+          commit({ type: 'SET_MODEL_ASSET', url, name: label, scale: 1 }),
         );
         return;
       }
-      guardSlotAdd({ anchor: 'crown' }, label, () => {
+      guardSlotAdd({ anchor: 'crown' }, label, (commit) => {
         setPendingKey(key);
         return measureGlbFitScale(url)
-          .then((fitScale) => dispatch({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined }))
+          .then((fitScale) => commit({ type: 'SET_MODEL_ASSET', url, name: label, scale: fitScale ?? undefined }))
           .finally(() => setPendingKey((k) => (k === key ? null : k)));
       });
     }
@@ -784,22 +791,27 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         pending: false,
         kindBadge: '3D',
         drag,
+        // Same-slot guard like every other add path — clicking Royal Crown twice
+        // used to stack "Royal Crown 2" exactly on top of the first (#5). The
+        // reducer switches a 2D stage to 3D for this add, so it is visible (#4).
         onAdd: () => {
-          dispatch({
-            type: 'ADD_OBJECT',
-            object: createObject3D('model', {
-              assetUrl: p.url,
-              name: p.name,
-              anchor: p.anchor,
-              finish: p.finish,
-              anchorConfig: propAnchorConfig(p),
-            }),
+          guardSlotAdd({ anchor: p.anchor }, p.name, (commit) => {
+            commit({
+              type: 'ADD_OBJECT',
+              object: createObject3D('model', {
+                assetUrl: p.url,
+                name: p.name,
+                anchor: p.anchor,
+                finish: p.finish,
+                anchorConfig: propAnchorConfig(p),
+              }),
+            });
+            setAddedKey(key);
           });
-          setAddedKey(key);
         },
       };
     }),
-    [q, placedRefs, dispatch], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
+    [q, placedRefs, dispatch, guardSlotAdd], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
   );
 
   const configurableTiles = useCallback((): Tile[] =>
@@ -840,11 +852,11 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             const slot = a.handAnchor !== undefined
               ? { handAnchor: a.handAnchor }
               : { anchor: isHeadAnchor(a.anchor) ? a.anchor : ('crown' as HeadAnchor) };
-            guardSlotAdd(slot, a.name, () => {
+            guardSlotAdd(slot, a.name, (commit) => {
               setAddedKey(key);
               setPendingKey(key);
               return measureGlbFitScale(template.glbUrl)
-                .then((fitScale) => dispatch({
+                .then((fitScale) => commit({
                   type: 'SET_MODEL_ASSET',
                   url: template.glbUrl,
                   name: a.name,
@@ -882,8 +894,8 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
         pending: false,
         drag: { target: 'headpiece', label: p.name, pieceId: p.id },
         onAdd: () => {
-          guardSlotAdd({ anchor: p.anchor }, p.name, () => {
-            dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: p.id });
+          guardSlotAdd({ anchor: p.anchor }, p.name, (commit) => {
+            commit({ type: 'SELECT_HEAD_PIECE', pieceId: p.id });
             setAddedKey(key);
           });
         },

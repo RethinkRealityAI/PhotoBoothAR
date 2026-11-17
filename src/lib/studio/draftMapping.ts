@@ -57,6 +57,7 @@ import { isHandAnchorId } from '../handPose';
 import { normalizeHandFit } from './handedness';
 import { parseTriggers, type TriggerConfig } from './triggers';
 import { normalizeGuestLettering } from '../letteringFit';
+import { parseFaceTrackingMode } from '../faceEngine/engineSelect';
 
 const STUDIO_KINDS: readonly StudioKind[] = ['shader', 'border', '2d_filter', '3d_attachment'];
 
@@ -212,6 +213,9 @@ export function experienceToDraft(exp: Experience): StudioDraft | null {
   draft.featured = exp.featured;
   draft.thumbUrl = exp.thumbnail_url ?? null;
   draft.scene = typeof exp.config?.scene === 'string' ? exp.config.scene : undefined;
+  // Validated (untrusted jsonb); an invalid value is dropped, never carried.
+  const tracking = parseFaceTrackingMode(exp.config?.tracking);
+  if (tracking !== null) draft.tracking = tracking;
 
   const rawTriggers = parseTriggers(exp.config?.triggers);
   // Object ids are regenerated on load; record stored-layer-id → new-object-id
@@ -637,6 +641,9 @@ export function draftToPayload(
   // Face-triggered effects — omitted entirely when empty so trigger-less scenes
   // save byte-identically (no config.triggers key at all).
   if (draft.triggers.length) config.triggers = draft.triggers;
+  // Face-tracking engine — written ONLY when set, so every existing scene
+  // saves byte-identically (no config.tracking key at all).
+  if (draft.tracking !== undefined) config.tracking = draft.tracking;
 
   return {
     name: draft.name,

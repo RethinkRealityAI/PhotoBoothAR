@@ -5,8 +5,10 @@
  * Named head attachment points + the shared head-pose math used by BOTH the
  * booth and the 3D studio editor, so "what you place is what guests see".
  *
- * Tracking engine: MediaPipe FaceLandmarker `facialTransformationMatrixes`
- * (full 4x4 head pose). The matrix is METRIC (centimetres), right-handed,
+ * Tracking engine: whichever FaceEngine src/lib/faceEngine runs (MediaPipe,
+ * 8th Wall, or both) — every engine hands over its pose in MediaPipe's
+ * `facialTransformationMatrixes` convention (full 4x4 head pose), so nothing
+ * below knows which one produced it. The matrix is METRIC (centimetres), right-handed,
  * +X = subject's left, +Y = up, +Z = toward the camera (nose points +Z), with
  * the origin at the face centre (behind the nose). The virtual camera sits at
  * the ORIGIN looking down −Z with a 63° vertical FOV — so we attach assets in
@@ -17,11 +19,10 @@
  * chin y≈−9.4). The studio's live preview is the final calibration surface.
  */
 import * as THREE from 'three';
-import type { FaceLandmarkerResult } from '@mediapipe/tasks-vision';
 import { HeadAnchor } from '../types';
-import { getFaceLandmarker } from './faceTracking';
 import { OneEuroVec3, OneEuroQuat, type OneEuroConfig, type Vec3, type Quat } from './smoothing';
-import { createDetectGate, shouldDetect, markDetected } from './faceDetectClock';
+import { faceInferenceMs, pollFaceEngine } from './faceEngine';
+import type { FaceKeypoints, FaceSample } from './faceEngine/types';
 
 export interface AnchorPreset {
   id: HeadAnchor;
@@ -68,17 +69,15 @@ const _tPos = new THREE.Vector3();
 const _tQuat = new THREE.Quaternion();
 const _tScale = new THREE.Vector3();
 
-/** Monotonic timestamp guard — MediaPipe requires strictly increasing ts. */
-let _lastTs = 0;
-
 /**
  * Detection is shared across every rig and throttled to ~camera rate. R3F can
  * call useFrame at 60-120fps, but the camera only yields ~30 new frames/sec;
  * running the landmarker on every render wastes GPU and (worse) returns more
- * empty results, which used to blink the asset. We detect on an interval and
- * cache the latest RAW pose so every rig in the frame reuses one detection.
+ * empty results, which used to blink the asset. The active engine detects on
+ * an interval (MediaPipe: its 33ms DetectGate + monotonic-ts guard, now in
+ * faceEngine/mediapipeEngine.ts) and we cache the latest RAW pose so every rig
+ * in the frame reuses one detection.
  */
-const DETECT_INTERVAL_MS = 33;   // ~30 detections/sec (floor, not a schedule)
 /** Keep showing the last good pose through brief detection misses (fast motion,
  *  a blink, a hand passing by) instead of hard-hiding it every dropped frame. */
 const HOLD_MS = 500;
@@ -88,10 +87,6 @@ const _gQuat = new THREE.Quaternion();
 const _gScale = new THREE.Vector3(1, 1, 1);
 let _gSeen = 0;          // performance.now() of the last successful detection
 let _gHas = false;       // a face has been detected at least once
-/** Frame gate: rate limit PLUS "has the camera actually produced a new frame".
- *  A wall-clock-only throttle re-ran blocking inference on frames the camera had
- *  not replaced, and on a 60fps camera could only ever see half of them. */
-const _detectGate = createDetectGate();
 
 /**
  * Latest face blendshape scores (categoryName → score) + timestamp, consumed by
@@ -103,11 +98,11 @@ let _blendScores: Record<string, number> = {};
 let _blendT = 0;
 let _hasBlend = false;
 
-function stashBlendshapes(results: FaceLandmarkerResult | undefined, now: number): void {
-  const cats = results?.faceBlendshapes?.[0]?.categories;
-  const next: Record<string, number> = {};
-  if (cats) for (const c of cats) if (c.categoryName) next[c.categoryName] = c.score;
-  _blendScores = next;
+/** `null` = this sample carries no expression output → keep the previous stash
+ *  (8th Wall without blendshapes); `{}` = no face → clear it so nothing latches. */
+function stashBlendshapes(scores: Record<string, number> | null, now: number): void {
+  if (scores === null) return;
+  _blendScores = scores;
   _blendT = now;
   _hasBlend = true;
 }
@@ -129,26 +124,12 @@ export function getLatestBlendshapes(): { scores: Record<string, number>; t: num
  * only those are stashed, on detection frames, normalized image space, raw
  * and UNMIRRORED like everything else in this module.
  */
-interface FaceKeypointStash {
-  forehead: { x: number; y: number };
-  chin: { x: number; y: number };
-  leftEar: { x: number; y: number };
-  rightEar: { x: number; y: number };
-}
+type FaceKeypointStash = FaceKeypoints;
 let _faceKeypoints: FaceKeypointStash | null = null;
 
-function stashFaceKeypoints(results: FaceLandmarkerResult | undefined): void {
-  const lm = results?.faceLandmarks?.[0];
-  if (!lm || lm.length < 455) {
-    _faceKeypoints = null; // no face → the temple gesture must decay, not latch
-    return;
-  }
-  _faceKeypoints = {
-    forehead: { x: lm[10].x, y: lm[10].y },
-    chin: { x: lm[152].x, y: lm[152].y },
-    leftEar: { x: (lm[127].x + lm[234].x) / 2, y: (lm[127].y + lm[234].y) / 2 },
-    rightEar: { x: (lm[356].x + lm[454].x) / 2, y: (lm[356].y + lm[454].y) / 2 },
-  };
+/** null = no face → the temple gesture must decay, not latch. */
+function stashFaceKeypoints(kp: FaceKeypoints | null): void {
+  _faceKeypoints = kp;
 }
 
 /** Latest temple-gesture keypoints, or null while no face is tracked. */
@@ -157,9 +138,21 @@ export function getLatestFaceKeypoints(): FaceKeypointStash | null {
 }
 
 /** performance.now() of the last face inference. handRig reads this to avoid
- *  running two blocking CPU landmarkers on the same rAF tick. */
+ *  running two blocking CPU landmarkers on the same rAF tick. In hybrid it is
+ *  the later of the two engines' last inference. */
 export function lastFaceDetectMs(): number {
-  return _detectGate.lastDetectMs;
+  return faceInferenceMs();
+}
+
+/**
+ * Debug tap for the tracking readout (?trackdebug / ?faceEngine=): called with
+ * every NEW pose-engine sample, RAW (pre-One-Euro). null = off (the default),
+ * which costs one null check per detection.
+ */
+type RawPoseTap = (sample: FaceSample, pos: THREE.Vector3 | null, quat: THREE.Quaternion | null) => void;
+let _rawPoseTap: RawPoseTap | null = null;
+export function setRawPoseTap(tap: RawPoseTap | null): void {
+  _rawPoseTap = tap;
 }
 
 /** Tracked head distance from the camera in cm (positive), or null before the
@@ -242,14 +235,14 @@ export function getHeadFitEstimate(): HeadFitEstimate | null {
  * Drive the shared, throttled detection from a surface with NO FaceRig mounted
  * (e.g. the booth trigger loop for a scene that has triggers but no 3D piece).
  * When a FaceRig IS present its useFrame already runs this path via
- * updateHeadPose; the DETECT_INTERVAL_MS throttle + monotonic-ts guard are
- * module-level, so calling from both places still detects at most once per
- * interval. No-op until the landmarker is ready and the video has data.
+ * updateHeadPose; the engine's throttle (MediaPipe: 33ms gate + monotonic-ts
+ * guard) is module-level, so calling from both places still detects at most
+ * once per interval. No-op until the engine is ready (each engine's poll
+ * returns null before then) and the video has data.
  */
 export function detectFaceNow(video: HTMLVideoElement): void {
-  const fl = getFaceLandmarker();
-  if (!fl || !video || video.readyState < 2) return;
-  detectIfDue(fl, video, performance.now());
+  if (!video || video.readyState < 2) return;
+  detectIfDue(video, performance.now());
 }
 
 /**
@@ -277,33 +270,28 @@ const _fqOut: Quat = [0, 0, 0, 1];
 const _fsIn: Vec3 = [1, 1, 1];
 const _fsOut: Vec3 = [1, 1, 1];
 
-/** Run the landmarker at most once per DETECT_INTERVAL_MS; cache the raw pose. */
-function detectIfDue(fl: ReturnType<typeof getFaceLandmarker>, video: HTMLVideoElement, now: number) {
-  if (!fl) return;
-  // video.currentTime is the frame identity; the gate skips a frame already
-  // analysed and has a watchdog so a stuck clock can never freeze tracking.
-  const videoTime = video.currentTime;
-  if (!shouldDetect(_detectGate, now, videoTime, { minIntervalMs: DETECT_INTERVAL_MS })) return;
-  markDetected(_detectGate, now, videoTime);
-  let results;
-  try {
-    const ts = Math.max(now, _lastTs + 1);
-    _lastTs = ts;
-    results = fl.detectForVideo(video, ts);
-  } catch {
-    return;
-  }
+/** Take the active engine's new samples (if any); cache the raw pose. */
+function detectIfDue(video: HTMLVideoElement, now: number) {
+  const p = pollFaceEngine(video, now);
+  // Hybrid: expressions come from MediaPipe's low-rate side path; its pose is
+  // discarded (8th Wall owns the pose there).
+  if (p.expr) stashBlendshapes(p.expr.blendshapes, p.expr.t);
+  const s = p.pose;
+  if (!s) return;
   // Refresh the trigger-engine blendshape stash on every detection frame (even
   // an empty/no-face result, so signals decay). Additive: pose consumers below
   // are untouched, so legacy events stay byte-identical.
-  stashBlendshapes(results, now);
-  stashFaceKeypoints(results);
-  const mats = results?.facialTransformationMatrixes;
-  if (!mats || mats.length === 0) return;
-  _mat.fromArray(mats[0].data);
+  if (p.poseHasExpr) stashBlendshapes(s.blendshapes, s.t);
+  stashFaceKeypoints(s.keypoints);
+  if (!s.matrix) {
+    _rawPoseTap?.(s, null, null);
+    return;
+  }
+  _mat.fromArray(s.matrix);
   _mat.decompose(_gPos, _gQuat, _gScale); // raw, un-mirrored
-  _gSeen = now;
+  _gSeen = s.t;
   _gHas = true;
+  _rawPoseTap?.(s, _gPos, _gQuat);
   // Feed the head-fit estimator on every detection frame (~30/s). Pure
   // bookkeeping — a module ring write with no effect on the pose consumers
   // below, so legacy/booth rendering is byte-identical whether or not any
@@ -330,14 +318,14 @@ export function updateHeadPose(
   video: HTMLVideoElement,
   mirror: boolean,
 ): boolean {
-  const fl = getFaceLandmarker();
   const now = performance.now();
 
   // Only run detection on a ready frame, but DON'T hard-hide when the frame is
   // briefly unavailable (e.g. the video stalls for a moment on resume) — the
-  // hold window below decides visibility so the asset doesn't blink.
-  if (fl && video && video.readyState >= 2) {
-    detectIfDue(fl, video, now);
+  // hold window below decides visibility so the asset doesn't blink. Engine
+  // readiness is checked inside each engine's poll (null until ready).
+  if (video && video.readyState >= 2) {
+    detectIfDue(video, now);
   }
 
   // Never seen a face, or lost it for longer than the hold window → hide + reset

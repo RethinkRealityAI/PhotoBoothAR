@@ -875,3 +875,55 @@ describe('round-trip: the configurator template rides with the layer', () => {
     expect('template' in objectToPiece(o)).toBe(false);
   });
 });
+
+describe('config.tracking (face-engine choice) persistence', () => {
+  // The legacy singular path (one plain object, no config.layers) is where a
+  // config-level field is easiest to drop — see the anyCustom trap.
+  const loneCrown = () => {
+    const o = createObject3D('headpiece', { proceduralId: 'royal-crown' });
+    const d: StudioDraft = { ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id, kind: '3d_attachment' };
+    return d;
+  };
+
+  it('a draft with tracking survives save → load → save on the singular path', () => {
+    for (const mode of ['mediapipe', 'xr8', 'hybrid'] as const) {
+      const p1 = draftToPayload({ ...loneCrown(), tracking: mode }, resolver({}), null);
+      expect(p1.config?.layers).toBeUndefined(); // really the singular path
+      expect(p1.config?.tracking).toBe(mode);
+      const reloaded = experienceToDraft(expFromPayload(p1))!;
+      expect(reloaded.tracking).toBe(mode);
+      expect(draftToPayload(reloaded, resolver({}), null).config?.tracking).toBe(mode);
+    }
+  });
+
+  it('survives the shader-kind early return and a 2D frame', () => {
+    const shader = experienceToDraft(baseExp({ kind: 'shader', config: { shader: { shaderId: 'champagne-sparkle', params: {} }, tracking: 'hybrid' } }))!;
+    expect(shader.tracking).toBe('hybrid');
+    expect(draftToPayload(shader, resolver({}), null).config?.tracking).toBe('hybrid');
+    const border = createOverlay('border', { url: 'data:b', isBuiltin: true });
+    const d: StudioDraft = { ...initialDraft('border'), objects: [border], selectedId: border.id, kind: 'border', tracking: 'xr8' };
+    const p = draftToPayload(d, resolver({ [border.id]: 'https://cdn/b.png' }), null);
+    expect(experienceToDraft(expFromPayload(p))!.tracking).toBe('xr8');
+  });
+
+  it('a config WITHOUT tracking writes no key — the saved bytes are unchanged', () => {
+    const exp = baseExp({ kind: '3d_attachment', config: { procedural: 'royal-crown', anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } } });
+    const draft = experienceToDraft(exp)!;
+    expect('tracking' in draft).toBe(false);
+    const payload = draftToPayload(draft, resolver({}), null);
+    expect('tracking' in (payload.config ?? {})).toBe(false);
+    expect(JSON.stringify(payload)).not.toContain('tracking');
+    // Byte-identical with the field merely present-but-undefined on the draft.
+    const withUndef = draftToPayload({ ...draft, tracking: undefined }, resolver({}), null);
+    expect(JSON.stringify(withUndef)).toBe(JSON.stringify(payload));
+  });
+
+  it('an invalid stored value is dropped on load, never re-saved', () => {
+    for (const bad of ['eighthwall', '', 7, { mode: 'xr8' }, null]) {
+      const exp = baseExp({ kind: 'shader', config: { shader: { shaderId: 'champagne-sparkle', params: {} }, tracking: bad as never } });
+      const draft = experienceToDraft(exp)!;
+      expect(draft.tracking).toBeUndefined();
+      expect('tracking' in (draftToPayload(draft, resolver({}), null).config ?? {})).toBe(false);
+    }
+  });
+});

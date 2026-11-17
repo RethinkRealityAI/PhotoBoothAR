@@ -35,6 +35,12 @@ export interface WithHistoryOptions<S, A extends { type: string }> {
   clear?: (action: A) => boolean;
   /** Non-null key merges consecutive same-key edits into one undo entry. */
   coalesce?: (action: A, present: S) => string | null;
+  /**
+   * Shapes the state UNDO/REDO lands on: `(current, restored) => next`. Lets a
+   * caller keep view-only fields (where the user is looking) instead of
+   * time-travelling them with the content. Default: the restored state as is.
+   */
+  preserve?: (current: S, restored: S) => S;
 }
 
 export const DEFAULT_HISTORY_LIMIT = 50;
@@ -68,6 +74,7 @@ export function withHistory<S, A extends { type: string }>(
   const record = opts.record ?? (() => true);
   const clear = opts.clear ?? (() => false);
   const coalesce = opts.coalesce ?? (() => null);
+  const preserve = opts.preserve ?? ((_: S, restored: S) => restored);
 
   return function historyReducer(state, action) {
     if (isHistoryAction(action)) {
@@ -76,7 +83,7 @@ export function withHistory<S, A extends { type: string }>(
         const previous = state.past[state.past.length - 1];
         return {
           past: state.past.slice(0, -1),
-          present: previous,
+          present: preserve(state.present, previous),
           future: [state.present, ...state.future],
           lastKey: null,
         };
@@ -86,7 +93,7 @@ export function withHistory<S, A extends { type: string }>(
       const next = state.future[0];
       return {
         past: [...state.past, state.present],
-        present: next,
+        present: preserve(state.present, next),
         future: state.future.slice(1),
         lastKey: null,
       };

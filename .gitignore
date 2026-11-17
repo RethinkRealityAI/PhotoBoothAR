@@ -16,6 +16,9 @@ coverage/
 # MediaPipe wasm copied from node_modules at build (kept in lockstep with the JS)
 public/mediapipe/
 
+# 8th Wall face engine, copied from node_modules/@8thwall/engine at build (same reason)
+public/xr8/
+
 # three.js Draco decoder, copied from node_modules at build for the same reason
 # — committing it would let the decoder drift from the three.js that loads it.
 public/three/

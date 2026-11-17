@@ -12,7 +12,7 @@
  *   • Golden-disintegration send-off animation
  */
 import {
-  useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo,
+  useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo, useSyncExternalStore,
 } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -50,7 +50,11 @@ import ChallengeSelector from './booth/ChallengeSelector';
 import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { buildCatalog } from '../lib/catalog';
-import { initializeFaceLandmarker } from '../lib/faceTracking';
+import {
+  getActiveFaceEngineInfo, initFaceEngine, resolveSurfaceFaceMode, setFaceTrackingMode, subscribeFaceEngine,
+} from '../lib/faceEngine';
+import { parseFaceTrackingMode } from '../lib/faceEngine/engineSelect';
+import TrackingReadout from './ar/TrackingReadout';
 import { initializeHandLandmarker } from '../lib/handTracking';
 import ReportIssueButton from './support/ReportIssueButton';
 import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
@@ -286,21 +290,15 @@ export default function Booth() {
     fetchWallSettings();
   }, [fetchExperiences, fetchPresetOverrides, fetchWallSettings]);
 
-  // Face tracking init — tracked, not fire-and-forget: the "Center your face"
-  // hint below must not coach a guest toward a tracker that never loaded
-  // (init resolves instantly when already cached — see faceTracking.ts).
-  const [trackerReady, setTrackerReady] = useState(false);
-  const [trackerFailed, setTrackerFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    initializeFaceLandmarker()
-      .then(() => { if (alive) setTrackerReady(true); })
-      .catch((e) => {
-        console.warn('[Booth] face landmarker init failed', e);
-        if (alive) setTrackerFailed(true);
-      });
-    return () => { alive = false; };
-  }, []);
+  // Face tracking readiness — tracked, not fire-and-forget: the "Center your
+  // face" hint below must not coach a guest toward a tracker that never loaded.
+  // Read live from the face-engine manager, so it also goes false while a
+  // filter switch loads a different engine and true again after an automatic
+  // 8th Wall → MediaPipe fallback. The init itself runs below, after the
+  // selected filter's mode is known.
+  const faceEngineInfo = useSyncExternalStore(subscribeFaceEngine, getActiveFaceEngineInfo, getActiveFaceEngineInfo);
+  const trackerReady = faceEngineInfo.ready;
+  const trackerFailed = faceEngineInfo.failed;
 
   // ── Onboarding ────────────────────────────────────────────────────────
   const { showOnboarding, dismiss: dismissOnboarding } = useOnboarding();
@@ -741,6 +739,27 @@ export default function Booth() {
     [source, attachExp, frameExp, effectExp],
   );
   const hasTriggers = triggers.length > 0;
+
+  // ── Face-tracking engine (per filter) ─────────────────────────────────
+  // The SELECTED filter picks the engine (config.tracking, validated), with
+  // the same attach → frame → effect priority as activeTriggerExp. Coded
+  // events (source !== 'db') count as legacy: always MediaPipe, byte-identical,
+  // and they never download 8th Wall. Declared BEFORE the init effect so the
+  // first engine started is already the right one.
+  const trackingConfig = source !== 'db'
+    ? undefined
+    : [attachExp, frameExp, effectExp]
+      .map((e) => e?.config?.tracking)
+      .find((t) => parseFaceTrackingMode(t) !== null);
+  const faceMode = useMemo(
+    () => resolveSurfaceFaceMode({ legacy: source !== 'db', config: trackingConfig, triggers }).mode,
+    [source, trackingConfig, triggers],
+  );
+  useEffect(() => { setFaceTrackingMode(faceMode); }, [faceMode]);
+  useEffect(() => {
+    initFaceEngine().catch((e) => console.warn('[Booth] face tracker init failed', e));
+  }, []);
+
   // A beam action anywhere in the scene mounts BeamFX inside the 3D canvas
   // (and the canvas itself for frame/filter-only scenes). db-only, like every
   // trigger feature — legacy events can never carry one.
@@ -1653,6 +1672,8 @@ export default function Booth() {
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden app-bg select-none">
       <EventBackground density={44} sparkle={0.7} />
+      {/* Tester-only (?faceEngine= / ?trackdebug); renders nothing otherwise. */}
+      <TrackingReadout />
 
       {/* ── Welcome gate ──────────────────────────────────────────────── */}
       <AnimatePresence>

@@ -6,6 +6,7 @@
  */
 import type { OnboardingStep } from './events/types';
 import type { GuestLetteringStyle } from './lib/letteringFit';
+import type { FaceTrackingMode } from './lib/faceEngine/types';
 
 /** Categories of AR experience that can be authored in the studio. */
 export type ExperienceKind =
@@ -231,6 +232,11 @@ export interface ExperienceConfig {
    *  Stored as-is (TriggerConfig[]) and validated through parseTriggers on load
    *  (src/lib/studio/triggers.ts). */
   triggers?: unknown;
+  /** Face-tracking engine for this filter ('mediapipe' | 'xr8' | 'hybrid').
+   *  Absent → the platform default (src/lib/faceEngine/engineSelect.ts), and
+   *  absent configs save byte-identically (no key written). Untrusted jsonb:
+   *  ALWAYS read through parseFaceTrackingMode, never trusted as typed. */
+  tracking?: FaceTrackingMode;
 }
 
 export interface Experience {

@@ -6,7 +6,8 @@
   "scripts": {
     "copy:mediapipe": "node scripts/copy-mediapipe.mjs",
     "copy:decoders": "node scripts/copy-three-decoders.mjs",
-    "copy:vendor": "npm run copy:mediapipe && npm run copy:decoders",
+    "copy:xr8": "node scripts/copy-xr8.mjs",
+    "copy:vendor": "npm run copy:mediapipe && npm run copy:decoders && npm run copy:xr8",
     "predev": "npm run copy:vendor",
     "dev": "vite --host",
     "prebuild": "npm run copy:vendor",
@@ -20,6 +21,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@8thwall/engine": "0.1.0",
     "@google/genai": "^2.8.0",
     "@mediapipe/tasks-vision": "0.10.35",
     "@react-three/drei": "^10.7.7",

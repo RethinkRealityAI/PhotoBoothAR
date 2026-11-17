@@ -475,6 +475,39 @@ export function pruneSnapshots(
   return removed;
 }
 
+/* — save preflight --------------------------------------------------------- */
+
+/**
+ * The layers a save would persist WITHOUT their image. `uploadAsset` returns
+ * null on failure, and that null used to become `asset_url: null`: the save
+ * reported success, cleared dirty and deleted the local snapshot that still
+ * held the artwork — the booth then silently lost the layer. Any 2D overlay
+ * that resolved to no URL, and a picked thumbnail that did not upload, is a
+ * failure the save must stop on. 3D pieces are out of scope here (their URL is
+ * already stored, or they are procedural and have none by design).
+ */
+export function saveUploadFailures(
+  draft: StudioDraft,
+  urls: ReadonlyMap<string, string | null>,
+  thumbnailUrl: string | null,
+): string[] {
+  const failed: string[] = [];
+  for (const o of draft.objects) {
+    if (o.type !== 'overlay') continue;
+    const u = urls.get(o.id);
+    if (u === null || u === undefined || u === '') failed.push(o.name || 'Untitled layer');
+  }
+  if (draft.thumbBlob !== null && (thumbnailUrl === null || thumbnailUrl === '')) failed.push('Thumbnail');
+  return failed;
+}
+
+/** Plain-language save-abort message for `saveUploadFailures`' list. */
+export function uploadFailureMessage(failed: readonly string[]): string {
+  if (failed.length === 0) return '';
+  const what = failed.length === 1 ? `“${failed[0]}” didn't upload` : `${failed.length} images didn't upload`;
+  return `${what} — nothing was saved. Check your connection and try Save again.`;
+}
+
 /* — recovery decision ------------------------------------------------------ */
 
 /**

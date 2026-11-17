@@ -529,3 +529,33 @@ export function parseTriggers(input: unknown): TriggerConfig[] {
   }
   return out;
 }
+
+/**
+ * Do two actions do the SAME thing? (type + every field that changes what the
+ * guest sees; an absent beam colour/emitter equals 'auto'/scene default.)
+ * Moved out of the Magic Triggers form so the add AND the in-place edit share
+ * one rule.
+ */
+export function sameTriggerAction(a: TriggerAction, b: TriggerAction): boolean {
+  if (a.type === 'burst' && b.type === 'burst') return a.style === b.style;
+  if (a.type === 'beam' && b.type === 'beam') {
+    return a.style === b.style && (a.color ?? 'auto') === (b.color ?? 'auto') && (a.objectId ?? '') === (b.objectId ?? '');
+  }
+  if (a.type === 'reveal' && b.type === 'reveal') return a.objectId === b.objectId;
+  if (a.type === 'animate' && b.type === 'animate') return a.objectId === b.objectId && a.preset === b.preset;
+  if (a.type === 'filterPulse' && b.type === 'filterPulse') return (a.shaderId ?? '') === (b.shaderId ?? '');
+  return false;
+}
+
+/**
+ * Would (source, action) duplicate an existing trigger? `excludeId` skips the
+ * row being edited, so saving an edit unchanged is not a "duplicate" of itself.
+ */
+export function isDuplicateTrigger(
+  triggers: readonly TriggerConfig[],
+  source: TriggerSource,
+  action: TriggerAction,
+  excludeId?: string,
+): boolean {
+  return triggers.some((t) => t.id !== excludeId && t.source === source && sameTriggerAction(t.action, action));
+}

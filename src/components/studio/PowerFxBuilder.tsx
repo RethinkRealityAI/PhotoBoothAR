@@ -13,7 +13,7 @@
  * translate-x'd, making it the containing block for fixed children — an
  * in-place overlay would clip to the dock column).
  */
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
@@ -148,6 +148,10 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
     [],
   );
   const [spec, setSpec] = useState<PowerFxSpec>(() => defaultPowerFxSpec(gearChoices[0]));
+  // Any pick at all makes an outside click a no-op (#26) — a stray click on
+  // the dimmed backdrop used to throw away every choice. ✕ / Escape still close.
+  const initialSpecRef = useRef(spec);
+  const touched = spec !== initialSpecRef.current;
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   /** Same-slot occupant awaiting the host's Replace / Add-both / Back call. */
@@ -247,17 +251,24 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
     await performAdd(null);
   };
 
+  // Resolve EVERYTHING first (descriptor, fit measure), then commit the whole
+  // add as ONE BATCH (#13): a throw now leaves the old gear exactly where it
+  // was, and one Ctrl+Z takes back the gear, its colour and its trigger
+  // together instead of peeling them off one dispatch at a time.
   const performAdd = async (replaceId: string | null) => {
     setBusy(true);
     setActionError(null);
     setConflict(null);
     try {
-      if (replaceId !== null) dispatch({ type: 'DELETE_OBJECT', id: replaceId });
+      const actions: StudioAction[] = [];
+      // Inside the batch the delete still runs first, so a full scene frees
+      // the slot before the add.
+      if (replaceId !== null) actions.push({ type: 'DELETE_OBJECT', id: replaceId });
       const libAsset = isLibraryGear && gearDef !== null ? findLibraryAsset(gearDef.refId, import.meta.env.DEV) : null;
       const additions = buildPowerFxAdditions(spec, libAsset?.template ?? null);
 
       if (additions.gear !== null && additions.gear.kind === 'headpiece') {
-        dispatch({ type: 'SELECT_HEAD_PIECE', pieceId: additions.gear.pieceId });
+        actions.push({ type: 'SELECT_HEAD_PIECE', pieceId: additions.gear.pieceId });
       } else if (additions.gear !== null && additions.gear.kind === 'library' && libAsset !== null) {
         const template = assetTemplateOf(libAsset);
         if (template === null) throw new Error('This gear’s descriptor failed to validate.');
@@ -268,7 +279,7 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
           ? stampGuestPick(libAsset.template, additions.customization)
           : libAsset.template;
         const fitScale = await measureGlbFitScale(template.glbUrl);
-        dispatch({
+        actions.push({
           type: 'SET_MODEL_ASSET',
           url: template.glbUrl,
           name: libAsset.name,
@@ -285,7 +296,7 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
         if (parts !== undefined && parts !== null) {
           for (const [id, style] of Object.entries(parts)) {
             if (style.hex !== undefined && style.hex !== null) {
-              dispatch({ type: 'SET_CUSTOMIZATION', part: { id, hex: style.hex } });
+              actions.push({ type: 'SET_CUSTOMIZATION', part: { id, hex: style.hex } });
             }
           }
         }
@@ -293,10 +304,11 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
       // Replacing: repoint the old piece's beam/animate triggers at the new
       // gear (the reducer has just selected it), before the fresh trigger
       // lands — "swap my visor" keeps its existing blast wired.
-      if (replaceId !== null) dispatch({ type: 'RETARGET_TRIGGERS', fromId: replaceId });
+      if (replaceId !== null) actions.push({ type: 'RETARGET_TRIGGERS', fromId: replaceId });
       for (const trigger of additions.triggers) {
-        dispatch({ type: 'ADD_TRIGGER', trigger });
+        actions.push({ type: 'ADD_TRIGGER', trigger });
       }
+      dispatch({ type: 'BATCH', actions });
       onClose();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Could not add that — try again.');
@@ -308,7 +320,7 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
   if (typeof document === 'undefined') return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={() => { if (!touched) onClose(); }}>
       <div
         ref={panelRef}
         {...dialogProps}
@@ -524,7 +536,7 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
             </button>
             )}
             <p className="font-sans text-[9px] text-brand-muted/40 leading-relaxed px-1">
-              Adds the gear and its trigger together. Fine-tune both any time in Properties → Magic Triggers.
+              Adds the gear and its trigger together. Fine-tune the gear on the Assets tab and its trigger under Scene → Magic Triggers.
             </p>
           </div>
         </div>
