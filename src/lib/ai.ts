@@ -297,6 +297,38 @@ export async function findFrameJobSince(eventUuid: string, sinceIso: string): Pr
   }
 }
 
+/** ai-generate-image's FREE_IMAGES_PER_EVENT. DISPLAY ONLY — the server
+ *  decides what is free; this only picks the word on a button. */
+export const FREE_FRAMES_PER_EVENT = 3;
+
+/**
+ * How many of the event's free AI images are left, counted with the SERVER's
+ * own predicate (ai-generate-image step 4a: kind image, not failed/refunded,
+ * not a free retry). RLS lets org members read their ai_jobs.
+ *
+ * HANDLED FAILURES: a read error or throw → null, and callers then show the
+ * normal price — never "free" on a guess.
+ */
+export async function countFreeFramesLeft(eventUuid: string): Promise<number | null> {
+  try {
+    const { count, error } = await supabase
+      .from('ai_jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('event_id', eventUuid)
+      .eq('kind', 'image')
+      .not('status', 'in', '(failed,refunded)')
+      .is('input->>retryOf', null);
+    if (error || count === null) {
+      if (error) console.error('[ai] countFreeFramesLeft', error);
+      return null;
+    }
+    return Math.max(0, FREE_FRAMES_PER_EVENT - count);
+  } catch (e) {
+    console.error('[ai] countFreeFramesLeft', e);
+    return null;
+  }
+}
+
 /** The experience a succeeded image job produced (its first take shares the
  *  job's result_url in every server version). `eventSlug` is events.slug. */
 export async function fetchExperienceForJob(eventSlug: string, job: AiJob): Promise<Experience | null> {

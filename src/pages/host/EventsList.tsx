@@ -356,7 +356,7 @@ export default function EventsList() {
   const hasEvents = newest !== null;
   const anyLive = (events ?? []).some((e) => e.status === 'live');
   const guideSteps = [
-    { n: '1', title: 'Create your event', rest: 'the AI concierge sets it up in a minute', done: hasEvents, to: '/host/new' },
+    { n: '1', title: 'Create your event', rest: 'describe it, or fill it in yourself', done: hasEvents, to: '/host/new' },
     { n: '2', title: 'Go live & share the QR', rest: 'guests need no app', done: anyLive, to: newest ? `/host/events/${newest.id}/share` : '/host/new' },
     { n: '3', title: 'Make it yours (optional)', rest: 'frames, filters, 3D props & challenges', done: false, to: newest ? `/host/events/${newest.id}/library` : '/host/new' },
   ];
@@ -565,7 +565,7 @@ export default function EventsList() {
           {!(events !== null && events.length === 0 && !loading) && (
             <Link
               to="/host/new"
-              className="pressable flex items-center gap-2 rounded-full bg-foil px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition"
+              className="pressable flex items-center gap-2 rounded-full bg-foil px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold text-[color:var(--on-accent)] glow-accent transition"
             >
               <Plus className="w-4 h-4" /> New event
             </Link>
@@ -573,7 +573,10 @@ export default function EventsList() {
         </div>
       </header>
 
-      {showGuide && !loading && events !== null && !guideDone && (
+      {/* With no events yet the empty state below IS step 1 — showing the
+          guide too put two cards and two routes to the same action on a
+          brand-new host's first screen. It appears once an event exists. */}
+      {showGuide && !loading && events !== null && events.length > 0 && !guideDone && (
         <div className="relative liquid-glass rounded-2xl px-5 py-4 mb-6">
           <button
             onClick={dismissGuide}
@@ -622,7 +625,7 @@ export default function EventsList() {
             ))}
           </div>
           <p className="mt-3 font-sans text-[10px] text-brand-muted/40">
-            Credits power the AI studio — top up any time in Billing.
+            Your first 3 AI frames on every event are free; after that they use credits — top up any time in Billing.
           </p>
           <p className="mt-1 font-sans text-[10px] text-brand-muted/40">
             New to Beamwall?{' '}
@@ -652,16 +655,17 @@ export default function EventsList() {
           </button>
         </div>
       ) : events.length === 0 ? (
-        <div className="liquid-glass rounded-3xl p-12 text-center max-w-lg mx-auto">
+        <div className="liquid-glass rounded-3xl px-6 py-10 sm:p-12 text-center max-w-lg mx-auto">
           <h2 className="font-serif text-2xl text-foil-static mb-2">Create your first event</h2>
           <p className="font-sans text-sm text-brand-muted/70 leading-relaxed mb-8">
-            Booth, live wall and studio in under a minute — pick a name, claim your link, go live, and share the QR with your guests.
+            Describe the night or fill it in yourself, pick the frames guests can use, then go live and share
+            the QR. About a minute, no design skills needed.
           </p>
           <Link
             to="/host/new"
-            className="inline-flex items-center gap-2 rounded-full bg-foil px-8 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
+            className="inline-flex items-center gap-2 whitespace-nowrap rounded-full bg-foil px-6 sm:px-8 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98]"
           >
-            <Plus className="w-4 h-4" /> New event
+            <Plus className="w-4 h-4" /> Create your event
           </Link>
         </div>
       ) : (

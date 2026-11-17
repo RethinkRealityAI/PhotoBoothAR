@@ -11,7 +11,8 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Loader, Wand2 } from 'lucide-react';
-import { generateImage, resolveEventUuid, aiErrorMessage, fetchEventCreditBalance } from '../../lib/ai';
+import { generateImage, resolveEventUuid, aiErrorMessage, fetchEventCreditBalance, countFreeFramesLeft } from '../../lib/ai';
+import { useStudioBase } from '../admin/studioBase';
 import { fetchProviderKeyStatus, type ProviderKeyStatus } from '../../lib/providerKeys';
 import {
   PROVIDER_LABELS, effectiveProvider, higgsfieldReady as isHiggsfieldReady,
@@ -199,7 +200,7 @@ export function ProviderSegment({ choice, freeTrial }: { choice: ProviderChoice;
                       ? 'Couldn’t check your Higgsfield connection — Beamwall AI is being used'
                       : 'Checking your Higgsfield connection…'
               }
-              className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors disabled:opacity-40 ${
+              className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[11px] transition-colors disabled:opacity-40 ${
                 active
                   ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
                   : 'text-brand-muted/60 hover:text-brand-fg'
@@ -210,7 +211,7 @@ export function ProviderSegment({ choice, freeTrial }: { choice: ProviderChoice;
           );
         })}
       </div>
-      <p className="text-[9px] text-brand-muted/50 font-sans leading-relaxed">
+      <p className="text-[11px] text-brand-muted/50 font-sans leading-relaxed">
         Higgsfield: {hint}
         {notConnected && (
           <>
@@ -270,13 +271,23 @@ export default function AiFramePanel({
   // Balance of the EVENT's org — the org ai-generate-image actually charges
   // (event.org_id), not the caller's first org membership (they can differ
   // for multi-org members; the old fetchMyOrg() showed the wrong wallet).
+  // Platform mounts only — the frozen legacy studios keep their exact look
+  // (white ink, the plain price) because their themes define no --on-accent.
+  const platform = useStudioBase().startsWith('/host/');
+  // Free AI images left on this event (null = unknown → show the price).
+  const [freeLeft, setFreeLeft] = useState<number | null>(null);
+
   const refreshBalance = useCallback(async (): Promise<number | null> => {
     const uuid = await resolveEventUuid(eventId, eventUuid);
     if (!uuid) return null;
-    const bal = await fetchEventCreditBalance(uuid);
+    const [bal, free] = await Promise.all([
+      fetchEventCreditBalance(uuid),
+      platform ? countFreeFramesLeft(uuid) : Promise.resolve(null),
+    ]);
     setBalance(bal);
+    setFreeLeft(free);
     return bal;
-  }, [eventId, eventUuid]);
+  }, [eventId, eventUuid, platform]);
 
   // Show the live balance where generation is offered — not only after a spend.
   useEffect(() => { void refreshBalance(); }, [refreshBalance]);
@@ -430,7 +441,7 @@ export default function AiFramePanel({
 
   return (
     <div className="rounded-xl border border-accent/20 bg-accent/[0.05] p-3.5 flex flex-col gap-2.5">
-      <p className="font-label uppercase tracking-widest text-[9px] text-accent-2 flex items-center gap-1.5">
+      <p className="font-label uppercase tracking-widest text-[11px] text-accent-2 flex items-center gap-1.5">
         <Wand2 className="w-3 h-3" /> {kind === 'border' ? 'AI generate frame' : 'AI generate sticker'}
       </p>
       {kind === 'border' && (
@@ -443,7 +454,7 @@ export default function AiFramePanel({
         </button>
       )}
       {freeTrial && (
-        <p className="text-[9px] text-accent-2/80 leading-relaxed">Your first 3 AI generations are on us — upgrade for unlimited AI Studio.</p>
+        <p className="text-[11px] text-accent-2/80 leading-relaxed">Your first 3 AI generations are on us — upgrade for unlimited AI Studio.</p>
       )}
       <textarea
         value={prompt}
@@ -462,7 +473,7 @@ export default function AiFramePanel({
                 type="button"
                 onClick={() => setLayoutPick(id)}
                 aria-pressed={active}
-                className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors ${
+                className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[11px] transition-colors ${
                   active
                     ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
                     : 'text-brand-muted/60 hover:text-brand-fg'
@@ -480,7 +491,7 @@ export default function AiFramePanel({
             type="button"
             onClick={() => setLetteringOpen((o) => !o)}
             aria-pressed={letteringOpen}
-            className={`pressable liquid-glass self-start rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors ${
+            className={`pressable liquid-glass self-start rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[11px] transition-colors ${
               letteringOpen
                 ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
                 : 'text-brand-muted/60 hover:text-brand-fg'
@@ -506,7 +517,7 @@ export default function AiFramePanel({
                       type="button"
                       onClick={() => setLetteringStyle(id)}
                       aria-pressed={active}
-                      className={`pressable liquid-glass flex items-center gap-1.5 rounded-full pl-1 pr-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors ${
+                      className={`pressable liquid-glass flex items-center gap-1.5 rounded-full pl-1 pr-2.5 py-1 font-label uppercase tracking-widest text-[11px] transition-colors ${
                         active
                           ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
                           : 'text-brand-muted/60 hover:text-brand-fg'
@@ -534,7 +545,7 @@ export default function AiFramePanel({
                       type="button"
                       onClick={() => setLetteringPlacement(id)}
                       aria-pressed={active}
-                      className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors ${
+                      className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[11px] transition-colors ${
                         active
                           ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
                           : 'text-brand-muted/60 hover:text-brand-fg'
@@ -545,7 +556,7 @@ export default function AiFramePanel({
                   );
                 })}
               </div>
-              <p className="text-[9px] text-brand-muted/40 font-sans leading-relaxed">
+              <p className="text-[11px] text-brand-muted/40 font-sans leading-relaxed">
                 Up to {LETTERING_MAX} characters spells reliably. “Name art only” drops the frame and generates the words alone.
               </p>
             </div>
@@ -553,7 +564,7 @@ export default function AiFramePanel({
         </div>
       )}
       {error && (
-        <p className="text-rose-400 text-[10px]">
+        <p className="text-rose-400 text-[11px]">
           {error}
           {showBillingLink && (
             <> <a href="/host/billing" className="underline text-accent-2 hover:text-accent">Open billing</a></>
@@ -572,15 +583,17 @@ export default function AiFramePanel({
       <button
         onClick={generate}
         disabled={loading || !prompt.trim()}
-        className="flex items-center justify-center gap-1.5 py-2 bg-foil text-white rounded-xl font-bold text-[10px] font-label uppercase tracking-widest disabled:opacity-40 glow-accent transition active:scale-[0.98]"
+        className={`flex items-center justify-center gap-1.5 py-2 min-h-[44px] bg-foil ${platform ? 'text-[color:var(--on-accent)]' : 'text-white'} rounded-xl font-bold text-[11px] font-label uppercase tracking-widest disabled:opacity-40 glow-accent transition active:scale-[0.98]`}
       >
         {loading ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-        {loading ? 'Generating…' : `Generate · ${providerCostLabel(providerChoice.effective, providerChoice.status)}`}
+        {loading
+          ? 'Generating…'
+          : `Generate · ${freeLeft !== null && freeLeft > 0 ? 'free' : providerCostLabel(providerChoice.effective, providerChoice.status)}`}
       </button>
       {balance !== null && (
-        <p className="text-[9px] text-brand-muted/50 font-sans">{balance} credit{balance === 1 ? '' : 's'} left · saved to your Library as a draft</p>
+        <p className="text-[11px] text-brand-muted/50 font-sans">{balance} credit{balance === 1 ? '' : 's'} left · saved to your Library as a draft</p>
       )}
-      <p className="text-[9px] text-brand-muted/40 font-sans leading-relaxed">
+      <p className="text-[11px] text-brand-muted/40 font-sans leading-relaxed">
         Tip: avoid pure-green art — a green screen is keyed out for transparency, so near-#00FF00 elements disappear.
       </p>
     </div>

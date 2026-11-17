@@ -231,7 +231,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
             disabled={busy}
             className={
               primary
-                ? 'inline-flex items-center justify-center rounded-full bg-foil px-4 min-h-11 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.97] disabled:opacity-40'
+                ? 'inline-flex items-center justify-center rounded-full bg-foil px-4 min-h-11 font-label uppercase tracking-luxe ui-btn font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.97] disabled:opacity-40'
                 : 'inline-flex items-center justify-center px-3 min-h-11 font-label uppercase tracking-luxe ui-btn text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-40'
             }
           >
@@ -500,7 +500,7 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
             {coarse ? (
               <button
                 onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
-                className="rounded-full bg-foil px-5 min-h-11 font-label uppercase tracking-luxe ui-caption font-bold text-white glow-accent transition active:scale-[0.97]"
+                className="rounded-full bg-foil px-5 min-h-11 font-label uppercase tracking-luxe ui-caption font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.97]"
               >
                 Open booth
               </button>

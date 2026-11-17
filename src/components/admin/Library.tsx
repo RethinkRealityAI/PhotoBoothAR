@@ -67,6 +67,14 @@ function kindLabel(kind: string, plain = false): { label: string; color: string 
   }
 }
 
+/** The "on" state of a toggle. The platform picker above these cards speaks
+ *  in the event accent, so its own toggles do too; legacy keeps its gold. */
+function onToggleClass(platform: boolean): string {
+  return platform
+    ? 'bg-accent/20 text-accent-2 hover:bg-accent/30'
+    : 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30';
+}
+
 function isImageUrl(u: string | null | undefined): u is string {
   return typeof u === 'string' && (u.startsWith('http') || u.startsWith('data:'));
 }
@@ -171,12 +179,15 @@ interface CardProps {
   platform?: boolean;
   /** The Studio add-on is available — Edit / Dupe open it. */
   canEdit?: boolean;
+  /** Built-ins only: show the On/Off switch. False where another control
+   *  (LooksPicker) already decides it, so the host is never shown two. */
+  showHideToggle?: boolean;
 }
 
 function ExperienceCard({
   exp, isBuiltin, hidden, onRefresh, onQR,
   onToggleHide, onMoveUp, onMoveDown, canMoveUp, canMoveDown,
-  platform = false, canEdit = true,
+  platform = false, canEdit = true, showHideToggle = true,
 }: CardProps) {
   const navigate = useNavigate();
   const base = useStudioBase();
@@ -311,7 +322,7 @@ function ExperienceCard({
               aria-pressed={platform ? exp.is_published : undefined}
               className={`flex-1 flex items-center justify-center gap-1 ${platform ? 'min-h-11 text-[11px]' : 'py-1.5 text-[9px]'} rounded-lg font-label uppercase tracking-widest transition-colors ${
                 exp.is_published
-                  ? 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30'
+                  ? onToggleClass(platform)
                   : 'glass text-champagne/40 hover:text-gold-300'
               }`}
             >
@@ -345,17 +356,19 @@ function ExperienceCard({
                 <Pencil className="w-3 h-3" /> Edit
               </button>
               )}
+              {showHideToggle && (
               <button
                 onClick={onToggleHide}
                 title={hidden ? 'Show in booth' : 'Hide from booth'}
                 aria-pressed={platform ? !hidden : undefined}
                 className={`flex-1 flex items-center justify-center gap-1 ${platform ? 'min-h-11 text-[11px]' : 'py-1.5 text-[9px]'} rounded-lg font-label uppercase tracking-widest transition-colors ${
-                  hidden ? 'glass text-champagne/40 hover:text-gold-300' : 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30'
+                  hidden ? 'glass text-champagne/40 hover:text-gold-300' : onToggleClass(platform)
                 }`}
               >
                 {hidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                 {hidden ? offWord : onWord}
               </button>
+              )}
             </>
           ) : (
             <>
@@ -591,7 +604,7 @@ export default function Library({
             aria-pressed={platform ? linked : undefined}
             className={`mt-auto flex items-center justify-center gap-1 ${platform ? 'min-h-11 text-[11px]' : 'py-1.5 text-[9px]'} rounded-lg font-label uppercase tracking-widest transition-colors ${
               linked
-                ? 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30'
+                ? onToggleClass(platform)
                 : 'glass text-champagne/50 hover:text-gold-300'
             }`}
           >
@@ -618,8 +631,8 @@ export default function Library({
     <section id="quick-ai-frame" key="ai" className="scroll-mt-4">
       <h2 className={`${headingClass} mb-2`}>Make a frame with AI</h2>
       <p className={blurbClass}>
-        We’ve started a description from your event — change anything, then generate. Your first 3 AI
-        frames on every event are free.
+        Pick a look and your colours — we’ll draw your event’s name on it. Your first 3 AI frames on
+        every event are free.
       </p>
       <Suspense
         fallback={(
@@ -639,11 +652,19 @@ export default function Library({
      create flow ends on), so hosts without the Studio pick looks here too.
      It reads the raw allow-lists + default frame, which runtime config passes
      through unchanged (events/runtime.ts). */
+  // The look the booth opens with when it is NOT one of the picker's frames
+  // (an AI frame, a library pick) — named so the picker can say why its own
+  // frames are not first.
+  const defaultId = config.defaultExperienceId;
+  const openingLookName = typeof defaultId === 'string' && defaultId !== '' && !defaultId.startsWith('builtin:border:')
+    ? [...dbExps, ...globals, ...presets].find((e) => e.id === defaultId)?.name ?? null
+    : null;
   const looksSection = platform && eventUuid ? (
     <section key="looks">
       <Suspense fallback={skeleton(5, 'h-48')}>
         <LooksPicker
           eventUuid={eventUuid}
+          openingLookName={openingLookName}
           config={{ arContent: config.arContent, defaultExperienceId: config.defaultExperienceId }}
           eventType={eventType}
           accentHex={config.arContent.framePalette?.accent ?? accentHex}
@@ -765,17 +786,38 @@ export default function Library({
     </section>
   );
 
+  // With the picker above on screen, it alone decides which built-in frames
+  // and filters are on (its allow-list already removes the rest from this
+  // grid — catalog.pick). So here those cards only set the ORDER; their own
+  // switch would be a second on/off for the same thing. Two exceptions keep
+  // every capability: a card already switched off here (an older override)
+  // keeps its switch so it can be turned back on, and the 3D head pieces —
+  // which the picker does not list — keep theirs.
+  const pickerDecides = (exp: Experience) =>
+    looksSection !== null && (exp.id.startsWith('builtin:border:') || exp.id.startsWith('builtin:shader:'));
   const builtinSection = (
     <section key="builtin">
       <h2 className={`${headingClass} mb-2`}>
-        {platform ? `Included with every event (${presets.length})` : `Built-in Presets (${presets.length})`}
+        {platform
+          ? looksSection !== null
+            ? `Booth order (${presets.length})`
+            : `Included with every event (${presets.length})`
+          : `Built-in Presets (${presets.length})`}
       </h2>
       {platform ? (
-        <p className={blurbClass}>
-          Reorder with the arrows and switch each one <span className="text-gold-300/80">On for guests</span> or{' '}
-          <span className="text-gold-300/80">Off</span>.
-          {canEdit ? ' Press Edit to make your own copy in the Studio.' : ''}
-        </p>
+        looksSection !== null ? (
+          <p className={blurbClass}>
+            Everything switched on above, in the order guests see it — use the arrows to move a look
+            earlier or later. To switch a frame or filter on or off, use the picker at the top.
+            {canEdit ? ' Press Edit to make your own copy in the Studio.' : ''}
+          </p>
+        ) : (
+          <p className={blurbClass}>
+            Reorder with the arrows and switch each one <span className="text-gold-300/80">On for guests</span> or{' '}
+            <span className="text-gold-300/80">Off</span>.
+            {canEdit ? ' Press Edit to make your own copy in the Studio.' : ''}
+          </p>
+        )
       ) : (
         <p className="font-sans text-[11px] text-champagne/35 mb-4">
           Reorder with the arrows, toggle <span className="text-gold-300/70">Live / Hidden</span> to show or hide each in the booth, or press <span className="text-gold-300/70">Edit</span> to make an editable copy.
@@ -797,6 +839,7 @@ export default function Library({
             canMoveDown={i < presets.length - 1}
             platform={platform}
             canEdit={canEdit}
+            showHideToggle={!pickerDecides(exp) || hiddenSet.has(exp.id)}
           />
         ))}
       </div>

@@ -22,6 +22,7 @@ import {
 } from '../../lib/copilot';
 import { useCopilotStore } from '../../lib/copilotStore';
 import { openSupportDialog } from '../../lib/supportStore';
+import { fetchStudioAccess } from '../admin/studioAccess';
 import {
   buildCardLinkSurface, buildLinksSurface, buildProposalSurface, buildStatsSurface,
   buildGeneratingSurface, buildFramePreviewSurface, buildHeadPiecePreviewSurface,
@@ -897,7 +898,7 @@ export default function CopilotChat({
     setPending((p) => (p?.kind === 'turn' ? p : { kind: 'action', surfaceId: event.surfaceId }));
     let result: ExecResult;
     try {
-      result = await executeAction(validated, ctx());
+      result = await withStudioTruth(validated.tool, await executeAction(validated, ctx()));
     } finally {
       setPending((p) => (p?.kind === 'action' && p.surfaceId === event.surfaceId ? null : p));
     }
@@ -951,7 +952,7 @@ export default function CopilotChat({
           break;
         }
         if (isPaidAction(validated)) { openProposal(validated); continue; }
-        const result = await executeAction(validated, ctx());
+        const result = await withStudioTruth(validated.tool, await executeAction(validated, ctx()));
         pushResult(validated.tool, result);
         if (!result.ok) break;
         anyOk = true;
@@ -973,6 +974,26 @@ export default function CopilotChat({
       setPending((p) => (p?.kind === 'action' && p.surfaceId === sid ? null : p));
       if (anyOk) onMutated();
     }
+  };
+
+  /** The Scene Director lives in the Studio add-on. Without it the handoff
+   *  below lands on StudioLocked, so executeAction's "Opening the Scene
+   *  Director…" would tell the host (and the model, via the tool result)
+   *  something untrue. Same resolver + fail-open rule as EventStudio's gate. */
+  const withStudioTruth = async (tool: string, result: ExecResult): Promise<ExecResult> => {
+    if (tool !== 'open_scene_director' || !result.ok || !snapshot) return result;
+    try {
+      const { studio } = await fetchStudioAccess(snapshot.slug);
+      if (studio) return result;
+    } catch (e) {
+      console.error('[copilot] studio access', e);
+      return result;
+    }
+    return {
+      ...result,
+      summary:
+        'The Scene Director comes with the Studio add-on, which this event doesn’t have — opening a page with what you can use instead: ready-made frames & filters, or an AI frame in about a minute.',
+    };
   };
 
   /** Handoff tools ran nothing server-side (executeAction returns `handoff`);

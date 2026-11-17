@@ -628,7 +628,7 @@ export default function EventStudio() {
               {/* Without the Studio add-on, every studio route — including old
                   ?id= deep links — lands on the same locked panel. */}
               <Route path="assets" element={studioOn ? <Assets /> : locked} />
-              <Route path="studio" element={studioOn ? <StudioShell /> : locked} />
+              <Route path="studio" element={studioOn ? <StudioShell eventStatus={event.status} /> : locked} />
               {/* Retired creator tabs → unified studio (keep ?id= deep links). */}
               <Route path="creator" element={studioOn ? <StudioRedirect to={`${base}/studio`} /> : locked} />
               <Route path="creator3d" element={studioOn ? <StudioRedirect to={`${base}/studio`} /> : locked} />

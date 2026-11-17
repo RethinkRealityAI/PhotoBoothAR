@@ -18,7 +18,8 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, PencilLine, RefreshCw, Sparkles, Square, Wand2 } from 'lucide-react';
-import { aiErrorMessage, aiErrorRetryable, type AiErrorCode } from '../../lib/ai';
+import { aiErrorMessage, aiErrorRetryable, countFreeFramesLeft, type AiErrorCode } from '../../lib/ai';
+import { useStudioBase } from '../admin/studioBase';
 import { inferFrameLayout, type FrameLayout } from '../../lib/assetPrompt';
 import {
   FRAME_PALETTES,
@@ -117,8 +118,11 @@ const chip = (active: boolean) =>
       ? 'bg-accent/20 border-[color:var(--color-accent)]/60 text-brand-fg'
       : 'border-white/10 bg-white/[0.04] text-brand-muted hover:text-brand-fg'
   }`;
-const primaryBtn =
-  'pressable min-h-[44px] flex items-center justify-center gap-2 rounded-full bg-foil px-5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-50';
+// Ink is decided per mount (see `platform` below): `--on-accent` is the
+// contrast-checked ink for the platform's foil; the frozen legacy studios
+// keep their white.
+const primaryBtnBase =
+  'pressable min-h-[44px] flex items-center justify-center gap-2 rounded-full bg-foil px-5 font-label uppercase tracking-luxe text-[11px] font-bold glow-accent transition active:scale-[0.98] disabled:opacity-50';
 const ghostBtn =
   'pressable min-h-[44px] flex items-center justify-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 font-label uppercase tracking-luxe text-[11px] text-brand-fg transition hover:bg-white/[0.08] disabled:opacity-50';
 const field =
@@ -160,6 +164,13 @@ export default function GuidedFrameMaker({
   const [phase, setPhase] = useState<Phase>({ kind: 'choose' });
   const [now, setNow] = useState(() => Date.now());
   const abortRef = useRef<AbortController | null>(null);
+  // Platform mounts (/host/events/…) only; the legacy admin studios render
+  // exactly as before.
+  const platform = useStudioBase().startsWith('/host/');
+  const primaryBtn = `${primaryBtnBase} ${platform ? 'text-[color:var(--on-accent)]' : 'text-white'}`;
+  // Free AI images left on this event (null = unknown → show the price).
+  const [freeLeft, setFreeLeft] = useState<number | null>(null);
+  const [freeCheck, setFreeCheck] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -170,6 +181,16 @@ export default function GuidedFrameMaker({
     });
     return () => { alive = false; };
   }, [eventUuid, eventSlug]);
+
+  // Re-counted after every generation (freeCheck), so the button flips from
+  // "free" to the price the moment the third free one is used.
+  const evUuid = ev?.uuid ?? null;
+  useEffect(() => {
+    if (!platform || !evUuid) return;
+    let alive = true;
+    void countFreeFramesLeft(evUuid).then((n) => { if (alive) setFreeLeft(n); });
+    return () => { alive = false; };
+  }, [platform, evUuid, freeCheck]);
 
   // Stop waiting (never stops the server) if the host navigates away.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -190,7 +211,12 @@ export default function GuidedFrameMaker({
   const title = titleEdit ?? ev?.name ?? '';
   const subtitle = subtitleEdit ?? formatFrameDate(ev?.date);
   const textSpec: FrameTextSpec = { enabled: textOn && cleanFrameText(title) !== '', title, subtitle, font };
-  const costLabel = providerCostLabel(provider, providerChoice?.status ?? null);
+  // A free slot covers the whole request (ai-generate-image zeroCost), but it
+  // grants ONE take (jobPolicy FREE_TRIAL_MAX_VARIANTS = 1) — so while one is
+  // left, the "how many options" choice is hidden exactly as on a free plan.
+  const freeNext = freeLeft !== null && freeLeft > 0;
+  const oneTake = freeTrial || freeNext;
+  const costLabel = freeNext ? 'free' : providerCostLabel(provider, providerChoice?.status ?? null);
   const higgsfieldTip =
     providerChoice !== undefined &&
     providerForPreset(preset, provider, providerChoice.higgsfieldReady) !== provider;
@@ -255,7 +281,7 @@ export default function GuidedFrameMaker({
         layout,
         plaque: textSpec.enabled,
         ...(picked ? { palette: picked.hexes } : {}),
-        ...(freeTrial ? {} : { variants }),
+        ...(oneTake ? {} : { variants }),
         ...providerBody(provider),
         ...(referenceImageUrl ? { referenceImageUrl } : {}),
       },
@@ -265,6 +291,7 @@ export default function GuidedFrameMaker({
     });
     if (abortRef.current === ctl) abortRef.current = null;
     onSpent?.();
+    setFreeCheck((n) => n + 1);
     if (res.error !== null || !res.data) {
       const code = res.error ?? 'internal';
       if (isWaitStopped(code)) {
@@ -482,7 +509,7 @@ export default function GuidedFrameMaker({
               <p key={w.code} className="font-sans text-[12px] text-brand-muted leading-snug">{w.message}</p>
             ))}
             {results.run.retryUnavailable && !usable && (
-              <p className="font-sans text-[12px] text-brand-muted leading-snug">A fresh try costs {costLabel}.</p>
+              <p className="font-sans text-[12px] text-brand-muted leading-snug">{freeNext ? 'A fresh try is free.' : `A fresh try costs ${costLabel}.`}</p>
             )}
 
             <label className="flex items-center gap-2.5 min-h-[44px] cursor-pointer">
@@ -591,7 +618,7 @@ export default function GuidedFrameMaker({
 
       {textControls}
 
-      {!freeTrial && (
+      {!oneTake && (
         <fieldset className="flex flex-col gap-1.5 min-w-0">
           <legend className="font-label uppercase tracking-luxe text-[11px] text-brand-muted mb-1">How many options</legend>
           <div className="flex gap-2" role="group" aria-label="How many options">

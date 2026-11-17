@@ -600,7 +600,7 @@ export default function NewEvent() {
             )}
             {seedFailed && (
               <p className="mt-0.5 font-sans ui-caption text-amber-300/80 leading-snug">
-                We couldn’t apply the template look — open the Studio to style your event.
+                We couldn’t apply the template look — pick frames below, and set colours in your event’s Branding settings.
               </p>
             )}
             {seedNote !== null && (
@@ -681,7 +681,7 @@ export default function NewEvent() {
             <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
               <p className="font-sans text-xs text-amber-200/90 leading-relaxed max-w-sm">
                 Your event is created and safe — we just couldn’t load its details for the
-                assistant. Retry, or open the Studio and build it there.
+                assistant. Retry, or open your event and set it up there.
               </p>
               <div className="flex flex-wrap items-center justify-center gap-2">
                 <button
@@ -694,7 +694,7 @@ export default function NewEvent() {
                   onClick={() => navigate(`/host/events/${created.id}`)}
                   className="inline-flex items-center rounded-full border border-white/15 px-5 min-h-11 font-label uppercase tracking-luxe ui-btn text-brand-muted/70 hover:text-brand-fg transition-colors"
                 >
-                  Open studio
+                  Open your event
                 </button>
               </div>
             </div>
@@ -862,7 +862,7 @@ export default function NewEvent() {
                   ? 'Your event needs a guest link first — describe it above'
                   : 'Review the plan and create your event'
               }
-              className="shrink-0 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+              className="shrink-0 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
             >
               Review &amp; create <ArrowRight className="w-4 h-4" />
             </button>
@@ -959,7 +959,7 @@ export default function NewEvent() {
             <button
               onClick={() => setStep(2)}
               disabled={!canNext1}
-              className="mt-2 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+              className="mt-2 w-full rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
             >
               Next <ArrowRight className="w-4 h-4" />
             </button>
@@ -1007,7 +1007,7 @@ export default function NewEvent() {
               <button
                 onClick={() => setStep(3)}
                 disabled={!canNext2}
-                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
               >
                 Next <ArrowRight className="w-4 h-4" />
               </button>
@@ -1085,7 +1085,7 @@ export default function NewEvent() {
               <button
                 onClick={doCreate}
                 disabled={creating}
-                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
+                className="flex-1 rounded-full bg-foil px-6 py-3.5 font-label uppercase tracking-luxe ui-btn font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating…</> : 'Create event'}
               </button>
