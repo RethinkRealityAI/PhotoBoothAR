@@ -27,7 +27,7 @@ import { uploadAsset } from '../../lib/db';
 import LooksPicker from '../../components/host/LooksPicker';
 import ShareActions from '../../components/host/ShareActions';
 import ColourChooser from '../../components/host/ColourChooser';
-import { designEvent, fillPlanGaps, normalizePlan, type ChatMessage, type DesignImage, type EventPlan } from '../../lib/eventDesigner';
+import { designEvent, fillPlanGaps, normalizePlan, secondAccentFromPalette, type ChatMessage, type DesignImage, type EventPlan } from '../../lib/eventDesigner';
 import { executeAction, offlineReplyFor, type CopilotCtx } from '../../lib/copilot';
 import type { EventBrief } from '../../lib/eventBrief';
 import { conciergeSuggestionsFor, greetingFor } from '../../lib/hostChips';
@@ -472,7 +472,11 @@ export default function NewEvent() {
       }
       // Frames & filters: the template's set in best-match order; with a
       // colour, the recolourable frames take it on in the booth (framePalette).
-      patch.arContent = seededLooks(template, effectiveAccent).arContent;
+      // A second colour the host named ("red and green") or the poster carried
+      // rides as framePalette.accent2 — the plan holds one accent, and the
+      // second used to be dropped on the floor.
+      const accent2 = palette?.accent2 ?? (brief?.palette ? secondAccentFromPalette(brief.palette) : null);
+      patch.arContent = seededLooks(template, effectiveAccent, accent2).arContent;
       if (venue) patch.copy = { ...(patch.copy as Record<string, unknown>), venue };
       // The concierge's brief rides in config so the copilot, the Scene
       // Director and the copy generator all start from the same facts.

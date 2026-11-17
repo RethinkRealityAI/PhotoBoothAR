@@ -27,6 +27,7 @@ import type { OnboardingStep } from '../../events/types';
 import { TextField, TextArea, ColorField } from './fields';
 import { EVENT_TEMPLATES, accentThemePatch, templateById } from '../../lib/eventTemplates';
 import { deriveTheme } from '../../lib/themeDerive';
+import { followAccentFramePalette } from '../../lib/themeMatch';
 import ColourChooser from '../host/ColourChooser';
 
 /** Platform-only: tuck expert controls behind one disclosure. Legacy events
@@ -224,7 +225,8 @@ export default function Branding() {
   //    one colour. Writes the theme tokens + backdrop to events.config AND the
   //    branding colours (which win at runtime once any Save has run), so the
   //    new look shows straight away instead of hiding under stale overrides.
-  //    Frames and filters are left alone — they have their own picker.
+  //    Which frames/filters are on is left alone (they have their own picker);
+  //    only frames in "match my colour" mode take the new colour.
   const [lookTemplateId, setLookTemplateId] = useState<string | null>(null);
   const [lookAccent, setLookAccent] = useState<string | null>(null);
   const [lookDerived, setLookDerived] = useState(false);
@@ -247,6 +249,15 @@ export default function Branding() {
       cfgPatch.accentHexes = lookTemplate.accentHexes;
       cfgPatch.background_template = lookTemplate.background;
     }
+    // Frames in "Match frames to my colour" mode follow the new colour, in the
+    // same `framePalette` shape create writes (themeMatch). A frame palette the
+    // host set to something other than the event colour is left alone.
+    const followFrames = followAccentFramePalette(
+      { arContent: config.arContent },
+      [savedBrandingRef.current.colors?.accent, config.themeVars?.['--color-accent'], draft.colors.accent],
+      themeVars['--color-accent'],
+    );
+    if (followFrames) cfgPatch.arContent = followFrames.arContent;
     const colors = { ...draft.colors };
     for (const { key, cssVar } of COLOR_FIELDS) if (themeVars[cssVar]) colors[key] = themeVars[cssVar];
     const ok = await updateEventConfig(eventUuid, cfgPatch);
@@ -336,7 +347,13 @@ export default function Branding() {
         {/* Header */}
         <header className="flex items-center justify-between animate-rise-in">
           <div>
-            <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
+            {/* Platform events: "AR Studio" named a paid add-on most hosts do
+                not have. The frozen legacy sites keep their eyebrow. */}
+            {isDbEvent ? (
+              <p className="font-label uppercase tracking-luxe text-[11px] text-champagne/50 mb-1">Your event</p>
+            ) : (
+              <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
+            )}
             <h1 className="font-serif italic text-3xl text-foil-static">Branding & Identity</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
               Names, onboarding, colours and logo — edits preview live; Save to publish.

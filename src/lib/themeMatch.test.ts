@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FILTER_LOOKS, effectiveDefaultFrame, hueAffinity, looksConfigPatch, rankLooks, seededLooks, selectionFromConfig } from './themeMatch';
+import { FILTER_LOOKS, effectiveDefaultFrame, followAccentFramePalette, hueAffinity, looksConfigPatch, rankLooks, seededLooks, selectionFromConfig } from './themeMatch';
 import { GENERIC_FRAMES } from './borders';
 import { FILTER_SHADERS } from './shaders';
 import { EVENT_TEMPLATES, templateById } from './eventTemplates';
@@ -97,6 +97,49 @@ describe('seededLooks', () => {
 
   it('with a colour: the palette rides along', () => {
     expect(seededLooks(templateById('gala')!, '#ff5a5f').arContent.framePalette).toEqual({ accent: '#FF5A5F' });
+  });
+
+  it('a second colour rides along as accent2; a duplicate or invalid one does not', () => {
+    const gala = templateById('gala')!;
+    expect(seededLooks(gala, '#B0223B', '#2E8B57').arContent.framePalette).toEqual({ accent: '#B0223B', accent2: '#2E8B57' });
+    expect(seededLooks(gala, '#B0223B', '#b0223b').arContent.framePalette).toEqual({ accent: '#B0223B' });
+    expect(seededLooks(gala, '#B0223B', 'green').arContent.framePalette).toEqual({ accent: '#B0223B' });
+    expect(seededLooks(gala, null, '#2E8B57').arContent.framePalette).toBeUndefined();
+  });
+});
+
+describe('followAccentFramePalette', () => {
+  const cfg = (framePalette?: unknown) => ({
+    arContent: { borderIds: ['frame-classic-gold'], shaderIds: ['neon-pulse'], headPieceIds: ['royal-crown'], ...(framePalette ? { framePalette } : {}) },
+  });
+
+  it('frames in match mode follow the new colour — same shape create writes, other arContent kept', () => {
+    const out = followAccentFramePalette(cfg({ accent: '#19E3FF' }), ['#19e3ff'], '#b0223b');
+    expect(out).toEqual({
+      arContent: { borderIds: ['frame-classic-gold'], shaderIds: ['neon-pulse'], headPieceIds: ['royal-crown'], framePalette: { accent: '#B0223B' } },
+    });
+    // …which the booth/Library read back as the new palette.
+    expect(selectionFromConfig(out!).palette).toEqual({ accent: '#B0223B', accent2: null });
+  });
+
+  it('keeps a stored second colour', () => {
+    const out = followAccentFramePalette(cfg({ accent: '#19E3FF', accent2: '#2E8B57' }), ['#19E3FF'], '#B0223B');
+    expect((out!.arContent.framePalette as Record<string, unknown>)).toEqual({ accent: '#B0223B', accent2: '#2E8B57' });
+  });
+
+  it('leaves frames alone when match mode is off (no palette)', () => {
+    expect(followAccentFramePalette(cfg(), ['#19E3FF'], '#B0223B')).toBeNull();
+    expect(followAccentFramePalette(null, ['#19E3FF'], '#B0223B')).toBeNull();
+  });
+
+  it('leaves a deliberately different frame palette alone', () => {
+    expect(followAccentFramePalette(cfg({ accent: '#FFD166' }), ['#19E3FF', null, undefined], '#B0223B')).toBeNull();
+  });
+
+  it('no-ops on an invalid or unchanged colour', () => {
+    expect(followAccentFramePalette(cfg({ accent: '#19E3FF' }), ['#19E3FF'], 'red')).toBeNull();
+    expect(followAccentFramePalette(cfg({ accent: '#19E3FF' }), ['#19E3FF'], undefined)).toBeNull();
+    expect(followAccentFramePalette(cfg({ accent: '#19E3FF' }), ['#19E3FF'], '#19e3ff')).toBeNull();
   });
 });
 
