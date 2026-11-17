@@ -38,6 +38,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import * as client from './assetPrompt';
+import * as presets from './framePresets';
+import * as quality from './studio/frameQuality';
 import * as frame from '../../supabase/functions/ai-generate-image/frameLayout.ts';
 import * as piece from '../../supabase/functions/ai-generate-3d/pieceGeometry.ts';
 
@@ -166,6 +168,114 @@ describe('ai-generate-image/frameLayout.ts mirrors src/lib/assetPrompt.ts', () =
       client.buildFrameArtDirection('roses'),
     );
   });
+
+  /* ai-frames additions */
+
+  it('booth geometry (canvas, safe zones, windows, plaques, blank-window rule) is identical', () => {
+    expect(frame.FRAME_CANVAS_W).toBe(client.FRAME_CANVAS_W);
+    expect(frame.FRAME_CANVAS_H).toBe(client.FRAME_CANVAS_H);
+    expect(frame.BOOTH_SAFE_ZONE).toEqual(client.BOOTH_SAFE_ZONE);
+    expect(frame.FRAME_GEOMETRY).toEqual(client.FRAME_GEOMETRY);
+    expect(frame.FRAME_GEOMETRY_VERSION).toBe(client.FRAME_GEOMETRY_VERSION);
+    expect(frame.BLANK_WINDOW).toBe(client.BLANK_WINDOW);
+    expect(frame.NO_GREEN_HUES).toBe(client.NO_GREEN_HUES);
+    expect(frame.NO_TEXT_LINE).toBe(client.NO_TEXT_LINE);
+  });
+
+  it('frameGeometryDirection is identical for every layout × plaque', () => {
+    for (const layout of LAYOUTS) {
+      for (const plaque of [false, true]) {
+        expect(frame.frameGeometryDirection(layout, plaque)).toBe(client.frameGeometryDirection(layout, plaque));
+      }
+    }
+  });
+
+  it('occasion → register resolution, colour helpers and the brief fence are identical', () => {
+    const occasions = [null, '', 'Baby shower', 'class of 2027', 'Quinceañera', 'xmas party', 'pop-up shop',
+      'game day tailgate', 'team offsite', 'our wedding'];
+    const types = [null, 'wedding', 'GALA', 'remote', 'party'];
+    for (const o of occasions) {
+      expect(frame.occasionRegisterKey(o)).toBe(client.occasionRegisterKey(o));
+      for (const t of types) expect(frame.resolveRegisterKey(o, t)).toBe(client.resolveRegisterKey(o, t));
+    }
+    for (const h of ['#00FF00', '#2E8B57', '#D4AF37', '#20B2AA', '#fff', '#808880', 'nope']) {
+      expect(frame.isGreenFamily(h)).toBe(client.isGreenFamily(h));
+      expect(frame.relativeLuminance(h)).toBe(client.relativeLuminance(h));
+      expect(frame.hexRgb(h)).toEqual(client.hexRgb(h));
+    }
+    for (const b of ['', '  roses  ', 'a >>> b <<< c', 'multi\n\nline']) {
+      expect(frame.fenceBrief(b)).toBe(client.fenceBrief(b));
+    }
+  });
+
+  it('artDirectionFor with occasion + style equals buildFrameArtDirection', () => {
+    for (const occasion of [null, 'baby shower', 'graduation']) {
+      for (const style of [null, '', presets.FRAME_PRESET_STYLE['luxe-marble']]) {
+        expect(frame.artDirectionFor('pearls', 'border', ['#F5E6C8'], 'party', 'full-scene', null, occasion, style))
+          .toBe(client.buildFrameArtDirection('pearls', {
+            accentHexes: ['#F5E6C8'], eventType: 'party', layout: 'full-scene', occasion, style,
+          }));
+      }
+    }
+  });
+
+  it('buildGreenScreenFramePrompt is identical for every layout × plaque × lettering', () => {
+    const letterings: (client.LetteringSpec | null)[] = [null, { text: 'A & B', style: 'script-name', placement: 'top' }];
+    for (const layout of LAYOUTS) {
+      for (const plaque of [false, true]) {
+        for (const lettering of letterings) {
+          const opts = { layout, plaque, lettering, accentHexes: ['#1B2A4A', '#D4AF37'], eventType: 'gala', occasion: 'graduation' };
+          expect(frame.buildGreenScreenFramePrompt('stars', opts)).toBe(client.buildGreenScreenFramePrompt('stars', opts));
+        }
+      }
+    }
+    expect(frame.buildGreenScreenFramePrompt('stars')).toBe(client.buildGreenScreenFramePrompt('stars'));
+  });
+
+  it('FRAME_PRESET_STYLE is byte-identical to src/lib/framePresets.ts and covers every preset', () => {
+    expect(frame.FRAME_PRESET_STYLE).toEqual(presets.FRAME_PRESET_STYLE);
+    expect(Object.keys(frame.FRAME_PRESET_STYLE).sort()).toEqual(presets.FRAME_PRESETS.map((p) => p.id).sort());
+    expect(frame.FRAME_PRESET_COLOURS).toEqual(presets.FRAME_PRESET_COLOURS);
+    for (const p of presets.FRAME_PRESETS) {
+      for (const hasPalette of [false, true]) {
+        expect(frame.presetStyle(p.id, hasPalette)).toBe(presets.presetArtStyle(p.id, hasPalette));
+      }
+      expect(frame.presetStyle(p.id)).toBe(presets.presetArtStyle(p.id, false)); // absent = no palette
+    }
+    expect(frame.presetStyle('neon-night', true)).toBe(presets.FRAME_PRESET_STYLE['neon-night']);
+    expect(frame.presetStyle('constructor')).toBe(null); // prototype keys are not presets
+    expect(frame.presetStyle(42)).toBe(null);
+  });
+
+  it('FRAME_CORRECTIONS mirrors frameQuality CORRECTIONS, and the correction slot is identical', () => {
+    expect(frame.FRAME_CORRECTIONS).toEqual(Object.fromEntries(quality.CORRECTIONS));
+    expect(frame.correctionSentence('toString')).toBe(null);
+    for (const [code, sentence] of quality.CORRECTIONS) {
+      expect(frame.correctionSentence(code)).toBe(sentence);
+      const opts = { layout: 'full-scene' as const, correction: sentence };
+      expect(frame.buildGreenScreenFramePrompt('roses', opts)).toBe(client.buildGreenScreenFramePrompt('roses', opts));
+    }
+  });
+
+  it('the edge function really sends buildGreenScreenFramePrompt for a green-screen frame', () => {
+    // Reads the deployed source: equality of the builders above is worthless
+    // if index.ts assembles its own string.
+    const src = readFileSync(resolve(FN_DIR, 'ai-generate-image/index.ts'), 'utf8');
+    expect(src).toMatch(/buildGreenScreenFramePrompt\(/);
+    expect(src).toMatch(/import\s*\{[^}]*\bbuildGreenScreenFramePrompt\b[^}]*\}\s*from\s*['"]\.\/frameLayout\.ts['"]/);
+  });
+
+  it('an automatic (retryFreeOnly) retry is refused BEFORE any credit is spent', () => {
+    // The client's quality gate retries without the host pressing anything,
+    // so an ineligible retry must 409, never fall through to spend_credits.
+    const src = readFileSync(resolve(FN_DIR, 'ai-generate-image/index.ts'), 'utf8');
+    // Anchor on the return statement, not the header comment that documents it.
+    const refuse = src.indexOf("return json(409, { error: 'retry_not_eligible'");
+    const spend = src.indexOf("rpc('spend_credits'");
+    expect(refuse).toBeGreaterThan(0);
+    expect(spend).toBeGreaterThan(refuse);
+    expect(src.slice(refuse - 200, refuse)).toMatch(/body\.retryFreeOnly === true/);
+  });
 });
 
 /* ── ai-generate-3d ↔ assetPrompt.ts ──────────────────────────────────── */
@@ -225,13 +335,43 @@ describe('ai-generate-3d/pieceGeometry.ts routes briefs like src/lib/assetPrompt
   });
 });
 
+/* ── The scene designer's archetype wording must infer its own layout ─────
+ * ai-event-designer tells the model the app "picks the layout from those
+ * words". That is only true if each archetype's own example phrase resolves
+ * to that archetype through inferFrameLayout — the old CORNER line ("…corners,
+ * thinning along the edges") and BANNER line ("lower-third") both resolved to
+ * classic-border, so a model following the instructions literally got the
+ * wrong frame. */
+describe('ai-event-designer frame archetypes infer the layout they name', () => {
+  const src = readFileSync(resolve(FN_DIR, 'ai-event-designer/prompt.ts'), 'utf8');
+  const cases: [string, client.FrameLayout][] = [
+    ['EDGE BORDER', 'classic-border'],
+    ['FULL-SCENE FRAME', 'full-scene'],
+    ['CORNER-WEIGHTED', 'corner-overlay'],
+    ['BOTTOM BANNER', 'bottom-third'],
+  ];
+  for (const [label, layout] of cases) {
+    it(`${label} example → ${layout}`, () => {
+      const line = src.split('\n').find((l) => l.includes(`'${label} — `));
+      expect(line, label).toBeDefined();
+      const example = /\("([^"]+)"\)/.exec(line!)?.[1];
+      expect(example, `${label} needs a quoted ("…") example`).toBeDefined();
+      expect(client.inferFrameLayout(example!)).toBe(layout);
+    });
+  }
+
+  it('never asks for a "transparent" frame (the model paints a checkerboard)', () => {
+    expect(src).not.toMatch(/transparent centre/i);
+  });
+});
+
 /* ── The siblings must stay importable from node AND deployable by Deno ─── */
 
 describe('sibling modules are pure and Deno-free', () => {
   const stripComments = (src: string) =>
     src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
-  for (const rel of ['ai-generate-image/frameLayout.ts', 'ai-generate-3d/pieceGeometry.ts']) {
+  for (const rel of ['ai-generate-image/frameLayout.ts', 'ai-generate-image/jobPolicy.ts', 'ai-generate-3d/pieceGeometry.ts']) {
     it(`${rel} references no Deno global and no jsr:/npm: import`, () => {
       const code = stripComments(readFileSync(resolve(FN_DIR, rel), 'utf8'));
       expect(code).not.toMatch(/\bDeno\b/);

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  eventDetailsPatches,
   fetchMyOrg,
   fetchMyOrgResult,
   goLive,
@@ -304,5 +305,30 @@ describe('fetchMyOrg (back-compat wrapper)', () => {
       error: null,
     });
     await expect(fetchMyOrg()).resolves.toEqual({ orgId: 'org-1', name: 'Acme', role: 'owner' });
+  });
+});
+
+describe('eventDetailsPatches — one name, every store', () => {
+  it('writes the name into copy (and config.name only when it exists), keeps other copy', () => {
+    const { configPatch, brandingPatch } = eventDetailsPatches(
+      { name: 'Old', copy: { eventName: 'Old', fullName: 'Old', tagline: 'Hi' } },
+      { eventName: 'Old', fullName: '' },
+      { name: '  New Name ', venue: ' The Barn ' },
+    );
+    expect(configPatch).toEqual({ name: 'New Name', copy: { eventName: 'New Name', fullName: 'New Name', tagline: 'Hi', venue: 'The Barn' } });
+    // Only an override that is actually set gets rewritten (an empty one is not an override).
+    expect(brandingPatch).toEqual({ eventName: 'New Name' });
+  });
+
+  it('no config.name key, no branding override → no extra writes', () => {
+    const r = eventDetailsPatches({}, {}, { name: 'N' });
+    expect(r.configPatch).toEqual({ copy: { eventName: 'N', fullName: 'N' } });
+    expect(r.brandingPatch).toBeNull();
+  });
+
+  it('an emptied venue removes the key; an omitted venue leaves it alone', () => {
+    expect(eventDetailsPatches({ copy: { venue: 'X' } }, null, { name: 'N', venue: '  ' }).configPatch.copy).toEqual({ eventName: 'N', fullName: 'N' });
+    expect(eventDetailsPatches({ copy: { venue: 'X' } }, null, { name: 'N' }).configPatch.copy).toEqual({ eventName: 'N', fullName: 'N', venue: 'X' });
+    expect((eventDetailsPatches(null, null, { name: 'N', venue: 'v'.repeat(200) }).configPatch.copy as { venue: string }).venue).toHaveLength(120);
   });
 });

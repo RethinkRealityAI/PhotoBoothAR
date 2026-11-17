@@ -93,6 +93,19 @@ describe('formatSnapshot', () => {
   });
 });
 
+describe('formatSnapshot plan limits', () => {
+  it('renders the plan-limits line in the head — also on a failed read', () => {
+    const planLimits = 'PLAN LIMITS: NOT available on this plan — the Scene Director (open_scene_director).';
+    const ok = formatSnapshot(snap({ planLimits }));
+    expect(ok.split('\n').indexOf(planLimits)).toBeLessThan(ok.split('\n').findIndex((l) => l.startsWith('wall posts:')));
+    expect(formatSnapshot(snap({ failed: true, planLimits }))).toContain(planLimits);
+  });
+
+  it('absent / null leaves the context byte-identical', () => {
+    expect(formatSnapshot(snap({ planLimits: null }))).toBe(formatSnapshot(snap()));
+  });
+});
+
 describe('loadEventSnapshot failure flag', () => {
   it('is false when every read succeeds, and maps the rows through', async () => {
     const s = await loadEventSnapshot(META);

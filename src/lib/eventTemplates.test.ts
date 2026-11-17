@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { EVENT_TEMPLATES, templateById, templateConfigPatch } from './eventTemplates';
+import { CREATE_EVENT_TYPES, EVENT_TEMPLATES, paletteThemePatch, templateById, templateConfigPatch } from './eventTemplates';
+import { contrastRatio } from './themeDerive';
 import { BORDER_MAP } from './borders';
 import { FILTER_SHADERS } from './shaders';
 
@@ -73,5 +75,50 @@ describe('templateConfigPatch — events.config seeding', () => {
     expect(copy.fullName).toBe('Ada & Bode');
     expect(copy.eventName).toBe('Ada & Bode');
     expect(copy.tagline).toBe(wedding.tagline);
+  });
+});
+
+describe('create-event mirror', () => {
+  it("every template's eventType is accepted by the create-event edge function", () => {
+    for (const t of EVENT_TEMPLATES) expect(CREATE_EVENT_TYPES as readonly string[], t.id).toContain(t.eventType);
+  });
+
+  it('the mirror matches the edge function source verbatim', () => {
+    const src = readFileSync(new URL('../../supabase/functions/create-event/index.ts', import.meta.url), 'utf8');
+    const m = /const EVENT_TYPES = new Set\(\[([^\]]*)\]\)/.exec(src);
+    expect(m, 'EVENT_TYPES not found in create-event/index.ts').not.toBeNull();
+    const server = [...m![1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+    expect([...CREATE_EVENT_TYPES].sort()).toEqual(server.sort());
+  });
+});
+
+describe('paletteThemePatch', () => {
+  it('{} without a usable accent', () => {
+    expect(paletteThemePatch(null)).toEqual({});
+    expect(paletteThemePatch({ bg: '#000000', surface: null, fg: '#FFFFFF', accent: null, accent2: null })).toEqual({});
+  });
+
+  it("uses the poster's background and a text colour that passes on it", () => {
+    const p = paletteThemePatch({ bg: '#0A0806', surface: '#1A130C', fg: '#F7F1E3', accent: '#D4AF37', accent2: '#E8C766' });
+    expect(p['--color-brand-bg']).toBe('#0A0806');
+    expect(p['--color-brand-surface']).toBe('#1A130C');
+    expect(p['--color-brand-fg']).toBe('#F7F1E3');
+    expect(p['--color-accent']).toBe('#D4AF37');
+    expect(p['--color-accent-2']).toBe('#E8C766');
+  });
+
+  it("never trusts a model's unreadable text pairing", () => {
+    // Gold text on white is ~2:1 — must be replaced by a derived colour.
+    const p = paletteThemePatch({ bg: '#FFFFFF', surface: null, fg: '#D4AF37', accent: '#D4AF37', accent2: null });
+    expect(p['--color-brand-fg']).not.toBe('#D4AF37');
+    expect(contrastRatio(p['--color-brand-fg'], '#FFFFFF')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(p['--color-brand-muted'], '#FFFFFF')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('with no poster background, a good fg is kept and a bad one ignored', () => {
+    const good = paletteThemePatch({ bg: null, surface: null, fg: '#FFFFFF', accent: '#2FDD8B', accent2: null });
+    expect(good['--color-brand-fg']).toBe('#FFFFFF');
+    const bad = paletteThemePatch({ bg: null, surface: null, fg: '#050505', accent: '#2FDD8B', accent2: null });
+    expect(contrastRatio(bad['--color-brand-fg'], bad['--color-brand-bg'])).toBeGreaterThanOrEqual(7);
   });
 });

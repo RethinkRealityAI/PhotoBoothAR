@@ -125,6 +125,28 @@ export async function deleteExperience(eventId: string, id: string): Promise<boo
 /* Global catalog (Beamwall-curated experiences linkable into events)  */
 /* ------------------------------------------------------------------ */
 
+/** The shared library AND this event's links in one read, keeping "the read
+ *  failed" apart from "the library is empty" — the looks picker hides an
+ *  empty library on the create screen, so a failed read must not look like
+ *  one. Same query as fetchGlobalExperiences + fetchCatalogLinks. */
+export async function fetchLibraryForEventResult(
+  eventId: string,
+): Promise<{ rows: Experience[]; linkedIds: string[]; failed: boolean }> {
+  const [g, l] = await Promise.all([
+    supabase.from('experiences').select('*').eq('is_global', true).eq('is_published', true).order('sort_order'),
+    supabase.from('event_catalog_links').select('experience_id').eq('event_id', eventId),
+  ]);
+  if (g.error || l.error) {
+    console.error('[db] fetchLibraryForEventResult', g.error ?? l.error);
+    return { rows: [], linkedIds: [], failed: true };
+  }
+  return {
+    rows: (g.data as Experience[]) ?? [],
+    linkedIds: ((l.data as { experience_id: string }[]) ?? []).map((r) => r.experience_id),
+    failed: false,
+  };
+}
+
 /** All published global catalog experiences (for the Library picker). */
 export async function fetchGlobalExperiences(): Promise<Experience[]> {
   const { data, error } = await supabase
@@ -796,13 +818,25 @@ export async function getWallSettings(eventId: string): Promise<WallSettings> {
   return (await getWallSettingsResult(eventId)).settings;
 }
 
-export async function setWallSettings(eventId: string, patch: Partial<WallSettings>): Promise<WallSettings> {
-  const current = await getWallSettings(eventId);
-  const value = { ...current, ...patch };
+/**
+ * Merge a patch into the wall settings row. Default: the historical contract
+ * (a failed write is logged, the value returned anyway). `strict: true` THROWS
+ * a SettingWriteError instead — on a failed write, AND on a failed READ, since
+ * merging into the defaults would overwrite the event's real settings with
+ * them (host.setOpeningLook uses it so a pin never passes as saved).
+ */
+export async function setWallSettings(eventId: string, patch: Partial<WallSettings>, opts?: { strict?: boolean }): Promise<WallSettings> {
+  const strict = opts?.strict === true;
+  const read = await getWallSettingsResult(eventId);
+  if (strict && read.failed) throw new SettingWriteError('wall');
+  const value = { ...read.settings, ...patch };
   const { error } = await supabase
     .from('app_settings')
     .upsert({ key: 'wall', value, updated_at: new Date().toISOString(), event_id: eventId }, { onConflict: 'event_id,key' });
-  if (error) console.error('[db] setWallSettings', error);
+  if (error) {
+    console.error('[db] setWallSettings', error);
+    if (strict) throw new SettingWriteError('wall');
+  }
   return value;
 }
 
@@ -834,11 +868,29 @@ async function getSetting<T>(eventId: string, key: string, fallback: T): Promise
   return { ...fallback, ...(data.value as Partial<T>) };
 }
 
-async function setSetting<T extends object>(eventId: string, key: string, value: T): Promise<T> {
+/** Thrown by a `strict` settings write that did not land. */
+export class SettingWriteError extends Error {
+  constructor(public readonly key: string) {
+    super(`setting_write_failed:${key}`);
+    this.name = 'SettingWriteError';
+  }
+}
+
+/**
+ * Upsert one app_settings row. By default a failed write is logged and the
+ * value returned anyway — the historical contract every legacy caller was
+ * written against (none of them catch). `strict: true` THROWS a
+ * SettingWriteError instead, for screens that must not say "Saved" over a
+ * write that never happened (Branding).
+ */
+async function setSetting<T extends object>(eventId: string, key: string, value: T, opts?: { strict?: boolean }): Promise<T> {
   const { error } = await supabase
     .from('app_settings')
     .upsert({ key, value, updated_at: new Date().toISOString(), event_id: eventId }, { onConflict: 'event_id,key' });
-  if (error) console.error('[db] setSetting', key, error);
+  if (error) {
+    console.error('[db] setSetting', key, error);
+    if (opts?.strict === true) throw new SettingWriteError(key);
+  }
   return value;
 }
 
@@ -903,9 +955,9 @@ export async function getBranding(eventId: string): Promise<BrandingOverrides> {
   return getSetting<BrandingOverrides>(eventId, 'branding', DEFAULT_BRANDING);
 }
 
-export async function setBranding(eventId: string, patch: BrandingOverrides): Promise<BrandingOverrides> {
+export async function setBranding(eventId: string, patch: BrandingOverrides, opts?: { strict?: boolean }): Promise<BrandingOverrides> {
   const current = await getBranding(eventId);
-  return setSetting(eventId, 'branding', { ...current, ...patch });
+  return setSetting(eventId, 'branding', { ...current, ...patch }, opts);
 }
 
 export function subscribeToBranding(eventId: string, onChange: (b: BrandingOverrides) => void): () => void {

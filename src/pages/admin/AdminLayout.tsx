@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Building2, CalendarRange, Receipt, Coins, Users, ScrollText, ShieldCheck,
-  LifeBuoy, Tags, ToggleLeft, Megaphone, LogOut,
+  LifeBuoy, Tags, ToggleLeft, Megaphone, LogOut, BookImage,
   type LucideIcon,
 } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
@@ -33,6 +33,7 @@ const NAV: NavItem[] = [
   { to: '/admin/support', label: 'Support', Icon: LifeBuoy, ready: true },
   { to: '/admin/payments', label: 'Payments', Icon: Receipt, ready: true },
   { to: '/admin/catalog', label: 'Catalog', Icon: Tags, ready: true },
+  { to: '/admin/library', label: 'Library', Icon: BookImage, ready: true },
   { to: '/admin/features', label: 'Features', Icon: ToggleLeft, ready: true },
   { to: '/admin/landing', label: 'Landing', Icon: Megaphone, ready: true },
   { to: '/admin/credits', label: 'Credits', Icon: Coins, ready: true },

@@ -7,9 +7,9 @@
  * bottom account cluster) collapsing to a compact top bar on mobile, content
  * via <Outlet />.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { ALargeSmall, BookOpen, CalendarRange, Coins, CreditCard, LifeBuoy, LogOut, Plus, Sparkles } from 'lucide-react';
+import { ALargeSmall, BookOpen, CalendarRange, Coins, CreditCard, LifeBuoy, LogOut, MoreHorizontal, Plus, Sparkles } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
 import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
 import { fetchMyUnreadCount } from '../../lib/support';
@@ -60,8 +60,54 @@ export default function HostLayout() {
   const [unread, setUnread] = useState(0);
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [textSize, setTextSize] = useState<TextSize>(() => readTextSize(textSizeStore()));
+  /** Phone-only "More" menu: New / Events / Support stay on the bar, the rest
+   *  live here instead of scrolling off the right edge. */
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
   const { pathname } = useLocation();
   usePageTitle(hostTitle(pathname));
+
+  // Close on navigation, on a tap outside, and focus the first item on open.
+  useEffect(() => { setMoreOpen(false); }, [pathname]);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const first = moreMenuRef.current?.querySelector<HTMLElement>('[role^="menuitem"]');
+    first?.focus();
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (moreMenuRef.current?.contains(t) || moreBtnRef.current?.contains(t)) return;
+      setMoreOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [moreOpen]);
+
+  /** Menu keyboard model (WAI-ARIA menu button): arrows move, Home/End jump,
+   *  Escape closes and returns focus to the button, Tab closes. */
+  const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(moreMenuRef.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? []);
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setMoreOpen(false);
+      moreBtnRef.current?.focus();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      items[(i + 1) % items.length]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(i - 1 + items.length) % items.length]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      items[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      items[items.length - 1]?.focus();
+    } else if (e.key === 'Tab') {
+      setMoreOpen(false);
+    }
+  };
 
   // Larger-text preference: applied on mount from storage, and cleared when
   // the host leaves /host so a guest or admin surface never inherits it.
@@ -127,10 +173,16 @@ export default function HostLayout() {
   };
 
   // Sidebar rows at md+; ≥44px-tall tap targets on the mobile top bar too.
-  const railLink =
-    'pressable flex items-center gap-2.5 rounded-xl px-3 md:px-3.5 py-2.5 min-h-11 min-w-11 font-label uppercase tracking-luxe text-[10px] transition-colors justify-center md:justify-start';
+  const railLinkBase =
+    'pressable items-center gap-2.5 rounded-xl px-3 md:px-3.5 py-2.5 min-h-11 min-w-11 font-label uppercase tracking-luxe text-[11px] transition-colors justify-center md:justify-start';
+  const railLink = `flex ${railLinkBase}`;
   const railState = (isActive: boolean) =>
     isActive ? 'bg-white/[0.10] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05]';
+  // Rail items that move into the phone "More" menu: hidden below md only
+  // (railLinkBase carries no display class, so `hidden md:flex` is unambiguous).
+  const deskOnly = `hidden md:flex ${railLinkBase}`;
+  const menuItem =
+    'flex w-full items-center gap-3 rounded-xl px-3.5 min-h-[48px] font-sans text-[14px] text-brand-fg hover:bg-white/[0.06] focus:bg-white/[0.08] focus:outline-none';
 
   return (
     <div className="absolute inset-0 app-bg text-brand-fg flex flex-col md:flex-row overflow-hidden">
@@ -143,7 +195,7 @@ export default function HostLayout() {
           replaces won the cascade over `md:pt-6`, so every desktop sidebar was
           silently rendering with 8px of top padding instead of 24px. */}
       <aside
-        className="liquid-glass-raised shrink-0 z-20 md:w-60 flex md:flex-col items-center md:items-stretch gap-2 md:gap-1
+        className="liquid-glass-raised relative shrink-0 z-20 md:w-60 flex md:flex-col items-center md:items-stretch gap-2 md:gap-1
                    m-2 md:my-3 md:ml-3 md:mr-0 rounded-2xl px-3 md:px-4 pb-2 md:pb-4
                    pt-safe-top [--safe-top:0.5rem] md:[--safe-top:1.5rem]"
       >
@@ -170,7 +222,7 @@ export default function HostLayout() {
             to="/host/new"
             onClick={() => haptic('tap')}
             aria-label="New event"
-            className="pressable flex items-center gap-2.5 rounded-xl px-3 md:px-3.5 py-2.5 min-h-11 min-w-11 justify-center md:justify-start font-label uppercase tracking-luxe text-[10px] font-bold text-white bg-foil glow-accent transition md:mb-1"
+            className="pressable flex items-center gap-2.5 rounded-xl px-3 md:px-3.5 py-2.5 min-h-11 min-w-11 justify-center md:justify-start font-label uppercase tracking-luxe text-[11px] font-bold text-white bg-foil glow-accent transition md:mb-1"
           >
             <Plus className="w-[18px] h-[18px] shrink-0" />
             <span className="hidden sm:inline">New event</span>
@@ -180,12 +232,12 @@ export default function HostLayout() {
             <span className="hidden sm:inline">Events</span>
           </NavLink>
 
-          <NavLink to="/host/concierge" onClick={() => haptic('tap')} aria-label="Concierge" className={({ isActive }) => `${railLink} ${railState(isActive)}`}>
+          <NavLink to="/host/concierge" onClick={() => haptic('tap')} aria-label="Concierge" className={({ isActive }) => `${deskOnly} ${railState(isActive)}`}>
             <Sparkles className="w-[18px] h-[18px] shrink-0 text-[color:var(--color-accent)]" />
             <span className="hidden sm:inline">Concierge</span>
           </NavLink>
 
-          <NavLink to="/host/billing" onClick={() => haptic('tap')} aria-label="Billing" className={({ isActive }) => `${railLink} ${railState(isActive)}`}>
+          <NavLink to="/host/billing" onClick={() => haptic('tap')} aria-label="Billing" className={({ isActive }) => `${deskOnly} ${railState(isActive)}`}>
             <CreditCard className="w-[18px] h-[18px] shrink-0" />
             <span className="hidden sm:inline">
               Billing
@@ -205,7 +257,7 @@ export default function HostLayout() {
                 className="pressable liquid-glass-inset hidden md:flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 min-h-11 text-brand-muted/80 hover:text-brand-fg transition-colors"
               >
                 <Coins className="w-[18px] h-[18px] shrink-0 text-[color:var(--color-accent)]" />
-                <span className="font-label uppercase tracking-luxe text-[10px]">
+                <span className="font-label uppercase tracking-luxe text-[11px]">
                   {credits} credit{credits === 1 ? '' : 's'}
                 </span>
               </Link>
@@ -217,7 +269,7 @@ export default function HostLayout() {
               to="/guides"
               onClick={() => haptic('tap')}
               aria-label="Guides"
-              className={`${railLink} ${railState(false)}`}
+              className={`${deskOnly} ${railState(false)}`}
             >
               <BookOpen className="w-[18px] h-[18px] shrink-0" />
               <span className="hidden sm:inline">Guides</span>
@@ -252,17 +304,78 @@ export default function HostLayout() {
               aria-pressed={textSize === 'lg'}
               aria-label="Larger text"
               title={textSize === 'lg' ? 'Larger text is on — tap to use the standard size' : 'Larger text for chats and cards'}
-              className={`${railLink} ${railState(textSize === 'lg')}`}
+              className={`${deskOnly} ${railState(textSize === 'lg')}`}
             >
               <ALargeSmall className="w-[18px] h-[18px] shrink-0" />
               <span className="hidden sm:inline">Larger text</span>
             </button>
-            <button onClick={() => setConfirmingSignOut(true)} aria-label="Sign out" className={`${railLink} ${railState(false)}`}>
+            <button onClick={() => setConfirmingSignOut(true)} aria-label="Sign out" className={`${deskOnly} ${railState(false)}`}>
               <LogOut className="w-[18px] h-[18px] shrink-0" />
               <span className="hidden sm:inline">Sign out</span>
             </button>
           </div>
+          {/* Phone: everything else lives behind one menu button. */}
+          <button
+            ref={moreBtnRef}
+            type="button"
+            onClick={() => { haptic('tap'); setMoreOpen((v) => !v); }}
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
+            aria-controls="host-more-menu"
+            aria-label="More"
+            className={`${railLink} md:hidden ${railState(moreOpen)}`}
+          >
+            <MoreHorizontal className="w-[18px] h-[18px] shrink-0" />
+            <span className="hidden sm:inline">More</span>
+          </button>
         </nav>
+        {moreOpen && (
+          // The wrapper owns the position: `.liquid-glass-raised` sets
+          // `position: relative` (index.css), which beat the `absolute`
+          // utility and dropped the menu INTO the top bar's flex row.
+          <div className="md:hidden absolute right-2 top-[calc(100%+0.25rem)] z-40 w-64 max-w-[calc(100vw-1rem)]">
+          <div
+            id="host-more-menu"
+            ref={moreMenuRef}
+            role="menu"
+            aria-label="More"
+            onKeyDown={onMenuKey}
+            className="liquid-glass-raised rounded-2xl p-1.5 flex flex-col"
+          >
+            <Link role="menuitem" tabIndex={-1} to="/host/concierge" className={menuItem}>
+              <Sparkles className="w-[18px] h-[18px] text-[color:var(--color-accent)]" aria-hidden /> Concierge
+            </Link>
+            <Link role="menuitem" tabIndex={-1} to="/host/billing" className={menuItem}>
+              <CreditCard className="w-[18px] h-[18px]" aria-hidden /> Billing
+              {credits !== null && <span className="ml-auto text-[12px] text-brand-muted">{credits} credit{credits === 1 ? '' : 's'}</span>}
+            </Link>
+            <Link role="menuitem" tabIndex={-1} to="/guides" className={menuItem}>
+              <BookOpen className="w-[18px] h-[18px]" aria-hidden /> Guides
+            </Link>
+            <button
+              role="menuitemcheckbox"
+              aria-checked={textSize === 'lg'}
+              tabIndex={-1}
+              type="button"
+              onClick={toggleTextSize}
+              className={menuItem}
+            >
+              <ALargeSmall className="w-[18px] h-[18px]" aria-hidden /> Larger text
+              <span className="ml-auto text-[12px] text-brand-muted">{textSize === 'lg' ? 'On' : 'Off'}</span>
+            </button>
+            <div role="separator" className="my-1 h-px bg-white/10" />
+            <button
+              role="menuitem"
+              tabIndex={-1}
+              type="button"
+              onClick={() => { setMoreOpen(false); setConfirmingSignOut(true); }}
+              className={menuItem}
+            >
+              <LogOut className="w-[18px] h-[18px]" aria-hidden /> Sign out
+            </button>
+          </div>
+          </div>
+        )}
       </aside>
 
       {/* Content */}

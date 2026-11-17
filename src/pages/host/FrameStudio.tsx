@@ -11,14 +11,26 @@
  * the dashboard. First 3 generations per event are free on every tier
  * (enforced server-side in ai-generate-image).
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Loader2, Move, RefreshCw, Sparkles, Wand2 } from 'lucide-react';
-import { generateImage, aiErrorMessage, type AiErrorCode } from '../../lib/ai';
+import {
+  generateImage,
+  aiErrorMessage,
+  countFreeFramesLeft,
+  frameAllowance,
+  FREE_FRAMES_USED_COPY,
+  type AiErrorCode,
+} from '../../lib/ai';
+import { useEntitlements } from '../../lib/entitlements';
 import { frameBriefGaps, gapSummary } from '../../lib/assetBrief';
 import { inferFrameLayout } from '../../lib/assetPrompt';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
-import { updateEventConfig } from '../../lib/host';
+import { aiFrameName } from '../../lib/studio/frameText';
+import { rekeyOptions } from '../../lib/studio/frameQuality';
+import { setOpeningLook } from '../../lib/host';
+import { openingLookErrorCopy } from '../../lib/openingLook';
+import GuidedFrameMaker from '../../components/studio/GuidedFrameMaker';
 import type { Experience } from '../../types';
 
 /** Matches StageCanvas overlay semantics exactly: x/y are % of the canvas
@@ -49,10 +61,13 @@ const inputClass =
 export default function FrameStudio({
   eventUuid,
   suggestion,
+  onApplied,
 }: {
   eventUuid: string;
   /** Concierge-derived starting prompt (template + event context). */
   suggestion: string;
+  /** The frame is published and opens first — lets the host Library re-read. */
+  onApplied?: () => void;
 }) {
   const [prompt, setPrompt] = useState(suggestion);
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
@@ -62,17 +77,41 @@ export default function FrameStudio({
   // re-calling generateImage (frameProcessing: reprocessing a saved raw
   // experience costs no credits — mirrors AiFramePanel.pendingRaw).
   const [rawFrame, setRawFrame] = useState<{ experience: Experience; slug: string } | null>(null);
+  // The identical key reproduces the identical miss — the one useful free
+  // retry is a looser key, once (frameQuality.rekeyOptions).
+  const [rekeys, setRekeys] = useState(0);
+  // Guided "pick a look" first; the free-text box is one tap away.
+  const [mode, setMode] = useState<'guided' | 'describe'>('guided');
   const boxRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
   // Live read of what the brief is still missing (colour / style / any brief at
   // all). Cheap enough to compute per keystroke — two regexes on ≤500 chars.
   const briefHint = gapSummary(frameBriefGaps(prompt));
+  // The SAME allowance GuidedFrameMaker shows: without aiStudio, once the
+  // event's free frames are used the server answers upgrade_required, so the
+  // header, the describe box and the Generate button all follow that state.
+  const { aiStudio } = useEntitlements();
+  const [freeLeft, setFreeLeft] = useState<number | null>(null);
+  const [freeCheck, setFreeCheck] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    void countFreeFramesLeft(eventUuid).then((n) => { if (alive) setFreeLeft(n); });
+    return () => { alive = false; };
+  }, [eventUuid, freeCheck]);
+  const allowance = frameAllowance(freeLeft, aiStudio);
+  const outOfFree = allowance === 'upgrade';
+  const headerNote =
+    allowance === 'free' ? `${freeLeft} free left`
+      : allowance === 'trial' ? 'first 3 on us'
+        : allowance === 'paid' ? 'uses credits'
+          : 'free frames used';
 
   const generate = async () => {
     const brief = prompt.trim();
     if (!brief || phase.kind === 'generating') return;
     setTf(IDENTITY);
     setRawFrame(null);
+    setRekeys(0);
     setPhase({ kind: 'generating' });
     // experiences.event_id is the event SLUG (key trap), and this component
     // only receives the uuid — resolve the slug UP FRONT, before spending a
@@ -102,6 +141,7 @@ export default function FrameStudio({
       // 'classic-border', exactly what this screen generated before.
       layout: inferFrameLayout(brief),
     });
+    setFreeCheck((n) => n + 1);
     if (res.error !== null || !res.data) {
       const code = (res.error ?? 'internal') as AiErrorCode;
       setPhase({ kind: 'error', message: aiErrorMessage(code), code });
@@ -111,7 +151,8 @@ export default function FrameStudio({
     // ship it (a solid green box over the guest is worse than an error). The
     // raw row is persisted server-side, so hold it for a no-credit reprocess.
     const raw = res.data.experience;
-    const keyed = await processGeneratedFrame(raw, slug);
+    // A described frame is named "Custom frame", not after the raw prompt.
+    const keyed = await processGeneratedFrame(raw, slug, {}, { layout: inferFrameLayout(brief), name: aiFrameName(null) });
     if (!keyed?.keyed) {
       setRawFrame({ experience: raw, slug });
       setPhase({
@@ -127,13 +168,16 @@ export default function FrameStudio({
   // Free retry: re-run the chroma-key on the already-saved raw generation —
   // no generateImage, so no second credit.
   const retryProcessing = async () => {
-    if (!rawFrame || phase.kind === 'generating') return;
+    const keyOpts = rekeyOptions(rekeys);
+    if (!rawFrame || phase.kind === 'generating' || !keyOpts) return;
     setPhase({ kind: 'generating' });
-    const keyed = await processGeneratedFrame(rawFrame.experience, rawFrame.slug);
+    setRekeys((n) => n + 1);
+    const keyed = await processGeneratedFrame(rawFrame.experience, rawFrame.slug, {}, { keyOpts });
     if (!keyed?.keyed) {
+      setRawFrame(null);
       setPhase({
         kind: 'keyfail',
-        message: 'The transparent cutout still didn’t come through — the raw frame is saved in your studio Library.',
+        message: 'The transparent cutout still didn’t come through — try a fresh frame, or describe it a little differently.',
       });
       return;
     }
@@ -157,35 +201,74 @@ export default function FrameStudio({
         },
       })
       .eq('id', experience.id);
-    const pinned = await updateEventConfig(eventUuid, { defaultExperienceId: experience.id });
-    if (pubErr || !pinned) {
+    if (pubErr) {
       setPhase({
         kind: 'error',
-        message: 'The frame was generated but could not be activated — publish it from your studio Library.',
+        message: 'The frame was made but couldn’t be switched on — find it under Your own and switch it on there.',
       });
       return;
     }
+    // The one opening-look writer needs the slug too (the wall store is keyed
+    // by it) — a config-only pin was overruled by a wall value the copilot set.
+    const { data: ev } = await supabase.from('events').select('slug').eq('id', eventUuid).maybeSingle();
+    const slug = typeof ev?.slug === 'string' ? ev.slug : '';
+    const pinned = slug !== ''
+      ? await setOpeningLook({ slug, eventUuid }, experience.id)
+      : { ok: false, failed: 'config' as const };
+    if (!pinned.ok) {
+      setPhase({
+        kind: 'error',
+        message: `Your frame is on for guests. ${openingLookErrorCopy(pinned.failed)}`,
+      });
+      onApplied?.();
+      return;
+    }
     setPhase({ kind: 'done' });
+    onApplied?.();
   };
 
   return (
     <div className="w-full rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex flex-col gap-3 text-left">
       <div className="flex items-center gap-2">
         <Wand2 className="w-4 h-4 text-[color:var(--color-accent)]" />
-        <p className="font-label uppercase tracking-luxe text-[10px] text-brand-fg">Design your signature frame</p>
-        <span className="ml-auto font-sans text-[10px] text-brand-muted/50">first 3 on us</span>
+        <p className="font-label uppercase tracking-luxe text-[11px] text-brand-fg">Design your signature frame</p>
+        <span className="ml-auto font-sans text-[11px] text-brand-muted/50">{headerNote}</span>
       </div>
 
       {phase.kind === 'done' ? (
         <div className="flex items-center gap-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/25 px-3.5 py-3">
           <Check className="w-4 h-4 text-emerald-400 shrink-0" />
           <p className="font-sans text-[12px] text-emerald-200/90 leading-snug">
-            Your frame is live and pre-applied in the booth. Fine-tune its placement anytime in
-            the studio's 2D creator.
+            Your frame is on for guests and the booth opens with it. It’s under Your own below —
+            switch it off there any time.
           </p>
         </div>
+      ) : mode === 'guided' ? (
+        <>
+          <GuidedFrameMaker
+            eventUuid={eventUuid}
+            eventSlug={null}
+            freeTrial={!aiStudio}
+            onUse={useAsFrame}
+            useLabel="Use as booth frame"
+            onDescribeYourself={() => setMode('describe')}
+            // The header's "N free left" is THIS component's count; a guided
+            // generation spent a free slot it never re-counted.
+            onSpent={() => setFreeCheck((n) => n + 1)}
+          />
+          {phase.kind === 'error' && (
+            <p role="alert" className="font-sans text-[12px] text-red-400 leading-snug">{phase.message}</p>
+          )}
+        </>
       ) : (
         <>
+          <button
+            type="button"
+            onClick={() => setMode('guided')}
+            className="self-start min-h-[44px] rounded-full border border-white/15 bg-white/[0.04] px-4 font-sans text-[12px] text-brand-fg hover:bg-white/[0.08]"
+          >
+            ← Back to looks
+          </button>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -244,7 +327,7 @@ export default function FrameStudio({
                   Drag the frame to reposition it — your placement is saved with it.
                 </p>
                 <label className="flex items-center gap-2">
-                  <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 shrink-0">Size</span>
+                  <span className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/60 shrink-0">Size</span>
                   <input
                     type="range"
                     min={0.7}
@@ -259,19 +342,19 @@ export default function FrameStudio({
                   <button
                     onClick={() => useAsFrame(phase.experience)}
                     disabled={phase.kind === 'applying'}
-                    className="flex items-center gap-1.5 rounded-full bg-foil px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.97] disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-full bg-foil px-4 py-2 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.97] disabled:opacity-50"
                   >
                     {phase.kind === 'applying'
                       ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Activating…</>
                       : <><Check className="w-3.5 h-3.5" /> Use as booth frame</>}
                   </button>
-                  <button
+                  {!outOfFree && <button
                     onClick={generate}
                     disabled={phase.kind === 'applying'}
-                    className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition hover:bg-white/[0.08] disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 font-label uppercase tracking-luxe text-[11px] text-brand-fg transition hover:bg-white/[0.08] disabled:opacity-50"
                   >
                     <RefreshCw className="w-3.5 h-3.5" /> Regenerate
-                  </button>
+                  </button>}
                 </div>
               </div>
             </div>
@@ -292,20 +375,26 @@ export default function FrameStudio({
           {phase.kind === 'keyfail' && (
             <div className="flex flex-col gap-2">
               <p role="alert" className="font-sans text-[12px] text-red-400 leading-snug">{phase.message}</p>
-              <button
+              {rawFrame && rekeyOptions(rekeys) !== null && <button
                 onClick={retryProcessing}
-                className="self-start flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition hover:bg-white/[0.08]"
+                className="self-start flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 font-label uppercase tracking-luxe text-[11px] text-brand-fg transition hover:bg-white/[0.08]"
               >
-                <RefreshCw className="w-3.5 h-3.5" /> Retry — no extra credits
-              </button>
+                <RefreshCw className="w-3.5 h-3.5" /> Clean it up — no extra credits
+              </button>}
             </div>
           )}
 
-          {(phase.kind === 'idle' || phase.kind === 'generating' || phase.kind === 'error') && (
+          {outOfFree && phase.kind !== 'generating' && (
+            <p className="font-sans text-[12px] text-brand-fg leading-snug">
+              {FREE_FRAMES_USED_COPY}{' '}
+              <Link to="/host/billing" className="inline-flex min-h-[44px] items-center align-middle text-accent-2 underline">See upgrade options</Link>
+            </p>
+          )}
+          {!outOfFree && (phase.kind === 'idle' || phase.kind === 'generating' || phase.kind === 'error') && (
             <button
               onClick={generate}
               disabled={phase.kind === 'generating' || !prompt.trim()}
-              className="flex items-center justify-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-50"
             >
               {phase.kind === 'generating'
                 ? <><Loader2 className="w-4 h-4 animate-spin" /> Designing your frame…</>

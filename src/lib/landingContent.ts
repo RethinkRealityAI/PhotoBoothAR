@@ -12,8 +12,9 @@
  * edited at /admin/landing. No file imports both, but if one ever must,
  * import this one aliased (e.g. `PlatformLandingContent`).
  *
- * PURITY IS LOAD-BEARING: this module imports nothing (no React, no supabase,
- * no bundled assets), so its colocated test runs in vitest's node env without
+ * PURITY IS LOAD-BEARING: this module imports nothing but the import-free
+ * ./beta flag (no React, no supabase, no bundled assets), so its colocated
+ * test runs in vitest's node env without
  * env vars or Vite asset transforms. The I/O half is landingContentClient.ts;
  * media defaults are expressed as `undefined` = "use the bundled import",
  * which src/pages/Landing.tsx resolves against its own asset imports.
@@ -24,6 +25,7 @@
  * the bundled default. The marketing page can therefore never render blank
  * because of a bad CMS row.
  */
+import { BETA_FREE } from './beta';
 
 /* ── Types ──────────────────────────────────────────────────────────── */
 
@@ -127,14 +129,15 @@ export const AUDIENCE_MAX = 12;
 
 export const DEFAULT_LANDING_CONTENT: LandingContent = {
   hero: {
-    badge: 'Free to start — no credit card',
+    badge: BETA_FREE ? 'Free during beta — no credit card' : 'Free to start — no credit card',
     // No trailing space (normalize trims): Landing.tsx joins titlePre and
     // titleHighlight with an explicit space.
-    titlePre: 'Your',
-    titleHighlight: 'Immersive Virtual Photobooth',
+    titlePre: 'Every guest’s phone becomes',
+    titleHighlight: 'your event photo booth',
     tagline:
-      'Give every guest a magical photo booth in their pocket — no app to download. Photos beam onto a live wall styled with frames and 3D magic you set up in minutes.',
-    primaryCta: 'Start free',
+      'Guests scan one QR code to snap photos with frames and filters in your event’s colours — no app to download — and every shot beams onto a live photo wall. Set up in minutes; nothing to design.',
+    // One action, one name: the header pill and the closing CTA say the same.
+    primaryCta: 'Create your free event',
     secondaryCta: 'Try the live demo',
     // Honest by construction: the strip shows FRAME DESIGNS over illustrative
     // photos, so the caption promises styling, never "real moments".
@@ -155,7 +158,7 @@ export const DEFAULT_LANDING_CONTENT: LandingContent = {
   howSteps: [
     {
       title: 'Create your event',
-      body: 'Sign up free, pick a style, and tune your frames, effects and 3D props in the studio — minutes, not hours.',
+      body: 'Name your event and pick a colour theme — or upload your invitation or poster and we’ll pull the details and colours from it. Then choose ready-made frames and filters to match.',
     },
     {
       title: 'Share one QR code',
@@ -173,7 +176,7 @@ export const DEFAULT_LANDING_CONTENT: LandingContent = {
   features: [
     {
       id: 'booth',
-      eyebrow: 'Immersive booth',
+      eyebrow: 'Photo booth',
       title: 'A photo booth that lives in every pocket',
       copy: 'One scan drops every guest into a magical booth — right in their browser.',
     },
@@ -191,17 +194,19 @@ export const DEFAULT_LANDING_CONTENT: LandingContent = {
     },
     {
       id: 'cards',
-      eyebrow: 'Keepsake cards & guestbook',
+      eyebrow: 'Keepsake cards',
       title: 'The morning-after keepsake',
       copy: 'Long after the lights go up, everyone still has a piece of the night.',
     },
   ],
+  // Merged BY INDEX with Landing.tsx EVENT_TYPES (glow colour + bundled photo):
+  // reorder BOTH lists together, or a label lands on another event's photo.
   eventTypes: [
+    { label: 'Weddings', blurb: 'Every guest, one keepsake' },
+    { label: 'Birthdays & parties', blurb: 'The room joins the fun' },
+    { label: 'Galas & fundraisers', blurb: 'Black-tie, full glamour' },
     { label: 'Conferences', blurb: 'Networking made playful' },
     { label: 'Trade shows & conventions', blurb: 'A booth that draws the floor' },
-    { label: 'Weddings', blurb: 'Every guest, one keepsake' },
-    { label: 'Galas & fundraisers', blurb: 'Black-tie, full glamour' },
-    { label: 'Birthdays & parties', blurb: 'The room joins the fun' },
     { label: 'Brand activations', blurb: 'Shareable by design' },
   ],
   audiences: [
@@ -222,27 +227,46 @@ export const DEFAULT_LANDING_CONTENT: LandingContent = {
     },
     {
       q: 'How long does it take to set up?',
-      a: 'Minutes. Pick a style, tweak your frames and effects in the studio, and share the QR — you can have a booth live well before your event.',
+      a: 'Minutes. Pick a theme or upload your invitation, choose ready-made frames and filters, and share the QR code. There’s nothing to design.',
+    },
+    {
+      q: 'Do I need to design anything?',
+      a: 'No. Pick a theme or upload your invitation, choose from ready-made frames and filters, and you’re live.',
     },
     {
       q: 'What if the venue wifi is patchy?',
       a: 'The magic runs on each guest’s device, so only the finished photo needs to upload — it works on cellular data, and you moderate what hits the wall from your phone.',
     },
+    // The numbers below mirror ENTITLEMENTS.free (maxPosts 25, retentionDays 7),
+    // the billing catalogue (029: $49 Essentials, $79/mo Pro) and
+    // ai-generate-image's FREE_IMAGES_PER_EVENT = 3.
     {
       q: 'What does it cost?',
-      a: 'Start free — one event, up to 25 photos. Paid event packages start at $49, and Beamwall Pro is $79/month for frequent hosts. You only pay for events you run.',
+      a: `${BETA_FREE ? 'Nothing during the beta — no credit card needed. After the beta: ' : ''}Start free — one event, up to 25 photos, kept 7 days. Paid packages start at $49 per event; Beamwall Pro is $79/month for frequent hosts. AI frames: 3 free per event, then credits.`,
     },
+    ...(BETA_FREE
+      ? [
+          {
+            q: 'Is Beamwall really free right now?',
+            a: 'Yes. While we’re in beta you can create an event and run the booth and live wall without paying or adding a card. Paid plans start when the beta ends, and we’ll tell you before anything is charged.',
+          },
+        ]
+      : []),
     {
       q: 'Is our event private?',
-      a: 'You control it. Guests’ captures appear on your wall by design and you can moderate or remove any of them at any time; see our Privacy Policy for the full details.',
+      a: 'Only people with your event link or QR code can join. Photos go to your wall instantly or wait for your approval — your choice — and you can remove any photo at any time.',
+    },
+    {
+      q: 'Can my team build custom AR filters or 3D scenes?',
+      a: 'Yes, with the Studio add-on for agencies, brands and large organisations — get in touch.',
     },
   ],
   closing: {
     title: 'Ready in minutes.',
-    body: 'Create your event, pick a style, and share the QR code. Your guests bring the moments; the wall brings the magic.',
-    cta: 'Create your event',
+    body: 'Create your event, pick a theme, and share the QR code. Your guests bring the moments; the wall brings the magic.',
+    cta: 'Create your free event',
   },
-  footerTagline: 'Built for weddings, galas and celebrations of every size.',
+  footerTagline: 'Your event photo booth — on every guest’s phone.',
 };
 
 /* ── Media URL gate ─────────────────────────────────────────────────── */

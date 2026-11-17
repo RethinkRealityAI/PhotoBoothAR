@@ -39,7 +39,7 @@ const HOST_NAV_META: Record<HostNavKey, { label: string; Icon: LucideIcon }> = {
 };
 
 const STUDIO_TAB_LABEL: Record<StudioTabKey, string> = {
-  dashboard: 'Dashboard', studio: 'Studio', experiences: 'Experiences', assets: 'Assets',
+  dashboard: 'Dashboard', studio: 'Studio', experiences: 'Frames & filters', assets: 'Assets',
   wall: 'Wall', challenges: 'Challenges', cards: 'Cards', share: 'Share',
 };
 

@@ -10,8 +10,9 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { QRCodeSVG } from 'qrcode.react';
 import Modal from '../../components/ui/Modal';
 import ConfirmModal from '../../components/ui/ConfirmModal';
-import { Archive, ArchiveRestore, ArrowRight, ArrowUpRight, Check, ChevronDown, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2, Trash2 } from 'lucide-react';
-import { fetchMyEvents, goLive, updateEventStatus, deleteEvent, eventOrgHasActivePro, invalidateProSubscriptionCache, type HostEventRow } from '../../lib/host';
+import { Archive, ArchiveRestore, ArrowRight, ArrowUpRight, CalendarDays, Check, ChevronDown, Copy, CopyPlus, ExternalLink, Loader2, Plus, QrCode, RefreshCw, Settings2, Trash2 } from 'lucide-react';
+import { fetchMyEvents, goLive, updateEventStatus, deleteEvent, duplicateEvent, eventOrgHasActivePro, invalidateProSubscriptionCache, type HostEventRow } from '../../lib/host';
+import { accentOf, formatEventDate, groupEvents } from '../../lib/eventList';
 import { RESTORE_STATUS, archivedLabel, canArchiveStatus, canDeleteStatus, confirmNameMatches, isArchivedStatus, partitionByArchived } from '../../lib/eventArchive';
 import { TierPill, UpgradeModal } from './UpgradeCard';
 import { entitlementsFor, normalizeTier } from '../../lib/entitlements';
@@ -46,9 +47,9 @@ function QRModal({ url, name, draft, onClose }: { url: string; name: string; dra
         <div className="rounded-xl p-3 bg-brand-fg/95 shadow-lg">
           <QRCodeSVG value={url} size={160} bgColor="#faf6ef" fgColor="#1a1108" level="M" />
         </div>
-        <p className="font-mono text-[9px] text-brand-muted/60 break-all">{url}</p>
+        <p className="font-mono text-[11px] text-brand-muted/60 break-all">{url}</p>
         {draft && (
-          <p className="font-sans text-[10px] text-amber-400/90 leading-snug">
+          <p className="font-sans text-[11px] text-amber-400/90 leading-snug">
             Guests can’t open this link until you Go live.
           </p>
         )}
@@ -118,7 +119,7 @@ function CapMeter({ used, cap, onUpgrade }: { used: PostCount; cap: number; onUp
     // label says why — an empty bar on its own would read as "0 posts used".
     return (
       <div className="space-y-1">
-        <span className="font-sans text-[10px] text-brand-muted/50">
+        <span className="font-sans text-[11px] text-brand-muted/50">
           Usage unavailable — couldn’t count posts. {cap}-post plan.
         </span>
         <div className="h-1 rounded-full bg-white/[0.06]" />
@@ -130,13 +131,13 @@ function CapMeter({ used, cap, onUpgrade }: { used: PostCount; cap: number; onUp
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between gap-2">
-        <span className={`font-sans text-[10px] ${nearCap ? 'text-amber-400/90' : 'text-brand-muted/50'}`}>
+        <span className={`font-sans text-[11px] ${nearCap ? 'text-amber-400/90' : 'text-brand-muted/50'}`}>
           {used} / {cap} posts on this plan
         </span>
         {nearCap && (
           <button
             onClick={onUpgrade}
-            className="font-label uppercase tracking-luxe text-[9px] text-accent-2 hover:underline underline-offset-2"
+            className="font-label uppercase tracking-luxe text-[11px] text-accent-2 hover:underline underline-offset-2"
           >
             {used >= cap ? 'Wall full — upgrade' : 'Almost full — upgrade'}
           </button>
@@ -166,6 +167,10 @@ export default function EventsList() {
   const [deleteTyped, setDeleteTyped] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  /** An ENDED event the host asked to re-open — confirmed first, because a
+   *  bare "Go live" on a finished event re-opens a wall guests think is over. */
+  const [reopenTarget, setReopenTarget] = useState<HostEventRow | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [postCounts, setPostCounts] = useState<Record<string, PostCount>>({});
   const [showGuide, setShowGuide] = useState(() => {
     try { return !localStorage.getItem(HOST_ONBOARDED_KEY); } catch { return false; }
@@ -309,10 +314,38 @@ export default function EventsList() {
     push(message, 'error');
   };
 
+  /** "Duplicate event": a fresh draft with this event's look, frames,
+   *  filters, copy and branding — never its photos, posts or cards. */
+  const runDuplicate = async (ev: HostEventRow) => {
+    if (duplicatingId !== null) return;
+    setDuplicatingId(ev.id);
+    const res = await duplicateEvent(ev);
+    setDuplicatingId(null);
+    if (!res.event) {
+      push(
+        res.error === 'slug_taken' || res.error === 'reserved_slug'
+          ? `Couldn’t find a free link for a copy of “${ev.name}” — create it from New event instead.`
+          : `Couldn’t duplicate “${ev.name}” — check your connection and try again.`,
+        'error',
+      );
+      return;
+    }
+    const copy = res.event;
+    setEvents((list) => [copy, ...(list ?? [])]);
+    push(
+      res.partial
+        ? `Created “${copy.name}”, but some of the look didn’t copy — check it in Manage.`
+        : `Created “${copy.name}” as a draft — photos and cards were not copied.`,
+      res.partial ? 'error' : 'success',
+    );
+  };
+
   // Archived events are retired, not deleted: they come back in the same
   // fetchMyEvents payload and are split here, so the "Archived (N)" shelf costs
   // no second query. Order is preserved (created_at desc).
   const { active, archived } = partitionByArchived(events ?? []);
+  // Upcoming / Drafts / Past, by local calendar day (eventList.ts).
+  const grouped = groupEvents(active);
 
   // Getting-started guide, derived from data already in hand: the newest event
   // (fetchMyEvents orders created_at desc) anchors the links, done-ness comes
@@ -323,9 +356,9 @@ export default function EventsList() {
   const hasEvents = newest !== null;
   const anyLive = (events ?? []).some((e) => e.status === 'live');
   const guideSteps = [
-    { n: '1', title: 'Create your event', rest: 'the AI concierge sets it up in a minute', done: hasEvents, to: '/host/new' },
+    { n: '1', title: 'Create your event', rest: 'describe it, or fill it in yourself', done: hasEvents, to: '/host/new' },
     { n: '2', title: 'Go live & share the QR', rest: 'guests need no app', done: anyLive, to: newest ? `/host/events/${newest.id}/share` : '/host/new' },
-    { n: '3', title: 'Make it yours (optional)', rest: 'AI frames, 3D props & challenges in the Studio', done: false, to: newest ? `/host/events/${newest.id}/studio` : '/host/new' },
+    { n: '3', title: 'Make it yours (optional)', rest: 'frames, filters, 3D props & challenges', done: false, to: newest ? `/host/events/${newest.id}/library` : '/host/new' },
   ];
   const guidePct = Math.round((([hasEvents, anyLive].filter(Boolean).length) / 2) * 100);
   const guideDone = hasEvents && anyLive;
@@ -339,12 +372,31 @@ export default function EventsList() {
     const welcomeUrl = `${origin}/e/${ev.slug}/welcome`;
     const busy = busyId === ev.id;
     const isArchived = isArchivedStatus(ev.status);
+    const when = formatEventDate(ev.starts_at);
+    const accent = accentOf(ev.config);
     return (
-      <div key={ev.id} className="liquid-glass rounded-2xl p-5 flex flex-col gap-3">
+      <div key={ev.id} className="relative overflow-hidden liquid-glass rounded-2xl p-5 flex flex-col gap-3">
+        {/* The event's own colour, so a list of events reads at a glance. */}
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-1.5"
+          style={{ background: accent ?? 'rgba(255,255,255,0.08)' }}
+        />
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="font-serif text-lg text-brand-fg leading-tight truncate">{ev.name}</p>
-            <p className="font-sans text-[10px] uppercase tracking-widest text-brand-muted/40 mt-0.5">{ev.event_type}</p>
+            <p className="mt-1 flex items-center gap-1.5 font-sans text-[12px] text-brand-muted/80">
+              <CalendarDays className="w-3.5 h-3.5 shrink-0" aria-hidden />
+              {when ? (
+                <>
+                  <span>{when.day}</span>
+                  <span aria-hidden>·</span>
+                  <span className={when.past ? 'text-brand-muted/60' : when.relative === 'Today' ? 'text-emerald-300' : ''}>{when.relative}</span>
+                </>
+              ) : (
+                <span className="text-brand-muted/55">No date set</span>
+              )}
+            </p>
           </div>
           <div className="shrink-0 flex items-center gap-1.5">
             <TierPill tier={ev.plan_tier} />
@@ -373,12 +425,12 @@ export default function EventsList() {
           </a>
         </div>
         {ev.status === 'draft' && (
-          <p className="font-sans text-[10px] text-amber-400/90 leading-snug">
+          <p className="font-sans text-[11px] text-amber-400/90 leading-snug">
             Guests can’t open this link until you Go live.
           </p>
         )}
         {isArchived && (
-          <p className="font-sans text-[10px] text-brand-muted/50 leading-snug">
+          <p className="font-sans text-[11px] text-brand-muted/50 leading-snug">
             {archivedLabel(ev.archived_at)} — nothing was deleted. Restore it to bring it back.
           </p>
         )}
@@ -397,24 +449,43 @@ export default function EventsList() {
         <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
           <Link
             to={`/host/events/${ev.id}`}
-            className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors"
+            className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-fg/90 transition-colors"
           >
-            <Settings2 className="w-3.5 h-3.5" /> Open studio
+            <Settings2 className="w-3.5 h-3.5" /> Manage
           </Link>
-          {(ev.status === 'draft' || ev.status === 'ended') && (
+          {ev.status === 'draft' && (
             <button
               onClick={() => setStatus(ev, 'live', 'You’re live — guests can scan now')}
               disabled={busy}
-              className="rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-emerald-400 transition-colors disabled:opacity-40"
+              className="rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-emerald-400 transition-colors disabled:opacity-40"
             >
               Go live
+            </button>
+          )}
+          {ev.status === 'ended' && (
+            <button
+              onClick={() => setReopenTarget(ev)}
+              disabled={busy}
+              className="rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-40"
+            >
+              Re-open…
+            </button>
+          )}
+          {!isArchived && (
+            <button
+              onClick={() => void runDuplicate(ev)}
+              disabled={duplicatingId !== null}
+              title="Make a new draft with this event’s look, frames and filters"
+              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-40"
+            >
+              {duplicatingId === ev.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CopyPlus className="w-3.5 h-3.5" />} Duplicate
             </button>
           )}
           {ev.status === 'live' && (
             <button
               onClick={() => setStatus(ev, 'ended', 'Event ended')}
               disabled={busy}
-              className="rounded-full bg-amber-500/15 hover:bg-amber-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-amber-400 transition-colors disabled:opacity-40"
+              className="rounded-full bg-amber-500/15 hover:bg-amber-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-amber-400 transition-colors disabled:opacity-40"
             >
               End
             </button>
@@ -425,7 +496,7 @@ export default function EventsList() {
             <button
               onClick={() => setArchiveTarget(ev)}
               disabled={busy}
-              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 hover:text-brand-fg transition-colors disabled:opacity-40"
+              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-muted/60 hover:text-brand-fg transition-colors disabled:opacity-40"
             >
               <Archive className="w-3.5 h-3.5" /> Archive
             </button>
@@ -434,7 +505,7 @@ export default function EventsList() {
             <button
               onClick={() => setStatus(ev, RESTORE_STATUS, `“${ev.name}” is back in your events`)}
               disabled={busy}
-              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors disabled:opacity-40"
+              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-fg/90 transition-colors disabled:opacity-40"
             >
               <ArchiveRestore className="w-3.5 h-3.5" /> Restore
             </button>
@@ -447,7 +518,7 @@ export default function EventsList() {
             <button
               onClick={() => { setDeleteTarget(ev); setDeleteTyped(''); }}
               disabled={busy}
-              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.04] hover:bg-red-500/15 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 hover:text-red-300 transition-colors disabled:opacity-40"
+              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.04] hover:bg-red-500/15 px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-muted/60 hover:text-red-300 transition-colors disabled:opacity-40"
             >
               <Trash2 className="w-3.5 h-3.5" /> Delete forever
             </button>
@@ -457,7 +528,7 @@ export default function EventsList() {
           {!isArchived && normalizeTier(ev.plan_tier) !== 'deluxe' && (
             <button
               onClick={() => setUpgradeTarget(ev)}
-              className="ml-auto flex items-center gap-1 rounded-full bg-accent/10 hover:bg-accent/20 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-accent-2 transition-colors"
+              className="ml-auto flex items-center gap-1 rounded-full bg-accent/10 hover:bg-accent/20 px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-accent-2 transition-colors"
             >
               Upgrade <ArrowUpRight className="w-3 h-3" />
             </button>
@@ -489,16 +560,23 @@ export default function EventsList() {
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
-          <Link
-            to="/host/new"
-            className="pressable flex items-center gap-2 rounded-full bg-foil px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition"
-          >
-            <Plus className="w-4 h-4" /> New event
-          </Link>
+          {/* The empty state has its own (single) primary CTA — two "New
+              event" buttons on one screen is one too many. */}
+          {!(events !== null && events.length === 0 && !loading) && (
+            <Link
+              to="/host/new"
+              className="pressable flex items-center gap-2 rounded-full bg-foil px-5 min-h-11 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition"
+            >
+              <Plus className="w-4 h-4" /> New event
+            </Link>
+          )}
         </div>
       </header>
 
-      {showGuide && !loading && events !== null && !guideDone && (
+      {/* With no events yet the empty state below IS step 1 — showing the
+          guide too put two cards and two routes to the same action on a
+          brand-new host's first screen. It appears once an event exists. */}
+      {showGuide && !loading && events !== null && events.length > 0 && !guideDone && (
         <div className="relative liquid-glass rounded-2xl px-5 py-4 mb-6">
           <button
             onClick={dismissGuide}
@@ -518,10 +596,10 @@ export default function EventsList() {
               aria-hidden
             >
               <div className="rounded-full bg-[color:var(--color-brand-bg)] flex items-center justify-center" style={{ width: 32, height: 32 }}>
-                <span className="font-serif text-[10px] text-foil-static">{guidePct}%</span>
+                <span className="font-serif text-[11px] text-foil-static">{guidePct}%</span>
               </div>
             </div>
-            <p className="font-label uppercase tracking-luxe text-[10px] text-accent">Getting started</p>
+            <p className="font-label uppercase tracking-luxe text-[11px] text-accent">Getting started</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             {guideSteps.map((s) => (
@@ -535,7 +613,7 @@ export default function EventsList() {
                     <Check className="w-3 h-3 text-accent-2" />
                   </span>
                 ) : (
-                  <span className="shrink-0 w-5 h-5 rounded-full bg-accent/15 text-accent-2 font-label text-[10px] flex items-center justify-center">
+                  <span className="shrink-0 w-5 h-5 rounded-full bg-accent/15 text-accent-2 font-label text-[11px] flex items-center justify-center">
                     {s.n}
                   </span>
                 )}
@@ -546,10 +624,10 @@ export default function EventsList() {
               </Link>
             ))}
           </div>
-          <p className="mt-3 font-sans text-[10px] text-brand-muted/40">
-            Credits power the AI studio — top up any time in Billing.
+          <p className="mt-3 font-sans text-[11px] text-brand-muted/40">
+            Your first 3 AI frames on every event are free; after that they use credits — top up any time in Billing.
           </p>
-          <p className="mt-1 font-sans text-[10px] text-brand-muted/40">
+          <p className="mt-1 font-sans text-[11px] text-brand-muted/40">
             New to Beamwall?{' '}
             <Link to="/guides" className="rounded underline underline-offset-2 hover:text-brand-fg transition-colors">
               Read the guides
@@ -571,28 +649,46 @@ export default function EventsList() {
           </p>
           <button
             onClick={load}
-            className="inline-flex items-center gap-2 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-6 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors"
+            className="inline-flex items-center gap-2 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-6 py-2.5 font-label uppercase tracking-luxe text-[11px] text-brand-fg/90 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" /> Retry
           </button>
         </div>
       ) : events.length === 0 ? (
-        <div className="liquid-glass rounded-3xl p-12 text-center max-w-lg mx-auto">
+        <div className="liquid-glass rounded-3xl px-6 py-10 sm:p-12 text-center max-w-lg mx-auto">
           <h2 className="font-serif text-2xl text-foil-static mb-2">Create your first event</h2>
           <p className="font-sans text-sm text-brand-muted/70 leading-relaxed mb-8">
-            Booth, live wall and studio in under a minute — pick a name, claim your link, go live, and share the QR with your guests.
+            Describe the night or fill it in yourself, pick the frames guests can use, then go live and share
+            the QR. About a minute, no design skills needed.
           </p>
           <Link
             to="/host/new"
-            className="inline-flex items-center gap-2 rounded-full bg-foil px-8 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
+            className="inline-flex items-center gap-2 whitespace-nowrap rounded-full bg-foil px-6 sm:px-8 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98]"
           >
-            <Plus className="w-4 h-4" /> New event
+            <Plus className="w-4 h-4" /> Create your event
           </Link>
         </div>
       ) : (
         <>
           {active.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-2">{active.map(renderCard)}</div>
+            <div className="flex flex-col gap-8">
+              {([
+                ['upcoming', 'Upcoming & live'],
+                ['drafts', 'Drafts'],
+                ['past', 'Past'],
+              ] as const).map(([key, label]) => {
+                const list = grouped[key];
+                if (list.length === 0) return null;
+                return (
+                  <section key={key} aria-labelledby={`events-${key}`}>
+                    <h2 id={`events-${key}`} className="mb-3 font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
+                      {label} <span className="text-brand-muted/45">· {list.length}</span>
+                    </h2>
+                    <div className="grid gap-4 sm:grid-cols-2">{list.map(renderCard)}</div>
+                  </section>
+                );
+              })}
+            </div>
           ) : (
             <p className="font-sans text-sm text-brand-muted/60 text-center py-8">
               Everything here is archived — open the shelf below to restore one, or start a new event.
@@ -607,7 +703,7 @@ export default function EventsList() {
               <button
                 onClick={() => setShowArchived((v) => !v)}
                 aria-expanded={showArchived}
-                className="pressable inline-flex items-center gap-2 rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 hover:text-brand-fg transition-colors"
+                className="pressable inline-flex items-center gap-2 rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-muted/60 hover:text-brand-fg transition-colors"
               >
                 <Archive className="w-3.5 h-3.5" />
                 Archived ({archived.length})
@@ -664,6 +760,25 @@ export default function EventsList() {
             void setStatus(ev, 'archived', `“${ev.name}” archived`).then(() => setArchiveTarget(null));
           }}
           onCancel={() => setArchiveTarget(null)}
+        />
+      )}
+      {reopenTarget && (
+        <ConfirmModal
+          title={`Re-open “${reopenTarget.name}”?`}
+          body={
+            <>
+              This event has ended. Re-opening makes it <span className="text-brand-fg">live again</span>: the
+              guest link and QR start working, and guests can post to the wall again. If this is a new
+              occasion, Duplicate it instead — you keep the look and start with an empty wall.
+            </>
+          }
+          confirmLabel="Re-open event"
+          busy={busyId === reopenTarget.id}
+          onConfirm={() => {
+            const ev = reopenTarget;
+            void setStatus(ev, 'live', `“${ev.name}” is live again`).then(() => setReopenTarget(null));
+          }}
+          onCancel={() => setReopenTarget(null)}
         />
       )}
       {/* Permanent delete. Every claim below is one the edge function keeps:

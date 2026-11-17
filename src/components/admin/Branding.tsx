@@ -9,7 +9,7 @@
  * Edits preview live across the studio; "Save" persists them (and realtime
  * pushes them to the booth + wall). Leaving without saving reverts the preview.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Palette, Type, ListOrdered, Image as ImageIcon, Save, Check,
   Upload, Trash2, Plus, RefreshCw, Wallpaper, NotebookPen, Sparkles,
@@ -25,6 +25,25 @@ import { useStore } from '../../store';
 import type { BrandingColors, BrandingOverrides } from '../../types';
 import type { OnboardingStep } from '../../events/types';
 import { TextField, TextArea, ColorField } from './fields';
+import { EVENT_TEMPLATES, accentThemePatch, templateById } from '../../lib/eventTemplates';
+import { deriveTheme, normalizeHex } from '../../lib/themeDerive';
+import { accentHexesFor, followAccentFramePalette } from '../../lib/themeMatch';
+import ColourChooser from '../host/ColourChooser';
+
+/** Platform-only: tuck expert controls behind one disclosure. Legacy events
+ *  (the frozen sites) render the children exactly as before. */
+function Advanced({ enabled, label, children }: { enabled: boolean; label: string; children: ReactNode }) {
+  if (!enabled) return <>{children}</>;
+  return (
+    <details className="group rounded-2xl border border-white/10 animate-rise-in">
+      <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between px-5 font-label uppercase tracking-luxe text-[11px] text-champagne/70 hover:text-gold-300">
+        {label}
+        <span aria-hidden className="transition-transform group-open:rotate-180">▾</span>
+      </summary>
+      <div className="flex flex-col gap-8 p-3 pt-0">{children}</div>
+    </details>
+  );
+}
 
 const COLOR_FIELDS: Array<{ key: keyof BrandingColors; cssVar: string; label: string }> = [
   { key: 'accent', cssVar: '--color-accent', label: 'Accent (Gold)' },
@@ -130,6 +149,9 @@ export default function Branding() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [uploading, setUploading] = useState(false);
+  /** Platform-only visible failures (legacy sites keep the old silent path). */
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [logoError, setLogoError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   // Snapshot of last-saved branding so leaving without saving reverts the preview.
   const savedBrandingRef = useRef<BrandingOverrides>(useStore.getState().branding);
@@ -167,26 +189,109 @@ export default function Branding() {
   const removeStep = (i: number) =>
     setDraft((d) => ({ ...d, onboardingSteps: d.onboardingSteps.filter((_, idx) => idx !== i) }));
 
+  // ── Background template picker (runtime DB events only) ──
+  const isDbEvent = source === 'db' && Boolean(eventUuid);
+
   const handleLogo = async (file: File) => {
     setUploading(true);
+    setLogoError(null);
     const url = await uploadAsset(eventId, file, `logo-${eventId}`);
     setUploading(false);
     if (url) patch({ logoUrl: url });
+    else if (isDbEvent) setLogoError('That logo didn’t upload — try a PNG or SVG under 10 MB, or check your connection.');
   };
 
   const save = async () => {
     setSaving(true);
+    setSaveError(null);
     const o = draftToOverrides(draft);
-    await setBranding(eventId, o);
+    try {
+      // Platform events learn about a failed write; the frozen legacy sites
+      // keep the original fire-and-forget behaviour byte for byte.
+      await setBranding(eventId, o, isDbEvent ? { strict: true } : undefined);
+    } catch {
+      setSaving(false);
+      setSaveError('Couldn’t save — nothing was changed. Check your connection and try again.');
+      return;
+    }
     savedBrandingRef.current = o;
     committedRef.current = true;
+    // Platform only: an accent changed here also leads config.accentHexes,
+    // which the booth accent, send-off confetti and the AI frame read — they
+    // used to keep the create-time template colours. Legacy is untouched.
+    const nextAccent = normalizeHex(o.colors?.accent);
+    if (isDbEvent && eventUuid && nextAccent !== null && normalizeHex(config.accentHexes[0]) !== nextAccent) {
+      const ok = await updateEventConfig(eventUuid, { accentHexes: accentHexesFor(nextAccent, config.accentHexes) });
+      if (ok) await refreshConfig();
+      else setSaveError('Your branding is saved, but frames and confetti may still use your old colour — press Save again.');
+    }
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
 
-  // ── Background template picker (runtime DB events only) ──
-  const isDbEvent = source === 'db' && Boolean(eventUuid);
+  // ── Look (platform only): switch style after create, or build a look from
+  //    one colour. Writes the theme tokens + backdrop to events.config AND the
+  //    branding colours (which win at runtime once any Save has run), so the
+  //    new look shows straight away instead of hiding under stale overrides.
+  //    Which frames/filters are on is left alone (they have their own picker);
+  //    only frames in "match my colour" mode take the new colour.
+  const [lookTemplateId, setLookTemplateId] = useState<string | null>(null);
+  const [lookAccent, setLookAccent] = useState<string | null>(null);
+  const [lookDerived, setLookDerived] = useState(false);
+  const [lookSaving, setLookSaving] = useState(false);
+  const [lookStatus, setLookStatus] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const lookTemplate = templateById(lookTemplateId ?? undefined);
+  const canApplyLook = Boolean(lookTemplate || lookAccent) && !lookSaving;
+
+  const applyLook = async () => {
+    if (!eventUuid || !canApplyLook) return;
+    setLookSaving(true);
+    setLookStatus(null);
+    const current: Record<string, string> = {};
+    for (const { key, cssVar } of COLOR_FIELDS) current[cssVar] = draft.colors[key];
+    const baseVars = lookTemplate ? lookTemplate.themeVars : current;
+    const colourVars = lookAccent ? (lookDerived ? deriveTheme(lookAccent, 'dark') ?? {} : accentThemePatch(lookAccent)) : {};
+    const themeVars = { ...baseVars, ...colourVars };
+    const cfgPatch: Record<string, unknown> = { themeVars };
+    // accentHexes leads with the colour the look now uses (it used to stay
+    // on the create-time template golds whenever only a colour was picked).
+    cfgPatch.accentHexes = accentHexesFor(themeVars['--color-accent'], lookTemplate ? lookTemplate.accentHexes : config.accentHexes);
+    if (lookTemplate) {
+      cfgPatch.background_template = lookTemplate.background;
+    }
+    // Frames in "Match frames to my colour" mode follow the new colour, in the
+    // same `framePalette` shape create writes (themeMatch). A frame palette the
+    // host set to something other than the event colour is left alone.
+    const followFrames = followAccentFramePalette(
+      { arContent: config.arContent },
+      [savedBrandingRef.current.colors?.accent, config.themeVars?.['--color-accent'], draft.colors.accent],
+      themeVars['--color-accent'],
+    );
+    if (followFrames) cfgPatch.arContent = followFrames.arContent;
+    const colors = { ...draft.colors };
+    for (const { key, cssVar } of COLOR_FIELDS) if (themeVars[cssVar]) colors[key] = themeVars[cssVar];
+    const ok = await updateEventConfig(eventUuid, cfgPatch);
+    let brandingOk = ok;
+    if (ok) {
+      try {
+        await setBranding(eventId, { colors }, { strict: true });
+        savedBrandingRef.current = { ...savedBrandingRef.current, colors };
+      } catch {
+        brandingOk = false;
+      }
+      setDraft((d) => ({ ...d, colors }));
+      await refreshConfig();
+    }
+    setLookSaving(false);
+    setLookStatus(
+      !ok
+        ? { tone: 'error', text: 'Couldn’t change the look — nothing was saved. Check your connection and try again.' }
+        : !brandingOk
+          ? { tone: 'error', text: 'The new look is saved, but your custom colours didn’t update — press Save Branding below.' }
+          : { tone: 'ok', text: 'New look applied — your booth and wall use it now.' },
+    );
+  };
   const currentBgId = config.backgroundTemplateId ?? DEFAULT_BACKGROUND_ID;
   const [bgSaving, setBgSaving] = useState<string | null>(null);
 
@@ -253,7 +358,13 @@ export default function Branding() {
         {/* Header */}
         <header className="flex items-center justify-between animate-rise-in">
           <div>
-            <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
+            {/* Platform events: "AR Studio" named a paid add-on most hosts do
+                not have. The frozen legacy sites keep their eyebrow. */}
+            {isDbEvent ? (
+              <p className="font-label uppercase tracking-luxe text-[11px] text-champagne/50 mb-1">Your event</p>
+            ) : (
+              <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
+            )}
             <h1 className="font-serif italic text-3xl text-foil-static">Branding & Identity</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
               Names, onboarding, colours and logo — edits preview live; Save to publish.
@@ -291,6 +402,9 @@ export default function Branding() {
               )}
             </div>
           </div>
+          {logoError !== null && (
+            <p role="alert" className="mt-3 font-sans text-[11px] text-red-300">{logoError}</p>
+          )}
         </section>
 
         {/* Identity copy */}
@@ -381,7 +495,62 @@ export default function Branding() {
           </section>
         )}
 
+        {/* Look (runtime DB events only): change style after create */}
+        {isDbEvent && (
+          <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
+            <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1 flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5" /> Look
+            </h2>
+            <p className="font-sans text-[11px] text-champagne/40 mb-4">
+              Switch to another style, or build a look from one colour. Your frames, filters and words stay as they are.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2" role="group" aria-label="Style">
+              {EVENT_TEMPLATES.map((t) => {
+                const on = t.id === lookTemplateId;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => { setLookStatus(null); setLookTemplateId(on ? null : t.id); }}
+                    className={`flex min-h-[48px] items-center gap-2.5 rounded-xl border px-3 py-2 text-left transition ${
+                      on ? 'border-gold-400/70 glow-accent' : 'border-gold-700/25 hover:border-gold-400/45'
+                    }`}
+                  >
+                    <span className="h-7 w-7 shrink-0 rounded-full" style={{ background: t.swatch }} aria-hidden />
+                    <span className="font-sans text-[12px] text-ivory/90">{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-4">
+              <ColourChooser
+                accent={lookAccent}
+                onAccent={(hex) => { setLookStatus(null); setLookAccent(hex); }}
+                derivedLook={lookDerived}
+                onDerivedLook={(on) => { setLookStatus(null); setLookDerived(on); }}
+              />
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={applyLook}
+                disabled={!canApplyLook}
+                className="min-h-11 px-5 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl glow-accent flex items-center justify-center gap-2 hover:brightness-110 transition-all disabled:opacity-50"
+              >
+                {lookSaving ? 'Applying…' : 'Apply look'}
+              </button>
+              {lookStatus !== null && (
+                <p role="status" className={`font-sans text-[11px] ${lookStatus.tone === 'ok' ? 'text-emerald-300' : 'text-red-300'}`}>
+                  {lookStatus.text}
+                </p>
+              )}
+            </div>
+          </section>
+        )}
+
         {/* Theme colors */}
+        <Advanced enabled={isDbEvent} label="Advanced — every colour">
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-4 flex items-center gap-2">
             <Palette className="w-3.5 h-3.5" /> Theme Colours
@@ -392,6 +561,7 @@ export default function Branding() {
             ))}
           </div>
         </section>
+        </Advanced>
 
         {/* Background template (runtime DB events only) */}
         {isDbEvent && (
@@ -438,6 +608,7 @@ export default function Branding() {
         )}
 
         {/* Onboarding steps */}
+        <Advanced enabled={isDbEvent} label="Advanced — onboarding cards">
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 flex items-center gap-2">
@@ -469,8 +640,12 @@ export default function Branding() {
             ))}
           </div>
         </section>
+        </Advanced>
 
         {/* Save bar */}
+        {saveError !== null && (
+          <p role="alert" className="font-sans text-[11px] text-red-300 -mb-5">{saveError}</p>
+        )}
         <div className="flex items-center gap-3">
           <button onClick={save} disabled={saving}
             className="flex-1 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl py-3 glow-accent flex items-center justify-center gap-2 hover:brightness-110 transition-all disabled:opacity-50">

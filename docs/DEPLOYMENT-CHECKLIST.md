@@ -151,8 +151,8 @@ not a redeploy; an invalid value is ignored and the default stands):
 | `GEMINI_THINKING_CREATE` / `_COPILOT` / `_SCENE` | 0 / 0 / 512 | integer 0..8192 |
 | `GEMINI_TEMPERATURE_CREATE` / `_COPILOT` / `_SCENE` | 0.6 / 0.2 / 0.5 | number 0..2 |
 | `GEMINI_MAX_TOKENS_CREATE` / `_COPILOT` / `_SCENE` | 2048 / 3072 / 4096 | integer 256..8192 (raised automatically to clear the thinking budget) |
-| `GEMINI_MODEL_COPY` / `GEMINI_THINKING_COPY` / `GEMINI_TEMPERATURE_COPY` / `GEMINI_MAX_TOKENS_COPY` (added with Wave A+B) | `gemini-2.5-flash-lite` / 0 / 0.7 / 1024 | same ranges as above — the `copy` mode (four guest lines written once per event) |
-| `GEMINI_MODEL_VALIDATE` | `gemini-2.5-flash-lite` | model id, for `validate-challenge-photo` |
+| `GEMINI_MODEL_COPY` / `GEMINI_THINKING_COPY` / `GEMINI_TEMPERATURE_COPY` / `GEMINI_MAX_TOKENS_COPY` (added with Wave A+B) | `gemini-2.5-flash` / 0 / 0.7 / 1024 (flash-lite until 2026-11-17 — retired for this key, 404) | same ranges as above — the `copy` mode (four guest lines written once per event) |
+| `GEMINI_MODEL_VALIDATE` | `gemini-2.5-flash` (flash-lite until 2026-11-17 — retired for this key; the check fails OPEN, so a dead model silently disables it) | model id, for `validate-challenge-photo` |
 
 Per-attempt timeouts are fixed in code (create/copilot 25s, scene 40s,
 copy 15s, validate 12s) with ONE retry on network/abort/5xx only.
@@ -237,7 +237,7 @@ the concierge-ui work; server-first, order matters).** Live before this wave:
       challenges + 1 card) and `events.config->'brief'` set; then `select id,
       mode, model, error_code from agent_turns where mode = 'copy' order by id
       desc limit 3` → one row per new event with `model =
-      'gemini-2.5-flash-lite'` and `error_code` null, and that event's
+      'gemini-2.5-flash'` and `error_code` null, and that event's
       `config->'copy'->>'generatedAt'` set (go live again → no second copy row);
       a guest photo-check on a validating challenge → `select count(*) from
       challenge_checks` grows by 1 and the Challenges tab shows "1 checked";

@@ -46,7 +46,10 @@ const CONCIERGE_GREETING =
 const CONCIERGE_SUGGESTIONS = [
   "Jenna and Jake's wedding on 2026-09-12",
   'A black-tie charity gala in November',
-  "My mum's 60th — family joins from abroad",
+  // Not a remote/abroad example: remote events need keepsake cards, which a
+  // brand-new (free) event does not include — the chip used to steer hosts
+  // straight into a paywall.
+  "My mum's 60th birthday party in the garden",
 ];
 
 const PLATFORM_GREETING =
@@ -204,9 +207,19 @@ const EXAMPLES_GENERIC = [
   'Make me a 3D crown to wear',
 ];
 
-/** First-time helper prompts (empty thread only) — each prefills the input. */
-export function examplePromptsFor(input: { mode: ChipMode; eventType?: string | null }): string[] {
-  return [...(EXAMPLES_BY_TYPE[input.eventType ?? ''] ?? EXAMPLES_GENERIC)];
+/** Prompts that can only be answered with an AI-generated 3D model → the
+ *  library-prop ask a host without that capability CAN act on. */
+const LIBRARY_PROP_EXAMPLE = 'Add a ready-made 3D prop from the library for guests to wear';
+const GENERATES_3D = /\b3D\b/;
+
+/** First-time helper prompts (empty thread only) — each prefills the input.
+ *  `ai3d: false` (copilotEntitlements) swaps any 3D-generation example for a
+ *  library-prop one, so the very first suggestion is never a paywall. Absent =
+ *  unknown = unchanged (the fail-open rule). */
+export function examplePromptsFor(input: { mode: ChipMode; eventType?: string | null; ai3d?: boolean }): string[] {
+  const base = EXAMPLES_BY_TYPE[input.eventType ?? ''] ?? EXAMPLES_GENERIC;
+  if (input.ai3d !== false) return [...base];
+  return base.map((p) => (GENERATES_3D.test(p) ? LIBRARY_PROP_EXAMPLE : p));
 }
 
 /** The concierge's suggestion chips: today's three plus the deferral. */

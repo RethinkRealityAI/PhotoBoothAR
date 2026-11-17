@@ -11,7 +11,8 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Loader, Wand2 } from 'lucide-react';
-import { generateImage, resolveEventUuid, aiErrorMessage, fetchEventCreditBalance } from '../../lib/ai';
+import { generateImage, resolveEventUuid, aiErrorMessage, fetchEventCreditBalance, countFreeFramesLeft, frameAllowance, FREE_FRAMES_USED_COPY } from '../../lib/ai';
+import { useStudioBase } from '../admin/studioBase';
 import { fetchProviderKeyStatus, type ProviderKeyStatus } from '../../lib/providerKeys';
 import {
   PROVIDER_LABELS, effectiveProvider, higgsfieldReady as isHiggsfieldReady,
@@ -22,7 +23,9 @@ import {
   inferFrameLayout, normalizeLettering, LETTERING_MAX,
   type FrameLayout, type LetteringPlacement, type LetteringStyle,
 } from '../../lib/assetPrompt';
-import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
+import { processGeneratedFrame, runFrameGeneration, takeUsable } from '../../lib/studio/frameProcessing';
+import { rekeyOptions } from '../../lib/studio/frameQuality';
+import GuidedFrameMaker from './GuidedFrameMaker';
 import type { Experience } from '../../types';
 
 /** The five frame archetypes, in the order they escalate: an edge border, a
@@ -197,7 +200,7 @@ export function ProviderSegment({ choice, freeTrial }: { choice: ProviderChoice;
                       ? 'Couldn’t check your Higgsfield connection — Beamwall AI is being used'
                       : 'Checking your Higgsfield connection…'
               }
-              className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors disabled:opacity-40 ${
+              className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[11px] transition-colors disabled:opacity-40 ${
                 active
                   ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
                   : 'text-brand-muted/60 hover:text-brand-fg'
@@ -208,7 +211,7 @@ export function ProviderSegment({ choice, freeTrial }: { choice: ProviderChoice;
           );
         })}
       </div>
-      <p className="text-[9px] text-brand-muted/50 font-sans leading-relaxed">
+      <p className="text-[11px] text-brand-muted/50 font-sans leading-relaxed">
         Higgsfield: {hint}
         {notConnected && (
           <>
@@ -244,6 +247,12 @@ export default function AiFramePanel({
   // Generation whose chroma-key processing failed — held for a FREE retry
   // (the raw green asset is saved server-side; reprocessing costs nothing).
   const [pendingRaw, setPendingRaw] = useState<Experience | null>(null);
+  // Re-keying the SAME image with the SAME key reproduces the same failure;
+  // the one useful retry is a looser key (frameQuality.rekeyOptions), once.
+  const [rekeys, setRekeys] = useState(0);
+  // Frames open on the guided "pick a look" screen; the free-text form is
+  // one tap away. Stickers keep the free-text form.
+  const [mode, setMode] = useState<'guided' | 'describe'>(kind === 'border' ? 'guided' : 'describe');
   // The archetype tracks what the host is TYPING until they touch a chip;
   // after that their choice wins (null = still following the brief).
   const [layoutPick, setLayoutPick] = useState<FrameLayout | null>(null);
@@ -262,13 +271,34 @@ export default function AiFramePanel({
   // Balance of the EVENT's org — the org ai-generate-image actually charges
   // (event.org_id), not the caller's first org membership (they can differ
   // for multi-org members; the old fetchMyOrg() showed the wrong wallet).
+  // Platform mounts only — the frozen legacy studios keep their exact look
+  // (white ink, the plain price) because their themes define no --on-accent.
+  const platform = useStudioBase().startsWith('/host/');
+  // Free AI images left on this event (null = unknown → show the price).
+  const [freeLeft, setFreeLeft] = useState<number | null>(null);
+  // Platform only (legacy studios keep their plain price). `freeTrial` is
+  // "this host has no aiStudio" — the server's upgrade_required condition.
+  const allowance = platform ? frameAllowance(freeLeft, !freeTrial) : null;
+  const outOfFree = allowance === 'upgrade';
+  const upgradeNote = (
+    <p className="text-[12px] text-brand-fg leading-relaxed">
+      {FREE_FRAMES_USED_COPY}{' '}
+      {/* New tab: navigating away in place would unmount the studio. */}
+      <a href="/host/billing" target="_blank" rel="noopener" className="underline text-accent-2 hover:text-accent">See upgrade options</a>
+    </p>
+  );
+
   const refreshBalance = useCallback(async (): Promise<number | null> => {
     const uuid = await resolveEventUuid(eventId, eventUuid);
     if (!uuid) return null;
-    const bal = await fetchEventCreditBalance(uuid);
+    const [bal, free] = await Promise.all([
+      fetchEventCreditBalance(uuid),
+      platform ? countFreeFramesLeft(uuid) : Promise.resolve(null),
+    ]);
     setBalance(bal);
+    setFreeLeft(free);
     return bal;
-  }, [eventId, eventUuid]);
+  }, [eventId, eventUuid, platform]);
 
   // Show the live balance where generation is offered — not only after a spend.
   useEffect(() => { void refreshBalance(); }, [refreshBalance]);
@@ -284,6 +314,50 @@ export default function AiFramePanel({
       // "Name art only" is words with NO frame around them — a single centred
       // subject, which is the sticker path, whatever panel the host is in.
       const genKind = lettering?.placement === 'standalone' ? '2d_filter' : kind;
+      setRekeys(0);
+      if (genKind === 'border') {
+        // Frames: generate → key → quality gate → at most one free retry.
+        const run = await runFrameGeneration({
+          eventUuid: uuid,
+          eventSlug: eventId,
+          opts: {
+            prompt: prompt.trim(),
+            kind: 'border',
+            transparentBackground: false,
+            greenScreen: true,
+            layout,
+            ...providerBody(providerChoice.effective),
+            ...(lettering ? { lettering } : {}),
+          },
+          // A described frame is named "Custom frame", not the raw prompt
+          // (platform; legacy studios keep their names).
+          ...(platform ? { look: '' } : {}),
+        });
+        if (run.error !== null || !run.data) {
+          const code = run.error ?? 'internal';
+          if (code === 'insufficient_credits') {
+            const bal = await refreshBalance();
+            setError(`Not enough credits${bal !== null ? ` — balance: ${bal}` : ''}.`);
+            setShowBillingLink(source === 'db');
+          } else {
+            setError(aiErrorMessage(code));
+            setShowBillingLink(code === 'upgrade_required' && source === 'db');
+          }
+          return;
+        }
+        const best = run.data.takes[0];
+        if (!best || !best.keyed) {
+          setPendingRaw(best?.experience ?? null);
+          setError('Generated, but the background didn’t come away cleanly.');
+          return;
+        }
+        setPendingRaw(null);
+        const fail = best.quality?.reasons.find((r) => r.severity === 'fail');
+        if (!takeUsable(best) && fail) setError(`Placed, but check it: ${fail.message}`);
+        onGenerated(best.experience);
+        refreshBalance();
+        return;
+      }
       const { data, error: err } = await generateImage(uuid, {
         prompt: prompt.trim(),
         kind: genKind,
@@ -291,9 +365,8 @@ export default function AiFramePanel({
         greenScreen: true,
         // Absent for gemini — the default path's body is unchanged.
         ...providerBody(providerChoice.effective),
-        // A sticker has one subject, not a canvas layout — only a frame carries
-        // an archetype (the edge function ignores it for other kinds anyway).
-        ...(genKind === 'border' ? { layout } : {}),
+        // Stickers only reach this path (frames return above), and a sticker
+        // has one subject, not a canvas layout — so no `layout` is sent.
         // Only ever present when the host typed real text — absent keeps the
         // server prompt byte-identical to before this control existed.
         ...(lettering ? { lettering } : {}),
@@ -317,7 +390,7 @@ export default function AiFramePanel({
       const { experience: processed, keyed } = await processGeneratedFrame(data.experience, eventId);
       if (!keyed) {
         setPendingRaw(data.experience);
-        setError('Generated, but transparency processing failed — retry below (no extra credits).');
+        setError('Generated, but the background didn’t come away cleanly.');
         return;
       }
       setPendingRaw(null);
@@ -328,15 +401,22 @@ export default function AiFramePanel({
     }
   };
 
-  // Free retry: re-run chroma-key on the already-saved raw generation.
+  // Free retry: re-key the already-saved raw generation ONCE with a looser
+  // key. Re-running the identical key could only reproduce the same miss.
   const retryProcessing = async () => {
-    if (!pendingRaw || loading) return;
+    const keyOpts = rekeyOptions(rekeys);
+    if (!pendingRaw || loading || !keyOpts) return;
     setLoading(true);
     setError('');
+    setRekeys((n) => n + 1);
     try {
-      const { experience: processed, keyed } = await processGeneratedFrame(pendingRaw, eventId);
+      const { experience: processed, keyed } = await processGeneratedFrame(pendingRaw, eventId, {}, {
+        keyOpts,
+        ...(kind === 'border' ? { layout } : {}),
+      });
       if (!keyed) {
-        setError('Transparency processing failed again — the raw image is in your Library.');
+        setPendingRaw(null);
+        setError('Still not clean — the raw image is in your Library. Generating again usually fixes it.');
         return;
       }
       setPendingRaw(null);
@@ -346,14 +426,50 @@ export default function AiFramePanel({
     }
   };
 
+  if (kind === 'border' && mode === 'guided') {
+    return (
+      <div className="rounded-xl border border-accent/20 bg-accent/[0.05] p-3.5 flex flex-col gap-3">
+        <p className="font-label uppercase tracking-widest text-[11px] text-accent-2 flex items-center gap-1.5">
+          <Wand2 className="w-3.5 h-3.5" aria-hidden="true" /> AI frame
+        </p>
+        {freeTrial && (outOfFree ? upgradeNote : (
+          <p className="text-[11px] text-accent-2/90 leading-relaxed">Your first 3 AI generations are on us.</p>
+        ))}
+        <ProviderSegment choice={providerChoice} freeTrial={freeTrial} />
+        <GuidedFrameMaker
+          eventUuid={eventUuid}
+          eventSlug={eventId}
+          freeTrial={freeTrial}
+          providerChoice={providerChoice}
+          onUse={onGenerated}
+          useLabel="Add to my scene"
+          onDescribeYourself={() => setMode('describe')}
+          onSpent={() => void refreshBalance()}
+        />
+        {balance !== null && (
+          <p className="text-[11px] text-brand-muted font-sans">{balance} credit{balance === 1 ? '' : 's'} left · every frame is saved to your Library</p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border border-accent/20 bg-accent/[0.05] p-3.5 flex flex-col gap-2.5">
-      <p className="font-label uppercase tracking-widest text-[9px] text-accent-2 flex items-center gap-1.5">
+      <p className="font-label uppercase tracking-widest text-[11px] text-accent-2 flex items-center gap-1.5">
         <Wand2 className="w-3 h-3" /> {kind === 'border' ? 'AI generate frame' : 'AI generate sticker'}
       </p>
-      {freeTrial && (
-        <p className="text-[9px] text-accent-2/80 leading-relaxed">Your first 3 AI generations are on us — upgrade for unlimited AI Studio.</p>
+      {kind === 'border' && (
+        <button
+          type="button"
+          onClick={() => setMode('guided')}
+          className="pressable self-start min-h-[44px] rounded-full border border-white/15 bg-white/[0.04] px-4 font-sans text-[12px] text-brand-fg hover:bg-white/[0.08]"
+        >
+          ← Back to looks
+        </button>
       )}
+      {freeTrial && (outOfFree ? upgradeNote : (
+        <p className="text-[11px] text-accent-2/80 leading-relaxed">Your first 3 AI generations are on us — upgrade for unlimited AI Studio.</p>
+      ))}
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
@@ -371,7 +487,7 @@ export default function AiFramePanel({
                 type="button"
                 onClick={() => setLayoutPick(id)}
                 aria-pressed={active}
-                className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors ${
+                className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[11px] transition-colors ${
                   active
                     ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
                     : 'text-brand-muted/60 hover:text-brand-fg'
@@ -389,7 +505,7 @@ export default function AiFramePanel({
             type="button"
             onClick={() => setLetteringOpen((o) => !o)}
             aria-pressed={letteringOpen}
-            className={`pressable liquid-glass self-start rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors ${
+            className={`pressable liquid-glass self-start rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[11px] transition-colors ${
               letteringOpen
                 ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
                 : 'text-brand-muted/60 hover:text-brand-fg'
@@ -415,7 +531,7 @@ export default function AiFramePanel({
                       type="button"
                       onClick={() => setLetteringStyle(id)}
                       aria-pressed={active}
-                      className={`pressable liquid-glass flex items-center gap-1.5 rounded-full pl-1 pr-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors ${
+                      className={`pressable liquid-glass flex items-center gap-1.5 rounded-full pl-1 pr-2.5 py-1 font-label uppercase tracking-widest text-[11px] transition-colors ${
                         active
                           ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
                           : 'text-brand-muted/60 hover:text-brand-fg'
@@ -443,7 +559,7 @@ export default function AiFramePanel({
                       type="button"
                       onClick={() => setLetteringPlacement(id)}
                       aria-pressed={active}
-                      className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[9px] transition-colors ${
+                      className={`pressable liquid-glass rounded-full px-2.5 py-1 font-label uppercase tracking-widest text-[11px] transition-colors ${
                         active
                           ? 'bg-accent/20 ring-1 ring-accent/40 text-brand-fg'
                           : 'text-brand-muted/60 hover:text-brand-fg'
@@ -454,7 +570,7 @@ export default function AiFramePanel({
                   );
                 })}
               </div>
-              <p className="text-[9px] text-brand-muted/40 font-sans leading-relaxed">
+              <p className="text-[11px] text-brand-muted/40 font-sans leading-relaxed">
                 Up to {LETTERING_MAX} characters spells reliably. “Name art only” drops the frame and generates the words alone.
               </p>
             </div>
@@ -462,34 +578,38 @@ export default function AiFramePanel({
         </div>
       )}
       {error && (
-        <p className="text-rose-400 text-[10px]">
+        <p className="text-rose-400 text-[11px]">
           {error}
           {showBillingLink && (
             <> <a href="/host/billing" className="underline text-accent-2 hover:text-accent">Open billing</a></>
           )}
-          {pendingRaw && (
+          {pendingRaw && rekeyOptions(rekeys) !== null && (
             <>
               {' '}
               <button onClick={retryProcessing} disabled={loading} className="underline text-accent-2 hover:text-accent disabled:opacity-50">
-                Retry processing
+                Clean it up (free)
               </button>
             </>
           )}
         </p>
       )}
       <ProviderSegment choice={providerChoice} freeTrial={freeTrial} />
-      <button
+      {/* Out of free frames without aiStudio, the server answers
+          upgrade_required — so there is no Generate to press, only the way on. */}
+      {!outOfFree && <button
         onClick={generate}
         disabled={loading || !prompt.trim()}
-        className="flex items-center justify-center gap-1.5 py-2 bg-foil text-white rounded-xl font-bold text-[10px] font-label uppercase tracking-widest disabled:opacity-40 glow-accent transition active:scale-[0.98]"
+        className={`flex items-center justify-center gap-1.5 py-2 min-h-[44px] bg-foil ${platform ? 'text-[color:var(--on-accent)]' : 'text-white'} rounded-xl font-bold text-[11px] font-label uppercase tracking-widest disabled:opacity-40 glow-accent transition active:scale-[0.98]`}
       >
         {loading ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-        {loading ? 'Generating…' : `Generate · ${providerCostLabel(providerChoice.effective, providerChoice.status)}`}
-      </button>
+        {loading
+          ? 'Generating…'
+          : `Generate · ${allowance === 'free' ? 'free' : allowance === 'trial' ? 'first 3 free' : providerCostLabel(providerChoice.effective, providerChoice.status)}`}
+      </button>}
       {balance !== null && (
-        <p className="text-[9px] text-brand-muted/50 font-sans">{balance} credit{balance === 1 ? '' : 's'} left · saved to your Library as a draft</p>
+        <p className="text-[11px] text-brand-muted/50 font-sans">{balance} credit{balance === 1 ? '' : 's'} left · saved to your Library as a draft</p>
       )}
-      <p className="text-[9px] text-brand-muted/40 font-sans leading-relaxed">
+      <p className="text-[11px] text-brand-muted/40 font-sans leading-relaxed">
         Tip: avoid pure-green art — a green screen is keyed out for transparency, so near-#00FF00 elements disappear.
       </p>
     </div>

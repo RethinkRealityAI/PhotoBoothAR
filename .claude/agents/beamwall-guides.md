@@ -218,3 +218,29 @@ placeholder, never a 404 video.
   host edits survive. The 12 studio-editor markers are still all editor spots,
   so no re-shoot. Sweep ran on :5184 (shared tree; a concierge follow-up was
   landing in NewEvent/CopilotChat mid-run — lint stayed 0 anyway).
+- 2026-11-16 — Studio became an ADD-ON (branch `claude/studio-addon-gate`,
+  flag `studio`, migration 039 written NOT applied). The Experiences tab is
+  now "Frames & filters" (still route `library`, still StudioTabKey
+  `experiences` — never rename the key, guidesDrift keys on it). Studio and
+  Assets tabs exist only when `studio` resolves true, so the drift fixture
+  `TOP_TIER` is `{ ...ENTITLEMENTS.deluxe, studio: true }` — the highest
+  PLAN no longer shows every tab, the add-on does. Copy rules that fell out:
+  the AI frame maker lives in Frames & filters for every host (the old
+  "Assets tab is the AI frame maker" sentence was wrong); file UPLOAD is
+  Studio-only (import-by-link is not); the two Studio guides carry the
+  eyebrow "Studio add-on" and sit LAST in GUIDE_ORDER, the no-design path
+  first. GUIDE_COUNTS.studioTabs stays 8 — it counts the full set. Sweep:
+  `PW_CHROME=/opt/pw-browsers/chromium-1243/chrome-linux64/chrome` — the
+  script's default chromium-1194 path no longer exists in this sandbox.
+- 2026-11-17 — Beta polish (branch `claude/beta-polish`). Copy-only again;
+  drift test green throughout. first-event is now SIX steps with an explicit
+  "Pick your frames & filters" step (the picker the create screen ends on and
+  the top of the Frames & filters tab) and "Fill in manually" for the no-AI
+  route. "Test on phone" is a STUDIO control (StudioStage) — the no-Studio
+  test is the checklist's "Take a test photo" or scanning your own QR, and a
+  draft only opens for a signed-in member, so the copy says sign in on that
+  phone. make-a-frame's AI step now describes the GUIDED maker (Pick a look ·
+  Colours · Add the event name · Generate · Use as booth frame · Describe it
+  yourself) — labels read from GuidedFrameMaker/FrameStudio JSX. The Generate
+  button now reads "free" while the event has free frames left. Sweep CLEAN
+  on :5192 (`node scripts/shoot-guides.mjs sweep http://localhost:5192`).

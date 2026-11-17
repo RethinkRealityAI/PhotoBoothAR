@@ -711,6 +711,9 @@ export default function InteractiveShowcase() {
             <QRCodeSVG
               value={typeof window !== 'undefined' ? `${window.location.origin}${beamPagePath(beamChannelId)}` : ''}
               size={92}
+              title="QR code: scan with your phone to beam a photo onto this demo wall"
+              role="img"
+              aria-label="QR code: scan with your phone to beam a photo onto this demo wall"
               bgColor="#FFFFFF"
               fgColor="#05060B"
             />

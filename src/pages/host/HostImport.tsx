@@ -30,6 +30,7 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import { Check, Download, ExternalLink, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { fetchMyEvents, type HostEventRow } from '../../lib/host';
+import { fetchStudioAccess } from '../../components/admin/studioAccess';
 import { FRAME_LAYOUT_SPEC, type FrameLayout } from '../../lib/assetPrompt';
 import type { Experience } from '../../types';
 
@@ -171,7 +172,9 @@ export default function HostImport() {
   const [selected, setSelected] = useState<string>(''); // event uuid
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ event: HostEventRow; name: string } | null>(null);
+  /** `studio`: the event's host has the Studio add-on — decides whether the
+   *  success screen offers the Studio or the Frames & filters picker. */
+  const [done, setDone] = useState<{ event: HostEventRow; name: string; studio: boolean } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -218,7 +221,9 @@ export default function HostImport() {
     // the host asked for, and then to the server's own default.
     const rowName = typeof res.experience.name === 'string' ? res.experience.name.trim() : '';
     const label = rowName !== '' ? rowName : nameParam !== '' ? nameParam : 'Imported asset';
-    setDone({ event: target, name: label });
+    // Fails open (studio: true) on any read error — see studioAccess.ts.
+    const access = await fetchStudioAccess(target.slug);
+    setDone({ event: target, name: label, studio: access.studio });
   };
 
   return (
@@ -241,16 +246,19 @@ export default function HostImport() {
           <div>
             <h2 className="font-serif text-2xl text-brand-fg">Added to {done.event.name}</h2>
             <p className="mt-1.5 font-sans text-xs text-brand-muted/60 leading-relaxed max-w-sm mx-auto">
-              “{done.name}” is in that event’s library as a draft — open the studio to place it and publish
-              it to your booth.
+              {done.studio
+                ? <>“{done.name}” is in that event’s library as a draft — open the studio to place it and publish
+                  it to your booth.</>
+                : <>“{done.name}” is in that event’s Frames &amp; filters, switched off — open it there and
+                  turn it on for guests.</>}
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
             <Link
-              to={`/host/events/${done.event.id}/studio`}
+              to={done.studio ? `/host/events/${done.event.id}/studio` : `/host/events/${done.event.id}/library`}
               className="pressable flex items-center gap-2 rounded-full bg-foil px-6 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition"
             >
-              Open in Studio <ExternalLink className="w-3.5 h-3.5 opacity-70" />
+              {done.studio ? 'Open in Studio' : 'Open frames & filters'} <ExternalLink className="w-3.5 h-3.5 opacity-70" />
             </Link>
             <button
               onClick={() => { setDone(null); setError(null); }}

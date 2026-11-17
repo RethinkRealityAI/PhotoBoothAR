@@ -28,6 +28,7 @@ import {
   type CopyPromptInput,
 } from '../../supabase/functions/ai-event-designer/prompt.ts';
 import { TOOL_NAMES } from '../../supabase/functions/ai-event-designer/tools.generated.ts';
+import { LOCKED_CODE, entitlementContextLine } from './copilotEntitlements';
 
 const headings = (prompt: string): string[] =>
   prompt.split('\n').filter((l) => /^# /.test(l)).map((l) => l.slice(2));
@@ -96,6 +97,26 @@ describe('copilot prompt', () => {
         expect(sectionBody(prompt, 'Tool failures')).toContain(`code=${code}`);
       }
       expect(sectionBody(prompt, 'Tool failures')).toContain('contact_support');
+    });
+
+    it(`[${surface}] never re-offers a plan-locked tool and treats PLAN LIMITS as binding`, () => {
+      const failures = sectionBody(prompt, 'Tool failures');
+      const rule = failures.split('\n').find((l) => l.startsWith('code=upgrade_required'));
+      expect(rule).toBeDefined();
+      expect(rule).toContain('never propose it again');
+      expect(rule).toContain('add_head_piece source "builtin"');
+      expect(rule).toContain('generate_frame while the event\'s 3 free frames last');
+      const guard = sectionBody(prompt, 'Guardrails');
+      const limits = guard.split('\n').find((l) => l.includes('PLAN LIMITS'));
+      expect(limits).toBeDefined();
+      for (const s of ['AI-generated 3D props', 'the Scene Director', 'paid AI beyond the stated free allowance', 'library looks', 'guided AI frame']) {
+        expect(limits).toContain(s);
+      }
+      // The client's [tool_result] code and snapshot line are the exact strings this rule keys on.
+      expect(LOCKED_CODE).toBe('upgrade_required');
+      expect(entitlementContextLine({ studio: false, ai3d: false, aiFrames: false, video: true })).toMatch(/^PLAN LIMITS:/);
+      // Static, so it sits in the cached prefix — before the mutable event fence.
+      expect(prompt.indexOf('code=upgrade_required')).toBeLessThan(prompt.indexOf('--- CURRENT EVENT'));
     });
 
     it(`[${surface}] consolidates the credit rules under # Guardrails`, () => {

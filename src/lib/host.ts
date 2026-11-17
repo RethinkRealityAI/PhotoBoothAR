@@ -8,8 +8,9 @@
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import type { ListResult } from './db';
+import { setWallSettings, type ListResult } from './db';
 import { sha256Hex } from './hash';
+import { openingLookStores, type OpeningLookResult, type OpeningLookTarget } from './openingLook';
 import { mapBytesToChars, TOKEN_ALPHABET, TOKEN_LENGTH } from './token';
 
 /* ------------------------------------------------------------------ */
@@ -503,6 +504,41 @@ export async function updateEventConfig(
 }
 
 /**
+ * Set the look the booth opens with — the ONE writer (copilot pin, "Use as
+ * booth frame", the looks picker, Settings "Booth default"). Writes the same
+ * id to every store the event has (openingLook.openingLookStores: config then
+ * wall on a platform event, wall only on a coded legacy one), so the booth's
+ * `wall ?? config` read can never be overruled by a store a writer skipped.
+ * `configPatch` rides the SAME events.config write (a looks save's arContent).
+ * `null` clears the opening look in every store.
+ *
+ * HANDLED FAILURES: a refused config write stops before the wall is touched
+ * (nothing changed); a refused or unreadable wall write after config landed is
+ * reported as `failed: 'wall'` — never a silent half-apply. Both writes are
+ * idempotent, so the host's retry converges.
+ */
+export async function setOpeningLook(
+  target: OpeningLookTarget,
+  experienceId: string | null,
+  configPatch: Record<string, unknown> = {},
+): Promise<OpeningLookResult> {
+  for (const store of openingLookStores(target)) {
+    if (store === 'config') {
+      const ok = await updateEventConfig(target.eventUuid as string, { ...configPatch, defaultExperienceId: experienceId });
+      if (!ok) return { ok: false, failed: 'config' };
+    } else {
+      try {
+        await setWallSettings(target.slug, { defaultExperienceId: experienceId }, { strict: true });
+      } catch (e) {
+        console.error('[host] setOpeningLook (wall)', e);
+        return { ok: false, failed: 'wall' };
+      }
+    }
+  }
+  return { ok: true, failed: null };
+}
+
+/**
  * Take an event live — the ONE path every go-live button uses (copilot,
  * dashboard, wizard, events list, concierge). After a successful flip the
  * guest copy is generated once, fire-and-forget: `generateEventCopy` is
@@ -591,7 +627,182 @@ export async function updateEventName(eventUuid: string, name: string): Promise<
     console.error('[host] updateEventName', error);
     return false;
   }
-  return (data?.length ?? 0) > 0;
+  const renamed = (data?.length ?? 0) > 0;
+  // Screens that hold the name in their own state (EventStudio's header) keep
+  // showing the OLD name until a reload otherwise — Settings and the copilot
+  // both rename through here, so one notice covers them.
+  if (renamed && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(EVENT_RENAMED, { detail: { id: eventUuid, name: trimmed } }));
+  }
+  return renamed;
+}
+
+/** window event fired after a successful rename: detail `{ id, name }`. */
+export const EVENT_RENAMED = 'beamwall:event-renamed';
+
+/* ------------------------------------------------------------------ */
+/* Event details (name · date · venue) — every store, one helper       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * An event's name lives in THREE places the guest app reads: `events.name`
+ * (lists, the copilot), `events.config.copy.eventName/fullName` (+ legacy
+ * `config.name` when present — runtime.ts prefers it over the row), and the
+ * Branding overrides in app_settings (which win over both at runtime when the
+ * host has set them). PURE mapping: given the current config + branding and
+ * the new details, the patches that put them everywhere. `brandingPatch` is
+ * null when Branding never overrode a name (writing one would CREATE an
+ * override that pins today's spelling forever). `venue: ''` clears it.
+ */
+export function eventDetailsPatches(
+  config: Record<string, unknown> | null | undefined,
+  branding: { eventName?: string; fullName?: string } | null | undefined,
+  details: { name: string; venue?: string },
+): { configPatch: Record<string, unknown>; brandingPatch: { eventName?: string; fullName?: string } | null } {
+  const name = details.name.trim();
+  const cfg = config ?? {};
+  const copy = { ...((cfg.copy && typeof cfg.copy === 'object' ? cfg.copy : {}) as Record<string, unknown>) };
+  copy.eventName = name;
+  copy.fullName = name;
+  if (details.venue !== undefined) {
+    const venue = details.venue.trim().slice(0, 120);
+    if (venue) copy.venue = venue;
+    else delete copy.venue;
+  }
+  const configPatch: Record<string, unknown> = { copy };
+  if (typeof cfg.name === 'string') configPatch.name = name;
+  const b = branding ?? {};
+  const brandingPatch: { eventName?: string; fullName?: string } = {};
+  if (typeof b.eventName === 'string' && b.eventName.trim() !== '') brandingPatch.eventName = name;
+  if (typeof b.fullName === 'string' && b.fullName.trim() !== '') brandingPatch.fullName = name;
+  return { configPatch, brandingPatch: Object.keys(brandingPatch).length > 0 ? brandingPatch : null };
+}
+
+export interface EventDetailsResult {
+  ok: boolean;
+  /** The stores that did NOT take the write, in the host's words. */
+  failed: Array<'name' | 'date' | 'details' | 'branding'>;
+}
+
+/** The editable details as the Settings card shows them: `date` is the
+ *  LOCAL YYYY-MM-DD of `starts_at` (the inverse of updateEventDate's
+ *  `${date}T00:00:00` local parse), '' when unset. Null on a failed read. */
+export interface EventDetails {
+  name: string;
+  date: string;
+  venue: string;
+}
+
+function localDateInput(iso: string | null | undefined): string {
+  if (iso === null || iso === undefined || iso === '') return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+export async function fetchEventDetails(eventUuid: string): Promise<EventDetails | null> {
+  const { data, error } = await supabase
+    .from('events')
+    .select('name, starts_at, config')
+    .eq('id', eventUuid)
+    .maybeSingle();
+  if (error || !data) {
+    if (error) console.error('[host] fetchEventDetails', error);
+    return null;
+  }
+  const cfg = (data.config ?? {}) as Record<string, unknown>;
+  const copy = (cfg.copy && typeof cfg.copy === 'object' ? cfg.copy : {}) as Record<string, unknown>;
+  return {
+    name: (data.name as string | null) ?? '',
+    date: localDateInput(data.starts_at as string | null),
+    venue: typeof copy.venue === 'string' ? copy.venue : '',
+  };
+}
+
+/**
+ * Save name · date · venue to every store in one call (the Settings "Event
+ * details" card). Each write is checked; the result names what failed so the
+ * screen can say exactly that instead of a blanket "Saved". The config is
+ * re-read here, immediately before the patch is built, because `copy` is
+ * replaced WHOLESALE by updateEventConfig's shallow merge — a config held by
+ * the screen since mount would revert any copy edit made in the meantime.
+ */
+export async function saveEventDetails(
+  ev: { id: string; slug: string },
+  details: { name: string; date: string; venue: string },
+  current: { name: string; date: string },
+): Promise<EventDetailsResult> {
+  const failed: EventDetailsResult['failed'] = [];
+  const name = details.name.trim();
+  if (!name) return { ok: false, failed: ['name'] };
+  const { data: row, error: readError } = await supabase
+    .from('events')
+    .select('config')
+    .eq('id', ev.id)
+    .maybeSingle();
+  if (readError || !row) return { ok: false, failed: ['details'] };
+  const { getBranding, setBranding } = await import('./db');
+  const branding = await getBranding(ev.slug);
+  const { configPatch, brandingPatch } = eventDetailsPatches(
+    (row.config ?? {}) as Record<string, unknown>,
+    branding,
+    { name, venue: details.venue },
+  );
+  if (name !== current.name.trim() && !(await updateEventName(ev.id, name))) failed.push('name');
+  if (details.date !== current.date && !(await updateEventDate(ev.id, details.date))) failed.push('date');
+  if (!(await updateEventConfig(ev.id, configPatch))) failed.push('details');
+  if (brandingPatch) {
+    try {
+      await setBranding(ev.slug, brandingPatch, { strict: true });
+    } catch {
+      failed.push('branding');
+    }
+  }
+  return { ok: failed.length === 0, failed };
+}
+
+export interface DuplicateEventResult {
+  event: HostEventRow | null;
+  error: CreateEventError | null;
+  /** The new event exists but its look/branding did not copy over. */
+  partial: boolean;
+}
+
+/**
+ * "Duplicate event": a NEW event through the same create-event path as the
+ * wizard (fresh slug, `<slug>-copy` then -copy-2 …), then the original's
+ * config (cloneEventConfig — look, frames, filters, copy, brief; never posts,
+ * cards or the poster) and its Branding overrides. Posts and cards key on the
+ * slug, so a fresh slug guarantees none of them come along.
+ */
+export async function duplicateEvent(src: HostEventRow): Promise<DuplicateEventResult> {
+  const { cloneEventConfig, duplicateName, duplicateSlugCandidates } = await import('./eventList');
+  const name = duplicateName(src.name);
+  let created: CreateEventResult | null = null;
+  for (const slug of duplicateSlugCandidates(src.slug)) {
+    created = await createEvent({
+      eventName: name,
+      slug,
+      eventType: src.event_type,
+      ...(src.starts_at ? { startsAt: src.starts_at } : {}),
+    });
+    if (created.error !== 'slug_taken' && created.error !== 'reserved_slug') break;
+  }
+  if (!created || !created.event) return { event: null, error: created?.error ?? 'internal', partial: false };
+  const ev = created.event;
+  let partial = !(await updateEventConfig(ev.id, cloneEventConfig(src.config, name)));
+  try {
+    const { getBranding, setBranding } = await import('./db');
+    const b = await getBranding(src.slug);
+    if (Object.keys(b).length > 0) {
+      const renamed = { ...b, ...(b.eventName ? { eventName: name } : {}), ...(b.fullName ? { fullName: name } : {}) };
+      await setBranding(ev.slug, renamed, { strict: true });
+    }
+  } catch {
+    partial = true;
+  }
+  return { event: ev, error: null, partial };
 }
 
 export type DeleteEventError =

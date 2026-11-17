@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_LANDING_CONTENT,
@@ -190,6 +192,28 @@ describe('normalizeLandingContent — total function', () => {
     const once = normalizeLandingContent({ hero: { badge: 'B' }, faqs: [{ q: 'q', a: 'a' }] });
     const twice = normalizeLandingContent(JSON.parse(JSON.stringify(once)));
     expect(twice).toEqual(once);
+  });
+});
+
+describe('index.html FAQPage JSON-LD mirrors the default FAQs', () => {
+  // The JSON-LD is hand-written static HTML (crawlers don't run the app), so it
+  // drifted from the rendered FAQ once already. Apostrophes are normalised
+  // because the page uses ’ while the JSON-LD uses a plain '.
+  const html = readFileSync(join(__dirname, '..', '..', 'index.html'), 'utf8');
+  const ld = html.slice(html.indexOf('"FAQPage"'));
+  const plain = (s: string) => s.replace(/[’‘]/g, "'");
+
+  it('every default FAQ question and answer appears in it', () => {
+    expect(ld.length).toBeGreaterThan(0);
+    for (const f of DEFAULT_LANDING_CONTENT.faqs) {
+      expect(ld, f.q).toContain(`"name": "${plain(f.q)}"`);
+      expect(ld, f.q).toContain(`"text": "${plain(f.a)}"`);
+    }
+  });
+
+  it('it lists no question the page does not show', () => {
+    const names = [...ld.matchAll(/"@type": "Question", "name": "([^"]+)"/g)].map((m) => m[1]);
+    expect(names.sort()).toEqual(DEFAULT_LANDING_CONTENT.faqs.map((f) => plain(f.q)).sort());
   });
 });
 

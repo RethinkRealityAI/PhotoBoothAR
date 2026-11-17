@@ -8,7 +8,9 @@ import {
   needsChromaKey,
   hasGenuineAlpha,
   bytesLookAlpha,
+  refineKeyedEdges,
   DEFAULT_KEY,
+  GREEN_LEAD_RAMP,
   FRAME_W,
   FRAME_H,
   MIN_KEYED_FRACTION,
@@ -99,6 +101,63 @@ describe('keyOutColor', () => {
     const img = solid(1, 1, [0, 200, 150, 128]);
     const out = keyOutColor(img);
     expect(px(out, 0, 0)).toEqual([0, 200, 150, 128]);
+  });
+});
+
+/**
+ * DARK/NEUTRAL ART UNDER A DESATURATED KEY (live 2026-11-17 "ghost" frame).
+ * Gemini painted the backdrop sage (108,161,85) instead of #00FF00; detection
+ * correctly keyed THAT colour — but its chroma sits only ~35 units from
+ * neutral, inside the 40-unit tolerance, so chroma-only distance keyed every
+ * near-neutral pixel of the art too (ink navy, black, cream): the whole
+ * border shipped at alpha 6–40. A pixel whose green does not lead red AND
+ * blue is never backdrop, whatever its chroma distance.
+ */
+describe('desaturated key: neutral and dark art survive', () => {
+  const SAGE: [number, number, number] = [108, 161, 85];
+  const art: [number, number, number][] = [
+    [32, 32, 64],    // ink navy
+    [20, 20, 24],    // near-black
+    [0, 0, 0],       // black
+    [224, 224, 196], // cream
+    [160, 128, 64],  // antique gold
+    [64, 40, 40],    // dark brown
+    [70, 70, 70],    // charcoal
+  ];
+  for (const opts of [{}, { tolerance: 58, softness: 30 }]) {
+    it(`keeps every art colour opaque (${JSON.stringify(opts)})`, () => {
+      for (const c of art) {
+        const out = keyOutColor(solid(2, 2, [...c, 255]), { key: SAGE, ...opts });
+        expect(px(out, 0, 0)[3], `rgb(${c.join(',')})`).toBe(255);
+      }
+    });
+  }
+
+  it('still keys the sage backdrop itself and its shading', () => {
+    for (const c of [SAGE, [96, 160, 64], [118, 170, 95], [80, 140, 60]] as [number, number, number][]) {
+      const out = keyOutColor(solid(2, 2, [...c, 255]), { key: SAGE });
+      expect(px(out, 0, 0)[3], `rgb(${c.join(',')})`).toBe(0);
+    }
+  });
+
+  it('is a no-op for the pure-green key: every pixel the guard could act on was already kept', () => {
+    // The guard only acts below GREEN_LEAD_RAMP of green lead; for #00FF00
+    // every such colour is already outside tolerance+softness in chroma, so
+    // pure-green keying is byte-identical. Exhaustive over a 5-step RGB grid,
+    // at the default AND the re-key settings. (A darker detected key such as
+    // (0,177,64) DID reach black under the re-key — alpha 218 — so there the
+    // guard is a deliberate change.)
+    const chroma = (r: number, g: number, b: number) => [
+      -0.168736 * r - 0.331264 * g + 0.5 * b,
+      0.5 * r - 0.418688 * g - 0.081312 * b,
+    ];
+    const [kcb, kcr] = chroma(...DEFAULT_KEY);
+    for (let r = 0; r <= 255; r += 5) for (let g = 0; g <= 255; g += 5) for (let b = 0; b <= 255; b += 5) {
+      if (g - Math.max(r, b) >= GREEN_LEAD_RAMP) continue; // the guard never touches these
+      const [cb, cr] = chroma(r, g, b);
+      const dist = Math.hypot(cb - kcb, cr - kcr);
+      if (dist < 58 + 30) throw new Error(`#00FF00 reaches rgb(${r},${g},${b}) at chroma ${dist.toFixed(1)}`);
+    }
   });
 });
 
@@ -445,5 +504,53 @@ describe('bytesLookAlpha', () => {
 
     expect(bytesLookAlpha(new Uint8Array(25))).toBe(false); // truncated
     expect(bytesLookAlpha(new Uint8Array(0))).toBe(false);
+  });
+});
+
+describe('refineEdges (opt-in) / refineKeyedEdges', () => {
+  /** 8×8 green with a 4×4 olive-fringed gold block in the middle. */
+  function framed(): RgbaImage {
+    const img = solid(8, 8, GREEN);
+    for (let y = 2; y < 6; y++) {
+      for (let x = 2; x < 6; x++) {
+        const i = (y * 8 + x) * 4;
+        const rim = x === 2 || x === 5 || y === 2 || y === 5;
+        // The rim carries green spill (g > r,b) but is far enough from the key to be kept.
+        img.data.set(rim ? [150, 190, 60, 255] : [212, 175, 55, 255], i);
+      }
+    }
+    return img;
+  }
+
+  it('absent → byte-identical to the historical output (the guide pack depends on it)', () => {
+    const img = framed();
+    const a = keyOutColorWithStats(img);
+    const b = keyOutColorWithStats(img, { refineEdges: false });
+    expect(Array.from(b.image.data)).toEqual(Array.from(a.image.data));
+    expect(Array.from(processFrameImage(img, 8, 8).image.data))
+      .toEqual(Array.from(processFrameImage(img, 8, 8, { refineEdges: undefined }).image.data));
+  });
+
+  it('halves the alpha of the 1px rim touching the backdrop and despills it', () => {
+    const plain = keyOutColorWithStats(framed());
+    const refined = keyOutColorWithStats(framed(), { refineEdges: true });
+    const [r, g, b, a] = px(refined.image, 2, 3);
+    expect(px(plain.image, 2, 3)[3]).toBe(255);
+    expect(a).toBe(128);
+    expect(g).toBeLessThanOrEqual(Math.max(r, b));
+  });
+
+  it('leaves the interior untouched and keyedFraction unchanged', () => {
+    const plain = keyOutColorWithStats(framed());
+    const refined = keyOutColorWithStats(framed(), { refineEdges: true });
+    expect(px(refined.image, 3, 3)).toEqual(px(plain.image, 3, 3));
+    expect(refined.keyedFraction).toBe(plain.keyedFraction);
+  });
+
+  it('never mutates its input', () => {
+    const keyed = keyOutColor(framed());
+    const copy = Array.from(keyed.data);
+    refineKeyedEdges(keyed);
+    expect(Array.from(keyed.data)).toEqual(copy);
   });
 });
