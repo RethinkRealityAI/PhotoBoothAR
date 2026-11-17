@@ -547,7 +547,7 @@ export function FaceRig({
     <group ref={head} visible={false}>
       {/* Depth-only head: a sibling of the asset (NOT inside the gizmo) so the
           real head occludes props regardless of the prop's placement. */}
-      {occlude && <FaceOccluder scale={headScale} debug={debugOcclusion} />}
+      {occlude && <FaceOccluder scale={headScale} debug={debugOcclusion} live mirror={mirror} />}
       <AssetGizmo
         base={base}
         config={config ?? {}}
