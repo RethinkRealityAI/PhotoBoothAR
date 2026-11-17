@@ -36,7 +36,7 @@ import { useStudioBase } from './studioBase';
 import { useStudioAccess } from './studioAccess';
 import type { Experience, PresetOverrides } from '../../types';
 import { copyText } from '../../lib/clipboard';
-import { frameSuggestion, isListed, recommendedFor } from '../../lib/libraryMatch';
+import { frameSuggestion, isListed, isThumbnailSrc } from '../../lib/libraryMatch';
 
 // Platform-only, and it pulls in the AI client — lazy so the legacy bundles
 // (which mount this screen too) never load it.
@@ -75,12 +75,17 @@ function onToggleClass(platform: boolean): string {
     : 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30';
 }
 
+/** Platform callers only — also accepts same-origin `/starters/x.webp` paths
+ *  (shipped library rows); see libraryMatch.isThumbnailSrc. */
 function isImageUrl(u: string | null | undefined): u is string {
-  return typeof u === 'string' && (u.startsWith('http') || u.startsWith('data:'));
+  return isThumbnailSrc(u);
 }
 
 function ExperienceThumbnail({ exp, preferThumb = false }: { exp: Experience; preferThumb?: boolean }) {
-  const hasUrl = exp.asset_url && (exp.asset_url.startsWith('http') || exp.asset_url.startsWith('data:'));
+  // Legacy (preferThumb false) keeps its original http/data-only test.
+  const hasUrl = preferThumb
+    ? isThumbnailSrc(exp.asset_url)
+    : exp.asset_url && (exp.asset_url.startsWith('http') || exp.asset_url.startsWith('data:'));
 
   // A real preview image beats every placeholder tile — 3D props and filters
   // published to the library carry one. Platform only (legacy unchanged).
@@ -553,8 +558,6 @@ export default function Library({
   // stay out of every host's view.
   const listedGlobals = globals.filter((g) => isListed(g.config));
   const accentHex = config.accentHexes?.[0] ?? null;
-  const recommended = platform ? recommendedFor(listedGlobals, { eventType, accentHex }) : [];
-  const recommendedIds = new Set(recommended.map((r) => r.id));
   const suggestion = frameSuggestion({
     eventName: eventName ?? config.copy.eventName,
     eventType,
@@ -673,22 +676,23 @@ export default function Library({
           eventType={eventType}
           accentHex={config.arContent.framePalette?.accent ?? accentHex}
           onSaved={() => { void refreshConfig(); }}
+          // The shared library lives in the picker on the platform (ONE place
+          // per screen — the create flow shows the same section), so the
+          // Recommended / Ready-made library grids below are legacy-only.
+          library={{
+            eventSlug: eventId,
+            occasion: eventType,
+            text: [eventName ?? config.copy.eventName, config.brief?.occasion, config.brief?.tone, config.brief?.notes]
+              .filter((s): s is string => typeof s === 'string' && s !== '')
+              .join(' · '),
+          }}
         />
       </Suspense>
     </section>
   ) : null;
 
-  const recommendedSection = platform && recommended.length > 0 ? (
-    <section key="recommended">
-      <h2 className={`${headingClass} mb-2`}>Recommended for your event</h2>
-      <p className={blurbClass}>Ready-made picks that match your occasion and colours.</p>
-      <div className={gridClass}>{recommended.map(catalogCard)}</div>
-    </section>
-  ) : null;
-
-  // On the platform, items already shown under Recommended are not repeated.
-  const libraryItems = platform ? listedGlobals.filter((g) => !recommendedIds.has(g.id)) : listedGlobals;
-  const catalogSection = showCatalog ? (
+  const libraryItems = listedGlobals;
+  const catalogSection = showCatalog && !platform ? (
     <section key="catalog">
       <h2 className={`${headingClass} mb-2`}>
         {platform ? `Ready-made library (${listedGlobals.length})` : `Beamwall Catalog (${listedGlobals.length})`}
@@ -852,7 +856,7 @@ export default function Library({
 
   // Platform: the no-design path first. Legacy: the original order.
   const sections = platform
-    ? [looksSection, aiFrameSection, recommendedSection, catalogSection, ownSection, builtinSection]
+    ? [looksSection, aiFrameSection, ownSection, builtinSection]
     : [ownSection, builtinSection, catalogSection];
 
   return (
