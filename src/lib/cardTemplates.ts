@@ -24,10 +24,10 @@
 /* The closed set                                                      */
 /* ------------------------------------------------------------------ */
 
-export type CardTemplateId = 'storybook' | 'filmstrip' | 'polaroid';
+export type CardTemplateId = 'storybook' | 'filmstrip' | 'polaroid' | 'carousel';
 
 /** Every shipped template id, in the order hosts should see them. */
-export const CARD_TEMPLATE_IDS = ['storybook', 'filmstrip', 'polaroid'] as const;
+export const CARD_TEMPLATE_IDS = ['storybook', 'filmstrip', 'polaroid', 'carousel'] as const;
 
 /** What a card falls back to: an unknown id must still render something. */
 export const DEFAULT_CARD_TEMPLATE: CardTemplateId = 'storybook';
@@ -55,6 +55,11 @@ export const CARD_TEMPLATE_OPTIONS: readonly CardTemplateOption[] = [
     id: 'polaroid',
     label: 'Polaroid',
     description: 'Scattered instant prints — handwritten captions on tilted photos.',
+  },
+  {
+    id: 'carousel',
+    label: 'Carousel',
+    description: 'A 3D ring of photos that turns as you read — the showpiece.',
   },
 ];
 

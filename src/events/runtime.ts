@@ -131,6 +131,8 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
   // copilot/concierge use; a missing or content-free brief stays undefined so
   // consumers can `?? null` it without a second emptiness check.
   const brief = cfg.brief === null || cfg.brief === undefined ? undefined : normalizeBrief(cfg.brief);
+  // Keepsake style new cards start from. Host-only setting; guests never pick.
+  const defaultCardTemplate = str(cfg.default_card_template);
 
   return {
     id: row.slug,
@@ -143,6 +145,7 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     backgroundTemplateId: background.id,
     landingRoute: str(cfg.landingRoute) ?? '/booth',
     primaryCardPublicId,
+    defaultCardTemplate,
     arContent,
     accentHexes,
     defaultExperienceId: str(cfg.defaultExperienceId),
