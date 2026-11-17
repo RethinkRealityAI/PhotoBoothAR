@@ -21,7 +21,7 @@
  * visible and Overlay3D's prop canvas aligned with the feed).
  */
 import {
-  useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode,
+  useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode,
 } from 'react';
 import { Ban, Crown, Glasses, Sparkles, X } from 'lucide-react';
 import { useCameraStream } from '../booth/useCameraStream';
@@ -35,7 +35,7 @@ import {
   getActiveFaceEngineInfo, initFaceEngine, resolveSurfaceFaceMode, setFaceTrackingMode, subscribeFaceEngine,
 } from '../../lib/faceEngine';
 import TrackingReadout from '../ar/TrackingReadout';
-import type { DemoKit } from '../../lib/demoKits';
+import { demoKit, type DemoKit } from '../../lib/demoKits';
 
 /* ── The seven-hue brand spectrum, shared by the whole showcase. ──────── */
 export const SPECTRUM = ['#5B8CFF', '#22D3EE', '#34D399', '#FB923C', '#E879F9', '#7C6CF7', '#38BDF8'];
@@ -203,7 +203,18 @@ export interface CameraExperienceProps {
   screenRef?: React.Ref<HTMLDivElement>;
   /** Themed asset set (sales /try demo). Omitted = the landing's beam kit. */
   kit?: DemoKit;
+  /** Show the look pills (Beam · Wedding · Christmas · Birthday) that swap
+   *  frame, effect and 3D prop together. Ignored when `kit` pins one set. */
+  themePicker?: boolean;
 }
+
+/** The landing demo's look pills; `kit` null = the default beam set. */
+const THEME_PILLS: { kit: string | null; label: string; hue: string }[] = [
+  { kit: null, label: 'Beam', hue: '#5B8CFF' },
+  { kit: 'wedding', label: 'Wedding', hue: '#D4AF37' },
+  { kit: 'christmas', label: 'Christmas', hue: '#E5484D' },
+  { kit: 'party', label: 'Birthday', hue: '#F2A7B8' },
+];
 
 /** The orb lists + frame URLs a kit resolves to (default = landing kit). */
 function kitSetup(kit: DemoKit | undefined): {
@@ -224,9 +235,12 @@ function kitSetup(kit: DemoKit | undefined): {
 }
 
 export default function CameraExperience({
-  enabled, videoId, beamLabel, onBeam, onClose, screenRef, kit,
+  enabled, videoId, beamLabel, onBeam, onClose, screenRef, kit, themePicker = false,
 }: CameraExperienceProps) {
-  const [{ categories, frameUrls, defaultFrame }] = useState(() => kitSetup(kit));
+  const [themeKit, setThemeKit] = useState<string | null>(null);
+  const activeKit = kit ?? (themeKit !== null ? demoKit(themeKit) : undefined);
+  const { categories, frameUrls, defaultFrame } = useMemo(() => kitSetup(activeKit), [activeKit]);
+  const showThemes = themePicker && kit === undefined;
   const [category, setCategory] = useState<Category>('frame');
   const [frameId, setFrameId] = useState<string | null>(defaultFrame === '' ? null : defaultFrame);
   const [effectId, setEffectId] = useState<string | null>(null);
@@ -290,6 +304,18 @@ export default function CameraExperience({
       /* user dismissed the sheet, or share failed — nothing to clean up */
     }
   }, [shot]);
+
+  // A look switches the whole set at once — its first frame, effect and 3D
+  // prop — so one tap shows what a themed event feels like. Beam = the
+  // landing's original state (beam frame, no effect, no prop).
+  const pickTheme = useCallback((id: string | null) => {
+    setThemeKit(id);
+    setCategory('frame');
+    const k = id !== null ? demoKit(id) : undefined;
+    setFrameId(k !== undefined ? k.frames[0]?.id ?? null : 'beam');
+    setEffectId(k !== undefined ? k.effects[0]?.id ?? null : null);
+    setPropId(k !== undefined ? k.props[0]?.id ?? null : null);
+  }, []);
 
   const beam = useCallback(() => {
     if (shot === null) return;
@@ -481,6 +507,30 @@ export default function CameraExperience({
               className="absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 px-3 pb-4 pt-10"
               style={{ background: 'linear-gradient(to top, rgba(5,6,11,0.9) 30%, rgba(5,6,11,0.45) 70%, transparent)' }}
             >
+              {showThemes && (
+                <div role="group" aria-label="Event look" className="grid w-full max-w-[300px] grid-cols-4 gap-1 pb-1">
+                  {THEME_PILLS.map((t) => {
+                    const on = themeKit === t.kit;
+                    return (
+                      <button
+                        key={t.label}
+                        type="button"
+                        onClick={() => pickTheme(t.kit)}
+                        aria-pressed={on}
+                        className="min-w-0 rounded-full border px-1 py-1.5 text-[10px] font-semibold leading-none transition-colors active:scale-95"
+                        style={{
+                          color: on ? '#fff' : 'rgba(238,243,255,0.75)',
+                          borderColor: on ? t.hue : 'rgba(238,243,255,0.18)',
+                          background: on ? `${t.hue}38` : 'rgba(9,11,20,0.55)',
+                          boxShadow: on ? `0 0 14px -4px ${t.hue}` : 'none',
+                        }}
+                      >
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div className="flex items-center gap-5">
                 {categories.map((c) => {
                   const on = category === c.key;
