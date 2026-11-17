@@ -573,7 +573,10 @@ export default function EventsList() {
         </div>
       </header>
 
-      {showGuide && !loading && events !== null && !guideDone && (
+      {/* With no events yet the empty state below IS step 1 — showing the
+          guide too put two cards and two routes to the same action on a
+          brand-new host's first screen. It appears once an event exists. */}
+      {showGuide && !loading && events !== null && events.length > 0 && !guideDone && (
         <div className="relative liquid-glass rounded-2xl px-5 py-4 mb-6">
           <button
             onClick={dismissGuide}
@@ -652,7 +655,7 @@ export default function EventsList() {
           </button>
         </div>
       ) : events.length === 0 ? (
-        <div className="liquid-glass rounded-3xl p-12 text-center max-w-lg mx-auto">
+        <div className="liquid-glass rounded-3xl px-6 py-10 sm:p-12 text-center max-w-lg mx-auto">
           <h2 className="font-serif text-2xl text-foil-static mb-2">Create your first event</h2>
           <p className="font-sans text-sm text-brand-muted/70 leading-relaxed mb-8">
             Describe the night or fill it in yourself, pick the frames guests can use, then go live and share
@@ -660,7 +663,7 @@ export default function EventsList() {
           </p>
           <Link
             to="/host/new"
-            className="inline-flex items-center gap-2 rounded-full bg-foil px-8 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98]"
+            className="inline-flex items-center gap-2 whitespace-nowrap rounded-full bg-foil px-6 sm:px-8 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98]"
           >
             <Plus className="w-4 h-4" /> Create your event
           </Link>

@@ -113,7 +113,11 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
   };
 
   return (
-    <section aria-labelledby="looks-picker-title" className="liquid-glass rounded-2xl p-4 sm:p-5">
+    // A size container: the frame grid's column count follows THIS card's
+    // width, so the same picker reads well in the narrow create screen and
+    // the full-width Frames & filters tab (viewport breakpoints made 9:16
+    // tiles ~460px tall at 1440).
+    <section aria-labelledby="looks-picker-title" className="@container liquid-glass rounded-2xl p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 id="looks-picker-title" className="text-base font-semibold text-brand-fg">{title}</h2>
@@ -149,7 +153,7 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
           </span>
         </p>
       )}
-      <ul className="mt-2 grid grid-cols-3 gap-2.5 sm:grid-cols-5" role="list">
+      <ul className="mt-2 grid grid-cols-3 gap-2.5 @xl:grid-cols-5 @5xl:grid-cols-7" role="list">
         {ranked.frameIds.map((id) => {
           const b = BORDER_MAP[id];
           if (!b) return null;

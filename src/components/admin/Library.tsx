@@ -67,6 +67,14 @@ function kindLabel(kind: string, plain = false): { label: string; color: string 
   }
 }
 
+/** The "on" state of a toggle. The platform picker above these cards speaks
+ *  in the event accent, so its own toggles do too; legacy keeps its gold. */
+function onToggleClass(platform: boolean): string {
+  return platform
+    ? 'bg-accent/20 text-accent-2 hover:bg-accent/30'
+    : 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30';
+}
+
 function isImageUrl(u: string | null | undefined): u is string {
   return typeof u === 'string' && (u.startsWith('http') || u.startsWith('data:'));
 }
@@ -314,7 +322,7 @@ function ExperienceCard({
               aria-pressed={platform ? exp.is_published : undefined}
               className={`flex-1 flex items-center justify-center gap-1 ${platform ? 'min-h-11 text-[11px]' : 'py-1.5 text-[9px]'} rounded-lg font-label uppercase tracking-widest transition-colors ${
                 exp.is_published
-                  ? 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30'
+                  ? onToggleClass(platform)
                   : 'glass text-champagne/40 hover:text-gold-300'
               }`}
             >
@@ -354,7 +362,7 @@ function ExperienceCard({
                 title={hidden ? 'Show in booth' : 'Hide from booth'}
                 aria-pressed={platform ? !hidden : undefined}
                 className={`flex-1 flex items-center justify-center gap-1 ${platform ? 'min-h-11 text-[11px]' : 'py-1.5 text-[9px]'} rounded-lg font-label uppercase tracking-widest transition-colors ${
-                  hidden ? 'glass text-champagne/40 hover:text-gold-300' : 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30'
+                  hidden ? 'glass text-champagne/40 hover:text-gold-300' : onToggleClass(platform)
                 }`}
               >
                 {hidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
@@ -596,7 +604,7 @@ export default function Library({
             aria-pressed={platform ? linked : undefined}
             className={`mt-auto flex items-center justify-center gap-1 ${platform ? 'min-h-11 text-[11px]' : 'py-1.5 text-[9px]'} rounded-lg font-label uppercase tracking-widest transition-colors ${
               linked
-                ? 'bg-gold-400/20 text-gold-300 hover:bg-gold-400/30'
+                ? onToggleClass(platform)
                 : 'glass text-champagne/50 hover:text-gold-300'
             }`}
           >
@@ -623,8 +631,8 @@ export default function Library({
     <section id="quick-ai-frame" key="ai" className="scroll-mt-4">
       <h2 className={`${headingClass} mb-2`}>Make a frame with AI</h2>
       <p className={blurbClass}>
-        We’ve started a description from your event — change anything, then generate. Your first 3 AI
-        frames on every event are free.
+        Pick a look and your colours — we’ll draw your event’s name on it. Your first 3 AI frames on
+        every event are free.
       </p>
       <Suspense
         fallback={(
