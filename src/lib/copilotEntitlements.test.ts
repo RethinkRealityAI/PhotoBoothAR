@@ -65,8 +65,9 @@ describe('lockedResult', () => {
     expect(LOCKED_CODE).toBe('upgrade_required');
     expect(formatToolResult('add_head_piece', r))
       .toMatch(/^\[tool_result\] tool=add_head_piece ok=false code=upgrade_required retryable=false — Not on this plan/);
-    expect(r.summary).toContain('do not offer 3D generation again');
-    expect(lockedResult('studio').summary).toContain('do not offer the Scene Director again');
+    expect(r.summary).toContain('Nothing was generated or charged');
+    expect(lockedResult('studio').summary).toContain('Scene Director');
+    expect(lockedResult('studio').retryable).toBe(false);
   });
 });
 

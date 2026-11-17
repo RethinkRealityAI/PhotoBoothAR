@@ -67,16 +67,18 @@ export function lockFor(action: CopilotAction, ent: HostEntitlements): LockKind 
 /** The ToolResultCode the model reads for a lock (see copilot.ts). */
 export const LOCKED_CODE = 'upgrade_required' as const;
 
-/** The [tool_result] fields for a lock — non-retryable, so the model stops
- *  re-offering it, with a summary that names what the host CAN do instead. */
+/** The [tool_result] fields for a lock. `code=upgrade_required
+ *  retryable=false` is what tells the model to stop re-offering it (with the
+ *  PLAN LIMITS context line); the summary is also the host's pill, so it is
+ *  short, plain, and says nothing was spent. */
 export function lockedResult(lock: LockKind): { ok: false; code: typeof LOCKED_CODE; retryable: false; summary: string } {
   return {
     ok: false,
     code: LOCKED_CODE,
     retryable: false,
     summary: lock === 'ai3d'
-      ? 'Not on this plan: AI-made 3D props are part of the Studio add-on, so nothing was generated or charged. Offer a ready-made library prop or an AI frame instead — do not offer 3D generation again.'
-      : 'Not on this plan: the Scene Director is part of the Studio add-on, so nothing was opened. Offer ready-made frames & filters, a library prop, or an AI frame instead — do not offer the Scene Director again.',
+      ? 'Not on this plan — AI-made 3D props come with the Studio add-on. Nothing was generated or charged.'
+      : 'Not on this plan — the Scene Director comes with the Studio add-on. Nothing was opened or charged.',
   };
 }
 
