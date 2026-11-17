@@ -174,6 +174,16 @@ export function frameDataUrl(b: BuiltinBorder, palette?: FramePalette | null): s
   return toDataUrl(recolorFrameSvg(b, palette));
 }
 
+/** The name to show next to a frame drawn under `palette`. A gold-family frame
+ *  that has really been recoloured no longer is gold, so "Gold"/"Golden" is
+ *  dropped from its name ("Gold Confetti" → "Confetti"). Anything not actually
+ *  recoloured keeps its name exactly. */
+export function frameDisplayName(b: BuiltinBorder, palette?: FramePalette | null): string {
+  if (b.recolor !== 'gold' || !frameColorMap(b.recolor, palette)) return b.name;
+  const stripped = b.name.replace(/\bGold(en)?\b/g, '').replace(/\s+/g, ' ').trim();
+  return stripped || b.name;
+}
+
 /* ---- Borders / frames -------------------------------------------- */
 
 const classicFrame = svg(`

@@ -16,9 +16,9 @@
  */
 import { useMemo, useState } from 'react';
 import { Check, Loader2, Star } from 'lucide-react';
-import { BORDER_MAP, frameDataUrl } from '../../lib/borders';
+import { BORDER_MAP, frameDataUrl, frameDisplayName } from '../../lib/borders';
 import { FILTER_SHADERS } from '../../lib/shaders';
-import { FILTER_LOOKS, looksConfigPatch, rankLooks, selectionFromConfig, type LooksSelection } from '../../lib/themeMatch';
+import { FILTER_LOOKS, effectiveDefaultFrame, looksConfigPatch, rankLooks, selectionFromConfig, type LooksSelection } from '../../lib/themeMatch';
 import { templateById } from '../../lib/eventTemplates';
 import { normalizeHex } from '../../lib/themeDerive';
 import { updateEventConfig } from '../../lib/host';
@@ -37,6 +37,20 @@ interface Props {
 }
 
 const FILTER_NAMES: Record<string, string> = Object.fromEntries(FILTER_SHADERS.map((s) => [s.id, s.name]));
+
+/** A stand-in guest behind each frame so a transparent frame reads as a
+ *  frame, not an empty tile. Same figure and fill as FrameTruthPreview's
+ *  single centred guest (cx .5, cy .42, r .15 of the 9:16 screen). */
+function StandInGuest() {
+  return (
+    <svg viewBox="0 0 90 160" preserveAspectRatio="none" className="absolute inset-0 h-full w-full" aria-hidden>
+      <g fill="rgba(236,226,214,0.55)">
+        <ellipse cx="45" cy="67.2" rx="13.5" ry="16.5" />
+        <ellipse cx="45" cy="107.7" rx="28.4" ry="21.6" />
+      </g>
+    </svg>
+  );
+}
 
 function toggle(list: string[], id: string): string[] {
   return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
@@ -71,7 +85,8 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
 
   const matchColour = sel.palette !== null;
   const palette = sel.palette;
-  const defaultFrame = sel.frameId !== null && sel.borderIds.includes(sel.frameId) ? sel.frameId : sel.borderIds[0] ?? null;
+  // An AI frame the event already opens with is kept unless the host picks one here.
+  const defaultFrame = effectiveDefaultFrame(sel, config?.defaultExperienceId);
   const canSave = sel.borderIds.length > 0 && sel.shaderIds.length > 0 && !saving;
 
   const update = (next: Partial<LooksSelection>) => {
@@ -122,18 +137,20 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
           if (!b) return null;
           const on = sel.borderIds.includes(id);
           const isDefault = on && id === defaultFrame;
+          const name = frameDisplayName(b, matchColour ? palette : null);
           return (
             <li key={id} className="flex flex-col gap-1">
               <button
                 type="button"
                 aria-pressed={on}
-                aria-label={`${b.name}${on ? ', on' : ', off'}${isDefault ? ', opens first' : ''}`}
+                aria-label={`${name}${on ? ', on' : ', off'}${isDefault ? ', opens first' : ''}`}
                 onClick={() => update({ borderIds: toggle(sel.borderIds, id) })}
                 className={`relative aspect-[9/16] w-full overflow-hidden rounded-xl border-2 transition ${
                   on ? 'border-[var(--color-accent)]' : 'border-white/10 opacity-55 hover:opacity-80'
                 }`}
                 style={{ background: 'radial-gradient(70% 45% at 50% 38%, #2a2a33, #0c0c10 75%)' }}
               >
+                <StandInGuest />
                 <img src={frameDataUrl(b, matchColour ? palette : null)} alt="" className="absolute inset-0 h-full w-full" loading="lazy" />
                 {on && (
                   <span className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-[var(--color-accent)] text-[var(--on-accent,#000)]">
@@ -146,7 +163,7 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
                   </span>
                 )}
               </button>
-              <span className="line-clamp-1 text-[11px] text-brand-fg">{b.name}</span>
+              <span className="line-clamp-1 text-[11px] text-brand-fg">{name}</span>
               {on && (
                 <button
                   type="button"

@@ -154,6 +154,22 @@ export function looksConfigPatch(
 }
 
 /**
+ * The ready-made frame the booth should open with after a looks save. The
+ * host's own pick wins; otherwise the first selected frame — UNLESS the event
+ * already opens with something that is not a ready-made frame (an AI frame
+ * pinned by FrameStudio), which a looks save must not silently replace.
+ */
+export function effectiveDefaultFrame(
+  sel: LooksSelection,
+  currentDefaultId: unknown,
+): string | null {
+  if (sel.frameId !== null && sel.borderIds.includes(sel.frameId)) return sel.frameId;
+  const keepsOther = typeof currentDefaultId === 'string' && currentDefaultId !== '' && !currentDefaultId.startsWith('builtin:border:');
+  if (keepsOther) return null;
+  return sel.borderIds[0] ?? null;
+}
+
+/**
  * The seeded set for a fresh event: the template's own frames/filters, put in
  * ranked order, plus the frame palette when the host chose a colour. Merged
  * over templateConfigPatch's arContent by the create flow — with no accent the

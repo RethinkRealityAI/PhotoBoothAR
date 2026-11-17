@@ -6,6 +6,7 @@ import {
   GENERIC_FRAMES,
   frameColorMap,
   frameDataUrl,
+  frameDisplayName,
   recolorFrameSvg,
   replaceColorTokens,
   toDataUrl,
@@ -79,5 +80,32 @@ describe('recolouring', () => {
     const before = BUILTIN_BORDERS.map((b) => b.id + b.svg.length);
     recolorFrameSvg(BORDER_MAP['jj-neon-frame'], { accent: '#19E3FF' });
     expect(BUILTIN_BORDERS.map((b) => b.id + b.svg.length)).toEqual(before);
+  });
+});
+
+describe('frameDisplayName — never claims a colour the frame no longer has', () => {
+  it('keeps every name exactly when nothing is recoloured', () => {
+    for (const b of BUILTIN_BORDERS) {
+      expect(frameDisplayName(b), b.id).toBe(b.name);
+      expect(frameDisplayName(b, null), b.id).toBe(b.name);
+      expect(frameDisplayName(b, { accent: 'gold' }), b.id).toBe(b.name);
+    }
+  });
+
+  it('drops Gold/Golden from a gold-family frame recoloured to the event palette', () => {
+    const pal = { accent: '#2F6FDD' };
+    expect(frameDisplayName(BORDER_MAP['frame-classic-gold'], pal)).toBe('Classic');
+    expect(frameDisplayName(BORDER_MAP['overlay-confetti'], pal)).toBe('Confetti');
+    expect(frameDisplayName(BORDER_MAP['dw-corners'], pal)).toBe('Corners');
+    expect(frameDisplayName(BORDER_MAP['sticker-crown-plain'], pal)).toBe('Crown');
+    for (const b of BUILTIN_BORDERS.filter((x) => x.recolor === 'gold')) {
+      expect(frameDisplayName(b, pal), b.id).not.toMatch(/gold/i);
+    }
+  });
+
+  it('leaves neon and legacy frames named as drawn', () => {
+    const pal = { accent: '#2F6FDD' };
+    expect(frameDisplayName(BORDER_MAP['jj-neon-frame'], pal)).toBe('Neon Tube Frame');
+    expect(frameDisplayName(BORDER_MAP['frame-classic'], pal)).toBe('Classic Gold');
   });
 });

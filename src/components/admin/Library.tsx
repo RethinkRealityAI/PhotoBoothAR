@@ -41,6 +41,7 @@ import { frameSuggestion, isListed, recommendedFor } from '../../lib/libraryMatc
 // Platform-only, and it pulls in the AI client — lazy so the legacy bundles
 // (which mount this screen too) never load it.
 const FrameStudio = lazy(() => import('../../pages/host/FrameStudio'));
+const LooksPicker = lazy(() => import('../host/LooksPicker'));
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                              */
@@ -421,7 +422,7 @@ export default function Library({
 } = {}) {
   const navigate = useNavigate();
   const base = useStudioBase();
-  const { eventId, eventUuid, config, source } = useEvent();
+  const { eventId, eventUuid, config, source, refreshConfig } = useEvent();
   const { studio: canEdit } = useStudioAccess();
   // The host-facing picker: platform studio on a DB event. Legacy mounts
   // ('/admin' base, coded config) keep the original screen untouched.
@@ -627,7 +628,27 @@ export default function Library({
           </div>
         )}
       >
-        <FrameStudio eventUuid={eventUuid} suggestion={suggestion} />
+        {/* A frame just made with AI lands in "Your own" and opens first —
+            re-read both so it shows without a reload. */}
+        <FrameStudio eventUuid={eventUuid} suggestion={suggestion} onApplied={() => { void load(); void refreshConfig(); }} />
+      </Suspense>
+    </section>
+  ) : null;
+
+  /* Platform only: the ready-made frames & filters picker (the same one the
+     create flow ends on), so hosts without the Studio pick looks here too.
+     It reads the raw allow-lists + default frame, which runtime config passes
+     through unchanged (events/runtime.ts). */
+  const looksSection = platform && eventUuid ? (
+    <section key="looks">
+      <Suspense fallback={skeleton(5, 'h-48')}>
+        <LooksPicker
+          eventUuid={eventUuid}
+          config={{ arContent: config.arContent, defaultExperienceId: config.defaultExperienceId }}
+          eventType={eventType}
+          accentHex={config.arContent.framePalette?.accent ?? accentHex}
+          onSaved={() => { void refreshConfig(); }}
+        />
       </Suspense>
     </section>
   ) : null;
@@ -784,7 +805,7 @@ export default function Library({
 
   // Platform: the no-design path first. Legacy: the original order.
   const sections = platform
-    ? [aiFrameSection, recommendedSection, catalogSection, ownSection, builtinSection]
+    ? [looksSection, aiFrameSection, recommendedSection, catalogSection, ownSection, builtinSection]
     : [ownSection, builtinSection, catalogSection];
 
   return (

@@ -51,10 +51,13 @@ const inputClass =
 export default function FrameStudio({
   eventUuid,
   suggestion,
+  onApplied,
 }: {
   eventUuid: string;
   /** Concierge-derived starting prompt (template + event context). */
   suggestion: string;
+  /** The frame is published and opens first — lets the host Library re-read. */
+  onApplied?: () => void;
 }) {
   const [prompt, setPrompt] = useState(suggestion);
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
@@ -177,6 +180,7 @@ export default function FrameStudio({
       return;
     }
     setPhase({ kind: 'done' });
+    onApplied?.();
   };
 
   return (

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FILTER_LOOKS, hueAffinity, looksConfigPatch, rankLooks, seededLooks, selectionFromConfig } from './themeMatch';
+import { FILTER_LOOKS, effectiveDefaultFrame, hueAffinity, looksConfigPatch, rankLooks, seededLooks, selectionFromConfig } from './themeMatch';
 import { GENERIC_FRAMES } from './borders';
 import { FILTER_SHADERS } from './shaders';
 import { EVENT_TEMPLATES, templateById } from './eventTemplates';
@@ -97,5 +97,30 @@ describe('seededLooks', () => {
 
   it('with a colour: the palette rides along', () => {
     expect(seededLooks(templateById('gala')!, '#ff5a5f').arContent.framePalette).toEqual({ accent: '#FF5A5F' });
+  });
+});
+
+describe('effectiveDefaultFrame', () => {
+  const sel = (frameId: string | null, borderIds = ['frame-deco-plain', 'frame-classic-gold']) =>
+    ({ borderIds, shaderIds: ['neon-pulse'], frameId, palette: null });
+
+  it("the host's own pick wins when it is selected", () => {
+    expect(effectiveDefaultFrame(sel('frame-classic-gold'), 'some-ai-uuid')).toBe('frame-classic-gold');
+  });
+
+  it('falls back to the first selected frame when nothing else opens first', () => {
+    expect(effectiveDefaultFrame(sel(null), undefined)).toBe('frame-deco-plain');
+    expect(effectiveDefaultFrame(sel(null), '')).toBe('frame-deco-plain');
+    expect(effectiveDefaultFrame(sel(null), 'builtin:border:frame-hexagon-plain')).toBe('frame-deco-plain');
+  });
+
+  it('never replaces an AI frame the event already opens with', () => {
+    expect(effectiveDefaultFrame(sel(null), '7f0c2a1e-0000-4000-8000-000000000000')).toBeNull();
+    // ...and a null default leaves defaultExperienceId out of the patch.
+    expect(looksConfigPatch({}, { ...sel(null), frameId: null })).not.toHaveProperty('defaultExperienceId');
+  });
+
+  it('no frames selected → null', () => {
+    expect(effectiveDefaultFrame(sel(null, []), undefined)).toBeNull();
   });
 });
