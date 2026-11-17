@@ -1980,6 +1980,6 @@ export const RESEARCH_NOTES: ResearchNote[] = [
 export const SALES_CONTACT = {
   name: 'James Asumah',
   title: 'Director of Partnerships',
-  email: '',
+  email: 'james@beamwall.app',
   bookingUrl: '',
 };

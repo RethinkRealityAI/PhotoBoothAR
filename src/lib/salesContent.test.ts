@@ -326,7 +326,7 @@ describe('playbook', () => {
     for (const m of MARKETS) for (const icp of ICP_IDS) expect(SOURCING.some((s) => s.market === m.id && s.icp === icp), `${m.id}/${icp}`).toBe(true);
   });
 
-  it('SALES_CONTACT is James with unset contact fields', () => {
-    expect(SALES_CONTACT).toEqual({ name: 'James Asumah', title: 'Director of Partnerships', email: '', bookingUrl: '' });
+  it('SALES_CONTACT is James with his Beamwall mailbox and no external booking URL', () => {
+    expect(SALES_CONTACT).toEqual({ name: 'James Asumah', title: 'Director of Partnerships', email: 'james@beamwall.app', bookingUrl: '' });
   });
 });
