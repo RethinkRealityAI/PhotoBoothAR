@@ -147,7 +147,7 @@ export default function FrameStudio({
       setRawFrame(null);
       setPhase({
         kind: 'keyfail',
-        message: 'The transparent cutout still didn’t come through — the raw frame is saved in your studio Library.',
+        message: 'The transparent cutout still didn’t come through — try a fresh frame, or describe it a little differently.',
       });
       return;
     }
@@ -175,7 +175,7 @@ export default function FrameStudio({
     if (pubErr || !pinned) {
       setPhase({
         kind: 'error',
-        message: 'The frame was generated but could not be activated — publish it from your studio Library.',
+        message: 'The frame was made but couldn’t be switched on — find it under Your own and switch it on there.',
       });
       return;
     }
@@ -187,16 +187,16 @@ export default function FrameStudio({
     <div className="w-full rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex flex-col gap-3 text-left">
       <div className="flex items-center gap-2">
         <Wand2 className="w-4 h-4 text-[color:var(--color-accent)]" />
-        <p className="font-label uppercase tracking-luxe text-[10px] text-brand-fg">Design your signature frame</p>
-        <span className="ml-auto font-sans text-[10px] text-brand-muted/50">first 3 on us</span>
+        <p className="font-label uppercase tracking-luxe text-[11px] text-brand-fg">Design your signature frame</p>
+        <span className="ml-auto font-sans text-[11px] text-brand-muted/50">first 3 on us</span>
       </div>
 
       {phase.kind === 'done' ? (
         <div className="flex items-center gap-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/25 px-3.5 py-3">
           <Check className="w-4 h-4 text-emerald-400 shrink-0" />
           <p className="font-sans text-[12px] text-emerald-200/90 leading-snug">
-            Your frame is live and pre-applied in the booth. Fine-tune its placement anytime in
-            the studio's 2D creator.
+            Your frame is on for guests and the booth opens with it. It’s under Your own below —
+            switch it off there any time.
           </p>
         </div>
       ) : mode === 'guided' ? (
@@ -280,7 +280,7 @@ export default function FrameStudio({
                   Drag the frame to reposition it — your placement is saved with it.
                 </p>
                 <label className="flex items-center gap-2">
-                  <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60 shrink-0">Size</span>
+                  <span className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/60 shrink-0">Size</span>
                   <input
                     type="range"
                     min={0.7}
@@ -295,7 +295,7 @@ export default function FrameStudio({
                   <button
                     onClick={() => useAsFrame(phase.experience)}
                     disabled={phase.kind === 'applying'}
-                    className="flex items-center gap-1.5 rounded-full bg-foil px-4 py-2 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.97] disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-full bg-foil px-4 py-2 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.97] disabled:opacity-50"
                   >
                     {phase.kind === 'applying'
                       ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Activating…</>
@@ -304,7 +304,7 @@ export default function FrameStudio({
                   <button
                     onClick={generate}
                     disabled={phase.kind === 'applying'}
-                    className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition hover:bg-white/[0.08] disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 font-label uppercase tracking-luxe text-[11px] text-brand-fg transition hover:bg-white/[0.08] disabled:opacity-50"
                   >
                     <RefreshCw className="w-3.5 h-3.5" /> Regenerate
                   </button>
@@ -330,7 +330,7 @@ export default function FrameStudio({
               <p role="alert" className="font-sans text-[12px] text-red-400 leading-snug">{phase.message}</p>
               {rawFrame && rekeyOptions(rekeys) !== null && <button
                 onClick={retryProcessing}
-                className="self-start flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition hover:bg-white/[0.08]"
+                className="self-start flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 font-label uppercase tracking-luxe text-[11px] text-brand-fg transition hover:bg-white/[0.08]"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> Clean it up — no extra credits
               </button>}
@@ -341,7 +341,7 @@ export default function FrameStudio({
             <button
               onClick={generate}
               disabled={phase.kind === 'generating' || !prompt.trim()}
-              className="flex items-center justify-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-50"
             >
               {phase.kind === 'generating'
                 ? <><Loader2 className="w-4 h-4 animate-spin" /> Designing your frame…</>
