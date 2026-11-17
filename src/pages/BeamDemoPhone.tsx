@@ -185,6 +185,7 @@ export default function BeamDemoPhone() {
               beamLabel="Beam to the big screen"
               onBeam={(shot) => { void send(shot); }}
               onClose={() => setStage('consent')}
+              themePicker
             />
           </Suspense>
         </div>

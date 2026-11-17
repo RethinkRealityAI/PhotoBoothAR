@@ -170,6 +170,7 @@ export default function ShowcasePhone({
                 onBeam={onBeam}
                 onClose={onClose}
                 screenRef={screenRef}
+                themePicker
               />
             )}
 
