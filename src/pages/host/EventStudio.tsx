@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useCopilotStore } from '../../lib/copilotStore';
 import { supabase } from '../../lib/supabase';
-import { canEnterStudio, fetchCreditBalance, invalidateProSubscriptionCache } from '../../lib/host';
+import { canEnterStudio, fetchCreditBalance, invalidateProSubscriptionCache, EVENT_RENAMED } from '../../lib/host';
 import { ToastProvider, useToast } from '../../components/ui/Toast';
 import { useAiJobSweep } from '../../lib/useAiJobSweep';
 import { subscribeToPosts } from '../../lib/db';
@@ -90,7 +90,8 @@ function GuestLinkCopy({ url }: { url: string }) {
     <button
       onClick={() => copyText(url).then((ok) => { if (!ok) return; setCopied(true); setTimeout(() => setCopied(false), 2000); })}
       title="Copy guest link"
-      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass text-[10px] font-mono text-brand-muted/60 hover:text-accent-2 transition-colors max-w-[14rem]"
+      aria-label="Copy guest link"
+      className="shrink-0 flex items-center justify-center gap-1.5 px-2.5 min-h-11 min-w-11 rounded-lg liquid-glass text-[11px] font-mono text-brand-muted/60 hover:text-accent-2 transition-colors max-w-[14rem]"
     >
       {copied ? <Check className="w-3 h-3 text-emerald-400 shrink-0" /> : <Copy className="w-3 h-3 shrink-0" />}
       <span className="truncate hidden sm:inline">{url.replace(/^https?:\/\//, '')}</span>
@@ -226,8 +227,8 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
         {/* Mode toggle */}
         <div className="glass rounded-2xl border border-gold-400/10 px-4 py-3 flex flex-wrap items-center gap-3">
           <div className="min-w-0">
-            <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/70">Moderation mode</p>
-            <p className="font-sans text-[10px] text-champagne/40">
+            <p className="font-label uppercase tracking-luxe text-[11px] text-champagne/70">Moderation mode</p>
+            <p className="font-sans text-[11px] text-champagne/40">
               {mode === 'pre'
                 ? 'New posts wait below for your approval before they hit the wall.'
                 : 'New posts hit the wall instantly; hide anything after the fact.'}
@@ -239,7 +240,7 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
                 key={m}
                 onClick={() => setMode(m)}
                 disabled={mode === null || saving}
-                className={`px-3.5 py-1.5 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
+                className={`px-3.5 py-1.5 rounded-full font-label uppercase tracking-luxe text-[11px] transition-all duration-200 ${
                   mode === m ? 'bg-foil text-noir-900 glow-accent' : 'text-champagne/60 hover:text-champagne'
                 } disabled:opacity-50`}
               >
@@ -260,7 +261,7 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
             </p>
             <button
               onClick={loadPending}
-              className="mt-2 min-h-11 rounded-lg px-4 bg-white/[0.06] font-label uppercase tracking-luxe text-[10px] text-brand-fg"
+              className="mt-2 min-h-11 rounded-lg px-4 bg-white/[0.06] font-label uppercase tracking-luxe text-[11px] text-brand-fg"
             >
               Try again
             </button>
@@ -271,7 +272,7 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
             linger after switching back to instant mode). */}
         {pending.length > 0 && (
           <div className="glass rounded-2xl border border-amber-400/20 px-4 py-3">
-            <p className="font-label uppercase tracking-luxe text-[10px] text-amber-300 mb-2">
+            <p className="font-label uppercase tracking-luxe text-[11px] text-amber-300 mb-2">
               Awaiting approval · {pending.length}
             </p>
             <div className="flex gap-3 overflow-x-auto hide-scrollbar pb-1">
@@ -282,7 +283,7 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
                   ) : (
                     <img src={p.image_url} alt={p.guest_name ?? 'Pending post'} className="w-24 h-32 object-cover rounded-xl" loading="lazy" />
                   )}
-                  <p className="font-sans text-[9px] text-champagne/50 truncate">{p.guest_name ?? 'Anonymous'}</p>
+                  <p className="font-sans text-[11px] text-champagne/50 truncate">{p.guest_name ?? 'Anonymous'}</p>
                   <div className="flex gap-1">
                     <button
                       onClick={() => decide(p.id, true)}
@@ -384,6 +385,19 @@ export default function EventStudio() {
     return () => { alive = false; };
   }, [id, validId, reloadKey]);
 
+  // A rename (Settings → Event details, or the copilot) updates the header
+  // straight away instead of after the next navigation.
+  useEffect(() => {
+    const onRenamed = (e: Event) => {
+      const d = (e as CustomEvent<{ id?: unknown; name?: unknown }>).detail;
+      if (!d || typeof d.name !== 'string' || d.id !== id) return;
+      const name = d.name;
+      setState((prev) => (prev.phase === 'ready' ? { ...prev, event: { ...prev.event, name } } : prev));
+    };
+    window.addEventListener(EVENT_RENAMED, onRenamed);
+    return () => window.removeEventListener(EVENT_RENAMED, onRenamed);
+  }, [id]);
+
   // The platform rail is deliberately absent here — the owner asked for studio
   // mode to be "less encumbered" — but two things it carried are not chrome,
   // they are information a host needs precisely while they are spending: the
@@ -484,8 +498,10 @@ export default function EventStudio() {
               <ArrowLeft className="w-4 h-4" />
             </Link>
             <div className="lg:hidden min-w-0 flex-1 flex items-center gap-1.5">
+              {/* Two lines before it clips: a one-line pill cut "Beta E2E Garden
+                  Party" to "Beta E2E Garde…" on a 390px phone. */}
               <p
-                className="inline-block min-w-0 max-w-full truncate align-middle rounded-full bg-white/[0.06] border border-white/10 px-3 py-1 font-serif italic text-sm text-brand-fg"
+                className="inline-block min-w-0 max-w-full line-clamp-2 break-words align-middle rounded-2xl bg-white/[0.06] border border-white/10 px-3 py-1 font-serif italic text-sm leading-snug text-brand-fg"
                 title={event.name}
               >
                 {event.name}
@@ -497,7 +513,7 @@ export default function EventStudio() {
             <div className="shrink-0 hidden lg:block">
               <p className="font-serif italic text-sm text-brand-fg leading-tight truncate max-w-[12rem]">{event.name}</p>
               <div className="flex items-center gap-1.5">
-                <span className="font-mono text-[9px] text-brand-muted/40">/e/{event.slug}</span>
+                <span className="font-mono text-[11px] text-brand-muted/40">/e/{event.slug}</span>
                 <StatusPill status={event.status} />
               </div>
             </div>
@@ -548,7 +564,7 @@ export default function EventStudio() {
               <Link
                 to="/host/billing"
                 title="Credit balance — top up in Billing"
-                className={`pressable shrink-0 hidden sm:flex items-center gap-1.5 rounded-full px-2.5 min-h-9 font-label uppercase tracking-luxe text-[9px] liquid-glass ${
+                className={`pressable shrink-0 hidden sm:flex items-center gap-1.5 rounded-full px-2.5 min-h-9 font-label uppercase tracking-luxe text-[11px] liquid-glass ${
                   credits <= 0 ? 'text-red-300' : 'text-brand-muted/70 hover:text-brand-fg'
                 }`}
               >
@@ -560,7 +576,7 @@ export default function EventStudio() {
               onClick={() => useCopilotStore.getState().open()}
               title="Beamwall Copilot"
               aria-label="Open the Beamwall Copilot"
-              className="shrink-0 w-9 h-9 rounded-full bg-foil glow-accent flex items-center justify-center text-noir-900 active:scale-95 transition-transform"
+              className="shrink-0 w-11 h-11 rounded-full bg-foil glow-accent flex items-center justify-center text-noir-900 active:scale-95 transition-transform"
             >
               <Sparkles className="w-4 h-4" />
             </button>
@@ -572,7 +588,7 @@ export default function EventStudio() {
               showIcon
               iconSize={16}
               prefill={{ source: 'event_studio', eventSlug: event.slug }}
-              className="shrink-0 w-9 h-9 rounded-full liquid-glass-inset flex items-center justify-center text-brand-muted/70 hover:text-brand-fg active:scale-95 transition [&>span]:sr-only"
+              className="shrink-0 w-11 h-11 rounded-full liquid-glass-inset flex items-center justify-center text-brand-muted/70 hover:text-brand-fg active:scale-95 transition [&>span]:sr-only"
             />
             <GuestLinkCopy url={`${origin}${basePath}/welcome`} />
           </nav>
@@ -587,7 +603,7 @@ export default function EventStudio() {
                 key={t.to}
                 to={t.to}
                 className={({ isActive }) =>
-                  `flex items-center gap-1.5 px-3 py-2 min-h-10 rounded-full text-[10px] font-label uppercase tracking-widest transition-colors whitespace-nowrap ${
+                  `flex items-center gap-1.5 px-3 py-2 min-h-10 rounded-full text-[11px] font-label uppercase tracking-widest transition-colors whitespace-nowrap ${
                     isActive ? 'bg-white/[0.07] text-brand-fg ring-1 ring-white/15' : 'text-brand-muted/50 hover:text-brand-fg'
                   }`
                 }

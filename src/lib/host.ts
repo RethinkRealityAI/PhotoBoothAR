@@ -591,8 +591,18 @@ export async function updateEventName(eventUuid: string, name: string): Promise<
     console.error('[host] updateEventName', error);
     return false;
   }
-  return (data?.length ?? 0) > 0;
+  const renamed = (data?.length ?? 0) > 0;
+  // Screens that hold the name in their own state (EventStudio's header) keep
+  // showing the OLD name until a reload otherwise — Settings and the copilot
+  // both rename through here, so one notice covers them.
+  if (renamed && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(EVENT_RENAMED, { detail: { id: eventUuid, name: trimmed } }));
+  }
+  return renamed;
 }
+
+/** window event fired after a successful rename: detail `{ id, name }`. */
+export const EVENT_RENAMED = 'beamwall:event-renamed';
 
 /* ------------------------------------------------------------------ */
 /* Event details (name · date · venue) — every store, one helper       */
