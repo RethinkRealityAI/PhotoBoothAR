@@ -34,7 +34,7 @@
  * can't double-create the experience or double-refund.
  *
  * Image (gemini/higgsfield) jobs are synchronous — polling them just returns
- * the stored row. The SWEEP additionally fails+refunds a higgsfield image row
+ * the stored row. The SWEEP additionally fails+refunds a gemini or higgsfield image row
  * left at 'running' past SWEEP_STRANDED_IMAGE_MS, which can only mean the
  * isolate died mid-generation with the credits already spent.
  */
@@ -520,14 +520,18 @@ Deno.serve(async (req: Request) => {
       //     its credits with nothing to show for them. These are NOT re-polled
       //     — there is no provider task to ask about (the generation lived
       //     inside the dead isolate) — so the only honest transition is
-      //     failed + refund. The gemini path is deliberately untouched: it is a
-      //     single round trip, not a poll loop, and has no window to die in.
+      //     failed + refund. GEMINI rows are swept too (ai-frames): a single
+      //     round trip still had a window to die in — Deno's fetch had no
+      //     timeout, so a hung generateContent ran until the platform killed
+      //     the isolate before refundAndFail. ai-generate-image now bounds the
+      //     whole chain at 115 s (jobPolicy.GEMINI_BUDGET_MS), far inside this
+      //     10-minute threshold, so a LIVE gemini generation is never swept.
       const { data: stranded, error: strandedErr } = await sb
         .from('ai_jobs')
         .select('*')
         .eq('status', 'running')
         .eq('kind', 'image')
-        .eq('provider', 'higgsfield')
+        .in('provider', ['higgsfield', 'gemini'])
         .lte('updated_at', new Date(now - SWEEP_STRANDED_IMAGE_MS).toISOString())
         .order('updated_at', { ascending: true })
         .limit(SWEEP_BATCH);
@@ -544,7 +548,7 @@ Deno.serve(async (req: Request) => {
             .from('ai_jobs')
             .update({
               status: 'failed',
-              error: 'higgsfield_stranded',
+              error: row.provider === 'gemini' ? 'gemini_stranded' : 'higgsfield_stranded',
               updated_at: new Date().toISOString(),
             })
             .eq('id', id)

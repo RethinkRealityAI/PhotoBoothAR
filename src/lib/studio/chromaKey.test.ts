@@ -8,6 +8,7 @@ import {
   needsChromaKey,
   hasGenuineAlpha,
   bytesLookAlpha,
+  refineKeyedEdges,
   DEFAULT_KEY,
   FRAME_W,
   FRAME_H,
@@ -445,5 +446,53 @@ describe('bytesLookAlpha', () => {
 
     expect(bytesLookAlpha(new Uint8Array(25))).toBe(false); // truncated
     expect(bytesLookAlpha(new Uint8Array(0))).toBe(false);
+  });
+});
+
+describe('refineEdges (opt-in) / refineKeyedEdges', () => {
+  /** 8×8 green with a 4×4 olive-fringed gold block in the middle. */
+  function framed(): RgbaImage {
+    const img = solid(8, 8, GREEN);
+    for (let y = 2; y < 6; y++) {
+      for (let x = 2; x < 6; x++) {
+        const i = (y * 8 + x) * 4;
+        const rim = x === 2 || x === 5 || y === 2 || y === 5;
+        // The rim carries green spill (g > r,b) but is far enough from the key to be kept.
+        img.data.set(rim ? [150, 190, 60, 255] : [212, 175, 55, 255], i);
+      }
+    }
+    return img;
+  }
+
+  it('absent → byte-identical to the historical output (the guide pack depends on it)', () => {
+    const img = framed();
+    const a = keyOutColorWithStats(img);
+    const b = keyOutColorWithStats(img, { refineEdges: false });
+    expect(Array.from(b.image.data)).toEqual(Array.from(a.image.data));
+    expect(Array.from(processFrameImage(img, 8, 8).image.data))
+      .toEqual(Array.from(processFrameImage(img, 8, 8, { refineEdges: undefined }).image.data));
+  });
+
+  it('halves the alpha of the 1px rim touching the backdrop and despills it', () => {
+    const plain = keyOutColorWithStats(framed());
+    const refined = keyOutColorWithStats(framed(), { refineEdges: true });
+    const [r, g, b, a] = px(refined.image, 2, 3);
+    expect(px(plain.image, 2, 3)[3]).toBe(255);
+    expect(a).toBe(128);
+    expect(g).toBeLessThanOrEqual(Math.max(r, b));
+  });
+
+  it('leaves the interior untouched and keyedFraction unchanged', () => {
+    const plain = keyOutColorWithStats(framed());
+    const refined = keyOutColorWithStats(framed(), { refineEdges: true });
+    expect(px(refined.image, 3, 3)).toEqual(px(plain.image, 3, 3));
+    expect(refined.keyedFraction).toBe(plain.keyedFraction);
+  });
+
+  it('never mutates its input', () => {
+    const keyed = keyOutColor(framed());
+    const copy = Array.from(keyed.data);
+    refineKeyedEdges(keyed);
+    expect(Array.from(keyed.data)).toEqual(copy);
   });
 });

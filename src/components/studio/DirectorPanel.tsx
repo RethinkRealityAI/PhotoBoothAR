@@ -69,7 +69,7 @@ import {
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { measureGlbFitScale } from '../../lib/studio/glbThumb';
 import { PROP_TARGET_CM } from '../../lib/studio/bustFit';
-import { buildConceptPrompt } from '../../lib/assetPrompt';
+import { buildConceptPrompt, inferFrameLayout } from '../../lib/assetPrompt';
 import {
   SceneHeader,
   FilterCard,
@@ -413,6 +413,10 @@ export default function DirectorPanel({
         kind: 'border',
         transparentBackground: false,
         greenScreen: true,
+        // The Scene Director writes the archetype into the prompt in words
+        // ("one face-sized cutout", "lower third banner"); without this the
+        // server defaulted every plan to an edge border, whatever it said.
+        layout: inferFrameLayout(framePrompt),
         // Absent for gemini — that body stays byte-identical to before.
         ...providerBody(providerRef.current),
         ...(reference ? { referenceImageUrl: reference } : {}),

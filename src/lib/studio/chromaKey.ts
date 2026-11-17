@@ -41,6 +41,13 @@ export interface KeyOutOptions {
   key?: readonly [number, number, number];
   tolerance?: number;
   softness?: number;
+  /**
+   * OPT-IN edge clean-up after the key (see {@link refineKeyedEdges}): a 1px
+   * alpha erosion of the rim that touches the keyed backdrop plus a despill of
+   * the next ring. Absent/false → output is byte-identical to before, which is
+   * what keeps scripts/key-guide-frames.mjs reproducing the shipped guide pack.
+   */
+  refineEdges?: boolean;
 }
 
 /**
@@ -206,10 +213,64 @@ export function keyOutColorWithStats(img: RgbaImage, opts: KeyOutOptions = {}): 
     }
   }
 
+  const keyed: RgbaImage = { data: out, width: img.width, height: img.height };
   return {
-    image: { data: out, width: img.width, height: img.height },
+    image: opts.refineEdges === true ? refineKeyedEdges(keyed) : keyed,
     keyedFraction: total > 0 ? keyedCount / total : 0,
   };
+}
+
+/**
+ * Edge refinement for a KEYED buffer (backdrop pixels are alpha 0 / rgb 0).
+ *
+ * Image models anti-alias the art INTO the green, so the art's outermost pixel
+ * ring is a green-art blend that the soft band only partly catches — on a dark
+ * booth photo it reads as a thin lime outline. Two passes, both confined to
+ * the boundary so the interior of the art is never touched:
+ *   1. ERODE — a pixel 4-adjacent to a fully transparent pixel has its alpha
+ *      HALVED (a 1px soft erosion, applied once): the contaminated rim fades
+ *      into the photo instead of outlining the art.
+ *   2. DESPILL — every pixel within 2px of the backdrop has its green clamped
+ *      to max(R,B), the classic spill suppressor; true art greens do not exist
+ *      in a frame (the prompt bans them), so nothing legitimate is lost.
+ * Returns a NEW buffer; the input is never mutated.
+ */
+export function refineKeyedEdges(img: RgbaImage): RgbaImage {
+  const { data: src, width: w, height: h } = img;
+  const out = new Uint8ClampedArray(src);
+  if (w <= 0 || h <= 0) return { data: out, width: w, height: h };
+  // dist[i] = 1 if 4-adjacent to transparent, 2 if adjacent to a dist-1 pixel.
+  const dist = new Uint8Array(w * h);
+  const transparent = (x: number, y: number) =>
+    x >= 0 && y >= 0 && x < w && y < h && src[(y * w + x) * 4 + 3] === 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x;
+      if (src[p * 4 + 3] === 0) continue;
+      if (transparent(x - 1, y) || transparent(x + 1, y) || transparent(x, y - 1) || transparent(x, y + 1)) {
+        dist[p] = 1;
+      }
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x;
+      if (dist[p] !== 0 || src[p * 4 + 3] === 0) continue;
+      if ((x > 0 && dist[p - 1] === 1) || (x < w - 1 && dist[p + 1] === 1) ||
+          (y > 0 && dist[p - w] === 1) || (y < h - 1 && dist[p + w] === 1)) {
+        dist[p] = 2;
+      }
+    }
+  }
+  for (let p = 0; p < w * h; p++) {
+    const d = dist[p];
+    if (d === 0) continue;
+    const i = p * 4;
+    if (d === 1) out[i + 3] = Math.round(src[i + 3] / 2);
+    const cap = Math.max(out[i], out[i + 2]);
+    if (out[i + 1] > cap) out[i + 1] = cap;
+  }
+  return { data: out, width: w, height: h };
 }
 
 /**
