@@ -34,6 +34,9 @@ interface Props {
   onSaved?: (nextConfig: Record<string, unknown>) => void;
   /** Heading level text; omit for the default. */
   title?: string;
+  /** Name of the look the booth opens with when it is not one of these
+   *  frames (an AI frame, a library pick); null/absent → a generic note. */
+  openingLookName?: string | null;
 }
 
 const FILTER_NAMES: Record<string, string> = Object.fromEntries(FILTER_SHADERS.map((s) => [s.id, s.name]));
@@ -56,7 +59,7 @@ function toggle(list: string[], id: string): string[] {
   return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 }
 
-export default function LooksPicker({ eventUuid, config, eventType, accentHex, onSaved, title = 'Pick your frames & filters' }: Props) {
+export default function LooksPicker({ eventUuid, config, eventType, accentHex, onSaved, title = 'Pick your frames & filters', openingLookName }: Props) {
   const accent = normalizeHex(accentHex);
   const ranked = useMemo(() => rankLooks({ eventType, accentHex: accent }), [eventType, accent]);
   const template = templateById(eventType ?? undefined);
@@ -87,6 +90,10 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
   const palette = sel.palette;
   // An AI frame the event already opens with is kept unless the host picks one here.
   const defaultFrame = effectiveDefaultFrame(sel, config?.defaultExperienceId);
+  // effectiveDefaultFrame returns null exactly when another look keeps the
+  // opening slot (or nothing is on) — say which, so the host is not left
+  // wondering why none of these frames is starred.
+  const otherOpensFirst = defaultFrame === null && sel.borderIds.length > 0;
   const canSave = sel.borderIds.length > 0 && sel.shaderIds.length > 0 && !saving;
 
   const update = (next: Partial<LooksSelection>) => {
@@ -131,6 +138,17 @@ export default function LooksPicker({ eventUuid, config, eventType, accentHex, o
       <h3 className="mt-5 text-[13px] font-semibold uppercase tracking-wide text-brand-muted">
         Frames <span className="font-normal normal-case">· {sel.borderIds.length} on</span>
       </h3>
+      {otherOpensFirst && (
+        <p className="mt-2 flex items-start gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[13px] leading-snug text-brand-muted">
+          <Star className="mt-0.5 h-3.5 w-3.5 shrink-0 fill-current text-[var(--color-accent)]" aria-hidden />
+          <span>
+            <span className="font-semibold text-brand-fg">
+              {openingLookName ? `“${openingLookName}”` : 'Your own frame'} opens first.
+            </span>{' '}
+            Guests can still pick any frame below. To open with one of these instead, tap “Open with this” on it and save.
+          </span>
+        </p>
+      )}
       <ul className="mt-2 grid grid-cols-3 gap-2.5 sm:grid-cols-5" role="list">
         {ranked.frameIds.map((id) => {
           const b = BORDER_MAP[id];
