@@ -18,9 +18,11 @@ import { Emblem } from './ui/EventLogo';
 import ReportIssueButton from './support/ReportIssueButton';
 import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
+import { useEntitlements } from '../lib/entitlements';
 
 export default function GuestWelcome() {
   const { config, basePath } = useEvent();
+  const { videoEnabled } = useEntitlements();
   const {
     wallSettings, fetchWallSettings,
     posts, fetchPosts,
@@ -116,7 +118,12 @@ export default function GuestWelcome() {
             Step into the AR Photo Booth
           </Link>
           <p className="text-center font-sans text-[12.5px] text-champagne/70">
-            Try on live filters, frames &amp; 3D pieces — snap a photo or video.
+            {/* Same capability the booth reads (Booth.tsx videoAllowed): a
+                photos-only plan must not promise video. Legacy sites resolve
+                LEGACY_ENTITLEMENTS (video on), so their copy is unchanged. */}
+            {videoEnabled
+              ? <>Try on live filters, frames &amp; 3D pieces — snap a photo or video.</>
+              : <>Try on live filters, frames &amp; 3D pieces — and snap a photo.</>}
             {posts.length > 0 && (
               <>
                 {' '}

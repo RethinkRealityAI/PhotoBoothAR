@@ -889,7 +889,7 @@ export default function NewEvent() {
               </div>
               <button
                 onClick={() => setConcierge(true)}
-                className="shrink-0 inline-flex items-center gap-1 font-label uppercase tracking-luxe ui-caption text-brand-muted/60 hover:text-brand-fg transition-colors underline underline-offset-4 decoration-white/20"
+                className="shrink-0 inline-flex min-h-11 items-center gap-1 font-label uppercase tracking-luxe ui-caption text-brand-muted/60 hover:text-brand-fg transition-colors underline underline-offset-4 decoration-white/20"
               >
                 <Sparkles className="w-3 h-3" /> Use the concierge
               </button>
@@ -940,7 +940,7 @@ export default function NewEvent() {
               <label className="mt-0.5 flex items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5 cursor-pointer hover:bg-white/[0.04] transition-colors">
                 <input type="checkbox" checked={remote} onChange={(e) => setRemote(e.target.checked)} className="mt-0.5 accent-[color:var(--color-accent)]" />
                 <span className="font-sans ui-caption leading-relaxed text-brand-muted/70">
-                  <span className="text-brand-fg">Remote / virtual celebration.</span> Guests can’t attend in person — we’ll open the studio to a shareable greeting card where anyone, anywhere adds photos, videos &amp; notes. Your chosen style still applies.
+                  <span className="text-brand-fg">Remote / virtual celebration.</span> Guests can’t attend in person — we’ll open your event on a shareable greeting card where anyone, anywhere adds photos, videos &amp; notes. Your chosen style still applies.
                 </span>
               </label>
               {remote && REMOTE_PLAN_NOTE && (
