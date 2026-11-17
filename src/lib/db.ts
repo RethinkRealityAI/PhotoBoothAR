@@ -834,11 +834,29 @@ async function getSetting<T>(eventId: string, key: string, fallback: T): Promise
   return { ...fallback, ...(data.value as Partial<T>) };
 }
 
-async function setSetting<T extends object>(eventId: string, key: string, value: T): Promise<T> {
+/** Thrown by a `strict` settings write that did not land. */
+export class SettingWriteError extends Error {
+  constructor(public readonly key: string) {
+    super(`setting_write_failed:${key}`);
+    this.name = 'SettingWriteError';
+  }
+}
+
+/**
+ * Upsert one app_settings row. By default a failed write is logged and the
+ * value returned anyway — the historical contract every legacy caller was
+ * written against (none of them catch). `strict: true` THROWS a
+ * SettingWriteError instead, for screens that must not say "Saved" over a
+ * write that never happened (Branding).
+ */
+async function setSetting<T extends object>(eventId: string, key: string, value: T, opts?: { strict?: boolean }): Promise<T> {
   const { error } = await supabase
     .from('app_settings')
     .upsert({ key, value, updated_at: new Date().toISOString(), event_id: eventId }, { onConflict: 'event_id,key' });
-  if (error) console.error('[db] setSetting', key, error);
+  if (error) {
+    console.error('[db] setSetting', key, error);
+    if (opts?.strict === true) throw new SettingWriteError(key);
+  }
   return value;
 }
 
@@ -903,9 +921,9 @@ export async function getBranding(eventId: string): Promise<BrandingOverrides> {
   return getSetting<BrandingOverrides>(eventId, 'branding', DEFAULT_BRANDING);
 }
 
-export async function setBranding(eventId: string, patch: BrandingOverrides): Promise<BrandingOverrides> {
+export async function setBranding(eventId: string, patch: BrandingOverrides, opts?: { strict?: boolean }): Promise<BrandingOverrides> {
   const current = await getBranding(eventId);
-  return setSetting(eventId, 'branding', { ...current, ...patch });
+  return setSetting(eventId, 'branding', { ...current, ...patch }, opts);
 }
 
 export function subscribeToBranding(eventId: string, onChange: (b: BrandingOverrides) => void): () => void {

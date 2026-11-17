@@ -200,10 +200,14 @@ interface Props {
   slug?: string;
   /** Router prefix override; defaults to `/e/<slug>` when slug comes from params. */
   basePath?: string;
+  /** Float the "Preview — guests can't open this yet" pill over the page.
+   *  The host event studio turns it off: it shows the status in its own
+   *  header, and the fixed pill sat on top of that header on phones. */
+  previewBanner?: boolean;
   children: ReactNode;
 }
 
-export default function EventProvider({ slug: slugProp, basePath, children }: Props) {
+export default function EventProvider({ slug: slugProp, basePath, previewBanner = true, children }: Props) {
   const params = useParams<{ slug?: string }>();
   const slug = (slugProp ?? params.slug ?? '').trim();
 
@@ -398,7 +402,7 @@ export default function EventProvider({ slug: slugProp, basePath, children }: Pr
       {/* A member looking at an event guests cannot reach yet (or any more).
           Without this a host testing a draft sees a working booth and can
           reasonably conclude their guests do too. */}
-      {access === 'preview' && (
+      {access === 'preview' && previewBanner && (
         <div
           role="status"
           className="pointer-events-none fixed inset-x-0 top-0 z-[100] flex justify-center px-3 pt-safe-top [--safe-top:0.5rem]"

@@ -10,8 +10,9 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { QRCodeSVG } from 'qrcode.react';
 import Modal from '../../components/ui/Modal';
 import ConfirmModal from '../../components/ui/ConfirmModal';
-import { Archive, ArchiveRestore, ArrowRight, ArrowUpRight, Check, ChevronDown, Copy, ExternalLink, Plus, QrCode, RefreshCw, Settings2, Trash2 } from 'lucide-react';
-import { fetchMyEvents, goLive, updateEventStatus, deleteEvent, eventOrgHasActivePro, invalidateProSubscriptionCache, type HostEventRow } from '../../lib/host';
+import { Archive, ArchiveRestore, ArrowRight, ArrowUpRight, CalendarDays, Check, ChevronDown, Copy, CopyPlus, ExternalLink, Loader2, Plus, QrCode, RefreshCw, Settings2, Trash2 } from 'lucide-react';
+import { fetchMyEvents, goLive, updateEventStatus, deleteEvent, duplicateEvent, eventOrgHasActivePro, invalidateProSubscriptionCache, type HostEventRow } from '../../lib/host';
+import { accentOf, formatEventDate, groupEvents } from '../../lib/eventList';
 import { RESTORE_STATUS, archivedLabel, canArchiveStatus, canDeleteStatus, confirmNameMatches, isArchivedStatus, partitionByArchived } from '../../lib/eventArchive';
 import { TierPill, UpgradeModal } from './UpgradeCard';
 import { entitlementsFor, normalizeTier } from '../../lib/entitlements';
@@ -166,6 +167,10 @@ export default function EventsList() {
   const [deleteTyped, setDeleteTyped] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  /** An ENDED event the host asked to re-open — confirmed first, because a
+   *  bare "Go live" on a finished event re-opens a wall guests think is over. */
+  const [reopenTarget, setReopenTarget] = useState<HostEventRow | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [postCounts, setPostCounts] = useState<Record<string, PostCount>>({});
   const [showGuide, setShowGuide] = useState(() => {
     try { return !localStorage.getItem(HOST_ONBOARDED_KEY); } catch { return false; }
@@ -309,10 +314,38 @@ export default function EventsList() {
     push(message, 'error');
   };
 
+  /** "Duplicate event": a fresh draft with this event's look, frames,
+   *  filters, copy and branding — never its photos, posts or cards. */
+  const runDuplicate = async (ev: HostEventRow) => {
+    if (duplicatingId !== null) return;
+    setDuplicatingId(ev.id);
+    const res = await duplicateEvent(ev);
+    setDuplicatingId(null);
+    if (!res.event) {
+      push(
+        res.error === 'slug_taken' || res.error === 'reserved_slug'
+          ? `Couldn’t find a free link for a copy of “${ev.name}” — create it from New event instead.`
+          : `Couldn’t duplicate “${ev.name}” — check your connection and try again.`,
+        'error',
+      );
+      return;
+    }
+    const copy = res.event;
+    setEvents((list) => [copy, ...(list ?? [])]);
+    push(
+      res.partial
+        ? `Created “${copy.name}”, but some of the look didn’t copy — check it in Manage.`
+        : `Created “${copy.name}” as a draft — photos and cards were not copied.`,
+      res.partial ? 'error' : 'success',
+    );
+  };
+
   // Archived events are retired, not deleted: they come back in the same
   // fetchMyEvents payload and are split here, so the "Archived (N)" shelf costs
   // no second query. Order is preserved (created_at desc).
   const { active, archived } = partitionByArchived(events ?? []);
+  // Upcoming / Drafts / Past, by local calendar day (eventList.ts).
+  const grouped = groupEvents(active);
 
   // Getting-started guide, derived from data already in hand: the newest event
   // (fetchMyEvents orders created_at desc) anchors the links, done-ness comes
@@ -325,7 +358,7 @@ export default function EventsList() {
   const guideSteps = [
     { n: '1', title: 'Create your event', rest: 'the AI concierge sets it up in a minute', done: hasEvents, to: '/host/new' },
     { n: '2', title: 'Go live & share the QR', rest: 'guests need no app', done: anyLive, to: newest ? `/host/events/${newest.id}/share` : '/host/new' },
-    { n: '3', title: 'Make it yours (optional)', rest: 'AI frames, 3D props & challenges in the Studio', done: false, to: newest ? `/host/events/${newest.id}/studio` : '/host/new' },
+    { n: '3', title: 'Make it yours (optional)', rest: 'frames, filters, 3D props & challenges', done: false, to: newest ? `/host/events/${newest.id}/library` : '/host/new' },
   ];
   const guidePct = Math.round((([hasEvents, anyLive].filter(Boolean).length) / 2) * 100);
   const guideDone = hasEvents && anyLive;
@@ -339,12 +372,31 @@ export default function EventsList() {
     const welcomeUrl = `${origin}/e/${ev.slug}/welcome`;
     const busy = busyId === ev.id;
     const isArchived = isArchivedStatus(ev.status);
+    const when = formatEventDate(ev.starts_at);
+    const accent = accentOf(ev.config);
     return (
-      <div key={ev.id} className="liquid-glass rounded-2xl p-5 flex flex-col gap-3">
+      <div key={ev.id} className="relative overflow-hidden liquid-glass rounded-2xl p-5 flex flex-col gap-3">
+        {/* The event's own colour, so a list of events reads at a glance. */}
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-1.5"
+          style={{ background: accent ?? 'rgba(255,255,255,0.08)' }}
+        />
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="font-serif text-lg text-brand-fg leading-tight truncate">{ev.name}</p>
-            <p className="font-sans text-[10px] uppercase tracking-widest text-brand-muted/40 mt-0.5">{ev.event_type}</p>
+            <p className="mt-1 flex items-center gap-1.5 font-sans text-[12px] text-brand-muted/80">
+              <CalendarDays className="w-3.5 h-3.5 shrink-0" aria-hidden />
+              {when ? (
+                <>
+                  <span>{when.day}</span>
+                  <span aria-hidden>·</span>
+                  <span className={when.past ? 'text-brand-muted/60' : when.relative === 'Today' ? 'text-emerald-300' : ''}>{when.relative}</span>
+                </>
+              ) : (
+                <span className="text-brand-muted/55">No date set</span>
+              )}
+            </p>
           </div>
           <div className="shrink-0 flex items-center gap-1.5">
             <TierPill tier={ev.plan_tier} />
@@ -399,15 +451,34 @@ export default function EventsList() {
             to={`/host/events/${ev.id}`}
             className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors"
           >
-            <Settings2 className="w-3.5 h-3.5" /> Open studio
+            <Settings2 className="w-3.5 h-3.5" /> Manage
           </Link>
-          {(ev.status === 'draft' || ev.status === 'ended') && (
+          {ev.status === 'draft' && (
             <button
               onClick={() => setStatus(ev, 'live', 'You’re live — guests can scan now')}
               disabled={busy}
               className="rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-emerald-400 transition-colors disabled:opacity-40"
             >
               Go live
+            </button>
+          )}
+          {ev.status === 'ended' && (
+            <button
+              onClick={() => setReopenTarget(ev)}
+              disabled={busy}
+              className="rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-40"
+            >
+              Re-open…
+            </button>
+          )}
+          {!isArchived && (
+            <button
+              onClick={() => void runDuplicate(ev)}
+              disabled={duplicatingId !== null}
+              title="Make a new draft with this event’s look, frames and filters"
+              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-40"
+            >
+              {duplicatingId === ev.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CopyPlus className="w-3.5 h-3.5" />} Duplicate
             </button>
           )}
           {ev.status === 'live' && (
@@ -489,12 +560,16 @@ export default function EventsList() {
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
-          <Link
-            to="/host/new"
-            className="pressable flex items-center gap-2 rounded-full bg-foil px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition"
-          >
-            <Plus className="w-4 h-4" /> New event
-          </Link>
+          {/* The empty state has its own (single) primary CTA — two "New
+              event" buttons on one screen is one too many. */}
+          {!(events !== null && events.length === 0 && !loading) && (
+            <Link
+              to="/host/new"
+              className="pressable flex items-center gap-2 rounded-full bg-foil px-5 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition"
+            >
+              <Plus className="w-4 h-4" /> New event
+            </Link>
+          )}
         </div>
       </header>
 
@@ -592,7 +667,24 @@ export default function EventsList() {
       ) : (
         <>
           {active.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-2">{active.map(renderCard)}</div>
+            <div className="flex flex-col gap-8">
+              {([
+                ['upcoming', 'Upcoming & live'],
+                ['drafts', 'Drafts'],
+                ['past', 'Past'],
+              ] as const).map(([key, label]) => {
+                const list = grouped[key];
+                if (list.length === 0) return null;
+                return (
+                  <section key={key} aria-labelledby={`events-${key}`}>
+                    <h2 id={`events-${key}`} className="mb-3 font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
+                      {label} <span className="text-brand-muted/45">· {list.length}</span>
+                    </h2>
+                    <div className="grid gap-4 sm:grid-cols-2">{list.map(renderCard)}</div>
+                  </section>
+                );
+              })}
+            </div>
           ) : (
             <p className="font-sans text-sm text-brand-muted/60 text-center py-8">
               Everything here is archived — open the shelf below to restore one, or start a new event.
@@ -664,6 +756,25 @@ export default function EventsList() {
             void setStatus(ev, 'archived', `“${ev.name}” archived`).then(() => setArchiveTarget(null));
           }}
           onCancel={() => setArchiveTarget(null)}
+        />
+      )}
+      {reopenTarget && (
+        <ConfirmModal
+          title={`Re-open “${reopenTarget.name}”?`}
+          body={
+            <>
+              This event has ended. Re-opening makes it <span className="text-brand-fg">live again</span>: the
+              guest link and QR start working, and guests can post to the wall again. If this is a new
+              occasion, Duplicate it instead — you keep the look and start with an empty wall.
+            </>
+          }
+          confirmLabel="Re-open event"
+          busy={busyId === reopenTarget.id}
+          onConfirm={() => {
+            const ev = reopenTarget;
+            void setStatus(ev, 'live', `“${ev.name}” is live again`).then(() => setReopenTarget(null));
+          }}
+          onCancel={() => setReopenTarget(null)}
         />
       )}
       {/* Permanent delete. Every claim below is one the edge function keeps:

@@ -24,6 +24,12 @@ const COVERAGE: Record<AiErrorCode, 'retryable' | 'hard'> = {
   rate_limited: 'retryable',
   internal: 'retryable',
   network: 'retryable',
+  // The client stopped waiting; the request may still land (findFrameJobSince).
+  timeout: 'retryable',
+  aborted: 'retryable',
+  // Only the FREE redo is used up — a normal paid try still works.
+  retry_already_used: 'retryable',
+  retry_not_eligible: 'retryable',
   ai_key_invalid: 'hard',
   ai_not_configured: 'hard',
   // Retrying re-runs the same stored prompt, which the provider already refused.

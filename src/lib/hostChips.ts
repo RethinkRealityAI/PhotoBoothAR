@@ -46,7 +46,10 @@ const CONCIERGE_GREETING =
 const CONCIERGE_SUGGESTIONS = [
   "Jenna and Jake's wedding on 2026-09-12",
   'A black-tie charity gala in November',
-  "My mum's 60th — family joins from abroad",
+  // Not a remote/abroad example: remote events need keepsake cards, which a
+  // brand-new (free) event does not include — the chip used to steer hosts
+  // straight into a paywall.
+  "My mum's 60th birthday party in the garden",
 ];
 
 const PLATFORM_GREETING =

@@ -621,14 +621,14 @@ const MAKE_A_FRAME: GuideDoc = {
       title: 'Four ways to get your frame',
       steps: [
         {
-          title: 'Take one from the pack below',
-          body: 'Fourteen ready-made designs, free, sized correctly, with the face window already cut out. Download the one closest to your event, upload it, done. This is the two-minute route.',
-          tip: 'Even if you plan to make your own, grab one first so your booth is never empty while you experiment.',
+          title: 'Pick a ready-made one',
+          body: 'Open your event and go to the Frames & filters tab. Designs picked to match your occasion and colours sit at the top, under Recommended for your event, with the rest of the ready-made library below — press Add to booth on any of them and switch it On for guests. Nothing to design, nothing to upload. This is the two-minute route.',
+          tip: 'Even if you plan to make your own, add one first so your booth is never empty while you experiment.',
         },
         {
-          title: 'Describe it to AI Frame Studio',
-          body: `Open your event, go to the Assets tab, and describe the look you want. Pick one of the ${GUIDE_COUNTS.frameArchetypes} layouts — Border, Full scene, Two faces, Corners or Banner — add your names in one of the lettering styles, and it renders a finished, cut-out frame for you. Your first 3 AI images on every event are free, so the first few tries cost nothing.`,
-          tip: 'Lettering can sit at the bottom, along the top, woven into the art, running past the edge, or stand alone as name art.',
+          title: 'Make one with AI, in the same tab',
+          body: `At the top of Frames & filters, Make a frame with AI starts with a description written from your event — its name, occasion and colours. Change anything you like, generate, and it comes back cut out, ready to place, and set as your booth’s default frame in one tap. Your first 3 AI images on every event are free, so the first few tries cost nothing. Teams with the Studio add-on get the full version inside the Studio: ${GUIDE_COUNTS.frameArchetypes} layouts — Border, Full scene, Two faces, Corners or Banner — and lettering styles for your names.`,
+          tip: 'Name a colour and a style in the description — "ivory and gold, art-deco" gets you much further than "wedding".',
         },
         {
           title: 'Write the prompt yourself, anywhere',
@@ -637,14 +637,14 @@ const MAKE_A_FRAME: GuideDoc = {
         },
         {
           title: 'Bring a designer’s file, or import from Higgsfield',
-          body: 'Already have artwork? Upload it in the Assets tab — PNG, JPG, WEBP and SVG all work, and the chip you have selected in that dock decides whether it becomes a frame or a sticker. Made it on Higgsfield? Paste the image link into the import page instead and it comes across without a download step (up to 10 MB, PNG, JPEG or WebP).',
+          body: 'Made it on Higgsfield, or anywhere that gives you a public image link? Paste the link into the import page and it lands in your event’s Frames & filters, ready to switch on (up to 10 MB, PNG, JPEG or WebP). Uploading a file straight from your computer — PNG, JPG, WEBP or SVG — happens in the Studio’s Assets tab, which comes with the Studio add-on; there the chip you have selected decides whether it becomes a frame or a sticker.',
         },
       ],
     },
     {
       kind: 'downloads',
       title: 'Start with a ready-made one',
-      blurb: 'Fourteen finished frames, already the right size and already cut out. Download the one closest to your night, upload it, go live. The chequered part is see-through — that is where your guest lands — and the dashed window shows how much room the design leaves them.',
+      blurb: 'Fourteen finished frames, already the right size and already cut out — free to download for your own designs, or to hand to whoever runs your Studio. The chequered part is see-through — that is where your guest lands — and the dashed window shows how much room the design leaves them.',
       entryIds: [
         'wedding-magazine-cover',
         'wedding-monogram-drop',
@@ -694,7 +694,7 @@ const MAKE_A_FRAME: GuideDoc = {
         {
           label: 'Frame or sticker?',
           value: 'The active chip in the Assets dock decides',
-          why: 'Same upload button, two outcomes — check the chip before you drop the file in.',
+          why: 'Studio add-on: same upload button, two outcomes — check the chip before you drop the file in.',
         },
       ],
     },
@@ -734,7 +734,7 @@ const MAKE_A_FRAME: GuideDoc = {
     {
       kind: 'cta',
       label: 'Start an event and try it',
-      to: '/host/new',
+      to: '/signup',
       blurb: 'Describe your event in one sentence and get a booth, a frame and a wall in a couple of minutes.',
     },
   ],
@@ -742,7 +742,7 @@ const MAKE_A_FRAME: GuideDoc = {
 
 const MAKE_3D_PROPS: GuideDoc = {
   slug: 'make-3d-props',
-  eyebrow: 'Props',
+  eyebrow: 'Studio add-on',
   title: 'Put a crown on every guest',
   hook: 'Pick a prop, paint it your colours, engrave a name — and it lands on every face in the room.',
   minutes: 9,
@@ -753,7 +753,8 @@ const MAKE_3D_PROPS: GuideDoc = {
       body: [
         'A 3D prop is an object that sticks to your guest as they move: a crown on the head, a visor over the eyes, a gauntlet on the hand. It tracks their face in real time, so it stays put when they laugh, lean in or pull a friend into the shot.',
         'This is the part guests film themselves doing. A frame gets a photo; a prop gets a video of someone discovering they have antlers.',
-        'There are four ways to get one, and the first two cost you nothing at all.',
+        'Props are built in the Studio, which is an add-on for teams and large organisations. No Studio? Ask the Copilot to put a ready-made head piece or filter on your booth — it proposes, you confirm.',
+        'With the Studio there are four ways to get one, and the first two cost you nothing at all.',
       ],
     },
     {
@@ -840,16 +841,16 @@ const MAKE_3D_PROPS: GuideDoc = {
     },
     {
       kind: 'cta',
-      label: 'Open a studio and try a prop',
-      to: '/host/new',
-      blurb: 'Spin up an event, switch the canvas to 3D, and put something on your own face in about a minute.',
+      label: 'Start an event and try a prop',
+      to: '/signup',
+      blurb: 'Spin up an event, then put a prop on your own face — in the Studio, or by asking the Copilot.',
     },
   ],
 };
 
 const USE_THE_STUDIO: GuideDoc = {
   slug: 'use-the-studio',
-  eyebrow: 'The studio',
+  eyebrow: 'Studio add-on',
   title: 'Find everything in the studio',
   hook: `One screen, ${GUIDE_COUNTS.studioTabs} tabs, nothing buried. Here is what each one is for.`,
   minutes: 7,
@@ -859,7 +860,8 @@ const USE_THE_STUDIO: GuideDoc = {
       kind: 'prose',
       body: [
         'Everything about one event lives behind one link. Open an event and you get a row of tabs across the top; each one owns a different part of the night, and nothing you do in one is lost when you move to another.',
-        'The middle of the screen is the stage — a live preview of exactly what a guest sees. Left of it is your library of frames, stickers, filters and props. Right of it are the settings for whatever you have selected.',
+        'The Studio and its Assets tab are an add-on for teams and large organisations who design their own frames and props. Every host gets the rest — including Frames & filters, where you pick ready-made designs or make a frame with AI. On a phone the tabs scroll sideways, with your event’s name above them.',
+        'Inside the Studio, the middle of the screen is the stage — a live preview of exactly what a guest sees. Left of it is your library of frames, stickers, filters and props. Right of it are the settings for whatever you have selected.',
       ],
     },
     {
@@ -873,12 +875,12 @@ const USE_THE_STUDIO: GuideDoc = {
       title: 'What each tab is for',
       body: [
         'Dashboard — the state of your event at a glance: whether it is live, how many photos have come in, your guest link and the QR code to print.',
-        'Studio — where you design. Switch the canvas between 2D for flat frames and filters, 3D for face-tracked props, and Preview to see the finished thing exactly as a guest will. It is one scene in all three views.',
-        'Experiences — a booth can offer more than one look. Each experience is its own scene, and guests pick from them when they arrive.',
-        'Assets — your uploads and your AI generations. Frames, stickers and 3D files all land here, and the chip you have active decides which kind an upload becomes.',
+        'Studio (add-on) — where you design. Switch the canvas between 2D for flat frames and filters, 3D for face-tracked props, and Preview to see the finished thing exactly as a guest will. It is one scene in all three views.',
+        'Frames & filters — everything guests can pick in the booth. A quick AI frame at the top, then designs recommended for your event, the ready-made library, your own pieces and the ones included with every event — each switched On for guests or Off.',
+        'Assets (add-on) — your uploads and your AI generations. Frames, stickers and 3D files all land here, and the chip you have active decides which kind an upload becomes.',
         'Wall — the big screen. Choose how photos arrive and how they are laid out, and get the link you open on the projector.',
         'Challenges — little missions for guests, worth points, optionally checked by AI from the photo itself, with a running count of how many passed.',
-        'Cards — keepsake cards: a shareable page friends and family contribute photos and messages to, which can be rendered into a short film.',
+        'Cards — keepsake cards: a shareable page friends and family contribute photos and messages to, which can be rendered into a short film. It appears on Premium and above, and on every remote celebration.',
         'Share — the print kit. QR signage, table cards and the links you hand to your venue.',
       ],
     },
@@ -911,7 +913,7 @@ const USE_THE_STUDIO: GuideDoc = {
       body: [
         'Test on phone does what it says: it gives you a link to open on your own handset so you can check the AR on a real camera without publishing anything to guests.',
         `The Copilot floats on every host screen. It plans with you rather than acting behind your back — it proposes up to ${GUIDE_COUNTS.copilotMaxActions} changes at a time, and every one of them is a card you confirm before anything is written. One change is one card. Two or more arrive together as a single plan card with a box ticked beside each step: untick what you do not want and press Run selected. The free steps run in order, and a step that spends credits opens its own card last, so you always see the cost before it goes. While it is thinking there is a Stop button; press it and the chat simply says Stopped.`,
-        'Ask it for a whole look — "put my guests in a moonlit jungle, with a filter to match" — and instead of guessing at three separate pieces it offers to open the Scene Director, the studio tool that designs frame, filter and 3D prop together, with your brief already typed in. Ask for a person, or for help with billing or your account, and it offers to open a support message for you, pre-filled with what you were trying to do. Both are cards you confirm; nothing happens on its own.',
+        'With the Studio add-on, ask it for a whole look — "put my guests in a moonlit jungle, with a filter to match" — and instead of guessing at three separate pieces it offers to open the Scene Director, the studio tool that designs frame, filter and 3D prop together, with your brief already typed in. Ask for a person, or for help with billing or your account, and it offers to open a support message for you, pre-filled with what you were trying to do. Both are cards you confirm; nothing happens on its own.',
         'The cards show their work. Rename the event, move the date or edit a challenge and the card shows a before → after line. Pick a frame or a 3D prop and you choose from thumbnails, not names. A pack of challenges arrives as a list you can untick or retitle one mission at a time. And the chips under its hello change with your event — while it has no challenges, one of them adds the starter pack in a single tap, and the greeting says so.',
         'Three small things. Rate any reply with a thumb up or down — hover it on a desktop, or just look under it on a phone. The microphone in the message box takes dictation on browsers that can listen (Chrome and Safari can; where the browser cannot, the button simply is not there) — what you say lands in the box for you to read and edit, and nothing is sent until you press send. And if a 3D prop it ordered is still sculpting when the wait runs long, the card offers Keep waiting: it picks the same job back up, so nothing is charged twice.',
         'Small type is a choice, not a rule. Larger text, in the host menu beside Support, scales the chats and their cards up on that device — the studio canvas stays exactly as it is — and stays on until you tap it again.',
@@ -924,7 +926,7 @@ const USE_THE_STUDIO: GuideDoc = {
         {
           label: 'Tabs in an event',
           value: `${GUIDE_COUNTS.studioTabs}`,
-          why: 'Dashboard, Studio, Experiences, Assets, Wall, Challenges, Cards and Share. Cards appears on Premium and above.',
+          why: 'Dashboard, Studio, Frames & filters, Assets, Wall, Challenges, Cards and Share. Studio and Assets come with the Studio add-on; Cards appears on Premium and above.',
         },
         {
           label: 'Pieces in one scene',
@@ -994,12 +996,12 @@ const FIRST_EVENT: GuideDoc = {
       steps: [
         {
           title: 'Describe your event',
-          body: `Start a new event and write one sentence about it — occasion, vibe, colours. Or upload a photo of the invitation and let it design from that. The plan card has a box ticked for you, Start with a challenge pack + a keepsake card: leave it on and your event opens with ${GUIDE_COUNTS.starterPackMissions} ready-made photo missions and a card guests can sign, from the starter pack that matches your style — Wedding, Gala, Birthday, Corporate or Party. Untick it to start empty. If the AI designer is ever unavailable, the Concierge says why in plain words and builds from a quick template match instead; you can restyle all of it in the studio.`,
+          body: `Start a new event and write one sentence about it — occasion, vibe, colours. Or upload a photo of the invitation and let it design from that. The plan card has a box ticked for you, Start with a challenge pack + a keepsake card: leave it on and your event opens with ${GUIDE_COUNTS.starterPackMissions} ready-made photo missions and a card guests can sign, from the starter pack that matches your style — Wedding, Gala, Birthday, Corporate or Party. Untick it to start empty. If the AI designer is ever unavailable, the Concierge says why in plain words and builds from a quick template match instead; you can change all of it later.`,
           tip: 'Be specific about mood and colour. "Elegant, ivory and gold, evening" gets you much further than "wedding".',
         },
         {
           title: 'Work the checklist',
-          body: 'Your dashboard shows a short list: name it, choose the look, add a frame, take a test photo. Each item links straight to the screen that finishes it, and it ticks itself off as you go.',
+          body: 'Your dashboard shows a short list: name it, choose the look, add frames & effects, take a test photo. Each item links straight to the screen that finishes it — frames open Frames & filters, where you pick ready-made designs or make one with AI — and it ticks itself off as you go. No design skills needed.',
         },
         {
           title: 'Take a test photo yourself',
@@ -1034,7 +1036,7 @@ const FIRST_EVENT: GuideDoc = {
     {
       kind: 'cta',
       label: 'Create your event',
-      to: '/host/new',
+      to: '/signup',
       blurb: 'One sentence is genuinely enough to start.',
     },
   ],
@@ -1181,11 +1183,12 @@ export const GUIDES: Record<GuideSlug, GuideDoc> = {
 
 /** Hub order — the order a new host should read them in, not alphabetical. */
 export const GUIDE_ORDER: readonly GuideSlug[] = [
+  // The no-design path first; the two Studio add-on guides last.
   'first-event',
+  'run-the-night',
   'make-a-frame',
   'make-3d-props',
   'use-the-studio',
-  'run-the-night',
 ];
 
 export function isGuideSlug(v: string): v is GuideSlug {
@@ -1254,9 +1257,9 @@ export const GUIDE_COVERAGE: {
 } = {
   studioTabs: {
     dashboard: { guide: 'use-the-studio', note: 'What each tab is for — Dashboard; the checklist is walked in first-event.' },
-    studio: { guide: 'use-the-studio', note: 'What each tab is for — Studio; the 2D/3D/Preview split and the editor hotspots.' },
-    experiences: { guide: 'use-the-studio', note: 'What each tab is for — Experiences (more than one look per booth).' },
-    assets: { guide: 'make-a-frame', note: 'Four ways to get your frame — upload path, and the frame-or-sticker chip.' },
+    studio: { guide: 'use-the-studio', note: 'What each tab is for — Studio (add-on); the 2D/3D/Preview split and the editor hotspots.' },
+    experiences: { guide: 'make-a-frame', note: 'Four ways to get your frame — Pick a ready-made one and Make one with AI, both in the Frames & filters tab.' },
+    assets: { guide: 'make-a-frame', note: 'Four ways to get your frame — the Studio add-on upload path, and the frame-or-sticker chip.' },
     wall: { guide: 'run-the-night', note: 'Set up the wall — the four modes and the projector link.' },
     challenges: { guide: 'run-the-night', note: 'Challenges give people a reason to keep going, including the AI photo check and its checked/passed counts.' },
     cards: { guide: 'run-the-night', note: 'Keepsake cards, after the night — contribution limits and the film render.' },
@@ -1288,5 +1291,6 @@ export const GUIDE_COVERAGE: {
     cardsPremiumRender: { guide: 'run-the-night', note: 'Keepsake cards / What things cost — the ≈30-credit film render.' },
     projectionMode: { guide: 'run-the-night', note: 'Set up the wall — Projection mode for an actual projector.' },
     retentionDays: { guide: 'run-the-night', note: 'Keepsake cards, after the night — guests bulk-save before photos age out.' },
+    studio: { guide: 'use-the-studio', note: 'Opening prose — the Studio and Assets tabs are an add-on for teams and large organisations; every host gets Frames & filters.' },
   },
 };

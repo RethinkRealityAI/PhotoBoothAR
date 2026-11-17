@@ -73,8 +73,10 @@ const TRIGGER_ACTION_TYPES: Record<TriggerAction['type'], true> = {
   animate: true,
 };
 
-/** Highest tier, so every conditionally-visible tab (e.g. `cards`) appears. */
-const TOP_TIER: FeatureSet = ENTITLEMENTS.deluxe;
+/** Highest tier PLUS the Studio add-on (granted per org, on no plan), so every
+ *  conditionally-visible tab (`cards`, `studio`, `assets`) appears — i.e.
+ *  everything a fully-entitled host can see. */
+const TOP_TIER: FeatureSet = { ...ENTITLEMENTS.deluxe, studio: true };
 
 const FIX = 'add real copy to src/lib/guidesContent.ts and map it in GUIDE_COVERAGE';
 

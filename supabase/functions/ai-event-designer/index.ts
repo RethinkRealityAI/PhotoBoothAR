@@ -404,6 +404,40 @@ function resolveImage(raw: unknown): InputImage | undefined {
   return { data, mimeType };
 }
 
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+const PALETTE_KEYS = ['bg', 'surface', 'fg', 'accent', 'accent2'] as const;
+
+/** A model hex → '#RRGGBB' uppercase, or null. Constrained decoding enforces
+ *  only the TYPE, so a probabilistic "teal" or "#fff" is dropped here. */
+function cleanHex(v: unknown): string | null {
+  return typeof v === 'string' && HEX_RE.test(v.trim()) ? v.trim().toUpperCase() : null;
+}
+
+/** Sanitize the poster fields of a create-mode plan before it leaves the
+ *  function: venue ≤120 chars (else null), every palette hex validated, the
+ *  palette null when not one survives. Other plan fields pass through as
+ *  before (the client's normalizePlan validates them too). */
+function sanitizeCreatePlan(plan: unknown): unknown {
+  if (plan === null || typeof plan !== 'object' || Array.isArray(plan)) return plan ?? null;
+  const p = { ...(plan as Record<string, unknown>) };
+  if ('venue' in p) {
+    const venue = typeof p.venue === 'string' ? p.venue.trim().slice(0, 120) : '';
+    p.venue = venue === '' ? null : venue;
+  }
+  if ('palette' in p) {
+    const raw = p.palette;
+    if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+      const r = raw as Record<string, unknown>;
+      const out: Record<string, string | null> = {};
+      for (const k of PALETTE_KEYS) out[k] = cleanHex(r[k]);
+      p.palette = Object.values(out).some((v) => v !== null) ? out : null;
+    } else {
+      p.palette = null;
+    }
+  }
+  return p;
+}
+
 /** Map chat turns to Gemini contents; attach the image (if any) to the LAST
  *  user turn, image BEFORE text (Google's recommended order for analysis). */
 function buildContents(messages: ChatMessage[], image?: InputImage) {
@@ -867,7 +901,7 @@ Deno.serve(async (req: Request) => {
       () => callGemini(messages, buildCreatePrompt(templates, !!image) + creditsBlock, buildResponseSchema(templates), profile, image),
       (p) => JSON.stringify(p.plan ?? null),
     );
-    return json(200, { reply: parsed.reply, plan: parsed.plan ?? null, turnId });
+    return json(200, { reply: parsed.reply, plan: sanitizeCreatePlan(parsed.plan), turnId });
   } catch (err) {
     if (err instanceof AiError) {
       if (err.code === 'ai_not_configured') return json(503, { error: 'ai_not_configured' });

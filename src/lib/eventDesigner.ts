@@ -19,6 +19,7 @@ import { slugify } from './slug';
 import { ACCENT_SWATCHES, EVENT_TEMPLATES, templateById, type TemplateId } from './eventTemplates';
 import { A2UI_VERSION, BEAMWALL_CATALOG_ID, type A2uiMessage } from './a2ui';
 import { EMPTY_BRIEF, briefFromPlanRaw, isEmptyBrief, normalizeBrief, type EventBrief } from './eventBrief';
+import { normalizeHex, normalizePalette, type ExtractedPalette } from './themeDerive';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -78,6 +79,14 @@ export interface EventPlan {
   /** What the host said about who/mood/colours/avoid (eventBrief.ts), or
    *  null. Opaque to the wizard; written to events.config.brief on create. */
   brief: EventBrief | null;
+  /** Where it happens, read off an uploaded poster/invitation (≤120 chars),
+   *  or null. Optional so plans built before this field still type-check;
+   *  stored as config.copy.venue on create. */
+  venue?: string | null;
+  /** The poster's colours (validated hexes), or null. Feeds
+   *  paletteThemePatch on create. Absent from the deployed edge function
+   *  until it is redeployed — the client works the same either way. */
+  palette?: ExtractedPalette | null;
 }
 
 export interface DesignResult {
@@ -367,6 +376,10 @@ export function normalizePlan(raw: unknown): EventPlan {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : null;
   const slugRaw = typeof r.slug === 'string' && r.slug.trim() ? r.slug : name;
   const accentRaw = typeof r.accent === 'string' ? r.accent.trim() : '';
+  // Poster-only fields are attached only when present, so a plan from the
+  // currently deployed edge function (which never sends them) is unchanged.
+  const venue = typeof r.venue === 'string' && r.venue.trim() ? r.venue.trim().slice(0, 120) : null;
+  const palette = normalizePalette(r.palette);
   return {
     name,
     templateId,
@@ -375,7 +388,18 @@ export function normalizePlan(raw: unknown): EventPlan {
     slug: slugRaw ? slugify(slugRaw) : null,
     accent: /^#[0-9a-fA-F]{6}$/.test(accentRaw) ? accentRaw : null,
     brief: briefFromPlanRaw(r.brief),
+    ...(venue !== null ? { venue } : {}),
+    ...(palette !== null ? { palette } : {}),
   };
+}
+
+/** Swatch row for a plan: the curated swatches, with a custom accent (one
+ *  that is not already a swatch) prepended so the current colour shows. */
+export function accentOptionsFor(accent: string | null | undefined): string[] {
+  const swatches: string[] = [...ACCENT_SWATCHES];
+  const hex = normalizeHex(accent);
+  if (hex === null || swatches.some((s) => s.toUpperCase() === hex)) return swatches;
+  return [hex, ...swatches];
 }
 
 /* ── A2UI plan surface (generative UI) ───────────────────────────────── */
@@ -408,8 +432,15 @@ export function buildPlanSurface(plan: EventPlan, surfaceId: string): A2uiMessag
           {
             id: 'body',
             component: 'Column',
-            children: ['heading', 'preview', 'nameField', 'styleChoice', 'accentChoice', 'dateField', 'remoteCheck', 'slugField', 'packCheck', 'divider', 'actions'],
+            // The venue row only appears when a poster supplied one, so a
+            // plain chat plan keeps its familiar card.
+            children: [
+              'heading', 'preview', 'nameField', 'styleChoice', 'accentChoice', 'dateField',
+              ...(plan.venue ? ['venueField'] : []),
+              'remoteCheck', 'slugField', 'packCheck', 'divider', 'actions',
+            ],
           },
+          ...(plan.venue ? [{ id: 'venueField', component: 'TextField', label: 'Venue', value: { path: '/plan/venue' } }] : []),
           { id: 'heading', component: 'Text', text: 'Your event, so far', variant: 'h4' },
           // Beamwall custom widget: live look preview bound to the SAME data
           // the fields edit — the card always shows what confirm will apply.
@@ -424,7 +455,10 @@ export function buildPlanSurface(plan: EventPlan, surfaceId: string): A2uiMessag
             id: 'accentChoice',
             component: 'ColorChoice',
             label: 'Accent colour',
-            options: [...ACCENT_SWATCHES],
+            // The plan's own colour (picked by the host or read off a poster)
+            // leads the row, so it is visibly selected — not a silent value
+            // missing from every swatch.
+            options: accentOptionsFor(plan.accent),
             value: { path: '/plan/accent' },
           },
           { id: 'nameField', component: 'TextField', label: 'Event name', value: { path: '/plan/name' } },

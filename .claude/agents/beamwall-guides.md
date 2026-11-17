@@ -218,3 +218,17 @@ placeholder, never a 404 video.
   host edits survive. The 12 studio-editor markers are still all editor spots,
   so no re-shoot. Sweep ran on :5184 (shared tree; a concierge follow-up was
   landing in NewEvent/CopilotChat mid-run — lint stayed 0 anyway).
+- 2026-11-16 — Studio became an ADD-ON (branch `claude/studio-addon-gate`,
+  flag `studio`, migration 039 written NOT applied). The Experiences tab is
+  now "Frames & filters" (still route `library`, still StudioTabKey
+  `experiences` — never rename the key, guidesDrift keys on it). Studio and
+  Assets tabs exist only when `studio` resolves true, so the drift fixture
+  `TOP_TIER` is `{ ...ENTITLEMENTS.deluxe, studio: true }` — the highest
+  PLAN no longer shows every tab, the add-on does. Copy rules that fell out:
+  the AI frame maker lives in Frames & filters for every host (the old
+  "Assets tab is the AI frame maker" sentence was wrong); file UPLOAD is
+  Studio-only (import-by-link is not); the two Studio guides carry the
+  eyebrow "Studio add-on" and sit LAST in GUIDE_ORDER, the no-design path
+  first. GUIDE_COUNTS.studioTabs stays 8 — it counts the full set. Sweep:
+  `PW_CHROME=/opt/pw-browsers/chromium-1243/chrome-linux64/chrome` — the
+  script's default chromium-1194 path no longer exists in this sandbox.

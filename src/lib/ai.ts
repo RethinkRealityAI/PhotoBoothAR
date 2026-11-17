@@ -32,7 +32,18 @@ export type AiErrorCode =
   | 'ai_key_invalid'
   | 'rate_limited'
   | 'internal'
-  | 'network';
+  | 'network'
+  /** The client stopped waiting (its own deadline). The request may still
+   *  finish server-side — see findFrameJobSince before paying again. */
+  | 'timeout'
+  /** The host cancelled. Same server-side caveat as `timeout`. */
+  | 'aborted'
+  /** A free retry was already claimed for that frame (409). A normal, paid
+   *  request is still possible. */
+  | 'retry_already_used'
+  /** An automatic (retryFreeOnly) retry would not have been free — refused,
+   *  nothing charged. */
+  | 'retry_not_eligible';
 
 /** Hard failures a retry cannot fix (bad/rejected provider key, missing config,
  *  no credits, tier gate, auth) — surfaces should NOT offer "try again".
@@ -72,10 +83,29 @@ export interface AiResult<T> {
   error: AiErrorCode | null;
 }
 
-async function invokeAi<T>(name: string, body: Record<string, unknown>): Promise<AiResult<T>> {
+/** Per-call transport options — never sent in the request body. */
+export interface AiCallOptions {
+  /** Cancels the WAIT. The edge function keeps running and its own refund
+   *  logic still applies; nothing is charged twice by cancelling. */
+  signal?: AbortSignal;
+  /** Client deadline in ms (supabase-js `timeout`). Resolves as `timeout`. */
+  timeoutMs?: number;
+}
+
+async function invokeAi<T>(
+  name: string,
+  body: Record<string, unknown>,
+  call: AiCallOptions = {},
+): Promise<AiResult<T>> {
   try {
-    const { data, error } = await supabase.functions.invoke(name, { body });
+    const { data, error } = await supabase.functions.invoke(name, {
+      body,
+      ...(call.signal ? { signal: call.signal } : {}),
+      ...(call.timeoutMs !== undefined ? { timeout: call.timeoutMs } : {}),
+    });
     if (error) {
+      // supabase-js reports an abort (ours or its own timeout) as a fetch error.
+      if (call.signal?.aborted === true) return { data: null, error: 'aborted' };
       if (error instanceof FunctionsHttpError) {
         try {
           const res = (await error.context.json()) as { error?: string };
@@ -84,13 +114,23 @@ async function invokeAi<T>(name: string, body: Record<string, unknown>): Promise
           return { data: null, error: 'internal' };
         }
       }
+      if (call.timeoutMs !== undefined && isAbortLike(error)) return { data: null, error: 'timeout' };
       return { data: null, error: 'network' };
     }
     return { data: (data ?? null) as T, error: null };
   } catch (e) {
+    if (call.signal?.aborted === true) return { data: null, error: 'aborted' };
     console.error(`[ai] ${name}`, e);
     return { data: null, error: 'network' };
   }
+}
+
+/** FunctionsFetchError wraps the fetch rejection in `context`; an abort is an
+ *  AbortError/TimeoutError DOMException there. */
+function isAbortLike(err: unknown): boolean {
+  const ctx = (err as { context?: unknown } | null)?.context;
+  const name = (ctx as { name?: unknown } | null)?.name ?? (err as { name?: unknown } | null)?.name;
+  return name === 'AbortError' || name === 'TimeoutError';
 }
 
 /**
@@ -174,13 +214,110 @@ export interface GenerateImageOpts {
    * names it, as before.
    */
   nameHint?: string;
+  /*
+   * ── Guided frames (ai-generate-image after this branch deploys) ─────────
+   * Every field below is IGNORED by the currently deployed function (it reads
+   * only the keys above), so sending them is safe before the deploy: the
+   * preset's style also travels inside `prompt` for that server.
+   */
+  /** A FRAME_PRESETS id — the server inserts its own style sentence. */
+  preset?: string;
+  /** The host's own words ("anything to add?") — fenced server-side, ≤600. */
+  extra?: string;
+  /** Leave a clear plaque for name/date text the browser draws on later. */
+  plaque?: boolean;
+  /** A frameQuality CORRECTIONS code; the server owns the sentence. */
+  correction?: string;
+  /** Job id of the frame this is a free quality retry of (one per frame). */
+  retryOf?: string;
+  /** With retryOf: refuse (retry_not_eligible) rather than charge. */
+  retryFreeOnly?: boolean;
+  /** 1-3 parallel takes (server clamps; free trial and retries get 1). */
+  variants?: number;
+  /** ≤3 '#rrggbb' a host picked — replaces the event palette (border only). */
+  palette?: string[];
+}
+
+export interface GenerateImageResult {
+  job: AiJob;
+  experience: Experience;
+  /** Every take, in order. Absent on the deployed (pre-branch) server. */
+  experiences?: Experience[];
+  /** Credits actually charged, net of any partial refund. */
+  charged?: number;
+  variants?: { requested: number; granted: number; delivered: number };
+  /** Present when this was an honoured free retry. */
+  retry?: { free: boolean; of: string };
 }
 
 export function generateImage(
   eventUuid: string,
   opts: GenerateImageOpts,
-): Promise<AiResult<{ job: AiJob; experience: Experience }>> {
-  return invokeAi('ai-generate-image', { eventUuid, ...opts });
+  call: AiCallOptions = {},
+): Promise<AiResult<GenerateImageResult>> {
+  return invokeAi('ai-generate-image', { eventUuid, ...opts }, call);
+}
+
+/** The takes in a generateImage result — old servers return one. */
+export function resultTakes(res: GenerateImageResult): Experience[] {
+  return res.experiences && res.experiences.length > 0 ? res.experiences : [res.experience];
+}
+
+/** True when the server understands retryOf/variants (it reports `variants`).
+ *  The deployed function does not, so a "free" retry there would be charged. */
+export function serverHasFreeRetry(res: GenerateImageResult): boolean {
+  return res.variants !== undefined;
+}
+
+/**
+ * The newest frame job this event started at or after `sinceIso` — how a
+ * timed-out or cancelled wait finds out what actually happened instead of
+ * paying for a second request. RLS lets org members read their ai_jobs.
+ * Null on no row or a failed read.
+ */
+export async function findFrameJobSince(eventUuid: string, sinceIso: string): Promise<AiJob | null> {
+  try {
+    const { data, error } = await supabase
+      .from('ai_jobs')
+      .select('*')
+      .eq('event_id', eventUuid)
+      .eq('kind', 'image')
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      console.error('[ai] findFrameJobSince', error);
+      return null;
+    }
+    return (data as AiJob | null) ?? null;
+  } catch (e) {
+    console.error('[ai] findFrameJobSince', e);
+    return null;
+  }
+}
+
+/** The experience a succeeded image job produced (its first take shares the
+ *  job's result_url in every server version). `eventSlug` is events.slug. */
+export async function fetchExperienceForJob(eventSlug: string, job: AiJob): Promise<Experience | null> {
+  if (job.result_url === null) return null;
+  try {
+    const { data, error } = await supabase
+      .from('experiences')
+      .select('*')
+      .eq('event_id', eventSlug)
+      .eq('asset_url', job.result_url)
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      console.error('[ai] fetchExperienceForJob', error);
+      return null;
+    }
+    return (data as Experience | null) ?? null;
+  } catch (e) {
+    console.error('[ai] fetchExperienceForJob', e);
+    return null;
+  }
 }
 
 /* ── 3D generation (async — poll the returned job) ──────────────────── */
@@ -271,6 +408,13 @@ export function aiErrorMessage(code: AiErrorCode): string {
       return 'The AI service is over capacity right now — any credits were refunded. Please try again in a little while.';
     case 'network':
       return 'Network error — check your connection and try again.';
+    case 'timeout':
+      return 'This is taking much longer than usual. If it finishes it will appear in your Frames, and a failed one is refunded automatically.';
+    case 'aborted':
+      return 'Stopped. If it was already being made it will still appear in your Frames — you won’t be charged twice.';
+    case 'retry_already_used':
+    case 'retry_not_eligible':
+      return 'The free redo for that frame has already been used — a new try costs as normal.';
     default:
       return 'Something went wrong — please try again.';
   }

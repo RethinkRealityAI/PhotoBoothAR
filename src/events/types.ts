@@ -53,6 +53,10 @@ export interface EventARContent {
   shaderIds?: string[];
   borderIds?: string[];
   headPieceIds?: string[];
+  /** The colour recolourable built-in frames take on (borders.ts
+   *  recolorFrameSvg). Written only by the platform create flow / LooksPicker;
+   *  absent → every frame renders exactly as drawn (all legacy events). */
+  framePalette?: { accent: string; accent2?: string | null };
 }
 
 export interface EventConfig {
