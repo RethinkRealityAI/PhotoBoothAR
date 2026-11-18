@@ -3,29 +3,38 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * /beamy — the candidate landing in brand v2 (noindex while the owner reacts
- * to it; `/` is untouched). ONE viewport, six sections moved through one at a
+ * to it; `/` is untouched). ONE viewport, six stops moved through one at a
  * time — never a document scroll:
  *
  *   intro → What applies to you? → Try it (the real booth) → 3D magic →
  *   How it works → Start
  *
- * Beamy lives in BeamyStage's full-viewport canvas above the page. Each
- * section renders an empty `[data-beamy-slot]` box where he should stand; a
- * layout effect measures it, so his home and size come from the DOM, never
- * from magic numbers. He reacts only at high-profile moments (arrival, a pick,
- * a beam, a reveal), choosing via lib/brandLanding's seeded picker so the same
- * action never plays twice in a row; Next/Back/dots get no reaction at all.
+ * The scene is "liquid glass": a soft periwinkle field, and every stop's
+ * content (nav and progress bar included) inside ONE frosted glass panel.
+ * Beamy lives in BeamyStage's full-viewport canvas above the page, with a few
+ * faceted crystals around the panel. Each stop renders an empty
+ * `[data-beamy-slot]` box where he should stand; a layout effect measures it
+ * (and the panel), so his home, size, the floor line and the crystals come
+ * from the DOM, never from magic numbers.
+ *
+ * The intro (first visit per session): the panel fades in with the live wall
+ * already cycling dimly; a beam drops onto the floor and Beamy lands; he
+ * takes a selfie (the GLB's `Selfie` clip, on the main stage); the photo card
+ * pops out and rides a beam to the wall's centre tile, which holds it for a
+ * while with a ripple through its neighbours. The copy and CTAs are up within
+ * ~250ms and usable throughout; any click skips the rest. Reduced motion: he
+ * is simply there and his portrait fades into the centre tile.
  *
  * Choreographies are async scripts against BeamyApi. Each run takes a token;
- * moving to another section bumps it and every await re-checks it, so a
- * script left behind by a fast tapper stops instead of fighting the new one.
+ * moving to another stop bumps it and every await re-checks it, so a script
+ * left behind by a fast tapper stops instead of fighting the new one.
  *
  * Nothing a visitor captures leaves the device: the wall is component state.
  * Tokens/components come from src/styles/brand.css, scoped by data-brand="2".
  */
 import {
-  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
-  type PointerEvent as ReactPointerEvent, type ReactNode,
+  useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState,
+  type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode,
 } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -35,25 +44,31 @@ import {
 import CameraExperience from '../../components/landing/CameraExperience';
 import ParticleBeam from '../../components/landing/ParticleBeam';
 import ReportIssueButton from '../../components/support/ReportIssueButton';
+import { SELFIE_CARD_FACE_STYLE, SELFIE_CARD_STYLE, flashGradient } from '../../components/beamy/selfieFx';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { useNoIndex } from '../sales/components/pageMeta';
 import { salesImage } from '../sales/salesImages';
+import { HERO_SLOT_IMAGES } from '../../lib/landingAssets';
 import type { Rect } from '../../lib/beamGeometry';
+import { flashOpacity, photoState } from '../../lib/beamySelfie';
+import { SHOT_TILES, WALL_CENTRE, initialWall, nextSwap, rippleRings, swapDelay, type WallState } from '../../lib/beamyWall';
 import {
   AUDIENCES, DELIVER_STEPS, DONE_FOR_YOU, GREETING, HELLO, POKE_LINES, audienceById,
   type Audience, type AudienceIcon, type StepIcon,
 } from '../../lib/beamyTour';
 import {
-  FOOTER_LINKS, HERO, HOW_COPY, LOOKS, MAGIC_COPY, PICK_COPY, POKE_IDLE, PRICING_PATH, SECTIONS, SIGNUP_PATH,
-  START_COPY, TRY_COPY, WHEEL_IDLE, createReactionPicker, keyToNav, navigate, pickCelebration, pokeStep,
-  releaseVelocity, sectionIndex, startFacts, swipeDecision, wheelDecision,
+  FOOTER_LINKS, HERO, HOW_COPY, LOOKS, MAGIC_COPY, NAV_LINKS, PICK_COPY, POKE_IDLE, PRICING_PATH, SECTIONS, SIGNUP_PATH,
+  START_COPY, TRY_COPY, WALL_LABEL, WHEEL_IDLE, createReactionPicker, keyToNav, navigate, pickCelebration, pokeStep,
+  releaseVelocity, sectionIndex, seededRandom, startFacts, swipeDecision, wheelDecision,
   type Celebration, type Nav, type Reaction, type SectionId,
 } from '../../lib/brandLanding';
-import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageLayout } from './BeamyStage';
+import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, type StageLayout } from './BeamyStage';
 
 const WALL_SEED = ['event-wedding', 'event-birthday', 'event-gala', 'event-activation', 'event-conference', 'hero-wall', 'event-tradeshow'];
+/** The wall's photos: the landing's hero-carousel illustrations + the event cards (13, so 4 spares). */
+const WALL_POOL = [...HERO_SLOT_IMAGES, ...WALL_SEED.map((k) => salesImage(k)?.src ?? '')].filter((s) => s !== '');
 /** The beam's calm palette for the photo dissolve (palette[0] tints the core). */
-const BEAM_PALETTE = ['#8E96FF', '#FFFFFF', '#A5ABFF', '#FFC56B'];
+const BEAM_PALETTE = ['#C9CCFF', '#FFFFFF', '#A5ABFF', '#FFC56B'];
 const AUDIENCE_ICONS: Record<AudienceIcon, LucideIcon> = { ClipboardList, Cake, Users, Briefcase, Gift };
 const STEP_ICONS: Record<StepIcon, LucideIcon> = { CalendarPlus, Palette, Link2 };
 /** Skipping the picker tours as the most common host. */
@@ -61,8 +76,22 @@ const DEFAULT_AUDIENCE = audienceById('family') ?? AUDIENCES[0];
 /** Room above Beamy's head kept free for his speech bubble. */
 const BUBBLE_ROOM = 76;
 const LEAVE_MS = 300;
+/** The intro plays once per browser session. */
+const INTRO_KEY = 'bw.beamy.intro.v2';
+/** How long the centre tile holds Beamy's selfie before it rejoins the rotation. */
+const SELFIE_HOLD_MS = 12000;
+const FLOOR_STOPS: SectionId[] = ['pick', 'magic', 'how', 'start'];
 
 const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+
+function readIntroSeen(): boolean {
+  try { return window.sessionStorage.getItem(INTRO_KEY) === '1'; } catch { return false; }
+}
+function writeIntroSeen(): void {
+  try { window.sessionStorage.setItem(INTRO_KEY, '1'); } catch { /* private mode: it simply plays again */ }
+}
 
 /** Typewriter for Beamy's lines; reduced motion gets the whole line at once. */
 function useTyped(text: string, reduced: boolean): string {
@@ -106,6 +135,7 @@ const rectOf = (el: Element | null): Rect | null => {
   return { left: r.left, top: r.top, width: r.width, height: r.height };
 };
 const centre = (r: Rect): Pt => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+const sameRect = (a: Rect | null, b: Rect) => a !== null && Math.abs(a.left - b.left) < 1 && Math.abs(a.top - b.top) < 1 && Math.abs(a.width - b.width) < 1 && Math.abs(a.height - b.height) < 1;
 
 /** The scroll container an event started in, if it can still scroll that way. */
 function scrollsInside(target: EventTarget | null, root: Element | null, dy: number): boolean {
@@ -124,6 +154,7 @@ function scrollsInside(target: EventTarget | null, root: Element | null, dy: num
 }
 
 interface Flight { from: Rect; to: Rect; shot: string; ms: number; onDone: () => void; key: number; }
+interface Pin { src: string; key: string; mine: boolean; }
 
 export default function BeamyPage() {
   usePageTitle('Beamwall · Your immersive photo booth');
@@ -148,12 +179,17 @@ export default function BeamyPage() {
   const [failed, setFailed] = useState(false);
   const [arrival, setArrival] = useState<'waiting' | 'dropping' | 'done'>('waiting');
   const [slowModel, setSlowModel] = useState(false);
+  const [copyIn, setCopyIn] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
   const [shots, setShots] = useState<{ id: number; src: string }[]>([]);
   const [flight, setFlight] = useState<Flight | null>(null);
   const [propBusy, setPropBusy] = useState(false);
   const [dragHint, setDragHint] = useState(true);
   const [slotBox, setSlotBox] = useState<Rect | null>(null);
+  const [floorTop, setFloorTop] = useState<number | null>(null);
+  const [introRunning, setIntroRunning] = useState(false);
+  const [heroPin, setHeroPin] = useState<Pin | null>(null);
+  const [ripple, setRipple] = useState(0);
 
   const audience = picked ?? DEFAULT_AUDIENCE;
   const section: SectionId = SECTIONS[shownIndex].id;
@@ -162,14 +198,27 @@ export default function BeamyPage() {
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const hitRef = useRef<HTMLButtonElement | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const glassRef = useRef<HTMLDivElement | null>(null);
   const viewfinderRef = useRef<HTMLDivElement | null>(null);
-  const firstTileRef = useRef<HTMLDivElement | null>(null);
+  /** The centre tile of whichever wall is on screen (the beam's landing spot). */
+  const centreTileRef = useRef<HTMLDivElement | null>(null);
+  const flashRef = useRef<HTMLDivElement | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const cardImgRef = useRef<HTMLImageElement | null>(null);
+  /** A snapped selfie that has not reached the wall yet (a skip lands it at once). */
+  const pendingSelfie = useRef<string | null>(null);
   const token = useRef(0);
   const nextShot = useRef(1);
   const flightKey = useRef(0);
+  const pinTimer = useRef(0);
   const indexRef = useRef(index);
   indexRef.current = index;
+  const sectionRef = useRef(section);
+  sectionRef.current = section;
+  const introSeen = useRef(readIntroSeen());
   const layoutRef = useRef<StageLayout>({ home: { x: vp.w / 2, y: vp.h * 0.4 }, heightPx: 180 });
+  const decorRef = useRef<StageDecor>({ panel: null, hero: section === 'intro', phone: !desktop });
   const seed = useMemo(() => {
     const q = Number(new URLSearchParams(window.location.search).get('seed'));
     return Number.isFinite(q) && q > 0 ? q : (Date.now() & 0xffff) + 1;
@@ -181,25 +230,37 @@ export default function BeamyPage() {
   const drag = useRef<{ id: number; x0: number; y0: number; dragging: boolean; samples: { x: number; t: number }[]; suppressClick: boolean } | null>(null);
 
   const typed = useTyped(line, reduced);
-  const showContent = arrival === 'done' || failed || slowModel || reduced;
+  /* The hero copy never waits for the model or the choreography. */
+  useEffect(() => { const id = window.setTimeout(() => setCopyIn(true), 250); return () => window.clearTimeout(id); }, []);
+  const showContent = copyIn || failed || slowModel || reduced;
 
-  /* Beamy's home + size from the current section's slot box. */
+  /* Beamy's home + size from the current stop's slot box; the panel feeds
+     the crystals and the floor line. */
   const measure = useCallback(() => {
+    const pr = rectOf(panelRef.current);
+    decorRef.current = { panel: pr, hero: sectionRef.current === 'intro', phone: !desktop };
     const el = mainRef.current?.querySelector<HTMLElement>('[data-beamy-slot]');
     if (!el) return;
     const r = el.getBoundingClientRect();
     if (r.width < 2 || r.height < 2) return;
-    const heightPx = Math.max(96, Math.min(r.height - BUBBLE_ROOM, r.width * 0.9, desktop ? 300 : 200));
+    const room = el.dataset.bubble === 'none' ? 0 : BUBBLE_ROOM;
+    const capAttr = el.dataset.max;
+    const cap = capAttr !== undefined ? Number(capAttr) : (desktop ? 300 : 200);
+    const heightPx = Math.max(96, Math.min(r.height - room, r.width * 0.9, cap));
     layoutRef.current = { home: { x: r.left + r.width / 2, y: r.bottom }, heightPx };
-    setSlotBox((prev) => (prev && Math.abs(prev.left - r.left) < 1 && Math.abs(prev.top - r.top) < 1 && Math.abs(prev.width - r.width) < 1 && Math.abs(prev.height - r.height) < 1
-      ? prev : { left: r.left, top: r.top, width: r.width, height: r.height }));
+    const box = { left: r.left, top: r.top, width: r.width, height: r.height };
+    setSlotBox((prev) => (sameRect(prev, box) ? prev : box));
+    if (pr !== null) {
+      const top = Math.round(r.bottom - pr.top - heightPx * 0.16);
+      setFloorTop((prev) => (prev === top ? prev : top));
+    }
   }, [desktop]);
   useLayoutEffect(() => { measure(); }, [measure, shownIndex, vp.w, vp.h]);
   useEffect(() => {
     const ro = new ResizeObserver(() => measure());
     if (mainRef.current) ro.observe(mainRef.current);
     // The slot itself can resize without main changing (the display face
-    // swapping in reflows the copy under it), so watch it too.
+    // swapping in reflows the copy beside it), so watch it too.
     const slotEl = mainRef.current?.querySelector<HTMLElement>('[data-beamy-slot]');
     if (slotEl) ro.observe(slotEl);
     let live = true;
@@ -219,26 +280,139 @@ export default function BeamyPage() {
     void api.current?.play(c as BeamyClip);
   }, []);
 
-  /* ── Entrance: beam drops, Beamy appears, then the copy rises. ──────── */
+  /* ── The selfie: flash, photo card, beam to the wall's centre tile ──── */
+
+  const hideSelfieFx = useCallback(() => {
+    if (flashRef.current) flashRef.current.style.opacity = '0';
+    if (cardRef.current) cardRef.current.style.opacity = '0';
+  }, []);
+
+  /** The photo reaches the wall: the hero's centre tile holds it; on Try it joins the visitor's shots. */
+  const landSelfie = useCallback((src: string) => {
+    pendingSelfie.current = null;
+    if (sectionRef.current === 'try') {
+      setShots((prev) => [{ id: nextShot.current++, src }, ...prev].slice(0, SHOT_TILES.length));
+      return;
+    }
+    setHeroPin({ src, key: `selfie${Date.now()}`, mine: false });
+    setRipple((r) => r + 1);
+    window.clearTimeout(pinTimer.current);
+    pinTimer.current = window.setTimeout(() => setHeroPin(null), SELFIE_HOLD_MS);
+  }, []);
+  useEffect(() => () => window.clearTimeout(pinTimer.current), []);
+
+  const launchSelfie = useCallback((from: Rect, photo: string) => {
+    const tile = rectOf(centreTileRef.current);
+    if (tile === null) { pendingSelfie.current = null; return; }
+    if (reduced) { landSelfie(photo); return; }
+    setFlight({
+      key: ++flightKey.current, from, to: tile, shot: photo, ms: 1250,
+      onDone: () => { setFlight(null); landSelfie(photo); },
+    });
+  }, [landSelfie, reduced]);
+
+  /** Play the Selfie clip on the main stage and drive the flash + card from its frames. */
+  const runSelfie = useCallback(async (alive: () => boolean): Promise<void> => {
+    const b = api.current;
+    if (b === null) return;
+    let launched = false;
+    let cardBox: Rect | null = null;
+    await b.selfie((f) => {
+      if (!alive()) { hideSelfieFx(); b.stopSelfie(); return; }
+      if (f.photo !== undefined) {
+        pendingSelfie.current = f.photo;
+        const img = cardImgRef.current;
+        if (img !== null) { if (f.photo !== null) img.src = f.photo; else img.removeAttribute('src'); }
+      }
+      const fl = flashRef.current;
+      if (fl !== null) {
+        fl.style.opacity = flashOpacity(f.t, f.tl).toFixed(3);
+        fl.style.background = flashGradient(f.phone.x, f.phone.y, f.tl.reducedMotion);
+      }
+      const card = cardRef.current;
+      if (card === null || launched) return;
+      const st = photoState(f.t, f.tl);
+      if (f.t >= f.tl.photo.flightStart && st.visible) {
+        // Hand the card to the beam: it dissolves and rides across to the wall.
+        launched = true;
+        card.style.opacity = '0';
+        const photo = pendingSelfie.current;
+        if (photo !== null && cardBox !== null) launchSelfie(cardBox, photo);
+        return;
+      }
+      card.style.opacity = st.visible ? st.opacity.toFixed(3) : '0';
+      if (!st.visible) return;
+      const cw = Math.max(44, f.heightPx * 0.3);
+      const ch = cw * 1.2;
+      const x = clamp(f.phone.x, cw / 2 + 4, window.innerWidth - cw / 2 - 4);
+      const y = Math.max(ch / 2 + 4, lerp(f.phone.y, f.phone.y - f.heightPx * 0.36, st.pop));
+      card.style.width = `${cw.toFixed(1)}px`;
+      card.style.height = `${ch.toFixed(1)}px`;
+      card.style.transform = `translate3d(${(x - cw / 2).toFixed(1)}px, ${(y - ch / 2).toFixed(1)}px, 0) rotate(${st.tiltDeg.toFixed(2)}deg) scale(${Math.max(0.001, st.scale).toFixed(3)})`;
+      cardBox = { left: x - cw / 2, top: y - ch / 2, width: cw, height: ch };
+    });
+    if (!launched) hideSelfieFx();
+  }, [hideSelfieFx, launchSelfie]);
+
+  /* ── Entrance: beam drops, Beamy lands, takes a selfie, beams it to the wall ── */
   useEffect(() => {
     if (!ready) return;
     const b = api.current;
     if (b === null) return;
+    if (introSeen.current || reduced) {
+      // Settled state: he is simply there.
+      b.skipArrival();
+      setArrival('done');
+      if (reduced && !introSeen.current && indexRef.current === 0) {
+        // Reduced motion's selfie: his portrait fades into the centre tile.
+        window.requestAnimationFrame(() => {
+          const p = api.current?.portrait() ?? null;
+          if (p !== null && sectionRef.current === 'intro') landSelfie(p);
+        });
+      }
+      introSeen.current = true;
+      writeIntroSeen();
+      return;
+    }
     setArrival('dropping');
+    const alive = begin();
+    const onIntro = indexRef.current === 0;
+    if (onIntro) setIntroRunning(true);
     void (async () => {
       await b.arrive();
       setArrival('done');
-      await wait(120);
-      if (indexRef.current !== 0) return;
-      const r = react.current('intro');
+      if (!alive() || indexRef.current !== 0) { setIntroRunning(false); return; }
       say(HELLO);
-      await b.play(r === 'hop' ? 'Hop' : 'Wave');
+      await runSelfie(alive);
+      if (alive()) { introSeen.current = true; writeIntroSeen(); }
+      setIntroRunning(false);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the model is in
   }, [ready]);
   useEffect(() => {
     const id = window.setTimeout(() => setSlowModel(true), 4000);
     return () => window.clearTimeout(id);
   }, []);
+
+  /* Any click skips the rest of the intro (the click itself still works). */
+  useEffect(() => {
+    if (!introRunning) return;
+    const skip = () => {
+      begin();
+      const b = api.current;
+      b?.skipArrival();
+      b?.stopSelfie();
+      hideSelfieFx();
+      setArrival('done');
+      setIntroRunning(false);
+      introSeen.current = true;
+      writeIntroSeen();
+      const p = pendingSelfie.current;
+      if (p !== null && sectionRef.current === 'intro') landSelfie(p);
+    };
+    window.addEventListener('pointerdown', skip, { capture: true, once: true });
+    return () => window.removeEventListener('pointerdown', skip, { capture: true });
+  }, [introRunning, begin, hideSelfieFx, landSelfie]);
 
   /* ── Section navigation ───────────────────────────────────────────── */
   const lineFor = useCallback((id: SectionId, a: Audience): string => {
@@ -320,10 +494,15 @@ export default function BeamyPage() {
     if (n !== null) nav(n);
   };
 
-  /* Gaze: the pointer on desktop; the last tap on touch (then back to you). */
+  /* Gaze + crystal parallax + the glass sheen: the pointer on desktop; the
+     last tap on touch (then back to you). */
   useEffect(() => {
     let clear = 0;
-    const onMove = (e: PointerEvent) => { if (e.pointerType === 'mouse') api.current?.look({ x: e.clientX, y: e.clientY }); };
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse') return;
+      api.current?.look({ x: e.clientX, y: e.clientY });
+      glassRef.current?.style.setProperty('--sheen-dx', `${(((e.clientX / Math.max(1, window.innerWidth)) - 0.5) * 36).toFixed(1)}%`);
+    };
     const onDown = (e: PointerEvent) => {
       if (e.pointerType === 'mouse') return;
       api.current?.look({ x: e.clientX, y: e.clientY });
@@ -408,9 +587,9 @@ export default function BeamyPage() {
   const onBeam = useCallback((src: string) => {
     const b = api.current;
     const vf = rectOf(viewfinderRef.current);
-    const tile = rectOf(firstTileRef.current);
+    const tile = rectOf(centreTileRef.current);
     const commit = () => {
-      setShots((prev) => [{ id: nextShot.current++, src }, ...prev].slice(0, 6));
+      setShots((prev) => [{ id: nextShot.current++, src }, ...prev].slice(0, SHOT_TILES.length));
       say('It’s on the wall! Every guest’s shot lands there, live.');
       celebrate();
     };
@@ -454,7 +633,9 @@ export default function BeamyPage() {
     } else if (r.level === 'burst') {
       b.sparkle('burst');
       say(POKE_LINES[r.count === 3 ? 2 : 3]);
-      void b.play(r.count === 3 ? 'Wave' : 'ShadesOn');
+      // The fourth poke in a streak earns a selfie, beamed to the wall if one is on screen.
+      if (r.count === 3) void b.play('Wave');
+      else void runSelfie(begin());
     } else {
       b.sparkle('burst');
       b.spin();
@@ -493,36 +674,24 @@ export default function BeamyPage() {
     onPoke();
   };
 
-  /* ── Sections ──────────────────────────────────────────────────────── */
+  /* ── Stops ─────────────────────────────────────────────────────────── */
 
-  const wallTiles = [
-    ...shots.map((s) => ({ key: `s${s.id}`, src: s.src, mine: true })),
-    ...WALL_SEED.map((k, i) => ({ key: `${k}${i}`, src: salesImage(k)?.src ?? '', mine: false })),
-  ].slice(0, desktop ? 6 : 3);
-
-  const slot = (extra = '') => <div data-beamy-slot aria-hidden className={`relative min-h-0 ${extra}`} />;
-
-  const wall = (
-    <div className={`bw-card p-3 ${desktop ? '' : 'flex h-full flex-col'}`} aria-label="Live wall" role="group">
-      <p className="bw-label mb-2 flex shrink-0 items-center gap-2 px-1">
-        <span className="h-2 w-2 rounded-full" style={{ background: 'var(--bw-danger)' }} aria-hidden /> Live wall
-      </p>
-      {/* Phone: one column whose rows share the booth's height, so the wall
-          can never outgrow the row at short viewports. */}
-      <div className={`grid gap-2 ${desktop ? 'grid-cols-3' : 'min-h-0 flex-1 grid-cols-1 grid-rows-3'}`}>
-        {wallTiles.map((t, i) => (
-          <div
-            key={t.key}
-            ref={i === 0 ? firstTileRef : undefined}
-            className={`relative overflow-hidden rounded-[10px] ${desktop ? 'aspect-[3/4]' : 'min-h-0'}`}
-            style={{ background: 'var(--bw-surface-2)', boxShadow: t.mine ? 'inset 0 0 0 1.5px var(--bw-accent)' : undefined }}
-          >
-            {t.src !== '' && <img src={t.src} alt={t.mine ? 'Your photo on the wall' : ''} className="h-full w-full object-cover" draggable={false} />}
-          </div>
-        ))}
-      </div>
-    </div>
+  const slot = (extra = '', opts: { max?: number; bubble?: boolean } = {}) => (
+    <div
+      data-beamy-slot
+      data-max={opts.max !== undefined ? String(Math.round(opts.max)) : undefined}
+      data-bubble={opts.bubble === false ? 'none' : undefined}
+      aria-hidden
+      className={`relative min-h-0 ${extra}`}
+    />
   );
+
+  const shotPins = useMemo(() => {
+    const out: Record<number, Pin> = {};
+    shots.forEach((s, n) => { out[SHOT_TILES[n]] = { src: s.src, key: `s${s.id}`, mine: true }; });
+    return out;
+  }, [shots]);
+  const heroPins = useMemo<Record<number, Pin>>(() => (heroPin === null ? {} : { [WALL_CENTRE]: heroPin }), [heroPin]);
 
   const lookPills = (
     <div
@@ -532,31 +701,34 @@ export default function BeamyPage() {
       className={`flex gap-2 ${desktop ? 'flex-wrap' : '-mx-4 flex-nowrap overflow-x-auto px-4 [scrollbar-width:none]'}`}
     >
       {LOOKS.map((l) => (
-        <button key={l.label} type="button" className={`bw-pill ${desktop ? '' : 'shrink-0 px-3'}`} aria-pressed={look === l.kit} onClick={() => setLook(l.kit)}>
+        <button key={l.label} type="button" className={`bw-glass-chip ${desktop ? '' : 'shrink-0 px-3'}`} aria-pressed={look === l.kit} onClick={() => setLook(l.kit)}>
           {l.label}
         </button>
       ))}
     </div>
   );
 
+  /* The booth: a phone at a natural phone aspect, in a slim deep frame. */
   const booth = (
     <div
       data-noswipe
-      className={`relative aspect-[9/16] overflow-hidden rounded-[24px] ${desktop ? 'w-full' : 'h-full'}`}
-      style={{ background: 'var(--bw-surface)', border: '1px solid var(--bw-hairline)' }}
+      className={`relative overflow-hidden ${desktop ? 'aspect-[9/17] h-full rounded-[34px] p-[7px]' : 'aspect-[9/16] h-full rounded-[22px] p-[5px]'}`}
+      style={{ background: 'var(--bw-deep-2)', boxShadow: 'inset 1px 1px 0 rgba(255,255,255,0.25), 0 24px 50px -24px var(--bw-shadow)' }}
     >
-      {cameraOn ? (
-        <CameraExperience enabled videoId="beamy-booth-video" beamLabel="Beam it to the wall" onBeam={onBeam} look={look} screenRef={viewfinderRef} />
-      ) : (
-        <div className={`flex h-full flex-col items-center justify-center text-center ${desktop ? 'gap-4 px-5' : 'gap-3 px-3'}`}>
-          <span className="bw-icon-tile" aria-hidden><Camera /></span>
-          <p className="bw-small max-w-[22ch]">The real booth your guests open from a QR code.</p>
-          <button type="button" className={`bw-btn bw-btn-primary bw-btn-sm ${desktop ? '' : 'h-auto w-full whitespace-normal px-3 py-2 leading-tight'}`} onClick={() => { setCameraOn(true); say('Smile! Pick a look, then tap the big button.'); }}>
-            {TRY_COPY.start}
-          </button>
-          <p className="bw-label flex items-center gap-1.5"><Lock className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden /> {TRY_COPY.privacy}</p>
-        </div>
-      )}
+      <div className={`relative h-full w-full overflow-hidden ${desktop ? 'rounded-[28px]' : 'rounded-[18px]'}`} style={{ background: 'var(--bw-deep)' }}>
+        {cameraOn ? (
+          <CameraExperience enabled videoId="beamy-booth-video" beamLabel="Beam it to the wall" onBeam={onBeam} look={look} screenRef={viewfinderRef} />
+        ) : (
+          <div className={`flex h-full flex-col items-center justify-center text-center ${desktop ? 'gap-4 px-5' : 'gap-3 px-2.5'}`}>
+            <span className="bw-icon-tile" aria-hidden><Camera /></span>
+            <p className="bw-small max-w-[20ch]">The real booth your guests open from a QR code.</p>
+            <button type="button" className={`bw-btn bw-btn-primary bw-btn-sm ${desktop ? '' : 'h-auto w-full whitespace-normal px-3 py-2 leading-tight'}`} onClick={() => { setCameraOn(true); say('Smile! Pick a look, then tap the big button.'); }}>
+              {TRY_COPY.start}
+            </button>
+            <p className="bw-label flex items-center gap-1.5"><Lock className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden /> {TRY_COPY.privacy}</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 
@@ -567,21 +739,67 @@ export default function BeamyPage() {
   const start = startFacts();
   const i = (n: number) => ({ ['--i' as string]: n });
 
+  const heroCtas = (
+    <div className={`flex gap-3 ${desktop ? 'mt-8 flex-wrap' : 'flex-col'}`} style={i(3)}>
+      <Link to={SIGNUP_PATH} className={`bw-btn bw-btn-primary ${desktop ? 'bw-btn-lg' : 'w-full'}`}>{HERO.primary}</Link>
+      <button type="button" className={`bw-btn bw-btn-secondary ${desktop ? 'bw-btn-lg' : 'w-full'}`} onClick={() => goToIndex(sectionIndex('try'))}>
+        {HERO.secondary}
+      </button>
+    </div>
+  );
+  const heroHeadline = (
+    <>
+      <p className={`bw-eyebrow ${desktop ? '' : 'text-[14px] after:hidden'}`} style={i(0)}>{HERO.eyebrow}</p>
+      <h1 data-section-heading tabIndex={-1} className={`bw-display outline-none ${desktop ? 'mt-6' : 'mt-2'}`} style={i(1)}>
+        <span className="bw-light block">{HERO.lead}</span>
+        <span className="block">{HERO.strong}</span>
+      </h1>
+      <p className={`bw-body ${desktop ? 'mt-5 max-w-[34ch]' : 'mt-2 max-w-[36ch]'}`} style={i(2)}>{HERO.sub}</p>
+    </>
+  );
+
   let content: ReactNode = null;
   if (section === 'intro') {
-    content = (
-      <div className="flex h-full flex-col items-center px-4 text-center">
-        {slot('w-full max-w-[520px] flex-[1_1_0%]')}
-        <div className={`flex w-full max-w-[980px] shrink-0 flex-col items-center pb-2 pt-4 ${showContent ? 'bw-rise' : 'invisible'}`}>
-          <h1 data-section-heading tabIndex={-1} className="bw-display max-w-[22ch] outline-none" style={i(0)}>{HERO.headline}</h1>
-          <p className="bw-body mt-4" style={i(1)}>{HERO.sub}</p>
-          <div className="mt-7 flex flex-col items-center gap-3 sm:flex-row" style={i(2)}>
-            <Link to={SIGNUP_PATH} className="bw-btn bw-btn-primary bw-btn-lg">{HERO.primary}</Link>
-            <button type="button" className="bw-btn bw-btn-secondary bw-btn-lg" onClick={() => goToIndex(sectionIndex('try'))}>
-              {HERO.secondary}
-            </button>
-          </div>
+    const wall = (
+      <LiveWall
+        pool={WALL_POOL}
+        pins={heroPins}
+        dim={introRunning}
+        compact={!desktop}
+        centreRef={centreTileRef}
+        ripple={ripple}
+        seed={seed}
+      />
+    );
+    content = desktop ? (
+      <div className="relative grid h-full grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)_minmax(0,0.92fr)] items-center gap-6 px-[clamp(28px,3.4vw,64px)]">
+        <div className={`relative z-10 flex flex-col ${showContent ? 'bw-rise' : 'invisible'}`}>
+          {heroHeadline}
+          {heroCtas}
         </div>
+        <div className="flex h-full flex-col justify-end pb-[5%]">
+          {slot('h-[82%] w-full', { max: Math.min(430, vp.h * 0.47) })}
+        </div>
+        <div className={`flex justify-end ${showContent ? 'bw-rise' : 'invisible'}`}>
+          <div style={{ ...i(2), width: 'min(400px, 100%, calc((100dvh - 320px) * 0.76))' }}>{wall}</div>
+        </div>
+      </div>
+    ) : (
+      <div className="flex h-full flex-col px-4 pb-3 pt-1">
+        <div className={`shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroHeadline}</div>
+        {vp.h >= 740 ? (
+          // Tall phones: Beamy stands on the floor right above his wall, filling the height.
+          <div className="mt-2 flex min-h-0 flex-1 flex-col items-center gap-3">
+            {slot('min-h-0 w-full flex-1', { max: Math.min(230, vp.h * 0.27), bubble: false })}
+            <div className="w-[64%] max-w-[250px] shrink-0">{wall}</div>
+          </div>
+        ) : (
+          <div className="mt-3 flex min-h-0 flex-1 items-end gap-3">
+            {slot('h-full min-w-0 flex-1', { max: Math.min(230, vp.h * 0.3), bubble: false })}
+            <div className="mb-1 w-[46%] max-w-[200px] shrink-0">{wall}</div>
+          </div>
+        )}
+        <div className={`mt-3 shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroCtas}</div>
       </div>
     );
   } else if (section === 'pick') {
@@ -596,7 +814,7 @@ export default function BeamyPage() {
               type="button"
               aria-pressed={on}
               onClick={(e) => { void pickAudience(a, e.currentTarget); }}
-              className={`bw-card bw-card-interactive flex items-center gap-4 ${desktop ? 'min-h-[84px] p-4' : 'min-h-[64px] px-4 py-3'}`}
+              className={`bw-glass-card bw-interactive flex items-center gap-4 ${desktop ? 'min-h-[84px] p-4' : 'min-h-[64px] px-4 py-3'}`}
               style={i(n + 2)}
             >
               <span className="bw-icon-tile" aria-hidden><Icon /></span>
@@ -604,7 +822,7 @@ export default function BeamyPage() {
                 <span className="block text-[16px] font-semibold leading-tight" style={{ color: 'var(--bw-ink)' }}>{a.title}</span>
                 <span className="bw-label mt-0.5 block">{a.hint}</span>
               </span>
-              {on && <Check className="h-5 w-5 shrink-0" strokeWidth={1.75} style={{ color: 'var(--bw-accent)' }} aria-hidden />}
+              {on && <Check className="h-5 w-5 shrink-0" strokeWidth={1.75} style={{ color: 'var(--bw-ink)' }} aria-hidden />}
             </button>
           );
         })}
@@ -620,17 +838,23 @@ export default function BeamyPage() {
       </Panel>
     );
   } else if (section === 'try') {
+    const wall = <LiveWall pool={WALL_POOL} pins={shotPins} dim={false} compact={!desktop} centreRef={centreTileRef} ripple={0} seed={seed + 7} />;
     content = desktop ? (
-      <div className="mx-auto grid h-full w-full max-w-[1320px] grid-cols-[auto_minmax(220px,300px)_minmax(0,1fr)] gap-6 px-8 pb-4 pt-2">
-        <div className="bw-rise flex min-h-0 items-center">
-          <div style={{ ...i(1), width: 'min(380px, calc((100dvh - 190px) * 0.5625))' }}>{booth}</div>
-        </div>
-        {slot('h-full')}
-        <div className="bw-rise flex min-h-0 flex-col justify-center gap-5">
-          <div style={i(0)}>{heading(TRY_COPY.heading)}</div>
-          <p className="bw-body -mt-2 max-w-[40ch]" style={i(1)}>{TRY_COPY.line}</p>
+      <div className="mx-auto flex h-full w-full max-w-[1240px] flex-col px-[clamp(28px,3.4vw,64px)] pb-3">
+        <div className="bw-rise flex shrink-0 flex-wrap items-end justify-between gap-x-8 gap-y-3">
+          <div>
+            <div style={i(0)}>{heading(TRY_COPY.heading)}</div>
+            <p className="bw-body mt-2 max-w-[46ch]" style={i(1)}>{TRY_COPY.line}</p>
+          </div>
           <div style={i(2)}>{lookPills}</div>
-          <div className="max-w-[440px]" style={i(3)}>{wall}</div>
+        </div>
+        {/* Booth · Beamy · wall, all one height, centred: nothing reads empty. */}
+        <div className="mt-5 flex min-h-0 flex-1 items-stretch justify-center gap-[clamp(16px,2.4vw,40px)]">
+          <div className="bw-rise min-h-0"><div className="h-full" style={i(2)}>{booth}</div></div>
+          <div className="flex w-[clamp(150px,13vw,210px)] shrink-0 flex-col justify-end">{slot('h-[72%] w-full', { max: 230 })}</div>
+          <div className="bw-rise flex min-h-0 items-center">
+            <div style={{ ...i(3), width: 'min(380px, calc((100dvh - 330px) * 0.74))' }}>{wall}</div>
+          </div>
         </div>
       </div>
     ) : (
@@ -638,13 +862,14 @@ export default function BeamyPage() {
         {/* Beamy alone in the band (the bubble needs the room above him);
             the phone booth and the wall sit side by side below, so the
             beam reads left-to-right like it does on desktop. */}
-        <div className="flex h-[24%] min-h-[128px] shrink-0 px-4 pt-1">{slot('h-full flex-1')}</div>
-        <div className="bw-rise flex min-h-0 flex-1 flex-col px-4 pb-3 pt-2">
+        <div className="flex h-[22%] min-h-[118px] shrink-0 px-4 pt-1">{slot('h-full flex-1')}</div>
+        <div className="bw-rise flex min-h-0 flex-1 flex-col px-4 pb-3 pt-1">
           <div style={i(0)}>{heading(TRY_COPY.heading)}</div>
           <div className="mt-3" style={i(1)}>{lookPills}</div>
-          <div className="mt-3 flex min-h-[220px] flex-1 gap-3" style={i(2)}>
-            <div className="h-full shrink-0">{booth}</div>
-            <div className="h-full min-w-0 flex-1">{wall}</div>
+          <div className="mt-3 flex min-h-[200px] flex-1 items-center gap-3" style={i(2)}>
+            {/* The booth may take ~56% of the row, so the wall stays readable beside it. */}
+            <div className="shrink-0" style={{ height: 'min(100%, calc((100vw - 52px) * 0.56 * 16 / 9))' }}>{booth}</div>
+            <div className="min-w-0 flex-1">{wall}</div>
           </div>
         </div>
       </div>
@@ -675,7 +900,7 @@ export default function BeamyPage() {
             {DELIVER_STEPS.map((d, n) => {
               const Icon = STEP_ICONS[d.icon];
               return (
-                <li key={d.title} className="bw-card flex items-start gap-4 p-4" style={i(n + 1)}>
+                <li key={d.title} className="bw-glass-card flex items-start gap-4 p-4" style={i(n + 1)}>
                   <span className="bw-icon-tile" aria-hidden><Icon /></span>
                   <span className="min-w-0">
                     <span className="bw-label block">Step {n + 1}</span>
@@ -699,7 +924,7 @@ export default function BeamyPage() {
           <ul className="mt-5 flex flex-col gap-2.5" style={i(2)}>
             {start.bullets.map((b) => (
               <li key={b} className="flex items-center gap-3 text-[16px]" style={{ color: 'var(--bw-ink)' }}>
-                <Check className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} style={{ color: 'var(--bw-accent)' }} aria-hidden /> {b}
+                <Check className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} style={{ color: 'var(--bw-success)' }} aria-hidden /> {b}
               </li>
             ))}
           </ul>
@@ -721,90 +946,125 @@ export default function BeamyPage() {
 
   const atFirst = index === 0;
   const atLast = index === SECTIONS.length - 1;
-  const glow = slotBox !== null ? { ['--glow-x' as string]: `${((slotBox.left + slotBox.width / 2) / vp.w) * 100}%`, ['--glow-y' as string]: `${((slotBox.top + slotBox.height * 0.62) / vp.h) * 100}%` } : undefined;
+  const panelInset = desktop ? clamp(Math.round(vp.w * 0.026), 20, 44) : 10;
+  const radius = desktop ? 36 : 24;
+  const showFloor = floorTop !== null && (section === 'intro' || (desktop && FLOOR_STOPS.includes(section)));
+  const bubbleHidden = section === 'intro' && !desktop;
 
   return (
     <div data-brand="2" data-arrival={arrival} data-section={section} className="bw-root fixed inset-0 overflow-hidden">
-      <div className="bw-glow pointer-events-none absolute inset-0" style={glow} aria-hidden />
+      {/* Orbs behind the glass: whatever the panel covers, it visibly frosts. */}
+      <div aria-hidden className="bw-orb" style={{ width: '36vmax', height: '36vmax', right: '-12vmax', top: '-14vmax', opacity: 0.55 }} />
+      <div aria-hidden className="bw-orb" style={{ width: '26vmax', height: '26vmax', left: '-9vmax', bottom: '-11vmax', opacity: 0.45 }} />
 
-      <div className="relative flex h-full flex-col">
-        <header className="z-30 flex h-14 shrink-0 items-center justify-between gap-3 px-4 sm:h-16 sm:px-8">
-          <button type="button" onClick={() => goToIndex(0)} className="bw-wordmark bw-focus -ml-1 min-h-11 rounded-lg px-1" aria-label="Beamwall, back to the start">
-            Beamwall
-          </button>
-          <nav aria-label="Account" className="flex items-center gap-2 sm:gap-4">
-            {desktop && <Link to="/login" className="bw-link">{START_COPY.signIn}</Link>}
-            <Link to={SIGNUP_PATH} className="bw-btn bw-btn-primary bw-btn-sm">{HERO.primary}</Link>
-          </nav>
-        </header>
-
-        <main
-          ref={mainRef}
-          aria-label={`${SECTIONS[shownIndex].label}, section ${shownIndex + 1} of ${SECTIONS.length}`}
-          className={`relative min-h-0 flex-1 ${leaving ? 'bw-leave' : ''}`}
-          onTouchStart={onTouchStart}
-          onTouchEnd={onTouchEnd}
-        >
-          <div key={section} className="h-full">{content}</div>
-          {!ready && !failed && slotBox !== null && (
-            <p className="bw-label pointer-events-none fixed text-center" style={{ left: slotBox.left, width: slotBox.width, top: slotBox.top + slotBox.height * 0.55 }}>
-              Beamy is on his way&hellip;
-            </p>
+      <div ref={panelRef} className="absolute" style={{ inset: panelInset, ['--bw-radius-panel' as string]: `${radius}px` }}>
+        <div ref={glassRef} className="bw-glass" aria-hidden />
+        {/* Decor clipped to the panel: the floor line and the ghost word. */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden" style={{ borderRadius: radius }}>
+          {showFloor && <div className="bw-floor" style={{ top: floorTop ?? 0 }} />}
+          {section === 'intro' && desktop && (
+            <span className="bw-ghost absolute bottom-[-0.06em] right-[2%]" style={{ fontSize: 'clamp(140px, 15vw, 270px)' }}>Beam</span>
           )}
-          {section === 'intro' && dragHint && ready && arrival === 'done' && slotBox !== null && (
-            <p
-              className="bw-label pointer-events-none fixed flex items-center gap-1.5"
-              style={{ left: slotBox.left + slotBox.width / 2 + layoutRef.current.heightPx * 0.42, top: slotBox.top + slotBox.height - 28, animation: reduced ? undefined : 'bw-fade 600ms var(--bw-ease) 900ms both' }}
-            >
-              <Rotate3d className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Drag me
-            </p>
-          )}
-        </main>
+        </div>
 
-        <footer className={`z-30 flex shrink-0 items-center gap-3 px-4 sm:px-8 ${desktop ? 'h-[72px] justify-between' : 'h-[76px] justify-between'}`} style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-          <div className={desktop ? 'w-[180px]' : 'w-11'}>
-            {!atFirst && (desktop ? (
-              <button type="button" className="bw-btn bw-btn-secondary bw-btn-sm" onClick={() => nav('back')}>
-                <ArrowLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden /> Back
+        <div className="relative flex h-full flex-col">
+          <header className={`z-30 grid shrink-0 items-center gap-3 ${desktop ? 'h-[76px] grid-cols-[1fr_auto_1fr] px-[clamp(24px,2.6vw,48px)]' : 'h-14 grid-cols-[1fr_auto] px-3'}`}>
+            <div>
+              <button type="button" onClick={() => goToIndex(0)} className="bw-wordmark bw-focus -ml-1 min-h-11 rounded-lg px-1" aria-label="Beamwall, back to the start">
+                Beamwall
               </button>
-            ) : (
-              <button type="button" className="bw-btn bw-btn-secondary bw-btn-sm" style={{ width: 44, padding: 0 }} onClick={() => nav('back')} aria-label="Back">
-                <ArrowLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-col items-center">
-            {desktop ? (
-              <div className="flex items-center" role="group" aria-label="Sections">
-                {SECTIONS.map((s, n) => (
+            </div>
+            {desktop && (
+              <nav aria-label="Main" className="flex items-center gap-1">
+                {NAV_LINKS.map((n) => n.section !== null ? (
                   <button
-                    key={s.id}
+                    key={n.label}
                     type="button"
-                    className="bw-dot"
-                    aria-label={`${s.label}, section ${n + 1} of ${SECTIONS.length}`}
-                    aria-current={n === index ? 'step' : undefined}
-                    title={s.label}
-                    onClick={() => goToIndex(n)}
-                  />
+                    className="bw-navlink"
+                    aria-current={index === sectionIndex(n.section) ? 'page' : undefined}
+                    onClick={() => goToIndex(sectionIndex(n.section as SectionId))}
+                  >
+                    {n.label}
+                  </button>
+                ) : (
+                  <Link key={n.label} to={n.href ?? '/'} className="bw-navlink">{n.label}</Link>
                 ))}
-              </div>
-            ) : (
-              <div className="flex items-center gap-2" aria-hidden>
-                {SECTIONS.map((s, n) => (
-                  <span key={s.id} className="h-2 rounded-full transition-[width,background-color] duration-300" style={{ width: n === index ? 18 : 8, background: n === index ? 'var(--bw-core)' : 'var(--bw-faint)' }} />
-                ))}
-              </div>
+              </nav>
             )}
-            <span className={`bw-label ${desktop ? '-mt-1' : 'mt-2'}`} aria-live="polite">{SECTIONS[index].label}</span>
-          </div>
-          <div className={`flex justify-end ${desktop ? 'w-[180px]' : 'min-w-11'}`}>
-            {!atLast && (
-              <button type="button" className="bw-btn bw-btn-primary bw-btn-sm" onClick={() => nav('next')}>
-                {index === sectionIndex('pick') && selectedId === null ? PICK_COPY.skip : 'Next'} <ArrowRight className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-              </button>
+            <nav aria-label="Account" className="flex items-center justify-end gap-2 sm:gap-4">
+              {desktop && <Link to="/login" className="bw-link">{START_COPY.signIn}</Link>}
+              <Link to={SIGNUP_PATH} className="bw-btn bw-btn-primary bw-btn-sm">{desktop ? HERO.primary : HERO.primaryShort}</Link>
+            </nav>
+          </header>
+
+          <main
+            ref={mainRef}
+            aria-label={`${SECTIONS[shownIndex].label}, section ${shownIndex + 1} of ${SECTIONS.length}`}
+            className={`relative min-h-0 flex-1 ${leaving ? 'bw-leave' : ''}`}
+            onTouchStart={onTouchStart}
+            onTouchEnd={onTouchEnd}
+          >
+            <div key={section} className="h-full">{content}</div>
+            {!ready && !failed && slotBox !== null && (
+              <p className="bw-label pointer-events-none fixed text-center" style={{ left: slotBox.left, width: slotBox.width, top: slotBox.top + slotBox.height * 0.55 }}>
+                Beamy is on his way&hellip;
+              </p>
             )}
-          </div>
-        </footer>
+            {section === 'intro' && desktop && dragHint && ready && arrival === 'done' && !introRunning && slotBox !== null && (
+              <p
+                className="bw-label pointer-events-none fixed flex items-center gap-1.5"
+                style={{ left: slotBox.left + slotBox.width / 2 - 40, top: slotBox.top + slotBox.height + 10, animation: reduced ? undefined : 'bw-fade 600ms var(--bw-ease) 900ms both' }}
+              >
+                <Rotate3d className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Drag me
+              </p>
+            )}
+          </main>
+
+          <footer className={`z-30 flex shrink-0 items-center justify-between gap-3 ${desktop ? 'h-[72px] px-[clamp(24px,2.6vw,48px)]' : 'h-16 px-3'}`} style={{ paddingBottom: desktop ? undefined : 'env(safe-area-inset-bottom)' }}>
+            <div className={desktop ? 'w-[180px]' : 'w-11'}>
+              {!atFirst && (desktop ? (
+                <button type="button" className="bw-btn bw-btn-secondary bw-btn-sm" onClick={() => nav('back')}>
+                  <ArrowLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden /> Back
+                </button>
+              ) : (
+                <button type="button" className="bw-btn bw-btn-secondary bw-btn-sm" style={{ width: 44, padding: 0 }} onClick={() => nav('back')} aria-label="Back">
+                  <ArrowLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-col items-center">
+              {desktop ? (
+                <div className="flex items-center" role="group" aria-label="Sections">
+                  {SECTIONS.map((s, n) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className="bw-dot"
+                      aria-label={`${s.label}, section ${n + 1} of ${SECTIONS.length}`}
+                      aria-current={n === index ? 'step' : undefined}
+                      title={s.label}
+                      onClick={() => goToIndex(n)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2" aria-hidden>
+                  {SECTIONS.map((s, n) => (
+                    <span key={s.id} className="h-2 rounded-full transition-[width,background-color] duration-300" style={{ width: n === index ? 18 : 8, background: n === index ? 'var(--bw-core)' : 'var(--bw-faint)' }} />
+                  ))}
+                </div>
+              )}
+              <span className={`bw-label ${desktop ? '-mt-1' : 'mt-1.5'}`} aria-live="polite">{SECTIONS[index].label}</span>
+            </div>
+            <div className={`flex justify-end ${desktop ? 'w-[180px]' : 'min-w-11'}`}>
+              {!atLast && (
+                <button type="button" className="bw-btn bw-btn-primary bw-btn-sm" onClick={() => nav('next')}>
+                  {index === sectionIndex('pick') && selectedId === null ? PICK_COPY.skip : 'Next'} <ArrowRight className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                </button>
+              )}
+            </div>
+          </footer>
+        </div>
       </div>
 
       {!failed && (
@@ -813,6 +1073,7 @@ export default function BeamyPage() {
           layoutRef={layoutRef}
           bubbleRef={bubbleRef}
           hitRef={hitRef}
+          decorRef={decorRef}
           startHidden
           reducedMotion={reduced}
           onReady={() => setReady(true)}
@@ -823,7 +1084,7 @@ export default function BeamyPage() {
         ref={bubbleRef}
         role="status"
         aria-live="polite"
-        className={`bw-bubble pointer-events-none fixed left-0 top-0 z-50 max-w-[min(320px,calc(100vw-24px))] px-4 py-3 transition-opacity duration-300 ${(ready && arrival === 'done') || failed ? 'opacity-100' : 'opacity-0'}`}
+        className={`bw-bubble pointer-events-none fixed left-0 top-0 z-50 max-w-[min(300px,calc(100vw-24px))] px-4 py-3 transition-opacity duration-300 ${((ready && arrival === 'done') || failed) && !bubbleHidden ? 'opacity-100' : 'opacity-0'}`}
         style={failed ? { transform: 'translate3d(16px, 72px, 0)' } : undefined}
       >
         <span className="sr-only">{line}</span>
@@ -844,6 +1105,14 @@ export default function BeamyPage() {
         />
       )}
 
+      {/* The selfie's flash and photo card (driven per frame by runSelfie). */}
+      <div ref={flashRef} aria-hidden className="pointer-events-none fixed inset-0 z-[55]" style={{ opacity: 0 }} />
+      <div ref={cardRef} aria-hidden className="pointer-events-none fixed left-0 top-0 z-[56]" style={{ opacity: 0, willChange: 'opacity, transform', ...SELFIE_CARD_STYLE }}>
+        <div style={SELFIE_CARD_FACE_STYLE}>
+          <img ref={cardImgRef} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        </div>
+      </div>
+
       {flight !== null && (
         <div className="pointer-events-none fixed inset-0 z-[60]" aria-hidden>
           <ParticleBeam key={flight.key} from={flight.from} to={flight.to} shot={flight.shot} durationMs={flight.ms} onDone={flight.onDone} palette={BEAM_PALETTE} />
@@ -853,15 +1122,90 @@ export default function BeamyPage() {
   );
 }
 
-/** Sections 2, 4-6: Beamy's column + the content panel (stacked on phones). */
+/**
+ * The live wall: a 3×3 grid in a slim deep-indigo frame whose tiles swap
+ * photos on the pure scheduler in lib/beamyWall (one tile every 1.5–2.5s,
+ * never the same tile twice in a row, never a duplicate on the wall). Pinned
+ * tiles (Beamy's selfie, a visitor's shots) are frozen out of the rotation.
+ */
+function LiveWall({ pool, pins, dim, compact, centreRef, ripple, seed }: {
+  pool: string[];
+  pins: Record<number, Pin>;
+  dim: boolean;
+  compact: boolean;
+  centreRef: MutableRefObject<HTMLDivElement | null>;
+  ripple: number;
+  seed: number;
+}) {
+  const rand = useRef<() => number>(seededRandom(seed));
+  const wallRef = useRef<WallState>(initialWall(pool.length, rand.current));
+  const prevRef = useRef<(number | null)[]>(wallRef.current.tiles.map(() => null));
+  const freshRef = useRef<number | null>(null);
+  const frozenRef = useRef(new Set<number>());
+  frozenRef.current = new Set(Object.keys(pins).map(Number));
+  const [, bump] = useReducer((x: number) => x + 1, 0);
+  const rings = useMemo(() => rippleRings(), []);
+
+  useEffect(() => {
+    let id = 0;
+    const schedule = () => {
+      id = window.setTimeout(() => {
+        if (document.visibilityState === 'visible') {
+          const s = wallRef.current;
+          const r = nextSwap(s, pool.length, rand.current, frozenRef.current);
+          if (r !== null) {
+            prevRef.current[r.tile] = s.tiles[r.tile];
+            freshRef.current = r.tile;
+            wallRef.current = r.state;
+            bump();
+          }
+        }
+        schedule();
+      }, swapDelay(rand.current));
+    };
+    schedule();
+    return () => window.clearTimeout(id);
+  }, [pool.length]);
+
+  const tiles = wallRef.current.tiles;
+  return (
+    <div className="bw-wall" data-dim={dim} role="group" aria-label={WALL_LABEL} style={compact ? { padding: 6, borderRadius: 14 } : undefined}>
+      <p className={`bw-label flex items-center gap-2 px-1 ${compact ? 'mb-1.5 text-[12px]' : 'mb-2'}`} style={{ color: 'var(--bw-ink)' }}>
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: 'var(--bw-danger)' }} aria-hidden /> {WALL_LABEL}
+      </p>
+      <div className={`grid grid-cols-3 ${compact ? 'gap-[4px]' : 'gap-[7px]'}`}>
+        {tiles.map((img, n) => {
+          const pin = pins[n];
+          const prev = prevRef.current[n];
+          return (
+            <div
+              key={n}
+              ref={n === WALL_CENTRE ? (el) => { centreRef.current = el; } : undefined}
+              className={`bw-tile ${compact ? 'aspect-square' : 'aspect-[4/5]'}`}
+              style={pin?.mine === true ? { boxShadow: '0 0 0 1.5px var(--bw-core)' } : undefined}
+            >
+              {prev !== null && <img src={pool[prev]} alt="" draggable={false} />}
+              <img key={pool[img]} src={pool[img]} alt="" draggable={false} className={freshRef.current === n ? 'bw-tile-in' : undefined} />
+              {pin !== undefined && (
+                <img key={pin.key} src={pin.src} alt={pin.mine ? 'Your photo on the wall' : 'Beamy’s selfie on the wall'} draggable={false} className="bw-tile-in" style={{ opacity: 1 }} />
+              )}
+              {ripple > 0 && rings[n] > 0 && <span key={`r${ripple}`} className="bw-tile-flash" style={{ ['--ripple' as string]: rings[n] }} aria-hidden />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Stops 2, 4-6: Beamy's column + the content (stacked on phones). */
 function Panel({ desktop, slot, children }: { desktop: boolean; slot: ReactNode; children: ReactNode }) {
   if (desktop) {
     return (
-      <div className="mx-auto grid h-full w-full max-w-[1320px] grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-8 px-8 pb-4">
-        {/* Centred and capped so Beamy stands level with the copy instead of
-            sinking to the bottom-left of a tall column. */}
-        <div className="relative flex min-h-0 items-center py-6">
-          <div className="h-full max-h-[540px] w-full">{slot}</div>
+      <div className="mx-auto grid h-full w-full max-w-[1320px] grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-8 px-[clamp(28px,3.4vw,64px)] pb-2">
+        {/* Feet low in the column, so he stands on the panel's floor. */}
+        <div className="relative flex min-h-0 items-end pb-[4%]">
+          <div className="h-[88%] max-h-[540px] w-full">{slot}</div>
         </div>
         <div className="flex min-h-0 flex-col justify-center overflow-y-auto py-4 pr-2">
           <div className="w-full max-w-[620px]">{children}</div>
@@ -871,7 +1215,7 @@ function Panel({ desktop, slot, children }: { desktop: boolean; slot: ReactNode;
   }
   return (
     <div className="flex h-full flex-col">
-      <div className="mx-auto h-[30%] min-h-[150px] w-full max-w-[480px] shrink-0 px-4 pt-1">{slot}</div>
+      <div className="mx-auto h-[28%] min-h-[140px] w-full max-w-[480px] shrink-0 px-4 pt-1">{slot}</div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-3 pt-3">{children}</div>
     </div>
   );

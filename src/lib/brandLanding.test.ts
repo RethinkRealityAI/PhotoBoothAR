@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CELEBRATIONS, EMOJI_RE, LAST_SECTION, LOOKS, POKE_IDLE, POKE_STREAK_MS, SECTIONS, WHEEL_COOLDOWN_MS, WHEEL_IDLE,
+  CELEBRATIONS, EMOJI_RE, LAST_SECTION, LOOKS, NAV_LINKS, POKE_IDLE, PRICING_PATH, POKE_STREAK_MS, SECTIONS, WHEEL_COOLDOWN_MS, WHEEL_IDLE,
   WHEEL_THRESHOLD, clampSection, createReactionPicker, keyToNav, landingCopy, navigate, nearestFront,
   pickCelebration, pickReaction, pokeStep, releaseVelocity, sectionIndex, seededRandom, spinSettled, spinStep,
   startFacts, swipeDecision, wheelDecision, type Moment, type PokeState, type Reaction, type Spin, type WheelState,
@@ -183,9 +183,17 @@ describe('copy', () => {
 
   it('keeps the headline copy the owner asked for', () => {
     expect(landingCopy()).toEqual(expect.arrayContaining([
-      'Welcome to your immersive photo booth', 'Every guest phone becomes the booth. Simple.',
+      'Welcome to your immersive booth', 'Every guest phone becomes the booth',
       'Create your free event', 'Try the live demo',
     ]));
+  });
+
+  it('points the nav at real stops and the existing pricing anchor', () => {
+    for (const n of NAV_LINKS) {
+      expect((n.section === null) !== (n.href === null), n.label).toBe(true);
+      if (n.section !== null) expect(sectionIndex(n.section), n.label).toBeGreaterThanOrEqual(0);
+    }
+    expect(NAV_LINKS.find((n) => n.label === 'Pricing')?.href).toBe(PRICING_PATH);
   });
 
   it('offers looks that exist, covering every audience kit', () => {

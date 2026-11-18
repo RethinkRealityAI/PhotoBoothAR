@@ -1,5 +1,5 @@
 /**
- * Beamwall brand v2 ("Midnight + Beam") — tokens and base components.
+ * Beamwall brand v2 ("Liquid glass + Beam") — tokens and base components.
  *
  * SCOPED, on purpose: everything here applies only under `[data-brand="2"]`
  * (the candidate landing at /beamy and the style guide at /brand), so the
@@ -8,10 +8,12 @@
  * attribute from the two pages; the component classes already read tokens
  * only, so nothing else moves.
  *
- * Rules the tokens encode (see /brand): dark only, flat colour, ONE soft
- * indigo glow behind Beamy, no gradient fills on buttons / text / borders,
- * sentence case, never below 12px. The beam of light itself is the one place
- * light is allowed to be expressive (BeamyStage's shader, not CSS).
+ * Rules the tokens encode (see /brand): a soft periwinkle scene in ONE hue
+ * family, every stop's content inside one frosted glass panel, white ink
+ * (measured AA against the composited glass), no gradient fills on buttons /
+ * text / borders (glass edges are inset shadows), sentence case, never below
+ * 12px. The beam of light itself is the one place light is allowed to be
+ * expressive (BeamyStage's shader, not CSS).
  *
  * Fonts are self-hosted variable woff2 (latin + latin-ext, OFL-1.1, from
  * @fontsource-variable 5.3.0). An @font-face never downloads until a rule
@@ -61,48 +63,65 @@
 /* ── Tokens (rollout: this selector becomes :root) ──────────────────── */
 
 [data-brand="2"] {
-  /* Midnight */
-  --bw-bg: #080A14;
-  --bw-surface: #10131F;
-  --bw-surface-2: #171B2B;
-  --bw-hairline: rgba(255, 255, 255, 0.08);
-  --bw-hairline-strong: rgba(255, 255, 255, 0.16);
-  /* The one glow: the indigo the first /beamy cut used behind Beamy
-     (rgba(124,108,247,0.22)), kept as a single soft radial. */
-  --bw-glow: rgba(124, 108, 247, 0.20);
+  /* Scene: ONE periwinkle family, never multi-hue, never banded. The deepest
+     stop sits under the copy; the lighter two only glow behind Beamy, the
+     wall and outside the panel (white text cannot pass AA on them). */
+  --bw-bg: #5652CE;
+  --bw-bg-2: #6F6BE0;
+  --bw-bg-3: #8E8AF0;
+  --bw-bg-4: #A9A2F2;
 
-  /* Ink */
-  --bw-ink: #F4F5FA;
-  --bw-muted: #A3A9BD;
-  --bw-faint: #6D7389;
+  /* Liquid glass. A white frost alone LOWERS white text's contrast, so the
+     panel's tint is a saturated indigo veil with the frost on top (measured:
+     brandTokens.test.ts composites both over every field stop). */
+  --bw-veil: rgba(43, 42, 140, 0.40);
+  --bw-frost: rgba(255, 255, 255, 0.10);
+  --bw-card-veil: rgba(43, 42, 140, 0.30);
+  --bw-card-frost: rgba(255, 255, 255, 0.06);
+  --bw-edge-hi: rgba(255, 255, 255, 0.45);
+  --bw-edge-lo: rgba(255, 255, 255, 0.12);
+  --bw-hairline: rgba(255, 255, 255, 0.18);
+  --bw-hairline-strong: rgba(255, 255, 255, 0.34);
+  --bw-shadow: rgba(26, 23, 64, 0.50);
 
-  /* Beam (brand accent) — flat, never a gradient */
-  --bw-accent: #8E96FF;
-  --bw-accent-hover: #A5ABFF;
-  --bw-accent-pressed: #7780F0;
-  --bw-on-accent: #0B0D1A;
+  /* Deep indigo: shadows, the floor, the wall frame, ink on light. */
+  --bw-deep: #2B2A8C;
+  --bw-deep-2: #1A1740;
 
-  /* Core (warm accent) — one highlight per screen */
+  /* Ink on the scene */
+  --bw-ink: #FFFFFF;
+  --bw-muted: rgba(255, 255, 255, 0.84);
+  --bw-faint: rgba(255, 255, 255, 0.50);
+  --bw-on-light: #1A1740;
+
+  /* Primary action: a solid white pill with a deep-indigo label */
+  --bw-accent: #FFFFFF;
+  --bw-accent-hover: #ECEBFF;
+  --bw-accent-pressed: #DCDAFB;
+  --bw-on-accent: #1A1740;
+
+  /* Core (warm accent): the beam core, the active progress segment, one highlight */
   --bw-core: #FFC56B;
 
-  /* Semantic */
-  --bw-success: #5FD4A0;
-  --bw-danger: #FF7A85;
+  /* Semantic (dots and icons on glass, ≥3:1) */
+  --bw-success: #9BEBC6;
+  --bw-danger: #FFB3B9;
 
   /* Type */
   --bw-font-display: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
   --bw-font-text: 'Geist Variable', 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif;
   /* 360px → 1440px linear, capped by height so one viewport always fits. */
-  --bw-size-display: clamp(44px, min(30.7px + 3.7vw, 9.4dvh), 84px);
-  --bw-size-h2: clamp(30px, min(24px + 1.667vw, 6.4dvh), 48px);
-  --bw-size-h3: clamp(20px, 18.67px + 0.37vw, 24px);
-  --bw-size-body: clamp(16px, 15.33px + 0.185vw, 18px);
+  --bw-size-display: clamp(36px, min(26px + 3.4vw, 8.2dvh), 78px);
+  --bw-size-h2: clamp(28px, min(22px + 1.667vw, 6dvh), 46px);
+  --bw-size-h3: clamp(19px, 17.67px + 0.37vw, 23px);
+  --bw-size-body: clamp(15px, 14.33px + 0.185vw, 17px);
   --bw-size-small: 14px;
   --bw-size-label: 13px;
-  --bw-track-display: -0.028em;
-  --bw-track-heading: -0.02em;
+  --bw-track-display: -0.034em;
+  --bw-track-heading: -0.022em;
 
   /* Shape + motion */
+  --bw-radius-panel: 36px;
   --bw-radius-card: 20px;
   --bw-radius-bubble: 16px;
   --bw-radius-tile: 12px;
@@ -121,13 +140,120 @@
 /* ── Components ─────────────────────────────────────────────────────── */
 
 @layer components {
+  /* The scene: a soft tonal field, deepest under the copy (left), lighter
+     glows behind Beamy / the wall and outside the panel. Large radii only. */
   .bw-root {
     background-color: var(--bw-bg);
+    background-image:
+      radial-gradient(60% 70% at 104% -6%, var(--bw-bg-4), transparent 62%),
+      radial-gradient(46% 56% at 70% 58%, var(--bw-bg-2), transparent 74%),
+      radial-gradient(40% 46% at -6% 108%, var(--bw-bg-3), transparent 66%);
   }
-  .bw-glow {
-    background: radial-gradient(42% 46% at var(--glow-x, 50%) var(--glow-y, 40%), var(--bw-glow), transparent 72%);
+  /* Soft orbs behind the glass: the frost visibly softens whatever of them
+     the panel covers, which is what makes the panel read as glass. */
+  .bw-orb {
+    position: absolute;
+    border-radius: 999px;
+    background: var(--bw-bg-3);
+    pointer-events: none;
   }
 
+  /* Panel = a positioned container; the glass itself is an absolutely
+     positioned LAYER inside it, never an ancestor of the content
+     (backdrop-filter makes a containing block for position:fixed). */
+  .bw-glass {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--bw-radius-panel);
+    overflow: hidden;
+    background-color: var(--bw-veil);
+    -webkit-backdrop-filter: blur(32px) saturate(140%);
+    backdrop-filter: blur(32px) saturate(140%);
+    /* Edge light as inset shadows (a gradient BORDER is off-brand): bright
+       top-left, dim bottom-right; then the soft wide drop below. */
+    box-shadow:
+      inset 1px 1px 0 var(--bw-edge-hi),
+      inset -1px -1px 0 var(--bw-edge-lo),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 0 0 100vmax var(--bw-frost),
+      0 48px 90px -36px var(--bw-shadow),
+      0 14px 32px -16px rgba(26, 23, 64, 0.32);
+    pointer-events: none;
+  }
+  /* Inner top sheen; follows the pointer a little (--sheen-dx, set by the page). */
+  .bw-glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(48% 34% at 50% 0%, rgba(255, 255, 255, 0.16), transparent 72%);
+    background-repeat: no-repeat;
+    background-size: 180% 100%;
+    background-position: calc(30% + var(--sheen-dx, 0%)) 0;
+    transition: background-position 1100ms var(--bw-ease);
+  }
+
+  .bw-glass-card {
+    position: relative;
+    border-radius: var(--bw-radius-card);
+    background-color: var(--bw-card-veil);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    backdrop-filter: blur(18px) saturate(140%);
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.36),
+      inset -1px -1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+      inset 0 0 0 100vmax var(--bw-card-frost),
+      0 18px 36px -22px var(--bw-shadow);
+    transition: transform 200ms var(--bw-ease), box-shadow 200ms var(--bw-ease), background-color 200ms var(--bw-ease);
+  }
+  .bw-glass-card.bw-interactive { cursor: pointer; text-align: left; }
+  .bw-glass-card.bw-interactive:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.55),
+      inset -1px -1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+      inset 0 0 0 100vmax var(--bw-card-frost),
+      0 22px 40px -22px var(--bw-shadow);
+  }
+  .bw-glass-card.bw-interactive:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
+  /* Selected: solid white with deep-indigo ink. Re-pointing the ink tokens
+     lets every child (title, label, icon) follow without its own rule. */
+  .bw-glass-card[aria-pressed="true"],
+  .bw-glass-card[data-selected="true"] {
+    --bw-ink: var(--bw-on-light);
+    --bw-muted: rgba(26, 23, 64, 0.74);
+    background-color: #FFFFFF;
+    box-shadow: 0 18px 36px -20px var(--bw-shadow);
+  }
+
+  .bw-glass-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 18px;
+    border-radius: 999px;
+    background-color: rgba(255, 255, 255, 0.08);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    box-shadow: inset 0 0 0 1px var(--bw-hairline), inset 1px 1px 0 rgba(255, 255, 255, 0.22);
+    color: var(--bw-muted);
+    font-size: 14px;
+    font-weight: 500;
+    transition: background-color 160ms var(--bw-ease), color 160ms var(--bw-ease), box-shadow 160ms var(--bw-ease);
+  }
+  .bw-glass-chip:hover { color: var(--bw-ink); background-color: rgba(255, 255, 255, 0.14); }
+  .bw-glass-chip[aria-pressed="true"],
+  .bw-glass-chip[aria-current="true"] {
+    color: var(--bw-on-light);
+    background-color: #FFFFFF;
+    box-shadow: 0 8px 20px -12px var(--bw-shadow);
+  }
+  .bw-glass-chip:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
+
+  /* Type */
   .bw-display,
   .bw-h2,
   .bw-h3,
@@ -136,29 +262,60 @@
     color: var(--bw-ink);
     text-wrap: balance;
   }
+  /* Mixed weights in one headline: light lead-in, bold payoff. */
   .bw-display {
     font-size: var(--bw-size-display);
-    font-weight: 650;
+    font-weight: 760;
     line-height: 1.02;
     letter-spacing: var(--bw-track-display);
   }
+  .bw-display .bw-light,
+  .bw-h2 .bw-light { font-weight: 300; letter-spacing: -0.02em; }
   .bw-h2 {
     font-size: var(--bw-size-h2);
-    font-weight: 650;
-    line-height: 1.08;
+    font-weight: 720;
+    line-height: 1.06;
     letter-spacing: var(--bw-track-heading);
   }
   .bw-h3 {
     font-size: var(--bw-size-h3);
-    font-weight: 600;
+    font-weight: 620;
     line-height: 1.2;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.012em;
   }
   .bw-wordmark {
     font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -0.03em;
+    font-weight: 750;
+    letter-spacing: -0.035em;
     line-height: 1;
+  }
+  /* Eyebrow: a short line of context, then a short rule under it. */
+  .bw-eyebrow {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--bw-muted);
+  }
+  .bw-eyebrow::after {
+    content: '';
+    width: 28px;
+    height: 2px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.72);
+  }
+  /* The ghosted outline watermark (decorative, aria-hidden). */
+  .bw-ghost {
+    font-family: var(--bw-font-display);
+    font-weight: 800;
+    line-height: 0.8;
+    letter-spacing: -0.05em;
+    color: transparent;
+    -webkit-text-stroke: 1.5px rgba(255, 255, 255, 0.16);
+    user-select: none;
+    pointer-events: none;
   }
   .bw-body {
     font-size: var(--bw-size-body);
@@ -179,7 +336,8 @@
     color: var(--bw-muted);
   }
 
-  /* Buttons — pill, flat. */
+  /* Buttons — pill. Primary = solid white, deep-indigo label; secondary =
+     outlined glass. */
   .bw-btn {
     display: inline-flex;
     align-items: center;
@@ -188,7 +346,7 @@
     min-height: 48px;
     padding: 0 22px;
     border-radius: 999px;
-    border: 1px solid transparent;
+    border: 1.5px solid transparent;
     font-family: var(--bw-font-text);
     font-size: 15px;
     font-weight: 600;
@@ -198,23 +356,29 @@
     cursor: pointer;
     user-select: none;
     transition: background-color 160ms var(--bw-ease), border-color 160ms var(--bw-ease),
-      color 160ms var(--bw-ease), transform 160ms var(--bw-ease);
+      color 160ms var(--bw-ease), transform 160ms var(--bw-ease), box-shadow 160ms var(--bw-ease);
   }
   .bw-btn:active { transform: scale(0.98); }
   .bw-btn:focus-visible,
   .bw-focus:focus-visible {
-    outline: 2px solid var(--bw-accent);
+    outline: 2px solid #FFFFFF;
     outline-offset: 2px;
   }
-  .bw-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
-  .bw-btn-primary { background: var(--bw-accent); color: var(--bw-on-accent); }
+  .bw-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .bw-btn-primary { background: var(--bw-accent); color: var(--bw-on-accent); box-shadow: 0 10px 24px -12px var(--bw-shadow); }
   .bw-btn-primary:hover:not(:disabled) { background: var(--bw-accent-hover); }
   .bw-btn-primary:active:not(:disabled) { background: var(--bw-accent-pressed); }
-  .bw-btn-secondary { background: var(--bw-surface-2); color: var(--bw-ink); border-color: var(--bw-hairline); }
-  .bw-btn-secondary:hover:not(:disabled) { border-color: var(--bw-hairline-strong); background: #1C2134; }
-  .bw-btn-secondary:active:not(:disabled) { background: var(--bw-surface); }
+  .bw-btn-secondary {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--bw-ink);
+    border-color: rgba(255, 255, 255, 0.72);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+  .bw-btn-secondary:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); border-color: #FFFFFF; }
+  .bw-btn-secondary:active:not(:disabled) { background: rgba(255, 255, 255, 0.10); }
   .bw-btn-sm { min-height: 44px; padding: 0 18px; font-size: 14px; }
-  .bw-btn-lg { min-height: 56px; padding: 0 30px; font-size: 16px; }
+  .bw-btn-lg { min-height: 52px; padding: 0 28px; font-size: 16px; }
   .bw-link {
     display: inline-flex;
     align-items: center;
@@ -225,35 +389,34 @@
     color: var(--bw-ink);
     font-size: 15px;
     font-weight: 500;
-    text-underline-offset: 4px;
+    text-underline-offset: 5px;
+    text-decoration-thickness: 1px;
     transition: color 160ms var(--bw-ease);
   }
-  .bw-link:hover { color: var(--bw-accent-hover); }
-  .bw-link:focus-visible { outline: 2px solid var(--bw-accent); outline-offset: 2px; }
+  .bw-link:hover { text-decoration-line: underline; }
+  .bw-link:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
   /* Footer-weight link: muted until hovered. */
   .bw-link.bw-link-quiet { color: var(--bw-muted); font-size: 13px; }
   .bw-link.bw-link-quiet:hover { color: var(--bw-ink); }
   .bw-link svg { transition: transform 160ms var(--bw-ease); }
   .bw-link:hover svg { transform: translateX(2px); }
-
-  /* Cards — surface + hairline, no sheen, no coloured glow. */
-  .bw-card {
-    position: relative;
-    background: var(--bw-surface);
-    border: 1px solid var(--bw-hairline);
-    border-radius: var(--bw-radius-card);
-    transition: border-color 200ms var(--bw-ease), transform 200ms var(--bw-ease), background-color 200ms var(--bw-ease);
+  /* Nav link: plain text that takes an outlined pill when it is the current stop. */
+  .bw-navlink {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 16px;
+    border-radius: 999px;
+    color: var(--bw-muted);
+    font-size: 15px;
+    font-weight: 500;
+    transition: color 160ms var(--bw-ease), box-shadow 160ms var(--bw-ease);
   }
-  .bw-card-interactive { cursor: pointer; text-align: left; }
-  .bw-card-interactive:hover { border-color: var(--bw-hairline-strong); transform: translateY(-2px); }
-  .bw-card-interactive:focus-visible { outline: 2px solid var(--bw-accent); outline-offset: 2px; }
-  .bw-card[aria-pressed="true"],
-  .bw-card[data-selected="true"] {
-    border-color: var(--bw-accent);
-    box-shadow: inset 0 0 0 0.5px var(--bw-accent);
-  }
+  .bw-navlink:hover { color: var(--bw-ink); }
+  .bw-navlink[aria-current] { color: var(--bw-ink); box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.72); }
+  .bw-navlink:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
 
-  /* Icon tile: 40px surface-2, radius 12, 1.5px-stroke lucide icon inside. */
+  /* Icon tile: 40px frosted tile, radius 12, 1.5px-stroke lucide icon. */
   .bw-icon-tile {
     display: grid;
     place-items: center;
@@ -261,57 +424,80 @@
     width: 40px;
     height: 40px;
     border-radius: var(--bw-radius-tile);
-    background: var(--bw-surface-2);
-    color: var(--bw-accent);
+    background: rgba(255, 255, 255, 0.12);
+    box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.3);
+    color: var(--bw-ink);
   }
   .bw-icon-tile svg { width: 20px; height: 20px; stroke-width: 1.5; }
+  [aria-pressed="true"] > .bw-icon-tile,
+  [data-selected="true"] > .bw-icon-tile { background: rgba(26, 23, 64, 0.08); box-shadow: none; }
 
-  /* Speech bubble. */
+  /* Speech bubble: solid white, deep-indigo ink (reads over any pixel). */
   .bw-bubble {
-    background: var(--bw-surface);
-    border: 1px solid var(--bw-hairline-strong);
+    background: #FFFFFF;
     border-radius: var(--bw-radius-bubble);
-    color: var(--bw-ink);
+    color: var(--bw-on-light);
     font-size: 15px;
+    font-weight: 500;
     line-height: 1.45;
-    box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.7);
+    box-shadow: 0 18px 40px -18px var(--bw-shadow);
   }
 
-  /* Form field. */
+  /* Form field: frosted. */
   .bw-field {
     width: 100%;
     min-height: 48px;
     padding: 0 16px;
     border-radius: 14px;
-    background: var(--bw-surface-2);
+    background: rgba(255, 255, 255, 0.10);
     border: 1px solid var(--bw-hairline);
     color: var(--bw-ink);
     font-family: var(--bw-font-text);
     font-size: 16px;
-    transition: border-color 160ms var(--bw-ease);
+    transition: border-color 160ms var(--bw-ease), background-color 160ms var(--bw-ease);
   }
-  .bw-field::placeholder { color: var(--bw-faint); }
+  .bw-field::placeholder { color: rgba(255, 255, 255, 0.66); }
   .bw-field:hover { border-color: var(--bw-hairline-strong); }
-  .bw-field:focus-visible { outline: 2px solid var(--bw-accent); outline-offset: 2px; border-color: transparent; }
+  .bw-field:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; border-color: transparent; }
 
-  /* Look / filter pill (selectable). */
-  .bw-pill {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 44px;
-    padding: 0 18px;
-    border-radius: 999px;
-    background: var(--bw-surface-2);
-    border: 1px solid var(--bw-hairline);
-    color: var(--bw-muted);
-    font-size: 14px;
-    font-weight: 500;
-    transition: border-color 160ms var(--bw-ease), color 160ms var(--bw-ease), background-color 160ms var(--bw-ease);
+  /* The live wall: a slim deep-indigo frame, small-radius tiles. */
+  .bw-wall {
+    border-radius: 18px;
+    padding: 8px;
+    background: rgba(26, 23, 64, 0.62);
+    box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 24px 50px -26px var(--bw-shadow);
   }
-  .bw-pill:hover { color: var(--bw-ink); border-color: var(--bw-hairline-strong); }
-  .bw-pill[aria-pressed="true"] { color: var(--bw-on-accent); background: var(--bw-accent); border-color: var(--bw-accent); }
-  .bw-pill:focus-visible { outline: 2px solid var(--bw-accent); outline-offset: 2px; }
+  .bw-tile {
+    position: relative;
+    overflow: hidden;
+    border-radius: 7px;
+    background: var(--bw-deep);
+  }
+  .bw-tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .bw-tile .bw-tile-in { animation: bw-tile-in 700ms var(--bw-ease) both; }
+  /* The ripple a landing selfie sends out: a soft light pass, ring by ring. */
+  .bw-tile-flash {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    animation: bw-ripple 640ms var(--bw-ease) both;
+    animation-delay: calc(var(--ripple, 0) * 90ms);
+  }
+  .bw-wall[data-dim="true"] .bw-tile img { opacity: 0.55; }
+  .bw-wall .bw-tile img { transition: opacity 700ms var(--bw-ease); }
+
+  /* The floor Beamy stands on: a gentle tone change under the horizon. */
+  .bw-floor {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.035) 40%, rgba(26, 23, 64, 0.06));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  }
 
   /* Progress dots: 44px hit area, a small dot inside. */
   .bw-dot {
@@ -332,7 +518,7 @@
   }
   .bw-dot:hover::before { background: var(--bw-muted); }
   .bw-dot[aria-current="step"]::before { width: 22px; background: var(--bw-core); }
-  .bw-dot:focus-visible { outline: 2px solid var(--bw-accent); outline-offset: -2px; }
+  .bw-dot:focus-visible { outline: 2px solid #FFFFFF; outline-offset: -2px; }
 
   /* Section motion: outgoing slides 24px up and fades, incoming rises. */
   .bw-rise > * {
@@ -340,6 +526,14 @@
     animation-delay: calc(var(--i, 0) * var(--bw-stagger));
   }
   .bw-leave { animation: bw-leave 360ms var(--bw-ease) both; }
+}
+
+/* No backdrop-filter: the same glass, as a solid tint (still passes AA). */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  [data-brand="2"] .bw-glass { background-color: #4E4BB2; }
+  [data-brand="2"] .bw-glass-card { background-color: rgba(52, 50, 150, 0.92); }
+  [data-brand="2"] .bw-glass-chip,
+  [data-brand="2"] .bw-btn-secondary { background-color: rgba(60, 58, 160, 0.9); }
 }
 
 /* Section headings take focus programmatically on every section change (so a
@@ -362,10 +556,24 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+/* A wall tile's new photo: a quarter-turn flip that lands flat. */
+@keyframes bw-tile-in {
+  from { opacity: 0; transform: perspective(500px) rotateY(-70deg) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+/* The ripple a landing selfie sends through its neighbours. */
+@keyframes bw-ripple {
+  0% { opacity: 0; }
+  30% { opacity: 1; }
+  100% { opacity: 0; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   [data-brand="2"] .bw-rise > * { animation-name: bw-fade; animation-duration: 240ms; animation-delay: 0ms; }
   [data-brand="2"] .bw-leave { animation: bw-fade 200ms linear reverse both; }
-  [data-brand="2"] .bw-card-interactive:hover { transform: none; }
+  [data-brand="2"] .bw-glass-card.bw-interactive:hover { transform: none; }
   [data-brand="2"] .bw-btn:active { transform: none; }
+  [data-brand="2"] .bw-tile .bw-tile-in { animation-name: bw-fade; }
+  [data-brand="2"] .bw-tile-flash { animation: none; }
+  [data-brand="2"] .bw-glass::before { transition: none; }
 }

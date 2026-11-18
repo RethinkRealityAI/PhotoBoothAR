@@ -29,10 +29,9 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { gltfLoader } from '../../lib/glbCache';
 import { SELFIE_CLIP, beamOpacity, flashOpacity, photoState, selfieTimeline, type SelfieTimeline } from '../../lib/beamySelfie';
+import { AMBER, PERIWINKLE, SELFIE_CARD_FACE_STYLE, SELFIE_CARD_STYLE, flashGradient, snapshotPortrait } from './selfieFx';
 
 const MODEL_URL = '/mascot/beamy.glb';
-const PERIWINKLE = '142,150,255';
-const AMBER = '255,197,107';
 const CROSSFADE_S = 0.22;
 /** World-space framing: Beamy stands at y=0, 0.6 tall; space above for the photo flight. */
 const FRAME = { centerY: 0.62, halfH: 0.7, halfW: 0.52, fovDeg: 30 };
@@ -264,7 +263,7 @@ function Scene({ playRef, overlays, reducedRef, photoUrlRef, onSnapRef, onDoneRe
           // Render now so the drawing buffer is valid for this task, then crop a
           // portrait around Beamy onto the card's backdrop: his own selfie.
           state.gl.render(scene, camera);
-          o.img.src = snapshotPortrait(gl.domElement, head, H, size.width);
+          o.img.src = snapshotPortrait(gl.domElement, head, H * 0.62, size.width);
         } catch {
           o.img.removeAttribute('src'); // tainted/lost context: the card keeps its gradient face
         }
@@ -333,39 +332,6 @@ function Scene({ playRef, overlays, reducedRef, photoUrlRef, onSnapRef, onDoneRe
       {model !== null && <primitive object={model.scene} />}
     </>
   );
-}
-
-/**
- * A 4:5 portrait cropped from the WebGL canvas around his head (`head` in CSS
- * px), over a periwinkle-to-amber backdrop. Throws if the canvas cannot be
- * read; the caller keeps the card's gradient face then.
- */
-function snapshotPortrait(src: HTMLCanvasElement, head: { x: number; y: number }, cssH: number, cssW: number): string {
-  const k = src.width / Math.max(1, cssW); // device px per CSS px
-  const sw = cssH * 0.62 * k;
-  const sh = sw * 1.25;
-  const sx = head.x * k - sw / 2;
-  const sy = head.y * k - sh * 0.18; // the top of his head near the top of the frame
-  const out = document.createElement('canvas');
-  out.width = 320;
-  out.height = 400;
-  const g = out.getContext('2d');
-  if (g === null) throw new Error('no 2d context');
-  const bg = g.createRadialGradient(160, 150, 10, 160, 200, 300);
-  bg.addColorStop(0, `rgb(${AMBER})`);
-  bg.addColorStop(0.45, `rgb(${PERIWINKLE})`);
-  bg.addColorStop(1, '#2b2f6b');
-  g.fillStyle = bg;
-  g.fillRect(0, 0, out.width, out.height);
-  g.drawImage(src, sx, sy, sw, sh, 0, 0, out.width, out.height);
-  return out.toDataURL('image/jpeg', 0.85);
-}
-
-function flashGradient(x: number, y: number, reduced: boolean): string {
-  const at = `${x.toFixed(0)}px ${y.toFixed(0)}px`;
-  return reduced
-    ? `radial-gradient(circle at ${at}, rgba(255,250,240,0.9) 0%, rgba(${PERIWINKLE},0.5) 45%, rgba(${PERIWINKLE},0) 90%)`
-    : `radial-gradient(circle at ${at}, rgba(255,252,246,1) 0%, rgba(${AMBER},0.95) 8%, rgba(255,255,255,0.85) 22%, rgba(${PERIWINKLE},0.55) 55%, rgba(${PERIWINKLE},0.18) 85%, rgba(${PERIWINKLE},0) 100%)`;
 }
 
 const overlayBase: CSSProperties = { position: 'absolute', pointerEvents: 'none', opacity: 0, willChange: 'opacity, transform' };
@@ -450,25 +416,10 @@ const BeamySelfie = forwardRef<BeamySelfieHandle, BeamySelfieProps>(function Bea
           ...overlayBase,
           left: 0,
           top: 0,
-          borderRadius: 6,
-          background: '#FFF8EC',
-          boxShadow: `0 0 18px rgba(${PERIWINKLE},0.55), 0 0 4px rgba(${AMBER},0.6)`,
-          transformOrigin: '50% 50%',
+          ...SELFIE_CARD_STYLE,
         }}
       >
-        <div
-          style={{
-            // Insets, not padding: % padding resolves against the CONTAINER's width.
-            position: 'absolute',
-            left: '7%',
-            right: '7%',
-            top: '6%',
-            bottom: '20%',
-            borderRadius: 3,
-            overflow: 'hidden',
-            background: `radial-gradient(circle at 50% 40%, rgba(${AMBER},0.55), rgba(${PERIWINKLE},0.85) 60%, #2b2f6b 100%)`,
-          }}
-        >
+        <div style={SELFIE_CARD_FACE_STYLE}>
           <img
             alt=""
             ref={(el) => { overlays.current.img = el; }}

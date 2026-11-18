@@ -30,22 +30,53 @@
  * and sends light motes to a card; `arrive` drops a beam from the top of the
  * viewport and he appears where it lands.
  *
+ * Liquid-glass scene: a deep-indigo contact shadow grounds him on the panel's
+ * floor; a few frosted, faceted crystals (one flat-shaded physical material,
+ * no transmission pass) sit around the glass panel the page reports through
+ * `decorRef`, bob slowly and parallax with the pointer (nearer = more). The
+ * `Selfie` clip plays HERE, on the one canvas: `selfie()` streams the phone
+ * and head positions (and the snap-frame portrait) to the page's overlays.
+ *
  * Reduced motion (`reducedMotion` prop): no particles, no beam drop, no
- * inertia; every state change still happens (he still appears, the card still
- * changes, the prop still shows). His clips still play: each answers a tap.
+ * inertia, static crystals; every state change still happens (he still
+ * appears, the card still changes, the prop still shows). His clips still
+ * play: each answers a tap.
  */
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { gltfLoader, loadModel } from '../../lib/glbCache';
 import { SPIN_PER_PX, nearestFront, spinSettled, spinStep, type Spin } from '../../lib/brandLanding';
+import { SELFIE_CLIP, selfieTimeline, type SelfieTimeline } from '../../lib/beamySelfie';
+import type { Rect } from '../../lib/beamGeometry';
+import { snapshotPortrait } from '../../components/beamy/selfieFx';
 
-export type BeamyClip = 'Idle' | 'Wave' | 'Hop' | 'BeamyBlast' | 'Sob' | 'SideEye' | 'Dance' | 'ShadesOn' | 'Waddle';
+export type BeamyClip = 'Idle' | 'Wave' | 'Hop' | 'BeamyBlast' | 'Sob' | 'SideEye' | 'Dance' | 'ShadesOn' | 'Waddle' | typeof SELFIE_CLIP;
 
 export interface Pt { x: number; y: number; }
 
 /** Where Beamy rests and how tall he is there (viewport px, feet point). */
 export interface StageLayout { home: Pt; heightPx: number; }
+
+/**
+ * The scene's decor, set by the page: the glass panel's rect (crystals sit
+ * around its corners) and whether this stop is the hero (which gets the full
+ * set; the other stops keep only the crystals outside the panel).
+ */
+export interface StageDecor { panel: Rect | null; hero: boolean; phone: boolean; }
+
+/** One frame of the Selfie clip on the stage, for the page's DOM overlays. */
+export interface SelfieFrame {
+  /** Clip seconds. */
+  t: number;
+  tl: SelfieTimeline;
+  /** The phone's screen and the top of his head, viewport px. */
+  phone: Pt;
+  head: Pt;
+  heightPx: number;
+  /** Beamy's own portrait, on the snap frame only (null if the canvas could not be read). */
+  photo?: string | null;
+}
 
 export interface BeamyApi {
   /** Walk until the feet stand on `to`; `size` scales Beamy on the way (1 = home size). */
@@ -82,6 +113,18 @@ export interface BeamyApi {
   dragStart(): void;
   dragMove(dxPx: number): void;
   dragEnd(velocity: number): void;
+  /**
+   * Play the Selfie clip here (no second canvas). `onFrame` runs every frame
+   * of the clip so the page can draw the flash and the photo card; the snap
+   * frame carries his portrait. Resolves true at the clip's end, false if
+   * another clip (or `stopSelfie`) cut it short.
+   */
+  selfie(onFrame: (f: SelfieFrame) => void): Promise<boolean>;
+  stopSelfie(): void;
+  /** Finish an `arrive()` in flight at once (a click skips the intro). */
+  skipArrival(): void;
+  /** His portrait right now, no clip (reduced motion's selfie); null if the canvas cannot be read. */
+  portrait(): string | null;
 }
 
 interface Props {
@@ -91,6 +134,8 @@ interface Props {
   bubbleRef: MutableRefObject<HTMLDivElement | null>;
   /** Invisible "poke Beamy" button kept over his body. */
   hitRef: MutableRefObject<HTMLButtonElement | null>;
+  /** Crystals around the glass panel. */
+  decorRef: MutableRefObject<StageDecor>;
   /** Hidden until `arrive()` (the intro's beam drop). */
   startHidden?: boolean;
   reducedMotion?: boolean;
@@ -132,7 +177,7 @@ void main() {
   gl_FragColor = vec4(col, (aura * 0.7 + core) * ends * uAlpha);
 }`;
 
-/* ── Floor glow (static: nothing loops but Beamy's idle) ───────────────── */
+/* ── Contact shadow: a soft deep-indigo ellipse that grounds him ───────── */
 
 const FLOOR_FRAG = /* glsl */ `
 varying vec2 vUv;
@@ -140,9 +185,35 @@ uniform float uTime;
 uniform float uAlpha;
 void main() {
   float d = length((vUv - 0.5) * 2.0);
-  float glow = smoothstep(1.0, 0.0, d);
-  gl_FragColor = vec4(vec3(0.49, 0.42, 0.97), glow * glow * 0.42 * uAlpha);
+  float core = exp(-d * d * 5.5);                  // dense right under the feet
+  float soft = smoothstep(1.0, 0.0, d) * 0.35;      // a wide, faint penumbra
+  gl_FragColor = vec4(vec3(0.102, 0.090, 0.251), (core * 0.5 + soft * 0.4) * uAlpha);
 }`;
+
+/* ── Crystals: faceted, frosted decor around the glass panel ───────────── */
+
+type CrystalKind = 'ico' | 'oct' | 'cone';
+interface CrystalSpec {
+  kind: CrystalKind;
+  /** Anchor as a fraction of the panel rect (may sit outside it), or beside Beamy's feet. */
+  at: { panel: [number, number] } | { beamy: number };
+  /** Size as a fraction of min(panel width, height) (beside Beamy: of his height). */
+  size: number;
+  /** 0 far … 1 near: how far it parallaxes with the pointer. */
+  depth: number;
+  phone: boolean;
+  /** Only on the hero (the others may cover a stop's content). */
+  heroOnly: boolean;
+}
+const CRYSTALS: CrystalSpec[] = [
+  { kind: 'ico', at: { panel: [-0.012, -0.05] }, size: 0.15, depth: 0.25, phone: true, heroOnly: false },
+  { kind: 'oct', at: { panel: [1.015, 1.05] }, size: 0.16, depth: 0.35, phone: true, heroOnly: false },
+  // Beside his feet, below the wall's frame; off on phones, where the wall stands right next to him.
+  { kind: 'cone', at: { beamy: 0.66 }, size: 0.2, depth: 0.9, phone: false, heroOnly: true },
+  { kind: 'ico', at: { panel: [0.6, 0.16] }, size: 0.05, depth: 0.7, phone: false, heroOnly: true },
+  { kind: 'oct', at: { panel: [0.33, 0.9] }, size: 0.035, depth: 0.55, phone: false, heroOnly: true },
+];
+const CRYSTAL_PARALLAX_PX = 22;
 
 /* ── Impact / poke flash: a soft radial bloom ──────────────────────────── */
 
@@ -195,8 +266,10 @@ interface Reveal {
 
 /* ── The scene ─────────────────────────────────────────────────────────── */
 
-function Scene({ apiRef, layoutRef, bubbleRef, hitRef, startHidden = false, reducedMotion = false, onReady, onError }: Props) {
-  const { size } = useThree();
+function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = false, reducedMotion = false, onReady, onError }: Props) {
+  const { size, gl, scene, camera } = useThree();
+  const glRef = useRef({ gl, scene, camera });
+  glRef.current = { gl, scene, camera };
   const sizeRef = useRef(size);
   sizeRef.current = size;
   const reducedRef = useRef(reducedMotion);
@@ -237,6 +310,12 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, startHidden = false, redu
   const beamState = useRef<{ to: Pt; t: number; fired: boolean; onFire?: () => void; from: 'mouth' | 'hand' } | null>(null);
   const reveal = useRef<Reveal | null>(null);
   const propSpin = useRef(0);
+  const bodyBone = useRef<THREE.Object3D | null>(null);
+  const phoneBone = useRef<THREE.Object3D | null>(null);
+  const selfieRun = useRef<{ t: number; tl: SelfieTimeline; snapped: boolean; action: THREE.AnimationAction; onFrame: (f: SelfieFrame) => void; resolve: (done: boolean) => void } | null>(null);
+  const crystalRefs = useRef<(THREE.Mesh | null)[]>([]);
+  /** Pointer parallax, lerped (−1..1 on each axis). */
+  const parallax = useRef({ x: 0, y: 0 });
 
   /* Load the rig once. The page owns the instance, so it is disposed here. */
   useEffect(() => {
@@ -251,6 +330,12 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, startHidden = false, redu
           // The rig's beam runs along +z: at an orthographic camera it is a
           // flat white wedge once Beamy turns. The stage draws its own beam.
           if (o.name === 'beam_core' || o.name === 'beam_outer') o.visible = false;
+          // Two nodes are named `phone` (the bone and its skinned mesh); the
+          // bone is the hand. Every clip keys its scale (0 except in Selfie),
+          // but the loaded REST pose is scale 1: zero it so the phone can
+          // never flash on before the first mixer update.
+          if ((o as THREE.Bone).isBone && o.name === 'phone') { phoneBone.current = o; o.scale.setScalar(0); }
+          if ((o as THREE.Bone).isBone && o.name === 'body') bodyBone.current = o;
         });
         mouthNode.current = g.scene.getObjectByName('beam') ?? null;
         // Lids are bones animated by every clip (scale.y 0.02 = open, 1 =
@@ -531,6 +616,42 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, startHidden = false, redu
       where() {
         return { ...pos.current, heightPx: layoutRef.current.heightPx * scale.current };
       },
+      selfie(onFrame) {
+        api.stopSelfie();
+        if (actions.current[SELFIE_CLIP] === undefined) return Promise.resolve(false); // an old GLB
+        yawTarget.current = 0;
+        void playOnce(SELFIE_CLIP);
+        const action = current.current;
+        if (action === null) return Promise.resolve(false);
+        return new Promise<boolean>((resolve) => {
+          selfieRun.current = { t: 0, tl: selfieTimeline(reducedRef.current), snapped: false, action, onFrame, resolve };
+        });
+      },
+      stopSelfie() {
+        const run = selfieRun.current;
+        if (run === null) return;
+        selfieRun.current = null;
+        if (current.current === run.action) fadeTo('Idle', false);
+        run.resolve(false);
+      },
+      portrait() {
+        const h = layoutRef.current.heightPx * scale.current;
+        try {
+          const r = glRef.current;
+          r.gl.render(r.scene, r.camera);
+          return snapshotPortrait(r.gl.domElement, { x: pos.current.x, y: pos.current.y - h * 1.07 }, h * 1.45, sizeRef.current.width);
+        } catch {
+          return null;
+        }
+      },
+      skipArrival() {
+        const ar = arrival.current;
+        shown.current = true;
+        appear.current = 1;
+        if (ar === null) return;
+        arrival.current = null;
+        ar.resolve();
+      },
     };
     apiRef.current = api;
     return () => { apiRef.current = null; };
@@ -610,10 +731,23 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, startHidden = false, redu
     size: 9, vertexColors: true, transparent: true, depthTest: false, depthWrite: false,
     blending: THREE.AdditiveBlending, sizeAttenuation: false, map: sparkTex,
   }), [sparkTex]);
+  /** Frosted, faceted, a hint of iridescence. No transmission pass (phones). */
+  const crystalMat = useMemo(() => new THREE.MeshPhysicalMaterial({
+    color: '#E4E9FF', roughness: 0.24, metalness: 0, flatShading: true,
+    clearcoat: 0.6, clearcoatRoughness: 0.25,
+    iridescence: 0.7, iridescenceIOR: 1.35, iridescenceThicknessRange: [160, 520],
+    emissive: '#4F4BC0', emissiveIntensity: 0.28,
+  }), []);
+  const crystalGeos = useMemo<Record<CrystalKind, THREE.BufferGeometry>>(() => ({
+    ico: new THREE.IcosahedronGeometry(0.5, 1),
+    oct: new THREE.OctahedronGeometry(0.5, 0),
+    cone: new THREE.ConeGeometry(0.3, 0.9, 6),
+  }), []);
   useEffect(() => () => {
     beamMat.dispose(); floorMat.dispose(); flashMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
-    sparkTex.dispose(); moteGeo.dispose(); moteMat.dispose();
-  }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat]);
+    sparkTex.dispose(); moteGeo.dispose(); moteMat.dispose(); crystalMat.dispose();
+    for (const g of Object.values(crystalGeos)) g.dispose();
+  }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalMat, crystalGeos]);
 
   useFrame((state, dtRaw) => {
     const dt = Math.min(dtRaw, 1 / 20);
@@ -673,7 +807,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, startHidden = false, redu
     const gt = gazeTarget.current;
     const spinNow = spinS.current;
     let gy = 0, gp = 0, near = 0;
-    if (gt !== null && !reduced && w === null && beamState.current === null && !spinNow.dragging) {
+    if (gt !== null && !reduced && w === null && beamState.current === null && selfieRun.current === null && !spinNow.dragging) {
       const dx = gt.x - pos.current.x;
       const dy = gt.y - (pos.current.y - heightPx * 0.62);
       gy = clamp(dx / 700, -1, 1) * 0.42;
@@ -696,19 +830,98 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, startHidden = false, redu
     if (g) {
       const wp = toWorld(pos.current);
       g.position.set(wp.x, wp.y, 0);
-      g.scale.setScalar(s * Math.max(0.0001, reduced ? appear.current : easeOutBack(appear.current)));
+      const grow = s * Math.max(0.0001, reduced ? appear.current : easeOutBack(appear.current));
+      // Landing squash: wide-and-short for a beat, then springs upright.
+      const k = appear.current;
+      const sq = reduced || k >= 1 ? 0 : Math.sin(Math.PI * k) * (1 - k) * 0.55;
+      g.scale.set(grow * (1 + sq * 0.35), grow * (1 - sq * 0.35), grow * (1 + sq * 0.35));
       g.rotation.y = yaw.current + gz.yaw + spinNow.angle;
       g.rotation.x = gz.pitch;
       g.visible = shown.current;
     }
     if (floor.current) {
       const wp = toWorld(pos.current);
-      floor.current.position.set(wp.x, wp.y + heightPx * 0.02, -200);
-      floor.current.scale.set(heightPx * 1.25, heightPx * 0.3, 1);
+      floor.current.position.set(wp.x, wp.y + heightPx * 0.012, -200);
+      floor.current.scale.set(heightPx * 0.92, heightPx * 0.15, 1);
     }
     (floorMat.uniforms.uTime as { value: number }).value = t;
     (floorMat.uniforms.uAlpha as { value: number }).value = appear.current;
     mixer.current?.update(dt);
+
+    /* The Selfie clip on this stage: hand the page this frame's phone/head
+       (and, on the snap frame, his portrait) for its flash + photo card. */
+    const run = selfieRun.current;
+    if (run !== null) {
+      if (current.current !== run.action) {
+        selfieRun.current = null;
+        run.resolve(false);
+      } else {
+        run.t += dt;
+        const pw = new THREE.Vector3();
+        if (phoneBone.current) phoneBone.current.getWorldPosition(pw); else pw.set(toWorld(pos.current).x - heightPx * 0.55, toWorld(pos.current).y + heightPx * 0.75, 0);
+        pw.y += 0.05 * s; // the bone is the grip; the screen sits above it
+        const hw = new THREE.Vector3();
+        if (bodyBone.current) { bodyBone.current.getWorldPosition(hw); hw.y += 0.52 * s; } else hw.set(toWorld(pos.current).x, toWorld(pos.current).y + heightPx * 1.07, 0);
+        const frame: SelfieFrame = { t: run.t, tl: run.tl, phone: toScreen(pw), head: toScreen(hw), heightPx };
+        if (!run.snapped && run.t >= run.tl.cues.snap) {
+          run.snapped = true;
+          try {
+            // Render now so the drawing buffer is valid for this task: his own selfie.
+            state.gl.render(state.scene, state.camera);
+            frame.photo = snapshotPortrait(state.gl.domElement, frame.head, heightPx * 1.45, W);
+          } catch {
+            frame.photo = null;
+          }
+        }
+        run.onFrame(frame);
+        if (run.t >= run.tl.cues.end) { selfieRun.current = null; run.resolve(true); }
+      }
+    }
+
+    /* Crystals: anchored around the panel (and one on Beamy's floor), bobbing
+       slowly; nearer ones parallax more with the pointer. Static if reduced. */
+    const dec = decorRef.current;
+    const par = parallax.current;
+    const H = sizeRef.current.height;
+    const ptr = gazeTarget.current;
+    const tx = ptr !== null && !reduced ? clamp((ptr.x / Math.max(1, W)) * 2 - 1, -1, 1) : 0;
+    const ty = ptr !== null && !reduced ? clamp((ptr.y / Math.max(1, H)) * 2 - 1, -1, 1) : 0;
+    par.x += (tx - par.x) * Math.min(1, dt * 2.2);
+    par.y += (ty - par.y) * Math.min(1, dt * 2.2);
+    for (let i = 0; i < CRYSTALS.length; i++) {
+      const m = crystalRefs.current[i];
+      if (!m) continue;
+      const c = CRYSTALS[i];
+      const panel = dec.panel;
+      const on = panel !== null && (dec.hero || !c.heroOnly) && (!dec.phone || c.phone) && ('panel' in c.at || shown.current);
+      m.visible = on;
+      if (!on || panel === null) continue;
+      let x: number;
+      let y: number;
+      let size: number;
+      if ('panel' in c.at) {
+        size = Math.min(panel.width, panel.height) * c.size * (dec.phone ? 0.75 : 1);
+        x = panel.left + panel.width * c.at.panel[0];
+        y = panel.top + panel.height * c.at.panel[1];
+      } else {
+        size = layout.heightPx * c.size;
+        x = layout.home.x + layout.heightPx * c.at.beamy;
+        y = layout.home.y - size * 0.3;
+      }
+      const bob = reduced ? 0 : Math.sin(t * 0.7 + i * 1.9) * 5 * (0.4 + c.depth);
+      x += par.x * CRYSTAL_PARALLAX_PX * c.depth;
+      y += par.y * CRYSTAL_PARALLAX_PX * c.depth * 0.6 + bob;
+      const cw = toWorld({ x, y });
+      m.position.set(cw.x, cw.y, -120 + c.depth * 60);
+      m.scale.setScalar(Math.max(1, size));
+      if (!reduced) {
+        m.rotation.y += dt * (0.16 + (i % 3) * 0.06);
+        m.rotation.x = (c.kind === 'cone' ? 2.6 : 0.4) + Math.sin(t * 0.45 + i) * 0.12;
+      } else {
+        m.rotation.set(c.kind === 'cone' ? 2.6 : 0.4, 0.6 + i, c.kind === 'cone' ? 0.5 : 0);
+      }
+      if (c.kind === 'cone') m.rotation.z = 0.5;
+    }
 
     /* Lids (after the mixer): squint when the pointer is close, wide open while dragged. */
     for (const lid of lids.current) {
@@ -886,6 +1099,17 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, startHidden = false, redu
       <mesh ref={floor} material={floorMat} renderOrder={0}>
         <planeGeometry args={[1, 1]} />
       </mesh>
+      {CRYSTALS.map((c, i) => (
+        <mesh
+          key={i}
+          ref={(m) => { crystalRefs.current[i] = m; }}
+          geometry={crystalGeos[c.kind]}
+          material={crystalMat}
+          visible={false}
+          frustumCulled={false}
+          renderOrder={1}
+        />
+      ))}
       {model !== null && (
         <group ref={rig}>
           <primitive object={model.scene} />
@@ -905,13 +1129,22 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, startHidden = false, redu
 }
 
 export default function BeamyStage(props: Props) {
+  // DPR cap: 2 on desktop, 1.5 on phones (a full-viewport transparent canvas
+  // at dpr 3 is the cost that hurts there).
+  const [maxDpr] = useState(() => (Math.min(window.innerWidth, window.innerHeight) < 600 ? 1.5 : 2));
+  // A hidden tab renders nothing.
+  const [hidden, setHidden] = useState(() => document.visibilityState === 'hidden');
+  useEffect(() => {
+    const on = () => setHidden(document.visibilityState === 'hidden');
+    document.addEventListener('visibilitychange', on);
+    return () => document.removeEventListener('visibilitychange', on);
+  }, []);
   return (
     <div className="pointer-events-none fixed inset-0 z-40" aria-hidden>
       <Canvas
         orthographic
-        // 1.75 cap: a full-viewport transparent canvas at dpr 3 is the cost
-        // that hurts on phones; the mascot reads crisp at 1.75.
-        dpr={[1, 1.75]}
+        dpr={[1, maxDpr]}
+        frameloop={hidden ? 'never' : 'always'}
         events={noopEvents}
         gl={{ alpha: true, antialias: true, powerPreference: 'high-performance' }}
         camera={{ position: [0, 0, 1000], near: 1, far: 3000, zoom: 1 }}

@@ -255,12 +255,29 @@ export function releaseVelocity(samples: { x: number; t: number }[]): number {
 
 /* ── Copy ──────────────────────────────────────────────────────────────── */
 
+/** The hero, set like the owner's reference: a light lead-in and a bold payoff in one headline. */
 export const HERO = {
-  headline: 'Welcome to your immersive photo booth',
-  sub: 'Every guest phone becomes the booth. Simple.',
+  eyebrow: 'Every guest phone becomes the booth',
+  lead: 'Welcome to your',
+  strong: 'immersive booth',
+  sub: 'Guests scan, snap in AR, and every shot beams to your live wall.',
   primary: 'Create your free event',
+  /** The same action where the phone header has no room for the full label. */
+  primaryShort: 'Start free',
   secondary: 'Try the live demo',
 } as const;
+
+/** The headline as one string (screen readers, titles, the type specimen). */
+export const HERO_HEADLINE = `${HERO.lead} ${HERO.strong}`;
+
+/** The nav inside the glass panel: stops of this page, then the existing pricing anchor. */
+export const NAV_LINKS: { label: string; section: SectionId | null; href: string | null }[] = [
+  { label: 'Demo', section: 'try', href: null },
+  { label: 'How it works', section: 'how', href: null },
+  { label: 'Pricing', section: null, href: '/#pricing' },
+];
+
+export const WALL_LABEL = 'Live wall';
 
 /** Where "Create your free event" goes: the same target as the landing's CTA. */
 export const SIGNUP_PATH = '/signup';
@@ -327,7 +344,8 @@ export const FOOTER_LINKS: { label: string; to: string | null }[] = [
 export function landingCopy(): string[] {
   const s = startFacts();
   return [
-    ...Object.values(HERO), ...Object.values(PICK_COPY), ...Object.values(TRY_COPY),
+    ...Object.values(HERO), HERO_HEADLINE, WALL_LABEL, ...NAV_LINKS.map((n) => n.label),
+    ...Object.values(PICK_COPY), ...Object.values(TRY_COPY),
     ...Object.values(MAGIC_COPY), ...Object.values(HOW_COPY), ...Object.values(START_COPY),
     s.heading, s.line, ...s.bullets, ...SECTIONS.map((x) => x.label), ...FOOTER_LINKS.map((f) => f.label),
     ...LOOKS.map((l) => l.label),
