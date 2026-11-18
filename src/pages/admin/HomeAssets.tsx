@@ -306,7 +306,7 @@ function LooksEditor({ looks, onChange, openPicker, which }: {
                   openId === l.id ? 'border-[color:var(--color-accent)] bg-[color:var(--color-accent)]/10' : 'border-white/10 bg-white/[0.03] hover:border-white/25'
                 }`}
               >
-                <AssetThumb thumb={l.thumb ?? (l.category === 'frame' ? l.url : undefined)} kind={lookUrlKind(l.url, l.category) ?? 'image'} />
+                <AssetThumb thumb={l.thumb ?? (l.category === 'frame' ? l.url : undefined)} kind={lookUrlKind(l.url, l.category) ?? 'image'} url={l.url} />
                 <span className="mt-1 block truncate font-sans text-[11px] text-brand-fg/85">
                   {looks.indexOf(l) + 1}. {l.name}
                 </span>
@@ -662,7 +662,7 @@ export default function AdminHomeAssets() {
             multiple={picker.multiple}
             onClose={() => setPicker(null)}
             onPick={(a) => {
-              picker.onPick(a.filter((p) => picker.accept.some((k) => resolveAssetUrl(p.url, k) !== undefined)));
+              picker.onPick(a.filter((p) => p.kind === 'builtin' || picker.accept.some((k) => resolveAssetUrl(p.url, k) !== undefined)));
               setPicker(null);
             }}
           />

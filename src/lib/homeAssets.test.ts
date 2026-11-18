@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BUILTIN_ASSETS,
+  BUILTIN_EFFECT_LOOKS,
   EMPTY_HOME_ASSETS,
   FIT_PRESETS,
   LOOKS_MAX,
@@ -13,6 +14,7 @@ import {
   pickList,
   pickWallPhotos,
   resolveAssetUrl,
+  tintSwatch,
 } from './homeAssets';
 import { DEFAULT_LANDING_CONTENT, normalizeLandingContent } from './landingContent';
 
@@ -173,5 +175,31 @@ describe('library + built-in picking', () => {
   });
   it('every built-in asset normalizes to a look', () => {
     for (const a of BUILTIN_ASSETS) expect(lookFromBuiltin(a), a.url).not.toBeNull();
+  });
+});
+
+describe('built-in tint: and fx: looks', () => {
+  it('keeps tint: filters and fx: effects, only in their own category', () => {
+    const out = normalizeHomeAssets({
+      arLooks: [
+        { name: 'Prismatic', category: 'filter', url: 'tint:prismatic' },
+        { name: 'Aurora', category: 'filter', url: 'tint:#34D399' },
+        { name: 'Sparkles', category: 'effect', url: 'fx:sparkles' },
+        { name: 'Wrong cat', category: 'effect', url: 'tint:#34D399' },
+        { name: 'Wrong cat 2', category: 'filter', url: 'fx:beam' },
+        { name: 'Bad colour', category: 'filter', url: 'tint:red;background:url(x)' },
+        { name: 'Unknown fx', category: 'effect', url: 'fx:explode' },
+        { name: 'As prop', category: 'prop', url: 'fx:dance' },
+      ],
+    });
+    expect(out.arLooks.map((l) => l.url)).toEqual(['tint:prismatic', 'tint:#34D399', 'fx:sparkles']);
+  });
+  it('every built-in effect look normalizes unchanged', () => {
+    expect(normalizeHomeAssets({ arLooks: BUILTIN_EFFECT_LOOKS }).arLooks).toEqual(BUILTIN_EFFECT_LOOKS);
+  });
+  it('tintSwatch gives a colour only for valid tints', () => {
+    expect(tintSwatch('tint:#E879F9')).toBe('#E879F9');
+    expect(tintSwatch('tint:prismatic')).toContain('gradient');
+    expect(tintSwatch('fx:beam')).toBeUndefined();
   });
 });

@@ -10,18 +10,22 @@
  * wrong-kind file can never land in a slot.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Check, Film, ImageIcon, Upload } from 'lucide-react';
+import { Box, Check, Film, ImageIcon, Sparkles, Upload } from 'lucide-react';
 import Modal from '../ui/Modal';
 import { useToast } from '../ui/Toast';
 import { fetchLibraryItems, type LibraryItemRow } from '../../lib/adminLibrary';
 import { listLandingMedia, uploadLandingMedia, type LandingMediaItem } from '../../lib/landingMedia';
 import {
   BUILTIN_ASSETS,
+  BUILTIN_EFFECT_LOOKS,
   categoryForLibraryKind,
   lookFromBuiltin,
   lookFromLibraryItem,
+  lookUrlKind,
   resolveAssetUrl,
+  tintSwatch,
   type AssetKind,
+  type LookUrlKind,
   type HomeLook,
   type HomeLookCategory,
 } from '../../lib/homeAssets';
@@ -29,7 +33,8 @@ import {
 /** One choosable asset: always a URL; a look when it came from a look source. */
 export interface PickedAsset {
   url: string;
-  kind: AssetKind;
+  /** 'builtin' = a file-less `tint:` / `fx:` look. */
+  kind: LookUrlKind;
   name: string;
   thumb?: string;
   look?: HomeLook;
@@ -110,7 +115,9 @@ export default function HomeAssetPicker({
   const options = useMemo((): PickedAsset[] => {
     const asLookPick = (look: HomeLook | null): PickedAsset | null => {
       if (look === null) return null;
-      const kind = kindOf(look.url, accept);
+      const kind: LookUrlKind | undefined =
+        kindOf(look.url, accept) ??
+        (look.category === category && lookUrlKind(look.url, look.category) === 'builtin' ? 'builtin' : undefined);
       return kind === undefined ? null : { url: look.url, kind, name: look.name, thumb: look.thumb, look };
     };
     if (source === 'library') {
@@ -138,7 +145,10 @@ export default function HomeAssetPicker({
         .filter((p): p is PickedAsset => p !== null);
     }
     if (source === 'builtin') {
-      return BUILTIN_ASSETS.filter((a) => category === undefined || a.category === category)
+      const effects = BUILTIN_EFFECT_LOOKS.filter((l) => l.category === category)
+        .map(asLookPick)
+        .filter((p): p is PickedAsset => p !== null);
+      return [...effects, ...BUILTIN_ASSETS.filter((a) => category === undefined || a.category === category)
         .map((a) => {
           const look = lookFromBuiltin(a);
           const pick = asLookPick(look);
@@ -146,7 +156,7 @@ export default function HomeAssetPicker({
           const kind = kindOf(a.url, accept);
           return kind === undefined ? null : { url: a.url, kind, name: a.name, thumb: a.thumb };
         })
-        .filter((p): p is PickedAsset => p !== null);
+        .filter((p): p is PickedAsset => p !== null)];
     }
     return (uploads ?? [])
       .map((u): PickedAsset | null => {
@@ -256,7 +266,7 @@ export default function HomeAssetPicker({
                     isSelected(p) ? 'border-[color:var(--color-accent)] bg-[color:var(--color-accent)]/10' : 'border-white/10 bg-white/[0.03] hover:border-white/25'
                   }`}
                 >
-                  <AssetThumb thumb={p.thumb} kind={p.kind} />
+                  <AssetThumb thumb={p.thumb} kind={p.kind} url={p.url} />
                   <span className="mt-1.5 block truncate font-sans text-[11px] text-brand-fg/85">{p.name}</span>
                   {isSelected(p) && (
                     <span className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--on-accent)]">
@@ -287,8 +297,20 @@ export default function HomeAssetPicker({
 }
 
 /** A square preview: the image when there is one, else an icon for the kind. */
-export function AssetThumb({ thumb, kind, className = '' }: { thumb?: string; kind: AssetKind; className?: string }) {
-  const Icon = kind === 'model' ? Box : kind === 'video' ? Film : ImageIcon;
+export function AssetThumb({ thumb, kind, url, className = '' }: {
+  thumb?: string; kind: LookUrlKind; className?: string;
+  /** For 'builtin' looks: a `tint:` shows its colour, an `fx:` a sparkle. */
+  url?: string;
+}) {
+  const swatch = kind === 'builtin' && url !== undefined ? tintSwatch(url) : undefined;
+  if (swatch !== undefined) {
+    return (
+      <span className={`relative grid aspect-square w-full place-items-center overflow-hidden rounded-lg ${className}`}>
+        <span className="h-3/5 w-3/5 rounded-full shadow-[0_0_24px_rgba(255,255,255,0.25)]" style={{ background: swatch }} />
+      </span>
+    );
+  }
+  const Icon = kind === 'builtin' ? Sparkles : kind === 'model' ? Box : kind === 'video' ? Film : ImageIcon;
   return (
     <span
       className={`relative grid aspect-square w-full place-items-center overflow-hidden rounded-lg bg-[repeating-conic-gradient(rgba(255,255,255,0.05)_0%_25%,transparent_0%_50%)] bg-[length:16px_16px] ${className}`}

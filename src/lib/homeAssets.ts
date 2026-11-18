@@ -53,7 +53,8 @@ export interface HomeLook {
   id: string;
   name: string;
   category: HomeLookCategory;
-  /** prop → a GLB; frame → a transparent image; filter/effect → image or video. */
+  /** prop → a GLB; frame → a transparent image; filter → image, video or `tint:…`;
+   *  effect → image, video or `fx:…`. */
   url: string;
   thumb?: string;
   /** Beamy's bubble line while he wears it. */
@@ -147,9 +148,33 @@ export function urlKindsFor(category: HomeLookCategory): AssetKind[] {
   return ['image', 'video'];
 }
 
+/**
+ * The page's built-in, file-less filter and effect looks (agreed with the
+ * /beamy thread, src/lib/beamyAssets.ts there): a filter may be
+ * `tint:<#hex | prismatic>` (recolours Beamy) and an effect
+ * `fx:<sparkles | beam | dance>`. Anything else in those schemes is refused.
+ */
+const TINT_RE = /^tint:(prismatic|#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?)$/;
+const FX_RE = /^fx:(sparkles|beam|dance)$/;
+
+/** A file kind, or 'builtin' for a `tint:` / `fx:` look. */
+export type LookUrlKind = AssetKind | 'builtin';
+
 /** The kind `url` resolves as for this category, or undefined when it fits none. */
-export function lookUrlKind(url: unknown, category: HomeLookCategory): AssetKind | undefined {
+export function lookUrlKind(url: unknown, category: HomeLookCategory): LookUrlKind | undefined {
+  if (typeof url === 'string') {
+    const t = url.trim();
+    if (category === 'filter' && TINT_RE.test(t)) return 'builtin';
+    if (category === 'effect' && FX_RE.test(t)) return 'builtin';
+  }
   return urlKindsFor(category).find((k) => resolveAssetUrl(url, k) !== undefined);
+}
+
+/** The CSS colour a `tint:` look shows as in the admin, or undefined. */
+export function tintSwatch(url: string): string | undefined {
+  const m = TINT_RE.exec(url.trim());
+  if (m === null) return undefined;
+  return m[1] === 'prismatic' ? 'conic-gradient(#a78bfa, #60a5fa, #34d399, #fbbf24, #f472b6, #a78bfa)' : m[1];
 }
 
 /* ── Prop placement presets (admin UI; the page only sees the numbers) ── */
@@ -377,6 +402,17 @@ export const BUILTIN_ASSETS: BuiltinAsset[] = [
   ...BUILTIN_FRAMES.map(([f, name]) => ({
     name, category: 'frame' as const, url: `/guides/frames/${f}.png`, thumb: `/guides/frames/thumb/${f}.webp`,
   })),
+];
+
+/** The page's built-in filters and effects (mirrors its defaults), offered under Built-in. */
+export const BUILTIN_EFFECT_LOOKS: HomeLook[] = [
+  { id: 'ar-prismatic', name: 'Prismatic', category: 'filter', url: 'tint:prismatic' },
+  { id: 'ar-aurora', name: 'Aurora', category: 'filter', url: 'tint:#34D399' },
+  { id: 'ar-neon', name: 'Neon pulse', category: 'filter', url: 'tint:#E879F9' },
+  { id: 'ar-golden', name: 'Golden hour', category: 'filter', url: 'tint:#FFB547' },
+  { id: 'ar-sparkles', name: 'Sparkle burst', category: 'effect', url: 'fx:sparkles' },
+  { id: 'ar-beam', name: 'Light beam', category: 'effect', url: 'fx:beam' },
+  { id: 'ar-dance', name: 'Dance party', category: 'effect', url: 'fx:dance' },
 ];
 
 /** A bundled asset as a homepage look (props get the crown fit to start). */
