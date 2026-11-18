@@ -132,6 +132,8 @@ export interface BeamyApi {
    *  frame). `grow` = the cone reaches out over ~0.6s; resolves when it lands. */
   project(target: () => Rect | null, from: 'mouth' | 'hand', grow: boolean): Promise<void>;
   stopProject(): void;
+  /** End a beam or zap in flight at once (its onFire / done still run). */
+  stopBeam(): void;
   clearProp(): void;
   /** Mouth position in viewport px. */
   mouth(): Pt;
@@ -611,6 +613,14 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
           beamState.current = { to: { ...to }, t: 0, fired: false, from, fireS: 0.05, endS: Math.max(0.15, ms / 1000), done: resolve };
           api.face(to.x);
         });
+      },
+      stopBeam() {
+        const b = beamState.current;
+        if (b === null) return;
+        beamState.current = null;
+        if (!b.fired) { b.fired = true; b.onFire?.(); }
+        b.done?.();
+        yawTarget.current = 0;
       },
       project(target, from, grow) {
         cone.current?.resolve();

@@ -300,7 +300,9 @@ export default function StoryFx({ fxRef, photos, lite, reduced }: {
       if (!on || spot === null) continue;
       const s = Math.min(spot.width, spot.height);
       const e = ease(w);
-      g.position.set(spot.left + spot.width / 2 - W / 2, H / 2 - (spot.top + spot.height / 2) - (1 - e) * s * 0.06, 0);
+      // Behind Beamy in depth (he is drawn at z ≈ 0), so where the two
+      // overlap he stands in front of his effect.
+      g.position.set(spot.left + spot.width / 2 - W / 2, H / 2 - (spot.top + spot.height / 2) - (1 - e) * s * 0.06, -Math.min(900, s * 2));
       g.scale.setScalar(s * (0.88 + 0.12 * e));
       for (const [mat, base] of fades.list[id]) mat.opacity = base * e;
       const p = fades.sp[id].mat.uniforms;
@@ -319,7 +321,8 @@ export default function StoryFx({ fxRef, photos, lite, reduced }: {
       rings.current.forEach((ring, i) => {
         if (!ring) return;
         const u = ((t / 3.2) + i / 3) % 1;
-        ring.scale.setScalar(0.25 + u * 0.6);
+        // Rings stay inside the spot (radius ≤ 0.5), never past a screen edge.
+        ring.scale.setScalar(0.24 + u * 0.26);
         r.m.rings[i].opacity = (1 - u) * 0.55 * e;
       });
     }

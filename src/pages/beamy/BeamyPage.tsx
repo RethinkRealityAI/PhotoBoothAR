@@ -429,7 +429,7 @@ export default function BeamyPage() {
     if (b === null || r === null) return;
     const size = Math.min(r.width, r.height) * 0.5;
     const r2: Reaction = react.current('reveal');
-    await b.reveal(a.prop.url, () => { const q = spotRect() ?? r; return { x: q.left + q.width / 2, y: q.top + q.height * 0.42 }; }, size, r2 === 'handSparks' ? 'hand' : 'mouth', instant);
+    await b.reveal(a.prop.url, () => { const q = spotRect() ?? r; return { x: q.left + q.width / 2, y: q.top + q.height * 0.56 }; }, size, r2 === 'handSparks' ? 'hand' : 'mouth', instant);
   };
   const beamToWall = () => {
     const b = api.current;
@@ -447,7 +447,12 @@ export default function BeamyPage() {
     const s = STORY_STEPS[i];
     logStep(`story:${s.id}`);
     if (prev >= 0 && STORY_STEPS[prev]?.id === 'prop' && s.id !== 'prop') b.clearProp();
-    if (s.id === 'prop') void runReveal(audienceRef.current, reducedRef.current);
+    if (s.id !== 'wall') b.stopBeam();
+    if (s.id === 'prop') {
+      void runReveal(audienceRef.current, reducedRef.current).then(() => {
+        if (storyOn.current.step === i) void b.play('ShadesOn');
+      });
+    }
     else if (s.id === 'wall') beamToWall();
     else void b.play(s.clip as BeamyClip);
     return true;
@@ -456,6 +461,7 @@ export default function BeamyPage() {
     const prev = storyOn.current.step;
     storyOn.current.step = -1;
     if (prev >= 0 && STORY_STEPS[prev]?.id === 'prop') api.current?.clearProp();
+    if (prev >= 0 && STORY_STEPS[prev]?.id === 'wall') api.current?.stopBeam();
   };
   const storyEnterRef = useRef(storyEnter);
   storyEnterRef.current = storyEnter;
@@ -1172,17 +1178,19 @@ export default function BeamyPage() {
           <div className="flex h-full flex-col px-5 pb-6 pt-5">
             {storyHead}
             <div className="relative mt-2 min-h-0 flex-1">
-              <div data-slot="story" data-bubble="none" aria-hidden className="absolute bottom-0 left-0 h-[92%] w-[46%]" />
-              <div ref={fxSpotRef} data-fx-spot aria-hidden className="absolute right-0 top-[10%] h-[78%] w-[54%]" />
+              <div data-slot="story" data-bubble="none" aria-hidden className="absolute bottom-0 left-[3%] h-[72%] w-[57%]" />
+              <div ref={fxSpotRef} data-fx-spot aria-hidden className="absolute bottom-[24%] right-0 h-[50%] w-[46%]" />
             </div>
             <div className="mt-2" aria-live="polite">{storyCards}</div>
             <div className="mt-4">{storySegs}</div>
           </div>
         ) : (
           <div className="mx-auto grid h-full max-w-[1320px] grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] items-center gap-[clamp(24px,4vw,72px)] px-[clamp(24px,5vw,88px)]">
-            <div className="relative h-[min(620px,80%)]">
-              <div data-slot="story" data-bubble="none" aria-hidden className="absolute bottom-0 left-0 h-[76%] w-[44%]" />
-              <div ref={fxSpotRef} data-fx-spot aria-hidden className="absolute right-0 top-[8%] h-[66%] w-[54%]" />
+            {/* One composition: Beamy large and centred in the left half, his
+                step's effect over his shoulder, drawn BEHIND him in depth. */}
+            <div className="relative h-[86%]">
+              <div ref={fxSpotRef} data-fx-spot aria-hidden className="absolute right-0 top-0 h-[54%] w-[54%]" />
+              <div data-slot="story" data-bubble="none" data-ax="0.36" aria-hidden className="absolute inset-x-0 bottom-[3%] h-[70%]" />
             </div>
             <div className="min-w-0">
               {storyHead}

@@ -581,36 +581,6 @@
       radial-gradient(46% 56% at 70% 58%, var(--bw-bg-2), transparent 74%),
       radial-gradient(34% 40% at -8% 112%, var(--bw-bg-3), transparent 66%);
   }
-  .bw-stop { scroll-margin-top: var(--bw-header-h, 72px); }
-  /* Each section's glass pane: the hero's glass family carried down the
-     page (indigo veil + milky frost, rim brightest top-left, soft drop). It
-     is a layer, not an ancestor of the content (backdrop-filter would make a
-     containing block), so the section's children are lifted above it. */
-  .bw-stop::before {
-    content: '';
-    position: absolute;
-    inset: clamp(40px, 6vh, 64px) clamp(12px, 2.4vw, 40px);
-    border-radius: var(--bw-radius-panel);
-    /* Deeper than the hero's veil: these panes float over the brighter
-       glows further down, and white copy must hold AA on the brightest
-       (measured: 4.7:1 over bg-4, 5.5:1 over bg-3). */
-    background-color: rgba(43, 42, 140, 0.42);
-    -webkit-backdrop-filter: blur(30px) saturate(108%);
-    backdrop-filter: blur(30px) saturate(108%);
-    box-shadow:
-      inset 1px 1px 0 var(--bw-edge-hi),
-      inset -1px -1px 0 rgba(255, 255, 255, calc(0.10 + var(--bw-night-mix, 0) * 0.14)),
-      inset 0 0 0 1px rgba(255, 255, 255, calc(0.14 + var(--bw-night-mix, 0) * 0.08)),
-      inset 3px 3px 10px -6px rgba(255, 255, 255, calc(0.4 + var(--bw-night-mix, 0) * 0.25)),
-      inset 0 0 60px -20px rgba(150, 140, 255, calc(var(--bw-night-mix, 0) * 0.30)),
-      inset 0 0 0 100vmax rgba(255, 255, 255, 0.08),
-      0 60px 100px -46px rgba(6, 4, 30, calc(0.58 + var(--bw-night-mix, 0) * 0.2)),
-      0 20px 44px -24px rgba(6, 4, 30, 0.36);
-    pointer-events: none;
-  }
-  @media (max-width: 767px) { .bw-stop::before { inset: 22px 8px; border-radius: 24px; } }
-  .bw-stop > * { position: relative; }
-
   /* A glass card that reads as glass ON a glass pane: a clear white frost
      instead of the indigo veil, a brighter rim, and a soft shadow under it. */
   .bw-glass-card.bw-card-lift {
@@ -676,26 +646,6 @@
     mix-blend-mode: overlay;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)'/%3E%3C/svg%3E");
     background-size: 200px 200px;
-  }
-
-  .bw-backdrop-shape,
-  .bw-drift {
-    position: absolute;
-    transform: translate3d(0, calc(var(--bw-sp, 0) * var(--k, 100) * -1vh), 0);
-    will-change: transform;
-  }
-  .bw-backdrop-shape {
-    border-radius: 999px;
-    background-image: radial-gradient(closest-side, var(--bw-bg-3), transparent);
-    opacity: 0.5;
-  }
-  .bw-drift {
-    border-radius: 16px;
-    background-image: linear-gradient(140deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.06) 60%, rgba(255, 255, 255, 0.16));
-    box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.7), 0 22px 36px -20px rgba(22, 18, 78, 0.55);
-    filter: blur(var(--b, 2px));
-    rotate: var(--r, 0deg);
-    opacity: 0.75;
   }
 
   /* Sticky header: a strip of the same glass, a hairline under it. */
@@ -926,21 +876,6 @@
   }
   .bw-beam-card img { width: 100%; height: 100%; object-fit: cover; border-radius: 2px; display: block; }
 
-  /* Reveals. Content is always in the DOM; until Beamy brings it up it sits
-     transparent and a little low (no filter at rest). Beamed items condense
-     out of light: a short bright blur that settles. */
-  .bw-reveal { transition: opacity 560ms var(--bw-ease), transform 560ms var(--bw-ease); }
-  .bw-reveal[data-on="false"] { opacity: 0; transform: translateY(18px); }
-  .bw-condense[data-on="true"] { animation: bw-condense 680ms var(--bw-ease) both; }
-
-  /* Explainer art sits on a small pool of light. */
-  .bw-art-glow {
-    position: absolute;
-    inset: 8% 14%;
-    border-radius: 999px;
-    background-image: radial-gradient(closest-side, rgba(255, 255, 255, 0.26), rgba(255, 197, 107, 0.08) 62%, transparent);
-  }
-
   /* A film frame: dark until Beamy's projector cone lands, then it powers on
      with a short flicker and keeps a soft warm glow. */
   .bw-film {
@@ -1010,36 +945,6 @@
     letter-spacing: -0.03em;
     color: var(--bw-ink);
   }
-
-  /* Phones: the stage Beamy stands on, fixed under the content. Content
-     scrolls behind its frost; it slides in once he leaves the hero. */
-  .bw-dock {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 20;
-    height: calc(var(--bw-dock-h, 144px) + env(safe-area-inset-bottom, 0px));
-    border-radius: 24px 24px 0 0;
-    background-color: rgba(43, 42, 140, 0.5);
-    -webkit-backdrop-filter: blur(22px) saturate(110%);
-    backdrop-filter: blur(22px) saturate(110%);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 -18px 40px -26px rgba(22, 18, 78, 0.8);
-    pointer-events: none;
-    transform: translateY(102%);
-    transition: transform 520ms var(--bw-ease);
-  }
-  .bw-dock::before {
-    content: '';
-    position: absolute;
-    left: 10%;
-    right: 10%;
-    bottom: 14px;
-    height: 26px;
-    border-radius: 999px;
-    background-image: radial-gradient(closest-side, rgba(255, 255, 255, 0.16), transparent);
-  }
-  .bw-dock[data-on="true"] { transform: none; }
 
   /* The bubble beside his head (no room above): the tail points sideways. */
   .bw-bubble[data-tail="left"]::after,
@@ -1144,7 +1049,7 @@
   /* The story's cards: the active one at full strength with its line open
      (grid rows 0fr → 1fr animates the height), the rest resting at half. */
   .bw-story-card { opacity: 0.5; transition: opacity 420ms var(--bw-ease), transform 420ms var(--bw-ease), background-color 420ms var(--bw-ease); }
-  .bw-story-card[data-active="true"] { opacity: 1; transform: translateX(-6px); background-color: rgba(70, 62, 196, 0.42); }
+  .bw-story-card[data-active="true"] { opacity: 1; background-color: rgba(70, 62, 196, 0.42); }
   .bw-story-head {
     display: flex;
     width: 100%;
@@ -1176,7 +1081,6 @@
   .bw-story-card[data-active="true"] .bw-story-num { background-color: var(--bw-core); color: var(--bw-on-light); box-shadow: 0 6px 16px -8px rgba(255, 197, 107, 0.7); }
   .bw-story-more { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 520ms var(--bw-ease); }
   .bw-story-card[data-active="true"] .bw-story-more { grid-template-rows: 1fr; }
-  @media (max-width: 767px) { .bw-story-card[data-active="true"] { transform: none; } }
 
   /* The story's progress: one thin segment per step. */
   .bw-segs { display: flex; gap: 6px; }
@@ -1217,12 +1121,6 @@
   from { translate: 0 -7px; }
   to { translate: 0 7px; }
 }
-/* A beamed card condensing out of light. */
-@keyframes bw-condense {
-  0% { opacity: 0; transform: scale(0.94); filter: blur(10px) brightness(1.9); }
-  55% { opacity: 1; filter: blur(2px) brightness(1.25); }
-  100% { opacity: 1; transform: none; filter: none; }
-}
 /* A film's dark veil flickering off as the projector lands. */
 @keyframes bw-power {
   0% { opacity: 1; }
@@ -1252,18 +1150,12 @@
   [data-brand="2"] .bw-rise > * { animation-name: bw-fade; animation-duration: 240ms; animation-delay: 0ms; }
   /* Content still arrives for everyone, as a gentle fade: no lift, no light
      burst, no flicker. Decorative motion (shards, depth, dock slide) stops. */
-  [data-brand="2"] .bw-reveal { transition: opacity 420ms linear; }
   [data-brand="2"] .bw-in { transform: none; filter: none; transition: opacity 420ms linear; }
-  [data-brand="2"] .bw-story-card[data-active="true"] { transform: none; }
   [data-brand="2"] .bw-glass-card.bw-thick.bw-interactive:hover { transform: none; }
-  [data-brand="2"] .bw-reveal[data-on="false"] { transform: none; }
-  [data-brand="2"] .bw-condense[data-on="true"] { animation: bw-fade 420ms linear both; }
   [data-brand="2"] .bw-film[data-lit="true"]::after { animation: none; }
   [data-brand="2"] .bw-shard { animation: none; }
   [data-brand="2"] .bw-depth,
   [data-brand="2"] .bw-hero-pane { transform: none; }
-  [data-brand="2"] .bw-dock { transition: opacity 300ms linear; }
-  [data-brand="2"] .bw-dock[data-on="false"] { transform: none; opacity: 0; }
   [data-brand="2"] .bw-glass-card.bw-interactive:hover { transform: none; }
   [data-brand="2"] .bw-btn:active { transform: none; }
   [data-brand="2"] .bw-tile .bw-tile-in { animation-name: bw-fade; }
