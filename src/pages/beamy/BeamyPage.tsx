@@ -97,6 +97,8 @@ const PHONE_MAX = 768;
 const WIDE_HERO_MIN = 1024;
 /** How often Beamy beams a shot to the story's mini wall while that step is up. */
 const WALL_BEAM_MS = 5200;
+/** A pointer held still this long hands Beamy back to his section's own look. */
+const GAZE_IDLE_MS = 1800;
 const NIGHT: Record<StopId, number> = Object.fromEntries(STOPS.map((s) => [s.id, s.night])) as Record<StopId, number>;
 
 const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
@@ -174,6 +176,8 @@ interface HeroGeo {
   wall: { top: number; width: number; height: number } | null;
   /** Phones/tablets: Beamy's height and feet x inside the wall row. */
   stand: { h: number; x: number } | null;
+  /** Phones: the full-width wall's height under him (he stands on its top edge). */
+  stackWallH?: number;
 }
 
 /** A slot's pose from its data attributes (the story's comes from its active card). */
@@ -266,6 +270,8 @@ export default function BeamyPage() {
   /** The centre tile of whichever wall the next photo flies to. */
   const heroTileRef = useRef<HTMLDivElement | null>(null);
   const tryTileRef = useRef<HTMLDivElement | null>(null);
+  /** Try it's whole wall (phones scroll it into view before a shot lands). */
+  const tryWallRef = useRef<HTMLDivElement | null>(null);
   const flashRef = useRef<HTMLDivElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const cardImgRef = useRef<HTMLImageElement | null>(null);
@@ -346,6 +352,17 @@ export default function BeamyPage() {
       const top = clamp(gr.height * 0.07, 28, 64);
       const height = Math.max(320, gr.height - top * 2);
       next = { rows: height / width > 1.32 ? 4 : 3, wall: { top, width, height }, stand: null };
+    } else if (window.innerWidth < PHONE_MAX) {
+      // Phones: stacked, never two squeezed columns. Beamy stands big on the
+      // top edge of a full-width wall; the CTAs follow below.
+      const region = heroRegionRef.current;
+      if (region === null) return;
+      const rr = region.getBoundingClientRect();
+      const wallH = Math.round(clamp(rr.height * 0.46, 160, rr.width * 0.8));
+      // His feet sink 6px into the wall's frame so he reads as standing on it;
+      // 34px of headroom keeps the selfie's shades pop clear of the subline.
+      const h = Math.round(clamp(rr.height - wallH + 6 - 34, 96, 300));
+      next = { rows: 3, wall: null, stand: { h, x: Math.round(rr.width * 0.3) }, stackWallH: wallH };
     } else {
       const region = heroRegionRef.current;
       if (region === null) return;
@@ -525,7 +542,7 @@ export default function BeamyPage() {
       // inside the hero's free corner.
       const cap = lookCapRef.current;
       const capStand = decorRef.current.stand;
-      if (cap !== null && capStand !== null) {
+      if (cap !== null && capStand !== null && cap.dataset.stack !== 'true') {
         const room = (heroRegionRef.current?.clientHeight ?? 0) - cap.offsetHeight;
         const want = capStand.heightPx * (1.04 + (api.current?.wornLift() ?? 0)) + 10;
         cap.style.bottom = `${Math.max(0, Math.min(want, room)).toFixed(1)}px`;
@@ -544,6 +561,8 @@ export default function BeamyPage() {
         if (lit || el === null) return;
         const q = el.getBoundingClientRect();
         if (q.top > vh * 0.85 || q.bottom < headerH + 40) { seenAt.current[key] = 0; return; }
+        // Phones have no films slot (he never projects there): the film just appears.
+        if (key === 'films' && isPhone) { light(); return; }
         if (seenAt.current[key] === 0) seenAt.current[key] = now;
         else if (now - seenAt.current[key] > 1800) light();
       };
@@ -769,10 +788,15 @@ export default function BeamyPage() {
 
   /* Gaze + hero depth: the pointer on desktop (lerped CSS vars on the hero
      for the parallax layers, the panel tilt, the wall turn and the sheen);
-     the last tap on touch turns his head, then back to you. */
+     the last tap on touch turns his head, then back to you. The gaze is
+     global and never sticks: he follows a MOVING pointer anywhere on the
+     page, and a still pointer (GAZE_IDLE_MS) or any scroll hands him back
+     to the section's own pose. */
   useEffect(() => {
     let clear = 0;
+    let idle = 0;
     let raf = 0;
+    const release = () => { window.clearTimeout(idle); api.current?.look(null); };
     const cur = { x: 0, y: 0 };
     const tgt = { x: 0, y: 0 };
     const tick = () => {
@@ -791,6 +815,8 @@ export default function BeamyPage() {
     const onMove = (e: PointerEvent) => {
       if (e.pointerType !== 'mouse') return;
       api.current?.look({ x: e.clientX, y: e.clientY });
+      window.clearTimeout(idle);
+      idle = window.setTimeout(release, GAZE_IDLE_MS);
       // Decorative depth: held still under reduced motion.
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
       tgt.x = clamp((e.clientX / Math.max(1, window.innerWidth)) * 2 - 1, -1, 1);
@@ -803,25 +829,50 @@ export default function BeamyPage() {
       window.clearTimeout(clear);
       clear = window.setTimeout(() => api.current?.look(null), 1600);
     };
-    const onLeave = () => { api.current?.look(null); tgt.x = 0; tgt.y = 0; if (raf === 0) raf = window.requestAnimationFrame(tick); };
+    const onLeave = () => { release(); tgt.x = 0; tgt.y = 0; if (raf === 0) raf = window.requestAnimationFrame(tick); };
+    // Scrolling moves him to another section: he takes that section's look.
+    const onScroll = () => release();
+    const sc = scrollerRef.current;
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerdown', onDown);
+    sc?.addEventListener('scroll', onScroll, { passive: true });
     document.documentElement.addEventListener('mouseleave', onLeave);
     return () => {
       window.clearTimeout(clear);
+      window.clearTimeout(idle);
       window.cancelAnimationFrame(raf);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerdown', onDown);
+      sc?.removeEventListener('scroll', onScroll);
       document.documentElement.removeEventListener('mouseleave', onLeave);
     };
   }, []);
 
   /* ── The booth hands over a shot: Beamy catches it, then beams it. ─── */
   const onBeam = useCallback((src: string) => {
+    logStep('try:shot');
+    // Phones stack the booth above Beamy and the wall: first bring Beamy and
+    // the wall up to fill the screen, then the shot leaves the phone (now
+    // just above), Beamy catches it and beams it down onto the wall.
+    const sc = scrollerRef.current;
+    const wallBox = rectOf(tryWallRef.current);
+    if (window.innerWidth < PHONE_MAX && sc !== null && wallBox !== null) {
+      const by = wallBox.top + wallBox.height - (window.innerHeight - 14);
+      if (by > 4) {
+        logStep('try:scroll');
+        sc.scrollTo({ top: sc.scrollTop + by, behavior: reduced ? 'auto' : 'smooth' });
+        // He glides to his slot as the page moves; give both a beat to settle.
+        window.setTimeout(() => beamShot(src), reduced ? 120 : 900);
+        return;
+      }
+    }
+    beamShot(src);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- beamShot is recreated with the same deps
+  }, [begin, celebrate, reduced]);
+  const beamShot = (src: string) => {
     const b = api.current;
     const vf = rectOf(viewfinderRef.current);
     const tile = rectOf(tryTileRef.current);
-    logStep('try:shot');
     const commit = () => {
       logStep('try:land');
       setShots((prev) => [{ id: nextShot.current++, src }, ...prev].slice(0, SHOT_TILES.length));
@@ -860,7 +911,7 @@ export default function BeamyPage() {
         }, fromHand ? 'hand' : 'mouth');
       },
     });
-  }, [begin, celebrate, reduced]);
+  };
 
   /* ── Poke + drag on Beamy's own hit area (nothing else captures). ──── */
   const onPoke = () => {
@@ -950,7 +1001,8 @@ export default function BeamyPage() {
 
   /* The booth: a phone at a natural phone aspect, in a slim deep frame. */
   const idleFrame = lookFrameUrl(look);
-  const big = !phone;
+  // Phones now show the booth full width too, so it always wears the full-size dress.
+  const big = true;
   const booth = (
     <div
       data-booth-ui
@@ -1040,7 +1092,7 @@ export default function BeamyPage() {
   );
   const heroRows = heroGeo?.rows ?? 3;
   const heroWall = (
-    <div className="bw-wall-mount bw-wall-glint h-full" style={{ ['--wall-yaw' as string]: wideHero ? '-7deg' : '-5deg' }}>
+    <div className="bw-wall-mount bw-wall-glint h-full" style={{ ['--wall-yaw' as string]: wideHero ? '-7deg' : phone ? '0deg' : '-5deg' }}>
       <LiveWall
         key={heroRows}
         pool={WALL_POOL} pins={heroPins} dim={introRunning} compact={!wideHero} centreRef={heroTileRef} ripple={ripple} seed={seed}
@@ -1081,7 +1133,7 @@ export default function BeamyPage() {
       data-stop="hero"
       aria-label="Beamwall"
       className="bw-hero relative"
-      style={{ height: heroH, minHeight: wideHero ? undefined : 'calc(100svh - var(--bw-header-h))' }}
+      style={{ height: heroH, minHeight: wideHero ? undefined : phone ? 'max(calc(100svh - var(--bw-header-h)), 700px)' : 'calc(100svh - var(--bw-header-h))' }}
     >
       <div ref={heroPanelRef} className="bw-hero-pane absolute" style={{ inset: panelInset, ['--bw-radius-panel' as string]: `${radius}px` }}>
         {/* The glass box: frost, the recessed back wall with its deep inner
@@ -1110,17 +1162,34 @@ export default function BeamyPage() {
             <div data-card-avoid className={`shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroHeadline}</div>
             {/* The wall fills the right ~60% of the row between the copy and the
                 CTAs; Beamy stands lower left, just in front of its corner. */}
-            <div ref={heroRegionRef} className="relative mt-3 min-h-[200px] flex-1">
-              <div className={`absolute bottom-0 right-0 top-0 w-[57%] ${showContent ? 'bw-rise' : 'invisible'}`} style={i(2)}>{heroWall}</div>
+            <div ref={heroRegionRef} className={`relative mt-3 flex-1 ${phone ? 'min-h-[300px]' : 'min-h-[200px]'}`}>
+              {/* Phones: a full-width wall along the bottom, Beamy standing big
+                  on its top edge. Tablets: the wall fills the right ~60% and he
+                  stands lower left, just in front of its corner. */}
+              {phone ? (
+                <div className={`absolute inset-x-0 bottom-0 ${showContent ? 'bw-rise' : 'invisible'}`} style={{ ...i(2), height: heroGeo?.stackWallH ?? '50%' }}>{heroWall}</div>
+              ) : (
+                <div className={`absolute bottom-0 right-0 top-0 w-[57%] ${showContent ? 'bw-rise' : 'invisible'}`} style={i(2)}>{heroWall}</div>
+              )}
               {heroGeo?.stand != null && slot(
                 'absolute bottom-0',
                 { max: heroGeo.stand.h, bubble: false },
                 heroSlotChildren,
-                { left: heroGeo.stand.x - heroGeo.stand.h / 0.85 / 2, width: heroGeo.stand.h / 0.85, height: heroGeo.stand.h },
+                { left: heroGeo.stand.x - heroGeo.stand.h / 0.85 / 2, width: heroGeo.stand.h / 0.85, height: heroGeo.stand.h, bottom: heroGeo.stackWallH !== undefined ? heroGeo.stackWallH - 6 : 0 },
               )}
-              {/* Phones: the floating bubble stays away from the hero, so his
-                  try-on line sits here, over his head, left of the wall. */}
-              {tryOn && active === 'hero' && heroGeo?.stand != null && (
+              {/* The floating bubble stays away from the hero here, so his
+                  try-on line sits beside his head (phones) or over it, left
+                  of the wall (tablets). */}
+              {tryOn && active === 'hero' && heroGeo?.stand != null && (heroGeo.stackWallH !== undefined ? (
+                <p
+                  ref={lookCapRef}
+                  aria-hidden
+                  data-tail="left"
+                  data-stack="true"
+                  className="bw-bubble pointer-events-none absolute right-0 w-[44%] px-3 py-2 text-[13px] leading-[1.35]"
+                  style={{ bottom: heroGeo.stackWallH + heroGeo.stand.h * 0.56 }}
+                >{line}</p>
+              ) : (
                 <p
                   ref={lookCapRef}
                   aria-hidden
@@ -1128,7 +1197,7 @@ export default function BeamyPage() {
                   className="bw-bubble pointer-events-none absolute left-0 w-[41%] px-3 py-2 text-[13px] leading-[1.35]"
                   style={{ bottom: heroGeo.stand.h * 1.04 + 10, '--tail-x': `${clamp(heroGeo.stand.x, 22, 120)}px` } as CSSProperties}
                 >{line}</p>
-              )}
+              ))}
             </div>
             <div className={`mt-4 shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroCtas}</div>
             {introRunning && <div className="mt-3 flex justify-center">{skipChip}</div>}
@@ -1210,9 +1279,15 @@ export default function BeamyPage() {
   /* ── The films: one frame, four films; Beamy projects whichever is on ── */
   const cur = FILMS.find((f) => f.id === film) ?? FILMS[0];
   const media = FILM_MEDIA[cur.id];
+  // Straight on from the story (its pinned panel already ends on open space),
+  // so the films start right under it, like the options do after them. Phones
+  // give it no slot of its own: a second Beamy box above the heading was a
+  // blank screen while he dissolved between two slots. He stays in the story
+  // until the film fills the screen, then stands above the options.
+  const filmsClass = `bw-sec relative mx-auto w-full max-w-[1320px] ${phone ? 'px-5 pb-14 pt-4' : 'px-[clamp(40px,6vw,104px)] pb-[clamp(88px,13vh,150px)] pt-[clamp(8px,2vh,24px)]'}`;
   const films = (
-    <section id="films" data-stop="films" aria-labelledby="h-films" className={sectionClass}>
-      {split('right', stand('films', -0.5, 'h-[min(400px,50vh)] w-full max-w-[280px]'), (
+    <section id="films" data-stop="films" aria-labelledby="h-films" className={filmsClass}>
+      {split('right', phone ? null : stand('films', -0.5, 'h-[min(400px,50vh)] w-full max-w-[280px]'), (
         <>
           <div className="bw-in">
             <h2 id="h-films" className="bw-h2">{FILMS_COPY.heading}</h2>
@@ -1302,7 +1377,7 @@ export default function BeamyPage() {
 
   /* ── Try it ────────────────────────────────────────────────────────── */
   const tryWall = (
-    <div className="bw-wall-mount" style={{ ['--wall-yaw' as string]: phone ? '-4deg' : '-6deg' }}>
+    <div ref={tryWallRef} className="bw-wall-mount" style={{ ['--wall-yaw' as string]: phone ? '0deg' : '-6deg' }}>
       <LiveWall pool={WALL_POOL} pins={shotPins} dim={false} compact={phone} centreRef={tryTileRef} ripple={0} seed={seed + 7} />
     </div>
   );
@@ -1318,14 +1393,14 @@ export default function BeamyPage() {
         <div className={phone ? 'mt-4' : ''}>{lookPills}</div>
       </div>
       {phone ? (
-        // Phones: Beamy stands on top of the wall, beside the phone, so the
-        // whole demo fits one screen and his beam never crosses the copy.
-        <div className="bw-in mt-5 flex items-end gap-3">
-          <div className="shrink-0" style={{ height: 'min(60svh, calc((100vw - 52px) * 0.56 * 16 / 9))' }}>{booth}</div>
-          <div className="flex min-w-0 flex-1 flex-col">
-            <div data-slot="try" data-yaw="0" data-bubble="none" aria-hidden className="h-[20svh] w-full" />
-            {tryWall}
-          </div>
+        // Phones: stacked like the original demo. The booth phone first, as
+        // big as the screen allows; below it Beamy stands on top of a
+        // full-width wall. A shot scrolls Beamy and the wall up into view,
+        // leaves the phone, and he beams it down onto the wall.
+        <div className="mt-5 flex flex-col">
+          <div className="bw-in mx-auto" style={{ height: 'min(70svh, calc((100vw - 40px) * 16 / 9))' }}>{booth}</div>
+          <div data-slot="try" data-yaw="0" data-bubble="none" aria-hidden className="mt-4 h-[26svh] w-full" />
+          <div className="bw-in -mt-1.5" style={i(1)}>{tryWall}</div>
         </div>
       ) : (
         <div className={`mt-6 flex items-stretch justify-between gap-[clamp(12px,2vw,32px)] ${vp.w >= WIDE_HERO_MIN ? 'h-[min(700px,74vh)]' : 'h-[min(480px,58vh)]'}`}>
