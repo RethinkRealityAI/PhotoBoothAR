@@ -251,9 +251,52 @@
     font-style: normal;
     letter-spacing: var(--bw-track-heading);
   }
-  /* Labels: sentence-case brand, so the wide luxe tracking is pulled in. */
+  /* Labels: the brand is sentence case and never ALL CAPS, and never
+     wide-tracked. Older screens set ~530 labels as `uppercase` + a wide
+     tracking utility over text that is already authored in sentence or
+     title case, so dropping the transform is the whole migration. */
   :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .tracking-luxe {
-    letter-spacing: 0.06em;
+    letter-spacing: 0.01em;
+  }
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .uppercase {
+    text-transform: none;
+    letter-spacing: 0.01em;
+  }
+  /* A few short labels (status pills: "live", "free") are authored in lower
+     case for the caps transform; sentence case starts them with a capital.
+     ::first-letter only reaches block / inline-block boxes, which is what
+     those pills are. */
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .uppercase::first-letter {
+    text-transform: uppercase;
+  }
+
+  /* Fields: older forms paint inputs as dark noir/black wells, which read
+     as holes punched in the glass. On the platform they are the brand field:
+     a light frost with a hairline (src/styles/brand.css .bw-field). Only
+     fields that asked for a dark well are touched, so transparent inputs
+     inside a composed control (chat composers, search pills) stay as built. */
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) :is(input, textarea, select):is([class*="bg-noir-"], [class*="bg-black"]) {
+    background-color: rgba(255, 255, 255, 0.10);
+    border-color: var(--bw-hairline);
+  }
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) :is(input, textarea, select):is([class*="bg-noir-"], [class*="bg-black"]):hover {
+    border-color: var(--bw-hairline-strong);
+  }
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) :is(input, textarea)::placeholder {
+    color: rgba(255, 255, 255, 0.62);
+  }
+
+  /* Type floor: never below 12px (brand rule). ~850 older labels use 8-11px
+     arbitrary sizes; sentence case is narrower than the tracked caps they
+     replace, so the floor fits the same space. */
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[8px\],
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[9px\],
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[9\.5px\],
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[10px\],
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[10\.5px\],
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[11px\],
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[11\.5px\] {
+    font-size: 12px;
   }
 
   /* Accent glows become a soft drop: no coloured bloom on a white accent. */
