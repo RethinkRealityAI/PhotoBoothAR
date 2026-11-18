@@ -62,6 +62,8 @@ import {
   STOPS, blendSlots, pageProgress, pinProgress, storyHeightVh, storyStep, weightedNight,
   type Pose, type SlotSample, type StopId,
 } from '../../lib/beamyScroll';
+import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl } from '../../lib/beamyLooks';
+import { preloadModel } from '../../lib/glbCache';
 import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, type StageLayout } from './BeamyStage';
 import StoryFx, { type FxState } from './StoryFx';
 
@@ -99,6 +101,13 @@ const NIGHT: Record<StopId, number> = Object.fromEntries(STOPS.map((s) => [s.id,
 const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+/** Inside a .bw-btn-glow / .bw-btn-glass: the hover sheen, under a raised label. */
+const ctaFace = (label: ReactNode) => (
+  <>
+    <span aria-hidden className="bw-btn-sheen" />
+    <span className="relative z-[1]">{label}</span>
+  </>
+);
 
 /**
  * A step log for verifying the choreography in a browser: in dev, or with
@@ -197,6 +206,12 @@ export default function BeamyPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [look, setLook] = useState<string | null>(null);
   const [line, setLine] = useState(HELLO);
+  /** What assistive tech hears: every line except the hero's auto-cycling try-on lines. */
+  const [srLine, setSrLine] = useState(HELLO);
+  /** The hero's try-on: which of BEAMY_LOOKS he is wearing. */
+  const [lookIx, setLookIx] = useState(0);
+  const lookIxRef = useRef(0);
+  lookIxRef.current = lookIx;
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [arrival, setArrival] = useState<'waiting' | 'dropping' | 'done'>('waiting');
@@ -228,6 +243,7 @@ export default function BeamyPage() {
   const heroGridRef = useRef<HTMLDivElement | null>(null);
   const heroWallColRef = useRef<HTMLDivElement | null>(null);
   const heroRegionRef = useRef<HTMLDivElement | null>(null);
+  const lookCapRef = useRef<HTMLParagraphElement | null>(null);
   const progressRef = useRef<HTMLSpanElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
   const viewfinderRef = useRef<HTMLDivElement | null>(null);
@@ -278,7 +294,7 @@ export default function BeamyPage() {
     const mine = ++token.current;
     return () => token.current === mine;
   }, []);
-  const say = (t: string) => setLine(t);
+  const say = (t: string, quiet = false) => { setLine(t); if (!quiet) setSrLine(t); };
 
   /* ── Reveal on scroll: rise, settle, de-blur; once per element. ────── */
   useEffect(() => {
@@ -349,7 +365,7 @@ export default function BeamyPage() {
 
   const lineFor = useCallback((id: StopId, a: Audience): string => {
     switch (id) {
-      case 'hero': return HELLO;
+      case 'hero': return BEAMY_LOOKS[lookIxRef.current]?.line ?? HELLO;
       case 'story': return STORY_COPY.heading;
       case 'films': return FILMS.find((f) => f.id === filmRef.current)?.beamy ?? FILMS[0].beamy;
       case 'pick': return GREETING;
@@ -487,6 +503,15 @@ export default function BeamyPage() {
         phone: isPhone,
         scroll: Math.min(sc.scrollTop, heroRef.current?.offsetHeight ?? vh),
       };
+      // Phones: the try-on caption rides just above whatever he wears, kept
+      // inside the hero's free corner.
+      const cap = lookCapRef.current;
+      const capStand = decorRef.current.stand;
+      if (cap !== null && capStand !== null) {
+        const room = (heroRegionRef.current?.clientHeight ?? 0) - cap.offsetHeight;
+        const want = capStand.heightPx * (1.04 + (api.current?.wornLift() ?? 0)) + 10;
+        cap.style.bottom = `${Math.max(0, Math.min(want, room)).toFixed(1)}px`;
+      }
       const fx = fxRef.current;
       fx.weights = b.fx as Partial<Record<StoryFxId, number>>;
       fx.spot = rectOf(fxSpotRef.current);
@@ -655,6 +680,39 @@ export default function BeamyPage() {
     return () => window.clearTimeout(id);
   }, []);
 
+  /* ── The hero's try-on: once the intro is over and he stands in the hero,
+     he wears BEAMY_LOOKS[lookIx] (real library props, a guide-pack frame)
+     and says its line; every few seconds, or on a tap, he moves to the next.
+     Leaving the hero takes it off; coming back puts it on again. ────── */
+  const tryOn = ready && !failed && arrival === 'done' && !introRunning && active === 'hero';
+  const lastWorn = useRef(-1);
+  useEffect(() => {
+    const b = api.current;
+    if (b === null) return;
+    if (!tryOn) { if (lastWorn.current >= 0) { void b.wear(null); lastWorn.current = -1; } return; }
+    const look = BEAMY_LOOKS[lookIx] ?? BEAMY_LOOKS[0];
+    if (lastWorn.current >= 0 && lastWorn.current !== lookIx) b.sparkle('sparkle');
+    lastWorn.current = lookIx;
+    let live = true;
+    let hold = 0;
+    const advance = () => { if (live) setLookIx((k) => nextLook(k)); };
+    // The hold starts once he is actually wearing it (a slow prop is never
+    // skipped); a load that never settles still moves on.
+    const stuck = window.setTimeout(advance, 15000);
+    void b.wear(look).then(() => {
+      if (!live) return;
+      window.clearTimeout(stuck);
+      logStep(`look:${look.id}`);
+      say(look.line, lookIx !== 0);
+      hold = window.setTimeout(advance, reduced ? LOOK_HOLD_REDUCED_MS : LOOK_HOLD_MS);
+    });
+    // Warm the next look so the swap is instant.
+    const nx = preloadUrl(lookIx);
+    if (nx !== null) { if (nx.endsWith('.glb')) void preloadModel(nx); else { const im = new Image(); im.src = nx; } }
+    return () => { live = false; window.clearTimeout(stuck); window.clearTimeout(hold); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- say/api are stable
+  }, [tryOn, lookIx, reduced]);
+
   /* Only the Skip chip skips the intro (or scrolling on). */
   const skipIntro = useCallback(() => {
     logStep('intro:skip');
@@ -770,10 +828,11 @@ export default function BeamyPage() {
     if (b === null) return;
     if (activeRef.current === 'hero') {
       // During the intro a tap is just a sparkle (only Skip skips); once it
-      // has settled, tapping him on the hero replays the selfie.
+      // has settled, a tap tries on the next look (with a little hop).
       if (introRunning) { b.sparkle('sparkle'); return; }
-      logStep('selfie:replay');
-      void runSelfie(begin());
+      logStep('look:tap');
+      setLookIx((k) => nextLook(k));
+      void b.play('Hop');
       return;
     }
     const r = pokeStep(poke.current, performance.now());
@@ -922,9 +981,9 @@ export default function BeamyPage() {
   /* ── Hero ──────────────────────────────────────────────────────────── */
   const heroCtas = (
     <div className={`flex gap-3 ${wideHero ? 'mt-8 flex-wrap' : 'flex-col sm:flex-row'}`} style={i(3)}>
-      <Link to={SIGNUP_PATH} className={`bw-btn bw-btn-primary ${wideHero ? 'bw-btn-lg' : 'w-full sm:w-auto'}`}>{HERO.primary}</Link>
-      <button type="button" className={`bw-btn bw-btn-secondary ${wideHero ? 'bw-btn-lg' : 'w-full sm:w-auto'}`} onClick={() => scrollToStop('try')}>
-        {HERO.secondary}
+      <Link to={SIGNUP_PATH} className={`bw-btn bw-btn-glow ${wideHero ? 'bw-btn-lg' : 'w-full sm:w-auto'}`}>{ctaFace(HERO.primary)}</Link>
+      <button type="button" className={`bw-btn bw-btn-glass ${wideHero ? 'bw-btn-lg' : 'w-full sm:w-auto'}`} onClick={() => scrollToStop('try')}>
+        {ctaFace(HERO.secondary)}
       </button>
     </div>
   );
@@ -999,7 +1058,7 @@ export default function BeamyPage() {
             <div className="relative h-full">
               {/* His box is wider than the column (his arms reach over the
                   gaps), so he can stand big without squeezing the copy. */}
-              {slot('absolute bottom-[clamp(72px,10vh,112px)] left-[-24%] right-[-24%] h-[78%]', { max: Math.min(400, vp.h * 0.44) }, heroSlotChildren)}
+              {slot('absolute bottom-[clamp(72px,10vh,112px)] left-[-34%] right-[-16%] h-[78%]', { max: Math.min(400, vp.h * 0.44) }, heroSlotChildren)}
             </div>
             <div ref={heroWallColRef} className={`flex h-full items-start justify-end ${showContent ? 'bw-rise' : 'invisible'}`}>
               <div data-bubble-right className="relative" style={{ ...i(2), marginTop: heroGeo?.wall?.top ?? 0, marginRight: heroGeo?.wall != null ? -40 : 0, width: heroGeo?.wall?.width ?? 'min(420px, 100%)', height: heroGeo?.wall?.height ?? 'auto' }}>{heroWall}</div>
@@ -1018,6 +1077,17 @@ export default function BeamyPage() {
                 { max: heroGeo.stand.h, bubble: false },
                 heroSlotChildren,
                 { left: heroGeo.stand.x - heroGeo.stand.h / 0.85 / 2, width: heroGeo.stand.h / 0.85, height: heroGeo.stand.h },
+              )}
+              {/* Phones: the floating bubble stays away from the hero, so his
+                  try-on line sits here, over his head, left of the wall. */}
+              {tryOn && heroGeo?.stand != null && (
+                <p
+                  ref={lookCapRef}
+                  aria-hidden
+                  data-tail="down"
+                  className="bw-bubble pointer-events-none absolute left-0 w-[41%] px-3 py-2 text-[13px] leading-[1.35]"
+                  style={{ bottom: heroGeo.stand.h * 1.04 + 10, '--tail-x': `${clamp(heroGeo.stand.x, 22, 120)}px` } as CSSProperties}
+                >{line}</p>
               )}
             </div>
             <div className={`mt-4 shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroCtas}</div>
@@ -1257,7 +1327,7 @@ export default function BeamyPage() {
                     </li>
                   ))}
                 </ul>
-                <Link to={SIGNUP_PATH} className={`bw-btn mt-6 w-full ${t.popular === true ? 'bw-btn-primary' : 'bw-btn-secondary'}`}>{pricing.cta(t.name)}</Link>
+                <Link to={SIGNUP_PATH} className={`bw-btn mt-6 w-full ${t.popular === true ? 'bw-btn-glow' : 'bw-btn-glass'}`}>{ctaFace(pricing.cta(t.name))}</Link>
               </div>
             ))}
           </div>
@@ -1280,7 +1350,7 @@ export default function BeamyPage() {
           </li>
         ))}
       </ul>
-      <Link to={SIGNUP_PATH} className="bw-btn bw-btn-primary bw-btn-lg relative mt-8">{HERO.primary}</Link>
+      <Link to={SIGNUP_PATH} className="bw-btn bw-btn-glow bw-btn-lg mt-8">{ctaFace(HERO.primary)}</Link>
     </div>
   );
   const startSec = (
@@ -1359,8 +1429,10 @@ export default function BeamyPage() {
         </BeamyStage>
       )}
 
-      <header ref={headerRef} className="pointer-events-none sticky top-0 z-30" style={{ height: headerH }}>
-        <div className={`bw-navpill pointer-events-auto relative mx-auto flex items-center justify-between gap-3 ${phone ? 'mt-2 h-[52px] w-[calc(100%-20px)] pl-3 pr-1.5' : 'mt-3.5 h-[60px] w-[min(1080px,calc(100%-48px))] pl-5 pr-2'}`}>
+      {/* Padding, not margin: a margin would collapse through the sticky
+          header and let the pill ride up against the viewport's top edge. */}
+      <header ref={headerRef} className={`pointer-events-none sticky top-0 z-30 ${phone ? 'pt-2' : 'pt-3'}`} style={{ height: headerH }}>
+        <div className={`bw-navpill pointer-events-auto relative mx-auto flex items-center justify-between gap-3 ${phone ? 'h-[52px] w-[calc(100%-20px)] pl-3 pr-1.5' : 'h-[60px] w-[min(1080px,calc(100%-48px))] pl-5 pr-2'}`}>
           <button type="button" onClick={() => scrollerRef.current?.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })} className="bw-wordmark bw-focus -ml-1 min-h-11 rounded-lg px-1" aria-label="Beamwall, back to the top">
             Beamwall
           </button>
@@ -1381,7 +1453,7 @@ export default function BeamyPage() {
           )}
           <nav aria-label="Account" className="flex items-center justify-end gap-2 sm:gap-4">
             {vp.w >= WIDE_HERO_MIN && <Link to="/login" className="bw-link min-h-11">{START_COPY.signIn}</Link>}
-            <Link to={SIGNUP_PATH} className="bw-btn bw-btn-primary bw-btn-sm">{phone ? HERO.primaryShort : HERO.primary}</Link>
+            <Link to={SIGNUP_PATH} className="bw-btn bw-btn-glow bw-btn-sm">{ctaFace(phone ? HERO.primaryShort : HERO.primary)}</Link>
           </nav>
           {/* Scroll progress: a hairline along the pill's lower edge. */}
           <div aria-hidden className="bw-progress"><span ref={progressRef} /></div>
@@ -1405,7 +1477,7 @@ export default function BeamyPage() {
         className={`bw-bubble pointer-events-none fixed left-0 top-0 z-50 px-4 py-3 transition-opacity duration-300 ${phone ? 'text-[14px]' : ''} ${ready && arrival === 'done' && !bubbleHidden && !failed ? 'opacity-100' : 'opacity-0'}`}
         style={{ maxWidth: 'min(300px, calc(100vw - 24px))' }}
       >
-        <span className="sr-only">{line}</span>
+        <span className="sr-only">{srLine}</span>
         <span aria-hidden>{typed}</span>
       </div>
       {ready && (
