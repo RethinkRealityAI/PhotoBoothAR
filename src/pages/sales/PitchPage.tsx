@@ -12,6 +12,9 @@
  * (self-serve checkout, ?ref= carried through to /signup). Nigerian clients
  * are invoiced — there is no payment flow for them — so an NG deck asks for a
  * call/chat instead and offers "See it live" as the secondary.
+ *
+ * Brand v2: the periwinkle scene (`app-bg`), a strip of glass for the header,
+ * the display face for the wordmark and headings, white pill for the ask.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
@@ -21,18 +24,23 @@ import type { Market } from '../../lib/salesTypes';
 import { normalizeRef } from '../../lib/salesHub';
 import { usePageTitle } from '../../lib/usePageTitle';
 import SlideDeck, { useIsWide, type DeckEnv } from './components/SlideDeck';
-import { CtaLink, type DeckCta } from './components/Slides';
+import { CtaLink, PANE, type DeckCta } from './components/Slides';
 import { useMetaTag, useNoIndex } from './components/pageMeta';
 import { asksFor, contactLine, offersFromIds, type DeckBooking } from './components/deckEnv';
 import { bookingPath } from '../../lib/booking';
 import { fetchPublicBookingPage } from '../../lib/bookingApi';
 import { BEAMY } from './salesImages';
 
+const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent';
 const headerBtn =
-  'inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-full px-4 font-label text-[10.5px] font-bold uppercase tracking-[0.18em] transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:px-5';
+  `inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-full px-4 text-[14px] font-semibold leading-none transition active:scale-[0.98] ${focusRing} sm:px-5`;
+/** Brand v2 primary: solid white pill, deep-indigo label. */
+const primaryPill = 'bg-[color:var(--bw-accent)] text-[color:var(--bw-on-accent)] shadow-[0_10px_24px_-12px_rgba(26,23,64,0.5)] hover:bg-[color:var(--bw-accent-hover)]';
+const wordmark = 'font-[family-name:var(--bw-font-display)] font-[750] leading-none tracking-[-0.035em] text-white';
+const display = 'font-[family-name:var(--bw-font-display)] font-[720] tracking-[-0.022em] text-white';
 
 function HeaderCta({ cta, primary }: { cta: DeckCta; primary: boolean }) {
-  const cls = `${headerBtn} ${primary ? 'bg-foil text-white glow-accent' : 'border border-white/15 bg-white/[0.04] text-brand-fg hover:bg-white/[0.08]'}`;
+  const cls = `${headerBtn} ${primary ? primaryPill : 'border-[1.5px] border-white/70 bg-[rgba(26,23,64,0.12)] text-white hover:border-white hover:bg-[rgba(26,23,64,0.28)]'}`;
   if (cta.external) {
     const mail = cta.href.startsWith('mailto:');
     return <a href={cta.href} className={cls} {...(mail ? {} : { target: '_blank', rel: 'noopener noreferrer' })}>{cta.label}</a>;
@@ -80,8 +88,8 @@ export default function PitchPage() {
   };
 
   const header = (
-    <header className="z-30 flex items-center justify-between gap-3 border-b border-white/5 bg-brand-bg/75 px-4 py-2.5 backdrop-blur-md sm:px-6">
-      <Link to="/" className="rounded font-serif text-xl font-semibold tracking-wide text-foil-static focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:text-2xl">
+    <header className="z-30 flex items-center justify-between gap-3 bg-[rgba(43,42,140,0.42)] px-4 py-2.5 shadow-[inset_0_-1px_0_rgba(255,255,255,0.18),0_12px_30px_-24px_rgba(22,18,78,0.7)] backdrop-blur-xl sm:px-6">
+      <Link to="/" className={`rounded text-[22px] sm:text-[24px] ${wordmark} ${focusRing}`}>
         Beamwall
       </Link>
       <nav className="flex items-center gap-2" aria-label="Get started">
@@ -95,16 +103,16 @@ export default function PitchPage() {
 
   if (deck === null) {
     return (
-      <div className="flex h-full w-full flex-col overflow-y-auto app-bg text-brand-fg">
+      <div className="flex h-full w-full flex-col overflow-y-auto app-bg text-white [font-family:var(--bw-font-text)]">
         {header}
         <main className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center px-6 py-16 text-center">
           <img src={BEAMY.src} width={BEAMY.width} height={BEAMY.height} alt="" className="h-auto w-40 motion-safe:animate-float" />
-          <h1 className="mt-6 font-serif text-4xl font-semibold text-foil-static">This presentation has moved</h1>
-          <p className="mt-4 text-brand-muted">
+          <h1 className={`mt-6 text-balance text-4xl ${display}`}>This presentation has moved</h1>
+          <p className="mt-4 text-white/[0.86]">
             The link may be out of date. Everything Beamwall does — the AR photo booth, the live wall and keepsake cards — is on our main site.
           </p>
-          <Link to="/" className="mt-8 inline-flex min-h-11 items-center gap-2 rounded-full bg-foil px-8 py-3.5 font-label text-[12px] font-bold uppercase tracking-[0.2em] text-white glow-accent">
-            Visit Beamwall <ArrowRight className="h-4 w-4" aria-hidden />
+          <Link to="/" className={`mt-8 inline-flex min-h-12 items-center gap-2 rounded-full px-8 text-[15px] font-semibold leading-none transition active:scale-[0.98] ${primaryPill} ${focusRing}`}>
+            Visit Beamwall <ArrowRight className="h-4 w-4" strokeWidth={1.75} aria-hidden />
           </Link>
         </main>
       </div>
@@ -113,7 +121,7 @@ export default function PitchPage() {
 
   if (wide) {
     return (
-      <div className="flex h-full w-full flex-col overflow-hidden bg-[#03040a] text-brand-fg">
+      <div className="flex h-full w-full flex-col overflow-hidden app-bg text-white [font-family:var(--bw-font-text)]">
         {header}
         <h1 className="sr-only">{deck.name}: {deck.oneLiner}</h1>
         <main className="min-h-0 flex-1">
@@ -124,21 +132,22 @@ export default function PitchPage() {
   }
 
   return (
-    <div className="h-full w-full overflow-x-hidden overflow-y-auto scroll-smooth app-bg text-brand-fg">
+    <div className="h-full w-full overflow-x-hidden overflow-y-auto scroll-smooth app-bg text-white [font-family:var(--bw-font-text)]">
       <div className="sticky top-0 z-30">{header}</div>
       <main className="mx-auto w-full max-w-xl px-4 pb-10 pt-6">
-        <p className="font-label text-[10px] font-semibold uppercase tracking-[0.26em]" style={{ color: `rgb(${deck.rgb})` }}>
+        <p className="flex flex-col gap-2.5 text-[14px] font-medium text-white">
           Beamwall for
+          <span aria-hidden className="block h-[2px] w-7 rounded-full bg-white/70" />
         </p>
-        <h1 className="mt-1 font-serif text-[30px] font-semibold leading-tight text-brand-fg">{deck.name}</h1>
-        <p className="mt-2 text-[15px] leading-relaxed text-brand-muted">{deck.oneLiner}</p>
+        <h1 className={`mt-2 text-[30px] leading-tight ${display}`}>{deck.name}</h1>
+        <p className="mt-2 text-[15px] leading-relaxed text-white/[0.86]">{deck.oneLiner}</p>
         <div className="mt-6">
           <SlideDeck deck={deck} env={env} syncHash />
         </div>
-        <div className="mt-8 flex flex-col items-stretch gap-3 rounded-[28px] liquid-glass p-5 text-center">
-          <p className="font-serif text-2xl text-brand-fg">Ready when you are.</p>
-          <CtaLink cta={asks.primary} primary env={{ ...env, mode: 'card', rgb: deck.rgb }} />
-          {asks.secondary !== undefined && <CtaLink cta={asks.secondary} primary={false} env={{ ...env, mode: 'card', rgb: deck.rgb }} />}
+        <div className="mt-8 flex flex-col items-stretch gap-3 rounded-[24px] p-5 text-center" style={PANE}>
+          <p className={`text-2xl ${display}`}>Ready when you are.</p>
+          <CtaLink cta={asks.primary} primary env={{ ...env, mode: 'card' }} />
+          {asks.secondary !== undefined && <CtaLink cta={asks.secondary} primary={false} env={{ ...env, mode: 'card' }} />}
         </div>
       </main>
     </div>

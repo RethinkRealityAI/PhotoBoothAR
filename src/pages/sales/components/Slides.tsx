@@ -12,8 +12,15 @@
  * Every renderer tolerates missing optional fields — the content is authored
  * by hand and a slide without bullets must still look finished.
  * Speaker notes are NEVER rendered here; the viewer owns that panel.
+ *
+ * Brand v2 (src/styles/brand.css): every deck shares ONE look — the slide is
+ * a flat liquid-glass pane over the periwinkle scene, white ink, Bricolage
+ * for display and Geist for text, sentence case, white pill CTAs. There is no
+ * per-deck accent colour any more; the warm core (--bw-core) is kept for the
+ * deck's progress bar only. Nothing on a stage is set below 14px (it renders
+ * at ~1:1 on a laptop) and nothing on a card below 12px.
  */
-import { useState, type ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { ArrowRight, Camera, Check, Expand, MousePointerClick, Quote as QuoteIcon, X as XIcon } from 'lucide-react';
@@ -37,8 +44,6 @@ export interface DeckCta {
 
 export interface SlideEnv {
   mode: 'stage' | 'card';
-  /** Deck accent "r, g, b". */
-  rgb: string;
   /** Offers for an offer slide, already filtered for the audience. */
   offersFor: (ids: readonly string[] | undefined) => Offer[];
   /** Price shown on a card — publicOfferPrice() on prospect pages. */
@@ -57,27 +62,66 @@ export interface SlideEnv {
 
 const cx = (...parts: (string | false | undefined)[]) => parts.filter(Boolean).join(' ');
 
+// ── Brand v2 ───────────────────────────────────────────────────────────────
+
+/** The display face (Bricolage), lining figures for prices and stats. */
+const DISPLAY = 'font-[family-name:var(--bw-font-display)] [font-variant-numeric:lining-nums_tabular-nums] tracking-[-0.022em]';
+/** Ink on the pane: white, Ink 2 (86%) for body, 80% for captions. Measured
+ *  on the composited pane (PANE below): white ≥7.2:1 and 80% ≥5.2:1 over the
+ *  field the slide sits on; white still 4.9:1 over the scene's brightest glow. */
+const MUTED = 'text-white/[0.86]';
+const FAINT = 'text-white/80';
+/** A card ON the pane: a clear frost and an inset light edge, never a border. */
+const CARD = 'bg-white/[0.07] shadow-[inset_1px_1px_0_rgba(255,255,255,0.34),inset_-1px_-1px_0_rgba(255,255,255,0.08),inset_0_0_0_1px_rgba(255,255,255,0.10)]';
+/** An icon tile / marker: frosted, hairline rim, white glyph. */
+const TILE = 'bg-white/[0.12] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]';
+/** Soft drop under pictures and films (deep indigo, never a coloured bloom). */
+const DROP = '0 30px 70px -34px rgba(22, 18, 78, 0.75)';
+/** A lighter glow of the same hue behind a hero picture. */
+const GLOW = 'radial-gradient(closest-side, rgba(134, 125, 240, 0.55), transparent)';
+const PRIMARY = 'bg-[color:var(--bw-accent)] text-[color:var(--bw-on-accent)] shadow-[0_10px_24px_-12px_rgba(26,23,64,0.5)] hover:bg-[color:var(--bw-accent-hover)] active:bg-[color:var(--bw-accent-pressed)]';
+const SECONDARY = 'border-[1.5px] border-white/70 bg-[rgba(26,23,64,0.12)] text-white hover:border-white hover:bg-[rgba(26,23,64,0.28)]';
+const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent';
+
+/**
+ * The slide pane: brand v2 flat liquid glass (.bw-glass's recipe — indigo
+ * veil, milky frost as an inset fill, a crisp rim brightest top-left), with
+ * a deeper veil than the landing's panel because a slide is dense and sits
+ * over the whole scene, glows included.
+ */
+export const PANE: CSSProperties = {
+  backgroundColor: 'rgba(36, 32, 120, 0.40)',
+  WebkitBackdropFilter: 'blur(36px) saturate(108%)',
+  backdropFilter: 'blur(36px) saturate(108%)',
+  boxShadow: [
+    'inset 1px 1px 0 rgba(255, 255, 255, 0.62)',
+    'inset -1px -1px 0 rgba(255, 255, 255, 0.10)',
+    'inset 0 0 0 1px rgba(255, 255, 255, 0.14)',
+    'inset 3px 3px 10px -6px rgba(255, 255, 255, 0.40)',
+    'inset 0 0 0 100vmax rgba(255, 255, 255, 0.08)',
+  ].join(', '),
+};
+
 // ── Shared atoms ───────────────────────────────────────────────────────────
 
-function Eyebrow({ env, children }: { env: SlideEnv; children: ReactNode }) {
+/** A short line of context with a short rule under it (.bw-eyebrow). */
+function Eyebrow({ env, children, center = false }: { env: SlideEnv; children: ReactNode; center?: boolean }) {
+  const stage = env.mode === 'stage';
   return (
-    <p
-      className={cx(
-        'font-label font-semibold uppercase',
-        env.mode === 'stage' ? 'text-[15px] tracking-[0.3em]' : 'text-[11px] tracking-[0.26em]',
-      )}
-      style={{ color: `rgb(${env.rgb})` }}
-    >
+    <p className={cx('flex flex-col font-medium leading-[1.3] text-white', center ? 'items-center' : 'items-start', stage ? 'gap-3 text-[20px]' : 'gap-2.5 text-[14px]')}>
       {children}
+      <span aria-hidden className={cx('block rounded-full bg-white/70', stage ? 'h-[2px] w-9' : 'h-[2px] w-7')} />
     </p>
   );
 }
 
-function Title({ env, children, size = 'lg', foil = false, center = false }: {
+/** `display` = the cover/close headline (heavier, tighter, .bw-display);
+ *  otherwise a section heading (.bw-h2). Always solid white ink. */
+function Title({ env, children, size = 'lg', display = false, center = false }: {
   env: SlideEnv;
   children: ReactNode;
   size?: 'xl' | 'xlLong' | 'lg' | 'md';
-  foil?: boolean;
+  display?: boolean;
   center?: boolean;
 }) {
   const stage = { xl: 'text-[84px] leading-[1.0]', xlLong: 'text-[70px] leading-[1.02]', lg: 'text-[58px] leading-[1.05]', md: 'text-[46px] leading-[1.08]' }[size];
@@ -85,9 +129,10 @@ function Title({ env, children, size = 'lg', foil = false, center = false }: {
   return (
     <h2
       className={cx(
-        'font-serif [font-variant-numeric:lining-nums_tabular-nums] font-semibold text-balance text-brand-fg',
+        DISPLAY,
+        'text-balance text-white',
+        display ? 'font-[760] tracking-[-0.034em]' : 'font-[700]',
         env.mode === 'stage' ? stage : card,
-        foil && 'text-foil-static',
         center && 'text-center',
         env.mode === 'stage' ? 'mt-4' : 'mt-2',
       )}
@@ -101,7 +146,8 @@ function Body({ env, children, center = false }: { env: SlideEnv; children: Reac
   return (
     <p
       className={cx(
-        'text-pretty text-brand-muted',
+        'text-pretty',
+        MUTED,
         env.mode === 'stage' ? 'mt-5 text-[22px] leading-[1.5]' : 'mt-3 text-[15.5px] leading-relaxed',
         center && 'mx-auto text-center',
       )}
@@ -131,23 +177,29 @@ function SlideImg({ k, env, className = '', fit = 'contain' }: {
         decoding="async"
         draggable={false}
         className={cx('h-full w-full select-none object-contain', className)}
-        style={{ filter: `drop-shadow(0 24px 60px rgba(${env.rgb}, 0.35))` }}
+        style={{ filter: 'drop-shadow(0 24px 40px rgba(22, 18, 78, 0.45))' }}
       />
     );
   }
   // Scenes (and the dark-background Beamy renders): a soft radial mask lets
-  // the picture's own black dissolve into the slide instead of a hard box.
+  // the picture's own black dissolve into the slide instead of a hard box,
+  // and a `lighten` blend over a patch of the pane's own colour (#4A43AE =
+  // PANE over --bw-bg) drops that black out, so it never sits on the glass as
+  // a dark halo. The patch is needed because the slide's entrance animation
+  // isolates its content: there is no pane behind the picture to blend with.
   const beamy = (k ?? '').startsWith('beamy');
   return (
     <div
-      className={cx('relative h-full w-full overflow-hidden', !beamy && 'rounded-[28px] ring-1 ring-white/10', className)}
+      className={cx('relative h-full w-full overflow-hidden', !beamy && 'rounded-[24px] ring-1 ring-white/20', className)}
       style={
         beamy
           ? { maskImage: 'radial-gradient(closest-side, #000 62%, transparent)', WebkitMaskImage: 'radial-gradient(closest-side, #000 62%, transparent)' }
-          : { boxShadow: `0 30px 80px -30px rgba(${env.rgb}, 0.55)` }
+          : { boxShadow: DROP }
       }
     >
+      {beamy && <div aria-hidden className="absolute inset-0 bg-[#4A43AE]" />}
       <img
+        style={beamy ? { position: 'relative', mixBlendMode: 'lighten' } : undefined}
         src={img.src}
         width={img.width}
         height={img.height}
@@ -157,7 +209,7 @@ function SlideImg({ k, env, className = '', fit = 'contain' }: {
         draggable={false}
         className={cx('h-full w-full select-none', fit === 'cover' ? 'object-cover' : 'object-contain')}
       />
-      {!beamy && <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />}
+      {!beamy && <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#1A1740]/35 via-transparent to-transparent" />}
     </div>
   );
 }
@@ -167,7 +219,7 @@ function SlideFilm({ k, env, className = '' }: { k: string | undefined; env: Sli
   const v = salesVideo(k);
   if (v === null) return null;
   return (
-    <div className={cx('overflow-hidden rounded-[24px] ring-1 ring-white/10', className)} style={{ boxShadow: `0 30px 80px -30px rgba(${env.rgb}, 0.6)` }}>
+    <div className={cx('overflow-hidden rounded-[24px] ring-1 ring-white/20', className)} style={{ boxShadow: DROP }}>
       {env.still === true ? (
         <img src={v.poster} alt={v.label} loading={env.eagerImages === true ? 'eager' : 'lazy'} className="block h-auto w-full" draggable={false} />
       ) : (
@@ -179,9 +231,10 @@ function SlideFilm({ k, env, className = '' }: { k: string | undefined; env: Sli
 
 export function CtaLink({ cta, primary, env, className = '' }: { cta: DeckCta; primary: boolean; env: SlideEnv; className?: string }) {
   const cls = cx(
-    'inline-flex min-h-11 items-center justify-center gap-2 rounded-full font-label font-bold uppercase transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]',
-    env.mode === 'stage' ? 'px-9 py-4 text-[15px] tracking-[0.2em]' : 'px-6 py-3 text-[12px] tracking-[0.18em]',
-    primary ? 'bg-foil text-white glow-accent' : 'border border-white/20 bg-white/[0.05] text-brand-fg hover:bg-white/[0.1]',
+    'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-semibold leading-none tracking-[-0.005em] transition active:scale-[0.98]',
+    FOCUS,
+    env.mode === 'stage' ? 'min-h-[60px] px-8 text-[19px]' : 'min-h-12 px-6 text-[15px]',
+    primary ? PRIMARY : SECONDARY,
     className,
   );
   const inner = (
@@ -211,13 +264,13 @@ function Bullets({ env, items, tone = 'check' }: { env: SlideEnv; items: string[
   return (
     <ul className={cx('flex flex-col', stage ? 'mt-7 gap-4' : 'mt-5 gap-3')}>
       {items.map((b, i) => (
-        <li key={i} className={cx('flex items-start text-brand-fg/90', stage ? 'gap-4 text-[21px] leading-snug' : 'gap-3 text-[15px] leading-snug')}>
+        <li key={i} className={cx('flex items-start text-white', stage ? 'gap-4 text-[21px] leading-snug' : 'gap-3 text-[15px] leading-snug')}>
           <span
-            className={cx('mt-0.5 flex shrink-0 items-center justify-center rounded-full', stage ? 'h-8 w-8' : 'h-6 w-6')}
+            className={cx('mt-0.5 flex shrink-0 items-center justify-center rounded-full', stage ? 'h-8 w-8' : 'h-6 w-6', tone === 'check' && TILE)}
             style={
               tone === 'check'
-                ? { background: `rgba(${env.rgb}, 0.16)`, color: `rgb(${env.rgb})`, boxShadow: `inset 0 0 0 1px rgba(${env.rgb}, 0.35)` }
-                : { background: 'rgba(255,120,120,0.10)', color: '#ff9a9a', boxShadow: 'inset 0 0 0 1px rgba(255,120,120,0.28)' }
+                ? undefined
+                : { background: 'rgba(255, 196, 202, 0.12)', color: 'var(--bw-danger)', boxShadow: 'inset 0 0 0 1px rgba(255, 196, 202, 0.34)' }
             }
             aria-hidden
           >
@@ -235,10 +288,10 @@ function Footnotes({ env, stats }: { env: SlideEnv; stats: SlideStat[] | undefin
   const sourced = (stats ?? []).map((s, i) => ({ s, i })).filter(({ s }) => s.source !== undefined && s.source !== '');
   if (sourced.length === 0) return null;
   return (
-    <ol className={cx('text-brand-muted/60', env.mode === 'stage' ? 'mt-auto flex flex-wrap gap-x-6 gap-y-1 pt-6 text-[12.5px]' : 'mt-5 flex flex-col gap-1 text-[11px]')}>
+    <ol className={cx(FAINT, env.mode === 'stage' ? 'mt-auto flex flex-wrap gap-x-6 gap-y-1 pt-6 text-[14px]' : 'mt-5 flex flex-col gap-1 text-[12px]')}>
       {sourced.map(({ s, i }) => (
         <li key={i}>
-          <sup className="mr-1">{i + 1}</sup>
+          <sup className={cx('mr-1', env.mode === 'stage' ? 'text-[14px]' : 'text-[12px]')}>{i + 1}</sup>
           {s.source}
         </li>
       ))}
@@ -260,7 +313,7 @@ function Cover({ slide, env }: { slide: Slide; env: SlideEnv }) {
       <div className="flex flex-col">
         <div className="mx-auto aspect-square w-56 max-w-full"><SlideImg k={img} env={env} /></div>
         {slide.eyebrow !== undefined && <div className="mt-4"><Eyebrow env={env}>{slide.eyebrow}</Eyebrow></div>}
-        <Title env={env} size={slide.title.length > 26 ? 'xlLong' : 'xl'} foil>{slide.title}</Title>
+        <Title env={env} size={slide.title.length > 26 ? 'xlLong' : 'xl'} display>{slide.title}</Title>
         {slide.body !== undefined && <Body env={env}>{slide.body}</Body>}
         {slide.bullets !== undefined && slide.bullets.length > 0 && <Bullets env={env} items={slide.bullets} />}
       </div>
@@ -270,12 +323,12 @@ function Cover({ slide, env }: { slide: Slide; env: SlideEnv }) {
     <div className="grid h-full grid-cols-[1.15fr_0.85fr] items-center gap-10">
       <div className="flex flex-col">
         {slide.eyebrow !== undefined && <Eyebrow env={env}>{slide.eyebrow}</Eyebrow>}
-        <Title env={env} size={slide.title.length > 26 ? 'xlLong' : 'xl'} foil>{slide.title}</Title>
+        <Title env={env} size={slide.title.length > 26 ? 'xlLong' : 'xl'} display>{slide.title}</Title>
         {slide.body !== undefined && <Body env={env}>{slide.body}</Body>}
         {slide.bullets !== undefined && slide.bullets.length > 0 && <Bullets env={env} items={slide.bullets} />}
       </div>
       <div className="relative flex h-[540px] items-center justify-center">
-        <div aria-hidden className="absolute inset-10 rounded-full blur-3xl" style={{ background: `radial-gradient(closest-side, rgba(${env.rgb},0.35), transparent)` }} />
+        <div aria-hidden className="absolute inset-10 rounded-full blur-3xl" style={{ background: GLOW }} />
         <SlideImg k={img} env={env} fit="cover" className="relative" />
       </div>
     </div>
@@ -290,12 +343,12 @@ function Problem({ slide, env }: { slide: Slide; env: SlideEnv }) {
       {points.map((p, i) => (
         <li
           key={i}
-          className={cx('flex items-start rounded-2xl border border-white/10 bg-white/[0.035]', stage ? 'gap-5 px-6 py-5' : 'gap-3 px-4 py-3.5')}
+          className={cx('flex items-start rounded-[20px]', CARD, stage ? 'gap-5 px-6 py-5' : 'gap-3 px-4 py-3.5')}
         >
-          <span className={cx('font-serif [font-variant-numeric:lining-nums_tabular-nums] font-semibold text-[#ff9a9a]/90', stage ? 'text-[30px] leading-none' : 'text-[20px] leading-none')}>
+          <span className={cx(DISPLAY, 'font-[300] text-white/80', stage ? 'text-[30px] leading-none' : 'text-[20px] leading-none')}>
             {String(i + 1).padStart(2, '0')}
           </span>
-          <span className={cx('text-brand-fg/90', stage ? 'text-[20px] leading-snug' : 'text-[15px] leading-snug')}>{p}</span>
+          <span className={cx('text-white', stage ? 'text-[20px] leading-snug' : 'text-[15px] leading-snug')}>{p}</span>
         </li>
       ))}
     </ol>
@@ -330,11 +383,11 @@ function ItemsList({ slide, env }: { slide: Slide; env: SlideEnv }) {
       {slide.items.map((it, i) => {
         const Icon = iconFor(it.icon);
         return (
-          <div key={i} className={cx('flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.035]', stage ? 'p-4' : 'p-3.5')}>
-            <Icon className={cx('shrink-0', stage ? 'h-6 w-6' : 'h-5 w-5')} style={{ color: `rgb(${env.rgb})` }} aria-hidden />
+          <div key={i} className={cx('flex items-start gap-3 rounded-[20px]', CARD, stage ? 'p-4' : 'p-3.5')}>
+            <Icon className={cx('shrink-0 text-white', stage ? 'h-6 w-6' : 'h-5 w-5')} strokeWidth={1.5} aria-hidden />
             <div>
-              <p className={cx('font-semibold text-brand-fg', stage ? 'text-[18px]' : 'text-[14.5px]')}>{it.title}</p>
-              {it.body !== undefined && <p className={cx('mt-1 text-brand-muted', stage ? 'text-[15px] leading-snug' : 'text-[13.5px] leading-snug')}>{it.body}</p>}
+              <p className={cx('font-semibold text-white', stage ? 'text-[18px]' : 'text-[14.5px]')}>{it.title}</p>
+              {it.body !== undefined && <p className={cx('mt-1', MUTED, stage ? 'text-[15px] leading-snug' : 'text-[13.5px] leading-snug')}>{it.body}</p>}
             </div>
           </div>
         );
@@ -394,7 +447,7 @@ function How({ slide, env }: { slide: Slide; env: SlideEnv }) {
   return (
     <div className={cx('flex flex-col', stage && 'h-full')}>
       <div className={cx(stage && 'text-center')}>
-        {slide.eyebrow !== undefined && <Eyebrow env={env}>{slide.eyebrow}</Eyebrow>}
+        {slide.eyebrow !== undefined && <Eyebrow env={env} center={stage}>{slide.eyebrow}</Eyebrow>}
         <Title env={env} center={stage}>{slide.title}</Title>
         {slide.body !== undefined && <Body env={env} center={stage}>{slide.body}</Body>}
       </div>
@@ -402,23 +455,23 @@ function How({ slide, env }: { slide: Slide; env: SlideEnv }) {
         {steps.map((s, i) => {
           const art = STEP_ART[i];
           return (
-            <li key={i} className={cx('relative flex', stage ? 'flex-col items-center text-center' : 'items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.035] p-3')}>
+            <li key={i} className={cx('relative flex', stage ? 'flex-col items-center text-center' : cx('items-center gap-4 rounded-[20px] p-3', CARD))}>
               <div className={cx('relative shrink-0', stage ? 'h-[230px] w-[230px]' : 'h-20 w-20')}>
                 {art !== undefined ? <SlideImg k={art} env={env} /> : null}
                 <span
-                  className={cx('absolute flex items-center justify-center rounded-full bg-foil font-label font-bold text-white', stage ? '-left-1 top-2 h-11 w-11 text-[18px]' : '-left-1 -top-1 h-7 w-7 text-[12px]')}
+                  className={cx('absolute flex items-center justify-center rounded-full bg-[color:var(--bw-accent)] font-semibold tabular-nums text-[color:var(--bw-on-accent)] shadow-[0_8px_20px_-10px_rgba(26,23,64,0.6)]', stage ? '-left-1 top-2 h-11 w-11 text-[18px]' : '-left-1 -top-1 h-7 w-7 text-[13px]')}
                   aria-hidden
                 >
                   {i + 1}
                 </span>
               </div>
               <div className={stage ? 'mt-3' : ''}>
-                <p className={cx('font-serif [font-variant-numeric:lining-nums_tabular-nums] font-semibold text-brand-fg', stage ? 'text-[30px]' : 'text-[20px]')}>
+                <p className={cx(DISPLAY, 'font-[680] text-white', stage ? 'text-[30px]' : 'text-[20px]')}>
                   <span className="sr-only">Step {i + 1}: </span>
                   {s.title}
                 </p>
                 {s.body !== undefined && (
-                  <p className={cx('text-brand-muted', stage ? 'mt-2 text-[17px] leading-snug' : 'mt-1 text-[14px] leading-snug')}>{s.body}</p>
+                  <p className={cx(MUTED, stage ? 'mt-2 text-[17px] leading-snug' : 'mt-1 text-[14px] leading-snug')}>{s.body}</p>
                 )}
               </div>
             </li>
@@ -441,8 +494,8 @@ function Features({ slide, env }: { slide: Slide; env: SlideEnv }) {
       <Title env={env} size="md">{slide.title}</Title>
       {slide.body !== undefined && <Body env={env}>{slide.body}</Body>}
       {interactive && (
-        <p className={cx('flex items-center gap-2 text-brand-muted/80', stage ? 'mt-3 text-[15px]' : 'mt-2 text-[12.5px]')}>
-          <MousePointerClick className={stage ? 'h-4 w-4' : 'h-3.5 w-3.5'} style={{ color: `rgb(${env.rgb})` }} aria-hidden />
+        <p className={cx('flex items-center gap-2', FAINT, stage ? 'mt-3 text-[15px]' : 'mt-2 text-[13px]')}>
+          <MousePointerClick className={cx('text-white', stage ? 'h-4 w-4' : 'h-3.5 w-3.5')} strokeWidth={1.75} aria-hidden />
           Tap any feature to see it
         </p>
       )}
@@ -456,39 +509,46 @@ function Features({ slide, env }: { slide: Slide; env: SlideEnv }) {
               key={i}
               {...(opens ? { type: 'button' as const, onClick: () => setOpen(i), 'aria-haspopup': 'dialog' as const } : {})}
               className={cx(
-                'relative rounded-[22px] border border-white/10 text-left',
+                'relative rounded-[20px] text-left',
+                CARD,
                 stage ? 'p-6' : 'p-4',
-                opens && 'group cursor-pointer transition hover:-translate-y-0.5 hover:border-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] active:scale-[0.99]',
+                opens && cx('group cursor-pointer transition hover:-translate-y-0.5 hover:bg-white/[0.11] active:scale-[0.99]', FOCUS),
               )}
-              style={{ background: `linear-gradient(160deg, rgba(${env.rgb},0.09), rgba(255,255,255,0.02) 55%)` }}
             >
               {opens && (
                 <span
-                  className={cx('absolute flex items-center gap-1 rounded-full font-label font-semibold uppercase opacity-70 transition group-hover:opacity-100', stage ? 'right-4 top-4 px-2.5 py-1 text-[11px] tracking-[0.16em]' : 'right-3 top-3 px-2 py-0.5 text-[10px] tracking-[0.14em]')}
-                  style={{ background: `rgba(${env.rgb},0.16)`, color: `rgb(${env.rgb})` }}
+                  className={cx('absolute flex items-center gap-1 rounded-full bg-white/[0.14] font-medium text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)] transition group-hover:bg-white/[0.22]', stage ? 'right-4 top-4 px-3 py-1 text-[14px]' : 'right-3 top-3 px-2.5 py-0.5 text-[12px]')}
                   aria-hidden
                 >
-                  See it <ArrowRight className="h-3 w-3" />
+                  See it <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.75} />
                 </span>
               )}
               <span
-                className={cx('flex items-center justify-center rounded-xl', stage ? 'h-12 w-12' : 'h-10 w-10')}
-                style={{ background: `rgba(${env.rgb},0.16)`, boxShadow: `inset 0 0 0 1px rgba(${env.rgb},0.35)` }}
+                className={cx('flex items-center justify-center rounded-[12px]', TILE, stage ? 'h-12 w-12' : 'h-10 w-10')}
                 aria-hidden
               >
-                <Icon className={stage ? 'h-6 w-6' : 'h-5 w-5'} style={{ color: `rgb(${env.rgb})` }} />
+                <Icon className={stage ? 'h-6 w-6' : 'h-5 w-5'} strokeWidth={1.5} />
               </span>
-              <p className={cx('font-semibold text-brand-fg', stage ? 'mt-4 text-[21px]' : 'mt-3 text-[15.5px]')}>{it.title}</p>
+              <p className={cx('font-semibold text-white', stage ? 'mt-4 text-[21px]' : 'mt-3 text-[15.5px]')}>{it.title}</p>
               {it.body !== undefined && (
-                <p className={cx('text-brand-muted', stage ? 'mt-2 text-[16px] leading-snug' : 'mt-1 text-[13.5px] leading-snug')}>{it.body}</p>
+                <p className={cx(MUTED, stage ? 'mt-2 text-[16px] leading-snug' : 'mt-1 text-[13.5px] leading-snug')}>{it.body}</p>
               )}
             </Tag>
           );
         })}
       </div>
-      {open !== null && <ShowcaseModal items={items} start={open} rgb={env.rgb} onClose={() => setOpen(null)} />}
+      {open !== null && <ShowcaseModal items={items} start={open} onClose={() => setOpen(null)} />}
     </div>
   );
+}
+
+/** Long stat values ("₦396.5bn") step down so the display face, which is
+ *  wider than a serif, never runs past its card. */
+function statClass(value: string, stage: boolean): string {
+  const long = value.length > 6;
+  const vlong = value.length > 9;
+  if (!stage) return vlong ? 'text-[30px]' : long ? 'text-[34px]' : 'text-[40px]';
+  return vlong ? 'text-[44px]' : long ? 'text-[52px]' : 'text-[64px]';
 }
 
 function Proof({ slide, env }: { slide: Slide; env: SlideEnv }) {
@@ -502,12 +562,12 @@ function Proof({ slide, env }: { slide: Slide; env: SlideEnv }) {
       {stats.length > 0 && (
         <dl className={cx('grid', stage ? `mt-12 gap-6 ${stats.length >= 4 ? 'grid-cols-4' : stats.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}` : 'mt-6 grid-cols-1 gap-3 min-[420px]:grid-cols-2')}>
           {stats.map((s, i) => (
-            <div key={i} className={cx('flex flex-col-reverse rounded-[22px] border border-white/10 bg-white/[0.03]', stage ? 'p-7' : 'p-4')}>
-              <dt className={cx('text-brand-muted', stage ? 'mt-3 text-[17px] leading-snug' : 'mt-1.5 text-[13.5px] leading-snug')}>
+            <div key={i} className={cx('flex flex-col-reverse rounded-[20px]', CARD, stage ? 'p-7' : 'p-4')}>
+              <dt className={cx(MUTED, stage ? 'mt-3 text-[17px] leading-snug' : 'mt-1.5 text-[13.5px] leading-snug')}>
                 {s.label}
-                {hasSource(s) && <sup className="ml-0.5 text-brand-muted/60">{i + 1}</sup>}
+                {hasSource(s) && <sup className={cx('ml-0.5 text-white/80', stage ? 'text-[14px]' : 'text-[12px]')}>{i + 1}</sup>}
               </dt>
-              <dd className={cx('font-serif [font-variant-numeric:lining-nums_tabular-nums] font-semibold text-foil-static', stage ? 'text-[64px] leading-none' : 'text-[40px] leading-none')}>{s.value}</dd>
+              <dd className={cx(DISPLAY, 'font-[720] leading-none text-white', statClass(s.value, stage))}>{s.value}</dd>
             </div>
           ))}
         </dl>
@@ -524,7 +584,7 @@ function Proof({ slide, env }: { slide: Slide; env: SlideEnv }) {
     <div className="grid h-full grid-cols-[1.2fr_0.8fr] items-center gap-10">
       {content}
       <div className="relative h-[540px]">
-        <div aria-hidden className="absolute inset-8 rounded-full blur-3xl" style={{ background: `radial-gradient(closest-side, rgba(${env.rgb},0.30), transparent)` }} />
+        <div aria-hidden className="absolute inset-8 rounded-full blur-3xl" style={{ background: GLOW }} />
         <SlideImg k={slide.image} env={env} fit="cover" className="relative" />
       </div>
     </div>
@@ -548,7 +608,7 @@ function OfferSlide({ slide, env }: { slide: Slide; env: SlideEnv }) {
   return (
     <div className={cx('flex flex-col', stage && 'h-full')}>
       <div className={cx(stage && 'text-center')}>
-        {slide.eyebrow !== undefined && <Eyebrow env={env}>{slide.eyebrow}</Eyebrow>}
+        {slide.eyebrow !== undefined && <Eyebrow env={env} center={stage}>{slide.eyebrow}</Eyebrow>}
         <Title env={env} size="md" center={stage}>{slide.title}</Title>
         {slide.body !== undefined && <Body env={env} center={stage}>{slide.body}</Body>}
       </div>
@@ -561,30 +621,30 @@ function OfferSlide({ slide, env }: { slide: Slide; env: SlideEnv }) {
           return (
             <div
               key={o.id}
-              className={cx('relative flex min-w-0 flex-col rounded-[24px] border', stage ? (many ? 'p-5' : 'p-7') : 'p-5')}
-              style={{
-                borderColor: featured ? `rgba(${env.rgb},0.55)` : 'rgba(255,255,255,0.10)',
-                background: featured
-                  ? `linear-gradient(170deg, rgba(${env.rgb},0.16), rgba(255,255,255,0.02) 60%)`
-                  : 'rgba(255,255,255,0.03)',
-                boxShadow: featured ? `0 24px 70px -30px rgba(${env.rgb},0.7)` : undefined,
-              }}
+              className={cx(
+                'relative flex min-w-0 flex-col rounded-[20px]',
+                // Featured: a brighter frost and a full white rim (still flat glass).
+                featured
+                  ? 'bg-white/[0.12] shadow-[inset_0_0_0_1.5px_rgba(255,255,255,0.72),0_24px_50px_-28px_rgba(22,18,78,0.7)]'
+                  : CARD,
+                stage ? (many ? 'p-5' : 'p-7') : 'p-5',
+              )}
             >
               {env.placeholderBadges && o.placeholder && (
-                <span className="absolute right-4 top-4 rounded-full border border-amber-300/40 bg-amber-300/10 px-2.5 py-1 font-label text-[10px] font-bold uppercase tracking-[0.16em] text-amber-200">
+                <span className="absolute right-4 top-4 rounded-full bg-[rgba(255,197,107,0.14)] px-2.5 py-1 text-[12px] font-semibold text-[color:var(--bw-core)] shadow-[inset_0_0_0_1px_rgba(255,197,107,0.45)]">
                   Placeholder
                 </span>
               )}
-              <p className={cx('font-semibold leading-snug text-brand-fg/90', stage ? 'text-[16px]' : 'text-[14px]', env.placeholderBadges && o.placeholder && 'pr-24')}>{o.name}</p>
-              <p className={cx('break-words font-serif [font-variant-numeric:lining-nums_tabular-nums] font-semibold leading-[1.05] text-brand-fg', priceClass(env.priceFor(o), stage, many))}>
+              <p className={cx('font-semibold leading-snug text-white', stage ? 'text-[16px]' : 'text-[14px]', env.placeholderBadges && o.placeholder && 'pr-24')}>{o.name}</p>
+              <p className={cx('break-words font-[720] leading-[1.05] text-white', DISPLAY, priceClass(env.priceFor(o), stage, many))}>
                 {env.priceFor(o)}
               </p>
-              <p className={cx('text-brand-muted/80', stage ? 'mt-1 text-[14px]' : 'mt-1 text-[12.5px]')}>{o.unit}</p>
-              <p className={cx('text-brand-fg/85', stage ? (many ? 'mt-3 text-[15px] leading-snug' : 'mt-4 text-[16px] leading-snug') : 'mt-3 text-[14px] leading-snug')}>{o.blurb}</p>
+              <p className={cx(FAINT, stage ? 'mt-1 text-[14px]' : 'mt-1 text-[13px]')}>{o.unit}</p>
+              <p className={cx('text-white', stage ? (many ? 'mt-3 text-[15px] leading-snug' : 'mt-4 text-[16px] leading-snug') : 'mt-3 text-[14px] leading-snug')}>{o.blurb}</p>
               <ul className={cx('flex flex-col', stage ? 'mt-4 gap-2' : 'mt-3 gap-1.5')}>
                 {o.features.slice(0, many ? 3 : 5).map((f, j) => (
-                  <li key={j} className={cx('flex items-start gap-2 text-brand-muted', stage ? 'text-[14.5px] leading-snug' : 'text-[13px] leading-snug')}>
-                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: `rgb(${env.rgb})` }} aria-hidden />
+                  <li key={j} className={cx('flex items-start gap-2', MUTED, stage ? 'text-[14.5px] leading-snug' : 'text-[13px] leading-snug')}>
+                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-white" strokeWidth={2.25} aria-hidden />
                     {f}
                   </li>
                 ))}
@@ -594,7 +654,7 @@ function OfferSlide({ slide, env }: { slide: Slide; env: SlideEnv }) {
         })}
       </div>
       {slide.bullets !== undefined && slide.bullets.length > 0 && (
-        <p className={cx('text-brand-muted/70', stage ? 'mt-5 text-center text-[14px]' : 'mt-4 text-[12.5px]')}>{slide.bullets.join(' · ')}</p>
+        <p className={cx(FAINT, stage ? 'mt-5 text-center text-[14px]' : 'mt-4 text-[13px]')}>{slide.bullets.join(' · ')}</p>
       )}
     </div>
   );
@@ -614,23 +674,19 @@ function Roi({ slide, env }: { slide: Slide; env: SlideEnv }) {
     </div>
   );
   const table = (
-    <div className="overflow-hidden rounded-[24px] border border-white/10 bg-white/[0.03]">
+    <div className={cx('overflow-hidden rounded-[20px]', CARD)}>
       <table className="w-full border-collapse">
         <caption className="sr-only">{slide.title}</caption>
         <tbody>
           {rows.map((r, i) => {
             const total = rows.length > 1 && i === rows.length - 1;
             return (
-              <tr
-                key={i}
-                className={cx(i > 0 && 'border-t border-white/[0.07]')}
-                style={total ? { background: `linear-gradient(90deg, rgba(${env.rgb},0.16), rgba(${env.rgb},0.04))` } : undefined}
-              >
-                <th scope="row" className={cx('text-left font-normal', total ? 'font-semibold text-brand-fg' : 'text-brand-muted', stage ? 'px-7 py-4 text-[18px]' : 'px-4 py-3 text-[13.5px]')}>
+              <tr key={i} className={cx(i > 0 && 'border-t border-white/[0.14]', total && 'bg-white/[0.10]')}>
+                <th scope="row" className={cx('text-left font-normal', total ? 'font-semibold text-white' : MUTED, stage ? 'px-7 py-4 text-[18px]' : 'px-4 py-3 text-[13.5px]')}>
                   {r.label}
-                  {r.sourced && <sup className="ml-0.5 text-brand-muted/60">{r.idx + 1}</sup>}
+                  {r.sourced && <sup className={cx('ml-0.5 text-white/80', stage ? 'text-[14px]' : 'text-[12px]')}>{r.idx + 1}</sup>}
                 </th>
-                <td className={cx('text-right font-serif [font-variant-numeric:lining-nums_tabular-nums] font-semibold', total ? 'text-foil-static' : 'text-brand-fg', stage ? (total ? 'px-7 py-4 text-[34px]' : 'px-7 py-4 text-[26px]') : (total ? 'px-4 py-3 text-[24px]' : 'px-4 py-3 text-[18px]'))}>
+                <td className={cx('text-right text-white', DISPLAY, total ? 'font-[760]' : 'font-[680]', stage ? (total ? 'px-7 py-4 text-[34px]' : 'px-7 py-4 text-[26px]') : (total ? 'px-4 py-3 text-[24px]' : 'px-4 py-3 text-[18px]'))}>
                   {r.value}
                 </td>
               </tr>
@@ -641,7 +697,7 @@ function Roi({ slide, env }: { slide: Slide; env: SlideEnv }) {
     </div>
   );
   const assumptions = slide.bullets !== undefined && slide.bullets.length > 0 && (
-    <ul className={cx('text-brand-muted/65', stage ? 'mt-4 flex flex-col gap-1 text-[13.5px]' : 'mt-3 flex flex-col gap-1 text-[12px]')}>
+    <ul className={cx(FAINT, stage ? 'mt-4 flex flex-col gap-1 text-[14px]' : 'mt-3 flex flex-col gap-1 text-[12px]')}>
       {slide.bullets.map((b, i) => <li key={i}>· {b}</li>)}
     </ul>
   );
@@ -676,12 +732,12 @@ function QuoteSlide({ slide, env }: { slide: Slide; env: SlideEnv }) {
   if (salesVideo(slide.video) !== null) {
     return (
       <figure className={cx('flex flex-col items-center text-center', stage && 'h-full justify-center')}>
-        {slide.eyebrow !== undefined && <Eyebrow env={env}>{slide.eyebrow}</Eyebrow>}
-        <blockquote className={cx('font-serif [font-variant-numeric:lining-nums_tabular-nums] font-semibold text-balance text-foil-static', stage ? 'text-[56px] leading-[1.08]' : 'text-[30px] leading-[1.15]')}>
+        {slide.eyebrow !== undefined && <Eyebrow env={env} center>{slide.eyebrow}</Eyebrow>}
+        <blockquote className={cx(DISPLAY, 'font-[700] text-balance text-white', stage ? 'text-[56px] leading-[1.08]' : 'text-[30px] leading-[1.15]')}>
           {slide.title}
         </blockquote>
         {slide.body !== undefined && (
-          <figcaption className={cx('text-brand-muted', stage ? 'mt-3 text-[19px]' : 'mt-3 text-[14px]')}>{slide.body}</figcaption>
+          <figcaption className={cx(MUTED, stage ? 'mt-3 text-[19px]' : 'mt-3 text-[14px]')}>{slide.body}</figcaption>
         )}
         <SlideFilm k={slide.video} env={env} className={stage ? 'mt-7 w-[660px]' : 'mt-5 w-full'} />
       </figure>
@@ -692,14 +748,14 @@ function QuoteSlide({ slide, env }: { slide: Slide; env: SlideEnv }) {
       {slide.image !== undefined && salesImage(slide.image) !== null ? (
         <div className={stage ? 'mb-4 h-[150px] w-[150px]' : 'mb-3 h-24 w-24'}><SlideImg k={slide.image} env={env} /></div>
       ) : (
-        <QuoteIcon className={stage ? 'h-14 w-14' : 'h-9 w-9'} style={{ color: `rgb(${env.rgb})` }} aria-hidden />
+        <QuoteIcon className={cx('text-white/80', stage ? 'h-14 w-14' : 'h-9 w-9')} strokeWidth={1.25} aria-hidden />
       )}
-      {slide.eyebrow !== undefined && <div className="mt-3"><Eyebrow env={env}>{slide.eyebrow}</Eyebrow></div>}
-      <blockquote className={cx('font-serif [font-variant-numeric:lining-nums_tabular-nums] font-semibold text-balance text-foil-static', stage ? 'mt-5 text-[60px] leading-[1.1]' : 'mt-3 text-[30px] leading-[1.15]')}>
+      {slide.eyebrow !== undefined && <div className="mt-3"><Eyebrow env={env} center>{slide.eyebrow}</Eyebrow></div>}
+      <blockquote className={cx(DISPLAY, 'font-[700] text-balance text-white', stage ? 'mt-5 text-[60px] leading-[1.1]' : 'mt-3 text-[30px] leading-[1.15]')}>
         {slide.title}
       </blockquote>
       {slide.body !== undefined && (
-        <figcaption className={cx('text-brand-muted', stage ? 'mt-7 text-[20px]' : 'mt-4 text-[14px]')}>{slide.body}</figcaption>
+        <figcaption className={cx(MUTED, stage ? 'mt-7 text-[20px]' : 'mt-4 text-[14px]')}>{slide.body}</figcaption>
       )}
     </figure>
   );
@@ -714,8 +770,8 @@ function DemoCollage({ kitId, env, small = false }: { kitId: string | undefined;
       {kit.frames.slice(0, 3).map((f, i) => (
         <div
           key={f.id}
-          className={cx('relative aspect-[9/16] overflow-hidden rounded-2xl bg-black ring-1 ring-white/15', small ? 'w-[30%] max-w-[120px]' : 'w-[180px]', i === 1 ? 'z-10 -mx-3 mb-4' : '')}
-          style={{ transform: `rotate(${(i - 1) * 6}deg)`, boxShadow: `0 24px 60px -24px rgba(${env.rgb},0.7)` }}
+          className={cx('relative aspect-[9/16] overflow-hidden rounded-2xl bg-[color:var(--bw-deep-2)] ring-1 ring-white/25', small ? 'w-[30%] max-w-[120px]' : 'w-[180px]', i === 1 ? 'z-10 -mx-3 mb-4' : '')}
+          style={{ transform: `rotate(${(i - 1) * 6}deg)`, boxShadow: DROP }}
         >
           <img src={salesImage(photos[i])?.src} alt="" loading={env.eagerImages === true ? 'eager' : 'lazy'} className="absolute inset-0 h-full w-full object-cover" draggable={false} />
           <img src={f.thumb} alt={`${f.name} frame`} loading={env.eagerImages === true ? 'eager' : 'lazy'} className="absolute inset-0 h-full w-full object-cover" draggable={false} />
@@ -745,9 +801,9 @@ function Demo({ slide, env }: { slide: Slide; env: SlideEnv }) {
         {env.still !== true && (
           <Link
             to={path}
-            className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-foil px-6 font-label text-[12px] font-bold uppercase tracking-[0.18em] text-white glow-accent"
+            className={cx('mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-full px-6 text-[15px] font-semibold leading-none transition active:scale-[0.98]', PRIMARY, FOCUS)}
           >
-            <Camera className="h-4 w-4" aria-hidden /> Try the {kit.label.toLowerCase()} booth
+            <Camera className="h-4 w-4" strokeWidth={1.75} aria-hidden /> Try the {kit.label.toLowerCase()} booth
           </Link>
         )}
       </div>
@@ -761,16 +817,16 @@ function Demo({ slide, env }: { slide: Slide; env: SlideEnv }) {
         <div className="mt-7 flex items-center gap-5">
           <div className="rounded-2xl bg-white p-2.5"><QRCodeSVG value={absolute} size={112} level="M" /></div>
           <div className="flex flex-col gap-3">
-            <p className="text-[16px] leading-snug text-brand-muted">Scan to try it on<br />your own phone</p>
+            <p className={cx('text-[16px] leading-snug', MUTED)}>Scan to try it on<br />your own phone</p>
             {env.still !== true && (
-              <a href={path} target="_blank" rel="noopener" className="inline-flex min-h-11 items-center gap-2 self-start rounded-full border border-white/20 bg-white/[0.05] px-5 font-label text-[12px] font-bold uppercase tracking-[0.16em] text-brand-fg hover:bg-white/[0.1]">
-                <Expand className="h-4 w-4" aria-hidden /> Full screen
+              <a href={path} target="_blank" rel="noopener" className={cx('inline-flex min-h-11 items-center gap-2 self-start rounded-full px-5 text-[15px] font-semibold leading-none transition active:scale-[0.98]', SECONDARY, FOCUS)}>
+                <Expand className="h-4 w-4" strokeWidth={1.75} aria-hidden /> Full screen
               </a>
             )}
           </div>
         </div>
       </div>
-      <div className="relative h-[590px] overflow-hidden rounded-[26px] border border-white/10 bg-black" style={{ boxShadow: `0 40px 100px -30px rgba(${env.rgb},0.65)` }}>
+      <div className="relative h-[590px] overflow-hidden rounded-[24px] bg-[color:var(--bw-deep-2)] ring-1 ring-white/20" style={{ boxShadow: DROP }}>
         {env.still === true ? (
           <div className="flex h-full items-center justify-center"><DemoCollage kitId={kit.id} env={env} /></div>
         ) : (
@@ -798,10 +854,9 @@ function Cta({ slide, env }: { slide: Slide; env: SlideEnv }) {
   const steps = slide.bullets !== undefined && slide.bullets.length > 0 && (
     <ol className={cx('flex flex-col', stage ? 'mt-8 gap-3' : 'mt-5 gap-2.5')}>
       {slide.bullets.map((b, i) => (
-        <li key={i} className={cx('flex items-center text-brand-fg/90', stage ? 'gap-4 text-[20px]' : 'gap-3 text-[15px]')}>
+        <li key={i} className={cx('flex items-center text-white', stage ? 'gap-4 text-[20px]' : 'gap-3 text-[15px]')}>
           <span
-            className={cx('flex shrink-0 items-center justify-center rounded-full font-label font-bold', stage ? 'h-9 w-9 text-[15px]' : 'h-7 w-7 text-[12px]')}
-            style={{ background: `rgba(${env.rgb},0.16)`, color: `rgb(${env.rgb})`, boxShadow: `inset 0 0 0 1px rgba(${env.rgb},0.35)` }}
+            className={cx('flex shrink-0 items-center justify-center rounded-full font-semibold tabular-nums', TILE, stage ? 'h-9 w-9 text-[16px]' : 'h-7 w-7 text-[13px]')}
             aria-hidden
           >
             {i + 1}
@@ -812,14 +867,14 @@ function Cta({ slide, env }: { slide: Slide; env: SlideEnv }) {
     </ol>
   );
   const contact = env.contactLine !== '' && (
-    <p className={cx('text-brand-muted/75', stage ? 'mt-6 text-[16px]' : 'mt-4 text-[13px]')}>{env.contactLine}</p>
+    <p className={cx(FAINT, stage ? 'mt-6 text-[16px]' : 'mt-4 text-[13px]')}>{env.contactLine}</p>
   );
   if (!stage) {
     return (
       <div className="flex flex-col">
         <div className="mx-auto aspect-square w-44 max-w-full"><SlideImg k={img} env={env} fit="cover" /></div>
         {slide.eyebrow !== undefined && <div className="mt-3"><Eyebrow env={env}>{slide.eyebrow}</Eyebrow></div>}
-        <Title env={env} size="lg" foil>{slide.title}</Title>
+        <Title env={env} size="lg" display>{slide.title}</Title>
         {slide.body !== undefined && <Body env={env}>{slide.body}</Body>}
         {steps}
         {buttons}
@@ -831,14 +886,14 @@ function Cta({ slide, env }: { slide: Slide; env: SlideEnv }) {
     <div className="grid h-full grid-cols-[1.25fr_0.75fr] items-center gap-10">
       <div className="flex flex-col">
         {slide.eyebrow !== undefined && <Eyebrow env={env}>{slide.eyebrow}</Eyebrow>}
-        <Title env={env} size={slide.title.length > 26 ? 'xlLong' : 'xl'} foil>{slide.title}</Title>
+        <Title env={env} size={slide.title.length > 26 ? 'xlLong' : 'xl'} display>{slide.title}</Title>
         {slide.body !== undefined && <Body env={env}>{slide.body}</Body>}
         {steps}
         {buttons}
         {contact}
       </div>
       <div className="relative h-[500px]">
-        <div aria-hidden className="absolute inset-8 rounded-full blur-3xl" style={{ background: `radial-gradient(closest-side, rgba(${env.rgb},0.32), transparent)` }} />
+        <div aria-hidden className="absolute inset-8 rounded-full blur-3xl" style={{ background: GLOW }} />
         <SlideImg k={img} env={env} fit="cover" className="relative" />
       </div>
     </div>
@@ -859,13 +914,13 @@ const LAYOUTS: Record<Slide['kind'], (p: { slide: Slide; env: SlideEnv }) => Rea
   cta: Cta,
 };
 
-/** The slide's backdrop: void black, the deck's accent pooled in two corners. */
-function backdrop(rgb: string): string {
-  return [
-    `radial-gradient(90% 70% at 100% 0%, rgba(${rgb},0.20), transparent 60%)`,
-    `radial-gradient(70% 60% at 0% 100%, rgba(124,108,247,0.14), transparent 60%)`,
-    'linear-gradient(180deg, #070912, #05060B)',
-  ].join(',');
+/** The Beamwall wordmark in the slide chrome (.bw-wordmark: display face, flat white). */
+function Wordmark({ size }: { size: number }) {
+  return (
+    <span className="font-[family-name:var(--bw-font-display)] font-[750] leading-none tracking-[-0.035em] text-white" style={{ fontSize: size }}>
+      Beamwall
+    </span>
+  );
 }
 
 /**
@@ -890,12 +945,12 @@ export function SlideView({
     return (
       <article
         aria-label={`Slide ${index + 1} of ${total}: ${slide.title}`}
-        className="relative overflow-hidden rounded-[28px] border border-white/10 px-5 pb-7 pt-6 shadow-[0_30px_80px_-40px_rgba(0,0,0,0.9)]"
-        style={{ background: backdrop(env.rgb) }}
+        className="relative overflow-hidden rounded-[24px] px-5 pb-7 pt-6 text-white shadow-[0_30px_60px_-36px_rgba(22,18,78,0.7)] [font-family:var(--bw-font-text)]"
+        style={PANE}
       >
-        <div className="mb-4 flex items-center justify-between font-label text-[10px] font-semibold uppercase tracking-[0.24em] text-brand-muted/60">
-          <span className="text-foil-static">Beamwall</span>
-          <span className="tabular-nums">{index + 1} / {total}</span>
+        <div className="mb-4 flex items-center justify-between">
+          <Wordmark size={17} />
+          <span className={cx('text-[13px] tabular-nums', FAINT)}>{index + 1} / {total}</span>
         </div>
         <Layout slide={slide} env={env} />
       </article>
@@ -904,19 +959,17 @@ export function SlideView({
   return (
     <article
       aria-label={`Slide ${index + 1} of ${total}: ${slide.title}`}
-      className="sales-stage relative overflow-hidden text-left"
-      style={{ width: STAGE_W, height: STAGE_H, background: backdrop(env.rgb) }}
+      className="sales-stage relative overflow-hidden rounded-[32px] text-left text-white [font-family:var(--bw-font-text)]"
+      style={{ width: STAGE_W, height: STAGE_H, ...PANE }}
     >
-      {/* A faint beam across the top edge — the brand's light streak. */}
-      <div aria-hidden className="absolute inset-x-0 top-0 h-px" style={{ background: `linear-gradient(90deg, transparent, rgba(${env.rgb},0.7), transparent)` }} />
       <div className="absolute inset-0 flex flex-col px-[72px] pb-[64px] pt-[60px]">
         <div className="sd-in min-h-0 flex-1">
           <Layout slide={slide} env={env} />
         </div>
       </div>
-      <div className="absolute inset-x-[72px] bottom-[24px] flex items-center justify-between font-label text-[12px] font-semibold uppercase tracking-[0.26em] text-brand-muted/50">
-        <span><span className="text-foil-static">Beamwall</span> <span className="mx-2 opacity-50">·</span> {deckName}</span>
-        <span className="tabular-nums">{String(index + 1).padStart(2, '0')} / {String(total).padStart(2, '0')}</span>
+      <div className={cx('absolute inset-x-[72px] bottom-[22px] flex items-center justify-between text-[15px]', FAINT)}>
+        <span className="flex items-center gap-3"><Wordmark size={18} /> <span aria-hidden className="opacity-60">·</span> {deckName}</span>
+        <span className="tabular-nums">{index + 1} / {total}</span>
       </div>
     </article>
   );

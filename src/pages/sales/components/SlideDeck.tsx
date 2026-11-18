@@ -14,6 +14,11 @@
  * portal straight under <body>: the app shell is `h-screen overflow-hidden`,
  * which would otherwise clip the print to one page, and index.css's
  * ShareKit print rule hides `body *` — so the rules below re-show only us.
+ *
+ * Brand v2: the deck sits on the periwinkle scene (`app-bg`, src/styles/
+ * platform.css) and each slide is a flat glass pane (Slides.tsx PANE). Print
+ * has no backdrop-filter, so each page paints the scene itself and the pane's
+ * veil + frost composite over it — white ink stays ≥7:1 on paper too.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
@@ -25,11 +30,10 @@ import { SlideView, STAGE_H, STAGE_W, type SlideEnv } from './Slides';
 export interface DeckLike {
   slug: string;
   name: string;
-  rgb: string;
   slides: Slide[];
 }
 
-export type DeckEnv = Omit<SlideEnv, 'mode' | 'rgb'>;
+export type DeckEnv = Omit<SlideEnv, 'mode'>;
 
 /** true at ≥768px. Starts from the real value so first paint is right. */
 export function useIsWide(): boolean {
@@ -55,17 +59,20 @@ const DECK_CSS = `
 #sales-print-root { display: none; }
 @media print {
   @page { size: landscape; margin: 0; }
-  html, body { height: auto !important; overflow: visible !important; background: #05060B !important; }
+  html, body { height: auto !important; overflow: visible !important; background: var(--bw-bg) !important; }
   body.sales-printing > *:not(#sales-print-root) { display: none !important; }
   body.sales-printing #sales-print-root { display: block !important; }
   #sales-print-root, #sales-print-root * { visibility: visible !important; }
   #sales-print-root .sd-in > * { animation: none !important; }
-  /* Chrome's PDF output draws background-clip:text as a boxed fill. Solid ink. */
-  #sales-print-root .text-foil-static { background: none !important; -webkit-text-fill-color: #A9C4FF !important; color: #A9C4FF !important; }
   .sales-print-page {
     height: 100vh; width: 100%;
     display: flex; align-items: center; justify-content: center;
-    background: #05060B; overflow: hidden;
+    background-color: var(--bw-bg);
+    background-image:
+      radial-gradient(60% 55% at 108% -12%, var(--bw-bg-4), transparent 66%),
+      radial-gradient(55% 60% at 70% 62%, var(--bw-bg-2), transparent 74%),
+      radial-gradient(45% 50% at -6% 108%, var(--bw-bg-3), transparent 68%);
+    overflow: hidden;
     break-after: page; page-break-after: always;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
@@ -91,9 +98,9 @@ function PrintDeck({ deck, env }: { deck: DeckLike; env: DeckEnv }) {
     };
   }, []);
   if (host === null) return null;
-  const slideEnv: SlideEnv = { ...env, mode: 'stage', rgb: deck.rgb, eagerImages: true, still: true };
+  const slideEnv: SlideEnv = { ...env, mode: 'stage', eagerImages: true, still: true };
   return createPortal(
-    <div className="text-brand-fg">
+    <div className="text-white">
       {deck.slides.map((s, i) => (
         <div key={s.id} className="sales-print-page">
           <SlideView slide={s} env={slideEnv} index={i} total={deck.slides.length} deckName={deck.name} />
@@ -104,8 +111,12 @@ function PrintDeck({ deck, env }: { deck: DeckLike; env: DeckEnv }) {
   );
 }
 
-const iconBtn =
-  'inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 bg-white/[0.05] text-brand-fg transition hover:bg-white/[0.1] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] disabled:opacity-30';
+/** Brand v2 glass chip (.bw-glass-chip): indigo veil, hairline + top-left rim, white ink. */
+const chip =
+  'bg-[rgba(26,23,64,0.18)] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.20),inset_1px_1px_0_rgba(255,255,255,0.24)] backdrop-blur-md transition hover:bg-[rgba(26,23,64,0.32)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent';
+/** Pressed (notes open): solid white, deep-indigo ink. */
+const chipOn = 'bg-[color:var(--bw-accent)] text-[color:var(--bw-on-accent)] shadow-[0_8px_20px_-12px_rgba(26,23,64,0.6)] transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent';
+const iconBtn = `inline-flex h-11 w-11 items-center justify-center rounded-full ${chip} disabled:opacity-40`;
 
 export default function SlideDeck({
   deck,
@@ -258,7 +269,7 @@ export default function SlideDeck({
 
   // ───────────── Phone layout ─────────────
   if (!wide) {
-    const cardEnv: SlideEnv = { ...env, mode: 'card', rgb: deck.rgb };
+    const cardEnv: SlideEnv = { ...env, mode: 'card' };
     return (
       <div ref={rootRef} className="flex flex-col gap-4">
         <style>{DECK_CSS}</style>
@@ -269,9 +280,9 @@ export default function SlideDeck({
                 type="button"
                 aria-pressed={notesOpen}
                 onClick={() => setNotesOpen((v) => !v)}
-                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/12 bg-white/[0.05] px-4 font-label text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-fg"
+                className={`inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-[14px] font-medium ${notesOpen ? chipOn : chip}`}
               >
-                <NotebookPen className="h-4 w-4" aria-hidden /> {notesOpen ? 'Hide notes' : 'Show notes'}
+                <NotebookPen className="h-4 w-4" strokeWidth={1.75} aria-hidden /> {notesOpen ? 'Hide notes' : 'Show notes'}
               </button>
             )}
             <span className="ml-auto" />
@@ -294,8 +305,8 @@ export default function SlideDeck({
           >
             <SlideView slide={s} env={cardEnv} index={i} total={count} deckName={deck.name} />
             {notesAvailable && notesOpen && s.notes !== undefined && s.notes !== '' && (
-              <div className="mt-2 rounded-2xl border border-dashed border-amber-300/30 bg-amber-300/[0.05] p-4 text-[14px] leading-relaxed text-amber-50/90">
-                <p className="mb-1 font-label text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/80">Speaker notes</p>
+              <div className="mt-2 rounded-[20px] bg-[rgba(26,23,64,0.34)] p-4 text-[14px] leading-relaxed text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.16)]">
+                <p className="mb-1 text-[13px] font-semibold text-white/80">Speaker notes</p>
                 {s.notes}
               </div>
             )}
@@ -307,7 +318,7 @@ export default function SlideDeck({
   }
 
   // ───────────── Presentation layout ─────────────
-  const stageEnv: SlideEnv = { ...env, mode: 'stage', rgb: deck.rgb };
+  const stageEnv: SlideEnv = { ...env, mode: 'stage' };
   const progress = count <= 1 ? 1 : (index + 1) / count;
   const stageStyle: CSSProperties = {
     width: STAGE_W,
@@ -323,14 +334,14 @@ export default function SlideDeck({
       role="region"
       aria-roledescription="slide deck"
       aria-label={deck.name}
-      className="relative flex h-full w-full flex-col bg-[#03040a] outline-none"
+      className="app-bg relative flex h-full w-full flex-col text-white outline-none [font-family:var(--bw-font-text)]"
     >
       <style>{DECK_CSS}</style>
-      {/* progress */}
-      <div className="h-[3px] w-full bg-white/[0.06]" aria-hidden>
+      {/* progress: a hairline track, the warm core as the one highlight */}
+      <div className="h-[3px] w-full bg-white/15" aria-hidden>
         <div
-          className="h-full transition-[width] duration-500 ease-out motion-reduce:transition-none"
-          style={{ width: `${progress * 100}%`, background: `linear-gradient(90deg, rgba(${deck.rgb},0.6), rgb(${deck.rgb}))`, boxShadow: `0 0 12px rgba(${deck.rgb},0.8)` }}
+          className="h-full rounded-r-full bg-[color:var(--bw-core)] transition-[width] duration-500 ease-out motion-reduce:transition-none"
+          style={{ width: `${progress * 100}%` }}
         />
       </div>
 
@@ -356,7 +367,7 @@ export default function SlideDeck({
           }}
         >
           <div ref={areaRef} className="relative flex h-full w-full items-center justify-center">
-            <div style={stageStyle} className="shrink-0 overflow-hidden rounded-[6px] shadow-[0_40px_120px_-30px_rgba(0,0,0,0.9)]">
+            <div style={stageStyle} className="shrink-0 overflow-hidden rounded-[32px] shadow-[0_70px_120px_-40px_rgba(22,18,78,0.62),0_24px_50px_-24px_rgba(22,18,78,0.40)]">
               {slide !== undefined && (
                 <SlideView key={slide.id} slide={slide} env={stageEnv} index={index} total={count} deckName={deck.name} />
               )}
@@ -365,14 +376,14 @@ export default function SlideDeck({
         </div>
 
         {notesAvailable && notesOpen && (
-          <aside aria-label="Speaker notes" className="flex w-[340px] shrink-0 flex-col border-l border-white/10 bg-[#0a0c15] p-5">
-            <p className="font-label text-[10px] font-bold uppercase tracking-[0.24em] text-amber-200/80">Speaker notes · slide {index + 1}</p>
-            <div className="mt-3 flex-1 overflow-y-auto whitespace-pre-line text-[15px] leading-relaxed text-brand-fg/90">
-              {notes !== undefined && notes !== '' ? notes : <span className="text-brand-muted/60">No notes for this slide.</span>}
+          <aside aria-label="Speaker notes" className="flex w-[340px] shrink-0 flex-col bg-[rgba(26,23,64,0.42)] p-5 shadow-[inset_1px_0_0_rgba(255,255,255,0.16)] backdrop-blur-xl">
+            <p className="text-[13px] font-semibold text-white/80">Speaker notes · slide {index + 1}</p>
+            <div className="mt-3 flex-1 overflow-y-auto whitespace-pre-line text-[15px] leading-relaxed text-white">
+              {notes !== undefined && notes !== '' ? notes : <span className="text-white/80">No notes for this slide.</span>}
             </div>
             {index + 1 < count && (
-              <p className="mt-4 border-t border-white/10 pt-3 text-[12.5px] text-brand-muted">
-                <span className="font-label text-[10px] font-semibold uppercase tracking-[0.2em]">Next:</span> {deck.slides[index + 1].title}
+              <p className="mt-4 border-t border-white/15 pt-3 text-[13px] text-white/80">
+                <span className="font-semibold text-white">Next:</span> {deck.slides[index + 1].title}
               </p>
             )}
           </aside>
@@ -380,28 +391,27 @@ export default function SlideDeck({
       </div>
 
       {/* controls */}
-      <div className="flex items-center gap-2 border-t border-white/[0.06] px-4 py-2.5">
+      {/* A strip of the same glass as the header (.bw-header), so its ink holds AA over the lighter glows. */}
+      <div className="flex items-center gap-2 bg-[rgba(43,42,140,0.42)] px-4 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] backdrop-blur-xl">
         <button type="button" className={iconBtn} onClick={() => go(index - 1)} disabled={index === 0} aria-label="Previous slide">
-          <ChevronLeft className="h-5 w-5" aria-hidden />
+          <ChevronLeft className="h-5 w-5" strokeWidth={1.75} aria-hidden />
         </button>
-        <span className="min-w-[4.5rem] text-center font-label text-[12px] font-semibold tabular-nums tracking-[0.18em] text-brand-muted" aria-live="polite">
+        <span className="min-w-[4.5rem] text-center text-[14px] font-medium tabular-nums text-white" aria-live="polite">
           {index + 1} / {count}
         </span>
         <button type="button" className={iconBtn} onClick={() => go(index + 1)} disabled={index === count - 1} aria-label="Next slide">
-          <ChevronRight className="h-5 w-5" aria-hidden />
+          <ChevronRight className="h-5 w-5" strokeWidth={1.75} aria-hidden />
         </button>
-        <p className="ml-3 hidden truncate text-[13px] text-brand-muted/70 lg:block">{slide?.title}</p>
+        <p className="ml-3 hidden truncate text-[14px] text-white/[0.86] lg:block">{slide?.title}</p>
         <span className="ml-auto" />
         {notesAvailable && (
           <button
             type="button"
             aria-pressed={notesOpen}
             onClick={() => setNotesOpen((v) => !v)}
-            className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-4 font-label text-[11px] font-semibold uppercase tracking-[0.16em] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] ${
-              notesOpen ? 'border-amber-300/40 bg-amber-300/10 text-amber-100' : 'border-white/12 bg-white/[0.05] text-brand-fg hover:bg-white/[0.1]'
-            }`}
+            className={`inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-[14px] font-medium ${notesOpen ? chipOn : chip}`}
           >
-            <NotebookPen className="h-4 w-4" aria-hidden /> Notes
+            <NotebookPen className="h-4 w-4" strokeWidth={1.75} aria-hidden /> Notes
           </button>
         )}
         {printBtn}
@@ -439,7 +449,7 @@ export function SlideThumb({ deck, env, index = 0 }: { deck: DeckLike; env: Deck
     <div ref={ref} className="relative aspect-video w-full overflow-hidden" aria-hidden inert>
       {slide !== undefined && scale > 0 && (
         <div style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${scale})`, transformOrigin: 'top left' }} className="pointer-events-none absolute left-0 top-0">
-          <SlideView slide={slide} env={{ ...env, mode: 'stage', rgb: deck.rgb, still: true }} index={index} total={deck.slides.length} deckName={deck.name} />
+          <SlideView slide={slide} env={{ ...env, mode: 'stage', still: true }} index={index} total={deck.slides.length} deckName={deck.name} />
         </div>
       )}
     </div>
