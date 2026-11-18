@@ -63,6 +63,7 @@ import type { Rect } from '../../lib/beamGeometry';
 import { DT_MAX, K_POS, K_SOFT, dampAngle, followStep } from '../../lib/beamyScroll';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { snapshotPortrait } from '../../components/beamy/selfieFx';
+import { HOME_ASSET_DEFAULTS } from '../../lib/beamyAssets';
 import { fitProp, type BeamyLook } from '../../lib/beamyLooks';
 
 export type BeamyClip = 'Idle' | 'Wave' | 'Hop' | 'BeamyBlast' | 'Sob' | 'SideEye' | 'Dance' | 'ShadesOn' | 'Waddle' | typeof SELFIE_CLIP;
@@ -174,6 +175,9 @@ export interface BeamyApi {
   wear(look: BeamyLook | null): Promise<void>;
   /** How far above his tip what he wears reaches now, in his heights (0 = nothing). */
   wornLift(): number;
+  /** A colour filter over his body (a lens look): a CSS colour, 'prismatic' (a slow hue
+   *  cycle), or null to take it off. Fades in and out. */
+  tint(color: string | null): void;
 }
 
 interface Props {
@@ -381,6 +385,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const motes = useRef<Mote[]>(Array.from({ length: N_MOTES }, () => ({ t: 0, life: 1, x0: 0, y0: 0, x1: 0, y1: 0, bow: 0, active: false })));
   const gazeTarget = useRef<Pt | null>(null);
   const gaze = useRef({ yaw: 0, pitch: 0, near: 0 });
+  /** The filter look: his light-coloured materials (with their own emissive), the target, the fade. */
+  const tintS = useRef<{ mats: { m: THREE.MeshStandardMaterial; e: THREE.Color; c: THREE.Color; i: number }[]; target: string | null; mix: number; col: THREE.Color }>({ mats: [], target: null, mix: 0, col: new THREE.Color() });
   const spinS = useRef<Spin & { dragging: boolean; base: number }>({ angle: 0, vel: 0, dragging: false, base: 0 });
 
   const rig = useRef<THREE.Group>(null);
@@ -432,7 +438,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const frameMesh = useRef<THREE.Mesh>(null);
   const frameOn = useRef({ on: false, alpha: 0 });
   /** The frame's height and centre in his heights: smaller on phones, where he is small beside the wall. */
-  const frameGeo = () => (decorRef.current.phone ? { h: 1.45, c: 0.62 } : { h: 1.7, c: 0.75 });
+  const frameFit = useRef<{ h: number; c: number } | null>(null);
+  const frameGeo = () => frameFit.current ?? (decorRef.current.phone ? { h: 1.45, c: 0.62 } : { h: 1.7, c: 0.75 });
   const wornLiftNow = () => {
     const wn = worn.current;
     const prop = wn === null ? 0 : Math.max(0, wn.top - 1) * Math.min(1, wn.t);
@@ -450,7 +457,16 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         if (cancelled) return;
         owned = g.scene;
         g.scene.traverse((o) => {
-          if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 2; }
+          if (o instanceof THREE.Mesh) {
+            o.frustumCulled = false;
+            o.renderOrder = 2;
+            // The filter look tints his light body only (never the dark eyes).
+            for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+              if (!(m instanceof THREE.MeshStandardMaterial)) continue;
+              const c = m.color;
+              if (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b > 0.3) tintS.current.mats.push({ m, e: m.emissive.clone(), c: c.clone(), i: m.emissiveIntensity });
+            }
+          }
           // The rig's beam runs along +z: at an orthographic camera it is a
           // flat white wedge once Beamy turns. The stage draws its own beam.
           if (o.name === 'beam_core' || o.name === 'beam_outer') o.visible = false;
@@ -858,6 +874,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         ar.resolve();
       },
       wornLift: () => wornLiftNow(),
+      tint(color) {
+        tintS.current.target = color;
+      },
       wear(look) {
         const tok = ++wearToken.current;
         const old = worn.current;
@@ -868,6 +887,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         if (look.kind === 'frame') {
           return loadFrameTexture(url).then((tex) => {
             if (tok !== wearToken.current) return;
+            frameFit.current = look.frame ?? null;
             frameMat.map = tex;
             frameMat.needsUpdate = true;
             frameOn.current.on = true;
@@ -977,7 +997,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const moteGeo = useMemo(() => {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N_MOTES * 3), 3));
-    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N_MOTES * 3), 3));
+    // RGBA: a spent mote fades its ALPHA too. The canvas is transparent and
+    // additive blending adds alpha, so an RGB-only fade left black discs.
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N_MOTES * 4), 4));
     return g;
   }, []);
   /** Soft round sprite so sparks read as light, not square pixels. */
@@ -1015,7 +1037,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     let live = true;
     const id = window.setTimeout(() => {
       CRYSTALS.forEach((c, i) => {
-        void loadModel(`${PROP_DIR}${c.prop}.glb`).then((master) => {
+        void loadModel(HOME_ASSET_DEFAULTS.sceneProps[i] ?? `${PROP_DIR}${c.prop}.glb`).then((master) => {
           const holder = crystalRefs.current[i];
           if (!live || holder === null || holder.children.length > 0) return;
           const obj = master.clone(true);
@@ -1126,6 +1148,22 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       gy = clamp(dx / 700, -1, 1) * 0.42;
       gp = clamp(dy / 600, -1, 1) * 0.16;
       near = clamp(1 - (Math.hypot(dx, dy) - heightPx * 0.35) / (heightPx * 0.6), 0, 1);
+    }
+    /* The filter look: fade his body's glow toward the lens colour and back. */
+    const tn = tintS.current;
+    const tnWant = tn.target !== null ? 1 : 0;
+    if (tn.mix !== tnWant || tnWant === 1) {
+      tn.mix += (tnWant - tn.mix) * Math.min(1, dt * 4);
+      if (Math.abs(tn.mix - tnWant) < 0.002) tn.mix = tnWant;
+      if (tn.target === 'prismatic') tn.col.setHSL(((reduced ? 0.6 : t * 0.12) % 1 + 1) % 1, 0.85, 0.6);
+      else if (tn.target !== null) tn.col.set(tn.target);
+      // His body's glow is masked by its emissive map, so the lens colour
+      // also washes his albedo (colour multiplies the base map).
+      for (const x of tn.mats) {
+        x.m.color.copy(x.c).lerp(tn.col, tn.mix * 0.75);
+        x.m.emissive.copy(x.e).lerp(tn.col, tn.mix * 0.88);
+        x.m.emissiveIntensity = Math.max(x.i, tn.mix);
+      }
     }
     const gz = gaze.current;
     gz.yaw += (gy - gz.yaw) * Math.min(1, dt * 5);
@@ -1474,9 +1512,10 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
             a = m.t <= 0 ? 0 : Math.sin(Math.PI * k) ** 0.6;
           }
         }
-        carr[i * 3] = moteBase[i * 3] * a;
-        carr[i * 3 + 1] = moteBase[i * 3 + 1] * a;
-        carr[i * 3 + 2] = moteBase[i * 3 + 2] * a;
+        carr[i * 4] = moteBase[i * 3] * a;
+        carr[i * 4 + 1] = moteBase[i * 3 + 1] * a;
+        carr[i * 4 + 2] = moteBase[i * 3 + 2] * a;
+        carr[i * 4 + 3] = a;
       }
       mp.visible = any;
       if (any) {

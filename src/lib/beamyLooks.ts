@@ -11,6 +11,7 @@
  * 0.12m above his feet, his crown tip at 0.48 in this space), so every clip
  * (hop, dance, drag-spin) carries the prop with him.
  */
+import { HOME_ASSET_DEFAULTS, toBeamyLook } from './beamyAssets';
 
 /** Where a prop's fitted box is pinned on him. */
 export interface PropFit {
@@ -34,39 +35,17 @@ export interface BeamyLook {
   fit?: PropFit;
   /** His bubble line while he wears it. Short: it shares the hero with the headline. */
   line: string;
+  /** A frame's height and centre in his heights (default: the hero's, see BeamyStage). */
+  frame?: { h: number; c: number };
 }
 
+/**
+ * The hero's tour: his greeting, then the hero looks from the one asset-slot
+ * module (lib/beamyAssets HOME_ASSET_DEFAULTS.heroLooks), in order.
+ */
 export const BEAMY_LOOKS: BeamyLook[] = [
   { id: 'hello', name: 'Nothing yet', kind: 'none', line: 'Hi, I’m Beamy. Check out what I can do!' },
-  {
-    id: 'crown', name: 'Royal crown', kind: 'prop', url: '/models/props/royal-crown.glb',
-    fit: { width: 0.32, at: [0, 0.31, 0], align: 'base' },
-    line: 'Real 3D filters, like this crown. Tap me for more!',
-  },
-  {
-    id: 'hat', name: 'Santa hat', kind: 'prop', url: '/models/props/santa-hat.glb',
-    fit: { width: 0.29, at: [0, 0.35, -0.01], align: 'base', tilt: -0.14 },
-    line: 'Build your own filters, or customise any of ours.',
-  },
-  {
-    id: 'glasses', name: 'Neon shades', kind: 'prop', url: '/models/props/neon-shades.glb',
-    fit: { width: 0.4, at: [0, 0.225, 0.19], align: 'centre' },
-    line: 'Got a design? Upload it, or ask us to make one.',
-  },
-  {
-    id: 'frame', name: 'Gala cover frame', kind: 'frame', url: '/guides/frames/gala-magazine-cover.png',
-    line: 'Frames too, made in your event’s colours.',
-  },
-  {
-    id: 'antlers', name: 'Reindeer antlers', kind: 'prop', url: '/models/props/reindeer-antlers.glb',
-    fit: { width: 0.58, at: [0, 0.33, -0.02], align: 'base' },
-    line: 'A whole library of 3D props for your event.',
-  },
-  {
-    id: 'tiara', name: 'Tiara', kind: 'prop', url: '/models/props/queens-tiara.glb',
-    fit: { width: 0.34, at: [0, 0.31, 0.03], align: 'base' },
-    line: 'Snapchat and Instagram in one, right in the browser.',
-  },
+  ...HOME_ASSET_DEFAULTS.heroLooks.map((l) => toBeamyLook(l)),
 ];
 
 /** How long each look holds before he tries on the next (ms). */

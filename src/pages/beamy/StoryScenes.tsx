@@ -14,21 +14,12 @@
  * him, clear of the caption at the top left). The page marks each step's
  * main piece with `data-fx-anchor` and aims his projector cone at it.
  */
-import { useMemo, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
+import { type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { Camera, Play, Trophy } from 'lucide-react';
 import LiveWall, { WALL_POOL } from '../../components/beamy/LiveWall';
 import type { StoryFxId } from '../../lib/brandLanding';
-import { STORY_LOOKS, STORY_SCENE, lookThumb, qrModules } from '../../lib/beamyStory';
-
-function QrArt({ className }: { className?: string }) {
-  const g = useMemo(() => qrModules(21, 11), []);
-  return (
-    <svg viewBox="-2 -2 25 25" className={className} aria-hidden shapeRendering="crispEdges">
-      <rect x={-2} y={-2} width={25} height={25} fill="#FFFFFF" />
-      {g.map((row, y) => row.map((on, x) => (on ? <rect key={`${x}-${y}`} x={x} y={y} width={1.02} height={1.02} fill="#1A1740" /> : null)))}
-    </svg>
-  );
-}
+import { STORY_SCENE } from '../../lib/beamyStory';
 
 /** One placed piece: absolute box (classes), an entrance delay, and an inner float. */
 function Piece({ cls, d = 0, tilt = 0, children, anchor, style }: { cls: string; d?: number; tilt?: number; children: ReactNode; anchor?: StoryFxId; style?: CSSProperties }) {
@@ -39,12 +30,14 @@ function Piece({ cls, d = 0, tilt = 0, children, anchor, style }: { cls: string;
   );
 }
 
-export default function StoryScenes({ step, ids, stacked, lookId, ripple, wallCentreRef, seed }: {
+export default function StoryScenes({ step, ids, stacked, qrUrl, boothFrame, ripple, wallCentreRef, seed }: {
   step: number;
   ids: StoryFxId[];
   stacked: boolean;
-  /** The look Beamy is wearing right now (the AR step lights its tile). */
-  lookId: string | null;
+  /** Where the real QR code goes (the public demo event). */
+  qrUrl: string;
+  /** The frame the demo booth screen wears after the scan. */
+  boothFrame: string | null;
   ripple: number;
   wallCentreRef: MutableRefObject<HTMLDivElement | null>;
   seed: number;
@@ -54,55 +47,44 @@ export default function StoryScenes({ step, ids, stacked, lookId, ripple, wallCe
   const photo = (k: number) => WALL_POOL[k % WALL_POOL.length];
 
   /* Each scene's pieces, placed for the arrangement. Percentages are of the scene box. */
+  // ONE real, scannable code (an Easter egg: it opens the public demo
+  // event). The scene loops while the step is up: a guest's phone comes
+  // down over the code and scans it, the code dissolves into the phone, the
+  // phone opens the event's booth, then the code comes back. Hovering the
+  // code holds the loop so a visitor can scan it for real.
   const qr = (
-    <div className="bw-scene" data-on={on('qr')}>
-      <Piece anchor="qr" tilt={-7} cls={stacked ? 'right-[7%] top-[1%] h-[47%] aspect-[9/18.5]' : 'right-[8%] top-[8%] h-[78%] aspect-[9/18.5]'}>
-        <div className="bw-scene-phone h-full w-full">
-          <div className="bw-scene-phone-screen">
-            <span className="bw-scene-notch" />
-            <p className="bw-scene-tiny mt-[14%] text-center">{S.qr.event}</p>
-            <div className="relative mx-auto mt-[8%] w-[74%] overflow-hidden rounded-[10%] bg-white p-[6%]">
-              <QrArt className="block h-auto w-full" />
+    <div className="bw-scene bw-qr" data-on={on('qr')}>
+      <Piece tilt={5} cls={stacked ? 'left-[5%] top-[15%] w-[42%] max-w-[220px]' : 'right-[18%] bottom-[8%] w-[14%] min-w-[184px] max-w-[236px]'}>
+        <a href={qrUrl} target="_blank" rel="noopener noreferrer" tabIndex={-1} className="bw-qr-card bw-scene-card block p-[9%] text-center">
+          <span className="block rounded-xl bg-white p-[6%]">
+            <QRCodeSVG value={qrUrl} level="M" marginSize={0} bgColor="#FFFFFF" fgColor="#1A1740" className="block h-auto w-full" />
+          </span>
+          <span className="bw-scene-label mt-2.5 block">{S.qr.real}</span>
+        </a>
+      </Piece>
+      <Piece anchor="qr" d={0.12} tilt={-7} cls={stacked ? 'right-[6%] top-[1%] h-[47%] aspect-[9/18.5]' : 'right-[5%] top-[2%] h-[62%] aspect-[9/18.5]'}>
+        <div className="bw-qr-phone bw-scene-phone h-full w-full">
+          <div className="bw-scene-phone-screen p-0">
+            {/* 1: the camera, looking for a code. */}
+            <div className="bw-qr-cam">
+              <span className="bw-qr-brackets" />
               <span className="bw-scene-scan" />
+              <p className="bw-scene-tiny absolute inset-x-0 bottom-[12%] text-center">{S.qr.scan}</p>
             </div>
-            <p className="mt-[9%] text-center text-[clamp(11px,1.3vw,15px)] font-semibold" style={{ color: 'var(--bw-ink)' }}>{S.qr.scan}</p>
-            <p className="mt-[5%] flex justify-center"><span className="bw-scene-chip">{S.qr.hint}</span></p>
+            {/* 2: the event's booth, live in the browser. */}
+            <div className="bw-qr-booth">
+              <img src={photo(seed + 5)} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              {boothFrame !== null && <img src={boothFrame} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+              <p className="absolute inset-x-0 top-[8%] flex justify-center"><span className="bw-scene-chip">{S.qr.event}</span></p>
+              <div className="bw-qr-dock">
+                <p className="flex justify-center gap-[8%]">{S.qr.tabs.map((t, k) => <span key={t} className="bw-qr-tab" data-on={k === 0 ? 'true' : 'false'}>{t}</span>)}</p>
+                <span className="bw-qr-shutter" />
+              </div>
+            </div>
+            <span className="bw-scene-notch" />
           </div>
         </div>
       </Piece>
-      <Piece d={0.12} tilt={6} cls={stacked ? 'left-[6%] top-[12%] w-[34%] max-w-[200px]' : 'left-[9%] bottom-[9%] w-[16%] max-w-[230px]'}>
-        <div className="bw-scene-card px-[12%] pb-[12%] pt-[10%] text-center">
-          <div className="mx-auto w-[78%] overflow-hidden rounded-lg bg-white p-[6%]"><QrArt className="block h-auto w-full" /></div>
-          <p className="bw-scene-label mt-3">{S.qr.tent}</p>
-        </div>
-      </Piece>
-    </div>
-  );
-
-  // Six real library looks: the one he wears now is lit.
-  const tiles = STORY_LOOKS.slice(0, 6);
-  const spotsWide = ['left-[7%] top-[38%]', 'left-[19%] top-[56%]', 'left-[6%] top-[74%]', 'right-[9%] top-[8%]', 'right-[4%] top-[36%]', 'right-[10%] top-[64%]'];
-  const prop = (
-    <div className="bw-scene" data-on={on('prop')}>
-      {stacked ? (
-        <div className="absolute inset-x-[5%] top-[1%] mx-auto grid max-w-[420px] grid-cols-3 gap-[3%]" data-fx-anchor="prop" style={{ ['--d' as string]: '0s' }}>
-          {tiles.map((l) => (
-            <div key={l.id} className="bw-scene-tile" data-lit={lookId === l.id ? 'true' : 'false'}>
-              <img src={lookThumb(l) ?? ''} alt="" className="aspect-square w-full rounded-xl object-cover" />
-              <span className="bw-scene-tiny mt-1 block truncate text-center">{l.name}</span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        tiles.map((l, k) => (
-          <Piece key={l.id} anchor={k === 0 ? 'prop' : undefined} d={k * 0.07} tilt={k < 3 ? 8 : -8} cls={`${spotsWide[k]} w-[clamp(96px,9vw,140px)]`}>
-            <div className="bw-scene-tile" data-lit={lookId === l.id ? 'true' : 'false'}>
-              <img src={lookThumb(l) ?? ''} alt="" className="aspect-square w-full rounded-xl object-cover" />
-              <span className="bw-scene-tiny mt-1.5 block truncate text-center">{l.name}</span>
-            </div>
-          </Piece>
-        ))
-      )}
     </div>
   );
 
@@ -184,7 +166,8 @@ export default function StoryScenes({ step, ids, stacked, lookId, ripple, wallCe
     </div>
   );
 
-  const byId: Record<StoryFxId, ReactNode> = { qr, prop, wall, medal, keepsake };
+  // The AR step's picker is real, interactive UI: BeamyPage renders it (ArPicker).
+  const byId: Record<StoryFxId, ReactNode> = { qr, prop: null, wall, medal, keepsake };
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0" data-stacked={stacked ? 'true' : 'false'}>
       {ids.map((id) => <div key={id} className="contents">{byId[id]}</div>)}

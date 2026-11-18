@@ -6,11 +6,12 @@
  * DOM-free, tested in node. The scenes themselves are DOM (StoryScenes.tsx);
  * this is their copy, the looks the AR step cycles, and the scan code art.
  */
-import { BEAMY_LOOKS, type BeamyLook } from './beamyLooks';
+import type { BeamyLook } from './beamyLooks';
+import { AR_FRAME_GEO, HOME_ASSET_DEFAULTS, arOrder, toBeamyLook } from './beamyAssets';
 
 /** The scenes' words. Decorative (the caption panel carries each step's text). */
 export const STORY_SCENE = {
-  qr: { event: 'Ada & Tunde’s wedding', scan: 'Scan to join', hint: 'No app needed', tent: 'Scan me' },
+  qr: { event: 'Ada & Tunde’s wedding', scan: 'Point your camera', hint: 'No app needed', real: 'Scan it for real', tabs: ['Frame', 'Effect', '3D'] as const },
   wall: { sent: 'Sent to the wall' },
   medal: {
     eyebrow: 'Challenge',
@@ -26,13 +27,23 @@ export const STORY_SCENE = {
 export function storySceneLines(): string[] {
   const s = STORY_SCENE;
   return [
-    s.qr.event, s.qr.scan, s.qr.hint, s.qr.tent, s.wall.sent, s.medal.eyebrow, s.medal.mission, s.medal.points, s.medal.board,
+    s.qr.event, s.qr.scan, s.qr.hint, s.qr.real, ...s.qr.tabs, s.wall.sent, s.medal.eyebrow, s.medal.mission, s.medal.points, s.medal.board,
     ...s.medal.rows.map((r) => r[0]), s.keepsake.album, s.keepsake.count, s.keepsake.film,
   ];
 }
 
-/** The looks the AR step tries on, in order (all of the hero's worn looks). */
-export const STORY_LOOKS: BeamyLook[] = BEAMY_LOOKS.filter((l) => l.kind !== 'none');
+/** The wearable looks of the AR step's picker (its frames and props), in picker order. None repeats the hero's. */
+export const STORY_LOOKS: BeamyLook[] = arOrder(HOME_ASSET_DEFAULTS.arLooks)
+  .filter((l) => l.category === 'frame' || l.category === 'prop')
+  .map((l) => toBeamyLook(l, l.category === 'frame' ? AR_FRAME_GEO : undefined));
+
+/** The AR step's own words (its picker is real, interactive UI, not decoration). */
+export const AR_COPY = {
+  line: 'Your photo booth can have a variety of filters, props and effects, tailored to capture the essence of your event.',
+  pick: 'Tap any look to try it on Beamy',
+  prev: 'Previous frame',
+  next: 'Next frame',
+} as const;
 
 /** A look's small picture: the library's own .webp beside a prop, the guide pack's thumb for a frame. */
 export function lookThumb(l: BeamyLook): string | null {

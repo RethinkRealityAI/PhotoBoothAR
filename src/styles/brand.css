@@ -1509,6 +1509,108 @@
     background-color: #FFFFFF;
     animation: bw-prog 9s linear infinite;
   }
+
+  /* ── How it works, step 1: ONE real code. A phone comes down over it and
+     scans, the code dissolves into the phone, the phone opens the event's
+     booth, the code comes back (a 10s loop). Hovering the code holds it. ── */
+  .bw-qr-card { pointer-events: auto; cursor: pointer; }
+  .bw-scene[data-on="true"] .bw-qr-card { animation: bw-qr-card 10s ease 0.9s infinite both; }
+  .bw-scene[data-on="true"] .bw-qr-phone { animation: bw-qr-phone 10s var(--bw-ease) 0.9s infinite both; }
+  .bw-scene[data-on="true"] .bw-qr-booth { animation: bw-qr-booth 10s ease 0.9s infinite both; }
+  .bw-qr:has(.bw-qr-card:hover) .bw-qr-card,
+  .bw-qr:has(.bw-qr-card:hover) .bw-qr-phone,
+  .bw-qr:has(.bw-qr-card:hover) .bw-qr-booth { animation-play-state: paused; }
+  .bw-qr-cam { position: absolute; inset: 0; background-color: #0E0C2E; }
+  .bw-qr-brackets {
+    position: absolute;
+    left: 18%;
+    right: 18%;
+    top: 27%;
+    aspect-ratio: 1;
+    border: 2px solid rgba(255, 255, 255, 0.92);
+    border-radius: 12px;
+    -webkit-mask: linear-gradient(#000 0 0) 0 0 / 32% 32% no-repeat, linear-gradient(#000 0 0) 100% 0 / 32% 32% no-repeat, linear-gradient(#000 0 0) 0 100% / 32% 32% no-repeat, linear-gradient(#000 0 0) 100% 100% / 32% 32% no-repeat;
+    mask: linear-gradient(#000 0 0) 0 0 / 32% 32% no-repeat, linear-gradient(#000 0 0) 100% 0 / 32% 32% no-repeat, linear-gradient(#000 0 0) 0 100% / 32% 32% no-repeat, linear-gradient(#000 0 0) 100% 100% / 32% 32% no-repeat;
+  }
+  .bw-qr-cam .bw-scene-scan { left: 20%; right: 20%; animation-name: bw-qr-scanline; }
+  .bw-qr-booth { position: absolute; inset: 0; opacity: 0; background-color: #2E2A92; }
+  .bw-qr-dock {
+    position: absolute;
+    inset: auto 0 0 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8%;
+    padding: 9% 0 8%;
+    background-color: rgba(14, 12, 46, 0.72);
+  }
+  .bw-qr-tab { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: rgba(255, 255, 255, 0.8); }
+  .bw-qr-tab[data-on="true"] { color: #FFC56B; }
+  .bw-qr-shutter { width: 26%; aspect-ratio: 1; border-radius: 999px; box-shadow: inset 0 0 0 3px #FFFFFF, inset 0 0 0 6px rgba(14, 12, 46, 0.72), inset 0 0 0 40px rgba(255, 255, 255, 0.92); }
+
+  /* ── How it works, step 2: the AR picker (real buttons) and the frames
+     carousel round Beamy. ── */
+  .bw-ar { position: absolute; inset: 0; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity 240ms ease, visibility 0s linear 260ms; }
+  .bw-ar[data-on="true"] { opacity: 1; visibility: visible; transition: opacity 600ms var(--bw-ease) 300ms, visibility 0s; }
+  .bw-ar-panel { pointer-events: auto; }
+  .bw-ar-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-height: 44px;
+    padding: 5px;
+    border-radius: 14px;
+    color: var(--bw-ink);
+    background-color: rgba(26, 23, 64, 0.22);
+    box-shadow: inset 0 0 0 1px var(--bw-hairline);
+    transition: box-shadow 200ms var(--bw-ease), background-color 200ms var(--bw-ease), transform 200ms var(--bw-ease);
+  }
+  .bw-ar-tile:hover { background-color: rgba(26, 23, 64, 0.34); }
+  .bw-ar-tile[aria-pressed="true"] { background-color: rgba(255, 255, 255, 0.16); box-shadow: 0 0 0 2px #FFFFFF, 0 0 24px 2px rgba(255, 197, 107, 0.45); }
+  .bw-ar-tile:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
+  .bw-ar-pic { display: grid; place-items: center; width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 10px; background-color: rgba(14, 12, 46, 0.45); }
+  .bw-ar-pic > img { width: 100%; height: 100%; object-fit: cover; }
+  .bw-ar[data-stacked="false"] .bw-ar-pic > img { object-fit: contain; }
+  .bw-ar-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 500; line-height: 1.25; }
+  .bw-ar-swatch { display: flex; width: 62%; aspect-ratio: 1; overflow: hidden; border-radius: 999px; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7); }
+  .bw-ar-swatch > span { flex: 1; }
+  .bw-ar-arrow {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    color: var(--bw-ink);
+    background-color: rgba(26, 23, 64, 0.22);
+    box-shadow: inset 0 0 0 1px var(--bw-hairline);
+  }
+  .bw-ar-arrow:hover { background-color: rgba(26, 23, 64, 0.36); }
+  .bw-ar-arrow:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
+  /* The carousel shares his slot's box: container units give his height
+     (as the stage fits him: the slot's height, or its width / 1.1). */
+  .bw-ar-car { position: absolute; container-type: size; pointer-events: auto; touch-action: pan-y; perspective: 900px; }
+  .bw-ar-peek {
+    --bh: min(100cqh, calc(100cqw / 1.1));
+    position: absolute;
+    bottom: calc(var(--bh) * 0.16);
+    height: calc(var(--bh) * 0.82);
+    aspect-ratio: 9 / 16;
+    padding: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    opacity: 0.62;
+    filter: saturate(0.85);
+    box-shadow: 0 24px 40px -22px rgba(10, 8, 40, 0.8);
+    transition: opacity 200ms ease, transform 300ms var(--bw-ease);
+    animation: bw-peek-in 520ms var(--bw-ease) both;
+  }
+  .bw-ar-peek > img { width: 100%; height: 100%; object-fit: cover; }
+  .bw-ar-peek:hover { opacity: 0.9; }
+  .bw-ar-peek[data-side="next"] { left: calc(50% + var(--bh) * 0.62); transform: rotateY(-26deg); transform-origin: 0 50%; z-index: 1; }
+  .bw-ar-peek[data-side="after"] { left: calc(50% + var(--bh) * 0.86); height: calc(var(--bh) * 0.66); bottom: calc(var(--bh) * 0.24); opacity: 0.4; transform: rotateY(-34deg); transform-origin: 0 50%; }
+  .bw-ar-peek[data-side="prev"] { right: calc(50% + var(--bh) * 0.62); transform: rotateY(26deg); transform-origin: 100% 50%; z-index: 1; }
 }
 
 /* The bubble steps away while Beamy dissolves (hero ↔ dock). Unlayered so it
@@ -1562,6 +1664,34 @@
   40%, 100% { opacity: 0; transform: scale(1.14); }
 }
 @keyframes bw-prog { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+/* How it works, step 1 (10s loop): the code holds, then dissolves into the
+   phone as it finishes its scan, and comes back at the end. */
+@keyframes bw-qr-card {
+  0%, 40% { opacity: 1; transform: none; filter: none; }
+  47% { opacity: 0; transform: scale(0.8) translateY(-6%); filter: brightness(2.2) blur(6px); }
+  90% { opacity: 0; transform: scale(0.9); filter: blur(4px); }
+  97%, 100% { opacity: 1; transform: none; filter: none; }
+}
+/* The phone: waits up and away, comes down over the code (scanning), lifts
+   upright to show the booth, then goes back. */
+@keyframes bw-qr-phone {
+  0%, 8% { transform: none; }
+  18%, 40% { transform: translate(-34%, 16%) rotate(-9deg) scale(0.94); }
+  52%, 88% { transform: translate(-4%, 2%) rotate(0deg) scale(1.03); }
+  98%, 100% { transform: none; }
+}
+@keyframes bw-qr-booth {
+  0%, 44% { opacity: 0; }
+  50%, 88% { opacity: 1; }
+  94%, 100% { opacity: 0; }
+}
+@keyframes bw-qr-scanline { from { top: 28%; } to { top: 66%; } }
+@keyframes bw-peek-in { from { opacity: 0; } }
+@keyframes bw-fade-loop {
+  0%, 40% { opacity: 1; }
+  47%, 90% { opacity: 0; }
+  97%, 100% { opacity: 1; }
+}
 /* The CTA beam: one turn round the pill's centre. */
 @keyframes bw-btn-orbit { from { transform: rotate(0turn); } to { transform: rotate(1turn); } }
 @keyframes bw-btn-sheen {
@@ -1602,6 +1732,10 @@
   [data-brand="2"] .bw-scene[data-on="true"] > * { transform: none; filter: none; }
   [data-brand="2"] .bw-float { animation: none; transform: rotateY(var(--tilt, 0deg)); }
   [data-brand="2"] .bw-scene-scan { animation: none; top: 48%; }
+  /* The scan loop plays as cross-fades only: the phone holds still. */
+  [data-brand="2"] .bw-scene[data-on="true"] .bw-qr-phone { animation: none; }
+  [data-brand="2"] .bw-scene[data-on="true"] .bw-qr-card { animation-name: bw-fade-loop; }
+  [data-brand="2"] .bw-ar-peek { transform: none; animation: none; }
   [data-brand="2"] .bw-kb { animation: none; }
   [data-brand="2"] .bw-kb:first-child { opacity: 1; }
   [data-brand="2"] .bw-scene-track > span { animation: none; transform: scaleX(0.4); }

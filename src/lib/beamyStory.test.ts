@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { STORY_LOOKS, lookThumb, qrModules, storySceneLines } from './beamyStory';
+import { AR_COPY, STORY_LOOKS, lookThumb, qrModules, storySceneLines } from './beamyStory';
 import { EMOJI_RE } from './brandLanding';
 
 describe('beamyStory', () => {
@@ -23,6 +23,17 @@ describe('beamyStory', () => {
       const t = lookThumb(l);
       expect(t, l.id).not.toBeNull();
       expect(existsSync(resolve(__dirname, '../../public', `.${t}`)), String(t)).toBe(true);
+    }
+  });
+
+  it('says what the AR picker offers, on-brand', () => {
+    expect(AR_COPY.line).toMatch(/filters/);
+    expect(AR_COPY.line).toMatch(/props/);
+    expect(AR_COPY.line).toMatch(/effects/);
+    for (const l of Object.values(AR_COPY)) {
+      expect(l, l).not.toMatch(EMOJI_RE);
+      expect(l, l).not.toMatch(/—|–/);
+      expect(l, l).not.toMatch(/on[- ]site|in person|at your venue|technician|attendant|printed|print|physical/i);
     }
   });
 

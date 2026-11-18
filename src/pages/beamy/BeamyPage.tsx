@@ -62,11 +62,13 @@ import {
   STOPS, blendSlots, pageProgress, pinProgress, storyHeightVh, storyStep, weightedNight,
   type Pose, type SlotSample, type StopId,
 } from '../../lib/beamyScroll';
-import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, STORY_LOOK_HOLD_MS, STORY_LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl } from '../../lib/beamyLooks';
+import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl } from '../../lib/beamyLooks';
 import { preloadModel } from '../../lib/glbCache';
 import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, type StageLayout } from './BeamyStage';
 import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
+import ArPicker from './ArPicker';
+import { AR_FRAME_GEO, HOME_ASSET_DEFAULTS, arOrder, demoQrUrl, lookAction, lookThumb as assetThumb, nextAr, toBeamyLook } from '../../lib/beamyAssets';
 
 import boothFilm from '../../assets/landing/booth-feature.mp4';
 import boothPoster from '../../assets/landing/booth-feature-poster.jpg';
@@ -80,12 +82,23 @@ import cardsPoster from '../../assets/landing/cards-feature-poster.jpg';
 /** The beam's calm palette for the photo dissolve (palette[0] tints the core). */
 const BEAM_PALETTE = ['#C9CCFF', '#FFFFFF', '#A5ABFF', '#FFC56B'];
 const AUDIENCE_ICONS: Record<AudienceIcon, LucideIcon> = { ClipboardList, Cake, Users, Briefcase, Gift };
+/* Asset slots come from lib/beamyAssets (HOME_ASSET_DEFAULTS); an undefined
+   media field there means the bundled file imported here. */
+const A = HOME_ASSET_DEFAULTS;
 const FILM_MEDIA: Record<FilmId, { src: string; poster: string; Icon: (p: BeamIconProps) => ReactNode }> = {
-  booth: { src: boothFilm, poster: boothPoster, Icon: BoothIcon },
-  wall: { src: wallFilm, poster: wallPoster, Icon: WallIcon },
-  challenges: { src: challengesFilm, poster: challengesPoster, Icon: ChallengeIcon },
-  cards: { src: cardsFilm, poster: cardsPoster, Icon: CardIcon },
+  booth: { src: A.films.booth.video ?? boothFilm, poster: A.films.booth.poster ?? boothPoster, Icon: BoothIcon },
+  wall: { src: A.films.wall.video ?? wallFilm, poster: A.films.wall.poster ?? wallPoster, Icon: WallIcon },
+  challenges: { src: A.films.challenges.video ?? challengesFilm, poster: A.films.challenges.poster ?? challengesPoster, Icon: ChallengeIcon },
+  cards: { src: A.films.cards.video ?? cardsFilm, poster: A.films.cards.poster ?? cardsPoster, Icon: CardIcon },
 };
+/** The live walls' photos: an override needs more than one wall's worth. */
+const PHOTO_POOL = A.wallPhotos.length > 9 ? A.wallPhotos : WALL_POOL;
+/** The AR step's picker, in category order. */
+const AR_LOOKS = arOrder(A.arLooks);
+/** How long each AR look holds on the auto tour, and how long a tap pauses it. */
+const AR_HOLD_MS = 3200;
+const AR_HOLD_REDUCED_MS = 5200;
+const AR_IDLE_MS = 8000;
 /** Skipping the picker tours as the most common host. */
 const DEFAULT_AUDIENCE = audienceById('family') ?? AUDIENCES[0];
 /** Room above Beamy's head kept free for his speech bubble (slots that show it). */
@@ -740,15 +753,13 @@ export default function BeamyPage() {
   const filmsOn = filmsLit || failed || reduced;
   const pickOn = pickLit || failed || reduced;
 
-  // The story's AR step runs the same tour, quicker, and skips the greeting.
   const inStoryAR = active === 'story' && STORY_STEPS[step]?.id === 'prop';
-  const tryOn = ready && !failed && arrival === 'done' && !introRunning && (active === 'hero' || inStoryAR);
+  const tryOn = ready && !failed && arrival === 'done' && !introRunning && active === 'hero';
   const lastWorn = useRef(-1);
   useEffect(() => {
     const b = api.current;
     if (b === null) return;
     if (!tryOn) { if (lastWorn.current >= 0) { void b.wear(null); lastWorn.current = -1; } return; }
-    if (inStoryAR && lookIx === 0) { setLookIx(1); return; }
     const look = BEAMY_LOOKS[lookIx] ?? BEAMY_LOOKS[0];
     if (lastWorn.current >= 0 && lastWorn.current !== lookIx) b.sparkle('sparkle');
     lastWorn.current = lookIx;
@@ -762,15 +773,69 @@ export default function BeamyPage() {
       if (!live) return;
       window.clearTimeout(stuck);
       logStep(`look:${look.id}`);
-      if (!inStoryAR) say(look.line, lookIx !== 0);
-      hold = window.setTimeout(advance, inStoryAR ? (reduced ? STORY_LOOK_HOLD_REDUCED_MS : STORY_LOOK_HOLD_MS) : reduced ? LOOK_HOLD_REDUCED_MS : LOOK_HOLD_MS);
+      say(look.line, lookIx !== 0);
+      hold = window.setTimeout(advance, reduced ? LOOK_HOLD_REDUCED_MS : LOOK_HOLD_MS);
     });
     // Warm the next look so the swap is instant.
     const nx = preloadUrl(lookIx);
     if (nx !== null) { if (nx.endsWith('.glb')) void preloadModel(nx); else { const im = new Image(); im.src = nx; } }
     return () => { live = false; window.clearTimeout(stuck); window.clearTimeout(hold); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- say/api are stable
-  }, [tryOn, inStoryAR, lookIx, reduced]);
+  }, [tryOn, lookIx, reduced]);
+
+  /* ── The story's AR step: the picker drives what he wears. It tours every
+     look on its own (frames, props, filters, effects); any tap switches him
+     at once and pauses the tour, which carries on AR_IDLE_MS later. ── */
+  const [arIx, setArIx] = useState(0);
+  const arPausedUntil = useRef(0);
+  const arOn = ready && !failed && arrival === 'done' && inStoryAR;
+  const pickAr = useCallback((i: number) => {
+    arPausedUntil.current = performance.now() + AR_IDLE_MS;
+    logStep(`ar:pick:${AR_LOOKS[i]?.id ?? i}`);
+    setArIx(i);
+  }, []);
+  useEffect(() => {
+    if (!arOn) return;
+    const id = window.setInterval(() => {
+      if (performance.now() >= arPausedUntil.current) setArIx((k) => nextAr(k, AR_LOOKS.length));
+    }, reduced ? AR_HOLD_REDUCED_MS : AR_HOLD_MS);
+    return () => window.clearInterval(id);
+  }, [arOn, reduced]);
+  const arWorn = useRef(false);
+  useEffect(() => {
+    const b = api.current;
+    if (b === null) return;
+    if (!arOn) {
+      if (arWorn.current) { arWorn.current = false; void b.wear(null); b.tint(null); }
+      return;
+    }
+    const l = AR_LOOKS[arIx];
+    if (l === undefined) return;
+    if (arWorn.current) b.sparkle('sparkle');
+    arWorn.current = true;
+    const a = lookAction(l);
+    logStep(`ar:${l.id}`);
+    b.tint(a.kind === 'tint' ? a.color : null);
+    void b.wear(a.kind === 'frame' || a.kind === 'prop' ? toBeamyLook(l, a.kind === 'frame' ? AR_FRAME_GEO : undefined) : null);
+    // Warm the next file so the swap is instant.
+    const nx = AR_LOOKS[nextAr(arIx, AR_LOOKS.length)];
+    if (nx !== undefined) {
+      const na = lookAction(nx);
+      if (na.kind === 'prop') void preloadModel(na.url);
+      else if (na.kind === 'frame') { const im = new Image(); im.src = na.url; }
+    }
+    if (a.kind !== 'fx') return;
+    // Effects: Power-Up style moments that repeat while the effect is on.
+    const run = () => {
+      const w = b.where();
+      if (a.fx === 'sparkles') b.sparkle('burst');
+      else if (a.fx === 'beam') void b.zap({ x: w.x + w.heightPx * 0.9 * (w.x > window.innerWidth / 2 ? -1 : 1), y: w.y - w.heightPx * 1.25 }, 'mouth', 900);
+      else { void b.play('Dance'); b.sparkle('sparkle'); }
+    };
+    run();
+    const id = window.setInterval(run, a.fx === 'sparkles' ? 1300 : a.fx === 'beam' ? 2000 : 3400);
+    return () => window.clearInterval(id);
+  }, [arOn, arIx]);
 
   /* Only the Skip chip skips the intro (or scrolling on). */
   const skipIntro = useCallback(() => {
@@ -1095,7 +1160,7 @@ export default function BeamyPage() {
     <div className="bw-wall-mount bw-wall-glint h-full" style={{ ['--wall-yaw' as string]: wideHero ? '-7deg' : phone ? '0deg' : '-5deg' }}>
       <LiveWall
         key={heroRows}
-        pool={WALL_POOL} pins={heroPins} dim={introRunning} compact={!wideHero} centreRef={heroTileRef} ripple={ripple} seed={seed}
+        pool={PHOTO_POOL} pins={heroPins} dim={introRunning} compact={!wideHero} centreRef={heroTileRef} ripple={ripple} seed={seed}
         rows={heroRows} fill
       />
     </div>
@@ -1225,7 +1290,7 @@ export default function BeamyPage() {
   // Phones and portrait tablets stack the scene above him; wide screens set it round him.
   const stacked = phone || vp.w < WIDE_HERO_MIN;
   const storyIds = STORY_STEPS.map((s) => s.id);
-  const storyLook = inStoryAR ? BEAMY_LOOKS[lookIx]?.id ?? null : null;
+  const qrUrl = demoQrUrl(window.location.origin, A.demoEventSlug ?? 'demo');
   const storyCaption = (
     <div className={`bw-glass-card bw-pane ${stacked ? 'px-4 pb-1.5 pt-3.5' : 'w-[min(420px,34vw)] px-6 pb-2.5 pt-5'}`}>
       <p className={`bw-eyebrow after:hidden ${stacked ? 'text-[12px]' : ''}`}>{STORY_COPY.eyebrow}</p>
@@ -1250,7 +1315,10 @@ export default function BeamyPage() {
     </div>
   );
   const storyScenes = (
-    <StoryScenes step={step} ids={storyIds} stacked={stacked} lookId={storyLook} ripple={storyRipple} wallCentreRef={storyWallRef} seed={seed} />
+    <>
+      <StoryScenes step={step} ids={storyIds} stacked={stacked} qrUrl={qrUrl} boothFrame={assetThumb({ url: '/guides/frames/wedding-monogram-drop.png' })} ripple={storyRipple} wallCentreRef={storyWallRef} seed={seed} />
+      <ArPicker looks={AR_LOOKS} ix={arIx} onPick={pickAr} active={inStoryAR} stacked={stacked} />
+    </>
   );
   const story = (
     <section ref={storyRef} id="how" data-stop="story" aria-labelledby="h-story" className="bw-sec relative" style={{ height: `${storyHeightVh(n, phone)}vh` }}>
@@ -1378,7 +1446,7 @@ export default function BeamyPage() {
   /* ── Try it ────────────────────────────────────────────────────────── */
   const tryWall = (
     <div ref={tryWallRef} className="bw-wall-mount" style={{ ['--wall-yaw' as string]: phone ? '0deg' : '-6deg' }}>
-      <LiveWall pool={WALL_POOL} pins={shotPins} dim={false} compact={phone} centreRef={tryTileRef} ripple={0} seed={seed + 7} />
+      <LiveWall pool={PHOTO_POOL} pins={shotPins} dim={false} compact={phone} centreRef={tryTileRef} ripple={0} seed={seed + 7} />
     </div>
   );
   // Wider than the other sections and higher up: the phone sits far left, the wall far right.
