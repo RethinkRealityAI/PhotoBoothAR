@@ -16,6 +16,7 @@ import { supabase } from '../lib/supabase';
 import { createGenericVisuals } from './generic';
 import { resolveBackgroundTemplate } from '../components/theme/backgrounds';
 import { isEmptyBrief, normalizeBrief } from '../lib/eventBrief';
+import { isUntouchedTemplateTheme } from '../lib/eventTemplates';
 
 export interface RuntimeEvent {
   /** slug — doubles as the posts/experiences/app_settings event_id. */
@@ -133,6 +134,14 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
   const brief = cfg.brief === null || cfg.brief === undefined ? undefined : normalizeBrief(cfg.brief);
   // Keepsake style new cards start from. Host-only setting; guests never pick.
   const defaultCardTemplate = str(cfg.default_card_template);
+  // The brand look: set explicitly (new events, Branding's "Beamwall" look),
+  // or by default for an event that never chose its colours (an untouched
+  // occasion theme). `look: null` is Branding's explicit opt-out. The template
+  // tokens are dropped so the brand tokens show (platform.css).
+  const rawThemeVars = (cfg.themeVars && typeof cfg.themeVars === 'object'
+    ? (cfg.themeVars as Record<string, string>)
+    : {});
+  const brandLook = cfg.look === 'beamwall' || (cfg.look === undefined && isUntouchedTemplateTheme(rawThemeVars));
 
   return {
     id: row.slug,
@@ -149,11 +158,9 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     arContent,
     accentHexes,
     defaultExperienceId: str(cfg.defaultExperienceId),
-    themeVars: (cfg.themeVars && typeof cfg.themeVars === 'object'
-      ? (cfg.themeVars as Record<string, string>)
-      : {}),
+    themeVars: brandLook ? {} : rawThemeVars,
     ...(brief !== undefined && !isEmptyBrief(brief) ? { brief } : {}),
-    ...(cfg.look === 'beamwall' ? { look: 'beamwall' as const } : {}),
+    ...(brandLook ? { look: 'beamwall' as const } : {}),
   };
 }
 

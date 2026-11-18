@@ -276,6 +276,21 @@ export function accentThemePatch(accent: string): Record<string, string> {
  * (which already holds `{ copy: { fullName } }`), so we re-include fullName +
  * eventName to survive the merge.
  */
+/**
+ * True when an event's stored themeVars are empty or exactly one occasion
+ * template's own tokens, i.e. nobody chose its colours: create seeded them
+ * (or seeding never ran). Such events show the brand look (owner decision
+ * 2026-11-18, "Switch them too"); any edited theme is the host's and stays.
+ */
+export function isUntouchedTemplateTheme(vars: Record<string, unknown> | null | undefined): boolean {
+  const entries = Object.entries(vars ?? {});
+  if (entries.length === 0) return true;
+  return EVENT_TEMPLATES.some((t) => {
+    const tv = Object.entries(t.themeVars);
+    return tv.length === entries.length && tv.every(([k, v]) => (vars as Record<string, unknown>)[k] === v);
+  });
+}
+
 export function templateConfigPatch(t: EventTemplate, eventName: string): Record<string, unknown> {
   return {
     themeVars: t.themeVars,
