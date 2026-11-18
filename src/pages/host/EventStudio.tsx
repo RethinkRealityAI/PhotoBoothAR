@@ -422,7 +422,7 @@ export default function EventStudio() {
   }
   if (state.phase === 'loading') {
     return (
-      <div className="absolute inset-0 app-bg flex items-center justify-center">
+      <div data-platform className="absolute inset-0 app-bg flex items-center justify-center">
         <div className="w-10 h-10 rounded-full border-2 border-white/10 border-t-[color:var(--color-accent)] animate-spin" />
       </div>
     );
@@ -466,6 +466,11 @@ export default function EventStudio() {
     <StudioBaseContext.Provider value={base}>
       <StudioAccessContext.Provider value={{ studio: studioOn }}>
       <EventProvider slug={event.slug} basePath={basePath} previewBanner={false}>
+        {/* data-platform: this chrome (and its dialogs) wears the platform look
+            even though it sits inside the event's EventProvider
+            (src/styles/platform.css); guest-facing previews opt back out
+            with `.event-theme`. display:contents keeps the layout as it was. */}
+        <div data-platform className="contents">
         <ToastProvider>
         <CheckoutReturn onRefresh={() => setReloadKey((k) => k + 1)} />
         <AnimatePresence>
@@ -479,7 +484,7 @@ export default function EventStudio() {
             />
           )}
         </AnimatePresence>
-        <div className="absolute inset-0 flex flex-col">
+        <div className="absolute inset-0 flex flex-col app-bg">
           {/* Event tab chrome — hidden inside Studio so its editor is full-bleed
               and StudioShell's own header is the only top bar. */}
           {/* Below lg the bar wraps: back · event name · actions on top, the
@@ -660,6 +665,7 @@ export default function EventStudio() {
           </main>
         </div>
         </ToastProvider>
+        </div>
       </EventProvider>
       </StudioAccessContext.Provider>
     </StudioBaseContext.Provider>

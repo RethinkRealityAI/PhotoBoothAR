@@ -10,8 +10,11 @@
    serialized behind the CSS bundle. Legacy/coded events keep injecting their
    own fontHref (incl. Pinyon Script for the gala events) at runtime. */
 @import "tailwindcss";
-/* Brand v2 tokens + components, scoped to [data-brand="2"] (/beamy, /brand). */
+/* Brand v2 tokens + components (bw-*). */
 @import "./styles/brand.css";
+/* Brand v2 as the platform default: re-points the semantic tokens and
+   utilities below on every non-event screen (see the file header). */
+@import "./styles/platform.css";
 
 @theme {
   /* Champagne gold scale */

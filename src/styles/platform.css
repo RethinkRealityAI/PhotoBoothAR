@@ -1,0 +1,265 @@
+/**
+ * Brand v2 across the platform (rollout started 2026-11-18).
+ *
+ * The app's screens are written against a small set of SEMANTIC tokens and
+ * utilities from index.css (`--color-brand-*`, `--color-accent`, `--accent-rgb`,
+ * `.app-bg`, `.glass`, `.liquid-glass*`, `.bg-foil`, `.text-foil*`,
+ * `font-serif`, `font-label`). This file re-points those at the brand v2
+ * tokens (src/styles/brand.css, `--bw-*`) so every platform screen moves at
+ * once, without touching each component.
+ *
+ * SCOPE: `:root:not([data-event])`, plus any `[data-platform]` subtree. An
+ * event surface (guest booth, wall, keepsakes, and every legacy single-event
+ * build, which sets data-event at boot in main.tsx) carries `data-event` on
+ * <html>, so it keeps its own theme.css and the host's branding colours
+ * byte-for-byte. Platform screens (landing, sign-in, /host, /admin, the CRM)
+ * never set it. The event studio (/host/events/:id) DOES sit inside an
+ * EventProvider (its screens need useEvent()), so its chrome opts back into
+ * the platform look with `data-platform`, and a preview of what guests will
+ * see opts back OUT with `.event-theme` (restored from the --ev-* stash that
+ * :root keeps of the event's own values).
+ *
+ * TWO SCENES, one family:
+ *   bright (default) — the periwinkle field from /beamy, for marketing,
+ *                      sign-in and the host app;
+ *   night            — the midnight indigo from the /beamy journey, for dense
+ *                      work screens (studio, admin, CRM), opted into with
+ *                      `data-surface="night"` on that screen's root.
+ * Custom properties resolve where they are DECLARED, so the semantic mapping
+ * is declared on every scene root (not only :root): that is what lets a
+ * `data-surface` subtree re-resolve `--color-brand-bg` from its own scene.
+ *
+ * Brand rules this enforces: no gradient fills on buttons or text (bg-foil
+ * becomes the solid white pill, text-foil becomes solid ink), no serif
+ * (font-serif renders the display face, upright), glass edges are inset
+ * light, never a gradient border.
+ */
+
+/* ── Scenes ─────────────────────────────────────────────────────────── */
+
+:root:not([data-event]),
+[data-platform] {
+  --pf-bg: var(--bw-bg);
+  --pf-bg-glow-1: var(--bw-bg-4);
+  --pf-bg-glow-2: var(--bw-bg-2);
+  --pf-bg-glow-3: var(--bw-bg-3);
+  /* Opaque surface: native <select> popovers, solid fills. A notch deeper
+     than the field so white ink keeps AA. */
+  --pf-surface: #352FA6;
+  --pf-muted: rgba(255, 255, 255, 0.86);
+  /* Glass on this scene: indigo veil + milky frost (the /beamy card recipe). */
+  --pf-veil: var(--bw-card-veil);
+  --pf-frost: rgba(255, 255, 255, 0.10);
+  --pf-veil-strong: rgba(36, 32, 120, 0.46);
+  --pf-well: rgba(26, 23, 64, 0.22);
+  --pf-shadow: var(--bw-shadow);
+}
+
+:is(:root:not([data-event]), [data-platform]) [data-surface="night"],
+[data-platform][data-surface="night"] {
+  --pf-bg: var(--bw-night);
+  --pf-bg-glow-1: rgba(91, 75, 224, 0.34);
+  --pf-bg-glow-2: var(--bw-night-2);
+  --pf-bg-glow-3: rgba(124, 108, 247, 0.22);
+  --pf-surface: #1F1A63;
+  --pf-muted: rgba(255, 255, 255, 0.78);
+  --pf-veil: rgba(43, 42, 140, 0.30);
+  --pf-frost: rgba(255, 255, 255, 0.05);
+  --pf-veil-strong: rgba(24, 20, 82, 0.72);
+  --pf-well: rgba(8, 6, 30, 0.40);
+  --pf-shadow: rgba(4, 3, 20, 0.70);
+}
+
+/* ── Semantic tokens → brand v2 (declared on every scene root) ──────── */
+
+:root:not([data-event]),
+[data-platform],
+:is(:root:not([data-event]), [data-platform]) [data-surface] {
+  --color-brand-bg: var(--pf-bg);
+  --color-brand-surface: var(--pf-surface);
+  --color-brand-fg: var(--bw-ink);
+  --color-brand-muted: var(--pf-muted);
+  --color-ivory: var(--bw-ink);
+  --color-champagne: var(--pf-muted);
+
+  /* The primary action is a solid white pill with deep-indigo ink, so the
+     "accent" on the platform IS white; its tints (rgba(var(--accent-rgb),a))
+     read as frost on the field. The warm core is kept for one highlight. */
+  --color-accent: var(--bw-accent);
+  --color-accent-2: var(--bw-accent-hover);
+  --color-accent-3: var(--bw-accent-pressed);
+  --accent-rgb: 255, 255, 255;
+  --on-accent: var(--bw-on-accent);
+
+  --font-sans: var(--bw-font-text);
+  --font-serif: var(--bw-font-display);
+  --font-label: var(--bw-font-text);
+
+  /* The old gold/noir scales are still named directly by older screens
+     (an event theme remaps them the same way, see branding.ts). On the
+     platform: gold = the white/lavender action family, noir = deep indigo
+     ink and surfaces, so `text-noir-900` on a white pill stays legible. */
+  --color-gold-50: #FFFFFF;
+  --color-gold-100: #FFFFFF;
+  --color-gold-200: var(--bw-accent-hover);
+  --color-gold-300: var(--bw-accent-hover);
+  --color-gold-400: var(--bw-accent);
+  --color-gold-500: var(--bw-accent-pressed);
+  --color-gold-600: var(--bw-accent-pressed);
+  --color-gold-700: #C9C6F5;
+  --color-brand-gold: var(--bw-accent);
+  --color-brand-orange: var(--bw-accent-hover);
+  --color-brand-text: var(--bw-ink);
+  --color-noir-900: var(--bw-on-light);
+  --color-noir-800: var(--bw-deep-2);
+  --color-noir-700: var(--pf-surface);
+  --color-noir-600: var(--bw-deep);
+}
+
+:root:not([data-event]) body,
+[data-platform] {
+  font-family: var(--bw-font-text);
+}
+
+/* ── Event previews inside platform chrome ───────────────────────────
+   :root resolves these against the event's own theme (theme.css, the
+   injected themeVars rule and the host's inline branding all live on
+   <html>), so a `.event-theme` subtree gets the guest-facing look back. */
+:root {
+  --ev-color-brand-bg: var(--color-brand-bg);
+  --ev-color-brand-surface: var(--color-brand-surface);
+  --ev-color-brand-fg: var(--color-brand-fg);
+  --ev-color-brand-muted: var(--color-brand-muted);
+  --ev-color-ivory: var(--color-ivory);
+  --ev-color-champagne: var(--color-champagne);
+  --ev-color-accent: var(--color-accent);
+  --ev-color-accent-2: var(--color-accent-2);
+  --ev-color-accent-3: var(--color-accent-3);
+  --ev-accent-rgb: var(--accent-rgb);
+  --ev-on-accent: var(--on-accent);
+  --ev-font-sans: var(--font-sans);
+  --ev-font-serif: var(--font-serif);
+  --ev-font-label: var(--font-label);
+}
+[data-platform] .event-theme {
+  --color-brand-bg: var(--ev-color-brand-bg);
+  --color-brand-surface: var(--ev-color-brand-surface);
+  --color-brand-fg: var(--ev-color-brand-fg);
+  --color-brand-muted: var(--ev-color-brand-muted);
+  --color-ivory: var(--ev-color-ivory);
+  --color-champagne: var(--ev-color-champagne);
+  --color-accent: var(--ev-color-accent);
+  --color-accent-2: var(--ev-color-accent-2);
+  --color-accent-3: var(--ev-color-accent-3);
+  --accent-rgb: var(--ev-accent-rgb);
+  --on-accent: var(--ev-on-accent);
+  --font-sans: var(--ev-font-sans);
+  --font-serif: var(--ev-font-serif);
+  --font-label: var(--ev-font-label);
+  font-family: var(--ev-font-sans);
+}
+
+/* ── Components ─────────────────────────────────────────────────────── */
+
+@layer utilities {
+  /* The scene: one hue family, soft tonal glows, a still grain on top. */
+  :is(:root:not([data-event]), [data-platform]) .app-bg {
+    background-color: var(--pf-bg);
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.06'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)'/%3E%3C/svg%3E"),
+      radial-gradient(60% 55% at 108% -12%, var(--pf-bg-glow-1), transparent 66%),
+      radial-gradient(55% 60% at 70% 62%, var(--pf-bg-glow-2), transparent 74%),
+      radial-gradient(45% 50% at -6% 108%, var(--pf-bg-glow-3), transparent 68%);
+    background-size: 200px 200px, auto, auto, auto;
+    background-attachment: scroll, fixed, fixed, fixed;
+  }
+
+  /* Glass: the flat liquid-glass card (no extrusion, no bevel gradient). */
+  :is(:root:not([data-event]), [data-platform]) .glass,
+  :is(:root:not([data-event]), [data-platform]) .liquid-glass,
+  :is(:root:not([data-event]), [data-platform]) .liquid-glass-raised {
+    background: var(--pf-veil);
+    -webkit-backdrop-filter: blur(18px) saturate(130%);
+    backdrop-filter: blur(18px) saturate(130%);
+    border: 0;
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.36),
+      inset -1px -1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 0 0 100vmax var(--pf-frost),
+      0 18px 36px -22px var(--pf-shadow);
+  }
+  :is(:root:not([data-event]), [data-platform]) .liquid-glass::before { display: none; }
+
+  /* Strong glass: sheets, modals, the rail. Deeper veil so dense text sits
+     on a calmer ground. */
+  :is(:root:not([data-event]), [data-platform]) .glass-strong {
+    background: var(--pf-veil-strong);
+    -webkit-backdrop-filter: blur(28px) saturate(120%);
+    backdrop-filter: blur(28px) saturate(120%);
+    border: 0;
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.30),
+      inset -1px -1px 0 rgba(255, 255, 255, 0.06),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 24px 60px -28px var(--pf-shadow);
+  }
+
+  /* Wells (inputs, incoming bubbles): sit INTO the glass. */
+  :is(:root:not([data-event]), [data-platform]) .liquid-glass-inset {
+    background: var(--pf-well);
+    border: 0;
+    box-shadow: inset 0 0 0 1px var(--bw-hairline), inset 0 1px 2px rgba(10, 8, 40, 0.25);
+  }
+
+  :is(:root:not([data-event]), [data-platform]) .pressable.liquid-glass-raised:active {
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.24),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 0 0 100vmax var(--pf-frost),
+      0 8px 18px -14px var(--pf-shadow);
+  }
+
+  /* Primary action fill: solid, never a gradient. */
+  /* Its ink is pinned too: older screens hard-code `text-white` on the fill
+     (written for a dark accent), which would be white on white here. */
+  :is(:root:not([data-event]), [data-platform]) .bg-foil {
+    background-image: none;
+    background-color: var(--bw-accent);
+    color: var(--bw-on-accent);
+  }
+  :is(:root:not([data-event]), [data-platform]) .bg-foil:hover:not(:disabled) {
+    background-color: var(--bw-accent-hover);
+  }
+
+  /* Gradient text is off-brand: solid ink, shimmer off. */
+  :is(:root:not([data-event]), [data-platform]) .text-foil,
+  :is(:root:not([data-event]), [data-platform]) .text-foil-static,
+  :is(:root:not([data-event]), [data-platform]) .gold-foil,
+  :is(:root:not([data-event]), [data-platform]) .gold-foil-static {
+    background: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    -webkit-text-fill-color: currentColor;
+    color: var(--bw-ink);
+    animation: none;
+  }
+
+  /* The display face is upright and tight; the old serif's italic and wide
+     tracking do not carry over. */
+  :is(:root:not([data-event]), [data-platform]) .font-serif {
+    font-style: normal;
+    letter-spacing: var(--bw-track-heading);
+  }
+  /* Labels: sentence-case brand, so the wide luxe tracking is pulled in. */
+  :is(:root:not([data-event]), [data-platform]) .tracking-luxe {
+    letter-spacing: 0.06em;
+  }
+
+  /* Accent glows become a soft drop: no coloured bloom on a white accent. */
+  :is(:root:not([data-event]), [data-platform]) .glow-accent,
+  :is(:root:not([data-event]), [data-platform]) .glow-gold,
+  :is(:root:not([data-event]), [data-platform]) .glow-soft {
+    box-shadow: 0 14px 32px -16px var(--pf-shadow);
+  }
+}

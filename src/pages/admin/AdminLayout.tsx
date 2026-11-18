@@ -44,7 +44,7 @@ const NAV: NavItem[] = [
 
 function Spinner() {
   return (
-    <div className="absolute inset-0 app-bg flex items-center justify-center">
+    <div data-surface="night" className="absolute inset-0 app-bg flex items-center justify-center">
       <div className="w-10 h-10 rounded-full border-2 border-white/10 border-t-[color:var(--color-accent)] animate-spin" />
     </div>
   );
@@ -86,7 +86,7 @@ export default function AdminLayout() {
     'pressable flex items-center gap-2.5 rounded-xl px-3.5 min-h-11 min-w-11 font-label uppercase tracking-luxe text-[10px] transition-colors shrink-0';
 
   return (
-    <div className="absolute inset-0 app-bg text-brand-fg flex flex-col md:flex-row overflow-hidden md:gap-0">
+    <div data-surface="night" className="absolute inset-0 app-bg text-brand-fg flex flex-col md:flex-row overflow-hidden md:gap-0">
       {/* Floating rail: inset from the window edge with its own rounding,
           bevel and shadow, so it reads as a panel resting on the canvas rather
           than a wall bolted to the side. Below md it becomes a scrollable
