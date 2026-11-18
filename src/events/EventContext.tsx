@@ -74,6 +74,13 @@ const THEME_STYLE_ID = 'pbar-event-theme';
 function applyEventTheme(event: RuntimeEvent) {
   if (typeof document === 'undefined') return;
   document.documentElement.dataset.event = event.eventId;
+  // Brand v2 on the guest surfaces (src/styles/platform.css). Only a DB event
+  // can opt in: a coded legacy event must render byte-identically.
+  if (event.source === 'db' && event.config.look === 'beamwall') {
+    document.documentElement.dataset.eventLook = 'beamwall';
+  } else {
+    delete document.documentElement.dataset.eventLook;
+  }
 
   const vars = event.config.themeVars ?? {};
   let style = document.getElementById(THEME_STYLE_ID) as HTMLStyleElement | null;
@@ -128,6 +135,7 @@ const PLATFORM_TITLE = 'Beamwall — your event photo booth, on every guest’s 
 function resetPlatformTheme() {
   if (typeof document === 'undefined') return;
   delete document.documentElement.dataset.event;
+  delete document.documentElement.dataset.eventLook;
   const style = document.getElementById(THEME_STYLE_ID);
   if (style) style.textContent = '';
   for (const v of MANAGED_CSS_VARS) document.documentElement.style.removeProperty(v);

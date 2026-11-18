@@ -106,6 +106,11 @@ export interface EventConfig {
    *  EventProvider applies these at runtime so themes no longer require a
    *  build-time CSS import. */
   themeVars?: Record<string, string>;
+  /** The platform look family (events.config.look). 'beamwall' = brand v2 on
+   *  the guest surfaces (src/styles/platform.css); absent = the event's own
+   *  themeVars over the classic dark default. DB events only — coded legacy
+   *  events never carry it. */
+  look?: 'beamwall';
   /** The shared event brief (events.config.brief) the concierge captures and
    *  the Platform Copilot / Scene Director read. DB events only — undefined
    *  when the row carries none, and always undefined for legacy coded events. */

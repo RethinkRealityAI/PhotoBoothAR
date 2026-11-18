@@ -469,6 +469,13 @@ export default function NewEvent() {
         patch.themeVars = { ...(patch.themeVars as Record<string, string>), ...themeOverride };
       } else if (accent) {
         patch.themeVars = { ...(patch.themeVars as Record<string, string>), ...accentThemePatch(accent) };
+      } else if (!effectiveAccent) {
+        // No colour chosen (the same test TemplatePreview uses, so the
+        // preview matches): the event starts in the brand look on every guest
+        // surface (config.look, src/styles/platform.css); the occasion still
+        // seeds its frames, effects and copy. Branding can switch it later.
+        delete patch.themeVars;
+        patch.look = 'beamwall';
       }
       // Frames & filters: the template's set in best-match order; with a
       // colour, the recolourable frames take it on in the booth (framePalette).

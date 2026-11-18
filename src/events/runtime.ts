@@ -153,6 +153,7 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
       ? (cfg.themeVars as Record<string, string>)
       : {}),
     ...(brief !== undefined && !isEmptyBrief(brief) ? { brief } : {}),
+    ...(cfg.look === 'beamwall' ? { look: 'beamwall' as const } : {}),
   };
 }
 

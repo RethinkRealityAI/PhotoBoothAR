@@ -25,6 +25,13 @@
  *   night            — the midnight indigo from the /beamy journey, for dense
  *                      work screens (studio, admin, CRM), opted into with
  *                      `data-surface="night"` on that screen's root.
+ * GUEST LOOK: a platform event (not a coded legacy one) whose config says
+ * `look: "beamwall"` (the default for new events) gets this same look on its
+ * guest surfaces via `<html data-event-look="beamwall">` (EventContext.tsx).
+ * Utilities read the SEMANTIC tokens, so a host's own Branding colours
+ * (inline vars on <html>) and themeVars (the injected :root[data-event] rule,
+ * later in the cascade) still win.
+ *
  * Custom properties resolve where they are DECLARED, so the semantic mapping
  * is declared on every scene root (not only :root): that is what lets a
  * `data-surface` subtree re-resolve `--color-brand-bg` from its own scene.
@@ -38,6 +45,7 @@
 /* ── Scenes ─────────────────────────────────────────────────────────── */
 
 :root:not([data-event], [data-look="previous"]),
+:root[data-event-look="beamwall"],
 [data-platform] {
   --pf-bg: var(--bw-bg);
   --pf-bg-glow-1: var(--bw-bg-4);
@@ -55,7 +63,7 @@
   --pf-shadow: var(--bw-shadow);
 }
 
-:is(:root:not([data-event], [data-look="previous"]), [data-platform]) [data-surface="night"],
+:is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) [data-surface="night"],
 [data-platform][data-surface="night"] {
   --pf-bg: var(--bw-night);
   --pf-bg-glow-1: rgba(91, 75, 224, 0.34);
@@ -73,8 +81,9 @@
 /* ── Semantic tokens → brand v2 (declared on every scene root) ──────── */
 
 :root:not([data-event], [data-look="previous"]),
+:root[data-event-look="beamwall"],
 [data-platform],
-:is(:root:not([data-event], [data-look="previous"]), [data-platform]) [data-surface] {
+:is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) [data-surface] {
   --color-brand-bg: var(--pf-bg);
   --color-brand-surface: var(--pf-surface);
   --color-brand-fg: var(--bw-ink);
@@ -117,6 +126,7 @@
 }
 
 :root:not([data-event], [data-look="previous"]) body,
+:root[data-event-look="beamwall"] body,
 [data-platform] {
   font-family: var(--bw-font-text);
 }
@@ -163,8 +173,8 @@
 
 @layer utilities {
   /* The scene: one hue family, soft tonal glows, a still grain on top. */
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .app-bg {
-    background-color: var(--pf-bg);
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .app-bg {
+    background-color: var(--color-brand-bg);
     background-image:
       url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.06'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)'/%3E%3C/svg%3E"),
       radial-gradient(60% 55% at 108% -12%, var(--pf-bg-glow-1), transparent 66%),
@@ -175,9 +185,9 @@
   }
 
   /* Glass: the flat liquid-glass card (no extrusion, no bevel gradient). */
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .glass,
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .liquid-glass,
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .liquid-glass-raised {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .glass,
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .liquid-glass,
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .liquid-glass-raised {
     background: var(--pf-veil);
     -webkit-backdrop-filter: blur(18px) saturate(130%);
     backdrop-filter: blur(18px) saturate(130%);
@@ -189,11 +199,11 @@
       inset 0 0 0 100vmax var(--pf-frost),
       0 18px 36px -22px var(--pf-shadow);
   }
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .liquid-glass::before { display: none; }
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .liquid-glass::before { display: none; }
 
   /* Strong glass: sheets, modals, the rail. Deeper veil so dense text sits
      on a calmer ground. */
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .glass-strong {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .glass-strong {
     background: var(--pf-veil-strong);
     -webkit-backdrop-filter: blur(28px) saturate(120%);
     backdrop-filter: blur(28px) saturate(120%);
@@ -206,13 +216,13 @@
   }
 
   /* Wells (inputs, incoming bubbles): sit INTO the glass. */
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .liquid-glass-inset {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .liquid-glass-inset {
     background: var(--pf-well);
     border: 0;
     box-shadow: inset 0 0 0 1px var(--bw-hairline), inset 0 1px 2px rgba(10, 8, 40, 0.25);
   }
 
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .pressable.liquid-glass-raised:active {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .pressable.liquid-glass-raised:active {
     box-shadow:
       inset 1px 1px 0 rgba(255, 255, 255, 0.24),
       inset 0 0 0 1px rgba(255, 255, 255, 0.08),
@@ -223,37 +233,37 @@
   /* Primary action fill: solid, never a gradient. */
   /* Its ink is pinned too: older screens hard-code `text-white` on the fill
      (written for a dark accent), which would be white on white here. */
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .bg-foil {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .bg-foil {
     background-image: none;
-    background-color: var(--bw-accent);
-    color: var(--bw-on-accent);
+    background-color: var(--color-accent);
+    color: var(--on-accent);
   }
   /* Same for icons inside an accent fill that carry their own text-white
      (avatar dots, selected-tile checks). */
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) :is(.bg-foil, .bg-accent, [class*="bg-[color:var(--color-accent)]"]) .text-white,
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) :is(.bg-accent, [class*="bg-[color:var(--color-accent)]"]).text-white {
-    color: var(--bw-on-accent);
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.bg-foil, .bg-accent, [class*="bg-[color:var(--color-accent)]"]) .text-white,
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.bg-accent, [class*="bg-[color:var(--color-accent)]"]).text-white {
+    color: var(--on-accent);
   }
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .bg-foil:hover:not(:disabled) {
-    background-color: var(--bw-accent-hover);
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .bg-foil:hover:not(:disabled) {
+    background-color: var(--color-accent-2);
   }
 
   /* Gradient text is off-brand: solid ink, shimmer off. */
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-foil,
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-foil-static,
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .gold-foil,
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .gold-foil-static {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .text-foil,
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .text-foil-static,
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .gold-foil,
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .gold-foil-static {
     background: none;
     -webkit-background-clip: border-box;
     background-clip: border-box;
     -webkit-text-fill-color: currentColor;
-    color: var(--bw-ink);
+    color: var(--color-brand-fg);
     animation: none;
   }
 
   /* The display face is upright and tight; the old serif's italic and wide
      tracking do not carry over. */
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .font-serif {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .font-serif {
     font-style: normal;
     letter-spacing: var(--bw-track-heading);
   }
@@ -261,10 +271,10 @@
      wide-tracked. Older screens set ~530 labels as `uppercase` + a wide
      tracking utility over text that is already authored in sentence or
      title case, so dropping the transform is the whole migration. */
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .tracking-luxe {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .tracking-luxe {
     letter-spacing: 0.01em;
   }
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .uppercase {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .uppercase {
     text-transform: none;
     letter-spacing: 0.01em;
   }
@@ -272,7 +282,7 @@
      case for the caps transform; sentence case starts them with a capital.
      ::first-letter only reaches block / inline-block boxes, which is what
      those pills are. */
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .uppercase::first-letter {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .uppercase::first-letter {
     text-transform: uppercase;
   }
 
@@ -281,34 +291,34 @@
      a light frost with a hairline (src/styles/brand.css .bw-field). Only
      fields that asked for a dark well are touched, so transparent inputs
      inside a composed control (chat composers, search pills) stay as built. */
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) :is(input, textarea, select):is([class*="bg-noir-"], [class*="bg-black"]) {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(input, textarea, select):is([class*="bg-noir-"], [class*="bg-black"]) {
     background-color: rgba(255, 255, 255, 0.10);
     border-color: var(--bw-hairline);
   }
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) :is(input, textarea, select):is([class*="bg-noir-"], [class*="bg-black"]):hover {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(input, textarea, select):is([class*="bg-noir-"], [class*="bg-black"]):hover {
     border-color: var(--bw-hairline-strong);
   }
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) :is(input, textarea)::placeholder {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(input, textarea)::placeholder {
     color: rgba(255, 255, 255, 0.62);
   }
 
   /* Type floor: never below 12px (brand rule). ~850 older labels use 8-11px
      arbitrary sizes; sentence case is narrower than the tracked caps they
      replace, so the floor fits the same space. */
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[8px\],
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[9px\],
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[9\.5px\],
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[10px\],
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[10\.5px\],
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[11px\],
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .text-\[11\.5px\] {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .text-\[8px\],
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .text-\[9px\],
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .text-\[9\.5px\],
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .text-\[10px\],
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .text-\[10\.5px\],
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .text-\[11px\],
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .text-\[11\.5px\] {
     font-size: 12px;
   }
 
   /* Accent glows become a soft drop: no coloured bloom on a white accent. */
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .glow-accent,
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .glow-gold,
-  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .glow-soft {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .glow-accent,
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .glow-gold,
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .glow-soft {
     box-shadow: 0 14px 32px -16px var(--pf-shadow);
   }
 }

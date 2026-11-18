@@ -47,6 +47,26 @@ export interface EventTemplate {
   tagline: string;
 }
 
+/**
+ * The brand look (events.config.look = 'beamwall'): new events start here
+ * unless the host picks a colour. Concrete values of the brand v2 tokens
+ * (src/styles/brand.css --bw-*), for the places that need literal theme
+ * tokens rather than the stylesheet: TemplatePreview's inline style. The live
+ * guest surfaces get the full look (glass, type, fields) from
+ * src/styles/platform.css via <html data-event-look="beamwall">.
+ */
+export const BEAMWALL_LOOK_VARS: Record<string, string> = {
+  '--color-brand-bg': '#4840C6',
+  '--color-brand-surface': '#352FA6',
+  '--color-brand-fg': '#FFFFFF',
+  '--color-brand-muted': 'rgba(255, 255, 255, 0.86)',
+  '--color-accent': '#FFFFFF',
+  '--color-accent-2': '#ECEBFF',
+  '--color-accent-3': '#DCDAFB',
+  '--accent-rgb': '255, 255, 255',
+  '--on-accent': '#1A1740',
+};
+
 export const EVENT_TEMPLATES: EventTemplate[] = [
   {
     id: 'wedding',
