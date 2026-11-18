@@ -1,84 +1,16 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  CELEBRATIONS, EMOJI_RE, LAST_SECTION, LOOKS, NAV_LINKS, POKE_IDLE, PRICING_PATH, POKE_STREAK_MS, SECTIONS, WHEEL_COOLDOWN_MS, WHEEL_IDLE,
-  WHEEL_THRESHOLD, clampSection, createReactionPicker, keyToNav, landingCopy, navigate, nearestFront,
-  pickCelebration, pickReaction, pokeStep, releaseVelocity, sectionIndex, seededRandom, spinSettled, spinStep,
-  startFacts, swipeDecision, wheelDecision, type Moment, type PokeState, type Reaction, type Spin, type WheelState,
+  CELEBRATIONS, EMOJI_RE, EXPLAIN_STEPS, FILMS, LOOKS, NAV_LINKS, POKE_IDLE, POKE_STREAK_MS,
+  createReactionPicker, landingCopy, nearestFront, pickCelebration, pickReaction, planCards, pokeStep,
+  pricingSection, releaseVelocity, seededRandom, spinSettled, spinStep, startFacts,
+  type Moment, type PokeState, type Reaction, type Spin,
 } from './brandLanding';
-import { ENTITLEMENTS } from './plans';
+import { ENTITLEMENTS, formatPostCap, formatRetention } from './plans';
 import { DEMO_KITS } from './demoKits';
+import { DEFAULT_LANDING_CONTENT } from './landingContent';
+import { STOPS, stopIndex } from './beamyScroll';
 import { AUDIENCES, DELIVER_STEPS, DONE_FOR_YOU, GREETING, HELLO, POKE_LINES, TOUR_STOPS } from './beamyTour';
-
-describe('section state machine', () => {
-  it('has six unique sections in the agreed order', () => {
-    expect(SECTIONS.map((s) => s.id)).toEqual(['intro', 'pick', 'try', 'magic', 'how', 'start']);
-    expect(sectionIndex('try')).toBe(2);
-  });
-  it('clamps next/back at both ends and jumps', () => {
-    expect(navigate(0, 'back')).toBe(0);
-    expect(navigate(0, 'next')).toBe(1);
-    expect(navigate(LAST_SECTION, 'next')).toBe(LAST_SECTION);
-    expect(navigate(3, 'first')).toBe(0);
-    expect(navigate(1, 'last')).toBe(LAST_SECTION);
-    expect(clampSection(-4)).toBe(0);
-    expect(clampSection(99)).toBe(LAST_SECTION);
-    expect(clampSection(Number.NaN)).toBe(0);
-  });
-});
-
-describe('keyToNav', () => {
-  it('maps arrows/page keys and leaves fields and controls alone', () => {
-    expect(keyToNav('ArrowRight', false, false)).toBe('next');
-    expect(keyToNav('ArrowLeft', false, false)).toBe('back');
-    expect(keyToNav('PageDown', false, true)).toBe('next');
-    expect(keyToNav('Home', false, false)).toBe('first');
-    expect(keyToNav('End', false, false)).toBe('last');
-    expect(keyToNav('Enter', false, false)).toBe('next');
-    expect(keyToNav('Enter', false, true)).toBeNull();
-    expect(keyToNav('ArrowRight', true, false)).toBeNull();
-    expect(keyToNav('a', false, false)).toBeNull();
-  });
-});
-
-describe('wheelDecision', () => {
-  it('moves once per flick and swallows the inertia tail', () => {
-    let s: WheelState = WHEEL_IDLE;
-    const moves: string[] = [];
-    // A trackpad flick: 30 events of 12px, 16ms apart, then a long tail.
-    for (let i = 0; i < 80; i++) {
-      const r = wheelDecision(s, 12, 1000 + i * 16);
-      s = r.state;
-      if (r.nav) moves.push(r.nav);
-    }
-    expect(moves).toEqual(['next']);
-  });
-  it('needs the threshold and resets on direction change or a pause', () => {
-    let r = wheelDecision(WHEEL_IDLE, WHEEL_THRESHOLD - 1, 1000);
-    expect(r.nav).toBeNull();
-    r = wheelDecision(r.state, -10, 1010);
-    expect(r.state.accum).toBe(-10);
-    r = wheelDecision(r.state, 30, 2000);
-    expect(r.state.accum).toBe(30);
-  });
-  it('moves again after the cooldown, backwards on negative deltas', () => {
-    const a = wheelDecision(WHEEL_IDLE, 120, 1000);
-    expect(a.nav).toBe('next');
-    expect(wheelDecision(a.state, -120, 1000 + WHEEL_COOLDOWN_MS - 1).nav).toBeNull();
-    expect(wheelDecision(a.state, -120, 1000 + WHEEL_COOLDOWN_MS + 300).nav).toBe('back');
-  });
-});
-
-describe('swipeDecision', () => {
-  it('reads up/left as next and down/right as back, ignoring small or slow drags', () => {
-    expect(swipeDecision(0, -120, 200)).toBe('next');
-    expect(swipeDecision(0, 120, 200)).toBe('back');
-    expect(swipeDecision(-120, 10, 200)).toBe('next');
-    expect(swipeDecision(120, 0, 200)).toBe('back');
-    expect(swipeDecision(20, -30, 200)).toBeNull();
-    expect(swipeDecision(0, -200, 1200)).toBeNull();
-    expect(swipeDecision(100, -100, 200)).toBeNull();
-  });
-});
 
 describe('reactions', () => {
   const moments: Moment[] = ['intro', 'pick', 'snap', 'reveal', 'pick', 'pick', 'snap', 'snap', 'reveal', 'reveal'];
@@ -162,7 +94,7 @@ describe('copy', () => {
     ...DELIVER_STEPS.flatMap((s) => [s.title, s.body]),
     ...AUDIENCES.flatMap((a) => [a.title, a.hint, ...a.gets, ...TOUR_STOPS.map((s) => a.lines[s])]),
   ];
-  const all = [...landingCopy(), ...tourCopy];
+  const all = [...landingCopy(), ...tourCopy, ...STOPS.map((x) => x.label)];
 
   it('carries no emoji anywhere', () => {
     expect(EMOJI_RE.test('Party 🎉')).toBe(true);
@@ -188,12 +120,41 @@ describe('copy', () => {
     ]));
   });
 
-  it('points the nav at real stops and the existing pricing anchor', () => {
-    for (const n of NAV_LINKS) {
-      expect((n.section === null) !== (n.href === null), n.label).toBe(true);
-      if (n.section !== null) expect(sectionIndex(n.section), n.label).toBeGreaterThanOrEqual(0);
+  it('points the header anchors at real stops on this page', () => {
+    for (const n of NAV_LINKS) expect(stopIndex(n.stop), n.label).toBeGreaterThanOrEqual(0);
+    expect(NAV_LINKS.map((n) => n.stop)).toEqual(['try', 'how', 'pricing']);
+  });
+
+  it('reuses the original landing’s explainer and film copy', () => {
+    expect(EXPLAIN_STEPS).toEqual(DEFAULT_LANDING_CONTENT.howSteps.map((h) => ({ title: h.title, body: h.body })));
+    expect(FILMS.map((f) => f.id)).toEqual(['booth', 'wall', 'challenges', 'cards']);
+    for (const f of FILMS) {
+      const d = DEFAULT_LANDING_CONTENT.features.find((x) => x.id === f.id);
+      expect(d, f.id).toBeDefined();
+      expect([f.eyebrow, f.title, f.line]).toEqual([d?.eyebrow, d?.title, d?.copy]);
     }
-    expect(NAV_LINKS.find((n) => n.label === 'Pricing')?.href).toBe(PRICING_PATH);
+  });
+
+  it('shows the original landing’s plan cards, fact for fact', () => {
+    // Drift guard: every price, unit, blurb and literal feature line must also
+    // appear in Landing.tsx's TIERS (the derived limits are checked below).
+    const src = readFileSync(new URL('../pages/Landing.tsx', import.meta.url), 'utf8');
+    const cards = planCards();
+    const derived = new Set(Object.values(ENTITLEMENTS).flatMap((e) => [formatPostCap(e.maxPosts, e.videoEnabled), formatRetention(e.retentionDays)]));
+    expect(cards.map((c) => c.name)).toEqual(['Free', 'Essentials', 'Premium', 'Deluxe']);
+    for (const c of cards) {
+      for (const lit of [`name: '${c.name}'`, `price: '${c.price}'`, `unit: '${c.unit}'`, `blurb: '${c.blurb}'`]) expect(src, lit).toContain(lit);
+      for (const f of c.features) {
+        if (derived.has(f)) continue;
+        expect(src, f).toContain(`'${f}'`);
+      }
+    }
+    expect(cards.filter((c) => c.popular).map((c) => c.name)).toEqual(['Premium']);
+    expect(cards[0].features).toContain(`Up to ${ENTITLEMENTS.free.maxPosts} photos`);
+    expect(cards[2].features).toContain(`Photos kept for ${ENTITLEMENTS.premium.retentionDays} days`);
+    expect(src).toContain('$79/month');
+    expect(src).toContain('300 AI credits a month');
+    expect(pricingSection().pro).toContain('$79/month');
   });
 
   it('offers looks that exist, covering every audience kit', () => {

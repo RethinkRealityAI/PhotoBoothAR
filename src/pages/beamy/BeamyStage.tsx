@@ -30,10 +30,18 @@
  * and sends light motes to a card; `arrive` drops a beam from the top of the
  * viewport and he appears where it lands.
  *
- * Liquid-glass scene: a deep-indigo contact shadow grounds him on the panel's
- * floor; a few frosted, faceted crystals (one flat-shaded physical material,
- * no transmission pass) sit around the glass panel the page reports through
- * `decorRef`, bob slowly and parallax with the pointer (nearer = more). The
+ * Scroll page: the page's scroll director (lib/beamyScroll) writes his target
+ * into `layoutRef` every scroll frame; here he follows it with a clamped
+ * velocity, waddles and leans into the direction of travel while moving, and
+ * settles into Idle on arrival. `presence` lets him dissolve and re-form
+ * (phones, hero ↔ dock). `project()` keeps a soft projector cone on a film
+ * frame the page names through a rect getter (it scrolls with the page).
+ *
+ * Liquid-glass scene: a deep-indigo contact shadow grounds him; a few frosted,
+ * faceted crystals (one flat-shaded physical material, no transmission pass)
+ * sit around the hero's glass panel and his hero stand, reported through
+ * `decorRef`; they bob slowly and parallax with the pointer and with the
+ * scroll as the hero leaves (nearer = more). The
  * `Selfie` clip plays HERE, on the one canvas: `selfie()` streams the phone
  * and head positions (and the snap-frame portrait) to the page's overlays.
  *
@@ -50,7 +58,7 @@ import { gltfLoader, loadModel } from '../../lib/glbCache';
 import { SPIN_PER_PX, nearestFront, spinSettled, spinStep, type Spin } from '../../lib/brandLanding';
 import { SELFIE_CLIP, selfieTimeline, type SelfieTimeline } from '../../lib/beamySelfie';
 import type { Rect } from '../../lib/beamGeometry';
-import { boxGeometry, floorAt, type Box, type BoxRoom } from '../../lib/beamyBox';
+import { followStep } from '../../lib/beamyScroll';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { snapshotPortrait } from '../../components/beamy/selfieFx';
 
@@ -58,16 +66,36 @@ export type BeamyClip = 'Idle' | 'Wave' | 'Hop' | 'BeamyBlast' | 'Sob' | 'SideEy
 
 export interface Pt { x: number; y: number; }
 
-/** Where Beamy rests and how tall he is there (viewport px, feet point), and
- *  the bounds his glass box must stay inside (null = no box). */
-export interface StageLayout { home: Pt; heightPx: number; room?: BoxRoom | null; }
+/**
+ * Where Beamy should be this frame (viewport px, feet point) and how tall,
+ * written by the page's scroll director. He follows it smoothly.
+ */
+export interface StageLayout {
+  home: Pt;
+  heightPx: number;
+  /** Settled body turn (radians) while following. */
+  yaw?: number;
+  /** 0..1: dissolved … all there (scales him, hides the bubble and hit area). */
+  presence?: number;
+  /** Standing on the hero's glossy floor: draw his reflection when he is home. */
+  floor?: boolean;
+  /** Lowest y (viewport px) the speech bubble's top may reach (under the sticky header). */
+  bubbleMinY?: number;
+  /** Put the bubble beside his head instead of above it (the phone dock). */
+  bubbleSide?: boolean;
+  /** Highest y (viewport px) the speech bubble's bottom may reach. */
+  bubbleMaxY?: number;
+  /** The bubble steps aside (he is crossing the page; it would trail over copy). */
+  bubbleAway?: boolean;
+}
 
 /**
- * The scene's decor, set by the page: the glass panel's rect (crystals sit
- * around its corners) and whether this stop is the hero (which gets the full
- * set; the other stops keep only the crystals outside the panel).
+ * The scene's decor, set by the page: the hero's glass panel (crystals sit
+ * around its corners; null once it has scrolled away), his stand in the hero
+ * (crystals around his feet), and how far the hero has scrolled (scroll
+ * parallax), all viewport px.
  */
-export interface StageDecor { panel: Rect | null; hero: boolean; phone: boolean; }
+export interface StageDecor { panel: Rect | null; stand: { feet: Pt; heightPx: number } | null; phone: boolean; scroll: number; }
 
 /** One frame of the Selfie clip on the stage, for the page's DOM overlays. */
 export interface SelfieFrame {
@@ -93,8 +121,15 @@ export interface BeamyApi {
   /** Beam at `to`; `onFire` runs the moment the beam lights. Resolves when the clip ends.
    *  from 'mouth' = the BeamyBlast; 'hand' = a thinner beam from the raised (waving) hand. */
   beam(to: Pt, onFire?: () => void, from?: 'mouth' | 'hand'): Promise<void>;
-  /** Particles stream from the mouth (or raised hand) and a library prop materialises at `at`. */
-  reveal(url: string, at: Pt, sizePx: number, from?: 'mouth' | 'hand'): Promise<void>;
+  /** A short beam (no clip) from the mouth or raised hand to `to`; resolves as it fades. */
+  zap(to: Pt, from?: 'mouth' | 'hand', ms?: number): Promise<void>;
+  /** Particles stream from the mouth (or raised hand) and a library prop materialises at `at`
+   *  (a getter keeps it on its spot while the page scrolls). `instant` = already there, no particles. */
+  reveal(url: string, at: Pt | (() => Pt), sizePx: number, from?: 'mouth' | 'hand', instant?: boolean): Promise<void>;
+  /** A soft projector cone from him onto the rect `target()` returns (viewport px, read every
+   *  frame). `grow` = the cone reaches out over ~0.6s; resolves when it lands. */
+  project(target: () => Rect | null, from: 'mouth' | 'hand', grow: boolean): Promise<void>;
+  stopProject(): void;
   clearProp(): void;
   /** Mouth position in viewport px. */
   mouth(): Pt;
@@ -194,21 +229,20 @@ void main() {
   gl_FragColor = vec4(vec3(0.086, 0.071, 0.306), (core * 0.62 + soft * 0.16) * uAlpha);
 }`;
 
-/* ── Crystals: faceted, frosted decor around the glass panel ───────────── */
+/* ── Crystals: faceted, frosted decor around the hero ─────────────────── */
 
 type CrystalKind = 'ico' | 'oct' | 'cone';
 interface CrystalSpec {
   kind: CrystalKind;
-  /** Anchor as a fraction of the panel rect (may sit outside it), or on the
-   *  box floor (u −1 left … 1 right, v 0 back … 1 front; lift = × his height). */
-  at: { panel: [number, number] } | { box: [number, number]; lift?: number };
+  /** Anchor as a fraction of the hero's glass panel (may sit outside it), or
+   *  on the floor around his hero stand ([dx, dy] × his height from his feet;
+   *  dy < 0 = further back; lift = raised by × his height). */
+  at: { panel: [number, number] } | { stand: [number, number]; lift?: number };
   /** Size as a fraction of min(panel width, height) (beside Beamy: of his height). */
   size: number;
-  /** 0 far … 1 near: how far it parallaxes with the pointer. */
+  /** 0 far … 1 near: how far it parallaxes with the pointer and the scroll. */
   depth: number;
   phone: boolean;
-  /** Only on the hero (the others may cover a stop's content). */
-  heroOnly: boolean;
   /** Sits low enough to cast a faint contact shadow on the floor below it. */
   shadow?: boolean;
   /** Depth look: 'back' = smaller and hazier behind Beamy, 'front' = larger,
@@ -216,95 +250,36 @@ interface CrystalSpec {
   layer?: 'back' | 'front';
 }
 const CRYSTALS: CrystalSpec[] = [
-  { kind: 'ico', at: { panel: [-0.012, -0.05] }, size: 0.15, depth: 0.25, phone: true, heroOnly: false },
-  { kind: 'oct', at: { panel: [1.015, 1.05] }, size: 0.16, depth: 0.35, phone: true, heroOnly: false },
-  // Inside his glass box: one in front of him (front-right, large, soft), two behind (small, hazy).
-  { kind: 'cone', at: { box: [0.9, 0.94] }, size: 0.2, depth: 1, phone: true, heroOnly: false, shadow: true, layer: 'front' },
-  { kind: 'ico', at: { box: [-0.62, 0.16] }, size: 0.12, depth: 0.15, phone: false, heroOnly: false, shadow: true, layer: 'back' },
-  { kind: 'oct', at: { box: [0.56, 0.1], lift: 0.62 }, size: 0.09, depth: 0.25, phone: false, heroOnly: false, layer: 'back' },
-  { kind: 'ico', at: { panel: [0.6, 0.16] }, size: 0.05, depth: 0.7, phone: false, heroOnly: true },
-  { kind: 'oct', at: { panel: [0.33, 0.9] }, size: 0.035, depth: 0.55, phone: false, heroOnly: true, shadow: true },
+  { kind: 'ico', at: { panel: [-0.012, -0.05] }, size: 0.15, depth: 0.25, phone: true },
+  { kind: 'oct', at: { panel: [1.015, 1.02] }, size: 0.16, depth: 0.35, phone: true },
+  // Around his stand: one in front of him (front-right, large, soft), two behind (small, hazy).
+  { kind: 'cone', at: { stand: [0.66, 0.03] }, size: 0.2, depth: 1, phone: true, shadow: true, layer: 'front' },
+  { kind: 'ico', at: { stand: [-0.78, -0.05] }, size: 0.12, depth: 0.15, phone: false, shadow: true, layer: 'back' },
+  { kind: 'oct', at: { stand: [0.74, -0.04], lift: 0.62 }, size: 0.09, depth: 0.25, phone: false, layer: 'back' },
+  { kind: 'ico', at: { panel: [0.6, 0.16] }, size: 0.05, depth: 0.7, phone: false },
+  { kind: 'oct', at: { panel: [0.33, 0.9] }, size: 0.035, depth: 0.55, phone: false, shadow: true },
 ];
 const CRYSTAL_PARALLAX_PX = 22;
 
-/* ── The glass box: one-point perspective drawn in screen space ─────────── */
+/* ── Projector cone: origin → the near edge of a film frame ─────────────── */
 
-const BOX_VERT = /* glsl */ `
-attribute vec4 aColor;
-varying vec4 vColor;
-void main() {
-  vColor = aColor;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}`;
-const BOX_FRAG = /* glsl */ `
+const CONE_VERT = /* glsl */ `
+attribute vec2 aCone;
+varying vec2 vCone;
+void main() { vCone = aCone; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const CONE_FRAG = /* glsl */ `
+varying vec2 vCone;   // x: 0 at Beamy → 1 at the frame; y: −1..1 across
 uniform float uAlpha;
-varying vec4 vColor;
-void main() { gl_FragColor = vec4(vColor.rgb, vColor.a * uAlpha); }`;
-const BOX_VERTS = 600;
-type RGBA = [number, number, number, number];
-/** Pane / rim ink: white with the faintest lavender. */
-const ink = (a: number): RGBA => [0.96, 0.95, 1, a];
-interface BoxPaint { pos: Float32Array; col: Float32Array; n: number; z: number; w: number; h: number; }
-function boxVtx(P: BoxPaint, p: Pt, c: RGBA) {
-  if (P.n >= BOX_VERTS) return;
-  P.pos[P.n * 3] = p.x - P.w / 2; P.pos[P.n * 3 + 1] = P.h / 2 - p.y; P.pos[P.n * 3 + 2] = P.z;
-  P.col.set(c, P.n * 4);
-  P.n++;
-}
-function boxQuad(P: BoxPaint, a: Pt, b: Pt, c: Pt, d: Pt, ca: RGBA, cb: RGBA, cc: RGBA, cd: RGBA) {
-  boxVtx(P, a, ca); boxVtx(P, b, cb); boxVtx(P, c, cc);
-  boxVtx(P, a, ca); boxVtx(P, c, cc); boxVtx(P, d, cd);
-}
-/** A rim line as a thin quad (GL lines are 1 device px), alpha ramping a→b. */
-function boxSeg(P: BoxPaint, a: Pt, b: Pt, w: number, ca: RGBA, cb: RGBA) {
-  const dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1;
-  const nx = (-dy / l) * w / 2, ny = (dx / l) * w / 2;
-  boxQuad(P, { x: a.x + nx, y: a.y + ny }, { x: b.x + nx, y: b.y + ny }, { x: b.x - nx, y: b.y - ny }, { x: a.x - nx, y: a.y - ny }, ca, cb, cb, ca);
-}
-/** Behind Beamy (depth-tested at z −420): back wall, floor toward the horizon,
- *  side + ceiling panes with a fresnel-like rise toward the open front, and
- *  every edge you see THROUGH the glass. Phones skip the side/ceiling panes. */
-function paintBoxBack(P: BoxPaint, b: Box, phone: boolean) {
-  const [ftl, ftr, fbr, fbl] = b.front;
-  const [btl, btr, bbr, bbl] = b.back;
-  boxQuad(P, btl, btr, bbr, bbl, ink(0.03), ink(0.03), ink(0.07), ink(0.07));
-  boxQuad(P, bbl, bbr, fbr, fbl, ink(0.12), ink(0.12), ink(0.02), ink(0.02));
-  if (!phone) {
-    boxQuad(P, btl, ftl, fbl, bbl, ink(0.015), ink(0.08), ink(0.08), ink(0.015));
-    boxQuad(P, ftr, btr, bbr, fbr, ink(0.08), ink(0.015), ink(0.015), ink(0.08));
-    boxQuad(P, btl, btr, ftr, ftl, ink(0.015), ink(0.015), ink(0.055), ink(0.055));
-  }
-  const lw = phone ? 1.2 : 1.4;
-  boxSeg(P, btl, btr, lw, ink(0.2), ink(0.2));
-  boxSeg(P, btl, bbl, lw, ink(0.24), ink(0.24));
-  boxSeg(P, btr, bbr, lw, ink(0.16), ink(0.16));
-  boxSeg(P, bbl, bbr, lw * 1.15, ink(0.42), ink(0.42)); // the horizon
-  boxSeg(P, btl, ftl, lw, ink(0.26), ink(0.72));
-  boxSeg(P, btr, ftr, lw, ink(0.18), ink(0.48));
-  boxSeg(P, bbl, fbl, lw, ink(0.3), ink(0.6));
-  boxSeg(P, bbr, fbr, lw, ink(0.2), ink(0.42));
-}
-/** In front of everything (no depth test): only the implied front pane — its
- *  floor edge below his feet, bright corner glints (strongest top-left, the
- *  key light's side) and one reflection streak up in the top-left corner,
- *  never across him. */
-function paintBoxFront(P: BoxPaint, b: Box, phone: boolean) {
-  const [ftl, ftr, fbr, fbl] = b.front;
-  const fw = ftr.x - ftl.x, fh = fbl.y - ftl.y;
-  boxSeg(P, fbl, fbr, 1.5, ink(0.5), ink(0.32));
-  boxSeg(P, ftl, { x: ftl.x + fw * 0.3, y: ftl.y }, 1.6, ink(0.9), ink(0));
-  boxSeg(P, ftl, { x: ftl.x, y: ftl.y + fh * 0.3 }, 1.6, ink(0.9), ink(0));
-  boxSeg(P, ftr, { x: ftr.x - fw * 0.12, y: ftr.y }, 1.3, ink(0.42), ink(0));
-  boxSeg(P, ftr, { x: ftr.x, y: ftr.y + fh * 0.12 }, 1.3, ink(0.42), ink(0));
-  boxSeg(P, fbl, { x: fbl.x, y: fbl.y - fh * 0.12 }, 1.3, ink(0.4), ink(0));
-  boxSeg(P, fbr, { x: fbr.x, y: fbr.y - fh * 0.12 }, 1.3, ink(0.28), ink(0));
-  if (!phone) {
-    const a = { x: ftl.x + fw * 0.13, y: ftl.y + fh * 0.05 };
-    const c = { x: ftl.x + fw * 0.035, y: ftl.y + fh * 0.3 };
-    boxSeg(P, a, c, 11, ink(0.07), ink(0));
-    boxSeg(P, { x: a.x + fw * 0.05, y: a.y }, { x: c.x + fw * 0.05, y: c.y }, 2, ink(0.2), ink(0));
-  }
-}
+uniform float uTime;
+uniform float uFlicker;
+void main() {
+  float across = abs(vCone.y) / max(vCone.x, 0.001);
+  float soft = pow(clamp(1.0 - across, 0.0, 1.0), 0.7);
+  float along = mix(0.62, 0.22, vCone.x) * smoothstep(0.0, 0.06, vCone.x);
+  float flick = 1.0 - uFlicker * (0.08 + 0.06 * sin(uTime * 23.0) * sin(uTime * 7.3));
+  vec3 col = mix(vec3(1.0, 0.95, 0.86), vec3(0.62, 0.65, 1.0), vCone.x);
+  gl_FragColor = vec4(col, soft * along * flick * uAlpha);
+}`;
 
 /* ── Impact / poke flash: a soft radial bloom ──────────────────────────── */
 
@@ -401,17 +376,25 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const yaw = useRef(0);
   const yawTarget = useRef(0);
   const walk = useRef<{ to: Pt; size: number; resolve: () => void } | null>(null);
-  const beamState = useRef<{ to: Pt; t: number; fired: boolean; onFire?: () => void; from: 'mouth' | 'hand' } | null>(null);
+  const beamState = useRef<{ to: Pt; t: number; fired: boolean; onFire?: () => void; from: 'mouth' | 'hand'; fireS: number; endS: number; done?: () => void } | null>(null);
   const reveal = useRef<Reveal | null>(null);
+  /** Where the revealed prop stays (a getter follows the page's scroll). */
+  const propAt = useRef<(() => Pt) | null>(null);
+  /** The projector cone: target getter, origin, age, grow-in, fade-out. */
+  const cone = useRef<{ target: () => Rect | null; from: 'mouth' | 'hand'; t: number; grow: boolean; alpha: number; off: boolean; landed: boolean; resolve: () => void } | null>(null);
+  const coneMesh = useRef<THREE.Mesh>(null);
+  /** Smoothed height (the director's height changes between stops). */
+  const shownH = useRef(layoutRef.current.heightPx);
+  const lean = useRef(0);
+  const moving = useRef(0);
+  const lastPos = useRef<Pt>({ ...layoutRef.current.home });
   const propSpin = useRef(0);
   const bodyBone = useRef<THREE.Object3D | null>(null);
   const phoneBone = useRef<THREE.Object3D | null>(null);
   const selfieRun = useRef<{ t: number; tl: SelfieTimeline; snapped: boolean; action: THREE.AnimationAction; onFrame: (f: SelfieFrame) => void; resolve: (done: boolean) => void } | null>(null);
   const crystalRefs = useRef<(THREE.Mesh | null)[]>([]);
   const crystalShadowRefs = useRef<(THREE.Mesh | null)[]>([]);
-  const boxBackRef = useRef<THREE.Mesh>(null);
-  const boxFrontRef = useRef<THREE.Mesh>(null);
-  /** The mirrored copy of his rig on the glossy box floor (desktop only). */
+  /** The mirrored copy of his rig on the hero's glossy floor (desktop only). */
   const reflRig = useRef<THREE.Group>(null);
   const reflect = useRef<{ root: THREE.Object3D; pairs: [THREE.Object3D, THREE.Object3D][]; floorY: { value: number }; fade: { value: number } } | null>(null);
   const [reflectObj, setReflectObj] = useState<THREE.Object3D | null>(null);
@@ -607,7 +590,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         yawTarget.current = clamp((x - pos.current.x) / 260, -1, 1) * 0.6;
       },
       beam(to, onFire, from = 'mouth') {
-        beamState.current = { to: { ...to }, t: 0, fired: false, onFire, from };
+        beamState.current = { to: { ...to }, t: 0, fired: false, onFire, from, fireS: from === 'hand' ? 0.45 : BEAM_FIRE_S, endS: from === 'hand' ? 1.15 : BEAM_END_S };
         api.face(to.x);
         return playOnce(from === 'hand' ? 'Wave' : 'BeamyBlast').then(() => {
           // A clip shorter than the window still owes its onFire.
@@ -616,10 +599,34 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
           beamState.current = null; yawTarget.current = 0;
         });
       },
-      reveal(url, at, sizePx, from = 'mouth') {
+      zap(to, from = 'hand', ms = 420) {
+        // A short beam on the open clip (the page raises the hand first).
+        beamState.current?.done?.();
+        return new Promise<void>((resolve) => {
+          beamState.current = { to: { ...to }, t: 0, fired: false, from, fireS: 0.05, endS: Math.max(0.15, ms / 1000), done: resolve };
+          api.face(to.x);
+        });
+      },
+      project(target, from, grow) {
+        cone.current?.resolve();
+        return new Promise<void>((resolve) => {
+          cone.current = { target, from, t: 0, grow, alpha: grow ? 0 : 1, off: false, landed: !grow, resolve };
+          if (!grow) resolve();
+        });
+      },
+      stopProject() {
+        const c = cone.current;
+        if (c === null) return;
+        c.off = true;
+        if (!c.landed) { c.landed = true; c.resolve(); }
+      },
+      reveal(url, atIn, sizePx, from = 'mouth', instant = false) {
         api.clearProp();
         const g = propGroup.current;
         if (g === null) return Promise.resolve();
+        const atGet = typeof atIn === 'function' ? atIn : () => atIn;
+        propAt.current = atGet;
+        const at = atGet();
         return loadModel(url).then((master) => new Promise<void>((resolve) => {
           const obj = master.clone(true);
           const box = new THREE.Box3().setFromObject(obj);
@@ -650,6 +657,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
           const m = from === 'hand' ? api.hand() : api.mouth();
           const mw = toWorld(m);
           api.face(at.x);
+          if (instant) { g.scale.setScalar(1); resolve(); return; }
           if (reducedRef.current) {
             // No particles: the prop simply appears, full size.
             g.scale.setScalar(1);
@@ -748,6 +756,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       clearProp() {
         reveal.current?.resolve();
         reveal.current = null;
+        propAt.current = null;
         if (propGroup.current) { propGroup.current.visible = false; propGroup.current.clear(); }
         if (sparks.current) sparks.current.visible = false;
       },
@@ -830,21 +839,17 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     transparent: true,
     depthWrite: false,
   }), []);
-  const boxBackMat = useMemo(() => new THREE.ShaderMaterial({
-    vertexShader: BOX_VERT, fragmentShader: BOX_FRAG, uniforms: { uAlpha: { value: 0 } },
-    transparent: true, depthWrite: false,
+  const coneMat = useMemo(() => new THREE.ShaderMaterial({
+    vertexShader: CONE_VERT, fragmentShader: CONE_FRAG,
+    uniforms: { uAlpha: { value: 0 }, uTime: { value: 0 }, uFlicker: { value: 1 } },
+    transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
   }), []);
-  const boxFrontMat = useMemo(() => new THREE.ShaderMaterial({
-    vertexShader: BOX_VERT, fragmentShader: BOX_FRAG, uniforms: { uAlpha: { value: 0 } },
-    transparent: true, depthWrite: false, depthTest: false,
-  }), []);
-  const boxGeos = useMemo(() => [0, 1].map(() => {
+  const coneGeo = useMemo(() => {
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(BOX_VERTS * 3), 3));
-    g.setAttribute('aColor', new THREE.BufferAttribute(new Float32Array(BOX_VERTS * 4), 4));
-    g.setDrawRange(0, 0);
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+    g.setAttribute('aCone', new THREE.BufferAttribute(new Float32Array([0, 0, 1, -1, 1, 1]), 2));
     return g;
-  }), []);
+  }, []);
   const flashMat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: BEAM_VERT,
     fragmentShader: FLASH_FRAG,
@@ -928,10 +933,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   useEffect(() => () => {
     beamMat.dispose(); floorMat.dispose(); flashMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
     sparkTex.dispose(); moteGeo.dispose(); moteMat.dispose(); crystalMat.dispose(); crystalShadowMat.dispose();
-    crystalBackMat.dispose(); crystalFrontMat.dispose(); boxBackMat.dispose(); boxFrontMat.dispose();
-    for (const g of boxGeos) g.dispose();
+    crystalBackMat.dispose(); crystalFrontMat.dispose(); coneMat.dispose(); coneGeo.dispose();
     for (const g of Object.values(crystalGeos)) g.dispose();
-  }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalMat, crystalShadowMat, crystalBackMat, crystalFrontMat, boxBackMat, boxFrontMat, boxGeos, crystalGeos]);
+  }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalMat, crystalShadowMat, crystalBackMat, crystalFrontMat, coneMat, coneGeo, crystalGeos]);
 
   useFrame((state, dtRaw) => {
     const dt = Math.min(dtRaw, 1 / 20);
@@ -961,17 +965,43 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     } else if (!shown.current) {
       // Not arrived yet: stand exactly where the beam will land.
       pos.current = { ...layout.home };
-    } else if (reveal.current === null && beamState.current === null) {
-      // Idle at home: follow layout changes (resize, rotation, section moves).
-      const atHomeScale = Math.abs(scale.current - 1) < 0.02;
-      if (atHomeScale) {
-        const h = layout.home;
-        pos.current = { x: pos.current.x + (h.x - pos.current.x) * Math.min(1, dt * 4), y: pos.current.y + (h.y - pos.current.y) * Math.min(1, dt * 4) };
-      }
+    } else {
+      // Follow the scroll director: a smooth approach with a velocity cap, so
+      // a fling of the page is a quick glide, never a jump. During a beam or a
+      // reveal he still follows (the page scrolls under him), only slower.
+      scale.current += (1 - scale.current) * Math.min(1, dt * 3.5);
+      const busy = reveal.current !== null || beamState.current !== null || selfieRun.current !== null;
+      const maxSpeed = Math.max(900, layout.heightPx * 5) * (busy ? 0.6 : 1);
+      pos.current = arrival.current !== null ? { ...layout.home } : followStep(pos.current, layout.home, dt, maxSpeed, busy ? 5 : 7);
+      if (!busy && cone.current === null) yawTarget.current = layout.yaw ?? 0;
     }
+    const c0 = cone.current;
+    if (c0 !== null && !c0.off && w === null) {
+      const r0 = c0.target();
+      if (r0 !== null) yawTarget.current = clamp((r0.left + r0.width / 2 - pos.current.x) / 260, -1, 1) * 0.5;
+    }
+    shownH.current += (layout.heightPx - shownH.current) * Math.min(1, dt * 4);
+
+    /* Travel: waddle while gliding, lean into the direction of travel, a
+       little hop in the step; Idle again on arrival. */
+    const vx = (pos.current.x - lastPos.current.x) / Math.max(dt, 1e-3);
+    const vy = (pos.current.y - lastPos.current.y) / Math.max(dt, 1e-3);
+    lastPos.current = { ...pos.current };
+    const speed = Math.hypot(vx, vy);
+    moving.current += ((speed > 60 ? 1 : 0) - moving.current) * Math.min(1, dt * (speed > 60 ? 8 : 3));
+    if (w === null && shown.current && selfieRun.current === null) {
+      const cur = current.current;
+      const idle = actions.current.Idle;
+      const waddle = actions.current.Waddle;
+      if (moving.current > 0.6 && cur === idle && waddle) fadeTo('Waddle', false);
+      else if (moving.current < 0.2 && cur === waddle && idle) fadeTo('Idle', false);
+      if (moving.current > 0.6 && Math.abs(vx) > 40 && beamState.current === null && reveal.current === null) yawTarget.current = Math.sign(vx) * 0.7;
+    }
+    lean.current += (clamp(-vx / 2400, -0.14, 0.14) * (reducedRef.current ? 0.4 : 1) - lean.current) * Math.min(1, dt * 6);
     yaw.current += (yawTarget.current - yaw.current) * Math.min(1, dt * 7);
 
-    const heightPx = layout.heightPx * scale.current;
+    const presence = clamp(layout.presence ?? 1, 0, 1);
+    const heightPx = shownH.current * scale.current;
     const reduced = reducedRef.current;
 
     /* Entrance: the beam drops, a flash, he grows in where it landed. */
@@ -1015,23 +1045,26 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     const g = rig.current;
     if (g) {
       const wp = toWorld(pos.current);
-      g.position.set(wp.x, wp.y, 0);
-      const grow = s * Math.max(0.0001, reduced ? appear.current : easeOutBack(appear.current));
+      // A little hop in each waddle step while gliding (decorative: off when reduced).
+      const hop = reduced ? 0 : Math.abs(Math.sin(t * 11)) * heightPx * 0.035 * moving.current;
+      g.position.set(wp.x, wp.y + hop, 0);
+      const grow = s * presence * Math.max(0.0001, reduced ? appear.current : easeOutBack(appear.current));
       // Landing squash: wide-and-short for a beat, then springs upright.
       const k = appear.current;
       const sq = reduced || k >= 1 ? 0 : Math.sin(Math.PI * k) * (1 - k) * 0.55;
       g.scale.set(grow * (1 + sq * 0.35), grow * (1 - sq * 0.35), grow * (1 + sq * 0.35));
       g.rotation.y = yaw.current + gz.yaw + spinNow.angle;
       g.rotation.x = gz.pitch;
-      g.visible = shown.current;
+      g.rotation.z = lean.current;
+      g.visible = shown.current && presence > 0.01;
     }
     if (floor.current) {
       const wp = toWorld(pos.current);
       floor.current.position.set(wp.x, wp.y + heightPx * 0.012, -200);
-      floor.current.scale.set(heightPx * 1.0, heightPx * 0.17, 1);
+      floor.current.scale.set(heightPx * 1.0 * presence, heightPx * 0.17 * presence, 1);
     }
     (floorMat.uniforms.uTime as { value: number }).value = t;
-    (floorMat.uniforms.uAlpha as { value: number }).value = appear.current;
+    (floorMat.uniforms.uAlpha as { value: number }).value = appear.current * presence;
     mixer.current?.update(dt);
 
     /* The Selfie clip on this stage: hand the page this frame's phone/head
@@ -1074,56 +1107,37 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     par.x += (tx - par.x) * Math.min(1, dt * 2.2);
     par.y += (ty - par.y) * Math.min(1, dt * 2.2);
 
-    /* His glass box around his HOME (he can walk out of it), drawn in
-       one-point perspective; the pointer moves its vanishing point, so the
-       volume visibly turns. It fades in with him. */
-    const box = boxGeometry({ home: layout.home, heightPx: layout.heightPx, room: layout.room ?? null, par, phone: dec.phone });
-    const boxAlpha = box === null ? 0 : appear.current;
-    (boxBackMat.uniforms.uAlpha as { value: number }).value = boxAlpha;
-    (boxFrontMat.uniforms.uAlpha as { value: number }).value = boxAlpha;
-    const paints: [THREE.Mesh | null, number, (P: BoxPaint, b: Box, phone: boolean) => void][] = [[boxBackRef.current, -420, paintBoxBack], [boxFrontRef.current, 500, paintBoxFront]];
-    for (const [mesh, z, paint] of paints) {
-      if (mesh === null) continue;
-      const geo = mesh.geometry;
-      const P: BoxPaint = { pos: geo.getAttribute('position').array as Float32Array, col: geo.getAttribute('aColor').array as Float32Array, n: 0, z, w: W, h: H };
-      if (box !== null) paint(P, box, dec.phone);
-      geo.setDrawRange(0, P.n);
-      geo.getAttribute('position').needsUpdate = true;
-      geo.getAttribute('aColor').needsUpdate = true;
-      mesh.visible = box !== null && boxAlpha > 0.001;
-    }
-
     /* His reflection on the glossy floor (desktop): copy every node of the
        real rig, then mirror the whole thing about his feet. */
     const rf = reflect.current;
     const rr = reflRig.current;
     if (rf !== null && rr !== null) {
-      // Only while he stands on his own floor: the reflection lives between
-      // his feet and the box's front edge, and dies out before that edge.
-      const atHome = g !== null && box !== null
-        && Math.abs(g.position.y - (H / 2 - layout.home.y)) < 6
-        && Math.abs(g.position.x - (layout.home.x - W / 2)) < (box.front[1].x - box.front[0].x) / 2;
-      const on = g !== null && g.visible && !dec.phone && box !== null && atHome;
+      // Only while he stands at home on the hero's glossy floor, settled.
+      const atHome = Math.hypot(pos.current.x - layout.home.x, pos.current.y - layout.home.y) < 6;
+      const on = g !== null && g.visible && !dec.phone && layout.floor === true && atHome && presence > 0.99;
       rr.visible = on;
-      if (on && g !== null && box !== null) {
+      if (on && g !== null) {
         for (const [a, b] of rf.pairs) { b.position.copy(a.position); b.quaternion.copy(a.quaternion); b.scale.copy(a.scale); b.visible = a.visible; }
         rr.position.copy(g.position);
         rr.rotation.set(-g.rotation.x, g.rotation.y, 0);
         rr.scale.set(g.scale.x, -g.scale.y, g.scale.z);
         rf.floorY.value = g.position.y;
-        rf.fade.value = Math.max(6, (box.front[3].y - layout.home.y) * 0.85);
+        rf.fade.value = Math.max(6, heightPx * 0.32);
       }
     }
 
-    /* Crystals: around the panel, and inside his box at clearly different
-       depths (behind him: small and hazy; in front: large and soft). They bob
-       slowly; nearer ones parallax more with the pointer. Static if reduced. */
+    /* Crystals: around the hero's panel, and around his hero stand at clearly
+       different depths (behind him: small and hazy; in front: large and soft).
+       They bob slowly; nearer ones parallax more with the pointer and with the
+       scroll as the hero leaves. Static if reduced. */
+    const scrollPar = reduced ? 0 : dec.scroll;
     for (let i = 0; i < CRYSTALS.length; i++) {
       const m = crystalRefs.current[i];
       if (!m) continue;
       const c = CRYSTALS[i];
       const panel = dec.panel;
-      const on = panel !== null && (dec.hero || !c.heroOnly) && (!dec.phone || c.phone) && ('panel' in c.at || (shown.current && box !== null));
+      const stand = dec.stand;
+      const on = panel !== null && (!dec.phone || c.phone) && ('panel' in c.at || (shown.current && stand !== null));
       m.visible = on;
       const sh = crystalShadowRefs.current[i];
       if (sh) sh.visible = on && c.shadow === true;
@@ -1139,15 +1153,20 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         x += par.x * CRYSTAL_PARALLAX_PX * c.depth;
         y += par.y * CRYSTAL_PARALLAX_PX * c.depth * 0.6;
       } else {
-        if (box === null) continue;
-        // Its floor point already moves with the box's perspective; a front
-        // crystal also drifts a little WITH the pointer (it is nearer than the front pane).
-        const f = floorAt(box, c.at.box[0], c.at.box[1]);
-        size = layout.heightPx * c.size * f.scale;
-        floorY = f.p.y;
-        x = f.p.x + (c.layer === 'front' ? par.x * CRYSTAL_PARALLAX_PX * 0.6 : 0);
-        y = f.p.y - size * 0.32 - (c.at.lift ?? 0) * layout.heightPx * f.scale;
+        if (stand === null) continue;
+        // On the floor around his stand: behind him smaller (perspective), in
+        // front larger; the near one drifts WITH the pointer, the far ones against it.
+        const back = c.at.stand[1] < 0;
+        const k = back ? 0.82 : 1.06;
+        size = stand.heightPx * c.size * k;
+        floorY = stand.feet.y + c.at.stand[1] * stand.heightPx;
+        x = stand.feet.x + c.at.stand[0] * stand.heightPx + par.x * CRYSTAL_PARALLAX_PX * (back ? -0.35 : 0.6);
+        y = floorY - size * 0.32 - (c.at.lift ?? 0) * stand.heightPx * k;
       }
+      // Scroll depth: nearer crystals leave faster than the page, far ones slower.
+      const sy = -scrollPar * (c.depth - 0.4) * 0.35;
+      y += sy;
+      if (floorY !== null) floorY += sy;
       const bob = reduced ? 0 : Math.sin(t * 0.7 + i * 1.9) * 5 * (0.4 + c.depth);
       if (sh && c.shadow === true) {
         // On the floor under it, not bobbing; it tightens a little as the crystal floats up.
@@ -1158,6 +1177,12 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         sh.scale.set(size * 1.15 * lift, size * 0.22 * lift, 1);
       }
       y += bob;
+      // Never over the sticky header (its wordmark and links sit up there).
+      if (y - size * 0.6 < (layout.bubbleMinY ?? 0)) {
+        m.visible = false;
+        if (sh) sh.visible = false;
+        continue;
+      }
       const cw = toWorld({ x, y });
       m.position.set(cw.x, cw.y, c.layer === 'back' ? -330 : c.layer === 'front' ? 300 : -120 + c.depth * 60);
       m.scale.setScalar(Math.max(1, size));
@@ -1183,20 +1208,20 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       let alpha = 0;
       if (b !== null) {
         const hand = b.from === 'hand';
-        const fireS = hand ? 0.45 : BEAM_FIRE_S;
-        const endS = hand ? 1.15 : BEAM_END_S;
+        const { fireS, endS } = b;
         b.t += dt;
         if (!b.fired && b.t >= fireS) { b.fired = true; b.onFire?.(); }
         if (b.t >= fireS && b.t <= endS + 0.2) {
           const k = b.t - fireS;
-          alpha = Math.min(1, k / 0.12) * Math.min(1, (endS + 0.2 - b.t) / 0.25);
+          // Reduced motion: the same beam, softer and steady (no wobble).
+          alpha = Math.min(1, k / 0.12) * Math.min(1, (endS + 0.2 - b.t) / 0.25) * (reduced ? 0.6 : 1);
           const origin = hand ? apiRef.current?.hand() : apiRef.current?.mouth();
           const m = toWorld(origin ?? pos.current);
           const to = toWorld(b.to);
           const len = Math.hypot(to.x - m.x, to.y - m.y);
           bm.position.set((m.x + to.x) / 2, (m.y + to.y) / 2, 300);
           bm.rotation.z = Math.atan2(to.y - m.y, to.x - m.x);
-          const width = (hand ? Math.max(14, heightPx * 0.1) : Math.max(26, heightPx * 0.22)) * (1 + 0.06 * Math.sin(t * 40));
+          const width = (hand ? Math.max(14, heightPx * 0.1) : Math.max(26, heightPx * 0.22)) * (reduced ? 1 : 1 + 0.06 * Math.sin(t * 40));
           bm.scale.set(Math.max(1, len), width, 1);
         }
       } else if (ar !== null) {
@@ -1226,6 +1251,59 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       bm.visible = alpha > 0.001;
       (beamMat.uniforms.uAlpha as { value: number }).value = alpha;
       (beamMat.uniforms.uTime as { value: number }).value = t;
+    }
+    // A zap owns no clip: it ends on its own clock.
+    if (b !== null && b.done !== undefined && b.t > b.endS + 0.2) { beamState.current = null; b.done(); }
+
+    /* Projector cone: from his mouth (or raised hand, handing over to the
+       mouth once the wave is done) to the near edge of the film frame. */
+    const cn = cone.current;
+    const cm = coneMesh.current;
+    if (cm) {
+      let ca = 0;
+      if (cn !== null) {
+        cn.t += dt;
+        const growS = reduced ? 0.9 : 0.6;
+        const g2 = cn.grow ? clamp(cn.t / growS, 0, 1) : 1;
+        if (!cn.landed && g2 >= 1) { cn.landed = true; cn.resolve(); }
+        cn.alpha = cn.off ? Math.max(0, cn.alpha - dt / 0.3) : Math.min(1, cn.alpha + dt / (reduced ? 0.5 : 0.25));
+        const r = cn.target();
+        if (cn.off && cn.alpha <= 0) cone.current = null;
+        else if (r !== null && presence > 0.5) {
+          const api = apiRef.current;
+          const mouthP = api?.mouth() ?? pos.current;
+          let o = mouthP;
+          if (cn.from === 'hand' && api) {
+            const hp = api.hand();
+            const k = clamp((cn.t - 0.9) / 0.5, 0, 1);
+            o = { x: hp.x + (mouthP.x - hp.x) * k, y: hp.y + (mouthP.y - hp.y) * k };
+          }
+          // The edge facing him: below → bottom edge, left of it → left edge, else right.
+          let e1: Pt; let e2: Pt;
+          if (o.y > r.top + r.height) { e1 = { x: r.left, y: r.top + r.height }; e2 = { x: r.left + r.width, y: r.top + r.height }; }
+          else if (o.x < r.left) { e1 = { x: r.left, y: r.top }; e2 = { x: r.left, y: r.top + r.height }; }
+          else { e1 = { x: r.left + r.width, y: r.top + r.height }; e2 = { x: r.left + r.width, y: r.top }; }
+          const ease = 1 - (1 - g2) ** 3;
+          const pts = [o, { x: o.x + (e1.x - o.x) * ease, y: o.y + (e1.y - o.y) * ease }, { x: o.x + (e2.x - o.x) * ease, y: o.y + (e2.y - o.y) * ease }];
+          const arr = (cm.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
+          pts.forEach((p2, i2) => { const wv = toWorld(p2); arr[i2 * 3] = wv.x; arr[i2 * 3 + 1] = wv.y; arr[i2 * 3 + 2] = 280; });
+          cm.geometry.getAttribute('position').needsUpdate = true;
+          ca = cn.alpha * (reduced ? 0.75 : 1) * presence;
+        }
+      }
+      cm.visible = ca > 0.001;
+      (coneMat.uniforms.uAlpha as { value: number }).value = ca;
+      (coneMat.uniforms.uTime as { value: number }).value = t;
+      (coneMat.uniforms.uFlicker as { value: number }).value = reduced ? 0 : 1;
+    }
+
+    /* A revealed prop stays on its spot as the page scrolls. */
+    const pa = propAt.current;
+    if (pa !== null && propGroup.current !== null && propGroup.current.visible) {
+      const pw = toWorld(pa());
+      propGroup.current.position.x = pw.x;
+      propGroup.current.position.y = pw.y;
+      if (reveal.current !== null) reveal.current.to.set(pw.x, pw.y, 130);
     }
 
     /* Flash: impact bloom / poke burst. */
@@ -1327,7 +1405,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       if (p >= 1.05 && !r.done) { r.done = true; reveal.current = null; r.resolve(); }
     }
 
-    /* DOM followers: speech bubble over the head, poke button over the body. */
+    /* DOM followers: speech bubble over (or beside) the head, poke button over the body. */
     const top = pos.current.y - heightPx * 1.02;
     const bubble = bubbleRef.current;
     if (bubble) {
@@ -1337,10 +1415,43 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       // (data-min-x / data-max-x, viewport px); otherwise the viewport edges.
       const lo = Math.max(12, Number(bubble.dataset.minX ?? 12));
       const hi = Math.min(W - 12, Number(bubble.dataset.maxX ?? W - 12));
-      const left = clamp(pos.current.x - bw / 2, lo, Math.max(lo, hi - bw));
-      const y = Math.max(64, top - bh - 6);
+      const minY = layout.bubbleMinY ?? 64;
+      const aboveY = top - bh - 6;
+      let left: number;
+      let y: number;
+      let tail: 'down' | 'up' | 'left' | 'right';
+      // Where it may go, in order: above his head; beside it (inside the
+      // fences); under his feet (his own column, when he is held at the top
+      // of the screen); otherwise it steps away rather than cover anything.
+      let fits = true;
+      const half = heightPx * 0.42;
+      const roomR = hi - (pos.current.x + half + 10);
+      const roomL = pos.current.x - half - 10 - lo;
+      const belowY = pos.current.y + 12;
+      const maxY = layout.bubbleMaxY ?? H - 12;
+      if (layout.bubbleSide !== true && aboveY >= minY) {
+        left = clamp(pos.current.x - bw / 2, lo, Math.max(lo, hi - bw));
+        y = aboveY;
+        tail = 'down';
+      } else if (roomR >= bw || roomL >= bw || layout.bubbleSide === true) {
+        // Beside his head on the roomier side, never over his face.
+        const right = roomR >= bw ? true : roomL >= bw ? false : roomR >= roomL;
+        left = right ? pos.current.x + half + 10 : pos.current.x - half - 10 - bw;
+        left = clamp(left, lo, Math.max(lo, hi - bw));
+        y = clamp(pos.current.y - heightPx * 0.72 - bh / 2, minY, Math.max(minY, pos.current.y - bh));
+        tail = right ? 'left' : 'right';
+        fits = roomR >= bw || roomL >= bw;
+      } else {
+        left = clamp(pos.current.x - bw / 2, lo, Math.max(lo, hi - bw));
+        y = belowY;
+        tail = 'up';
+        fits = belowY + bh <= maxY;
+      }
       bubble.style.transform = `translate3d(${left.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
       bubble.style.setProperty('--tail-x', `${clamp(pos.current.x - left, 22, bw - 22).toFixed(1)}px`);
+      if (bubble.dataset.tail !== tail) bubble.dataset.tail = tail;
+      const hide = presence < 0.6 || !shown.current || layout.bubbleAway === true || !fits;
+      if ((bubble.dataset.away === 'true') !== hide) bubble.dataset.away = hide ? 'true' : 'false';
     }
     const hit = hitRef.current;
     if (hit) {
@@ -1348,6 +1459,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       hit.style.width = `${hw}px`;
       hit.style.height = `${heightPx}px`;
       hit.style.transform = `translate3d(${(pos.current.x - hw / 2).toFixed(1)}px, ${top.toFixed(1)}px, 0)`;
+      const away = presence < 0.6 ? 'none' : '';
+      if (hit.style.pointerEvents !== away) hit.style.pointerEvents = away;
     }
   });
 
@@ -1359,7 +1472,6 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       <directionalLight position={[-520, 640, 820]} intensity={2.2} />
       <directionalLight position={[600, 120, 500]} intensity={0.7} color="#a78bfa" />
       <directionalLight position={[260, 380, -900]} intensity={1.5} color="#dcd8ff" />
-      <mesh ref={boxBackRef} geometry={boxGeos[0]} material={boxBackMat} visible={false} frustumCulled={false} renderOrder={-2} />
       <mesh ref={floor} material={floorMat} renderOrder={0}>
         <planeGeometry args={[1, 1]} />
       </mesh>
@@ -1394,7 +1506,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
           <primitive object={model.scene} />
         </group>
       )}
-      <mesh ref={boxFrontRef} geometry={boxGeos[1]} material={boxFrontMat} visible={false} frustumCulled={false} renderOrder={9} />
+      <mesh ref={coneMesh} geometry={coneGeo} material={coneMat} visible={false} frustumCulled={false} renderOrder={4} />
       <mesh ref={beamMesh} material={beamMat} visible={false} renderOrder={5}>
         <planeGeometry args={[1, 1]} />
       </mesh>

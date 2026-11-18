@@ -556,42 +556,238 @@
   .bw-wall[data-dim="true"] .bw-tile img { opacity: 0.55; }
   .bw-wall .bw-tile img { transition: opacity 700ms var(--bw-ease); }
 
-  /* The floor Beamy stands on: a soft stage. A horizon that brightens over a
-     few pixels instead of a ruled line, a gentle lift across the floor, and
-     a wider pool of light where he stands (--stage-x, set by the page). It
-     fades back down toward the panel's bottom edge, where the footer labels
-     sit, so they keep their contrast. */
-  .bw-floor {
+  /* ── The scrolling page (/beamy) ── */
+  /* The field is painted once on a fixed backdrop (a 9000px-tall root would
+     stretch its glows into bands); the root keeps only the base colour. */
+  .bw-root.bw-scroll { background-image: none; }
+  .bw-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-color: var(--bw-bg);
+    background-image:
+      radial-gradient(48% 54% at 124% -38%, var(--bw-bg-4), transparent 62%),
+      radial-gradient(46% 56% at 70% 58%, var(--bw-bg-2), transparent 74%),
+      radial-gradient(34% 40% at -8% 112%, var(--bw-bg-3), transparent 66%);
+  }
+  .bw-stop { scroll-margin-top: var(--bw-header-h, 72px); }
+
+  /* Sticky header: a strip of the same glass, a hairline under it. */
+  .bw-header {
+    background-color: rgba(43, 42, 140, 0.42);
+    -webkit-backdrop-filter: blur(20px) saturate(110%);
+    backdrop-filter: blur(20px) saturate(110%);
+    box-shadow: inset 0 -1px 0 var(--bw-hairline), 0 12px 30px -24px rgba(22, 18, 78, 0.7);
+  }
+  /* Scroll progress: a 2px hairline; the page writes scaleX(0..1) on the span. */
+  .bw-progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .bw-progress > span {
+    display: block;
+    height: 100%;
+    width: 100%;
+    transform: scaleX(0);
+    transform-origin: 0 50%;
+    background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.55), #FFFFFF 70%, var(--bw-core));
+  }
+
+  /* The hero as a glass box with depth. Every layer moves by the pointer
+     (--px/--py, −1..1) and by scroll (--hs, px scrolled into the hero) in
+     proportion to its depth: --dx/--dy px per unit of pointer, --ds px per
+     px of scroll (+ = lags the page, far; − = runs ahead of it, near). The
+     page never writes these under reduced motion, so the box holds still. */
+  .bw-depth {
+    transform: translate3d(
+      calc(var(--px, 0) * var(--dx, 0) * 1px),
+      calc(var(--py, 0) * var(--dy, 0) * 1px + var(--hs, 0) * var(--ds, 0) * 1px),
+      0
+    );
+    will-change: transform;
+  }
+  .bw-far-blob {
+    position: absolute;
+    border-radius: 999px;
+    background-image: radial-gradient(closest-side, var(--bw-bg-3), transparent);
+    opacity: 0.7;
+  }
+  /* The box turns 1–3° toward the pointer, about its centre. */
+  .bw-hero-pane {
+    transform: perspective(2200px) rotateX(calc(var(--py, 0) * -1.2deg)) rotateY(calc(var(--px, 0) * 2deg));
+    transform-origin: 50% 50%;
+  }
+  /* The recessed back wall: a deep inner shadow under the top rim and down
+     the sides, so the contents read as standing INSIDE the box. */
+  .bw-hero-back {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-shadow:
+      inset 0 46px 70px -46px rgba(26, 23, 64, 0.42),
+      inset 40px 0 80px -60px rgba(26, 23, 64, 0.30),
+      inset -40px 0 80px -60px rgba(26, 23, 64, 0.22);
+  }
+  /* Shadows the copy, Beamy and the wall cast on the back wall: soft, offset
+     down-right of what casts them, moving less than the casters. */
+  .bw-cast {
+    position: absolute;
+    border-radius: 46%;
+    background-image: radial-gradient(closest-side, rgba(26, 23, 64, 0.26), rgba(26, 23, 64, 0.08) 62%, transparent);
+  }
+  /* The floor: a horizon that brightens over a few px (no ruled line), a pool
+     of light under Beamy, then it deepens toward the front edge. */
+  .bw-hero-floor {
     position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
+    height: 26%;
     pointer-events: none;
     background-image:
-      radial-gradient(34% 70% at var(--stage-x, 50%) 0%, rgba(255, 255, 255, 0.05), transparent 72%),
-      linear-gradient(to bottom, rgba(255, 255, 255, 0) 0, rgba(255, 255, 255, 0.07) 10px, rgba(255, 255, 255, 0.04) 70px, rgba(255, 255, 255, 0) 100%);
+      radial-gradient(30% 60% at 50% 0%, rgba(255, 255, 255, 0.08), transparent 72%),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0) 0, rgba(255, 255, 255, 0.07) 8px, rgba(255, 255, 255, 0.02) 46%, rgba(26, 23, 64, 0.14) 100%);
+  }
+  /* The front pane: a crisp rim and one soft diagonal sheen that slides with the pointer. */
+  .bw-hero-front {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.42), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    background-image: linear-gradient(112deg, transparent 38%, rgba(255, 255, 255, 0.05) 47%, rgba(255, 255, 255, 0.015) 53%, transparent 60%);
+    background-size: 240% 100%;
+    background-position: calc(60% - var(--sheen-dx, 0%)) 0;
+  }
+  /* Glass shards in front of the box: out of focus, bobbing slowly. */
+  .bw-shard {
+    position: absolute;
+    border-radius: 18px;
+    background-image: linear-gradient(140deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.06) 60%, rgba(255, 255, 255, 0.16));
+    box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.7), 0 24px 40px -22px rgba(22, 18, 78, 0.55);
+    filter: blur(2.5px);
+    opacity: 0.8;
+    animation: bw-bob 7s ease-in-out infinite alternate;
+  }
+  .bw-shard-b { filter: blur(4px); opacity: 0.6; animation-duration: 9s; animation-delay: -4s; }
+
+  /* Reveals. Content is always in the DOM; until Beamy brings it up it sits
+     transparent and a little low (no filter at rest). Beamed items condense
+     out of light: a short bright blur that settles. */
+  .bw-reveal { transition: opacity 560ms var(--bw-ease), transform 560ms var(--bw-ease); }
+  .bw-reveal[data-on="false"] { opacity: 0; transform: translateY(18px); }
+  .bw-condense[data-on="true"] { animation: bw-condense 680ms var(--bw-ease) both; }
+
+  /* Explainer art sits on a small pool of light. */
+  .bw-art-glow {
+    position: absolute;
+    inset: 8% 14%;
+    border-radius: 999px;
+    background-image: radial-gradient(closest-side, rgba(255, 255, 255, 0.26), rgba(255, 197, 107, 0.08) 62%, transparent);
   }
 
-  /* Progress dots: 44px hit area, a small dot inside. */
-  .bw-dot {
+  /* A film frame: dark until Beamy's projector cone lands, then it powers on
+     with a short flicker and keeps a soft warm glow. */
+  .bw-film {
     position: relative;
-    display: grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
-    border-radius: 999px;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 30px 60px -30px rgba(22, 18, 78, 0.7);
+    transition: box-shadow 700ms var(--bw-ease);
   }
-  .bw-dot::before {
+  .bw-film::after {
     content: '';
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: var(--bw-faint);
-    transition: width 320ms var(--bw-ease), background-color 320ms var(--bw-ease);
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: rgba(26, 23, 64, 0.64);
+    pointer-events: none;
+    transition: opacity 500ms var(--bw-ease);
   }
-  .bw-dot:hover::before { background: var(--bw-muted); }
-  .bw-dot[aria-current="step"]::before { width: 22px; background: var(--bw-core); }
-  .bw-dot:focus-visible { outline: 2px solid #FFFFFF; outline-offset: -2px; }
+  .bw-film[data-lit="true"] {
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34), 0 0 0 1px rgba(255, 255, 255, 0.12), 0 34px 80px -34px rgba(255, 197, 107, 0.42);
+  }
+  .bw-film[data-lit="true"]::after { opacity: 0; animation: bw-power 700ms linear both; }
+  .bw-film-chip {
+    background-color: rgba(26, 23, 64, 0.62);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.4);
+    color: #FFFFFF;
+  }
+
+  /* Pricing */
+  .bw-plan[data-popular="true"] {
+    box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.72), 0 30px 60px -30px rgba(22, 18, 78, 0.7);
+  }
+  .bw-plan-badge {
+    position: absolute;
+    top: -12px;
+    left: 24px;
+    padding: 3px 12px;
+    border-radius: 999px;
+    background: var(--bw-core);
+    color: var(--bw-on-light);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 18px;
+  }
+  .bw-price {
+    font-family: var(--bw-font-display);
+    font-size: 40px;
+    font-weight: 720;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    color: var(--bw-ink);
+  }
+
+  /* Phones: the stage Beamy stands on, fixed under the content. Content
+     scrolls behind its frost; it slides in once he leaves the hero. */
+  .bw-dock {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    height: calc(var(--bw-dock-h, 144px) + env(safe-area-inset-bottom, 0px));
+    border-radius: 24px 24px 0 0;
+    background-color: rgba(43, 42, 140, 0.5);
+    -webkit-backdrop-filter: blur(22px) saturate(110%);
+    backdrop-filter: blur(22px) saturate(110%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 -18px 40px -26px rgba(22, 18, 78, 0.8);
+    pointer-events: none;
+    transform: translateY(102%);
+    transition: transform 520ms var(--bw-ease);
+  }
+  .bw-dock::before {
+    content: '';
+    position: absolute;
+    left: 10%;
+    right: 10%;
+    bottom: 14px;
+    height: 26px;
+    border-radius: 999px;
+    background-image: radial-gradient(closest-side, rgba(255, 255, 255, 0.16), transparent);
+  }
+  .bw-dock[data-on="true"] { transform: none; }
+
+  /* The bubble beside his head (no room above): the tail points sideways. */
+  .bw-bubble[data-tail="left"]::after,
+  .bw-bubble[data-tail="right"]::after {
+    top: 50%;
+    width: 9px;
+    height: 18px;
+    transform: translateY(-50%);
+  }
+  .bw-bubble[data-tail="left"]::after { left: auto; right: 100%; clip-path: polygon(100% 0, 100% 100%, 0 50%); }
+  .bw-bubble[data-tail="right"]::after { left: 100%; clip-path: polygon(0 0, 0 100%, 100% 50%); }
+  /* Under his feet (he is held at the top of the screen): the tail points up. */
+  .bw-bubble[data-tail="up"]::after { top: auto; bottom: 100%; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 
   /* Inner scrollers (phones): the edge that still has more to scroll fades
      out, so a cut-off row or card reads as "there is more", never as the end.
@@ -608,8 +804,11 @@
     animation: bw-rise var(--bw-dur) var(--bw-ease) both;
     animation-delay: calc(var(--i, 0) * var(--bw-stagger));
   }
-  .bw-leave { animation: bw-leave 360ms var(--bw-ease) both; }
 }
+
+/* The bubble steps away while Beamy dissolves (hero ↔ dock). Unlayered so it
+   wins over the page's opacity utility. */
+[data-brand="2"] .bw-bubble[data-away="true"] { opacity: 0; }
 
 /* No backdrop-filter: the same glass, as a solid tint (still passes AA). */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -621,21 +820,29 @@
   [data-brand="2"] .bw-btn-secondary { background-color: rgba(60, 58, 160, 0.9); }
 }
 
-/* Section headings take focus programmatically on every section change (so a
-   screen reader announces the new section). They are not controls, so the
-   global unlayered :focus-visible ring (index.css) would paint a box around
-   the headline after every keyboard nav. Unlayered + higher specificity on
-   purpose; real controls keep their rings. */
-[data-brand="2"] [data-section-heading]:focus,
-[data-brand="2"] [data-section-heading]:focus-visible { outline: none; }
-
 @keyframes bw-rise {
   from { opacity: 0; transform: translateY(24px); }
   to { opacity: 1; transform: none; }
 }
-@keyframes bw-leave {
-  from { opacity: 1; transform: none; }
-  to { opacity: 0; transform: translateY(-24px); }
+/* A shard's slow bob (the `translate` property, so its inline rotate stays). */
+@keyframes bw-bob {
+  from { translate: 0 -7px; }
+  to { translate: 0 7px; }
+}
+/* A beamed card condensing out of light. */
+@keyframes bw-condense {
+  0% { opacity: 0; transform: scale(0.94); filter: blur(10px) brightness(1.9); }
+  55% { opacity: 1; filter: blur(2px) brightness(1.25); }
+  100% { opacity: 1; transform: none; filter: none; }
+}
+/* A film's dark veil flickering off as the projector lands. */
+@keyframes bw-power {
+  0% { opacity: 1; }
+  18% { opacity: 0.25; }
+  30% { opacity: 0.8; }
+  46% { opacity: 0.1; }
+  58% { opacity: 0.45; }
+  100% { opacity: 0; }
 }
 @keyframes bw-fade {
   from { opacity: 0; }
@@ -655,7 +862,17 @@
 
 @media (prefers-reduced-motion: reduce) {
   [data-brand="2"] .bw-rise > * { animation-name: bw-fade; animation-duration: 240ms; animation-delay: 0ms; }
-  [data-brand="2"] .bw-leave { animation: bw-fade 200ms linear reverse both; }
+  /* Content still arrives for everyone, as a gentle fade: no lift, no light
+     burst, no flicker. Decorative motion (shards, depth, dock slide) stops. */
+  [data-brand="2"] .bw-reveal { transition: opacity 420ms linear; }
+  [data-brand="2"] .bw-reveal[data-on="false"] { transform: none; }
+  [data-brand="2"] .bw-condense[data-on="true"] { animation: bw-fade 420ms linear both; }
+  [data-brand="2"] .bw-film[data-lit="true"]::after { animation: none; }
+  [data-brand="2"] .bw-shard { animation: none; }
+  [data-brand="2"] .bw-depth,
+  [data-brand="2"] .bw-hero-pane { transform: none; }
+  [data-brand="2"] .bw-dock { transition: opacity 300ms linear; }
+  [data-brand="2"] .bw-dock[data-on="false"] { transform: none; opacity: 0; }
   [data-brand="2"] .bw-glass-card.bw-interactive:hover { transform: none; }
   [data-brand="2"] .bw-btn:active { transform: none; }
   [data-brand="2"] .bw-tile .bw-tile-in { animation-name: bw-fade; }

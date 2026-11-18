@@ -3,83 +3,106 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * /beamy — the candidate landing in brand v2 (noindex while the owner reacts
- * to it; `/` is untouched). ONE viewport, six stops moved through one at a
- * time — never a document scroll:
+ * to it; `/` is untouched). A normal, natively scrolling page, presented by
+ * Beamy: he lives on one fixed, full-viewport, transparent canvas
+ * (BeamyStage) and travels down the page with you.
  *
- *   intro → What applies to you? → Try it (the real booth) → 3D magic →
- *   How it works → Start
+ *   hero → the idea (three explainers) → four feature films → What applies
+ *   to you? → Try it (the real booth) → 3D magic → How it works → Pricing →
+ *   Start
  *
- * The scene is "liquid glass": a soft periwinkle field, and every stop's
- * content (nav and progress bar included) inside ONE frosted glass panel.
- * Beamy lives in BeamyStage's full-viewport canvas above the page, with a few
- * faceted crystals around the panel. Each stop renders an empty
- * `[data-beamy-slot]` box where he should stand; a layout effect measures it
- * (and the panel), so his home, size, the floor line and the crystals come
- * from the DOM, never from magic numbers.
+ * Every section ("stop", lib/beamyScroll) renders an empty `[data-beamy-slot]`
+ * where he stands. One measure pass (on resize, font load and content
+ * resizes — never per frame) caches each stop's box and his feet in DOCUMENT
+ * px; on every scroll the pure director turns those plus scrollY into his
+ * target, and the stage glides him there. Phones stand him in a fixed dock
+ * under the content instead (the hero keeps its in-flow spot).
  *
- * The intro (first visit per session): the panel fades in with the live wall
- * already cycling dimly; a beam drops onto the floor and Beamy lands; he
- * takes a selfie (the GLB's `Selfie` clip, on the main stage); the photo card
- * pops out and rides a beam to the wall's centre tile, which holds it for a
- * while with a ripple through its neighbours. The copy and CTAs are up within
- * ~250ms and usable throughout; any click skips the rest. Reduced motion: he
- * is simply there and his portrait fades into the centre tile.
+ * The first time a stop becomes active he PRESENTS it, once per page view:
+ * beams each explainer card into being, projects each film with a soft cone
+ * (the frame powers on as the cone lands), drifts light onto the audience
+ * cards, blasts the booth on, conjures the 3D prop… All content is in the DOM
+ * from the start at reduced opacity; it reveals when his action lands, and at
+ * once if the visitor scrolls on, the fallback timer runs out, or the model
+ * never loads. Scrolling back shows the settled state.
  *
- * Choreographies are async scripts against BeamyApi. Each run takes a token;
- * moving to another stop bumps it and every await re-checks it, so a script
- * left behind by a fast tapper stops instead of fighting the new one.
+ * Motion: content motion (his travel, beams, reveals, the projector) plays for
+ * everyone, gently under reduced motion (glides and fades, no strobes or
+ * particle storms). Decorative motion (pointer parallax and tilt, scroll
+ * parallax, crystal bob, hop) is off under reduced motion.
  *
  * Nothing a visitor captures leaves the device: the wall is component state.
  * Tokens/components come from src/styles/brand.css, scoped by data-brand="2".
  */
 import {
-  useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState,
-  type HTMLAttributes, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode,
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+  type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode,
 } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  ArrowLeft, ArrowRight, Briefcase, Cake, CalendarPlus, Camera, Check, ClipboardList, Gift, Link2, Lock,
+  ArrowRight, Briefcase, Cake, CalendarPlus, Camera, Check, ClipboardList, Gift, Link2, Lock,
   Palette, RotateCcw, Rotate3d, Users, type LucideIcon,
 } from 'lucide-react';
 import CameraExperience, { lookFrameUrl } from '../../components/landing/CameraExperience';
 import ParticleBeam from '../../components/landing/ParticleBeam';
 import ReportIssueButton from '../../components/support/ReportIssueButton';
+import FilmEmbed from '../../components/ui/FilmEmbed';
+import { BoothIcon, CardIcon, ChallengeIcon, WallIcon, type BeamIconProps } from '../../components/ui/BeamIcons';
+import LiveWall, { WALL_POOL, type Pin } from '../../components/beamy/LiveWall';
 import { SELFIE_CARD_FACE_STYLE, SELFIE_CARD_STYLE, flashGradient } from '../../components/beamy/selfieFx';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { useNoIndex } from '../sales/components/pageMeta';
-import { salesImage } from '../sales/salesImages';
-import { HERO_SLOT_IMAGES } from '../../lib/landingAssets';
+import { STEP_CREATE_CUTOUT, STEP_QR_CUTOUT, STEP_WALL_CUTOUT } from '../../lib/landingAssets';
 import type { Rect } from '../../lib/beamGeometry';
-import type { BoxRoom } from '../../lib/beamyBox';
 import { REDUCED_GLIDE_S, flashOpacity, photoState } from '../../lib/beamySelfie';
-import { SHOT_TILES, WALL_CENTRE, initialWall, nextSwap, rippleRings, swapDelay, type WallState } from '../../lib/beamyWall';
+import { SHOT_TILES, WALL_CENTRE } from '../../lib/beamyWall';
 import {
   AUDIENCES, DELIVER_STEPS, DONE_FOR_YOU, GREETING, HELLO, POKE_LINES, audienceById,
   type Audience, type AudienceIcon, type StepIcon,
 } from '../../lib/beamyTour';
 import {
-  FOOTER_LINKS, HERO, HOW_COPY, LOOKS, MAGIC_COPY, NAV_LINKS, PICK_COPY, POKE_IDLE, PRICING_PATH, SECTIONS, SIGNUP_PATH,
-  START_COPY, TRY_COPY, WALL_LABEL, WHEEL_IDLE, createReactionPicker, keyToNav, navigate, pickCelebration, pokeStep,
-  releaseVelocity, sectionIndex, seededRandom, startFacts, swipeDecision, wheelDecision,
-  type Celebration, type Nav, type Reaction, type SectionId,
+  EXPLAIN_COPY, EXPLAIN_STEPS, FILMS, FOOTER_LINKS, HERO, HOW_COPY, LOOKS, MAGIC_COPY, NAV_LINKS, PICK_COPY, POKE_IDLE,
+  SIGNUP_PATH, START_COPY, TRY_COPY, createReactionPicker, pickCelebration, planCards, pokeStep, pricingSection,
+  releaseVelocity, startFacts, type Celebration, type FilmId, type Reaction,
 } from '../../lib/brandLanding';
+import {
+  STOPS, directBeamy, mustRevealNow, pageProgress, stopIndex,
+  type BeamyTarget, type Side, type StopAnchor, type StopId,
+} from '../../lib/beamyScroll';
 import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, type StageLayout } from './BeamyStage';
 
-const WALL_SEED = ['event-wedding', 'event-birthday', 'event-gala', 'event-activation', 'event-conference', 'hero-wall', 'event-tradeshow'];
-/** The wall's photos: the landing's hero-carousel illustrations + the event cards (13, so 4 spares). */
-const WALL_POOL = [...HERO_SLOT_IMAGES, ...WALL_SEED.map((k) => salesImage(k)?.src ?? '')].filter((s) => s !== '');
+import boothFilm from '../../assets/landing/booth-feature.mp4';
+import boothPoster from '../../assets/landing/booth-feature-poster.jpg';
+import wallFilm from '../../assets/landing/wall-feature.mp4';
+import wallPoster from '../../assets/landing/wall-feature-poster.jpg';
+import challengesFilm from '../../assets/landing/challenges-feature.mp4';
+import challengesPoster from '../../assets/landing/challenges-feature-poster.jpg';
+import cardsFilm from '../../assets/landing/cards-feature.mp4';
+import cardsPoster from '../../assets/landing/cards-feature-poster.jpg';
+
 /** The beam's calm palette for the photo dissolve (palette[0] tints the core). */
 const BEAM_PALETTE = ['#C9CCFF', '#FFFFFF', '#A5ABFF', '#FFC56B'];
 const AUDIENCE_ICONS: Record<AudienceIcon, LucideIcon> = { ClipboardList, Cake, Users, Briefcase, Gift };
 const STEP_ICONS: Record<StepIcon, LucideIcon> = { CalendarPlus, Palette, Link2 };
+const EXPLAIN_ART = [STEP_CREATE_CUTOUT, STEP_QR_CUTOUT, STEP_WALL_CUTOUT];
+const FILM_MEDIA: Record<FilmId, { src: string; poster: string; Icon: (p: BeamIconProps) => ReactNode }> = {
+  booth: { src: boothFilm, poster: boothPoster, Icon: BoothIcon },
+  wall: { src: wallFilm, poster: wallPoster, Icon: WallIcon },
+  challenges: { src: challengesFilm, poster: challengesPoster, Icon: ChallengeIcon },
+  cards: { src: cardsFilm, poster: cardsPoster, Icon: CardIcon },
+};
+const FILM_STOP: Record<FilmId, StopId> = { booth: 'film-booth', wall: 'film-wall', challenges: 'film-challenges', cards: 'film-cards' };
 /** Skipping the picker tours as the most common host. */
 const DEFAULT_AUDIENCE = audienceById('family') ?? AUDIENCES[0];
-/** Room above Beamy's head kept free for his speech bubble. */
+/** Room above Beamy's head kept free for his speech bubble (in-flow stops). */
 const BUBBLE_ROOM = 76;
-const LEAVE_MS = 300;
 /** How long the centre tile holds Beamy's selfie before it rejoins the rotation. */
 const SELFIE_HOLD_MS = 12000;
-const FLOOR_STOPS: SectionId[] = ['pick', 'magic', 'how', 'start'];
+/** A stop's content fully shown. */
+const ALL = 99;
+/** Breakpoints: phones dock Beamy; the three-column hero needs a laptop. */
+const PHONE_MAX = 768;
+const WIDE_HERO_MIN = 1024;
 
 const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -139,42 +162,36 @@ const rectOf = (el: Element | null): Rect | null => {
   return { left: r.left, top: r.top, width: r.width, height: r.height };
 };
 const centre = (r: Rect): Pt => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
-const sameRect = (a: Rect | null, b: Rect) => a !== null && Math.abs(a.left - b.left) < 1 && Math.abs(a.top - b.top) < 1 && Math.abs(a.width - b.width) < 1 && Math.abs(a.height - b.height) < 1;
-
-/** The scroll container an event started in, if it can still scroll that way. */
-function scrollsInside(target: EventTarget | null, root: Element | null, dy: number): boolean {
-  let el = target instanceof Element ? target : null;
-  while (el !== null && el !== root) {
-    if (el instanceof HTMLElement && el.scrollHeight > el.clientHeight + 1) {
-      const oy = getComputedStyle(el).overflowY;
-      if (oy === 'auto' || oy === 'scroll') {
-        if (dy > 0 && el.scrollTop + el.clientHeight < el.scrollHeight - 1) return true;
-        if (dy < 0 && el.scrollTop > 0) return true;
-      }
-    }
-    el = el.parentElement;
-  }
-  return false;
-}
 
 interface Flight { from: Rect; to: Rect; shot: string; ms: number; onDone: () => void; key: number; }
-interface Pin { src: string; key: string; mine: boolean; }
+
+/** Everything measured once per layout change, in DOCUMENT px. */
+interface Cache {
+  stops: StopAnchor[];
+  /** Per stop: the x range the bubble must stay inside (null = viewport edge). */
+  fences: { minX: number | null; maxX: number | null }[];
+  heroPanel: Rect | null;
+  heroStand: { feet: Pt; heightPx: number } | null;
+  films: Partial<Record<FilmId, Rect>>;
+  propSpot: Rect | null;
+  headerH: number;
+  dockY: number;
+  dockH: number;
+  band: { top: number; bottom: number };
+  heroH: number;
+}
 
 export default function BeamyPage() {
   usePageTitle('Beamwall · Your immersive photo booth');
   useNoIndex();
 
   const vp = useViewport();
-  const desktop = vp.w >= 1024;
+  const phone = vp.w < PHONE_MAX;
+  const wideHero = vp.w >= WIDE_HERO_MIN;
   const reduced = useReducedMotion();
 
-  const [index, setIndex] = useState(() => {
-    const q = new URLSearchParams(window.location.search).get('s');
-    const i = SECTIONS.findIndex((s) => s.id === q);
-    return i < 0 ? 0 : i;
-  });
-  const [shownIndex, setShownIndex] = useState(index);
-  const [leaving, setLeaving] = useState(false);
+  const [active, setActive] = useState(0);
+  const [rev, setRev] = useState<Partial<Record<StopId, number>>>({ hero: ALL });
   const [picked, setPicked] = useState<Audience | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [look, setLook] = useState<string | null>(null);
@@ -189,28 +206,32 @@ export default function BeamyPage() {
   const [flight, setFlight] = useState<Flight | null>(null);
   const [propBusy, setPropBusy] = useState(false);
   const [dragHint, setDragHint] = useState(true);
-  const [slotBox, setSlotBox] = useState<Rect | null>(null);
-  const [floorTop, setFloorTop] = useState<number | null>(null);
-  /** Beamy's x across the panel (%), where the floor's pool of light sits. */
-  const [stageX, setStageX] = useState(50);
-  /** The Try stop's booth·Beamy·wall row width, so its header lines up with it. */
-  const [tryRowW, setTryRowW] = useState<number | null>(null);
   const [introRunning, setIntroRunning] = useState(false);
   const [heroPin, setHeroPin] = useState<Pin | null>(null);
   const [ripple, setRipple] = useState(0);
 
   const audience = picked ?? DEFAULT_AUDIENCE;
-  const section: SectionId = SECTIONS[shownIndex].id;
+  const audienceRef = useRef(audience);
+  audienceRef.current = audience;
 
   const api = useRef<BeamyApi | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const hitRef = useRef<HTMLButtonElement | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const glassRef = useRef<HTMLDivElement | null>(null);
+  /* The app shell is a fixed-height, overflow-hidden box, so the page scrolls
+     inside its own root (as the platform landing does): this is the scroller. */
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const scrollTop = () => scrollerRef.current?.scrollTop ?? 0;
+  const heroRef = useRef<HTMLElement | null>(null);
+  const heroPanelRef = useRef<HTMLDivElement | null>(null);
+  const progressRef = useRef<HTMLSpanElement | null>(null);
+  const dockRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
   const viewfinderRef = useRef<HTMLDivElement | null>(null);
-  /** The centre tile of whichever wall is on screen (the beam's landing spot). */
-  const centreTileRef = useRef<HTMLDivElement | null>(null);
+  const boothRef = useRef<HTMLDivElement | null>(null);
+  /** The centre tile of whichever wall the next photo flies to. */
+  const heroTileRef = useRef<HTMLDivElement | null>(null);
+  const tryTileRef = useRef<HTMLDivElement | null>(null);
   const flashRef = useRef<HTMLDivElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const cardImgRef = useRef<HTMLImageElement | null>(null);
@@ -220,14 +241,25 @@ export default function BeamyPage() {
   const nextShot = useRef(1);
   const flightKey = useRef(0);
   const pinTimer = useRef(0);
-  const indexRef = useRef(index);
-  indexRef.current = index;
-  const sectionRef = useRef(section);
-  sectionRef.current = section;
-  /** The intro has played (or been skipped) in THIS page view: every full load plays it. */
-  const introSeen = useRef(false);
-  const layoutRef = useRef<StageLayout>({ home: { x: vp.w / 2, y: vp.h * 0.4 }, heightPx: 180 });
-  const decorRef = useRef<StageDecor>({ panel: null, hero: section === 'intro', phone: !desktop });
+  const activeRef = useRef(0);
+  const readyRef = useRef(false);
+  readyRef.current = ready && !failed;
+  const reducedRef = useRef(reduced);
+  reducedRef.current = reduced;
+  const revRef = useRef(rev);
+  revRef.current = rev;
+  const entered = useRef(new Map<StopId, number>());
+  const revealLogged = useRef(new Set<StopId>());
+  const lastTarget = useRef<BeamyTarget | null>(null);
+  const cache = useRef<Cache | null>(null);
+  const stopEls = useRef<Partial<Record<StopId, HTMLElement>>>({});
+  const stopRef = useMemo(() => {
+    const out = {} as Record<StopId, (el: HTMLElement | null) => void>;
+    for (const s of STOPS) out[s.id] = (el) => { if (el === null) delete stopEls.current[s.id]; else stopEls.current[s.id] = el; };
+    return out;
+  }, []);
+  const layoutRef = useRef<StageLayout>({ home: { x: vp.w / 2, y: vp.h * 0.6 }, heightPx: 180 });
+  const decorRef = useRef<StageDecor>({ panel: null, stand: null, phone, scroll: 0 });
   const seed = useMemo(() => {
     const q = Number(new URLSearchParams(window.location.search).get('seed'));
     return Number.isFinite(q) && q > 0 ? q : (Date.now() & 0xffff) + 1;
@@ -235,7 +267,6 @@ export default function BeamyPage() {
   const react = useRef(createReactionPicker(seed));
   const lastCelebration = useRef<Celebration | null>(null);
   const poke = useRef(POKE_IDLE);
-  const wheel = useRef(WHEEL_IDLE);
   const drag = useRef<{ id: number; x0: number; y0: number; dragging: boolean; samples: { x: number; t: number }[]; suppressClick: boolean } | null>(null);
 
   const typed = useTyped(line, reduced);
@@ -243,83 +274,207 @@ export default function BeamyPage() {
   useEffect(() => { const id = window.setTimeout(() => setCopyIn(true), 250); return () => window.clearTimeout(id); }, []);
   const showContent = copyIn || failed || slowModel || reduced;
 
-  /* Beamy's home + size from the current stop's slot box; the panel feeds
-     the crystals and the floor line. */
-  const measure = useCallback(() => {
-    const pr = rectOf(panelRef.current);
-    decorRef.current = { panel: pr, hero: sectionRef.current === 'intro', phone: !desktop };
-    const el = mainRef.current?.querySelector<HTMLElement>('[data-beamy-slot]');
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    if (r.width < 2 || r.height < 2) return;
-    const room = el.dataset.bubble === 'none' ? 0 : BUBBLE_ROOM;
-    const capAttr = el.dataset.max;
-    const cap = capAttr !== undefined ? Number(capAttr) : (desktop ? 300 : 200);
-    const heightPx = Math.max(96, Math.min(r.height - room, r.width * 0.9, cap));
-    // The glass box Beamy stands in: between the things beside him (the same
-    // fences the bubble uses), never past the panel, never over the copy.
-    let boxRoom: BoxRoom | null = null;
-    if (pr !== null) {
-      const root = mainRef.current;
-      const lEl = desktop ? root?.querySelector('[data-bubble-left]') ?? null : null;
-      const rEl = desktop ? root?.querySelector('[data-bubble-right]') ?? null : null;
-      const inset = desktop ? 16 : 12;
-      const left = lEl !== null ? lEl.getBoundingClientRect().right + 10 : pr.left + inset;
-      const right = rEl !== null ? rEl.getBoundingClientRect().left - 10 : pr.left + pr.width - inset;
-      const bottom = desktop
-        ? Math.max(r.bottom + 4, Math.min(r.bottom + heightPx * 0.18, pr.top + pr.height - 80))
-        : r.bottom + 6;
-      boxRoom = { left: Math.max(left, pr.left + inset), top: r.top, right: Math.min(right, pr.left + pr.width - inset), bottom };
-    }
-    layoutRef.current = { home: { x: r.left + r.width / 2, y: r.bottom }, heightPx, room: boxRoom };
-    const box = { left: r.left, top: r.top, width: r.width, height: r.height };
-    setSlotBox((prev) => (sameRect(prev, box) ? prev : box));
-    if (pr !== null) {
-      const top = Math.round(r.bottom - pr.top - heightPx * 0.16);
-      setFloorTop((prev) => (prev === top ? prev : top));
-      const sx = Math.round(((r.left + r.width / 2 - pr.left) / Math.max(1, pr.width)) * 100);
-      setStageX((prev) => (prev === sx ? prev : sx));
-    }
-    // Fence the speech bubble between the things beside Beamy it must never
-    // cover (marked data-bubble-left / data-bubble-right); BeamyStage clamps
-    // to it. Phones stack Beamy above the content, so no fence there.
-    const bub = bubbleRef.current;
-    if (bub !== null) {
-      const root = mainRef.current;
-      const lEl = desktop ? root?.querySelector('[data-bubble-left]') ?? null : null;
-      const rEl = desktop ? root?.querySelector('[data-bubble-right]') ?? null : null;
-      const lo = lEl !== null ? Math.round(lEl.getBoundingClientRect().right + 10) : null;
-      const hi = rEl !== null ? Math.round(rEl.getBoundingClientRect().left - 10) : null;
-      const span = (hi ?? window.innerWidth - 12) - (lo ?? 12);
-      const fenced = (lo !== null || hi !== null) && span >= 160;
-      if (fenced && lo !== null) bub.dataset.minX = String(lo); else delete bub.dataset.minX;
-      if (fenced && hi !== null) bub.dataset.maxX = String(hi); else delete bub.dataset.maxX;
-      bub.style.maxWidth = fenced ? `${Math.min(300, span)}px` : '';
-    }
-    const row = desktop ? mainRef.current?.querySelector<HTMLElement>('[data-try-row]') ?? null : null;
-    const first = row?.firstElementChild ?? null;
-    const last = row?.lastElementChild ?? null;
-    const rw = first !== null && last !== null ? Math.round(last.getBoundingClientRect().right - first.getBoundingClientRect().left) : null;
-    setTryRowW((prev) => (prev === rw ? prev : rw));
-  }, [desktop]);
-  useLayoutEffect(() => { measure(); }, [measure, shownIndex, vp.w, vp.h]);
-  useEffect(() => {
-    const ro = new ResizeObserver(() => measure());
-    if (mainRef.current) ro.observe(mainRef.current);
-    // The slot itself can resize without main changing (the display face
-    // swapping in reflows the copy beside it), so watch it too.
-    const slotEl = mainRef.current?.querySelector<HTMLElement>('[data-beamy-slot]');
-    if (slotEl) ro.observe(slotEl);
-    let live = true;
-    void document.fonts?.ready.then(() => { if (live) measure(); });
-    return () => { live = false; ro.disconnect(); };
-  }, [measure, shownIndex]);
-
   const begin = useCallback(() => {
     const mine = ++token.current;
     return () => token.current === mine;
   }, []);
   const say = (t: string) => setLine(t);
+
+  /* ── Reveals ───────────────────────────────────────────────────────── */
+
+  /** Show a stop's content up to `n` (0 = its heading, k = its first k items, ALL). */
+  const revealTo = useCallback((id: StopId, n: number, how: string) => {
+    const cur = revRef.current[id] ?? -1;
+    if (cur >= n) return;
+    revRef.current = { ...revRef.current, [id]: n };
+    setRev((prev) => ((prev[id] ?? -1) >= n ? prev : { ...prev, [id]: n }));
+    if (n >= ALL && !revealLogged.current.has(id)) { revealLogged.current.add(id); logStep(`reveal:${id}:${how}`); }
+  }, []);
+  /** Entered stops whose action has not landed yet: reveal when the visitor has moved on. */
+  const sweepReveals = useCallback(() => {
+    const now = performance.now();
+    const t = lastTarget.current;
+    for (const [id, at] of entered.current) {
+      if ((revRef.current[id] ?? -1) >= ALL) continue;
+      const i = stopIndex(id);
+      const isActive = t !== null && t.active === i;
+      const ok = mustRevealNow({ active: isActive, progress: isActive && t !== null ? t.progress : 0, sinceEnterMs: now - at, modelReady: readyRef.current });
+      if (!ok) continue;
+      const why = !readyRef.current ? 'nomodel' : !isActive || (t !== null && t.progress > 0.7) ? 'fast' : 'timeout';
+      revealTo(id, ALL, why);
+    }
+  }, [revealTo]);
+  useEffect(() => {
+    const id = window.setInterval(sweepReveals, 400);
+    return () => window.clearInterval(id);
+  }, [sweepReveals]);
+  /* The model failed (or never came): show everything entered. */
+  useEffect(() => { if (failed) sweepReveals(); }, [failed, sweepReveals]);
+
+  /* ── Measure (layout changes only) + direct (every scroll) ─────────── */
+
+  const direct = useCallback(() => {
+    const c = cache.current;
+    if (c === null) return;
+    const y = scrollTop();
+    const vh = window.innerHeight;
+    const t = directBeamy({ stops: c.stops, scrollY: y, vpH: vh, dockY: c.dockY, band: c.band });
+    lastTarget.current = t;
+    const S = c.stops[t.active];
+    const docked = S?.docked === true;
+    layoutRef.current = {
+      home: { x: t.x, y: t.y },
+      heightPx: t.heightPx,
+      yaw: t.yaw,
+      presence: t.presence,
+      floor: t.active === 0 && !docked && !t.travelling,
+      bubbleMinY: docked ? c.dockY - c.dockH + 4 : c.headerH + 8,
+      bubbleSide: docked,
+      bubbleAway: t.travelling,
+      bubbleMaxY: docked ? c.dockY : vh - 12,
+    };
+    const hp = c.heroPanel;
+    decorRef.current = {
+      panel: hp !== null && hp.top + hp.height - y > -40 ? { left: hp.left, top: hp.top - y, width: hp.width, height: hp.height } : null,
+      stand: c.heroStand !== null ? { feet: { x: c.heroStand.feet.x, y: c.heroStand.feet.y - y }, heightPx: c.heroStand.heightPx } : null,
+      phone: window.innerWidth < PHONE_MAX,
+      scroll: Math.min(y, c.heroH),
+    };
+    const bar = progressRef.current;
+    if (bar !== null) bar.style.transform = `scaleX(${pageProgress(y, scrollerRef.current?.scrollHeight ?? vh, vh).toFixed(4)})`;
+    // Scroll depth on the hero's decor (decorative: off when reduced).
+    const hero = heroRef.current;
+    if (hero !== null && !reducedRef.current) hero.style.setProperty('--hs', Math.min(y, c.heroH).toFixed(0));
+    const dock = dockRef.current;
+    if (dock !== null) {
+      const on = c.stops.length > 1 && c.stops[1].docked && (t.active > 0 || (t.travelling && t.presence < 0.5));
+      if ((dock.dataset.on === 'true') !== on) dock.dataset.on = on ? 'true' : 'false';
+    }
+    const bub = bubbleRef.current;
+    if (bub !== null) {
+      const f = c.fences[t.active];
+      const lo = f?.minX ?? null;
+      const hi = f?.maxX ?? null;
+      if (lo !== null) bub.dataset.minX = String(lo); else delete bub.dataset.minX;
+      if (hi !== null) bub.dataset.maxX = String(hi); else delete bub.dataset.maxX;
+      const maxW = docked ? Math.max(150, Math.round(window.innerWidth * 0.6) - 24) : lo !== null || hi !== null ? Math.min(300, (hi ?? window.innerWidth - 12) - (lo ?? 12)) : 300;
+      const mw = `${maxW}px`;
+      if (bub.style.maxWidth !== mw) bub.style.maxWidth = mw;
+    }
+    if (t.active !== activeRef.current) onActiveRef.current(t.active, activeRef.current);
+    sweepReveals();
+  }, [sweepReveals]);
+
+  const measure = useCallback(() => {
+    const root = mainRef.current;
+    if (root === null) return;
+    const y = scrollTop();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const isPhone = vw < PHONE_MAX;
+    const headerH = Math.round(headerRef.current?.getBoundingClientRect().height ?? 64);
+    const dockH = vh < 700 ? 124 : 144;
+    const dockY = vh - 14;
+    const stops: StopAnchor[] = [];
+    const fences: Cache['fences'] = [];
+    let heroStand: Cache['heroStand'] = null;
+    for (const def of STOPS) {
+      const el = stopEls.current[def.id];
+      if (el === undefined) return; // not all mounted yet
+      const r = el.getBoundingClientRect();
+      const docked = isPhone && def.id !== 'hero';
+      let feet: Pt;
+      let heightPx: number;
+      if (docked) {
+        feet = { x: def.side === 'right' ? vw * 0.8 : vw * 0.2, y: 0 };
+        heightPx = dockH - 22;
+      } else {
+        const slot = el.querySelector<HTMLElement>('[data-beamy-slot]');
+        const sr = slot?.getBoundingClientRect();
+        if (sr === undefined || sr.width < 2 || sr.height < 2) {
+          feet = { x: vw / 2, y: r.top + y + r.height * 0.6 };
+          heightPx = 160;
+        } else {
+          const room = slot?.dataset.bubble === 'none' ? 0 : BUBBLE_ROOM;
+          const capAttr = slot?.dataset.max;
+          const cap = capAttr !== undefined ? Number(capAttr) : (vw >= WIDE_HERO_MIN ? 260 : 220);
+          heightPx = Math.max(96, Math.min(sr.height - room, sr.width * 0.9, cap));
+          feet = { x: sr.left + sr.width / 2, y: sr.bottom + y };
+        }
+      }
+      if (def.id === 'hero') heroStand = { feet, heightPx };
+      stops.push({ top: r.top + y, bottom: r.bottom + y, feet, heightPx, side: def.side, docked });
+      const lEl = !isPhone ? el.querySelector('[data-bubble-left]') : null;
+      const rEl = !isPhone ? el.querySelector('[data-bubble-right]') : null;
+      fences.push({
+        minX: lEl !== null ? Math.round(lEl.getBoundingClientRect().right + 10) : null,
+        maxX: rEl !== null ? Math.round(rEl.getBoundingClientRect().left - 10) : null,
+      });
+    }
+    const hp = rectOf(heroPanelRef.current);
+    const films: Cache['films'] = {};
+    for (const f of FILMS) {
+      const fr = rectOf(stopEls.current[FILM_STOP[f.id]]?.querySelector('[data-film-frame]') ?? null);
+      if (fr !== null) films[f.id] = { ...fr, top: fr.top + y };
+    }
+    const ps = rectOf(root.querySelector('[data-prop-spot]'));
+    const heroR = stopEls.current.hero?.getBoundingClientRect();
+    cache.current = {
+      stops, fences, heroStand, films, headerH, dockY, dockH,
+      heroPanel: hp !== null ? { ...hp, top: hp.top + y } : null,
+      propSpot: ps !== null ? { ...ps, top: ps.top + y } : null,
+      band: { top: headerH + 6, bottom: isPhone ? dockY : vh - 18 },
+      heroH: heroR?.height ?? vh,
+    };
+    direct();
+  }, [direct]);
+
+  useLayoutEffect(() => { measure(); }, [measure, vp.w, vp.h, phone, wideHero]);
+  useEffect(() => {
+    let raf = 0;
+    const onScroll = () => {
+      if (raf !== 0) return;
+      raf = window.requestAnimationFrame(() => { raf = 0; direct(); });
+    };
+    const scroller = scrollerRef.current;
+    scroller?.addEventListener('scroll', onScroll, { passive: true });
+    // Keyboard scrolling (arrows, space, page keys) goes to the focused
+    // scroller: take focus once, without moving or painting a ring.
+    if (scroller !== null && (document.activeElement === null || document.activeElement === document.body)) scroller.focus({ preventScroll: true });
+    // Content that changes size (images decoding, the booth starting) re-measures.
+    let mraf = 0;
+    const ro = new ResizeObserver(() => {
+      if (mraf !== 0) return;
+      mraf = window.requestAnimationFrame(() => { mraf = 0; measure(); });
+    });
+    if (mainRef.current) ro.observe(mainRef.current);
+    // A slot can change size inside a fixed-height section (the hero's flex
+    // column as fonts and photos settle): watch each one too.
+    mainRef.current?.querySelectorAll('[data-beamy-slot]').forEach((el) => ro.observe(el));
+    let live = true;
+    void document.fonts?.ready.then(() => { if (live) measure(); });
+    return () => {
+      live = false;
+      scroller?.removeEventListener('scroll', onScroll);
+      window.cancelAnimationFrame(raf);
+      window.cancelAnimationFrame(mraf);
+      ro.disconnect();
+    };
+  }, [direct, measure]);
+
+  /* Deep link: ?s=<stop> scrolls there on load. */
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('s');
+    const el = q !== null ? stopEls.current[q as StopId] : undefined;
+    if (el !== undefined) window.setTimeout(() => el.scrollIntoView({ block: 'start' }), 60);
+  }, []);
+
+  const scrollToStop = useCallback((id: StopId) => {
+    const el = stopEls.current[id];
+    if (el === undefined) return;
+    logStep(`goto:${id}`);
+    el.scrollIntoView({ behavior: reducedRef.current ? 'auto' : 'smooth', block: 'start' });
+  }, []);
 
   const celebrate = useCallback(() => {
     const c = pickCelebration(lastCelebration.current, Math.random());
@@ -335,10 +490,10 @@ export default function BeamyPage() {
   }, []);
 
   /** The photo reaches the wall: the hero's centre tile holds it; on Try it joins the visitor's shots. */
-  const landSelfie = useCallback((src: string) => {
+  const landSelfie = useCallback((src: string, onTry: boolean) => {
     pendingSelfie.current = null;
-    logStep(`selfie:land:${sectionRef.current}`);
-    if (sectionRef.current === 'try') {
+    logStep(`selfie:land:${onTry ? 'try' : 'intro'}`);
+    if (onTry) {
       setShots((prev) => [{ id: nextShot.current++, src }, ...prev].slice(0, SHOT_TILES.length));
       return;
     }
@@ -350,15 +505,16 @@ export default function BeamyPage() {
   useEffect(() => () => window.clearTimeout(pinTimer.current), []);
 
   const launchSelfie = useCallback((from: Rect, photo: string) => {
-    const tile = rectOf(centreTileRef.current);
+    const onTry = STOPS[activeRef.current]?.id === 'try';
+    const tile = rectOf(onTry ? tryTileRef.current : heroTileRef.current);
     if (tile === null) { pendingSelfie.current = null; return; }
     // Reduced motion: the same trip, as a slow glide (no particles).
-    logStep(`selfie:flight:${reduced ? 'glide' : 'particles'}`);
+    logStep(`selfie:flight:${reducedRef.current ? 'glide' : 'particles'}`);
     setFlight({
-      key: ++flightKey.current, from, to: tile, shot: photo, ms: reduced ? REDUCED_GLIDE_S * 1000 : 1250,
-      onDone: () => { setFlight(null); landSelfie(photo); },
+      key: ++flightKey.current, from, to: tile, shot: photo, ms: reducedRef.current ? REDUCED_GLIDE_S * 1000 : 1250,
+      onDone: () => { setFlight(null); landSelfie(photo, onTry); },
     });
-  }, [landSelfie, reduced]);
+  }, [landSelfie]);
 
   /** Play the Selfie clip on the main stage and drive the flash + card from its frames. */
   const runSelfie = useCallback(async (alive: () => boolean): Promise<void> => {
@@ -389,15 +545,11 @@ export default function BeamyPage() {
       const ch = cw * 1.2;
       const x = clamp(f.phone.x, cw / 2 + 4, window.innerWidth - cw / 2 - 4);
       let y = Math.max(ch / 2 + 4, lerp(f.phone.y, f.phone.y - f.heightPx * 0.36, st.visible ? st.pop : 1));
-      // Never across the copy (phones stack Beamy right under the subline):
-      // if the card's column meets the copy block, it pops no higher than
-      // just below it (0.62 = half its height plus the pop's overshoot).
+      // Never across the copy (phones stack Beamy right under the subline).
       const copy = rectOf(document.querySelector('[data-card-avoid]'));
       if (copy !== null && x + cw / 2 > copy.left && x - cw / 2 < copy.left + copy.width) y = Math.max(y, copy.top + copy.height + ch * 0.62 + 4);
       if (f.t >= f.tl.photo.flightStart) {
-        // Hand the card to the beam: it dissolves and rides across to the
-        // wall. A slow device can skip the card's whole visible window in
-        // one frame, so launch from wherever it would be now in that case.
+        // Hand the card to the beam: it dissolves and rides across to the wall.
         launched = true;
         card.style.opacity = '0';
         const photo = pendingSelfie.current;
@@ -412,7 +564,6 @@ export default function BeamyPage() {
       card.style.transform = `translate3d(${(x - cw / 2).toFixed(1)}px, ${(y - ch / 2).toFixed(1)}px, 0) rotate(${st.tiltDeg.toFixed(2)}deg) scale(${Math.max(0.001, st.scale).toFixed(3)})`;
       cardBox = { left: x - cw / 2, top: y - ch / 2, width: cw, height: ch };
     });
-    // false = no Selfie clip in the GLB, or the clip was stopped/replaced early.
     if (!played) logStep('selfie:stopped');
     if (!launched) hideSelfieFx();
   }, [hideSelfieFx, launchSelfie]);
@@ -423,21 +574,25 @@ export default function BeamyPage() {
     const b = api.current;
     if (b === null) return;
     // Every full load plays it, for every motion preference: this IS the
-    // page's content. Reduced motion gets the gentle variants (a soft column
-    // instead of a falling beam and flash, a glide instead of particles).
+    // page's content. Reduced motion gets the gentle variants.
     setArrival('dropping');
     logStep(`arrive:start:${reduced ? 'soft' : 'full'}`);
     const alive = begin();
-    const onIntro = indexRef.current === 0;
+    const onIntro = activeRef.current === 0;
     if (onIntro) setIntroRunning(true);
     void (async () => {
       await b.arrive();
       logStep('arrive:landed');
       setArrival('done');
-      if (!alive() || indexRef.current !== 0) { setIntroRunning(false); return; }
+      if (!alive() || activeRef.current !== 0) {
+        setIntroRunning(false);
+        // Landed somewhere further down (a deep link): present that stop now.
+        if (activeRef.current !== 0) onActiveRef.current(activeRef.current, -1);
+        return;
+      }
       say(HELLO);
       await runSelfie(alive);
-      if (alive()) { introSeen.current = true; logStep('intro:done'); }
+      if (alive()) logStep('intro:done');
       setIntroRunning(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the model is in
@@ -447,8 +602,7 @@ export default function BeamyPage() {
     return () => window.clearTimeout(id);
   }, []);
 
-  /* Only the Skip chip (or leaving the stop) skips the intro: a stray click
-     anywhere no longer cancels the page's main moment. */
+  /* Only the Skip chip skips the intro (or scrolling on). */
   const skipIntro = useCallback(() => {
     logStep('intro:skip');
     begin();
@@ -458,103 +612,203 @@ export default function BeamyPage() {
     hideSelfieFx();
     setArrival('done');
     setIntroRunning(false);
-    introSeen.current = true;
     const p = pendingSelfie.current;
-    if (p !== null && sectionRef.current === 'intro') landSelfie(p);
+    if (p !== null) landSelfie(p, false);
   }, [begin, hideSelfieFx, landSelfie]);
 
-  /* ── Section navigation ───────────────────────────────────────────── */
-  const lineFor = useCallback((id: SectionId, a: Audience): string => {
+  /* ── Presenting: what Beamy does the first time a stop is active ───── */
+
+  const lineFor = useCallback((id: StopId, a: Audience): string => {
     switch (id) {
-      case 'intro': return HELLO;
+      case 'hero': return HELLO;
+      case 'explain': return EXPLAIN_COPY.line;
+      case 'film-booth': return FILMS[0].beamy;
+      case 'film-wall': return FILMS[1].beamy;
+      case 'film-challenges': return FILMS[2].beamy;
+      case 'film-cards': return FILMS[3].beamy;
       case 'pick': return GREETING;
       case 'try': return a.lines.snap;
       case 'magic': return a.lines.prop;
       case 'how': return a.lines.deliver;
+      case 'pricing': return pricingSection().line;
       case 'start': return a.lines.go;
     }
   }, []);
 
-  const goToIndex = useCallback((to: number) => {
-    const from = indexRef.current;
-    if (to === from) return;
-    begin();
-    api.current?.clearProp();
-    setIndex(to);
-    indexRef.current = to;
-    setLeaving(true);
-    window.setTimeout(() => {
-      setShownIndex(to);
-      setLeaving(false);
-    }, reduced ? 120 : LEAVE_MS);
-  }, [begin, reduced]);
-
-  const nav = useCallback((n: Nav) => goToIndex(navigate(indexRef.current, n)), [goToIndex]);
-
-  /* Entering a section: its line, camera off elsewhere, focus its heading. */
-  useEffect(() => {
-    if (leaving) return;
-    if (section !== 'try') setCameraOn(false);
-    if (section !== 'intro') setDragHint(false);
-    say(lineFor(section, audience));
-    const h = mainRef.current?.querySelector<HTMLElement>('[data-section-heading]');
-    if (h && document.activeElement !== h && shownIndex !== 0) h.focus({ preventScroll: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per section entry
-  }, [shownIndex, leaving]);
-
-  /* Keys, wheel, swipe. */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const inField = t !== null && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
-      const onControl = t !== null && t.closest('button, a, [role="button"]') !== null;
-      const n = keyToNav(e.key, inField, onControl);
-      if (n === null || e.altKey || e.metaKey || e.ctrlKey) return;
-      e.preventDefault();
-      nav(n);
-    };
-    const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) return; // pinch-zoom
-      if (scrollsInside(e.target, mainRef.current, e.deltaY)) return;
-      e.preventDefault();
-      const r = wheelDecision(wheel.current, e.deltaY, performance.now());
-      wheel.current = r.state;
-      if (r.nav !== null) nav(r.nav);
-    };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('wheel', onWheel, { passive: false });
-    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('wheel', onWheel); };
-  }, [nav]);
-
-  const touch = useRef<{ x: number; y: number; t: number; target: EventTarget | null } | null>(null);
-  const onTouchStart = (e: React.TouchEvent) => {
-    const t = e.touches[0];
-    if (e.touches.length !== 1 || (e.target as Element).closest('[data-noswipe]')) { touch.current = null; return; }
-    touch.current = { x: t.clientX, y: t.clientY, t: performance.now(), target: e.target };
-  };
-  const onTouchEnd = (e: React.TouchEvent) => {
-    const s = touch.current;
-    touch.current = null;
-    if (s === null) return;
-    const t = e.changedTouches[0];
-    const dy = t.clientY - s.y;
-    if (scrollsInside(s.target, mainRef.current, -dy)) return;
-    const n = swipeDecision(t.clientX - s.x, dy, performance.now() - s.t);
-    if (n !== null) nav(n);
+  /** Wait until he has (nearly) reached his spot, at most ~1.5s. */
+  const arrived = async (alive: () => boolean) => {
+    const t0 = performance.now();
+    while (alive() && performance.now() - t0 < 1500) {
+      const b = api.current;
+      if (b === null) return;
+      const w = b.where();
+      const h = layoutRef.current.home;
+      if (Math.hypot(w.x - h.x, w.y - h.y) < 14) return;
+      await wait(60);
+    }
   };
 
-  /* Gaze + crystal parallax + the glass sheen: the pointer on desktop; the
-     last tap on touch (then back to you). */
+  /** A viewport getter for something cached in document px (no per-frame DOM reads). */
+  const docRect = (r: Rect) => (): Rect => ({ left: r.left, top: r.top - scrollTop(), width: r.width, height: r.height });
+  const filmTarget = (id: FilmId) => {
+    const r = cache.current?.films[id];
+    return r !== undefined ? docRect(r) : () => null;
+  };
+  const propSpot = (): { at: () => Pt; size: number } => {
+    const r = cache.current?.propSpot ?? null;
+    const L = layoutRef.current;
+    if (r === null) return { at: () => ({ x: L.home.x + L.heightPx, y: L.home.y - L.heightPx * 0.62 }), size: L.heightPx * 0.6 };
+    const size = Math.min(r.width * 0.8, L.heightPx * 0.7, 220);
+    return { at: () => ({ x: r.left + r.width / 2, y: r.top - scrollTop() + r.height * 0.5 }), size };
+  };
+
+  const runReveal = async (a: Audience, alive: () => boolean, instant = false) => {
+    const b = api.current;
+    if (b === null) return;
+    setPropBusy(true);
+    const { at, size } = propSpot();
+    const r: Reaction = react.current('reveal');
+    await b.reveal(a.prop.url, at, size, r === 'handSparks' ? 'hand' : 'mouth', instant);
+    setPropBusy(false);
+    if (!alive() || instant) return;
+    say(`Ta-da! A ${a.prop.name.toLowerCase()}, tracked in 3D on every guest.`);
+  };
+
+  const present = async (id: StopId, alive: () => boolean) => {
+    const def = STOPS[stopIndex(id)];
+    const b = api.current;
+    if (b === null || !readyRef.current) { revealTo(id, ALL, 'nomodel'); return; }
+    await arrived(alive);
+    if (!alive()) return;
+    const el = stopEls.current[id];
+    logStep(`action:${id}:${def.presenting}`);
+    // The fallback clock runs from the action, not from the entry: the walk
+    // over (up to ~1.5s) must not eat the time the action itself needs.
+    entered.current.set(id, performance.now());
+    revealTo(id, 0, 'beam');
+    switch (def.presenting) {
+      case 'handZap': {
+        void b.play('Wave');
+        await wait(320);
+        const targets = Array.from(el?.querySelectorAll<HTMLElement>('[data-beam-target]') ?? []);
+        for (let n = 0; n < targets.length; n++) {
+          if (!alive()) return;
+          // Aim at the card's art, or else at the card's near edge: never through its copy.
+          const art = rectOf(targets[n].querySelector<HTMLElement>('[data-beam-at]'));
+          const r = rectOf(targets[n]);
+          if (r === null) continue;
+          const hx = layoutRef.current.home.x;
+          // Art above the copy (the 3-up cards) is a clear line; art beside it is not.
+          const clear = art !== null && art.top + art.height <= r.top + r.height * 0.5;
+          const at = clear && art !== null ? centre(art) : { x: hx > r.left + r.width / 2 ? r.left + r.width - 6 : r.left + 6, y: r.top + r.height / 2 };
+          void b.zap(at, 'hand', 380);
+          await wait(140);
+          revealTo(id, n + 1, 'beam');
+          logStep(`zap:${id}:${n}`);
+          await wait(310);
+        }
+        break;
+      }
+      case 'mouthCone':
+      case 'handCone': {
+        const film = FILMS.find((f) => FILM_STOP[f.id] === id);
+        if (film === undefined) break;
+        const from = def.presenting === 'mouthCone' ? 'mouth' : 'hand';
+        void b.play(from === 'mouth' ? 'BeamyBlast' : 'Wave');
+        await wait(from === 'mouth' ? 1000 : 260);
+        if (!alive()) return;
+        await b.project(filmTarget(film.id), from, true);
+        logStep(`cone:${id}:landed`);
+        break;
+      }
+      case 'drift': {
+        const g = rectOf(el?.querySelector('[data-drift-target]') ?? null);
+        if (g !== null) await b.drift(centre(g));
+        break;
+      }
+      case 'blast': {
+        const r = rectOf(boothRef.current);
+        if (r !== null) await new Promise<void>((res) => { void b.beam(centre(r), () => { revealTo(id, ALL, 'beam'); res(); }, 'mouth'); });
+        break;
+      }
+      case 'sparks': {
+        await wait(reducedRef.current ? 0 : 200);
+        if (alive()) await runReveal(audienceRef.current, alive);
+        break;
+      }
+      case 'hop': {
+        b.sparkle('burst');
+        void b.play('Hop');
+        await wait(260);
+        break;
+      }
+      case 'intro':
+        break;
+    }
+    revealTo(id, ALL, 'beam');
+  };
+
+  /** A stop became active (from = the previous one, −1 when re-presenting after landing). */
+  const onActive = (i: number, from: number) => {
+    activeRef.current = i;
+    setActive(i);
+    const id = STOPS[i].id;
+    const prevId = from >= 0 ? STOPS[from].id : null;
+    logStep(`enter:${id}`);
+    const alive = begin();
+    say(lineFor(id, audienceRef.current));
+    if (id !== 'hero') setDragHint(false);
+    if (id !== 'try') setCameraOn(false);
+    const b = api.current;
+    if (prevId !== null && prevId.startsWith('film-')) b?.stopProject();
+    if (prevId === 'magic' && id !== 'magic') b?.clearProp();
+    // Leaving a stop mid-action reveals it at once (never stranded).
+    sweepReveals();
+    if (id === 'hero') return;
+    if (!entered.current.has(id)) {
+      entered.current.set(id, performance.now());
+      if (b === null || !readyRef.current) { revealTo(id, ALL, 'nomodel'); return; }
+      void present(id, alive);
+      return;
+    }
+    // Back on a stop already presented: its settled state.
+    if (b === null || !readyRef.current) return;
+    const film = FILMS.find((f) => FILM_STOP[f.id] === id);
+    if (film !== undefined) void b.project(filmTarget(film.id), STOPS[i].presenting === 'handCone' ? 'hand' : 'mouth', false);
+    if (id === 'magic') void runReveal(audienceRef.current, alive, true);
+  };
+  const onActiveRef = useRef(onActive);
+  onActiveRef.current = onActive;
+
+  /* Gaze + hero depth: the pointer on desktop (lerped CSS vars on the hero
+     for the parallax layers, the panel tilt, the wall turn and the sheen);
+     the last tap on touch turns his head, then back to you. */
   useEffect(() => {
     let clear = 0;
+    let raf = 0;
+    const cur = { x: 0, y: 0 };
+    const tgt = { x: 0, y: 0 };
+    const tick = () => {
+      raf = 0;
+      cur.x += (tgt.x - cur.x) * 0.08;
+      cur.y += (tgt.y - cur.y) * 0.08;
+      const h = heroRef.current;
+      if (h !== null) {
+        h.style.setProperty('--px', cur.x.toFixed(4));
+        h.style.setProperty('--py', cur.y.toFixed(4));
+        h.style.setProperty('--tilt-x', cur.x.toFixed(4));
+        h.style.setProperty('--sheen-dx', `${(cur.x * 18).toFixed(1)}%`);
+      }
+      if (Math.abs(tgt.x - cur.x) > 0.001 || Math.abs(tgt.y - cur.y) > 0.001) raf = window.requestAnimationFrame(tick);
+    };
     const onMove = (e: PointerEvent) => {
       if (e.pointerType !== 'mouse') return;
       api.current?.look({ x: e.clientX, y: e.clientY });
-      glassRef.current?.style.setProperty('--sheen-dx', `${(((e.clientX / Math.max(1, window.innerWidth)) - 0.5) * 36).toFixed(1)}%`);
-      // The wall turns with the box; held still under reduced motion.
-      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        mainRef.current?.style.setProperty('--tilt-x', (((e.clientX / Math.max(1, window.innerWidth)) - 0.5) * 2).toFixed(3));
-      }
+      // Decorative depth: held still under reduced motion.
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      tgt.x = clamp((e.clientX / Math.max(1, window.innerWidth)) * 2 - 1, -1, 1);
+      tgt.y = clamp((e.clientY / Math.max(1, window.innerHeight)) * 2 - 1, -1, 1);
+      if (raf === 0) raf = window.requestAnimationFrame(tick);
     };
     const onDown = (e: PointerEvent) => {
       if (e.pointerType === 'mouse') return;
@@ -562,24 +816,33 @@ export default function BeamyPage() {
       window.clearTimeout(clear);
       clear = window.setTimeout(() => api.current?.look(null), 1600);
     };
-    const onLeave = () => api.current?.look(null);
+    const onLeave = () => { api.current?.look(null); tgt.x = 0; tgt.y = 0; if (raf === 0) raf = window.requestAnimationFrame(tick); };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerdown', onDown);
     document.documentElement.addEventListener('mouseleave', onLeave);
     return () => {
       window.clearTimeout(clear);
+      window.cancelAnimationFrame(raf);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerdown', onDown);
       document.documentElement.removeEventListener('mouseleave', onLeave);
     };
   }, []);
 
-  /* ── The pick: a varied reaction, the card changes as the light lands. ─ */
+  /* Film starts, for the log (the films autoplay muted when lit and in view). */
+  useEffect(() => {
+    const vids = Array.from(mainRef.current?.querySelectorAll<HTMLVideoElement>('[data-film-frame] video') ?? []);
+    const ons = vids.map((v, n) => { const on = () => logStep(`film:play:${FILMS[n]?.id ?? n}`); v.addEventListener('play', on); return () => v.removeEventListener('play', on); });
+    return () => { for (const off of ons) off(); };
+  }, []);
+
+  /* ── The pick: a varied reaction, then on to the demo. ─────────────── */
   const pickAudience = async (a: Audience, el: HTMLElement) => {
     const alive = begin();
     setPicked(a);
     setLook(a.kit);
     say(a.lines.intro);
+    logStep(`pick:${a.id}`);
     const b = api.current;
     const target = centre(rectOf(el) ?? { left: 0, top: 0, width: 0, height: 0 });
     const land = () => { if (alive()) setSelectedId(a.id); };
@@ -588,59 +851,19 @@ export default function BeamyPage() {
       if (b !== null) void b.play('Wave');
     } else {
       const r = react.current('pick');
-      if (r === 'handBeam') {
-        await b.beam(target, land, 'hand');
-      } else if (r === 'walk') {
-        const box = el.getBoundingClientRect();
-        await b.walkTo({ x: Math.max(60, box.left + 40), y: box.bottom - 4 }, desktop ? 0.45 : 0.6);
-        if (!alive()) return;
-        land();
-        await b.play('Wave');
-        if (!alive()) return;
-        void b.goHome();
-      } else {
-        await b.drift(target);
-        land();
-      }
+      if (r === 'handBeam') await b.beam(target, land, 'hand');
+      else { await b.drift(target); land(); }
     }
     if (!alive()) return;
-    await wait(reduced ? 700 : 1100);
-    if (alive() && indexRef.current === sectionIndex('pick')) goToIndex(sectionIndex('try'));
+    await wait(reduced ? 700 : 1000);
+    if (alive() && STOPS[activeRef.current]?.id === 'pick') scrollToStop('try');
   };
-
-  /* ── The prop reveal (3D magic). ───────────────────────────────────── */
-  /** The prop appears in the section's `[data-prop-spot]` box, beside Beamy. */
-  const propSpot = (): { at: Pt; size: number } => {
-    const L = layoutRef.current;
-    const spot = rectOf(mainRef.current?.querySelector('[data-prop-spot]') ?? null);
-    if (spot === null) return { at: { x: L.home.x + L.heightPx, y: L.home.y - L.heightPx * 0.62 }, size: L.heightPx * 0.6 };
-    const size = Math.min(spot.width * 0.8, L.heightPx * 0.66);
-    return { at: { x: spot.left + spot.width / 2, y: L.home.y - L.heightPx * 0.6 }, size };
-  };
-
-  const runReveal = async (a: Audience, alive: () => boolean) => {
-    const b = api.current;
-    if (b === null) return;
-    setPropBusy(true);
-    const { at, size } = propSpot();
-    const r: Reaction = react.current('reveal');
-    await b.reveal(a.prop.url, at, size, r === 'handSparks' ? 'hand' : 'mouth');
-    setPropBusy(false);
-    if (!alive()) return;
-    say(`Ta-da! A ${a.prop.name.toLowerCase()}, tracked in 3D on every guest.`);
-  };
-  useEffect(() => {
-    if (leaving || section !== 'magic' || !ready) return;
-    const alive = begin();
-    void (async () => { await wait(reduced ? 0 : 280); if (alive()) await runReveal(audience, alive); })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per entry
-  }, [section, leaving, ready]);
 
   /* ── The booth hands over a shot: Beamy catches it, then beams it. ─── */
   const onBeam = useCallback((src: string) => {
     const b = api.current;
     const vf = rectOf(viewfinderRef.current);
-    const tile = rectOf(centreTileRef.current);
+    const tile = rectOf(tryTileRef.current);
     logStep('try:shot');
     const commit = () => {
       logStep('try:land');
@@ -650,7 +873,6 @@ export default function BeamyPage() {
     };
     if (b === null || vf === null || tile === null) { logStep('try:no-flight'); commit(); return; }
     if (reduced) {
-      // Reduced motion: the shot still travels to the wall, as one slow glide.
       logStep('try:flight:glide');
       say('Beaming it to the wall…');
       setFlight({ key: ++flightKey.current, from: vf, to: tile, shot: src, ms: REDUCED_GLIDE_S * 1000, onDone: () => { setFlight(null); commit(); } });
@@ -687,7 +909,7 @@ export default function BeamyPage() {
   const onPoke = () => {
     const b = api.current;
     if (b === null) return;
-    if (sectionRef.current === 'intro') {
+    if (STOPS[activeRef.current]?.id === 'hero') {
       // During the intro a tap is just a sparkle (only Skip skips); once it
       // has settled, tapping him on the hero replays the selfie.
       if (introRunning) { b.sparkle('sparkle'); return; }
@@ -704,9 +926,8 @@ export default function BeamyPage() {
     } else if (r.level === 'burst') {
       b.sparkle('burst');
       say(POKE_LINES[r.count === 3 ? 2 : 3]);
-      // The fourth poke in a streak earns a selfie, beamed to the wall if one is on screen.
       if (r.count === 3) void b.play('Wave');
-      else void runSelfie(begin());
+      else void b.play('ShadesOn');
     } else {
       b.sparkle('burst');
       b.spin();
@@ -745,16 +966,25 @@ export default function BeamyPage() {
     onPoke();
   };
 
-  /* ── Stops ─────────────────────────────────────────────────────────── */
+  /* ── Pieces ─────────────────────────────────────────────────────────── */
 
-  const slot = (extra = '', opts: { max?: number; bubble?: boolean } = {}) => (
+  const shown = (id: StopId, n: number) => (rev[id] ?? -1) >= n;
+  /** A revealed block: dim and lowered until Beamy brings it up; it condenses out of light when beamed. */
+  const reveal = (id: StopId, n: number, extra = '') => ({
+    className: `bw-reveal ${extra}`,
+    'data-on': shown(id, n) ? 'true' : 'false',
+  });
+
+  const slot = (extra = '', opts: { max?: number; bubble?: boolean } = {}, children?: ReactNode) => (
     <div
       data-beamy-slot
       data-max={opts.max !== undefined ? String(Math.round(opts.max)) : undefined}
       data-bubble={opts.bubble === false ? 'none' : undefined}
       aria-hidden
       className={`relative min-h-0 ${extra}`}
-    />
+    >
+      {children}
+    </div>
   );
 
   const shotPins = useMemo(() => {
@@ -769,11 +999,10 @@ export default function BeamyPage() {
       axis="x"
       role="group"
       aria-label="Pick a look"
-      data-noswipe={desktop ? undefined : true}
-      className={`flex gap-2 ${desktop ? 'flex-wrap' : '-mx-4 flex-nowrap overflow-x-auto px-4 [scrollbar-width:none]'}`}
+      className={`flex gap-2 ${phone ? '-mx-4 flex-nowrap overflow-x-auto px-4 [scrollbar-width:none]' : 'flex-wrap'}`}
     >
       {LOOKS.map((l) => (
-        <button key={l.label} type="button" className={`bw-glass-chip ${desktop ? '' : 'shrink-0 px-3'}`} aria-pressed={look === l.kit} onClick={() => setLook(l.kit)}>
+        <button key={l.label} type="button" className={`bw-glass-chip ${phone ? 'shrink-0 px-3' : ''}`} aria-pressed={look === l.kit} onClick={() => setLook(l.kit)}>
           {l.label}
         </button>
       ))}
@@ -782,28 +1011,28 @@ export default function BeamyPage() {
 
   /* The booth: a phone at a natural phone aspect, in a slim deep frame. */
   const idleFrame = lookFrameUrl(look);
+  const big = !phone;
   const booth = (
     <div
-      data-noswipe
-      className={`relative overflow-hidden ${desktop ? 'aspect-[9/17] h-full rounded-[34px] p-[7px]' : 'aspect-[9/16] h-full rounded-[22px] p-[5px]'}`}
+      ref={boothRef}
+      data-booth-ui
+      className={`relative overflow-hidden ${big ? 'aspect-[9/17] h-full rounded-[34px] p-[7px]' : 'aspect-[9/16] h-full rounded-[22px] p-[5px]'}`}
       style={{ background: 'var(--bw-deep-2)', boxShadow: 'inset 1px 1px 0 rgba(255,255,255,0.25), 0 24px 50px -24px var(--bw-shadow)' }}
     >
-      <div className={`relative h-full w-full overflow-hidden ${desktop ? 'rounded-[28px]' : 'rounded-[18px]'}`} style={{ background: 'var(--bw-deep)' }}>
+      <div className={`relative h-full w-full overflow-hidden ${big ? 'rounded-[28px]' : 'rounded-[18px]'}`} style={{ background: 'var(--bw-deep)' }}>
         {cameraOn ? (
           <CameraExperience enabled videoId="beamy-booth-video" beamLabel="Beam it to the wall" onBeam={onBeam} look={look} screenRef={viewfinderRef} />
         ) : (
           <div className="relative h-full">
-            {/* Before the camera: the selected look's frame over a soft
-                screen glow, so each pill visibly changes the phone. */}
             <div aria-hidden className="absolute inset-0" style={{ background: 'radial-gradient(80% 55% at 50% 36%, #7A72EC 0%, #4A42C8 55%, #2B2A8C 100%)' }} />
             {idleFrame !== null && (
               <img key={idleFrame} src={idleFrame} alt="" aria-hidden draggable={false} data-look-preview className="absolute inset-0 h-full w-full object-cover" style={{ animation: reduced ? undefined : 'bw-fade 360ms var(--bw-ease) both' }} />
             )}
-            <div aria-hidden className={`absolute inset-x-0 bottom-0 ${desktop ? 'h-[64%]' : 'h-[82%]'}`} style={{ background: desktop ? 'linear-gradient(to top, rgba(26,23,64,0.92) 0%, rgba(26,23,64,0.84) 52%, rgba(26,23,64,0) 100%)' : 'linear-gradient(to top, rgba(26,23,64,0.95) 0%, rgba(26,23,64,0.9) 62%, rgba(26,23,64,0) 100%)' }} />
-            <div className={`relative flex h-full flex-col items-center justify-end text-center ${desktop ? 'gap-3 px-5 pb-7' : 'gap-2 px-2.5 pb-3'}`}>
+            <div aria-hidden className={`absolute inset-x-0 bottom-0 ${big ? 'h-[64%]' : 'h-[82%]'}`} style={{ background: big ? 'linear-gradient(to top, rgba(26,23,64,0.92) 0%, rgba(26,23,64,0.84) 52%, rgba(26,23,64,0) 100%)' : 'linear-gradient(to top, rgba(26,23,64,0.95) 0%, rgba(26,23,64,0.9) 62%, rgba(26,23,64,0) 100%)' }} />
+            <div className={`relative flex h-full flex-col items-center justify-end text-center ${big ? 'gap-3 px-5 pb-7' : 'gap-2 px-2.5 pb-3'}`}>
               <span className="bw-icon-tile" aria-hidden><Camera /></span>
               <p className="bw-small max-w-[20ch]" style={{ color: 'var(--bw-ink)' }}>The real booth your guests open from a QR code.</p>
-              <button type="button" className={`bw-btn bw-btn-primary bw-btn-sm ${desktop ? '' : 'h-auto w-full whitespace-normal px-3 py-2 leading-tight'}`} onClick={() => { setCameraOn(true); say('Smile! Pick a look, then tap the big button.'); }}>
+              <button type="button" className={`bw-btn bw-btn-primary bw-btn-sm ${big ? '' : 'h-auto w-full whitespace-normal px-3 py-2 leading-tight'}`} onClick={() => { setCameraOn(true); say('Smile! Pick a look, then tap the big button.'); }}>
                 {TRY_COPY.start}
               </button>
               <p className="bw-label flex items-center gap-1.5" style={{ color: 'var(--bw-ink)' }}><Lock className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden /> {TRY_COPY.privacy}</p>
@@ -814,181 +1043,321 @@ export default function BeamyPage() {
     </div>
   );
 
-  const heading = (text: string, cls = 'bw-h2') => (
-    <h2 data-section-heading tabIndex={-1} className={`${cls} outline-none`}>{text}</h2>
-  );
-
-  const start = startFacts();
   const i = (n: number) => ({ ['--i' as string]: n });
+  const start = startFacts();
+  const pricing = pricingSection();
+  const plans = planCards();
 
+  /* Two columns: Beamy's column on `side`, the content on the other. Phones: content only (he is docked). */
+  const split = (side: Side, beamyCol: ReactNode, content: ReactNode, opts: { align?: 'center' | 'start' } = {}) => {
+    if (phone) return <div className="flex flex-col">{content}</div>;
+    const left = side === 'left';
+    return (
+      <div className={`grid items-${opts.align ?? 'center'} gap-[clamp(20px,3vw,56px)] ${left ? 'grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)_minmax(0,0.42fr)]'}`}>
+        {left ? (
+          <>
+            <div className="flex justify-center">{beamyCol}</div>
+            <div data-bubble-right className="min-w-0">{content}</div>
+          </>
+        ) : (
+          <>
+            <div data-bubble-left className="min-w-0">{content}</div>
+            <div className="flex justify-center">{beamyCol}</div>
+          </>
+        )}
+      </div>
+    );
+  };
+  const stand = (extra = '') => slot(`w-full max-w-[300px] ${extra || 'h-[min(380px,52vh)]'}`);
+  const heading = (text: string, id: string, cls = 'bw-h2') => <h2 id={id} className={cls}>{text}</h2>;
+  const stopClass = `bw-stop relative mx-auto w-full max-w-[1280px] ${phone ? 'px-4 py-14' : 'px-[clamp(24px,4vw,64px)] py-[clamp(88px,13vh,150px)]'}`;
+
+  /* ── Hero ──────────────────────────────────────────────────────────── */
   const heroCtas = (
-    <div className={`flex gap-3 ${desktop ? 'mt-8 flex-wrap' : 'flex-col'}`} style={i(3)}>
-      <Link to={SIGNUP_PATH} className={`bw-btn bw-btn-primary ${desktop ? 'bw-btn-lg' : 'w-full'}`}>{HERO.primary}</Link>
-      <button type="button" className={`bw-btn bw-btn-secondary ${desktop ? 'bw-btn-lg' : 'w-full'}`} onClick={() => goToIndex(sectionIndex('try'))}>
+    <div className={`flex gap-3 ${wideHero ? 'mt-8 flex-wrap' : 'flex-col sm:flex-row'}`} style={i(3)}>
+      <Link to={SIGNUP_PATH} className={`bw-btn bw-btn-primary ${wideHero ? 'bw-btn-lg' : 'w-full sm:w-auto'}`}>{HERO.primary}</Link>
+      <button type="button" className={`bw-btn bw-btn-secondary ${wideHero ? 'bw-btn-lg' : 'w-full sm:w-auto'}`} onClick={() => scrollToStop('try')}>
         {HERO.secondary}
       </button>
     </div>
   );
   const heroHeadline = (
     <>
-      <p className={`bw-eyebrow ${desktop ? '' : 'text-[14px] after:hidden'}`} style={i(0)}>{HERO.eyebrow}</p>
-      <h1 data-section-heading tabIndex={-1} className={`bw-display outline-none ${desktop ? 'mt-6' : 'mt-2'}`} style={desktop ? { ...i(1), fontSize: 'clamp(40px, min(22px + 3vw, 7.4dvh), 76px)' } : i(1)}>
+      <p className={`bw-eyebrow ${wideHero ? '' : 'text-[14px] after:hidden'}`} style={i(0)}>{HERO.eyebrow}</p>
+      <h1 className={`bw-display ${wideHero ? 'mt-6' : 'mt-2'}`} style={wideHero ? { ...i(1), fontSize: 'clamp(40px, min(22px + 3vw, 7.4dvh), 76px)' } : i(1)}>
         <span className="bw-light block">{HERO.lead}</span>
         <span className="block">{HERO.strong}</span>
       </h1>
-      <p className={`bw-body ${desktop ? 'mt-5 max-w-[34ch]' : 'mt-2 max-w-[36ch]'}`} style={i(2)}>{HERO.sub}</p>
+      <p className={`bw-body ${wideHero ? 'mt-5 max-w-[34ch]' : 'mt-2 max-w-[36ch]'}`} style={i(2)}>{HERO.sub}</p>
     </>
   );
+  const heroWall = (
+    <div className="bw-wall-mount" style={{ ['--wall-yaw' as string]: wideHero ? '-9deg' : '-5deg' }}>
+      <LiveWall pool={WALL_POOL} pins={heroPins} dim={introRunning} compact={!wideHero} centreRef={heroTileRef} ripple={ripple} seed={seed} />
+    </div>
+  );
+  const heroSlotChildren = (
+    <>
+      {!ready && !failed && (
+        <p className="bw-label pointer-events-none absolute inset-x-0 top-[55%] text-center">Beamy is on his way&hellip;</p>
+      )}
+      {wideHero && dragHint && ready && arrival === 'done' && !introRunning && (
+        <p
+          className="bw-label pointer-events-none absolute left-1/2 top-full mt-2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5"
+          style={{ color: 'var(--bw-ink)', background: 'rgba(26, 23, 64, 0.58)', WebkitBackdropFilter: 'blur(8px)', backdropFilter: 'blur(8px)', animation: reduced ? undefined : 'bw-fade 600ms var(--bw-ease) 900ms both' }}
+        >
+          <Rotate3d className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Drag me
+        </p>
+      )}
+    </>
+  );
+  const skipChip = introRunning && (
+    <button type="button" className="bw-btn bw-btn-secondary bw-btn-sm" onClick={skipIntro} data-skip-intro>
+      {wideHero ? START_COPY.skipIntro : START_COPY.skipShort}
+    </button>
+  );
+  const panelInset = wideHero ? clamp(Math.round(vp.w * 0.022), 18, 40) : 10;
+  const radius = wideHero ? 36 : 24;
+  const heroH = wideHero ? `max(640px, calc(100svh - var(--bw-header-h)))` : undefined;
 
-  let content: ReactNode = null;
-  if (section === 'intro') {
-    const wall = (
-      <div className="bw-wall-mount" style={{ ['--wall-yaw' as string]: desktop ? '-9deg' : '-5deg' }}>
-        <LiveWall
-          pool={WALL_POOL}
-          pins={heroPins}
-          dim={introRunning}
-          compact={!desktop}
-          centreRef={centreTileRef}
-          ripple={ripple}
-          seed={seed}
-        />
-      </div>
-    );
-    content = desktop ? (
-      <div className="relative grid h-full grid-cols-[minmax(0,1.36fr)_minmax(0,0.92fr)_minmax(0,0.86fr)] items-center gap-6 px-[clamp(28px,3.4vw,64px)]">
-        <div data-card-avoid data-bubble-left className={`relative z-10 flex flex-col ${showContent ? 'bw-rise' : 'invisible'}`}>
-          {heroHeadline}
-          {heroCtas}
-        </div>
-        <div className="flex h-full flex-col justify-end pb-[5%]">
-          {slot('h-[82%] w-full', { max: Math.min(410, vp.h * 0.45) })}
-        </div>
-        <div className={`flex justify-end ${showContent ? 'bw-rise' : 'invisible'}`}>
-          <div data-bubble-right style={{ ...i(2), width: 'min(370px, 100%, calc((100dvh - 330px) * 0.74))' }}>{wall}</div>
+  const hero = (
+    <section
+      ref={(el) => { heroRef.current = el; stopRef.hero(el); }}
+      id="hello"
+      data-stop="hero"
+      aria-label="Beamwall"
+      className="bw-hero relative"
+      style={{ height: heroH, minHeight: wideHero ? undefined : 'calc(100svh - var(--bw-header-h))' }}
+    >
+      {/* Far plane: soft shapes behind the box, moving least. */}
+      {/* (Each depth layer is a still clipping box with the moving layer
+          inside it, so a layer never slides out past the hero.) */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="bw-depth absolute inset-0" style={{ ['--dx' as string]: -10, ['--dy' as string]: -6, ['--ds' as string]: 0.25 }}>
+          <span className="bw-far-blob" style={{ width: '38vmax', height: '38vmax', right: '-12vmax', top: '-16vmax' }} />
+          <span className="bw-far-blob" style={{ width: '28vmax', height: '28vmax', left: '-10vmax', bottom: '-14vmax' }} />
         </div>
       </div>
-    ) : (
-      <div className="flex h-full flex-col px-4 pb-3 pt-1">
-        <div data-card-avoid className={`shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroHeadline}</div>
-        {vp.h >= 740 ? (
-          // Tall phones: Beamy stands on the floor right above his wall, filling the height.
-          <div className="mt-2 flex min-h-0 flex-1 flex-col items-center gap-3">
-            {slot('min-h-0 w-full flex-1', { max: Math.min(230, vp.h * 0.27), bubble: false })}
-            <div className="w-[64%] max-w-[250px] shrink-0">{wall}</div>
+      <div ref={heroPanelRef} className="bw-hero-pane absolute" style={{ inset: panelInset, ['--bw-radius-panel' as string]: `${radius}px` }}>
+        {/* The glass box: frost, the recessed back wall with its deep inner
+            shadow, the shadows the copy / wall / Beamy cast on it, the floor. */}
+        <div className="bw-glass" aria-hidden />
+        <div aria-hidden className="bw-hero-back" style={{ borderRadius: radius }} />
+        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden" style={{ borderRadius: radius }}>
+         <div className="bw-depth absolute inset-0" style={{ ['--dx' as string]: -16, ['--dy' as string]: -10, ['--ds' as string]: 0.12 }}>
+          {wideHero ? (
+            <>
+              <span className="bw-cast" style={{ left: '6%', top: '30%', width: '36%', height: '46%' }} />
+              <span className="bw-cast" style={{ left: '44%', top: '40%', width: '18%', height: '46%' }} />
+              <span className="bw-cast" style={{ left: '73%', top: '26%', width: '24%', height: '56%' }} />
+            </>
+          ) : (
+            <span className="bw-cast" style={{ left: '14%', top: '38%', width: '72%', height: '44%' }} />
+          )}
+         </div>
+        </div>
+        <div aria-hidden className="bw-hero-floor" style={{ borderRadius: `0 0 ${radius}px ${radius}px` }} />
+        {wideHero ? (
+          <div className="relative grid h-full grid-cols-[minmax(0,1.36fr)_minmax(0,0.92fr)_minmax(0,0.86fr)] items-center gap-6 px-[clamp(28px,3.4vw,64px)]">
+            <div data-card-avoid data-bubble-left className={`relative z-10 flex flex-col ${showContent ? 'bw-rise' : 'invisible'}`}>
+              {heroHeadline}
+              {heroCtas}
+            </div>
+            <div className="flex h-full flex-col justify-end pb-[9%]">
+              {slot('h-[78%] w-full', { max: Math.min(410, vp.h * 0.45) }, heroSlotChildren)}
+            </div>
+            <div className={`flex justify-end ${showContent ? 'bw-rise' : 'invisible'}`}>
+              <div data-bubble-right style={{ ...i(2), width: 'min(370px, 100%, calc((100dvh - 300px) * 0.74))' }}>{heroWall}</div>
+            </div>
+            <div className="absolute bottom-5 left-[clamp(28px,3.4vw,64px)]">{skipChip}</div>
           </div>
         ) : (
-          <div className="mt-3 flex min-h-0 flex-1 items-end gap-3">
-            {slot('h-full min-w-0 flex-1', { max: Math.min(230, vp.h * 0.3), bubble: false })}
-            <div className="mb-1 w-[46%] max-w-[200px] shrink-0">{wall}</div>
+          <div className="relative flex h-full flex-col px-4 pb-4 pt-4 sm:px-8">
+            <div data-card-avoid className={`shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroHeadline}</div>
+            <div className="mt-3 flex min-h-[260px] flex-1 items-end gap-3">
+              {slot('h-full min-h-[200px] min-w-0 flex-1', { max: Math.min(230, vp.h * 0.3), bubble: false }, heroSlotChildren)}
+              <div className="mb-1 w-[46%] max-w-[240px] shrink-0">{heroWall}</div>
+            </div>
+            <div className={`mt-4 shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroCtas}</div>
+            {introRunning && <div className="mt-3 flex justify-center">{skipChip}</div>}
           </div>
         )}
-        <div className={`mt-3 shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroCtas}</div>
+        {/* The front pane: a crisp rim and a soft sheen that slides with the pointer. */}
+        <div aria-hidden className="bw-hero-front" style={{ borderRadius: radius }} />
       </div>
-    );
-  } else if (section === 'pick') {
-    const cards = (
-      <div className={`grid gap-3 ${desktop ? 'grid-cols-2' : 'grid-cols-1'}`}>
-        {AUDIENCES.map((a, n) => {
-          const Icon = AUDIENCE_ICONS[a.icon];
-          const on = selectedId === a.id;
-          return (
-            <button
-              key={a.id}
-              type="button"
-              aria-pressed={on}
-              onClick={(e) => { void pickAudience(a, e.currentTarget); }}
-              className={`bw-glass-card bw-interactive flex items-center gap-4 ${desktop ? 'min-h-[84px] p-4' : 'min-h-[64px] px-4 py-3'}`}
-              style={i(n + 2)}
-            >
-              <span className="bw-icon-tile" aria-hidden><Icon /></span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[16px] font-semibold leading-tight" style={{ color: 'var(--bw-ink)' }}>{a.title}</span>
-                <span className="bw-label mt-0.5 block">{a.hint}</span>
-              </span>
-              {on && <Check className="h-5 w-5 shrink-0" strokeWidth={1.75} style={{ color: 'var(--bw-ink)' }} aria-hidden />}
-            </button>
-          );
-        })}
+      {/* Near plane: glass shards in front of the box, slightly out of focus, moving most. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+       <div className="bw-depth absolute inset-0" style={{ ['--dx' as string]: 26, ['--dy' as string]: 14, ['--ds' as string]: -0.35 }}>
+        <span className="bw-shard" style={{ left: wideHero ? '1.5%' : '-4%', bottom: wideHero ? '7%' : '18%', width: wideHero ? 92 : 56, height: wideHero ? 120 : 72, transform: 'rotate(-18deg)' }} />
+        {!phone && <span className="bw-shard bw-shard-b" style={{ right: '2.5%', top: '12%', width: 64, height: 80, transform: 'rotate(24deg)' }} />}
+       </div>
       </div>
-    );
-    content = (
-      <Panel desktop={desktop} slot={slot('h-full w-full')}>
-        <div className="bw-rise">
-          <div style={i(0)}>{heading(PICK_COPY.heading)}</div>
-          <p className="bw-body mt-2" style={i(1)}>{PICK_COPY.sub}</p>
-          <div className="mt-6">{cards}</div>
-        </div>
-      </Panel>
-    );
-  } else if (section === 'try') {
-    const wall = (
-      <div className="bw-wall-mount" style={{ ['--wall-yaw' as string]: desktop ? '-6deg' : '-4deg' }}>
-        <LiveWall pool={WALL_POOL} pins={shotPins} dim={false} compact={!desktop} centreRef={centreTileRef} ripple={0} seed={seed + 7} />
-      </div>
-    );
-    content = desktop ? (
-      <div className="mx-auto flex h-full w-full max-w-[1240px] flex-col px-[clamp(28px,3.4vw,64px)] pb-3">
-        <div className="bw-rise mx-auto flex w-fit max-w-full shrink-0 flex-wrap items-end justify-between gap-x-8 gap-y-3" style={tryRowW !== null ? { minWidth: tryRowW } : undefined}>
-          <div>
-            <div style={i(0)}>{heading(TRY_COPY.heading)}</div>
-            <p className="bw-body mt-2 max-w-[46ch]" style={i(1)}>{TRY_COPY.line}</p>
+    </section>
+  );
+
+  /* ── Explainers ────────────────────────────────────────────────────── */
+  const explainCols = vp.w >= 1180 ? 'grid-cols-3' : 'grid-cols-1';
+  const explain = (
+    <section ref={stopRef.explain} id="idea" data-stop="explain" aria-labelledby="h-explain" className={stopClass}>
+      {split('right', stand(), (
+        <>
+          <div {...reveal('explain', 0)}>
+            <p className="bw-eyebrow after:hidden">How it works</p>
+            {heading(EXPLAIN_COPY.heading, 'h-explain', 'bw-h2 mt-3 max-w-[22ch]')}
+            <p className="bw-body mt-3">{EXPLAIN_COPY.sub}</p>
           </div>
-          <div style={i(2)}>{lookPills}</div>
-        </div>
-        {/* Booth · Beamy · wall, all one height, centred: nothing reads empty. */}
-        <div data-try-row className="mt-5 flex min-h-0 flex-1 items-stretch justify-center gap-[clamp(16px,2.4vw,40px)]">
-          <div data-bubble-left className="bw-rise min-h-0"><div className="h-full" style={i(2)}>{booth}</div></div>
-          <div className="flex w-[clamp(150px,13vw,210px)] shrink-0 flex-col justify-end">{slot('h-[72%] w-full', { max: 230 })}</div>
-          <div className="bw-rise flex min-h-0 items-center">
-            <div data-bubble-right style={{ ...i(3), width: 'min(380px, calc((100dvh - 330px) * 0.74))' }}>{wall}</div>
-          </div>
-        </div>
-      </div>
-    ) : (
-      <div className="flex h-full flex-col">
-        {/* Beamy alone in the band (the bubble needs the room above him);
-            the phone booth and the wall sit side by side below, so the
-            beam reads left-to-right like it does on desktop. */}
-        <div className="flex h-[22%] min-h-[118px] shrink-0 px-4 pt-1">{slot('h-full flex-1')}</div>
-        <div className="bw-rise flex min-h-0 flex-1 flex-col px-4 pb-3 pt-1">
-          <div style={i(0)}>{heading(TRY_COPY.heading)}</div>
-          <div className="mt-3" style={i(1)}>{lookPills}</div>
-          <div className="mt-3 flex min-h-[200px] flex-1 items-center gap-3" style={i(2)}>
-            {/* The booth may take ~56% of the row, so the wall stays readable beside it. */}
-            <div className="shrink-0" style={{ height: 'min(100%, calc((100vw - 52px) * 0.56 * 16 / 9))' }}>{booth}</div>
-            <div className="min-w-0 flex-1">{wall}</div>
-          </div>
-        </div>
-      </div>
+          <ol className={`mt-8 grid gap-4 ${explainCols}`}>
+            {EXPLAIN_STEPS.map((s, n) => (
+              <li key={s.title} data-beam-target {...reveal('explain', n + 1, `bw-glass-card bw-condense flex ${explainCols === 'grid-cols-3' ? 'flex-col' : 'items-center'} gap-4 p-5`)}>
+                <div data-beam-at className={`relative flex shrink-0 items-center justify-center ${explainCols === 'grid-cols-3' ? 'h-36' : 'h-24 w-24'}`}>
+                  <span aria-hidden className="bw-art-glow" />
+                  <img src={EXPLAIN_ART[n]} alt="" aria-hidden loading="lazy" draggable={false} className="relative h-full w-auto object-contain drop-shadow-[0_16px_28px_rgba(22,18,78,0.55)]" />
+                </div>
+                <div className="min-w-0">
+                  <span className="bw-label block">Step {n + 1}</span>
+                  <h3 className="bw-h3 mt-1">{s.title}</h3>
+                  <p className="bw-small mt-1.5">{s.body}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </>
+      ))}
+    </section>
+  );
+
+  /* ── Films ─────────────────────────────────────────────────────────── */
+  const films = FILMS.map((f) => {
+    const id = FILM_STOP[f.id];
+    const def = STOPS[stopIndex(id)];
+    const m = FILM_MEDIA[f.id];
+    const lit = shown(id, ALL);
+    return (
+      <section key={f.id} ref={stopRef[id]} id={`film-${f.id}`} data-stop={id} aria-labelledby={`h-${id}`} className={stopClass}>
+        {split(def.side, stand(), (
+          <>
+            <div {...reveal(id, 0)}>
+              <p className="bw-eyebrow flex items-center gap-2.5 after:hidden">
+                <span className="bw-icon-tile !h-9 !w-9" aria-hidden><m.Icon size={20} from="#FFFFFF" to="#C9CCFF" /></span>
+                {f.eyebrow}
+              </p>
+              {heading(f.title, `h-${id}`, 'bw-h2 mt-3 max-w-[20ch]')}
+              <p className="bw-body mt-3 max-w-[46ch]">{f.line}</p>
+            </div>
+            <div data-film-frame data-lit={lit ? 'true' : 'false'} className="bw-film mt-7">
+              <FilmEmbed src={m.src} poster={m.poster} label={`${f.title} — feature film`} hold={!lit} chipClassName="bw-film-chip" />
+            </div>
+          </>
+        ))}
+      </section>
     );
-  } else if (section === 'magic') {
-    content = (
-      <Panel desktop={desktop} slot={<div className="flex h-full w-full">{slot('h-full w-[56%]')}<div data-prop-spot aria-hidden className="h-full flex-1" /></div>}>
-        <div className="bw-rise">
-          <div style={i(0)}>{heading(MAGIC_COPY.heading)}</div>
-          <p className="bw-body mt-3 max-w-[40ch]" style={i(1)}>{MAGIC_COPY.line}</p>
-          <div className="mt-6 flex flex-wrap gap-3" style={i(2)}>
+  });
+
+  /* ── What applies to you? ──────────────────────────────────────────── */
+  const pick = (
+    <section ref={stopRef.pick} id="for-you" data-stop="pick" aria-labelledby="h-pick" className={stopClass}>
+      {split('left', stand(), (
+        <>
+          <div {...reveal('pick', 0)}>
+            {heading(PICK_COPY.heading, 'h-pick')}
+            <p className="bw-body mt-2">{PICK_COPY.sub}</p>
+          </div>
+          <div data-drift-target {...reveal('pick', ALL, `mt-7 grid gap-3 ${phone ? 'grid-cols-1' : 'grid-cols-2'}`)}>
+            {AUDIENCES.map((a) => {
+              const Icon = AUDIENCE_ICONS[a.icon];
+              const on = selectedId === a.id;
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={(e) => { void pickAudience(a, e.currentTarget); }}
+                  className={`bw-glass-card bw-interactive flex items-center gap-4 ${phone ? 'min-h-[64px] px-4 py-3' : 'min-h-[84px] p-4'}`}
+                >
+                  <span className="bw-icon-tile" aria-hidden><Icon /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[16px] font-semibold leading-tight" style={{ color: 'var(--bw-ink)' }}>{a.title}</span>
+                    <span className="bw-label mt-0.5 block">{a.hint}</span>
+                  </span>
+                  {on && <Check className="h-5 w-5 shrink-0" strokeWidth={1.75} style={{ color: 'var(--bw-ink)' }} aria-hidden />}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ))}
+    </section>
+  );
+
+  /* ── Try it ────────────────────────────────────────────────────────── */
+  const tryWall = (
+    <div className="bw-wall-mount" style={{ ['--wall-yaw' as string]: phone ? '-4deg' : '-6deg' }}>
+      <LiveWall pool={WALL_POOL} pins={shotPins} dim={false} compact={phone} centreRef={tryTileRef} ripple={0} seed={seed + 7} />
+    </div>
+  );
+  const tryIt = (
+    <section ref={stopRef.try} id="demo" data-stop="try" aria-labelledby="h-try" className={stopClass}>
+      <div {...reveal('try', 0, phone ? '' : 'flex flex-wrap items-end justify-between gap-x-8 gap-y-4')}>
+        <div>
+          {heading(TRY_COPY.heading, 'h-try')}
+          <p className="bw-body mt-2 max-w-[46ch]">{TRY_COPY.line}</p>
+        </div>
+        <div className={phone ? 'mt-4' : ''}>{lookPills}</div>
+      </div>
+      {phone ? (
+        <div {...reveal('try', ALL, 'mt-5 flex items-center gap-3')}>
+          <div className="shrink-0" style={{ height: 'min(70svh, calc((100vw - 52px) * 0.56 * 16 / 9))' }}>{booth}</div>
+          <div className="min-w-0 flex-1">{tryWall}</div>
+        </div>
+      ) : (
+        <div className={`mt-8 flex items-stretch justify-center gap-[clamp(16px,2.4vw,40px)] ${vp.w >= WIDE_HERO_MIN ? 'h-[min(560px,66vh)]' : 'h-[min(480px,58vh)]'}`}>
+          <div data-bubble-left {...reveal('try', ALL, 'min-h-0')}>{booth}</div>
+          <div className="flex w-[clamp(140px,13vw,210px)] shrink-0 flex-col justify-end">{slot('h-[72%] w-full', { max: 230 })}</div>
+          <div {...reveal('try', ALL, 'flex min-h-0 items-center')}>
+            <div data-bubble-right style={{ width: 'min(360px, 30vw)' }}>{tryWall}</div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+
+  /* ── 3D magic ──────────────────────────────────────────────────────── */
+  const magic = (
+    <section ref={stopRef.magic} id="magic" data-stop="magic" aria-labelledby="h-magic" className={stopClass}>
+      {split('left', (
+        <div className="flex h-[min(360px,48vh)] w-full max-w-[420px]">
+          {slot('h-full w-[56%]')}
+          <div data-prop-spot aria-hidden className="h-full flex-1" />
+        </div>
+      ), (
+        <div {...reveal('magic', 0)}>
+          {heading(MAGIC_COPY.heading, 'h-magic')}
+          <p className="bw-body mt-3 max-w-[40ch]">{MAGIC_COPY.line}</p>
+          {phone && <div data-prop-spot aria-hidden className="mx-auto mt-6 h-40 w-40" />}
+          <div className="mt-6 flex flex-wrap items-center gap-3">
             <button type="button" className="bw-btn bw-btn-secondary" disabled={propBusy} onClick={() => { const alive = begin(); void runReveal(audience, alive); }}>
               <RotateCcw className="h-4 w-4" strokeWidth={1.75} aria-hidden /> {MAGIC_COPY.again}
             </button>
-            <button type="button" className="bw-link" onClick={() => goToIndex(sectionIndex('try'))}>
+            <button type="button" className="bw-link min-h-11" onClick={() => scrollToStop('try')}>
               Try it on <ArrowRight className="h-4 w-4" strokeWidth={1.75} aria-hidden />
             </button>
           </div>
         </div>
-      </Panel>
-    );
-  } else if (section === 'how') {
-    content = (
-      <Panel desktop={desktop} slot={slot('h-full w-full')}>
-        <div className="bw-rise">
-          <div style={i(0)}>{heading(HOW_COPY.heading)}</div>
+      ))}
+    </section>
+  );
+
+  /* ── How it works ──────────────────────────────────────────────────── */
+  const how = (
+    <section ref={stopRef.how} id="how" data-stop="how" aria-labelledby="h-how" className={stopClass}>
+      {split('right', stand(), (
+        <>
+          <div {...reveal('how', 0)}>{heading(HOW_COPY.heading, 'h-how')}</div>
           <ol className="mt-6 flex flex-col gap-3">
             {DELIVER_STEPS.map((d, n) => {
               const Icon = STEP_ICONS[d.icon];
               return (
-                <li key={d.title} className="bw-glass-card flex items-start gap-4 p-4" style={i(n + 1)}>
+                <li key={d.title} data-beam-target {...reveal('how', n + 1, 'bw-glass-card bw-condense flex items-start gap-4 p-4')}>
                   <span className="bw-icon-tile" aria-hidden><Icon /></span>
                   <span className="min-w-0">
                     <span className="bw-label block">Step {n + 1}</span>
@@ -999,169 +1368,149 @@ export default function BeamyPage() {
               );
             })}
           </ol>
-          <p className="bw-small mt-5" style={i(4)}>{DONE_FOR_YOU}</p>
-        </div>
-      </Panel>
-    );
-  } else {
-    content = (
-      <Panel desktop={desktop} slot={slot('h-full w-full')}>
-        <div className="bw-rise">
-          <div style={i(0)}>{heading(start.heading, 'bw-display')}</div>
-          <p className="bw-body mt-3 max-w-[42ch]" style={i(1)}>{start.line}</p>
-          <ul className="mt-5 flex flex-col gap-2.5" style={i(2)}>
-            {start.bullets.map((b) => (
-              <li key={b} className="flex items-center gap-3 text-[16px]" style={{ color: 'var(--bw-ink)' }}>
-                <Check className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} style={{ color: 'var(--bw-success)' }} aria-hidden /> {b}
+          <p {...reveal('how', ALL, 'bw-small mt-5')}>{DONE_FOR_YOU}</p>
+        </>
+      ))}
+    </section>
+  );
+
+  /* ── Pricing ───────────────────────────────────────────────────────── */
+  const planCols = phone ? 'grid-cols-1' : vp.w >= 1100 ? 'grid-cols-2' : 'grid-cols-1';
+  const planGrid = (
+    <div data-drift-target {...reveal('pricing', ALL, `mt-10 grid gap-x-4 gap-y-6 ${planCols}`)}>
+      {plans.map((t) => (
+        <div key={t.name} className="bw-glass-card bw-plan flex flex-col p-6" data-popular={t.popular === true ? 'true' : undefined}>
+          {t.popular === true && <span className="bw-plan-badge">{pricing.recommended}</span>}
+          <h3 className="bw-label" style={{ color: 'var(--bw-ink)' }}>{t.name}</h3>
+          <p className="mt-2 flex items-baseline gap-1.5">
+            <span className="bw-price">{t.price}</span>
+            <span className="bw-label">{t.unit}</span>
+          </p>
+          <p className="bw-small mt-2">{t.blurb}</p>
+          <ul className="mt-5 flex flex-1 flex-col gap-2.5">
+            {t.features.map((f) => (
+              <li key={f} className="flex items-start gap-2 text-[14px] leading-snug" style={{ color: 'var(--bw-ink)' }}>
+                <Check className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} style={{ color: 'var(--bw-success)' }} aria-hidden />
+                <span>{f}</span>
               </li>
             ))}
           </ul>
-          <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-3" style={i(3)}>
-            <Link to={SIGNUP_PATH} className="bw-btn bw-btn-primary bw-btn-lg">{HERO.primary}</Link>
-            <Link to={PRICING_PATH} className="bw-link">{START_COPY.pricing} <ArrowRight className="h-4 w-4" strokeWidth={1.75} aria-hidden /></Link>
-          </div>
-          <nav aria-label="Footer" className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-1" style={i(4)}>
-            {FOOTER_LINKS.map((f) => f.to !== null ? (
-              <Link key={f.label} to={f.to} className="bw-link bw-link-quiet">{f.label}</Link>
-            ) : (
-              <ReportIssueButton key={f.label} label={f.label} showIcon={false} prefill={{ source: 'landing' }} className="bw-link bw-link-quiet" />
-            ))}
-          </nav>
+          <Link to={SIGNUP_PATH} className={`bw-btn mt-6 w-full ${t.popular === true ? 'bw-btn-primary' : 'bw-btn-secondary'}`}>{pricing.cta(t.name)}</Link>
         </div>
-      </Panel>
-    );
-  }
+      ))}
+    </div>
+  );
+  /* Desktop: the plans sit in the content column, so the column he stands in
+     stays clear however far the visitor scrolls through them. */
+  const pricingSec = (
+    <section ref={stopRef.pricing} id="pricing" data-stop="pricing" aria-labelledby="h-pricing" className={stopClass}>
+      {split('left', stand('h-[min(300px,40vh)]'), (
+        <>
+          <div {...reveal('pricing', 0)}>
+            {heading(pricing.heading, 'h-pricing')}
+            <p className="bw-body mt-3 max-w-[56ch]">{pricing.intro}</p>
+            <p className="bw-small mt-3 max-w-[56ch]">{pricing.pro}</p>
+          </div>
+          {planGrid}
+        </>
+      ))}
+    </section>
+  );
 
-  const atFirst = index === 0;
-  const atLast = index === SECTIONS.length - 1;
-  const panelInset = desktop ? clamp(Math.round(vp.w * 0.026), 20, 44) : 10;
-  const radius = desktop ? 36 : 24;
-  const showFloor = floorTop !== null && (section === 'intro' || (desktop && FLOOR_STOPS.includes(section)));
-  const bubbleHidden = section === 'intro' && !desktop;
+  /* ── Start + footer ────────────────────────────────────────────────── */
+  /* Desktop: he stands beside the centred call to action, never over it. */
+  const startCta = (
+    <div {...reveal('start', 0, 'mx-auto flex max-w-[640px] flex-col items-center')}>
+      {heading(start.heading, 'h-start', 'bw-display')}
+      <p className="bw-body mt-3 max-w-[42ch]">{start.line}</p>
+      <ul className="mt-5 flex flex-col items-center gap-2.5">
+        {start.bullets.map((b) => (
+          <li key={b} className="flex items-center gap-3 text-[16px]" style={{ color: 'var(--bw-ink)' }}>
+            <Check className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} style={{ color: 'var(--bw-success)' }} aria-hidden /> {b}
+          </li>
+        ))}
+      </ul>
+      <Link to={SIGNUP_PATH} className="bw-btn bw-btn-primary bw-btn-lg mt-8">{HERO.primary}</Link>
+    </div>
+  );
+  const startSec = (
+    <section ref={stopRef.start} id="start" data-stop="start" aria-labelledby="h-start" className={`${stopClass} text-center`}>
+      {phone ? startCta : (
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,640px)_minmax(0,1fr)] items-center gap-[clamp(16px,2vw,32px)]">
+          <div className="flex justify-end">{slot('h-[min(320px,42vh)] w-full max-w-[240px]')}</div>
+          <div data-bubble-right>{startCta}</div>
+          <div aria-hidden />
+        </div>
+      )}
+      <nav aria-label="Footer" className="mt-16 flex flex-wrap items-center justify-center gap-x-5 gap-y-1">
+        <span className="bw-wordmark mr-2 text-[18px]">Beamwall</span>
+        {FOOTER_LINKS.map((f) => f.to !== null ? (
+          <Link key={f.label} to={f.to} className="bw-link bw-link-quiet min-h-11">{f.label}</Link>
+        ) : (
+          <ReportIssueButton key={f.label} label={f.label} showIcon={false} prefill={{ source: 'landing' }} className="bw-link bw-link-quiet min-h-11" />
+        ))}
+      </nav>
+    </section>
+  );
+
+  const bubbleHidden = active === 0 && !wideHero;
+  const headerH = phone ? 60 : 72;
 
   return (
-    <div data-brand="2" data-arrival={arrival} data-section={section} className="bw-root fixed inset-0 overflow-hidden">
-      {/* Orbs behind the glass: whatever the panel covers, it visibly frosts. */}
-      <div aria-hidden className="bw-orb" style={{ width: '36vmax', height: '36vmax', right: '-12vmax', top: '-14vmax', opacity: 0.45 }} />
-      <div aria-hidden className="bw-orb" style={{ width: '26vmax', height: '26vmax', left: '-9vmax', bottom: '-11vmax', opacity: 0.45 }} />
+    <div
+      data-brand="2"
+      data-arrival={arrival}
+      data-stop-active={STOPS[active]?.id}
+      ref={scrollerRef}
+      tabIndex={-1}
+      className="bw-root bw-scroll relative h-full overflow-y-auto overflow-x-clip"
+      style={{ outline: 'none',  ['--bw-header-h' as string]: `${headerH}px`, ['--bw-dock-h' as string]: phone ? `${vp.h < 700 ? 124 : 144}px` : '0px' }}
+    >
+      <div aria-hidden className="bw-backdrop" />
 
-      <div ref={panelRef} className="absolute" style={{ inset: panelInset, ['--bw-radius-panel' as string]: `${radius}px` }}>
-        <div ref={glassRef} className="bw-glass" aria-hidden />
-        {/* Decor clipped to the panel: the floor line and the ghost word. */}
-        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden" style={{ borderRadius: radius }}>
-          {showFloor && <div className="bw-floor" style={{ top: floorTop ?? 0, ['--stage-x' as string]: `${stageX}%` }} />}
-          {/* Lower-left, inside the floor: on the hero that corner holds no
-              control (no Back button on the first stop) and sits under the CTAs. */}
-          {section === 'intro' && desktop && !introRunning && (
-            <span className="bw-ghost absolute bottom-[-0.1em] left-[2.2%]" style={{ fontSize: 'clamp(110px, 9.5vw, 180px)' }}>Beam</span>
-          )}
-        </div>
-
-        <div className="relative flex h-full flex-col">
-          <header className={`z-30 grid shrink-0 items-center gap-3 ${desktop ? 'h-[76px] grid-cols-[1fr_auto_1fr] px-[clamp(24px,2.6vw,48px)]' : 'h-14 grid-cols-[1fr_auto] px-3'}`}>
-            <div>
-              <button type="button" onClick={() => goToIndex(0)} className="bw-wordmark bw-focus -ml-1 min-h-11 rounded-lg px-1" aria-label="Beamwall, back to the start">
-                Beamwall
-              </button>
-            </div>
-            {desktop && (
-              <nav aria-label="Main" className="flex items-center gap-1">
-                {NAV_LINKS.map((n) => n.section !== null ? (
-                  <button
-                    key={n.label}
-                    type="button"
-                    className="bw-navlink"
-                    aria-current={index === sectionIndex(n.section) ? 'page' : undefined}
-                    onClick={() => goToIndex(sectionIndex(n.section as SectionId))}
-                  >
-                    {n.label}
-                  </button>
-                ) : (
-                  <Link key={n.label} to={n.href ?? '/'} className="bw-navlink">{n.label}</Link>
-                ))}
-              </nav>
-            )}
-            <nav aria-label="Account" className="flex items-center justify-end gap-2 sm:gap-4">
-              {desktop && <Link to="/login" className="bw-link">{START_COPY.signIn}</Link>}
-              <Link to={SIGNUP_PATH} className="bw-btn bw-btn-primary bw-btn-sm">{desktop ? HERO.primary : HERO.primaryShort}</Link>
-            </nav>
-          </header>
-
-          <main
-            ref={mainRef}
-            aria-label={`${SECTIONS[shownIndex].label}, section ${shownIndex + 1} of ${SECTIONS.length}`}
-            className={`relative min-h-0 flex-1 ${leaving ? 'bw-leave' : ''}`}
-            onTouchStart={onTouchStart}
-            onTouchEnd={onTouchEnd}
-          >
-            <div key={section} className="h-full">{content}</div>
-            {!ready && !failed && slotBox !== null && (
-              <p className="bw-label pointer-events-none fixed text-center" style={{ left: slotBox.left, width: slotBox.width, top: slotBox.top + slotBox.height * 0.55 }}>
-                Beamy is on his way&hellip;
-              </p>
-            )}
-            {section === 'intro' && desktop && dragHint && ready && arrival === 'done' && !introRunning && slotBox !== null && (
-              <p
-                className="bw-label pointer-events-none fixed flex items-center gap-1.5 rounded-full px-2.5 py-0.5"
-                // A small frosted tag: it sits on the box's front floor edge, so it carries its own ground.
-                style={{ left: slotBox.left + slotBox.width / 2 - 50, top: slotBox.top + slotBox.height + 6, color: 'var(--bw-ink)', background: 'rgba(26, 23, 64, 0.58)', WebkitBackdropFilter: 'blur(8px)', backdropFilter: 'blur(8px)', animation: reduced ? undefined : 'bw-fade 600ms var(--bw-ease) 900ms both' }}
-              >
-                <Rotate3d className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Drag me
-              </p>
-            )}
-          </main>
-
-          <footer className={`z-30 flex shrink-0 items-center justify-between gap-3 ${desktop ? 'h-[72px] px-[clamp(24px,2.6vw,48px)]' : 'h-16 px-3'}`} style={{ paddingBottom: desktop ? undefined : 'env(safe-area-inset-bottom)' }}>
-            <div className={desktop ? 'w-[180px]' : 'min-w-11'}>
-              {atFirst && introRunning && (
-                <button type="button" className="bw-btn bw-btn-secondary bw-btn-sm" onClick={skipIntro} data-skip-intro>
-                  {desktop ? 'Skip intro' : 'Skip'}
-                </button>
-              )}
-              {!atFirst && (desktop ? (
-                <button type="button" className="bw-btn bw-btn-secondary bw-btn-sm" onClick={() => nav('back')}>
-                  <ArrowLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden /> Back
-                </button>
-              ) : (
-                <button type="button" className="bw-btn bw-btn-secondary bw-btn-sm" style={{ width: 44, padding: 0 }} onClick={() => nav('back')} aria-label="Back">
-                  <ArrowLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-                </button>
+      <header ref={headerRef} className="bw-header sticky top-0 z-30" style={{ height: headerH }}>
+        <div className={`mx-auto flex h-full max-w-[1440px] items-center justify-between gap-3 ${phone ? 'px-3' : 'px-[clamp(20px,2.6vw,48px)]'}`}>
+          <button type="button" onClick={() => scrollerRef.current?.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })} className="bw-wordmark bw-focus -ml-1 min-h-11 rounded-lg px-1" aria-label="Beamwall, back to the top">
+            Beamwall
+          </button>
+          {!phone && (
+            <nav aria-label="Main" className="flex items-center gap-1">
+              {NAV_LINKS.map((n) => (
+                <a
+                  key={n.label}
+                  href={`#${stopEls.current[n.stop]?.id ?? n.stop}`}
+                  className="bw-navlink"
+                  aria-current={STOPS[active]?.id === n.stop ? 'true' : undefined}
+                  onClick={(e) => { e.preventDefault(); scrollToStop(n.stop); }}
+                >
+                  {n.label}
+                </a>
               ))}
-            </div>
-            <div className="flex flex-col items-center">
-              {desktop ? (
-                <div className="flex items-center" role="group" aria-label="Sections">
-                  {SECTIONS.map((s, n) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      className="bw-dot"
-                      aria-label={`${s.label}, section ${n + 1} of ${SECTIONS.length}`}
-                      aria-current={n === index ? 'step' : undefined}
-                      title={s.label}
-                      onClick={() => goToIndex(n)}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="flex items-center gap-2" aria-hidden>
-                  {SECTIONS.map((s, n) => (
-                    <span key={s.id} className="h-2 rounded-full transition-[width,background-color] duration-300" style={{ width: n === index ? 18 : 8, background: n === index ? 'var(--bw-core)' : 'var(--bw-faint)' }} />
-                  ))}
-                </div>
-              )}
-              <span className={`bw-label ${desktop ? '-mt-1' : 'mt-1.5'}`} aria-live="polite">{SECTIONS[index].label}</span>
-            </div>
-            <div className={`flex justify-end ${desktop ? 'w-[180px]' : 'min-w-11'}`}>
-              {!atLast && (
-                <button type="button" className="bw-btn bw-btn-primary bw-btn-sm" onClick={() => nav('next')}>
-                  {index === sectionIndex('pick') && selectedId === null ? PICK_COPY.skip : 'Next'} <ArrowRight className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-                </button>
-              )}
-            </div>
-          </footer>
+            </nav>
+          )}
+          <nav aria-label="Account" className="flex items-center justify-end gap-2 sm:gap-4">
+            {vp.w >= WIDE_HERO_MIN && <Link to="/login" className="bw-link min-h-11">{START_COPY.signIn}</Link>}
+            <Link to={SIGNUP_PATH} className="bw-btn bw-btn-primary bw-btn-sm">{phone ? HERO.primaryShort : HERO.primary}</Link>
+          </nav>
         </div>
-      </div>
+        {/* Scroll progress: a hairline under the header. */}
+        <div aria-hidden className="bw-progress"><span ref={progressRef} /></div>
+      </header>
+
+      <main ref={mainRef} className="relative z-10" style={{ paddingBottom: phone ? 'calc(var(--bw-dock-h) + 16px)' : undefined }}>
+        {hero}
+        {explain}
+        {films}
+        {pick}
+        {tryIt}
+        {magic}
+        {how}
+        {pricingSec}
+        {startSec}
+      </main>
+
+      {/* Phones: the stage Beamy stands on under the content. */}
+      {phone && <div ref={dockRef} aria-hidden data-on="false" className="bw-dock" />}
 
       {!failed && (
         <BeamyStage
@@ -1180,8 +1529,8 @@ export default function BeamyPage() {
         ref={bubbleRef}
         role="status"
         aria-live="polite"
-        className={`bw-bubble pointer-events-none fixed left-0 top-0 z-50 max-w-[min(300px,calc(100vw-24px))] px-4 py-3 transition-opacity duration-300 ${((ready && arrival === 'done') || failed) && !bubbleHidden ? 'opacity-100' : 'opacity-0'}`}
-        style={failed ? { transform: 'translate3d(16px, 72px, 0)' } : undefined}
+        className={`bw-bubble pointer-events-none fixed left-0 top-0 z-50 px-4 py-3 transition-opacity duration-300 ${phone ? 'text-[14px]' : ''} ${((ready && arrival === 'done') || failed) && !bubbleHidden && !failed ? 'opacity-100' : 'opacity-0'}`}
+        style={{ maxWidth: 'min(300px, calc(100vw - 24px))' }}
       >
         <span className="sr-only">{line}</span>
         <span aria-hidden>{typed}</span>
@@ -1196,7 +1545,7 @@ export default function BeamyPage() {
           onPointerUp={onHitUp}
           onPointerCancel={onHitUp}
           aria-label="Poke Beamy (drag to spin him)"
-          className="bw-focus fixed left-0 top-0 z-[45] cursor-grab touch-none rounded-full active:cursor-grabbing"
+          className="bw-focus fixed left-0 top-0 z-[45] cursor-grab touch-pan-y rounded-full active:cursor-grabbing"
           style={{ visibility: arrival === 'done' ? 'visible' : 'hidden' }}
         />
       )}
@@ -1258,86 +1607,8 @@ function GlideFlight({ from, to, shot, ms, onDone }: { from: Rect; to: Rect; sho
 }
 
 /**
- * The live wall: a 3×3 grid in a slim deep-indigo frame whose tiles swap
- * photos on the pure scheduler in lib/beamyWall (one tile every 1.5–2.5s,
- * never the same tile twice in a row, never a duplicate on the wall). Pinned
- * tiles (Beamy's selfie, a visitor's shots) are frozen out of the rotation.
- */
-function LiveWall({ pool, pins, dim, compact, centreRef, ripple, seed }: {
-  pool: string[];
-  pins: Record<number, Pin>;
-  dim: boolean;
-  compact: boolean;
-  centreRef: MutableRefObject<HTMLDivElement | null>;
-  ripple: number;
-  seed: number;
-}) {
-  const rand = useRef<() => number>(seededRandom(seed));
-  const wallRef = useRef<WallState>(initialWall(pool.length, rand.current));
-  const prevRef = useRef<(number | null)[]>(wallRef.current.tiles.map(() => null));
-  const freshRef = useRef<number | null>(null);
-  const frozenRef = useRef(new Set<number>());
-  frozenRef.current = new Set(Object.keys(pins).map(Number));
-  const [, bump] = useReducer((x: number) => x + 1, 0);
-  const rings = useMemo(() => rippleRings(), []);
-
-  useEffect(() => {
-    let id = 0;
-    const schedule = () => {
-      id = window.setTimeout(() => {
-        if (document.visibilityState === 'visible') {
-          const s = wallRef.current;
-          const r = nextSwap(s, pool.length, rand.current, frozenRef.current);
-          if (r !== null) {
-            prevRef.current[r.tile] = s.tiles[r.tile];
-            freshRef.current = r.tile;
-            wallRef.current = r.state;
-            bump();
-          }
-        }
-        schedule();
-      }, swapDelay(rand.current));
-    };
-    schedule();
-    return () => window.clearTimeout(id);
-  }, [pool.length]);
-
-  const tiles = wallRef.current.tiles;
-  return (
-    <div className="bw-wall" data-dim={dim} role="group" aria-label={WALL_LABEL} style={compact ? { padding: 6, borderRadius: 14 } : undefined}>
-      <p className={`bw-label flex items-center gap-2 px-1 ${compact ? 'mb-1.5 text-[12px]' : 'mb-2'}`} style={{ color: 'var(--bw-ink)' }}>
-        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: 'var(--bw-danger)' }} aria-hidden /> {WALL_LABEL}
-      </p>
-      <div className={`grid grid-cols-3 ${compact ? 'gap-[4px]' : 'gap-[7px]'}`}>
-        {tiles.map((img, n) => {
-          const pin = pins[n];
-          const prev = prevRef.current[n];
-          return (
-            <div
-              key={n}
-              ref={n === WALL_CENTRE ? (el) => { centreRef.current = el; } : undefined}
-              className={`bw-tile ${compact ? 'aspect-square' : 'aspect-[4/5]'}`}
-              style={pin?.mine === true ? { boxShadow: '0 0 0 1.5px var(--bw-core)' } : undefined}
-            >
-              {prev !== null && <img src={pool[prev]} alt="" draggable={false} />}
-              <img key={pool[img]} src={pool[img]} alt="" draggable={false} className={freshRef.current === n ? 'bw-tile-in' : undefined} />
-              {pin !== undefined && (
-                <img key={pin.key} src={pin.src} alt={pin.mine ? 'Your photo on the wall' : 'Beamy’s selfie on the wall'} draggable={false} className="bw-tile-in" style={{ opacity: 1 }} />
-              )}
-              {ripple > 0 && rings[n] > 0 && <span key={`r${ripple}`} className="bw-tile-flash" style={{ ['--ripple' as string]: rings[n] }} aria-hidden />}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/**
  * A scroller whose still-scrollable edge fades out (brand.css .bw-fade-x/y),
- * so content cut off at the panel's edge reads as "more this way". Tracks the
- * live scroll position, size changes, and the end of each child's entrance
- * animation (a rising child briefly overflows by its 24px offset).
+ * so content cut off at an edge reads as "more this way".
  */
 function FadeScroll({ axis, className, children, ...rest }: { axis: 'x' | 'y'; className: string; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -1347,8 +1618,6 @@ function FadeScroll({ axis, className, children, ...rest }: { axis: 'x' | 'y'; c
     const update = () => {
       const pos = axis === 'y' ? el.scrollTop : el.scrollLeft;
       const max = axis === 'y' ? el.scrollHeight - el.clientHeight : el.scrollWidth - el.clientWidth;
-      // The trailing padding is not content: once only it is left, the last
-      // item is fully in view and its edge must not be faded.
       const cs = getComputedStyle(el);
       const padEnd = parseFloat(axis === 'y' ? cs.paddingBottom : cs.paddingRight) || 0;
       const start = pos > 2;
@@ -1358,34 +1627,9 @@ function FadeScroll({ axis, className, children, ...rest }: { axis: 'x' | 'y'; c
     };
     update();
     el.addEventListener('scroll', update, { passive: true });
-    el.addEventListener('animationend', update);
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    for (const c of Array.from(el.children)) ro.observe(c);
-    return () => { el.removeEventListener('scroll', update); el.removeEventListener('animationend', update); ro.disconnect(); };
+    return () => { el.removeEventListener('scroll', update); ro.disconnect(); };
   }, [axis]);
   return <div ref={ref} className={`${axis === 'y' ? 'bw-fade-y' : 'bw-fade-x'} ${className}`} {...rest}>{children}</div>;
-}
-
-/** Stops 2, 4-6: Beamy's column + the content (stacked on phones). */
-function Panel({ desktop, slot, children }: { desktop: boolean; slot: ReactNode; children: ReactNode }) {
-  if (desktop) {
-    return (
-      <div className="mx-auto grid h-full w-full max-w-[1320px] grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-8 px-[clamp(28px,3.4vw,64px)] pb-2">
-        {/* Feet low in the column, so he stands on the panel's floor. */}
-        <div className="relative flex min-h-0 items-end pb-[4%]">
-          <div className="h-[88%] max-h-[540px] w-full">{slot}</div>
-        </div>
-        <FadeScroll axis="y" data-bubble-right className="flex min-h-0 flex-col justify-center overflow-y-auto py-4 pr-2">
-          <div className="w-full max-w-[620px]">{children}</div>
-        </FadeScroll>
-      </div>
-    );
-  }
-  return (
-    <div className="flex h-full flex-col">
-      <div className="mx-auto h-[28%] min-h-[140px] w-full max-w-[480px] shrink-0 px-4 pt-1">{slot}</div>
-      <FadeScroll axis="y" className="min-h-0 flex-1 overflow-y-auto px-4 pb-3 pt-3">{children}</FadeScroll>
-    </div>
-  );
 }

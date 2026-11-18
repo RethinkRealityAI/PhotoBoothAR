@@ -4,121 +4,24 @@
  *
  * The candidate landing at /beamy (brand v2) — pure logic and copy, no React.
  *
- * One viewport, six sections, moved through one at a time (never a document
- * scroll). Everything here is decision logic the page calls from its event
- * handlers, kept pure so node-env tests can hold it:
+ * A normal, natively scrolling page; Beamy travels down it with you and
+ * presents each section (the scroll director is lib/beamyScroll). Everything
+ * here is decision logic the page calls from its event handlers, kept pure so
+ * node-env tests can hold it:
  *
- *   • the section state machine (next / back / jump, clamped),
- *   • input → navigation decisions (keys, a debounced wheel, swipes),
  *   • which reaction Beamy uses for a high-profile moment (seeded, never the
  *     same action twice in a row; routine navigation gets none),
  *   • the poke streak (escalates on repeated clicks, then resets),
  *   • the drag-to-spin physics (inertia, then a springy settle to front),
- *   • the page's copy, including the free-plan facts DERIVED from plans.ts so
- *     the page cannot promise a limit the product does not have.
+ *   • the page's copy: the explainers and films reuse the original landing's
+ *     shipped strings (lib/landingContent defaults), and every fact about
+ *     plans is DERIVED from plans.ts / beta.ts so the page cannot promise a
+ *     limit the product does not have.
  */
 import { ENTITLEMENTS, formatPostCap, formatRetention } from './plans';
 import { BETA_FREE, pricingCopy } from './beta';
-
-/* ── Sections ──────────────────────────────────────────────────────────── */
-
-export type SectionId = 'intro' | 'pick' | 'try' | 'magic' | 'how' | 'start';
-
-export interface Section { id: SectionId; label: string; }
-
-export const SECTIONS: Section[] = [
-  { id: 'intro', label: 'Hello' },
-  { id: 'pick', label: 'For you' },
-  { id: 'try', label: 'Try it' },
-  { id: 'magic', label: '3D magic' },
-  { id: 'how', label: 'How it works' },
-  { id: 'start', label: 'Start' },
-];
-
-export const LAST_SECTION = SECTIONS.length - 1;
-
-export function clampSection(i: number): number {
-  if (!Number.isFinite(i)) return 0;
-  return Math.min(LAST_SECTION, Math.max(0, Math.round(i)));
-}
-
-export function sectionIndex(id: SectionId): number {
-  return SECTIONS.findIndex((s) => s.id === id);
-}
-
-export type Nav = 'next' | 'back' | 'first' | 'last';
-
-/** Where a navigation intent lands from `from` (always a valid index). */
-export function navigate(from: number, nav: Nav): number {
-  switch (nav) {
-    case 'next': return clampSection(from + 1);
-    case 'back': return clampSection(from - 1);
-    case 'first': return 0;
-    case 'last': return LAST_SECTION;
-  }
-}
-
-/* ── Input decisions ───────────────────────────────────────────────────── */
-
-/**
- * A keydown → a navigation intent, or null to leave the key alone.
- * `inField` = focus is in a text field (never steal its arrows); `onControl`
- * = focus is on a button/link, whose own Enter/Space must win.
- */
-export function keyToNav(key: string, inField: boolean, onControl: boolean): Nav | null {
-  if (inField) return null;
-  switch (key) {
-    case 'ArrowRight': case 'ArrowDown': case 'PageDown': return 'next';
-    case 'ArrowLeft': case 'ArrowUp': case 'PageUp': return 'back';
-    case 'Home': return 'first';
-    case 'End': return 'last';
-    case 'Enter': return onControl ? null : 'next';
-    default: return null;
-  }
-}
-
-export interface WheelState { accum: number; lockedUntil: number; lastAt: number; }
-export const WHEEL_IDLE: WheelState = { accum: 0, lockedUntil: 0, lastAt: 0 };
-/** Accumulated |deltaY| (px) that counts as one deliberate flick. */
-export const WHEEL_THRESHOLD = 60;
-/** After a move, ignore the trackpad's inertia tail for at least this long. */
-export const WHEEL_COOLDOWN_MS = 900;
-/** A pause longer than this starts a fresh gesture. */
-export const WHEEL_GAP_MS = 220;
-
-/**
- * One wheel event → maybe one section move. Trackpads fire dozens of events
- * per flick and keep firing during their inertia, so: accumulate until the
- * threshold, move once, then swallow everything for the cooldown.
- */
-export function wheelDecision(s: WheelState, deltaY: number, now: number): { nav: Nav | null; state: WheelState } {
-  // Still inside the cooldown: a tail that keeps streaming extends the lock
-  // until the gesture actually pauses, so one long flick is still one move.
-  if (now < s.lockedUntil) {
-    return { nav: null, state: { accum: 0, lockedUntil: Math.max(s.lockedUntil, now + WHEEL_GAP_MS), lastAt: now } };
-  }
-  const fresh = now - s.lastAt > WHEEL_GAP_MS;
-  const base = fresh || Math.sign(deltaY) !== Math.sign(s.accum) ? 0 : s.accum;
-  const accum = base + deltaY;
-  if (Math.abs(accum) >= WHEEL_THRESHOLD) {
-    return { nav: accum > 0 ? 'next' : 'back', state: { accum: 0, lockedUntil: now + WHEEL_COOLDOWN_MS, lastAt: now } };
-  }
-  return { nav: null, state: { accum, lockedUntil: s.lockedUntil, lastAt: now } };
-}
-
-/** Minimum swipe travel (px) along the dominant axis. */
-export const SWIPE_MIN_PX = 56;
-
-/** A finished touch drag → maybe a move. Up or left = next. Slow drags (reading) do nothing. */
-export function swipeDecision(dx: number, dy: number, ms: number): Nav | null {
-  if (ms > 800) return null;
-  const ax = Math.abs(dx);
-  const ay = Math.abs(dy);
-  if (Math.max(ax, ay) < SWIPE_MIN_PX) return null;
-  if (ay >= ax * 1.2) return dy < 0 ? 'next' : 'back';
-  if (ax >= ay * 1.2) return dx < 0 ? 'next' : 'back';
-  return null;
-}
+import { DEFAULT_LANDING_CONTENT } from './landingContent';
+import type { StopId } from './beamyScroll';
 
 /* ── Beamy's reactions ─────────────────────────────────────────────────── */
 
@@ -270,19 +173,47 @@ export const HERO = {
 /** The headline as one string (screen readers, titles, the type specimen). */
 export const HERO_HEADLINE = `${HERO.lead} ${HERO.strong}`;
 
-/** The nav inside the glass panel: stops of this page, then the existing pricing anchor. */
-export const NAV_LINKS: { label: string; section: SectionId | null; href: string | null }[] = [
-  { label: 'Demo', section: 'try', href: null },
-  { label: 'How it works', section: 'how', href: null },
-  { label: 'Pricing', section: null, href: '/#pricing' },
+/** The sticky header's anchors: stops on this page. */
+export const NAV_LINKS: { label: string; stop: StopId }[] = [
+  { label: 'Demo', stop: 'try' },
+  { label: 'How it works', stop: 'how' },
+  { label: 'Pricing', stop: 'pricing' },
 ];
 
 export const WALL_LABEL = 'Live wall';
 
 /** Where "Create your free event" goes: the same target as the landing's CTA. */
 export const SIGNUP_PATH = '/signup';
-/** The existing pricing anchor on the current landing. */
-export const PRICING_PATH = '/#pricing';
+
+/**
+ * The explainers right after the hero: the original landing's three
+ * "How it works" cards (its heading line, split, and the shipped step copy),
+ * which Beamy beams in one by one.
+ */
+export const EXPLAIN_COPY = {
+  heading: 'From sign-up to a wall full of moments',
+  sub: 'Three steps, no app, no queue.',
+  line: 'Here’s the whole idea, in three beams.',
+} as const;
+export const EXPLAIN_STEPS: { title: string; body: string }[] = DEFAULT_LANDING_CONTENT.howSteps.map((s) => ({ title: s.title, body: s.body }));
+
+export type FilmId = 'booth' | 'wall' | 'challenges' | 'cards';
+/**
+ * The four feature films, with the original landing's eyebrow, title and ONE
+ * hook each (the films carry the detail as in-video callouts, so the copy
+ * never pre-states them), plus what Beamy says while he projects each one.
+ */
+export const FILMS: { id: FilmId; eyebrow: string; title: string; line: string; beamy: string }[] = (
+  [
+    ['booth', 'Watch this. Every phone becomes the booth.'],
+    ['wall', 'And this is where every shot lands.'],
+    ['challenges', 'Want the room to mingle? Give them a mission.'],
+    ['cards', 'And the next morning, everyone gets a keepsake.'],
+  ] as const
+).map(([id, beamy]) => {
+  const f = DEFAULT_LANDING_CONTENT.features.find((x) => x.id === id);
+  return { id, eyebrow: f?.eyebrow ?? '', title: f?.title ?? '', line: f?.copy ?? '', beamy };
+});
 
 export const PICK_COPY = {
   heading: 'What applies to you?',
@@ -327,9 +258,65 @@ export function startFacts(): { heading: string; line: string; bullets: string[]
   };
 }
 
+export interface PlanCard { name: string; price: string; unit: string; blurb: string; features: string[]; popular?: boolean; }
+
+/**
+ * The original landing's plan cards, reproduced fact for fact (Landing.tsx
+ * TIERS — a drift test reads that file and fails if any price or line here is
+ * not also there). Limits are formatted from ENTITLEMENTS exactly as it does.
+ */
+export function planCards(): PlanCard[] {
+  const E = ENTITLEMENTS;
+  return [
+    {
+      name: 'Free', price: '$0', unit: 'to try it', blurb: 'Spin up a booth and see the magic.',
+      features: [
+        '1 live event', 'Photo booth + live wall', formatPostCap(E.free.maxPosts, E.free.videoEnabled),
+        formatRetention(E.free.retentionDays), '3 free AI frames per event', 'Small Beamwall watermark on photos',
+      ],
+    },
+    {
+      name: 'Essentials', price: '$49', unit: 'per event', blurb: 'Everything a small celebration needs.',
+      features: [
+        formatPostCap(E.essentials.maxPosts, E.essentials.videoEnabled), 'Video capture', 'No watermark',
+        formatRetention(E.essentials.retentionDays), '+20 AI credits',
+      ],
+    },
+    {
+      name: 'Premium', price: '$99', unit: 'per event', blurb: 'The full experience, cards included.',
+      features: [
+        formatPostCap(E.premium.maxPosts, E.premium.videoEnabled), 'Keepsake cards',
+        formatRetention(E.premium.retentionDays), 'Priority support', '+100 AI credits',
+      ],
+      popular: true,
+    },
+    {
+      name: 'Deluxe', price: '$169', unit: 'per event', blurb: 'A keepsake film, and every finishing touch.',
+      features: [
+        'Everything in Premium', 'Keepsake highlight film', 'Premium card renders',
+        formatRetention(E.deluxe.retentionDays), '+130 AI credits',
+      ],
+    },
+  ];
+}
+
+/** The pricing section's words: the landing's own (beta-aware) heading, intro and CTAs, plus its Pro line. */
+export function pricingSection(): { heading: string; intro: string; pro: string; cta: (tier: string) => string; recommended: string; line: string } {
+  const p = pricingCopy(BETA_FREE);
+  return {
+    heading: p.heading,
+    intro: p.intro,
+    pro: 'Frequent host? Beamwall Pro is $79/month — Premium on every event, plus 300 AI credits a month.',
+    cta: p.cta,
+    recommended: 'Recommended',
+    line: 'Start free. Upgrade only the events that need it.',
+  };
+}
+
 export const START_COPY = {
-  pricing: 'See pricing',
   signIn: 'Sign in',
+  skipIntro: 'Skip intro',
+  skipShort: 'Skip',
 } as const;
 
 /** Footer links, matching MarketingFooter's destinations (Contact = the support dialog). */
@@ -343,12 +330,17 @@ export const FOOTER_LINKS: { label: string; to: string | null }[] = [
 /** Every string this module renders, for the copy-rule tests. */
 export function landingCopy(): string[] {
   const s = startFacts();
+  const pr = pricingSection();
   return [
     ...Object.values(HERO), HERO_HEADLINE, WALL_LABEL, ...NAV_LINKS.map((n) => n.label),
+    ...Object.values(EXPLAIN_COPY), ...EXPLAIN_STEPS.flatMap((x) => [x.title, x.body]),
+    ...FILMS.flatMap((f) => [f.eyebrow, f.title, f.line, f.beamy]),
     ...Object.values(PICK_COPY), ...Object.values(TRY_COPY),
     ...Object.values(MAGIC_COPY), ...Object.values(HOW_COPY), ...Object.values(START_COPY),
-    s.heading, s.line, ...s.bullets, ...SECTIONS.map((x) => x.label), ...FOOTER_LINKS.map((f) => f.label),
+    s.heading, s.line, ...s.bullets, ...FOOTER_LINKS.map((f) => f.label),
     ...LOOKS.map((l) => l.label),
+    pr.heading, pr.intro, pr.pro, pr.recommended, pr.line,
+    ...planCards().flatMap((t) => [t.name, t.price, t.unit, t.blurb, ...t.features, pr.cta(t.name)]),
   ];
 }
 

@@ -17,7 +17,9 @@ import '../../styles/brand-compare.css';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { useNoIndex } from '../sales/components/pageMeta';
 import { ALL_FIELDS, COLOR_TOKENS, cardOver, contrastRatio, panelOver, tokenHex, type ColorToken } from '../../lib/brandTokens';
-import { HERO, SECTIONS } from '../../lib/brandLanding';
+import { HERO } from '../../lib/brandLanding';
+import { STOPS } from '../../lib/beamyScroll';
+import LiveWall, { WALL_POOL } from '../../components/beamy/LiveWall';
 
 const TYPE_OPTIONS = [
   { key: 'A', name: 'Bricolage Grotesque', note: 'Recommended, used everywhere', family: "'Bricolage Grotesque Variable', sans-serif" },
@@ -76,7 +78,7 @@ export default function BrandPage() {
   usePageTitle('Beamwall brand');
   useNoIndex();
   const [pressed, setPressed] = useState('wedding');
-  const [dot, setDot] = useState(1);
+  const [stop, setStop] = useState(3);
   const [picked, setPicked] = useState(0);
 
   return (
@@ -256,26 +258,44 @@ export default function BrandPage() {
                 <span className="bw-label">Event name</span>
                 <input className="bw-field" placeholder="Maya’s 30th" />
               </label>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center" role="group" aria-label="Sections">
-                  {SECTIONS.map((s, n) => (
-                    <button key={s.id} type="button" className="bw-dot" title={s.label} aria-label={s.label} aria-current={n === dot ? 'step' : undefined} onClick={() => setDot(n)} />
+              <div className="flex flex-col gap-3">
+                <span className="bw-label">Scroll progress: a 2px hairline under the sticky header, white into the beam core</span>
+                <div className="relative h-11 overflow-hidden rounded-xl" style={{ background: 'rgba(43, 42, 140, 0.42)', boxShadow: 'inset 0 -1px 0 var(--bw-hairline)' }}>
+                  <div aria-hidden className="bw-progress"><span style={{ transform: `scaleX(${((stop + 1) / STOPS.length).toFixed(3)})` }} /></div>
+                </div>
+                <div role="group" aria-label="Stops" className="flex flex-wrap gap-2">
+                  {STOPS.map((s, n) => (
+                    <button key={s.id} type="button" className="bw-glass-chip" aria-pressed={n === stop} onClick={() => setStop(n)}>{s.label}</button>
                   ))}
                 </div>
-                <span className="bw-label">{SECTIONS[dot].label}</span>
               </div>
             </div>
           </div>
         </Block>
 
+        <Block title="Live wall" note="Frosted pane, 3×3 photos set into the glass, one tile swaps every 1.5–2.5s">
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,360px)_1fr] lg:items-center">
+            <div className="bw-wall-mount" style={{ ['--wall-yaw' as string]: '-6deg' }}>
+              <LiveWall pool={WALL_POOL} pins={{}} dim={false} compact={false} ripple={0} seed={7} />
+            </div>
+            <ul className="bw-small flex max-w-[56ch] list-disc flex-col gap-2 pl-5">
+              <li>Hangs turned a few degrees toward Beamy about its outer edge; turns a touch further as the pointer moves (never under reduced motion).</li>
+              <li>Never the same tile twice in a row, never a duplicate photo on the wall.</li>
+              <li>A landing selfie pins the centre tile and sends a soft light ripple outward, ring by ring.</li>
+              <li>A visitor’s own shots pin to their tiles and leave the rotation.</li>
+            </ul>
+          </div>
+        </Block>
+
         <Block title="Motion">
           <ul className="bw-small flex max-w-[70ch] list-disc flex-col gap-2 pl-5">
-            <li>One easing family: cubic-bezier(0.22, 1, 0.36, 1). Stop changes 400–600ms.</li>
-            <li>Outgoing content fades and slides 24px up; incoming rises; children stagger by 60ms.</li>
+            <li>One easing family: cubic-bezier(0.22, 1, 0.36, 1). The page scrolls natively: no scroll-jacking, no snapping.</li>
+            <li>Beamy rides with each section and glides between them on an eased arc; content arrives from his beam (a short condense out of light), and arrives at once on a fast scroll.</li>
+            <li>The hero is a glass box with depth: layers move with the pointer and the scroll by their depth, the box turns 1–3°, the front pane carries a sheen.</li>
             <li>Crystals bob slowly and drift with the pointer (nearer ones more); the glass sheen follows it a little.</li>
             <li>The intro, once per session: a beam drops, Beamy lands, takes a selfie and beams it to the live wall. Any click skips it.</li>
             <li>The beam of light is the one expressive effect: white into periwinkle, with an amber-white core.</li>
-            <li>Reduced motion: crossfades, no beam flight, no flash strobe, static crystals. Every state change still happens.</li>
+            <li>Reduced motion: content still fades in for everyone; no beam flight, no flash strobe, no flicker, still crystals and a still hero box. Every state change still happens.</li>
           </ul>
         </Block>
       </div>
