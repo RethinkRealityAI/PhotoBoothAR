@@ -195,7 +195,21 @@ export const EXPLAIN_COPY = {
   sub: 'Three steps, no app, no queue.',
   line: 'Here’s the whole idea, in three beams.',
 } as const;
-export const EXPLAIN_STEPS: { title: string; body: string }[] = DEFAULT_LANDING_CONTENT.howSteps.map((s) => ({ title: s.title, body: s.body }));
+/**
+ * The original landing's three steps (same titles, same facts), written
+ * shorter for this page: the cards are beamed in one by one and should read
+ * at a glance. No em dashes.
+ */
+export const EXPLAIN_STEPS: { title: string; body: string }[] = [
+  { title: DEFAULT_LANDING_CONTENT.howSteps[0].title, body: 'Name it and pick a colour theme, or upload your invitation and we pull the details and colours from it.' },
+  { title: DEFAULT_LANDING_CONTENT.howSteps[1].title, body: 'Put it on tables, screens or the invite. Guests scan and they’re in: no app, nothing to install.' },
+  { title: DEFAULT_LANDING_CONTENT.howSteps[2].title, body: DEFAULT_LANDING_CONTENT.howSteps[2].body },
+];
+
+/** This page's own wording of a film hook, where the shared default reads machine-written. */
+const FILM_LINE: Partial<Record<string, string>> = {
+  booth: 'One scan drops every guest into a magical booth, right in their browser.',
+};
 
 export type FilmId = 'booth' | 'wall' | 'challenges' | 'cards';
 /**
@@ -212,7 +226,7 @@ export const FILMS: { id: FilmId; eyebrow: string; title: string; line: string; 
   ] as const
 ).map(([id, beamy]) => {
   const f = DEFAULT_LANDING_CONTENT.features.find((x) => x.id === id);
-  return { id, eyebrow: f?.eyebrow ?? '', title: f?.title ?? '', line: f?.copy ?? '', beamy };
+  return { id, eyebrow: f?.eyebrow ?? '', title: f?.title ?? '', line: FILM_LINE[id] ?? f?.copy ?? '', beamy };
 });
 
 export const PICK_COPY = {
@@ -305,8 +319,9 @@ export function pricingSection(): { heading: string; intro: string; pro: string;
   const p = pricingCopy(BETA_FREE);
   return {
     heading: p.heading,
-    intro: p.intro,
-    pro: 'Frequent host? Beamwall Pro is $79/month — Premium on every event, plus 300 AI credits a month.',
+    // The shared beta.ts wording, with its em dash read as the sentence break it is.
+    intro: p.intro.replace(/\s+—\s+(\w)/g, (_m, c: string) => `. ${c.toUpperCase()}`),
+    pro: 'Frequent host? Beamwall Pro is $79/month: Premium on every event, plus 300 AI credits a month.',
     cta: p.cta,
     recommended: 'Recommended',
     line: 'Start free. Upgrade only the events that need it.',

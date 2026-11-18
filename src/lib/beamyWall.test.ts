@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  SHOT_TILES, SWAP_MAX_MS, SWAP_MIN_MS, WALL_CENTRE, WALL_TILES, initialWall, nextSwap, rippleRings, swapDelay,
+  SHOT_TILES, SWAP_MAX_MS, SWAP_MIN_MS, WALL_CENTRE, WALL_TILES, initialWall, nextSwap, rippleRings, swapDelay, wallRows,
 } from './beamyWall';
 import { seededRandom } from './brandLanding';
 
@@ -67,6 +67,29 @@ describe('beamyWall', () => {
   it('rings the ripple out from the centre', () => {
     expect(rippleRings()).toEqual([1, 1, 1, 1, 0, 1, 1, 1, 1]);
     expect(rippleRings(0)).toEqual([0, 1, 2, 1, 1, 2, 2, 2, 2]);
+    // A 3×4 wall rings out over twelve tiles.
+    expect(rippleRings(WALL_CENTRE, 3, 4)).toEqual([1, 1, 1, 1, 0, 1, 1, 1, 1, 2, 2, 2]);
+  });
+
+  it('gives a tall box a fourth row only while the tiles stay roughly square', () => {
+    // A tall phone's wall box (~228×430): four rows of ~69×95 tiles.
+    expect(wallRows(228, 430, 20, 46)).toBe(4);
+    // A short phone's (~204×190): three rows.
+    expect(wallRows(204, 190, 20, 46)).toBe(3);
+    expect(wallRows(0, 400, 20, 46)).toBe(3);
+  });
+
+  it('runs a twelve-tile wall on the same rules (one spare in a pool of 13)', () => {
+    const rand = seededRandom(11);
+    let s = initialWall(13, rand, 12);
+    expect(new Set(s.tiles).size).toBe(12);
+    for (let i = 0; i < 200; i++) {
+      const r = nextSwap(s, 13, rand, new Set([WALL_CENTRE]));
+      expect(r).not.toBeNull();
+      if (r === null) return;
+      expect(new Set(r.state.tiles).size).toBe(12);
+      s = r.state;
+    }
   });
 
   it('puts the newest shot in the centre and covers every tile once', () => {

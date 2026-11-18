@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FOCUS, GLIDE_AFTER, GLIDE_BEFORE, GUTTER_SCALE, REVEAL_FALLBACK_MS, STOPS, directBeamy, facingYaw, followStep, mustRevealNow,
+  FOCUS, GLIDE_AFTER, NIGHT, nightAt, GLIDE_BEFORE, GUTTER_SCALE, REVEAL_FALLBACK_MS, STOPS, directBeamy, facingYaw, followStep, mustRevealNow,
   pageProgress, settledAt, stopIndex, type DirectorInput, type StopAnchor,
 } from './beamyScroll';
 
@@ -163,5 +163,27 @@ describe('reveals and progress', () => {
     expect(pageProgress(-10, 5000, 900)).toBe(0);
     expect(pageProgress(4100, 5000, 900)).toBe(1);
     expect(pageProgress(2050, 5000, 900)).toBeCloseTo(0.5, 5);
+  });
+});
+
+describe('colour journey', () => {
+  const stops = page(STOPS.length);
+  it('starts bright, sinks to midnight mid-page and lifts for the close', () => {
+    expect(nightAt(stops, 0)).toBe(0);
+    expect(NIGHT.hero).toBe(0);
+    expect(Math.max(...Object.values(NIGHT))).toBe(1);
+    expect(nightAt(stops, stops[stopIndex('pick')].top + 500)).toBeCloseTo(1, 5);
+    expect(nightAt(stops, 1e9)).toBeLessThan(0.2);
+    expect(nightAt([], 500)).toBe(0);
+  });
+  it('never steps: a fine sweep moves by tiny amounts', () => {
+    let prev = nightAt(stops, 0);
+    for (let y = 0; y < STOPS.length * 1000; y += 4) {
+      const n = nightAt(stops, y);
+      expect(Math.abs(n - prev), `y ${y}`).toBeLessThan(0.01);
+      expect(n).toBeGreaterThanOrEqual(0);
+      expect(n).toBeLessThanOrEqual(1);
+      prev = n;
+    }
   });
 });

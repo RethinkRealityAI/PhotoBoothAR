@@ -231,6 +231,30 @@ export function pageProgress(scrollY: number, docH: number, vpH: number): number
 }
 
 /**
+ * The page's colour journey: how far each stop's field has sunk from the
+ * bright periwinkle into the midnight atmosphere (0 = bright, 1 = midnight).
+ * The hero is bright, the middle of the page is deep, the close lifts again.
+ */
+export const NIGHT: Record<StopId, number> = {
+  hero: 0, explain: 0.5, 'film-booth': 0.85, 'film-wall': 0.95, 'film-challenges': 1, 'film-cards': 1,
+  pick: 1, try: 0.95, magic: 1, how: 0.8, pricing: 0.35, start: 0.1,
+};
+
+/** The journey at a document y (the focus line): eased between stop centres, so it never steps. */
+export function nightAt(stops: StopAnchor[], focusY: number): number {
+  if (stops.length === 0) return 0;
+  const lv = (i: number) => NIGHT[STOPS[Math.min(i, STOPS.length - 1)].id];
+  const mid = (i: number) => (stops[i].top + stops[i].bottom) / 2;
+  if (focusY <= mid(0)) return lv(0);
+  for (let i = 0; i + 1 < stops.length; i++) {
+    const a = mid(i);
+    const b = mid(i + 1);
+    if (focusY <= b) return lv(i) + (lv(i + 1) - lv(i)) * smoothstep(a, b, focusY);
+  }
+  return lv(stops.length - 1);
+}
+
+/**
  * A section's reveal must never strand content: it reveals when Beamy's action
  * lands, and at the latest when the visitor has scrolled on (left the stop or
  * read most of it) or the fallback timer runs out.

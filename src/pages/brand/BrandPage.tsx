@@ -273,7 +273,7 @@ export default function BrandPage() {
           </div>
         </Block>
 
-        <Block title="Live wall" note="Frosted pane, 3×3 photos set into the glass, one tile swaps every 1.5–2.5s">
+        <Block title="Live wall" note="Frosted pane, 3×3 photos set into the glass (3×4 on a tall phone hero), one tile swaps every 1.5–2.5s; on the hero each swap arrives on a photo card beamed from the floating phone">
           <div className="grid gap-8 lg:grid-cols-[minmax(0,360px)_1fr] lg:items-center">
             <div className="bw-wall-mount" style={{ ['--wall-yaw' as string]: '-6deg' }}>
               <LiveWall pool={WALL_POOL} pins={{}} dim={false} compact={false} ripple={0} seed={7} />
@@ -283,6 +283,29 @@ export default function BrandPage() {
               <li>Never the same tile twice in a row, never a duplicate photo on the wall.</li>
               <li>A landing selfie pins the centre tile and sends a soft light ripple outward, ring by ring.</li>
               <li>A visitor’s own shots pin to their tiles and leave the rotation.</li>
+            </ul>
+          </div>
+        </Block>
+
+        <Block title="Backdrop journey and grain" note="/beamy: bright at the hero, midnight mid-page, bright again for the close; a still grain under every pane">
+          <div className="flex flex-col gap-4">
+            <div aria-hidden className="relative h-40 overflow-hidden rounded-2xl" style={{ background: 'linear-gradient(90deg, var(--bw-bg) 0%, var(--bw-night-2) 28%, var(--bw-night) 50%, var(--bw-night-2) 72%, var(--bw-bg) 100%)' }}>
+              <span className="absolute rounded-full" style={{ left: '28%', top: '-30%', width: '30%', height: '120%', backgroundImage: 'radial-gradient(closest-side, rgba(124, 108, 247, 0.42), transparent)' }} />
+              <span className="absolute rounded-full" style={{ left: '52%', top: '40%', width: '22%', height: '90%', backgroundImage: 'radial-gradient(closest-side, var(--bw-night-teal), transparent)' }} />
+              <div className="bw-grain" style={{ ['--bw-grain-opacity' as string]: 0.07 }} />
+              <div className="bw-glass-card bw-card-lift absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-2xl px-5 py-3">
+                <span className="bw-small" style={{ color: 'var(--bw-ink)' }}>Glass sits above the grain</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {['Hero · bright', 'The idea · indigo', 'Films → Try it · midnight', 'How it works · lifting', 'Pricing, Start · bright'].map((t) => (
+                <span key={t} className="bw-label" style={{ color: 'var(--bw-ink)' }}>{t}</span>
+              ))}
+            </div>
+            <ul className="bw-small flex max-w-[60ch] list-disc flex-col gap-2 pl-5">
+              <li>One fixed backdrop: the midnight layer (navy, big soft violet glows, one faint teal glow low right) crossfades over the bright field from the scroll position, so there are no seams.</li>
+              <li>Grain: tiled SVG noise at 7% in overlay, static, under the panes; it also dithers the long gradients. A soft vignette deepens with the night.</li>
+              <li>On the darker stretch the panes and cards gain a brighter rim and a faint inner glow.</li>
             </ul>
           </div>
         </Block>

@@ -36,7 +36,7 @@
  */
 import {
   useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
-  type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode,
+  type CSSProperties, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode,
 } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -55,7 +55,8 @@ import { useNoIndex } from '../sales/components/pageMeta';
 import { STEP_CREATE_CUTOUT, STEP_QR_CUTOUT, STEP_WALL_CUTOUT } from '../../lib/landingAssets';
 import type { Rect } from '../../lib/beamGeometry';
 import { REDUCED_GLIDE_S, flashOpacity, photoState } from '../../lib/beamySelfie';
-import { SHOT_TILES, WALL_CENTRE } from '../../lib/beamyWall';
+import { SHOT_TILES, WALL_CENTRE, wallRows } from '../../lib/beamyWall';
+import HeroPhone, { type Box, type HeroPhoneHandle } from './HeroPhone';
 import {
   AUDIENCES, DELIVER_STEPS, DONE_FOR_YOU, GREETING, HELLO, POKE_LINES, audienceById,
   type Audience, type AudienceIcon, type StepIcon,
@@ -66,7 +67,7 @@ import {
   releaseVelocity, startFacts, type Celebration, type FilmId, type Reaction,
 } from '../../lib/brandLanding';
 import {
-  STOPS, directBeamy, mustRevealNow, pageProgress, stopIndex,
+  FOCUS, STOPS, directBeamy, mustRevealNow, nightAt, pageProgress, stopIndex,
   type BeamyTarget, type Side, type StopAnchor, type StopId,
 } from '../../lib/beamyScroll';
 import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, type StageLayout } from './BeamyStage';
@@ -82,6 +83,20 @@ import cardsPoster from '../../assets/landing/cards-feature-poster.jpg';
 
 /** The beam's calm palette for the photo dissolve (palette[0] tints the core). */
 const BEAM_PALETTE = ['#C9CCFF', '#FFFFFF', '#A5ABFF', '#FFC56B'];
+/** Backdrop shapes: position (in the fixed backdrop) and how far they rise over the whole page (--k, vh). */
+const BACKDROP_SHAPES = [
+  { x: '-14vw', y: '40vh', s: '62vmax', k: 90 },
+  { x: '64vw', y: '120vh', s: '54vmax', k: 170 },
+  { x: '-10vw', y: '230vh', s: '58vmax', k: 260 },
+];
+/** Glass shards at the page edges (never where copy is): x, y, width px, rise (vh), turn, blur (depth). */
+const BACKDROP_SHARDS = [
+  { x: '1.2vw', y: '70vh', w: 54, k: 160, r: -16, blur: 2 },
+  { x: '94vw', y: '130vh', w: 72, k: 240, r: 22, blur: 4 },
+  { x: '2.4vw', y: '210vh', w: 38, k: 300, r: 30, blur: 1.5 },
+  { x: '95vw', y: '300vh', w: 46, k: 380, r: -24, blur: 3 },
+  { x: '0.8vw', y: '380vh', w: 66, k: 440, r: 12, blur: 5 },
+];
 const AUDIENCE_ICONS: Record<AudienceIcon, LucideIcon> = { ClipboardList, Cake, Users, Briefcase, Gift };
 const STEP_ICONS: Record<StepIcon, LucideIcon> = { CalendarPlus, Palette, Link2 };
 const EXPLAIN_ART = [STEP_CREATE_CUTOUT, STEP_QR_CUTOUT, STEP_WALL_CUTOUT];
@@ -179,7 +194,22 @@ interface Cache {
   dockH: number;
   band: { top: number; bottom: number };
   heroH: number;
+  /** Phones: the bottom of the hero copy (document px); the bubble never rises over it. */
+  heroCopyBottom: number | null;
 }
+
+/** The hero's measured layout: the wall's box and rows, Beamy's spot on phones, the phone accent. */
+interface HeroGeo {
+  rows: 3 | 4;
+  /** Laptops: the wall's top (in its grid), width and height. */
+  wall: { top: number; width: number; height: number } | null;
+  /** Phones/tablets: Beamy's height and feet x inside the wall row. */
+  stand: { h: number; x: number } | null;
+  /** The phone accent's box in the hero pane (null: no room for it). */
+  accent: Box | null;
+}
+/** The hero's flight time for a photo card riding the beam (the wall swaps as it lands). */
+const ACCENT_FLIGHT_MS = 1150;
 
 export default function BeamyPage() {
   usePageTitle('Beamwall · Your immersive photo booth');
@@ -209,6 +239,8 @@ export default function BeamyPage() {
   const [introRunning, setIntroRunning] = useState(false);
   const [heroPin, setHeroPin] = useState<Pin | null>(null);
   const [ripple, setRipple] = useState(0);
+  const [heroGeo, setHeroGeo] = useState<HeroGeo | null>(null);
+  const [accentOn, setAccentOn] = useState(false);
 
   const audience = picked ?? DEFAULT_AUDIENCE;
   const audienceRef = useRef(audience);
@@ -224,6 +256,12 @@ export default function BeamyPage() {
   const scrollTop = () => scrollerRef.current?.scrollTop ?? 0;
   const heroRef = useRef<HTMLElement | null>(null);
   const heroPanelRef = useRef<HTMLDivElement | null>(null);
+  const heroGridRef = useRef<HTMLDivElement | null>(null);
+  const heroH1Ref = useRef<HTMLHeadingElement | null>(null);
+  const heroWallColRef = useRef<HTMLDivElement | null>(null);
+  const heroMidRef = useRef<HTMLDivElement | null>(null);
+  const heroRegionRef = useRef<HTMLDivElement | null>(null);
+  const accentRef = useRef<HeroPhoneHandle | null>(null);
   const progressRef = useRef<HTMLSpanElement | null>(null);
   const dockRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
@@ -328,7 +366,9 @@ export default function BeamyPage() {
       yaw: t.yaw,
       presence: t.presence,
       floor: t.active === 0 && !docked && !t.travelling,
-      bubbleMinY: docked ? c.dockY - c.dockH + 4 : c.headerH + 8,
+      // In the dock: inside the dock glass (its top is vh - dockH). Phone hero:
+      // never up over the copy.
+      bubbleMinY: docked ? vh - c.dockH + 6 : t.active === 0 && c.heroCopyBottom !== null ? Math.max(c.headerH + 8, c.heroCopyBottom - y + 6) : c.headerH + 8,
       bubbleSide: docked,
       bubbleAway: t.travelling,
       bubbleMaxY: docked ? c.dockY : vh - 12,
@@ -341,7 +381,14 @@ export default function BeamyPage() {
       scroll: Math.min(y, c.heroH),
     };
     const bar = progressRef.current;
-    if (bar !== null) bar.style.transform = `scaleX(${pageProgress(y, scrollerRef.current?.scrollHeight ?? vh, vh).toFixed(4)})`;
+    const sp = pageProgress(y, scrollerRef.current?.scrollHeight ?? vh, vh);
+    if (bar !== null) bar.style.transform = `scaleX(${sp.toFixed(4)})`;
+    // The backdrop's slow tonal shift and drifting shapes (decorative: held still when reduced).
+    if (!reducedRef.current) scrollerRef.current?.style.setProperty('--bw-sp', sp.toFixed(4));
+    // The colour journey (a colour, not motion: it follows the scroll for everyone).
+    const night = nightAt(c.stops, y + vh * FOCUS).toFixed(3);
+    const sc = scrollerRef.current;
+    if (sc !== null && sc.style.getPropertyValue('--bw-night-mix') !== night) sc.style.setProperty('--bw-night-mix', night);
     // Scroll depth on the hero's decor (decorative: off when reduced).
     const hero = heroRef.current;
     if (hero !== null && !reducedRef.current) hero.style.setProperty('--hs', Math.min(y, c.heroH).toFixed(0));
@@ -373,7 +420,7 @@ export default function BeamyPage() {
     const vh = window.innerHeight;
     const isPhone = vw < PHONE_MAX;
     const headerH = Math.round(headerRef.current?.getBoundingClientRect().height ?? 64);
-    const dockH = vh < 700 ? 124 : 144;
+    const dockH = vh < 700 ? 96 : 108;
     const dockY = vh - 14;
     const stops: StopAnchor[] = [];
     const fences: Cache['fences'] = [];
@@ -425,6 +472,7 @@ export default function BeamyPage() {
       propSpot: ps !== null ? { ...ps, top: ps.top + y } : null,
       band: { top: headerH + 6, bottom: isPhone ? dockY : vh - 18 },
       heroH: heroR?.height ?? vh,
+      heroCopyBottom: isPhone ? (() => { const r = rectOf(root.querySelector('[data-card-avoid]')); return r !== null ? r.top + r.height + y : null; })() : null,
     };
     direct();
   }, [direct]);
@@ -461,6 +509,101 @@ export default function BeamyPage() {
       ro.disconnect();
     };
   }, [direct, measure]);
+
+  /* ── Hero layout: a big wall that fills its side, Beamy and the phone accent ──
+     Laptops: the wall's top meets the headline's cap height and it grows into
+     its column (square tiles, so it stays clear of the floor). Phones and
+     tablets: the wall takes the right ~60% of the row between the copy and
+     the CTAs (four rows when the row is tall), Beamy stands lower left just
+     in front of its corner, and the phone accent floats in the gap above him. */
+  const layoutHero = useCallback(() => {
+    const pane = heroPanelRef.current;
+    if (pane === null) return;
+    const pr = pane.getBoundingClientRect();
+    const rel = (r: DOMRect): Box => ({ left: r.left - pr.left, top: r.top - pr.top, width: r.width, height: r.height });
+    let next: HeroGeo;
+    if (window.innerWidth >= WIDE_HERO_MIN) {
+      const grid = heroGridRef.current;
+      const h1 = heroH1Ref.current;
+      const col = heroWallColRef.current;
+      const mid = heroMidRef.current;
+      if (grid === null || h1 === null || col === null || mid === null) return;
+      const gr = grid.getBoundingClientRect();
+      const fs = parseFloat(getComputedStyle(h1).fontSize) || 60;
+      // The wall's frame top meets the headline's cap line.
+      const top = Math.max(16, h1.getBoundingClientRect().top - gr.top + fs * 0.12 - 10);
+      // Square tiles: 3 tiles + 2 gaps of 7 + 8px padding a side; label row 26.
+      const chromeW = 14 + 16;
+      const chromeH = 14 + 16 + 26;
+      // It may reach 24px into the panel's side padding.
+      let width = Math.min(col.getBoundingClientRect().width + 24, 450);
+      const maxH = gr.height - top - 36;
+      if (((width - chromeW) / 3) * 3 + chromeH > maxH) width = Math.max(200, ((maxH - chromeH) / 3) * 3 + chromeW);
+      const height = ((width - chromeW) / 3) * 3 + chromeH;
+      // The accent: in the middle column, clear above Beamy's head and his bubble.
+      const slotEl = mid.querySelector<HTMLElement>('[data-beamy-slot]');
+      const mr = mid.getBoundingClientRect();
+      const sr = slotEl?.getBoundingClientRect();
+      let accent: Box | null = null;
+      if (sr !== undefined && sr.height > 2) {
+        const cap = Number(slotEl?.dataset.max ?? 260);
+        const bh = Math.max(96, Math.min(sr.height - BUBBLE_ROOM, sr.width * 0.9, cap));
+        const headY = sr.bottom - bh;
+        const availTop = mr.top + 18;
+        const availBottom = headY - BUBBLE_ROOM - 12;
+        const ah = Math.min(210, (availBottom - availTop) * 0.92);
+        if (ah >= 110) {
+          const aw = ah * 0.5;
+          const cx = mr.left + mr.width * 0.42;
+          accent = rel(new DOMRect(cx - aw / 2, availTop + (availBottom - availTop - ah) * 0.4, aw, ah));
+        }
+      }
+      next = { rows: 3, wall: { top, width, height }, stand: null, accent };
+    } else {
+      const region = heroRegionRef.current;
+      if (region === null) return;
+      const rr = region.getBoundingClientRect();
+      const wallW = Math.round(rr.width * 0.6);
+      const wallLeft = rr.width - wallW;
+      // Compact wall: 3 tiles + 2 gaps of 4 + 6px padding a side; label row ~24.
+      const rows = wallRows(wallW, rr.height, 8 + 12, 24 + 12 + 12);
+      // With his arms out Beamy is ~1.2× as wide as he is tall: he fills the
+      // gap left of the wall and his near arm overlaps its corner by ~18px.
+      const h = Math.max(96, Math.min(rr.height * 0.55, (wallLeft + 18) / 1.2, 280));
+      const x = wallLeft - h * 0.6 + 18;
+      const avail = rr.height - h - 22;
+      const ah = Math.min(avail * 0.8, 190, 2 * (wallLeft - 24));
+      const accent = ah >= 64
+        ? rel(new DOMRect(rr.left + (wallLeft - ah * 0.5) / 2 - 4, rr.top + 6 + (avail - ah) / 2, ah * 0.5, ah))
+        : null;
+      next = { rows, wall: null, stand: { h, x }, accent };
+    }
+    setHeroGeo((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+  }, []);
+  useLayoutEffect(() => { layoutHero(); }, [layoutHero, vp.w, vp.h, wideHero, showContent]);
+  // A new hero geometry moves Beamy's slot: re-measure his anchor.
+  useLayoutEffect(() => { measure(); }, [heroGeo, measure]);
+  useEffect(() => {
+    const ro = new ResizeObserver(() => layoutHero());
+    if (heroPanelRef.current !== null) ro.observe(heroPanelRef.current);
+    if (heroRegionRef.current !== null) ro.observe(heroRegionRef.current);
+    if (heroGridRef.current !== null) ro.observe(heroGridRef.current);
+    void document.fonts?.ready.then(() => layoutHero());
+    return () => ro.disconnect();
+  }, [layoutHero, wideHero]);
+
+  /* The accent appears once the selfie has landed (or at once on a skip, a
+     failed model, or a visitor who scrolled on before the intro). */
+  useEffect(() => {
+    if (accentOn) return;
+    if (failed || (arrival === 'done' && !introRunning)) { setAccentOn(true); return; }
+    const id = window.setTimeout(() => setAccentOn(true), 20000);
+    return () => window.clearTimeout(id);
+  }, [accentOn, failed, arrival, introRunning]);
+  /** The wall is about to swap a tile: a photo card leaves the phone and lands there as it swaps. */
+  const onHeroUpcoming = useCallback((tile: HTMLDivElement, src: string) => {
+    accentRef.current?.fly(tile, src, ACCENT_FLIGHT_MS);
+  }, []);
 
   /* Deep link: ?s=<stop> scrolls there on load. */
   useEffect(() => {
@@ -975,13 +1118,14 @@ export default function BeamyPage() {
     'data-on': shown(id, n) ? 'true' : 'false',
   });
 
-  const slot = (extra = '', opts: { max?: number; bubble?: boolean } = {}, children?: ReactNode) => (
+  const slot = (extra = '', opts: { max?: number; bubble?: boolean } = {}, children?: ReactNode, style?: CSSProperties) => (
     <div
       data-beamy-slot
       data-max={opts.max !== undefined ? String(Math.round(opts.max)) : undefined}
       data-bubble={opts.bubble === false ? 'none' : undefined}
       aria-hidden
-      className={`relative min-h-0 ${extra}`}
+      className={`${extra.includes('absolute') ? '' : 'relative'} min-h-0 ${extra}`}
+      style={style}
     >
       {children}
     </div>
@@ -1070,7 +1214,10 @@ export default function BeamyPage() {
   };
   const stand = (extra = '') => slot(`w-full max-w-[300px] ${extra || 'h-[min(380px,52vh)]'}`);
   const heading = (text: string, id: string, cls = 'bw-h2') => <h2 id={id} className={cls}>{text}</h2>;
-  const stopClass = `bw-stop relative mx-auto w-full max-w-[1280px] ${phone ? 'px-4 py-14' : 'px-[clamp(24px,4vw,64px)] py-[clamp(88px,13vh,150px)]'}`;
+  /* Every section sits in its own glass pane (brand.css .bw-stop::before),
+     inset inside the section's padding; the gap between two panes is the
+     gutter Beamy crosses the page in. */
+  const stopClass = `bw-stop relative mx-auto w-full max-w-[1320px] ${phone ? 'px-6 py-16' : 'px-[clamp(48px,6.5vw,104px)] py-[clamp(96px,14vh,156px)]'}`;
 
   /* ── Hero ──────────────────────────────────────────────────────────── */
   const heroCtas = (
@@ -1084,20 +1231,40 @@ export default function BeamyPage() {
   const heroHeadline = (
     <>
       <p className={`bw-eyebrow ${wideHero ? '' : 'text-[14px] after:hidden'}`} style={i(0)}>{HERO.eyebrow}</p>
-      <h1 className={`bw-display ${wideHero ? 'mt-6' : 'mt-2'}`} style={wideHero ? { ...i(1), fontSize: 'clamp(40px, min(22px + 3vw, 7.4dvh), 76px)' } : i(1)}>
+      <h1 ref={heroH1Ref} className={`bw-display ${wideHero ? 'mt-6' : 'mt-2'}`} style={wideHero ? { ...i(1), fontSize: 'clamp(40px, min(22px + 3vw, 7.4dvh), 76px)' } : i(1)}>
         <span className="bw-light block">{HERO.lead}</span>
         <span className="block">{HERO.strong}</span>
       </h1>
-      <p className={`bw-body ${wideHero ? 'mt-5 max-w-[34ch]' : 'mt-2 max-w-[36ch]'}`} style={i(2)}>{HERO.sub}</p>
+      {/* Full ink here: the hero's sheen and floor light sit behind this line. */}
+      <p className={`bw-body ${wideHero ? 'mt-5 max-w-[34ch]' : 'mt-2 max-w-[36ch]'}`} style={{ ...i(2), color: 'var(--bw-ink)' }}>{HERO.sub}</p>
     </>
   );
+  const heroRows = heroGeo?.rows ?? 3;
+  const flying = accentOn && !reduced && heroGeo?.accent != null;
   const heroWall = (
-    <div className="bw-wall-mount" style={{ ['--wall-yaw' as string]: wideHero ? '-9deg' : '-5deg' }}>
-      <LiveWall pool={WALL_POOL} pins={heroPins} dim={introRunning} compact={!wideHero} centreRef={heroTileRef} ripple={ripple} seed={seed} />
+    <div className="bw-wall-mount bw-wall-glint h-full" style={{ ['--wall-yaw' as string]: wideHero ? '-9deg' : '-5deg' }}>
+      <LiveWall
+        key={heroRows}
+        pool={WALL_POOL} pins={heroPins} dim={introRunning} compact={!wideHero} centreRef={heroTileRef} ripple={ripple} seed={seed}
+        rows={heroRows} fill lead={flying ? ACCENT_FLIGHT_MS : 0} onUpcoming={flying ? onHeroUpcoming : undefined}
+      />
     </div>
+  );
+  const accent = accentOn && heroGeo?.accent != null && (
+    <HeroPhone
+      ref={accentRef}
+      box={heroGeo.accent}
+      restOn={() => heroTileRef.current}
+      photo={WALL_POOL[0]}
+      frame={lookFrameUrl(null)}
+      reduced={reduced}
+      depth={wideHero ? { dx: 12, dy: 8, ds: -0.06 } : { dx: 0, dy: 0, ds: -0.04 }}
+    />
   );
   const heroSlotChildren = (
     <>
+      {/* A faint pool of light on the floor under his feet. */}
+      <span aria-hidden className="bw-floor-pool" />
       {!ready && !failed && (
         <p className="bw-label pointer-events-none absolute inset-x-0 top-[55%] text-center">Beamy is on his way&hellip;</p>
       )}
@@ -1158,30 +1325,42 @@ export default function BeamyPage() {
         </div>
         <div aria-hidden className="bw-hero-floor" style={{ borderRadius: `0 0 ${radius}px ${radius}px` }} />
         {wideHero ? (
-          <div className="relative grid h-full grid-cols-[minmax(0,1.36fr)_minmax(0,0.92fr)_minmax(0,0.86fr)] items-center gap-6 px-[clamp(28px,3.4vw,64px)]">
+          <div ref={heroGridRef} className="relative grid h-full grid-cols-[minmax(0,1.36fr)_minmax(0,0.78fr)_minmax(0,1fr)] items-center gap-6 px-[clamp(28px,3.4vw,64px)]">
             <div data-card-avoid data-bubble-left className={`relative z-10 flex flex-col ${showContent ? 'bw-rise' : 'invisible'}`}>
               {heroHeadline}
               {heroCtas}
             </div>
-            <div className="flex h-full flex-col justify-end pb-[9%]">
-              {slot('h-[78%] w-full', { max: Math.min(410, vp.h * 0.45) }, heroSlotChildren)}
+            <div ref={heroMidRef} className="flex h-full flex-col justify-end pb-[clamp(96px,13vh,132px)]">
+              {slot('h-[72%] w-full', { max: Math.min(380, vp.h * 0.42) }, heroSlotChildren)}
             </div>
-            <div className={`flex justify-end ${showContent ? 'bw-rise' : 'invisible'}`}>
-              <div data-bubble-right style={{ ...i(2), width: 'min(370px, 100%, calc((100dvh - 300px) * 0.74))' }}>{heroWall}</div>
+            <div ref={heroWallColRef} className={`flex h-full items-start justify-end ${showContent ? 'bw-rise' : 'invisible'}`}>
+              {/* Back plane: big out-of-focus crystals behind the wall. */}
+              <span aria-hidden className="bw-crystal-far" style={{ right: 0, top: `calc(${heroGeo?.wall?.top ?? 120}px - 40px)`, width: 150, height: 190, rotate: '18deg' }} />
+              <span aria-hidden className="bw-crystal-far" style={{ right: `calc(${heroGeo?.wall?.width ?? 360}px - 50px)`, top: `calc(${(heroGeo?.wall?.top ?? 120) + (heroGeo?.wall?.height ?? 400)}px - 110px)`, width: 110, height: 140, rotate: '-24deg' }} />
+              <div data-bubble-right className="relative" style={{ ...i(2), marginTop: heroGeo?.wall?.top ?? 0, marginRight: heroGeo?.wall != null ? -24 : 0, width: heroGeo?.wall?.width ?? 'min(370px, 100%)', height: heroGeo?.wall?.height ?? 'auto' }}>{heroWall}</div>
             </div>
             <div className="absolute bottom-5 left-[clamp(28px,3.4vw,64px)]">{skipChip}</div>
           </div>
         ) : (
           <div className="relative flex h-full flex-col px-4 pb-4 pt-4 sm:px-8">
             <div data-card-avoid className={`shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroHeadline}</div>
-            <div className="mt-3 flex min-h-[260px] flex-1 items-end gap-3">
-              {slot('h-full min-h-[200px] min-w-0 flex-1', { max: Math.min(230, vp.h * 0.3), bubble: false }, heroSlotChildren)}
-              <div className="mb-1 w-[46%] max-w-[240px] shrink-0">{heroWall}</div>
+            {/* The wall fills the right ~60% of the row between the copy and the
+                CTAs; Beamy stands lower left, just in front of its corner. */}
+            <div ref={heroRegionRef} className="relative mt-3 min-h-[200px] flex-1">
+              <span aria-hidden className="bw-crystal-far" style={{ right: 0, top: '-6%', width: 90, height: 120, rotate: '18deg' }} />
+              <div className={`absolute bottom-0 right-0 top-0 w-[60%] ${showContent ? 'bw-rise' : 'invisible'}`} style={i(2)}>{heroWall}</div>
+              {heroGeo?.stand != null && slot(
+                'absolute bottom-0',
+                { max: heroGeo.stand.h, bubble: false },
+                heroSlotChildren,
+                { left: heroGeo.stand.x - heroGeo.stand.h / 0.85 / 2, width: heroGeo.stand.h / 0.85, height: heroGeo.stand.h },
+              )}
             </div>
             <div className={`mt-4 shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroCtas}</div>
             {introRunning && <div className="mt-3 flex justify-center">{skipChip}</div>}
           </div>
         )}
+        {accent}
         {/* The front pane: a crisp rim and a soft sheen that slides with the pointer. */}
         <div aria-hidden className="bw-hero-front" style={{ borderRadius: radius }} />
       </div>
@@ -1208,7 +1387,7 @@ export default function BeamyPage() {
           </div>
           <ol className={`mt-8 grid gap-4 ${explainCols}`}>
             {EXPLAIN_STEPS.map((s, n) => (
-              <li key={s.title} data-beam-target {...reveal('explain', n + 1, `bw-glass-card bw-condense flex ${explainCols === 'grid-cols-3' ? 'flex-col' : 'items-center'} gap-4 p-5`)}>
+              <li key={s.title} data-beam-target {...reveal('explain', n + 1, `bw-glass-card bw-card-lift bw-condense flex ${explainCols === 'grid-cols-3' ? 'flex-col' : 'items-center'} gap-4 p-5`)}>
                 <div data-beam-at className={`relative flex shrink-0 items-center justify-center ${explainCols === 'grid-cols-3' ? 'h-36' : 'h-24 w-24'}`}>
                   <span aria-hidden className="bw-art-glow" />
                   <img src={EXPLAIN_ART[n]} alt="" aria-hidden loading="lazy" draggable={false} className="relative h-full w-auto object-contain drop-shadow-[0_16px_28px_rgba(22,18,78,0.55)]" />
@@ -1237,7 +1416,7 @@ export default function BeamyPage() {
         {split(def.side, stand(), (
           <>
             <div {...reveal(id, 0)}>
-              <p className="bw-eyebrow flex items-center gap-2.5 after:hidden">
+              <p className="bw-eyebrow flex-row items-center gap-2.5 after:hidden">
                 <span className="bw-icon-tile !h-9 !w-9" aria-hidden><m.Icon size={20} from="#FFFFFF" to="#C9CCFF" /></span>
                 {f.eyebrow}
               </p>
@@ -1245,7 +1424,7 @@ export default function BeamyPage() {
               <p className="bw-body mt-3 max-w-[46ch]">{f.line}</p>
             </div>
             <div data-film-frame data-lit={lit ? 'true' : 'false'} className="bw-film mt-7">
-              <FilmEmbed src={m.src} poster={m.poster} label={`${f.title} — feature film`} hold={!lit} chipClassName="bw-film-chip" />
+              <FilmEmbed src={m.src} poster={m.poster} label={`${f.title}: feature film`} hold={!lit} chipClassName="bw-film-chip" />
             </div>
           </>
         ))}
@@ -1357,7 +1536,7 @@ export default function BeamyPage() {
             {DELIVER_STEPS.map((d, n) => {
               const Icon = STEP_ICONS[d.icon];
               return (
-                <li key={d.title} data-beam-target {...reveal('how', n + 1, 'bw-glass-card bw-condense flex items-start gap-4 p-4')}>
+                <li key={d.title} data-beam-target {...reveal('how', n + 1, 'bw-glass-card bw-card-lift bw-condense flex items-start gap-4 p-4')}>
                   <span className="bw-icon-tile" aria-hidden><Icon /></span>
                   <span className="min-w-0">
                     <span className="bw-label block">Step {n + 1}</span>
@@ -1379,7 +1558,7 @@ export default function BeamyPage() {
   const planGrid = (
     <div data-drift-target {...reveal('pricing', ALL, `mt-10 grid gap-x-4 gap-y-6 ${planCols}`)}>
       {plans.map((t) => (
-        <div key={t.name} className="bw-glass-card bw-plan flex flex-col p-6" data-popular={t.popular === true ? 'true' : undefined}>
+        <div key={t.name} className="bw-glass-card bw-card-lift bw-plan flex flex-col p-6" data-popular={t.popular === true ? 'true' : undefined}>
           {t.popular === true && <span className="bw-plan-badge">{pricing.recommended}</span>}
           <h3 className="bw-label" style={{ color: 'var(--bw-ink)' }}>{t.name}</h3>
           <p className="mt-2 flex items-baseline gap-1.5">
@@ -1435,7 +1614,13 @@ export default function BeamyPage() {
   );
   const startSec = (
     <section ref={stopRef.start} id="start" data-stop="start" aria-labelledby="h-start" className={`${stopClass} text-center`}>
-      {phone ? startCta : (
+      {phone ? startCta : !wideHero ? (
+        // Tablets: no room for a side column; Beamy stands above the call to action.
+        <div className="flex flex-col items-center">
+          {slot('h-[min(300px,34vh)] w-full max-w-[240px]')}
+          <div className="w-full max-w-[640px]">{startCta}</div>
+        </div>
+      ) : (
         <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,640px)_minmax(0,1fr)] items-center gap-[clamp(16px,2vw,32px)]">
           <div className="flex justify-end">{slot('h-[min(320px,42vh)] w-full max-w-[240px]')}</div>
           <div data-bubble-right>{startCta}</div>
@@ -1464,9 +1649,31 @@ export default function BeamyPage() {
       ref={scrollerRef}
       tabIndex={-1}
       className="bw-root bw-scroll relative h-full overflow-y-auto overflow-x-clip"
-      style={{ outline: 'none',  ['--bw-header-h' as string]: `${headerH}px`, ['--bw-dock-h' as string]: phone ? `${vp.h < 700 ? 124 : 144}px` : '0px' }}
+      style={{ outline: 'none',  ['--bw-header-h' as string]: `${headerH}px`, ['--bw-dock-h' as string]: phone ? `${vp.h < 700 ? 96 : 108}px` : '0px' }}
     >
-      <div aria-hidden className="bw-backdrop" />
+      <div aria-hidden className="bw-backdrop">
+        {/* Large soft shapes and glass shards behind the panes, drifting past
+            at different depths as the page scrolls (--bw-sp, 0..1). They sit
+            behind the glass, so the frost softens them; only the page edges
+            show them crisp, and no copy lives there. */}
+        {BACKDROP_SHAPES.map((b, n) => (
+          <span key={`b${n}`} className="bw-backdrop-shape" style={{ left: b.x, top: b.y, width: b.s, height: b.s, ['--k' as string]: b.k }} />
+        ))}
+        {/* The journey: the bright field deepens through indigo into the
+            midnight atmosphere mid-page, then lifts again for the close
+            (--bw-night-mix 0..1 from the scroll position; a crossfade, so no seams). */}
+        <div className="bw-night">
+          <span className="bw-night-glow bw-night-violet" />
+          <span className="bw-night-glow bw-night-indigo" />
+          <span className="bw-night-glow bw-night-teal" />
+        </div>
+        {!phone && BACKDROP_SHARDS.map((b, n) => (
+          <span key={`s${n}`} className="bw-drift" style={{ left: b.x, top: b.y, width: b.w, height: b.w * 1.3, ['--k' as string]: b.k, ['--r' as string]: `${b.r}deg`, ['--b' as string]: `${b.blur}px` }} />
+        ))}
+        {/* Grit: a still film grain and a soft vignette over the field, under every pane. */}
+        <div className="bw-vignette" />
+        <div className="bw-grain" />
+      </div>
 
       <header ref={headerRef} className="bw-header sticky top-0 z-30" style={{ height: headerH }}>
         <div className={`mx-auto flex h-full max-w-[1440px] items-center justify-between gap-3 ${phone ? 'px-3' : 'px-[clamp(20px,2.6vw,48px)]'}`}>

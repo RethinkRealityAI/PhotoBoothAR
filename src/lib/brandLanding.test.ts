@@ -125,14 +125,21 @@ describe('copy', () => {
     expect(NAV_LINKS.map((n) => n.stop)).toEqual(['try', 'how', 'pricing']);
   });
 
-  it('reuses the original landing’s explainer and film copy', () => {
-    expect(EXPLAIN_STEPS).toEqual(DEFAULT_LANDING_CONTENT.howSteps.map((h) => ({ title: h.title, body: h.body })));
+  it('reuses the original landing’s explainer and film titles, in shorter, dash-free lines', () => {
+    expect(EXPLAIN_STEPS.map((x) => x.title)).toEqual(DEFAULT_LANDING_CONTENT.howSteps.map((h) => h.title));
     expect(FILMS.map((f) => f.id)).toEqual(['booth', 'wall', 'challenges', 'cards']);
     for (const f of FILMS) {
       const d = DEFAULT_LANDING_CONTENT.features.find((x) => x.id === f.id);
       expect(d, f.id).toBeDefined();
-      expect([f.eyebrow, f.title, f.line]).toEqual([d?.eyebrow, d?.title, d?.copy]);
+      expect([f.eyebrow, f.title]).toEqual([d?.eyebrow, d?.title]);
+      expect(f.line.length, f.id).toBeGreaterThan(0);
     }
+    // Step bodies stay short (about two lines on a card).
+    for (const x of EXPLAIN_STEPS) expect(x.body.length, x.title).toBeLessThanOrEqual(120);
+  });
+
+  it('keeps em dashes out of every line on the page', () => {
+    for (const s of landingCopy()) expect(s, s).not.toMatch(/\u2014/);
   });
 
   it('shows the original landing’s plan cards, fact for fact', () => {

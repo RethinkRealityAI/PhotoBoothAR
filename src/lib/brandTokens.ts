@@ -19,6 +19,10 @@ export const COLOR_TOKENS: ColorToken[] = [
   { name: 'Field 2', cssVar: '--bw-bg-2', value: '#4F48CE', role: 'Glow behind Beamy and the wall' },
   { name: 'Field 3', cssVar: '--bw-bg-3', value: '#6F66E8', role: 'Outer glow, orbs behind the glass' },
   { name: 'Field 4', cssVar: '--bw-bg-4', value: '#867DF0', role: 'Corner light, outside the panel' },
+  { name: 'Midnight', cssVar: '--bw-night', value: '#0F0D33', role: 'Mid-page field: the journey’s deepest stop' },
+  { name: 'Midnight 2', cssVar: '--bw-night-2', value: '#1F1A63', role: 'Midnight floor light, rising from below' },
+  { name: 'Midnight glow', cssVar: '--bw-night-glow', value: '#5B4BE0', role: 'Big soft violet glows on the midnight field' },
+  { name: 'Teal glow', cssVar: '--bw-night-teal', value: 'rgba(34, 211, 238, 0.12)', role: 'One faint glow, low right, midnight only' },
   { name: 'Glass veil', cssVar: '--bw-veil', value: 'rgba(43, 42, 140, 0.18)', role: 'Panel underlayer, under the frost' },
   { name: 'Frost', cssVar: '--bw-frost', value: 'rgba(255, 255, 255, 0.16)', role: 'Panel frost (milky, lifts the field)' },
   { name: 'Card veil', cssVar: '--bw-card-veil', value: 'rgba(43, 42, 140, 0.22)', role: 'Glass card tint' },
@@ -44,6 +48,27 @@ export const TEXT_FIELDS = ['--bw-bg'] as const;
 export const CARD_FIELDS = ['--bw-bg', '--bw-bg-2'] as const;
 /** Every field stop that can be behind the panel. */
 export const ALL_FIELDS = ['--bw-bg', '--bw-bg-2', '--bw-bg-3', '--bw-bg-4'] as const;
+
+/** The midnight stops of the /beamy colour journey (the page crossfades the field into these mid-page). */
+export const NIGHT_FIELDS = ['--bw-night', '--bw-night-2'] as const;
+/** The still film grain's opacity over the field (brand.css --bw-grain-opacity; blend: overlay). */
+export const GRAIN_OPACITY = 0.07;
+
+/**
+ * Worst case for text over the grain: the grain is under the panes, so it
+ * can only shift the field the pane frosts over. The brightest grain pixel
+ * (white) in `overlay` at GRAIN_OPACITY: per channel, a dark channel b goes
+ * toward 2b, a light one toward white, mixed in at the layer's opacity.
+ */
+export function grainLift(field: string): string {
+  const f = parseColor(field);
+  const ch = (v: number) => {
+    const b = v / 255;
+    const blend = b < 0.5 ? 2 * b : 1;
+    return (b + (blend - b) * GRAIN_OPACITY) * 255;
+  };
+  return toHex({ r: ch(f.r), g: ch(f.g), b: ch(f.b), a: 1 });
+}
 
 export function tokenValue(cssVar: string): string {
   const t = COLOR_TOKENS.find((c) => c.cssVar === cssVar);

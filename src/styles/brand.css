@@ -73,6 +73,16 @@
   --bw-bg-3: #6F66E8;
   --bw-bg-4: #867DF0;
 
+  /* The /beamy journey: mid-page the field sinks into a midnight atmosphere
+     (deep navy, big soft indigo/violet glows, one faint teal glow low right),
+     then lifts back to the bright field for the close. */
+  --bw-night: #0F0D33;
+  --bw-night-2: #1F1A63;
+  --bw-night-glow: #5B4BE0;
+  --bw-night-teal: rgba(34, 211, 238, 0.12);
+  /* Grit: a still film grain over the field (under every pane). */
+  --bw-grain-opacity: 0.07;
+
   /* Liquid glass: a thin indigo underlayer, then a milky white frost on top.
      The frost lifts and desaturates the field (that is what reads as glass);
      the underlayer is just deep enough that white copy still passes AA
@@ -572,6 +582,121 @@
       radial-gradient(34% 40% at -8% 112%, var(--bw-bg-3), transparent 66%);
   }
   .bw-stop { scroll-margin-top: var(--bw-header-h, 72px); }
+  /* Each section's glass pane: the hero's glass family carried down the
+     page (indigo veil + milky frost, rim brightest top-left, soft drop). It
+     is a layer, not an ancestor of the content (backdrop-filter would make a
+     containing block), so the section's children are lifted above it. */
+  .bw-stop::before {
+    content: '';
+    position: absolute;
+    inset: clamp(40px, 6vh, 64px) clamp(12px, 2.4vw, 40px);
+    border-radius: var(--bw-radius-panel);
+    /* Deeper than the hero's veil: these panes float over the brighter
+       glows further down, and white copy must hold AA on the brightest
+       (measured: 4.7:1 over bg-4, 5.5:1 over bg-3). */
+    background-color: rgba(43, 42, 140, 0.42);
+    -webkit-backdrop-filter: blur(30px) saturate(108%);
+    backdrop-filter: blur(30px) saturate(108%);
+    box-shadow:
+      inset 1px 1px 0 var(--bw-edge-hi),
+      inset -1px -1px 0 rgba(255, 255, 255, calc(0.10 + var(--bw-night-mix, 0) * 0.14)),
+      inset 0 0 0 1px rgba(255, 255, 255, calc(0.14 + var(--bw-night-mix, 0) * 0.08)),
+      inset 3px 3px 10px -6px rgba(255, 255, 255, calc(0.4 + var(--bw-night-mix, 0) * 0.25)),
+      inset 0 0 60px -20px rgba(150, 140, 255, calc(var(--bw-night-mix, 0) * 0.30)),
+      inset 0 0 0 100vmax rgba(255, 255, 255, 0.08),
+      0 60px 100px -46px rgba(6, 4, 30, calc(0.58 + var(--bw-night-mix, 0) * 0.2)),
+      0 20px 44px -24px rgba(6, 4, 30, 0.36);
+    pointer-events: none;
+  }
+  @media (max-width: 767px) { .bw-stop::before { inset: 22px 8px; border-radius: 24px; } }
+  .bw-stop > * { position: relative; }
+
+  /* A glass card that reads as glass ON a glass pane: a clear white frost
+     instead of the indigo veil, a brighter rim, and a soft shadow under it. */
+  .bw-glass-card.bw-card-lift {
+    background-color: rgba(43, 42, 140, 0.12);
+    box-shadow:
+      inset 0 0 0 100vmax rgba(255, 255, 255, 0.03),
+      inset 1px 1px 0 rgba(255, 255, 255, calc(0.62 + var(--bw-night-mix, 0) * 0.2)),
+      inset -1px -1px 0 rgba(255, 255, 255, calc(0.10 + var(--bw-night-mix, 0) * 0.12)),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+      0 22px 40px -24px rgba(22, 18, 78, 0.55);
+  }
+
+  /* Backdrop depth: large soft shapes and glass shards rising past as the
+     page scrolls (--bw-sp 0..1 set by the page; --k = vh risen over the
+     whole page, so nearer ones move faster). */
+  .bw-backdrop::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(52% 46% at 18% 78%, var(--bw-bg-4), transparent 70%),
+      radial-gradient(40% 40% at 92% 22%, var(--bw-bg-3), transparent 70%);
+    opacity: calc(0.12 + var(--bw-sp, 0) * 0.25);
+  }
+  /* The midnight layer: crossfaded in by --bw-night (0..1, set from the
+     scroll position), so the journey has no seams; its glows drift a little
+     with the page (decorative: held still when reduced, --bw-sp is not set). */
+  .bw-night {
+    position: absolute;
+    inset: 0;
+    opacity: var(--bw-night-mix, 0);
+    background-color: var(--bw-night);
+    background-image: radial-gradient(120% 90% at 50% 120%, var(--bw-night-2), transparent 70%);
+  }
+  .bw-night-glow {
+    position: absolute;
+    border-radius: 999px;
+    transform: translate3d(0, calc(var(--bw-sp, 0) * var(--k, 20) * -1vh), 0);
+  }
+  .bw-night-violet {
+    left: -22vw; top: -8vh; width: 88vw; height: 88vh; --k: 18;
+    background-image: radial-gradient(closest-side, rgba(124, 108, 247, 0.42), rgba(91, 75, 224, 0.16) 55%, transparent);
+  }
+  .bw-night-indigo {
+    right: -26vw; top: 34vh; width: 70vw; height: 70vh; --k: 34;
+    background-image: radial-gradient(closest-side, rgba(91, 75, 224, 0.30), transparent);
+  }
+  .bw-night-teal {
+    right: -8vw; bottom: -18vh; width: 56vw; height: 56vh; --k: 10;
+    background-image: radial-gradient(closest-side, var(--bw-night-teal), transparent);
+  }
+  .bw-vignette {
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(130% 100% at 50% 45%, transparent 55%, rgba(10, 8, 34, calc(0.18 + var(--bw-night-mix, 0) * 0.22)) 100%);
+  }
+  /* Still grain (tiled SVG noise, rasterised once): breaks up any banding in
+     the long gradients and gives the field some tooth. */
+  .bw-grain {
+    position: absolute;
+    inset: 0;
+    opacity: var(--bw-grain-opacity);
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)'/%3E%3C/svg%3E");
+    background-size: 200px 200px;
+  }
+
+  .bw-backdrop-shape,
+  .bw-drift {
+    position: absolute;
+    transform: translate3d(0, calc(var(--bw-sp, 0) * var(--k, 100) * -1vh), 0);
+    will-change: transform;
+  }
+  .bw-backdrop-shape {
+    border-radius: 999px;
+    background-image: radial-gradient(closest-side, var(--bw-bg-3), transparent);
+    opacity: 0.5;
+  }
+  .bw-drift {
+    border-radius: 16px;
+    background-image: linear-gradient(140deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.06) 60%, rgba(255, 255, 255, 0.16));
+    box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.7), 0 22px 36px -20px rgba(22, 18, 78, 0.55);
+    filter: blur(var(--b, 2px));
+    rotate: var(--r, 0deg);
+    opacity: 0.75;
+  }
 
   /* Sticky header: a strip of the same glass, a hairline under it. */
   .bw-header {
@@ -676,6 +801,131 @@
   }
   .bw-shard-b { filter: blur(4px); opacity: 0.6; animation-duration: 9s; animation-delay: -4s; }
 
+  /* Hero depth accents. Far: big out-of-focus crystals behind the wall. */
+  .bw-crystal-far {
+    position: absolute;
+    border-radius: 26px;
+    pointer-events: none;
+    background-image: linear-gradient(150deg, rgba(255, 255, 255, 0.30), rgba(165, 171, 255, 0.10) 55%, rgba(255, 197, 107, 0.10));
+    box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.5);
+    filter: blur(9px);
+    opacity: 0.7;
+  }
+  /* A faint pool of light on the floor under Beamy's feet. */
+  .bw-floor-pool {
+    position: absolute;
+    left: 50%;
+    bottom: -14px;
+    width: 120%;
+    height: 44px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    pointer-events: none;
+    background-image: radial-gradient(closest-side, rgba(255, 255, 255, 0.26), rgba(201, 204, 255, 0.10) 60%, transparent);
+  }
+  /* Glints travelling along the wall's glass rim (decorative). */
+  .bw-wall-glint { position: relative; }
+  .bw-wall-glint::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 18px;
+    pointer-events: none;
+    padding: 1.5px;
+    background: linear-gradient(115deg, transparent 0 40%, rgba(255, 255, 255, 0.95) 48%, rgba(255, 233, 190, 0.7) 50%, transparent 58% 100%) 0 0 / 300% 100% no-repeat;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    animation: bw-glint 7.5s ease-in-out infinite;
+  }
+
+  /* The phone accent: a stylised glass phone, tilted in 3D, hovering. */
+  .bw-hphone { position: absolute; inset: 0; perspective: 700px; animation: bw-hover 5.5s ease-in-out infinite alternate; }
+  .bw-hphone-body {
+    position: absolute;
+    inset: 0;
+    border-radius: 18% / 9%;
+    transform: rotateY(-26deg) rotateX(9deg) rotateZ(-6deg);
+    transform-style: preserve-3d;
+    background-image: linear-gradient(150deg, rgba(255, 255, 255, 0.55), rgba(201, 204, 255, 0.22) 38%, rgba(91, 75, 224, 0.30) 70%, rgba(255, 197, 107, 0.28));
+    box-shadow:
+      inset 1.5px 1.5px 0 rgba(255, 255, 255, 0.9),
+      inset -1.5px -1.5px 0 rgba(255, 255, 255, 0.25),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+      -6px 0 0 -2px rgba(201, 204, 255, 0.35),
+      0 26px 40px -18px rgba(14, 10, 60, 0.6);
+  }
+  /* Crystal edge: a bright faceted rim. */
+  .bw-hphone-body::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    padding: 2px;
+    background: conic-gradient(from 210deg, #FFFFFF, #A5ABFF 25%, #FFFFFF 40%, #FFC56B 55%, #C9CCFF 75%, #FFFFFF);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    opacity: 0.85;
+  }
+  .bw-hphone-screen {
+    position: absolute;
+    inset: 5% 7%;
+    border-radius: 13% / 6.5%;
+    overflow: hidden;
+    background: var(--bw-deep);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+  }
+  .bw-hphone-screen img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .bw-hphone-screen::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: linear-gradient(125deg, rgba(255, 255, 255, 0.38), transparent 34%);
+  }
+  .bw-hphone-cam {
+    position: absolute;
+    right: 20%;
+    top: 2.2%;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: #FFFFFF;
+    box-shadow: 0 0 10px 3px rgba(255, 255, 255, 0.75), 0 0 22px 8px rgba(201, 204, 255, 0.45);
+  }
+  /* The contact shadow on the floor below it (breathes with the hover). */
+  .bw-hphone-shadow {
+    position: absolute;
+    left: 8%;
+    right: 8%;
+    bottom: -16%;
+    height: 9%;
+    border-radius: 999px;
+    background-image: radial-gradient(closest-side, rgba(14, 10, 60, 0.45), transparent);
+    animation: bw-hover-shadow 5.5s ease-in-out infinite alternate;
+  }
+  /* The beam from its camera to the wall: a wide soft glow and a bright core
+     whose light flows toward the wall. */
+  .bw-beam-glow { fill: none; stroke-width: 22; stroke-linecap: round; opacity: 0.45; filter: blur(7px); transition: d 520ms var(--bw-ease); }
+  .bw-beam-core { fill: none; stroke-width: 2.4; stroke-linecap: round; opacity: 0.7; transition: d 520ms var(--bw-ease); }
+  /* A packet of light flowing from the phone to the wall. */
+  .bw-beam-pulse { fill: none; stroke-width: 3.5; stroke-linecap: round; opacity: 0.9; filter: blur(1.5px); stroke-dasharray: 14 86; animation: bw-beam-flow 1.8s linear infinite; transition: d 520ms var(--bw-ease); }
+  .bw-beam-spot { fill: rgba(255, 255, 255, 0.45); filter: blur(6px); transition: cx 520ms var(--bw-ease), cy 520ms var(--bw-ease); }
+  .bw-beam-card {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 30px;
+    height: 36px;
+    padding: 2.5px 2.5px 6px;
+    border-radius: 4px;
+    background: #FFFFFF;
+    box-shadow: 0 0 14px 4px rgba(255, 255, 255, 0.45), 0 8px 16px -6px rgba(14, 10, 60, 0.5);
+    transform-origin: 50% 50%;
+    will-change: transform, opacity;
+  }
+  .bw-beam-card img { width: 100%; height: 100%; object-fit: cover; border-radius: 2px; display: block; }
+
   /* Reveals. Content is always in the DOM; until Beamy brings it up it sits
      transparent and a little low (no filter at rest). Beamed items condense
      out of light: a short bright blur that settles. */
@@ -695,22 +945,37 @@
      with a short flicker and keeps a soft warm glow. */
   .bw-film {
     position: relative;
-    border-radius: 18px;
-    overflow: hidden;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 30px 60px -30px rgba(22, 18, 78, 0.7);
+    padding: 10px;
+    border-radius: 26px;
+    /* A glass bezel round the film: frost, rim, soft drop. */
+    background-color: rgba(255, 255, 255, 0.10);
+    -webkit-backdrop-filter: blur(18px) saturate(110%);
+    backdrop-filter: blur(18px) saturate(110%);
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.7),
+      inset -1px -1px 0 rgba(255, 255, 255, 0.12),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+      0 30px 60px -30px rgba(22, 18, 78, 0.7);
     transition: box-shadow 700ms var(--bw-ease);
   }
+  .bw-film > * { border-radius: 16px; overflow: hidden; }
+  @media (max-width: 767px) { .bw-film.bw-film { padding: 6px; border-radius: 20px; } .bw-film.bw-film > *, .bw-film.bw-film::after { border-radius: 14px; } .bw-film.bw-film::after { inset: 6px; } }
   .bw-film::after {
     content: '';
     position: absolute;
-    inset: 0;
-    border-radius: inherit;
+    inset: 10px;
+    border-radius: 16px;
     background: rgba(26, 23, 64, 0.64);
     pointer-events: none;
     transition: opacity 500ms var(--bw-ease);
   }
   .bw-film[data-lit="true"] {
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34), 0 0 0 1px rgba(255, 255, 255, 0.12), 0 34px 80px -34px rgba(255, 197, 107, 0.42);
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.8),
+      inset -1px -1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+      0 0 0 1px rgba(255, 255, 255, 0.10),
+      0 34px 80px -34px rgba(255, 197, 107, 0.45);
   }
   .bw-film[data-lit="true"]::after { opacity: 0; animation: bw-power 700ms linear both; }
   .bw-film-chip {
@@ -825,6 +1090,10 @@
   to { opacity: 1; transform: none; }
 }
 /* A shard's slow bob (the `translate` property, so its inline rotate stays). */
+@keyframes bw-hover { from { transform: translateY(-5px); } to { transform: translateY(5px); } }
+@keyframes bw-hover-shadow { from { transform: scaleX(0.86); opacity: 0.7; } to { transform: scaleX(1); opacity: 1; } }
+@keyframes bw-beam-flow { from { stroke-dashoffset: 14; } to { stroke-dashoffset: -86; } }
+@keyframes bw-glint { 0%, 55% { background-position: 100% 0; } 85%, 100% { background-position: 0 0; } }
 @keyframes bw-bob {
   from { translate: 0 -7px; }
   to { translate: 0 7px; }
@@ -879,4 +1148,9 @@
   [data-brand="2"] .bw-tile-flash { animation: none; }
   [data-brand="2"] .bw-glass::before { transition: none; }
   [data-brand="2"] .bw-wall-mount { transition: none; }
+  /* The phone accent holds still; its beam is a steady glow; no glints. */
+  [data-brand="2"] .bw-hphone,
+  [data-brand="2"] .bw-hphone-shadow { animation: none; }
+  [data-brand="2"] .bw-beam-pulse { animation: none; opacity: 0; }
+  [data-brand="2"] .bw-wall-glint::after { animation: none; opacity: 0; }
 }

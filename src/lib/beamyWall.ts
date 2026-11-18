@@ -63,11 +63,22 @@ export function swapDelay(rand: () => number): number {
   return SWAP_MIN_MS + Math.min(0.999999, Math.max(0, rand())) * (SWAP_MAX_MS - SWAP_MIN_MS);
 }
 
-/** Ring distance of each tile from `from` (0 = itself), for the landing ripple. */
-export function rippleRings(from = WALL_CENTRE, cols = WALL_COLS): number[] {
+/** Ring distance of each tile from `from` (0 = itself), for the landing ripple. `rows` defaults to square. */
+export function rippleRings(from = WALL_CENTRE, cols = WALL_COLS, rows = cols): number[] {
   const fx = from % cols;
   const fy = Math.floor(from / cols);
-  return Array.from({ length: cols * cols }, (_, i) => Math.max(Math.abs((i % cols) - fx), Math.abs(Math.floor(i / cols) - fy)));
+  return Array.from({ length: cols * rows }, (_, i) => Math.max(Math.abs((i % cols) - fx), Math.abs(Math.floor(i / cols) - fy)));
+}
+
+/**
+ * How many rows a 3-column wall gets in a box: 4 when four rows still leave
+ * every tile at least `minAspect` as tall as it is wide (tall phones), else 3.
+ * `chromeH` is the label + padding + gaps the box spends on things that are not tiles.
+ */
+export function wallRows(boxW: number, boxH: number, chromeW: number, chromeH: number, minAspect = 0.9): 3 | 4 {
+  const tileW = (boxW - chromeW) / WALL_COLS;
+  if (!(tileW > 0)) return 3;
+  return (boxH - chromeH) / 4 >= tileW * minAspect ? 4 : 3;
 }
 
 /**

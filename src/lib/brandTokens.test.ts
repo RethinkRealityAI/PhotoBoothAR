@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  ALL_FIELDS, CARD_FIELDS, COLOR_TOKENS, TEXT_FIELDS, cardOver, composite, contrastRatio, luminance, panelOver, tokenHex, tokenValue,
+  ALL_FIELDS, CARD_FIELDS, COLOR_TOKENS, GRAIN_OPACITY, NIGHT_FIELDS, TEXT_FIELDS, grainLift, cardOver, composite, contrastRatio, luminance, panelOver, tokenHex, tokenValue,
 } from './brandTokens';
 
 const css = readFileSync(resolve(__dirname, '../styles/brand.css'), 'utf8');
@@ -97,6 +97,37 @@ describe('brandTokens', () => {
     const rules = css.split('}').filter((r) => /\.bw-(btn|glass-chip|glass-card|link|navlink|display|h2|h3|wordmark|label|body|eyebrow|pill|card)/.test(r));
     expect(rules.length).toBeGreaterThan(10);
     for (const r of rules) expect(r, r).not.toMatch(/gradient/);
+  });
+
+  it('the colour journey stays in the indigo family, with one faint teal accent', () => {
+    const hue = (hex: string) => {
+      const n = parseInt(hex.slice(1), 16);
+      const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((x) => x / 255);
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+      const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return (h * 60 + 360) % 360;
+    };
+    const base = hue(tokenHex('--bw-bg'));
+    for (const f of [...NIGHT_FIELDS, '--bw-night-glow']) expect(Math.abs(hue(tokenHex(f)) - base), f).toBeLessThan(12);
+    // Midnight really is deep (the hero field is not): the journey has range.
+    expect(luminance(tokenHex('--bw-night'))).toBeLessThan(luminance(tokenHex('--bw-bg')) / 4);
+    // The one non-indigo glow is faint.
+    const teal = /rgba\(34, 211, 238, ([\d.]+)\)/.exec(tokenValue('--bw-night-teal'));
+    expect(Number(teal?.[1])).toBeLessThanOrEqual(0.15);
+  });
+
+  it('keeps the grain subtle and declared, and white copy AA over it on every field', () => {
+    const m = /--bw-grain-opacity:\s*([\d.]+);/.exec(css);
+    expect(Number(m?.[1])).toBe(GRAIN_OPACITY);
+    expect(GRAIN_OPACITY).toBeGreaterThanOrEqual(0.03);
+    expect(GRAIN_OPACITY).toBeLessThanOrEqual(0.08);
+    expect(css).toMatch(/\.bw-grain\s*\{[^}]*mix-blend-mode:\s*overlay/);
+    expect(css).not.toMatch(/\.bw-grain\s*\{[^}]*animation/);
+    for (const f of [...TEXT_FIELDS, ...NIGHT_FIELDS]) {
+      const panel = panelOver(grainLift(tokenHex(f)));
+      expect(contrastRatio(tokenValue('--bw-ink'), panel), `ink on grain over ${f}`).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(tokenValue('--bw-muted'), panel), `ink 2 on grain over ${f}`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   it('gives the glass a solid fallback where backdrop-filter is unsupported', () => {

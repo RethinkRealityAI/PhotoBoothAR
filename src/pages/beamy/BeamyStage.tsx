@@ -275,7 +275,7 @@ uniform float uFlicker;
 void main() {
   float across = abs(vCone.y) / max(vCone.x, 0.001);
   float soft = pow(clamp(1.0 - across, 0.0, 1.0), 0.7);
-  float along = mix(0.62, 0.22, vCone.x) * smoothstep(0.0, 0.06, vCone.x);
+  float along = mix(0.5, 0.42, vCone.x) * smoothstep(0.0, 0.12, vCone.x);
   float flick = 1.0 - uFlicker * (0.08 + 0.06 * sin(uTime * 23.0) * sin(uTime * 7.3));
   vec3 col = mix(vec3(1.0, 0.95, 0.86), vec3(0.62, 0.65, 1.0), vCone.x);
   gl_FragColor = vec4(col, soft * along * flick * uAlpha);
@@ -842,6 +842,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const coneMat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: CONE_VERT, fragmentShader: CONE_FRAG,
     uniforms: { uAlpha: { value: 0 }, uTime: { value: 0 }, uFlicker: { value: 1 } },
+    // Both faces: the triangle's winding flips with the side he projects from.
+    side: THREE.DoubleSide,
     transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
   }), []);
   const coneGeo = useMemo(() => {
@@ -1288,7 +1290,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
           const arr = (cm.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
           pts.forEach((p2, i2) => { const wv = toWorld(p2); arr[i2 * 3] = wv.x; arr[i2 * 3 + 1] = wv.y; arr[i2 * 3 + 2] = 280; });
           cm.geometry.getAttribute('position').needsUpdate = true;
-          ca = cn.alpha * (reduced ? 0.75 : 1) * presence;
+          // Once landed it settles to a quieter, steady projection (still clearly there).
+          const settle = cn.landed ? 1 - 0.3 * clamp((cn.t - growS - 0.6) / 0.8, 0, 1) : 1;
+          ca = cn.alpha * settle * (reduced ? 0.75 : 1) * presence;
         }
       }
       cm.visible = ca > 0.001;
