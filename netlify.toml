@@ -55,6 +55,12 @@
   [headers.values]
     X-Robots-Tag = "noindex, nofollow"
 
+# Brand v2 style guide (/brand): internal reference, never indexed.
+[[headers]]
+  for = "/brand"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
 # Reps' public booking pages (/book/<ref>, migration 042): sent one-to-one,
 # never indexed.
 [[headers]]

@@ -8,25 +8,21 @@
  * the lines Beamy says on every stop of the tour plus the real platform assets
  * that stop shows (a /try demo kit for the booth, a library 3D prop for the
  * reveal). The page reads this file and nothing else for copy, so a test can
- * hold the copy to the service model: Beamwall is FULLY REMOTE and done for
- * you. Nothing here may promise staff, setup crews or anyone at the venue.
+ * hold the copy to the service model: Beamwall is self-serve and FULLY
+ * REMOTE (we can also build an event for you, remotely). Nothing here may
+ * promise staff, setup crews or anyone at the venue, and nothing may carry an
+ * emoji (icons are lucide-react names the page maps to line icons).
  */
 
 export type AudienceId = 'planner' | 'family' | 'organizer' | 'business' | 'team';
+
+/** Icon names the page maps to lucide-react components. */
+export type AudienceIcon = 'ClipboardList' | 'Cake' | 'Users' | 'Briefcase' | 'Gift';
 
 /** The tour's stops, in order. */
 export type TourStop = 'intro' | 'snap' | 'prop' | 'deliver' | 'go';
 
 export const TOUR_STOPS: TourStop[] = ['intro', 'snap', 'prop', 'deliver', 'go'];
-
-/** Short label for the progress rail. */
-export const STOP_LABELS: Record<TourStop, string> = {
-  intro: 'For you',
-  snap: 'Snap & beam',
-  prop: '3D magic',
-  deliver: 'How it works',
-  go: 'Start',
-};
 
 export interface BeamyProp {
   /** Library GLB, same origin. */
@@ -40,7 +36,8 @@ export interface Audience {
   title: string;
   /** One line under the title. */
   hint: string;
-  emoji: string;
+  /** lucide-react icon name for the card's icon tile (no emoji anywhere). */
+  icon: AudienceIcon;
   /** Accent for the card glow and chips. */
   hue: string;
   /** /try demo kit id (lib/demoKits). null = the landing's default beam kit. */
@@ -63,16 +60,16 @@ export const AUDIENCES: Audience[] = [
     id: 'planner',
     title: 'Event planner',
     hint: 'Weddings, galas, agency clients',
-    emoji: '📋',
+    icon: 'ClipboardList',
     hue: '#D4AF37',
     kit: 'wedding',
     prop: tiara,
     gets: ['A booth branded for each client', 'Live wall for any screen', 'Keepsake cards', 'Built for you, ready in days'],
     lines: {
-      intro: 'Planners are my favourite! Tell us about your client and we build their whole booth for you, remotely. You just send one link.',
-      snap: 'Here is what your clients’ guests get. Snap a photo and I will beam it onto the wall!',
-      prop: 'Want a little extra sparkle? I can put 3D pieces right on every guest’s head.',
-      deliver: 'Your part is tiny. Watch, I will show you the three steps.',
+      intro: 'Planners are my favourite! A booth for every client, ready in minutes.',
+      snap: 'This is what your clients’ guests get. Snap one and I’ll beam it to the wall!',
+      prop: 'A little extra sparkle, right on every guest’s head.',
+      deliver: 'Your part is tiny. Three steps.',
       go: 'Ready to wow your next client? Let’s build their booth.',
     },
   },
@@ -80,16 +77,16 @@ export const AUDIENCES: Audience[] = [
     id: 'family',
     title: 'Family celebration',
     hint: 'Weddings, birthdays, anniversaries',
-    emoji: '🎂',
+    icon: 'Cake',
     hue: '#F2A7B8',
     kit: 'party',
     prop: crown,
     gets: ['Guests use their own phones', 'Every photo on one live wall', 'A keepsake album after', 'No app, no hardware'],
     lines: {
-      intro: 'A party! Your guests scan one QR code and the booth opens on their own phones. No app, no equipment to rent.',
-      snap: 'Go on, take one! I will beam it straight onto the party wall.',
+      intro: 'A party! Guests scan one QR code and the booth opens on their phones.',
+      snap: 'Go on, take one! I’ll beam it straight onto the party wall.',
       prop: 'Birthday royalty needs a crown. Watch this!',
-      deliver: 'You don’t have to design a thing. Here is how it goes.',
+      deliver: 'No design skills needed. Here’s how it goes.',
       go: 'Let’s make your celebration the one everyone remembers!',
     },
   },
@@ -97,16 +94,16 @@ export const AUDIENCES: Audience[] = [
     id: 'organizer',
     title: 'Community organizer',
     hint: 'Reunions, clubs, fundraisers',
-    emoji: '🤝',
+    icon: 'Users',
     hue: '#34D399',
     kit: 'party',
     prop: halo,
     gets: ['One link for everyone', 'Photo challenges that get people mingling', 'A live wall for the room', 'Free to start'],
     lines: {
-      intro: 'Bringing people together? I love that. One link gets your whole crowd snapping and sharing on one wall.',
-      snap: 'Here is the booth your crowd will use. Snap away and I will beam it up!',
+      intro: 'Bringing people together? One link gets your whole crowd on one wall.',
+      snap: 'This is the booth your crowd will use. Snap away and I’ll beam it up!',
       prop: 'Add a little fun people actually wear. Ta-da!',
-      deliver: 'You run the event. We handle the booth. Here is how.',
+      deliver: 'You run the event. The booth runs itself.',
       go: 'Let’s get your crowd beaming!',
     },
   },
@@ -114,33 +111,33 @@ export const AUDIENCES: Audience[] = [
     id: 'business',
     title: 'Business or brand',
     hint: 'Launches, activations, conferences',
-    emoji: '🚀',
+    icon: 'Briefcase',
     hue: '#5B8CFF',
     kit: null,
     prop: shades,
     gets: ['Your brand on every photo', 'Live wall for the stage screen', 'Guest emails, with consent', 'Custom 3D for your brand'],
     lines: {
-      intro: 'Let’s put your brand in every guest’s camera roll. We build the booth around your brand and hand you the link.',
-      snap: 'This is your booth. Every shot carries your brand, then I beam it to the wall!',
-      prop: 'We can even make 3D pieces in your brand. Like these!',
-      deliver: 'Fully done for you. Here is the whole process.',
+      intro: 'Let’s put your brand in every guest’s camera roll.',
+      snap: 'Every shot carries your brand. Snap one and I’ll beam it to the wall!',
+      prop: 'Real 3D pieces your guests wear. Like these!',
+      deliver: 'Live in minutes. Here’s the whole process.',
       go: 'Let’s build your brand’s booth!',
     },
   },
   {
     id: 'team',
     title: 'Company team',
-    hint: 'Holiday parties, offsites, staff events',
-    emoji: '🎄',
+    hint: 'Holiday parties, offsites',
+    icon: 'Gift',
     hue: '#E5484D',
     kit: 'christmas',
     prop: santa,
     gets: ['Ready-made holiday looks', 'Team photo challenges', 'A live wall for the office screen', 'Set up in minutes'],
     lines: {
-      intro: 'Team party time! Pick a holiday look, share one QR code and watch the whole office light up the wall.',
-      snap: 'Try the holiday booth. Snap it and I will beam it to the office wall!',
+      intro: 'Team party time! Pick a holiday look and share one QR code.',
+      snap: 'Try the holiday booth. Snap it and I’ll beam it to the office wall!',
       prop: 'Ho ho ho! Every guest can wear one of these.',
-      deliver: 'No IT tickets, no setup. Here is how it works.',
+      deliver: 'No IT tickets, no setup. Here’s how.',
       go: 'Let’s make this year’s party the best one yet!',
     },
   },
@@ -150,15 +147,22 @@ export function audienceById(id: string | null | undefined): Audience | null {
   return AUDIENCES.find((a) => a.id === id) ?? null;
 }
 
-/** The "How it works" cards Beamy walks to and taps, in order. */
-export const DELIVER_STEPS: { title: string; body: string; emoji: string }[] = [
-  { emoji: '💬', title: 'Tell us about it', body: 'Your event, your colours, your vibe. A quick form or a short call.' },
-  { emoji: '✨', title: 'We build it for you', body: 'Frames, 3D filters, challenges, the live wall and keepsakes. All done remotely.' },
-  { emoji: '🔗', title: 'You get one link', body: 'Share the link or QR code. Guests open the booth on their own phones.' },
+/** lucide-react icon names for the "How it works" steps. */
+export type StepIcon = 'CalendarPlus' | 'Palette' | 'Link2';
+
+/** "How it works", written for the self-serve host making a quick event. */
+export const DELIVER_STEPS: { title: string; body: string; icon: StepIcon }[] = [
+  { icon: 'CalendarPlus', title: 'Create your event', body: 'Name it, pick a date. Takes a minute.' },
+  { icon: 'Palette', title: 'Pick a look', body: 'Frames, effects and 3D pieces, ready to go.' },
+  { icon: 'Link2', title: 'Share one link', body: 'Guests scan a QR code and the booth opens on their phones.' },
 ];
 
-/** Opening lines, before an audience is picked. */
-export const GREETING = 'Hi! I’m Beamy. I turn every guest’s phone into a photo booth and beam their shots onto a live wall. Who are you planning for?';
+/** The "we can do it for you" line under the steps. Remote, always. */
+export const DONE_FOR_YOU = 'Short on time? We can build it for you, remotely.';
 
-/** Things Beamy says when poked. */
-export const POKE_LINES = ['Hee hee, that tickles!', 'Boop!', 'Need a hand? Pick a card!', 'I’m made of light, you know.', 'Again! Again!'];
+/** Opening line on the intro, and the line before an audience is picked. */
+export const HELLO = 'Hi, I’m Beamy!';
+export const GREETING = 'Who are you planning for? Pick one and I’ll tailor the tour.';
+
+/** Things Beamy says when poked, from a single poke up to a streak. */
+export const POKE_LINES = ['Boop!', 'Hee hee, that tickles!', 'I’m made of light, you know.', 'Again! Again!', 'Okay, okay, dance break!'];

@@ -18,15 +18,27 @@
  * quad stretched from the mouth to the target, fired inside BeamyBlast's
  * window (1.2 s to 2.7 s), and the GLB's beam meshes are hidden.
  *
- * Reduced motion: Beamy IS the content of this page (every move answers a
- * tap), so his moves play regardless, the same call the landing films make.
- * Only the ambient floor shimmer is decorative.
+ * Brand v2: the beam is the one expressive light on the page (white into
+ * periwinkle with an amber-white core); sparks and motes use the same calm
+ * palette, never the old seven-hue spectrum.
+ *
+ * Micro-interactions (all driven by the page through BeamyApi): `look` turns
+ * his head/body toward the pointer (eyes are baked into the texture, so it is
+ * a small turn plus a lid squint when the pointer is close); `drag*` spins him
+ * around Y with inertia and a springy settle to front (spin physics are pure,
+ * in lib/brandLanding); `sparkle`/`spin` escalate pokes; `drift` raises a hand
+ * and sends light motes to a card; `arrive` drops a beam from the top of the
+ * viewport and he appears where it lands.
+ *
+ * Reduced motion (`reducedMotion` prop): no particles, no beam drop, no
+ * inertia; every state change still happens (he still appears, the card still
+ * changes, the prop still shows). His clips still play: each answers a tap.
  */
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { gltfLoader, loadModel } from '../../lib/glbCache';
-import { SPECTRUM } from '../../components/landing/ShowcasePhone';
+import { SPIN_PER_PX, nearestFront, spinSettled, spinStep, type Spin } from '../../lib/brandLanding';
 
 export type BeamyClip = 'Idle' | 'Wave' | 'Hop' | 'BeamyBlast' | 'Sob' | 'SideEye' | 'Dance' | 'ShadesOn' | 'Waddle';
 
@@ -43,15 +55,33 @@ export interface BeamyApi {
   play(clip: BeamyClip): Promise<void>;
   /** Turn toward a viewport x (null = face the viewer). */
   face(x: number | null): void;
-  /** BeamyBlast at `to`; `onFire` runs the moment the beam lights. Resolves when the clip ends. */
-  beam(to: Pt, onFire?: () => void): Promise<void>;
-  /** Particles stream from the mouth and a library prop materialises at `at`. */
-  reveal(url: string, at: Pt, sizePx: number): Promise<void>;
+  /** Beam at `to`; `onFire` runs the moment the beam lights. Resolves when the clip ends.
+   *  from 'mouth' = the BeamyBlast; 'hand' = a thinner beam from the raised (waving) hand. */
+  beam(to: Pt, onFire?: () => void, from?: 'mouth' | 'hand'): Promise<void>;
+  /** Particles stream from the mouth (or raised hand) and a library prop materialises at `at`. */
+  reveal(url: string, at: Pt, sizePx: number, from?: 'mouth' | 'hand'): Promise<void>;
   clearProp(): void;
   /** Mouth position in viewport px. */
   mouth(): Pt;
+  /** Tip of the waving hand in viewport px. */
+  hand(): Pt;
   /** Current feet position + live height, viewport px. */
   where(): Pt & { heightPx: number };
+  /** Raise a hand; light motes drift from it to `to`. Resolves as they land. */
+  drift(to: Pt): Promise<void>;
+  /** The entrance: a beam drops from the top of the viewport onto his home,
+   *  a flash, and he appears there. Resolves when he is standing. */
+  arrive(): Promise<void>;
+  /** Poke feedback: a few sparkles, or a light burst. */
+  sparkle(level: 'sparkle' | 'burst'): void;
+  /** A celebratory spin (adds angular velocity). */
+  spin(): void;
+  /** Gaze target in viewport px (null = look at the viewer). */
+  look(p: Pt | null): void;
+  /** Drag-to-spin, fed by the page's hit area (px since the drag started). */
+  dragStart(): void;
+  dragMove(dxPx: number): void;
+  dragEnd(velocity: number): void;
 }
 
 interface Props {
@@ -61,6 +91,9 @@ interface Props {
   bubbleRef: MutableRefObject<HTMLDivElement | null>;
   /** Invisible "poke Beamy" button kept over his body. */
   hitRef: MutableRefObject<HTMLButtonElement | null>;
+  /** Hidden until `arrive()` (the intro's beam drop). */
+  startHidden?: boolean;
+  reducedMotion?: boolean;
   onReady: () => void;
   onError: () => void;
 }
@@ -89,30 +122,64 @@ void main() {
   float across = abs(vUv.y - 0.5) * 2.0;           // 0 centre → 1 edge
   float core = exp(-across * across * 18.0);
   float aura = exp(-across * across * 3.0);
-  float flow = 0.75 + 0.25 * sin(vUv.x * 40.0 - uTime * 30.0);
+  float hot = exp(-across * across * 60.0);
+  float flow = 0.85 + 0.15 * sin(vUv.x * 40.0 - uTime * 30.0);
   float ends = smoothstep(0.0, 0.04, vUv.x) * smoothstep(1.0, 0.9, vUv.x);
-  vec3 a = vec3(0.36, 0.55, 1.0), b = vec3(0.91, 0.47, 0.98), c = vec3(0.13, 0.83, 0.93);
-  vec3 hue = mix(mix(a, b, vUv.x), c, 0.5 + 0.5 * sin(vUv.x * 6.0 - uTime * 4.0));
-  vec3 col = hue * aura * flow + vec3(1.0) * core;
-  gl_FragColor = vec4(col, (aura * 0.85 + core) * ends * uAlpha);
+  // Brand v2: periwinkle aura, white core, an amber-white hot centre line.
+  vec3 beam = vec3(0.557, 0.588, 1.0);
+  vec3 amber = vec3(1.0, 0.90, 0.72);
+  vec3 col = beam * aura * flow + vec3(1.0) * core * 0.9 + amber * hot * 0.6;
+  gl_FragColor = vec4(col, (aura * 0.7 + core) * ends * uAlpha);
 }`;
 
-/* ── Floor shadow ──────────────────────────────────────────────────────── */
+/* ── Floor glow (static: nothing loops but Beamy's idle) ───────────────── */
 
 const FLOOR_FRAG = /* glsl */ `
 varying vec2 vUv;
 uniform float uTime;
+uniform float uAlpha;
 void main() {
   float d = length((vUv - 0.5) * 2.0);
   float glow = smoothstep(1.0, 0.0, d);
-  float ring = smoothstep(0.06, 0.0, abs(d - 0.72 - 0.05 * sin(uTime * 2.0))) * 0.5;
-  vec3 col = mix(vec3(0.49, 0.42, 0.97), vec3(0.13, 0.83, 0.93), 0.5 + 0.5 * sin(uTime));
-  gl_FragColor = vec4(col, glow * 0.38 + ring * glow);
+  gl_FragColor = vec4(vec3(0.49, 0.42, 0.97), glow * glow * 0.42 * uAlpha);
 }`;
+
+/* ── Impact / poke flash: a soft radial bloom ──────────────────────────── */
+
+const FLASH_FRAG = /* glsl */ `
+varying vec2 vUv;
+uniform float uAlpha;
+void main() {
+  float d = length((vUv - 0.5) * 2.0);
+  float core = exp(-d * d * 9.0);
+  float ring = exp(-pow((d - 0.62) * 9.0, 2.0)) * 0.45;
+  vec3 col = mix(vec3(0.557, 0.588, 1.0), vec3(1.0, 0.95, 0.86), core);
+  gl_FragColor = vec4(col, (core + ring) * smoothstep(1.0, 0.8, d) * uAlpha);
+}`;
+
+/** Spark / mote palette: beam, white, beam-hover, one amber. */
+const LIGHT_PALETTE = ['#8E96FF', '#FFFFFF', '#A5ABFF', '#FFC56B', '#FFFFFF', '#8E96FF'];
 
 /* ── Particles for the prop reveal ─────────────────────────────────────── */
 
 const N_SPARKS = 520;
+
+/* ── Motes: a small pool for hand drift + poke sparkles/bursts ─────────── */
+
+const N_MOTES = 96;
+
+interface Mote {
+  /** <0 = waiting (delay), 0..1 = alive. */
+  t: number;
+  life: number;
+  x0: number; y0: number; x1: number; y1: number;
+  /** Arc bow (perpendicular px at mid-flight). */
+  bow: number;
+  active: boolean;
+}
+
+const DROP_S = 0.9;
+const FLASH_S = 0.45;
 
 interface Reveal {
   t: number;
@@ -122,14 +189,32 @@ interface Reveal {
   seeds: Float32Array;
   resolve: () => void;
   done: boolean;
+  /** Stream from the raised hand instead of the mouth. */
+  hand: boolean;
 }
 
 /* ── The scene ─────────────────────────────────────────────────────────── */
 
-function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props) {
+function Scene({ apiRef, layoutRef, bubbleRef, hitRef, startHidden = false, reducedMotion = false, onReady, onError }: Props) {
   const { size } = useThree();
   const sizeRef = useRef(size);
   sizeRef.current = size;
+  const reducedRef = useRef(reducedMotion);
+  reducedRef.current = reducedMotion;
+
+  const flashMesh = useRef<THREE.Mesh>(null);
+  const motesRef = useRef<THREE.Points>(null);
+  const handBone = useRef<THREE.Object3D | null>(null);
+  const handLocal = useRef(new THREE.Vector3(0, -0.12, 0));
+  const lids = useRef<THREE.Object3D[]>([]);
+  const shown = useRef(!startHidden);
+  const appear = useRef(startHidden ? 0 : 1);
+  const arrival = useRef<{ t: number; landed: boolean; resolve: () => void } | null>(null);
+  const flash = useRef<{ t: number; at: Pt; sizePx: number } | null>(null);
+  const motes = useRef<Mote[]>(Array.from({ length: N_MOTES }, () => ({ t: 0, life: 1, x0: 0, y0: 0, x1: 0, y1: 0, bow: 0, active: false })));
+  const gazeTarget = useRef<Pt | null>(null);
+  const gaze = useRef({ yaw: 0, pitch: 0, near: 0 });
+  const spinS = useRef<Spin & { dragging: boolean; base: number }>({ angle: 0, vel: 0, dragging: false, base: 0 });
 
   const rig = useRef<THREE.Group>(null);
   const floor = useRef<THREE.Mesh>(null);
@@ -149,7 +234,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
   const yaw = useRef(0);
   const yawTarget = useRef(0);
   const walk = useRef<{ to: Pt; size: number; resolve: () => void } | null>(null);
-  const beamState = useRef<{ to: Pt; t: number; fired: boolean; onFire?: () => void } | null>(null);
+  const beamState = useRef<{ to: Pt; t: number; fired: boolean; onFire?: () => void; from: 'mouth' | 'hand' } | null>(null);
   const reveal = useRef<Reveal | null>(null);
   const propSpin = useRef(0);
 
@@ -168,6 +253,37 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
           if (o.name === 'beam_core' || o.name === 'beam_outer') o.visible = false;
         });
         mouthNode.current = g.scene.getObjectByName('beam') ?? null;
+        // Lids are bones animated by every clip (scale.y 0.02 = open, 1 =
+        // shut); the frame loop nudges them after the mixer for the squint.
+        lids.current = ['lid.L', 'lid.R'].map((n) => g.scene.getObjectByName(n)).filter((o): o is THREE.Object3D => o !== undefined && !(o instanceof THREE.Mesh));
+        // The waving hand: arm.R (Wave raises it). Its tip is the bound vertex
+        // farthest from the shoulder, measured once in the bind pose.
+        const arm = g.scene.getObjectByName('arm.R') ?? null;
+        handBone.current = arm;
+        if (arm !== null) {
+          g.scene.updateMatrixWorld(true);
+          g.scene.traverse((o) => {
+            if (!(o instanceof THREE.SkinnedMesh)) return;
+            const bi = o.skeleton.bones.indexOf(arm as THREE.Bone);
+            if (bi < 0) return;
+            const pos = o.geometry.getAttribute('position');
+            const si = o.geometry.getAttribute('skinIndex');
+            const sw = o.geometry.getAttribute('skinWeight');
+            if (!pos || !si || !sw) return;
+            const inv = new THREE.Matrix4().copy(arm.matrixWorld).invert();
+            const v = new THREE.Vector3();
+            let best = -1;
+            for (let i = 0; i < pos.count; i++) {
+              let w = 0;
+              for (let k = 0; k < 4; k++) if (si.getComponent(i, k) === bi) w += sw.getComponent(i, k);
+              if (w < 0.6) continue;
+              // Loaded pose = bind pose, so skinning is identity: world = matrixWorld · v.
+              v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld).applyMatrix4(inv);
+              const d = v.lengthSq();
+              if (d > best) { best = d; handLocal.current.copy(v); }
+            }
+          });
+        }
         setModel({ scene: g.scene, clips: g.animations });
       },
       () => { if (!cancelled) onError(); },
@@ -221,6 +337,13 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
   const toWorld = (p: Pt) => ({ x: p.x - sizeRef.current.width / 2, y: sizeRef.current.height / 2 - p.y });
   const toScreen = (v: THREE.Vector3): Pt => ({ x: v.x + sizeRef.current.width / 2, y: sizeRef.current.height / 2 - v.y });
 
+  /** Launch one mote (viewport px). `delay` ≤ 0 seconds; a full pool drops the extra. */
+  const emitMote = (x0: number, y0: number, x1: number, y1: number, life: number, delay: number, bow: number) => {
+    const m = motes.current.find((q) => !q.active);
+    if (m === undefined) return;
+    Object.assign(m, { x0, y0, x1, y1, life, t: delay / life, bow, active: true });
+  };
+
   /* The imperative API the page scripts against. */
   useEffect(() => {
     const playOnce = (clip: BeamyClip) => new Promise<void>((resolve) => {
@@ -250,14 +373,19 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
       play: playOnce,
       face(x) {
         if (x === null) { yawTarget.current = 0; return; }
-        yawTarget.current = clamp((x - pos.current.x) / 260, -1, 1) * 1.05;
+        yawTarget.current = clamp((x - pos.current.x) / 260, -1, 1) * 0.6;
       },
-      beam(to, onFire) {
-        beamState.current = { to: { ...to }, t: 0, fired: false, onFire };
+      beam(to, onFire, from = 'mouth') {
+        beamState.current = { to: { ...to }, t: 0, fired: false, onFire, from };
         api.face(to.x);
-        return playOnce('BeamyBlast').then(() => { beamState.current = null; yawTarget.current = 0; });
+        return playOnce(from === 'hand' ? 'Wave' : 'BeamyBlast').then(() => {
+          // A clip shorter than the window still owes its onFire.
+          const b = beamState.current;
+          if (b !== null && !b.fired) { b.fired = true; b.onFire?.(); }
+          beamState.current = null; yawTarget.current = 0;
+        });
       },
-      reveal(url, at, sizePx) {
+      reveal(url, at, sizePx, from = 'mouth') {
         api.clearProp();
         const g = propGroup.current;
         if (g === null) return Promise.resolve();
@@ -288,8 +416,15 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
             seeds[i * 4 + 2] = Math.cos(ph) * r * 0.4;
             seeds[i * 4 + 3] = Math.random() * 0.35;
           }
-          const m = api.mouth();
+          const m = from === 'hand' ? api.hand() : api.mouth();
           const mw = toWorld(m);
+          api.face(at.x);
+          if (reducedRef.current) {
+            // No particles: the prop simply appears, full size.
+            g.scale.setScalar(1);
+            void playOnce('Hop').then(resolve);
+            return;
+          }
           reveal.current = {
             t: 0,
             from: new THREE.Vector3(mw.x, mw.y, 130),
@@ -297,10 +432,85 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
             seeds,
             resolve,
             done: false,
+            hand: from === 'hand',
           };
-          api.face(at.x);
-          void playOnce('Hop');
+          void playOnce(from === 'hand' ? 'Wave' : 'Hop');
         }), () => undefined);
+      },
+      hand() {
+        const b = handBone.current;
+        if (b === null) {
+          const h = layoutRef.current.heightPx * scale.current;
+          return { x: pos.current.x - h * 0.4, y: pos.current.y - h * 0.7 };
+        }
+        const v = b.localToWorld(handLocal.current.clone());
+        return toScreen(v);
+      },
+      drift(to) {
+        api.face(to.x);
+        if (reducedRef.current) return playOnce('Wave');
+        return new Promise<void>((resolve) => {
+          void playOnce('Wave');
+          // Emit once the hand is up (Wave raises it over ~0.35s).
+          window.setTimeout(() => {
+            const h = api.hand();
+            const n = 26;
+            let fired = false;
+            for (let i = 0; i < n; i++) {
+              const life = 0.85 + Math.random() * 0.35;
+              emitMote(h.x + (Math.random() - 0.5) * 10, h.y + (Math.random() - 0.5) * 10,
+                to.x + (Math.random() - 0.5) * 60, to.y + (Math.random() - 0.5) * 30,
+                life, -Math.random() * 0.3, (Math.random() - 0.3) * 120);
+            }
+            window.setTimeout(() => { if (!fired) { fired = true; resolve(); } }, 900);
+          }, 350);
+        });
+      },
+      arrive() {
+        if (reducedRef.current || shown.current) {
+          shown.current = true;
+          appear.current = 1;
+          return Promise.resolve();
+        }
+        return new Promise<void>((resolve) => { arrival.current = { t: 0, landed: false, resolve }; });
+      },
+      sparkle(level) {
+        if (reducedRef.current) return;
+        const h = layoutRef.current.heightPx * scale.current;
+        const cx = pos.current.x;
+        const cy = pos.current.y - h * 0.55;
+        const n = level === 'burst' ? 44 : 12;
+        for (let i = 0; i < n; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const r = h * (level === 'burst' ? 0.55 + Math.random() * 0.45 : 0.35 + Math.random() * 0.25);
+          emitMote(cx + Math.cos(a) * h * 0.15, cy + Math.sin(a) * h * 0.15, cx + Math.cos(a) * r, cy + Math.sin(a) * r,
+            0.5 + Math.random() * 0.35, -Math.random() * 0.08, 0);
+        }
+        if (level === 'burst') flash.current = { t: 0, at: { x: cx, y: cy }, sizePx: h * 1.6 };
+      },
+      spin() {
+        if (reducedRef.current) return;
+        spinS.current.vel += 22;
+      },
+      look(p) {
+        gazeTarget.current = p === null ? null : { ...p };
+      },
+      dragStart() {
+        const s = spinS.current;
+        s.dragging = true;
+        s.vel = 0;
+        s.base = s.angle;
+      },
+      dragMove(dxPx) {
+        const s = spinS.current;
+        if (!s.dragging) return;
+        s.angle = s.base + dxPx * SPIN_PER_PX;
+      },
+      dragEnd(velocity) {
+        const s = spinS.current;
+        s.dragging = false;
+        if (reducedRef.current) { s.angle = nearestFront(s.angle); s.vel = 0; return; }
+        s.vel = velocity;
       },
       clearProp() {
         reveal.current?.resolve();
@@ -339,9 +549,18 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
   const floorMat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: BEAM_VERT,
     fragmentShader: FLOOR_FRAG,
-    uniforms: { uTime: { value: 0 } },
+    uniforms: { uTime: { value: 0 }, uAlpha: { value: 0 } },
     transparent: true,
     depthWrite: false,
+  }), []);
+  const flashMat = useMemo(() => new THREE.ShaderMaterial({
+    vertexShader: BEAM_VERT,
+    fragmentShader: FLASH_FRAG,
+    uniforms: { uAlpha: { value: 0 } },
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
   }), []);
   const sparkGeo = useMemo(() => {
     const g = new THREE.BufferGeometry();
@@ -349,10 +568,23 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
     const col = new Float32Array(N_SPARKS * 3);
     const c = new THREE.Color();
     for (let i = 0; i < N_SPARKS; i++) {
-      c.set(SPECTRUM[i % SPECTRUM.length]);
+      c.set(LIGHT_PALETTE[i % LIGHT_PALETTE.length]);
       col.set([c.r, c.g, c.b], i * 3);
     }
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return g;
+  }, []);
+  /** Mote colours are rewritten per frame (base colour × fade, additive). */
+  const moteBase = useMemo(() => {
+    const c = new THREE.Color();
+    const out = new Float32Array(N_MOTES * 3);
+    for (let i = 0; i < N_MOTES; i++) { c.set(LIGHT_PALETTE[i % LIGHT_PALETTE.length]); out.set([c.r, c.g, c.b], i * 3); }
+    return out;
+  }, []);
+  const moteGeo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N_MOTES * 3), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N_MOTES * 3), 3));
     return g;
   }, []);
   /** Soft round sprite so sparks read as light, not square pixels. */
@@ -374,7 +606,14 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
     size: 7, vertexColors: true, transparent: true, depthTest: false, depthWrite: false,
     blending: THREE.AdditiveBlending, sizeAttenuation: false, map: sparkTex,
   }), [sparkTex]);
-  useEffect(() => () => { beamMat.dispose(); floorMat.dispose(); sparkGeo.dispose(); sparkMat.dispose(); sparkTex.dispose(); }, [beamMat, floorMat, sparkGeo, sparkMat, sparkTex]);
+  const moteMat = useMemo(() => new THREE.PointsMaterial({
+    size: 9, vertexColors: true, transparent: true, depthTest: false, depthWrite: false,
+    blending: THREE.AdditiveBlending, sizeAttenuation: false, map: sparkTex,
+  }), [sparkTex]);
+  useEffect(() => () => {
+    beamMat.dispose(); floorMat.dispose(); flashMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
+    sparkTex.dispose(); moteGeo.dispose(); moteMat.dispose();
+  }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat]);
 
   useFrame((state, dtRaw) => {
     const dt = Math.min(dtRaw, 1 / 20);
@@ -401,8 +640,11 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
         pos.current = { x: pos.current.x + (dx / dist) * step, y: pos.current.y + (dy / dist) * step };
         if (Math.abs(dx) > 4) yawTarget.current = Math.sign(dx) * 1.0;
       }
+    } else if (!shown.current) {
+      // Not arrived yet: stand exactly where the beam will land.
+      pos.current = { ...layout.home };
     } else if (reveal.current === null && beamState.current === null) {
-      // Idle at home: follow layout changes (resize, rotation).
+      // Idle at home: follow layout changes (resize, rotation, section moves).
       const atHomeScale = Math.abs(scale.current - 1) < 0.02;
       if (atHomeScale) {
         const h = layout.home;
@@ -412,13 +654,52 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
     yaw.current += (yawTarget.current - yaw.current) * Math.min(1, dt * 7);
 
     const heightPx = layout.heightPx * scale.current;
+    const reduced = reducedRef.current;
+
+    /* Entrance: the beam drops, a flash, he grows in where it landed. */
+    const ar = arrival.current;
+    if (ar !== null) {
+      ar.t += dt;
+      if (!ar.landed && ar.t >= DROP_S) {
+        ar.landed = true;
+        shown.current = true;
+        flash.current = { t: 0, at: { x: pos.current.x, y: pos.current.y - heightPx * 0.42 }, sizePx: heightPx * 2.2 };
+      }
+      if (ar.t >= DROP_S + 0.6) { arrival.current = null; ar.resolve(); }
+    }
+    if (shown.current && appear.current < 1) appear.current = reduced ? 1 : Math.min(1, appear.current + dt / 0.5);
+
+    /* Gaze: a small head/body turn toward the pointer (off under reduced motion). */
+    const gt = gazeTarget.current;
+    const spinNow = spinS.current;
+    let gy = 0, gp = 0, near = 0;
+    if (gt !== null && !reduced && w === null && beamState.current === null && !spinNow.dragging) {
+      const dx = gt.x - pos.current.x;
+      const dy = gt.y - (pos.current.y - heightPx * 0.62);
+      gy = clamp(dx / 700, -1, 1) * 0.42;
+      gp = clamp(dy / 600, -1, 1) * 0.16;
+      near = clamp(1 - (Math.hypot(dx, dy) - heightPx * 0.35) / (heightPx * 0.6), 0, 1);
+    }
+    const gz = gaze.current;
+    gz.yaw += (gy - gz.yaw) * Math.min(1, dt * 5);
+    gz.pitch += (gp - gz.pitch) * Math.min(1, dt * 5);
+    gz.near += (near - gz.near) * Math.min(1, dt * 6);
+
+    /* Drag spin: inertia, then a springy settle to front (pure physics). */
+    if (!spinNow.dragging) {
+      if (spinSettled(spinNow)) { spinNow.angle = 0; spinNow.vel = 0; }
+      else { const n = spinStep(spinNow, dt); spinNow.angle = n.angle; spinNow.vel = n.vel; }
+    }
+
     const s = heightPx / MODEL_H;
     const g = rig.current;
     if (g) {
       const wp = toWorld(pos.current);
       g.position.set(wp.x, wp.y, 0);
-      g.scale.setScalar(s);
-      g.rotation.y = yaw.current;
+      g.scale.setScalar(s * Math.max(0.0001, reduced ? appear.current : easeOutBack(appear.current)));
+      g.rotation.y = yaw.current + gz.yaw + spinNow.angle;
+      g.rotation.x = gz.pitch;
+      g.visible = shown.current;
     }
     if (floor.current) {
       const wp = toWorld(pos.current);
@@ -426,38 +707,119 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
       floor.current.scale.set(heightPx * 1.25, heightPx * 0.3, 1);
     }
     (floorMat.uniforms.uTime as { value: number }).value = t;
+    (floorMat.uniforms.uAlpha as { value: number }).value = appear.current;
     mixer.current?.update(dt);
 
-    /* Beam quad */
+    /* Lids (after the mixer): squint when the pointer is close, wide open while dragged. */
+    for (const lid of lids.current) {
+      if (spinNow.dragging) lid.scale.y = 0.02;
+      else if (gz.near > 0.01) lid.scale.y = Math.max(lid.scale.y, 0.02 + gz.near * 0.42);
+    }
+
+    /* Beam quad: Beamy's own beam, or the entrance drop from the top. */
     const b = beamState.current;
     const bm = beamMesh.current;
     if (bm) {
       let alpha = 0;
       if (b !== null) {
+        const hand = b.from === 'hand';
+        const fireS = hand ? 0.45 : BEAM_FIRE_S;
+        const endS = hand ? 1.15 : BEAM_END_S;
         b.t += dt;
-        if (!b.fired && b.t >= BEAM_FIRE_S) { b.fired = true; b.onFire?.(); }
-        if (b.t >= BEAM_FIRE_S && b.t <= BEAM_END_S + 0.2) {
-          const k = b.t - BEAM_FIRE_S;
-          alpha = Math.min(1, k / 0.12) * Math.min(1, (BEAM_END_S + 0.2 - b.t) / 0.25);
-          const m = toWorld(apiRef.current?.mouth() ?? pos.current);
+        if (!b.fired && b.t >= fireS) { b.fired = true; b.onFire?.(); }
+        if (b.t >= fireS && b.t <= endS + 0.2) {
+          const k = b.t - fireS;
+          alpha = Math.min(1, k / 0.12) * Math.min(1, (endS + 0.2 - b.t) / 0.25);
+          const origin = hand ? apiRef.current?.hand() : apiRef.current?.mouth();
+          const m = toWorld(origin ?? pos.current);
           const to = toWorld(b.to);
           const len = Math.hypot(to.x - m.x, to.y - m.y);
           bm.position.set((m.x + to.x) / 2, (m.y + to.y) / 2, 300);
           bm.rotation.z = Math.atan2(to.y - m.y, to.x - m.x);
-          const width = Math.max(26, heightPx * 0.22) * (1 + 0.08 * Math.sin(t * 40));
+          const width = (hand ? Math.max(14, heightPx * 0.1) : Math.max(26, heightPx * 0.22)) * (1 + 0.06 * Math.sin(t * 40));
           bm.scale.set(Math.max(1, len), width, 1);
         }
+      } else if (ar !== null) {
+        // Head of the column falls from above the viewport to his feet (ease-in),
+        // then the full column lingers and fades as he appears.
+        const fall = clamp(ar.t / DROP_S, 0, 1);
+        const topY = -60;
+        const headY = topY + (pos.current.y - topY) * fall * fall;
+        const fade = ar.landed ? clamp(1 - (ar.t - DROP_S) / 0.5, 0, 1) : 1;
+        alpha = Math.min(1, ar.t / 0.12) * fade;
+        const a = toWorld({ x: pos.current.x, y: topY });
+        const z = toWorld({ x: pos.current.x, y: headY });
+        const len = Math.max(1, a.y - z.y);
+        bm.position.set(a.x, (a.y + z.y) / 2, 300);
+        bm.rotation.z = -Math.PI / 2;
+        bm.scale.set(len, Math.max(22, layout.heightPx * 0.16) * (ar.landed ? 1 + (ar.t - DROP_S) * 1.2 : 1), 1);
       }
       bm.visible = alpha > 0.001;
       (beamMat.uniforms.uAlpha as { value: number }).value = alpha;
       (beamMat.uniforms.uTime as { value: number }).value = t;
     }
 
-    /* Prop reveal: sparks out of the mouth, swirl, collapse into the prop. */
+    /* Flash: impact bloom / poke burst. */
+    const fl = flash.current;
+    const fm = flashMesh.current;
+    if (fm) {
+      let fa = 0;
+      if (fl !== null) {
+        fl.t += dt / FLASH_S;
+        const k = clamp(fl.t, 0, 1);
+        fa = (1 - k) * (1 - k);
+        const wp = toWorld(fl.at);
+        fm.position.set(wp.x, wp.y, 320);
+        const sz = fl.sizePx * (0.55 + 0.55 * (1 - (1 - k) ** 3));
+        fm.scale.set(sz, sz, 1);
+        if (fl.t >= 1) flash.current = null;
+      }
+      fm.visible = fa > 0.001;
+      (flashMat.uniforms.uAlpha as { value: number }).value = fa;
+    }
+
+    /* Motes: hand drift + poke sparkles. */
+    const mp = motesRef.current;
+    if (mp) {
+      const parr = (mp.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
+      const carr = (mp.geometry.getAttribute('color') as THREE.BufferAttribute).array as Float32Array;
+      let any = false;
+      const list = motes.current;
+      for (let i = 0; i < list.length; i++) {
+        const m = list[i];
+        let a = 0;
+        if (m.active) {
+          m.t += dt / m.life;
+          if (m.t >= 1) m.active = false;
+          else {
+            any = true;
+            const k = clamp(m.t, 0, 1);
+            const e = 1 - (1 - k) ** 3;
+            const dx = m.x1 - m.x0, dy = m.y1 - m.y0;
+            const len = Math.hypot(dx, dy) || 1;
+            const bow = Math.sin(Math.PI * e) * m.bow;
+            const p = toWorld({ x: m.x0 + dx * e - (dy / len) * bow, y: m.y0 + dy * e + (dx / len) * bow });
+            parr[i * 3] = p.x; parr[i * 3 + 1] = p.y; parr[i * 3 + 2] = 330;
+            a = m.t <= 0 ? 0 : Math.sin(Math.PI * k) ** 0.6;
+          }
+        }
+        carr[i * 3] = moteBase[i * 3] * a;
+        carr[i * 3 + 1] = moteBase[i * 3 + 1] * a;
+        carr[i * 3 + 2] = moteBase[i * 3 + 2] * a;
+      }
+      mp.visible = any;
+      if (any) {
+        mp.geometry.getAttribute('position').needsUpdate = true;
+        mp.geometry.getAttribute('color').needsUpdate = true;
+        moteMat.size = Math.max(8, layout.heightPx * 0.045);
+      }
+    }
+
+    /* Prop reveal: sparks out of the mouth (or hand), swirl, collapse into the prop. */
     const r = reveal.current;
     const pg = propGroup.current;
     const sp = sparks.current;
-    if (pg && pg.visible) {
+    if (pg && pg.visible && !reduced) {
       propSpin.current += dt * 0.9;
       pg.rotation.y = propSpin.current;
       pg.rotation.x = Math.sin(t * 1.3) * 0.12;
@@ -467,7 +829,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
       const TOTAL = 2.1;
       const p = r.t / TOTAL;
       const arr = (sp.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
-      const mouthNow = toWorld(apiRef.current?.mouth() ?? pos.current);
+      const mouthNow = toWorld((r.hand ? apiRef.current?.hand() : apiRef.current?.mouth()) ?? pos.current);
       r.from.set(mouthNow.x, mouthNow.y, 130);
       for (let i = 0; i < N_SPARKS; i++) {
         const delay = r.seeds[i * 4 + 3];
@@ -534,6 +896,10 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, onReady, onError }: Props
       </mesh>
       <group ref={propGroup} visible={false} />
       <points ref={sparks} geometry={sparkGeo} material={sparkMat} visible={false} frustumCulled={false} renderOrder={6} />
+      <points ref={motesRef} geometry={moteGeo} material={moteMat} visible={false} frustumCulled={false} renderOrder={7} />
+      <mesh ref={flashMesh} material={flashMat} visible={false} renderOrder={8}>
+        <planeGeometry args={[1, 1]} />
+      </mesh>
     </>
   );
 }
@@ -543,7 +909,9 @@ export default function BeamyStage(props: Props) {
     <div className="pointer-events-none fixed inset-0 z-40" aria-hidden>
       <Canvas
         orthographic
-        dpr={[1, 2]}
+        // 1.75 cap: a full-viewport transparent canvas at dpr 3 is the cost
+        // that hurts on phones; the mascot reads crisp at 1.75.
+        dpr={[1, 1.75]}
         events={noopEvents}
         gl={{ alpha: true, antialias: true, powerPreference: 'high-performance' }}
         camera={{ position: [0, 0, 1000], near: 1, far: 3000, zoom: 1 }}

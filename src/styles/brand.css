@@ -1,0 +1,371 @@
+/**
+ * Beamwall brand v2 ("Midnight + Beam") — tokens and base components.
+ *
+ * SCOPED, on purpose: everything here applies only under `[data-brand="2"]`
+ * (the candidate landing at /beamy and the style guide at /brand), so the
+ * rest of the platform renders byte-identically until the owner approves the
+ * rollout. Rollout = change the token selector below to `:root` and drop the
+ * attribute from the two pages; the component classes already read tokens
+ * only, so nothing else moves.
+ *
+ * Rules the tokens encode (see /brand): dark only, flat colour, ONE soft
+ * indigo glow behind Beamy, no gradient fills on buttons / text / borders,
+ * sentence case, never below 12px. The beam of light itself is the one place
+ * light is allowed to be expressive (BeamyStage's shader, not CSS).
+ *
+ * Fonts are self-hosted variable woff2 (latin + latin-ext, OFL-1.1, from
+ * @fontsource-variable 5.3.0). An @font-face never downloads until a rule
+ * that is actually rendered asks for its family, so declaring them in the
+ * global stylesheet costs pages outside the scope nothing.
+ */
+
+/* ── Fonts ──────────────────────────────────────────────────────────── */
+
+/* latin-ext */
+@font-face {
+  font-family: 'Bricolage Grotesque Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 800;
+  src: url(/fonts/bricolage-grotesque-var-latin-ext.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Bricolage Grotesque Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 800;
+  src: url(/fonts/bricolage-grotesque-var-latin.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Geist Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(/fonts/geist-var-latin-ext.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Geist Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(/fonts/geist-var-latin.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ── Tokens (rollout: this selector becomes :root) ──────────────────── */
+
+[data-brand="2"] {
+  /* Midnight */
+  --bw-bg: #080A14;
+  --bw-surface: #10131F;
+  --bw-surface-2: #171B2B;
+  --bw-hairline: rgba(255, 255, 255, 0.08);
+  --bw-hairline-strong: rgba(255, 255, 255, 0.16);
+  /* The one glow: the indigo the first /beamy cut used behind Beamy
+     (rgba(124,108,247,0.22)), kept as a single soft radial. */
+  --bw-glow: rgba(124, 108, 247, 0.20);
+
+  /* Ink */
+  --bw-ink: #F4F5FA;
+  --bw-muted: #A3A9BD;
+  --bw-faint: #6D7389;
+
+  /* Beam (brand accent) — flat, never a gradient */
+  --bw-accent: #8E96FF;
+  --bw-accent-hover: #A5ABFF;
+  --bw-accent-pressed: #7780F0;
+  --bw-on-accent: #0B0D1A;
+
+  /* Core (warm accent) — one highlight per screen */
+  --bw-core: #FFC56B;
+
+  /* Semantic */
+  --bw-success: #5FD4A0;
+  --bw-danger: #FF7A85;
+
+  /* Type */
+  --bw-font-display: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+  --bw-font-text: 'Geist Variable', 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  /* 360px → 1440px linear, capped by height so one viewport always fits. */
+  --bw-size-display: clamp(44px, min(30.7px + 3.7vw, 9.4dvh), 84px);
+  --bw-size-h2: clamp(30px, min(24px + 1.667vw, 6.4dvh), 48px);
+  --bw-size-h3: clamp(20px, 18.67px + 0.37vw, 24px);
+  --bw-size-body: clamp(16px, 15.33px + 0.185vw, 18px);
+  --bw-size-small: 14px;
+  --bw-size-label: 13px;
+  --bw-track-display: -0.028em;
+  --bw-track-heading: -0.02em;
+
+  /* Shape + motion */
+  --bw-radius-card: 20px;
+  --bw-radius-bubble: 16px;
+  --bw-radius-tile: 12px;
+  --bw-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --bw-dur: 520ms;
+  --bw-stagger: 60ms;
+
+  color: var(--bw-ink);
+  font-family: var(--bw-font-text);
+  font-size: var(--bw-size-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Components ─────────────────────────────────────────────────────── */
+
+@layer components {
+  .bw-root {
+    background-color: var(--bw-bg);
+  }
+  .bw-glow {
+    background: radial-gradient(42% 46% at var(--glow-x, 50%) var(--glow-y, 40%), var(--bw-glow), transparent 72%);
+  }
+
+  .bw-display,
+  .bw-h2,
+  .bw-h3,
+  .bw-wordmark {
+    font-family: var(--bw-font-display);
+    color: var(--bw-ink);
+    text-wrap: balance;
+  }
+  .bw-display {
+    font-size: var(--bw-size-display);
+    font-weight: 650;
+    line-height: 1.02;
+    letter-spacing: var(--bw-track-display);
+  }
+  .bw-h2 {
+    font-size: var(--bw-size-h2);
+    font-weight: 650;
+    line-height: 1.08;
+    letter-spacing: var(--bw-track-heading);
+  }
+  .bw-h3 {
+    font-size: var(--bw-size-h3);
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+  }
+  .bw-wordmark {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+  .bw-body {
+    font-size: var(--bw-size-body);
+    line-height: 1.5;
+    color: var(--bw-muted);
+    text-wrap: pretty;
+  }
+  .bw-small {
+    font-size: var(--bw-size-small);
+    line-height: 1.45;
+    color: var(--bw-muted);
+  }
+  /* Small label: sentence case, never ALL CAPS, never wide-tracked. */
+  .bw-label {
+    font-size: var(--bw-size-label);
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--bw-muted);
+  }
+
+  /* Buttons — pill, flat. */
+  .bw-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 48px;
+    padding: 0 22px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    font-family: var(--bw-font-text);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.005em;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 160ms var(--bw-ease), border-color 160ms var(--bw-ease),
+      color 160ms var(--bw-ease), transform 160ms var(--bw-ease);
+  }
+  .bw-btn:active { transform: scale(0.98); }
+  .bw-btn:focus-visible,
+  .bw-focus:focus-visible {
+    outline: 2px solid var(--bw-accent);
+    outline-offset: 2px;
+  }
+  .bw-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+  .bw-btn-primary { background: var(--bw-accent); color: var(--bw-on-accent); }
+  .bw-btn-primary:hover:not(:disabled) { background: var(--bw-accent-hover); }
+  .bw-btn-primary:active:not(:disabled) { background: var(--bw-accent-pressed); }
+  .bw-btn-secondary { background: var(--bw-surface-2); color: var(--bw-ink); border-color: var(--bw-hairline); }
+  .bw-btn-secondary:hover:not(:disabled) { border-color: var(--bw-hairline-strong); background: #1C2134; }
+  .bw-btn-secondary:active:not(:disabled) { background: var(--bw-surface); }
+  .bw-btn-sm { min-height: 44px; padding: 0 18px; font-size: 14px; }
+  .bw-btn-lg { min-height: 56px; padding: 0 30px; font-size: 16px; }
+  .bw-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 4px;
+    border-radius: 8px;
+    color: var(--bw-ink);
+    font-size: 15px;
+    font-weight: 500;
+    text-underline-offset: 4px;
+    transition: color 160ms var(--bw-ease);
+  }
+  .bw-link:hover { color: var(--bw-accent-hover); }
+  .bw-link:focus-visible { outline: 2px solid var(--bw-accent); outline-offset: 2px; }
+  /* Footer-weight link: muted until hovered. */
+  .bw-link.bw-link-quiet { color: var(--bw-muted); font-size: 13px; }
+  .bw-link.bw-link-quiet:hover { color: var(--bw-ink); }
+  .bw-link svg { transition: transform 160ms var(--bw-ease); }
+  .bw-link:hover svg { transform: translateX(2px); }
+
+  /* Cards — surface + hairline, no sheen, no coloured glow. */
+  .bw-card {
+    position: relative;
+    background: var(--bw-surface);
+    border: 1px solid var(--bw-hairline);
+    border-radius: var(--bw-radius-card);
+    transition: border-color 200ms var(--bw-ease), transform 200ms var(--bw-ease), background-color 200ms var(--bw-ease);
+  }
+  .bw-card-interactive { cursor: pointer; text-align: left; }
+  .bw-card-interactive:hover { border-color: var(--bw-hairline-strong); transform: translateY(-2px); }
+  .bw-card-interactive:focus-visible { outline: 2px solid var(--bw-accent); outline-offset: 2px; }
+  .bw-card[aria-pressed="true"],
+  .bw-card[data-selected="true"] {
+    border-color: var(--bw-accent);
+    box-shadow: inset 0 0 0 0.5px var(--bw-accent);
+  }
+
+  /* Icon tile: 40px surface-2, radius 12, 1.5px-stroke lucide icon inside. */
+  .bw-icon-tile {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--bw-radius-tile);
+    background: var(--bw-surface-2);
+    color: var(--bw-accent);
+  }
+  .bw-icon-tile svg { width: 20px; height: 20px; stroke-width: 1.5; }
+
+  /* Speech bubble. */
+  .bw-bubble {
+    background: var(--bw-surface);
+    border: 1px solid var(--bw-hairline-strong);
+    border-radius: var(--bw-radius-bubble);
+    color: var(--bw-ink);
+    font-size: 15px;
+    line-height: 1.45;
+    box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.7);
+  }
+
+  /* Form field. */
+  .bw-field {
+    width: 100%;
+    min-height: 48px;
+    padding: 0 16px;
+    border-radius: 14px;
+    background: var(--bw-surface-2);
+    border: 1px solid var(--bw-hairline);
+    color: var(--bw-ink);
+    font-family: var(--bw-font-text);
+    font-size: 16px;
+    transition: border-color 160ms var(--bw-ease);
+  }
+  .bw-field::placeholder { color: var(--bw-faint); }
+  .bw-field:hover { border-color: var(--bw-hairline-strong); }
+  .bw-field:focus-visible { outline: 2px solid var(--bw-accent); outline-offset: 2px; border-color: transparent; }
+
+  /* Look / filter pill (selectable). */
+  .bw-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0 18px;
+    border-radius: 999px;
+    background: var(--bw-surface-2);
+    border: 1px solid var(--bw-hairline);
+    color: var(--bw-muted);
+    font-size: 14px;
+    font-weight: 500;
+    transition: border-color 160ms var(--bw-ease), color 160ms var(--bw-ease), background-color 160ms var(--bw-ease);
+  }
+  .bw-pill:hover { color: var(--bw-ink); border-color: var(--bw-hairline-strong); }
+  .bw-pill[aria-pressed="true"] { color: var(--bw-on-accent); background: var(--bw-accent); border-color: var(--bw-accent); }
+  .bw-pill:focus-visible { outline: 2px solid var(--bw-accent); outline-offset: 2px; }
+
+  /* Progress dots: 44px hit area, a small dot inside. */
+  .bw-dot {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+  }
+  .bw-dot::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--bw-faint);
+    transition: width 320ms var(--bw-ease), background-color 320ms var(--bw-ease);
+  }
+  .bw-dot:hover::before { background: var(--bw-muted); }
+  .bw-dot[aria-current="step"]::before { width: 22px; background: var(--bw-core); }
+  .bw-dot:focus-visible { outline: 2px solid var(--bw-accent); outline-offset: -2px; }
+
+  /* Section motion: outgoing slides 24px up and fades, incoming rises. */
+  .bw-rise > * {
+    animation: bw-rise var(--bw-dur) var(--bw-ease) both;
+    animation-delay: calc(var(--i, 0) * var(--bw-stagger));
+  }
+  .bw-leave { animation: bw-leave 360ms var(--bw-ease) both; }
+}
+
+/* Section headings take focus programmatically on every section change (so a
+   screen reader announces the new section). They are not controls, so the
+   global unlayered :focus-visible ring (index.css) would paint a box around
+   the headline after every keyboard nav. Unlayered + higher specificity on
+   purpose; real controls keep their rings. */
+[data-brand="2"] [data-section-heading]:focus,
+[data-brand="2"] [data-section-heading]:focus-visible { outline: none; }
+
+@keyframes bw-rise {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes bw-leave {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-24px); }
+}
+@keyframes bw-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-brand="2"] .bw-rise > * { animation-name: bw-fade; animation-duration: 240ms; animation-delay: 0ms; }
+  [data-brand="2"] .bw-leave { animation: bw-fade 200ms linear reverse both; }
+  [data-brand="2"] .bw-card-interactive:hover { transform: none; }
+  [data-brand="2"] .bw-btn:active { transform: none; }
+}

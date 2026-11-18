@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { AUDIENCES, DELIVER_STEPS, GREETING, POKE_LINES, TOUR_STOPS, audienceById } from './beamyTour';
+import { AUDIENCES, DELIVER_STEPS, DONE_FOR_YOU, GREETING, HELLO, POKE_LINES, TOUR_STOPS, audienceById } from './beamyTour';
 import { DEMO_KITS } from './demoKits';
+import { landingCopy } from './brandLanding';
 
 const allCopy = (): string[] => [
   GREETING,
+  HELLO,
+  DONE_FOR_YOU,
+  ...landingCopy(),
   ...POKE_LINES,
   ...DELIVER_STEPS.flatMap((s) => [s.title, s.body]),
   ...AUDIENCES.flatMap((a) => [a.title, a.hint, ...a.gets, ...TOUR_STOPS.map((s) => a.lines[s])]),

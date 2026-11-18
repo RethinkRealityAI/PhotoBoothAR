@@ -123,6 +123,10 @@ const TryPage = import.meta.env.VITE_EVENT
 const BeamyPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/beamy/BeamyPage'));
+/** Brand v2 living style guide (/brand, noindex). Same fold. */
+const BrandPage = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/brand/BrandPage'));
 
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
@@ -281,6 +285,7 @@ export default function App() {
               <Route path="/book/:ref" element={<BookPage />} />
               <Route path="/try/:kit" element={<TryPage />} />
               <Route path="/beamy" element={<BeamyPage />} />
+              <Route path="/brand" element={<BrandPage />} />
 
               {/* Host platform (session-gated) */}
               <Route path="/host" element={<HostLayout />}>
