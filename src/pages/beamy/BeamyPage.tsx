@@ -62,10 +62,11 @@ import {
   STOPS, blendSlots, pageProgress, pinProgress, storyHeightVh, storyStep, weightedNight,
   type Pose, type SlotSample, type StopId,
 } from '../../lib/beamyScroll';
-import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl } from '../../lib/beamyLooks';
+import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, STORY_LOOK_HOLD_MS, STORY_LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl } from '../../lib/beamyLooks';
 import { preloadModel } from '../../lib/glbCache';
 import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, type StageLayout } from './BeamyStage';
 import StoryFx, { type FxState } from './StoryFx';
+import StoryScenes from './StoryScenes';
 
 import boothFilm from '../../assets/landing/booth-feature.mp4';
 import boothPoster from '../../assets/landing/booth-feature-poster.jpg';
@@ -202,6 +203,17 @@ export default function BeamyPage() {
   const [active, setActive] = useState<StopId>('hero');
   const [step, setStep] = useState(0);
   const [film, setFilm] = useState<FilmId>('booth');
+  /* Films and the audience options wait, hidden, until Beamy arrives and
+     beams them in (instantly shown without WebGL or under reduced motion). */
+  const [filmsLit, setFilmsLit] = useState(false);
+  const [pickLit, setPickLit] = useState(false);
+  const pickLitRef = useRef(false);
+  pickLitRef.current = pickLit;
+  const filmsLitRef = useRef(false);
+  filmsLitRef.current = filmsLit;
+  /** When each has been on screen since (0 = not now), for the never-wait fallback. */
+  const seenAt = useRef({ films: 0, pick: 0 });
+  const pickGridRef = useRef<HTMLDivElement | null>(null);
   const [picked, setPicked] = useState<Audience | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [look, setLook] = useState<string | null>(null);
@@ -248,7 +260,8 @@ export default function BeamyPage() {
   const headerRef = useRef<HTMLElement | null>(null);
   const viewfinderRef = useRef<HTMLDivElement | null>(null);
   const storyRef = useRef<HTMLElement | null>(null);
-  const fxSpotRef = useRef<HTMLDivElement | null>(null);
+  const storyWallRef = useRef<HTMLDivElement | null>(null);
+  const [storyRipple, setStoryRipple] = useState(0);
   const filmFrameRef = useRef<HTMLDivElement | null>(null);
   /** The centre tile of whichever wall the next photo flies to. */
   const heroTileRef = useRef<HTMLDivElement | null>(null);
@@ -275,7 +288,7 @@ export default function BeamyPage() {
   const projecting = useRef(false);
   const layoutRef = useRef<StageLayout>({ home: { x: vp.w / 2, y: vp.h * 0.6 }, heightPx: 180 });
   const decorRef = useRef<StageDecor>({ panel: null, stand: null, phone, scroll: 0 });
-  const fxRef = useRef<FxState>({ weights: {}, spot: null, pulse: -1e9 });
+  const fxRef = useRef<FxState>({ weights: {}, spot: null });
   const seed = useMemo(() => {
     const q = Number(new URLSearchParams(window.location.search).get('seed'));
     return Number.isFinite(q) && q > 0 ? q : (Date.now() & 0xffff) + 1;
@@ -382,47 +395,44 @@ export default function BeamyPage() {
     el.scrollIntoView({ behavior: reducedRef.current ? 'auto' : 'smooth', block: 'start' });
   }, []);
 
-  /** The story's fx spot, viewport px (the prop and the mini wall stand in it). */
-  const spotRect = () => rectOf(fxSpotRef.current);
-  const runReveal = async (a: Audience, instant = false) => {
-    const b = api.current;
-    const r = spotRect();
-    if (b === null || r === null) return;
-    const size = Math.min(r.width, r.height) * 0.5;
-    const r2: Reaction = react.current('reveal');
-    await b.reveal(a.prop.url, () => { const q = spotRect() ?? r; return { x: q.left + q.width / 2, y: q.top + q.height * 0.56 }; }, size, r2 === 'handSparks' ? 'hand' : 'mouth', instant);
-  };
+  /** A story step's main piece (StoryScenes marks it), viewport px. */
+  const anchorRect = (id: StoryFxId) => rectOf(storyRef.current?.querySelector(`[data-fx-anchor="${id}"]`) ?? null);
   const beamToWall = () => {
     const b = api.current;
-    const r = spotRect();
+    const r = rectOf(storyWallRef.current);
     if (b === null || r === null || !readyRef.current) return;
     logStep('story:wall:beam');
-    void b.beam(centre(r), () => { fxRef.current.pulse = performance.now(); }, 'mouth');
+    void b.beam(centre(r), () => setStoryRipple((k) => k + 1), 'mouth');
   };
-  /** A story step became active while the story holds Beamy: his clip, plus the step's own act. */
+  /**
+   * A story step became active while the story holds Beamy: his clip, and
+   * he lights his step's scene. The AR step dresses him (the try-on effect),
+   * the wall step beams shots onto the wall, every other step he projects
+   * onto its main piece as it materialises.
+   */
   const storyEnter = (i: number): boolean => {
     const b = api.current;
     if (b === null || !readyRef.current) return false;
-    const prev = storyOn.current.step;
     storyOn.current.step = i;
     const s = STORY_STEPS[i];
     logStep(`story:${s.id}`);
-    if (prev >= 0 && STORY_STEPS[prev]?.id === 'prop' && s.id !== 'prop') b.clearProp();
-    if (s.id !== 'wall') b.stopBeam();
-    if (s.id === 'prop') {
-      void runReveal(audienceRef.current, reducedRef.current).then(() => {
-        if (storyOn.current.step === i) void b.play('ShadesOn');
-      });
-    }
+    b.stopBeam();
+    b.stopProject();
+    if (s.id === 'prop') void b.play('Hop');
     else if (s.id === 'wall') beamToWall();
-    else void b.play(s.clip as BeamyClip);
+    else {
+      void b.play(s.clip as BeamyClip);
+      const id = s.id;
+      window.setTimeout(() => {
+        if (storyOn.current.step === i) void b.project(() => anchorRect(id), id === 'keepsake' ? 'mouth' : 'hand', !reducedRef.current);
+      }, 380);
+    }
     return true;
   };
   const storyLeave = () => {
-    const prev = storyOn.current.step;
     storyOn.current.step = -1;
-    if (prev >= 0 && STORY_STEPS[prev]?.id === 'prop') api.current?.clearProp();
-    if (prev >= 0 && STORY_STEPS[prev]?.id === 'wall') api.current?.stopBeam();
+    api.current?.stopBeam();
+    api.current?.stopProject();
   };
   const storyEnterRef = useRef(storyEnter);
   storyEnterRef.current = storyEnter;
@@ -445,6 +455,12 @@ export default function BeamyPage() {
     say(lineFor(id, audienceRef.current));
     if (id !== 'hero') setDragHint(false);
     if (id !== 'try') setCameraOn(false);
+    if (id === 'pick' && !pickLitRef.current) {
+      const b = api.current;
+      const r = rectOf(pickGridRef.current);
+      if (b !== null && r !== null && readyRef.current && !reducedRef.current) void b.beam(centre(r), () => setPickLit(true), 'hand');
+      else setPickLit(true);
+    }
   };
   const onStopRef = useRef(onStop);
   onStopRef.current = onStop;
@@ -514,15 +530,27 @@ export default function BeamyPage() {
       }
       const fx = fxRef.current;
       fx.weights = b.fx as Partial<Record<StoryFxId, number>>;
-      fx.spot = rectOf(fxSpotRef.current);
+      fx.spot = anchorRect(card.id);
       // The story holds Beamy: run its step (once per step), or let go.
       const inStory = slotId === 'story' && b.share > 0.8;
       if (inStory && storyOn.current.step !== sStep) storyEnterRef.current(sStep);
       else if (!inStory && storyOn.current.step >= 0) storyLeaveRef.current();
+      // Films and options he beams in: shown anyway once on screen for a moment,
+      // whether or not he got there (a stop that never settles, a slow stage).
+      const now = performance.now();
+      const lightAfterLook = (el: HTMLElement | null, key: 'films' | 'pick', lit: boolean, light: () => void) => {
+        if (lit || el === null) return;
+        const q = el.getBoundingClientRect();
+        if (q.top > vh * 0.85 || q.bottom < headerH + 40) { seenAt.current[key] = 0; return; }
+        if (seenAt.current[key] === 0) seenAt.current[key] = now;
+        else if (now - seenAt.current[key] > 1800) light();
+      };
+      lightAfterLook(filmFrameRef.current, 'films', filmsLitRef.current, () => setFilmsLit(true));
+      lightAfterLook(pickGridRef.current, 'pick', pickLitRef.current, () => setPickLit(true));
       // The films: a soft projector cone onto the frame while he stands beside it.
       const bApi = api.current;
       const inFilms = slotId === 'films' && b.share > 0.8 && readyRef.current && bApi !== null;
-      if (inFilms && !projecting.current) { projecting.current = true; void bApi?.project(() => rectOf(filmFrameRef.current), 'mouth', !reducedRef.current); }
+      if (inFilms && !projecting.current) { projecting.current = true; void bApi?.project(() => rectOf(filmFrameRef.current), 'mouth', !reducedRef.current).then(() => setFilmsLit(true)); }
       else if (!inFilms && projecting.current) { projecting.current = false; bApi?.stopProject(); }
       if (settled && slotId !== activeRef.current) onStopRef.current(slotId);
       // Header progress, the colour journey, the hero's scroll depth.
@@ -684,12 +712,20 @@ export default function BeamyPage() {
      he wears BEAMY_LOOKS[lookIx] (real library props, a guide-pack frame)
      and says its line; every few seconds, or on a tap, he moves to the next.
      Leaving the hero takes it off; coming back puts it on again. ────── */
-  const tryOn = ready && !failed && arrival === 'done' && !introRunning && active === 'hero';
+  // Beamed-in content never waits on him for long: no stage, or a slow one,
+  // shows it anyway (the glide tick lights it after a short look; see seenAt).
+  const filmsOn = filmsLit || failed || reduced;
+  const pickOn = pickLit || failed || reduced;
+
+  // The story's AR step runs the same tour, quicker, and skips the greeting.
+  const inStoryAR = active === 'story' && STORY_STEPS[step]?.id === 'prop';
+  const tryOn = ready && !failed && arrival === 'done' && !introRunning && (active === 'hero' || inStoryAR);
   const lastWorn = useRef(-1);
   useEffect(() => {
     const b = api.current;
     if (b === null) return;
     if (!tryOn) { if (lastWorn.current >= 0) { void b.wear(null); lastWorn.current = -1; } return; }
+    if (inStoryAR && lookIx === 0) { setLookIx(1); return; }
     const look = BEAMY_LOOKS[lookIx] ?? BEAMY_LOOKS[0];
     if (lastWorn.current >= 0 && lastWorn.current !== lookIx) b.sparkle('sparkle');
     lastWorn.current = lookIx;
@@ -703,15 +739,15 @@ export default function BeamyPage() {
       if (!live) return;
       window.clearTimeout(stuck);
       logStep(`look:${look.id}`);
-      say(look.line, lookIx !== 0);
-      hold = window.setTimeout(advance, reduced ? LOOK_HOLD_REDUCED_MS : LOOK_HOLD_MS);
+      if (!inStoryAR) say(look.line, lookIx !== 0);
+      hold = window.setTimeout(advance, inStoryAR ? (reduced ? STORY_LOOK_HOLD_REDUCED_MS : STORY_LOOK_HOLD_MS) : reduced ? LOOK_HOLD_REDUCED_MS : LOOK_HOLD_MS);
     });
     // Warm the next look so the swap is instant.
     const nx = preloadUrl(lookIx);
     if (nx !== null) { if (nx.endsWith('.glb')) void preloadModel(nx); else { const im = new Image(); im.src = nx; } }
     return () => { live = false; window.clearTimeout(stuck); window.clearTimeout(hold); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- say/api are stable
-  }, [tryOn, lookIx, reduced]);
+  }, [tryOn, inStoryAR, lookIx, reduced]);
 
   /* Only the Skip chip skips the intro (or scrolling on). */
   const skipIntro = useCallback(() => {
@@ -964,7 +1000,7 @@ export default function BeamyPage() {
   );
   /** A section's own slot for Beamy (phones: above the copy, never behind it). */
   const stand = (id: StopId, yaw: number, cls: string) => (
-    <div data-slot={id} data-yaw={phone ? 0 : yaw} data-bubble={phone ? 'none' : undefined} aria-hidden className={phone ? 'mx-auto mb-4 h-[30svh] w-[64%] max-w-[260px]' : cls} />
+    <div data-slot={id} data-yaw={phone ? 0 : yaw} data-bubble={phone ? 'none' : undefined} aria-hidden className={phone ? 'mx-auto mb-8 h-[30svh] w-[64%] max-w-[260px]' : cls} />
   );
   const sectionClass = `bw-sec relative mx-auto w-full max-w-[1320px] ${phone ? 'px-5 py-14' : 'px-[clamp(40px,6vw,104px)] py-[clamp(88px,13vh,150px)]'}`;
   /** Desktop: Beamy's column on `side`, the content on the other. Phones: his slot above the content. */
@@ -1080,7 +1116,7 @@ export default function BeamyPage() {
               )}
               {/* Phones: the floating bubble stays away from the hero, so his
                   try-on line sits here, over his head, left of the wall. */}
-              {tryOn && heroGeo?.stand != null && (
+              {tryOn && active === 'hero' && heroGeo?.stand != null && (
                 <p
                   ref={lookCapRef}
                   aria-hidden
@@ -1113,62 +1149,54 @@ export default function BeamyPage() {
     const run = r.height - (vh - headerH);
     sc.scrollTo({ top: top + ((k + 0.5) / n) * run, behavior: reduced ? 'auto' : 'smooth' });
   };
-  const storyCards = (
-    <ol className={`flex flex-col ${phone ? 'gap-0' : 'gap-3'}`}>
-      {STORY_STEPS.map((s, k) => {
-        const on = k === step;
-        if (phone && !on) return null;
-        return (
-          <li key={s.id} className="bw-glass-card bw-pane bw-story-card" data-active={on ? 'true' : 'false'}>
-            <button type="button" className="bw-story-head" aria-expanded={on} aria-controls={`story-${s.id}`} onClick={() => goStep(k)}>
+  // Phones and portrait tablets stack the scene above him; wide screens set it round him.
+  const stacked = phone || vp.w < WIDE_HERO_MIN;
+  const storyIds = STORY_STEPS.map((s) => s.id);
+  const storyLook = inStoryAR ? BEAMY_LOOKS[lookIx]?.id ?? null : null;
+  const storyCaption = (
+    <div className={`bw-glass-card bw-pane ${stacked ? 'px-4 pb-1.5 pt-3.5' : 'w-[min(420px,34vw)] px-6 pb-2.5 pt-5'}`}>
+      <p className={`bw-eyebrow after:hidden ${stacked ? 'text-[12px]' : ''}`}>{STORY_COPY.eyebrow}</p>
+      <h2 id="h-story" className="sr-only">{STORY_COPY.heading}</h2>
+      {/* Every step stays in the document; only the active one shows. */}
+      <ol className="bw-cap-steps mt-2.5">
+        {STORY_STEPS.map((s, k) => (
+          <li key={s.id} data-active={k === step ? 'true' : 'false'}>
+            <div className="flex items-center gap-3">
               <span className="bw-story-num" aria-hidden>{String(k + 1).padStart(2, '0')}</span>
-              <span className="bw-h3 min-w-0">{s.title}</span>
-            </button>
-            <div id={`story-${s.id}`} className="bw-story-more">
-              <div className="min-h-0 overflow-hidden"><p className="bw-small pb-5 pl-[52px] pr-5">{s.body}</p></div>
+              <h3 className={`bw-h3 min-w-0 ${stacked ? 'text-[18px] leading-tight' : ''}`}>{s.title}</h3>
             </div>
+            <p className={`bw-small mt-1.5 ${stacked ? '' : 'pl-12'}`}>{s.body}</p>
           </li>
-        );
-      })}
-    </ol>
-  );
-  const storySegs = (
-    <div className="bw-segs" aria-hidden>
-      {STORY_STEPS.map((s, k) => <span key={s.id} data-on={k <= step ? 'true' : 'false'} />)}
+        ))}
+      </ol>
+      <div className={`bw-cap-dots ${stacked ? 'mt-1' : 'mt-2 pl-12'}`} role="group" aria-label="Steps">
+        {STORY_STEPS.map((s, k) => (
+          <button key={s.id} type="button" aria-label={`Step ${k + 1}: ${s.title}`} aria-current={k === step ? 'step' : undefined} onClick={() => goStep(k)}><span /></button>
+        ))}
+      </div>
     </div>
   );
-  const storyHead = (
-    <div className="bw-in">
-      <p className={`bw-eyebrow after:hidden ${phone ? 'text-[13px]' : ''}`}>{STORY_COPY.eyebrow}</p>
-      <h2 id="h-story" className={`${phone ? 'bw-h2 mt-1 text-[26px]' : 'bw-h2 mt-3 max-w-[18ch]'}`}>{STORY_COPY.heading}</h2>
-    </div>
+  const storyScenes = (
+    <StoryScenes step={step} ids={storyIds} stacked={stacked} lookId={storyLook} ripple={storyRipple} wallCentreRef={storyWallRef} seed={seed} />
   );
   const story = (
     <section ref={storyRef} id="how" data-stop="story" aria-labelledby="h-story" className="bw-sec relative" style={{ height: `${storyHeightVh(n, phone)}vh` }}>
       <div className="sticky overflow-hidden" style={{ top: 'var(--bw-header-h)', height: 'calc(100svh - var(--bw-header-h))' }}>
-        {phone ? (
-          <div className="flex h-full flex-col px-5 pb-6 pt-5">
-            {storyHead}
-            <div className="relative mt-2 min-h-0 flex-1">
-              <div data-slot="story" data-bubble="none" aria-hidden className="absolute bottom-0 left-[3%] h-[72%] w-[57%]" />
-              <div ref={fxSpotRef} data-fx-spot aria-hidden className="absolute bottom-[24%] right-0 h-[50%] w-[46%]" />
+        {stacked ? (
+          <div className="flex h-full flex-col px-4 pb-3 pt-3 sm:px-8">
+            <div className="relative z-10 mx-auto w-full max-w-[560px] shrink-0">{storyCaption}</div>
+            {/* The scene rises above his head; he stands big below it. */}
+            <div className="relative mx-auto mt-3 min-h-0 w-full max-w-[640px] flex-1">
+              {storyScenes}
+              <div data-slot="story" data-bubble="none" aria-hidden className="absolute bottom-[1%] left-[15%] right-[15%] h-[46%]" />
             </div>
-            <div className="mt-2" aria-live="polite">{storyCards}</div>
-            <div className="mt-4">{storySegs}</div>
           </div>
         ) : (
-          <div className="mx-auto grid h-full max-w-[1320px] grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] items-center gap-[clamp(24px,4vw,72px)] px-[clamp(24px,5vw,88px)]">
-            {/* One composition: Beamy large and centred in the left half, his
-                step's effect over his shoulder, drawn BEHIND him in depth. */}
-            <div className="relative h-[86%]">
-              <div ref={fxSpotRef} data-fx-spot aria-hidden className="absolute right-0 top-0 h-[54%] w-[54%]" />
-              <div data-slot="story" data-bubble="none" data-ax="0.36" aria-hidden className="absolute inset-x-0 bottom-[3%] h-[70%]" />
-            </div>
-            <div className="min-w-0">
-              {storyHead}
-              <div className="mt-7">{storyCards}</div>
-              <div className="mt-6 max-w-[420px]">{storySegs}</div>
-            </div>
+          <div className="relative mx-auto h-full max-w-[1480px]">
+            {storyScenes}
+            {/* Big and centred; the scene stands on both sides of him and above. */}
+            <div data-slot="story" data-bubble="none" aria-hidden className="absolute bottom-[3%] left-[30%] right-[30%] h-[58%]" />
+            <div className="absolute left-[clamp(24px,4vw,64px)] top-[clamp(16px,3.5vh,36px)] z-10">{storyCaption}</div>
           </div>
         )}
       </div>
@@ -1196,10 +1224,13 @@ export default function BeamyPage() {
               );
             })}
           </div>
-          <div ref={filmFrameRef} data-film-frame data-lit="true" className="bw-in bw-film bw-thick-frame mt-6" style={i(2)}>
-            <FilmEmbed key={cur.id} src={media.src} poster={media.poster} label={`${cur.title}: feature film`} chipClassName="bw-film-chip" />
+          {/* Beamy's projector lands first, then the film appears in its light. */}
+          <div className="bw-beam-in" data-beam={filmsOn ? 'lit' : 'wait'}>
+            <div ref={filmFrameRef} data-film-frame data-lit="true" className="bw-in bw-film bw-thick-frame mt-6" style={i(2)}>
+              <FilmEmbed key={cur.id} src={media.src} poster={media.poster} label={`${cur.title}: feature film`} chipClassName="bw-film-chip" />
+            </div>
+            <p className="bw-small mt-4 max-w-[56ch]"><span className="font-semibold" style={{ color: 'var(--bw-ink)' }}>{cur.title}.</span> {cur.line}</p>
           </div>
-          <p className="bw-small mt-4 max-w-[56ch]"><span className="font-semibold" style={{ color: 'var(--bw-ink)' }}>{cur.title}.</span> {cur.line}</p>
         </>
       ))}
     </section>
@@ -1235,17 +1266,18 @@ export default function BeamyPage() {
             <h2 id="h-pick" className="bw-h2">{PICK_COPY.heading}</h2>
             <p className="bw-body mt-2">{PICK_COPY.sub}</p>
           </div>
-          <div className={`mt-7 grid gap-3 ${phone ? 'grid-cols-1' : 'grid-cols-2'}`}>
+          {/* He beams the options in, one after another, when he gets here. */}
+          <div ref={pickGridRef} className={`bw-beam-group mt-7 grid gap-3 ${phone ? 'grid-cols-1' : 'grid-cols-2'}`} data-beam={pickOn ? 'lit' : 'wait'}>
             {AUDIENCES.map((a, k) => {
               const Icon = AUDIENCE_ICONS[a.icon];
               const on = selectedId === a.id;
               return (
+                <div key={a.id} className="bw-beam-in" style={{ ['--k' as string]: k }}>
                 <button
-                  key={a.id}
                   type="button"
                   aria-pressed={on}
                   onClick={(e) => { void pickAudience(a, e.currentTarget); }}
-                  className={`bw-in bw-glass-card bw-pane bw-interactive flex items-center gap-4 ${phone ? 'min-h-[64px] px-4 py-3' : 'min-h-[84px] p-4'}`}
+                  className={`bw-in bw-glass-card bw-pane bw-interactive flex w-full items-center gap-4 ${phone ? 'min-h-[64px] px-4 py-3' : 'min-h-[84px] p-4'}`}
                   style={i(k)}
                 >
                   <span className="bw-icon-tile" aria-hidden><Icon /></span>
@@ -1255,6 +1287,7 @@ export default function BeamyPage() {
                   </span>
                   {on && <Check className="h-5 w-5 shrink-0" strokeWidth={1.75} style={{ color: 'var(--bw-ink)' }} aria-hidden />}
                 </button>
+                </div>
               );
             })}
           </div>
@@ -1269,8 +1302,10 @@ export default function BeamyPage() {
       <LiveWall pool={WALL_POOL} pins={shotPins} dim={false} compact={phone} centreRef={tryTileRef} ripple={0} seed={seed + 7} />
     </div>
   );
+  // Wider than the other sections and higher up: the phone sits far left, the wall far right.
+  const tryClass = `bw-sec relative mx-auto w-full max-w-[1440px] ${phone ? 'px-5 pb-14 pt-10' : 'px-[clamp(32px,4vw,72px)] pb-[clamp(64px,10vh,120px)] pt-[clamp(36px,6vh,72px)]'}`;
   const tryIt = (
-    <section id="demo" data-stop="try" aria-labelledby="h-try" className={sectionClass}>
+    <section id="demo" data-stop="try" aria-labelledby="h-try" className={tryClass}>
       {phone && stand('try', 0, '')}
       <div className={`bw-in ${phone ? '' : 'flex flex-wrap items-end justify-between gap-x-8 gap-y-4'}`}>
         <div>
@@ -1285,13 +1320,13 @@ export default function BeamyPage() {
           <div className="min-w-0 flex-1">{tryWall}</div>
         </div>
       ) : (
-        <div className={`mt-8 flex items-stretch justify-center gap-[clamp(16px,2.4vw,40px)] ${vp.w >= WIDE_HERO_MIN ? 'h-[min(560px,66vh)]' : 'h-[min(480px,58vh)]'}`}>
+        <div className={`mt-6 flex items-stretch justify-between gap-[clamp(12px,2vw,32px)] ${vp.w >= WIDE_HERO_MIN ? 'h-[min(700px,74vh)]' : 'h-[min(480px,58vh)]'}`}>
           <div className="bw-in min-h-0">{booth}</div>
-          <div className="flex w-[clamp(140px,13vw,210px)] shrink-0 flex-col justify-end">
-            <div data-slot="try" data-max="230" aria-hidden className="relative h-[72%] min-h-0 w-full" />
+          <div className="flex w-[clamp(140px,19vw,320px)] shrink-0 flex-col justify-end">
+            <div data-slot="try" data-max="340" aria-hidden className="relative h-[80%] min-h-0 w-full" />
           </div>
           <div className="bw-in flex min-h-0 items-center" style={i(1)}>
-            <div style={{ width: 'min(360px, 30vw)' }}>{tryWall}</div>
+            <div style={{ width: 'min(440px, 32vw)' }}>{tryWall}</div>
           </div>
         </div>
       )}
@@ -1379,7 +1414,6 @@ export default function BeamyPage() {
   );
 
   const bubbleHidden = active === 'hero' && !wideHero;
-  const storyPhotos = useMemo(() => WALL_POOL.slice(0, 9), []);
 
   return (
     <div
@@ -1425,7 +1459,7 @@ export default function BeamyPage() {
           onReady={() => { logStep('model:ready'); setReady(true); }}
           onError={() => { logStep('model:failed'); setFailed(true); }}
         >
-          <StoryFx fxRef={fxRef} photos={storyPhotos} lite={phone} reduced={reduced} />
+          <StoryFx fxRef={fxRef} lite={phone} reduced={reduced} />
         </BeamyStage>
       )}
 

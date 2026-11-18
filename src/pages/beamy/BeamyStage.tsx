@@ -39,8 +39,8 @@
  * (phones, hero ↔ dock). `project()` keeps a soft projector cone on a film
  * frame the page names through a rect getter (it scrolls with the page).
  *
- * Liquid-glass scene: a deep-indigo contact shadow grounds him; a few frosted,
- * faceted crystals (one flat-shaded physical material, no transmission pass)
+ * Liquid-glass scene: a deep-indigo contact shadow grounds him; a few small
+ * real library props (crown, halo, tiara: the platform's own assets)
  * sit around the hero's glass panel and his hero stand, reported through
  * `decorRef`; they bob slowly and parallax with the pointer and with the
  * scroll as the hero leaves (nearer = more). The
@@ -253,11 +253,11 @@ void main() {
   gl_FragColor = vec4(vec3(0.086, 0.071, 0.306), (core * 0.62 + soft * 0.16) * uAlpha);
 }`;
 
-/* ── Crystals: faceted, frosted decor around the hero ─────────────────── */
+/* ── Decor: small library props around the hero (the "crystals" slots) ─── */
 
-type CrystalKind = 'ico' | 'oct' | 'cone';
 interface CrystalSpec {
-  kind: CrystalKind;
+  /** A small real library prop (the platform's own assets, not abstract shapes). */
+  prop: string;
   /** Anchor as a fraction of the hero's glass panel (may sit outside it), or
    *  on the floor around his hero stand ([dx, dy] × his height from his feet;
    *  dy < 0 = further back; lift = raised by × his height). */
@@ -273,15 +273,16 @@ interface CrystalSpec {
    *  softer, in front of him. */
   layer?: 'back' | 'front';
 }
+const PROP_DIR = '/models/props/';
 const CRYSTALS: CrystalSpec[] = [
-  { kind: 'ico', at: { panel: [-0.012, -0.05] }, size: 0.15, depth: 0.25, phone: true },
-  { kind: 'oct', at: { panel: [1.015, 1.02] }, size: 0.16, depth: 0.35, phone: true },
-  // Around his stand: one in front of him (front-right, large, soft), two behind (small, hazy).
-  { kind: 'cone', at: { stand: [0.66, 0.03] }, size: 0.2, depth: 1, phone: true, shadow: true, layer: 'front' },
-  { kind: 'ico', at: { stand: [-0.78, -0.05] }, size: 0.12, depth: 0.15, phone: false, shadow: true, layer: 'back' },
-  { kind: 'oct', at: { stand: [0.74, -0.04], lift: 0.62 }, size: 0.09, depth: 0.25, phone: false, layer: 'back' },
-  { kind: 'ico', at: { panel: [0.6, 0.16] }, size: 0.05, depth: 0.7, phone: false },
-  { kind: 'oct', at: { panel: [0.33, 0.9] }, size: 0.035, depth: 0.55, phone: false, shadow: true },
+  { prop: 'royal-crown', at: { panel: [-0.012, -0.05] }, size: 0.15, depth: 0.25, phone: true },
+  { prop: 'halo-ring', at: { panel: [1.015, 1.02] }, size: 0.16, depth: 0.35, phone: true },
+  // Around his stand: one in front of him (front-right, large), two behind (small).
+  { prop: 'queens-tiara', at: { stand: [0.66, 0.03] }, size: 0.2, depth: 1, phone: true, shadow: true, layer: 'front' },
+  { prop: 'royal-crown', at: { stand: [-0.78, -0.05] }, size: 0.12, depth: 0.15, phone: false, shadow: true, layer: 'back' },
+  { prop: 'halo-ring', at: { stand: [0.74, -0.04], lift: 0.62 }, size: 0.09, depth: 0.25, phone: false, layer: 'back' },
+  { prop: 'queens-tiara', at: { panel: [0.6, 0.16] }, size: 0.05, depth: 0.7, phone: false },
+  { prop: 'royal-crown', at: { panel: [0.33, 0.9] }, size: 0.035, depth: 0.55, phone: false, shadow: true },
 ];
 const CRYSTAL_PARALLAX_PX = 22;
 
@@ -416,7 +417,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const bodyBone = useRef<THREE.Object3D | null>(null);
   const phoneBone = useRef<THREE.Object3D | null>(null);
   const selfieRun = useRef<{ t: number; tl: SelfieTimeline; snapped: boolean; action: THREE.AnimationAction; onFrame: (f: SelfieFrame) => void; resolve: (done: boolean) => void } | null>(null);
-  const crystalRefs = useRef<(THREE.Mesh | null)[]>([]);
+  const crystalRefs = useRef<(THREE.Group | null)[]>([]);
   const crystalShadowRefs = useRef<(THREE.Mesh | null)[]>([]);
   /** The mirrored copy of his rig on the hero's glossy floor (desktop only). */
   const reflRig = useRef<THREE.Group>(null);
@@ -1002,35 +1003,36 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     size: 9, vertexColors: true, transparent: true, depthTest: false, depthWrite: false,
     blending: THREE.AdditiveBlending, sizeAttenuation: false, map: sparkTex,
   }), [sparkTex]);
-  /** Frosted, faceted, a hint of iridescence. No transmission pass (phones). */
-  const crystalMat = useMemo(() => new THREE.MeshPhysicalMaterial({
-    color: '#E4E9FF', roughness: 0.24, metalness: 0, flatShading: true,
-    clearcoat: 0.6, clearcoatRoughness: 0.25,
-    iridescence: 0.7, iridescenceIOR: 1.35, iridescenceThicknessRange: [160, 520],
-    emissive: '#4F4BC0', emissiveIntensity: 0.28,
-  }), []);
-  /** Depth looks: behind him hazier (paler, translucent); in front softer and a touch translucent. */
-  const crystalBackMat = useMemo(() => {
-    const m = crystalMat.clone();
-    m.transparent = true; m.opacity = 0.5; m.roughness = 0.5; m.emissive.set('#8E86F0'); m.emissiveIntensity = 0.35;
-    return m;
-  }, [crystalMat]);
-  const crystalFrontMat = useMemo(() => {
-    const m = crystalMat.clone();
-    m.transparent = true; m.opacity = 0.9; m.roughness = 0.42; m.clearcoatRoughness = 0.6;
-    return m;
-  }, [crystalMat]);
-  const crystalGeos = useMemo<Record<CrystalKind, THREE.BufferGeometry>>(() => ({
-    ico: new THREE.IcosahedronGeometry(0.5, 1),
-    oct: new THREE.OctahedronGeometry(0.5, 0),
-    cone: new THREE.ConeGeometry(0.3, 0.9, 6),
-  }), []);
   useEffect(() => () => {
     beamMat.dispose(); floorMat.dispose(); flashMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
-    sparkTex.dispose(); moteGeo.dispose(); moteMat.dispose(); crystalMat.dispose(); crystalShadowMat.dispose();
-    crystalBackMat.dispose(); crystalFrontMat.dispose(); coneMat.dispose(); coneGeo.dispose();
-    for (const g of Object.values(crystalGeos)) g.dispose();
-  }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalMat, crystalShadowMat, crystalBackMat, crystalFrontMat, coneMat, coneGeo, crystalGeos]);
+    sparkTex.dispose(); moteGeo.dispose(); moteMat.dispose(); crystalShadowMat.dispose();
+    coneMat.dispose(); coneGeo.dispose();
+  }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalShadowMat, coneMat, coneGeo]);
+  /* The decor props: real library assets, each fitted into a unit box and
+     dropped into its holder once Beamy himself is on screen (they share the
+     glb cache with the hero try-on; masters are cloned, never disposed). */
+  useEffect(() => {
+    let live = true;
+    const id = window.setTimeout(() => {
+      CRYSTALS.forEach((c, i) => {
+        void loadModel(`${PROP_DIR}${c.prop}.glb`).then((master) => {
+          const holder = crystalRefs.current[i];
+          if (!live || holder === null || holder.children.length > 0) return;
+          const obj = master.clone(true);
+          obj.updateMatrixWorld(true);
+          const box = new THREE.Box3().setFromObject(obj);
+          const dim = box.getSize(new THREE.Vector3());
+          const k = 1 / Math.max(1e-6, dim.x, dim.y, dim.z);
+          const mid = box.getCenter(new THREE.Vector3());
+          obj.scale.multiplyScalar(k);
+          obj.position.set(-mid.x * k, -mid.y * k, -mid.z * k);
+          obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 1; } });
+          holder.add(obj);
+        }, () => undefined);
+      });
+    }, 1200);
+    return () => { live = false; window.clearTimeout(id); };
+  }, []);
 
   useFrame((state, dtRaw) => {
     const dt = Math.min(dtRaw, DT_MAX);
@@ -1306,13 +1308,13 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       const cw = toWorld({ x, y });
       m.position.set(cw.x, cw.y, c.layer === 'back' ? -330 : c.layer === 'front' ? 300 : -120 + c.depth * 60);
       m.scale.setScalar(Math.max(1, size));
+      // Upright, a slow turn on the spot, a gentle nod toward the viewer.
       if (!reduced) {
         m.rotation.y += dt * (0.16 + (i % 3) * 0.06);
-        m.rotation.x = (c.kind === 'cone' ? 2.6 : 0.4) + Math.sin(t * 0.45 + i) * 0.12;
+        m.rotation.x = 0.22 + Math.sin(t * 0.45 + i) * 0.1;
       } else {
-        m.rotation.set(c.kind === 'cone' ? 2.6 : 0.4, 0.6 + i, c.kind === 'cone' ? 0.5 : 0);
+        m.rotation.set(0.22, 0.6 + i, 0);
       }
-      if (c.kind === 'cone') m.rotation.z = 0.5;
     }
 
     /* Lids (after the mixer): squint when the pointer is close, wide open while dragged. */
@@ -1629,15 +1631,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         </mesh>
       ))}
       {CRYSTALS.map((c, i) => (
-        <mesh
-          key={i}
-          ref={(m) => { crystalRefs.current[i] = m; }}
-          geometry={crystalGeos[c.kind]}
-          material={c.layer === 'back' ? crystalBackMat : c.layer === 'front' ? crystalFrontMat : crystalMat}
-          visible={false}
-          frustumCulled={false}
-          renderOrder={1}
-        />
+        <group key={`${c.prop}${i}`} ref={(m) => { crystalRefs.current[i] = m; }} visible={false} />
       ))}
       <group ref={reflRig} visible={false}>
         {reflectObj !== null && <primitive object={reflectObj} />}

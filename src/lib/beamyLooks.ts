@@ -73,6 +73,9 @@ export const BEAMY_LOOKS: BeamyLook[] = [
 export const LOOK_HOLD_MS = 4600;
 /** Reduced motion: the same tour, slower. */
 export const LOOK_HOLD_REDUCED_MS = 7000;
+/** In the story's AR step the tour runs quicker (the step is one scroll stretch). */
+export const STORY_LOOK_HOLD_MS = 2600;
+export const STORY_LOOK_HOLD_REDUCED_MS = 5000;
 
 /**
  * The look after `i`. The greeting plays once: after the last look the
