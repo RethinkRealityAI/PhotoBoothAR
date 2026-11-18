@@ -163,8 +163,16 @@ export function blendSlots(samples: SlotSample[], vpW: number, vpH: number, phon
     for (const [id, v] of Object.entries(s.pose.fx ?? {})) fx[id] = (fx[id] ?? 0) + v * k;
   }
   const share = ws[best] / sum;
-  // Phones: all there only when one slot clearly holds him.
+  // Phones: all there only when one slot clearly holds him, and then exactly
+  // in that slot (a blend would pull a visible Beamy over the copy between
+  // two slots; he crosses that stretch dissolved instead).
   const presence = phone ? smoothstep(0.66, 0.9, share) : 1;
+  if (phone) {
+    const p = poseInSlot(samples[best].rect, samples[best].pose);
+    x = p.x;
+    y = p.y;
+    h = p.heightPx;
+  }
   return {
     x, y, heightPx: h,
     yaw: Math.atan2(sy, cy),

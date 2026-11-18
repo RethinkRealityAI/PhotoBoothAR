@@ -214,6 +214,10 @@ export const FILMS_COPY = {
 const FILM_LINE: Partial<Record<string, string>> = {
   booth: 'One scan drops every guest into a magical booth, right in their browser.',
 };
+/** This page's own film tab label, where the shared default could read as a physical product. */
+export const FILM_EYEBROW: Partial<Record<string, string>> = {
+  cards: 'Digital keepsakes',
+};
 
 export type FilmId = 'booth' | 'wall' | 'challenges' | 'cards';
 /**
@@ -226,11 +230,11 @@ export const FILMS: { id: FilmId; eyebrow: string; title: string; line: string; 
     ['booth', 'Watch this. Every phone becomes the booth.'],
     ['wall', 'And this is where every shot lands.'],
     ['challenges', 'Want the room to mingle? Give them a mission.'],
-    ['cards', 'And the next morning, everyone gets a keepsake.'],
+    ['cards', 'And the next morning, everyone gets a digital keepsake.'],
   ] as const
 ).map(([id, beamy]) => {
   const f = DEFAULT_LANDING_CONTENT.features.find((x) => x.id === id);
-  return { id, eyebrow: f?.eyebrow ?? '', title: f?.title ?? '', line: FILM_LINE[id] ?? f?.copy ?? '', beamy };
+  return { id, eyebrow: FILM_EYEBROW[id] ?? f?.eyebrow ?? '', title: f?.title ?? '', line: FILM_LINE[id] ?? f?.copy ?? '', beamy };
 });
 
 export const PICK_COPY = {
@@ -310,6 +314,23 @@ export function planCards(): PlanCard[] {
   ];
 }
 
+/**
+ * How /beamy words a plan line that could read as a physical product (everything
+ * Beamwall delivers is digital). Display only: planCards() stays fact for fact
+ * with Landing.tsx, and these lines say the same thing with the word "digital".
+ */
+const PLAN_DIGITAL: Record<string, string> = {
+  'The full experience, cards included.': 'The full experience, digital keepsakes included.',
+  'Keepsake cards': 'Digital keepsake cards',
+  'Premium card renders': 'Premium digital card designs',
+};
+
+/** The plan cards as /beamy shows them: planCards() with PLAN_DIGITAL's wording. */
+export function beamyPlanCards(): PlanCard[] {
+  const w = (s: string) => PLAN_DIGITAL[s] ?? s;
+  return planCards().map((c) => ({ ...c, blurb: w(c.blurb), features: c.features.map(w) }));
+}
+
 /** The pricing section's words: the landing's own (beta-aware) heading, intro and CTAs, plus its Pro line. */
 export function pricingSection(): { heading: string; intro: string; pro: string; cta: (tier: string) => string; recommended: string; line: string } {
   const p = pricingCopy(BETA_FREE);
@@ -350,7 +371,7 @@ export function landingCopy(): string[] {
     s.heading, s.line, ...s.bullets, ...FOOTER_LINKS.map((f) => f.label),
     ...LOOKS.map((l) => l.label),
     pr.heading, pr.intro, pr.pro, pr.recommended, pr.line,
-    ...planCards().flatMap((t) => [t.name, t.price, t.unit, t.blurb, ...t.features, pr.cta(t.name)]),
+    ...beamyPlanCards().flatMap((t) => [t.name, t.price, t.unit, t.blurb, ...t.features, pr.cta(t.name)]),
   ];
 }
 

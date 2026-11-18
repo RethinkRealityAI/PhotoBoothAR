@@ -55,7 +55,7 @@ import { SHOT_TILES, WALL_CENTRE, wallRows } from '../../lib/beamyWall';
 import { AUDIENCES, GREETING, HELLO, POKE_LINES, audienceById, type Audience, type AudienceIcon } from '../../lib/beamyTour';
 import {
   FILMS, FILMS_COPY, FOOTER_LINKS, HERO, LOOKS, NAV_LINKS, PICK_COPY, POKE_IDLE, SIGNUP_PATH, START_COPY, STORY_COPY,
-  STORY_STEPS, TRY_COPY, createReactionPicker, pickCelebration, planCards, pokeStep, pricingSection, releaseVelocity,
+  STORY_STEPS, TRY_COPY, beamyPlanCards, createReactionPicker, pickCelebration, pokeStep, pricingSection, releaseVelocity,
   startFacts, type Celebration, type FilmId, type Reaction, type StoryFxId,
 } from '../../lib/brandLanding';
 import {
@@ -458,7 +458,9 @@ export default function BeamyPage() {
     if (id === 'pick' && !pickLitRef.current) {
       const b = api.current;
       const r = rectOf(pickGridRef.current);
-      if (b !== null && r !== null && readyRef.current && !reducedRef.current) void b.beam(centre(r), () => setPickLit(true), 'hand');
+      // Phones: no beam across the heading between him and the options.
+      const narrow = window.innerWidth < PHONE_MAX;
+      if (b !== null && r !== null && readyRef.current && !reducedRef.current && !narrow) void b.beam(centre(r), () => setPickLit(true), 'hand');
       else setPickLit(true);
     }
   };
@@ -550,7 +552,9 @@ export default function BeamyPage() {
       // The films: a soft projector cone onto the frame while he stands beside it.
       const bApi = api.current;
       const inFilms = slotId === 'films' && b.share > 0.8 && readyRef.current && bApi !== null;
-      if (inFilms && !projecting.current) { projecting.current = true; void bApi?.project(() => rectOf(filmFrameRef.current), 'mouth', !reducedRef.current).then(() => setFilmsLit(true)); }
+      // Phones: the film sits below the heading, so no cone across it; it just appears.
+      if (inFilms && isPhone) { if (!filmsLitRef.current) setFilmsLit(true); }
+      else if (inFilms && !projecting.current) { projecting.current = true; void bApi?.project(() => rectOf(filmFrameRef.current), 'mouth', !reducedRef.current).then(() => setFilmsLit(true)); }
       else if (!inFilms && projecting.current) { projecting.current = false; bApi?.stopProject(); }
       if (settled && slotId !== activeRef.current) onStopRef.current(slotId);
       // Header progress, the colour journey, the hero's scroll depth.
@@ -980,7 +984,7 @@ export default function BeamyPage() {
   const i = (n: number) => ({ ['--i' as string]: n });
   const start = startFacts();
   const pricing = pricingSection();
-  const plans = planCards();
+  const plans = beamyPlanCards();
   /* The header is a floating glass pill: this is the band it reserves (pill + its margins). */
   const headerH = phone ? 66 : 84;
 
@@ -1306,7 +1310,6 @@ export default function BeamyPage() {
   const tryClass = `bw-sec relative mx-auto w-full max-w-[1440px] ${phone ? 'px-5 pb-14 pt-10' : 'px-[clamp(32px,4vw,72px)] pb-[clamp(64px,10vh,120px)] pt-[clamp(36px,6vh,72px)]'}`;
   const tryIt = (
     <section id="demo" data-stop="try" aria-labelledby="h-try" className={tryClass}>
-      {phone && stand('try', 0, '')}
       <div className={`bw-in ${phone ? '' : 'flex flex-wrap items-end justify-between gap-x-8 gap-y-4'}`}>
         <div>
           <h2 id="h-try" className="bw-h2">{TRY_COPY.heading}</h2>
@@ -1315,9 +1318,14 @@ export default function BeamyPage() {
         <div className={phone ? 'mt-4' : ''}>{lookPills}</div>
       </div>
       {phone ? (
-        <div className="bw-in mt-5 flex items-center gap-3">
-          <div className="shrink-0" style={{ height: 'min(70svh, calc((100vw - 52px) * 0.56 * 16 / 9))' }}>{booth}</div>
-          <div className="min-w-0 flex-1">{tryWall}</div>
+        // Phones: Beamy stands on top of the wall, beside the phone, so the
+        // whole demo fits one screen and his beam never crosses the copy.
+        <div className="bw-in mt-5 flex items-end gap-3">
+          <div className="shrink-0" style={{ height: 'min(60svh, calc((100vw - 52px) * 0.56 * 16 / 9))' }}>{booth}</div>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div data-slot="try" data-yaw="0" data-bubble="none" aria-hidden className="h-[20svh] w-full" />
+            {tryWall}
+          </div>
         </div>
       ) : (
         <div className={`mt-6 flex items-stretch justify-between gap-[clamp(12px,2vw,32px)] ${vp.w >= WIDE_HERO_MIN ? 'h-[min(700px,74vh)]' : 'h-[min(480px,58vh)]'}`}>

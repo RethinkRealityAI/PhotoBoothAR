@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  CELEBRATIONS, EMOJI_RE, FILMS, STORY_STEPS, LOOKS, NAV_LINKS, POKE_IDLE, POKE_STREAK_MS,
-  createReactionPicker, landingCopy, nearestFront, pickCelebration, pickReaction, planCards, pokeStep,
+  CELEBRATIONS, EMOJI_RE, FILMS, FILM_EYEBROW, STORY_STEPS, LOOKS, NAV_LINKS, POKE_IDLE, POKE_STREAK_MS,
+  createReactionPicker, landingCopy, nearestFront, pickCelebration, pickReaction, beamyPlanCards, planCards, pokeStep,
   pricingSection, releaseVelocity, seededRandom, spinSettled, spinStep, startFacts,
   type Moment, type PokeState, type Reaction, type Spin,
 } from './brandLanding';
@@ -11,6 +11,7 @@ import { DEMO_KITS } from './demoKits';
 import { DEFAULT_LANDING_CONTENT } from './landingContent';
 import { STOPS, stopIndex } from './beamyScroll';
 import { AUDIENCES, DELIVER_STEPS, DONE_FOR_YOU, GREETING, HELLO, POKE_LINES, TOUR_STOPS } from './beamyTour';
+import { storySceneLines } from './beamyStory';
 
 describe('reactions', () => {
   const moments: Moment[] = ['intro', 'pick', 'snap', 'reveal', 'pick', 'pick', 'snap', 'snap', 'reveal', 'reveal'];
@@ -130,15 +131,37 @@ describe('copy', () => {
     for (const f of FILMS) {
       const d = DEFAULT_LANDING_CONTENT.features.find((x) => x.id === f.id);
       expect(d, f.id).toBeDefined();
-      expect([f.eyebrow, f.title]).toEqual([d?.eyebrow, d?.title]);
+      expect(f.title, f.id).toBe(d?.title);
+      // The one tab this page relabels says "digital"; every other tab is the landing's own.
+      expect(f.eyebrow, f.id).toBe(FILM_EYEBROW[f.id] ?? d?.eyebrow);
       expect(f.line.length, f.id).toBeGreaterThan(0);
     }
+    expect(FILM_EYEBROW).toEqual({ cards: 'Digital keepsakes' });
     // Step bodies stay short (about two lines on a card), each with its own effect.
     expect(STORY_STEPS.length).toBeGreaterThanOrEqual(3);
     expect(STORY_STEPS.length).toBeLessThanOrEqual(5);
     expect(new Set(STORY_STEPS.map((x) => x.id)).size).toBe(STORY_STEPS.length);
     for (const x of STORY_STEPS) expect(x.body.length, x.title).toBeLessThanOrEqual(80);
     for (const x of STORY_STEPS) expect(x.body, x.title).not.toMatch(/—|–/);
+  });
+
+  it('never words a keepsake as a physical product', () => {
+    // Everything Beamwall delivers is digital: a line naming a card or an album says so.
+    for (const s of [...all, ...storySceneLines()]) {
+      if (/\b(cards?|album)\b/i.test(s)) expect(s, s).toMatch(/digital/i);
+      expect(s, s).not.toMatch(/\bprint(s|ed|ing)?\b/i);
+    }
+  });
+
+  it('words the plans for this page without changing a fact', () => {
+    const base = planCards();
+    const shown = beamyPlanCards();
+    expect(shown.map((c) => [c.name, c.price, c.unit, c.popular, c.features.length]))
+      .toEqual(base.map((c) => [c.name, c.price, c.unit, c.popular, c.features.length]));
+    const changed = shown.flatMap((c, k) => [[base[k].blurb, c.blurb], ...c.features.map((f, j) => [base[k].features[j], f])])
+      .filter(([a, b]) => a !== b);
+    expect(changed.length).toBeGreaterThan(0);
+    for (const [, b] of changed) expect(b).toMatch(/digital/i);
   });
 
   it('keeps em dashes out of every line on the page', () => {

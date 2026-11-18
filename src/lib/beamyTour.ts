@@ -64,7 +64,7 @@ export const AUDIENCES: Audience[] = [
     hue: '#D4AF37',
     kit: 'wedding',
     prop: tiara,
-    gets: ['A booth branded for each client', 'Live wall for any screen', 'Keepsake cards', 'Built for you, ready in days'],
+    gets: ['A booth branded for each client', 'Live wall for any screen', 'Digital keepsake cards', 'Built for you, ready in days'],
     lines: {
       intro: 'Planners are my favourite! A booth for every client, ready in minutes.',
       snap: 'This is what your clients’ guests get. Snap one and I’ll beam it to the wall!',
@@ -81,7 +81,7 @@ export const AUDIENCES: Audience[] = [
     hue: '#F2A7B8',
     kit: 'party',
     prop: crown,
-    gets: ['Guests use their own phones', 'Every photo on one live wall', 'A keepsake album after', 'No app, no hardware'],
+    gets: ['Guests use their own phones', 'Every photo on one live wall', 'A digital album after', 'No app, no hardware'],
     lines: {
       intro: 'A party! Guests scan one QR code and the booth opens on their phones.',
       snap: 'Go on, take one! I’ll beam it straight onto the party wall.',
