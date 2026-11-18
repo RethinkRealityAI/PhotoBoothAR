@@ -77,10 +77,19 @@ const CUES: Record<SelfieCue, number> = {
   end: frameToSeconds(SELFIE_FRAMES.end),
 };
 
-/** The full timeline, or its reduced-motion variant (no strobe, no flight). */
+/**
+ * How long the reduced-motion photo takes to glide to the wall (seconds): a
+ * slow ease with no particles, so the content still happens, gently.
+ */
+export const REDUCED_GLIDE_S = 1.6;
+
+/** The full timeline, or its reduced-motion variant (no strobe; the photo glides rather than flies). */
 export function selfieTimeline(reducedMotion = false): SelfieTimeline {
   const c = CUES;
   if (reducedMotion) {
+    // The card never rises or bounces in place; at flightStart the page hands
+    // it to a slow glide to the wall that lasts REDUCED_GLIDE_S.
+    const flightEnd = c.beamStart + REDUCED_GLIDE_S;
     return {
       reducedMotion,
       cues: { ...c },
@@ -89,12 +98,12 @@ export function selfieTimeline(reducedMotion = false): SelfieTimeline {
         appear: c.snap + 0.2,
         popped: c.snap + 0.8,
         flightStart: c.beamStart,
-        flightEnd: c.beamStart,
+        flightEnd,
         fadeStart: c.end - 0.2,
         gone: c.end + 0.6,
       },
       beam: { start: c.beamStart, full: c.beamStart, fadeStart: c.beamStart, end: c.beamStart },
-      total: c.end + 0.6,
+      total: Math.max(c.end + 0.6, flightEnd),
     };
   }
   const flightEnd = c.beamStart + 1.25;

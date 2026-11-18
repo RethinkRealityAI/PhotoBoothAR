@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  ALL_FIELDS, CARD_FIELDS, COLOR_TOKENS, TEXT_FIELDS, cardOver, composite, contrastRatio, panelOver, tokenHex, tokenValue,
+  ALL_FIELDS, CARD_FIELDS, COLOR_TOKENS, TEXT_FIELDS, cardOver, composite, contrastRatio, luminance, panelOver, tokenHex, tokenValue,
 } from './brandTokens';
 
 const css = readFileSync(resolve(__dirname, '../styles/brand.css'), 'utf8');
@@ -47,6 +47,15 @@ describe('brandTokens', () => {
       expect(contrastRatio(tokenValue('--bw-ink'), panel), `ink on ${f}`).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(tokenValue('--bw-muted'), panel), `ink 2 on ${f}`).toBeGreaterThanOrEqual(4.5);
     }
+  });
+
+  it('the glass reads lighter than the field around it (frosted, not a coloured rectangle)', () => {
+    for (const f of ALL_FIELDS) {
+      const field = tokenHex(f);
+      expect(luminance(panelOver(field)), f).toBeGreaterThan(luminance(field) * 1.05);
+    }
+    // Where the copy sits, the lift is clearly visible (≥1.4× the field's luminance).
+    expect(luminance(panelOver(tokenHex('--bw-bg')))).toBeGreaterThan(luminance(tokenHex('--bw-bg')) * 1.4);
   });
 
   it('large display type meets 3:1 on the panel over ANY field stop', () => {

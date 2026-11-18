@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  SELFIE_CLIP, SELFIE_DURATION, SELFIE_FPS, SELFIE_FRAMES,
+  REDUCED_GLIDE_S, SELFIE_CLIP, SELFIE_DURATION, SELFIE_FPS, SELFIE_FRAMES,
   beamOpacity, flashOpacity, frameToSeconds, photoState, selfiePhase, selfieTimeline,
 } from './beamySelfie';
 
@@ -151,7 +151,14 @@ describe('photo', () => {
     expect(prev).toBeGreaterThan(0.99);
   });
 
-  it('reduced motion: never flies, never bounces', () => {
+  it('reduced motion: a slow glide window to the wall exists, inside the whole interaction', () => {
+    const tl = selfieTimeline(true);
+    expect(tl.photo.flightEnd - tl.photo.flightStart).toBeCloseTo(REDUCED_GLIDE_S, 9);
+    expect(REDUCED_GLIDE_S).toBeGreaterThanOrEqual(1.2); // slow, never a dart
+    expect(tl.total).toBeGreaterThanOrEqual(tl.photo.flightEnd);
+  });
+
+  it('reduced motion: the card itself never rises or bounces in place', () => {
     const tl = selfieTimeline(true);
     for (const t of sample(tl.photo.appear, tl.photo.gone)) {
       const s = photoState(t, tl);

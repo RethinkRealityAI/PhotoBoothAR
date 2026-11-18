@@ -63,23 +63,27 @@
 /* ── Tokens (rollout: this selector becomes :root) ──────────────────── */
 
 [data-brand="2"] {
-  /* Scene: ONE periwinkle family, never multi-hue, never banded. The deepest
-     stop sits under the copy; the lighter two only glow behind Beamy, the
-     wall and outside the panel (white text cannot pass AA on them). */
-  --bw-bg: #5652CE;
-  --bw-bg-2: #6F6BE0;
-  --bw-bg-3: #8E8AF0;
-  --bw-bg-4: #A9A2F2;
+  /* Scene: ONE periwinkle family, never multi-hue, never banded. The field is
+     a notch deeper and more saturated than the glass, so the panel reads
+     LIGHTER and milkier than what is around it. The deepest stop sits under
+     the copy; the lighter two only glow behind Beamy, the wall and outside
+     the panel. */
+  --bw-bg: #4840C6;
+  --bw-bg-2: #4F48CE;
+  --bw-bg-3: #6F66E8;
+  --bw-bg-4: #867DF0;
 
-  /* Liquid glass. A white frost alone LOWERS white text's contrast, so the
-     panel's tint is a saturated indigo veil with the frost on top (measured:
-     brandTokens.test.ts composites both over every field stop). */
-  --bw-veil: rgba(43, 42, 140, 0.40);
-  --bw-frost: rgba(255, 255, 255, 0.10);
-  --bw-card-veil: rgba(43, 42, 140, 0.30);
-  --bw-card-frost: rgba(255, 255, 255, 0.06);
-  --bw-edge-hi: rgba(255, 255, 255, 0.45);
-  --bw-edge-lo: rgba(255, 255, 255, 0.12);
+  /* Liquid glass: a thin indigo underlayer, then a milky white frost on top.
+     The frost lifts and desaturates the field (that is what reads as glass);
+     the underlayer is just deep enough that white copy still passes AA
+     (measured: brandTokens.test.ts composites both over every field stop,
+     and the v3 check samples the rendered pixels behind the text). */
+  --bw-veil: rgba(43, 42, 140, 0.18);
+  --bw-frost: rgba(255, 255, 255, 0.16);
+  --bw-card-veil: rgba(43, 42, 140, 0.22);
+  --bw-card-frost: rgba(255, 255, 255, 0.08);
+  --bw-edge-hi: rgba(255, 255, 255, 0.78);
+  --bw-edge-lo: rgba(255, 255, 255, 0.10);
   --bw-hairline: rgba(255, 255, 255, 0.18);
   --bw-hairline-strong: rgba(255, 255, 255, 0.34);
   --bw-shadow: rgba(26, 23, 64, 0.50);
@@ -90,7 +94,7 @@
 
   /* Ink on the scene */
   --bw-ink: #FFFFFF;
-  --bw-muted: rgba(255, 255, 255, 0.84);
+  --bw-muted: rgba(255, 255, 255, 0.92);
   --bw-faint: rgba(255, 255, 255, 0.50);
   --bw-on-light: #1A1740;
 
@@ -105,7 +109,7 @@
 
   /* Semantic (dots and icons on glass, ≥3:1) */
   --bw-success: #9BEBC6;
-  --bw-danger: #FFB3B9;
+  --bw-danger: #FFC4CA;
 
   /* Type */
   --bw-font-display: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
@@ -145,9 +149,9 @@
   .bw-root {
     background-color: var(--bw-bg);
     background-image:
-      radial-gradient(60% 70% at 104% -6%, var(--bw-bg-4), transparent 62%),
+      radial-gradient(48% 54% at 124% -38%, var(--bw-bg-4), transparent 62%),
       radial-gradient(46% 56% at 70% 58%, var(--bw-bg-2), transparent 74%),
-      radial-gradient(40% 46% at -6% 108%, var(--bw-bg-3), transparent 66%);
+      radial-gradient(34% 40% at -8% 112%, var(--bw-bg-3), transparent 66%);
   }
   /* Soft orbs behind the glass: the frost visibly softens whatever of them
      the panel covers, which is what makes the panel read as glass. */
@@ -167,28 +171,35 @@
     border-radius: var(--bw-radius-panel);
     overflow: hidden;
     background-color: var(--bw-veil);
-    -webkit-backdrop-filter: blur(32px) saturate(140%);
-    backdrop-filter: blur(32px) saturate(140%);
-    /* Edge light as inset shadows (a gradient BORDER is off-brand): bright
-       top-left, dim bottom-right; then the soft wide drop below. */
+    /* A milky frost: blur, and only a touch of saturation (more would put
+       back the colour the frost is there to take out). */
+    -webkit-backdrop-filter: blur(36px) saturate(108%);
+    backdrop-filter: blur(36px) saturate(108%);
+    /* Edge light as inset shadows (a gradient BORDER is off-brand): a crisp
+       1px rim brightest top-left (the bright top + left edges stack over the
+       even ring), a soft inner glow just inside that corner, a faint shade
+       along the inside bottom; then a large soft drop beneath the panel. */
     box-shadow:
       inset 1px 1px 0 var(--bw-edge-hi),
       inset -1px -1px 0 var(--bw-edge-lo),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+      inset 3px 3px 10px -6px rgba(255, 255, 255, 0.45),
+      inset 0 -70px 80px -70px rgba(26, 23, 64, 0.22),
       inset 0 0 0 100vmax var(--bw-frost),
-      0 48px 90px -36px var(--bw-shadow),
-      0 14px 32px -16px rgba(26, 23, 64, 0.32);
+      0 70px 120px -40px rgba(22, 18, 78, 0.62),
+      0 24px 50px -24px rgba(22, 18, 78, 0.40);
     pointer-events: none;
   }
-  /* Inner top sheen; follows the pointer a little (--sheen-dx, set by the page). */
+  /* Soft top-left sheen; follows the pointer a little (--sheen-dx, set by the page). */
   .bw-glass::before {
     content: '';
     position: absolute;
     inset: 0;
-    background-image: radial-gradient(48% 34% at 50% 0%, rgba(255, 255, 255, 0.16), transparent 72%);
+    background-image: radial-gradient(38% 26% at 50% 0%, rgba(255, 255, 255, 0.08), transparent 70%);
     background-repeat: no-repeat;
-    background-size: 180% 100%;
-    background-position: calc(30% + var(--sheen-dx, 0%)) 0;
+    background-size: 160% 100%;
+    /* 160%-wide image: its centre sits at 0.8W − p·0.6W, so p≈93% ≈ a quarter in. */
+    background-position: calc(93% + var(--sheen-dx, 0%)) 0;
     transition: background-position 1100ms var(--bw-ease);
   }
 
@@ -235,16 +246,16 @@
     min-height: 44px;
     padding: 0 18px;
     border-radius: 999px;
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: rgba(26, 23, 64, 0.14);
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
     box-shadow: inset 0 0 0 1px var(--bw-hairline), inset 1px 1px 0 rgba(255, 255, 255, 0.22);
-    color: var(--bw-muted);
+    color: var(--bw-ink);
     font-size: 14px;
     font-weight: 500;
     transition: background-color 160ms var(--bw-ease), color 160ms var(--bw-ease), box-shadow 160ms var(--bw-ease);
   }
-  .bw-glass-chip:hover { color: var(--bw-ink); background-color: rgba(255, 255, 255, 0.14); }
+  .bw-glass-chip:hover { color: var(--bw-ink); background-color: rgba(26, 23, 64, 0.26); }
   .bw-glass-chip[aria-pressed="true"],
   .bw-glass-chip[aria-current="true"] {
     color: var(--bw-on-light);
@@ -299,6 +310,8 @@
     line-height: 1.3;
     color: var(--bw-muted);
   }
+  /* Phones set it at 14px over the brighter lower field: full ink there. */
+  @media (max-width: 1023px) { .bw-eyebrow { color: var(--bw-ink); } }
   .bw-eyebrow::after {
     content: '';
     width: 28px;
@@ -369,14 +382,15 @@
   .bw-btn-primary:hover:not(:disabled) { background: var(--bw-accent-hover); }
   .bw-btn-primary:active:not(:disabled) { background: var(--bw-accent-pressed); }
   .bw-btn-secondary {
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(26, 23, 64, 0.12);
     color: var(--bw-ink);
     border-color: rgba(255, 255, 255, 0.72);
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
   }
-  .bw-btn-secondary:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); border-color: #FFFFFF; }
-  .bw-btn-secondary:active:not(:disabled) { background: rgba(255, 255, 255, 0.10); }
+  /* Hover deepens the veil (white frost here washed the white label below AA). */
+  .bw-btn-secondary:hover:not(:disabled) { background: rgba(26, 23, 64, 0.28); border-color: #FFFFFF; }
+  .bw-btn-secondary:active:not(:disabled) { background: rgba(26, 23, 64, 0.34); }
   .bw-btn-sm { min-height: 44px; padding: 0 18px; font-size: 14px; }
   .bw-btn-lg { min-height: 52px; padding: 0 28px; font-size: 16px; }
   .bw-link {
@@ -407,7 +421,7 @@
     min-height: 44px;
     padding: 0 16px;
     border-radius: 999px;
-    color: var(--bw-muted);
+    color: var(--bw-ink);
     font-size: 15px;
     font-weight: 500;
     transition: color 160ms var(--bw-ease), box-shadow 160ms var(--bw-ease);
@@ -432,15 +446,38 @@
   [aria-pressed="true"] > .bw-icon-tile,
   [data-selected="true"] > .bw-icon-tile { background: rgba(26, 23, 64, 0.08); box-shadow: none; }
 
-  /* Speech bubble: solid white, deep-indigo ink (reads over any pixel). */
+  /* Speech bubble: a frosted glass chip — milky white frost, crisp rim,
+     deep-indigo ink. The frost is opaque enough that the ink holds AA even
+     over a black photo tile (0.80 × #F6F5FF over #000 still reads ≥7:1). The
+     tail is a small frosted triangle under the chip; BeamyStage sets
+     --tail-x so it points at his head. */
   .bw-bubble {
-    background: #FFFFFF;
+    position: relative;
+    background-color: rgba(246, 245, 255, 0.80);
+    -webkit-backdrop-filter: blur(16px) saturate(130%);
+    backdrop-filter: blur(16px) saturate(130%);
     border-radius: var(--bw-radius-bubble);
     color: var(--bw-on-light);
     font-size: 15px;
     font-weight: 500;
     line-height: 1.45;
-    box-shadow: 0 18px 40px -18px var(--bw-shadow);
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.95),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.55),
+      0 16px 36px -18px var(--bw-shadow);
+  }
+  .bw-bubble::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: var(--tail-x, 50%);
+    width: 18px;
+    height: 9px;
+    transform: translateX(-50%);
+    clip-path: polygon(0 0, 100% 0, 50% 100%);
+    background-color: rgba(246, 245, 255, 0.80);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
   }
 
   /* Form field: frosted. */
@@ -460,18 +497,40 @@
   .bw-field:hover { border-color: var(--bw-hairline-strong); }
   .bw-field:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; border-color: transparent; }
 
-  /* The live wall: a slim deep-indigo frame, small-radius tiles. */
+  /* The live wall: a frosted pane from the same family as the panel (thin
+     indigo underlayer + milky frost, backdrop blur, the rim brightest
+     top-left, a soft drop), with the photos set INTO the glass: each tile
+     carries a hairline light rim. Photos stay fully opaque. */
   .bw-wall {
     border-radius: 18px;
     padding: 8px;
-    background: rgba(26, 23, 64, 0.62);
-    box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 24px 50px -26px var(--bw-shadow);
+    /* A deeper underlayer than the panel's, so its small "Live wall" label
+       keeps AA on the brightest field it can hang over. */
+    background-color: rgba(43, 42, 140, 0.32);
+    -webkit-backdrop-filter: blur(24px) saturate(110%);
+    backdrop-filter: blur(24px) saturate(110%);
+    box-shadow:
+      inset 1px 1px 0 var(--bw-edge-hi),
+      inset -1px -1px 0 var(--bw-edge-lo),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+      inset 3px 3px 10px -6px rgba(255, 255, 255, 0.45),
+      inset 0 0 0 100vmax rgba(255, 255, 255, 0.09),
+      0 30px 60px -26px rgba(22, 18, 78, 0.6),
+      0 10px 24px -14px rgba(22, 18, 78, 0.35);
   }
   .bw-tile {
     position: relative;
     overflow: hidden;
     border-radius: 7px;
     background: var(--bw-deep);
+  }
+  .bw-tile::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.26), inset 1px 1px 0 rgba(255, 255, 255, 0.30);
+    pointer-events: none;
   }
   .bw-tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .bw-tile .bw-tile-in { animation: bw-tile-in 700ms var(--bw-ease) both; }
@@ -485,18 +544,32 @@
     animation: bw-ripple 640ms var(--bw-ease) both;
     animation-delay: calc(var(--ripple, 0) * 90ms);
   }
+  /* The wall hangs on the glass box's right wall: turned a few degrees toward
+     Beamy about its outer edge, and turned a touch further as you look from
+     the right (--tilt-x, −1..1, set from the pointer; never under reduced
+     motion, where the pose stays still). */
+  .bw-wall-mount {
+    transform: perspective(1400px) rotateY(calc(var(--wall-yaw, -9deg) - var(--tilt-x, 0) * 3deg));
+    transform-origin: 100% 50%;
+    transition: transform 700ms var(--bw-ease);
+  }
   .bw-wall[data-dim="true"] .bw-tile img { opacity: 0.55; }
   .bw-wall .bw-tile img { transition: opacity 700ms var(--bw-ease); }
 
-  /* The floor Beamy stands on: a gentle tone change under the horizon. */
+  /* The floor Beamy stands on: a soft stage. A horizon that brightens over a
+     few pixels instead of a ruled line, a gentle lift across the floor, and
+     a wider pool of light where he stands (--stage-x, set by the page). It
+     fades back down toward the panel's bottom edge, where the footer labels
+     sit, so they keep their contrast. */
   .bw-floor {
     position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
     pointer-events: none;
-    background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.035) 40%, rgba(26, 23, 64, 0.06));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    background-image:
+      radial-gradient(34% 70% at var(--stage-x, 50%) 0%, rgba(255, 255, 255, 0.05), transparent 72%),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0) 0, rgba(255, 255, 255, 0.07) 10px, rgba(255, 255, 255, 0.04) 70px, rgba(255, 255, 255, 0) 100%);
   }
 
   /* Progress dots: 44px hit area, a small dot inside. */
@@ -520,6 +593,16 @@
   .bw-dot[aria-current="step"]::before { width: 22px; background: var(--bw-core); }
   .bw-dot:focus-visible { outline: 2px solid #FFFFFF; outline-offset: -2px; }
 
+  /* Inner scrollers (phones): the edge that still has more to scroll fades
+     out, so a cut-off row or card reads as "there is more", never as the end.
+     data-fade is set by the page from the live scroll position. */
+  .bw-fade-y[data-fade="end"] { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent); }
+  .bw-fade-y[data-fade="start"] { -webkit-mask-image: linear-gradient(to top, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to top, #000 calc(100% - 28px), transparent); }
+  .bw-fade-y[data-fade="both"] { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 40px), transparent); }
+  .bw-fade-x[data-fade="end"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent); }
+  .bw-fade-x[data-fade="start"] { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); }
+  .bw-fade-x[data-fade="both"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 48px), transparent); mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 48px), transparent); }
+
   /* Section motion: outgoing slides 24px up and fades, incoming rises. */
   .bw-rise > * {
     animation: bw-rise var(--bw-dur) var(--bw-ease) both;
@@ -530,8 +613,10 @@
 
 /* No backdrop-filter: the same glass, as a solid tint (still passes AA). */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  [data-brand="2"] .bw-glass { background-color: #4E4BB2; }
-  [data-brand="2"] .bw-glass-card { background-color: rgba(52, 50, 150, 0.92); }
+  [data-brand="2"] .bw-glass { background-color: #615BC6; }
+  [data-brand="2"] .bw-glass-card { background-color: #635EBF; }
+  [data-brand="2"] .bw-bubble,
+  [data-brand="2"] .bw-bubble::after { background-color: #F1F0FB; }
   [data-brand="2"] .bw-glass-chip,
   [data-brand="2"] .bw-btn-secondary { background-color: rgba(60, 58, 160, 0.9); }
 }
@@ -576,4 +661,5 @@
   [data-brand="2"] .bw-tile .bw-tile-in { animation-name: bw-fade; }
   [data-brand="2"] .bw-tile-flash { animation: none; }
   [data-brand="2"] .bw-glass::before { transition: none; }
+  [data-brand="2"] .bw-wall-mount { transition: none; }
 }

@@ -15,18 +15,18 @@
 export interface ColorToken { name: string; cssVar: string; value: string; role: string; }
 
 export const COLOR_TOKENS: ColorToken[] = [
-  { name: 'Field', cssVar: '--bw-bg', value: '#5652CE', role: 'Scene base, behind all copy' },
-  { name: 'Field 2', cssVar: '--bw-bg-2', value: '#6F6BE0', role: 'Glow behind Beamy and the wall' },
-  { name: 'Field 3', cssVar: '--bw-bg-3', value: '#8E8AF0', role: 'Outer glow, orbs behind the glass' },
-  { name: 'Field 4', cssVar: '--bw-bg-4', value: '#A9A2F2', role: 'Corner light, outside the panel' },
-  { name: 'Glass veil', cssVar: '--bw-veil', value: 'rgba(43, 42, 140, 0.40)', role: 'Panel tint, under the frost' },
-  { name: 'Frost', cssVar: '--bw-frost', value: 'rgba(255, 255, 255, 0.10)', role: 'Panel frost' },
-  { name: 'Card veil', cssVar: '--bw-card-veil', value: 'rgba(43, 42, 140, 0.30)', role: 'Glass card tint' },
-  { name: 'Card frost', cssVar: '--bw-card-frost', value: 'rgba(255, 255, 255, 0.06)', role: 'Glass card frost' },
+  { name: 'Field', cssVar: '--bw-bg', value: '#4840C6', role: 'Scene base, behind all copy' },
+  { name: 'Field 2', cssVar: '--bw-bg-2', value: '#4F48CE', role: 'Glow behind Beamy and the wall' },
+  { name: 'Field 3', cssVar: '--bw-bg-3', value: '#6F66E8', role: 'Outer glow, orbs behind the glass' },
+  { name: 'Field 4', cssVar: '--bw-bg-4', value: '#867DF0', role: 'Corner light, outside the panel' },
+  { name: 'Glass veil', cssVar: '--bw-veil', value: 'rgba(43, 42, 140, 0.18)', role: 'Panel underlayer, under the frost' },
+  { name: 'Frost', cssVar: '--bw-frost', value: 'rgba(255, 255, 255, 0.16)', role: 'Panel frost (milky, lifts the field)' },
+  { name: 'Card veil', cssVar: '--bw-card-veil', value: 'rgba(43, 42, 140, 0.22)', role: 'Glass card tint' },
+  { name: 'Card frost', cssVar: '--bw-card-frost', value: 'rgba(255, 255, 255, 0.08)', role: 'Glass card frost' },
   { name: 'Deep indigo', cssVar: '--bw-deep', value: '#2B2A8C', role: 'Shadows, wall tiles' },
   { name: 'Deep ink', cssVar: '--bw-deep-2', value: '#1A1740', role: 'Floor shade, wall frame' },
   { name: 'Ink', cssVar: '--bw-ink', value: '#FFFFFF', role: 'Headlines, primary text' },
-  { name: 'Ink 2', cssVar: '--bw-muted', value: 'rgba(255, 255, 255, 0.84)', role: 'Supporting text, labels' },
+  { name: 'Ink 2', cssVar: '--bw-muted', value: 'rgba(255, 255, 255, 0.92)', role: 'Supporting text, labels' },
   { name: 'Faint', cssVar: '--bw-faint', value: 'rgba(255, 255, 255, 0.50)', role: 'Idle dots only, never text' },
   { name: 'On light', cssVar: '--bw-on-light', value: '#1A1740', role: 'Text on white: bubble, selected cards' },
   { name: 'Primary', cssVar: '--bw-accent', value: '#FFFFFF', role: 'Primary button fill' },
@@ -35,7 +35,7 @@ export const COLOR_TOKENS: ColorToken[] = [
   { name: 'On primary', cssVar: '--bw-on-accent', value: '#1A1740', role: 'Label on the primary button' },
   { name: 'Core', cssVar: '--bw-core', value: '#FFC56B', role: 'Beam core, active step, one highlight' },
   { name: 'Success', cssVar: '--bw-success', value: '#9BEBC6', role: 'Confirmation dots and icons' },
-  { name: 'Danger', cssVar: '--bw-danger', value: '#FFB3B9', role: 'Live dot, error icons' },
+  { name: 'Danger', cssVar: '--bw-danger', value: '#FFC4CA', role: 'Live dot, error icons' },
 ];
 
 /** Field stops white copy may sit over (the lighter glows are kept off the copy). */

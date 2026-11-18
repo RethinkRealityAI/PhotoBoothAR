@@ -171,8 +171,8 @@ export default function BrandPage() {
             })}
           </div>
           <p className="bw-small mt-5 max-w-[80ch]">
-            On the glass over the base field: white {contrastRatio('#FFFFFF', PANEL).toFixed(1)}:1 · Ink 2 {contrastRatio('rgba(255, 255, 255, 0.84)', PANEL).toFixed(1)}:1.
-            On a glass card over the brightest glow a card may sit on: white {contrastRatio('#FFFFFF', CARD).toFixed(1)}:1 · Ink 2 {contrastRatio('rgba(255, 255, 255, 0.84)', CARD).toFixed(1)}:1.
+            On the glass over the base field: white {contrastRatio('#FFFFFF', PANEL).toFixed(1)}:1 · Ink 2 {contrastRatio('rgba(255, 255, 255, 0.92)', PANEL).toFixed(1)}:1.
+            On a glass card over the brightest glow a card may sit on: white {contrastRatio('#FFFFFF', CARD).toFixed(1)}:1 · Ink 2 {contrastRatio('rgba(255, 255, 255, 0.92)', CARD).toFixed(1)}:1.
             A white frost alone would LOWER white text’s contrast, so the panel’s tint is an indigo veil with the frost on top.
           </p>
         </Block>
@@ -183,19 +183,19 @@ export default function BrandPage() {
               <div className="bw-glass" />
               <div className="relative p-5">
                 <p className="text-[15px] font-semibold" style={{ color: 'var(--bw-ink)' }}>.bw-glass</p>
-                <p className="bw-label mt-1">Veil 0.40 + frost 0.10 · blur 32 · saturate 140% · radius 36 (24 on phones) · soft wide drop</p>
+                <p className="bw-label mt-1">Veil 0.18 + frost 0.16 · blur 36 · saturate 108% · rim brightest top-left · radius 36 (24 on phones) · soft wide drop</p>
               </div>
             </div>
             <div className="bw-glass-card h-[180px] p-5">
               <p className="text-[15px] font-semibold" style={{ color: 'var(--bw-ink)' }}>.bw-glass-card</p>
-              <p className="bw-label mt-1">Veil 0.30 + frost 0.06 · blur 18 · radius 20. Selected: solid white, deep-indigo ink.</p>
+              <p className="bw-label mt-1">Veil 0.22 + frost 0.08 · blur 18 · radius 20. Selected: solid white, deep-indigo ink.</p>
             </div>
             <div className="flex h-[180px] flex-col justify-center gap-3 p-1">
               <div className="flex flex-wrap gap-2">
                 <span className="bw-glass-chip">.bw-glass-chip</span>
                 <span className="bw-glass-chip" aria-current="true">Selected</span>
               </div>
-              <p className="bw-label">44px tall pill · frost 0.08 · selected = white with indigo text</p>
+              <p className="bw-label">44px tall pill · indigo veil 0.14 · selected = white with indigo text</p>
             </div>
           </div>
           <p className="bw-small mt-5 max-w-[70ch]">Without backdrop-filter support every glass falls back to a solid indigo tint that keeps the same contrast.</p>

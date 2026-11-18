@@ -37,10 +37,11 @@
  * `Selfie` clip plays HERE, on the one canvas: `selfie()` streams the phone
  * and head positions (and the snap-frame portrait) to the page's overlays.
  *
- * Reduced motion (`reducedMotion` prop): no particles, no beam drop, no
- * inertia, static crystals; every state change still happens (he still
- * appears, the card still changes, the prop still shows). His clips still
- * play: each answers a tap.
+ * Reduced motion (`reducedMotion` prop): no particles, no falling beam or
+ * impact flash (the entrance column fades in and out softly instead), no
+ * inertia, static crystals, no parallax; every state change and the page's
+ * CONTENT still happens (he still arrives, takes his selfie, the card still
+ * changes, the prop still shows). His clips still play: each answers a tap.
  */
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
@@ -49,14 +50,17 @@ import { gltfLoader, loadModel } from '../../lib/glbCache';
 import { SPIN_PER_PX, nearestFront, spinSettled, spinStep, type Spin } from '../../lib/brandLanding';
 import { SELFIE_CLIP, selfieTimeline, type SelfieTimeline } from '../../lib/beamySelfie';
 import type { Rect } from '../../lib/beamGeometry';
+import { boxGeometry, floorAt, type Box, type BoxRoom } from '../../lib/beamyBox';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { snapshotPortrait } from '../../components/beamy/selfieFx';
 
 export type BeamyClip = 'Idle' | 'Wave' | 'Hop' | 'BeamyBlast' | 'Sob' | 'SideEye' | 'Dance' | 'ShadesOn' | 'Waddle' | typeof SELFIE_CLIP;
 
 export interface Pt { x: number; y: number; }
 
-/** Where Beamy rests and how tall he is there (viewport px, feet point). */
-export interface StageLayout { home: Pt; heightPx: number; }
+/** Where Beamy rests and how tall he is there (viewport px, feet point), and
+ *  the bounds his glass box must stay inside (null = no box). */
+export interface StageLayout { home: Pt; heightPx: number; room?: BoxRoom | null; }
 
 /**
  * The scene's decor, set by the page: the glass panel's rect (crystals sit
@@ -185,9 +189,9 @@ uniform float uTime;
 uniform float uAlpha;
 void main() {
   float d = length((vUv - 0.5) * 2.0);
-  float core = exp(-d * d * 5.5);                  // dense right under the feet
-  float soft = smoothstep(1.0, 0.0, d) * 0.35;      // a wide, faint penumbra
-  gl_FragColor = vec4(vec3(0.102, 0.090, 0.251), (core * 0.5 + soft * 0.4) * uAlpha);
+  float core = exp(-d * d * 6.0);                  // dense right under the feet
+  float soft = smoothstep(1.0, 0.0, d);             // a wide, soft penumbra
+  gl_FragColor = vec4(vec3(0.086, 0.071, 0.306), (core * 0.62 + soft * 0.16) * uAlpha);
 }`;
 
 /* ── Crystals: faceted, frosted decor around the glass panel ───────────── */
@@ -195,8 +199,9 @@ void main() {
 type CrystalKind = 'ico' | 'oct' | 'cone';
 interface CrystalSpec {
   kind: CrystalKind;
-  /** Anchor as a fraction of the panel rect (may sit outside it), or beside Beamy's feet. */
-  at: { panel: [number, number] } | { beamy: number };
+  /** Anchor as a fraction of the panel rect (may sit outside it), or on the
+   *  box floor (u −1 left … 1 right, v 0 back … 1 front; lift = × his height). */
+  at: { panel: [number, number] } | { box: [number, number]; lift?: number };
   /** Size as a fraction of min(panel width, height) (beside Beamy: of his height). */
   size: number;
   /** 0 far … 1 near: how far it parallaxes with the pointer. */
@@ -204,16 +209,102 @@ interface CrystalSpec {
   phone: boolean;
   /** Only on the hero (the others may cover a stop's content). */
   heroOnly: boolean;
+  /** Sits low enough to cast a faint contact shadow on the floor below it. */
+  shadow?: boolean;
+  /** Depth look: 'back' = smaller and hazier behind Beamy, 'front' = larger,
+   *  softer, in front of him. */
+  layer?: 'back' | 'front';
 }
 const CRYSTALS: CrystalSpec[] = [
   { kind: 'ico', at: { panel: [-0.012, -0.05] }, size: 0.15, depth: 0.25, phone: true, heroOnly: false },
   { kind: 'oct', at: { panel: [1.015, 1.05] }, size: 0.16, depth: 0.35, phone: true, heroOnly: false },
-  // Beside his feet, below the wall's frame; off on phones, where the wall stands right next to him.
-  { kind: 'cone', at: { beamy: 0.66 }, size: 0.2, depth: 0.9, phone: false, heroOnly: true },
+  // Inside his glass box: one in front of him (front-right, large, soft), two behind (small, hazy).
+  { kind: 'cone', at: { box: [0.9, 0.94] }, size: 0.2, depth: 1, phone: true, heroOnly: false, shadow: true, layer: 'front' },
+  { kind: 'ico', at: { box: [-0.62, 0.16] }, size: 0.12, depth: 0.15, phone: false, heroOnly: false, shadow: true, layer: 'back' },
+  { kind: 'oct', at: { box: [0.56, 0.1], lift: 0.62 }, size: 0.09, depth: 0.25, phone: false, heroOnly: false, layer: 'back' },
   { kind: 'ico', at: { panel: [0.6, 0.16] }, size: 0.05, depth: 0.7, phone: false, heroOnly: true },
-  { kind: 'oct', at: { panel: [0.33, 0.9] }, size: 0.035, depth: 0.55, phone: false, heroOnly: true },
+  { kind: 'oct', at: { panel: [0.33, 0.9] }, size: 0.035, depth: 0.55, phone: false, heroOnly: true, shadow: true },
 ];
 const CRYSTAL_PARALLAX_PX = 22;
+
+/* ── The glass box: one-point perspective drawn in screen space ─────────── */
+
+const BOX_VERT = /* glsl */ `
+attribute vec4 aColor;
+varying vec4 vColor;
+void main() {
+  vColor = aColor;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+const BOX_FRAG = /* glsl */ `
+uniform float uAlpha;
+varying vec4 vColor;
+void main() { gl_FragColor = vec4(vColor.rgb, vColor.a * uAlpha); }`;
+const BOX_VERTS = 600;
+type RGBA = [number, number, number, number];
+/** Pane / rim ink: white with the faintest lavender. */
+const ink = (a: number): RGBA => [0.96, 0.95, 1, a];
+interface BoxPaint { pos: Float32Array; col: Float32Array; n: number; z: number; w: number; h: number; }
+function boxVtx(P: BoxPaint, p: Pt, c: RGBA) {
+  if (P.n >= BOX_VERTS) return;
+  P.pos[P.n * 3] = p.x - P.w / 2; P.pos[P.n * 3 + 1] = P.h / 2 - p.y; P.pos[P.n * 3 + 2] = P.z;
+  P.col.set(c, P.n * 4);
+  P.n++;
+}
+function boxQuad(P: BoxPaint, a: Pt, b: Pt, c: Pt, d: Pt, ca: RGBA, cb: RGBA, cc: RGBA, cd: RGBA) {
+  boxVtx(P, a, ca); boxVtx(P, b, cb); boxVtx(P, c, cc);
+  boxVtx(P, a, ca); boxVtx(P, c, cc); boxVtx(P, d, cd);
+}
+/** A rim line as a thin quad (GL lines are 1 device px), alpha ramping a→b. */
+function boxSeg(P: BoxPaint, a: Pt, b: Pt, w: number, ca: RGBA, cb: RGBA) {
+  const dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1;
+  const nx = (-dy / l) * w / 2, ny = (dx / l) * w / 2;
+  boxQuad(P, { x: a.x + nx, y: a.y + ny }, { x: b.x + nx, y: b.y + ny }, { x: b.x - nx, y: b.y - ny }, { x: a.x - nx, y: a.y - ny }, ca, cb, cb, ca);
+}
+/** Behind Beamy (depth-tested at z −420): back wall, floor toward the horizon,
+ *  side + ceiling panes with a fresnel-like rise toward the open front, and
+ *  every edge you see THROUGH the glass. Phones skip the side/ceiling panes. */
+function paintBoxBack(P: BoxPaint, b: Box, phone: boolean) {
+  const [ftl, ftr, fbr, fbl] = b.front;
+  const [btl, btr, bbr, bbl] = b.back;
+  boxQuad(P, btl, btr, bbr, bbl, ink(0.03), ink(0.03), ink(0.07), ink(0.07));
+  boxQuad(P, bbl, bbr, fbr, fbl, ink(0.12), ink(0.12), ink(0.02), ink(0.02));
+  if (!phone) {
+    boxQuad(P, btl, ftl, fbl, bbl, ink(0.015), ink(0.08), ink(0.08), ink(0.015));
+    boxQuad(P, ftr, btr, bbr, fbr, ink(0.08), ink(0.015), ink(0.015), ink(0.08));
+    boxQuad(P, btl, btr, ftr, ftl, ink(0.015), ink(0.015), ink(0.055), ink(0.055));
+  }
+  const lw = phone ? 1.2 : 1.4;
+  boxSeg(P, btl, btr, lw, ink(0.2), ink(0.2));
+  boxSeg(P, btl, bbl, lw, ink(0.24), ink(0.24));
+  boxSeg(P, btr, bbr, lw, ink(0.16), ink(0.16));
+  boxSeg(P, bbl, bbr, lw * 1.15, ink(0.42), ink(0.42)); // the horizon
+  boxSeg(P, btl, ftl, lw, ink(0.26), ink(0.72));
+  boxSeg(P, btr, ftr, lw, ink(0.18), ink(0.48));
+  boxSeg(P, bbl, fbl, lw, ink(0.3), ink(0.6));
+  boxSeg(P, bbr, fbr, lw, ink(0.2), ink(0.42));
+}
+/** In front of everything (no depth test): only the implied front pane — its
+ *  floor edge below his feet, bright corner glints (strongest top-left, the
+ *  key light's side) and one reflection streak up in the top-left corner,
+ *  never across him. */
+function paintBoxFront(P: BoxPaint, b: Box, phone: boolean) {
+  const [ftl, ftr, fbr, fbl] = b.front;
+  const fw = ftr.x - ftl.x, fh = fbl.y - ftl.y;
+  boxSeg(P, fbl, fbr, 1.5, ink(0.5), ink(0.32));
+  boxSeg(P, ftl, { x: ftl.x + fw * 0.3, y: ftl.y }, 1.6, ink(0.9), ink(0));
+  boxSeg(P, ftl, { x: ftl.x, y: ftl.y + fh * 0.3 }, 1.6, ink(0.9), ink(0));
+  boxSeg(P, ftr, { x: ftr.x - fw * 0.12, y: ftr.y }, 1.3, ink(0.42), ink(0));
+  boxSeg(P, ftr, { x: ftr.x, y: ftr.y + fh * 0.12 }, 1.3, ink(0.42), ink(0));
+  boxSeg(P, fbl, { x: fbl.x, y: fbl.y - fh * 0.12 }, 1.3, ink(0.4), ink(0));
+  boxSeg(P, fbr, { x: fbr.x, y: fbr.y - fh * 0.12 }, 1.3, ink(0.28), ink(0));
+  if (!phone) {
+    const a = { x: ftl.x + fw * 0.13, y: ftl.y + fh * 0.05 };
+    const c = { x: ftl.x + fw * 0.035, y: ftl.y + fh * 0.3 };
+    boxSeg(P, a, c, 11, ink(0.07), ink(0));
+    boxSeg(P, { x: a.x + fw * 0.05, y: a.y }, { x: c.x + fw * 0.05, y: c.y }, 2, ink(0.2), ink(0));
+  }
+}
 
 /* ── Impact / poke flash: a soft radial bloom ──────────────────────────── */
 
@@ -250,6 +341,9 @@ interface Mote {
 }
 
 const DROP_S = 0.9;
+/** Reduced-motion arrival: the column fades in over this, he grows in, then it fades out. */
+const REDUCED_DROP_S = 0.8;
+const REDUCED_LINGER_S = 1.0;
 const FLASH_S = 0.45;
 
 interface Reveal {
@@ -314,6 +408,13 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const phoneBone = useRef<THREE.Object3D | null>(null);
   const selfieRun = useRef<{ t: number; tl: SelfieTimeline; snapped: boolean; action: THREE.AnimationAction; onFrame: (f: SelfieFrame) => void; resolve: (done: boolean) => void } | null>(null);
   const crystalRefs = useRef<(THREE.Mesh | null)[]>([]);
+  const crystalShadowRefs = useRef<(THREE.Mesh | null)[]>([]);
+  const boxBackRef = useRef<THREE.Mesh>(null);
+  const boxFrontRef = useRef<THREE.Mesh>(null);
+  /** The mirrored copy of his rig on the glossy box floor (desktop only). */
+  const reflRig = useRef<THREE.Group>(null);
+  const reflect = useRef<{ root: THREE.Object3D; pairs: [THREE.Object3D, THREE.Object3D][]; floorY: { value: number }; fade: { value: number } } | null>(null);
+  const [reflectObj, setReflectObj] = useState<THREE.Object3D | null>(null);
   /** Pointer parallax, lerped (−1..1 on each axis). */
   const parallax = useRef({ x: 0, y: 0 });
 
@@ -402,6 +503,51 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     onReady();
     return () => { m.stopAllAction(); m.uncacheRoot(model.scene); mixer.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per model
+  }, [model]);
+
+  /* His reflection: a skinned clone whose every node copies the real rig each
+     frame (so every clip, the selfie phone and the hidden beam meshes match),
+     drawn mirrored under his feet, faint, fading out with depth below the floor. */
+  useEffect(() => {
+    if (model === null) return;
+    const root = cloneSkinned(model.scene);
+    const src: THREE.Object3D[] = [];
+    const dst: THREE.Object3D[] = [];
+    model.scene.traverse((o) => { src.push(o); });
+    root.traverse((o) => { dst.push(o); });
+    if (src.length !== dst.length) return;
+    const floorY = { value: 0 };
+    const fade = { value: 100 };
+    const mats: THREE.Material[] = [];
+    const mirrorMat = (m: THREE.Material): THREE.Material => {
+      const c = m.clone();
+      c.transparent = true;
+      c.opacity = 0.16 * m.opacity;
+      c.depthWrite = false;
+      c.side = THREE.DoubleSide; // a negative scale flips the winding
+      c.onBeforeCompile = (sh) => {
+        sh.uniforms.uReflFloor = floorY;
+        sh.uniforms.uReflFade = fade;
+        sh.vertexShader = `varying float vReflY;\n${sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n  vReflY = (modelMatrix * vec4(transformed, 1.0)).y;')}`;
+        sh.fragmentShader = `uniform float uReflFloor;\nuniform float uReflFade;\nvarying float vReflY;\n${sh.fragmentShader.replace('#include <dithering_fragment>', '#include <dithering_fragment>\n  gl_FragColor.a *= smoothstep(uReflFloor - uReflFade, uReflFloor, vReflY);')}`;
+      };
+      c.customProgramCacheKey = () => 'beamy-reflection';
+      mats.push(c);
+      return c;
+    };
+    root.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      o.material = Array.isArray(o.material) ? o.material.map(mirrorMat) : mirrorMat(o.material);
+      o.renderOrder = 1;
+      o.frustumCulled = false;
+    });
+    reflect.current = { root, pairs: src.map((o, i) => [o, dst[i]]), floorY, fade };
+    setReflectObj(root);
+    return () => {
+      for (const m of mats) m.dispose();
+      reflect.current = null;
+      setReflectObj(null);
+    };
   }, [model]);
 
   const fadeTo = (name: BeamyClip, once: boolean): THREE.AnimationAction | null => {
@@ -552,7 +698,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         });
       },
       arrive() {
-        if (reducedRef.current || shown.current) {
+        // Reduced motion still arrives (it is the page's content), gently:
+        // the column fades in whole, he grows in softly, no flash.
+        if (shown.current) {
           shown.current = true;
           appear.current = 1;
           return Promise.resolve();
@@ -674,6 +822,29 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     transparent: true,
     depthWrite: false,
   }), []);
+  /** The crystals' contact shadows: the same soft ellipse, fainter. */
+  const crystalShadowMat = useMemo(() => new THREE.ShaderMaterial({
+    vertexShader: BEAM_VERT,
+    fragmentShader: FLOOR_FRAG,
+    uniforms: { uTime: { value: 0 }, uAlpha: { value: 0.55 } },
+    transparent: true,
+    depthWrite: false,
+  }), []);
+  const boxBackMat = useMemo(() => new THREE.ShaderMaterial({
+    vertexShader: BOX_VERT, fragmentShader: BOX_FRAG, uniforms: { uAlpha: { value: 0 } },
+    transparent: true, depthWrite: false,
+  }), []);
+  const boxFrontMat = useMemo(() => new THREE.ShaderMaterial({
+    vertexShader: BOX_VERT, fragmentShader: BOX_FRAG, uniforms: { uAlpha: { value: 0 } },
+    transparent: true, depthWrite: false, depthTest: false,
+  }), []);
+  const boxGeos = useMemo(() => [0, 1].map(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(BOX_VERTS * 3), 3));
+    g.setAttribute('aColor', new THREE.BufferAttribute(new Float32Array(BOX_VERTS * 4), 4));
+    g.setDrawRange(0, 0);
+    return g;
+  }), []);
   const flashMat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: BEAM_VERT,
     fragmentShader: FLASH_FRAG,
@@ -738,6 +909,17 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     iridescence: 0.7, iridescenceIOR: 1.35, iridescenceThicknessRange: [160, 520],
     emissive: '#4F4BC0', emissiveIntensity: 0.28,
   }), []);
+  /** Depth looks: behind him hazier (paler, translucent); in front softer and a touch translucent. */
+  const crystalBackMat = useMemo(() => {
+    const m = crystalMat.clone();
+    m.transparent = true; m.opacity = 0.5; m.roughness = 0.5; m.emissive.set('#8E86F0'); m.emissiveIntensity = 0.35;
+    return m;
+  }, [crystalMat]);
+  const crystalFrontMat = useMemo(() => {
+    const m = crystalMat.clone();
+    m.transparent = true; m.opacity = 0.9; m.roughness = 0.42; m.clearcoatRoughness = 0.6;
+    return m;
+  }, [crystalMat]);
   const crystalGeos = useMemo<Record<CrystalKind, THREE.BufferGeometry>>(() => ({
     ico: new THREE.IcosahedronGeometry(0.5, 1),
     oct: new THREE.OctahedronGeometry(0.5, 0),
@@ -745,9 +927,11 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   }), []);
   useEffect(() => () => {
     beamMat.dispose(); floorMat.dispose(); flashMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
-    sparkTex.dispose(); moteGeo.dispose(); moteMat.dispose(); crystalMat.dispose();
+    sparkTex.dispose(); moteGeo.dispose(); moteMat.dispose(); crystalMat.dispose(); crystalShadowMat.dispose();
+    crystalBackMat.dispose(); crystalFrontMat.dispose(); boxBackMat.dispose(); boxFrontMat.dispose();
+    for (const g of boxGeos) g.dispose();
     for (const g of Object.values(crystalGeos)) g.dispose();
-  }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalMat, crystalGeos]);
+  }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalMat, crystalShadowMat, crystalBackMat, crystalFrontMat, boxBackMat, boxFrontMat, boxGeos, crystalGeos]);
 
   useFrame((state, dtRaw) => {
     const dt = Math.min(dtRaw, 1 / 20);
@@ -792,16 +976,18 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
 
     /* Entrance: the beam drops, a flash, he grows in where it landed. */
     const ar = arrival.current;
+    const dropS = reduced ? REDUCED_DROP_S : DROP_S;
     if (ar !== null) {
       ar.t += dt;
-      if (!ar.landed && ar.t >= DROP_S) {
+      if (!ar.landed && ar.t >= dropS) {
         ar.landed = true;
         shown.current = true;
-        flash.current = { t: 0, at: { x: pos.current.x, y: pos.current.y - heightPx * 0.42 }, sizePx: heightPx * 2.2 };
+        // Reduced motion: no impact bloom; the soft column is the light.
+        if (!reduced) flash.current = { t: 0, at: { x: pos.current.x, y: pos.current.y - heightPx * 0.42 }, sizePx: heightPx * 2.2 };
       }
-      if (ar.t >= DROP_S + 0.6) { arrival.current = null; ar.resolve(); }
+      if (ar.t >= dropS + (reduced ? REDUCED_LINGER_S : 0.6)) { arrival.current = null; ar.resolve(); }
     }
-    if (shown.current && appear.current < 1) appear.current = reduced ? 1 : Math.min(1, appear.current + dt / 0.5);
+    if (shown.current && appear.current < 1) appear.current = Math.min(1, appear.current + dt / (reduced ? 0.9 : 0.5));
 
     /* Gaze: a small head/body turn toward the pointer (off under reduced motion). */
     const gt = gazeTarget.current;
@@ -842,7 +1028,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     if (floor.current) {
       const wp = toWorld(pos.current);
       floor.current.position.set(wp.x, wp.y + heightPx * 0.012, -200);
-      floor.current.scale.set(heightPx * 0.92, heightPx * 0.15, 1);
+      floor.current.scale.set(heightPx * 1.0, heightPx * 0.17, 1);
     }
     (floorMat.uniforms.uTime as { value: number }).value = t;
     (floorMat.uniforms.uAlpha as { value: number }).value = appear.current;
@@ -878,8 +1064,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       }
     }
 
-    /* Crystals: anchored around the panel (and one on Beamy's floor), bobbing
-       slowly; nearer ones parallax more with the pointer. Static if reduced. */
+    /* Pointer parallax (lerped; static under reduced motion). */
     const dec = decorRef.current;
     const par = parallax.current;
     const H = sizeRef.current.height;
@@ -888,31 +1073,93 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     const ty = ptr !== null && !reduced ? clamp((ptr.y / Math.max(1, H)) * 2 - 1, -1, 1) : 0;
     par.x += (tx - par.x) * Math.min(1, dt * 2.2);
     par.y += (ty - par.y) * Math.min(1, dt * 2.2);
+
+    /* His glass box around his HOME (he can walk out of it), drawn in
+       one-point perspective; the pointer moves its vanishing point, so the
+       volume visibly turns. It fades in with him. */
+    const box = boxGeometry({ home: layout.home, heightPx: layout.heightPx, room: layout.room ?? null, par, phone: dec.phone });
+    const boxAlpha = box === null ? 0 : appear.current;
+    (boxBackMat.uniforms.uAlpha as { value: number }).value = boxAlpha;
+    (boxFrontMat.uniforms.uAlpha as { value: number }).value = boxAlpha;
+    const paints: [THREE.Mesh | null, number, (P: BoxPaint, b: Box, phone: boolean) => void][] = [[boxBackRef.current, -420, paintBoxBack], [boxFrontRef.current, 500, paintBoxFront]];
+    for (const [mesh, z, paint] of paints) {
+      if (mesh === null) continue;
+      const geo = mesh.geometry;
+      const P: BoxPaint = { pos: geo.getAttribute('position').array as Float32Array, col: geo.getAttribute('aColor').array as Float32Array, n: 0, z, w: W, h: H };
+      if (box !== null) paint(P, box, dec.phone);
+      geo.setDrawRange(0, P.n);
+      geo.getAttribute('position').needsUpdate = true;
+      geo.getAttribute('aColor').needsUpdate = true;
+      mesh.visible = box !== null && boxAlpha > 0.001;
+    }
+
+    /* His reflection on the glossy floor (desktop): copy every node of the
+       real rig, then mirror the whole thing about his feet. */
+    const rf = reflect.current;
+    const rr = reflRig.current;
+    if (rf !== null && rr !== null) {
+      // Only while he stands on his own floor: the reflection lives between
+      // his feet and the box's front edge, and dies out before that edge.
+      const atHome = g !== null && box !== null
+        && Math.abs(g.position.y - (H / 2 - layout.home.y)) < 6
+        && Math.abs(g.position.x - (layout.home.x - W / 2)) < (box.front[1].x - box.front[0].x) / 2;
+      const on = g !== null && g.visible && !dec.phone && box !== null && atHome;
+      rr.visible = on;
+      if (on && g !== null && box !== null) {
+        for (const [a, b] of rf.pairs) { b.position.copy(a.position); b.quaternion.copy(a.quaternion); b.scale.copy(a.scale); b.visible = a.visible; }
+        rr.position.copy(g.position);
+        rr.rotation.set(-g.rotation.x, g.rotation.y, 0);
+        rr.scale.set(g.scale.x, -g.scale.y, g.scale.z);
+        rf.floorY.value = g.position.y;
+        rf.fade.value = Math.max(6, (box.front[3].y - layout.home.y) * 0.85);
+      }
+    }
+
+    /* Crystals: around the panel, and inside his box at clearly different
+       depths (behind him: small and hazy; in front: large and soft). They bob
+       slowly; nearer ones parallax more with the pointer. Static if reduced. */
     for (let i = 0; i < CRYSTALS.length; i++) {
       const m = crystalRefs.current[i];
       if (!m) continue;
       const c = CRYSTALS[i];
       const panel = dec.panel;
-      const on = panel !== null && (dec.hero || !c.heroOnly) && (!dec.phone || c.phone) && ('panel' in c.at || shown.current);
+      const on = panel !== null && (dec.hero || !c.heroOnly) && (!dec.phone || c.phone) && ('panel' in c.at || (shown.current && box !== null));
       m.visible = on;
+      const sh = crystalShadowRefs.current[i];
+      if (sh) sh.visible = on && c.shadow === true;
       if (!on || panel === null) continue;
       let x: number;
       let y: number;
       let size: number;
+      let floorY: number | null = null;
       if ('panel' in c.at) {
         size = Math.min(panel.width, panel.height) * c.size * (dec.phone ? 0.75 : 1);
         x = panel.left + panel.width * c.at.panel[0];
         y = panel.top + panel.height * c.at.panel[1];
+        x += par.x * CRYSTAL_PARALLAX_PX * c.depth;
+        y += par.y * CRYSTAL_PARALLAX_PX * c.depth * 0.6;
       } else {
-        size = layout.heightPx * c.size;
-        x = layout.home.x + layout.heightPx * c.at.beamy;
-        y = layout.home.y - size * 0.3;
+        if (box === null) continue;
+        // Its floor point already moves with the box's perspective; a front
+        // crystal also drifts a little WITH the pointer (it is nearer than the front pane).
+        const f = floorAt(box, c.at.box[0], c.at.box[1]);
+        size = layout.heightPx * c.size * f.scale;
+        floorY = f.p.y;
+        x = f.p.x + (c.layer === 'front' ? par.x * CRYSTAL_PARALLAX_PX * 0.6 : 0);
+        y = f.p.y - size * 0.32 - (c.at.lift ?? 0) * layout.heightPx * f.scale;
       }
       const bob = reduced ? 0 : Math.sin(t * 0.7 + i * 1.9) * 5 * (0.4 + c.depth);
-      x += par.x * CRYSTAL_PARALLAX_PX * c.depth;
-      y += par.y * CRYSTAL_PARALLAX_PX * c.depth * 0.6 + bob;
+      if (sh && c.shadow === true) {
+        // On the floor under it, not bobbing; it tightens a little as the crystal floats up.
+        const fy = floorY ?? y + size * 0.62;
+        const lift = 1 - (bob / Math.max(1, size)) * 0.6;
+        const sw = toWorld({ x, y: fy });
+        sh.position.set(sw.x, sw.y, c.layer === 'front' ? 120 : -380);
+        sh.scale.set(size * 1.15 * lift, size * 0.22 * lift, 1);
+      }
+      y += bob;
       const cw = toWorld({ x, y });
-      m.position.set(cw.x, cw.y, -120 + c.depth * 60);
+      m.position.set(cw.x, cw.y, c.layer === 'back' ? -330 : c.layer === 'front' ? 300 : -120 + c.depth * 60);
       m.scale.setScalar(Math.max(1, size));
       if (!reduced) {
         m.rotation.y += dt * (0.16 + (i % 3) * 0.06);
@@ -954,18 +1201,27 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         }
       } else if (ar !== null) {
         // Head of the column falls from above the viewport to his feet (ease-in),
-        // then the full column lingers and fades as he appears.
-        const fall = clamp(ar.t / DROP_S, 0, 1);
+        // then the full column lingers and fades as he appears. Reduced
+        // motion: the whole column fades in softly where it stands, then out.
         const topY = -60;
-        const headY = topY + (pos.current.y - topY) * fall * fall;
-        const fade = ar.landed ? clamp(1 - (ar.t - DROP_S) / 0.5, 0, 1) : 1;
-        alpha = Math.min(1, ar.t / 0.12) * fade;
+        let headY: number;
+        if (reduced) {
+          headY = pos.current.y;
+          const k = clamp(ar.t / REDUCED_DROP_S, 0, 1);
+          const out = ar.landed ? clamp(1 - (ar.t - REDUCED_DROP_S) / REDUCED_LINGER_S, 0, 1) : 1;
+          alpha = 0.55 * k * k * (3 - 2 * k) * out * out * (3 - 2 * out);
+        } else {
+          const fall = clamp(ar.t / DROP_S, 0, 1);
+          headY = topY + (pos.current.y - topY) * fall * fall;
+          const fade = ar.landed ? clamp(1 - (ar.t - DROP_S) / 0.5, 0, 1) : 1;
+          alpha = Math.min(1, ar.t / 0.12) * fade;
+        }
         const a = toWorld({ x: pos.current.x, y: topY });
         const z = toWorld({ x: pos.current.x, y: headY });
         const len = Math.max(1, a.y - z.y);
         bm.position.set(a.x, (a.y + z.y) / 2, 300);
         bm.rotation.z = -Math.PI / 2;
-        bm.scale.set(len, Math.max(22, layout.heightPx * 0.16) * (ar.landed ? 1 + (ar.t - DROP_S) * 1.2 : 1), 1);
+        bm.scale.set(len, Math.max(22, layout.heightPx * 0.16) * (ar.landed && !reduced ? 1 + (ar.t - DROP_S) * 1.2 : 1), 1);
       }
       bm.visible = alpha > 0.001;
       (beamMat.uniforms.uAlpha as { value: number }).value = alpha;
@@ -1077,7 +1333,11 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     if (bubble) {
       const bw = bubble.offsetWidth;
       const bh = bubble.offsetHeight;
-      const left = clamp(pos.current.x - bw / 2, 12, Math.max(12, W - bw - 12));
+      // The page may fence the bubble between two things it must never cover
+      // (data-min-x / data-max-x, viewport px); otherwise the viewport edges.
+      const lo = Math.max(12, Number(bubble.dataset.minX ?? 12));
+      const hi = Math.min(W - 12, Number(bubble.dataset.maxX ?? W - 12));
+      const left = clamp(pos.current.x - bw / 2, lo, Math.max(lo, hi - bw));
       const y = Math.max(64, top - bh - 6);
       bubble.style.transform = `translate3d(${left.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
       bubble.style.setProperty('--tail-x', `${clamp(pos.current.x - left, 22, bw - 22).toFixed(1)}px`);
@@ -1093,28 +1353,48 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
 
   return (
     <>
-      <hemisphereLight args={['#dfe6ff', '#2a1d4a', 1.6]} />
-      <directionalLight position={[300, 600, 900]} intensity={2.2} />
-      <directionalLight position={[-600, 200, 400]} intensity={0.9} color="#a78bfa" />
+      <hemisphereLight args={['#dfe6ff', '#2a1d4a', 1.5]} />
+      {/* Key from the top-left (where the panel's rim and sheen are brightest), a
+          cool fill from the right, and a soft rim from behind that edges him. */}
+      <directionalLight position={[-520, 640, 820]} intensity={2.2} />
+      <directionalLight position={[600, 120, 500]} intensity={0.7} color="#a78bfa" />
+      <directionalLight position={[260, 380, -900]} intensity={1.5} color="#dcd8ff" />
+      <mesh ref={boxBackRef} geometry={boxGeos[0]} material={boxBackMat} visible={false} frustumCulled={false} renderOrder={-2} />
       <mesh ref={floor} material={floorMat} renderOrder={0}>
         <planeGeometry args={[1, 1]} />
       </mesh>
+      {CRYSTALS.map((c, i) => c.shadow === true && (
+        <mesh
+          key={`s${i}`}
+          ref={(m) => { crystalShadowRefs.current[i] = m; }}
+          material={crystalShadowMat}
+          visible={false}
+          frustumCulled={false}
+          renderOrder={0}
+        >
+          <planeGeometry args={[1, 1]} />
+        </mesh>
+      ))}
       {CRYSTALS.map((c, i) => (
         <mesh
           key={i}
           ref={(m) => { crystalRefs.current[i] = m; }}
           geometry={crystalGeos[c.kind]}
-          material={crystalMat}
+          material={c.layer === 'back' ? crystalBackMat : c.layer === 'front' ? crystalFrontMat : crystalMat}
           visible={false}
           frustumCulled={false}
           renderOrder={1}
         />
       ))}
+      <group ref={reflRig} visible={false}>
+        {reflectObj !== null && <primitive object={reflectObj} />}
+      </group>
       {model !== null && (
         <group ref={rig}>
           <primitive object={model.scene} />
         </group>
       )}
+      <mesh ref={boxFrontRef} geometry={boxGeos[1]} material={boxFrontMat} visible={false} frustumCulled={false} renderOrder={9} />
       <mesh ref={beamMesh} material={beamMat} visible={false} renderOrder={5}>
         <planeGeometry args={[1, 1]} />
       </mesh>

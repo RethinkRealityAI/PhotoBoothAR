@@ -113,6 +113,13 @@ const FRAME_URLS: Record<string, string> = Object.fromEntries(
   Object.entries(DEMO_FRAME_SVGS).map(([id, svg]) => [id, toDataUrl(svg)]),
 );
 
+/** The frame a look opens on — the same one `pickTheme` applies (null = the
+ *  Beam set's 'beam' frame) — so a host can preview a look before the camera
+ *  starts. */
+export function lookFrameUrl(look: string | null): string | null {
+  return look === null ? FRAME_URLS.beam ?? null : demoKit(look).frames[0]?.src ?? null;
+}
+
 const PROP_ICONS: Record<string, typeof Glasses> = {
   'neon-shades': Glasses,
   'queen-tiara': Crown,

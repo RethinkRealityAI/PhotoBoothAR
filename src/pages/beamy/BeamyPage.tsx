@@ -34,14 +34,14 @@
  */
 import {
   useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState,
-  type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode,
+  type HTMLAttributes, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode,
 } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft, ArrowRight, Briefcase, Cake, CalendarPlus, Camera, Check, ClipboardList, Gift, Link2, Lock,
   Palette, RotateCcw, Rotate3d, Users, type LucideIcon,
 } from 'lucide-react';
-import CameraExperience from '../../components/landing/CameraExperience';
+import CameraExperience, { lookFrameUrl } from '../../components/landing/CameraExperience';
 import ParticleBeam from '../../components/landing/ParticleBeam';
 import ReportIssueButton from '../../components/support/ReportIssueButton';
 import { SELFIE_CARD_FACE_STYLE, SELFIE_CARD_STYLE, flashGradient } from '../../components/beamy/selfieFx';
@@ -50,7 +50,8 @@ import { useNoIndex } from '../sales/components/pageMeta';
 import { salesImage } from '../sales/salesImages';
 import { HERO_SLOT_IMAGES } from '../../lib/landingAssets';
 import type { Rect } from '../../lib/beamGeometry';
-import { flashOpacity, photoState } from '../../lib/beamySelfie';
+import type { BoxRoom } from '../../lib/beamyBox';
+import { REDUCED_GLIDE_S, flashOpacity, photoState } from '../../lib/beamySelfie';
 import { SHOT_TILES, WALL_CENTRE, initialWall, nextSwap, rippleRings, swapDelay, type WallState } from '../../lib/beamyWall';
 import {
   AUDIENCES, DELIVER_STEPS, DONE_FOR_YOU, GREETING, HELLO, POKE_LINES, audienceById,
@@ -76,8 +77,6 @@ const DEFAULT_AUDIENCE = audienceById('family') ?? AUDIENCES[0];
 /** Room above Beamy's head kept free for his speech bubble. */
 const BUBBLE_ROOM = 76;
 const LEAVE_MS = 300;
-/** The intro plays once per browser session. */
-const INTRO_KEY = 'bw.beamy.intro.v2';
 /** How long the centre tile holds Beamy's selfie before it rejoins the rotation. */
 const SELFIE_HOLD_MS = 12000;
 const FLOOR_STOPS: SectionId[] = ['pick', 'magic', 'how', 'start'];
@@ -86,11 +85,16 @@ const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
 
-function readIntroSeen(): boolean {
-  try { return window.sessionStorage.getItem(INTRO_KEY) === '1'; } catch { return false; }
-}
-function writeIntroSeen(): void {
-  try { window.sessionStorage.setItem(INTRO_KEY, '1'); } catch { /* private mode: it simply plays again */ }
+/**
+ * A step log for verifying the choreography in a browser: in dev, or with
+ * `?beamylog` on the URL, every step pushes `{ step, t }` onto
+ * `window.__beamyLog`. Off (a no-op) everywhere else.
+ */
+const STEP_LOG = import.meta.env.DEV || new URLSearchParams(window.location.search).has('beamylog');
+function logStep(step: string): void {
+  if (!STEP_LOG) return;
+  const w = window as unknown as { __beamyLog?: { step: string; t: number }[] };
+  (w.__beamyLog ??= []).push({ step, t: Math.round(performance.now()) });
 }
 
 /** Typewriter for Beamy's lines; reduced motion gets the whole line at once. */
@@ -187,6 +191,10 @@ export default function BeamyPage() {
   const [dragHint, setDragHint] = useState(true);
   const [slotBox, setSlotBox] = useState<Rect | null>(null);
   const [floorTop, setFloorTop] = useState<number | null>(null);
+  /** Beamy's x across the panel (%), where the floor's pool of light sits. */
+  const [stageX, setStageX] = useState(50);
+  /** The Try stop's booth·Beamy·wall row width, so its header lines up with it. */
+  const [tryRowW, setTryRowW] = useState<number | null>(null);
   const [introRunning, setIntroRunning] = useState(false);
   const [heroPin, setHeroPin] = useState<Pin | null>(null);
   const [ripple, setRipple] = useState(0);
@@ -216,7 +224,8 @@ export default function BeamyPage() {
   indexRef.current = index;
   const sectionRef = useRef(section);
   sectionRef.current = section;
-  const introSeen = useRef(readIntroSeen());
+  /** The intro has played (or been skipped) in THIS page view: every full load plays it. */
+  const introSeen = useRef(false);
   const layoutRef = useRef<StageLayout>({ home: { x: vp.w / 2, y: vp.h * 0.4 }, heightPx: 180 });
   const decorRef = useRef<StageDecor>({ panel: null, hero: section === 'intro', phone: !desktop });
   const seed = useMemo(() => {
@@ -247,13 +256,51 @@ export default function BeamyPage() {
     const capAttr = el.dataset.max;
     const cap = capAttr !== undefined ? Number(capAttr) : (desktop ? 300 : 200);
     const heightPx = Math.max(96, Math.min(r.height - room, r.width * 0.9, cap));
-    layoutRef.current = { home: { x: r.left + r.width / 2, y: r.bottom }, heightPx };
+    // The glass box Beamy stands in: between the things beside him (the same
+    // fences the bubble uses), never past the panel, never over the copy.
+    let boxRoom: BoxRoom | null = null;
+    if (pr !== null) {
+      const root = mainRef.current;
+      const lEl = desktop ? root?.querySelector('[data-bubble-left]') ?? null : null;
+      const rEl = desktop ? root?.querySelector('[data-bubble-right]') ?? null : null;
+      const inset = desktop ? 16 : 12;
+      const left = lEl !== null ? lEl.getBoundingClientRect().right + 10 : pr.left + inset;
+      const right = rEl !== null ? rEl.getBoundingClientRect().left - 10 : pr.left + pr.width - inset;
+      const bottom = desktop
+        ? Math.max(r.bottom + 4, Math.min(r.bottom + heightPx * 0.18, pr.top + pr.height - 80))
+        : r.bottom + 6;
+      boxRoom = { left: Math.max(left, pr.left + inset), top: r.top, right: Math.min(right, pr.left + pr.width - inset), bottom };
+    }
+    layoutRef.current = { home: { x: r.left + r.width / 2, y: r.bottom }, heightPx, room: boxRoom };
     const box = { left: r.left, top: r.top, width: r.width, height: r.height };
     setSlotBox((prev) => (sameRect(prev, box) ? prev : box));
     if (pr !== null) {
       const top = Math.round(r.bottom - pr.top - heightPx * 0.16);
       setFloorTop((prev) => (prev === top ? prev : top));
+      const sx = Math.round(((r.left + r.width / 2 - pr.left) / Math.max(1, pr.width)) * 100);
+      setStageX((prev) => (prev === sx ? prev : sx));
     }
+    // Fence the speech bubble between the things beside Beamy it must never
+    // cover (marked data-bubble-left / data-bubble-right); BeamyStage clamps
+    // to it. Phones stack Beamy above the content, so no fence there.
+    const bub = bubbleRef.current;
+    if (bub !== null) {
+      const root = mainRef.current;
+      const lEl = desktop ? root?.querySelector('[data-bubble-left]') ?? null : null;
+      const rEl = desktop ? root?.querySelector('[data-bubble-right]') ?? null : null;
+      const lo = lEl !== null ? Math.round(lEl.getBoundingClientRect().right + 10) : null;
+      const hi = rEl !== null ? Math.round(rEl.getBoundingClientRect().left - 10) : null;
+      const span = (hi ?? window.innerWidth - 12) - (lo ?? 12);
+      const fenced = (lo !== null || hi !== null) && span >= 160;
+      if (fenced && lo !== null) bub.dataset.minX = String(lo); else delete bub.dataset.minX;
+      if (fenced && hi !== null) bub.dataset.maxX = String(hi); else delete bub.dataset.maxX;
+      bub.style.maxWidth = fenced ? `${Math.min(300, span)}px` : '';
+    }
+    const row = desktop ? mainRef.current?.querySelector<HTMLElement>('[data-try-row]') ?? null : null;
+    const first = row?.firstElementChild ?? null;
+    const last = row?.lastElementChild ?? null;
+    const rw = first !== null && last !== null ? Math.round(last.getBoundingClientRect().right - first.getBoundingClientRect().left) : null;
+    setTryRowW((prev) => (prev === rw ? prev : rw));
   }, [desktop]);
   useLayoutEffect(() => { measure(); }, [measure, shownIndex, vp.w, vp.h]);
   useEffect(() => {
@@ -290,6 +337,7 @@ export default function BeamyPage() {
   /** The photo reaches the wall: the hero's centre tile holds it; on Try it joins the visitor's shots. */
   const landSelfie = useCallback((src: string) => {
     pendingSelfie.current = null;
+    logStep(`selfie:land:${sectionRef.current}`);
     if (sectionRef.current === 'try') {
       setShots((prev) => [{ id: nextShot.current++, src }, ...prev].slice(0, SHOT_TILES.length));
       return;
@@ -304,9 +352,10 @@ export default function BeamyPage() {
   const launchSelfie = useCallback((from: Rect, photo: string) => {
     const tile = rectOf(centreTileRef.current);
     if (tile === null) { pendingSelfie.current = null; return; }
-    if (reduced) { landSelfie(photo); return; }
+    // Reduced motion: the same trip, as a slow glide (no particles).
+    logStep(`selfie:flight:${reduced ? 'glide' : 'particles'}`);
     setFlight({
-      key: ++flightKey.current, from, to: tile, shot: photo, ms: 1250,
+      key: ++flightKey.current, from, to: tile, shot: photo, ms: reduced ? REDUCED_GLIDE_S * 1000 : 1250,
       onDone: () => { setFlight(null); landSelfie(photo); },
     });
   }, [landSelfie, reduced]);
@@ -316,10 +365,14 @@ export default function BeamyPage() {
     const b = api.current;
     if (b === null) return;
     let launched = false;
+    let flashed = false;
     let cardBox: Rect | null = null;
-    await b.selfie((f) => {
+    logStep('selfie:start');
+    const played = await b.selfie((f) => {
       if (!alive()) { hideSelfieFx(); b.stopSelfie(); return; }
+      if (!flashed && flashOpacity(f.t, f.tl) > 0.01) { flashed = true; logStep(`selfie:flash:${f.tl.reducedMotion ? 'soft' : 'full'}`); }
       if (f.photo !== undefined) {
+        logStep(f.photo === null ? 'selfie:snap:no-photo' : 'selfie:snap');
         pendingSelfie.current = f.photo;
         const img = cardImgRef.current;
         if (img !== null) { if (f.photo !== null) img.src = f.photo; else img.removeAttribute('src'); }
@@ -332,25 +385,35 @@ export default function BeamyPage() {
       const card = cardRef.current;
       if (card === null || launched) return;
       const st = photoState(f.t, f.tl);
-      if (f.t >= f.tl.photo.flightStart && st.visible) {
-        // Hand the card to the beam: it dissolves and rides across to the wall.
+      const cw = Math.max(44, f.heightPx * 0.3);
+      const ch = cw * 1.2;
+      const x = clamp(f.phone.x, cw / 2 + 4, window.innerWidth - cw / 2 - 4);
+      let y = Math.max(ch / 2 + 4, lerp(f.phone.y, f.phone.y - f.heightPx * 0.36, st.visible ? st.pop : 1));
+      // Never across the copy (phones stack Beamy right under the subline):
+      // if the card's column meets the copy block, it pops no higher than
+      // just below it (0.62 = half its height plus the pop's overshoot).
+      const copy = rectOf(document.querySelector('[data-card-avoid]'));
+      if (copy !== null && x + cw / 2 > copy.left && x - cw / 2 < copy.left + copy.width) y = Math.max(y, copy.top + copy.height + ch * 0.62 + 4);
+      if (f.t >= f.tl.photo.flightStart) {
+        // Hand the card to the beam: it dissolves and rides across to the
+        // wall. A slow device can skip the card's whole visible window in
+        // one frame, so launch from wherever it would be now in that case.
         launched = true;
         card.style.opacity = '0';
         const photo = pendingSelfie.current;
-        if (photo !== null && cardBox !== null) launchSelfie(cardBox, photo);
+        const from = cardBox ?? { left: x - cw / 2, top: y - ch / 2, width: cw, height: ch };
+        if (photo !== null) launchSelfie(from, photo);
         return;
       }
       card.style.opacity = st.visible ? st.opacity.toFixed(3) : '0';
       if (!st.visible) return;
-      const cw = Math.max(44, f.heightPx * 0.3);
-      const ch = cw * 1.2;
-      const x = clamp(f.phone.x, cw / 2 + 4, window.innerWidth - cw / 2 - 4);
-      const y = Math.max(ch / 2 + 4, lerp(f.phone.y, f.phone.y - f.heightPx * 0.36, st.pop));
       card.style.width = `${cw.toFixed(1)}px`;
       card.style.height = `${ch.toFixed(1)}px`;
       card.style.transform = `translate3d(${(x - cw / 2).toFixed(1)}px, ${(y - ch / 2).toFixed(1)}px, 0) rotate(${st.tiltDeg.toFixed(2)}deg) scale(${Math.max(0.001, st.scale).toFixed(3)})`;
       cardBox = { left: x - cw / 2, top: y - ch / 2, width: cw, height: ch };
     });
+    // false = no Selfie clip in the GLB, or the clip was stopped/replaced early.
+    if (!played) logStep('selfie:stopped');
     if (!launched) hideSelfieFx();
   }, [hideSelfieFx, launchSelfie]);
 
@@ -359,32 +422,22 @@ export default function BeamyPage() {
     if (!ready) return;
     const b = api.current;
     if (b === null) return;
-    if (introSeen.current || reduced) {
-      // Settled state: he is simply there.
-      b.skipArrival();
-      setArrival('done');
-      if (reduced && !introSeen.current && indexRef.current === 0) {
-        // Reduced motion's selfie: his portrait fades into the centre tile.
-        window.requestAnimationFrame(() => {
-          const p = api.current?.portrait() ?? null;
-          if (p !== null && sectionRef.current === 'intro') landSelfie(p);
-        });
-      }
-      introSeen.current = true;
-      writeIntroSeen();
-      return;
-    }
+    // Every full load plays it, for every motion preference: this IS the
+    // page's content. Reduced motion gets the gentle variants (a soft column
+    // instead of a falling beam and flash, a glide instead of particles).
     setArrival('dropping');
+    logStep(`arrive:start:${reduced ? 'soft' : 'full'}`);
     const alive = begin();
     const onIntro = indexRef.current === 0;
     if (onIntro) setIntroRunning(true);
     void (async () => {
       await b.arrive();
+      logStep('arrive:landed');
       setArrival('done');
       if (!alive() || indexRef.current !== 0) { setIntroRunning(false); return; }
       say(HELLO);
       await runSelfie(alive);
-      if (alive()) { introSeen.current = true; writeIntroSeen(); }
+      if (alive()) { introSeen.current = true; logStep('intro:done'); }
       setIntroRunning(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the model is in
@@ -394,25 +447,21 @@ export default function BeamyPage() {
     return () => window.clearTimeout(id);
   }, []);
 
-  /* Any click skips the rest of the intro (the click itself still works). */
-  useEffect(() => {
-    if (!introRunning) return;
-    const skip = () => {
-      begin();
-      const b = api.current;
-      b?.skipArrival();
-      b?.stopSelfie();
-      hideSelfieFx();
-      setArrival('done');
-      setIntroRunning(false);
-      introSeen.current = true;
-      writeIntroSeen();
-      const p = pendingSelfie.current;
-      if (p !== null && sectionRef.current === 'intro') landSelfie(p);
-    };
-    window.addEventListener('pointerdown', skip, { capture: true, once: true });
-    return () => window.removeEventListener('pointerdown', skip, { capture: true });
-  }, [introRunning, begin, hideSelfieFx, landSelfie]);
+  /* Only the Skip chip (or leaving the stop) skips the intro: a stray click
+     anywhere no longer cancels the page's main moment. */
+  const skipIntro = useCallback(() => {
+    logStep('intro:skip');
+    begin();
+    const b = api.current;
+    b?.skipArrival();
+    b?.stopSelfie();
+    hideSelfieFx();
+    setArrival('done');
+    setIntroRunning(false);
+    introSeen.current = true;
+    const p = pendingSelfie.current;
+    if (p !== null && sectionRef.current === 'intro') landSelfie(p);
+  }, [begin, hideSelfieFx, landSelfie]);
 
   /* ── Section navigation ───────────────────────────────────────────── */
   const lineFor = useCallback((id: SectionId, a: Audience): string => {
@@ -502,6 +551,10 @@ export default function BeamyPage() {
       if (e.pointerType !== 'mouse') return;
       api.current?.look({ x: e.clientX, y: e.clientY });
       glassRef.current?.style.setProperty('--sheen-dx', `${(((e.clientX / Math.max(1, window.innerWidth)) - 0.5) * 36).toFixed(1)}%`);
+      // The wall turns with the box; held still under reduced motion.
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        mainRef.current?.style.setProperty('--tilt-x', (((e.clientX / Math.max(1, window.innerWidth)) - 0.5) * 2).toFixed(3));
+      }
     };
     const onDown = (e: PointerEvent) => {
       if (e.pointerType === 'mouse') return;
@@ -588,12 +641,22 @@ export default function BeamyPage() {
     const b = api.current;
     const vf = rectOf(viewfinderRef.current);
     const tile = rectOf(centreTileRef.current);
+    logStep('try:shot');
     const commit = () => {
+      logStep('try:land');
       setShots((prev) => [{ id: nextShot.current++, src }, ...prev].slice(0, SHOT_TILES.length));
       say('It’s on the wall! Every guest’s shot lands there, live.');
       celebrate();
     };
-    if (b === null || vf === null || tile === null || reduced) { commit(); return; }
+    if (b === null || vf === null || tile === null) { logStep('try:no-flight'); commit(); return; }
+    if (reduced) {
+      // Reduced motion: the shot still travels to the wall, as one slow glide.
+      logStep('try:flight:glide');
+      say('Beaming it to the wall…');
+      setFlight({ key: ++flightKey.current, from: vf, to: tile, shot: src, ms: REDUCED_GLIDE_S * 1000, onDone: () => { setFlight(null); commit(); } });
+      return;
+    }
+    logStep('try:flight:particles');
     const alive = begin();
     const r = react.current('snap');
     const fromHand = r === 'handBeam';
@@ -624,6 +687,14 @@ export default function BeamyPage() {
   const onPoke = () => {
     const b = api.current;
     if (b === null) return;
+    if (sectionRef.current === 'intro') {
+      // During the intro a tap is just a sparkle (only Skip skips); once it
+      // has settled, tapping him on the hero replays the selfie.
+      if (introRunning) { b.sparkle('sparkle'); return; }
+      logStep('selfie:replay');
+      void runSelfie(begin());
+      return;
+    }
     const r = pokeStep(poke.current, performance.now());
     poke.current = r.state;
     if (r.level === 'sparkle') {
@@ -694,7 +765,8 @@ export default function BeamyPage() {
   const heroPins = useMemo<Record<number, Pin>>(() => (heroPin === null ? {} : { [WALL_CENTRE]: heroPin }), [heroPin]);
 
   const lookPills = (
-    <div
+    <FadeScroll
+      axis="x"
       role="group"
       aria-label="Pick a look"
       data-noswipe={desktop ? undefined : true}
@@ -705,10 +777,11 @@ export default function BeamyPage() {
           {l.label}
         </button>
       ))}
-    </div>
+    </FadeScroll>
   );
 
   /* The booth: a phone at a natural phone aspect, in a slim deep frame. */
+  const idleFrame = lookFrameUrl(look);
   const booth = (
     <div
       data-noswipe
@@ -719,13 +792,22 @@ export default function BeamyPage() {
         {cameraOn ? (
           <CameraExperience enabled videoId="beamy-booth-video" beamLabel="Beam it to the wall" onBeam={onBeam} look={look} screenRef={viewfinderRef} />
         ) : (
-          <div className={`flex h-full flex-col items-center justify-center text-center ${desktop ? 'gap-4 px-5' : 'gap-3 px-2.5'}`}>
-            <span className="bw-icon-tile" aria-hidden><Camera /></span>
-            <p className="bw-small max-w-[20ch]">The real booth your guests open from a QR code.</p>
-            <button type="button" className={`bw-btn bw-btn-primary bw-btn-sm ${desktop ? '' : 'h-auto w-full whitespace-normal px-3 py-2 leading-tight'}`} onClick={() => { setCameraOn(true); say('Smile! Pick a look, then tap the big button.'); }}>
-              {TRY_COPY.start}
-            </button>
-            <p className="bw-label flex items-center gap-1.5"><Lock className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden /> {TRY_COPY.privacy}</p>
+          <div className="relative h-full">
+            {/* Before the camera: the selected look's frame over a soft
+                screen glow, so each pill visibly changes the phone. */}
+            <div aria-hidden className="absolute inset-0" style={{ background: 'radial-gradient(80% 55% at 50% 36%, #7A72EC 0%, #4A42C8 55%, #2B2A8C 100%)' }} />
+            {idleFrame !== null && (
+              <img key={idleFrame} src={idleFrame} alt="" aria-hidden draggable={false} data-look-preview className="absolute inset-0 h-full w-full object-cover" style={{ animation: reduced ? undefined : 'bw-fade 360ms var(--bw-ease) both' }} />
+            )}
+            <div aria-hidden className={`absolute inset-x-0 bottom-0 ${desktop ? 'h-[64%]' : 'h-[82%]'}`} style={{ background: desktop ? 'linear-gradient(to top, rgba(26,23,64,0.92) 0%, rgba(26,23,64,0.84) 52%, rgba(26,23,64,0) 100%)' : 'linear-gradient(to top, rgba(26,23,64,0.95) 0%, rgba(26,23,64,0.9) 62%, rgba(26,23,64,0) 100%)' }} />
+            <div className={`relative flex h-full flex-col items-center justify-end text-center ${desktop ? 'gap-3 px-5 pb-7' : 'gap-2 px-2.5 pb-3'}`}>
+              <span className="bw-icon-tile" aria-hidden><Camera /></span>
+              <p className="bw-small max-w-[20ch]" style={{ color: 'var(--bw-ink)' }}>The real booth your guests open from a QR code.</p>
+              <button type="button" className={`bw-btn bw-btn-primary bw-btn-sm ${desktop ? '' : 'h-auto w-full whitespace-normal px-3 py-2 leading-tight'}`} onClick={() => { setCameraOn(true); say('Smile! Pick a look, then tap the big button.'); }}>
+                {TRY_COPY.start}
+              </button>
+              <p className="bw-label flex items-center gap-1.5" style={{ color: 'var(--bw-ink)' }}><Lock className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden /> {TRY_COPY.privacy}</p>
+            </div>
           </div>
         )}
       </div>
@@ -750,7 +832,7 @@ export default function BeamyPage() {
   const heroHeadline = (
     <>
       <p className={`bw-eyebrow ${desktop ? '' : 'text-[14px] after:hidden'}`} style={i(0)}>{HERO.eyebrow}</p>
-      <h1 data-section-heading tabIndex={-1} className={`bw-display outline-none ${desktop ? 'mt-6' : 'mt-2'}`} style={i(1)}>
+      <h1 data-section-heading tabIndex={-1} className={`bw-display outline-none ${desktop ? 'mt-6' : 'mt-2'}`} style={desktop ? { ...i(1), fontSize: 'clamp(40px, min(22px + 3vw, 7.4dvh), 76px)' } : i(1)}>
         <span className="bw-light block">{HERO.lead}</span>
         <span className="block">{HERO.strong}</span>
       </h1>
@@ -761,32 +843,34 @@ export default function BeamyPage() {
   let content: ReactNode = null;
   if (section === 'intro') {
     const wall = (
-      <LiveWall
-        pool={WALL_POOL}
-        pins={heroPins}
-        dim={introRunning}
-        compact={!desktop}
-        centreRef={centreTileRef}
-        ripple={ripple}
-        seed={seed}
-      />
+      <div className="bw-wall-mount" style={{ ['--wall-yaw' as string]: desktop ? '-9deg' : '-5deg' }}>
+        <LiveWall
+          pool={WALL_POOL}
+          pins={heroPins}
+          dim={introRunning}
+          compact={!desktop}
+          centreRef={centreTileRef}
+          ripple={ripple}
+          seed={seed}
+        />
+      </div>
     );
     content = desktop ? (
-      <div className="relative grid h-full grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)_minmax(0,0.92fr)] items-center gap-6 px-[clamp(28px,3.4vw,64px)]">
-        <div className={`relative z-10 flex flex-col ${showContent ? 'bw-rise' : 'invisible'}`}>
+      <div className="relative grid h-full grid-cols-[minmax(0,1.36fr)_minmax(0,0.92fr)_minmax(0,0.86fr)] items-center gap-6 px-[clamp(28px,3.4vw,64px)]">
+        <div data-card-avoid data-bubble-left className={`relative z-10 flex flex-col ${showContent ? 'bw-rise' : 'invisible'}`}>
           {heroHeadline}
           {heroCtas}
         </div>
         <div className="flex h-full flex-col justify-end pb-[5%]">
-          {slot('h-[82%] w-full', { max: Math.min(430, vp.h * 0.47) })}
+          {slot('h-[82%] w-full', { max: Math.min(410, vp.h * 0.45) })}
         </div>
         <div className={`flex justify-end ${showContent ? 'bw-rise' : 'invisible'}`}>
-          <div style={{ ...i(2), width: 'min(400px, 100%, calc((100dvh - 320px) * 0.76))' }}>{wall}</div>
+          <div data-bubble-right style={{ ...i(2), width: 'min(370px, 100%, calc((100dvh - 330px) * 0.74))' }}>{wall}</div>
         </div>
       </div>
     ) : (
       <div className="flex h-full flex-col px-4 pb-3 pt-1">
-        <div className={`shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroHeadline}</div>
+        <div data-card-avoid className={`shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroHeadline}</div>
         {vp.h >= 740 ? (
           // Tall phones: Beamy stands on the floor right above his wall, filling the height.
           <div className="mt-2 flex min-h-0 flex-1 flex-col items-center gap-3">
@@ -838,10 +922,14 @@ export default function BeamyPage() {
       </Panel>
     );
   } else if (section === 'try') {
-    const wall = <LiveWall pool={WALL_POOL} pins={shotPins} dim={false} compact={!desktop} centreRef={centreTileRef} ripple={0} seed={seed + 7} />;
+    const wall = (
+      <div className="bw-wall-mount" style={{ ['--wall-yaw' as string]: desktop ? '-6deg' : '-4deg' }}>
+        <LiveWall pool={WALL_POOL} pins={shotPins} dim={false} compact={!desktop} centreRef={centreTileRef} ripple={0} seed={seed + 7} />
+      </div>
+    );
     content = desktop ? (
       <div className="mx-auto flex h-full w-full max-w-[1240px] flex-col px-[clamp(28px,3.4vw,64px)] pb-3">
-        <div className="bw-rise flex shrink-0 flex-wrap items-end justify-between gap-x-8 gap-y-3">
+        <div className="bw-rise mx-auto flex w-fit max-w-full shrink-0 flex-wrap items-end justify-between gap-x-8 gap-y-3" style={tryRowW !== null ? { minWidth: tryRowW } : undefined}>
           <div>
             <div style={i(0)}>{heading(TRY_COPY.heading)}</div>
             <p className="bw-body mt-2 max-w-[46ch]" style={i(1)}>{TRY_COPY.line}</p>
@@ -849,11 +937,11 @@ export default function BeamyPage() {
           <div style={i(2)}>{lookPills}</div>
         </div>
         {/* Booth · Beamy · wall, all one height, centred: nothing reads empty. */}
-        <div className="mt-5 flex min-h-0 flex-1 items-stretch justify-center gap-[clamp(16px,2.4vw,40px)]">
-          <div className="bw-rise min-h-0"><div className="h-full" style={i(2)}>{booth}</div></div>
+        <div data-try-row className="mt-5 flex min-h-0 flex-1 items-stretch justify-center gap-[clamp(16px,2.4vw,40px)]">
+          <div data-bubble-left className="bw-rise min-h-0"><div className="h-full" style={i(2)}>{booth}</div></div>
           <div className="flex w-[clamp(150px,13vw,210px)] shrink-0 flex-col justify-end">{slot('h-[72%] w-full', { max: 230 })}</div>
           <div className="bw-rise flex min-h-0 items-center">
-            <div style={{ ...i(3), width: 'min(380px, calc((100dvh - 330px) * 0.74))' }}>{wall}</div>
+            <div data-bubble-right style={{ ...i(3), width: 'min(380px, calc((100dvh - 330px) * 0.74))' }}>{wall}</div>
           </div>
         </div>
       </div>
@@ -954,16 +1042,18 @@ export default function BeamyPage() {
   return (
     <div data-brand="2" data-arrival={arrival} data-section={section} className="bw-root fixed inset-0 overflow-hidden">
       {/* Orbs behind the glass: whatever the panel covers, it visibly frosts. */}
-      <div aria-hidden className="bw-orb" style={{ width: '36vmax', height: '36vmax', right: '-12vmax', top: '-14vmax', opacity: 0.55 }} />
+      <div aria-hidden className="bw-orb" style={{ width: '36vmax', height: '36vmax', right: '-12vmax', top: '-14vmax', opacity: 0.45 }} />
       <div aria-hidden className="bw-orb" style={{ width: '26vmax', height: '26vmax', left: '-9vmax', bottom: '-11vmax', opacity: 0.45 }} />
 
       <div ref={panelRef} className="absolute" style={{ inset: panelInset, ['--bw-radius-panel' as string]: `${radius}px` }}>
         <div ref={glassRef} className="bw-glass" aria-hidden />
         {/* Decor clipped to the panel: the floor line and the ghost word. */}
         <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden" style={{ borderRadius: radius }}>
-          {showFloor && <div className="bw-floor" style={{ top: floorTop ?? 0 }} />}
-          {section === 'intro' && desktop && (
-            <span className="bw-ghost absolute bottom-[-0.06em] right-[2%]" style={{ fontSize: 'clamp(140px, 15vw, 270px)' }}>Beam</span>
+          {showFloor && <div className="bw-floor" style={{ top: floorTop ?? 0, ['--stage-x' as string]: `${stageX}%` }} />}
+          {/* Lower-left, inside the floor: on the hero that corner holds no
+              control (no Back button on the first stop) and sits under the CTAs. */}
+          {section === 'intro' && desktop && !introRunning && (
+            <span className="bw-ghost absolute bottom-[-0.1em] left-[2.2%]" style={{ fontSize: 'clamp(110px, 9.5vw, 180px)' }}>Beam</span>
           )}
         </div>
 
@@ -1012,8 +1102,9 @@ export default function BeamyPage() {
             )}
             {section === 'intro' && desktop && dragHint && ready && arrival === 'done' && !introRunning && slotBox !== null && (
               <p
-                className="bw-label pointer-events-none fixed flex items-center gap-1.5"
-                style={{ left: slotBox.left + slotBox.width / 2 - 40, top: slotBox.top + slotBox.height + 10, animation: reduced ? undefined : 'bw-fade 600ms var(--bw-ease) 900ms both' }}
+                className="bw-label pointer-events-none fixed flex items-center gap-1.5 rounded-full px-2.5 py-0.5"
+                // A small frosted tag: it sits on the box's front floor edge, so it carries its own ground.
+                style={{ left: slotBox.left + slotBox.width / 2 - 50, top: slotBox.top + slotBox.height + 6, color: 'var(--bw-ink)', background: 'rgba(26, 23, 64, 0.58)', WebkitBackdropFilter: 'blur(8px)', backdropFilter: 'blur(8px)', animation: reduced ? undefined : 'bw-fade 600ms var(--bw-ease) 900ms both' }}
               >
                 <Rotate3d className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Drag me
               </p>
@@ -1021,7 +1112,12 @@ export default function BeamyPage() {
           </main>
 
           <footer className={`z-30 flex shrink-0 items-center justify-between gap-3 ${desktop ? 'h-[72px] px-[clamp(24px,2.6vw,48px)]' : 'h-16 px-3'}`} style={{ paddingBottom: desktop ? undefined : 'env(safe-area-inset-bottom)' }}>
-            <div className={desktop ? 'w-[180px]' : 'w-11'}>
+            <div className={desktop ? 'w-[180px]' : 'min-w-11'}>
+              {atFirst && introRunning && (
+                <button type="button" className="bw-btn bw-btn-secondary bw-btn-sm" onClick={skipIntro} data-skip-intro>
+                  {desktop ? 'Skip intro' : 'Skip'}
+                </button>
+              )}
               {!atFirst && (desktop ? (
                 <button type="button" className="bw-btn bw-btn-secondary bw-btn-sm" onClick={() => nav('back')}>
                   <ArrowLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden /> Back
@@ -1076,8 +1172,8 @@ export default function BeamyPage() {
           decorRef={decorRef}
           startHidden
           reducedMotion={reduced}
-          onReady={() => setReady(true)}
-          onError={() => setFailed(true)}
+          onReady={() => { logStep('model:ready'); setReady(true); }}
+          onError={() => { logStep('model:failed'); setFailed(true); }}
         />
       )}
       <div
@@ -1115,10 +1211,49 @@ export default function BeamyPage() {
 
       {flight !== null && (
         <div className="pointer-events-none fixed inset-0 z-[60]" aria-hidden>
-          <ParticleBeam key={flight.key} from={flight.from} to={flight.to} shot={flight.shot} durationMs={flight.ms} onDone={flight.onDone} palette={BEAM_PALETTE} />
+          {reduced
+            ? <GlideFlight key={flight.key} from={flight.from} to={flight.to} shot={flight.shot} ms={flight.ms} onDone={flight.onDone} />
+            : <ParticleBeam key={flight.key} from={flight.from} to={flight.to} shot={flight.shot} durationMs={flight.ms} onDone={flight.onDone} palette={BEAM_PALETTE} />}
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Reduced motion's photo trip: the shot itself glides from where it was taken
+ * to the wall tile on one slow ease, no particles, no strobe. `onDone` fires
+ * once, after the glide (a timer, so a missed transitionend cannot strand it).
+ */
+function GlideFlight({ from, to, shot, ms, onDone }: { from: Rect; to: Rect; shot: string; ms: number; onDone: () => void }) {
+  const ref = useRef<HTMLImageElement | null>(null);
+  const done = useRef(onDone);
+  done.current = onDone;
+  useEffect(() => {
+    let raf = window.requestAnimationFrame(() => {
+      raf = window.requestAnimationFrame(() => {
+        const el = ref.current;
+        if (el === null) return;
+        el.style.transition = ['left', 'top', 'width', 'height'].map((p) => `${p} ${ms}ms cubic-bezier(0.45, 0, 0.2, 1)`).join(', ');
+        el.style.left = `${to.left}px`;
+        el.style.top = `${to.top}px`;
+        el.style.width = `${to.width}px`;
+        el.style.height = `${to.height}px`;
+      });
+    });
+    const id = window.setTimeout(() => done.current(), ms + 80);
+    return () => { window.cancelAnimationFrame(raf); window.clearTimeout(id); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one glide per mount (keyed by flight)
+  }, []);
+  return (
+    <img
+      ref={ref}
+      src={shot}
+      alt=""
+      draggable={false}
+      data-glide
+      style={{ position: 'fixed', left: from.left, top: from.top, width: from.width, height: from.height, objectFit: 'cover', borderRadius: 10, boxShadow: '0 0 0 1.5px rgba(255,255,255,0.7), 0 18px 40px -16px rgba(22,18,78,0.6)' }}
+    />
   );
 }
 
@@ -1198,6 +1333,40 @@ function LiveWall({ pool, pins, dim, compact, centreRef, ripple, seed }: {
   );
 }
 
+/**
+ * A scroller whose still-scrollable edge fades out (brand.css .bw-fade-x/y),
+ * so content cut off at the panel's edge reads as "more this way". Tracks the
+ * live scroll position, size changes, and the end of each child's entrance
+ * animation (a rising child briefly overflows by its 24px offset).
+ */
+function FadeScroll({ axis, className, children, ...rest }: { axis: 'x' | 'y'; className: string; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null) return;
+    const update = () => {
+      const pos = axis === 'y' ? el.scrollTop : el.scrollLeft;
+      const max = axis === 'y' ? el.scrollHeight - el.clientHeight : el.scrollWidth - el.clientWidth;
+      // The trailing padding is not content: once only it is left, the last
+      // item is fully in view and its edge must not be faded.
+      const cs = getComputedStyle(el);
+      const padEnd = parseFloat(axis === 'y' ? cs.paddingBottom : cs.paddingRight) || 0;
+      const start = pos > 2;
+      const end = pos < max - 2 - padEnd;
+      const v = start && end ? 'both' : end ? 'end' : start ? 'start' : 'none';
+      if (el.dataset.fade !== v) el.dataset.fade = v;
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    el.addEventListener('animationend', update);
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    for (const c of Array.from(el.children)) ro.observe(c);
+    return () => { el.removeEventListener('scroll', update); el.removeEventListener('animationend', update); ro.disconnect(); };
+  }, [axis]);
+  return <div ref={ref} className={`${axis === 'y' ? 'bw-fade-y' : 'bw-fade-x'} ${className}`} {...rest}>{children}</div>;
+}
+
 /** Stops 2, 4-6: Beamy's column + the content (stacked on phones). */
 function Panel({ desktop, slot, children }: { desktop: boolean; slot: ReactNode; children: ReactNode }) {
   if (desktop) {
@@ -1207,16 +1376,16 @@ function Panel({ desktop, slot, children }: { desktop: boolean; slot: ReactNode;
         <div className="relative flex min-h-0 items-end pb-[4%]">
           <div className="h-[88%] max-h-[540px] w-full">{slot}</div>
         </div>
-        <div className="flex min-h-0 flex-col justify-center overflow-y-auto py-4 pr-2">
+        <FadeScroll axis="y" data-bubble-right className="flex min-h-0 flex-col justify-center overflow-y-auto py-4 pr-2">
           <div className="w-full max-w-[620px]">{children}</div>
-        </div>
+        </FadeScroll>
       </div>
     );
   }
   return (
     <div className="flex h-full flex-col">
       <div className="mx-auto h-[28%] min-h-[140px] w-full max-w-[480px] shrink-0 px-4 pt-1">{slot}</div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-3 pt-3">{children}</div>
+      <FadeScroll axis="y" className="min-h-0 flex-1 overflow-y-auto px-4 pb-3 pt-3">{children}</FadeScroll>
     </div>
   );
 }
