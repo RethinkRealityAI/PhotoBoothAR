@@ -3,33 +3,32 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * /beamy — the candidate landing in brand v2 (noindex while the owner reacts
- * to it; `/` is untouched). A normal, natively scrolling page, presented by
- * Beamy: he lives on one fixed, full-viewport, transparent canvas
- * (BeamyStage) and travels down the page with you.
+ * to it; `/` is untouched). A normal, natively scrolling page over ONE fixed,
+ * full-screen canvas (BeamyStage) that sits BEHIND the content:
  *
- *   hero → the idea (three explainers) → four feature films → What applies
- *   to you? → Try it (the real booth) → 3D magic → How it works → Pricing →
- *   Start
+ *   hero → the pinned story (five glass cards, one 3D effect each) → the
+ *   films (Beamy projects them) → What applies to you? → Try it (the real
+ *   booth) → Pricing → Start
  *
- * Every section ("stop", lib/beamyScroll) renders an empty `[data-beamy-slot]`
- * where he stands. One measure pass (on resize, font load and content
- * resizes — never per frame) caches each stop's box and his feet in DOCUMENT
- * px; on every scroll the pure director turns those plus scrollY into his
- * target, and the stage glides him there. Phones stand him in a fixed dock
- * under the content instead (the hero keeps its in-flow spot).
+ * Slots and poses (lib/beamyScroll): every section holds an empty
+ * `[data-slot]` box that CSS alone places per breakpoint, alternating left /
+ * right / centre with the content (phones: above or below the copy). Every
+ * frame the page reads the slots' rects and the pure blend turns them into
+ * Beamy's target (Gaussian weight by distance from the viewport centre,
+ * angles through sin/cos); the stage eases him there with
+ * frame-rate-independent damping, so he glides behind the page between
+ * sections at any scroll speed.
  *
- * The first time a stop becomes active he PRESENTS it, once per page view:
- * beams each explainer card into being, projects each film with a soft cone
- * (the frame powers on as the cone lands), drifts light onto the audience
- * cards, blasts the booth on, conjures the 3D prop… All content is in the DOM
- * from the start at reduced opacity; it reveals when his action lands, and at
- * once if the visitor scrolls on, the fallback timer runs out, or the model
- * never loads. Scrolling back shows the settled state.
+ * The story is a pinned section (sticky 100vh panel, n × 85vh + 100vh tall,
+ * 75vh a step on phones): the active card is full strength and opens its
+ * line (grid-template-rows 0fr → 1fr), the others rest at half; each card's
+ * data drives Beamy (turn, clip) and one 3D effect drawn beside him in the
+ * canvas (StoryFx), never over text. Content reveals on scroll (opacity,
+ * rise, de-blur; 70ms stagger; once).
  *
- * Motion: content motion (his travel, beams, reveals, the projector) plays for
- * everyone, gently under reduced motion (glides and fades, no strobes or
- * particle storms). Decorative motion (pointer parallax and tilt, scroll
- * parallax, crystal bob, hop) is off under reduced motion.
+ * Motion: content motion (the intro, his glide, beams, the story's effects)
+ * plays for everyone, gently under reduced motion. Decorative motion
+ * (pointer parallax and tilt, crystal bob) is off under reduced motion.
  *
  * Nothing a visitor captures leaves the device: the wall is component state.
  * Tokens/components come from src/styles/brand.css, scoped by data-brand="2".
@@ -39,10 +38,8 @@ import {
   type CSSProperties, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode,
 } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  ArrowRight, Briefcase, Cake, CalendarPlus, Camera, Check, ClipboardList, Gift, Link2, Lock,
-  Palette, RotateCcw, Rotate3d, Users, type LucideIcon,
-} from 'lucide-react';
+import { Camera, Check, Lock, Rotate3d } from 'lucide-react';
+import { Briefcase, Cake, ClipboardList, Gift, Users, type LucideIcon } from 'lucide-react';
 import CameraExperience, { lookFrameUrl } from '../../components/landing/CameraExperience';
 import ParticleBeam from '../../components/landing/ParticleBeam';
 import ReportIssueButton from '../../components/support/ReportIssueButton';
@@ -52,25 +49,22 @@ import LiveWall, { WALL_POOL, type Pin } from '../../components/beamy/LiveWall';
 import { SELFIE_CARD_FACE_STYLE, SELFIE_CARD_STYLE, flashGradient } from '../../components/beamy/selfieFx';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { useNoIndex } from '../sales/components/pageMeta';
-import { STEP_CREATE_CUTOUT, STEP_QR_CUTOUT, STEP_WALL_CUTOUT } from '../../lib/landingAssets';
 import type { Rect } from '../../lib/beamGeometry';
 import { REDUCED_GLIDE_S, flashOpacity, photoState } from '../../lib/beamySelfie';
 import { SHOT_TILES, WALL_CENTRE, wallRows } from '../../lib/beamyWall';
 import HeroPhone, { type Box, type HeroPhoneHandle } from './HeroPhone';
+import { AUDIENCES, GREETING, HELLO, POKE_LINES, audienceById, type Audience, type AudienceIcon } from '../../lib/beamyTour';
 import {
-  AUDIENCES, DELIVER_STEPS, DONE_FOR_YOU, GREETING, HELLO, POKE_LINES, audienceById,
-  type Audience, type AudienceIcon, type StepIcon,
-} from '../../lib/beamyTour';
-import {
-  EXPLAIN_COPY, EXPLAIN_STEPS, FILMS, FOOTER_LINKS, HERO, HOW_COPY, LOOKS, MAGIC_COPY, NAV_LINKS, PICK_COPY, POKE_IDLE,
-  SIGNUP_PATH, START_COPY, TRY_COPY, createReactionPicker, pickCelebration, planCards, pokeStep, pricingSection,
-  releaseVelocity, startFacts, type Celebration, type FilmId, type Reaction,
+  FILMS, FILMS_COPY, FOOTER_LINKS, HERO, LOOKS, NAV_LINKS, PICK_COPY, POKE_IDLE, SIGNUP_PATH, START_COPY, STORY_COPY,
+  STORY_STEPS, TRY_COPY, createReactionPicker, pickCelebration, planCards, pokeStep, pricingSection, releaseVelocity,
+  startFacts, type Celebration, type FilmId, type Reaction, type StoryFxId,
 } from '../../lib/brandLanding';
 import {
-  FOCUS, STOPS, directBeamy, mustRevealNow, nightAt, pageProgress, stopIndex,
-  type BeamyTarget, type Side, type StopAnchor, type StopId,
+  STOPS, blendSlots, pageProgress, pinProgress, storyHeightVh, storyStep, weightedNight,
+  type Pose, type SlotSample, type StopId,
 } from '../../lib/beamyScroll';
 import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, type StageLayout } from './BeamyStage';
+import StoryFx, { type FxState } from './StoryFx';
 
 import boothFilm from '../../assets/landing/booth-feature.mp4';
 import boothPoster from '../../assets/landing/booth-feature-poster.jpg';
@@ -83,41 +77,25 @@ import cardsPoster from '../../assets/landing/cards-feature-poster.jpg';
 
 /** The beam's calm palette for the photo dissolve (palette[0] tints the core). */
 const BEAM_PALETTE = ['#C9CCFF', '#FFFFFF', '#A5ABFF', '#FFC56B'];
-/** Backdrop shapes: position (in the fixed backdrop) and how far they rise over the whole page (--k, vh). */
-const BACKDROP_SHAPES = [
-  { x: '-14vw', y: '40vh', s: '62vmax', k: 90 },
-  { x: '64vw', y: '120vh', s: '54vmax', k: 170 },
-  { x: '-10vw', y: '230vh', s: '58vmax', k: 260 },
-];
-/** Glass shards at the page edges (never where copy is): x, y, width px, rise (vh), turn, blur (depth). */
-const BACKDROP_SHARDS = [
-  { x: '1.2vw', y: '70vh', w: 54, k: 160, r: -16, blur: 2 },
-  { x: '94vw', y: '130vh', w: 72, k: 240, r: 22, blur: 4 },
-  { x: '2.4vw', y: '210vh', w: 38, k: 300, r: 30, blur: 1.5 },
-  { x: '95vw', y: '300vh', w: 46, k: 380, r: -24, blur: 3 },
-  { x: '0.8vw', y: '380vh', w: 66, k: 440, r: 12, blur: 5 },
-];
 const AUDIENCE_ICONS: Record<AudienceIcon, LucideIcon> = { ClipboardList, Cake, Users, Briefcase, Gift };
-const STEP_ICONS: Record<StepIcon, LucideIcon> = { CalendarPlus, Palette, Link2 };
-const EXPLAIN_ART = [STEP_CREATE_CUTOUT, STEP_QR_CUTOUT, STEP_WALL_CUTOUT];
 const FILM_MEDIA: Record<FilmId, { src: string; poster: string; Icon: (p: BeamIconProps) => ReactNode }> = {
   booth: { src: boothFilm, poster: boothPoster, Icon: BoothIcon },
   wall: { src: wallFilm, poster: wallPoster, Icon: WallIcon },
   challenges: { src: challengesFilm, poster: challengesPoster, Icon: ChallengeIcon },
   cards: { src: cardsFilm, poster: cardsPoster, Icon: CardIcon },
 };
-const FILM_STOP: Record<FilmId, StopId> = { booth: 'film-booth', wall: 'film-wall', challenges: 'film-challenges', cards: 'film-cards' };
 /** Skipping the picker tours as the most common host. */
 const DEFAULT_AUDIENCE = audienceById('family') ?? AUDIENCES[0];
-/** Room above Beamy's head kept free for his speech bubble (in-flow stops). */
+/** Room above Beamy's head kept free for his speech bubble (slots that show it). */
 const BUBBLE_ROOM = 76;
 /** How long the centre tile holds Beamy's selfie before it rejoins the rotation. */
 const SELFIE_HOLD_MS = 12000;
-/** A stop's content fully shown. */
-const ALL = 99;
-/** Breakpoints: phones dock Beamy; the three-column hero needs a laptop. */
+/** Breakpoints: phones stack Beamy above the copy; the three-column hero needs a laptop. */
 const PHONE_MAX = 768;
 const WIDE_HERO_MIN = 1024;
+/** How often Beamy beams a shot to the story's mini wall while that step is up. */
+const WALL_BEAM_MS = 5200;
+const NIGHT: Record<StopId, number> = Object.fromEntries(STOPS.map((s) => [s.id, s.night])) as Record<StopId, number>;
 
 const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -180,24 +158,6 @@ const centre = (r: Rect): Pt => ({ x: r.left + r.width / 2, y: r.top + r.height 
 
 interface Flight { from: Rect; to: Rect; shot: string; ms: number; onDone: () => void; key: number; }
 
-/** Everything measured once per layout change, in DOCUMENT px. */
-interface Cache {
-  stops: StopAnchor[];
-  /** Per stop: the x range the bubble must stay inside (null = viewport edge). */
-  fences: { minX: number | null; maxX: number | null }[];
-  heroPanel: Rect | null;
-  heroStand: { feet: Pt; heightPx: number } | null;
-  films: Partial<Record<FilmId, Rect>>;
-  propSpot: Rect | null;
-  headerH: number;
-  dockY: number;
-  dockH: number;
-  band: { top: number; bottom: number };
-  heroH: number;
-  /** Phones: the bottom of the hero copy (document px); the bubble never rises over it. */
-  heroCopyBottom: number | null;
-}
-
 /** The hero's measured layout: the wall's box and rows, Beamy's spot on phones, the phone accent. */
 interface HeroGeo {
   rows: 3 | 4;
@@ -211,6 +171,21 @@ interface HeroGeo {
 /** The hero's flight time for a photo card riding the beam (the wall swaps as it lands). */
 const ACCENT_FLIGHT_MS = 1150;
 
+/** A slot's pose from its data attributes (the story's comes from its active card). */
+function poseOf(el: HTMLElement, h: number): Pose {
+  const d = el.dataset;
+  const room = d.bubble === 'none' ? 0 : BUBBLE_ROOM;
+  const max = d.max !== undefined ? Number(d.max) : Infinity;
+  const fit = Math.min(Number(d.fit ?? 1), Math.max(0.2, (h - room) / Math.max(1, h)), max / Math.max(1, h));
+  return {
+    fit,
+    fitW: 1.1,
+    ax: d.ax !== undefined ? Number(d.ax) : 0.5,
+    yaw: Number(d.yaw ?? 0),
+    floor: d.floor === 'true',
+  };
+}
+
 export default function BeamyPage() {
   usePageTitle('Beamwall · Your immersive photo booth');
   useNoIndex();
@@ -220,8 +195,9 @@ export default function BeamyPage() {
   const wideHero = vp.w >= WIDE_HERO_MIN;
   const reduced = useReducedMotion();
 
-  const [active, setActive] = useState(0);
-  const [rev, setRev] = useState<Partial<Record<StopId, number>>>({ hero: ALL });
+  const [active, setActive] = useState<StopId>('hero');
+  const [step, setStep] = useState(0);
+  const [film, setFilm] = useState<FilmId>('booth');
   const [picked, setPicked] = useState<Audience | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [look, setLook] = useState<string | null>(null);
@@ -234,7 +210,6 @@ export default function BeamyPage() {
   const [cameraOn, setCameraOn] = useState(false);
   const [shots, setShots] = useState<{ id: number; src: string }[]>([]);
   const [flight, setFlight] = useState<Flight | null>(null);
-  const [propBusy, setPropBusy] = useState(false);
   const [dragHint, setDragHint] = useState(true);
   const [introRunning, setIntroRunning] = useState(false);
   const [heroPin, setHeroPin] = useState<Pin | null>(null);
@@ -263,10 +238,11 @@ export default function BeamyPage() {
   const heroRegionRef = useRef<HTMLDivElement | null>(null);
   const accentRef = useRef<HeroPhoneHandle | null>(null);
   const progressRef = useRef<HTMLSpanElement | null>(null);
-  const dockRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
   const viewfinderRef = useRef<HTMLDivElement | null>(null);
-  const boothRef = useRef<HTMLDivElement | null>(null);
+  const storyRef = useRef<HTMLElement | null>(null);
+  const fxSpotRef = useRef<HTMLDivElement | null>(null);
+  const filmFrameRef = useRef<HTMLDivElement | null>(null);
   /** The centre tile of whichever wall the next photo flies to. */
   const heroTileRef = useRef<HTMLDivElement | null>(null);
   const tryTileRef = useRef<HTMLDivElement | null>(null);
@@ -279,25 +255,20 @@ export default function BeamyPage() {
   const nextShot = useRef(1);
   const flightKey = useRef(0);
   const pinTimer = useRef(0);
-  const activeRef = useRef(0);
+  const activeRef = useRef<StopId>('hero');
+  const stepRef = useRef(0);
   const readyRef = useRef(false);
   readyRef.current = ready && !failed;
   const reducedRef = useRef(reduced);
   reducedRef.current = reduced;
-  const revRef = useRef(rev);
-  revRef.current = rev;
-  const entered = useRef(new Map<StopId, number>());
-  const revealLogged = useRef(new Set<StopId>());
-  const lastTarget = useRef<BeamyTarget | null>(null);
-  const cache = useRef<Cache | null>(null);
-  const stopEls = useRef<Partial<Record<StopId, HTMLElement>>>({});
-  const stopRef = useMemo(() => {
-    const out = {} as Record<StopId, (el: HTMLElement | null) => void>;
-    for (const s of STOPS) out[s.id] = (el) => { if (el === null) delete stopEls.current[s.id]; else stopEls.current[s.id] = el; };
-    return out;
-  }, []);
+  const filmRef = useRef(film);
+  filmRef.current = film;
+  /** What the story is doing with Beamy right now (so a step is entered once). */
+  const storyOn = useRef<{ step: number; held: boolean }>({ step: -1, held: false });
+  const projecting = useRef(false);
   const layoutRef = useRef<StageLayout>({ home: { x: vp.w / 2, y: vp.h * 0.6 }, heightPx: 180 });
   const decorRef = useRef<StageDecor>({ panel: null, stand: null, phone, scroll: 0 });
+  const fxRef = useRef<FxState>({ weights: {}, spot: null, pulse: -1e9 });
   const seed = useMemo(() => {
     const q = Number(new URLSearchParams(window.location.search).get('seed'));
     return Number.isFinite(q) && q > 0 ? q : (Date.now() & 0xffff) + 1;
@@ -318,197 +289,21 @@ export default function BeamyPage() {
   }, []);
   const say = (t: string) => setLine(t);
 
-  /* ── Reveals ───────────────────────────────────────────────────────── */
-
-  /** Show a stop's content up to `n` (0 = its heading, k = its first k items, ALL). */
-  const revealTo = useCallback((id: StopId, n: number, how: string) => {
-    const cur = revRef.current[id] ?? -1;
-    if (cur >= n) return;
-    revRef.current = { ...revRef.current, [id]: n };
-    setRev((prev) => ((prev[id] ?? -1) >= n ? prev : { ...prev, [id]: n }));
-    if (n >= ALL && !revealLogged.current.has(id)) { revealLogged.current.add(id); logStep(`reveal:${id}:${how}`); }
-  }, []);
-  /** Entered stops whose action has not landed yet: reveal when the visitor has moved on. */
-  const sweepReveals = useCallback(() => {
-    const now = performance.now();
-    const t = lastTarget.current;
-    for (const [id, at] of entered.current) {
-      if ((revRef.current[id] ?? -1) >= ALL) continue;
-      const i = stopIndex(id);
-      const isActive = t !== null && t.active === i;
-      const ok = mustRevealNow({ active: isActive, progress: isActive && t !== null ? t.progress : 0, sinceEnterMs: now - at, modelReady: readyRef.current });
-      if (!ok) continue;
-      const why = !readyRef.current ? 'nomodel' : !isActive || (t !== null && t.progress > 0.7) ? 'fast' : 'timeout';
-      revealTo(id, ALL, why);
-    }
-  }, [revealTo]);
+  /* ── Reveal on scroll: rise, settle, de-blur; once per element. ────── */
   useEffect(() => {
-    const id = window.setInterval(sweepReveals, 400);
-    return () => window.clearInterval(id);
-  }, [sweepReveals]);
-  /* The model failed (or never came): show everything entered. */
-  useEffect(() => { if (failed) sweepReveals(); }, [failed, sweepReveals]);
-
-  /* ── Measure (layout changes only) + direct (every scroll) ─────────── */
-
-  const direct = useCallback(() => {
-    const c = cache.current;
-    if (c === null) return;
-    const y = scrollTop();
-    const vh = window.innerHeight;
-    const t = directBeamy({ stops: c.stops, scrollY: y, vpH: vh, dockY: c.dockY, band: c.band });
-    lastTarget.current = t;
-    const S = c.stops[t.active];
-    const docked = S?.docked === true;
-    layoutRef.current = {
-      home: { x: t.x, y: t.y },
-      heightPx: t.heightPx,
-      yaw: t.yaw,
-      presence: t.presence,
-      floor: t.active === 0 && !docked && !t.travelling,
-      // In the dock: inside the dock glass (its top is vh - dockH). Phone hero:
-      // never up over the copy.
-      bubbleMinY: docked ? vh - c.dockH + 6 : t.active === 0 && c.heroCopyBottom !== null ? Math.max(c.headerH + 8, c.heroCopyBottom - y + 6) : c.headerH + 8,
-      bubbleSide: docked,
-      bubbleAway: t.travelling,
-      bubbleMaxY: docked ? c.dockY : vh - 12,
-    };
-    const hp = c.heroPanel;
-    decorRef.current = {
-      panel: hp !== null && hp.top + hp.height - y > -40 ? { left: hp.left, top: hp.top - y, width: hp.width, height: hp.height } : null,
-      stand: c.heroStand !== null ? { feet: { x: c.heroStand.feet.x, y: c.heroStand.feet.y - y }, heightPx: c.heroStand.heightPx } : null,
-      phone: window.innerWidth < PHONE_MAX,
-      scroll: Math.min(y, c.heroH),
-    };
-    const bar = progressRef.current;
-    const sp = pageProgress(y, scrollerRef.current?.scrollHeight ?? vh, vh);
-    if (bar !== null) bar.style.transform = `scaleX(${sp.toFixed(4)})`;
-    // The backdrop's slow tonal shift and drifting shapes (decorative: held still when reduced).
-    if (!reducedRef.current) scrollerRef.current?.style.setProperty('--bw-sp', sp.toFixed(4));
-    // The colour journey (a colour, not motion: it follows the scroll for everyone).
-    const night = nightAt(c.stops, y + vh * FOCUS).toFixed(3);
-    const sc = scrollerRef.current;
-    if (sc !== null && sc.style.getPropertyValue('--bw-night-mix') !== night) sc.style.setProperty('--bw-night-mix', night);
-    // Scroll depth on the hero's decor (decorative: off when reduced).
-    const hero = heroRef.current;
-    if (hero !== null && !reducedRef.current) hero.style.setProperty('--hs', Math.min(y, c.heroH).toFixed(0));
-    const dock = dockRef.current;
-    if (dock !== null) {
-      const on = c.stops.length > 1 && c.stops[1].docked && (t.active > 0 || (t.travelling && t.presence < 0.5));
-      if ((dock.dataset.on === 'true') !== on) dock.dataset.on = on ? 'true' : 'false';
-    }
-    const bub = bubbleRef.current;
-    if (bub !== null) {
-      const f = c.fences[t.active];
-      const lo = f?.minX ?? null;
-      const hi = f?.maxX ?? null;
-      if (lo !== null) bub.dataset.minX = String(lo); else delete bub.dataset.minX;
-      if (hi !== null) bub.dataset.maxX = String(hi); else delete bub.dataset.maxX;
-      const maxW = docked ? Math.max(150, Math.round(window.innerWidth * 0.6) - 24) : lo !== null || hi !== null ? Math.min(300, (hi ?? window.innerWidth - 12) - (lo ?? 12)) : 300;
-      const mw = `${maxW}px`;
-      if (bub.style.maxWidth !== mw) bub.style.maxWidth = mw;
-    }
-    if (t.active !== activeRef.current) onActiveRef.current(t.active, activeRef.current);
-    sweepReveals();
-  }, [sweepReveals]);
-
-  const measure = useCallback(() => {
     const root = mainRef.current;
-    if (root === null) return;
-    const y = scrollTop();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const isPhone = vw < PHONE_MAX;
-    const headerH = Math.round(headerRef.current?.getBoundingClientRect().height ?? 64);
-    const dockH = vh < 700 ? 96 : 108;
-    const dockY = vh - 14;
-    const stops: StopAnchor[] = [];
-    const fences: Cache['fences'] = [];
-    let heroStand: Cache['heroStand'] = null;
-    for (const def of STOPS) {
-      const el = stopEls.current[def.id];
-      if (el === undefined) return; // not all mounted yet
-      const r = el.getBoundingClientRect();
-      const docked = isPhone && def.id !== 'hero';
-      let feet: Pt;
-      let heightPx: number;
-      if (docked) {
-        feet = { x: def.side === 'right' ? vw * 0.8 : vw * 0.2, y: 0 };
-        heightPx = dockH - 22;
-      } else {
-        const slot = el.querySelector<HTMLElement>('[data-beamy-slot]');
-        const sr = slot?.getBoundingClientRect();
-        if (sr === undefined || sr.width < 2 || sr.height < 2) {
-          feet = { x: vw / 2, y: r.top + y + r.height * 0.6 };
-          heightPx = 160;
-        } else {
-          const room = slot?.dataset.bubble === 'none' ? 0 : BUBBLE_ROOM;
-          const capAttr = slot?.dataset.max;
-          const cap = capAttr !== undefined ? Number(capAttr) : (vw >= WIDE_HERO_MIN ? 260 : 220);
-          heightPx = Math.max(96, Math.min(sr.height - room, sr.width * 0.9, cap));
-          feet = { x: sr.left + sr.width / 2, y: sr.bottom + y };
-        }
-      }
-      if (def.id === 'hero') heroStand = { feet, heightPx };
-      stops.push({ top: r.top + y, bottom: r.bottom + y, feet, heightPx, side: def.side, docked });
-      const lEl = !isPhone ? el.querySelector('[data-bubble-left]') : null;
-      const rEl = !isPhone ? el.querySelector('[data-bubble-right]') : null;
-      fences.push({
-        minX: lEl !== null ? Math.round(lEl.getBoundingClientRect().right + 10) : null,
-        maxX: rEl !== null ? Math.round(rEl.getBoundingClientRect().left - 10) : null,
-      });
-    }
-    const hp = rectOf(heroPanelRef.current);
-    const films: Cache['films'] = {};
-    for (const f of FILMS) {
-      const fr = rectOf(stopEls.current[FILM_STOP[f.id]]?.querySelector('[data-film-frame]') ?? null);
-      if (fr !== null) films[f.id] = { ...fr, top: fr.top + y };
-    }
-    const ps = rectOf(root.querySelector('[data-prop-spot]'));
-    const heroR = stopEls.current.hero?.getBoundingClientRect();
-    cache.current = {
-      stops, fences, heroStand, films, headerH, dockY, dockH,
-      heroPanel: hp !== null ? { ...hp, top: hp.top + y } : null,
-      propSpot: ps !== null ? { ...ps, top: ps.top + y } : null,
-      band: { top: headerH + 6, bottom: isPhone ? dockY : vh - 18 },
-      heroH: heroR?.height ?? vh,
-      heroCopyBottom: isPhone ? (() => { const r = rectOf(root.querySelector('[data-card-avoid]')); return r !== null ? r.top + r.height + y : null; })() : null,
-    };
-    direct();
-  }, [direct]);
-
-  useLayoutEffect(() => { measure(); }, [measure, vp.w, vp.h, phone, wideHero]);
-  useEffect(() => {
-    let raf = 0;
-    const onScroll = () => {
-      if (raf !== 0) return;
-      raf = window.requestAnimationFrame(() => { raf = 0; direct(); });
-    };
     const scroller = scrollerRef.current;
-    scroller?.addEventListener('scroll', onScroll, { passive: true });
-    // Keyboard scrolling (arrows, space, page keys) goes to the focused
-    // scroller: take focus once, without moving or painting a ring.
-    if (scroller !== null && (document.activeElement === null || document.activeElement === document.body)) scroller.focus({ preventScroll: true });
-    // Content that changes size (images decoding, the booth starting) re-measures.
-    let mraf = 0;
-    const ro = new ResizeObserver(() => {
-      if (mraf !== 0) return;
-      mraf = window.requestAnimationFrame(() => { mraf = 0; measure(); });
-    });
-    if (mainRef.current) ro.observe(mainRef.current);
-    // A slot can change size inside a fixed-height section (the hero's flex
-    // column as fonts and photos settle): watch each one too.
-    mainRef.current?.querySelectorAll('[data-beamy-slot]').forEach((el) => ro.observe(el));
-    let live = true;
-    void document.fonts?.ready.then(() => { if (live) measure(); });
-    return () => {
-      live = false;
-      scroller?.removeEventListener('scroll', onScroll);
-      window.cancelAnimationFrame(raf);
-      window.cancelAnimationFrame(mraf);
-      ro.disconnect();
-    };
-  }, [direct, measure]);
+    if (root === null) return;
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        (e.target as HTMLElement).dataset.on = 'true';
+        io.unobserve(e.target);
+      }
+    }, { root: scroller, threshold: 0.08 });
+    root.querySelectorAll<HTMLElement>('.bw-in:not([data-on="true"])').forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [phone, wideHero]);
 
   /* ── Hero layout: a big wall that fills its side, Beamy and the phone accent ──
      Laptops: the wall's top meets the headline's cap height and it grows into
@@ -541,7 +336,7 @@ export default function BeamyPage() {
       if (((width - chromeW) / 3) * 3 + chromeH > maxH) width = Math.max(200, ((maxH - chromeH) / 3) * 3 + chromeW);
       const height = ((width - chromeW) / 3) * 3 + chromeH;
       // The accent: in the middle column, clear above Beamy's head and his bubble.
-      const slotEl = mid.querySelector<HTMLElement>('[data-beamy-slot]');
+      const slotEl = mid.querySelector<HTMLElement>('[data-slot]');
       const mr = mid.getBoundingClientRect();
       const sr = slotEl?.getBoundingClientRect();
       let accent: Box | null = null;
@@ -582,8 +377,6 @@ export default function BeamyPage() {
     setHeroGeo((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
   }, []);
   useLayoutEffect(() => { layoutHero(); }, [layoutHero, vp.w, vp.h, wideHero, showContent]);
-  // A new hero geometry moves Beamy's slot: re-measure his anchor.
-  useLayoutEffect(() => { measure(); }, [heroGeo, measure]);
   useEffect(() => {
     const ro = new ResizeObserver(() => layoutHero());
     if (heroPanelRef.current !== null) ro.observe(heroPanelRef.current);
@@ -606,18 +399,185 @@ export default function BeamyPage() {
     accentRef.current?.fly(tile, src, ACCENT_FLIGHT_MS);
   }, []);
 
-  /* Deep link: ?s=<stop> scrolls there on load. */
-  useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get('s');
-    const el = q !== null ? stopEls.current[q as StopId] : undefined;
-    if (el !== undefined) window.setTimeout(() => el.scrollIntoView({ block: 'start' }), 60);
+
+  /* ── Lines, stops and the story's choreography ─────────────────────── */
+
+  const lineFor = useCallback((id: StopId, a: Audience): string => {
+    switch (id) {
+      case 'hero': return HELLO;
+      case 'story': return STORY_COPY.heading;
+      case 'films': return FILMS.find((f) => f.id === filmRef.current)?.beamy ?? FILMS[0].beamy;
+      case 'pick': return GREETING;
+      case 'try': return a.lines.snap;
+      case 'pricing': return pricingSection().line;
+      case 'start': return a.lines.go;
+    }
   }, []);
 
   const scrollToStop = useCallback((id: StopId) => {
-    const el = stopEls.current[id];
-    if (el === undefined) return;
+    const el = mainRef.current?.querySelector<HTMLElement>(`[data-stop="${id}"]`);
+    if (!el) return;
     logStep(`goto:${id}`);
     el.scrollIntoView({ behavior: reducedRef.current ? 'auto' : 'smooth', block: 'start' });
+  }, []);
+
+  /** The story's fx spot, viewport px (the prop and the mini wall stand in it). */
+  const spotRect = () => rectOf(fxSpotRef.current);
+  const runReveal = async (a: Audience, instant = false) => {
+    const b = api.current;
+    const r = spotRect();
+    if (b === null || r === null) return;
+    const size = Math.min(r.width, r.height) * 0.5;
+    const r2: Reaction = react.current('reveal');
+    await b.reveal(a.prop.url, () => { const q = spotRect() ?? r; return { x: q.left + q.width / 2, y: q.top + q.height * 0.42 }; }, size, r2 === 'handSparks' ? 'hand' : 'mouth', instant);
+  };
+  const beamToWall = () => {
+    const b = api.current;
+    const r = spotRect();
+    if (b === null || r === null || !readyRef.current) return;
+    logStep('story:wall:beam');
+    void b.beam(centre(r), () => { fxRef.current.pulse = performance.now(); }, 'mouth');
+  };
+  /** A story step became active while the story holds Beamy: his clip, plus the step's own act. */
+  const storyEnter = (i: number): boolean => {
+    const b = api.current;
+    if (b === null || !readyRef.current) return false;
+    const prev = storyOn.current.step;
+    storyOn.current.step = i;
+    const s = STORY_STEPS[i];
+    logStep(`story:${s.id}`);
+    if (prev >= 0 && STORY_STEPS[prev]?.id === 'prop' && s.id !== 'prop') b.clearProp();
+    if (s.id === 'prop') void runReveal(audienceRef.current, reducedRef.current);
+    else if (s.id === 'wall') beamToWall();
+    else void b.play(s.clip as BeamyClip);
+    return true;
+  };
+  const storyLeave = () => {
+    const prev = storyOn.current.step;
+    storyOn.current.step = -1;
+    if (prev >= 0 && STORY_STEPS[prev]?.id === 'prop') api.current?.clearProp();
+  };
+  const storyEnterRef = useRef(storyEnter);
+  storyEnterRef.current = storyEnter;
+  const storyLeaveRef = useRef(storyLeave);
+  storyLeaveRef.current = storyLeave;
+  /* The mini wall step keeps beaming, calmly, while it is up. */
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const s = storyOn.current.step;
+      if (s >= 0 && STORY_STEPS[s]?.id === 'wall') beamToWall();
+    }, WALL_BEAM_MS);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads refs only
+  }, []);
+
+  const onStop = (id: StopId) => {
+    activeRef.current = id;
+    setActive(id);
+    logStep(`enter:${id}`);
+    say(lineFor(id, audienceRef.current));
+    if (id !== 'hero') setDragHint(false);
+    if (id !== 'try') setCameraOn(false);
+  };
+  const onStopRef = useRef(onStop);
+  onStopRef.current = onStop;
+
+  /* ── The glide: every frame, read the slots, blend, hand the stage a target ── */
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      raf = window.requestAnimationFrame(tick);
+      const main = mainRef.current;
+      const sc = scrollerRef.current;
+      if (main === null || sc === null) return;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const isPhone = vw < PHONE_MAX;
+      const headerH = headerRef.current?.offsetHeight ?? 64;
+      // The story's step: progress through its pinned stretch (under the header).
+      const st = storyRef.current;
+      let sStep = stepRef.current;
+      if (st !== null) {
+        const r = st.getBoundingClientRect();
+        sStep = storyStep(pinProgress(r.top - headerH, r.height, vh - headerH), STORY_STEPS.length);
+      }
+      if (sStep !== stepRef.current) { stepRef.current = sStep; setStep(sStep); }
+      const card = STORY_STEPS[sStep];
+      // Every slot, as CSS placed it this frame.
+      const samples: SlotSample[] = [];
+      main.querySelectorAll<HTMLElement>('[data-slot]').forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) return;
+        const id = el.dataset.slot ?? '';
+        const pose = poseOf(el, r.height);
+        if (id === 'story') { pose.yaw = card.yaw; pose.fx = { [card.id]: 1 }; }
+        samples.push({ id, rect: { left: r.left, top: r.top, width: r.width, height: r.height }, pose });
+      });
+      const b = blendSlots(samples, vw, vh, isPhone);
+      const slotId = (b.active >= 0 ? samples[b.active].id : activeRef.current) as StopId;
+      const settled = b.share > 0.85;
+      layoutRef.current = {
+        home: { x: b.x, y: b.y },
+        heightPx: b.heightPx,
+        yaw: b.yaw,
+        presence: b.presence,
+        floor: b.floor,
+        bubbleMinY: headerH + 8,
+        bubbleMaxY: vh - 12,
+        // The bubble speaks only where his slot left room for it (never on
+        // phones, never in the story, never mid-glide).
+        bubbleAway: isPhone || slotId === 'story' || slotId === 'films' || !settled,
+      };
+      const hp = rectOf(heroPanelRef.current);
+      const heroSlot = samples.find((x) => x.id === 'hero');
+      decorRef.current = {
+        panel: hp !== null && hp.top + hp.height > -40 ? hp : null,
+        stand: heroSlot !== undefined ? (() => { const r = heroSlot.rect; const h = Math.min(r.height * heroSlot.pose.fit, r.width / 1.1); return { feet: { x: r.left + r.width / 2, y: r.top + r.height }, heightPx: h }; })() : null,
+        phone: isPhone,
+        scroll: Math.min(sc.scrollTop, heroRef.current?.offsetHeight ?? vh),
+      };
+      const fx = fxRef.current;
+      fx.weights = b.fx as Partial<Record<StoryFxId, number>>;
+      fx.spot = rectOf(fxSpotRef.current);
+      // The story holds Beamy: run its step (once per step), or let go.
+      const inStory = slotId === 'story' && b.share > 0.8;
+      if (inStory && storyOn.current.step !== sStep) storyEnterRef.current(sStep);
+      else if (!inStory && storyOn.current.step >= 0) storyLeaveRef.current();
+      // The films: a soft projector cone onto the frame while he stands beside it.
+      const bApi = api.current;
+      const inFilms = slotId === 'films' && b.share > 0.8 && readyRef.current && bApi !== null;
+      if (inFilms && !projecting.current) { projecting.current = true; void bApi?.project(() => rectOf(filmFrameRef.current), 'mouth', !reducedRef.current); }
+      else if (!inFilms && projecting.current) { projecting.current = false; bApi?.stopProject(); }
+      if (settled && slotId !== activeRef.current) onStopRef.current(slotId);
+      // Header progress, the colour journey, the hero's scroll depth.
+      const y = sc.scrollTop;
+      const sp = pageProgress(y, sc.scrollHeight, vh);
+      const bar = progressRef.current;
+      if (bar !== null) bar.style.transform = `scaleX(${sp.toFixed(4)})`;
+      if (!reducedRef.current) sc.style.setProperty('--bw-sp', sp.toFixed(4));
+      const secs: { top: number; height: number; night: number }[] = [];
+      main.querySelectorAll<HTMLElement>('[data-stop]').forEach((el) => {
+        const r = el.getBoundingClientRect();
+        secs.push({ top: r.top, height: r.height, night: NIGHT[el.dataset.stop as StopId] ?? 1 });
+      });
+      const night = weightedNight(secs, vh).toFixed(3);
+      if (sc.style.getPropertyValue('--bw-night-mix') !== night) sc.style.setProperty('--bw-night-mix', night);
+      const hero = heroRef.current;
+      if (hero !== null && !reducedRef.current) hero.style.setProperty('--hs', Math.min(y, hero.offsetHeight).toFixed(0));
+    };
+    raf = window.requestAnimationFrame(tick);
+    const scroller = scrollerRef.current;
+    // Keyboard scrolling (arrows, space, page keys) goes to the focused
+    // scroller: take focus once, without moving or painting a ring.
+    if (scroller !== null && (document.activeElement === null || document.activeElement === document.body)) scroller.focus({ preventScroll: true });
+    return () => window.cancelAnimationFrame(raf);
+  }, []);
+
+  /* Deep link: ?s=<stop> scrolls there on load. */
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('s');
+    const el = q !== null ? mainRef.current?.querySelector<HTMLElement>(`[data-stop="${q}"]`) : null;
+    if (el) window.setTimeout(() => el.scrollIntoView({ block: 'start' }), 60);
   }, []);
 
   const celebrate = useCallback(() => {
@@ -649,7 +609,7 @@ export default function BeamyPage() {
   useEffect(() => () => window.clearTimeout(pinTimer.current), []);
 
   const launchSelfie = useCallback((from: Rect, photo: string) => {
-    const onTry = STOPS[activeRef.current]?.id === 'try';
+    const onTry = activeRef.current === 'try';
     const tile = rectOf(onTry ? tryTileRef.current : heroTileRef.current);
     if (tile === null) { pendingSelfie.current = null; return; }
     // Reduced motion: the same trip, as a slow glide (no particles).
@@ -722,16 +682,14 @@ export default function BeamyPage() {
     setArrival('dropping');
     logStep(`arrive:start:${reduced ? 'soft' : 'full'}`);
     const alive = begin();
-    const onIntro = activeRef.current === 0;
+    const onIntro = activeRef.current === 'hero';
     if (onIntro) setIntroRunning(true);
     void (async () => {
       await b.arrive();
       logStep('arrive:landed');
       setArrival('done');
-      if (!alive() || activeRef.current !== 0) {
+      if (!alive() || activeRef.current !== 'hero') {
         setIntroRunning(false);
-        // Landed somewhere further down (a deep link): present that stop now.
-        if (activeRef.current !== 0) onActiveRef.current(activeRef.current, -1);
         return;
       }
       say(HELLO);
@@ -759,170 +717,6 @@ export default function BeamyPage() {
     const p = pendingSelfie.current;
     if (p !== null) landSelfie(p, false);
   }, [begin, hideSelfieFx, landSelfie]);
-
-  /* ── Presenting: what Beamy does the first time a stop is active ───── */
-
-  const lineFor = useCallback((id: StopId, a: Audience): string => {
-    switch (id) {
-      case 'hero': return HELLO;
-      case 'explain': return EXPLAIN_COPY.line;
-      case 'film-booth': return FILMS[0].beamy;
-      case 'film-wall': return FILMS[1].beamy;
-      case 'film-challenges': return FILMS[2].beamy;
-      case 'film-cards': return FILMS[3].beamy;
-      case 'pick': return GREETING;
-      case 'try': return a.lines.snap;
-      case 'magic': return a.lines.prop;
-      case 'how': return a.lines.deliver;
-      case 'pricing': return pricingSection().line;
-      case 'start': return a.lines.go;
-    }
-  }, []);
-
-  /** Wait until he has (nearly) reached his spot, at most ~1.5s. */
-  const arrived = async (alive: () => boolean) => {
-    const t0 = performance.now();
-    while (alive() && performance.now() - t0 < 1500) {
-      const b = api.current;
-      if (b === null) return;
-      const w = b.where();
-      const h = layoutRef.current.home;
-      if (Math.hypot(w.x - h.x, w.y - h.y) < 14) return;
-      await wait(60);
-    }
-  };
-
-  /** A viewport getter for something cached in document px (no per-frame DOM reads). */
-  const docRect = (r: Rect) => (): Rect => ({ left: r.left, top: r.top - scrollTop(), width: r.width, height: r.height });
-  const filmTarget = (id: FilmId) => {
-    const r = cache.current?.films[id];
-    return r !== undefined ? docRect(r) : () => null;
-  };
-  const propSpot = (): { at: () => Pt; size: number } => {
-    const r = cache.current?.propSpot ?? null;
-    const L = layoutRef.current;
-    if (r === null) return { at: () => ({ x: L.home.x + L.heightPx, y: L.home.y - L.heightPx * 0.62 }), size: L.heightPx * 0.6 };
-    const size = Math.min(r.width * 0.8, L.heightPx * 0.7, 220);
-    return { at: () => ({ x: r.left + r.width / 2, y: r.top - scrollTop() + r.height * 0.5 }), size };
-  };
-
-  const runReveal = async (a: Audience, alive: () => boolean, instant = false) => {
-    const b = api.current;
-    if (b === null) return;
-    setPropBusy(true);
-    const { at, size } = propSpot();
-    const r: Reaction = react.current('reveal');
-    await b.reveal(a.prop.url, at, size, r === 'handSparks' ? 'hand' : 'mouth', instant);
-    setPropBusy(false);
-    if (!alive() || instant) return;
-    say(`Ta-da! A ${a.prop.name.toLowerCase()}, tracked in 3D on every guest.`);
-  };
-
-  const present = async (id: StopId, alive: () => boolean) => {
-    const def = STOPS[stopIndex(id)];
-    const b = api.current;
-    if (b === null || !readyRef.current) { revealTo(id, ALL, 'nomodel'); return; }
-    await arrived(alive);
-    if (!alive()) return;
-    const el = stopEls.current[id];
-    logStep(`action:${id}:${def.presenting}`);
-    // The fallback clock runs from the action, not from the entry: the walk
-    // over (up to ~1.5s) must not eat the time the action itself needs.
-    entered.current.set(id, performance.now());
-    revealTo(id, 0, 'beam');
-    switch (def.presenting) {
-      case 'handZap': {
-        void b.play('Wave');
-        await wait(320);
-        const targets = Array.from(el?.querySelectorAll<HTMLElement>('[data-beam-target]') ?? []);
-        for (let n = 0; n < targets.length; n++) {
-          if (!alive()) return;
-          // Aim at the card's art, or else at the card's near edge: never through its copy.
-          const art = rectOf(targets[n].querySelector<HTMLElement>('[data-beam-at]'));
-          const r = rectOf(targets[n]);
-          if (r === null) continue;
-          const hx = layoutRef.current.home.x;
-          // Art above the copy (the 3-up cards) is a clear line; art beside it is not.
-          const clear = art !== null && art.top + art.height <= r.top + r.height * 0.5;
-          const at = clear && art !== null ? centre(art) : { x: hx > r.left + r.width / 2 ? r.left + r.width - 6 : r.left + 6, y: r.top + r.height / 2 };
-          void b.zap(at, 'hand', 380);
-          await wait(140);
-          revealTo(id, n + 1, 'beam');
-          logStep(`zap:${id}:${n}`);
-          await wait(310);
-        }
-        break;
-      }
-      case 'mouthCone':
-      case 'handCone': {
-        const film = FILMS.find((f) => FILM_STOP[f.id] === id);
-        if (film === undefined) break;
-        const from = def.presenting === 'mouthCone' ? 'mouth' : 'hand';
-        void b.play(from === 'mouth' ? 'BeamyBlast' : 'Wave');
-        await wait(from === 'mouth' ? 1000 : 260);
-        if (!alive()) return;
-        await b.project(filmTarget(film.id), from, true);
-        logStep(`cone:${id}:landed`);
-        break;
-      }
-      case 'drift': {
-        const g = rectOf(el?.querySelector('[data-drift-target]') ?? null);
-        if (g !== null) await b.drift(centre(g));
-        break;
-      }
-      case 'blast': {
-        const r = rectOf(boothRef.current);
-        if (r !== null) await new Promise<void>((res) => { void b.beam(centre(r), () => { revealTo(id, ALL, 'beam'); res(); }, 'mouth'); });
-        break;
-      }
-      case 'sparks': {
-        await wait(reducedRef.current ? 0 : 200);
-        if (alive()) await runReveal(audienceRef.current, alive);
-        break;
-      }
-      case 'hop': {
-        b.sparkle('burst');
-        void b.play('Hop');
-        await wait(260);
-        break;
-      }
-      case 'intro':
-        break;
-    }
-    revealTo(id, ALL, 'beam');
-  };
-
-  /** A stop became active (from = the previous one, −1 when re-presenting after landing). */
-  const onActive = (i: number, from: number) => {
-    activeRef.current = i;
-    setActive(i);
-    const id = STOPS[i].id;
-    const prevId = from >= 0 ? STOPS[from].id : null;
-    logStep(`enter:${id}`);
-    const alive = begin();
-    say(lineFor(id, audienceRef.current));
-    if (id !== 'hero') setDragHint(false);
-    if (id !== 'try') setCameraOn(false);
-    const b = api.current;
-    if (prevId !== null && prevId.startsWith('film-')) b?.stopProject();
-    if (prevId === 'magic' && id !== 'magic') b?.clearProp();
-    // Leaving a stop mid-action reveals it at once (never stranded).
-    sweepReveals();
-    if (id === 'hero') return;
-    if (!entered.current.has(id)) {
-      entered.current.set(id, performance.now());
-      if (b === null || !readyRef.current) { revealTo(id, ALL, 'nomodel'); return; }
-      void present(id, alive);
-      return;
-    }
-    // Back on a stop already presented: its settled state.
-    if (b === null || !readyRef.current) return;
-    const film = FILMS.find((f) => FILM_STOP[f.id] === id);
-    if (film !== undefined) void b.project(filmTarget(film.id), STOPS[i].presenting === 'handCone' ? 'hand' : 'mouth', false);
-    if (id === 'magic') void runReveal(audienceRef.current, alive, true);
-  };
-  const onActiveRef = useRef(onActive);
-  onActiveRef.current = onActive;
 
   /* Gaze + hero depth: the pointer on desktop (lerped CSS vars on the hero
      for the parallax layers, the panel tilt, the wall turn and the sheen);
@@ -972,36 +766,6 @@ export default function BeamyPage() {
       document.documentElement.removeEventListener('mouseleave', onLeave);
     };
   }, []);
-
-  /* Film starts, for the log (the films autoplay muted when lit and in view). */
-  useEffect(() => {
-    const vids = Array.from(mainRef.current?.querySelectorAll<HTMLVideoElement>('[data-film-frame] video') ?? []);
-    const ons = vids.map((v, n) => { const on = () => logStep(`film:play:${FILMS[n]?.id ?? n}`); v.addEventListener('play', on); return () => v.removeEventListener('play', on); });
-    return () => { for (const off of ons) off(); };
-  }, []);
-
-  /* ── The pick: a varied reaction, then on to the demo. ─────────────── */
-  const pickAudience = async (a: Audience, el: HTMLElement) => {
-    const alive = begin();
-    setPicked(a);
-    setLook(a.kit);
-    say(a.lines.intro);
-    logStep(`pick:${a.id}`);
-    const b = api.current;
-    const target = centre(rectOf(el) ?? { left: 0, top: 0, width: 0, height: 0 });
-    const land = () => { if (alive()) setSelectedId(a.id); };
-    if (b === null || reduced) {
-      land();
-      if (b !== null) void b.play('Wave');
-    } else {
-      const r = react.current('pick');
-      if (r === 'handBeam') await b.beam(target, land, 'hand');
-      else { await b.drift(target); land(); }
-    }
-    if (!alive()) return;
-    await wait(reduced ? 700 : 1000);
-    if (alive() && STOPS[activeRef.current]?.id === 'pick') scrollToStop('try');
-  };
 
   /* ── The booth hands over a shot: Beamy catches it, then beams it. ─── */
   const onBeam = useCallback((src: string) => {
@@ -1053,7 +817,7 @@ export default function BeamyPage() {
   const onPoke = () => {
     const b = api.current;
     if (b === null) return;
-    if (STOPS[activeRef.current]?.id === 'hero') {
+    if (activeRef.current === 'hero') {
       // During the intro a tap is just a sparkle (only Skip skips); once it
       // has settled, tapping him on the hero replays the selfie.
       if (introRunning) { b.sparkle('sparkle'); return; }
@@ -1112,26 +876,6 @@ export default function BeamyPage() {
 
   /* ── Pieces ─────────────────────────────────────────────────────────── */
 
-  const shown = (id: StopId, n: number) => (rev[id] ?? -1) >= n;
-  /** A revealed block: dim and lowered until Beamy brings it up; it condenses out of light when beamed. */
-  const reveal = (id: StopId, n: number, extra = '') => ({
-    className: `bw-reveal ${extra}`,
-    'data-on': shown(id, n) ? 'true' : 'false',
-  });
-
-  const slot = (extra = '', opts: { max?: number; bubble?: boolean } = {}, children?: ReactNode, style?: CSSProperties) => (
-    <div
-      data-beamy-slot
-      data-max={opts.max !== undefined ? String(Math.round(opts.max)) : undefined}
-      data-bubble={opts.bubble === false ? 'none' : undefined}
-      aria-hidden
-      className={`${extra.includes('absolute') ? '' : 'relative'} min-h-0 ${extra}`}
-      style={style}
-    >
-      {children}
-    </div>
-  );
-
   const shotPins = useMemo(() => {
     const out: Record<number, Pin> = {};
     shots.forEach((s, n) => { out[SHOT_TILES[n]] = { src: s.src, key: `s${s.id}`, mine: true }; });
@@ -1159,7 +903,6 @@ export default function BeamyPage() {
   const big = !phone;
   const booth = (
     <div
-      ref={boothRef}
       data-booth-ui
       className={`relative overflow-hidden ${big ? 'aspect-[9/17] h-full rounded-[34px] p-[7px]' : 'aspect-[9/16] h-full rounded-[22px] p-[5px]'}`}
       style={{ background: 'var(--bw-deep-2)', boxShadow: 'inset 1px 1px 0 rgba(255,255,255,0.25), 0 24px 50px -24px var(--bw-shadow)' }}
@@ -1192,33 +935,37 @@ export default function BeamyPage() {
   const start = startFacts();
   const pricing = pricingSection();
   const plans = planCards();
+  const headerH = phone ? 60 : 72;
 
-  /* Two columns: Beamy's column on `side`, the content on the other. Phones: content only (he is docked). */
-  const split = (side: Side, beamyCol: ReactNode, content: ReactNode, opts: { align?: 'center' | 'start' } = {}) => {
-    if (phone) return <div className="flex flex-col">{content}</div>;
+  /* A slot: an empty box CSS places; Beamy stands in it (data-* is his pose there). */
+  const slot = (extra = '', opts: { max?: number; bubble?: boolean } = {}, children?: ReactNode, style?: CSSProperties) => (
+    <div
+      data-slot="hero"
+      data-floor="true"
+      data-max={opts.max !== undefined ? String(Math.round(opts.max)) : undefined}
+      data-bubble={opts.bubble === false ? 'none' : undefined}
+      aria-hidden
+      className={`${extra.includes('absolute') ? '' : 'relative'} min-h-0 ${extra}`}
+      style={style}
+    >
+      {children}
+    </div>
+  );
+  /** A section's own slot for Beamy (phones: above the copy, never behind it). */
+  const stand = (id: StopId, yaw: number, cls: string) => (
+    <div data-slot={id} data-yaw={phone ? 0 : yaw} data-bubble={phone ? 'none' : undefined} aria-hidden className={phone ? 'mx-auto mb-4 h-[30svh] w-[64%] max-w-[260px]' : cls} />
+  );
+  const sectionClass = `bw-sec relative mx-auto w-full max-w-[1320px] ${phone ? 'px-5 py-14' : 'px-[clamp(40px,6vw,104px)] py-[clamp(88px,13vh,150px)]'}`;
+  /** Desktop: Beamy's column on `side`, the content on the other. Phones: his slot above the content. */
+  const split = (side: 'left' | 'right', beamy: ReactNode, content: ReactNode) => {
+    if (phone) return <div className="flex flex-col">{beamy}{content}</div>;
     const left = side === 'left';
     return (
-      <div className={`grid items-${opts.align ?? 'center'} gap-[clamp(20px,3vw,56px)] ${left ? 'grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)_minmax(0,0.42fr)]'}`}>
-        {left ? (
-          <>
-            <div className="flex justify-center">{beamyCol}</div>
-            <div data-bubble-right className="min-w-0">{content}</div>
-          </>
-        ) : (
-          <>
-            <div data-bubble-left className="min-w-0">{content}</div>
-            <div className="flex justify-center">{beamyCol}</div>
-          </>
-        )}
+      <div className={`grid items-center gap-[clamp(20px,3vw,56px)] ${left ? 'grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)_minmax(0,0.42fr)]'}`}>
+        {left ? <><div className="flex justify-center">{beamy}</div><div className="min-w-0">{content}</div></> : <><div className="min-w-0">{content}</div><div className="flex justify-center">{beamy}</div></>}
       </div>
     );
   };
-  const stand = (extra = '') => slot(`w-full max-w-[300px] ${extra || 'h-[min(380px,52vh)]'}`);
-  const heading = (text: string, id: string, cls = 'bw-h2') => <h2 id={id} className={cls}>{text}</h2>;
-  /* Every section sits in its own glass pane (brand.css .bw-stop::before),
-     inset inside the section's padding; the gap between two panes is the
-     gutter Beamy crosses the page in. */
-  const stopClass = `bw-stop relative mx-auto w-full max-w-[1320px] ${phone ? 'px-6 py-16' : 'px-[clamp(48px,6.5vw,104px)] py-[clamp(96px,14vh,156px)]'}`;
 
   /* ── Hero ──────────────────────────────────────────────────────────── */
   const heroCtas = (
@@ -1290,7 +1037,7 @@ export default function BeamyPage() {
 
   const hero = (
     <section
-      ref={(el) => { heroRef.current = el; stopRef.hero(el); }}
+      ref={heroRef}
       id="hello"
       data-stop="hero"
       aria-label="Beamwall"
@@ -1375,75 +1122,141 @@ export default function BeamyPage() {
     </section>
   );
 
-  /* ── Explainers ────────────────────────────────────────────────────── */
-  const explainCols = vp.w >= 1180 ? 'grid-cols-3' : 'grid-cols-1';
-  const explain = (
-    <section ref={stopRef.explain} id="idea" data-stop="explain" aria-labelledby="h-explain" className={stopClass}>
-      {split('right', stand(), (
-        <>
-          <div {...reveal('explain', 0)}>
-            <p className="bw-eyebrow after:hidden">How it works</p>
-            {heading(EXPLAIN_COPY.heading, 'h-explain', 'bw-h2 mt-3 max-w-[22ch]')}
-            <p className="bw-body mt-3">{EXPLAIN_COPY.sub}</p>
+
+  /* ── The story: pinned, one card at a time, Beamy + one 3D effect beside him ── */
+  const n = STORY_STEPS.length;
+  const goStep = (k: number) => {
+    const sc = scrollerRef.current;
+    const st = storyRef.current;
+    if (sc === null || st === null) return;
+    const r = st.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const top = sc.scrollTop + r.top - headerH;
+    const run = r.height - (vh - headerH);
+    sc.scrollTo({ top: top + ((k + 0.5) / n) * run, behavior: reduced ? 'auto' : 'smooth' });
+  };
+  const storyCards = (
+    <ol className={`flex flex-col ${phone ? 'gap-0' : 'gap-3'}`}>
+      {STORY_STEPS.map((s, k) => {
+        const on = k === step;
+        if (phone && !on) return null;
+        return (
+          <li key={s.id} className="bw-glass-card bw-thick bw-story-card" data-active={on ? 'true' : 'false'}>
+            <button type="button" className="bw-story-head" aria-expanded={on} aria-controls={`story-${s.id}`} onClick={() => goStep(k)}>
+              <span className="bw-story-num" aria-hidden>{String(k + 1).padStart(2, '0')}</span>
+              <span className="bw-h3 min-w-0">{s.title}</span>
+            </button>
+            <div id={`story-${s.id}`} className="bw-story-more">
+              <div className="min-h-0 overflow-hidden"><p className="bw-small pb-5 pl-[52px] pr-5">{s.body}</p></div>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+  const storySegs = (
+    <div className="bw-segs" aria-hidden>
+      {STORY_STEPS.map((s, k) => <span key={s.id} data-on={k <= step ? 'true' : 'false'} />)}
+    </div>
+  );
+  const storyHead = (
+    <div className="bw-in">
+      <p className={`bw-eyebrow after:hidden ${phone ? 'text-[13px]' : ''}`}>{STORY_COPY.eyebrow}</p>
+      <h2 id="h-story" className={`${phone ? 'bw-h2 mt-1 text-[26px]' : 'bw-h2 mt-3 max-w-[18ch]'}`}>{STORY_COPY.heading}</h2>
+    </div>
+  );
+  const story = (
+    <section ref={storyRef} id="how" data-stop="story" aria-labelledby="h-story" className="bw-sec relative" style={{ height: `${storyHeightVh(n, phone)}vh` }}>
+      <div className="sticky overflow-hidden" style={{ top: 'var(--bw-header-h)', height: 'calc(100svh - var(--bw-header-h))' }}>
+        {phone ? (
+          <div className="flex h-full flex-col px-5 pb-6 pt-5">
+            {storyHead}
+            <div className="relative mt-2 min-h-0 flex-1">
+              <div data-slot="story" data-bubble="none" aria-hidden className="absolute bottom-0 left-0 h-[92%] w-[46%]" />
+              <div ref={fxSpotRef} data-fx-spot aria-hidden className="absolute right-0 top-[10%] h-[78%] w-[54%]" />
+            </div>
+            <div className="mt-2" aria-live="polite">{storyCards}</div>
+            <div className="mt-4">{storySegs}</div>
           </div>
-          <ol className={`mt-8 grid gap-4 ${explainCols}`}>
-            {EXPLAIN_STEPS.map((s, n) => (
-              <li key={s.title} data-beam-target {...reveal('explain', n + 1, `bw-glass-card bw-card-lift bw-condense flex ${explainCols === 'grid-cols-3' ? 'flex-col' : 'items-center'} gap-4 p-5`)}>
-                <div data-beam-at className={`relative flex shrink-0 items-center justify-center ${explainCols === 'grid-cols-3' ? 'h-36' : 'h-24 w-24'}`}>
-                  <span aria-hidden className="bw-art-glow" />
-                  <img src={EXPLAIN_ART[n]} alt="" aria-hidden loading="lazy" draggable={false} className="relative h-full w-auto object-contain drop-shadow-[0_16px_28px_rgba(22,18,78,0.55)]" />
-                </div>
-                <div className="min-w-0">
-                  <span className="bw-label block">Step {n + 1}</span>
-                  <h3 className="bw-h3 mt-1">{s.title}</h3>
-                  <p className="bw-small mt-1.5">{s.body}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
+        ) : (
+          <div className="mx-auto grid h-full max-w-[1320px] grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] items-center gap-[clamp(24px,4vw,72px)] px-[clamp(24px,5vw,88px)]">
+            <div className="relative h-[min(620px,80%)]">
+              <div data-slot="story" data-bubble="none" aria-hidden className="absolute bottom-0 left-0 h-[76%] w-[44%]" />
+              <div ref={fxSpotRef} data-fx-spot aria-hidden className="absolute right-0 top-[8%] h-[66%] w-[54%]" />
+            </div>
+            <div className="min-w-0">
+              {storyHead}
+              <div className="mt-7">{storyCards}</div>
+              <div className="mt-6 max-w-[420px]">{storySegs}</div>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+
+  /* ── The films: one frame, four films; Beamy projects whichever is on ── */
+  const cur = FILMS.find((f) => f.id === film) ?? FILMS[0];
+  const media = FILM_MEDIA[cur.id];
+  const films = (
+    <section id="films" data-stop="films" aria-labelledby="h-films" className={sectionClass}>
+      {split('right', stand('films', -0.5, 'h-[min(400px,50vh)] w-full max-w-[280px]'), (
+        <>
+          <div className="bw-in">
+            <h2 id="h-films" className="bw-h2">{FILMS_COPY.heading}</h2>
+          </div>
+          <div role="group" aria-label="Pick a film" className="bw-in mt-5 flex flex-wrap gap-2" style={i(1)}>
+            {FILMS.map((f) => {
+              const M = FILM_MEDIA[f.id];
+              return (
+                <button key={f.id} type="button" className="bw-glass-chip" aria-pressed={film === f.id} onClick={() => { setFilm(f.id); say(f.beamy); logStep(`film:${f.id}`); }}>
+                  <M.Icon size={18} from={film === f.id ? '#2B2A8C' : '#FFFFFF'} to={film === f.id ? '#5B4BE0' : '#C9CCFF'} />
+                  {f.eyebrow}
+                </button>
+              );
+            })}
+          </div>
+          <div ref={filmFrameRef} data-film-frame data-lit="true" className="bw-in bw-film bw-thick-frame mt-6" style={i(2)}>
+            <FilmEmbed key={cur.id} src={media.src} poster={media.poster} label={`${cur.title}: feature film`} chipClassName="bw-film-chip" />
+          </div>
+          <p className="bw-small mt-4 max-w-[56ch]"><span className="font-semibold" style={{ color: 'var(--bw-ink)' }}>{cur.title}.</span> {cur.line}</p>
         </>
       ))}
     </section>
   );
 
-  /* ── Films ─────────────────────────────────────────────────────────── */
-  const films = FILMS.map((f) => {
-    const id = FILM_STOP[f.id];
-    const def = STOPS[stopIndex(id)];
-    const m = FILM_MEDIA[f.id];
-    const lit = shown(id, ALL);
-    return (
-      <section key={f.id} ref={stopRef[id]} id={`film-${f.id}`} data-stop={id} aria-labelledby={`h-${id}`} className={stopClass}>
-        {split(def.side, stand(), (
-          <>
-            <div {...reveal(id, 0)}>
-              <p className="bw-eyebrow flex-row items-center gap-2.5 after:hidden">
-                <span className="bw-icon-tile !h-9 !w-9" aria-hidden><m.Icon size={20} from="#FFFFFF" to="#C9CCFF" /></span>
-                {f.eyebrow}
-              </p>
-              {heading(f.title, `h-${id}`, 'bw-h2 mt-3 max-w-[20ch]')}
-              <p className="bw-body mt-3 max-w-[46ch]">{f.line}</p>
-            </div>
-            <div data-film-frame data-lit={lit ? 'true' : 'false'} className="bw-film mt-7">
-              <FilmEmbed src={m.src} poster={m.poster} label={`${f.title}: feature film`} hold={!lit} chipClassName="bw-film-chip" />
-            </div>
-          </>
-        ))}
-      </section>
-    );
-  });
-
   /* ── What applies to you? ──────────────────────────────────────────── */
+  const pickAudience = async (a: Audience, el: HTMLElement) => {
+    const alive = begin();
+    setPicked(a);
+    setLook(a.kit);
+    say(a.lines.intro);
+    logStep(`pick:${a.id}`);
+    const b = api.current;
+    const target = centre(rectOf(el) ?? { left: 0, top: 0, width: 0, height: 0 });
+    const land = () => { if (alive()) setSelectedId(a.id); };
+    if (b === null || reduced) {
+      land();
+      if (b !== null) void b.play('Wave');
+    } else {
+      const r = react.current('pick');
+      if (r === 'handBeam') await b.beam(target, land, 'hand');
+      else { await b.drift(target); land(); }
+    }
+    if (!alive()) return;
+    await wait(reduced ? 700 : 1000);
+    if (alive() && activeRef.current === 'pick') scrollToStop('try');
+  };
   const pick = (
-    <section ref={stopRef.pick} id="for-you" data-stop="pick" aria-labelledby="h-pick" className={stopClass}>
-      {split('left', stand(), (
+    <section id="for-you" data-stop="pick" aria-labelledby="h-pick" className={sectionClass}>
+      {split('left', stand('pick', 0.42, 'h-[min(380px,50vh)] w-full max-w-[280px]'), (
         <>
-          <div {...reveal('pick', 0)}>
-            {heading(PICK_COPY.heading, 'h-pick')}
+          <div className="bw-in">
+            <h2 id="h-pick" className="bw-h2">{PICK_COPY.heading}</h2>
             <p className="bw-body mt-2">{PICK_COPY.sub}</p>
           </div>
-          <div data-drift-target {...reveal('pick', ALL, `mt-7 grid gap-3 ${phone ? 'grid-cols-1' : 'grid-cols-2'}`)}>
-            {AUDIENCES.map((a) => {
+          <div className={`mt-7 grid gap-3 ${phone ? 'grid-cols-1' : 'grid-cols-2'}`}>
+            {AUDIENCES.map((a, k) => {
               const Icon = AUDIENCE_ICONS[a.icon];
               const on = selectedId === a.id;
               return (
@@ -1452,7 +1265,8 @@ export default function BeamyPage() {
                   type="button"
                   aria-pressed={on}
                   onClick={(e) => { void pickAudience(a, e.currentTarget); }}
-                  className={`bw-glass-card bw-interactive flex items-center gap-4 ${phone ? 'min-h-[64px] px-4 py-3' : 'min-h-[84px] p-4'}`}
+                  className={`bw-in bw-glass-card bw-thick bw-interactive flex items-center gap-4 ${phone ? 'min-h-[64px] px-4 py-3' : 'min-h-[84px] p-4'}`}
+                  style={i(k)}
                 >
                   <span className="bw-icon-tile" aria-hidden><Icon /></span>
                   <span className="min-w-0 flex-1">
@@ -1476,132 +1290,76 @@ export default function BeamyPage() {
     </div>
   );
   const tryIt = (
-    <section ref={stopRef.try} id="demo" data-stop="try" aria-labelledby="h-try" className={stopClass}>
-      <div {...reveal('try', 0, phone ? '' : 'flex flex-wrap items-end justify-between gap-x-8 gap-y-4')}>
+    <section id="demo" data-stop="try" aria-labelledby="h-try" className={sectionClass}>
+      {phone && stand('try', 0, '')}
+      <div className={`bw-in ${phone ? '' : 'flex flex-wrap items-end justify-between gap-x-8 gap-y-4'}`}>
         <div>
-          {heading(TRY_COPY.heading, 'h-try')}
+          <h2 id="h-try" className="bw-h2">{TRY_COPY.heading}</h2>
           <p className="bw-body mt-2 max-w-[46ch]">{TRY_COPY.line}</p>
         </div>
         <div className={phone ? 'mt-4' : ''}>{lookPills}</div>
       </div>
       {phone ? (
-        <div {...reveal('try', ALL, 'mt-5 flex items-center gap-3')}>
+        <div className="bw-in mt-5 flex items-center gap-3">
           <div className="shrink-0" style={{ height: 'min(70svh, calc((100vw - 52px) * 0.56 * 16 / 9))' }}>{booth}</div>
           <div className="min-w-0 flex-1">{tryWall}</div>
         </div>
       ) : (
         <div className={`mt-8 flex items-stretch justify-center gap-[clamp(16px,2.4vw,40px)] ${vp.w >= WIDE_HERO_MIN ? 'h-[min(560px,66vh)]' : 'h-[min(480px,58vh)]'}`}>
-          <div data-bubble-left {...reveal('try', ALL, 'min-h-0')}>{booth}</div>
-          <div className="flex w-[clamp(140px,13vw,210px)] shrink-0 flex-col justify-end">{slot('h-[72%] w-full', { max: 230 })}</div>
-          <div {...reveal('try', ALL, 'flex min-h-0 items-center')}>
-            <div data-bubble-right style={{ width: 'min(360px, 30vw)' }}>{tryWall}</div>
+          <div className="bw-in min-h-0">{booth}</div>
+          <div className="flex w-[clamp(140px,13vw,210px)] shrink-0 flex-col justify-end">
+            <div data-slot="try" data-max="230" aria-hidden className="relative h-[72%] min-h-0 w-full" />
+          </div>
+          <div className="bw-in flex min-h-0 items-center" style={i(1)}>
+            <div style={{ width: 'min(360px, 30vw)' }}>{tryWall}</div>
           </div>
         </div>
       )}
     </section>
   );
 
-  /* ── 3D magic ──────────────────────────────────────────────────────── */
-  const magic = (
-    <section ref={stopRef.magic} id="magic" data-stop="magic" aria-labelledby="h-magic" className={stopClass}>
-      {split('left', (
-        <div className="flex h-[min(360px,48vh)] w-full max-w-[420px]">
-          {slot('h-full w-[56%]')}
-          <div data-prop-spot aria-hidden className="h-full flex-1" />
-        </div>
-      ), (
-        <div {...reveal('magic', 0)}>
-          {heading(MAGIC_COPY.heading, 'h-magic')}
-          <p className="bw-body mt-3 max-w-[40ch]">{MAGIC_COPY.line}</p>
-          {phone && <div data-prop-spot aria-hidden className="mx-auto mt-6 h-40 w-40" />}
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <button type="button" className="bw-btn bw-btn-secondary" disabled={propBusy} onClick={() => { const alive = begin(); void runReveal(audience, alive); }}>
-              <RotateCcw className="h-4 w-4" strokeWidth={1.75} aria-hidden /> {MAGIC_COPY.again}
-            </button>
-            <button type="button" className="bw-link min-h-11" onClick={() => scrollToStop('try')}>
-              Try it on <ArrowRight className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-            </button>
-          </div>
-        </div>
-      ))}
-    </section>
-  );
-
-  /* ── How it works ──────────────────────────────────────────────────── */
-  const how = (
-    <section ref={stopRef.how} id="how" data-stop="how" aria-labelledby="h-how" className={stopClass}>
-      {split('right', stand(), (
-        <>
-          <div {...reveal('how', 0)}>{heading(HOW_COPY.heading, 'h-how')}</div>
-          <ol className="mt-6 flex flex-col gap-3">
-            {DELIVER_STEPS.map((d, n) => {
-              const Icon = STEP_ICONS[d.icon];
-              return (
-                <li key={d.title} data-beam-target {...reveal('how', n + 1, 'bw-glass-card bw-card-lift bw-condense flex items-start gap-4 p-4')}>
-                  <span className="bw-icon-tile" aria-hidden><Icon /></span>
-                  <span className="min-w-0">
-                    <span className="bw-label block">Step {n + 1}</span>
-                    <span className="bw-h3 mt-0.5 block">{d.title}</span>
-                    <span className="bw-small mt-1 block">{d.body}</span>
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
-          <p {...reveal('how', ALL, 'bw-small mt-5')}>{DONE_FOR_YOU}</p>
-        </>
-      ))}
-    </section>
-  );
-
   /* ── Pricing ───────────────────────────────────────────────────────── */
   const planCols = phone ? 'grid-cols-1' : vp.w >= 1100 ? 'grid-cols-2' : 'grid-cols-1';
-  const planGrid = (
-    <div data-drift-target {...reveal('pricing', ALL, `mt-10 grid gap-x-4 gap-y-6 ${planCols}`)}>
-      {plans.map((t) => (
-        <div key={t.name} className="bw-glass-card bw-card-lift bw-plan flex flex-col p-6" data-popular={t.popular === true ? 'true' : undefined}>
-          {t.popular === true && <span className="bw-plan-badge">{pricing.recommended}</span>}
-          <h3 className="bw-label" style={{ color: 'var(--bw-ink)' }}>{t.name}</h3>
-          <p className="mt-2 flex items-baseline gap-1.5">
-            <span className="bw-price">{t.price}</span>
-            <span className="bw-label">{t.unit}</span>
-          </p>
-          <p className="bw-small mt-2">{t.blurb}</p>
-          <ul className="mt-5 flex flex-1 flex-col gap-2.5">
-            {t.features.map((f) => (
-              <li key={f} className="flex items-start gap-2 text-[14px] leading-snug" style={{ color: 'var(--bw-ink)' }}>
-                <Check className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} style={{ color: 'var(--bw-success)' }} aria-hidden />
-                <span>{f}</span>
-              </li>
-            ))}
-          </ul>
-          <Link to={SIGNUP_PATH} className={`bw-btn mt-6 w-full ${t.popular === true ? 'bw-btn-primary' : 'bw-btn-secondary'}`}>{pricing.cta(t.name)}</Link>
-        </div>
-      ))}
-    </div>
-  );
-  /* Desktop: the plans sit in the content column, so the column he stands in
-     stays clear however far the visitor scrolls through them. */
   const pricingSec = (
-    <section ref={stopRef.pricing} id="pricing" data-stop="pricing" aria-labelledby="h-pricing" className={stopClass}>
-      {split('left', stand('h-[min(300px,40vh)]'), (
+    <section id="pricing" data-stop="pricing" aria-labelledby="h-pricing" className={sectionClass}>
+      {split('right', stand('pricing', -0.42, 'h-[min(320px,42vh)] w-full max-w-[260px]'), (
         <>
-          <div {...reveal('pricing', 0)}>
-            {heading(pricing.heading, 'h-pricing')}
+          <div className="bw-in">
+            <h2 id="h-pricing" className="bw-h2">{pricing.heading}</h2>
             <p className="bw-body mt-3 max-w-[56ch]">{pricing.intro}</p>
             <p className="bw-small mt-3 max-w-[56ch]">{pricing.pro}</p>
           </div>
-          {planGrid}
+          <div className={`mt-10 grid gap-x-4 gap-y-6 ${planCols}`}>
+            {plans.map((t, k) => (
+              <div key={t.name} className="bw-in bw-glass-card bw-thick bw-plan flex flex-col p-6" style={i(k)} data-popular={t.popular === true ? 'true' : undefined}>
+                {t.popular === true && <span className="bw-plan-badge">{pricing.recommended}</span>}
+                <h3 className="bw-label" style={{ color: 'var(--bw-ink)' }}>{t.name}</h3>
+                <p className="mt-2 flex items-baseline gap-1.5">
+                  <span className="bw-price">{t.price}</span>
+                  <span className="bw-label">{t.unit}</span>
+                </p>
+                <p className="bw-small mt-2">{t.blurb}</p>
+                <ul className="mt-5 flex flex-1 flex-col gap-2.5">
+                  {t.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-[14px] leading-snug" style={{ color: 'var(--bw-ink)' }}>
+                      <Check className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} style={{ color: 'var(--bw-success)' }} aria-hidden />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Link to={SIGNUP_PATH} className={`bw-btn mt-6 w-full ${t.popular === true ? 'bw-btn-primary' : 'bw-btn-secondary'}`}>{pricing.cta(t.name)}</Link>
+              </div>
+            ))}
+          </div>
         </>
       ))}
     </section>
   );
 
   /* ── Start + footer ────────────────────────────────────────────────── */
-  /* Desktop: he stands beside the centred call to action, never over it. */
   const startCta = (
-    <div {...reveal('start', 0, 'mx-auto flex max-w-[640px] flex-col items-center')}>
-      {heading(start.heading, 'h-start', 'bw-display')}
+    <div className="bw-in mx-auto flex max-w-[640px] flex-col items-center">
+      <h2 id="h-start" className="bw-display">{start.heading}</h2>
       <p className="bw-body mt-3 max-w-[42ch]">{start.line}</p>
       <ul className="mt-5 flex flex-col items-center gap-2.5">
         {start.bullets.map((b) => (
@@ -1614,17 +1372,16 @@ export default function BeamyPage() {
     </div>
   );
   const startSec = (
-    <section ref={stopRef.start} id="start" data-stop="start" aria-labelledby="h-start" className={`${stopClass} text-center`}>
-      {phone ? startCta : !wideHero ? (
-        // Tablets: no room for a side column; Beamy stands above the call to action.
+    <section id="start" data-stop="start" aria-labelledby="h-start" className={`${sectionClass} text-center`}>
+      {phone || !wideHero ? (
         <div className="flex flex-col items-center">
-          {slot('h-[min(300px,34vh)] w-full max-w-[240px]')}
+          {stand('start', 0, 'mb-4 h-[min(300px,34vh)] w-full max-w-[240px]')}
           <div className="w-full max-w-[640px]">{startCta}</div>
         </div>
       ) : (
         <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,640px)_minmax(0,1fr)] items-center gap-[clamp(16px,2vw,32px)]">
-          <div className="flex justify-end">{slot('h-[min(320px,42vh)] w-full max-w-[240px]')}</div>
-          <div data-bubble-right>{startCta}</div>
+          <div className="flex justify-end">{stand('start', 0.38, 'h-[min(340px,44vh)] w-full max-w-[240px]')}</div>
+          <div>{startCta}</div>
           <div aria-hidden />
         </div>
       )}
@@ -1639,42 +1396,48 @@ export default function BeamyPage() {
     </section>
   );
 
-  const bubbleHidden = active === 0 && !wideHero;
-  const headerH = phone ? 60 : 72;
+  const bubbleHidden = active === 'hero' && !wideHero;
+  const storyPhotos = useMemo(() => WALL_POOL.slice(0, 9), []);
 
   return (
     <div
       data-brand="2"
       data-arrival={arrival}
-      data-stop-active={STOPS[active]?.id}
+      data-stop-active={active}
       ref={scrollerRef}
       tabIndex={-1}
       className="bw-root bw-scroll relative h-full overflow-y-auto overflow-x-clip"
-      style={{ outline: 'none',  ['--bw-header-h' as string]: `${headerH}px`, ['--bw-dock-h' as string]: phone ? `${vp.h < 700 ? 96 : 108}px` : '0px' }}
+      style={{ outline: 'none', ['--bw-header-h' as string]: `${headerH}px` }}
     >
       <div aria-hidden className="bw-backdrop">
-        {/* Large soft shapes and glass shards behind the panes, drifting past
-            at different depths as the page scrolls (--bw-sp, 0..1). They sit
-            behind the glass, so the frost softens them; only the page edges
-            show them crisp, and no copy lives there. */}
-        {BACKDROP_SHAPES.map((b, n) => (
-          <span key={`b${n}`} className="bw-backdrop-shape" style={{ left: b.x, top: b.y, width: b.s, height: b.s, ['--k' as string]: b.k }} />
-        ))}
-        {/* The journey: the bright field deepens through indigo into the
-            midnight atmosphere mid-page, then lifts again for the close
-            (--bw-night-mix 0..1 from the scroll position; a crossfade, so no seams). */}
+        {/* The journey: a midnight field with faint violet / indigo / teal
+            glows, deepest mid-page, lifting a little at the hero and the close
+            (--bw-night-mix 0..1, blended per frame like the slots). */}
         <div className="bw-night">
           <span className="bw-night-glow bw-night-violet" />
           <span className="bw-night-glow bw-night-indigo" />
           <span className="bw-night-glow bw-night-teal" />
         </div>
-        {!phone && BACKDROP_SHARDS.map((b, n) => (
-          <span key={`s${n}`} className="bw-drift" style={{ left: b.x, top: b.y, width: b.w, height: b.w * 1.3, ['--k' as string]: b.k, ['--r' as string]: `${b.r}deg`, ['--b' as string]: `${b.blur}px` }} />
-        ))}
-        {/* Grit: a still film grain and a soft vignette over the field, under every pane. */}
+        {/* Grit: a still film grain and a soft vignette over the field. */}
         <div className="bw-vignette" />
         <div className="bw-grain" />
       </div>
+
+      {!failed && (
+        <BeamyStage
+          apiRef={api}
+          layoutRef={layoutRef}
+          bubbleRef={bubbleRef}
+          hitRef={hitRef}
+          decorRef={decorRef}
+          startHidden
+          reducedMotion={reduced}
+          onReady={() => { logStep('model:ready'); setReady(true); }}
+          onError={() => { logStep('model:failed'); setFailed(true); }}
+        >
+          <StoryFx fxRef={fxRef} photos={storyPhotos} lite={phone} reduced={reduced} />
+        </BeamyStage>
+      )}
 
       <header ref={headerRef} className="bw-header sticky top-0 z-30" style={{ height: headerH }}>
         <div className={`mx-auto flex h-full max-w-[1440px] items-center justify-between gap-3 ${phone ? 'px-3' : 'px-[clamp(20px,2.6vw,48px)]'}`}>
@@ -1683,15 +1446,15 @@ export default function BeamyPage() {
           </button>
           {!phone && (
             <nav aria-label="Main" className="flex items-center gap-1">
-              {NAV_LINKS.map((n) => (
+              {NAV_LINKS.map((nl) => (
                 <a
-                  key={n.label}
-                  href={`#${stopEls.current[n.stop]?.id ?? n.stop}`}
+                  key={nl.label}
+                  href={`#${nl.stop}`}
                   className="bw-navlink"
-                  aria-current={STOPS[active]?.id === n.stop ? 'true' : undefined}
-                  onClick={(e) => { e.preventDefault(); scrollToStop(n.stop); }}
+                  aria-current={active === nl.stop ? 'true' : undefined}
+                  onClick={(e) => { e.preventDefault(); scrollToStop(nl.stop); }}
                 >
-                  {n.label}
+                  {nl.label}
                 </a>
               ))}
             </nav>
@@ -1705,39 +1468,21 @@ export default function BeamyPage() {
         <div aria-hidden className="bw-progress"><span ref={progressRef} /></div>
       </header>
 
-      <main ref={mainRef} className="relative z-10" style={{ paddingBottom: phone ? 'calc(var(--bw-dock-h) + 16px)' : undefined }}>
+      <main ref={mainRef} className="relative z-10">
         {hero}
-        {explain}
+        {story}
         {films}
         {pick}
         {tryIt}
-        {magic}
-        {how}
         {pricingSec}
         {startSec}
       </main>
 
-      {/* Phones: the stage Beamy stands on under the content. */}
-      {phone && <div ref={dockRef} aria-hidden data-on="false" className="bw-dock" />}
-
-      {!failed && (
-        <BeamyStage
-          apiRef={api}
-          layoutRef={layoutRef}
-          bubbleRef={bubbleRef}
-          hitRef={hitRef}
-          decorRef={decorRef}
-          startHidden
-          reducedMotion={reduced}
-          onReady={() => { logStep('model:ready'); setReady(true); }}
-          onError={() => { logStep('model:failed'); setFailed(true); }}
-        />
-      )}
       <div
         ref={bubbleRef}
         role="status"
         aria-live="polite"
-        className={`bw-bubble pointer-events-none fixed left-0 top-0 z-50 px-4 py-3 transition-opacity duration-300 ${phone ? 'text-[14px]' : ''} ${((ready && arrival === 'done') || failed) && !bubbleHidden && !failed ? 'opacity-100' : 'opacity-0'}`}
+        className={`bw-bubble pointer-events-none fixed left-0 top-0 z-50 px-4 py-3 transition-opacity duration-300 ${phone ? 'text-[14px]' : ''} ${ready && arrival === 'done' && !bubbleHidden && !failed ? 'opacity-100' : 'opacity-0'}`}
         style={{ maxWidth: 'min(300px, calc(100vw - 24px))' }}
       >
         <span className="sr-only">{line}</span>

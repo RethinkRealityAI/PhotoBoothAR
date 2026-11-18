@@ -5,7 +5,9 @@
  * BeamyStage — the full-viewport WebGL layer Beamy lives in on /beamy.
  *
  * One transparent, pointer-events-none canvas covers the whole viewport and
- * sits ABOVE the page's cards, so Beamy can walk over to a card and tap it.
+ * sits BEHIND the page (brand.css .bw-stage): Beamy glides between the
+ * sections' slots and passes behind the content; while he stands inside the
+ * hero's glass box the layer steps in front of it (`data-layer`).
  * The camera is orthographic at zoom 1, so one world unit is one CSS pixel:
  * the page speaks in viewport pixels (getBoundingClientRect) and the stage
  * maps them with x = px − w/2, y = h/2 − py. Nothing here owns copy or flow;
@@ -30,8 +32,8 @@
  * and sends light motes to a card; `arrive` drops a beam from the top of the
  * viewport and he appears where it lands.
  *
- * Scroll page: the page's scroll director (lib/beamyScroll) writes his target
- * into `layoutRef` every scroll frame; here he follows it with a clamped
+ * Scroll page: the page's slot/pose glide (lib/beamyScroll) writes his target
+ * into `layoutRef` every frame; here he follows it with damping and a clamped
  * velocity, waddles and leans into the direction of travel while moving, and
  * settles into Idle on arrival. `presence` lets him dissolve and re-form
  * (phones, hero ↔ dock). `project()` keeps a soft projector cone on a film
@@ -51,14 +53,14 @@
  * CONTENT still happens (he still arrives, takes his selfie, the card still
  * changes, the prop still shows). His clips still play: each answers a tap.
  */
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { gltfLoader, loadModel } from '../../lib/glbCache';
 import { SPIN_PER_PX, nearestFront, spinSettled, spinStep, type Spin } from '../../lib/brandLanding';
 import { SELFIE_CLIP, selfieTimeline, type SelfieTimeline } from '../../lib/beamySelfie';
 import type { Rect } from '../../lib/beamGeometry';
-import { followStep } from '../../lib/beamyScroll';
+import { DT_MAX, K_POS, K_SOFT, dampAngle, followStep } from '../../lib/beamyScroll';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { snapshotPortrait } from '../../components/beamy/selfieFx';
 
@@ -180,6 +182,8 @@ interface Props {
   reducedMotion?: boolean;
   onReady: () => void;
   onError: () => void;
+  /** Extra scene content drawn on the same canvas (the story's per-step effects). */
+  children?: ReactNode;
 }
 
 const MODEL_URL = '/mascot/beamy.glb';
@@ -400,6 +404,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const [reflectObj, setReflectObj] = useState<THREE.Object3D | null>(null);
   /** Pointer parallax, lerped (−1..1 on each axis). */
   const parallax = useRef({ x: 0, y: 0 });
+  const wrapEl = useRef<HTMLElement | null>(null);
 
   /* Load the rig once. The page owns the instance, so it is disposed here. */
   useEffect(() => {
@@ -940,7 +945,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalMat, crystalShadowMat, crystalBackMat, crystalFrontMat, coneMat, coneGeo, crystalGeos]);
 
   useFrame((state, dtRaw) => {
-    const dt = Math.min(dtRaw, 1 / 20);
+    const dt = Math.min(dtRaw, DT_MAX);
     const t = state.clock.elapsedTime;
     const layout = layoutRef.current;
     const W = sizeRef.current.width;
@@ -974,7 +979,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       scale.current += (1 - scale.current) * Math.min(1, dt * 3.5);
       const busy = reveal.current !== null || beamState.current !== null || selfieRun.current !== null;
       const maxSpeed = Math.max(900, layout.heightPx * 5) * (busy ? 0.6 : 1);
-      pos.current = arrival.current !== null ? { ...layout.home } : followStep(pos.current, layout.home, dt, maxSpeed, busy ? 5 : 7);
+      pos.current = arrival.current !== null ? { ...layout.home } : followStep(pos.current, layout.home, dt, maxSpeed, busy ? K_SOFT : K_POS);
       if (!busy && cone.current === null) yawTarget.current = layout.yaw ?? 0;
     }
     const c0 = cone.current;
@@ -982,7 +987,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       const r0 = c0.target();
       if (r0 !== null) yawTarget.current = clamp((r0.left + r0.width / 2 - pos.current.x) / 260, -1, 1) * 0.5;
     }
-    shownH.current += (layout.heightPx - shownH.current) * Math.min(1, dt * 4);
+    shownH.current += (layout.heightPx - shownH.current) * (1 - Math.exp(-K_POS * dt));
 
     /* Travel: waddle while gliding, lean into the direction of travel, a
        little hop in the step; Idle again on arrival. */
@@ -1000,7 +1005,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       if (moving.current > 0.6 && Math.abs(vx) > 40 && beamState.current === null && reveal.current === null) yawTarget.current = Math.sign(vx) * 0.7;
     }
     lean.current += (clamp(-vx / 2400, -0.14, 0.14) * (reducedRef.current ? 0.4 : 1) - lean.current) * Math.min(1, dt * 6);
-    yaw.current += (yawTarget.current - yaw.current) * Math.min(1, dt * 7);
+    yaw.current = dampAngle(yaw.current, yawTarget.current, K_SOFT, dt);
 
     const presence = clamp(layout.presence ?? 1, 0, 1);
     const heightPx = shownH.current * scale.current;
@@ -1409,6 +1414,21 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       if (p >= 1.05 && !r.done) { r.done = true; reveal.current = null; r.resolve(); }
     }
 
+    /* Layering: the canvas lives BEHIND the page, so he passes behind the
+       content as he glides. The hero's frosted glass box is the one place he
+       must stand in front (he is inside it), so while his body overlaps it
+       the layer steps in front of the page. */
+    const wrap = wrapEl.current ?? (wrapEl.current = gl.domElement.closest<HTMLElement>('[data-beamy-stage]'));
+    if (wrap !== null) {
+      const pn = dec.panel;
+      const half = heightPx * 0.6;
+      const over = pn !== null && g !== null && g.visible
+        && pos.current.x + half > pn.left && pos.current.x - half < pn.left + pn.width
+        && pos.current.y > pn.top && pos.current.y - heightPx < pn.top + pn.height;
+      const z = over ? 'front' : 'back';
+      if (wrap.dataset.layer !== z) wrap.dataset.layer = z;
+    }
+
     /* DOM followers: speech bubble over (or beside) the head, poke button over the body. */
     const top = pos.current.y - heightPx * 1.02;
     const bubble = bubbleRef.current;
@@ -1463,7 +1483,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       hit.style.width = `${hw}px`;
       hit.style.height = `${heightPx}px`;
       hit.style.transform = `translate3d(${(pos.current.x - hw / 2).toFixed(1)}px, ${top.toFixed(1)}px, 0)`;
-      const away = presence < 0.6 ? 'none' : '';
+      const away = presence < 0.6 || layout.bubbleAway === true ? 'none' : '';
       if (hit.style.pointerEvents !== away) hit.style.pointerEvents = away;
     }
   });
@@ -1525,9 +1545,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
 }
 
 export default function BeamyStage(props: Props) {
-  // DPR cap: 2 on desktop, 1.5 on phones (a full-viewport transparent canvas
+  // DPR cap: 2 on desktop, 1.6 on phones and touch (a full-viewport transparent canvas
   // at dpr 3 is the cost that hurts there).
-  const [maxDpr] = useState(() => (Math.min(window.innerWidth, window.innerHeight) < 600 ? 1.5 : 2));
+  const [maxDpr] = useState(() => (window.innerWidth <= 860 || window.matchMedia?.('(pointer: coarse)').matches ? 1.6 : 2));
   // A hidden tab renders nothing.
   const [hidden, setHidden] = useState(() => document.visibilityState === 'hidden');
   useEffect(() => {
@@ -1536,7 +1556,7 @@ export default function BeamyStage(props: Props) {
     return () => document.removeEventListener('visibilitychange', on);
   }, []);
   return (
-    <div className="pointer-events-none fixed inset-0 z-40" aria-hidden>
+    <div data-beamy-stage data-layer="back" className="bw-stage pointer-events-none fixed inset-0" aria-hidden>
       <Canvas
         orthographic
         dpr={[1, maxDpr]}
@@ -1544,12 +1564,13 @@ export default function BeamyStage(props: Props) {
         events={noopEvents}
         gl={{ alpha: true, antialias: true, powerPreference: 'high-performance' }}
         camera={{ position: [0, 0, 1000], near: 1, far: 3000, zoom: 1 }}
-        // R3F's wrapper sets pointer-events:auto; Beamy walks OVER the cards,
-        // so every tap must fall through to them.
+        // R3F's wrapper sets pointer-events:auto; the canvas is decoration,
+        // so every tap must fall through to the page.
         style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
         onCreated={({ gl }) => { gl.setClearColor(0x000000, 0); }}
       >
         <Scene {...props} />
+        {props.children}
       </Canvas>
     </div>
   );

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  CELEBRATIONS, EMOJI_RE, EXPLAIN_STEPS, FILMS, LOOKS, NAV_LINKS, POKE_IDLE, POKE_STREAK_MS,
+  CELEBRATIONS, EMOJI_RE, FILMS, STORY_STEPS, LOOKS, NAV_LINKS, POKE_IDLE, POKE_STREAK_MS,
   createReactionPicker, landingCopy, nearestFront, pickCelebration, pickReaction, planCards, pokeStep,
   pricingSection, releaseVelocity, seededRandom, spinSettled, spinStep, startFacts,
   type Moment, type PokeState, type Reaction, type Spin,
@@ -122,11 +122,10 @@ describe('copy', () => {
 
   it('points the header anchors at real stops on this page', () => {
     for (const n of NAV_LINKS) expect(stopIndex(n.stop), n.label).toBeGreaterThanOrEqual(0);
-    expect(NAV_LINKS.map((n) => n.stop)).toEqual(['try', 'how', 'pricing']);
+    expect(NAV_LINKS.map((n) => n.stop)).toEqual(['story', 'try', 'pricing']);
   });
 
-  it('reuses the original landing’s explainer and film titles, in shorter, dash-free lines', () => {
-    expect(EXPLAIN_STEPS.map((x) => x.title)).toEqual(DEFAULT_LANDING_CONTENT.howSteps.map((h) => h.title));
+  it('reuses the original landing’s film titles; the story stays short, one 3D effect a step', () => {
     expect(FILMS.map((f) => f.id)).toEqual(['booth', 'wall', 'challenges', 'cards']);
     for (const f of FILMS) {
       const d = DEFAULT_LANDING_CONTENT.features.find((x) => x.id === f.id);
@@ -134,8 +133,12 @@ describe('copy', () => {
       expect([f.eyebrow, f.title]).toEqual([d?.eyebrow, d?.title]);
       expect(f.line.length, f.id).toBeGreaterThan(0);
     }
-    // Step bodies stay short (about two lines on a card).
-    for (const x of EXPLAIN_STEPS) expect(x.body.length, x.title).toBeLessThanOrEqual(120);
+    // Step bodies stay short (about two lines on a card), each with its own effect.
+    expect(STORY_STEPS.length).toBeGreaterThanOrEqual(3);
+    expect(STORY_STEPS.length).toBeLessThanOrEqual(5);
+    expect(new Set(STORY_STEPS.map((x) => x.id)).size).toBe(STORY_STEPS.length);
+    for (const x of STORY_STEPS) expect(x.body.length, x.title).toBeLessThanOrEqual(80);
+    for (const x of STORY_STEPS) expect(x.body, x.title).not.toMatch(/—|–/);
   });
 
   it('keeps em dashes out of every line on the page', () => {

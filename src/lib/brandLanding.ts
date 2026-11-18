@@ -5,7 +5,7 @@
  * The candidate landing at /beamy (brand v2) — pure logic and copy, no React.
  *
  * A normal, natively scrolling page; Beamy travels down it with you and
- * presents each section (the scroll director is lib/beamyScroll). Everything
+ * glides between the sections' slots (the slot/pose glide is lib/beamyScroll). Everything
  * here is decision logic the page calls from its event handlers, kept pure so
  * node-env tests can hold it:
  *
@@ -13,7 +13,7 @@
  *     same action twice in a row; routine navigation gets none),
  *   • the poke streak (escalates on repeated clicks, then resets),
  *   • the drag-to-spin physics (inertia, then a springy settle to front),
- *   • the page's copy: the explainers and films reuse the original landing's
+ *   • the page's copy: the films reuse the original landing's
  *     shipped strings (lib/landingContent defaults), and every fact about
  *     plans is DERIVED from plans.ts / beta.ts so the page cannot promise a
  *     limit the product does not have.
@@ -175,8 +175,8 @@ export const HERO_HEADLINE = `${HERO.lead} ${HERO.strong}`;
 
 /** The sticky header's anchors: stops on this page. */
 export const NAV_LINKS: { label: string; stop: StopId }[] = [
+  { label: 'How it works', stop: 'story' },
   { label: 'Demo', stop: 'try' },
-  { label: 'How it works', stop: 'how' },
   { label: 'Pricing', stop: 'pricing' },
 ];
 
@@ -186,25 +186,29 @@ export const WALL_LABEL = 'Live wall';
 export const SIGNUP_PATH = '/signup';
 
 /**
- * The explainers right after the hero: the original landing's three
- * "How it works" cards (its heading line, split, and the shipped step copy),
- * which Beamy beams in one by one.
+ * The pinned story right after the hero: five glass cards, one at a time,
+ * each driving Beamy (his turn and clip) and ONE 3D effect drawn beside him
+ * in the canvas (`fx`). Short on purpose: a title and one line each.
  */
-export const EXPLAIN_COPY = {
-  heading: 'From sign-up to a wall full of moments',
-  sub: 'Three steps, no app, no queue.',
-  line: 'Here’s the whole idea, in three beams.',
+export const STORY_COPY = {
+  eyebrow: 'How it works',
+  heading: 'One scan, a whole night of moments',
 } as const;
-/**
- * The original landing's three steps (same titles, same facts), written
- * shorter for this page: the cards are beamed in one by one and should read
- * at a glance. No em dashes.
- */
-export const EXPLAIN_STEPS: { title: string; body: string }[] = [
-  { title: DEFAULT_LANDING_CONTENT.howSteps[0].title, body: 'Name it and pick a colour theme, or upload your invitation and we pull the details and colours from it.' },
-  { title: DEFAULT_LANDING_CONTENT.howSteps[1].title, body: 'Put it on tables, screens or the invite. Guests scan and they’re in: no app, nothing to install.' },
-  { title: DEFAULT_LANDING_CONTENT.howSteps[2].title, body: DEFAULT_LANDING_CONTENT.howSteps[2].body },
+
+export type StoryFxId = 'qr' | 'prop' | 'wall' | 'medal' | 'keepsake';
+export type StoryClip = 'Wave' | 'Hop' | 'BeamyBlast' | 'Dance' | 'ShadesOn';
+
+export const STORY_STEPS: { id: StoryFxId; title: string; body: string; clip: StoryClip; yaw: number }[] = [
+  { id: 'qr', title: 'Guests scan a QR code', body: 'Their own phone becomes your booth. No app, nothing to install.', clip: 'Wave', yaw: 0.55 },
+  { id: 'prop', title: 'They dress up in AR', body: 'Frames, filters and 3D props in your colours, tracked on every face.', clip: 'ShadesOn', yaw: 0.45 },
+  { id: 'wall', title: 'Every shot beams to your wall', body: 'Photos land on the live wall the moment they are taken.', clip: 'BeamyBlast', yaw: 0.6 },
+  { id: 'medal', title: 'Challenges keep it going', body: 'Missions and points get the whole room mingling.', clip: 'Dance', yaw: 0.35 },
+  { id: 'keepsake', title: 'Everyone leaves with a keepsake', body: 'Keepsake cards and the album, ready to share after the night.', clip: 'Hop', yaw: 0.5 },
 ];
+
+export const FILMS_COPY = {
+  heading: 'See it in motion',
+} as const;
 
 /** This page's own wording of a film hook, where the shared default reads machine-written. */
 const FILM_LINE: Partial<Record<string, string>> = {
@@ -241,14 +245,6 @@ export const TRY_COPY = {
   start: 'Start the camera',
   privacy: 'Nothing leaves your device.',
 } as const;
-
-export const MAGIC_COPY = {
-  heading: '3D that follows every face',
-  line: 'Crowns, shades and hats your guests wear live, in every shot.',
-  again: 'Again',
-} as const;
-
-export const HOW_COPY = { heading: 'Live in three steps' } as const;
 
 /** The demo's look pills (same four sets as the landing's in-phone pills);
  *  `kit` is a lib/demoKits id, null = the default Beam set. */
@@ -348,10 +344,9 @@ export function landingCopy(): string[] {
   const pr = pricingSection();
   return [
     ...Object.values(HERO), HERO_HEADLINE, WALL_LABEL, ...NAV_LINKS.map((n) => n.label),
-    ...Object.values(EXPLAIN_COPY), ...EXPLAIN_STEPS.flatMap((x) => [x.title, x.body]),
-    ...FILMS.flatMap((f) => [f.eyebrow, f.title, f.line, f.beamy]),
-    ...Object.values(PICK_COPY), ...Object.values(TRY_COPY),
-    ...Object.values(MAGIC_COPY), ...Object.values(HOW_COPY), ...Object.values(START_COPY),
+    ...Object.values(STORY_COPY), ...STORY_STEPS.flatMap((x) => [x.title, x.body]),
+    ...Object.values(FILMS_COPY), ...FILMS.flatMap((f) => [f.eyebrow, f.title, f.line, f.beamy]),
+    ...Object.values(PICK_COPY), ...Object.values(TRY_COPY), ...Object.values(START_COPY),
     s.heading, s.line, ...s.bullets, ...FOOTER_LINKS.map((f) => f.label),
     ...LOOKS.map((l) => l.label),
     pr.heading, pr.intro, pr.pro, pr.recommended, pr.line,

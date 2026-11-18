@@ -1,189 +1,132 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FOCUS, GLIDE_AFTER, NIGHT, nightAt, GLIDE_BEFORE, GUTTER_SCALE, REVEAL_FALLBACK_MS, STOPS, directBeamy, facingYaw, followStep, mustRevealNow,
-  pageProgress, settledAt, stopIndex, type DirectorInput, type StopAnchor,
+  DT_MAX, SIGMA, STOPS, blendSlots, damp, dampAngle, followStep, pageProgress, pinProgress, poseInSlot,
+  slotWeight, stopIndex, storyHeightVh, storyStep, weightedNight, type SlotSample,
 } from './beamyScroll';
 
-const VP = 900;
-const band = { top: 150, bottom: VP - 20 };
-
-/** A desktop-ish page: sections 1000px tall, Beamy's feet 600px into each. */
-function page(n: number, sides = STOPS.map((s) => s.side)): StopAnchor[] {
-  return Array.from({ length: n }, (_, i) => {
-    const side = sides[i % sides.length];
-    const x = side === 'left' ? 300 : side === 'right' ? 1100 : 700;
-    return { top: i * 1000, bottom: (i + 1) * 1000, feet: { x, y: i * 1000 + 600 }, heightPx: 260, side, docked: false };
-  });
-}
-const input = (stops: StopAnchor[], scrollY: number, over: Partial<DirectorInput> = {}): DirectorInput => ({
-  stops, scrollY, vpH: VP, dockY: band.bottom, band, ...over,
+const VW = 1440;
+const VH = 900;
+const slot = (id: string, left: number, top: number, w: number, h: number, yaw = 0, fx?: Record<string, number>): SlotSample => ({
+  id, rect: { left, top, width: w, height: h }, pose: { fit: 0.9, yaw, fx },
 });
 
-describe('stops', () => {
-  it('alternate sides and never repeat a presenting action back to back', () => {
-    expect(STOPS[0]).toMatchObject({ id: 'hero', side: 'centre', presenting: 'intro' });
-    for (let i = 1; i < STOPS.length; i++) {
-      expect(STOPS[i].presenting, STOPS[i].id).not.toBe(STOPS[i - 1].presenting);
-      if (STOPS[i].side !== 'centre' && STOPS[i - 1].side !== 'centre') expect(STOPS[i].side, STOPS[i].id).not.toBe(STOPS[i - 1].side);
-    }
-    expect(new Set(STOPS.map((s) => s.id)).size).toBe(STOPS.length);
-    expect(stopIndex('try')).toBeGreaterThan(stopIndex('pick'));
-    expect(STOPS[STOPS.length - 1].id).toBe('start');
-  });
-  it('faces the content side', () => {
-    expect(facingYaw('left')).toBeGreaterThan(0);
-    expect(facingYaw('right')).toBeLessThan(0);
-    expect(facingYaw('centre')).toBe(0);
+describe('slot weights', () => {
+  it('is 1 at the viewport centre and falls off as a Gaussian of viewport heights', () => {
+    expect(slotWeight(VH / 2, VH)).toBeCloseTo(1, 6);
+    expect(slotWeight(VH / 2 + SIGMA * VH, VH)).toBeCloseTo(Math.exp(-1), 6);
+    expect(slotWeight(VH / 2 - VH, VH)).toBeLessThan(0.01);
   });
 });
 
-describe('directBeamy', () => {
-  const stops = page(4);
-  it('rides with the anchor while settled', () => {
-    // Focus line well inside section 0, before the first glide window.
-    const a = directBeamy(input(stops, 0));
-    const b = directBeamy(input(stops, 40));
-    expect(a.active).toBe(0);
-    expect(a.travelling).toBe(false);
-    expect(a.x).toBe(stops[0].feet.x);
-    expect(a.y - b.y).toBeCloseTo(40, 5);
+describe('poseInSlot', () => {
+  it('stands his feet on the slot floor, as tall as the fit allows', () => {
+    const p = poseInSlot({ left: 100, top: 200, width: 400, height: 300 }, { fit: 0.8, yaw: 0 });
+    expect(p).toEqual({ x: 300, y: 500, heightPx: 240 });
   });
-  it('stays inside the band when the anchor leaves the screen', () => {
-    for (let s = 0; s < 4000; s += 37) {
-      const t = directBeamy(input(stops, s));
-      expect(t.y - t.heightPx).toBeGreaterThanOrEqual(band.top - 1e-6);
-      expect(t.y).toBeLessThanOrEqual(band.bottom + 1e-6);
-    }
-  });
-  it('glides across the boundary window and lands on the next anchor', () => {
-    const edge = stops[1].top;
-    const start = edge - VP * GLIDE_BEFORE - VP * FOCUS;
-    const end = edge + VP * GLIDE_AFTER - VP * FOCUS;
-    const before = directBeamy(input(stops, start - 1));
-    const mid = directBeamy(input(stops, (start + end) / 2));
-    const after = directBeamy(input(stops, end + 1));
-    expect(before.active).toBe(0);
-    expect(before.travelling).toBe(false);
-    expect(mid.travelling).toBe(true);
-    expect(mid.heading).toBe(Math.sign(stops[1].feet.x - stops[0].feet.x));
-    expect(Math.abs(mid.yaw)).toBeGreaterThan(Math.abs(facingYaw(stops[1].side)));
-    expect(after.active).toBe(1);
-    expect(after.x).toBe(stops[1].feet.x);
-    expect(after.yaw).toBe(facingYaw(stops[1].side));
-  });
-  it('crosses the page in the gutter between sections, smaller, never over either section', () => {
-    const edge = stops[1].top;
-    const start = edge - VP * GLIDE_BEFORE - VP * FOCUS;
-    const end = edge + VP * GLIDE_AFTER - VP * FOCUS;
-    const scroll = (start + end) / 2;
-    const mid = directBeamy(input(stops, scroll));
-    const boundary = edge - scroll;
-    expect(mid.heightPx).toBeCloseTo(((stops[0].heightPx + stops[1].heightPx) / 2) * GUTTER_SCALE, 5);
-    // His middle sits on the boundary: he spans the gap, not the copy either side.
-    expect(mid.y - mid.heightPx / 2).toBeCloseTo(boundary, 5);
-    // While he is still well across, he is already down in the gap.
-    for (const k of [0.4, 0.6]) {
-      const t = directBeamy(input(stops, start + (end - start) * k));
-      expect(Math.abs(t.y - t.heightPx / 2 - (edge - (start + (end - start) * k))), `k ${k}`).toBeLessThan(t.heightPx * 0.25);
-    }
-  });
-  it('moves continuously (no jumps) for a fine scroll sweep', () => {
-    let prev = directBeamy(input(stops, 0));
-    for (let s = 1; s < 3200; s += 1) {
-      const t = directBeamy(input(stops, s));
-      expect(Math.hypot(t.x - prev.x, t.y - prev.y), `scroll ${s}`).toBeLessThan(12);
-      prev = t;
-    }
-  });
-  it('reports progress through the active section', () => {
-    const t = directBeamy(input(stops, 2000 + 500 - VP * FOCUS));
-    expect(t.active).toBe(2);
-    expect(t.progress).toBeCloseTo(0.5, 2);
-  });
-  it('waits mid-screen with no stops measured yet', () => {
-    expect(directBeamy(input([], 0)).presence).toBe(1);
+  it('fits a narrow slot by its width', () => {
+    const p = poseInSlot({ left: 0, top: 0, width: 85, height: 600 }, { fit: 1, yaw: 0 });
+    expect(p.heightPx).toBeCloseTo(100, 6);
   });
 });
 
-describe('phone dock', () => {
-  const stops = page(3).map((s, i) => ({ ...s, docked: i > 0, heightPx: i > 0 ? 130 : 200 }));
-  it('stands docked stops on the dock line', () => {
-    const t = directBeamy(input(stops, 2600));
-    expect(t.active).toBe(2);
-    expect(t.y).toBe(band.bottom);
+describe('blendSlots', () => {
+  it('sits exactly in a slot centred on the viewport', () => {
+    const b = blendSlots([slot('a', 100, VH / 2 - 150, 300, 300, 0.4), slot('b', 1000, VH * 3, 300, 300, -0.4)], VW, VH, false);
+    expect(b.active).toBe(0);
+    expect(b.x).toBeCloseTo(250, 0);
+    expect(b.y).toBeCloseTo(VH / 2 + 150, 0);
+    expect(b.yaw).toBeCloseTo(0.4, 2);
+    expect(b.presence).toBe(1);
   });
-  it('dissolves between the in-flow hero and the dock, and is whole at both ends', () => {
-    const edge = stops[1].top;
-    const start = edge - VP * GLIDE_BEFORE - VP * FOCUS;
-    const end = edge + VP * GLIDE_AFTER - VP * FOCUS;
-    expect(directBeamy(input(stops, start)).presence).toBe(1);
-    expect(directBeamy(input(stops, (start + end) / 2)).presence).toBe(0);
-    expect(directBeamy(input(stops, end)).presence).toBe(1);
+  it('glides between two slots: half way when both are equally far', () => {
+    const a = slot('a', 0, VH / 2 - 150 - 300, 200, 300);
+    const c = slot('b', 1000, VH / 2 - 150 + 300, 200, 300);
+    const b = blendSlots([a, c], VW, VH, false);
+    expect(b.x).toBeCloseTo((100 + 1100) / 2, 3);
+    expect(b.share).toBeCloseTo(0.5, 6);
   });
-  it('slides along the dock between docked stops without dissolving', () => {
-    const edge = stops[2].top;
-    const mid = edge - VP * FOCUS + (VP * (GLIDE_AFTER - GLIDE_BEFORE)) / 2;
-    expect(directBeamy(input(stops, mid)).presence).toBe(1);
+  it('blends angles the short way round', () => {
+    const a = slot('a', 0, VH / 2 - 150 - 200, 200, 300, Math.PI - 0.1);
+    const c = slot('b', 0, VH / 2 - 150 + 200, 200, 300, -Math.PI + 0.1);
+    const b = blendSlots([a, c], VW, VH, false);
+    expect(Math.abs(Math.abs(b.yaw) - Math.PI)).toBeLessThan(1e-6);
   });
-});
-
-describe('settledAt', () => {
-  it('maps document feet to the viewport', () => {
-    const s: StopAnchor = { top: 0, bottom: 1000, feet: { x: 10, y: 700 }, heightPx: 100, side: 'left', docked: false };
-    expect(settledAt(s, { scrollY: 100, dockY: 880, band: { top: 0, bottom: 900 } })).toEqual({ x: 10, y: 600 });
+  it('weights effects by how present their slot is', () => {
+    const b = blendSlots([slot('a', 0, VH / 2 - 150, 200, 300, 0, { qr: 1 }), slot('b', 0, VH * 4, 200, 300, 0, { wall: 1 })], VW, VH, false);
+    expect(b.fx.qr).toBeGreaterThan(0.99);
+    expect(b.fx.wall ?? 0).toBeLessThan(0.01);
   });
-});
-
-describe('followStep', () => {
-  it('approaches the target and never exceeds the speed cap', () => {
-    let p = { x: 0, y: 0 };
-    const target = { x: 2000, y: 0 };
-    for (let i = 0; i < 30; i++) {
-      const n = followStep(p, target, 1 / 60, 900);
-      expect(Math.hypot(n.x - p.x, n.y - p.y)).toBeLessThanOrEqual(900 / 60 + 1e-9);
-      expect(n.x).toBeGreaterThan(p.x);
-      p = n;
-    }
-    let q = { x: 0, y: 0 };
-    for (let i = 0; i < 600; i++) q = followStep(q, { x: 50, y: 20 }, 1 / 60, 900);
-    expect(q.x).toBeCloseTo(50, 3);
-    expect(q.y).toBeCloseTo(20, 3);
+  it('dissolves him on phones while the weight is split, never on desktop', () => {
+    const a = slot('a', 0, VH / 2 - 150 - 300, 200, 300);
+    const c = slot('b', 0, VH / 2 - 150 + 300, 200, 300);
+    expect(blendSlots([a, c], 412, VH, true).presence).toBe(0);
+    expect(blendSlots([a, c], VW, VH, false).presence).toBe(1);
+    const settled = blendSlots([slot('a', 0, VH / 2 - 150, 200, 300), slot('b', 0, VH * 3, 200, 300)], 412, VH, true);
+    expect(settled.presence).toBe(1);
   });
-});
-
-describe('reveals and progress', () => {
-  it('never strands content', () => {
-    expect(mustRevealNow({ active: true, progress: 0.1, sinceEnterMs: 100, modelReady: true })).toBe(false);
-    expect(mustRevealNow({ active: false, progress: 0.1, sinceEnterMs: 100, modelReady: true })).toBe(true);
-    expect(mustRevealNow({ active: true, progress: 0.8, sinceEnterMs: 100, modelReady: true })).toBe(true);
-    expect(mustRevealNow({ active: true, progress: 0.1, sinceEnterMs: REVEAL_FALLBACK_MS + 1, modelReady: true })).toBe(true);
-    expect(mustRevealNow({ active: true, progress: 0, sinceEnterMs: 0, modelReady: false })).toBe(true);
+  it('holds the nearest slot when every slot is far away, and ignores empty boxes', () => {
+    const b = blendSlots([slot('a', 0, -8000, 200, 300), slot('b', 500, 9000, 200, 300), slot('z', 0, VH / 2, 0, 0)], VW, VH, false);
+    expect(b.active).toBe(0);
+    expect(b.x).toBeCloseTo(100, 6);
   });
-  it('clamps page progress', () => {
-    expect(pageProgress(-10, 5000, 900)).toBe(0);
-    expect(pageProgress(4100, 5000, 900)).toBe(1);
-    expect(pageProgress(2050, 5000, 900)).toBeCloseTo(0.5, 5);
+  it('waits mid-screen, hidden, with no slot at all', () => {
+    const b = blendSlots([], VW, VH, false);
+    expect(b.active).toBe(-1);
+    expect(b.presence).toBe(0);
   });
 });
 
-describe('colour journey', () => {
-  const stops = page(STOPS.length);
-  it('starts bright, sinks to midnight mid-page and lifts for the close', () => {
-    expect(nightAt(stops, 0)).toBe(0);
-    expect(NIGHT.hero).toBe(0);
-    expect(Math.max(...Object.values(NIGHT))).toBe(1);
-    expect(nightAt(stops, stops[stopIndex('pick')].top + 500)).toBeCloseTo(1, 5);
-    expect(nightAt(stops, 1e9)).toBeLessThan(0.2);
-    expect(nightAt([], 500)).toBe(0);
+describe('damping', () => {
+  it('is frame-rate independent', () => {
+    let a = 0;
+    for (let i = 0; i < 60; i++) a = damp(a, 100, 12.6, 1 / 60);
+    let b = 0;
+    for (let i = 0; i < 30; i++) b = damp(b, 100, 12.6, 1 / 30);
+    expect(a).toBeCloseTo(b, 6);
   });
-  it('never steps: a fine sweep moves by tiny amounts', () => {
-    let prev = nightAt(stops, 0);
-    for (let y = 0; y < STOPS.length * 1000; y += 4) {
-      const n = nightAt(stops, y);
-      expect(Math.abs(n - prev), `y ${y}`).toBeLessThan(0.01);
-      expect(n).toBeGreaterThanOrEqual(0);
-      expect(n).toBeLessThanOrEqual(1);
-      prev = n;
-    }
+  it('clamps a long frame to 34ms', () => {
+    expect(damp(0, 100, 10, 1)).toBeCloseTo(damp(0, 100, 10, DT_MAX), 9);
+  });
+  it('turns the short way round', () => {
+    const v = dampAngle(Math.PI - 0.1, -Math.PI + 0.1, 100, DT_MAX);
+    expect(v).toBeGreaterThan(Math.PI - 0.1);
+  });
+  it('caps the follow speed', () => {
+    const p = followStep({ x: 0, y: 0 }, { x: 10000, y: 0 }, 1 / 60, 600);
+    expect(p.x).toBeCloseTo(10, 6);
+  });
+});
+
+describe('pinned story', () => {
+  it('sizes the section n × 85vh + 100vh (75vh a step on phones)', () => {
+    expect(storyHeightVh(5, false)).toBe(525);
+    expect(storyHeightVh(5, true)).toBe(475);
+  });
+  it('maps scroll to steps with floor(progress × n), holding the last', () => {
+    const h = VH * 5.25;
+    expect(pinProgress(0, h, VH)).toBe(0);
+    expect(pinProgress(-(h - VH), h, VH)).toBe(1);
+    expect(storyStep(0, 5)).toBe(0);
+    expect(storyStep(0.19, 5)).toBe(0);
+    expect(storyStep(0.2, 5)).toBe(1);
+    expect(storyStep(1, 5)).toBe(4);
+    expect(storyStep(-1, 5)).toBe(0);
+  });
+});
+
+describe('page journey', () => {
+  it('lists the stops top to bottom with alternating sides after the hero', () => {
+    expect(STOPS.map((s) => s.id)).toEqual(['hero', 'story', 'films', 'pick', 'try', 'pricing', 'start']);
+    expect(stopIndex('films')).toBe(2);
+    const sides = STOPS.filter((s) => s.side !== 'centre').map((s) => s.side);
+    for (let i = 1; i < sides.length; i++) expect(sides[i]).not.toBe(sides[i - 1]);
+  });
+  it('blends the night like the slots, holding inside a section', () => {
+    const secs = [{ top: -2000, height: 1500, night: 0 }, { top: -500, height: 3000, night: 1 }];
+    expect(weightedNight(secs, VH)).toBeGreaterThan(0.99);
+    const edge = weightedNight([{ top: -VH, height: VH * 1.5, night: 0 }, { top: VH / 2, height: VH, night: 1 }], VH);
+    expect(edge).toBeGreaterThan(0.3);
+    expect(edge).toBeLessThan(0.7);
+    expect(pageProgress(500, 2000, 1000)).toBe(0.5);
   });
 });
