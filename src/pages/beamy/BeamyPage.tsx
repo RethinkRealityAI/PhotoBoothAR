@@ -782,6 +782,15 @@ export default function BeamyPage() {
   const pickOn = pickLit || failed || reduced;
 
   const inStoryAR = active === 'story' && STORY_STEPS[step]?.id === 'prop';
+  /* The challenge step's selfie: Beamy photobombs it with his own portrait,
+     taken once he has settled into the step (null keeps the selfie alone). */
+  const inMedal = active === 'story' && STORY_STEPS[step]?.id === 'medal';
+  const [portrait, setPortrait] = useState<string | null>(null);
+  useEffect(() => {
+    if (!inMedal || !ready || failed || portrait !== null) return;
+    const id = window.setTimeout(() => setPortrait(api.current?.portrait() ?? null), 600);
+    return () => window.clearTimeout(id);
+  }, [inMedal, ready, failed, portrait]);
   const tryOn = ready && !failed && arrival === 'done' && !introRunning && active === 'hero';
   const lastWorn = useRef(-1);
   useEffect(() => {
@@ -1344,7 +1353,7 @@ export default function BeamyPage() {
   );
   const storyScenes = (
     <>
-      <StoryScenes step={step} ids={storyIds} stacked={stacked} qrUrl={qrUrl} boothFrame={assetThumb({ url: '/guides/frames/wedding-monogram-drop.png' })} ripple={storyRipple} wallCentreRef={storyWallRef} seed={seed} />
+      <StoryScenes step={step} ids={storyIds} stacked={stacked} qrUrl={qrUrl} boothFrame={assetThumb({ url: '/guides/frames/wedding-monogram-drop.png' })} beamyPortrait={portrait} ripple={storyRipple} wallCentreRef={storyWallRef} seed={seed} />
       <ArPicker looks={AR_LOOKS} ix={arIx} onPick={pickAr} active={inStoryAR} stacked={stacked} />
     </>
   );

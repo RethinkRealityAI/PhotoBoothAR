@@ -14,13 +14,17 @@ export const STORY_SCENE = {
   qr: { event: 'Ada & Tunde’s wedding', scan: 'Point your camera', hint: 'No app needed', real: 'Scan it for real', tabs: ['Frame', 'Effect', '3D'] as const },
   wall: { sent: 'Sent to the wall' },
   medal: {
-    eyebrow: 'Challenge',
+    eyebrow: 'New challenge alert',
     mission: 'Selfie with the bride',
     points: '+50 pts',
     board: 'Leaderboard',
-    rows: [['Table 4', 320], ['The Okafors', 280], ['Uncle Femi', 240]] as [string, number][],
+    /** The board before the shot lands; the sender then jumps to #1 with the mission's points. */
+    rows: [['Table 4', 40], ['The Okafors', 30], ['Uncle Femi', 20]] as [string, number][],
+    sender: 'Ada',
+    sent: 'Sent by Ada',
+    winPts: 50,
   },
-  keepsake: { album: 'Your digital album', count: '48 photos', film: 'Your night, auto-made', length: '0:30' },
+  keepsake: { album: 'Your digital album', count: '48 photos', film: 'Your night, auto-made', length: '0:30', making: 'Making your film' },
 } as const;
 
 /** Every line a scene puts on screen, for the copy rules. */
@@ -28,7 +32,7 @@ export function storySceneLines(): string[] {
   const s = STORY_SCENE;
   return [
     s.qr.event, s.qr.scan, s.qr.hint, s.qr.real, ...s.qr.tabs, s.wall.sent, s.medal.eyebrow, s.medal.mission, s.medal.points, s.medal.board,
-    ...s.medal.rows.map((r) => r[0]), s.keepsake.album, s.keepsake.count, s.keepsake.film,
+    ...s.medal.rows.map((r) => r[0]), s.medal.sender, s.medal.sent, s.keepsake.album, s.keepsake.count, s.keepsake.film, s.keepsake.making,
   ];
 }
 
