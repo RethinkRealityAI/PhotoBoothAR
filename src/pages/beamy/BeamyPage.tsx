@@ -563,14 +563,15 @@ export default function BeamyPage() {
       const region = heroRegionRef.current;
       if (region === null) return;
       const rr = region.getBoundingClientRect();
-      const wallW = Math.round(rr.width * 0.6);
+      const wallW = Math.round(rr.width * 0.57);
       const wallLeft = rr.width - wallW;
       // Compact wall: 3 tiles + 2 gaps of 4 + 6px padding a side; label row ~24.
       const rows = wallRows(wallW, rr.height, 8 + 12, 24 + 12 + 12);
-      // With his arms out Beamy is ~1.2× as wide as he is tall: he fills the
-      // gap left of the wall and his near arm overlaps its corner by ~18px.
-      const h = Math.max(96, Math.min(rr.height * 0.55, (wallLeft + 18) / 1.2, 280));
-      const x = wallLeft - h * 0.6 + 18;
+      // With his arms out Beamy is ~1.18× as wide as he is tall: he fills the
+      // gap left of the wall (his far hand may reach ~20px into the panel's
+      // side padding) and his near arm overlaps the wall's corner by ~24px.
+      const h = Math.max(96, Math.min(rr.height * 0.6, (wallLeft + 24 + 20) / 1.18, 300));
+      const x = wallLeft - h * 0.59 + 24;
       const avail = rr.height - h - 22;
       const ah = Math.min(avail * 0.8, 190, 2 * (wallLeft - 24));
       const accent = ah >= 64
@@ -1254,7 +1255,7 @@ export default function BeamyPage() {
     <HeroPhone
       ref={accentRef}
       box={heroGeo.accent}
-      restOn={() => heroTileRef.current}
+      wall={() => heroTileRef.current?.closest<HTMLElement>('.bw-wall') ?? null}
       photo={WALL_POOL[0]}
       frame={lookFrameUrl(null)}
       reduced={reduced}
@@ -1348,7 +1349,7 @@ export default function BeamyPage() {
                 CTAs; Beamy stands lower left, just in front of its corner. */}
             <div ref={heroRegionRef} className="relative mt-3 min-h-[200px] flex-1">
               <span aria-hidden className="bw-crystal-far" style={{ right: 0, top: '-6%', width: 90, height: 120, rotate: '18deg' }} />
-              <div className={`absolute bottom-0 right-0 top-0 w-[60%] ${showContent ? 'bw-rise' : 'invisible'}`} style={i(2)}>{heroWall}</div>
+              <div className={`absolute bottom-0 right-0 top-0 w-[57%] ${showContent ? 'bw-rise' : 'invisible'}`} style={i(2)}>{heroWall}</div>
               {heroGeo?.stand != null && slot(
                 'absolute bottom-0',
                 { max: heroGeo.stand.h, bubble: false },

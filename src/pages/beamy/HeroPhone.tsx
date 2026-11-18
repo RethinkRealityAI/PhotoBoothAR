@@ -44,15 +44,15 @@ function arc(a: Pt, b: Pt): { c: Pt; at: (k: number) => Pt } {
 const HeroPhone = forwardRef<HeroPhoneHandle, {
   /** The phone's box, in the hero pane's px. */
   box: Box;
-  /** Where the beam rests between photos (the wall's centre tile). */
-  restOn: () => HTMLElement | null;
+  /** The wall: the beam meets its left rim (never across its photos). */
+  wall: () => HTMLElement | null;
   /** What the phone's screen shows: a guest photo under a look frame. */
   photo: string;
   frame: string | null;
   reduced: boolean;
   /** The layer's parallax depth (px per unit of pointer; px per px of scroll). */
   depth: { dx: number; dy: number; ds: number };
-}>(function HeroPhone({ box, restOn, photo, frame, reduced, depth }, ref) {
+}>(function HeroPhone({ box, wall, photo, frame, reduced, depth }, ref) {
   const layerRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = [useRef<HTMLDivElement | null>(null), useRef<HTMLDivElement | null>(null)];
   const cardImgs = [useRef<HTMLImageElement | null>(null), useRef<HTMLImageElement | null>(null)];
@@ -71,19 +71,28 @@ const HeroPhone = forwardRef<HeroPhoneHandle, {
     return { x: r.left - lr.left + r.width * fx, y: r.top - lr.top + r.height * fy };
   }, []);
 
-  // Rest the beam on the wall (re-aimed on every layout change).
+  /** Where the beam meets the wall: its left rim, at a given height (0..1 of the wall). */
+  const rim = useCallback((fy: number): Pt | null => {
+    const el = wall();
+    return el === null ? null : local(el, 0.012, fy);
+  }, [wall, local]);
+  // Rest the beam on the wall's rim near its top-left (re-aimed on every layout change).
   useEffect(() => {
-    const el = restOn();
-    if (el === null) return;
-    const p = local(el);
+    const p = rim(0.16);
     if (p !== null) setAim(p);
-  }, [box.left, box.top, box.width, box.height, restOn, local]);
+  }, [box.left, box.top, box.width, box.height, rim]);
 
   useImperativeHandle(ref, () => ({
     fly(tile, src, ms) {
       if (reduced) return;
-      const to = local(tile);
-      if (to === null) return;
+      // The card rides the beam into the rim at the changing tile's row (it
+      // never crosses the other photos); the tile swaps as it arrives.
+      const el = wall();
+      const t = local(tile);
+      const w = el !== null ? el.getBoundingClientRect() : null;
+      const l = layerRef.current?.getBoundingClientRect();
+      if (t === null || w === null || l === undefined) return;
+      const to = { x: w.left - l.left + w.width * 0.012, y: t.y };
       setAim(to);
       const n = nextCard.current;
       nextCard.current = (n + 1) % cardRefs.length;
@@ -94,7 +103,7 @@ const HeroPhone = forwardRef<HeroPhoneHandle, {
       if (screenRef.current !== null) screenRef.current.src = src;
       const tr = tile.getBoundingClientRect();
       const cw = card.offsetWidth || 30;
-      const end = Math.max(0.5, Math.min(tr.width / cw, 3) * 0.8);
+      const end = Math.max(0.5, Math.min(tr.width / cw, 2) * 0.55);
       const path = arc(cam, to);
       const frames: Keyframe[] = [];
       for (let i = 0; i <= 16; i++) {
