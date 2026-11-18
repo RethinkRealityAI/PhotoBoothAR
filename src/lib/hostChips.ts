@@ -123,32 +123,32 @@ export function quickChipsFor(input: {
   const packId = packForEventType(s.eventType).id;
   const live = s.status === 'live';
   const newChallenge: Chip = {
-    id: 'challenge', label: '🏆 Challenge',
+    id: 'challenge', label: 'Challenge',
     run: { kind: 'open', action: { tool: 'add_challenge', proposal: { title: 'New photo mission', emoji: '⭐', points: 10, description: '' } } },
   };
-  const starterPack: Chip = { id: 'pack', label: '🎁 Starter pack', run: { kind: 'pack', packId } };
-  const goLive: Chip = { id: 'live', label: '🚀 Go live', run: { kind: 'open', action: { tool: 'go_live' } } };
+  const starterPack: Chip = { id: 'pack', label: 'Starter pack', run: { kind: 'pack', packId } };
+  const goLive: Chip = { id: 'live', label: 'Go live', run: { kind: 'open', action: { tool: 'go_live' } } };
 
   if (input.mode === 'build') {
     const chips: Chip[] = [];
     if (missing.has('frame')) {
       chips.push({
-        id: 'frame', label: '🖼 Frame',
+        id: 'frame', label: 'Frame',
         run: { kind: 'open', action: { tool: 'generate_frame', proposal: { prompt: `An elegant frame for "${s.name}" — refined ornament hugging the edges, centre fully clear` } } },
       });
     }
     if (missing.has('filter')) {
-      chips.push({ id: 'filter', label: '🎨 Filter', run: { kind: 'open', action: { tool: 'set_filter', proposal: { shaderId: DEFAULT_FILTER_ID } } } });
+      chips.push({ id: 'filter', label: 'Filter', run: { kind: 'open', action: { tool: 'set_filter', proposal: { shaderId: DEFAULT_FILTER_ID } } } });
     }
     if (missing.has('prop')) {
-      chips.push({ id: 'prop', label: '👑 3D prop', run: { kind: 'open', action: { tool: 'add_head_piece', proposal: { source: 'builtin', pieceId: DEFAULT_PIECE_ID } } } });
+      chips.push({ id: 'prop', label: '3D prop', run: { kind: 'open', action: { tool: 'add_head_piece', proposal: { source: 'builtin', pieceId: DEFAULT_PIECE_ID } } } });
     }
     if (missing.has('challenges')) chips.push(starterPack, newChallenge);
-    chips.push({ id: 'test', label: '📱 Test', run: { kind: 'readonly', action: { tool: 'test_experience' } } });
+    chips.push({ id: 'test', label: 'Test', run: { kind: 'readonly', action: { tool: 'test_experience' } } });
     if (!live) chips.push(goLive);
     chips.push(
-      { id: 'checklist', label: '📋 Checklist', run: { kind: 'checklist' } },
-      { id: 'recommend', label: '✨ Recommend', run: { kind: 'send', text: 'Recommend a frame and a filter that fit this event, and propose them.' } },
+      { id: 'checklist', label: 'Checklist', run: { kind: 'checklist' } },
+      { id: 'recommend', label: 'Recommend', run: { kind: 'send', text: 'Recommend a frame and a filter that fit this event, and propose them.' } },
     );
     return chips;
   }
@@ -156,18 +156,18 @@ export function quickChipsFor(input: {
   const chips: Chip[] = [];
   if (missing.has('challenges')) chips.push(starterPack);
   chips.push(
-    { id: 'stats', label: '📊 Stats', run: { kind: 'readonly', action: { tool: 'get_stats' } } },
-    { id: 'share', label: '🔗 Share links', run: { kind: 'readonly', action: { tool: 'share_links' } } },
-    { ...newChallenge, label: '🏆 New challenge' },
+    { id: 'stats', label: 'Stats', run: { kind: 'readonly', action: { tool: 'get_stats' } } },
+    { id: 'share', label: 'Share links', run: { kind: 'readonly', action: { tool: 'share_links' } } },
+    { ...newChallenge, label: 'New challenge' },
     {
-      id: 'card', label: '💌 New card',
+      id: 'card', label: 'New card',
       run: { kind: 'open', action: { tool: 'create_card', proposal: { cardTitle: `Memories for ${s.name}`, recipientName: '', cardTemplate: 'storybook', deadline: '' } } },
     },
   );
   if (!missing.has('challenges')) {
     // AI round-trip on purpose: the model designs a THEMED set from the live
     // event snapshot, then it arrives as one confirm card.
-    chips.push({ id: 'pack-ai', label: '🎁 Challenge pack', run: { kind: 'send', text: 'Design a themed pack of 5 photo challenges that fit this event.' } });
+    chips.push({ id: 'pack-ai', label: 'Challenge pack', run: { kind: 'send', text: 'Design a themed pack of 5 photo challenges that fit this event.' } });
   }
   if (!live) chips.push(goLive);
   return chips;

@@ -820,7 +820,7 @@ export function buildBoothTestSurface(
       // means ("anyone with the link can post to your wall") — a preview card
       // publishing the event on a single tap, with no warning and no undo.
       { id: 'goLiveBtn', component: 'Button', variant: 'primary', child: 'goLiveLabel', action: { event: { name: 'open_go_live_card', context: {} } } },
-      { id: 'goLiveLabel', component: 'Text', text: '🚀 Go live' },
+      { id: 'goLiveLabel', component: 'Text', text: 'Go live' },
     );
   }
   return surface(surfaceId, {}, comps);

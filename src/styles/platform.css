@@ -228,6 +228,12 @@
     background-color: var(--bw-accent);
     color: var(--bw-on-accent);
   }
+  /* Same for icons inside an accent fill that carry their own text-white
+     (avatar dots, selected-tile checks). */
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) :is(.bg-foil, .bg-accent, [class*="bg-[color:var(--color-accent)]"]) .text-white,
+  :is(:root:not([data-event], [data-look="previous"]), [data-platform]) :is(.bg-accent, [class*="bg-[color:var(--color-accent)]"]).text-white {
+    color: var(--bw-on-accent);
+  }
   :is(:root:not([data-event], [data-look="previous"]), [data-platform]) .bg-foil:hover:not(:disabled) {
     background-color: var(--bw-accent-hover);
   }
