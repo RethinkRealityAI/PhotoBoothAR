@@ -54,13 +54,14 @@
  * changes, the prop still shows). His clips still play: each answers a tap.
  */
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { gltfLoader, loadModel } from '../../lib/glbCache';
 import { SPIN_PER_PX, nearestFront, spinSettled, spinStep, type Spin } from '../../lib/brandLanding';
 import { SELFIE_CLIP, selfieTimeline, type SelfieTimeline } from '../../lib/beamySelfie';
 import type { Rect } from '../../lib/beamGeometry';
-import { DT_MAX, K_POS, K_SOFT, dampAngle, followStep } from '../../lib/beamyScroll';
+import { DT_MAX, K_POS, K_SOFT, dampAngle, glideStep, governDpr, type GlidePt } from '../../lib/beamyScroll';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { snapshotPortrait } from '../../components/beamy/selfieFx';
 import { HOME_ASSET_DEFAULTS } from '../../lib/beamyAssets';
@@ -91,6 +92,8 @@ export interface StageLayout {
   bubbleMaxY?: number;
   /** The bubble steps aside (he is crossing the page; it would trail over copy). */
   bubbleAway?: boolean;
+  /** How long the page's last slot read took (ms), for the ?debug readout. */
+  tickMs?: number;
 }
 
 /**
@@ -196,6 +199,17 @@ interface Props {
   onError: () => void;
   /** Extra scene content drawn on the same canvas (the story's per-step effects). */
   children?: ReactNode;
+  /** Run first in every stage frame (the page reads its slots here, so he and the page agree on the frame). */
+  frameRef?: MutableRefObject<(() => void) | null>;
+}
+
+/** `?debug` on the URL: a small readout of fps, frame time, resolution and how far he trails his target. */
+const DEBUG = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debug');
+
+/** Resolution cap: 2 on desktop, 1.5 on phones and touch (a full-viewport transparent canvas is the cost there). */
+function dprCap(): number {
+  const coarse = window.innerWidth <= 860 || window.matchMedia?.('(pointer: coarse)').matches === true;
+  return Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 2);
 }
 
 const MODEL_URL = '/mascot/beamy.glb';
@@ -364,8 +378,8 @@ interface Reveal {
 
 /* ── The scene ─────────────────────────────────────────────────────────── */
 
-function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = false, reducedMotion = false, onReady, onError }: Props) {
-  const { size, gl, scene, camera } = useThree();
+function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = false, reducedMotion = false, onReady, onError, frameRef, debugRef }: Props & { debugRef?: MutableRefObject<HTMLDivElement | null> }) {
+  const { size, gl, scene, camera, setDpr } = useThree();
   const glRef = useRef({ gl, scene, camera });
   glRef.current = { gl, scene, camera };
   const sizeRef = useRef(size);
@@ -419,6 +433,10 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const lean = useRef(0);
   const moving = useRef(0);
   const lastPos = useRef<Pt>({ ...layoutRef.current.home });
+  /** Last frame's target (the glide feeds its change straight through). */
+  const glideT = useRef<GlidePt | null>(null);
+  /** Frame-time bookkeeping: the resolution governor and the ?debug readout. */
+  const perf = useRef({ acc: 0, n: 0, worst: 0, calm: 0, fps: 60, ms: 16.7, worstMs: 0, dpr: 1, gap: 0, shown: 0 });
   const propSpin = useRef(0);
   const bodyBone = useRef<THREE.Object3D | null>(null);
   const phoneBone = useRef<THREE.Object3D | null>(null);
@@ -1056,11 +1074,33 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     return () => { live = false; window.clearTimeout(id); };
   }, []);
 
+  /* The page reads its slots first, every frame, so the target he follows is
+     this frame's (a separate loop could run after the render: a frame late). */
+  useFrame(() => { frameRef?.current?.(); }, -1);
+
   useFrame((state, dtRaw) => {
     const dt = Math.min(dtRaw, DT_MAX);
+    /* Pixel budget: a slow second lowers the resolution, calm ones restore it. */
+    const pf = perf.current;
+    if (dtRaw < 0.25) { pf.acc += dtRaw; pf.n++; pf.worst = Math.max(pf.worst, dtRaw); }
+    if (pf.acc >= 1) {
+      pf.fps = pf.n / pf.acc;
+      pf.ms = (pf.acc * 1000) / pf.n;
+      pf.worstMs = pf.worst * 1000;
+      pf.acc = 0; pf.n = 0; pf.worst = 0;
+      const cur = state.viewport.dpr;
+      const g = governDpr(cur, pf.fps, dprCap(), pf.calm);
+      pf.calm = g.calm;
+      if (g.dpr !== cur) setDpr(g.dpr);
+      pf.dpr = g.dpr;
+    }
     const t = state.clock.elapsedTime;
     const layout = layoutRef.current;
     const W = sizeRef.current.width;
+
+    const target: GlidePt = { x: layout.home.x, y: layout.home.y, h: layout.heightPx };
+    const prevT = glideT.current;
+    let glided = false;
 
     /* Walk */
     const w = walk.current;
@@ -1090,22 +1130,41 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       // reveal he still follows (the page scrolls under him), only slower.
       scale.current += (1 - scale.current) * Math.min(1, dt * 3.5);
       const busy = reveal.current !== null || beamState.current !== null || selfieRun.current !== null;
-      const maxSpeed = Math.max(900, layout.heightPx * 5) * (busy ? 0.6 : 1);
-      pos.current = arrival.current !== null ? { ...layout.home } : followStep(pos.current, layout.home, dt, maxSpeed, busy ? K_SOFT : K_POS);
+      if (arrival.current !== null) pos.current = { ...layout.home };
+      else {
+        // Feed-forward glide (lib/beamyScroll glideStep): exactly with the
+        // scroll, eased only over what is left; dissolved, he just lands.
+        const g = glideStep({ x: pos.current.x, y: pos.current.y, h: shownH.current }, glideT.current, target, dtRaw, sizeRef.current.height, busy ? K_SOFT : K_POS, (layout.presence ?? 1) < 0.02);
+        pos.current = { x: g.x, y: g.y };
+        shownH.current = g.h;
+        glided = true;
+      }
       if (!busy && cone.current === null) yawTarget.current = layout.yaw ?? 0;
     }
+    glideT.current = target;
     const c0 = cone.current;
     if (c0 !== null && !c0.off && w === null) {
       const r0 = c0.target();
       if (r0 !== null) yawTarget.current = clamp((r0.left + r0.width / 2 - pos.current.x) / 260, -1, 1) * 0.5;
     }
-    shownH.current += (layout.heightPx - shownH.current) * (1 - Math.exp(-K_POS * dt));
+    if (!glided) shownH.current += (layout.heightPx - shownH.current) * (1 - Math.exp(-K_POS * dt));
 
     /* Travel: waddle while gliding, lean into the direction of travel, a
-       little hop in the step; Idle again on arrival. */
+       little hop in the step; Idle again on arrival. Riding a scrolling (or
+       pinned) slot is standing still: sideways motion is always travel (the
+       page scrolls up and down), up-and-down only what his target did not. */
     const vx = (pos.current.x - lastPos.current.x) / Math.max(dt, 1e-3);
-    const vy = (pos.current.y - lastPos.current.y) / Math.max(dt, 1e-3);
+    const vy = (pos.current.y - lastPos.current.y - (prevT !== null ? target.y - prevT.y : 0)) / Math.max(dt, 1e-3);
     lastPos.current = { ...pos.current };
+    const dbg = debugRef?.current;
+    if (dbg) {
+      pf.gap = Math.hypot(target.x - pos.current.x, target.y - pos.current.y);
+      pf.shown += dtRaw;
+      if (pf.shown > 0.25) {
+        pf.shown = 0;
+        dbg.textContent = `${pf.fps.toFixed(0)} fps · ${pf.ms.toFixed(1)} ms (worst ${pf.worstMs.toFixed(0)}) · dpr ${state.viewport.dpr.toFixed(2)} · tick ${(layout.tickMs ?? 0).toFixed(2)} ms · gap ${pf.gap.toFixed(1)} px · presence ${(layout.presence ?? 1).toFixed(2)}`;
+      }
+    }
     const speed = Math.hypot(vx, vy);
     moving.current += ((speed > 60 ? 1 : 0) - moving.current) * Math.min(1, dt * (speed > 60 ? 8 : 3));
     if (w === null && shown.current && selfieRun.current === null) {
@@ -1698,9 +1757,10 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
 }
 
 export default function BeamyStage(props: Props) {
-  // DPR cap: 2 on desktop, 1.6 on phones and touch (a full-viewport transparent canvas
-  // at dpr 3 is the cost that hurts there).
-  const [maxDpr] = useState(() => (window.innerWidth <= 860 || window.matchMedia?.('(pointer: coarse)').matches ? 1.6 : 2));
+  // DPR cap (dprCap): 2 on desktop, 1.5 on phones and touch; the scene's
+  // governor steps below it when frames run slow.
+  const [maxDpr] = useState(dprCap);
+  const debugRef = useRef<HTMLDivElement | null>(null);
   // A hidden tab renders nothing.
   const [hidden, setHidden] = useState(() => document.visibilityState === 'hidden');
   useEffect(() => {
@@ -1722,9 +1782,17 @@ export default function BeamyStage(props: Props) {
         style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
         onCreated={({ gl }) => { gl.setClearColor(0x000000, 0); }}
       >
-        <Scene {...props} />
+        <Scene {...props} debugRef={debugRef} />
         {props.children}
       </Canvas>
+      {DEBUG && createPortal(
+        <div
+          ref={debugRef}
+          aria-hidden
+          style={{ position: 'fixed', left: 8, bottom: 8, zIndex: 9999, pointerEvents: 'none', padding: '4px 8px', borderRadius: 8, background: 'rgba(8,8,24,0.78)', color: '#E8ECFF', font: '11px/1.35 ui-monospace, monospace', whiteSpace: 'pre-wrap', maxWidth: 'calc(100vw - 16px)' }}
+        />,
+        document.body,
+      )}
     </div>
   );
 }

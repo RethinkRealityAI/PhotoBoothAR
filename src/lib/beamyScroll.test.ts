@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DT_MAX, SIGMA, STOPS, blendSlots, damp, dampAngle, followStep, pageProgress, pinProgress, poseInSlot,
-  slotWeight, stopIndex, storyHeightVh, storyStep, weightedNight, type SlotSample,
+  DPR_CALM_S, DT_MAX, GLIDE_DT_MAX, JUMP_VH, SIGMA, STOPS, blendSlots, governDpr, damp, dampAngle, followStep, glideStep, pageProgress, pinProgress,
+  poseInSlot, slotWeight, stopIndex, storyHeightVh, storyStep, weightedNight, type GlidePt, type SlotSample,
 } from './beamyScroll';
 
 const VW = 1440;
@@ -128,5 +128,109 @@ describe('page journey', () => {
     expect(edge).toBeGreaterThan(0.3);
     expect(edge).toBeLessThan(0.7);
     expect(pageProgress(500, 2000, 1000)).toBe(0.5);
+  });
+});
+
+/* A page of slots in page px (alternating sides), spaced like /beamy's: measured
+   on the built page, no scroll position is ever more than ~1.3 viewport
+   heights from a slot. Sampled at a scroll position. */
+const PAGE = [
+  { id: 'hero', left: 520, top: 200, w: 400, h: 520 },
+  { id: 'story', left: 80, top: 1450, w: 420, h: 560 },
+  { id: 'pick', left: 940, top: 2750, w: 420, h: 560 },
+  { id: 'try', left: 520, top: 4000, w: 400, h: 520 },
+];
+const at = (scroll: number, vw = VW): SlotSample[] => PAGE.map((p) => slot(p.id, p.left * (vw / VW), p.top - scroll, p.w * (vw / VW), p.h));
+const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+
+describe('the glide is continuous', () => {
+  it('moves the target a little for a little scroll, everywhere on the page', () => {
+    let prev = blendSlots(at(0), VW, VH, false);
+    let worst = 0;
+    for (let y = 1; y <= 4200; y++) {
+      const b = blendSlots(at(y), VW, VH, false);
+      worst = Math.max(worst, dist(b, prev), Math.abs(b.heightPx - prev.heightPx));
+      prev = b;
+    }
+    // One px of scroll never moves him more than a few px (the steepest real
+    // hand-over measured on /beamy is 3.6; a jump would be ~1000).
+    expect(worst).toBeLessThan(10);
+  });
+  it('on phones, any hand-over between slots happens while he is dissolved', () => {
+    const w = 412;
+    let prev = blendSlots(at(0, w), w, VH, true);
+    for (let y = 1; y <= 4200; y++) {
+      const b = blendSlots(at(y, w), w, VH, true);
+      if (dist(b, prev) > 6) expect(Math.min(b.presence, prev.presence), `scroll ${y}`).toBeLessThan(0.02);
+      prev = b;
+    }
+  });
+  it('rides a scrolling slot exactly: no lag to drift out of', () => {
+    let cur: GlidePt = { x: 300, y: 600, h: 400 };
+    let prev: GlidePt = { ...cur };
+    for (let i = 1; i <= 60; i++) {
+      const target = { x: 300, y: 600 - i * 45, h: 400 };
+      cur = glideStep(cur, prev, target, 1 / 60, VH);
+      prev = target;
+      expect(dist(cur, target)).toBeLessThan(1e-9);
+    }
+  });
+  it('eases what is left over, frame-rate independent, and resumes a stall without teleporting', () => {
+    const t: GlidePt = { x: 600, y: 500, h: 300 };
+    let a: GlidePt = { x: 400, y: 500, h: 300 };
+    for (let i = 0; i < 20; i++) a = glideStep(a, t, t, 1 / 60, VH);
+    let b: GlidePt = { x: 400, y: 500, h: 300 };
+    for (let i = 0; i < 10; i++) b = glideStep(b, t, t, 1 / 30, VH);
+    expect(a.x).toBeCloseTo(b.x, 6);
+    expect(a.x).toBeGreaterThan(400);
+    expect(a.x).toBeLessThan(600);
+    const long = glideStep({ x: 400, y: 500, h: 300 }, t, t, 5, VH);
+    expect(long.x).toBeCloseTo(glideStep({ x: 400, y: 500, h: 300 }, t, t, GLIDE_DT_MAX, VH).x, 9);
+    expect(long.x).toBeLessThan(600);
+  });
+  it('does not feed a one-frame jump through, and snaps over a long gap or while dissolved', () => {
+    const from: GlidePt = { x: 300, y: 500, h: 300 };
+    const jumped = { x: 300, y: 500 + JUMP_VH * VH + 50, h: 300 };
+    const g = glideStep(from, from, jumped, 1 / 60, VH);
+    expect(g.y - 500).toBeLessThan((jumped.y - 500) * 0.5);
+    expect(glideStep(from, from, { x: 300, y: 500 + VH * 1.5, h: 300 }, 1 / 60, VH).y).toBe(500 + VH * 1.5);
+    expect(glideStep(from, from, { x: 900, y: 520, h: 280 }, 1 / 60, VH, 12, true)).toEqual({ x: 900, y: 520, h: 280 });
+  });
+  it('still rides the scroll on a slow device (5 fps frames carry big moves)', () => {
+    const from: GlidePt = { x: 300, y: 700, h: 300 };
+    const moved = { x: 300, y: 700 - 500, h: 300 };
+    expect(glideStep(from, from, moved, 0.2, VH)).toEqual(moved);
+  });
+  it('turns a page sweep into small steps at 60 fps', () => {
+    let cur: GlidePt | null = null;
+    let prev: GlidePt | null = null;
+    let worst = 0;
+    for (let y = 0; y <= 4200; y += 30) {
+      const b = blendSlots(at(y), VW, VH, false);
+      const target = { x: b.x, y: b.y, h: b.heightPx };
+      const next: GlidePt = cur === null ? target : glideStep(cur, prev, target, 1 / 60, VH);
+      if (cur !== null) worst = Math.max(worst, dist(next, cur));
+      cur = next;
+      prev = target;
+    }
+    // 30 px of scroll a frame (a brisk scroll): he moves a few times that at
+    // most, never the ~1000 px of a slot-to-slot jump.
+    expect(worst).toBeLessThan(250);
+  });
+});
+
+describe('the stage pixel budget', () => {
+  it('steps down at once on a slow second, never under 1', () => {
+    expect(governDpr(1.5, 30, 1.5, 3)).toEqual({ dpr: 1.25, calm: 0 });
+    expect(governDpr(1, 20, 1.5, 0).dpr).toBe(1);
+  });
+  it('steps back up only after a run of calm seconds, never over the cap', () => {
+    let s = { dpr: 1, calm: 0 };
+    for (let i = 0; i < DPR_CALM_S - 1; i++) s = governDpr(s.dpr, 60, 1.5, s.calm);
+    expect(s.dpr).toBe(1);
+    s = governDpr(s.dpr, 60, 1.5, s.calm);
+    expect(s.dpr).toBe(1.25);
+    expect(governDpr(1.5, 60, 1.5, 10).dpr).toBe(1.5);
+    expect(governDpr(1.25, 50, 1.5, 3)).toEqual({ dpr: 1.25, calm: 0 });
   });
 });

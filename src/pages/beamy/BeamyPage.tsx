@@ -266,6 +266,10 @@ export default function BeamyPage() {
   /* The app shell is a fixed-height, overflow-hidden box, so the page scrolls
      inside its own root (as the platform landing does): this is the scroller. */
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  /** The fixed backdrop: the only layers that read the scroll progress (--bw-sp). */
+  const backdropRef = useRef<HTMLDivElement | null>(null);
+  /** The stage calls this first in each of its frames (see the glide below). */
+  const stageFrame = useRef<(() => void) | null>(null);
   const scrollTop = () => scrollerRef.current?.scrollTop ?? 0;
   const heroRef = useRef<HTMLElement | null>(null);
   const heroPanelRef = useRef<HTMLDivElement | null>(null);
@@ -497,11 +501,16 @@ export default function BeamyPage() {
   const onStopRef = useRef(onStop);
   onStopRef.current = onStop;
 
-  /* ── The glide: every frame, read the slots, blend, hand the stage a target ── */
+  /* ── The glide: every frame, read the slots, blend, hand the stage a target ──
+     The stage runs this at the start of its own frame (so the target is this
+     frame's, never last frame's); a plain rAF loop takes over whenever the
+     stage is not rendering (no WebGL, a failed model). Every DOM read comes
+     before any DOM write, so a frame never forces a second layout. */
   useEffect(() => {
     let raf = 0;
-    const tick = () => {
-      raf = window.requestAnimationFrame(tick);
+    let drivenAt = -1e9;
+    const run = () => {
+      const t0 = performance.now();
       const main = mainRef.current;
       const sc = scrollerRef.current;
       if (main === null || sc === null) return;
@@ -555,10 +564,11 @@ export default function BeamyPage() {
       // inside the hero's free corner.
       const cap = lookCapRef.current;
       const capStand = decorRef.current.stand;
+      let capBottom: string | null = null;
       if (cap !== null && capStand !== null && cap.dataset.stack !== 'true') {
         const room = (heroRegionRef.current?.clientHeight ?? 0) - cap.offsetHeight;
         const want = capStand.heightPx * (1.04 + (api.current?.wornLift() ?? 0)) + 10;
-        cap.style.bottom = `${Math.max(0, Math.min(want, room)).toFixed(1)}px`;
+        capBottom = `${Math.max(0, Math.min(want, room)).toFixed(1)}px`;
       }
       const fx = fxRef.current;
       fx.weights = b.fx as Partial<Record<StoryFxId, number>>;
@@ -589,28 +599,46 @@ export default function BeamyPage() {
       else if (inFilms && !projecting.current) { projecting.current = true; void bApi?.project(() => rectOf(filmFrameRef.current), 'mouth', !reducedRef.current).then(() => setFilmsLit(true)); }
       else if (!inFilms && projecting.current) { projecting.current = false; bApi?.stopProject(); }
       if (settled && slotId !== activeRef.current) onStopRef.current(slotId);
-      // Header progress, the colour journey, the hero's scroll depth.
+      // Header progress, the colour journey, the hero's scroll depth: read…
       const y = sc.scrollTop;
       const sp = pageProgress(y, sc.scrollHeight, vh);
-      const bar = progressRef.current;
-      if (bar !== null) bar.style.transform = `scaleX(${sp.toFixed(4)})`;
-      if (!reducedRef.current) sc.style.setProperty('--bw-sp', sp.toFixed(4));
       const secs: { top: number; height: number; night: number }[] = [];
       main.querySelectorAll<HTMLElement>('[data-stop]').forEach((el) => {
         const r = el.getBoundingClientRect();
         secs.push({ top: r.top, height: r.height, night: NIGHT[el.dataset.stop as StopId] ?? 1 });
       });
-      const night = weightedNight(secs, vh).toFixed(3);
-      if (sc.style.getPropertyValue('--bw-night-mix') !== night) sc.style.setProperty('--bw-night-mix', night);
+      const nightV = weightedNight(secs, vh);
       const hero = heroRef.current;
-      if (hero !== null && !reducedRef.current) hero.style.setProperty('--hs', Math.min(y, hero.offsetHeight).toFixed(0));
+      const hs = hero !== null ? Math.min(y, hero.offsetHeight).toFixed(0) : null;
+      // …then write. The backdrop (a small fixed subtree) takes the exact
+      // values; the page-wide night mix (glass edges read it) moves in 0.05
+      // steps, so most frames restyle nothing outside the backdrop.
+      if (cap !== null && capBottom !== null && cap.style.bottom !== capBottom) cap.style.bottom = capBottom;
+      const bar = progressRef.current;
+      if (bar !== null) bar.style.transform = `scaleX(${sp.toFixed(4)})`;
+      const bd = backdropRef.current;
+      if (bd !== null) {
+        if (!reducedRef.current) bd.style.setProperty('--bw-sp', sp.toFixed(4));
+        const n3 = nightV.toFixed(3);
+        if (bd.style.getPropertyValue('--bw-night-mix') !== n3) bd.style.setProperty('--bw-night-mix', n3);
+      }
+      const night = (Math.round(nightV * 20) / 20).toFixed(2);
+      if (sc.style.getPropertyValue('--bw-night-mix') !== night) sc.style.setProperty('--bw-night-mix', night);
+      if (hero !== null && hs !== null && !reducedRef.current && hero.style.getPropertyValue('--hs') !== hs) hero.style.setProperty('--hs', hs);
+      layoutRef.current.tickMs = performance.now() - t0;
     };
+    const tick = () => {
+      raf = window.requestAnimationFrame(tick);
+      if (performance.now() - drivenAt < 60) return;
+      run();
+    };
+    stageFrame.current = () => { drivenAt = performance.now(); run(); };
     raf = window.requestAnimationFrame(tick);
     const scroller = scrollerRef.current;
     // Keyboard scrolling (arrows, space, page keys) goes to the focused
     // scroller: take focus once, without moving or painting a ring.
     if (scroller !== null && (document.activeElement === null || document.activeElement === document.body)) scroller.focus({ preventScroll: true });
-    return () => window.cancelAnimationFrame(raf);
+    return () => { window.cancelAnimationFrame(raf); stageFrame.current = null; };
   }, []);
 
   /* Deep link: ?s=<stop> scrolls there on load. */
@@ -1576,7 +1604,7 @@ export default function BeamyPage() {
       className="bw-root bw-scroll relative h-full overflow-y-auto overflow-x-clip"
       style={{ outline: 'none', ['--bw-header-h' as string]: `${headerH}px` }}
     >
-      <div aria-hidden className="bw-backdrop">
+      <div aria-hidden className="bw-backdrop" ref={backdropRef}>
         {/* The journey: a midnight field with faint violet / indigo / teal
             glows, deepest mid-page, lifting a little at the hero and the close
             (--bw-night-mix 0..1, blended per frame like the slots). */}
@@ -1605,6 +1633,7 @@ export default function BeamyPage() {
           bubbleRef={bubbleRef}
           hitRef={hitRef}
           decorRef={decorRef}
+          frameRef={stageFrame}
           startHidden
           reducedMotion={reduced}
           onReady={() => { logStep('model:ready'); setReady(true); }}

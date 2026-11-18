@@ -17,8 +17,9 @@
  *     height, body turn — angles averaged through sin/cos so they never spin
  *     the long way round — and the 0..1 weights of the 3D effects drawn
  *     beside him);
- *   • the stage then eases the live pose toward the target with
- *     frame-rate-independent damping, 1 − exp(−k·dt), dt clamped to 34 ms.
+ *   • the stage follows it with glideStep: the target's own frame-to-frame
+ *     move is fed straight through (no lag while scrolling), and only the
+ *     remainder is eased, 1 − exp(−k·dt).
  *
  * No scroll library, no keyframes: he flows between sections at any scroll
  * speed, passing BEHIND the page (the canvas is under the content). On
@@ -133,21 +134,24 @@ export function poseInSlot(r: Box, p: Pose): { x: number; y: number; heightPx: n
  * split, so he never shows through copy on a narrow screen.
  */
 export function blendSlots(samples: SlotSample[], vpW: number, vpH: number, phone: boolean): Blend {
-  const ws: number[] = [];
-  let sum = 0;
+  // Log weights, normalised against the nearest slot: the same Gaussian
+  // blend, but it never underflows, so a long stretch far from every slot
+  // still hands over continuously (a "hold the nearest" fallback jumped).
+  const lw: number[] = [];
   let best = -1;
   for (let i = 0; i < samples.length; i++) {
     const r = samples[i].rect;
-    const w = r.width > 1 && r.height > 1 ? slotWeight(r.top + r.height / 2, vpH) : 0;
-    ws.push(w);
-    sum += w;
-    if (w > 0 && (best < 0 || w > ws[best])) best = i;
+    const ok = r.width > 1 && r.height > 1;
+    const d = (r.top + r.height / 2 - vpH / 2) / Math.max(1, vpH) / SIGMA;
+    lw.push(ok ? -(d * d) : -Infinity);
+    if (ok && (best < 0 || lw[i] > lw[best])) best = i;
   }
   if (best < 0) {
     return { x: vpW / 2, y: vpH * 0.6, heightPx: 160, yaw: 0, presence: 0, fx: {}, active: -1, share: 0, floor: false };
   }
-  // Far from every slot (a tall flat stretch): hold the nearest one at full weight.
-  if (sum < 1e-6) { ws.fill(0); ws[best] = 1; sum = 1; }
+  const ws = lw.map((v) => Math.exp(v - lw[best]));
+  let sum = 0;
+  for (const w of ws) sum += w;
   let x = 0, y = 0, h = 0, sy = 0, cy = 0;
   const fx: Record<string, number> = {};
   for (let i = 0; i < samples.length; i++) {
@@ -206,6 +210,63 @@ export function followStep(pos: Pt, target: Pt, dt: number, maxSpeed: number, ra
   const cap = maxSpeed * clamp(dt, 0, DT_MAX);
   if (step > cap && step > 0) { dx *= cap / step; dy *= cap / step; }
   return { x: pos.x + dx, y: pos.y + dy };
+}
+
+/* ── The glide: how the stage follows the blend ───────────────────────── */
+
+/** The longest frame the glide integrates (a stall resumes, never teleports). */
+export const GLIDE_DT_MAX = 0.1;
+/** A target that moves further than this in one 30 fps frame (viewport heights) jumped (a longer frame allows proportionally more). */
+export const JUMP_VH = 0.35;
+/** Further than this from the target (viewport heights): snap, do not fly across. */
+export const SNAP_VH = 1;
+
+export interface GlidePt { x: number; y: number; h: number; }
+
+/**
+ * One frame of the stage's follow. The blend is a continuous function of
+ * the scroll, so its frame-to-frame change is fed straight through (feed-
+ * forward): while the page scrolls he moves exactly with his slot, with no
+ * lag to drift out of. Only what is left over (a resize, a phone hand-over,
+ * a jump) is eased, 1 − exp(−k·dt) with dt up to GLIDE_DT_MAX. A one-frame
+ * move bigger than JUMP_VH is a discontinuity (eased, not fed through); a
+ * gap over SNAP_VH, or `snap` (he is dissolved), lands him at once.
+ */
+export function glideStep(cur: GlidePt, prev: GlidePt | null, target: GlidePt, dt: number, vpH: number, k = K_POS, snap = false): GlidePt {
+  if (snap) return { ...target };
+  let { x, y, h } = cur;
+  // A slow device scrolls further per frame: the limit grows with the frame (to 250 ms).
+  const jump = JUMP_VH * vpH * Math.max(1, clamp(dt, 0, 0.25) * 30);
+  if (prev !== null && Math.hypot(target.x - prev.x, target.y - prev.y) <= jump) {
+    x += target.x - prev.x;
+    y += target.y - prev.y;
+    h += target.h - prev.h;
+  }
+  if (Math.hypot(target.x - x, target.y - y) > SNAP_VH * vpH) return { ...target };
+  const a = 1 - Math.exp(-k * clamp(dt, 0, GLIDE_DT_MAX));
+  return { x: x + (target.x - x) * a, y: y + (target.y - y) * a, h: Math.max(0, h + (target.h - h) * a) };
+}
+
+/* ── The stage's pixel budget ────────────────────────────────────────── */
+
+/** Below this (frames a second, over one second) the stage drops resolution. */
+export const DPR_LOW_FPS = 45;
+/** Above this for DPR_CALM_S seconds in a row it earns some back. */
+export const DPR_HIGH_FPS = 56;
+export const DPR_CALM_S = 4;
+export const DPR_STEP = 0.25;
+
+/**
+ * One second's verdict on the canvas resolution: a slow second steps it
+ * down at once (never under 1); only a run of calm seconds steps it back up
+ * (never over the cap), so it cannot oscillate frame to frame.
+ */
+export function governDpr(cur: number, fps: number, cap: number, calm: number): { dpr: number; calm: number } {
+  if (fps < DPR_LOW_FPS) return { dpr: Math.max(1, Math.round((cur - DPR_STEP) * 100) / 100), calm: 0 };
+  if (fps <= DPR_HIGH_FPS) return { dpr: cur, calm: 0 };
+  const c = calm + 1;
+  if (c >= DPR_CALM_S && cur < cap) return { dpr: Math.min(cap, Math.round((cur + DPR_STEP) * 100) / 100), calm: 0 };
+  return { dpr: cur, calm: c };
 }
 
 /* ── The pinned story ─────────────────────────────────────────────────── */
