@@ -21,7 +21,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Camera, Check, CircleCheck, Play, Trophy } from 'lucide-react';
+import { Camera, Check, ChevronsUp, CircleCheck, Crown, Play, Trophy } from 'lucide-react';
 import LiveWall, { WALL_POOL, type Pin } from '../../components/beamy/LiveWall';
 import type { StoryFxId } from '../../lib/brandLanding';
 import { STORY_SCENE, STORY_SEQ } from '../../lib/beamyStory';
@@ -290,19 +290,26 @@ export default function StoryScenes({ step, live, ids, stacked, qrUrl, wallCentr
       <Piece show={m('board')} tilt={-6} cls={stacked ? 'right-[5%] top-[24%] w-[55%] max-w-[320px]' : 'right-[5%] top-[30%] w-[22%] max-w-[330px]'}>
         <div className="bw-scene-card p-4">
           <p className="bw-scene-label flex items-center gap-2"><Trophy size={15} aria-hidden /> {S.medal.board}</p>
-          <div className="mt-2.5 grid grid-cols-[20px_minmax(0,1fr)] gap-x-2">
+          {/* Places hold still (a gold crown on #1, then silver and bronze);
+              the rows slide past them, and the one on top carries the shine. */}
+          <div className="mt-2.5 grid grid-cols-[26px_minmax(0,1fr)] gap-x-2" data-rank={tf(m('rank'))}>
             <ol className="bw-ch-ranks">
-              {[1, 2, 3, 4].map((n) => <li key={n}><span className="bw-scene-rank">{n}</span></li>)}
+              {[1, 2, 3, 4].map((n) => (
+                <li key={n}><span className="bw-ch-medal" data-place={n}>{n === 1 ? <Crown size={14} strokeWidth={2} aria-hidden /> : n}</span></li>
+              ))}
             </ol>
             <ol className="bw-ch-board" data-rank={tf(m('rank'))}>
               {S.medal.rows.map(([who, pts]) => (
                 <li key={who} className="bw-scene-row bw-ch-row" data-move="down">
+                  <span className="bw-ch-face" aria-hidden>{who.charAt(0)}</span>
                   <span className="min-w-0 flex-1 truncate">{who}</span>
                   <span className="tabular-nums">{pts}</span>
                 </li>
               ))}
               <li className="bw-scene-row bw-ch-row" data-move="up">
+                <span className="bw-ch-face" aria-hidden>{S.medal.sender.charAt(0)}</span>
                 <span className="min-w-0 flex-1 truncate">{S.medal.sender}</span>
+                <span className="bw-ch-climb" aria-hidden><ChevronsUp size={14} strokeWidth={2.2} /></span>
                 <span className="bw-ch-pts tabular-nums"><span>0</span><span>{S.medal.winPts}</span></span>
               </li>
             </ol>

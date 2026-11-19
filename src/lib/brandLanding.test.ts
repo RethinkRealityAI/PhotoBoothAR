@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  CELEBRATIONS, EMOJI_RE, FILMS, FILM_EYEBROW, STORY_STEPS, LOOKS, NAV_LINKS, POKE_IDLE, POKE_STREAK_MS,
+  CELEBRATIONS, EMOJI_RE, FILMS, FILM_EYEBROW, KEEPSAKE_PROMISE, STORY_STEPS, LOOKS, NAV_LINKS, POKE_IDLE, POKE_STREAK_MS,
   createReactionPicker, landingCopy, nearestFront, pickCelebration, pickReaction, beamyPlanCards, planCards, pokeStep,
-  pricingSection, releaseVelocity, seededRandom, spinSettled, spinStep, startFacts,
+  pricingSection, seededRandom, spinSettled, spinStep, startFacts,
   type Moment, type PokeState, type Reaction, type Spin,
 } from './brandLanding';
 import { ENTITLEMENTS, formatPostCap, formatRetention } from './plans';
@@ -82,11 +82,6 @@ describe('spin physics', () => {
       expect(Math.abs(s.angle - nearestFront(s.angle))).toBeLessThan(0.01);
     }
   });
-  it('derives a bounded release velocity', () => {
-    expect(releaseVelocity([{ x: 0, t: 0 }])).toBe(0);
-    expect(releaseVelocity([{ x: 0, t: 0 }, { x: 100, t: 100 }])).toBeGreaterThan(0);
-    expect(releaseVelocity([{ x: 0, t: 0 }, { x: -100000, t: 10 }])).toBe(-30);
-  });
 });
 
 describe('copy', () => {
@@ -137,12 +132,25 @@ describe('copy', () => {
       expect(f.line.length, f.id).toBeGreaterThan(0);
     }
     expect(FILM_EYEBROW).toEqual({ cards: 'Digital keepsakes' });
+    // Beamy says his own short line on every film tab (one speech bubble, no repeats).
+    for (const f of FILMS) expect(f.beamy.length, f.id).toBeGreaterThan(0);
+    for (const f of FILMS) expect(f.beamy.length, f.id).toBeLessThanOrEqual(60);
+    expect(new Set(FILMS.map((f) => f.beamy)).size).toBe(FILMS.length);
     // Step bodies stay short (about two lines on a card), each with its own effect.
     expect(STORY_STEPS.length).toBeGreaterThanOrEqual(3);
     expect(STORY_STEPS.length).toBeLessThanOrEqual(5);
     expect(new Set(STORY_STEPS.map((x) => x.id)).size).toBe(STORY_STEPS.length);
     for (const x of STORY_STEPS) expect(x.body.length, x.title).toBeLessThanOrEqual(80);
     for (const x of STORY_STEPS) expect(x.body, x.title).not.toMatch(/—|–/);
+  });
+
+  it('keeps the keepsake promise in one place, and only promises what ships', () => {
+    // Sending is a host button after the event, so no line names a day or says it sends itself.
+    expect(STORY_STEPS.find((x) => x.id === 'keepsake')?.body).toBe(KEEPSAKE_PROMISE.step);
+    expect(FILMS.find((f) => f.id === 'cards')?.beamy).toBe(KEEPSAKE_PROMISE.beamy);
+    for (const s of Object.values(KEEPSAKE_PROMISE)) {
+      expect(s, s).not.toMatch(/morning|tomorrow|next day|day after|automatic/i);
+    }
   });
 
   it('never words a keepsake as a physical product', () => {

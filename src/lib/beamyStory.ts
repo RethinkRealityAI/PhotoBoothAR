@@ -73,10 +73,10 @@ export const STORY_LOOKS: BeamyLook[] = arOrder(HOME_ASSET_DEFAULTS.arLooks)
 
 /** The AR step's own words (its picker is real, interactive UI, not decoration). */
 export const AR_COPY = {
-  line: 'Your photo booth can have a variety of filters, props and effects, tailored to capture the essence of your event.',
-  pick: 'Tap any look to try it on Beamy',
-  prev: 'Previous frame',
-  next: 'Next frame',
+  line: 'Your photo booth can have a variety of filters, 3D props and effects, tailored to capture the essence of your event.',
+  pick: 'Swipe or tap the arrows to try a look on Beamy',
+  prev: 'Previous',
+  next: 'Next',
 } as const;
 
 /** A look's small picture: the library's own .webp beside a prop, the guide pack's thumb for a frame. */

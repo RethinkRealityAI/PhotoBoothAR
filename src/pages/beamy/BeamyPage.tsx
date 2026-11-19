@@ -28,17 +28,19 @@
  *
  * Motion: content motion (the intro, his glide, beams, the story's effects)
  * plays for everyone, gently under reduced motion. Decorative motion
- * (pointer parallax and tilt, crystal bob) is off under reduced motion.
+ * (scroll parallax, decor bob, ambient particles) is off or softened under
+ * reduced motion. Nothing follows the pointer: the page and the scene alone
+ * decide where Beamy looks.
  *
  * Nothing a visitor captures leaves the device: the wall is component state.
  * Tokens/components come from src/styles/brand.css, scoped by data-brand="2".
  */
 import {
   useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
-  type CSSProperties, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode,
+  type CSSProperties, type HTMLAttributes, type ReactNode,
 } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, Check, Lock, Rotate3d } from 'lucide-react';
+import { Camera, Check, Clapperboard, Lock } from 'lucide-react';
 import { Briefcase, Cake, ClipboardList, Gift, Users, type LucideIcon } from 'lucide-react';
 import CameraExperience, { lookFrameUrl } from '../../components/landing/CameraExperience';
 import ParticleBeam from '../../components/landing/ParticleBeam';
@@ -54,24 +56,30 @@ import { SHOT_TILES, WALL_CENTRE, wallRows } from '../../lib/beamyWall';
 import { AUDIENCES, GREETING, HELLO, POKE_LINES, audienceById, type Audience, type AudienceIcon } from '../../lib/beamyTour';
 import {
   FILMS, FILMS_COPY, FOOTER_LINKS, HERO, LOOKS, NAV_LINKS, PICK_COPY, POKE_IDLE, SIGNUP_PATH, START_COPY, STORY_COPY,
-  STORY_STEPS, TRY_COPY, beamyPlanCards, createReactionPicker, pickCelebration, pokeStep, pricingSection, releaseVelocity,
+  STORY_STEPS, TRY_COPY, beamyPlanCards, createReactionPicker, pickCelebration, pokeStep, pricingSection,
   startFacts, type Celebration, type FilmId, type Reaction, type StoryFxId,
 } from '../../lib/brandLanding';
 import {
-  STOPS, blendSlots, pageProgress, pinProgress, storyHeightVh, storyStep, weightedNight,
+  STOPS, blendSlots, pageProgress, pinProgress, storyEdgeOffsets, storyHeightVh, storySnapOffsets, storySnapOn, storyStep, weightedNight,
   type Pose, type SlotSample, type StopId,
 } from '../../lib/beamyScroll';
-import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl } from '../../lib/beamyLooks';
+import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl, type BeamyLook } from '../../lib/beamyLooks';
 import { preloadModel } from '../../lib/glbCache';
+import { ambientFor } from '../../lib/ambientFx';
+import AmbientFx from '../../components/beamy/AmbientFx';
+import ShineText from '../../components/beamy/ShineText';
 import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, type StageLayout } from './BeamyStage';
 import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
-import ArPicker from './ArPicker';
+import ArPicker, { ArTabs } from './ArPicker';
 import {
-  DEFAULT_OPENING, HOME_ASSET_DEFAULTS, arOrder, arTour, frameOnBeamy, demoQrUrl, smallWindow, stepIntoFrame, lookAction, selectedLooks, toBeamyLook, toggleLook,
+  DEFAULT_OPENING, HOME_ASSET_DEFAULTS, arOrder, arPropScale, arStage, arTour, frameOnBeamy, demoQrUrl, standInFrame, lookAction, selectedLooks, toBeamyLook, wearStop,
   type ArSelection, type HomeLook, type LookCategory,
 } from '../../lib/beamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
+import type { ArFxKind } from '../../lib/arFx';
+import VirtualCelebrations from './VirtualCelebrations';
+import { VC_COPY, VC_FILM } from '../../lib/beamyVirtual';
 
 import boothFilm from '../../assets/landing/booth-feature.mp4';
 import boothPoster from '../../assets/landing/booth-feature-poster.jpg';
@@ -81,6 +89,8 @@ import challengesFilm from '../../assets/landing/challenges-feature.mp4';
 import challengesPoster from '../../assets/landing/challenges-feature-poster.jpg';
 import cardsFilm from '../../assets/landing/cards-feature.mp4';
 import cardsPoster from '../../assets/landing/cards-feature-poster.jpg';
+import virtualFilm from '../../assets/landing/virtual-feature.mp4';
+import virtualPoster from '../../assets/landing/virtual-feature-poster.jpg';
 
 /** The beam's calm palette for the photo dissolve (palette[0] tints the core). */
 const BEAM_PALETTE = ['#C9CCFF', '#FFFFFF', '#A5ABFF', '#FFC56B'];
@@ -88,12 +98,40 @@ const AUDIENCE_ICONS: Record<AudienceIcon, LucideIcon> = { ClipboardList, Cake, 
 /* Asset slots come from lib/beamyAssets (HOME_ASSET_DEFAULTS); an undefined
    media field there means the bundled file imported here. */
 const A = HOME_ASSET_DEFAULTS;
-const FILM_MEDIA: Record<FilmId, { src: string; poster: string; Icon: (p: BeamIconProps) => ReactNode }> = {
-  booth: { src: A.films.booth.video ?? boothFilm, poster: A.films.booth.poster ?? boothPoster, Icon: BoothIcon },
-  wall: { src: A.films.wall.video ?? wallFilm, poster: A.films.wall.poster ?? wallPoster, Icon: WallIcon },
-  challenges: { src: A.films.challenges.video ?? challengesFilm, poster: A.films.challenges.poster ?? challengesPoster, Icon: ChallengeIcon },
-  cards: { src: A.films.cards.video ?? cardsFilm, poster: A.films.cards.poster ?? cardsPoster, Icon: CardIcon },
+/** The virtual celebrations tab's icon: a line gift, tinted like the beam icons. */
+const VirtualIcon = ({ size = 18, from, className }: BeamIconProps) => <Gift size={size} color={from} strokeWidth={1.75} className={className} aria-hidden />;
+/**
+ * One tab of "See it in motion". The list below is the whole section: the
+ * tab row, the 16:9 film box (fixed size, so a switch never moves the page)
+ * and Beamy's speech-bubble line all read it. To add a tab, import its clip
+ * and poster at the top of this file and append ONE entry to FILM_TABS:
+ *   { key: 'virtual', label: 'Virtual celebrations', video: virtualFilm,
+ *     poster: virtualPoster, line: 'Beamy’s line for it' }
+ * `title` + `hook` (the caption under the film) and `Icon` are optional.
+ */
+interface FilmTab {
+  key: string;
+  label: string;
+  video: string;
+  poster: string;
+  /** Beamy's speech-bubble line while this film is on. */
+  line: string;
+  title?: string;
+  hook?: string;
+  Icon?: (p: BeamIconProps) => ReactNode;
+}
+/** A tab from the shared film copy (lib/brandLanding FILMS) and its bundled media (a CMS override wins). */
+const filmTab = (id: FilmId, video: string, poster: string, Icon: FilmTab['Icon']): FilmTab => {
+  const f = FILMS.find((x) => x.id === id);
+  return { key: id, label: f?.eyebrow ?? id, title: f?.title, hook: f?.line, line: f?.beamy ?? '', video: A.films[id]?.video ?? video, poster: A.films[id]?.poster ?? poster, Icon };
 };
+const FILM_TABS: FilmTab[] = [
+  filmTab('booth', boothFilm, boothPoster, BoothIcon),
+  filmTab('wall', wallFilm, wallPoster, WallIcon),
+  filmTab('challenges', challengesFilm, challengesPoster, ChallengeIcon),
+  filmTab('cards', cardsFilm, cardsPoster, CardIcon),
+  { key: 'virtual', label: VC_FILM.label, title: VC_FILM.title, hook: VC_FILM.hook, line: VC_FILM.beamy, video: virtualFilm, poster: virtualPoster, Icon: VirtualIcon },
+];
 /** The live walls' photos: an override needs more than one wall's worth. */
 const PHOTO_POOL = A.wallPhotos.length > 9 ? A.wallPhotos : WALL_POOL;
 /** The AR step's picker, in category order. */
@@ -103,6 +141,8 @@ const AR_HOLD_MS = 3200;
 const AR_HOLD_REDUCED_MS = 5200;
 /** Skipping the picker tours as the most common host. */
 const DEFAULT_AUDIENCE = audienceById('family') ?? AUDIENCES[0];
+/** His mouth's height over his feet, in his heights, at rest (the hero's frame keys on it). */
+const MOUTH_AT = 0.485;
 /** Room above Beamy's head kept free for his speech bubble (slots that show it). */
 const BUBBLE_ROOM = 76;
 /** How long the centre tile holds Beamy's selfie before it rejoins the rotation. */
@@ -110,9 +150,6 @@ const SELFIE_HOLD_MS = 12000;
 /** Breakpoints: phones stack Beamy above the copy; the three-column hero needs a laptop. */
 const PHONE_MAX = 768;
 const WIDE_HERO_MIN = 1024;
-/** How often Beamy beams a shot to the story's mini wall while that step is up. */
-/** A pointer held still this long hands Beamy back to his section's own look. */
-const GAZE_IDLE_MS = 1800;
 const NIGHT: Record<StopId, number> = Object.fromEntries(STOPS.map((s) => [s.id, s.night])) as Record<StopId, number>;
 
 const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
@@ -219,17 +256,15 @@ export default function BeamyPage() {
 
   const [active, setActive] = useState<StopId>('hero');
   const [step, setStep] = useState(0);
-  const [film, setFilm] = useState<FilmId>('booth');
-  /* Films and the audience options wait, hidden, until Beamy arrives and
-     beams them in (instantly shown without WebGL or under reduced motion). */
-  const [filmsLit, setFilmsLit] = useState(false);
+  const [film, setFilm] = useState<string>(FILM_TABS[0].key);
+  /* The audience options wait, hidden, until Beamy arrives and beams them
+     in (instantly shown without WebGL or under reduced motion). The films
+     are simply there: no projector, so a tab switch never moves anything. */
   const [pickLit, setPickLit] = useState(false);
   const pickLitRef = useRef(false);
   pickLitRef.current = pickLit;
-  const filmsLitRef = useRef(false);
-  filmsLitRef.current = filmsLit;
-  /** When each has been on screen since (0 = not now), for the never-wait fallback. */
-  const seenAt = useRef({ films: 0, pick: 0 });
+  /** When the options have been on screen since (0 = not now), for the never-wait fallback. */
+  const seenAt = useRef({ pick: 0 });
   const pickGridRef = useRef<HTMLDivElement | null>(null);
   const [picked, setPicked] = useState<Audience | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -249,7 +284,6 @@ export default function BeamyPage() {
   const [cameraOn, setCameraOn] = useState(false);
   const [shots, setShots] = useState<{ id: number; src: string }[]>([]);
   const [flight, setFlight] = useState<Flight | null>(null);
-  const [dragHint, setDragHint] = useState(true);
   const [introRunning, setIntroRunning] = useState(false);
   const [heroPin, setHeroPin] = useState<Pin | null>(null);
   const [ripple, setRipple] = useState(0);
@@ -270,11 +304,15 @@ export default function BeamyPage() {
   const backdropRef = useRef<HTMLDivElement | null>(null);
   /** The stage calls this first in each of its frames (see the glide below). */
   const stageFrame = useRef<(() => void) | null>(null);
-  /** The AR step's frame image (ArPicker); the glide places it on him every frame. */
-  const arFrameRef = useRef<HTMLImageElement | null>(null);
-  const arFrameAt = useRef({ el: null as HTMLImageElement | null, t: 0, x: 0, tip: 0, mouth: 0, hp: 0, lift: 0, base: 0, mAt: 0.485 });
-  /** The frame the AR step has picked (its window shapes where it stands). */
-  const arFrameLook = useRef<HomeLook | undefined>(undefined);
+  /** The AR carousel box (ArPicker), laid on the fixed AR stage (lib/beamyAssets arStage). */
+  const arCarRef = useRef<HTMLDivElement | null>(null);
+  /** Whether the AR stage has scaled his prop (so leaving the step puts it back to 1). */
+  const arScaled = useRef(false);
+  /** The frame look he wears in the hero (the Christmas look), placed around him every frame; null = none. */
+  const heroFrame = useRef<BeamyLook | null>(null);
+  /** The hero look worn now (index into BEAMY_LOOKS; -1 = none) and whether the intro put it on. */
+  const lastWorn = useRef(-1);
+  const introWorn = useRef(false);
   const scrollTop = () => scrollerRef.current?.scrollTop ?? 0;
   const heroRef = useRef<HTMLElement | null>(null);
   const heroPanelRef = useRef<HTMLDivElement | null>(null);
@@ -312,7 +350,6 @@ export default function BeamyPage() {
   filmRef.current = film;
   /** What the story is doing with Beamy right now (so a step is entered once). */
   const storyOn = useRef<{ step: number; held: boolean }>({ step: -1, held: false });
-  const projecting = useRef(false);
   const layoutRef = useRef<StageLayout>({ home: { x: vp.w / 2, y: vp.h * 0.6 }, heightPx: 180 });
   const decorRef = useRef<StageDecor>({ panel: null, stand: null, phone, scroll: 0 });
   const fxRef = useRef<FxState>({ weights: {}, spot: null });
@@ -323,7 +360,6 @@ export default function BeamyPage() {
   const react = useRef(createReactionPicker(seed));
   const lastCelebration = useRef<Celebration | null>(null);
   const poke = useRef(POKE_IDLE);
-  const drag = useRef<{ id: number; x0: number; y0: number; dragging: boolean; samples: { x: number; t: number }[]; suppressClick: boolean } | null>(null);
 
   const typed = useTyped(line, reduced);
   /* The hero copy never waits for the model or the choreography. */
@@ -425,11 +461,12 @@ export default function BeamyPage() {
     switch (id) {
       case 'hero': return BEAMY_LOOKS[lookIxRef.current]?.line ?? HELLO;
       case 'story': return STORY_COPY.heading;
-      case 'films': return FILMS.find((f) => f.id === filmRef.current)?.beamy ?? FILMS[0].beamy;
+      case 'films': return (FILM_TABS.find((f) => f.key === filmRef.current) ?? FILM_TABS[0]).line;
       case 'pick': return GREETING;
       case 'try': return a.lines.snap;
       case 'pricing': return pricingSection().line;
       case 'start': return a.lines.go;
+      case 'virtual': return VC_COPY.beamy;
     }
   }, []);
 
@@ -501,7 +538,6 @@ export default function BeamyPage() {
     setActive(id);
     logStep(`enter:${id}`);
     say(lineFor(id, audienceRef.current));
-    if (id !== 'hero') setDragHint(false);
     if (id !== 'try') setCameraOn(false);
     if (id === 'pick' && !pickLitRef.current) {
       const b = api.current;
@@ -535,9 +571,11 @@ export default function BeamyPage() {
       // The story's step: progress through its pinned stretch (under the header).
       const st = storyRef.current;
       let sStep = stepRef.current;
+      let snapOn = false;
       if (st !== null) {
         const r = st.getBoundingClientRect();
         sStep = storyStep(pinProgress(r.top - headerH, r.height, vh - headerH), STORY_STEPS.length);
+        snapOn = storySnapOn(r.top, r.bottom, headerH, vh);
       }
       if (sStep !== stepRef.current) { stepRef.current = sStep; setStep(sStep); }
       const card = STORY_STEPS[sStep];
@@ -551,20 +589,92 @@ export default function BeamyPage() {
         if (id === 'story') { pose.yaw = card.yaw; pose.fx = { [card.id]: 1 }; }
         samples.push({ id, rect: { left: r.left, top: r.top, width: r.width, height: r.height }, pose });
       });
-      // Phones, a face-oval frame on the AR step: the frame takes all the room
-      // under the picker and he steps into its window (lib/beamyAssets
-      // stepIntoFrame), standing there instead of in the story's CSS slot.
-      const arLook = arFrameLook.current;
-      let stepIn: ReturnType<typeof stepIntoFrame> | null = null;
-      if (vw < WIDE_HERO_MIN && card.id === 'prop' && arFrameRef.current !== null && arLook?.opening !== undefined && smallWindow(arLook.opening)) {
-        const tiles = main.querySelector('.bw-ar [data-fx-anchor="prop"]')?.getBoundingClientRect();
-        if (tiles !== undefined) stepIn = stepIntoFrame({ opening: arLook.opening, box: { top: tiles.bottom + 6, bottom: vh - 8, left: 8, right: vw - 8 }, mouthAt: arFrameAt.current.mAt });
+      // The AR step: the frame (or the carousel around him) starts under the
+      // switcher (phones) and the carousel's title above it, and the props
+      // carousel's floating stops (read now, with the other reads) go to the
+      // stage, which draws the real GLBs in their places.
+      const onAr = card.id === 'prop';
+      const arCar = arCarRef.current;
+      let arTop = headerH + 8;
+      const arPeeks: NonNullable<StageDecor['peeks']> = [];
+      if (onAr && arCar !== null) {
+        const titleH = arCar.querySelector('.bw-ar-title')?.getBoundingClientRect().height ?? 0;
+        const tabsEl = vw < WIDE_HERO_MIN ? main.querySelector('.bw-ar .bw-ar-tabs') : null;
+        arTop = Math.max(arTop, tabsEl !== null ? tabsEl.getBoundingClientRect().bottom + 6 : 0) + titleH + 6;
+        if (arCar.closest('.bw-ar[data-on="true"]') !== null) {
+          // A peek gliding in or out carries its prop with it, and lets go
+          // of it as it fades (its transition's live opacity).
+          arCar.querySelectorAll<HTMLElement>('.bw-ar-peek[data-prop-url]').forEach((el) => {
+            const r = el.getBoundingClientRect();
+            if (r.width > 4 && Number(getComputedStyle(el).opacity) > 0.08) arPeeks.push({ url: el.dataset.propUrl ?? '', x: r.left + r.width / 2, y: r.top + r.height / 2, size: r.width });
+          });
+        }
       }
-      const storySample = stepIn !== null ? samples.find((x) => x.id === 'story') : undefined;
-      if (stepIn !== null && storySample !== undefined) {
-        const s = stepIn.stand;
-        storySample.rect = { left: s.x - (s.heightPx * 1.1) / 2, top: s.y - s.heightPx, width: s.heightPx * 1.1, height: s.heightPx };
-        storySample.pose.fit = 1;
+      // The AR step is ONE fixed stage (lib/beamyAssets arStage): a 9:16
+      // frame box filling the room under the title, and his stand inside it,
+      // set by the reference frame's window. Every frame renders in that box
+      // and he stands there on every tab and item; only the looks move.
+      // Phones: right under the switcher, side gutters for the carousel's
+      // stops. Laptops: centred on his story slot, clear of the caption.
+      let arAt: ReturnType<typeof arStage> | null = null;
+      const storyAt = onAr && arCar !== null ? samples.find((x) => x.id === 'story') : undefined;
+      if (storyAt !== undefined) {
+        if (vw < WIDE_HERO_MIN) {
+          const gut = clamp(vw * 0.12, 46, 72);
+          arAt = arStage({ box: { top: arTop, bottom: vh - 10, left: gut, right: vw - gut }, align: 'top' });
+        } else {
+          // As tall as the room (at most 0.6 of the width), centred on his
+          // slot unless that would run under the caption card (1024: it
+          // shifts right to clear it).
+          const cx = storyAt.rect.left + storyAt.rect.width / 2;
+          const capR = main.querySelector('#how .bw-glass-card')?.getBoundingClientRect().right ?? 0;
+          const fw = (Math.min(vh - 8 - arTop, ((vw * 0.6) * 16) / 9) * 9) / 16;
+          const c = Math.min(Math.max(cx, capR + 40 + fw / 2), vw - 24 - fw / 2);
+          arAt = arStage({ box: { top: arTop, bottom: vh - 8, left: c - fw / 2, right: c + fw / 2 } });
+        }
+        const s0 = arAt.stand;
+        storyAt.rect = { left: s0.x - (s0.heightPx * 1.1) / 2, top: s0.y - s0.heightPx, width: s0.heightPx * 1.1, height: s0.heightPx };
+        storyAt.pose.fit = 1;
+      }
+      // Laptops, the hero's frame look (the Holiday cover): the frame fills
+      // the gap between the copy and the wall and he shrinks to stand INSIDE
+      // its window (lib/beamyAssets standInFrame), his antlers free to pop
+      // above it. Phones/tablets place the frame on him instead (below).
+      const hf0 = heroFrame.current;
+      let heroIn: ReturnType<typeof standInFrame> | null = null;
+      const heroSample = hf0 !== null && (vw >= WIDE_HERO_MIN || isPhone) ? samples.find((x) => x.id === 'hero') : undefined;
+      // Phones: a smaller cover in the wall's lower-left corner (it used to
+      // hide most of the wall's left half), him standing inside its window.
+      const regP = isPhone && heroSample !== undefined ? rectOf(heroRegionRef.current) : null;
+      if (hf0 !== null && heroSample !== undefined && regP !== null) {
+        const fw = regP.width * 0.46;
+        const fh = Math.min(regP.height, (fw * 16) / 9);
+        const panelL = rectOf(heroPanelRef.current)?.left ?? 0;
+        heroIn = standInFrame({
+          opening: hf0.opening ?? DEFAULT_OPENING,
+          box: { top: regP.top + regP.height - fh, bottom: regP.top + regP.height, left: regP.left, right: regP.left + fw },
+          // His selfie arm stays inside the hero panel.
+          clearLeft: { x: panelL + 6, reach: 0.66 },
+        });
+      } else if (hf0 !== null && heroSample !== undefined && !isPhone) {
+        const copyR = main.querySelector('[data-card-avoid]')?.getBoundingClientRect();
+        const wallR = heroWallColRef.current?.firstElementChild?.getBoundingClientRect();
+        const panelR = rectOf(heroPanelRef.current);
+        if (copyR !== undefined && wallR !== undefined && panelR !== null && wallR.left - copyR.right > 120) {
+          heroIn = standInFrame({
+            opening: hf0.opening ?? DEFAULT_OPENING,
+            box: { top: Math.max(panelR.top + 12, headerH + 8), bottom: panelR.top + panelR.height - 12, left: copyR.right + 12, right: wallR.left - 12 },
+            // His selfie arm and phone reach ~0.61 of his height to his left
+            // (measured): keep them clear of the headline.
+            clearLeft: { x: copyR.right + 8, reach: 0.66 },
+          });
+        }
+      }
+      if (heroIn !== null && heroSample !== undefined) {
+        const st0 = heroIn.stand;
+        heroSample.rect = { left: st0.x - st0.heightPx, top: st0.y - st0.heightPx, width: st0.heightPx * 2, height: st0.heightPx };
+        heroSample.pose.fit = 1;
+        heroSample.pose.ax = 0.5;
       }
       const b = blendSlots(samples, vw, vh, isPhone);
       const slotId = (b.active >= 0 ? samples[b.active].id : activeRef.current) as StopId;
@@ -580,6 +690,9 @@ export default function BeamyPage() {
         // The bubble speaks only where his slot left room for it (never on
         // phones, never in the story, never mid-glide).
         bubbleAway: isPhone || slotId === 'story' || slotId === 'films' || !settled,
+        // A tap on him works wherever he has settled, phones included (the
+        // bubble's rules above are about room for text, not about taps).
+        hitAway: !settled,
       };
       const hp = rectOf(heroPanelRef.current);
       const heroSlot = samples.find((x) => x.id === 'hero');
@@ -589,6 +702,40 @@ export default function BeamyPage() {
         phone: isPhone,
         scroll: Math.min(sc.scrollTop, heroRef.current?.offsetHeight ?? vh),
       };
+      // The hero's frame look (the Christmas one) stands around him, placed
+      // like the AR step's (lib/beamyAssets frameOnBeamy: whole frame in its
+      // box, his face in the window, the antlers shrunk into it if they must)
+      // but from his slot's settled stand, so a hop or the selfie never swings
+      // it. Laptops: the box is the gap between the copy and the wall, so it
+      // never covers either; phones/tablets: the wall's row.
+      const hf = heroFrame.current;
+      const stApi = api.current;
+      let frameAt: StageLayout['frameAt'] = null;
+      if (hf !== null && stApi !== null && readyRef.current && (slotId === 'hero' || activeRef.current === 'hero')) {
+        const copyR = main.querySelector('[data-card-avoid]')?.getBoundingClientRect();
+        const wallR = heroWallColRef.current?.firstElementChild?.getBoundingClientRect();
+        const reg = rectOf(heroRegionRef.current);
+        const panelR = hp;
+        const box = vw >= WIDE_HERO_MIN && copyR !== undefined && wallR !== undefined && panelR !== null
+          ? { top: Math.max(panelR.top + 12, headerH + 8), bottom: panelR.top + panelR.height - 12, left: copyR.right + 12, right: wallR.left - 12 }
+          : reg !== null ? { top: Math.max(reg.top, headerH + 8), bottom: reg.top + reg.height, left: reg.left, right: reg.left + reg.width } : null;
+        if (heroIn !== null) {
+          frameAt = heroIn.frame;
+          stApi.wornScale(1);
+          if (STEP_LOG) (window as unknown as { __beamyHeroFrame?: unknown }).__beamyHeroFrame = { ...heroIn.frame, stand: heroIn.stand, propScale: 1, fits: true, inWindow: true };
+        } else if (box !== null && box.right - box.left > 40 && box.bottom - box.top > 40) {
+          const hpx = b.heightPx;
+          const g = frameOnBeamy({
+            x: b.x, tip: b.y - hpx * 1.02, mouth: b.y - hpx * MOUTH_AT, heightPx: hpx,
+            lift: stApi.wornLiftAt(1) * hpx, liftBase: stApi.wornLiftAt(0) * hpx,
+            opening: hf.opening ?? DEFAULT_OPENING, box,
+          });
+          frameAt = { left: g.left, top: g.top, h: g.h };
+          stApi.wornScale(g.propScale);
+          if (STEP_LOG) (window as unknown as { __beamyHeroFrame?: unknown }).__beamyHeroFrame = { ...g, box };
+        }
+      }
+      layoutRef.current.frameAt = frameAt;
       // Phones: the try-on caption rides just above whatever he wears, kept
       // inside the hero's free corner.
       const cap = lookCapRef.current;
@@ -606,27 +753,17 @@ export default function BeamyPage() {
       const inStory = slotId === 'story' && b.share > 0.8;
       if (inStory && storyOn.current.step !== sStep) storyEnterRef.current(sStep);
       else if (!inStory && storyOn.current.step >= 0) storyLeaveRef.current();
-      // Films and options he beams in: shown anyway once on screen for a moment,
+      // Options he beams in: shown anyway once on screen for a moment,
       // whether or not he got there (a stop that never settles, a slow stage).
+      // (The films never wait on him: he stands beside them and talks.)
       const now = performance.now();
-      const lightAfterLook = (el: HTMLElement | null, key: 'films' | 'pick', lit: boolean, light: () => void) => {
-        if (lit || el === null) return;
-        const q = el.getBoundingClientRect();
-        if (q.top > vh * 0.85 || q.bottom < headerH + 40) { seenAt.current[key] = 0; return; }
-        // Phones have no films slot (he never projects there): the film just appears.
-        if (key === 'films' && isPhone) { light(); return; }
-        if (seenAt.current[key] === 0) seenAt.current[key] = now;
-        else if (now - seenAt.current[key] > 1800) light();
-      };
-      lightAfterLook(filmFrameRef.current, 'films', filmsLitRef.current, () => setFilmsLit(true));
-      lightAfterLook(pickGridRef.current, 'pick', pickLitRef.current, () => setPickLit(true));
-      // The films: a soft projector cone onto the frame while he stands beside it.
-      const bApi = api.current;
-      const inFilms = slotId === 'films' && b.share > 0.8 && readyRef.current && bApi !== null;
-      // Phones: the film sits below the heading, so no cone across it; it just appears.
-      if (inFilms && isPhone) { if (!filmsLitRef.current) setFilmsLit(true); }
-      else if (inFilms && !projecting.current) { projecting.current = true; void bApi?.project(() => rectOf(filmFrameRef.current), 'mouth', !reducedRef.current).then(() => setFilmsLit(true)); }
-      else if (!inFilms && projecting.current) { projecting.current = false; bApi?.stopProject(); }
+      const pg = pickGridRef.current;
+      if (!pickLitRef.current && pg !== null) {
+        const q = pg.getBoundingClientRect();
+        if (q.top > vh * 0.85 || q.bottom < headerH + 40) seenAt.current.pick = 0;
+        else if (seenAt.current.pick === 0) seenAt.current.pick = now;
+        else if (now - seenAt.current.pick > 1800) setPickLit(true);
+      }
       if (settled && slotId !== activeRef.current) onStopRef.current(slotId);
       // Header progress, the colour journey, the hero's scroll depth: read…
       const y = sc.scrollTop;
@@ -645,6 +782,9 @@ export default function BeamyPage() {
       if (cap !== null && capBottom !== null && cap.style.bottom !== capBottom) cap.style.bottom = capBottom;
       const bar = progressRef.current;
       if (bar !== null) bar.style.transform = `scaleX(${sp.toFixed(4)})`;
+      // Touch screens snap one step per swipe, only inside the pinned story (brand.css).
+      const snapAttr = snapOn ? 'on' : 'off';
+      if (sc.dataset.storySnap !== snapAttr) sc.dataset.storySnap = snapAttr;
       const bd = backdropRef.current;
       if (bd !== null) {
         if (!reducedRef.current) bd.style.setProperty('--bw-sp', sp.toFixed(4));
@@ -654,48 +794,28 @@ export default function BeamyPage() {
       const night = (Math.round(nightV * 20) / 20).toFixed(2);
       if (sc.style.getPropertyValue('--bw-night-mix') !== night) sc.style.setProperty('--bw-night-mix', night);
       if (hero !== null && hs !== null && !reducedRef.current && hero.style.getPropertyValue('--hs') !== hs) hero.style.setProperty('--hs', hs);
-      // The AR step's frame stands in front of him (lib/beamyAssets
-      // frameOnBeamy: inside the viewport below the nav, nothing poking out
-      // of its top, his head and prop in its window, his face mid-window).
-      // From the stage's own numbers, no DOM read. The inputs ease after
-      // him, so a dance or a hop never swings it; a new frame snaps.
-      const fr = arFrameRef.current;
+      // The AR stage (fixed, above): the carousel box and the frame sit on
+      // it, and his prop is scaled to the reference window, once, so a frame
+      // or tab change never resizes him or it. Off the step, the prop goes
+      // back to its fitted size.
       const bw = api.current;
-      if (fr !== null && bw !== null && readyRef.current) {
-        const w = bw.where();
-        const m = bw.mouth();
-        const fa = arFrameAt.current;
-        const now = performance.now();
-        const k = fa.el === fr ? 1 - Math.exp(-(now - fa.t) / 180) : 1;
-        const kSlow = 1 - Math.exp(-Math.max(0, now - fa.t) / 1500);
-        fa.el = fr;
-        fa.t = now;
-        fa.x += (w.x - fa.x) * k;
-        fa.tip += (w.y - w.heightPx * 1.02 - fa.tip) * k;
-        fa.mouth += (m.y - fa.mouth) * k;
-        fa.hp += (w.heightPx - fa.hp) * k;
-        fa.lift += (bw.wornLiftAt(1) * w.heightPx - fa.lift) * k;
-        fa.base += (bw.wornLiftAt(0) * w.heightPx - fa.base) * k;
-        // His mouth's height over his feet, slowly (a dance never moves his stand).
-        if (w.heightPx > 1) fa.mAt += (clamp((w.y - m.y) / w.heightPx, 0.3, 0.7) - fa.mAt) * kSlow;
-        // Stepped into a face oval: the frame holds still, the prop keeps its size.
-        const g = stepIn !== null
-          ? { ...stepIn.frame, propScale: 1, fits: false, faceIn: true, stepIn: true }
-          : frameOnBeamy({
-            x: fa.x, tip: fa.tip, mouth: fa.mouth, heightPx: fa.hp, lift: fa.lift, liftBase: fa.base,
-            opening: arFrameLook.current?.opening ?? DEFAULT_OPENING,
-            box: { top: headerH + 8, bottom: vh - 8, left: 8, right: window.innerWidth - 8 },
-          });
-        const tf = `translate(${g.left.toFixed(1)}px, ${g.top.toFixed(1)}px)`;
-        if (fr.style.transform !== tf) { fr.style.transform = tf; fr.style.height = `${g.h.toFixed(1)}px`; }
-        // The prop shrinks into the frame's window when it must (never pokes out of the frame).
-        bw.wornScale(g.propScale);
-        if (STEP_LOG) (window as unknown as { __beamyAr?: unknown }).__beamyAr = { ...g, tip: fa.tip, mouth: fa.mouth, hp: fa.hp, lift: fa.lift, x: fa.x, hatTop: fa.tip - (fa.base + (fa.lift - fa.base) * g.propScale) };
-      } else if (bw !== null && arFrameAt.current.el !== null) {
-        // The frame came off: the prop goes back to its fitted size.
-        arFrameAt.current.el = null;
+      if (arAt !== null && arCar !== null) {
+        const f = arAt.frame;
+        const tf = `translate(${f.left.toFixed(1)}px, ${f.top.toFixed(1)}px)`;
+        const hh = `${f.h.toFixed(1)}px`;
+        if (arCar.style.transform !== tf || arCar.style.height !== hh) { arCar.style.transform = tf; arCar.style.height = hh; }
+        if (bw !== null && readyRef.current) {
+          const hp0 = arAt.stand.heightPx;
+          const k = arPropScale({ stand: arAt.stand, frame: f, lift: bw.wornLiftAt(1) * hp0, liftBase: bw.wornLiftAt(0) * hp0 });
+          bw.wornScale(k);
+          arScaled.current = true;
+          if (STEP_LOG) (window as unknown as { __beamyAr?: unknown }).__beamyAr = { frame: f, stand: arAt.stand, propScale: k, beamy: bw.where() };
+        }
+      } else if (bw !== null && arScaled.current) {
+        arScaled.current = false;
         bw.wornScale(1);
       }
+      decorRef.current.peeks = arPeeks;
       layoutRef.current.tickMs = performance.now() - t0;
     };
     const tick = () => {
@@ -793,8 +913,10 @@ export default function BeamyPage() {
       const card = cardRef.current;
       if (card === null || launched) return;
       const st = photoState(f.t, f.tl);
-      const cw = Math.max(44, f.heightPx * 0.3);
-      const ch = cw * 1.2;
+      // A framed selfie is the whole 9:16 frame (the card's photo window, 86% ×
+      // 74% of it, then holds 9:16); a plain one is a 4:5 portrait.
+      const cw = Math.max(44, f.heightPx * (f.framed ? 0.24 : 0.3));
+      const ch = cw * (f.framed ? (0.86 / 0.74) * (16 / 9) : 1.2);
       const x = clamp(f.phone.x, cw / 2 + 4, window.innerWidth - cw / 2 - 4);
       let y = Math.max(ch / 2 + 4, lerp(f.phone.y, f.phone.y - f.heightPx * 0.36, st.visible ? st.pop : 1));
       // Never across the copy (phones stack Beamy right under the subline).
@@ -815,7 +937,7 @@ export default function BeamyPage() {
       card.style.height = `${ch.toFixed(1)}px`;
       card.style.transform = `translate3d(${(x - cw / 2).toFixed(1)}px, ${(y - ch / 2).toFixed(1)}px, 0) rotate(${st.tiltDeg.toFixed(2)}deg) scale(${Math.max(0.001, st.scale).toFixed(3)})`;
       cardBox = { left: x - cw / 2, top: y - ch / 2, width: cw, height: ch };
-    });
+    }, { shades: false }); // the intro selfie shows the Christmas look only
     if (!played) logStep('selfie:stopped');
     if (!launched) hideSelfieFx();
   }, [hideSelfieFx, launchSelfie]);
@@ -841,6 +963,19 @@ export default function BeamyPage() {
         return;
       }
       say(HELLO);
+      // Christmas first: the Holiday cover goes up around him and the antlers
+      // pop on, then he takes the selfie in them (that photo goes to the wall).
+      const first = BEAMY_LOOKS[0];
+      if (first !== undefined && first.kind !== 'none') {
+        heroFrame.current = first.kind === 'frame' ? first : null;
+        lastWorn.current = 0;
+        introWorn.current = true;
+        await Promise.race([b.wear(first), wait(reduced ? 2500 : 4000)]);
+        if (!alive()) { setIntroRunning(false); return; }
+        logStep(`look:${first.id}:intro`);
+        b.sparkle('sparkle');
+        await wait(reduced ? 500 : 350);
+      }
       await runSelfie(alive);
       if (alive()) logStep('intro:done');
       setIntroRunning(false);
@@ -849,6 +984,11 @@ export default function BeamyPage() {
   }, [ready]);
   useEffect(() => {
     const id = window.setTimeout(() => setSlowModel(true), 4000);
+    // Warm the Christmas look so it is on him the moment he lands.
+    const first = BEAMY_LOOKS[0];
+    if (first?.prop !== undefined) void preloadModel(first.prop.url);
+    else if (first?.kind === 'prop' && first.url !== undefined) void preloadModel(first.url);
+    if (first?.kind === 'frame' && first.url !== undefined) { const im = new Image(); im.src = first.url; }
     return () => window.clearTimeout(id);
   }, []);
 
@@ -858,30 +998,38 @@ export default function BeamyPage() {
      Leaving the hero takes it off; coming back puts it on again. ────── */
   // Beamed-in content never waits on him for long: no stage, or a slow one,
   // shows it anyway (the glide tick lights it after a short look; see seenAt).
-  const filmsOn = filmsLit || failed || reduced;
   const pickOn = pickLit || failed || reduced;
 
   const inStoryAR = active === 'story' && STORY_STEPS[step]?.id === 'prop';
   const tryOn = ready && !failed && arrival === 'done' && !introRunning && active === 'hero';
-  const lastWorn = useRef(-1);
   useEffect(() => {
     const b = api.current;
     if (b === null) return;
-    if (!tryOn) { if (lastWorn.current >= 0) { void b.wear(null); lastWorn.current = -1; } return; }
+    if (!tryOn) {
+      // The intro dresses him while tryOn is still off: leave that look on
+      // until the intro is over or he leaves the hero.
+      if (introRunning && activeRef.current === 'hero') return;
+      if (lastWorn.current >= 0) { void b.wear(null); lastWorn.current = -1; heroFrame.current = null; introWorn.current = false; }
+      return;
+    }
     const look = BEAMY_LOOKS[lookIx] ?? BEAMY_LOOKS[0];
     if (lastWorn.current >= 0 && lastWorn.current !== lookIx) b.sparkle('sparkle');
+    // The intro already put this one on: keep it (no second pop).
+    const kept = introWorn.current && lastWorn.current === lookIx;
+    introWorn.current = false;
     lastWorn.current = lookIx;
+    heroFrame.current = look.kind === 'frame' ? look : null;
     let live = true;
     let hold = 0;
     const advance = () => { if (live) setLookIx((k) => nextLook(k)); };
     // The hold starts once he is actually wearing it (a slow prop is never
     // skipped); a load that never settles still moves on.
     const stuck = window.setTimeout(advance, 15000);
-    void b.wear(look).then(() => {
+    void (kept ? Promise.resolve() : b.wear(look)).then(() => {
       if (!live) return;
       window.clearTimeout(stuck);
       logStep(`look:${look.id}`);
-      say(look.line, lookIx !== 0);
+      say(look.line, true);
       hold = window.setTimeout(advance, reduced ? LOOK_HOLD_REDUCED_MS : LOOK_HOLD_MS);
     });
     // Warm the next look so the swap is instant.
@@ -889,10 +1037,10 @@ export default function BeamyPage() {
     if (nx !== null) { if (nx.endsWith('.glb')) void preloadModel(nx); else { const im = new Image(); im.src = nx; } }
     return () => { live = false; window.clearTimeout(stuck); window.clearTimeout(hold); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- say/api are stable
-  }, [tryOn, lookIx, reduced]);
+  }, [tryOn, lookIx, reduced, introRunning, active]);
 
   /* ── The story's AR step: the picker drives what he wears, ONE look per
-     category, combined (lib/beamyAssets toggleLook): the prop on his head,
+     category, combined (lib/beamyAssets wearStop): the prop on his head,
      the filter as his tint, the effect on a loop, and the frame in front of
      him (ArPicker draws it; the stage never wears it here). Until the first
      tap it tours on its own, building a look up one category at a time
@@ -902,12 +1050,11 @@ export default function BeamyPage() {
   const [arTouched, setArTouched] = useState(false);
   const arK = useRef(0);
   const arOn = ready && !failed && arrival === 'done' && inStoryAR;
-  arFrameLook.current = selectedLooks(arSel, AR_LOOKS).find((l) => l.category === 'frame');
-  const toggleAr = useCallback((l: HomeLook) => {
-    logStep(`ar:pick:${l.id}`);
+  const wearAr = useCallback((c: LookCategory, stop: HomeLook | null) => {
+    logStep(`ar:pick:${stop?.id ?? `none:${c}`}`);
     setArTouched(true);
-    setArTab(l.category);
-    setArSel((s) => toggleLook(s, l));
+    setArTab(c);
+    setArSel((s) => wearStop(s, c, stop));
   }, []);
   const tabAr = useCallback((c: LookCategory) => {
     logStep(`ar:tab:${c}`);
@@ -953,101 +1100,21 @@ export default function BeamyPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- arTouched only gates the warm-up
   }, [arOn, arSel]);
-  // Effects: Power-Up style moments that repeat while the effect is on.
+  // Effects: the sparkle burst repeats on the stage while it is on; every
+  // other effect is drawn round him by ArFx (lib/arFx), and he never moves for one.
   const arFx = arSel.effect;
+  const arFxLook = arFx === undefined ? undefined : AR_LOOKS.find((x) => x.id === arFx);
+  const arFxAction = arFxLook !== undefined ? lookAction(arFxLook) : null;
+  const arFxKind: ArFxKind | null = arOn && arFxAction !== null && arFxAction.kind === 'fx' && arFxAction.fx !== 'sparkles' ? arFxAction.fx : null;
+  const arSparkles = arOn && arFxAction !== null && arFxAction.kind === 'fx' && arFxAction.fx === 'sparkles';
   useEffect(() => {
     const b = api.current;
-    if (b === null || !arOn || arFx === undefined) return;
-    const l = AR_LOOKS.find((x) => x.id === arFx);
-    const a = l !== undefined ? lookAction(l) : null;
-    if (a === null || a.kind !== 'fx') return;
-    const run = () => {
-      const w = b.where();
-      if (a.fx === 'sparkles') b.sparkle('burst');
-      else if (a.fx === 'beam') void b.zap({ x: w.x + w.heightPx * 0.9 * (w.x > window.innerWidth / 2 ? -1 : 1), y: w.y - w.heightPx * 1.25 }, 'mouth', 900);
-      else { void b.play('Dance'); b.sparkle('sparkle'); }
-    };
+    if (b === null || !arSparkles) return;
+    const run = () => b.sparkle('burst');
     run();
-    const id = window.setInterval(run, a.fx === 'sparkles' ? 1300 : a.fx === 'beam' ? 2000 : 3400);
+    const id = window.setInterval(run, 1300);
     return () => window.clearInterval(id);
-  }, [arOn, arFx]);
-
-  /* Only the Skip chip skips the intro (or scrolling on). */
-  const skipIntro = useCallback(() => {
-    logStep('intro:skip');
-    begin();
-    const b = api.current;
-    b?.skipArrival();
-    b?.stopSelfie();
-    b?.stopBeam();
-    hideSelfieFx();
-    setArrival('done');
-    setIntroRunning(false);
-    const p = pendingSelfie.current;
-    if (p !== null) landSelfie(p, false);
-  }, [begin, hideSelfieFx, landSelfie]);
-
-  /* Gaze + hero depth: the pointer on desktop (lerped CSS vars on the hero
-     for the parallax layers, the panel tilt, the wall turn and the sheen);
-     the last tap on touch turns his head, then back to you. The gaze is
-     global and never sticks: he follows a MOVING pointer anywhere on the
-     page, and a still pointer (GAZE_IDLE_MS) or any scroll hands him back
-     to the section's own pose. */
-  useEffect(() => {
-    let clear = 0;
-    let idle = 0;
-    let raf = 0;
-    const release = () => { window.clearTimeout(idle); api.current?.look(null); };
-    const cur = { x: 0, y: 0 };
-    const tgt = { x: 0, y: 0 };
-    const tick = () => {
-      raf = 0;
-      cur.x += (tgt.x - cur.x) * 0.08;
-      cur.y += (tgt.y - cur.y) * 0.08;
-      const h = heroRef.current;
-      if (h !== null) {
-        h.style.setProperty('--px', cur.x.toFixed(4));
-        h.style.setProperty('--py', cur.y.toFixed(4));
-        h.style.setProperty('--tilt-x', cur.x.toFixed(4));
-        h.style.setProperty('--sheen-dx', `${(cur.x * 18).toFixed(1)}%`);
-      }
-      if (Math.abs(tgt.x - cur.x) > 0.001 || Math.abs(tgt.y - cur.y) > 0.001) raf = window.requestAnimationFrame(tick);
-    };
-    const onMove = (e: PointerEvent) => {
-      if (e.pointerType !== 'mouse') return;
-      api.current?.look({ x: e.clientX, y: e.clientY });
-      window.clearTimeout(idle);
-      idle = window.setTimeout(release, GAZE_IDLE_MS);
-      // Decorative depth: held still under reduced motion.
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      tgt.x = clamp((e.clientX / Math.max(1, window.innerWidth)) * 2 - 1, -1, 1);
-      tgt.y = clamp((e.clientY / Math.max(1, window.innerHeight)) * 2 - 1, -1, 1);
-      if (raf === 0) raf = window.requestAnimationFrame(tick);
-    };
-    const onDown = (e: PointerEvent) => {
-      if (e.pointerType === 'mouse') return;
-      api.current?.look({ x: e.clientX, y: e.clientY });
-      window.clearTimeout(clear);
-      clear = window.setTimeout(() => api.current?.look(null), 1600);
-    };
-    const onLeave = () => { release(); tgt.x = 0; tgt.y = 0; if (raf === 0) raf = window.requestAnimationFrame(tick); };
-    // Scrolling moves him to another section: he takes that section's look.
-    const onScroll = () => release();
-    const sc = scrollerRef.current;
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerdown', onDown);
-    sc?.addEventListener('scroll', onScroll, { passive: true });
-    document.documentElement.addEventListener('mouseleave', onLeave);
-    return () => {
-      window.clearTimeout(clear);
-      window.clearTimeout(idle);
-      window.cancelAnimationFrame(raf);
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerdown', onDown);
-      sc?.removeEventListener('scroll', onScroll);
-      document.documentElement.removeEventListener('mouseleave', onLeave);
-    };
-  }, []);
+  }, [arSparkles]);
 
   /* ── The booth hands over a shot: Beamy catches it, then beams it. ─── */
   const onBeam = useCallback((src: string) => {
@@ -1114,12 +1181,12 @@ export default function BeamyPage() {
     });
   };
 
-  /* ── Poke + drag on Beamy's own hit area (nothing else captures). ──── */
+  /* ── A tap on Beamy's own hit area (nothing else captures). ─────────── */
   const onPoke = () => {
     const b = api.current;
     if (b === null) return;
     if (activeRef.current === 'hero') {
-      // During the intro a tap is just a sparkle (only Skip skips); once it
+      // During the intro a tap is just a sparkle (it is short); once it
       // has settled, a tap tries on the next look (with a little hop).
       if (introRunning) { b.sparkle('sparkle'); return; }
       logStep('look:tap');
@@ -1129,6 +1196,7 @@ export default function BeamyPage() {
     }
     const r = pokeStep(poke.current, performance.now());
     poke.current = r.state;
+    logStep(`poke:${r.level}`);
     if (r.level === 'sparkle') {
       b.sparkle('sparkle');
       say(POKE_LINES[(r.count - 1) % 2]);
@@ -1145,37 +1213,6 @@ export default function BeamyPage() {
       void b.play('Dance');
     }
   };
-  const onHitDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
-    if (e.button !== 0) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dragging: false, samples: [{ x: e.clientX, t: performance.now() }], suppressClick: false };
-  };
-  const onHitMove = (e: ReactPointerEvent<HTMLButtonElement>) => {
-    const d = drag.current;
-    if (d === null || d.id !== e.pointerId) return;
-    const dx = e.clientX - d.x0;
-    if (!d.dragging && Math.hypot(dx, e.clientY - d.y0) > 6) { d.dragging = true; api.current?.dragStart(); setDragHint(false); }
-    if (!d.dragging) return;
-    api.current?.dragMove(dx);
-    const now = performance.now();
-    d.samples.push({ x: e.clientX, t: now });
-    while (d.samples.length > 2 && now - d.samples[0].t > 90) d.samples.shift();
-  };
-  const onHitUp = (e: ReactPointerEvent<HTMLButtonElement>) => {
-    const d = drag.current;
-    if (d === null || d.id !== e.pointerId) return;
-    if (d.dragging) {
-      api.current?.dragEnd(releaseVelocity(d.samples));
-      d.suppressClick = true;
-    }
-    d.dragging = false;
-  };
-  const onHitClick = () => {
-    const d = drag.current;
-    if (d !== null && d.suppressClick) { d.suppressClick = false; return; }
-    onPoke();
-  };
-
   /* ── Pieces ─────────────────────────────────────────────────────────── */
 
   const shotPins = useMemo(() => {
@@ -1183,7 +1220,10 @@ export default function BeamyPage() {
     shots.forEach((s, n) => { out[SHOT_TILES[n]] = { src: s.src, key: `s${s.id}`, mine: true }; });
     return out;
   }, [shots]);
-  const heroPins = useMemo<Record<number, Pin>>(() => (heroPin === null ? {} : { [WALL_CENTRE]: heroPin }), [heroPin]);
+  /* Phones: his framed selfie stands over the wall's left half, so his photo
+     lands on the right column's middle tile, in full view. */
+  const heroTile = phone ? WALL_CENTRE + 1 : WALL_CENTRE;
+  const heroPins = useMemo<Record<number, Pin>>(() => (heroPin === null ? {} : { [heroTile]: heroPin }), [heroPin, heroTile]);
 
   const lookPills = (
     <FadeScroll
@@ -1282,13 +1322,18 @@ export default function BeamyPage() {
   );
   const heroHeadline = (
     <>
-      <p className={`bw-eyebrow ${wideHero ? '' : 'text-[14px] after:hidden'}`} style={i(0)}>{HERO.eyebrow}</p>
-      <h1 className={`bw-display ${wideHero ? 'mt-6' : 'mt-2'}`} style={wideHero ? { ...i(1), fontSize: 'clamp(40px, min(22px + 3vw, 7.4dvh), 76px)' } : i(1)}>
+      {/* The headline first; its payoff set in capitals with a shimmering
+          rim (components/beamy/ShineText: the glow CTA's travelling light, on the
+          outline only; the fill stays solid ink). */}
+      <h1 className="bw-display" style={wideHero ? { ...i(0), fontSize: 'clamp(40px, min(22px + 3vw, 7.4dvh), 76px)' } : i(0)}>
         <span className="bw-light block">{HERO.lead}</span>
-        <span className="block">{HERO.strong}</span>
+        <span className="bw-hl-caps block">
+          <ShineText text={HERO.strong} />
+        </span>
       </h1>
-      {/* Full ink here: the hero's sheen and floor light sit behind this line. */}
-      <p className={`bw-body ${wideHero ? 'mt-5 max-w-[34ch]' : 'mt-2 max-w-[36ch]'}`} style={{ ...i(2), color: 'var(--bw-ink)' }}>{HERO.sub}</p>
+      {/* Full ink here: the hero's sheen and floor light sit behind these lines. */}
+      <p className={`bw-hl-line ${wideHero ? 'mt-5' : 'mt-2.5'}`} style={{ ...i(1), color: 'var(--bw-ink)' }}>{HERO.line}</p>
+      <p className={`bw-hl-beats ${wideHero ? 'mt-2' : 'mt-1'}`} style={i(2)}>{HERO.sub}</p>
     </>
   );
   const heroRows = heroGeo?.rows ?? 3;
@@ -1296,7 +1341,7 @@ export default function BeamyPage() {
     <div className="bw-wall-mount bw-wall-glint h-full" style={{ ['--wall-yaw' as string]: wideHero ? '-7deg' : phone ? '0deg' : '-5deg' }}>
       <LiveWall
         key={heroRows}
-        pool={PHOTO_POOL} pins={heroPins} dim={introRunning} compact={!wideHero} centreRef={heroTileRef} ripple={ripple} seed={seed}
+        pool={PHOTO_POOL} pins={heroPins} dim={introRunning} compact={!wideHero} centreRef={heroTileRef} centre={heroTile} ripple={ripple} seed={seed}
         rows={heroRows} fill
       />
     </div>
@@ -1308,20 +1353,7 @@ export default function BeamyPage() {
       {!ready && !failed && (
         <p className="bw-label pointer-events-none absolute inset-x-0 top-[55%] text-center">Beamy is on his way&hellip;</p>
       )}
-      {wideHero && dragHint && ready && arrival === 'done' && !introRunning && (
-        <p
-          className="bw-label pointer-events-none absolute left-1/2 top-full mt-2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5"
-          style={{ color: 'var(--bw-ink)', background: 'rgba(26, 23, 64, 0.58)', WebkitBackdropFilter: 'blur(8px)', backdropFilter: 'blur(8px)', animation: reduced ? undefined : 'bw-fade 600ms var(--bw-ease) 900ms both' }}
-        >
-          <Rotate3d className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Drag me
-        </p>
-      )}
     </>
-  );
-  const skipChip = introRunning && (
-    <button type="button" className="bw-btn bw-btn-secondary bw-btn-sm" onClick={skipIntro} data-skip-intro>
-      {wideHero ? START_COPY.skipIntro : START_COPY.skipShort}
-    </button>
   );
   const panelInset = wideHero ? clamp(Math.round(vp.w * 0.022), 18, 40) : 10;
   const radius = wideHero ? 36 : 24;
@@ -1342,6 +1374,10 @@ export default function BeamyPage() {
         <div className="bw-glass" aria-hidden />
         <div aria-hidden className="bw-hero-back" style={{ borderRadius: radius }} />
         <div aria-hidden className="bw-hero-floor" style={{ borderRadius: `0 0 ${radius}px ${radius}px` }} />
+        {/* Ambient decor for the look he wears: snow for Christmas, glints for a party (never takes a tap). */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden" style={{ borderRadius: radius }}>
+          <AmbientFx kind={ambientFor(BEAMY_LOOKS[lookIx]?.id)} reduced={reduced} className="block h-full w-full" />
+        </div>
         {wideHero ? (
           <div ref={heroGridRef} className={`relative grid h-full items-center gap-6 px-[clamp(28px,3.4vw,64px)] ${vp.w < 1280 ? 'grid-cols-[minmax(0,1.5fr)_minmax(0,0.6fr)_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1.36fr)_minmax(0,0.74fr)_minmax(0,1.1fr)]'}`}>
             <div data-card-avoid data-bubble-left className={`relative z-10 flex flex-col ${showContent ? 'bw-rise' : 'invisible'}`}>
@@ -1356,7 +1392,6 @@ export default function BeamyPage() {
             <div ref={heroWallColRef} className={`flex h-full items-start justify-end ${showContent ? 'bw-rise' : 'invisible'}`}>
               <div data-bubble-right className="relative" style={{ ...i(2), marginTop: heroGeo?.wall?.top ?? 0, marginRight: heroGeo?.wall != null ? -40 : 0, width: heroGeo?.wall?.width ?? 'min(420px, 100%)', height: heroGeo?.wall?.height ?? 'auto' }}>{heroWall}</div>
             </div>
-            <div className="absolute bottom-5 left-[clamp(28px,3.4vw,64px)]">{skipChip}</div>
           </div>
         ) : (
           <div className="relative flex h-full flex-col px-4 pb-4 pt-4 sm:px-8">
@@ -1401,7 +1436,6 @@ export default function BeamyPage() {
               ))}
             </div>
             <div className={`mt-4 shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroCtas}</div>
-            {introRunning && <div className="mt-3 flex justify-center">{skipChip}</div>}
           </div>
         )}
         {/* The front pane: a crisp rim and a soft sheen that slides with the pointer. */}
@@ -1413,6 +1447,16 @@ export default function BeamyPage() {
 
   /* ── The story: pinned, one card at a time, Beamy + one 3D effect beside him ── */
   const n = STORY_STEPS.length;
+  const [storySnaps, setStorySnaps] = useState<number[]>([]);
+  useLayoutEffect(() => {
+    const st = storyRef.current;
+    if (st === null) return;
+    const hh = headerRef.current?.offsetHeight ?? headerH;
+    const [a0, a1] = storyEdgeOffsets(st.offsetHeight, window.innerHeight, hh);
+    // The two ends first and last (snap-stop normal), the steps between (snap-stop always).
+    const next = [a0, ...storySnapOffsets(n, st.offsetHeight, window.innerHeight, hh), a1].map((v) => Math.round(v));
+    setStorySnaps((prev) => (prev.join() === next.join() ? prev : next));
+  }, [n, vp.w, vp.h, phone, headerH]);
   const goStep = (k: number) => {
     const sc = scrollerRef.current;
     const st = storyRef.current;
@@ -1428,9 +1472,10 @@ export default function BeamyPage() {
   const storyIds = STORY_STEPS.map((s) => s.id);
   /** His slot in the story. */
   // Phones: on the AR step he steps up under the picker so his frame fills the
-  // screen with no dead band (wide screens keep him where he stands).
+  // screen with no dead band (wide screens keep him where he stands). A
+  // layout marker only: it never takes a tap (the frames carousel sits on it).
   const storySlotCls = `${stacked ? 'left-[15%] right-[15%] h-[46%]' : 'bottom-[3%] left-[30%] right-[30%] h-[58%]'} ${
-    stacked ? (inStoryAR ? 'bottom-[11%]' : 'bottom-[1%]') : ''} transition-[bottom] duration-700 ease-out`;
+    stacked ? (inStoryAR ? 'bottom-[11%]' : 'bottom-[1%]') : ''} pointer-events-none transition-[bottom] duration-700 ease-out`;
   const qrUrl = demoQrUrl(window.location.origin, A.demoEventSlug ?? 'demo');
   const storyDots = (
     <div className="bw-cap-dots" role="group" aria-label="Steps">
@@ -1465,11 +1510,15 @@ export default function BeamyPage() {
   const storyScenes = (
     <>
       <StoryScenes step={step} live={active === 'story'} ids={storyIds} stacked={stacked} qrUrl={qrUrl} wallCentreRef={storyWallRef} seed={seed} beamyAt={beamyAt} onCue={onCue} />
-      <ArPicker looks={AR_LOOKS} sel={arSel} tab={arTab} onTab={tabAr} onToggle={toggleAr} active={inStoryAR} stacked={stacked} frameRef={arFrameRef} />
+      <ArPicker looks={AR_LOOKS} sel={arSel} tab={arTab} onTab={tabAr} onWear={wearAr} active={inStoryAR} stacked={stacked} carRef={arCarRef} fx={arFxKind} reduced={reduced} />
     </>
   );
   const story = (
     <section ref={storyRef} id="how" data-stop="story" aria-labelledby="h-story" className="bw-sec relative" style={{ height: `${storyHeightVh(n, phone)}vh` }}>
+      {/* Touch screens: one snap anchor mid-step (lib/beamyScroll
+          storySnapOffsets). With scroll-snap-stop (brand.css, coarse pointers
+          only) a momentum flick stops at the next step instead of flying past it. */}
+      {storySnaps.map((top, k) => <span key={k} aria-hidden className={k === 0 || k === storySnaps.length - 1 ? 'bw-story-snap bw-story-edge' : 'bw-story-snap'} style={{ top }} />)}
       <div className="sticky overflow-hidden" style={{ top: 'var(--bw-header-h)', height: 'calc(100svh - var(--bw-header-h))' }}>
         {stacked ? (
           <div className="flex h-full flex-col px-4 pb-3 pt-3 sm:px-8">
@@ -1485,47 +1534,71 @@ export default function BeamyPage() {
             {storyScenes}
             {/* Big and centred; the scene stands on both sides of him and above. */}
             <div data-slot="story" data-bubble="none" aria-hidden className={`absolute ${storySlotCls}`} />
-            <div className="absolute left-[clamp(24px,4vw,64px)] top-[clamp(16px,3.5vh,36px)] z-10">{storyCaption}</div>
+            <div className="absolute left-[clamp(24px,4vw,64px)] top-[clamp(16px,3.5vh,36px)] z-10">
+              {storyCaption}
+              {/* The AR step's switcher, right under the card (phones: ArPicker puts it above him). */}
+              <div className="bw-ar-tabs-under" data-on={inStoryAR ? 'true' : 'false'} inert={!inStoryAR}>
+                <ArTabs sel={arSel} tab={arTab} onTab={tabAr} />
+              </div>
+            </div>
           </div>
         )}
       </div>
     </section>
   );
 
-  /* ── The films: one frame, four films; Beamy projects whichever is on ── */
-  const cur = FILMS.find((f) => f.id === film) ?? FILMS[0];
-  const media = FILM_MEDIA[cur.id];
+  /* ── The films: one fixed 16:9 frame, a tab per film (FILM_TABS); Beamy
+     stands beside it and says a line for each. Nothing here moves on a
+     switch: the box keeps its size and the bubble its height. ── */
+  const cur = FILM_TABS.find((f) => f.key === film) ?? FILM_TABS[0];
   // Straight on from the story (its pinned panel already ends on open space),
   // so the films start right under it, like the options do after them. Phones
   // give it no slot of its own: a second Beamy box above the heading was a
   // blank screen while he dissolved between two slots. He stays in the story
   // until the film fills the screen, then stands above the options.
   const filmsClass = `bw-sec relative mx-auto w-full max-w-[1320px] ${phone ? 'px-5 pb-14 pt-4' : 'px-[clamp(40px,6vw,104px)] pb-[clamp(88px,13vh,150px)] pt-[clamp(8px,2vh,24px)]'}`;
+  // His line, in a bubble of fixed height (its tail points at him; on phones,
+  // where he is not here, it sits over the film).
+  const filmLine = (
+    <p data-film-line className="bw-film-line" data-phone={phone ? 'true' : 'false'} aria-live="polite">
+      <span key={cur.key} className="bw-film-line-text">{cur.line}</span>
+    </p>
+  );
   const films = (
     <section id="films" data-stop="films" aria-labelledby="h-films" className={filmsClass}>
-      {split('right', phone ? null : stand('films', -0.5, 'h-[min(400px,50vh)] w-full max-w-[280px]'), (
+      {split('right', phone ? null : (
+        <div className="flex w-full max-w-[280px] flex-col items-center">
+          {filmLine}
+          <div data-slot="films" data-yaw={-0.5} data-bubble="none" aria-hidden className="aspect-[1.1] max-h-[46vh] w-full" />
+        </div>
+      ), (
         <>
           <div className="bw-in">
             <h2 id="h-films" className="bw-h2">{FILMS_COPY.heading}</h2>
           </div>
-          <div role="group" aria-label="Pick a film" className="bw-in mt-5 flex flex-wrap gap-2" style={i(1)}>
-            {FILMS.map((f) => {
-              const M = FILM_MEDIA[f.id];
+          <div role="group" aria-label="Pick a film" className="bw-in bw-film-tabs mt-5 flex flex-wrap gap-2" style={i(1)}>
+            {FILM_TABS.map((f) => {
+              const Icon = f.Icon;
+              const on = film === f.key;
               return (
-                <button key={f.id} type="button" className="bw-glass-chip bw-pane-chip" aria-pressed={film === f.id} onClick={() => { setFilm(f.id); say(f.beamy); logStep(`film:${f.id}`); }}>
-                  <M.Icon size={18} from={film === f.id ? '#2B2A8C' : '#FFFFFF'} to={film === f.id ? '#5B4BE0' : '#C9CCFF'} />
-                  {f.eyebrow}
+                <button key={f.key} type="button" className="bw-glass-chip bw-pane-chip" aria-pressed={on} onClick={(e) => { setFilm(f.key); logStep(`film:${f.key}`); if (phone) e.currentTarget.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' }); }}>
+                  {Icon !== undefined
+                    ? <Icon size={18} from={on ? '#2B2A8C' : '#FFFFFF'} to={on ? '#5B4BE0' : '#C9CCFF'} />
+                    : <Clapperboard className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden />}
+                  {f.label}
                 </button>
               );
             })}
           </div>
-          {/* Beamy's projector lands first, then the film appears in its light. */}
-          <div className="bw-beam-in" data-beam={filmsOn ? 'lit' : 'wait'}>
-            <div ref={filmFrameRef} data-film-frame data-lit="true" className="bw-in bw-film bw-thick-frame mt-6" style={i(2)}>
-              <FilmEmbed key={cur.id} src={media.src} poster={media.poster} label={`${cur.title}: feature film`} chipClassName="bw-film-chip" />
-            </div>
-            <p className="bw-small mt-4 max-w-[56ch]"><span className="font-semibold" style={{ color: 'var(--bw-ink)' }}>{cur.title}.</span> {cur.line}</p>
+          {phone && filmLine}
+          <div ref={filmFrameRef} data-film-frame data-lit="true" className={`bw-in bw-film bw-film-fixed bw-thick-frame ${phone ? 'mt-3' : 'mt-6'}`} style={i(2)}>
+            <FilmEmbed key={cur.key} src={cur.video} poster={cur.poster} label={`${cur.title ?? cur.label}: feature film`} chipClassName="bw-film-chip" />
           </div>
+          {(cur.title !== undefined || cur.hook !== undefined) && (
+            <p className="bw-small bw-film-caption mt-4 max-w-[56ch]">
+              {cur.title !== undefined && <span className="font-semibold" style={{ color: 'var(--bw-ink)' }}>{cur.title}.</span>} {cur.hook}
+            </p>
+          )}
         </>
       ))}
     </section>
@@ -1799,6 +1872,8 @@ export default function BeamyPage() {
         {hero}
         {story}
         {films}
+        {/* Virtual celebrations (VirtualCelebrations.tsx): its own stop; he beams at the card when the link goes out. */}
+        <VirtualCelebrations phone={phone} wide={wideHero} beamyHere={active === 'virtual'} onBeam={(to) => { const b = api.current; if (b !== null && readyRef.current) void b.beam(to, undefined, 'mouth'); }} />
         {pick}
         {tryIt}
         {pricingSec}
@@ -1819,13 +1894,10 @@ export default function BeamyPage() {
         <button
           ref={hitRef}
           type="button"
-          onClick={onHitClick}
-          onPointerDown={onHitDown}
-          onPointerMove={onHitMove}
-          onPointerUp={onHitUp}
-          onPointerCancel={onHitUp}
-          aria-label="Poke Beamy (drag to spin him)"
-          className="bw-focus fixed left-0 top-0 z-[45] cursor-grab touch-pan-y rounded-full active:cursor-grabbing"
+          onClick={onPoke}
+          data-beamy-hit
+          aria-label="Tap Beamy"
+          className="bw-focus fixed left-0 top-0 z-[45] cursor-pointer touch-manipulation rounded-full"
           style={{ visibility: arrival === 'done' ? 'visible' : 'hidden' }}
         />
       )}

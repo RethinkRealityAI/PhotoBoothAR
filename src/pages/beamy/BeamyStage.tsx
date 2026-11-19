@@ -24,11 +24,10 @@
  * periwinkle with an amber-white core); sparks and motes use the same calm
  * palette, never the old seven-hue spectrum.
  *
- * Micro-interactions (all driven by the page through BeamyApi): `look` turns
- * his head/body toward the pointer (eyes are baked into the texture, so it is
- * a small turn plus a lid squint when the pointer is close); `drag*` spins him
- * around Y with inertia and a springy settle to front (spin physics are pure,
- * in lib/brandLanding); `sparkle`/`spin` escalate pokes; `drift` raises a hand
+ * Micro-interactions (all driven by the page through BeamyApi): his gaze and
+ * turn come from the page and the scene only (never the pointer); `sparkle`/
+ * `spin` escalate taps (the party spin settles to front with the pure physics
+ * in lib/brandLanding); `drift` raises a hand
  * and sends light motes to a card; `arrive` drops a beam from the top of the
  * viewport and he appears where it lands.
  *
@@ -42,8 +41,8 @@
  * Liquid-glass scene: a deep-indigo contact shadow grounds him; a few small
  * real library props (crown, halo, tiara: the platform's own assets)
  * sit around the hero's glass panel and his hero stand, reported through
- * `decorRef`; they bob slowly and parallax with the pointer and with the
- * scroll as the hero leaves (nearer = more). The
+ * `decorRef`; they bob slowly and parallax with the scroll as the hero
+ * leaves (nearer = more). The
  * `Selfie` clip plays HERE, on the one canvas: `selfie()` streams the phone
  * and head positions (and the snap-frame portrait) to the page's overlays.
  *
@@ -58,14 +57,14 @@ import { createPortal } from 'react-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { gltfLoader, loadModel } from '../../lib/glbCache';
-import { SPIN_PER_PX, nearestFront, spinSettled, spinStep, type Spin } from '../../lib/brandLanding';
+import { spinSettled, spinStep, type Spin } from '../../lib/brandLanding';
 import { SELFIE_CLIP, SELFIE_SPEED, selfieTimeline, type SelfieTimeline } from '../../lib/beamySelfie';
 import type { Rect } from '../../lib/beamGeometry';
 import { DT_MAX, K_POS, K_SOFT, dampAngle, glideStep, governDpr, type GlidePt } from '../../lib/beamyScroll';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { snapshotPortrait } from '../../components/beamy/selfieFx';
+import { snapshotPortrait, snapshotRect } from '../../components/beamy/selfieFx';
 import { HOME_ASSET_DEFAULTS } from '../../lib/beamyAssets';
-import { fitProp, type BeamyLook } from '../../lib/beamyLooks';
+import { fitProp, type BeamyLook, type PropFit } from '../../lib/beamyLooks';
 
 export type BeamyClip = 'Idle' | 'Wave' | 'Hop' | 'BeamyBlast' | 'Sob' | 'SideEye' | 'Dance' | 'ShadesOn' | 'Waddle' | typeof SELFIE_CLIP;
 
@@ -92,6 +91,11 @@ export interface StageLayout {
   bubbleMaxY?: number;
   /** The bubble steps aside (he is crossing the page; it would trail over copy). */
   bubbleAway?: boolean;
+  /** His tap target steps aside (mid-glide). Separate from the bubble: phones never show the bubble, but always take a tap. */
+  hitAway?: boolean;
+  /** Where a worn frame stands (viewport px: its top-left and height, 9:16), placed by the page
+   *  (lib/beamyAssets frameOnBeamy). Absent = the frame's own geometry behind him. */
+  frameAt?: { left: number; top: number; h: number } | null;
   /** How long the page's last slot read took (ms), for the ?debug readout. */
   tickMs?: number;
 }
@@ -102,7 +106,16 @@ export interface StageLayout {
  * (crystals around his feet), and how far the hero has scrolled (scroll
  * parallax), all viewport px.
  */
-export interface StageDecor { panel: Rect | null; stand: { feet: Pt; heightPx: number } | null; phone: boolean; scroll: number; }
+export interface StageDecor {
+  panel: Rect | null;
+  stand: { feet: Pt; heightPx: number } | null;
+  phone: boolean;
+  scroll: number;
+  /** The AR props carousel's floating stops (viewport px: centre and size). The
+   *  stage draws each one's real GLB there; the page's peek is a see-through
+   *  button over it. Absent or empty = none. */
+  peeks?: { url: string; x: number; y: number; size: number }[];
+}
 
 /** One frame of the Selfie clip on the stage, for the page's DOM overlays. */
 export interface SelfieFrame {
@@ -115,6 +128,8 @@ export interface SelfieFrame {
   heightPx: number;
   /** Beamy's own portrait, on the snap frame only (null if the canvas could not be read). */
   photo?: string | null;
+  /** He is wearing a placed frame: the photo is the whole frame (9:16), him inside its window. */
+  framed: boolean;
 }
 
 export interface BeamyApi {
@@ -155,19 +170,14 @@ export interface BeamyApi {
   sparkle(level: 'sparkle' | 'burst'): void;
   /** A celebratory spin (adds angular velocity). */
   spin(): void;
-  /** Gaze target in viewport px (null = look at the viewer). */
-  look(p: Pt | null): void;
-  /** Drag-to-spin, fed by the page's hit area (px since the drag started). */
-  dragStart(): void;
-  dragMove(dxPx: number): void;
-  dragEnd(velocity: number): void;
   /**
    * Play the Selfie clip here (no second canvas). `onFrame` runs every frame
    * of the clip so the page can draw the flash and the photo card; the snap
    * frame carries his portrait. Resolves true at the clip's end, false if
-   * another clip (or `stopSelfie`) cut it short.
+   * another clip (or `stopSelfie`) cut it short. `shades: false` keeps the
+   * clip's heart shades off (a selfie in a worn look shows only that look).
    */
-  selfie(onFrame: (f: SelfieFrame) => void): Promise<boolean>;
+  selfie(onFrame: (f: SelfieFrame) => void, opts?: { shades?: boolean }): Promise<boolean>;
   stopSelfie(): void;
   /** Finish an `arrive()` in flight at once (a click skips the intro). */
   skipArrival(): void;
@@ -286,7 +296,7 @@ interface CrystalSpec {
   at: { panel: [number, number] } | { stand: [number, number]; lift?: number };
   /** Size as a fraction of min(panel width, height) (beside Beamy: of his height). */
   size: number;
-  /** 0 far … 1 near: how far it parallaxes with the pointer and the scroll. */
+  /** 0 far … 1 near: how far it parallaxes with the scroll. */
   depth: number;
   phone: boolean;
   /** Sits low enough to cast a faint contact shadow on the floor below it. */
@@ -296,6 +306,22 @@ interface CrystalSpec {
   layer?: 'back' | 'front';
 }
 const PROP_DIR = '/models/props/';
+/** How many carousel stops the stage can draw at once (the one before and the one after). */
+const PEEK_SLOTS = 2;
+
+/** A clone of a cached library model, fitted into a unit box about its centre (masters are never disposed). */
+function unitClone(master: THREE.Object3D): THREE.Object3D {
+  const obj = master.clone(true);
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(obj);
+  const dim = box.getSize(new THREE.Vector3());
+  const k = 1 / Math.max(1e-6, dim.x, dim.y, dim.z);
+  const mid = box.getCenter(new THREE.Vector3());
+  obj.scale.multiplyScalar(k);
+  obj.position.set(-mid.x * k, -mid.y * k, -mid.z * k);
+  obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 1; } });
+  return obj;
+}
 const CRYSTALS: CrystalSpec[] = [
   { prop: 'royal-crown', at: { panel: [-0.012, -0.05] }, size: 0.15, depth: 0.25, phone: true },
   { prop: 'halo-ring', at: { panel: [1.015, 1.02] }, size: 0.16, depth: 0.35, phone: true },
@@ -306,26 +332,77 @@ const CRYSTALS: CrystalSpec[] = [
   { prop: 'queens-tiara', at: { panel: [0.6, 0.16] }, size: 0.05, depth: 0.7, phone: false },
   { prop: 'royal-crown', at: { panel: [0.33, 0.9] }, size: 0.035, depth: 0.55, phone: false, shadow: true },
 ];
-const CRYSTAL_PARALLAX_PX = 22;
 
-/* ── Projector cone: origin → the near edge of a film frame ─────────────── */
+/* ── Projector light: origin → the near edge of a story card ──────────────
+   Not a hard wedge: a feathered volume of light, brightest at his mouth,
+   fading out across its width (never reaching its own edges) and along its
+   length (gone before it reaches the card), with a few dust motes drifting
+   through it. The card gets a soft bloom where the light lands (CONE_GLOW).
+   BEAM_STYLE 'stream' instead drops the volume for a glow at his mouth and a
+   few soft particles travelling to the card. Under reduced motion
+   (uFlicker 0) only the still, soft light remains. */
+
+/** 'volume' = soft projector light with drifting motes; 'stream' = particles only. */
+const BEAM_STYLE: 'volume' | 'stream' = 'volume';
 
 const CONE_VERT = /* glsl */ `
 attribute vec2 aCone;
 varying vec2 vCone;
 void main() { vCone = aCone; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const CONE_FRAG = /* glsl */ `
-varying vec2 vCone;   // x: 0 at Beamy → 1 at the frame; y: −1..1 across
+varying vec2 vCone;   // x: 0 at Beamy → 1 at the card; y: −x..x across
 uniform float uAlpha;
 uniform float uTime;
 uniform float uFlicker;
+uniform float uLen;   // px, mouth → card
+uniform float uHalf;  // px, half the card edge's width
+uniform float uMode;  // 0 volume, 1 stream
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main() {
-  float across = abs(vCone.y) / max(vCone.x, 0.001);
-  float soft = pow(clamp(1.0 - across, 0.0, 1.0), 0.7);
-  float along = mix(0.5, 0.42, vCone.x) * smoothstep(0.0, 0.12, vCone.x);
-  float flick = 1.0 - uFlicker * (0.08 + 0.06 * sin(uTime * 23.0) * sin(uTime * 7.3));
-  vec3 col = mix(vec3(1.0, 0.95, 0.86), vec3(0.62, 0.65, 1.0), vCone.x);
-  gl_FragColor = vec4(col, soft * along * flick * uAlpha);
+  float x = vCone.x;
+  float across = abs(vCone.y) / max(x, 0.001);
+  // Feathered on every side: zero well inside the triangle's edges.
+  float side = exp(-across * across * 3.5) * (1.0 - smoothstep(0.6, 0.95, across));
+  // It fades in where the cone is already wide (never a sharp apex) and is
+  // gone before the card.
+  float along = smoothstep(0.04, 0.22, x) * (1.0 - smoothstep(0.4, 0.92, x));
+  vec2 px = vec2(x * uLen, vCone.y * uHalf); // roughly isotropic px
+  vec3 warm = vec3(1.0, 0.95, 0.86);
+  vec3 cool = vec3(0.70, 0.72, 1.0);
+  vec3 col = mix(warm, cool, smoothstep(0.0, 0.7, x));
+  float a = 0.0;
+  if (uMode < 0.5) {
+    // (Its source, a round glow at his mouth or hand, is its own mesh: the
+    // triangle would clip it to a point.)
+    float body = side * along * (0.2 + 0.35 * exp(-x * 4.0));
+    vec2 g = px / 16.0 + vec2(-uTime * 0.9, uTime * 0.12);
+    vec2 id = floor(g);
+    vec2 f = fract(g) - 0.5 - (vec2(hash(id + 3.1), hash(id + 7.7)) - 0.5) * 0.5;
+    float h = hash(id);
+    float mote = step(0.82, h) * smoothstep(0.16, 0.0, length(f)) * (0.55 + 0.45 * sin(uTime * 1.7 + h * 40.0));
+    a = body + mote * side * along * 0.55 * uFlicker;
+  } else {
+    float glow = exp(-length(px) / 26.0) * 0.55;
+    float dots = 0.0;
+    for (int k = 0; k < 7; k++) {
+      float fk = float(k);
+      float p = fract(uTime * 0.28 + fk / 7.0);
+      vec2 c = vec2(p * uLen, (hash(vec2(fk, 1.0)) - 0.5) * 0.8 * p * uHalf);
+      float d = length(px - c);
+      dots += exp(-d * d / 18.0) * smoothstep(0.0, 0.12, p) * (1.0 - smoothstep(0.75, 1.0, p));
+    }
+    a = glow + dots * 0.8 * mix(1.0, 0.0, 1.0 - uFlicker) + (1.0 - uFlicker) * side * along * 0.2;
+  }
+  gl_FragColor = vec4(col, a * uAlpha);
+}`;
+/** The soft bloom on the card where the light lands. */
+const CONE_GLOW_FRAG = /* glsl */ `
+varying vec2 vUv;
+uniform float uAlpha;
+void main() {
+  vec2 q = (vUv - 0.5) * 2.0;
+  float d = dot(q, q);
+  gl_FragColor = vec4(vec3(0.78, 0.80, 1.0), exp(-d * 3.0) * smoothstep(1.0, 0.7, d) * uAlpha);
 }`;
 
 /* ── Impact / poke flash: a soft radial bloom ──────────────────────────── */
@@ -397,17 +474,14 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const motesRef = useRef<THREE.Points>(null);
   const handBone = useRef<THREE.Object3D | null>(null);
   const handLocal = useRef(new THREE.Vector3(0, -0.12, 0));
-  const lids = useRef<THREE.Object3D[]>([]);
   const shown = useRef(!startHidden);
   const appear = useRef(startHidden ? 0 : 1);
   const arrival = useRef<{ t: number; landed: boolean; resolve: () => void } | null>(null);
   const flash = useRef<{ t: number; at: Pt; sizePx: number } | null>(null);
   const motes = useRef<Mote[]>(Array.from({ length: N_MOTES }, () => ({ t: 0, life: 1, x0: 0, y0: 0, x1: 0, y1: 0, bow: 0, active: false })));
-  const gazeTarget = useRef<Pt | null>(null);
-  const gaze = useRef({ yaw: 0, pitch: 0, near: 0 });
   /** The filter look: his light-coloured materials (with their own emissive), the target, the fade. */
   const tintS = useRef<{ mats: { m: THREE.MeshStandardMaterial; e: THREE.Color; c: THREE.Color; i: number }[]; target: string | null; mix: number; col: THREE.Color }>({ mats: [], target: null, mix: 0, col: new THREE.Color() });
-  const spinS = useRef<Spin & { dragging: boolean; base: number }>({ angle: 0, vel: 0, dragging: false, base: 0 });
+  const spinS = useRef<Spin>({ angle: 0, vel: 0 });
 
   const rig = useRef<THREE.Group>(null);
   const floor = useRef<THREE.Mesh>(null);
@@ -434,6 +508,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   /** The projector cone: target getter, origin, age, grow-in, fade-out. */
   const cone = useRef<{ target: () => Rect | null; from: 'mouth' | 'hand'; t: number; grow: boolean; alpha: number; off: boolean; landed: boolean; resolve: () => void } | null>(null);
   const coneMesh = useRef<THREE.Mesh>(null);
+  const coneGlow = useRef<THREE.Mesh>(null);
+  const coneSrc = useRef<THREE.Mesh>(null);
   /** Smoothed height (the director's height changes between stops). */
   const shownH = useRef(layoutRef.current.heightPx);
   const lean = useRef(0);
@@ -446,32 +522,50 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const propSpin = useRef(0);
   const bodyBone = useRef<THREE.Object3D | null>(null);
   const phoneBone = useRef<THREE.Object3D | null>(null);
-  const selfieRun = useRef<{ t: number; tl: SelfieTimeline; snapped: boolean; action: THREE.AnimationAction; onFrame: (f: SelfieFrame) => void; resolve: (done: boolean) => void } | null>(null);
+  /** The heart shades' bone (the Selfie and ShadesOn clips scale it up). */
+  const shadesBone = useRef<THREE.Object3D | null>(null);
+  const selfieRun = useRef<{ t: number; tl: SelfieTimeline; snapped: boolean; noShades: boolean; action: THREE.AnimationAction; onFrame: (f: SelfieFrame) => void; resolve: (done: boolean) => void } | null>(null);
   const crystalRefs = useRef<(THREE.Group | null)[]>([]);
   const crystalShadowRefs = useRef<(THREE.Mesh | null)[]>([]);
+  /** The AR props carousel's stops, and the GLB each holder is showing. */
+  const peekRefs = useRef<(THREE.Group | null)[]>([]);
+  const peekUrls = useRef<(string | null)[]>(Array.from({ length: PEEK_SLOTS }, () => null));
   /** The mirrored copy of his rig on the hero's glossy floor (desktop only). */
   const reflRig = useRef<THREE.Group>(null);
   const reflect = useRef<{ root: THREE.Object3D; pairs: [THREE.Object3D, THREE.Object3D][]; floorY: { value: number }; fade: { value: number } } | null>(null);
   const [reflectObj, setReflectObj] = useState<THREE.Object3D | null>(null);
-  /** Pointer parallax, lerped (−1..1 on each axis). */
-  const parallax = useRef({ x: 0, y: 0 });
   const wrapEl = useRef<HTMLElement | null>(null);
   /** What he is wearing: a fitted prop on his body bone (popping in over `t`), a frame behind him. */
   /** The worn prop: its pop-in `t`, its crown `top` and seat `anchor` in his heights, and its scale `k`. */
   const worn = useRef<{ holder: THREE.Group; t: number; top: number; anchor: number; k: number } | null>(null);
+  /** Props he just took off: each shrinks away over ~0.26s instead of vanishing (never a pop). */
+  const leaving = useRef<{ holder: THREE.Group; t: number; s0: number }[]>([]);
   const wornTopAt = (wn: { top: number; anchor: number }, k: number) => wn.anchor + (wn.top - wn.anchor) * k;
   const wearToken = useRef(0);
   const frameMesh = useRef<THREE.Mesh>(null);
+  /** The frame's window backdrop (the "photo" behind him): its fractions of the frame. */
+  const frameBack = useRef<THREE.Mesh>(null);
+  const frameOpening = useRef<{ top: number; bottom: number; left: number; right: number } | null>(null);
   const frameOn = useRef({ on: false, alpha: 0 });
+  /** Where the page last placed the frame (it fades out there, never jumping to his own fit). */
+  const lastFrameAt = useRef<{ left: number; top: number; h: number } | null>(null);
   /** The frame's height and centre in his heights: smaller on phones, where he is small beside the wall. */
   const frameFit = useRef<{ h: number; c: number } | null>(null);
   const frameGeo = () => frameFit.current ?? (decorRef.current.phone ? { h: 1.45, c: 0.62 } : { h: 1.7, c: 0.75 });
   const wornLiftNow = () => {
     const wn = worn.current;
     const prop = wn === null ? 0 : Math.max(0, wornTopAt(wn, wn.k) - 1) * Math.min(1, wn.t);
+    const at = layoutRef.current.frameAt;
+    const hp = Math.max(1, layoutRef.current.heightPx * scale.current);
     const g = frameGeo();
-    const frame = Math.max(0, g.c + g.h / 2 - 1) * frameOn.current.alpha;
+    const top = at != null ? (pos.current.y - at.top) / hp : g.c + g.h / 2;
+    const frame = Math.max(0, top - 1) * frameOn.current.alpha;
     return Math.max(prop, frame);
+  };
+  /** The placed frame's rect while it is on (viewport px), else null. */
+  const framedRect = (): Rect | null => {
+    const at = layoutRef.current.frameAt;
+    return at != null && frameOn.current.on && frameOn.current.alpha > 0.5 ? { left: at.left, top: at.top, width: (at.h * 9) / 16, height: at.h } : null;
   };
 
   /* Load the rig once. The page owns the instance, so it is disposed here. */
@@ -502,11 +596,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
           // never flash on before the first mixer update.
           if ((o as THREE.Bone).isBone && o.name === 'phone') { phoneBone.current = o; o.scale.setScalar(0); }
           if ((o as THREE.Bone).isBone && o.name === 'body') bodyBone.current = o;
+          if ((o as THREE.Bone).isBone && o.name === 'shades') shadesBone.current = o;
         });
         mouthNode.current = g.scene.getObjectByName('beam') ?? null;
-        // Lids are bones animated by every clip (scale.y 0.02 = open, 1 =
-        // shut); the frame loop nudges them after the mixer for the squint.
-        lids.current = ['lid.L', 'lid.R'].map((n) => g.scene.getObjectByName(n)).filter((o): o is THREE.Object3D => o !== undefined && !(o instanceof THREE.Mesh));
         // The waving hand: arm.R (Wave raises it). Its tip is the bound vertex
         // farthest from the shoulder, measured once in the bind pose.
         const arm = g.scene.getObjectByName('arm.R') ?? null;
@@ -835,26 +927,6 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         if (reducedRef.current) return;
         spinS.current.vel += 22;
       },
-      look(p) {
-        gazeTarget.current = p === null ? null : { ...p };
-      },
-      dragStart() {
-        const s = spinS.current;
-        s.dragging = true;
-        s.vel = 0;
-        s.base = s.angle;
-      },
-      dragMove(dxPx) {
-        const s = spinS.current;
-        if (!s.dragging) return;
-        s.angle = s.base + dxPx * SPIN_PER_PX;
-      },
-      dragEnd(velocity) {
-        const s = spinS.current;
-        s.dragging = false;
-        if (reducedRef.current) { s.angle = nearestFront(s.angle); s.vel = 0; return; }
-        s.vel = velocity;
-      },
       clearProp() {
         reveal.current?.resolve();
         reveal.current = null;
@@ -875,7 +947,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       where() {
         return { ...pos.current, heightPx: layoutRef.current.heightPx * scale.current };
       },
-      selfie(onFrame) {
+      selfie(onFrame, opts) {
         api.stopSelfie();
         if (actions.current[SELFIE_CLIP] === undefined) return Promise.resolve(false); // an old GLB
         yawTarget.current = 0;
@@ -884,7 +956,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         if (action === null) return Promise.resolve(false);
         action.timeScale = SELFIE_SPEED;
         return new Promise<boolean>((resolve) => {
-          selfieRun.current = { t: 0, tl: selfieTimeline(reducedRef.current), snapped: false, action, onFrame, resolve };
+          selfieRun.current = { t: 0, tl: selfieTimeline(reducedRef.current), snapped: false, noShades: opts?.shades === false, action, onFrame, resolve };
         });
       },
       stopSelfie() {
@@ -927,48 +999,55 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       wear(look) {
         const tok = ++wearToken.current;
         const old = worn.current;
-        if (old !== null) { old.holder.removeFromParent(); worn.current = null; }
+        if (old !== null) { leaving.current.push({ holder: old.holder, t: 0, s0: old.holder.scale.x }); worn.current = null; }
         frameOn.current.on = false;
         if (look === null || look.kind === 'none' || look.url === undefined) return Promise.resolve();
         const url = look.url;
         if (look.kind === 'frame') {
-          return loadFrameTexture(url).then((tex) => {
+          // A frame may bring a prop with it (the Christmas look: Holiday cover + antlers).
+          const prop = look.prop !== undefined ? wearProp(look.prop.url, look.prop.fit, tok) : Promise.resolve();
+          const frame = loadFrameTexture(url).then((tex) => {
             if (tok !== wearToken.current) return;
             frameFit.current = look.frame ?? null;
+            frameOpening.current = look.opening ?? null;
             frameMat.map = tex;
             frameMat.needsUpdate = true;
             frameOn.current.on = true;
           }, () => undefined);
+          return Promise.all([frame, prop]).then(() => undefined);
         }
         const fit = look.fit;
         if (fit === undefined) return Promise.resolve();
-        return loadModel(url).then((master) => {
-          if (tok !== wearToken.current) return;
-          // The body bone carries every clip (hop, dance, the drag-spin).
-          const bone = bodyBone.current;
-          if (bone === null) return;
-          const obj = master.clone(true);
-          obj.updateMatrixWorld(true);
-          const box = new THREE.Box3().setFromObject(obj);
-          const f = fitProp(box.min.toArray() as [number, number, number], box.max.toArray() as [number, number, number], fit);
-          obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 3; } });
-          obj.scale.multiplyScalar(f.scale);
-          // Tilt about the anchor itself: the holder sits ON the anchor.
-          obj.position.set(f.offset[0] - fit.at[0], f.offset[1] - fit.at[1], f.offset[2] - fit.at[2]);
-          const holder = new THREE.Group();
-          holder.add(obj);
-          holder.position.set(fit.at[0], fit.at[1], fit.at[2]);
-          holder.rotation.x = fit.tilt ?? 0;
-          holder.scale.setScalar(0.0001);
-          bone.add(holder);
-          // Its crown in his height units (body bone 0.12 above the feet, 0.6 tall)
-          // so the bubble can clear it.
-          const top = (0.12 + f.offset[1] + box.max.y * f.scale) / 0.6;
-          const anchor = (0.12 + fit.at[1]) / 0.6;
-          worn.current = { holder, t: 0, top: Number.isFinite(top) ? top : 1, anchor: Number.isFinite(anchor) ? anchor : 1, k: 1 };
-        }, () => undefined);
+        return wearProp(url, fit, tok);
       },
     };
+    /** Load a library prop and fit it onto his body bone (it pops in over `worn.t`). */
+    const wearProp = (url: string, fit: PropFit, tok: number): Promise<void> =>
+      loadModel(url).then((master) => {
+        if (tok !== wearToken.current) return;
+        // The body bone carries every clip (hop, dance, the party spin).
+        const bone = bodyBone.current;
+        if (bone === null) return;
+        const obj = master.clone(true);
+        obj.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(obj);
+        const f = fitProp(box.min.toArray() as [number, number, number], box.max.toArray() as [number, number, number], fit);
+        obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 3; } });
+        obj.scale.multiplyScalar(f.scale);
+        // Tilt about the anchor itself: the holder sits ON the anchor.
+        obj.position.set(f.offset[0] - fit.at[0], f.offset[1] - fit.at[1], f.offset[2] - fit.at[2]);
+        const holder = new THREE.Group();
+        holder.add(obj);
+        holder.position.set(fit.at[0], fit.at[1], fit.at[2]);
+        holder.rotation.x = fit.tilt ?? 0;
+        holder.scale.setScalar(0.0001);
+        bone.add(holder);
+        // Its crown in his height units (body bone 0.12 above the feet, 0.6 tall)
+        // so the bubble can clear it.
+        const top = (0.12 + f.offset[1] + box.max.y * f.scale) / 0.6;
+        const anchor = (0.12 + fit.at[1]) / 0.6;
+        worn.current = { holder, t: 0, top: Number.isFinite(top) ? top : 1, anchor: Number.isFinite(anchor) ? anchor : 1, k: 1 };
+      }, () => undefined);
     apiRef.current = api;
     return () => { apiRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refs only
@@ -985,7 +1064,27 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   }), []);
   /** The try-on frame: a transparent 9:16 PNG on a plane standing behind him. */
   const frameMat = useMemo(() => new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, opacity: 0, toneMapped: false }), []);
-  useEffect(() => () => { frameMat.dispose(); }, [frameMat]);
+  /** Behind him, filling the frame's window: a soft studio backdrop (amber glow into
+   *  periwinkle, as in his selfies), so the window reads as the photo and never shows
+   *  the wall or the copy through it. */
+  const frameBackMat = useMemo(() => {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 192;
+    const g = c.getContext('2d');
+    if (g !== null) {
+      const bg = g.createRadialGradient(64, 120, 6, 64, 110, 150);
+      bg.addColorStop(0, 'rgb(255,214,160)');
+      bg.addColorStop(0.42, 'rgb(150,156,255)');
+      bg.addColorStop(1, 'rgb(46,50,112)');
+      g.fillStyle = bg;
+      g.fillRect(0, 0, 128, 192);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0, toneMapped: false });
+  }, []);
+  useEffect(() => () => { frameMat.dispose(); frameBackMat.map?.dispose(); frameBackMat.dispose(); }, [frameMat, frameBackMat]);
   const floorMat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: BEAM_VERT,
     fragmentShader: FLOOR_FRAG,
@@ -1003,11 +1102,18 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   }), []);
   const coneMat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: CONE_VERT, fragmentShader: CONE_FRAG,
-    uniforms: { uAlpha: { value: 0 }, uTime: { value: 0 }, uFlicker: { value: 1 } },
+    uniforms: { uAlpha: { value: 0 }, uTime: { value: 0 }, uFlicker: { value: 1 }, uLen: { value: 1 }, uHalf: { value: 1 }, uMode: { value: BEAM_STYLE === 'stream' ? 1 : 0 } },
     // Both faces: the triangle's winding flips with the side he projects from.
     side: THREE.DoubleSide,
     transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
   }), []);
+  const coneGlowMat = useMemo(() => new THREE.ShaderMaterial({
+    vertexShader: BEAM_VERT, fragmentShader: CONE_GLOW_FRAG,
+    uniforms: { uAlpha: { value: 0 } },
+    transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
+  }), []);
+  /** The same soft radial bloom at the light's source (his mouth or hand). */
+  const coneSrcMat = useMemo(() => coneGlowMat.clone(), [coneGlowMat]);
   const coneGeo = useMemo(() => {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
@@ -1076,8 +1182,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   useEffect(() => () => {
     beamMat.dispose(); floorMat.dispose(); flashMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
     sparkTex.dispose(); moteGeo.dispose(); moteMat.dispose(); crystalShadowMat.dispose();
-    coneMat.dispose(); coneGeo.dispose();
-  }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalShadowMat, coneMat, coneGeo]);
+    coneMat.dispose(); coneGeo.dispose(); coneGlowMat.dispose(); coneSrcMat.dispose();
+  }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalShadowMat, coneMat, coneGeo, coneGlowMat, coneSrcMat]);
   /* The decor props: real library assets, each fitted into a unit box and
      dropped into its holder once Beamy himself is on screen (they share the
      glb cache with the hero try-on; masters are cloned, never disposed). */
@@ -1088,16 +1194,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         void loadModel(HOME_ASSET_DEFAULTS.sceneProps[i] ?? `${PROP_DIR}${c.prop}.glb`).then((master) => {
           const holder = crystalRefs.current[i];
           if (!live || holder === null || holder.children.length > 0) return;
-          const obj = master.clone(true);
-          obj.updateMatrixWorld(true);
-          const box = new THREE.Box3().setFromObject(obj);
-          const dim = box.getSize(new THREE.Vector3());
-          const k = 1 / Math.max(1e-6, dim.x, dim.y, dim.z);
-          const mid = box.getCenter(new THREE.Vector3());
-          obj.scale.multiplyScalar(k);
-          obj.position.set(-mid.x * k, -mid.y * k, -mid.z * k);
-          obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 1; } });
-          holder.add(obj);
+          holder.add(unitClone(master));
         }, () => undefined);
       });
     }, 1200);
@@ -1227,17 +1324,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     }
     if (shown.current && appear.current < 1) appear.current = Math.min(1, appear.current + dt / (reduced ? 0.9 : 0.5));
 
-    /* Gaze: a small head/body turn toward the pointer (off under reduced motion). */
-    const gt = gazeTarget.current;
     const spinNow = spinS.current;
-    let gy = 0, gp = 0, near = 0;
-    if (gt !== null && !reduced && w === null && beamState.current === null && selfieRun.current === null && !spinNow.dragging) {
-      const dx = gt.x - pos.current.x;
-      const dy = gt.y - (pos.current.y - heightPx * 0.62);
-      gy = clamp(dx / 700, -1, 1) * 0.42;
-      gp = clamp(dy / 600, -1, 1) * 0.16;
-      near = clamp(1 - (Math.hypot(dx, dy) - heightPx * 0.35) / (heightPx * 0.6), 0, 1);
-    }
     /* The filter look: fade his body's glow toward the lens colour and back. */
     const tn = tintS.current;
     const tnWant = tn.target !== null ? 1 : 0;
@@ -1254,16 +1341,10 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         x.m.emissiveIntensity = Math.max(x.i, tn.mix);
       }
     }
-    const gz = gaze.current;
-    gz.yaw += (gy - gz.yaw) * Math.min(1, dt * 5);
-    gz.pitch += (gp - gz.pitch) * Math.min(1, dt * 5);
-    gz.near += (near - gz.near) * Math.min(1, dt * 6);
 
-    /* Drag spin: inertia, then a springy settle to front (pure physics). */
-    if (!spinNow.dragging) {
-      if (spinSettled(spinNow)) { spinNow.angle = 0; spinNow.vel = 0; }
-      else { const n = spinStep(spinNow, dt); spinNow.angle = n.angle; spinNow.vel = n.vel; }
-    }
+    /* The party spin: inertia, then a springy settle to front (pure physics). */
+    if (spinSettled(spinNow)) { spinNow.angle = 0; spinNow.vel = 0; }
+    else { const n = spinStep(spinNow, dt); spinNow.angle = n.angle; spinNow.vel = n.vel; }
 
     const s = heightPx / MODEL_H;
     const g = rig.current;
@@ -1277,8 +1358,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       const k = appear.current;
       const sq = reduced || k >= 1 ? 0 : Math.sin(Math.PI * k) * (1 - k) * 0.55;
       g.scale.set(grow * (1 + sq * 0.35), grow * (1 - sq * 0.35), grow * (1 + sq * 0.35));
-      g.rotation.y = yaw.current + gz.yaw + spinNow.angle;
-      g.rotation.x = gz.pitch;
+      g.rotation.y = yaw.current + spinNow.angle;
+      g.rotation.x = 0;
       g.rotation.z = lean.current;
       g.visible = shown.current && presence > 0.01;
     }
@@ -1290,6 +1371,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     (floorMat.uniforms.uTime as { value: number }).value = t;
     (floorMat.uniforms.uAlpha as { value: number }).value = appear.current * presence;
     mixer.current?.update(dt);
+    // A selfie in a worn look: the clip's heart shades stay off.
+    if (selfieRun.current?.noShades === true) shadesBone.current?.scale.setScalar(0);
 
     /* The try-on: a prop pops onto his head (overshoot; a plain grow when
        reduced); a frame fades in behind him, sized to him, never turning. */
@@ -1300,6 +1383,13 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       const sc = Math.max(0.0001, pop * wn.k);
       if (wn.holder.scale.x !== sc) wn.holder.scale.setScalar(sc);
     }
+    const lv = leaving.current;
+    for (let i = lv.length - 1; i >= 0; i--) {
+      const o = lv[i];
+      o.t = Math.min(1, o.t + dt / 0.26);
+      o.holder.scale.setScalar(Math.max(0.0001, o.s0 * (1 - o.t) * (1 - o.t)));
+      if (o.t >= 1) { o.holder.removeFromParent(); lv.splice(i, 1); }
+    }
     const fo = frameOn.current;
     fo.alpha = fo.on ? fo.alpha + (1 - fo.alpha) * Math.min(1, dt * 5) : Math.max(0, fo.alpha - dt * 4);
     const fmesh = frameMesh.current;
@@ -1307,14 +1397,36 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       const a = fo.alpha * presence * appear.current;
       fmesh.visible = a > 0.01 && shown.current;
       if (fmesh.visible) {
-        const wp = toWorld(pos.current);
-        // Feet just inside its lower edge; its masthead clears the bubble.
-        const g = frameGeo();
-        const fh = heightPx * g.h;
         const pop = reduced ? 1 : 0.92 + 0.08 * fo.alpha;
-        fmesh.position.set(wp.x, wp.y + heightPx * g.c, -160);
-        fmesh.scale.set(fh * 0.5625 * pop, fh * pop, 1);
+        // Fading out after the page let go of it: it fades where it stood.
+        if (layout.frameAt != null) lastFrameAt.current = layout.frameAt;
+        else if (fo.on) lastFrameAt.current = null;
+        const at = layout.frameAt ?? (fo.on ? null : lastFrameAt.current);
+        if (at != null) {
+          // Placed by the page (frameOnBeamy): his face in its window.
+          const c = toWorld({ x: at.left + (at.h * 9) / 32, y: at.top + at.h / 2 });
+          fmesh.position.set(c.x, c.y, -160);
+          fmesh.scale.set(at.h * 0.5625 * pop, at.h * pop, 1);
+        } else {
+          const wp = toWorld(pos.current);
+          // Feet just inside its lower edge; its masthead clears the bubble.
+          const g = frameGeo();
+          const fh = heightPx * g.h;
+          fmesh.position.set(wp.x, wp.y + heightPx * g.c, -160);
+          fmesh.scale.set(fh * 0.5625 * pop, fh * pop, 1);
+        }
         frameMat.opacity = a;
+      }
+      // The window's backdrop rides the frame (a child: same transform, behind it).
+      const fb = frameBack.current;
+      const o = frameOpening.current;
+      if (fb !== null) {
+        fb.visible = fmesh.visible && o !== null;
+        if (fb.visible && o !== null) {
+          fb.position.set((o.left + o.right) / 2 - 0.5, 0.5 - (o.top + o.bottom) / 2, -20);
+          fb.scale.set(Math.max(0.01, o.right - o.left), Math.max(0.01, o.bottom - o.top), 1);
+          frameBackMat.opacity = a;
+        }
       }
     }
 
@@ -1332,13 +1444,15 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         pw.y += 0.05 * s; // the bone is the grip; the screen sits above it
         const hw = new THREE.Vector3();
         if (bodyBone.current) { bodyBone.current.getWorldPosition(hw); hw.y += 0.52 * s; } else hw.set(toWorld(pos.current).x, toWorld(pos.current).y + heightPx * 1.07, 0);
-        const frame: SelfieFrame = { t: run.t, tl: run.tl, phone: toScreen(pw), head: toScreen(hw), heightPx };
+        const fr = framedRect();
+        const frame: SelfieFrame = { t: run.t, tl: run.tl, phone: toScreen(pw), head: toScreen(hw), heightPx, framed: fr !== null };
         if (!run.snapped && run.t >= run.tl.cues.snap) {
           run.snapped = true;
           try {
-            // Render now so the drawing buffer is valid for this task: his own selfie.
+            // Render now so the drawing buffer is valid for this task: his own selfie
+            // (in a frame: the whole frame, him and what he wears in its window).
             state.gl.render(state.scene, state.camera);
-            frame.photo = snapshotPortrait(state.gl.domElement, frame.head, heightPx * 1.45, W);
+            frame.photo = fr !== null ? snapshotRect(state.gl.domElement, fr, W) : snapshotPortrait(state.gl.domElement, frame.head, heightPx * 1.45, W);
           } catch {
             frame.photo = null;
           }
@@ -1348,15 +1462,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       }
     }
 
-    /* Pointer parallax (lerped; static under reduced motion). */
     const dec = decorRef.current;
-    const par = parallax.current;
     const H = sizeRef.current.height;
-    const ptr = gazeTarget.current;
-    const tx = ptr !== null && !reduced ? clamp((ptr.x / Math.max(1, W)) * 2 - 1, -1, 1) : 0;
-    const ty = ptr !== null && !reduced ? clamp((ptr.y / Math.max(1, H)) * 2 - 1, -1, 1) : 0;
-    par.x += (tx - par.x) * Math.min(1, dt * 2.2);
-    par.y += (ty - par.y) * Math.min(1, dt * 2.2);
 
     /* His reflection on the glossy floor (desktop): copy every node of the
        real rig, then mirror the whole thing about his feet. */
@@ -1379,8 +1486,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
 
     /* Crystals: around the hero's panel, and around his hero stand at clearly
        different depths (behind him: small and hazy; in front: large and soft).
-       They bob slowly; nearer ones parallax more with the pointer and with the
-       scroll as the hero leaves. Static if reduced. */
+       They bob slowly; nearer ones parallax more with the scroll as the hero
+       leaves. Static if reduced. */
     const scrollPar = reduced ? 0 : dec.scroll;
     for (let i = 0; i < CRYSTALS.length; i++) {
       const m = crystalRefs.current[i];
@@ -1401,17 +1508,15 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         size = Math.min(panel.width, panel.height) * c.size * (dec.phone ? 0.75 : 1);
         x = panel.left + panel.width * c.at.panel[0];
         y = panel.top + panel.height * c.at.panel[1];
-        x += par.x * CRYSTAL_PARALLAX_PX * c.depth;
-        y += par.y * CRYSTAL_PARALLAX_PX * c.depth * 0.6;
       } else {
         if (stand === null) continue;
         // On the floor around his stand: behind him smaller (perspective), in
-        // front larger; the near one drifts WITH the pointer, the far ones against it.
+        // front larger.
         const back = c.at.stand[1] < 0;
         const k = back ? 0.82 : 1.06;
         size = stand.heightPx * c.size * k;
         floorY = stand.feet.y + c.at.stand[1] * stand.heightPx;
-        x = stand.feet.x + c.at.stand[0] * stand.heightPx + par.x * CRYSTAL_PARALLAX_PX * (back ? -0.35 : 0.6);
+        x = stand.feet.x + c.at.stand[0] * stand.heightPx;
         y = floorY - size * 0.32 - (c.at.lift ?? 0) * stand.heightPx * k;
       }
       // Scroll depth: nearer crystals leave faster than the page, far ones slower.
@@ -1446,10 +1551,33 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       }
     }
 
-    /* Lids (after the mixer): squint when the pointer is close, wide open while dragged. */
-    for (const lid of lids.current) {
-      if (spinNow.dragging) lid.scale.y = 0.02;
-      else if (gz.near > 0.01) lid.scale.y = Math.max(lid.scale.y, 0.02 + gz.near * 0.42);
+    /* The AR props carousel: each stop's real GLB floats in its peek, small
+       and turning slowly (it bobs with the peek, which the page reads). Still
+       when reduced. */
+    const pk = dec.peeks ?? [];
+    for (let i = 0; i < PEEK_SLOTS; i++) {
+      const holder = peekRefs.current[i];
+      if (!holder) continue;
+      const p = pk[i];
+      if (p === undefined || p.url === '') { holder.visible = false; continue; }
+      if (peekUrls.current[i] !== p.url) {
+        const url = p.url;
+        peekUrls.current[i] = url;
+        holder.clear();
+        void loadModel(url).then((master) => {
+          if (peekUrls.current[i] === url && holder.children.length === 0) holder.add(unitClone(master));
+        }, () => undefined);
+      }
+      holder.visible = holder.children.length > 0;
+      const wp = toWorld({ x: p.x, y: p.y });
+      holder.position.set(wp.x, wp.y, 260);
+      holder.scale.setScalar(Math.max(1, p.size * 0.86));
+      if (!reduced) {
+        holder.rotation.y += dt * 0.55;
+        holder.rotation.x = 0.2;
+      } else {
+        holder.rotation.set(0.2, 0.5, 0);
+      }
     }
 
     /* Beam quad: Beamy's own beam, or the entrance drop from the top. */
@@ -1512,6 +1640,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     const cm = coneMesh.current;
     if (cm) {
       let ca = 0;
+      let landAt: { x: number; y: number; w: number; ang: number } | null = null;
+      let srcAt: Pt | null = null;
       if (cn !== null) {
         cn.t += dt;
         const growS = reduced ? 0.9 : 0.6;
@@ -1535,7 +1665,16 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
           else if (o.x < r.left) { e1 = { x: r.left, y: r.top }; e2 = { x: r.left, y: r.top + r.height }; }
           else { e1 = { x: r.left + r.width, y: r.top + r.height }; e2 = { x: r.left + r.width, y: r.top }; }
           const ease = 1 - (1 - g2) ** 3;
+          // A little wider than the card edge: the feathering eats its sides.
+          const mx = (e1.x + e2.x) / 2;
+          const my = (e1.y + e2.y) / 2;
+          e1 = { x: mx + (e1.x - mx) * 1.25, y: my + (e1.y - my) * 1.25 };
+          e2 = { x: mx + (e2.x - mx) * 1.25, y: my + (e2.y - my) * 1.25 };
           const pts = [o, { x: o.x + (e1.x - o.x) * ease, y: o.y + (e1.y - o.y) * ease }, { x: o.x + (e2.x - o.x) * ease, y: o.y + (e2.y - o.y) * ease }];
+          (coneMat.uniforms.uLen as { value: number }).value = Math.max(1, Math.hypot(mx - o.x, my - o.y) * ease);
+          (coneMat.uniforms.uHalf as { value: number }).value = Math.max(1, (Math.hypot(e2.x - e1.x, e2.y - e1.y) / 2) * ease);
+          landAt = { x: mx, y: my, w: Math.hypot(e2.x - e1.x, e2.y - e1.y), ang: -Math.atan2(e2.y - e1.y, e2.x - e1.x) };
+          srcAt = o;
           const arr = (cm.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
           pts.forEach((p2, i2) => { const wv = toWorld(p2); arr[i2 * 3] = wv.x; arr[i2 * 3 + 1] = wv.y; arr[i2 * 3 + 2] = 280; });
           cm.geometry.getAttribute('position').needsUpdate = true;
@@ -1546,6 +1685,32 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       }
       cm.visible = ca > 0.001;
       (coneMat.uniforms.uAlpha as { value: number }).value = ca;
+      // The card's soft bloom where the light lands (once it has reached it).
+      const cg = coneGlow.current;
+      if (cg) {
+        const ga = landAt !== null && cn !== null ? ca * clamp((cn.t - 0.35) / 0.6, 0, 1) * 0.42 : 0;
+        cg.visible = ga > 0.001 && landAt !== null;
+        if (cg.visible && landAt !== null) {
+          const wv = toWorld(landAt);
+          cg.position.set(wv.x, wv.y, 270);
+          cg.rotation.z = landAt.ang;
+          cg.scale.set(landAt.w * 0.9, landAt.w * 0.5, 1);
+          (coneGlowMat.uniforms.uAlpha as { value: number }).value = ga;
+        }
+      }
+      // Its source: a round soft glow, the brightest part of the light.
+      const cs = coneSrc.current;
+      if (cs) {
+        const sa = srcAt !== null ? ca * 0.42 : 0;
+        cs.visible = sa > 0.001 && srcAt !== null;
+        if (cs.visible && srcAt !== null) {
+          const wv = toWorld(srcAt);
+          const d = Math.max(36, layout.heightPx * 0.32);
+          cs.position.set(wv.x, wv.y, 275);
+          cs.scale.set(d, d, 1);
+          (coneSrcMat.uniforms.uAlpha as { value: number }).value = sa;
+        }
+      }
       (coneMat.uniforms.uTime as { value: number }).value = t;
       (coneMat.uniforms.uFlicker as { value: number }).value = reduced ? 0 : 1;
     }
@@ -1732,7 +1897,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       hit.style.width = `${hw}px`;
       hit.style.height = `${heightPx}px`;
       hit.style.transform = `translate3d(${(pos.current.x - hw / 2).toFixed(1)}px, ${top.toFixed(1)}px, 0)`;
-      const away = presence < 0.6 || layout.bubbleAway === true ? 'none' : '';
+      const away = presence < 0.6 || layout.hitAway === true ? 'none' : '';
       if (hit.style.pointerEvents !== away) hit.style.pointerEvents = away;
     }
   });
@@ -1763,11 +1928,17 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       {CRYSTALS.map((c, i) => (
         <group key={`${c.prop}${i}`} ref={(m) => { crystalRefs.current[i] = m; }} visible={false} />
       ))}
+      {Array.from({ length: PEEK_SLOTS }, (_, i) => (
+        <group key={`peek${i}`} ref={(m) => { peekRefs.current[i] = m; }} visible={false} />
+      ))}
       <group ref={reflRig} visible={false}>
         {reflectObj !== null && <primitive object={reflectObj} />}
       </group>
       <mesh ref={frameMesh} material={frameMat} visible={false} frustumCulled={false} renderOrder={1}>
         <planeGeometry args={[1, 1]} />
+        <mesh ref={frameBack} material={frameBackMat} visible={false} frustumCulled={false} renderOrder={0.5}>
+          <planeGeometry args={[1, 1]} />
+        </mesh>
       </mesh>
       {model !== null && (
         <group ref={rig}>
@@ -1775,6 +1946,12 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         </group>
       )}
       <mesh ref={coneMesh} geometry={coneGeo} material={coneMat} visible={false} frustumCulled={false} renderOrder={4} />
+      <mesh ref={coneGlow} material={coneGlowMat} visible={false} renderOrder={4}>
+        <planeGeometry args={[1, 1]} />
+      </mesh>
+      <mesh ref={coneSrc} material={coneSrcMat} visible={false} renderOrder={4}>
+        <planeGeometry args={[1, 1]} />
+      </mesh>
       <mesh ref={beamMesh} material={beamMat} visible={false} renderOrder={5}>
         <planeGeometry args={[1, 1]} />
       </mesh>
